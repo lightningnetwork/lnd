@@ -32,6 +32,14 @@ const (
 	// observation that depleted channels dominate on the real network and
 	// is the hardest regime.
 	LiquidityBimodal LiquidityModel = "bimodal"
+
+	// LiquidityFromGraph draws nothing at all: every channel takes the
+	// balance the graph file it was loaded from carried for it. It is the
+	// one model whose liquidity we did not author, so it is the only way
+	// to score a router against a liquidity family that no generator of
+	// ours produced. It requires a graph file with a balance on every
+	// channel and fails loudly on any other graph.
+	LiquidityFromGraph LiquidityModel = "from_graph"
 )
 
 // Besides the three names above, AssignLiquidity accepts parameterized model
@@ -45,6 +53,10 @@ const (
 //	                    Beta(2, 2) is centered on an even split.
 //	hubdrain:<scale>    the bimodal shape again, but the depleted end is
 //	                    picked from the topology instead of a fair coin.
+//
+// The from_graph model is the exception to all of this: it is not a family at
+// all, it takes no parameters and no seed, and it reads the balances out of
+// the graph file rather than drawing them.
 //
 // The parameterized families exist for the robustness sweep: an evolved
 // router whose constants merely fit the generator should lose ground as the
@@ -87,6 +99,10 @@ const (
 
 	// liquidityKindHubDrain is the "hubdrain:<scale>" model.
 	liquidityKindHubDrain
+
+	// liquidityKindFromGraph is the "from_graph" model, which draws
+	// nothing and copies the balances the graph file carried.
+	liquidityKindFromGraph
 )
 
 // liquiditySpec is a liquidity model string after parsing: the family to draw
@@ -123,6 +139,9 @@ func parseLiquidityModel(model LiquidityModel) (liquiditySpec, error) {
 			kind:  liquidityKindBimodal,
 			scale: defaultBimodalScale,
 		}, nil
+
+	case LiquidityFromGraph:
+		return liquiditySpec{kind: liquidityKindFromGraph}, nil
 	}
 
 	fields := strings.Split(string(model), ":")
@@ -231,6 +250,66 @@ func (g *SimGraph) degree(v route.Vertex) int {
 	return len(node.channels)
 }
 
+// setGraphBalance records the balances a graph file carried for one channel.
+// The passed balance is the side owned by node1, in the sense the file means
+// it, and the rest of the capacity is the other side. Which of the two ends
+// that is stays a question for the channel, since the ends are ordered by
+// pubkey and a file is free to call either of them node1.
+//
+// The balances recorded here are inert. Only the from_graph liquidity model
+// ever moves them into the live balances.
+func (g *SimGraph) setGraphBalance(chanID uint64, node1 route.Vertex,
+	node1Balance lnwire.MilliSatoshi, certainty float64) error {
+
+	channel, ok := g.channels[chanID]
+	if !ok {
+		return fmt.Errorf("unknown channel %v", chanID)
+	}
+
+	end := channel.end(node1)
+	if end == nil {
+		return fmt.Errorf("node %v is not a party to channel %v",
+			node1, chanID)
+	}
+
+	capacityMsat := lnwire.NewMSatFromSatoshis(channel.Capacity)
+	if node1Balance > capacityMsat {
+		return fmt.Errorf("channel %v: balance %v is outside its %v "+
+			"capacity", chanID, node1Balance, capacityMsat)
+	}
+
+	other := channel.otherEnd(node1)
+	end.graphBalance = node1Balance
+	end.hasGraphBalance = true
+	other.graphBalance = capacityMsat - node1Balance
+	other.hasGraphBalance = true
+	channel.graphCertainty = certainty
+
+	return nil
+}
+
+// checkGraphBalances reports whether every channel in the graph carries the
+// balances the from_graph model needs. It runs before any balance is written,
+// because a graph that is only partly modelled would otherwise be scored as a
+// mixture of a foreign liquidity family and whatever the ends happened to be
+// holding, which is not a world anyone asked for.
+func (g *SimGraph) checkGraphBalances() error {
+	var missing int
+	for _, channel := range g.channels {
+		if !channel.ends[0].hasGraphBalance {
+			missing++
+		}
+	}
+
+	if missing > 0 {
+		return fmt.Errorf("liquidity model %v: %v of %v channels "+
+			"carry no balance in the graph file",
+			LiquidityFromGraph, missing, len(g.channels))
+	}
+
+	return nil
+}
+
 // AssignLiquidity redistributes the hidden balances of all channels in the
 // graph according to the given model, deterministically derived from the
 // seed. Existing balances are overwritten. The model may be one of the three
@@ -240,6 +319,15 @@ func (g *SimGraph) AssignLiquidity(model LiquidityModel, seed int64) error {
 	spec, err := parseLiquidityModel(model)
 	if err != nil {
 		return err
+	}
+
+	// The from_graph model draws nothing, so the only thing that can go
+	// wrong with it is a graph that does not carry what it needs. Say so
+	// before touching a single balance.
+	if spec.kind == liquidityKindFromGraph {
+		if err := g.checkGraphBalances(); err != nil {
+			return err
+		}
 	}
 
 	rng := rand.New(rand.NewSource(seed))
@@ -328,6 +416,12 @@ func (g *SimGraph) AssignLiquidity(model LiquidityModel, seed int64) error {
 			if !depleteNode1 {
 				node1Balance = capacityMsat - node1Balance
 			}
+
+		case liquidityKindFromGraph:
+			// No draw at all: the file already said what this
+			// channel holds, and checkGraphBalances has already
+			// established that it said it for every channel.
+			node1Balance = channel.ends[0].graphBalance
 
 		default:
 			return fmt.Errorf("unknown liquidity model %v", model)

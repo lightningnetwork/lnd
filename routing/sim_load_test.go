@@ -3,6 +3,7 @@ package routing
 import (
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 
 	"github.com/lightningnetwork/lnd/lnwire"
@@ -141,4 +142,150 @@ func TestSimPolicyInboundFeeArithmetic(t *testing.T) {
 			))
 		})
 	}
+}
+
+// describeGraphBalanceFixture is a three node, two channel graph in
+// describegraph shape carrying the two fields a modelled graph adds: a
+// node1-side balance and the modeller's certainty about it. The second
+// channel names its ends in the opposite order to the first, so that a loader
+// that assumed node1 is always the lexicographically smaller pubkey would put
+// its balance on the wrong side here.
+const describeGraphBalanceFixture = `{
+  "nodes": [
+    {"pub_key": "02aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", "alias": "a"},
+    {"pub_key": "03bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb", "alias": "b"},
+    {"pub_key": "02cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc", "alias": "c"}
+  ],
+  "edges": [
+    {
+      "channel_id": "1234",
+      "capacity": "1000000",
+      "balance": "250000",
+      "balance_certainty": 0.75,
+      "node1_pub": "02aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+      "node2_pub": "02cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc",
+      "node1_policy": {
+        "time_lock_delta": 40,
+        "min_htlc": "1000",
+        "fee_base_msat": "1000",
+        "fee_rate_milli_msat": "1",
+        "max_htlc_msat": "990000000"
+      },
+      "node2_policy": {
+        "time_lock_delta": 40,
+        "min_htlc": "1000",
+        "fee_base_msat": "1000",
+        "fee_rate_milli_msat": "1",
+        "max_htlc_msat": "990000000"
+      }
+    },
+    {
+      "channel_id": "5678",
+      "capacity": "1000000",
+      "balance": "700000",
+      "balance_certainty": 0,
+      "node1_pub": "03bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+      "node2_pub": "02aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+      "node1_policy": {
+        "time_lock_delta": 40,
+        "min_htlc": "1000",
+        "fee_base_msat": "1000",
+        "fee_rate_milli_msat": "1",
+        "max_htlc_msat": "990000000"
+      },
+      "node2_policy": {
+        "time_lock_delta": 40,
+        "min_htlc": "1000",
+        "fee_base_msat": "1000",
+        "fee_rate_milli_msat": "1",
+        "max_htlc_msat": "990000000"
+      }
+    }
+  ]
+}`
+
+// writeSimGraphFixture writes a graph fixture to a temporary file and loads
+// it, which is the only way a graph balance can reach the simulator.
+func writeSimGraphFixture(t *testing.T, fixture string) *SimGraph {
+	t.Helper()
+
+	path := filepath.Join(t.TempDir(), "graph.json")
+	require.NoError(t, os.WriteFile(path, []byte(fixture), 0600))
+
+	graph, err := LoadSimGraphFromFile(path)
+	require.NoError(t, err)
+
+	return graph
+}
+
+// TestLoadGraphBalances checks that the loader keeps the balances a modelled
+// graph carries, on the side of the channel the file put them on, and that it
+// keeps them somewhere the live network does not see: loading a graph must
+// not assign its liquidity, or every scenario that names its own liquidity
+// model would silently be scored on two.
+func TestLoadGraphBalances(t *testing.T) {
+	t.Parallel()
+
+	graph := writeSimGraphFixture(t, describeGraphBalanceFixture)
+
+	const capacityMsat = lnwire.MilliSatoshi(1_000_000_000)
+
+	// The first channel names the lexicographically smaller pubkey as
+	// node1, so its balance belongs to end zero.
+	first, ok := graph.channels[1234]
+	require.True(t, ok)
+	require.True(t, first.ends[0].hasGraphBalance)
+	require.True(t, first.ends[1].hasGraphBalance)
+	require.EqualValues(t, 250_000_000, first.ends[0].graphBalance)
+	require.EqualValues(t, 750_000_000, first.ends[1].graphBalance)
+	require.Equal(t, 0.75, first.graphCertainty)
+
+	// The second names them the other way around, so its balance belongs
+	// to end one.
+	second, ok := graph.channels[5678]
+	require.True(t, ok)
+	require.EqualValues(t, 300_000_000, second.ends[0].graphBalance)
+	require.EqualValues(t, 700_000_000, second.ends[1].graphBalance)
+	require.Zero(t, second.graphCertainty)
+
+	// Nothing above is live yet. Both channels are still holding the
+	// 50/50 split every freshly loaded channel holds.
+	for _, channel := range []*SimChannel{first, second} {
+		require.Equal(t, capacityMsat/2, channel.ends[0].balance)
+		require.Equal(t, capacityMsat/2, channel.ends[1].balance)
+	}
+}
+
+// TestLoadWithoutGraphBalances checks that a snapshot carrying no balances,
+// which is every snapshot the program has scored so far, still loads and
+// simply carries none.
+func TestLoadWithoutGraphBalances(t *testing.T) {
+	t.Parallel()
+
+	graph := writeSimGraphFixture(t, describeGraphInboundFixture)
+
+	channel, ok := graph.channels[1234]
+	require.True(t, ok)
+	require.False(t, channel.ends[0].hasGraphBalance)
+	require.False(t, channel.ends[1].hasGraphBalance)
+	require.Zero(t, channel.graphCertainty)
+}
+
+// TestLoadBalanceOverCapacity checks that a balance larger than the channel
+// it sits in is refused at load time. A modelled graph is only worth scoring
+// on if its balances mean what they say, so an impossible one is a corrupt
+// file rather than an unusual world.
+func TestLoadBalanceOverCapacity(t *testing.T) {
+	t.Parallel()
+
+	fixture := strings.Replace(
+		describeGraphBalanceFixture, `"balance": "250000"`,
+		`"balance": "1000001"`, 1,
+	)
+
+	path := filepath.Join(t.TempDir(), "graph.json")
+	require.NoError(t, os.WriteFile(path, []byte(fixture), 0600))
+
+	_, err := LoadSimGraphFromFile(path)
+	require.ErrorContains(t, err, "outside its 1000000 sat capacity")
 }

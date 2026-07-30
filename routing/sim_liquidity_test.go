@@ -355,3 +355,96 @@ func TestBetaSampleFallback(t *testing.T) {
 		require.LessOrEqual(t, frac, 1.0)
 	}
 }
+
+// TestAssignLiquidityFromGraph checks the one model that draws nothing: every
+// channel must end up holding exactly what the graph file said it holds, on
+// the side the file said it, whichever way round the file named the ends.
+// This is the whole point of the model, since a balance that lands on the
+// wrong end is still a plausible looking network and would fail no aggregate.
+func TestAssignLiquidityFromGraph(t *testing.T) {
+	t.Parallel()
+
+	g := writeSimGraphFixture(t, describeGraphBalanceFixture)
+	require.NoError(t, g.AssignLiquidity(LiquidityFromGraph, 7))
+
+	first := g.channels[1234]
+	require.EqualValues(t, 250_000_000, first.ends[0].balance)
+	require.EqualValues(t, 750_000_000, first.ends[1].balance)
+
+	second := g.channels[5678]
+	require.EqualValues(t, 300_000_000, second.ends[0].balance)
+	require.EqualValues(t, 700_000_000, second.ends[1].balance)
+
+	// Every end still adds up to its capacity, and the seed buys nothing:
+	// the model consumes no randomness, so two different seeds are the
+	// same network.
+	for _, channel := range g.channels {
+		capacityMsat := lnwire.NewMSatFromSatoshis(channel.Capacity)
+		require.Equal(t, capacityMsat,
+			channel.ends[0].balance+channel.ends[1].balance)
+	}
+
+	seeded := fixtureBalances(g)
+	require.NoError(t, g.AssignLiquidity(LiquidityFromGraph, 99))
+	require.Equal(t, seeded, fixtureBalances(g))
+}
+
+// fixtureBalances returns both ends of every channel keyed by channel id, for
+// graphs whose ids are whatever a file happened to carry rather than the 1..N
+// that allBalances walks.
+func fixtureBalances(g *SimGraph) map[uint64][2]lnwire.MilliSatoshi {
+	out := make(map[uint64][2]lnwire.MilliSatoshi, len(g.channels))
+	for id, channel := range g.channels {
+		out[id] = [2]lnwire.MilliSatoshi{
+			channel.ends[0].balance, channel.ends[1].balance,
+		}
+	}
+
+	return out
+}
+
+// TestAssignLiquidityFromGraphMissing checks that a graph which does not
+// carry the balances the model needs is a loud failure with a count, not a
+// quiet fallback. A silent fallback here would report a synthetic liquidity
+// family under the name of a modelled one, which is exactly the confusion the
+// model exists to remove.
+func TestAssignLiquidityFromGraphMissing(t *testing.T) {
+	t.Parallel()
+
+	// A synthetic topology carries no balances at all.
+	g := liquidityTestChain(t, []btcutil.Amount{1_000_000, 2_000_000})
+	before := allBalances(g)
+
+	err := g.AssignLiquidity(LiquidityFromGraph, 1)
+	require.ErrorContains(t, err, "2 of 2 channels carry no balance")
+	require.Equal(t, before, allBalances(g))
+
+	// A partly modelled graph is refused on the same terms: the whole
+	// network is scored or none of it is.
+	require.NoError(t, g.setGraphBalance(
+		1, SimNodePubKey(1), lnwire.MilliSatoshi(400_000_000), 0.5,
+	))
+
+	err = g.AssignLiquidity(LiquidityFromGraph, 1)
+	require.ErrorContains(t, err, "1 of 2 channels carry no balance")
+	require.Equal(t, before, allBalances(g))
+}
+
+// TestSetGraphBalanceErrors checks the two ways a caller can misname a
+// channel it is recording balances for.
+func TestSetGraphBalanceErrors(t *testing.T) {
+	t.Parallel()
+
+	g := liquidityTestChain(t, []btcutil.Amount{1_000_000})
+
+	err := g.setGraphBalance(7, SimNodePubKey(1), 1, 0)
+	require.ErrorContains(t, err, "unknown channel")
+
+	err = g.setGraphBalance(1, SimNodePubKey(3), 1, 0)
+	require.ErrorContains(t, err, "not a party to channel")
+
+	err = g.setGraphBalance(
+		1, SimNodePubKey(1), lnwire.MilliSatoshi(1_000_000_001), 0,
+	)
+	require.ErrorContains(t, err, "outside its")
+}

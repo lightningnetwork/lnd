@@ -32,6 +32,21 @@ type describeGraphEdge struct {
 	Node2Pub    string               `json:"node2_pub"`
 	Node1Policy *describeGraphPolicy `json:"node1_policy"`
 	Node2Policy *describeGraphPolicy `json:"node2_policy"`
+
+	// Balance and BalanceCertainty are not part of `lncli describegraph`,
+	// which cannot see anyone else's balances. They are what an externally
+	// modelled graph adds: Balance is node1's side of the channel in
+	// satoshis, string encoded like every other 64 bit field, and
+	// BalanceCertainty is the modeller's confidence in it from zero to
+	// one.
+	//
+	// Reading them is not a behavior change. A snapshot that carries
+	// neither, which is every snapshot the program has scored so far,
+	// loads exactly as it always did, and even a graph that carries both
+	// only has them read once a scenario asks for the from_graph
+	// liquidity model.
+	Balance          string  `json:"balance"`
+	BalanceCertainty float64 `json:"balance_certainty"`
 }
 
 type describeGraphPolicy struct {
@@ -105,7 +120,9 @@ func (p *describeGraphPolicy) toSimPolicy() (SimPolicy, error) {
 // LoadSimGraphFromFile builds a SimGraph from an `lncli describegraph` JSON
 // snapshot on disk. Channels missing both policies are skipped, since path
 // finding could never use them. Balances are initialized to a 50/50 split;
-// use AssignLiquidity to apply a liquidity model.
+// use AssignLiquidity to apply a liquidity model. A file that carries
+// modelled balances has them recorded but not applied, since which liquidity
+// a scenario is scored on is the scenario's call and not the graph's.
 func LoadSimGraphFromFile(path string) (*SimGraph, error) {
 	data, err := os.ReadFile(path)
 	if err != nil {
@@ -171,6 +188,35 @@ func LoadSimGraphFromFile(path string) (*SimGraph, error) {
 		err = g.AddChannel(
 			uint64(chanID), node1, node2,
 			btcutil.Amount(capacity), policy1, policy2,
+		)
+		if err != nil {
+			return nil, err
+		}
+
+		// Carry over the modelled balance, if this file has one. A
+		// balance outside the channel is a corrupt file rather than an
+		// unusual world, so it fails here instead of being clamped
+		// into something plausible.
+		if edge.Balance == "" {
+			continue
+		}
+
+		balance, err := parseInt64(edge.Balance)
+		if err != nil {
+			return nil, fmt.Errorf("invalid balance %v on "+
+				"channel %v: %w", edge.Balance,
+				edge.ChannelID, err)
+		}
+		if balance < 0 || balance > capacity {
+			return nil, fmt.Errorf("channel %v: balance %v sats "+
+				"is outside its %v sat capacity",
+				edge.ChannelID, balance, capacity)
+		}
+
+		err = g.setGraphBalance(
+			uint64(chanID), node1,
+			lnwire.NewMSatFromSatoshis(btcutil.Amount(balance)),
+			edge.BalanceCertainty,
 		)
 		if err != nil {
 			return nil, err

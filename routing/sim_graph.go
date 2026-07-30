@@ -110,6 +110,14 @@ type simChannelEnd struct {
 	// but not settled yet. It is always at most the balance, and it is
 	// zero unless a payment is running with hold semantics.
 	held lnwire.MilliSatoshi
+
+	// graphBalance is the balance this end carried in the file the
+	// channel was loaded from, and hasGraphBalance says whether the file
+	// carried one at all. This is not the live balance and nothing in the
+	// forwarding path reads it: it is inert until a scenario asks for the
+	// from_graph liquidity model, which copies it into balance.
+	graphBalance    lnwire.MilliSatoshi
+	hasGraphBalance bool
 }
 
 // available returns the liquidity this end can put behind a new htlc: its
@@ -130,6 +138,14 @@ type SimChannel struct {
 	// ends holds the two directional ends, index 0 being the
 	// lexicographically smaller pubkey (node1).
 	ends [2]simChannelEnd
+
+	// graphCertainty is how sure the file that carried this channel's
+	// balances was of them, from zero to one. It is meaningless unless
+	// both ends carry a graph balance, and nothing reads it yet: a
+	// scenario either believes the modelled balances or does not use
+	// them. It is kept so that a later experiment can weight a channel by
+	// how well its balance is known without having to reload the graph.
+	graphCertainty float64
 }
 
 // end returns the channel end owned by the given node, or nil if the node is

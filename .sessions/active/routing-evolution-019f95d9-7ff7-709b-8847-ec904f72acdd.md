@@ -4,8 +4,8 @@ shortname: routing-evolution
 status: active
 task_ids: []
 created_at: 2026-07-24T20:38:07Z
-updated_at: 2026-07-27T20:21:26Z
-compaction_count: 4
+updated_at: 2026-07-30T00:00:14Z
+compaction_count: 5
 git_branch: gepa
 git_last_commit: 127c34067
 ---
@@ -70,6 +70,19 @@ command center + lab notebook current.
 
 ## Progress
 ### Completed
+- [x] interval-router ROUND 3 verified and pushed
+  (ab1c123ab..1bcbb1485, 2026-07-30T00:00:14Z): budget-derived fee price per nat
+  (mx_c3's scale-free denomination could never bind a budget; now
+  clamp(remaining/2, 30k, 420k) msat/nat, exact algebraic fallback
+  without a budget), never-evicted cheapest label, post-route budget
+  guard, suspect-bound quarantine (soft discount, never Known, one
+  direction only, memory-only, promotion at 2.05). 12 new tests; full
+  routing suite green in my own run. Also: dijkstrasden graph secured
+  at ~/codez/data/realistic_graph.json, report published at
+  https://fee-liquidity-correlation.lightning.wiki/, two ideas logged
+  in IDEAS.md (e3308afe7). Still live: code_full2 (tree lock),
+  interval-sim benchmark agent (tests round-2 tip ab1c123ab; re-bench
+  vs round 3 queued).
 - All research through exp-009 committed (see NOTEBOOK.md);
   CLAUDE.md (b28da5f59) + DECISIONS.md (127c34067) written.
 - Design agent LANDED: full de-slop redesign + findings.html,

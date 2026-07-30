@@ -1,8 +1,8 @@
 ---
 session_id: 019f95d9-7ff7-709b-8847-ec904f72acdd
 shortname: routing-evolution
-last_updated: 2026-07-29T23:41:24Z
-compaction_count: 4
+last_updated: 2026-07-30T00:14:20Z
+compaction_count: 5
 progress_pct: 85
 current_step: 4
 total_steps: 5
@@ -77,7 +77,27 @@ exp-018 omni adjudication is LIVE overnight.
        Dashboard v64 PUBLISHED (445e8fb89). Specialist roster in
        champions/README (7a2014c8e). exp-023 verdict: edge is
        INFORMATIONAL (1673ab3bd).
-12.[ ] LIVE NOW (2026-07-29):
+13.[ ] 2026-07-29 evening wave:
+       DONE: interval-router ROUND 3 verified+pushed (1bcbb1485:
+       budget fee price clamp(remaining/2,30k,420k) msat/nat,
+       cheapest-label keep, suspect quarantine). DONE: exp-027
+       written+pushed (53637bbb9): integrated branch = champions'
+       margin all 6 tiers (mainnet 0.788 att 2.5), exp-019 robustness
+       inherited, best arm on mainnet fee rungs; gaps: deg-mainnet
+       -0.040 (quarantine target), hard@4000 abandonment (econ2's
+       regime). interval-sim pushed to roasbeef. Mainnet cells NEVER
+       byte-reproducible (findPath map iter) — future gates read
+       mainnet statistically. DONE: dijkstrasden graph secured
+       ~/codez/data/realistic_graph.json (first un-authored liquidity
+       family, soft U-shape; ideas logged e3308afe7), report
+       published https://fee-liquidity-correlation.lightning.wiki/.
+       LIVE: (a) code_full2 (tree lock holds), (b) round-3 re-bench
+       in isim agent a7b0df7ce66fc0246 (ilnd arm only vs round-2
+       raws; Q1 econ rungs, Q2 deg_mn_mix toward 0.000, Q3 classic
+       non-inferiority). Next after wakes: full2 artifact-check +
+       verdict sweep; round-3 verdict -> exp-027 addendum; dashboard
+       v65; realistic-graph loader flag once tree unlocks.
+12.[x] LIVE NOW (2026-07-29):
        (a) code_full2: compose world seeded FROM econ2 (--seed-file
        exp-025-econ2-best-candidate.go, --econ --degraded, 400
        evals, timeout 1200s for the 1230-line seed). Log

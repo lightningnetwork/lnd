@@ -54,15 +54,20 @@
           <span class="l">evolved lines of Go<br>from a 300-line seed</span>
           <span class="v">1,525</span>
         </div>
-        <div class="cap">best evolved routers (mx_c3/hb1) against lnd's production stack</div>
+        <div class="g hi">
+          <span class="l">tiers the integrated branch leads<br>stock lnd, zero losses</span>
+          <span class="v">14 / 14</span>
+        </div>
+        <div class="cap">best evolved routers (mx_c3/hb1) against lnd's production stack; the last row is the interval-router branch measured inside lnd's own payment lifecycle (exp-027)</div>
       </div>
     </div>
     <div class="byline">
       <span>method <b>GEPA reflective evolution</b></span>
       <span>reflection LM <b>gpt-5.6-sol</b></span>
       <span>evaluator <b>cmd/routesim</b></span>
-      <span>experiments <b>exp-001 … exp-025</b></span>
-      <span>champions <b>hb1 + mx_c3</b>, unchanged since exp-007 · nothing live</span>
+      <span>experiments <b>exp-001 … exp-028</b></span>
+      <span>champions <b>hb1 + mx_c3</b>, unchanged since exp-007 · specialists atomic1 + econ2</span>
+      <span>shipping <b>interval-lnd, 14/14 over stock lnd</b> · compose-800 live</span>
     </div>
   </div>
 
@@ -429,6 +434,14 @@
           bred in a world where money is real, and its winner is the first router here
           ever to read the fee budget it is handed
           (<a class="link" href="findings.html#econevo">evolution learns to count</a>).
+          Two runs have closed since: the compose world, every economic knob plus the
+          lying channel at once, which returned its seed unchanged, and
+          <span class="mono">exp-028</span>, its first pre-registered escape, which
+          seeded the same world from the fee-budget specialist and reproduced the
+          give-up attractor from a second lineage
+          (<a class="link" href="findings.html#compose">the rule</a>). The 800-evaluation
+          arm, <span class="mono">code_full3</span>, is live and carries what is left of
+          the compose question.
         </p>
       </div>
 
@@ -441,6 +454,18 @@
           (<a class="link" href="findings.html#ceilingarm">§15</a> is why).
         </p>
         <p>
+          <em>(Update, 30 July: the frontier is unchanged and the ledger still reads
+          nine challengers. Champions hb1 and mx_c3, specialists atomic1 where holds
+          contend and econ2 where money is scarce. What has changed is where the work
+          points: the integration branch now measures at
+          <strong>14 of 14 tiers interval-solid over stock lnd with zero losses</strong>,
+          margins intact under the production default fee limit
+          (<a class="link" href="findings.html#integration">§19</a>), and the stated
+          target is shipping it in the next lnd major release. One optimizer run is
+          live, the 800-evaluation compose arm
+          <span class="mono">code_full3</span>.)</em>
+        </p>
+        <p>
           <strong>exp-023 and exp-025, economic realism, both closed.</strong> All
           five stages are merged and flag-gated — min and max HTLC pressure, inbound
           fees, fees as a first-class cost, concurrent payments, latency — each proven
@@ -451,7 +476,10 @@
           challenger number nine
           (<a class="link" href="findings.html#econevo">evolution learns to count</a>).
           The compose-world run (all five economic knobs plus the lying channel) is live as code_full1; its five knobs are
-          live at once.
+          live at once. <em>(It has since closed, returning its seed unchanged, and so
+          has the first of its two escapes
+          (<a class="link" href="findings.html#compose">§20</a>); the second is live
+          now.)</em>
         </p>
         <p>
           <strong>The interval-router branch.</strong> Separately from the simulator,
@@ -464,7 +492,14 @@
           measurement of that branch, and no number here should be read as one — though
           the hybrid it builds, evolved beliefs on top of lnd's own fee-aware pricing,
           is exactly what <a class="link" href="findings.html#econ">§17</a> says to
-          build.
+          build. <em>(That benchmark has since run, and this paragraph is
+          the one thing on the page it retires: exp-027 put the branch inside lnd's
+          real payment lifecycle and measured it over fourteen tiers, where it scores
+          0.788 on mainnet against stock lnd's 0.694 and leads stock lnd on all
+          fourteen with zero losses
+          (<a class="link" href="findings.html#integration">§19</a>). The hybrid
+          §17 asked for is built, measured, and the thing we intend to
+          ship.)</em>
         </p>
       </div>
 
@@ -572,8 +607,11 @@
         happens to all of it once the world has prices
         (<a class="link" href="findings.html#econ">the priced world</a> and
         <a class="link" href="findings.html#econevo">evolution learns to count</a>),
+        what happens when the whole evolved belief system is put inside lnd's own
+        payment lifecycle and measured there
+        (<a class="link" href="findings.html#integration">the integration benchmark</a>),
         the corrections we have had to make to our own record, and the process lessons
-        from twenty-five experiments.
+        from twenty-eight experiments.
       </p>
     </div>
   </div>

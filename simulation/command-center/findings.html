@@ -31,11 +31,11 @@
   <!-- ================= MASTHEAD ================= -->
   <div class="shell masthead">
     <div class="eyebrow">
-      Findings<span class="sep">/</span>lnd × GEPA routing evolution<span class="sep">/</span>29 July 2026
+      Findings<span class="sep">/</span>lnd × GEPA routing evolution<span class="sep">/</span>30 July 2026
     </div>
     <h1>What the evolved routers kept, dropped, and <em>invented</em></h1>
     <p class="standfirst">
-      Twenty-five experiments in, the shape of the result is clear. On a real mainnet
+      Twenty-eight experiments in, the shape of the result is clear. On a real mainnet
       graph snapshot, LLM-evolved routers match lnd's success rate using
       <strong>8.6× fewer HTLC attempts</strong> on a perfect failure channel — a
       ratio <a class="link" href="#attribution">§12</a> has since retired, because
@@ -46,7 +46,8 @@
     <div class="byline">
       <span>sources <b>simulation/lab/experiments</b></span>
       <span>champions <b>hb1 · mx_c3</b>, title defended (exp-020)</span>
-      <span>status <b>validated · de-circularised · attribution-tested (exp-019) · engine-adjudicated (exp-018, exp-024) · distilled (exp-021) · priced (exp-023, exp-025)</b></span>
+      <span>status <b>validated · de-circularised · attribution-tested (exp-019) · engine-adjudicated (exp-018, exp-024) · distilled (exp-021) · priced (exp-023, exp-025) · integrated (exp-027)</b></span>
+      <span>integration <b>interval-lnd 14/14 over stock lnd</b>, the release candidate (<a class="link" href="#integration">§19</a>)</span>
     </div>
 
     <ol class="toc">
@@ -69,8 +70,10 @@
       <li><a href="#lying"><span class="n">16</span><span class="t">Breeding under a lying channel</span></a></li>
       <li><a href="#econ"><span class="n">17</span><span class="t">The world got prices</span></a></li>
       <li><a href="#econevo"><span class="n">18</span><span class="t">Evolution learns to count</span></a></li>
-      <li><a href="#process"><span class="n">19</span><span class="t">What the process taught us</span></a></li>
-      <li><a href="#timeline"><span class="n">20</span><span class="t">Timeline of experiments</span></a></li>
+      <li><a href="#integration"><span class="n">19</span><span class="t">The flag flip pays the champions' margin</span></a></li>
+      <li><a href="#compose"><span class="n">20</span><span class="t">The give-up attractor is a rule</span></a></li>
+      <li><a href="#process"><span class="n">21</span><span class="t">What the process taught us</span></a></li>
+      <li><a href="#timeline"><span class="n">22</span><span class="t">Timeline of experiments</span></a></li>
       <li><a href="drift.html"><span class="n">→</span><span class="t">Drift: the environment strikes back <i>(exp-008, verdict in)</i></span></a></li>
     </ol>
   </div>
@@ -418,7 +421,7 @@
         <p>
           <strong>Exploit-clean.</strong> The simulator seals hidden liquidity behind
           a view interface, and an adversarial audit of that seal
-          (<a class="link" href="#process">§19</a>) found and
+          (<a class="link" href="#process">§21</a>) found and
           closed a real escape. Both champions were validated after the seal, with
           zero uses of any exploit path.
         </p>
@@ -992,7 +995,7 @@
         <p>
           <strong>Opus 5 at default effort, persistent parallel flow plans.</strong>
           The deepest machinery the project has produced, at 1,931 lines — well past
-          the complexity wall of <a class="link" href="#process">§19</a>. A flow plan
+          the complexity wall of <a class="link" href="#process">§21</a>. A flow plan
           survives failure, dropping only the corridors that evidence actually
           contradicts; dispatch is concurrency-first, filling the shard budget with
           the largest believable amounts before it ever ladder-searches; and planning
@@ -4774,7 +4777,7 @@ proposals seen   directional_belief · capacity_penalty · log_bimodal_cost
           to duck-type their way into an <span class="mono">Option</span> wrapper that
           does not exist &mdash; and every one was rejected by the banned-identifier
           sandbox from
-          <a class="link" href="#process">&sect;19</a>, which is the cleanest
+          <a class="link" href="#process">&sect;21</a>, which is the cleanest
           demonstration of that seal the program has had. Six more guessed
           <span class="mono">UnwrapOr</span> on a plain struct and failed to compile.
           <strong>Eight prompt lines fixed it:</strong> state the type, show the field
@@ -4995,11 +4998,525 @@ proposals seen   directional_belief · capacity_penalty · log_bimodal_cost
     </div>
   </section>
 
-  <!-- ================= 19 · PROCESS ================= -->
-  <section id="process">
+  <!-- ================= 19 · INTEGRATION ================= -->
+  <section id="integration">
     <div class="shell">
       <div class="sec-head">
         <div class="sec-no">19</div>
+        <h2>The flag flip pays the champions' margin</h2>
+        <p class="sec-sub">
+          Every number above this line was measured under the simulator's own
+          contract, where a candidate owns route selection outright. The
+          <span class="mono">interval-router</span> branch does not: it puts the
+          evolved belief system inside lnd's real payment lifecycle, behind a flag,
+          with lnd's pathfinding types, session interface, budget plumbing and MPP
+          machinery all still in charge. exp-027 is the first measurement of that
+          branch. It scores champion-grade, it took six rounds and three falsified
+          hypotheses to get there honestly, and it is the thing we intend to ship.
+        </p>
+      </div>
+
+      <div class="keyrow wide">
+        <div class="key hi">
+          <span class="kn">14<span class="u">of 14 tiers, CI-solid over stock lnd</span></span>
+          <div class="kl">
+            zero losses anywhere in the final adjudication: classic, degraded and
+            fee-budget families alike, 4 wins to 1 loss against hb1, 3 to 5 against
+            mx_c3, and all three fee rungs owned against the whole field
+          </div>
+          <div class="kf">branch tip 60cce3572, 12 replicates a file, per-file means</div>
+        </div>
+        <div class="key">
+          <span class="kn">0.788<span class="u">mainnet, against lnd's 0.694</span></span>
+          <div class="kl">
+            the champions' own margin rather than a fraction of it (mx_c3 0.791),
+            with attempts landing at 2.5 a payment where stock lnd spends 19.8 and
+            the champions sit at 2.3
+          </div>
+          <div class="kf">real topology, real policies, one flag inside lnd</div>
+        </div>
+        <div class="key">
+          <span class="kn">0<span class="u">route refusals at the production default</span></span>
+          <div class="kl">
+            for every arm including mx_c3, which refused hundreds a file on the tight
+            rungs of <a class="link" href="#econ">&sect;17</a>. Real payments always
+            carry a budget: lnd's RPC layer defaults to 5% of the amount
+          </div>
+          <div class="kf">budget discipline separates routers only far below any default</div>
+        </div>
+      </div>
+
+      <div class="prose">
+        <h3>The port, and the gates before it</h3>
+        <p>
+          A fresh worktree merged the branch into the simulator tree, and a new
+          <span class="mono">router_impl=interval</span> knob swaps lnd's stock
+          payment session for <span class="mono">newIntervalPaymentSession</span> on
+          the simulator's lnd arm. Mission control is still built and still fed every
+          outcome, exactly as on a real node running the flag. Two lifecycle seams are
+          mirrored rather than approximated: result delivery uses the same source
+          index and message mission control just received (an unreadable failure
+          delivers nothing at all), and a finisher hook stands in for the deferred
+          attempt release.
+        </p>
+        <p>
+          Two gates ran before any science. The merged binary with the knob off is
+          byte-identical to the merge-base binary on 104 of 104 self-deterministic
+          cells, 50.8 MB of stdout with traces on, and the
+          <a class="link" href="#econ">&sect;17</a> gate table reproduces on 24 of 24
+          cells to the bit. Then a six-arm, fourteen-tier, 134-file battery: 804 runs,
+          zero errors, three pre-registered questions.
+        </p>
+
+        <h3>Three falsified hypotheses, and the bug underneath them</h3>
+        <p>
+          Round 3 added a budget-derived fee price and a suspect-bound quarantine, and
+          split down the middle: the price was the only round-over-round delta in the
+          sweep whose interval excluded zero (hard at 4000 ppm, +0.079, flipping the
+          tier from a straddle against lnd to +0.107), while the quarantine was a null
+          on its own home turf and the degraded-mainnet gap it was built to close moved
+          the wrong way. It also left one regression to explain, a &minus;0.032 on the
+          out-of-distribution tier, and that took three more rounds.
+        </p>
+        <p>
+          <strong>1 &middot; The frontier rule: falsified.</strong> Gating the
+          cheapest-label keep on a budget changed nothing measurable on any of the
+          fourteen tiers. The gate was inert. The same round established something more
+          useful: the interval arm is not run-to-run reproducible on any binary, which
+          forced a replicate protocol that made the next two rounds cheap.
+        </p>
+        <p>
+          <strong>2 &middot; IEEE-754: half right.</strong> Round 3 had rewritten
+          <span class="mono">5&middot;fee/max(amt,1)</span> through a reciprocal price,
+          equal in exact arithmetic and a different double on about a quarter of
+          realistic pairs, and the frontier compares scores exactly. Restoring the
+          verbatim expression recovered the single-shard tiers precisely (split,
+          mainnet and atomic to &plusmn;0.0005) and left every tier that splits
+          untouched. The float story was real, and it could not explain the survivors.
+        </p>
+        <p>
+          <strong>3 &middot; The bug: a budget's remainder is not its existence.</strong>
+          <span class="mono">intervalBudgeted</span> tested whether the fee limit was
+          the unbudgeted sentinel, but lnd's lifecycle hands the session what the limit
+          has <em>left</em>, recomputed on every route request. An unbudgeted payment
+          carries the sentinel only on its first request; from shard two onward it
+          carries the sentinel minus fees already paid, is misclassified as budgeted,
+          and gets a clamped absolute price for a budget that does not exist.
+          Single-shard payments never reach a second request, which is exactly the
+          restored-versus-stuck split round 5 had measured. The fix latches
+          budgetedness once at session construction, from the payment's own limit, and
+          lets the live remainder go on setting the price. Round 6 adjudicated it: ten
+          of eleven unbudgeted tiers return to their round-2 values (the
+          out-of-distribution tier lands at 0.5703 against a 0.5702 prediction), all
+          three budgeted rungs are bit-identical to round 3, and hard at 4000 ppm holds
+          its 0.410.
+        </p>
+      </div>
+
+      <div class="tw wide" style="margin-top:2em">
+        <table class="data">
+          <caption>exp-027 &middot; the final adjudication at branch tip 60cce3572. Composite objective, leader of each row bold, rows the integrated router leads highlighted. Every one of the fourteen &Delta; cells against stock lnd has a bootstrap interval excluding zero. The two mainnet control rows are the same tier measured under both families, and repeat by design.</caption>
+          <thead>
+            <tr>
+              <th>tier</th>
+              <th class="num">interval-lnd</th>
+              <th class="num">lnd</th>
+              <th class="num">mx_c3</th>
+              <th class="num">hb1</th>
+              <th class="num">&Delta; vs lnd</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr>
+              <td>hard sealed test</td>
+              <td class="num" data-l="interval-lnd">0.571</td>
+              <td class="num" data-l="lnd">0.309</td>
+              <td class="num" data-l="mx_c3">0.583</td>
+              <td class="num" data-l="hb1"><b>0.586</b></td>
+              <td class="num" data-l="vs lnd">+0.262<span class="sub">10/0 · p .002</span></td>
+            </tr>
+            <tr>
+              <td>out-of-distribution</td>
+              <td class="num" data-l="interval-lnd">0.570</td>
+              <td class="num" data-l="lnd">0.357</td>
+              <td class="num" data-l="mx_c3"><b>0.581</b></td>
+              <td class="num" data-l="hb1">0.545</td>
+              <td class="num" data-l="vs lnd">+0.213<span class="sub">9/1 · p .021</span></td>
+            </tr>
+            <tr>
+              <td>splitting pressure</td>
+              <td class="num" data-l="interval-lnd">0.874</td>
+              <td class="num" data-l="lnd">0.837</td>
+              <td class="num" data-l="mx_c3"><b>0.876</b></td>
+              <td class="num" data-l="hb1">0.814</td>
+              <td class="num" data-l="vs lnd">+0.037<span class="sub">6/2</span></td>
+            </tr>
+            <tr>
+              <td>drift test</td>
+              <td class="num" data-l="interval-lnd">0.443</td>
+              <td class="num" data-l="lnd">0.236</td>
+              <td class="num" data-l="mx_c3"><b>0.454</b></td>
+              <td class="num" data-l="hb1">0.442</td>
+              <td class="num" data-l="vs lnd">+0.207<span class="sub">8/0 · p .008</span></td>
+            </tr>
+            <tr class="best">
+              <td>atomic arena</td>
+              <td class="num" data-l="interval-lnd"><b>0.446</b></td>
+              <td class="num" data-l="lnd">0.320</td>
+              <td class="num" data-l="mx_c3">0.444</td>
+              <td class="num" data-l="hb1">0.445</td>
+              <td class="num" data-l="vs lnd">+0.126<span class="sub">8/0 · p .008</span></td>
+            </tr>
+            <tr>
+              <td>mainnet snapshot</td>
+              <td class="num" data-l="interval-lnd">0.788</td>
+              <td class="num" data-l="lnd">0.694</td>
+              <td class="num" data-l="mx_c3"><b>0.791</b></td>
+              <td class="num" data-l="hb1">0.790</td>
+              <td class="num" data-l="vs lnd">+0.095<span class="sub">8/2</span></td>
+            </tr>
+            <tr>
+              <td>degraded hard, realistic mix<span class="sub">unknown 0.2 + shift 0.1</span></td>
+              <td class="num" data-l="interval-lnd">0.462</td>
+              <td class="num" data-l="lnd">0.188</td>
+              <td class="num" data-l="mx_c3">0.517</td>
+              <td class="num" data-l="hb1"><b>0.525</b></td>
+              <td class="num" data-l="vs lnd">+0.274<span class="sub">9/1 · p .021</span></td>
+            </tr>
+            <tr>
+              <td>degraded hard, unknown 0.3</td>
+              <td class="num" data-l="interval-lnd">0.528</td>
+              <td class="num" data-l="lnd">0.162</td>
+              <td class="num" data-l="mx_c3">0.519</td>
+              <td class="num" data-l="hb1"><b>0.557</b></td>
+              <td class="num" data-l="vs lnd">+0.366<span class="sub">9/1 · p .021</span></td>
+            </tr>
+            <tr>
+              <td>degraded mainnet<span class="sub">the one open belief gap</span></td>
+              <td class="num" data-l="interval-lnd">0.751</td>
+              <td class="num" data-l="lnd">0.709</td>
+              <td class="num" data-l="mx_c3">0.786</td>
+              <td class="num" data-l="hb1"><b>0.789</b></td>
+              <td class="num" data-l="vs lnd">+0.042<span class="sub">6/4</span></td>
+            </tr>
+            <tr class="best">
+              <td>hard, no budget<span class="sub">econ control</span></td>
+              <td class="num" data-l="interval-lnd"><b>0.610</b></td>
+              <td class="num" data-l="lnd">0.329</td>
+              <td class="num" data-l="mx_c3">0.574</td>
+              <td class="num" data-l="hb1">0.567</td>
+              <td class="num" data-l="vs lnd">+0.281<span class="sub">9/0 · p .004</span></td>
+            </tr>
+            <tr class="best">
+              <td>hard, 4000 ppm<span class="sub">round 2's worst result</span></td>
+              <td class="num" data-l="interval-lnd"><b>0.410</b></td>
+              <td class="num" data-l="lnd">0.303</td>
+              <td class="num" data-l="mx_c3">0.343</td>
+              <td class="num" data-l="hb1">0.298</td>
+              <td class="num" data-l="vs lnd">+0.107<span class="sub">9/0 · p .004</span></td>
+            </tr>
+            <tr>
+              <td>mainnet, no budget<span class="sub">econ control</span></td>
+              <td class="num" data-l="interval-lnd">0.788</td>
+              <td class="num" data-l="lnd">0.694</td>
+              <td class="num" data-l="mx_c3"><b>0.791</b></td>
+              <td class="num" data-l="hb1">0.790</td>
+              <td class="num" data-l="vs lnd">+0.095<span class="sub">8/2</span></td>
+            </tr>
+            <tr class="best">
+              <td>mainnet, 400 ppm</td>
+              <td class="num" data-l="interval-lnd"><b>0.730</b></td>
+              <td class="num" data-l="lnd">0.627</td>
+              <td class="num" data-l="mx_c3">0.600</td>
+              <td class="num" data-l="hb1">0.570</td>
+              <td class="num" data-l="vs lnd">+0.103<span class="sub">7/3</span></td>
+            </tr>
+            <tr class="best">
+              <td>mainnet, 100 ppm</td>
+              <td class="num" data-l="interval-lnd"><b>0.673</b></td>
+              <td class="num" data-l="lnd">0.576</td>
+              <td class="num" data-l="mx_c3">0.499</td>
+              <td class="num" data-l="hb1">0.488</td>
+              <td class="num" data-l="vs lnd">+0.096<span class="sub">9/1 · p .021</span></td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+
+      <div class="prose">
+        <h3>The production default, which is the configuration upstream will ask about</h3>
+        <p>
+          Tracing the latch seam surfaced something the whole fee story had been
+          missing. Production lnd essentially never sends the unbudgeted sentinel:
+          the RPC layer falls back to a default routing fee limit of 100% up to 1,000
+          satoshis and 5% above it, so a real node takes the budgeted branch on every
+          payment it makes. Zero of the 411 payments in the classic corpus sit under
+          that cut-off, which makes a uniform 50,000 ppm an exact reproduction of
+          production rather than an approximation of it.
+        </p>
+        <p>
+          Under exactly that budget the result holds. Margins over stock lnd stay
+          interval-solid on all six classic tiers (hard +0.261, mainnet +0.093), the
+          absolute price ceiling the branch applies costs at most 0.0095 anywhere and
+          <em>gains</em> on drift, and <strong>no arm refuses a single route</strong>:
+          not lnd, not the integrated branch, and not mx_c3, which refused hundreds a
+          file on the tight rungs of <a class="link" href="#econ">&sect;17</a>. That
+          reframes this program's own fee findings. The budget-discipline results in
+          <a class="link" href="#econ">&sect;17</a> and
+          <a class="link" href="#econevo">&sect;18</a> are statements about tight
+          budgets, not about the node in front of you.
+        </p>
+
+        <div class="note">
+          <h4>two methodology corrections, both self-applied</h4>
+          <p>
+            <strong>Mainnet cells were never byte-reproducible, on any binary.</strong>
+            Four identity cells failed byte-comparison of the merge-base binary against
+            <em>itself</em>: lnd's <span class="mono">findPath</span> expands
+            predecessors by iterating a Go map, and exact cost ties on the dense mainnet
+            graph break by map order. A 40-sample self-control shows the merge base as
+            "novel" against its own first group as any new binary is, with mean attempts
+            agreeing to &plusmn;0.05. The bit-exact mainnet cells in earlier gate tables
+            on this page were luck-dependent. Those verdicts stand, because none of them
+            rested on mainnet bit-exactness and the paired statistics carried them, but
+            mainnet should be gated statistically from here on. The interval arm is not
+            run-to-run reproducible either, the same class with more search state, hence
+            twelve replicates a file and a recorded noise floor beside every number
+            above.
+          </p>
+          <p>
+            <strong>Algebraic identity is not float identity.</strong> A rewrite that is
+            exactly equal on paper moved five tiers, because the frontier compares
+            doubles with <span class="mono">==</span>. A refactor inside a
+            comparison-sensitive search is a behavioural change until measured
+            otherwise.
+          </p>
+        </div>
+
+        <h3>Two open edges, both localized</h3>
+        <p>
+          The champions lose exactly zero success on degraded mainnet where the
+          integrated branch loses 0.050, and the round-3 quarantine built to close that
+          gap widened it instead. Whatever buys the champions their zero there, it is
+          measurably not suspect-bound discounting, and the question goes back on the
+          board. Filed alongside it is an interaction nobody predicted: the degraded
+          hard mix sits 0.034 below round 2 at 32 replicates (z = &minus;11.1) while
+          unknown-only, shift-only and unknown-at-0.3 all sit at or above it, so the two
+          attribution mechanisms together cost roughly five times the sum of their
+          separate parts. The working hypothesis, measured interaction and unproven
+          mechanism: the quarantine handles failures that cannot name a channel, and
+          loses ground when failures name the wrong one.
+        </p>
+
+        <div class="callout">
+          <p>
+            <strong>What this branch is for.</strong> The program's central bet was
+            that the edge lives in the belief system rather than in the paradigm's
+            ownership of the whole route stack. A flag inside lnd now buys +0.095
+            objective on real topology, the full
+            <a class="link" href="#attribution">&sect;12</a> robustness story, and the
+            first router in the field that is simultaneously champion-grade on clean
+            tiers and lnd-grade on fee budgets, all with stock lnd untouched when the
+            flag is unset. <strong>This branch is the release candidate for the next
+            lnd major release</strong>, and every remaining item on the board now
+            points at it.
+          </p>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- ================= 20 · COMPOSE ================= -->
+  <section id="compose">
+    <div class="shell">
+      <div class="sec-head">
+        <div class="sec-no">20</div>
+        <h2>The give-up attractor is a rule</h2>
+        <p class="sec-sub">
+          exp-026 built the world where every pressure is switched on at once, the
+          five economic knobs of <a class="link" href="#econ">&sect;17</a> plus the
+          lying channel of <a class="link" href="#lying">&sect;16</a>, and 400
+          evaluations of reflective search returned the seed unchanged. It
+          pre-registered two escapes. exp-028 ran the first one: seed the search from
+          econ2, the specialist that already carries the budget machinery paid for.
+          The machinery transferred. The search on top of it went backwards, in
+          exactly the shape <a class="link" href="#timeline">exp-013</a> registered
+          earlier.
+        </p>
+      </div>
+
+      <div class="keyrow wide">
+        <div class="key hi">
+          <span class="kn">&minus;0.030<span class="u">best candidate against its own seed</span></span>
+          <div class="kl">
+            on held-out, paired 9 wins to 10 losses and a tie, with every point of it
+            success (&minus;0.031) and every attempt saved (&minus;4.2 a payment) a
+            payment abandoned rather than a payment routed better
+          </div>
+          <div class="kf">give-up rate equals one minus success identically on both arms</div>
+        </div>
+        <div class="key">
+          <span class="kn">+0.022<span class="u">the machinery does transfer</span></span>
+          <div class="kl">
+            econ2's own composed held-out is 0.2373 against the hand-written seed's
+            0.2157, so the budget discipline
+            <a class="link" href="#econevo">&sect;18</a> measured in the clean economic
+            world survives the lying channel intact
+          </div>
+          <div class="kf">the wall is search on top of a seed, not the seed</div>
+        </div>
+        <div class="key">
+          <span class="kn">2<span class="u">of 2 seed families, 2 of 2 worlds</span></span>
+          <div class="kl">
+            the identical failure shape now reproduced from atomic1 in the atomic
+            arena and from econ2 in the compose world, different lineage, different
+            environment, same decomposition
+          </div>
+          <div class="kf">two independent reproductions make it a rule, not an anecdote</div>
+        </div>
+      </div>
+
+      <div class="prose">
+        <h3>A healthy run and a real candidate</h3>
+        <p>
+          Nothing about the run was broken. All 400 evaluations landed, 35 proposals
+          were scored, ten were accepted into the pool, and no reflection was hijacked.
+          The best-validation candidate is real machinery too: it keeps econ2's budget
+          ledger and inbound pricing and adds an edge-penalty and blocked-set
+          attribution layer with suspect handling on top. Then it loses to its own seed
+          on held-out, and the decomposition is the pre-registered pattern rather than
+          noise. The runner's printed numbers were reproduced to four digits by an
+          independent overlay rebuild and a 20-file re-run before any of this was
+          written down.
+        </p>
+      </div>
+
+      <div class="tw wide" style="margin-top:1.5em">
+        <table class="data">
+          <caption>exp-028 &middot; the composed held-out set, seed against best candidate, paired per file. Read objective and success together: the objective loss and the attempt saving are the same event counted twice.</caption>
+          <thead>
+            <tr>
+              <th>arm</th>
+              <th class="num">objective</th>
+              <th class="num">success</th>
+              <th class="num">attempts / payment</th>
+              <th class="num">give-up rate</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr class="best">
+              <td>econ2<span class="sub">the seed, 1,230 lines</span></td>
+              <td class="num" data-l="objective"><b>0.2373</b></td>
+              <td class="num" data-l="success">0.3779</td>
+              <td class="num" data-l="attempts / payment">22.6</td>
+              <td class="num" data-l="give-up rate">0.6221</td>
+            </tr>
+            <tr class="bad">
+              <td>code_full2 best<span class="sub">400 evaluations later</span></td>
+              <td class="num" data-l="objective">0.2071</td>
+              <td class="num" data-l="success">0.3469</td>
+              <td class="num" data-l="attempts / payment">18.4</td>
+              <td class="num" data-l="give-up rate">0.6531</td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+
+      <div class="prose">
+        <h3>The rule, and the selection layer that hid it</h3>
+        <p>
+          econ2 sits at the attempt-heavy end of this world, 22.6 attempts a payment,
+          which leaves exactly one cheap direction for a continuation to walk in: shed
+          attempts by abandoning payments. That is what
+          <a class="link" href="#timeline">exp-013</a> found when it continued atomic1,
+          a router already at the attempt frontier, and it is what happened here with
+          the lineage and the environment both swapped out. The rule this promotes is
+          worth stating plainly: <strong>continue a seed that sits at the attempt
+          frontier and the optimizer becomes an abandonment machine</strong>, because
+          the composite objective hides abandonment inside the same number as
+          efficiency.
+        </p>
+        <p>
+          The selection layer failed honestly beside it. gepa's best-validation pick
+          scored 0.2833 on minibatch validation and then undershot its own seed on
+          held-out by 0.030, which is minibatch validation selecting a validation-shaped
+          candidate. Every champion on this page was decided by separate held-out runs
+          for exactly this reason, and this is the cleanest demonstration of the reason
+          the program has.
+        </p>
+      </div>
+
+      <div class="tw wide" style="margin-top:1.5em">
+        <table class="data">
+          <caption>The difficulty ladder, at identical optimizer, budget and seed. Each world adds pressure to the one above it; the last row swaps the seed rather than the world.</caption>
+          <thead>
+            <tr>
+              <th>world</th>
+              <th>seed</th>
+              <th class="num">gain over seed, validation</th>
+              <th class="num">held-out against the seed</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr>
+              <td>clean</td>
+              <td>hand-written</td>
+              <td class="num" data-l="gain over seed, validation">+0.05 to +0.06</td>
+              <td class="num" data-l="held-out against the seed">ahead</td>
+            </tr>
+            <tr>
+              <td>lying channel</td>
+              <td>hand-written</td>
+              <td class="num" data-l="gain over seed, validation">+0.044</td>
+              <td class="num" data-l="held-out against the seed">ahead</td>
+            </tr>
+            <tr>
+              <td>economic</td>
+              <td>hand-written</td>
+              <td class="num" data-l="gain over seed, validation">+0.022</td>
+              <td class="num" data-l="held-out against the seed">ahead</td>
+            </tr>
+            <tr>
+              <td>compose</td>
+              <td>hand-written</td>
+              <td class="num" data-l="gain over seed, validation">+0.000<span class="sub">seed returned</span></td>
+              <td class="num" data-l="held-out against the seed">level</td>
+            </tr>
+            <tr class="bad">
+              <td>compose</td>
+              <td>econ2</td>
+              <td class="num" data-l="gain over seed, validation">best-val below its seed</td>
+              <td class="num" data-l="held-out against the seed"><b>&minus;0.030</b></td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+
+      <div class="prose">
+        <div class="note">
+          <h4>what is left of the compose question</h4>
+          <p>
+            One pre-registered escape remains, and it is budget scaling: the same world
+            and the hand-written seed at 800 evaluations, live now as
+            <span class="mono">code_full3</span>. With both seed families measured, that
+            arm carries the whole question. If it fails too, the compose world is the
+            first environment where the seed-plus-insights recipe is finished at any
+            seed and any budget, and the interesting frontier moves entirely to the
+            integration branch of <a class="link" href="#integration">&sect;19</a> and
+            to a liquidity family we did not author. No challenger came out of this run,
+            so the ledger stays where it has been since exp-007: champions hb1 and
+            mx_c3, specialists atomic1 and econ2, nine challengers deep.
+          </p>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- ================= 21 · PROCESS ================= -->
+  <section id="process">
+    <div class="shell">
+      <div class="sec-head">
+        <div class="sec-no">21</div>
         <h2>What the process taught us</h2>
         <p class="sec-sub">
           Findings about running this kind of search, which cost as much to learn
@@ -5078,14 +5595,14 @@ proposals seen   directional_belief · capacity_penalty · log_bimodal_cost
     </div>
   </section>
 
-  <!-- ================= 20 · TIMELINE ================= -->
+  <!-- ================= 22 · TIMELINE ================= -->
   <section id="timeline">
     <div class="shell">
       <div class="sec-head">
-        <div class="sec-no">20</div>
+        <div class="sec-no">22</div>
         <h2>Timeline of experiments</h2>
         <p class="sec-sub">
-          Twenty-seven writeups, six days of wall-clock time, in numbered order. Full
+          Twenty-nine writeups, seven days of wall-clock time, in numbered order. Full
           detail lives in
           <span class="mono">simulation/lab/experiments/</span>.
         </p>
@@ -5742,6 +6259,57 @@ proposals seen   directional_belief · capacity_penalty · log_bimodal_cost
             </div>
           </div>
           <div class="tl-tag">verdict · specialist number two</div>
+        </div>
+
+        <div class="tl-item pivot">
+          <div class="tl-id">exp-027</div>
+          <div class="tl-b">
+            <div class="t">The flag flip pays the champions' margin</div>
+            <div class="d">
+              The first measurement of the integration branch, inside lnd's own payment
+              lifecycle rather than under the simulator's contract. Fourteen tiers, six
+              arms, 804 runs, gates at 104 of 104 byte-identical with the flag off and
+              24 of 24 against the economic table. The port keeps the paradigm: 0.788 on
+              mainnet against stock lnd's 0.694 and mx_c3's 0.791, attempts at 2.5
+              against 19.8, the champions' own margin on all six classic tiers rather
+              than a fraction of it.
+              Getting there honestly took six rounds and three falsified hypotheses, the
+              last of which uncovered the bug: budgetedness was inferred from the
+              <em>remaining</em> fee limit, which is never the unbudgeted sentinel after
+              the first shard, so every unbudgeted payment that split was misclassified.
+              Latching the classification at session construction returns ten of eleven
+              unbudgeted tiers to their earlier values and lands the final adjudication
+              at fourteen of fourteen tiers interval-solid over stock lnd with zero
+              losses. The production-default battery is the upstream answer: a real node
+              always carries a fee budget, the margins hold on all six classic tiers
+              under exactly that default, and nobody refuses a route
+              (<a class="link" href="#integration">§19</a>).
+            </div>
+          </div>
+          <div class="tl-tag">verdict · release candidate</div>
+        </div>
+
+        <div class="tl-item">
+          <div class="tl-id">exp-028</div>
+          <div class="tl-b">
+            <div class="t">The give-up attractor, reproduced from a second seed</div>
+            <div class="d">
+              exp-026 had run the compose world, every economic knob plus the lying
+              channel at once, and 400 evaluations returned the seed unchanged at
+              +0.000. This is the first of its two pre-registered escapes: seed the
+              search from econ2 instead, the specialist that already carries the budget
+              machinery. The machinery transferred for free, econ2 scoring 0.2373 on the
+              composed held-out against the hand seed's 0.2157, so budget discipline is
+              worth the same +0.022 with the lying channel switched on. Search on top of
+              it went backwards: the best-validation candidate lost 0.030 to its own
+              seed on held-out, all of it success, bought with 4.2 fewer attempts a
+              payment. That is exp-013's decomposition with the lineage and the world
+              both swapped, which promotes the give-up attractor from anecdote to rule.
+              No challenger came out of it, and the 800-evaluation arm now carries the
+              whole compose question (<a class="link" href="#compose">§20</a>).
+            </div>
+          </div>
+          <div class="tl-tag">verdict · the rule holds</div>
         </div>
       </div>
     </div>

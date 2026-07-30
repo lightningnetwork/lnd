@@ -1,7 +1,7 @@
 ---
 session_id: 019f95d9-7ff7-709b-8847-ec904f72acdd
 shortname: routing-evolution
-last_updated: 2026-07-30T19:19:53Z
+last_updated: 2026-07-30T19:48:06Z
 compaction_count: 5
 progress_pct: 85
 current_step: 4
@@ -160,13 +160,20 @@ exp-018 omni adjudication is LIVE overnight.
        compose final verdict.
        (3) dashboard v65 PUBLISHED (version 65 confirmed; commit
        pushed both remotes): findings §19 exp-027 + §20 exp-028.
-       LIVE: (a) code_full3 (tree lock), (b) exp-029 sweep in
-       benchmark agent a7b0df7ce66fc0246: foreign-balance-sheet tier
-       from realistic_graph.json (from_graph variant A vs bimodal
-       variant B, 7 arms incl ilnd via lnd-isim merge of 7d10989fd,
-       replicate protocol, Q1 ordering survives? Q2 ilnd tracks +
-       prod-default? Q3 family-vs-topology, Q4 fee-signal optional).
-       On wake: verify, exp-029 writeup, mail digest, v66 later.
+       exp-029 CLOSED (b0795367b + CLAUDE.md entry): ordering
+       SURVIVES on foreign balances, margin a third WIDER
+       (+0.127..0.132 vs +0.097, all 10/0 p=.002); family swap ~zero
+       (7 CIs straddle; fitted mx_c3 gains least) — circularity
+       caveat measured ~0. ilnd tracks champions to 3rd decimal,
+       gains under prod default. atomic1 top (flat-liquidity filing
+       predicted it). Fee signal present (Spearman -0.149), nobody
+       exploits it. isim tip ffe5e5537 pushed. Digest mailed.
+       LIVE: code_full3 ONLY (800-eval compose arm, watcher
+       b7htr0zi1). On its exit: artifact check, give-up watch,
+       exp-030 writeup (compose FINAL verdict), dashboard v66
+       (exp-029 + 030). Then: offline replay NEXT WEEK (user);
+       release prep for interval-router branch (ship target: next
+       lnd major).
 12.[x] LIVE NOW (2026-07-29):
        (a) code_full2: compose world seeded FROM econ2 (--seed-file
        exp-025-econ2-best-candidate.go, --econ --degraded, 400

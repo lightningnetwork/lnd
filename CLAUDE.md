@@ -461,20 +461,20 @@ next.
   trying without changing WHAT it retries. Estimator worth ≤0.02 of
   objective; paradigm worth 0.18–0.22.
 
-### Next, in priority order
-1. **Upstream PR prep for soft_unknown** — extract the exp-021 Part B
-   diff, strip fork-specific comments, port the evidence chain
-   (exp-019 pathology, exp-021 recovery table) into a PR narrative.
-   Known limitation to state: the min-probability hop choice needs
-   capacity threading before it works under the bimodal estimator.
-2. Offline replay on real payment data — replay both belief systems
-   over a real node's historical attempt stream, score predictive
-   log-loss. No simulator in the loop; the escape from
-   "simulator-shaped."
-3. Plan-time distillation (the hard half): success-side memory
-   feeding initial amount choice + joint route-set construction —
-   priced as an architectural change after exp-021 measured the
-   reactive half null.
-4. Upstream the gepa meta_harness JSON fix (merged durable into
-   `~/codez/gepa` main at 7c20d98c; the upstream PR to gepa-ai/gepa
-   remains). The ceiling arm is DONE (exp-024).
+### Next, in priority order (user directives 2026-07-30)
+**The ship target is the interval router in the next lnd major
+release** — the soft_unknown PR is DROPPED (user: doesn't move the
+needle); everything funnels toward the integration branch.
+1. Realistic-graph loader flag (`routing/sim_load.go` reads the
+   per-edge `balance` field) → exp-029 foreign-balance-sheet sweep
+   on `~/codez/data/realistic_graph.json` — the first liquidity
+   family we did not author.
+2. compose-800: the second pre-registered exp-026 escape (hand seed,
+   800 evals on corpus-full). If it fails too, the compose world is
+   closed at any seed and budget.
+3. Dashboard v65: exp-027 (14/14 + production-default), exp-028
+   (give-up rule), exp-029 when it lands.
+4. Offline replay on real payment data — NEXT WEEK per user (needs
+   node access).
+5. Plan-time distillation (the hard half) — priced as architectural.
+6. Upstream the gepa meta_harness JSON fix to gepa-ai/gepa.

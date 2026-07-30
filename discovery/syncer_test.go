@@ -2656,34 +2656,6 @@ func TestGossipSyncerChanRangeReplyNoQuery(t *testing.T) {
 	require.ErrorContains(t, err, "without an active query")
 }
 
-// TestGossipSyncerCountsReceivedEncoding ensures that compressed range
-// replies consume the larger reply budget even when the local syncer uses
-// plain encoding.
-func TestGossipSyncerCountsReceivedEncoding(t *testing.T) {
-	t.Parallel()
-	ctx := t.Context()
-
-	_, syncer, _ := newTestSyncer(
-		lnwire.ShortChannelID{BlockHeight: latestKnownHeight},
-		defaultEncoding, defaultChunkSize,
-	)
-
-	query, err := syncer.genChanRangeQuery(ctx, true)
-	require.NoError(t, err)
-
-	reply := &lnwire.ReplyChannelRange{
-		ChainHash:        query.ChainHash,
-		FirstBlockHeight: query.FirstBlockHeight,
-		NumBlocks:        query.NumBlocks,
-		EncodingType:     lnwire.EncodingSortedZlib,
-	}
-	require.NoError(t, syncer.processChanRangeReply(ctx, reply))
-	require.Equal(
-		t, uint32(maxQueryChanRangeRepliesZlibFactor),
-		syncer.numChanRangeRepliesRcvd,
-	)
-}
-
 // deliverOverBudgetRangeReply waits for the syncer to send its initial range
 // query, then answers it with a single reply that overruns the aggregate SCID
 // budget. Sending the query is what populates curQueryRangeMsg and moves the

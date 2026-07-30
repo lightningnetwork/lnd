@@ -1,7 +1,7 @@
 ---
 session_id: 019f95d9-7ff7-709b-8847-ec904f72acdd
 shortname: routing-evolution
-last_updated: 2026-07-30T00:14:20Z
+last_updated: 2026-07-30T00:22:16Z
 compaction_count: 5
 progress_pct: 85
 current_step: 4
@@ -91,11 +91,19 @@ exp-018 omni adjudication is LIVE overnight.
        ~/codez/data/realistic_graph.json (first un-authored liquidity
        family, soft U-shape; ideas logged e3308afe7), report
        published https://fee-liquidity-correlation.lightning.wiki/.
-       LIVE: (a) code_full2 (tree lock holds), (b) round-3 re-bench
-       in isim agent a7b0df7ce66fc0246 (ilnd arm only vs round-2
-       raws; Q1 econ rungs, Q2 deg_mn_mix toward 0.000, Q3 classic
-       non-inferiority). Next after wakes: full2 artifact-check +
-       verdict sweep; round-3 verdict -> exp-027 addendum; dashboard
+       DONE: round-3 re-bench -> exp-027 addendum (5912dd545):
+       budget price CONFIRMED (hard@4000 +0.079 only CI-solid r3-r2
+       delta, beats every champion, cap-insensitive), quarantine
+       NULL (deg_mn gap widened to -0.044 vs mx_c3 CI-solid),
+       non-inferiority PASS w/ ood -0.032 watch item. ilnd 13/14
+       CI-solid over lnd. interval-sim@09b643d6f pushed.
+       LIVE: (a) code_full2 (tree lock holds), (b) ROUND 4 in
+       integration agent a1115c4fbee460647: budget-conditional
+       cheapest-label keep in intervalFrontier.insert (restore pure
+       rank eviction when no budget; identical under budget), update
+       both tests, one commit, no push. On wake: verify + push +
+       re-bench ilnd arm via isim agent a7b0df7ce66fc0246.
+       Next: full2 artifact-check + verdict sweep on exit; dashboard
        v65; realistic-graph loader flag once tree unlocks.
 12.[x] LIVE NOW (2026-07-29):
        (a) code_full2: compose world seeded FROM econ2 (--seed-file

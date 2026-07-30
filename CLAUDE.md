@@ -6,7 +6,7 @@ an in-process payment simulator. NOT tied to the current Dijkstra +
 mission-control paradigm — whole routing algorithms are the candidates.
 
 Read `simulation/lab/NOTEBOOK.md` first for the full story; experiment
-writeups live in `simulation/lab/experiments/` (exp-001…exp-021).
+writeups live in `simulation/lab/experiments/` (exp-001…exp-027).
 
 ## Headline results (all validated, held-out, reproducible)
 
@@ -17,6 +17,7 @@ writeups live in `simulation/lab/experiments/` (exp-001…exp-021).
 | hb1 (evolved) | 0.790 | 2.3 | sharp-bimodal specialist; edges over mx_c3 are family-specific only (exp-020) |
 | **mx_c3 (evolved)** | **0.791** | **2.3** | generalist champion — title DEFENDED (exp-020: split_test 8/0 p=.008; hb1 wins nothing on the original set) |
 | atomic1 (evolved) | 0.790 | 1.6 | flat-liquidity specialist (exp-017 ladder rank 4→1), attempt record, beats a champion under staleness |
+| **interval-lnd (integrated)** | **0.788** | **2.5** | the interval-router branch running INSIDE lnd's payment lifecycle (exp-027): champions' margin on all six tiers, best arm in the field on mainnet fee rungs, exp-019 robustness inherited |
 
 - Mainnet = real 12,161-node describegraph snapshot
   (`~/codez/data/mainnet_graph.json`), 100 payments (exp-009). Same
@@ -190,10 +191,30 @@ the corrections to our own published claims, live in
 next.
 
 ### Live
-- Nothing. The tree is FREE — exp-018 completed overnight
-  (2026-07-28); no run holds `routing/` or `cmd/routesim/`.
+- **code_full2** — compose world seeded FROM econ2 (400 evals). TREE
+  LOCKED (`routing/`, `cmd/routesim/`) until it exits.
+- **exp-027 round-3 re-bench** — isim agent re-running the ilnd arm
+  at interval-router@1bcbb1485 (budget pricing + quarantine), paired
+  against the round-2 raws.
 
 ### Closed since exp-011 (champions UNCHANGED throughout: hb1 + mx_c3)
+- **exp-027** — the integration benchmark. interval-router@ab1c123ab
+  merged into the sim tree, `router_impl=interval` knob on the lnd
+  arm (mission control still fed; lifecycle seams mirrored), 104/104
+  byte-identity off, gates 24/24 vs exp-023, 804-run battery. The
+  flag flip pays the champions' margin on ALL six classic tiers
+  (mainnet 0.788 vs lnd 0.694 vs mx_c3 0.791; attempts 2.5 vs 2.3),
+  indistinguishable from mx_c3 on 5/6, takes split off hb1. exp-019
+  robustness inherited (degraded hard −0.049 inside the champion
+  band; lnd −0.253). Hybrid thesis CONFIRMED on mainnet fee rungs
+  (best arm in field, zero budget violations both rungs) and REFUTED
+  on hard@4000 (inherits the paradigm's abandonment; econ2 keeps that
+  regime). One gap: degraded mainnet −0.040 success where champions
+  lose exactly 0.000 (the round-3 quarantine's target — re-bench
+  live). Methodology self-correction: mainnet cells were NEVER
+  byte-reproducible on any binary (findPath map iteration), so
+  bit-exact mainnet gate cells in exp-023/025 were luck; paired stats
+  carried those verdicts, future gates read mainnet statistically.
 - **exp-026** — the compose world holds. First breed under economics
   AND the lying channel together: an honest defeat (8 pool accepts,
   all attempting the full budget+inbound+reservations synthesis,

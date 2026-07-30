@@ -1,0 +1,132 @@
+{
+  "_meta": {
+    "samples_per_group": 40,
+    "merge_base": "7a2014c8e"
+  },
+  "mn_11_uniform": {
+    "distinct_outputs": {
+      "A": 2,
+      "B": 2,
+      "N": 2
+    },
+    "novel_vs_A": {
+      "B": 0,
+      "N": 0
+    },
+    "attempts_multiset": {
+      "A": {
+        "434": 27,
+        "435": 13
+      },
+      "B": {
+        "434": 20,
+        "435": 20
+      },
+      "N": {
+        "434": 29,
+        "435": 11
+      }
+    },
+    "attempts_mean": {
+      "A": 434.325,
+      "B": 434.5,
+      "N": 434.275
+    },
+    "attempts_support_equal": true,
+    "noise_floor_covers_new": true
+  },
+  "mn_22_bimodal": {
+    "distinct_outputs": {
+      "A": 4,
+      "B": 5,
+      "N": 5
+    },
+    "novel_vs_A": {
+      "B": 1,
+      "N": 1
+    },
+    "attempts_multiset": {
+      "A": {
+        "237": 40
+      },
+      "B": {
+        "237": 40
+      },
+      "N": {
+        "237": 40
+      }
+    },
+    "attempts_mean": {
+      "A": 237,
+      "B": 237,
+      "N": 237
+    },
+    "attempts_support_equal": true,
+    "noise_floor_covers_new": true
+  },
+  "mn_44_bimodal": {
+    "distinct_outputs": {
+      "A": 6,
+      "B": 6,
+      "N": 6
+    },
+    "novel_vs_A": {
+      "B": 0,
+      "N": 0
+    },
+    "attempts_multiset": {
+      "A": {
+        "254": 40
+      },
+      "B": {
+        "254": 40
+      },
+      "N": {
+        "254": 40
+      }
+    },
+    "attempts_mean": {
+      "A": 254,
+      "B": 254,
+      "N": 254
+    },
+    "attempts_support_equal": true,
+    "noise_floor_covers_new": true
+  },
+  "mn_55_uniform": {
+    "distinct_outputs": {
+      "A": 5,
+      "B": 5,
+      "N": 5
+    },
+    "novel_vs_A": {
+      "B": 0,
+      "N": 1
+    },
+    "attempts_multiset": {
+      "A": {
+        "448": 36,
+        "449": 4
+      },
+      "B": {
+        "448": 36,
+        "449": 4
+      },
+      "N": {
+        "448": 38,
+        "449": 2
+      }
+    },
+    "attempts_mean": {
+      "A": 448.1,
+      "B": 448.1,
+      "N": 448.05
+    },
+    "attempts_support_equal": true,
+    "noise_floor_covers_new": true
+  },
+  "_verdict": {
+    "all_within_noise_floor": true,
+    "note": "flaky cells: lnd findPath expands predecessors by iterating a Go map (pathfind.go:1106), so exact cost ties on the mainnet graph are broken by map order. Present at the merge-base commit; not introduced by this branch."
+  }
+}

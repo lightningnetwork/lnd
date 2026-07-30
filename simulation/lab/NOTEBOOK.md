@@ -1012,3 +1012,32 @@ where holds contend, econ2 where money is scarce. Nobody owns
 everything, which is itself the strongest argument yet for the
 hybrid the lnd branch builds: evolved beliefs on top of pricing that
 counts.
+
+## 2026-07-29 — exp-027: the flag flip pays the champions' margin
+
+The e2e question got its answer the same day the compose world
+closed: put the interval session inside lnd's real payment lifecycle,
+flip `router_impl=interval` on the simulator's lnd arm, and the
+integrated branch scores 0.788 on mainnet against stock lnd's 0.694
+and mx_c3's 0.791 — the champions' margin, not a fraction of it, on
+all six classic tiers, with attempts landing at 2.5 where the
+champions sit at 2.3. The port is indistinguishable from mx_c3 on
+five tiers and takes split off hb1 outright. It inherits the exp-019
+robustness story nearly whole (stock lnd collapses to 0.240 on the
+degraded hard mix; the integrated branch holds 0.667, inside the
+champion band), and on the mainnet fee rungs it is the best arm in
+the field — champion beliefs with lnd's budget discipline, zero
+violations, exactly the hybrid exp-023 said to build.
+
+Two honest edges. On degraded mainnet the champions lose exactly
+zero success and the port loses 0.040 — its only significant loss to
+a champion anywhere, and precisely the channel the round-3
+quarantine commit targets; the re-bench is live. And at 4000ppm on
+the hard tier the hybrid inherits the paradigm's abandonment rather
+than lnd's persistence, so econ2 keeps its regime. One methodology
+find along the way: mainnet cells were never byte-reproducible on
+any binary (lnd's findPath iterates a map; ties break by memory
+order), so the bit-exact mainnet gate cells in earlier tables were
+luck — the paired stats carried those verdicts, but future gates
+should treat mainnet statistically. Full battery: 804 runs, zero
+errors, gates 24/24 against exp-023.

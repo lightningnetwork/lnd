@@ -1,7 +1,7 @@
 ---
 session_id: 019f95d9-7ff7-709b-8847-ec904f72acdd
 shortname: routing-evolution
-last_updated: 2026-07-30T02:49:58Z
+last_updated: 2026-07-30T19:19:53Z
 compaction_count: 5
 progress_pct: 85
 current_step: 4
@@ -142,10 +142,31 @@ exp-018 omni adjudication is LIVE overnight.
        wrong-channel hypothesis, tiers in
        exp-027-deg-mechanism-split.json. Branches pushed:
        interval-router@60cce3572, interval-sim@fc7bfb065.
-       LIVE: code_full2 ONLY (tree lock holds). On its exit:
-       econ1-style artifact check, verdict sweep w/ attempt-cap +
-       give-up watch, writeup, then dashboard v65 (exp-027 + full2),
-       then realistic-graph loader flag (tree unlocked).
+       code_full2 DONE -> exp-028 (508ac3738): give-up attractor
+       reproduced from econ2 seed (best-val loses 0.030 held-out to
+       its own seed, all success; verified by independent overlay
+       rerun). Compose escape arm 1 dead. TREE FREE.
+       USER DIRECTIVES 2026-07-30 (committed to CLAUDE.md): ship
+       target = interval router in next lnd MAJOR RELEASE;
+       soft_unknown PR DROPPED; offline replay NEXT WEEK.
+       ALL THREE TRACKS EXECUTED (2026-07-30):
+       (1) loader flag LANDED (7d10989fd, verified+pushed both):
+       from_graph + unbalanced_source; byte-identity 14/14 proven;
+       smoke on realistic graph binds (33% tails vs our 63%).
+       (2) code_full3 LIVE (800 evals, launched after loader; gate
+       reproduced 0.3162367 to 6 decimals; watcher armed task
+       b7htr0zi1; log SCRATCH/code_full3.log). TREE LOCKED again.
+       On exit: artifact check, give-up watch, exp-030 writeup =
+       compose final verdict.
+       (3) dashboard v65 PUBLISHED (version 65 confirmed; commit
+       pushed both remotes): findings §19 exp-027 + §20 exp-028.
+       LIVE: (a) code_full3 (tree lock), (b) exp-029 sweep in
+       benchmark agent a7b0df7ce66fc0246: foreign-balance-sheet tier
+       from realistic_graph.json (from_graph variant A vs bimodal
+       variant B, 7 arms incl ilnd via lnd-isim merge of 7d10989fd,
+       replicate protocol, Q1 ordering survives? Q2 ilnd tracks +
+       prod-default? Q3 family-vs-topology, Q4 fee-signal optional).
+       On wake: verify, exp-029 writeup, mail digest, v66 later.
 12.[x] LIVE NOW (2026-07-29):
        (a) code_full2: compose world seeded FROM econ2 (--seed-file
        exp-025-econ2-best-candidate.go, --econ --degraded, 400

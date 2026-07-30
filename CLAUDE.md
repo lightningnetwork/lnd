@@ -193,9 +193,6 @@ next.
 ### Live
 - **code_full2** — compose world seeded FROM econ2 (400 evals). TREE
   LOCKED (`routing/`, `cmd/routesim/`) until it exits.
-- **exp-027 round-3 re-bench** — isim agent re-running the ilnd arm
-  at interval-router@1bcbb1485 (budget pricing + quarantine), paired
-  against the round-2 raws.
 
 ### Closed since exp-011 (champions UNCHANGED throughout: hb1 + mx_c3)
 - **exp-027** — the integration benchmark. interval-router@ab1c123ab
@@ -210,8 +207,17 @@ next.
   (best arm in field, zero budget violations both rungs) and REFUTED
   on hard@4000 (inherits the paradigm's abandonment; econ2 keeps that
   regime). One gap: degraded mainnet −0.040 success where champions
-  lose exactly 0.000 (the round-3 quarantine's target — re-bench
-  live). Methodology self-correction: mainnet cells were NEVER
+  lose exactly 0.000. Round-3 re-bench (paired vs round-2 raws):
+  budget pricing CONFIRMED — hard@4000 +0.079 (the only CI-solid
+  r3-vs-r2 delta), tier flips to +0.107 over lnd and beats every
+  champion there, cap-insensitive, zero fee violations everywhere;
+  quarantine NULL on its home turf (deg-mainnet gap widened to
+  −0.044 vs mx_c3 CI-solid — suspect discounting is measurably not
+  what buys the champions' zero); non-inferiority PASS with one
+  watch item, ood −0.032 from the unconditional cheapest-label keep
+  (round-4 hypothesis: budget-conditional). interval-lnd beats stock
+  lnd CI-solidly on 13/14 tiers. Methodology self-correction:
+  mainnet cells were NEVER
   byte-reproducible on any binary (findPath map iteration), so
   bit-exact mainnet gate cells in exp-023/025 were luck; paired stats
   carried those verdicts, future gates read mainnet statistically.

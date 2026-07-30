@@ -130,3 +130,77 @@ fourth), and mean total_attempts agrees to within 0.05 of ~434. Consequence
 worth flagging beyond this branch: the "bit_exact" mainnet cells in exp-023 and
 exp-025's gate tables are luck-dependent, not guaranteed. This run's gate
 happened to land bit-exact on all 24 cells.
+
+---
+
+# Round 3: interval-router@1bcbb1485
+
+Two commits past round 2's merge base: `ee95a0fcc` (budget-derived fee price per
+nat, never-evicted cheapest label in the frontier, finished-route budget guard)
+and `1bcbb1485` (suspect-bound quarantine for failures that cannot name their
+channel). Merge commit on `interval-sim`, NOT pushed.
+
+## 1. The merge
+
+    git merge 1bcbb1485 --no-commit      # clean, zero conflicts
+    go build ./routing/... ./cmd/routesim/ .
+    go test ./routing/...                # green
+    gofmt -l routing/                    # clean
+
+Eight files, all interval-only plus docs: `interval_belief.go`,
+`interval_pathfind.go`, `interval_session.go`, `interval_store.go`, two new test
+files, `interval_parallel_test.go`, `docs/interval_routing.md`. Nothing shared
+with the simulator, which is what makes the arm reuse below checkable.
+
+## 2. Builds
+
+    go build -o $W/bins/routesim_r3 ./cmd/routesim
+    go build -overlay $W/ov/mx_c3/overlay.json -o $W/bins/routesim_mx_c3_r3 ./cmd/routesim
+
+Round-2 binaries are left in place untouched (`routesim_base`,
+`routesim_{hb1,mx_c3,atomic1}`), so the five reused arms are the exact binaries
+that produced their cached aggregates.
+
+## 3. Reuse gate (this is what licenses not re-running the other five arms)
+
+    python3 $W/identity_r3.py         # -> identity_r3.json
+    python3 $W/identity_flaky_r3.py   # -> identity_flaky_r3.json
+
+159 cells: `routesim_base` vs `routesim_r3` on both `--router` arms over the six
+classic tiers, plus `routesim_mx_c3` vs `routesim_mx_c3_r3` on the candidate arm.
+158/159 byte-identical (58.5 MB), the exception being the already-known flaky
+mainnet lnd cells. The mx_c3 overlay comparison is 54/54 identical, so the
+overlay binaries embedding `routing/` are provably unaffected too.
+
+`identity_r3.py`'s 3-run screen called `mn_11_uniform` deterministic on three
+lucky samples and then reported a difference; `identity_flaky_r3.py` treats all
+four known cells as flaky by construction and measures the noise floor at 40
+samples per group. novel(N|A) <= novel(B|A) on all four.
+
+## 4. Runs (ilnd only)
+
+    python3 $W/run3.py     # 134 runs, 0 errors
+
+Arm key `ilnd3`, written into the same `$W/raw/` as round 2, so round 2's `ilnd`
+aggregates survive and the two rounds pair file for file. Same manifest, same
+files, same seeds:
+`routesim_r3 --scenarios <file> --router=lnd --params $W/params/interval.json --traces=false`.
+
+## 5. Stats and tables
+
+    python3 $W/stats3.py     # -> round3 block in isim-results-summary.json
+    python3 $W/tables3.py    # -> round3-tables.txt
+    python3 $W/verdict3.py   # -> round3.reuse_gate + round3.verdict
+
+Same estimators as round 2: bootstrap 10k percentile CIs at seed 20260729,
+two-sided exact sign tests, all deltas paired per file, success/attempts/
+give-ups/both fee metrics carried separately, every delta re-scored at caps
+15/30/60/uncapped.
+
+## Round-3 outputs
+
+    isim-results-summary.json   round3 block appended (round 2 untouched)
+    round3-tables.txt           7 sections
+    identity_r3.json            159-cell reuse gate
+    identity_flaky_r3.json      the 4 flaky mainnet cells at 40 samples/group
+    raw/*__ilnd3__*.json        134 new per-file aggregates

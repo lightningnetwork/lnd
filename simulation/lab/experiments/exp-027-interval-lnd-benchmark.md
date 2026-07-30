@@ -1,8 +1,9 @@
 # EXP-027 — The integrated router, measured: interval-lnd is a champion in lnd's body
 
-**Date:** 2026-07-29.
-**Status:** round 2 tip (ab1c123ab) adjudicated; round 3 re-bench
-(budget pricing + quarantine, 1bcbb1485) in flight as the addendum.
+**Date:** 2026-07-29 (round 2 battery + round 3 re-bench, same day).
+**Status:** complete. Round 2 tip (ab1c123ab) adjudicated in full;
+round 3 (budget pricing + quarantine, 1bcbb1485) re-benched paired
+against the round-2 raws — see the addendum at the bottom.
 
 ## Why this ran
 
@@ -135,3 +136,61 @@ map-iteration self-control). Branch `interval-sim` on the roasbeef
 fork (merge bf1d2c6f9 + knob 04ab5ad77); raw per-run aggregates in the
 session scratch under `isim/raw/`. n=10 per tier (n=8 drift/split),
 sign tests paired by file.
+
+## Addendum — round 3 re-benched: the budget price earns its keep, the quarantine does not
+
+The re-bench merged interval-router@1bcbb1485 (clean, interval-only
+files) and re-ran ONLY the interval arm over the same 14 tiers and
+files, paired against the round-2 raws. Reuse gate first: 158/159
+cells byte-identical across both stock binaries and the rebuilt mx_c3
+overlay (the one exception is the known-flaky mainnet-lnd set, now
+re-confirmed flaky at 40 samples/group — the earlier 3-sample screen
+had called one cell deterministic on luck, which is the map-iteration
+lesson applying to itself).
+
+**Budget pricing: confirmed.** hard@4000 — round 2's worst result —
+is the only paired round-3-vs-round-2 delta in the sweep whose CI
+excludes zero: +0.079 objective, success 0.460 → 0.556,
+control-relative loss 0.301 → 0.193. The tier flips from straddling
+zero against lnd to +0.107 (9/0, p=.004), and now beats every
+champion there (mx_c3 +0.067, hb1 +0.112, atomic1 +0.074) while still
+trailing the never-fitted seed (0.410 vs 0.444, CI straddling): no
+longer a loss, not yet a win. The gain is cap-insensitive (+0.072
+uncapped), bought with success rather than free attempts.
+`fee_limit_failures` stays 0.0 per file on every rung. The mainnet
+rungs edge up (+0.016/+0.009, CIs straddling) and interval-lnd
+remains the best arm in the field on all three.
+
+**Quarantine: null, and its target gap widened.** No degraded-tier
+delta reaches significance in either direction, but the
+degraded-mainnet gap it was built to close moved the wrong way:
+success loss 0.040 → 0.050, and ilnd−mx_c3 there is now −0.044 with
+the CI excluding zero (round 2: −0.036). Unreadable failures are the
+quarantine's home turf, so this is a measured verdict, not an
+underpowered one: whatever buys the champions their exact zero on
+degraded mainnet, it is not suspect-bound discounting. The mechanism
+stays in the branch flag-gated with this null on its record; the gap
+goes back on the open-questions list.
+
+**Non-inferiority: pass, with one watch item.** Across all 14 tiers
+exactly one classic-family CI excludes zero, and it is hard@4000 in
+the intended direction. But ood_test moved −0.032 (CI straddling)
+with success −0.029 at flat attempts, and it converts ilnd−mx_c3 on
+that tier from a straddle to −0.042 CI-solid. The signature points at
+the frontier's cheapest-label keep, which currently applies whether
+or not a budget exists — the no-budget econ control shows the same
+shape (−0.030 uncapped, attempts +1.9). Round 4's one-line
+hypothesis: protect the cheapest label only when the payment carries
+a fee budget, keeping the hard@4000 win while returning the
+budget-less search to its validated eviction.
+
+Bottom line after round 3: interval-lnd beats stock lnd CI-solidly on
+13 of 14 tiers (degraded-mainnet the straddle), owns the mainnet fee
+rungs against the entire field, and its two open edges are now
+precisely localized — degraded-mainnet belief semantics, and a
+label-eviction rule that should be budget-conditional.
+
+Round-3 artifacts: `round3` block in
+`exp-027-isim-results-summary.json`, `exp-027-round3-tables.txt.gz`,
+commands appended to `exp-027-isim-commands.md`; merge 09b643d6f on
+`interval-sim`.

@@ -1041,3 +1041,19 @@ order), so the bit-exact mainnet gate cells in earlier tables were
 luck — the paired stats carried those verdicts, but future gates
 should treat mainnet statistically. Full battery: 804 runs, zero
 errors, gates 24/24 against exp-023.
+
+The round-3 re-bench came back the same evening, and it split the two
+commits cleanly down the middle. The budget-derived fee price is the
+real thing: hard@4000 — the tier round 2 lost — moved +0.079 with the
+only CI-solid round-over-round delta in the sweep, flipping it to
++0.107 over lnd and past every champion, cap-insensitive, with fee
+violations still at zero everywhere. The quarantine is a null on its
+own home turf: no degraded tier moved significantly, and the
+degraded-mainnet gap it was built to close widened to −0.044 against
+mx_c3. Whatever buys the champions their exact zero there, it is not
+suspect-bound discounting — that mystery goes back on the board. And
+the cheapest-label keep, which currently applies budget or no budget,
+shows a cost signature on ood (−0.032) and the no-budget econ
+control; round 4 is a one-line hypothesis: protect the cheapest label
+only when a budget exists. Thirteen of fourteen tiers now CI-solid
+over stock lnd.

@@ -232,3 +232,19 @@ func TestValidateChannelPolicyTimeLockDelta(t *testing.T) {
 	)
 	require.ErrorContains(t, err, "exceeds max-cltv-expiry")
 }
+
+// TestValidateLocalPaymentDispatch asserts that refusing local dispatch is
+// rejected only without the switchrpc build tag, and accepted otherwise.
+func TestValidateLocalPaymentDispatch(t *testing.T) {
+	t.Parallel()
+
+	// Refusing local dispatch without the build tag is the one rejected
+	// combination: the node would refuse local sends yet have no switchrpc
+	// dispatcher to send through instead.
+	require.Error(t, validateLocalPaymentDispatch(false, false))
+
+	// Every other combination is valid.
+	require.NoError(t, validateLocalPaymentDispatch(true, false))
+	require.NoError(t, validateLocalPaymentDispatch(true, true))
+	require.NoError(t, validateLocalPaymentDispatch(false, true))
+}

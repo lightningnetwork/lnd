@@ -1,7 +1,7 @@
 ---
 session_id: 019f95d9-7ff7-709b-8847-ec904f72acdd
 shortname: routing-evolution
-last_updated: 2026-07-31T07:54:50Z
+last_updated: 2026-07-31T07:58:13Z
 compaction_count: 5
 progress_pct: 85
 current_step: 4
@@ -87,8 +87,13 @@ exp-018 omni adjudication is LIVE overnight.
        n=30 fresh files (6/7 tiers, hard +0.16..0.26, mn +0.096);
        exp-030 MAGNITUDES DISSOLVE (bug -0.0099, fix +0.0034, both
        straddle zero; mechanism+counters survive; correction in
-       exp-030 record + PR draft edit dispatched to integration
-       agent — on wake verify/push/refresh rebased). deg-mn deficit
+       exp-030 record + PR draft edited (cec9dc48e: mechanism and
+       counters only, no deltas anywhere; explainer aligned) —
+       verified, pushed; rebased refreshed via cherry-pick to
+       434d48fe0 and pushed with lease. FINAL SHIP STATE: RC
+       interval-router@cec9dc48e (26 commits) + rebased 434d48fe0
+       + interval-sim@dcde83cca, all on fork; PR draft final
+       pending user edit). deg-mn deficit
        halves to -0.021 not CI-solid; abandonment subsidy 3rd
        sighting (lnd obj RISES on deg mainnet). SIMULATOR PROGRAM
        AT REST: 32 experiments. Was dispatched as re-pin in

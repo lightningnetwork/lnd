@@ -1,7 +1,7 @@
 ---
 session_id: 019f95d9-7ff7-709b-8847-ec904f72acdd
 shortname: routing-evolution
-last_updated: 2026-07-31T00:42:14Z
+last_updated: 2026-07-31T00:46:54Z
 compaction_count: 5
 progress_pct: 85
 current_step: 4
@@ -202,14 +202,12 @@ exp-018 omni adjudication is LIVE overnight.
        accepted: pre-restart settlements shouldn't suppress fresh
        suspicions; Restored re-arming hole), fourth LowerOK path
        (coincident-amount promotion swallow) documented+pinned NOT
-       widened. LIVE: (a) code_full3, (b) benchmark agent validating
-       committed V3 == throwaway numbers (ilnd7, 5 mechanism tiers +
-       counters, committed_v3 block), (c) DONE: interval-router-rebased
-       refreshed to b489649f6 (25 commits on upstream master
-       f4a444184, zero conflicts, full battery + sqlc-check + itest
-       green, symmetric-difference proof) and force-pushed with
-       lease. BOTH branches current on fork: RC eb4fc3e62 +
-       rebased b489649f6 — the PR-ready pair.
+       widened. LIVE: code_full3 ONLY. exp-030 RECORD CLOSED (addendum
+       pushed): committed V3 == throwaway on all 5 tiers, mix 0.5138
+       (+0.0439 vs broken tip, +0.0098 vs pre-quarantine ref),
+       innocent convictions 9.6%->8.4% = the shift-only floor.
+       isim@dcde83cca pushed. Rebased branch b489649f6 pushed
+       (see (c) entry above).
        QUEUED: wider degraded corpus re-pin before PR quotes
        magnitudes; exp-031 = full3 compose verdict; dashboard v66.
        Then: offline replay NEXT WEEK (user); ship target = interval

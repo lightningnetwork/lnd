@@ -9,6 +9,7 @@
       "V1_no_quarantine": "V0 with the store-level quarantine never recorded",
       "V2_no_probe_on_named": "V0 with no LowerOK written for hops before a named failure",
       "V3_probe_no_suppress": "V0 where only a SETTLEMENT-derived lower bound silences the quarantine",
+      "ilnd7_committed_v3": "the COMMITTED fix, interval-router@eb4fc3e62 (8eabe1daf), merged into interval-sim at dcde83cca",
       "V4_corroborate": "V0 where a payment that has seen an unreadable failure stops trusting later named reports for forwarding evidence"
     },
     "replicates": {
@@ -86,6 +87,17 @@
         "attribution_shifted": 0.0,
         "max_replicate_range": 3.877777777772096e-06,
         "replicates": 16
+      },
+      "ilnd7_committed_v3": {
+        "objective": 0.5714902942478243,
+        "success": 0.7153174603174602,
+        "attempts": 10.161130952380951,
+        "give_up_rate": 0.2846825396825397,
+        "fee_ppm": 3451.5030980976017,
+        "attribution_unknown": 0.0,
+        "attribution_shifted": 0.0,
+        "max_replicate_range": 2.9333333333436684e-06,
+        "replicates": 16
       }
     },
     "deg_hard_unk20": {
@@ -154,6 +166,17 @@
         "attribution_shifted": 0.0,
         "max_replicate_range": 0.1428571428571429,
         "replicates": 16
+      },
+      "ilnd7_committed_v3": {
+        "objective": 0.5694235165428958,
+        "success": 0.7221924603174603,
+        "attempts": 12.008263888888889,
+        "give_up_rate": 0.2778075396825397,
+        "fee_ppm": 3661.259538547654,
+        "attribution_unknown": 13.85,
+        "attribution_shifted": 0.0,
+        "max_replicate_range": 0.1681456982456141,
+        "replicates": 16
       }
     },
     "deg_hard_shift10": {
@@ -220,6 +243,17 @@
         "fee_ppm": 3398.9868846515164,
         "attribution_unknown": 0.0,
         "attribution_shifted": 7.5875,
+        "max_replicate_range": 0.2857142857142857,
+        "replicates": 16
+      },
+      "ilnd7_committed_v3": {
+        "objective": 0.5255345622115604,
+        "success": 0.6738888888888889,
+        "attempts": 12.754067460317462,
+        "give_up_rate": 0.32611111111111113,
+        "fee_ppm": 3401.418403522028,
+        "attribution_unknown": 0.0,
+        "attribution_shifted": 7.56875,
         "max_replicate_range": 0.2857142857142857,
         "replicates": 16
       }
@@ -290,6 +324,17 @@
         "attribution_shifted": 7.60625,
         "max_replicate_range": 0.5,
         "replicates": 32
+      },
+      "ilnd7_committed_v3": {
+        "objective": 0.5137685744616519,
+        "success": 0.6804761904761905,
+        "attempts": 13.721711309523808,
+        "give_up_rate": 0.3195238095238095,
+        "fee_ppm": 4044.7310237494225,
+        "attribution_unknown": 17.8,
+        "attribution_shifted": 7.303125,
+        "max_replicate_range": 0.29303330785714277,
+        "replicates": 32
       }
     },
     "deg_hard_unk30": {
@@ -357,6 +402,17 @@
         "attribution_unknown": 26.38125,
         "attribution_shifted": 0.0,
         "max_replicate_range": 0.27169874285714285,
+        "replicates": 16
+      },
+      "ilnd7_committed_v3": {
+        "objective": 0.526426844701683,
+        "success": 0.693125,
+        "attempts": 14.126547619047619,
+        "give_up_rate": 0.306875,
+        "fee_ppm": 3530.414582824619,
+        "attribution_unknown": 27.2375,
+        "attribution_shifted": 0.0,
+        "max_replicate_range": 0.2857142857142857,
         "replicates": 16
       }
     }
@@ -618,6 +674,60 @@
           "mean_ref": 10.147738095238093,
           "mean_var": 10.145059523809524,
           "replicate_z": -12531.979314472255
+        },
+        "give_up_rate": {
+          "delta": 0.0,
+          "ci_lo": 0.0,
+          "ci_hi": 0.0,
+          "ci_excludes_zero": false,
+          "pos": 0,
+          "neg": 0,
+          "n": 10,
+          "sign_p": 1.0,
+          "mean_ref": 0.2846825396825397,
+          "mean_var": 0.2846825396825397,
+          "replicate_z": 0.0
+        }
+      },
+      "ilnd7_committed_v3": {
+        "objective": {
+          "delta": -1.3693528694291857e-08,
+          "ci_lo": -7.149725275157338e-08,
+          "ci_hi": 3.04166666686978e-08,
+          "ci_excludes_zero": false,
+          "pos": 1,
+          "neg": 1,
+          "n": 10,
+          "sign_p": 1.0,
+          "mean_ref": 0.5714903079413529,
+          "mean_var": 0.5714902942478243,
+          "replicate_z": -0.0702612095743766
+        },
+        "success": {
+          "delta": 0.0,
+          "ci_lo": 0.0,
+          "ci_hi": 0.0,
+          "ci_excludes_zero": false,
+          "pos": 0,
+          "neg": 0,
+          "n": 10,
+          "sign_p": 1.0,
+          "mean_ref": 0.7153174603174602,
+          "mean_var": 0.7153174603174602,
+          "replicate_z": 0.0
+        },
+        "attempts": {
+          "delta": 0.01339285714285694,
+          "ci_lo": 0.0,
+          "ci_hi": 0.04017857142857082,
+          "ci_excludes_zero": false,
+          "pos": 1,
+          "neg": 0,
+          "n": 10,
+          "sign_p": 1.0,
+          "mean_ref": 10.147738095238093,
+          "mean_var": 10.161130952380951,
+          "replicate_z": 68718.47012714941
         },
         "give_up_rate": {
           "delta": 0.0,
@@ -904,6 +1014,60 @@
           "mean_var": 0.31628968253968254,
           "replicate_z": 5.4993355321395505
         }
+      },
+      "ilnd7_committed_v3": {
+        "objective": {
+          "delta": -0.002521888670747373,
+          "ci_lo": -0.04285000418891881,
+          "ci_hi": 0.03942301869468326,
+          "ci_excludes_zero": false,
+          "pos": 3,
+          "neg": 4,
+          "n": 10,
+          "sign_p": 1.0,
+          "mean_ref": 0.5719454052136431,
+          "mean_var": 0.5694235165428958,
+          "replicate_z": -0.24400885716311788
+        },
+        "success": {
+          "delta": 0.0011011904761904722,
+          "ci_lo": -0.037797619047619066,
+          "ci_hi": 0.040000000000000015,
+          "ci_excludes_zero": false,
+          "pos": 2,
+          "neg": 2,
+          "n": 10,
+          "sign_p": 1.0,
+          "mean_ref": 0.7210912698412699,
+          "mean_var": 0.7221924603174603,
+          "replicate_z": 0.10654722102959295
+        },
+        "attempts": {
+          "delta": 0.30273809523809553,
+          "ci_lo": -0.9418452380952378,
+          "ci_hi": 1.9375,
+          "ci_excludes_zero": false,
+          "pos": 4,
+          "neg": 4,
+          "n": 10,
+          "sign_p": 1.0,
+          "mean_ref": 11.705525793650795,
+          "mean_var": 12.008263888888889,
+          "replicate_z": 29.29184681927093
+        },
+        "give_up_rate": {
+          "delta": -0.0011011904761904722,
+          "ci_lo": -0.039999999999999994,
+          "ci_hi": 0.037797619047619045,
+          "ci_excludes_zero": false,
+          "pos": 2,
+          "neg": 2,
+          "n": 10,
+          "sign_p": 1.0,
+          "mean_ref": 0.2789087301587302,
+          "mean_var": 0.2778075396825397,
+          "replicate_z": -0.10654722102959295
+        }
       }
     },
     "deg_hard_shift10": {
@@ -1175,6 +1339,60 @@
           "mean_ref": 0.32521825396825393,
           "mean_var": 0.32521825396825393,
           "replicate_z": 0.0
+        }
+      },
+      "ilnd7_committed_v3": {
+        "objective": {
+          "delta": -0.0010780619514651924,
+          "ci_lo": -0.0032342723928571403,
+          "ci_hi": 8.653846156336797e-08,
+          "ci_excludes_zero": false,
+          "pos": 1,
+          "neg": 1,
+          "n": 10,
+          "sign_p": 1.0,
+          "mean_ref": 0.5266126241630256,
+          "mean_var": 0.5255345622115604,
+          "replicate_z": -0.07020919024526966
+        },
+        "success": {
+          "delta": -0.0008928571428571397,
+          "ci_lo": -0.002678571428571419,
+          "ci_hi": 0.0,
+          "ci_excludes_zero": false,
+          "pos": 0,
+          "neg": 1,
+          "n": 10,
+          "sign_p": 1.0,
+          "mean_ref": 0.674781746031746,
+          "mean_var": 0.6738888888888889,
+          "replicate_z": -0.05814765739529841
+        },
+        "attempts": {
+          "delta": 0.023214285714285764,
+          "ci_lo": 0.0,
+          "ci_hi": 0.0696428571428573,
+          "ci_excludes_zero": false,
+          "pos": 1,
+          "neg": 0,
+          "n": 10,
+          "sign_p": 1.0,
+          "mean_ref": 12.730853174603174,
+          "mean_var": 12.754067460317462,
+          "replicate_z": 1.5118390922777674
+        },
+        "give_up_rate": {
+          "delta": 0.0008928571428571425,
+          "ci_lo": 0.0,
+          "ci_hi": 0.0026785714285714273,
+          "ci_excludes_zero": false,
+          "pos": 1,
+          "neg": 0,
+          "n": 10,
+          "sign_p": 1.0,
+          "mean_ref": 0.32521825396825393,
+          "mean_var": 0.32611111111111113,
+          "replicate_z": 0.0581476573952986
         }
       }
     },
@@ -1448,6 +1666,60 @@
           "mean_var": 0.3489980158730158,
           "replicate_z": 0.7619818965967485
         }
+      },
+      "ilnd7_committed_v3": {
+        "objective": {
+          "delta": 0.009835869977619144,
+          "ci_lo": -0.031183335592019534,
+          "ci_hi": 0.06399476449923594,
+          "ci_excludes_zero": false,
+          "pos": 2,
+          "neg": 4,
+          "n": 10,
+          "sign_p": 0.6875,
+          "mean_ref": 0.5039327044840327,
+          "mean_var": 0.5137685744616519,
+          "replicate_z": 0.7419755766529671
+        },
+        "success": {
+          "delta": 0.01618551587301588,
+          "ci_lo": -0.011249999999999982,
+          "ci_hi": 0.05532242063492064,
+          "ci_excludes_zero": false,
+          "pos": 2,
+          "neg": 2,
+          "n": 10,
+          "sign_p": 1.0,
+          "mean_ref": 0.6642906746031746,
+          "mean_var": 0.6804761904761905,
+          "replicate_z": 1.2209654560941696
+        },
+        "attempts": {
+          "delta": 0.26776289682539767,
+          "ci_lo": -4.089999999999999,
+          "ci_hi": 3.4615625000000008,
+          "ci_excludes_zero": false,
+          "pos": 5,
+          "neg": 2,
+          "n": 10,
+          "sign_p": 0.453125,
+          "mean_ref": 13.453948412698413,
+          "mean_var": 13.721711309523808,
+          "replicate_z": 20.198877194428306
+        },
+        "give_up_rate": {
+          "delta": -0.01618551587301588,
+          "ci_lo": -0.055322420634920655,
+          "ci_hi": 0.011557539682539678,
+          "ci_excludes_zero": false,
+          "pos": 2,
+          "neg": 2,
+          "n": 10,
+          "sign_p": 1.0,
+          "mean_ref": 0.3357093253968254,
+          "mean_var": 0.3195238095238095,
+          "replicate_z": -1.2209654560941696
+        }
       }
     },
     "deg_hard_unk30": {
@@ -1720,6 +1992,60 @@
           "mean_var": 0.3432242063492063,
           "replicate_z": 1.4389762044980734
         }
+      },
+      "ilnd7_committed_v3": {
+        "objective": {
+          "delta": -0.0006295576713622227,
+          "ci_lo": -0.04934267358475493,
+          "ci_hi": 0.05809651107659926,
+          "ci_excludes_zero": false,
+          "pos": 2,
+          "neg": 5,
+          "n": 10,
+          "sign_p": 0.453125,
+          "mean_ref": 0.5270564023730453,
+          "mean_var": 0.526426844701683,
+          "replicate_z": -0.04640551775392829
+        },
+        "success": {
+          "delta": 0.01655753968253969,
+          "ci_lo": -0.028174603174603175,
+          "ci_hi": 0.07111111111111111,
+          "ci_excludes_zero": false,
+          "pos": 2,
+          "neg": 3,
+          "n": 10,
+          "sign_p": 1.0,
+          "mean_ref": 0.6765674603174603,
+          "mean_var": 0.693125,
+          "replicate_z": 1.2204778635083664
+        },
+        "attempts": {
+          "delta": 2.160853174603174,
+          "ci_lo": -0.4318849206349217,
+          "ci_hi": 4.773333333333333,
+          "ci_excludes_zero": false,
+          "pos": 6,
+          "neg": 2,
+          "n": 10,
+          "sign_p": 0.2890625,
+          "mean_ref": 11.965694444444445,
+          "mean_var": 14.126547619047619,
+          "replicate_z": 159.27930818586646
+        },
+        "give_up_rate": {
+          "delta": -0.016557539682539677,
+          "ci_lo": -0.0711111111111111,
+          "ci_hi": 0.028174603174603175,
+          "ci_excludes_zero": false,
+          "pos": 3,
+          "neg": 2,
+          "n": 10,
+          "sign_p": 1.0,
+          "mean_ref": 0.32343253968253965,
+          "mean_var": 0.306875,
+          "replicate_z": -1.2204778635083653
+        }
       }
     }
   },
@@ -1755,428 +2081,394 @@
       "unk30_delta_vs_round2": -0.03735804224635697,
       "unk30_V0_delta": 0.008042823136654312,
       "hard_test_delta_vs_round2": -4.580891330707715e-08
+    },
+    "ilnd7_committed_v3": {
+      "deg_hard_mix_delta_vs_round2": 0.009835869977619144,
+      "V0_delta_vs_round2": -0.03409783710699911,
+      "recovered_fraction": 1.2884602312678706,
+      "unk30_delta_vs_round2": -0.0006295576713622227,
+      "unk30_V0_delta": 0.008042823136654312,
+      "hard_test_delta_vs_round2": -1.3693528694291857e-08
     }
   },
-  "counters": {
-    "_note": "collected from a separately instrumented throwaway build of the branch tip (V0I), one pass per file, counters summed per tier. The ground-truth pairs come from the SIMULATOR side, before any degradation is applied, so 'innocent' means a directed channel the simulator never actually failed on.",
-    "_caveat": "hard_test carries no attribution section, so degrade() never runs and no true-fail pairs are recorded there. Its 552/552 'innocent' figure is an artifact of that and must not be read as a result; only the four degraded tiers are interpretable.",
-    "per_tier": {
-      "hard_test": {
-        "clear_suspect_by_lowerok": 0,
-        "distinct_bounded_pairs": 412,
-        "distinct_true_fail_pairs": 0,
-        "hard_bounds_on_guilty": 0,
-        "hard_bounds_on_innocent": 552,
-        "named_hard_bounds": 552,
-        "probes_written": 3777,
-        "promotions": 0,
-        "shifted_attributions": 0,
-        "single_suspect_hard": 0,
-        "suspects_filtered_lowerok": 0,
-        "suspects_recorded": 0,
-        "zero_suspect_contradiction": 0
-      },
-      "deg_hard_unk20": {
-        "clear_suspect_by_lowerok": 77,
-        "distinct_bounded_pairs": 508,
-        "distinct_true_fail_pairs": 604,
-        "hard_bounds_on_guilty": 596,
-        "hard_bounds_on_innocent": 0,
-        "named_hard_bounds": 592,
-        "probes_written": 4534,
-        "promotions": 8,
-        "shifted_attributions": 0,
-        "single_suspect_hard": 4,
-        "suspects_filtered_lowerok": 791,
-        "suspects_recorded": 1243,
-        "zero_suspect_contradiction": 1
-      },
-      "deg_hard_shift10": {
-        "clear_suspect_by_lowerok": 0,
-        "distinct_bounded_pairs": 505,
-        "distinct_true_fail_pairs": 492,
-        "hard_bounds_on_guilty": 653,
-        "hard_bounds_on_innocent": 60,
-        "named_hard_bounds": 713,
-        "probes_written": 4870,
-        "promotions": 0,
-        "shifted_attributions": 74,
-        "single_suspect_hard": 0,
-        "suspects_filtered_lowerok": 0,
-        "suspects_recorded": 0,
-        "zero_suspect_contradiction": 0
-      },
-      "deg_hard_mix": {
-        "clear_suspect_by_lowerok": 133,
-        "distinct_bounded_pairs": 578,
-        "distinct_true_fail_pairs": 632,
-        "hard_bounds_on_guilty": 630,
-        "hard_bounds_on_innocent": 67,
-        "named_hard_bounds": 692,
-        "probes_written": 5257,
-        "promotions": 17,
-        "shifted_attributions": 79,
-        "single_suspect_hard": 5,
-        "suspects_filtered_lowerok": 1100,
-        "suspects_recorded": 1527,
-        "zero_suspect_contradiction": 2
-      },
-      "deg_hard_unk30": {
-        "clear_suspect_by_lowerok": 121,
-        "distinct_bounded_pairs": 444,
-        "distinct_true_fail_pairs": 574,
-        "hard_bounds_on_guilty": 523,
-        "hard_bounds_on_innocent": 1,
-        "named_hard_bounds": 516,
-        "probes_written": 3747,
-        "promotions": 11,
-        "shifted_attributions": 0,
-        "single_suspect_hard": 8,
-        "suspects_filtered_lowerok": 1086,
-        "suspects_recorded": 1922,
-        "zero_suspect_contradiction": 2
-      }
-    },
-    "reading": {
-      "wrong_convictions_are_shift_driven": {
-        "deg_hard_unk20_innocent_share": 0.0,
-        "deg_hard_unk30_innocent_share": 0.19,
-        "deg_hard_shift10_innocent_share": 8.42,
-        "deg_hard_mix_innocent_share": 9.61,
-        "statement": "unreadable failures alone convict nobody innocent (0.0% at unknown 0.2, 0.2% at unknown 0.3). Add misattribution and roughly one hard bound in ten lands on a channel that never failed."
-      },
-      "the_quarantine_amplifies_rather_than_absorbs": {
-        "promotions_unk20": 8,
-        "promotions_unk30": 11,
-        "promotions_mix": 17,
-        "statement": "deg_hard_mix promotes MORE quarantined suspicion into hard bounds (17) than deg_hard_unk30 does (11) despite carrying fewer unreadable failures. The extra convictions are the wrong ones."
-      },
-      "the_suppression_rules_fire_far_more_often": {
-        "suspects_filtered_lowerok": {
-          "deg_hard_unk20": 791,
-          "deg_hard_mix": 1100,
-          "deg_hard_unk30": 1086
-        },
-        "clear_suspect_by_lowerok": {
-          "deg_hard_unk20": 77,
-          "deg_hard_mix": 133,
-          "deg_hard_unk30": 121
-        },
-        "statement": "going from unknown-only to the mix, the rule that drops a channel from the suspect list because a lower bound says it can carry the amount fires 39% more often (791 -> 1100), and the rule that clears an accumulated suspicion for the same reason fires 73% more often (77 -> 133)."
-      }
-    }
-  },
-  "mechanism_verdict": {
-    "confirmed": "YES, and it is quarantine-mediated.",
-    "decisive_test": {
-      "V1_no_quarantine_on_deg_hard_mix": 0.5053465791468075,
-      "V0_on_deg_hard_mix": 0.46983486737703356,
-      "round2_on_deg_hard_mix": 0.5039327044840327,
-      "statement": "disabling the store-level quarantine and changing nothing else moves deg_hard_mix from 0.4698 back to 0.5053, at or fractionally above the round-2 reference of 0.5039. The whole of the loss is quarantine-mediated."
-    },
-    "why_only_the_MIX": [
-      "A named failure writes two kinds of hard evidence: an upper bound on the channel it names, and a LOWER bound on every hop BEFORE that index, because a hop that forwarded has proven it can carry the amount. That inference is only sound if the report is honest.",
-      "A shifted attribution names the wrong hop. When it shifts blame downstream the true culprit now sits BEFORE the reported index and collects a lower bound saying it can carry the very amount it just refused.",
-      "That false lower bound then disarms the quarantine on the guilty channel through three separate rules: it is filtered out of the suspect list (LowerOK >= amt), recordSuspect early-returns on it, and normalize's contradiction rule clears any suspicion already standing against it.",
-      "Removing the guilty channel from the suspect list also concentrates the suspicion mass on the innocent ones that remain, because the weight each suspect receives is 1/sqrt(len(suspects)). Fewer suspects means faster conviction of whoever is left.",
-      "Unreadable failures alone never trigger this: with no shift there is no false lower bound, and the quarantine convicts correctly (0.0% innocent at unknown 0.2). Shift alone costs only 0.006 because without unreadable failures the quarantine barely runs -- suspects_recorded is 0 on the shift-only tier. The two are needed together: the shift manufactures the false exculpatory evidence, and the unreadable failures are what would otherwise have convicted the guilty channel."
-    ],
-    "counter_signature": "on deg_hard_mix the instrumented build records 79 shifted attributions, 1,100 suspects filtered out by a lower bound, 133 suspicions cleared by one, 17 promotions, and 67 hard bounds on directed channels the simulator never failed on -- against 0 innocent bounds on the unknown-only tier."
-  },
-  "fix_candidates": {
-    "V1_no_quarantine": {
-      "description": "V0 with the store-level quarantine never recorded",
-      "deg_hard_mix": 0.5053465791468075,
-      "recovered_fraction_of_the_0.034": 1.0414652301357996,
-      "cost_on_deg_hard_unk30_vs_V0": -0.006259089515571192,
-      "cost_on_deg_hard_unk20_vs_V0": -0.004954968594010567,
-      "cost_on_hard_test_vs_V0": 1.83333332959279e-08,
-      "deg_hard_shift10_vs_V0": 0.002493347389194156
-    },
-    "V2_no_probe_on_named": {
-      "description": "V0 with no LowerOK written for hops before a named failure",
-      "deg_hard_mix": 0.49812005047950897,
-      "recovered_fraction_of_the_0.034": 0.8295301257295697,
-      "cost_on_deg_hard_unk30_vs_V0": -0.0853891774297903,
-      "cost_on_deg_hard_unk20_vs_V0": -0.059306205903882914,
-      "cost_on_hard_test_vs_V0": -0.0005291810292844534,
-      "deg_hard_shift10_vs_V0": 0.012305547111414517
-    },
+  "ilnd7_paired": {
     "V3_probe_no_suppress": {
-      "description": "V0 where only a SETTLEMENT-derived lower bound silences the quarantine",
-      "deg_hard_mix": 0.5104661618045011,
-      "recovered_fraction_of_the_0.034": 1.1916091422446067,
-      "cost_on_deg_hard_unk30_vs_V0": -0.009165957317144313,
-      "cost_on_deg_hard_unk20_vs_V0": -0.007287306313427333,
-      "cost_on_hard_test_vs_V0": -8.974166666675387e-06,
-      "deg_hard_shift10_vs_V0": 0.00178572390109899
-    },
-    "V4_corroborate": {
-      "description": "V0 where a payment that has seen an unreadable failure stops trusting later named reports for forwarding evidence",
-      "deg_hard_mix": 0.4910262753069426,
-      "recovered_fraction_of_the_0.034": 0.6214883326297289,
-      "cost_on_deg_hard_unk30_vs_V0": -0.045400865383011246,
-      "cost_on_deg_hard_unk20_vs_V0": -0.04523983967727474,
-      "cost_on_hard_test_vs_V0": -6.466575086516713e-08,
-      "deg_hard_shift10_vs_V0": 0.0033862045320512957
-    }
-  },
-  "vs_V0": {
-    "V1_no_quarantine": {
       "hard_test": {
-        "delta": 1.8333333334785706e-08,
-        "ci_lo": 0.0,
-        "ci_hi": 5.500000000435712e-08,
+        "delta": 8.941616300361943e-06,
+        "ci_lo": -4.2651098919321837e-08,
+        "ci_hi": 2.686750000000515e-05,
         "ci_excludes_zero": false,
         "pos": 1,
-        "neg": 0,
+        "neg": 1,
         "sign_p": 1.0,
-        "replicate_z": 0.1356439454723366
+        "replicate_z": 0.36307433766962227,
+        "mean_ref": 0.5714813526315239,
+        "mean_ilnd7": 0.5714902942478243
       },
       "deg_hard_unk20": {
-        "delta": -0.004954968594010528,
-        "ci_lo": -0.029345209800824213,
-        "ci_hi": 0.013192982003467293,
+        "delta": 0.0019753227300617847,
+        "ci_lo": -0.0009708965266015168,
+        "ci_hi": 0.006673560858429589,
         "ci_excludes_zero": false,
         "pos": 3,
-        "neg": 4,
-        "sign_p": 1.0,
-        "replicate_z": -0.5519802789771117
+        "neg": 1,
+        "sign_p": 0.625,
+        "replicate_z": 0.14205670278584256,
+        "mean_ref": 0.567448193812834,
+        "mean_ilnd7": 0.5694235165428958
       },
       "deg_hard_shift10": {
-        "delta": 0.0024933473891941447,
+        "delta": 0.0007076427188644763,
         "ci_lo": 0.0,
-        "ci_hi": 0.007480022936813191,
+        "ci_hi": 0.0021228896950549634,
         "ci_excludes_zero": false,
         "pos": 2,
         "neg": 0,
         "sign_p": 0.5,
-        "replicate_z": 0.16426919509493518
+        "replicate_z": 0.04601668829219599,
+        "mean_ref": 0.524826919492696,
+        "mean_ilnd7": 0.5255345622115604
       },
       "deg_hard_mix": {
-        "delta": 0.035511711769773836,
-        "ci_lo": -0.03747029551194007,
-        "ci_hi": 0.10964334390519052,
-        "ci_excludes_zero": false,
-        "pos": 6,
-        "neg": 1,
-        "sign_p": 0.125,
-        "replicate_z": 2.1617226898155004
-      },
-      "deg_hard_unk30": {
-        "delta": -0.00625908951557125,
-        "ci_lo": -0.04390090403790371,
-        "ci_hi": 0.01903081772589131,
-        "ci_excludes_zero": false,
-        "pos": 4,
-        "neg": 3,
-        "sign_p": 1.0,
-        "replicate_z": -0.6231160679320062
-      }
-    },
-    "V2_no_probe_on_named": {
-      "hard_test": {
-        "delta": -0.0005291810292845506,
-        "ci_lo": -0.011088606168741003,
-        "ci_hi": 0.008508069023501635,
+        "delta": 0.0033024126571507217,
+        "ci_lo": 0.0,
+        "ci_hi": 0.008874582699156041,
         "ci_excludes_zero": false,
         "pos": 3,
-        "neg": 4,
-        "sign_p": 1.0,
-        "replicate_z": -0.15291349883619101
-      },
-      "deg_hard_unk20": {
-        "delta": -0.05930620590388289,
-        "ci_lo": -0.1093998913230076,
-        "ci_hi": -0.01804416629127345,
-        "ci_excludes_zero": true,
-        "pos": 0,
-        "neg": 7,
-        "sign_p": 0.015625,
-        "replicate_z": -4.62264398776663
-      },
-      "deg_hard_shift10": {
-        "delta": 0.01230554711141449,
-        "ci_lo": -0.023020122825296873,
-        "ci_hi": 0.04448832100736927,
-        "ci_excludes_zero": false,
-        "pos": 5,
-        "neg": 2,
-        "sign_p": 0.453125,
-        "replicate_z": 0.911534599274844
-      },
-      "deg_hard_mix": {
-        "delta": 0.02828518310247536,
-        "ci_lo": 0.002631406323637127,
-        "ci_hi": 0.06305304567640768,
-        "ci_excludes_zero": true,
-        "pos": 5,
-        "neg": 2,
-        "sign_p": 0.453125,
-        "replicate_z": 1.3135715000940942
+        "neg": 0,
+        "sign_p": 0.25,
+        "replicate_z": 0.18989704325618725,
+        "mean_ref": 0.5104661618045011,
+        "mean_ilnd7": 0.5137685744616519
       },
       "deg_hard_unk30": {
-        "delta": -0.08538917742979032,
-        "ci_lo": -0.1348793277694304,
-        "ci_hi": -0.039028119286905534,
-        "ci_excludes_zero": true,
-        "pos": 0,
-        "neg": 7,
-        "sign_p": 0.015625,
-        "replicate_z": -3.492280893671578
+        "delta": 0.0004935765091278466,
+        "ci_lo": -0.004359734108237557,
+        "ci_hi": 0.005493223520622226,
+        "ci_excludes_zero": false,
+        "pos": 2,
+        "neg": 2,
+        "sign_p": 1.0,
+        "replicate_z": 0.02601185664542322,
+        "mean_ref": 0.5259332681925553,
+        "mean_ilnd7": 0.526426844701683
       }
     },
-    "V3_probe_no_suppress": {
+    "V0": {
       "hard_test": {
-        "delta": -8.974166666664284e-06,
-        "ci_lo": -2.6922499999992856e-05,
+        "delta": -3.2550366302341874e-08,
+        "ci_lo": -7.931776557779102e-08,
         "ci_hi": 0.0,
         "ci_excludes_zero": false,
         "pos": 0,
-        "neg": 1,
-        "sign_p": 1.0,
-        "replicate_z": -0.3643980935259718
+        "neg": 2,
+        "sign_p": 0.5,
+        "replicate_z": -0.18894440794526923,
+        "mean_ref": 0.5714903267981906,
+        "mean_ilnd7": 0.5714902942478243
       },
       "deg_hard_unk20": {
-        "delta": -0.007287306313427321,
-        "ci_lo": -0.04188572908804337,
-        "ci_hi": 0.025750204861304804,
+        "delta": -0.005311983583365536,
+        "ci_lo": -0.03737080628882417,
+        "ci_hi": 0.026166012657060162,
         "ci_excludes_zero": false,
         "pos": 3,
         "neg": 5,
         "sign_p": 0.7265625,
-        "replicate_z": -0.6245636823480658
+        "replicate_z": -0.4564480632364954,
+        "mean_ref": 0.5747355001262613,
+        "mean_ilnd7": 0.5694235165428958
       },
       "deg_hard_shift10": {
-        "delta": 0.0017857239010989011,
+        "delta": 0.0024933666199633774,
         "ci_lo": 0.0,
-        "ci_hi": 0.00535715247252746,
+        "ci_hi": 0.007480042167582424,
         "ci_excludes_zero": false,
         "pos": 2,
         "neg": 0,
         "sign_p": 0.5,
-        "replicate_z": 0.1074120950667766
+        "replicate_z": 0.15535207997608164,
+        "mean_ref": 0.523041195591597,
+        "mean_ilnd7": 0.5255345622115604
       },
       "deg_hard_mix": {
-        "delta": 0.04063129442746753,
-        "ci_lo": -0.007213559746722259,
-        "ci_hi": 0.10680264195903322,
+        "delta": 0.04393370708461826,
+        "ci_lo": -0.004625918336737816,
+        "ci_hi": 0.10957919684816411,
         "ci_excludes_zero": false,
         "pos": 4,
         "neg": 4,
         "sign_p": 1.0,
-        "replicate_z": 2.0882490979557176
+        "replicate_z": 2.3735626555752978,
+        "mean_ref": 0.46983486737703356,
+        "mean_ilnd7": 0.5137685744616519
       },
       "deg_hard_unk30": {
-        "delta": -0.00916595731714438,
-        "ci_lo": -0.04736926358922633,
-        "ci_hi": 0.04289140134564815,
+        "delta": -0.008672380808016534,
+        "ci_lo": -0.04674173821448323,
+        "ci_hi": 0.04350781308208116,
         "ci_excludes_zero": false,
         "pos": 2,
         "neg": 6,
         "sign_p": 0.2890625,
-        "replicate_z": -0.5385027494828074
+        "replicate_z": -0.6006315002268511,
+        "mean_ref": 0.5350992255096996,
+        "mean_ilnd7": 0.526426844701683
       }
     },
-    "V4_corroborate": {
+    "round2": {
       "hard_test": {
-        "delta": -6.466575091512717e-08,
-        "ci_lo": -1.633333333250775e-07,
-        "ci_hi": 0.0,
+        "delta": -1.3693528694291857e-08,
+        "ci_lo": -7.149725275157338e-08,
+        "ci_hi": 3.04166666686978e-08,
         "ci_excludes_zero": false,
-        "pos": 0,
-        "neg": 2,
-        "sign_p": 0.5,
-        "replicate_z": -0.3344723840531916
+        "pos": 1,
+        "neg": 1,
+        "sign_p": 1.0,
+        "replicate_z": -0.0702612095743766,
+        "mean_ref": 0.5714903079413529,
+        "mean_ilnd7": 0.5714902942478243
       },
       "deg_hard_unk20": {
-        "delta": -0.045239839677274754,
-        "ci_lo": -0.09762333380168413,
-        "ci_hi": -0.0006343964586391915,
-        "ci_excludes_zero": true,
-        "pos": 2,
-        "neg": 5,
-        "sign_p": 0.453125,
-        "replicate_z": -5.2300585473810095
+        "delta": -0.002521888670747373,
+        "ci_lo": -0.04285000418891881,
+        "ci_hi": 0.03942301869468326,
+        "ci_excludes_zero": false,
+        "pos": 3,
+        "neg": 4,
+        "sign_p": 1.0,
+        "replicate_z": -0.24400885716311788,
+        "mean_ref": 0.5719454052136431,
+        "mean_ilnd7": 0.5694235165428958
       },
       "deg_hard_shift10": {
-        "delta": 0.0033862045320512844,
-        "ci_lo": 0.0,
-        "ci_hi": 0.01015859436538461,
+        "delta": -0.0010780619514651924,
+        "ci_lo": -0.0032342723928571403,
+        "ci_hi": 8.653846156336797e-08,
         "ci_excludes_zero": false,
-        "pos": 2,
-        "neg": 0,
-        "sign_p": 0.5,
-        "replicate_z": 0.2113304712867349
+        "pos": 1,
+        "neg": 1,
+        "sign_p": 1.0,
+        "replicate_z": -0.07020919024526966,
+        "mean_ref": 0.5266126241630256,
+        "mean_ilnd7": 0.5255345622115604
       },
       "deg_hard_mix": {
-        "delta": 0.02119140792990897,
-        "ci_lo": -0.014498195846874984,
-        "ci_hi": 0.06151907501473523,
+        "delta": 0.009835869977619144,
+        "ci_lo": -0.031183335592019534,
+        "ci_hi": 0.06399476449923594,
         "ci_excludes_zero": false,
-        "pos": 4,
-        "neg": 3,
-        "sign_p": 1.0,
-        "replicate_z": 0.9764315679636121
+        "pos": 2,
+        "neg": 4,
+        "sign_p": 0.6875,
+        "replicate_z": 0.7419755766529671,
+        "mean_ref": 0.5039327044840327,
+        "mean_ilnd7": 0.5137685744616519
       },
       "deg_hard_unk30": {
-        "delta": -0.04540086538301128,
-        "ci_lo": -0.09591125959759358,
-        "ci_hi": 0.0011080194254510373,
+        "delta": -0.0006295576713622227,
+        "ci_lo": -0.04934267358475493,
+        "ci_hi": 0.05809651107659926,
         "ci_excludes_zero": false,
         "pos": 2,
         "neg": 5,
         "sign_p": 0.453125,
-        "replicate_z": -3.1064285296627645
+        "replicate_z": -0.04640551775392829,
+        "mean_ref": 0.5270564023730453,
+        "mean_ilnd7": 0.526426844701683
       }
     }
   },
-  "fix_surface": {
-    "question": "the smallest change that recovers the 0.034 without giving back the unknown-only gains",
-    "ranking": "V3 > V1 >> V4 > V2",
-    "recommended": "V3_probe_no_suppress",
-    "V3_what_it_is": "one field and three call sites. A new ProvenOK on the interval, written ONLY by recordSettlement. The quarantine's three suppression rules read ProvenOK instead of LowerOK: the suspect-list filter in recordUnattributedFailure, the early return in recordSuspect, and the contradiction rule in normalize. LowerOK keeps its full role in path finding and in the bounds; it simply stops being accepted as proof of innocence.",
-    "V3_why_it_is_principled": "a settlement is ground truth that the channel carried the amount. A hop sitting before the index a failure named is only proven if the naming is honest, which under misattribution is exactly the assumption that fails. The fix draws the line where the evidence actually changes character.",
-    "measured": {
-      "V1_no_quarantine": {
-        "deg_hard_mix_vs_V0": 0.035511711769773836,
-        "deg_hard_mix_replicate_z": 2.1617226898155004,
-        "deg_hard_unk20_vs_V0": -0.004954968594010528,
-        "deg_hard_unk30_vs_V0": -0.00625908951557125,
-        "hard_test_vs_V0": 1.8333333334785706e-08,
-        "deg_hard_shift10_vs_V0": 0.0024933473891941447
+  "committed_v3": {
+    "_meta": {
+      "branch": "interval-router@eb4fc3e62; fix commit 8eabe1daf 'routing: let only a settlement clear a suspicion'",
+      "merged_into_interval_sim_at": "dcde83cca (not pushed)",
+      "arm_key": "ilnd7_committed_v3",
+      "replicates": {
+        "deg_hard_mix": 32,
+        "other_tiers": 16
       },
-      "V2_no_probe_on_named": {
-        "deg_hard_mix_vs_V0": 0.02828518310247536,
-        "deg_hard_mix_replicate_z": 1.3135715000940942,
-        "deg_hard_unk20_vs_V0": -0.05930620590388289,
-        "deg_hard_unk30_vs_V0": -0.08538917742979032,
-        "hard_test_vs_V0": -0.0005291810292845506,
-        "deg_hard_shift10_vs_V0": 0.01230554711141449
+      "differences_from_the_measured_throwaway": [
+        "ProvenOK is clamped to capacity by normalize",
+        "ProvenOK is zeroed by markRestored, so a belief loaded from disk earns its proof back rather than carrying a pre-restart settlement",
+        "two of the three read sites guard on the field being set rather than leaning on a zero comparing false",
+        "forward direction only, as measured: a settlement slides the reverse interval but sliding infers a balance where this field records something watched"
+      ],
+      "deliberate_non_change": "the fourth LowerOK-keyed path. When a false lower bound lands at exactly the amount an ambiguous failure names, the promotion is written and then dropped by the ordinary rule that a lower and an upper bound at the same amount cannot both stand. Left as measured, and pinned: interval_quarantine_test.go carries eleven quarantine tests including TestIntervalQuarantineSurvivesMisattribution and TestIntervalQuarantineSuspectListIgnoresProbes.",
+      "unrelated_commits_in_the_merge": "56c76b05f adds a DisableQuarantine config knob whose default is false on both IntervalConfig{} and DefaultIntervalConfig(), verified, so the sim arm is unchanged by it; 12d77591a touches only the lnd server flush cadence."
+    },
+    "reuse_gate": {
+      "stock_arm": "10/10 byte-identical vs routesim_r6",
+      "mx_c3_overlay": "10/10 byte-identical (an overlay binary embeds routing/ too)",
+      "interval_arm": "8/10 byte-identical; the two that differ are cells that are not reproducible on EITHER binary (4 distinct outputs in 6 runs of the round-6 build alone, and 6 in 6). No cell deterministic on both binaries differs, so the fix is inert on tiers with no attribution section, which is what it should be.",
+      "detail_files": [
+        "reuse_gate_r7.json",
+        "reuse_gate_r7_flaky.json"
+      ]
+    },
+    "prediction_ilnd7_equals_the_throwaway": {
+      "verdict": "CONFIRMED on all five tiers. No CI-solid deviation anywhere, so there is no finding to report ahead of the rest.",
+      "paired_vs_V3_throwaway": {
+        "hard_test": {
+          "delta": 8.941616300361943e-06,
+          "ci_lo": -4.2651098919321837e-08,
+          "ci_hi": 2.686750000000515e-05,
+          "ci_excludes_zero": false,
+          "pos": 1,
+          "neg": 1,
+          "sign_p": 1.0,
+          "replicate_z": 0.36307433766962227,
+          "mean_ref": 0.5714813526315239,
+          "mean_ilnd7": 0.5714902942478243
+        },
+        "deg_hard_unk20": {
+          "delta": 0.0019753227300617847,
+          "ci_lo": -0.0009708965266015168,
+          "ci_hi": 0.006673560858429589,
+          "ci_excludes_zero": false,
+          "pos": 3,
+          "neg": 1,
+          "sign_p": 0.625,
+          "replicate_z": 0.14205670278584256,
+          "mean_ref": 0.567448193812834,
+          "mean_ilnd7": 0.5694235165428958
+        },
+        "deg_hard_shift10": {
+          "delta": 0.0007076427188644763,
+          "ci_lo": 0.0,
+          "ci_hi": 0.0021228896950549634,
+          "ci_excludes_zero": false,
+          "pos": 2,
+          "neg": 0,
+          "sign_p": 0.5,
+          "replicate_z": 0.04601668829219599,
+          "mean_ref": 0.524826919492696,
+          "mean_ilnd7": 0.5255345622115604
+        },
+        "deg_hard_mix": {
+          "delta": 0.0033024126571507217,
+          "ci_lo": 0.0,
+          "ci_hi": 0.008874582699156041,
+          "ci_excludes_zero": false,
+          "pos": 3,
+          "neg": 0,
+          "sign_p": 0.25,
+          "replicate_z": 0.18989704325618725,
+          "mean_ref": 0.5104661618045011,
+          "mean_ilnd7": 0.5137685744616519
+        },
+        "deg_hard_unk30": {
+          "delta": 0.0004935765091278466,
+          "ci_lo": -0.004359734108237557,
+          "ci_hi": 0.005493223520622226,
+          "ci_excludes_zero": false,
+          "pos": 2,
+          "neg": 2,
+          "sign_p": 1.0,
+          "replicate_z": 0.02601185664542322,
+          "mean_ref": 0.5259332681925553,
+          "mean_ilnd7": 0.526426844701683
+        }
       },
-      "V3_probe_no_suppress": {
-        "deg_hard_mix_vs_V0": 0.04063129442746753,
-        "deg_hard_mix_replicate_z": 2.0882490979557176,
-        "deg_hard_unk20_vs_V0": -0.007287306313427321,
-        "deg_hard_unk30_vs_V0": -0.00916595731714438,
-        "hard_test_vs_V0": -8.974166666664284e-06,
-        "deg_hard_shift10_vs_V0": 0.0017857239010989011
+      "reading": "deltas run +0.0000 to +0.0033 with every replicate z at or below 0.2. The committed implementation is fractionally BETTER on the mix (+0.0033), which is consistent with the capacity clamp and the set-guard tightening rather than with any behavioural difference."
+    },
+    "scores": {
+      "hard_test": {
+        "round2": 0.5714903079413529,
+        "V0": 0.5714903267981906,
+        "V3_probe_no_suppress": 0.5714813526315239,
+        "ilnd7_committed_v3": 0.5714902942478243
       },
-      "V4_corroborate": {
-        "deg_hard_mix_vs_V0": 0.02119140792990897,
-        "deg_hard_mix_replicate_z": 0.9764315679636121,
-        "deg_hard_unk20_vs_V0": -0.045239839677274754,
-        "deg_hard_unk30_vs_V0": -0.04540086538301128,
-        "hard_test_vs_V0": -6.466575091512717e-08,
-        "deg_hard_shift10_vs_V0": 0.0033862045320512844
+      "deg_hard_unk20": {
+        "round2": 0.5719454052136431,
+        "V0": 0.5747355001262613,
+        "V3_probe_no_suppress": 0.567448193812834,
+        "ilnd7_committed_v3": 0.5694235165428958
+      },
+      "deg_hard_shift10": {
+        "round2": 0.5266126241630256,
+        "V0": 0.523041195591597,
+        "V3_probe_no_suppress": 0.524826919492696,
+        "ilnd7_committed_v3": 0.5255345622115604
+      },
+      "deg_hard_mix": {
+        "round2": 0.5039327044840327,
+        "V0": 0.46983486737703356,
+        "V3_probe_no_suppress": 0.5104661618045011,
+        "ilnd7_committed_v3": 0.5137685744616519
+      },
+      "deg_hard_unk30": {
+        "round2": 0.5270564023730453,
+        "V0": 0.5350992255096996,
+        "V3_probe_no_suppress": 0.5259332681925553,
+        "ilnd7_committed_v3": 0.526426844701683
       }
     },
-    "verdict_text": "V3 recovers the whole loss and then some: deg_hard_mix goes 0.4698 -> 0.5105, which is +0.0406 against the branch tip and +0.0065 against the round-2 reference the loss was measured from. The clean tier is untouched to seven decimals. It does give back part of the unknown-only gains, -0.0073 on unknown 0.2 and -0.0092 on unknown 0.3, neither significant and both an order below what the two alternatives cost. V1 (delete the quarantine) recovers nearly as much but throws away the mechanism; V2 and V4 recover less and destroy the unknown-only tiers with CI-solid losses of 0.06 to 0.09.",
-    "not_committed": "none of this is committed. The integration agent owns the branch; these are throwaway builds in a detached worktree."
-  },
-  "statistical_caveat": {
-    "what_is_strong": "the ablation (V1 recovers what V0 loses), the ground-truth counters (67 hard bounds on channels that never failed under the mix, 0 under unknown-only), and the replicate-noise z on the tier mean (V0 -2.1, V3 +2.1 against V0).",
-    "what_is_weak": "deg_hard_mix has large BETWEEN-FILE variance. At n=10 files the paired bootstrap CI straddles zero for every variant on that tier, including the original V0 loss. The round-6 z of -11.1 was computed against REPLICATE noise on the same ten files, which is the right question for 'did the code change do this' and the wrong one for 'would this hold on other files'.",
-    "consequence": "the mechanism is established; the exact magnitude on a fresh corpus is not. A wider degraded corpus would be the way to pin the number if the fix is taken upstream."
+    "headline_numbers": {
+      "deg_hard_mix_round2": 0.5039327044840327,
+      "deg_hard_mix_V0_tip": 0.46983486737703356,
+      "deg_hard_mix_throwaway_V3": 0.5104661618045011,
+      "deg_hard_mix_committed": 0.5137685744616519,
+      "vs_V0": {
+        "delta": 0.04393370708461826,
+        "ci_lo": -0.004625918336737816,
+        "ci_hi": 0.10957919684816411,
+        "ci_excludes_zero": false,
+        "pos": 4,
+        "neg": 4,
+        "sign_p": 1.0,
+        "replicate_z": 2.3735626555752978,
+        "mean_ref": 0.46983486737703356,
+        "mean_ilnd7": 0.5137685744616519
+      },
+      "vs_round2": {
+        "delta": 0.009835869977619144,
+        "ci_lo": -0.031183335592019534,
+        "ci_hi": 0.06399476449923594,
+        "ci_excludes_zero": false,
+        "pos": 2,
+        "neg": 4,
+        "sign_p": 0.6875,
+        "replicate_z": 0.7419755766529671,
+        "mean_ref": 0.5039327044840327,
+        "mean_ilnd7": 0.5137685744616519
+      },
+      "clean_tier_unchanged": -1.3693528694291857e-08
+    },
+    "ground_truth_counters": {
+      "innocent_conviction_rate_pct": {
+        "deg_hard_unk20": {
+          "V0_before": 0.0,
+          "committed_after": 0.37
+        },
+        "deg_hard_shift10": {
+          "V0_before": 8.42,
+          "committed_after": 8.32
+        },
+        "deg_hard_mix": {
+          "V0_before": 9.61,
+          "committed_after": 8.45
+        },
+        "deg_hard_unk30": {
+          "V0_before": 0.19,
+          "committed_after": 0.51
+        }
+      },
+      "verdict": "the mix rate falls 9.6% -> 8.4% and lands on the SHIFT-ONLY floor of 8.3%. That floor is the right target, not zero: bounds written straight from a named failure are misattributed whenever the naming is, and the fix does not touch that path. What the fix removed is the quarantine-mediated excess above the floor, 1.3 points of it, leaving 0.1.",
+      "suppression_rules_on_the_mix": {
+        "suspects_filtered_before": 1100,
+        "suspects_filtered_after": 526,
+        "suspicions_cleared_before": 133,
+        "suspicions_cleared_after": 50,
+        "reading": "on the mix, suspects struck off the list fall 1,100 -> 526 and suspicions cleared fall 133 -> 50. The false exculpatory evidence is no longer accepted, which is the mechanism stated as a counter."
+      },
+      "cost_side": {
+        "unk30_promotions_before": 11,
+        "unk30_promotions_after": 55,
+        "reading": "promotions on the unknown-0.3 tier rise 11 -> 55, because suspicion that honest probes used to clear now survives to conviction. That is the visible cost of the fix and it matches the small score give-back on the unknown-only tiers."
+      },
+      "instrumentation_gap": "the suspects_recorded counter reads 0 in the committed build. The hook did not apply: 56c76b05f wrapped the RecordSuspectFailure call in a DisableQuarantine check and reindented it, so the patch string missed. Promotions and the two suppression counters did apply and are non-zero, so the quarantine is demonstrably running; the zero is an artifact of the throwaway patch and NOT a finding."
+    },
+    "verdict": "The committed fix reproduces the measured one. deg_hard_mix goes 0.4698 on the branch tip to 0.5138 committed, which is +0.0439 against the tip and +0.0098 against the round-2 reference the loss was measured from, so the 0.034 is fully recovered and slightly exceeded. The clean tier is unchanged to four decimals. The unknown-only give-back is -0.0025 at unknown 0.2 and -0.0006 at unknown 0.3, both smaller than the throwaway's and neither significant. The exp-030 record can close."
   }
 }

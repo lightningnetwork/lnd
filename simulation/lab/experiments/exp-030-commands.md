@@ -90,3 +90,40 @@ FILES, the replicate z asks whether the code change did it on THESE files.
 ## Cleanup
 
     git -C $ISIM worktree remove --force $W/tree
+
+---
+
+# exp-030 validation round: the COMMITTED V3 fix
+
+    git -C $ISIM merge eb4fc3e62 --no-commit     # clean
+    go build ./routing/... ./cmd/routesim/ && go test ./routing/ -run Interval
+    git -C $ISIM commit                          # dcde83cca, NOT pushed
+
+Checked before trusting the merge: `56c76b05f` adds a `DisableQuarantine` knob
+whose default is false on both `IntervalConfig{}` and `DefaultIntervalConfig()`,
+so the sim arm is unaffected; `12d77591a` touches only the lnd server flush
+cadence.
+
+    go build -o $W/bins/routesim_ilnd7 ./cmd/routesim
+    go build -overlay .../mx_c3/overlay.json -o $W/bins/routesim_mx_c3_r7 ./cmd/routesim
+    python3 ...   # reuse gate -> reuse_gate_r7.json, reuse_gate_r7_flaky.json
+    cd $W && nice -n 10 python3 run.py ilnd7_committed_v3   # 50 cells, 0 errors
+
+    git -C $ISIM worktree add --detach $W/tree7 dcde83cca
+    # re-apply the exp-030 instrumentation to the committed tip
+    go build -o $W/bins/routesim_ilnd7I ./cmd/routesim
+    python3 ...   # counter pass -> counters_ilnd7.json
+
+    python3 $W/stats.py     # ilnd7 arm folded in
+    python3 ...             # -> ilnd7_paired, committed_v3 blocks
+    python3 ... >> tables.txt
+
+    git -C $ISIM worktree remove --force $W/tree7
+
+## Known instrumentation gap
+
+`suspects_recorded` reads 0 in the committed instrumented build: `56c76b05f`
+wrapped the `RecordSuspectFailure` call in a `DisableQuarantine` check and
+reindented it, so the throwaway patch string missed. Promotions and both
+suppression counters did apply and are non-zero, so the quarantine is
+demonstrably running. Recorded as an artifact, not a finding.

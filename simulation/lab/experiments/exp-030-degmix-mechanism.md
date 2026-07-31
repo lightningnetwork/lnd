@@ -87,3 +87,24 @@ quotes them.
 `exp-030-tables.txt.gz`, `exp-030-commands.md`. Throwaway variant
 builds were never committed anywhere; V3 proper is being implemented
 on interval-router with tests and doc updates.
+
+## Addendum — the committed fix validates
+
+The shipped implementation (8eabe1daf, ProvenOK with the capacity
+clamp, restore zeroing, and set-guards) was re-benched against the
+throwaway variant that produced the measurements above: equivalent on
+all five mechanism tiers (every paired delta straddling zero,
+replicate z ≤ 0.2), fractionally better on the mix (0.5138 —
++0.0439 over the broken tip, +0.0098 over the pre-quarantine
+reference). Clean tier unchanged to four decimals; the unknown-only
+give-back shrank to −0.0025/−0.0006, neither significant.
+
+The counters tell the mechanism story in production form: the mix
+tier's innocent-conviction rate fell from 9.6% to 8.4% — landing ON
+the shift-only floor of 8.3%, which is the right target, because
+bounds written directly from a named failure are misattributed
+whenever the naming is and the quarantine was only ever responsible
+for the excess above that floor. Suspects struck off by false
+evidence fell 1,100 → 526, suspicions cleared 133 → 50. The record
+is closed; the wider-corpus magnitude re-pin remains the one open
+item before the PR quotes numbers.

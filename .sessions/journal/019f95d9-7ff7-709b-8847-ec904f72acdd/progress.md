@@ -1,7 +1,7 @@
 ---
 session_id: 019f95d9-7ff7-709b-8847-ec904f72acdd
 shortname: routing-evolution
-last_updated: 2026-07-30T23:10:10Z
+last_updated: 2026-07-31T00:20:00Z
 compaction_count: 5
 progress_pct: 85
 current_step: 4
@@ -190,10 +190,18 @@ exp-018 omni adjudication is LIVE overnight.
        limit) — keep or remove; (3) intervalMaxFeePrice 420k
        msat/nat as the de facto prod ceiling (exp-029 A_prod says
        clamp costs ~nothing).
-       (c) benchmark agent a7b0df7ce66fc0246: deg_hard_mix mechanism
-       (quarantine-off 2x2 diagnosis in lnd-isim throwaway, ground-
-       truth counters for wrong-channel convictions, fix-surface
-       measurement; results SCRATCH/exp030-degmix/, likely exp-031).
+       (c) exp-030 CLOSED (71e93d2dc): mechanism = misattribution
+       manufactures innocence (shifted reports write false LowerOK
+       on guilty channel -> disarms quarantine's 3 suppression
+       rules; 9.6% of mix convictions on innocent channels, ground
+       truth). Fix V3 = ProvenOK (settlements only) measured
+       +0.0406 mix (above pre-quarantine ref), clean identical.
+       QUARANTINE KEEPS. V3 implementation dispatched to
+       integration agent a1115c4fbee460647 (field + 3 sites +
+       persistence + tests + docs + PR-draft update). On wake:
+       verify + push; then refresh rebased branch; wider degraded
+       corpus re-pin QUEUED before PR quotes magnitudes.
+       NOTE: full3's compose verdict will be exp-031 (030 taken).
        Then: offline replay NEXT WEEK (user); ship target = interval
        router in next lnd major.
 12.[x] LIVE NOW (2026-07-29):

@@ -1159,3 +1159,23 @@ two at once, and the thing that carries all three mechanism families
 today is the integration branch, hand-assembled and validated three
 different ways. Evolution found the paradigm; engineering is
 shipping it. Breeding resumes when a new world reopens the space.
+
+## 2026-07-31 — exp-032: margins hold, magnitudes humble
+
+The wider corpus closed the simulator program with one hand giving
+and one taking. Giving: the release candidate's lead over stock lnd
+re-pins CI-solid on six of seven fresh-file tiers at n=30, larger
+than anything the sealed tiers showed, and the exp-019 collapse
+reproduces on files nobody had seen. Taking: the exp-030 point
+estimates dissolve on fresh files — the bug and its fix are both
+indistinguishable from zero at n=30, because ten files of a family
+whose per-file spread reaches 0.29 cannot pin a 0.03 effect. The
+mechanism survives on what it always rested on, the ablation and
+the ground-truth counters, and the correction is now written into
+the exp-030 record and the PR draft. The degraded-mainnet deficit
+halves and loses significance but keeps its direction, with mx_c3's
+perfect success invariance confirmed as the one thing the RC still
+does not have. And the objective's abandonment subsidy claimed its
+third sighting: on degraded mainnet, lnd's objective RISES as its
+give-ups climb. Thirty-two experiments; the simulator rests; replay
+is next.

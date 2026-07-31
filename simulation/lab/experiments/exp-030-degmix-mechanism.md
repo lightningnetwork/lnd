@@ -108,3 +108,15 @@ for the excess above that floor. Suspects struck off by false
 evidence fell 1,100 → 526, suspicions cleared 133 → 50. The record
 is closed; the wider-corpus magnitude re-pin remains the one open
 item before the PR quotes numbers.
+
+## Correction (exp-032) — the magnitudes did not re-pin
+
+The wider-corpus re-pin ran thirty fresh mix files: the original bug
+measures −0.0099 [−0.0325,+0.0118] and the fix +0.0034
+[−0.0185,+0.0241] — both indistinguishable from zero. The 0.034 loss
+and 0.044 recovery quoted above were properties of the ten sealed
+files, not of the hard family. The mechanism stands on the evidence
+that was never the objective delta: the same-file ablation and the
+ground-truth counters. The V3 give-back stays insignificant at n=30,
+so the fix keeps its place; quote the mechanism and the counters,
+never these numbers.

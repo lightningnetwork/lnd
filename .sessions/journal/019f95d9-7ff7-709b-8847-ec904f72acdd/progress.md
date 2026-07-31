@@ -1,7 +1,7 @@
 ---
 session_id: 019f95d9-7ff7-709b-8847-ec904f72acdd
 shortname: routing-evolution
-last_updated: 2026-07-31T07:14:33Z
+last_updated: 2026-07-31T07:54:50Z
 compaction_count: 5
 progress_pct: 85
 current_step: 4
@@ -83,7 +83,15 @@ exp-018 omni adjudication is LIVE overnight.
        track at measured boundary; TREE FREE, no runs planned.
        DONE: dashboard v66 PUBLISHED (version 66 confirmed,
        §21-23, commit pushed both remotes).
-       LIVE: exp-032 re-pin ONLY, in
+       exp-032 CLOSED (39103864c): RC margins re-pin CI-solid
+       n=30 fresh files (6/7 tiers, hard +0.16..0.26, mn +0.096);
+       exp-030 MAGNITUDES DISSOLVE (bug -0.0099, fix +0.0034, both
+       straddle zero; mechanism+counters survive; correction in
+       exp-030 record + PR draft edit dispatched to integration
+       agent — on wake verify/push/refresh rebased). deg-mn deficit
+       halves to -0.021 not CI-solid; abandonment subsidy 3rd
+       sighting (lnd obj RISES on deg mainnet). SIMULATOR PROGRAM
+       AT REST: 32 experiments. Was dispatched as re-pin in
        benchmark agent a7b0df7ce66fc0246 (wider degraded corpus
        n=30, 3 arms + optional broken-tip mix arm + deg-mainnet
        n=30; LAST sim experiment; clears PR to quote magnitudes).

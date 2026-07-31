@@ -1,7 +1,7 @@
 ---
 session_id: 019f95d9-7ff7-709b-8847-ec904f72acdd
 shortname: routing-evolution
-last_updated: 2026-07-31T00:20:00Z
+last_updated: 2026-07-31T00:31:33Z
 compaction_count: 5
 progress_pct: 85
 current_step: 4
@@ -196,12 +196,18 @@ exp-018 omni adjudication is LIVE overnight.
        rules; 9.6% of mix convictions on innocent channels, ground
        truth). Fix V3 = ProvenOK (settlements only) measured
        +0.0406 mix (above pre-quarantine ref), clean identical.
-       QUARANTINE KEEPS. V3 implementation dispatched to
-       integration agent a1115c4fbee460647 (field + 3 sites +
-       persistence + tests + docs + PR-draft update). On wake:
-       verify + push; then refresh rebased branch; wider degraded
-       corpus re-pin QUEUED before PR quotes magnitudes.
-       NOTE: full3's compose verdict will be exp-031 (030 taken).
+       QUARANTINE KEEPS. V3 IMPLEMENTED + verified + pushed
+       (8eabe1daf + docs eb4fc3e62, tip on fork): ProvenOK
+       settlements-only, forward-only, NOT persisted (agent's call,
+       accepted: pre-restart settlements shouldn't suppress fresh
+       suspicions; Restored re-arming hole), fourth LowerOK path
+       (coincident-amount promotion swallow) documented+pinned NOT
+       widened. LIVE: (a) code_full3, (b) benchmark agent validating
+       committed V3 == throwaway numbers (ilnd7, 5 mechanism tiers +
+       counters, committed_v3 block), (c) integration agent
+       refreshing interval-router-rebased (push after report).
+       QUEUED: wider degraded corpus re-pin before PR quotes
+       magnitudes; exp-031 = full3 compose verdict; dashboard v66.
        Then: offline replay NEXT WEEK (user); ship target = interval
        router in next lnd major.
 12.[x] LIVE NOW (2026-07-29):

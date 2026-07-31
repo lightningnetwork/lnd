@@ -31,11 +31,11 @@
   <!-- ================= MASTHEAD ================= -->
   <div class="shell masthead">
     <div class="eyebrow">
-      Findings<span class="sep">/</span>lnd × GEPA routing evolution<span class="sep">/</span>30 July 2026
+      Findings<span class="sep">/</span>lnd × GEPA routing evolution<span class="sep">/</span>31 July 2026
     </div>
     <h1>What the evolved routers kept, dropped, and <em>invented</em></h1>
     <p class="standfirst">
-      Twenty-eight experiments in, the shape of the result is clear. On a real mainnet
+      Thirty-one experiments in, the shape of the result is clear. On a real mainnet
       graph snapshot, LLM-evolved routers match lnd's success rate using
       <strong>8.6× fewer HTLC attempts</strong> on a perfect failure channel — a
       ratio <a class="link" href="#attribution">§12</a> has since retired, because
@@ -46,8 +46,9 @@
     <div class="byline">
       <span>sources <b>simulation/lab/experiments</b></span>
       <span>champions <b>hb1 · mx_c3</b>, title defended (exp-020)</span>
-      <span>status <b>validated · de-circularised · attribution-tested (exp-019) · engine-adjudicated (exp-018, exp-024) · distilled (exp-021) · priced (exp-023, exp-025) · integrated (exp-027)</b></span>
-      <span>integration <b>interval-lnd 14/14 over stock lnd</b>, the release candidate (<a class="link" href="#integration">§19</a>)</span>
+      <span>status <b>validated · de-circularised · attribution-tested (exp-019) · engine-adjudicated (exp-018, exp-024) · distilled (exp-021) · priced (exp-023, exp-025) · integrated (exp-027) · foreign-balance-tested (exp-029) · mechanism-closed (exp-030)</b></span>
+      <span>integration <b>interval-lnd 14/14 over stock lnd</b>, the release candidate (<a class="link" href="#integration">§19</a>), champion-grade on a balance sheet nobody here drew (<a class="link" href="#foreign">§21</a>)</span>
+      <span>evolution <b>at its measured boundary</b>, the compose world closed at any seed and any practical budget (<a class="link" href="#closed">§23</a>)</span>
     </div>
 
     <ol class="toc">
@@ -72,8 +73,11 @@
       <li><a href="#econevo"><span class="n">18</span><span class="t">Evolution learns to count</span></a></li>
       <li><a href="#integration"><span class="n">19</span><span class="t">The flag flip pays the champions' margin</span></a></li>
       <li><a href="#compose"><span class="n">20</span><span class="t">The give-up attractor is a rule</span></a></li>
-      <li><a href="#process"><span class="n">21</span><span class="t">What the process taught us</span></a></li>
-      <li><a href="#timeline"><span class="n">22</span><span class="t">Timeline of experiments</span></a></li>
+      <li><a href="#foreign"><span class="n">21</span><span class="t">The ordering survives on balances nobody fit to</span></a></li>
+      <li><a href="#innocence"><span class="n">22</span><span class="t">Misattribution manufactures innocence</span></a></li>
+      <li><a href="#closed"><span class="n">23</span><span class="t">The compose world is closed</span></a></li>
+      <li><a href="#process"><span class="n">24</span><span class="t">What the process taught us</span></a></li>
+      <li><a href="#timeline"><span class="n">25</span><span class="t">Timeline of experiments</span></a></li>
       <li><a href="drift.html"><span class="n">→</span><span class="t">Drift: the environment strikes back <i>(exp-008, verdict in)</i></span></a></li>
     </ol>
   </div>
@@ -5512,11 +5516,719 @@ proposals seen   directional_belief · capacity_penalty · log_bimodal_cost
     </div>
   </section>
 
-  <!-- ================= 21 · PROCESS ================= -->
-  <section id="process">
+  <!-- ================= 21 · FOREIGN ================= -->
+  <section id="foreign">
     <div class="shell">
       <div class="sec-head">
         <div class="sec-no">21</div>
+        <h2>The ordering survives on balances nobody fit to</h2>
+        <p class="sec-sub">
+          The standing correction at the top of this page says the mainnet tier is
+          real topology and real policies with <em>our</em> liquidity painted over
+          it, drawn from the same generator the evolved priors were fit to.
+          <a class="link" href="#families">&sect;11</a> answered half of that with
+          thirteen families the constants had never seen, and every one of the
+          thirteen was still a distribution we chose. exp-029 is the other half:
+          dijkstrasden's revised model graph, 11,255 nodes and 37,203 edges, with
+          per-edge balances generated from ln-scores mission-control data through a
+          fee-conditioned mixture model nobody here touched. It is the first
+          liquidity family in this program that we did not author.
+        </p>
+      </div>
+
+      <div class="keyrow wide">
+        <div class="key hi">
+          <span class="kn">10<span class="u">of 10 files, all six arms, p .002</span></span>
+          <div class="kl">
+            every evolved router and the integration branch beat stock lnd on every
+            file, with every bootstrap interval excluding zero. Nothing about the
+            ordering needed our generator to hold it up
+          </div>
+          <div class="kf">100 payments a file, n = 10, the mapped exp-009 hub vantage</div>
+        </div>
+        <div class="key">
+          <span class="kn">+0.132<span class="u">against +0.097 on classic mainnet</span></span>
+          <div class="kl">
+            the paradigm's lead over lnd grew by about a third on the foreign balance
+            sheet rather than shrinking: lnd 0.596, the champions 0.723, atomic1
+            0.728, with the tier harder for everyone
+          </div>
+          <div class="kf">all of it attempts converted into success and efficiency</div>
+        </div>
+        <div class="key">
+          <span class="kn">+0.009<span class="u">what the swap is worth to the fitted champion</span></span>
+          <div class="kl">
+            the smallest gain of the seven arms, against +0.025 for the never-fitted
+            hand seed, and not one of the seven intervals excludes zero. The
+            circularity caveat is now a measured quantity, and the quantity is
+            approximately nothing
+          </div>
+          <div class="kf">paired on identical files and topology, only the balances swapped</div>
+        </div>
+      </div>
+
+      <div class="prose">
+        <h3>What makes this balance sheet foreign</h3>
+        <p>
+          Our generator draws hidden balances as a fixed fraction of capacity and
+          puts roughly 63% of channels in the sub-5% or over-95% tails, which is a
+          sharp bimodal world. The model graph is a soft U instead: 32.7% in those
+          tails, and a fat middle ours never draws. A loader flag reads the graph's
+          own <span class="mono">balance</span> field, and the tier otherwise mirrors
+          the sealed <a class="link" href="#mainnet">&sect;01</a> shape as closely as
+          the key remapping allows. The same hub carries through the graph's own
+          key mapping, still degree 2,013 and still rank one, and targets are drawn
+          to match the sealed tier's empirical target-degree distribution rather than
+          uniformly, because a uniform draw would have put 58% of payments on
+          degree-one leaves and walked straight back into the reachability trap of
+          <a class="link" href="#coldcache">&sect;08</a>.
+        </p>
+        <p>
+          The replicate protocol from <a class="link" href="#integration">&sect;19</a>
+          carried over, and earned its place again: a three-sample determinism screen
+          called the tier clean and a full pass found 53 of 200 cells
+          nondeterministic, every one of them an lnd or an integration-branch cell.
+          The worst objective range across replicates is 0.0012, two orders below the
+          smallest margin on the table below, and the five evolved candidates are
+          exactly deterministic.
+        </p>
+      </div>
+
+      <div class="tw wide" style="margin-top:2em">
+        <table class="data">
+          <caption>exp-029 &middot; the foreign balance sheet, seven arms, ten files of a hundred payments. Composite objective, leader bold. Every &Delta; against stock lnd is 10 wins to 0 losses at sign p = .002 with a bootstrap interval excluding zero.</caption>
+          <thead>
+            <tr>
+              <th>arm</th>
+              <th class="num">objective</th>
+              <th class="num">attempts / payment</th>
+              <th class="num">&Delta; vs lnd</th>
+              <th class="num">interval</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr class="best">
+              <td>atomic1<span class="sub">the flat-liquidity specialist</span></td>
+              <td class="num" data-l="objective"><b>0.728</b></td>
+              <td class="num" data-l="attempts / payment">1.9</td>
+              <td class="num" data-l="&Delta; vs lnd">+0.132</td>
+              <td class="num" data-l="interval">[+0.109, +0.151]</td>
+            </tr>
+            <tr>
+              <td>mx_c3<span class="sub">champion</span></td>
+              <td class="num" data-l="objective">0.723</td>
+              <td class="num" data-l="attempts / payment">2.6</td>
+              <td class="num" data-l="&Delta; vs lnd">+0.127</td>
+              <td class="num" data-l="interval">[+0.102, +0.149]</td>
+            </tr>
+            <tr>
+              <td>hb1<span class="sub">champion</span></td>
+              <td class="num" data-l="objective">0.723</td>
+              <td class="num" data-l="attempts / payment">2.4</td>
+              <td class="num" data-l="&Delta; vs lnd">+0.126</td>
+              <td class="num" data-l="interval">[+0.104, +0.147]</td>
+            </tr>
+            <tr>
+              <td>interval-lnd<span class="sub">the release candidate</span></td>
+              <td class="num" data-l="objective">0.722</td>
+              <td class="num" data-l="attempts / payment">2.7</td>
+              <td class="num" data-l="&Delta; vs lnd">+0.126</td>
+              <td class="num" data-l="interval">[+0.102, +0.148]</td>
+            </tr>
+            <tr>
+              <td>econ2<span class="sub">the fee-budget specialist</span></td>
+              <td class="num" data-l="objective">0.713</td>
+              <td class="num" data-l="attempts / payment">3.8</td>
+              <td class="num" data-l="&Delta; vs lnd">+0.116</td>
+              <td class="num" data-l="interval">[+0.094, +0.137]</td>
+            </tr>
+            <tr>
+              <td>hand-written seed<span class="sub">never fitted to anything</span></td>
+              <td class="num" data-l="objective">0.701</td>
+              <td class="num" data-l="attempts / payment">5.6</td>
+              <td class="num" data-l="&Delta; vs lnd">+0.105</td>
+              <td class="num" data-l="interval">[+0.081, +0.125]</td>
+            </tr>
+            <tr class="bad">
+              <td>lnd production stack</td>
+              <td class="num" data-l="objective">0.596</td>
+              <td class="num" data-l="attempts / payment">14.9</td>
+              <td class="num" data-l="&Delta; vs lnd">baseline</td>
+              <td class="num" data-l="interval">baseline</td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+
+      <div class="prose">
+        <h3>A specialist filing predicts a result on data it never saw</h3>
+        <p>
+          atomic1 on top is the part of this that could not have been arranged.
+          <a class="link" href="#families">&sect;11</a> filed it as the flat-liquidity
+          specialist on the strength of a monotone ladder, rank four to rank one as
+          the liquidity family flattened, and filed it before this graph existed in
+          the project. The model graph's soft U is the flattest realistic family we
+          have ever scored, and the specialist takes the tier. A story that predicts
+          an ordering on somebody else's data is a different kind of evidence from a
+          story that explains one after the fact.
+        </p>
+
+        <h3>The de-circularization answer, in one paired swap</h3>
+        <p>
+          The decisive comparison is not the leaderboard, it is the swap. Hold the
+          files, the topology, the vantage and the payments fixed, change only which
+          process drew the balances, and ask what each arm gains. If the champions'
+          mainnet numbers were an artifact of priors fit to
+          <span class="mono">sim_liquidity.go</span>, this is exactly where it shows:
+          the fitted arms should lose ground when the family moves and the never-fitted
+          ones should not care. The direction runs the other way, and nothing in it is
+          significant.
+        </p>
+      </div>
+
+      <div class="tw wide" style="margin-top:1.5em">
+        <table class="data">
+          <caption>The family swap, foreign balances minus our own bimodal generator on identical files and topology. Seven arms, seven intervals straddling zero. Ordered by how much each arm gains, which is the opposite of the order an overfit prior would produce.</caption>
+          <thead>
+            <tr>
+              <th>arm</th>
+              <th class="num">&Delta; objective, foreign &minus; ours</th>
+              <th class="num">interval</th>
+              <th>fitted to our generator?</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr>
+              <td>hand-written seed</td>
+              <td class="num" data-l="&Delta; objective, foreign &minus; ours">+0.025</td>
+              <td class="num" data-l="interval">[&minus;0.007, +0.054]</td>
+              <td>no</td>
+            </tr>
+            <tr>
+              <td>econ2</td>
+              <td class="num" data-l="&Delta; objective, foreign &minus; ours">+0.023</td>
+              <td class="num" data-l="interval">[&minus;0.004, +0.047]</td>
+              <td>yes</td>
+            </tr>
+            <tr>
+              <td>lnd production stack</td>
+              <td class="num" data-l="&Delta; objective, foreign &minus; ours">+0.020</td>
+              <td class="num" data-l="interval">[&minus;0.005, +0.041]</td>
+              <td>no</td>
+            </tr>
+            <tr>
+              <td>atomic1</td>
+              <td class="num" data-l="&Delta; objective, foreign &minus; ours">+0.016</td>
+              <td class="num" data-l="interval">[&minus;0.010, +0.037]</td>
+              <td>yes</td>
+            </tr>
+            <tr>
+              <td>hb1</td>
+              <td class="num" data-l="&Delta; objective, foreign &minus; ours">+0.015</td>
+              <td class="num" data-l="interval">[&minus;0.013, +0.040]</td>
+              <td>yes</td>
+            </tr>
+            <tr>
+              <td>interval-lnd</td>
+              <td class="num" data-l="&Delta; objective, foreign &minus; ours">+0.012</td>
+              <td class="num" data-l="interval">[&minus;0.010, +0.031]</td>
+              <td>inherits hb1's priors</td>
+            </tr>
+            <tr class="best">
+              <td>mx_c3<span class="sub">the most-fitted arm in the field</span></td>
+              <td class="num" data-l="&Delta; objective, foreign &minus; ours"><b>+0.009</b></td>
+              <td class="num" data-l="interval">[&minus;0.018, +0.032]</td>
+              <td>yes</td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+
+      <div class="prose">
+        <p>
+          The spread between arms is smaller than any single arm's interval, so the
+          honest reading is that the liquidity family is worth nothing to anybody
+          here, not that the seed secretly prefers foreign balances. A source-rebalance
+          control confirms the loader's unbalanced-source choice carries none of it.
+          What stays authored after this is the topology-shaped part, which every arm
+          shares equally, and the residual escape is the one that was always going to
+          be last: offline replay on a real node's own history.
+        </p>
+
+        <h3>The release candidate on somebody else's data</h3>
+        <p>
+          The integration branch of <a class="link" href="#integration">&sect;19</a>
+          was measured here as a seventh arm, and it tracks the champions to the third
+          decimal: &minus;0.0009 against mx_c3, &minus;0.0008 against hb1,
+          &minus;0.0060 against atomic1, every interval straddling zero. Under the
+          production-default fee limit, which
+          <a class="link" href="#integration">&sect;19</a> established is what a real
+          node always sends, it <em>gains</em> 0.0038 while paying 267 fewer parts per
+          million, and no arm refuses a single route. That reproduces the
+          production-default finding on external data, and it is the version of the
+          claim an upstream reviewer will care about: champion-grade on a world
+          neither the branch nor the champions were ever fit to.
+        </p>
+
+        <h3>A signal in the graph that nobody reads</h3>
+        <p>
+          The model graph is built with a fee-to-depletion correlation inside it, and
+          the correlation is live: Spearman &minus;0.149 between a directed end's fee
+          rate and its balance fraction across 74,406 ends. Whether any router
+          exploited it is not cleanly measurable from aggregates, so it is reported as
+          not measurable rather than forced, but the well-posed substitute is negative.
+          If the signal were being read, the fee-pricing arms should gain more on the
+          foreign balances than on ours, and they do not: econ2 sits mid-pack in the
+          swap table, bracketed by the hand seed and by stock lnd. A router that treats
+          the fee schedule as a liquidity prior is unclaimed ground, and this is the
+          tier where the signal is guaranteed to be there.
+        </p>
+
+        <div class="note">
+          <h4>what this result does not cover</h4>
+          <p>
+            One vantage, the mapped exp-009 hub, and n = 10. And the graph is still a
+            <em>model</em>, fit to one prober's mission-control history rather than
+            measured off channel state, so the last circularity is a different party's
+            modelling choice instead of ours. That is a real improvement and it is not
+            the end of the line. The end of the line is replay, on a real node's
+            recorded attempt stream, with no simulator in the loop.
+          </p>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- ================= 22 · INNOCENCE ================= -->
+  <section id="innocence">
+    <div class="shell">
+      <div class="sec-head">
+        <div class="sec-no">22</div>
+        <h2>Misattribution manufactures innocence</h2>
+        <p class="sec-sub">
+          <a class="link" href="#integration">&sect;19</a> closed with one thing it
+          could not explain. On the tier where both attribution failures run at once,
+          unreadable errors at 0.2 and shifted blame at 0.1, the integration branch
+          loses 0.034 of objective, while unreadable-only, shifted-only and
+          unreadable-at-0.3 all sit at or above the reference. Two degradations
+          together cost roughly five times the sum of their separate parts. With the
+          branch set as the release candidate, that interaction had to be understood
+          before an upstream reviewer found it. exp-030 found the mechanism, and it is
+          a trust boundary drawn in the wrong place.
+        </p>
+      </div>
+
+      <div class="keyrow wide">
+        <div class="key hi">
+          <span class="kn">9.6%<span class="u">of convictions land on channels that never failed</span></span>
+          <div class="kl">
+            against 0.0% with unreadable errors alone, counted against the simulator's
+            ground truth rather than inferred. The quarantine convicts the innocent
+            precisely when something else has exonerated the guilty
+          </div>
+          <div class="kf">more promotions than the harsher unreadable-only tier, on fewer unreadable failures</div>
+        </div>
+        <div class="key">
+          <span class="kn">+0.0439<span class="u">the committed fix on the mixed tier</span></span>
+          <div class="kl">
+            0.4698 on the broken tip to 0.5138, which is not a recovery to the
+            pre-quarantine reference of 0.5039 but a pass through it, with the clean
+            tier unchanged to four decimals
+          </div>
+          <div class="kf">one field wide: only a settlement proves innocence</div>
+        </div>
+        <div class="key">
+          <span class="kn">3<span class="u">suppression rules, one false bound</span></span>
+          <div class="kl">
+            the suspect-list filter, the early return in suspect recording, and the
+            contradiction clearing in normalization are all keyed on the same lower
+            bound, so one fabricated bound disarms the whole quarantine at once
+          </div>
+          <div class="kf">ablation: disable the quarantine and the mixed tier recovers +0.0355</div>
+        </div>
+      </div>
+
+      <div class="prose">
+        <h3>The mechanism, in three rules that are each individually correct</h3>
+        <p>
+          The ablation is decisive and it is also, at first, the wrong lesson. Disable
+          the quarantine and change nothing else, and the mixed tier recovers +0.0355
+          while every other tier stays where it was. The entire loss is the quarantine.
+          But the quarantine's own logic is not what is broken. It is disarmed by
+          evidence the rest of the stack manufactures, in three steps:
+        </p>
+        <p>
+          <strong>1 &middot; A named failure exonerates everything upstream of it.</strong>
+          When a failure names a hop, every hop before that index demonstrably
+          forwarded the amount, so the belief system writes each of them a hard lower
+          bound. That is sound, and it is sound only for as long as the report is
+          honest.
+        </p>
+        <p>
+          <strong>2 &middot; A shifted report names the wrong hop.</strong> Blame
+          shifted downstream places the true culprit <em>before</em> the reported
+          index, which means the guilty channel collects a lower bound certifying it
+          can carry the very amount it just refused.
+        </p>
+        <p>
+          <strong>3 &middot; That false certificate disarms the quarantine.</strong>
+          All three suppression rules read the lower bound, so the guilty channel is
+          filtered off the suspect list, never recorded as a suspect again, and has its
+          contradictions cleared. Removing the culprit from the suspect list does not
+          merely lose one conviction: the quarantine spreads a fixed
+          <span class="mono">1/&radic;n</span> weight over the suspects that remain, so
+          striking off the guilty party concentrates the whole suspicion on the
+          innocent survivors.
+        </p>
+        <p>
+          Each degradation alone leaves the loop open. Unreadable errors never shift
+          blame, so no false bound is ever written and 0.0% of promoted bounds land on
+          innocent channels. Shifted blame never produces an unnameable failure, so the
+          quarantine barely runs at all and records zero suspects. Run both and the
+          loop closes: 9.6% of the mixed tier's promoted hard bounds land on channels
+          that never failed, there are more promotions than on the harsher
+          unreadable-at-0.3 tier despite fewer unreadable failures, and the suppression
+          rules fire 39% to 73% more often. The counters read the simulator's record of
+          which channel actually failed before degradation, so this is measured rather
+          than inferred, and it is what promotes a correlation into a mechanism.
+        </p>
+
+        <h3>Four fixes, and the one that is principled as well as best</h3>
+      </div>
+
+      <div class="tw wide" style="margin-top:1.5em">
+        <table class="data">
+          <caption>exp-030 &middot; the fix ladder, each variant against the branch tip on the five mechanism tiers. The mixed tier is the one the fix is for; the other three columns are what it costs elsewhere. Leader of each column bold.</caption>
+          <thead>
+            <tr>
+              <th>variant</th>
+              <th class="num">mixed tier</th>
+              <th class="num">unreadable 0.2</th>
+              <th class="num">unreadable 0.3</th>
+              <th class="num">clean control</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr class="best">
+              <td>V3 &middot; only a settlement proves innocence</td>
+              <td class="num" data-l="mixed tier"><b>+0.0406</b></td>
+              <td class="num" data-l="unreadable 0.2">&minus;0.0073</td>
+              <td class="num" data-l="unreadable 0.3">&minus;0.0092</td>
+              <td class="num" data-l="clean control">&minus;0.000009</td>
+            </tr>
+            <tr>
+              <td>V1 &middot; no quarantine at all</td>
+              <td class="num" data-l="mixed tier">+0.0355</td>
+              <td class="num" data-l="unreadable 0.2"><b>&minus;0.0050</b></td>
+              <td class="num" data-l="unreadable 0.3"><b>&minus;0.0063</b></td>
+              <td class="num" data-l="clean control"><b>+0.0000</b></td>
+            </tr>
+            <tr>
+              <td>V2 &middot; no bounds from probes</td>
+              <td class="num" data-l="mixed tier">+0.0283</td>
+              <td class="num" data-l="unreadable 0.2">&minus;0.0593</td>
+              <td class="num" data-l="unreadable 0.3">&minus;0.0854</td>
+              <td class="num" data-l="clean control">&minus;0.0005</td>
+            </tr>
+            <tr>
+              <td>V4 &middot; require corroboration</td>
+              <td class="num" data-l="mixed tier">+0.0212</td>
+              <td class="num" data-l="unreadable 0.2">&minus;0.0452</td>
+              <td class="num" data-l="unreadable 0.3">&minus;0.0454</td>
+              <td class="num" data-l="clean control">&minus;0.0000</td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+
+      <div class="prose">
+        <p>
+          V3 adds one field. A <span class="mono">ProvenOK</span> level written only
+          when a payment settles through the channel, and the quarantine's three
+          suppression rules read that instead of the lower bound. The lower bound keeps
+          its entire pathfinding role and loses one job it should never have had: it
+          stops counting as proof of innocence. A hop before a named index is proven
+          only if the naming is honest, which is precisely the assumption
+          misattribution breaks. A settlement is not an inference from a report, it is
+          the payment arriving. V3 takes the mixed tier above the pre-quarantine
+          reference, leaves the clean tier identical to seven decimals, and gives back
+          only an insignificant sliver of the unreadable-only gains. No variant
+          recovers the mixed tier and keeps the full unreadable-at-0.3 gain, so this is
+          the best point on a real trade rather than a free lunch.
+        </p>
+        <p>
+          It also settles a question <a class="link" href="#integration">&sect;19</a>
+          left open. The quarantine had been positive on some degraded tiers and
+          negative on this one, which is the shape of a mechanism that should probably
+          be dropped. With V3 in place it is positive or neutral everywhere, so the
+          quarantine <strong>keeps</strong>, and it stays severable behind its own
+          config knob for anyone who disagrees.
+        </p>
+
+        <h3>The committed version, measured rather than assumed</h3>
+        <p>
+          Everything above was measured on throwaway builds. The shipped implementation
+          is not identical to them: it clamps the proven level to capacity, zeroes it
+          when a belief is restored from disk, since a settlement seen before a restart
+          is evidence about a network that has had the restart to move on, and guards
+          two of its three read sites on the field being set rather than on a zero
+          comparing false. So it was re-benched against the throwaway rather than
+          assumed equal to it, and it is equal: every paired delta on all five tiers
+          straddles zero with a replicate z of 0.2 or less.
+        </p>
+      </div>
+
+      <div class="tw wide" style="margin-top:1.5em">
+        <table class="data">
+          <caption>The five mechanism tiers, from the reference the loss was measured against, through the broken branch tip, to the committed fix. The mixed tier is the whole story; the rest are the controls that have to stay still.</caption>
+          <thead>
+            <tr>
+              <th>tier</th>
+              <th class="num">reference</th>
+              <th class="num">broken tip</th>
+              <th class="num">V3 throwaway</th>
+              <th class="num">committed fix</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr>
+              <td>clean control</td>
+              <td class="num" data-l="reference">0.5715</td>
+              <td class="num" data-l="broken tip">0.5715</td>
+              <td class="num" data-l="V3 throwaway">0.5715</td>
+              <td class="num" data-l="committed fix">0.5715</td>
+            </tr>
+            <tr>
+              <td>unreadable 0.2</td>
+              <td class="num" data-l="reference">0.5719</td>
+              <td class="num" data-l="broken tip">0.5747</td>
+              <td class="num" data-l="V3 throwaway">0.5674</td>
+              <td class="num" data-l="committed fix">0.5694</td>
+            </tr>
+            <tr>
+              <td>shifted 0.1</td>
+              <td class="num" data-l="reference">0.5266</td>
+              <td class="num" data-l="broken tip">0.5230</td>
+              <td class="num" data-l="V3 throwaway">0.5248</td>
+              <td class="num" data-l="committed fix">0.5255</td>
+            </tr>
+            <tr class="best">
+              <td>mixed<span class="sub">unreadable 0.2 + shifted 0.1</span></td>
+              <td class="num" data-l="reference">0.5039</td>
+              <td class="num" data-l="broken tip">0.4698</td>
+              <td class="num" data-l="V3 throwaway">0.5105</td>
+              <td class="num" data-l="committed fix"><b>0.5138</b></td>
+            </tr>
+            <tr>
+              <td>unreadable 0.3</td>
+              <td class="num" data-l="reference">0.5271</td>
+              <td class="num" data-l="broken tip">0.5351</td>
+              <td class="num" data-l="V3 throwaway">0.5259</td>
+              <td class="num" data-l="committed fix">0.5264</td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+
+      <div class="prose">
+        <p>
+          The counters tell the same story in production form, and they tell it better
+          than the scores do. On the mixed tier the innocent-conviction rate falls from
+          9.6% to 8.4%, which lands on the shifted-only floor of 8.3%. That floor is
+          the correct target and zero is not: bounds written straight from a named
+          failure are misattributed whenever the naming is, and the fix does not touch
+          that path. The quarantine was only ever responsible for the excess above the
+          floor, 1.3 points of it, and 0.1 remains. Suspects struck off the list by
+          false evidence fall from 1,100 to 526 and suspicions cleared fall from 133 to
+          50. The cost side is visible too, and it is the same event: promotions on the
+          unreadable-0.3 tier rise from 11 to 55, because suspicion that honest probes
+          used to clear now survives to conviction, which is exactly the small give-back
+          the scores show.
+        </p>
+
+        <div class="note">
+          <h4>the magnitude is not as well pinned as the mechanism</h4>
+          <p>
+            The mechanism is established three ways: an ablation that moves the tier and
+            nothing else, ground-truth counters that read the simulator's record of
+            which channel actually failed, and a replicate z of &minus;11.1 on the
+            original loss. The <em>size</em> of all of it rests on one ten-file degraded
+            corpus with large between-file variance, and at that n the paired bootstrap
+            straddles zero for every variant, including for the original loss. A wider
+            degraded corpus should re-pin these numbers before an upstream pull request
+            quotes them, and that re-pin is the one item still open on this record.
+          </p>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- ================= 23 · CLOSED ================= -->
+  <section id="closed">
+    <div class="shell">
+      <div class="sec-head">
+        <div class="sec-no">23</div>
+        <h2>The compose world is closed</h2>
+        <p class="sec-sub">
+          <a class="link" href="#compose">&sect;20</a> left the compose question on one
+          arm: the same world and the same hand-written seed at double the budget. It
+          ran overnight, and the wall did not move. 800 evaluations returned the seed
+          to seven digits, which closes both pre-registered escapes and, with them, the
+          evolution track's search for new machinery in this environment.
+        </p>
+      </div>
+
+      <div class="keyrow wide">
+        <div class="key hi">
+          <span class="kn">0.3162367<span class="u">best validation, which is the seed's own gate number</span></span>
+          <div class="kl">
+            and held-out test 0.21568, equal to the seed's digit for digit. Not a
+            marginal loss and not a noisy tie: the optimizer handed back the thing it
+            was given
+          </div>
+          <div class="kf">698 of 800 evaluations consumed, against 385 in the 400-eval arm</div>
+        </div>
+        <div class="key">
+          <span class="kn">19<span class="u">pool accepts, none of which survived</span></span>
+          <div class="kl">
+            60 proposals, zero hijacked reflections, and nineteen candidates accepted on
+            subsample wins where the 400-eval run managed eight. Every one of them fell
+            below the seed on the full validation set
+          </div>
+          <div class="kf">a generous, healthy run, not a starved one</div>
+        </div>
+        <div class="key">
+          <span class="kn">2<span class="u">of 2 pre-registered escapes failed</span></span>
+          <div class="kl">
+            the specialist seed went backwards by 0.030
+            (<a class="link" href="#compose">&sect;20</a>) and 1.8&times; the search
+            went nowhere. The ladder ends at zero and stays there under both
+            perturbations
+          </div>
+          <div class="kf">identical corpus, prompt, optimizer and gate throughout</div>
+        </div>
+      </div>
+
+      <div class="prose">
+        <h3>The ladder, final form</h3>
+        <p>
+          Read down this table and the whole evolution track is in it. Each world adds
+          one kind of pressure to the one above, at an identical optimizer, budget and
+          seed, and the return on reflective search falls monotonically to nothing.
+        </p>
+      </div>
+
+      <div class="tw wide" style="margin-top:1.5em">
+        <table class="data">
+          <caption>The difficulty ladder at close. The first four rows move the world at a fixed seed and budget; the last two perturb the seed and the budget at the fixed world, which is what the compose row's two pre-registered escapes were.</caption>
+          <thead>
+            <tr>
+              <th>world</th>
+              <th>seed</th>
+              <th class="num">budget</th>
+              <th class="num">gain over seed</th>
+              <th>outcome</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr>
+              <td>clean</td>
+              <td>hand-written</td>
+              <td class="num" data-l="budget">400</td>
+              <td class="num" data-l="gain over seed">+0.05 to +0.06</td>
+              <td>champions</td>
+            </tr>
+            <tr>
+              <td>lying channel</td>
+              <td>hand-written</td>
+              <td class="num" data-l="budget">400</td>
+              <td class="num" data-l="gain over seed">+0.044</td>
+              <td>the most degradation-robust router measured</td>
+            </tr>
+            <tr>
+              <td>economic</td>
+              <td>hand-written</td>
+              <td class="num" data-l="budget">400</td>
+              <td class="num" data-l="gain over seed">+0.022</td>
+              <td>the fee-budget specialist</td>
+            </tr>
+            <tr>
+              <td>compose</td>
+              <td>hand-written</td>
+              <td class="num" data-l="budget">400</td>
+              <td class="num" data-l="gain over seed">+0.000</td>
+              <td>the seed, returned (exp-026)</td>
+            </tr>
+            <tr class="bad">
+              <td>compose</td>
+              <td>econ2<span class="sub">escape one</span></td>
+              <td class="num" data-l="budget">400</td>
+              <td class="num" data-l="gain over seed">&minus;0.030 held out</td>
+              <td>the give-up attractor (exp-028)</td>
+            </tr>
+            <tr class="bad">
+              <td>compose</td>
+              <td>hand-written<span class="sub">escape two</span></td>
+              <td class="num" data-l="budget">800</td>
+              <td class="num" data-l="gain over seed"><b>+0.000</b></td>
+              <td>the seed, returned to seven digits</td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+
+      <div class="prose">
+        <p>
+          Read this beside <a class="link" href="#ceilingarm">&sect;15</a>, where a
+          different optimizer at ten times the budget converged below gepa's result,
+          and the conclusion stops being a suspicion. <strong>The compose world is
+          closed to the seed-plus-insights recipe at any seed and any practical
+          budget.</strong> A mixed environment prices complexity faster than sixty
+          reflective proposals can pay for it, and no amount of the same search buys
+          the difference.
+        </p>
+
+        <h3>What the boundary says about everything above it</h3>
+        <p>
+          The boundary is informative rather than disappointing, and the informative
+          part is a pattern that took thirty-one experiments to become visible. Every
+          mechanism this frontier owns was bred in a world that applied exactly
+          <em>one</em> pressure: the liquidity intervals of
+          <a class="link" href="#anatomy">&sect;04</a> in the clean world, the budget
+          arithmetic of <a class="link" href="#econevo">&sect;18</a> in the economic
+          one, the attribution confidence of <a class="link" href="#lying">&sect;16</a>
+          under the lying channel. No run in this program has ever built machinery under
+          two pressures at once. What carries all three families today is not an evolved
+          router at all. It is the integration branch of
+          <a class="link" href="#integration">&sect;19</a>, hand-assembled from what the
+          search found and validated three separate ways since:
+          fourteen tiers inside lnd's own lifecycle, a foreign balance sheet
+          (<a class="link" href="#foreign">&sect;21</a>), and a mechanism found and
+          fixed under degraded attribution
+          (<a class="link" href="#innocence">&sect;22</a>).
+        </p>
+
+        <div class="callout">
+          <p>
+            <strong>Evolution found the paradigm; engineering is shipping it.</strong>
+            No challenger came out of this run, so the ledger closes where it has stood
+            since exp-007: champions hb1 and mx_c3, specialists atomic1 and econ2, nine
+            challengers deep. The tree is free, no run holds the router, and the value
+            has moved to the release candidate and to offline replay on a real node's
+            payment history. Breeding resumes when a new world reopens the space, and
+            there are two candidates for it already: the foreign graph as a training
+            corpus rather than a test tier, and scenarios derived from replay.
+          </p>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- ================= 24 · PROCESS ================= -->
+  <section id="process">
+    <div class="shell">
+      <div class="sec-head">
+        <div class="sec-no">24</div>
         <h2>What the process taught us</h2>
         <p class="sec-sub">
           Findings about running this kind of search, which cost as much to learn
@@ -5595,14 +6307,14 @@ proposals seen   directional_belief · capacity_penalty · log_bimodal_cost
     </div>
   </section>
 
-  <!-- ================= 22 · TIMELINE ================= -->
+  <!-- ================= 25 · TIMELINE ================= -->
   <section id="timeline">
     <div class="shell">
       <div class="sec-head">
-        <div class="sec-no">22</div>
+        <div class="sec-no">25</div>
         <h2>Timeline of experiments</h2>
         <p class="sec-sub">
-          Twenty-nine writeups, seven days of wall-clock time, in numbered order. Full
+          Thirty-two writeups, eight days of wall-clock time, in numbered order. Full
           detail lives in
           <span class="mono">simulation/lab/experiments/</span>.
         </p>
@@ -6310,6 +7022,87 @@ proposals seen   directional_belief · capacity_penalty · log_bimodal_cost
             </div>
           </div>
           <div class="tl-tag">verdict · the rule holds</div>
+        </div>
+
+        <div class="tl-item pivot">
+          <div class="tl-id">exp-029</div>
+          <div class="tl-b">
+            <div class="t">The foreign balance sheet, and the caveat measured to zero</div>
+            <div class="d">
+              The first liquidity family in this program that we did not author:
+              dijkstrasden's model graph, 11,255 nodes and 37,203 edges, with per-edge
+              balances generated from ln-scores mission-control data through a
+              fee-conditioned mixture model. Seven arms, ten files, the mapped exp-009
+              hub vantage, and a replicate protocol that caught 53 of 200 cells being
+              nondeterministic after a three-sample screen had called the tier clean.
+              Every evolved router and the integration branch beat stock lnd on all ten
+              files at sign p = .002, and the lead is a third <em>wider</em> than on the
+              tier whose balances we drew ourselves: lnd 0.596 against the champions'
+              0.723, atomic1 first at 0.728 on the flattest realistic family we have
+              scored, which is the flat-liquidity filing of
+              <a class="link" href="#families">§11</a> predicting an ordering on data it
+              had never seen. The paired family swap is the verdict: seven arms, seven
+              intervals straddling zero, the fitted champion gaining least and the
+              never-fitted seed most. The release candidate tracks the champions to the
+              third decimal and gains under the production-default fee limit while
+              paying 267 fewer ppm. The signal the graph was built around is live and
+              unread by everybody, Spearman −0.149 across 74,406 directed ends
+              (<a class="link" href="#foreign">§21</a>).
+            </div>
+          </div>
+          <div class="tl-tag">verdict · the circularity caveat is worth ~0</div>
+        </div>
+
+        <div class="tl-item pivot">
+          <div class="tl-id">exp-030</div>
+          <div class="tl-b">
+            <div class="t">Misattribution manufactures innocence</div>
+            <div class="d">
+              The one unexplained interaction on the release candidate's record, run to
+              ground in a day. A named failure writes hard lower bounds on every hop
+              before the reported index; a shifted report names the wrong hop; so the
+              guilty channel collects a bound certifying it can carry the amount it just
+              refused, walks off the suspect list through all three of the quarantine's
+              lower-bound-keyed suppression rules, and leaves its share of a fixed
+              1/√n suspicion concentrated on the innocent. One conviction in ten on the
+              mixed tier lands on a channel that never failed, against zero with
+              unreadable errors alone, counted against the simulator's ground truth. The
+              fix is a trust boundary one field wide: only a settlement proves innocence.
+              Four variants measured, the principled one also the best, and the committed
+              implementation re-benched rather than assumed equal to the throwaway. The
+              mixed tier goes 0.4698 to 0.5138, past the pre-quarantine reference rather
+              than back to it, with the clean tier unchanged to four decimals and the
+              innocent-conviction rate landing on the shifted-only floor. The quarantine
+              keeps its place; the magnitude waits on a wider corpus
+              (<a class="link" href="#innocence">§22</a>).
+            </div>
+          </div>
+          <div class="tl-tag">mechanism · fix shipped to the RC</div>
+        </div>
+
+        <div class="tl-item pivot">
+          <div class="tl-id">exp-031</div>
+          <div class="tl-b">
+            <div class="t">The compose world is closed</div>
+            <div class="d">
+              The second and last pre-registered escape from the compose wall: identical
+              corpus, prompt, optimizer and hand seed at 800 evaluations instead of 400.
+              The run was healthy and generous, 60 proposals, zero hijacks, nineteen pool
+              accepts against the earlier run's eight, 698 evaluations consumed for
+              roughly 1.8× the search, and every accepted candidate fell below the seed
+              on the full validation set. Best validation came back 0.3162367, the seed's
+              own gate number, and held-out test equal to the seed's digit for digit.
+              With exp-028's specialist seed having gone backwards, the ladder ends
+              monotone at zero and stays there under both perturbations, which promotes
+              the reading from suspicion to conclusion: the seed-plus-insights recipe is
+              finished in this world at any seed and any practical budget. The pattern it
+              exposes is that every mechanism the frontier owns was bred under exactly
+              one pressure, and no run ever built machinery under two at once. The value
+              sits with the hand-assembled integration branch and with replay
+              (<a class="link" href="#closed">§23</a>).
+            </div>
+          </div>
+          <div class="tl-tag">verdict · the evolution track's boundary</div>
         </div>
       </div>
     </div>

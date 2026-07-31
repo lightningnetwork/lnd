@@ -65,9 +65,10 @@
       <span>method <b>GEPA reflective evolution</b></span>
       <span>reflection LM <b>gpt-5.6-sol</b></span>
       <span>evaluator <b>cmd/routesim</b></span>
-      <span>experiments <b>exp-001 … exp-028</b></span>
+      <span>experiments <b>exp-001 … exp-031</b></span>
       <span>champions <b>hb1 + mx_c3</b>, unchanged since exp-007 · specialists atomic1 + econ2</span>
-      <span>shipping <b>interval-lnd, 14/14 over stock lnd</b> · compose-800 live</span>
+      <span>shipping <b>interval-lnd, 14/14 over stock lnd</b> · release candidate <b>eb4fc3e62</b>, rebased <b>b489649f6</b> on the fork</span>
+      <span>tracks <b>evolution at its measured boundary</b> (exp-031) · <b>the ship track owns the frontier</b> · replay on real payment history next week</span>
     </div>
   </div>
 
@@ -466,6 +467,27 @@
           <span class="mono">code_full3</span>.)</em>
         </p>
         <p>
+          <em>(Update, 31 July: <span class="mono">code_full3</span> has closed, and
+          with it the evolution track's search for new machinery here. 800 evaluations
+          returned the hand seed to seven digits, which fails the second of the two
+          pre-registered escapes and makes the compose world closed to this recipe at
+          any seed and any practical budget
+          (<a class="link" href="findings.html#closed">§23</a>). Nothing is live; no run
+          holds the router. The frontier now belongs to the ship track. The release
+          candidate is <span class="mono">interval-router</span> at
+          <span class="mono">eb4fc3e62</span>, rebased as
+          <span class="mono">b489649f6</span> on the fork, and it has been validated
+          twice more since: champion-grade to the third decimal on a liquidity family
+          nobody here authored
+          (<a class="link" href="findings.html#foreign">§21</a>), and carrying a fix for
+          the one interaction §19 could not explain, where shifted blame fabricates an
+          alibi for the guilty channel
+          (<a class="link" href="findings.html#innocence">§22</a>). Champions unchanged,
+          ledger still nine challengers deep. Next is offline replay on a real node's
+          payment history, which is the last escape from "simulator-shaped" this program
+          has left.)</em>
+        </p>
+        <p>
           <strong>exp-023 and exp-025, economic realism, both closed.</strong> All
           five stages are merged and flag-gated — min and max HTLC pressure, inbound
           fees, fees as a first-class cost, concurrent payments, latency — each proven
@@ -610,8 +632,15 @@
         what happens when the whole evolved belief system is put inside lnd's own
         payment lifecycle and measured there
         (<a class="link" href="findings.html#integration">the integration benchmark</a>),
+        what happens to the whole ordering on a balance sheet nobody here drew
+        (<a class="link" href="findings.html#foreign">the foreign balance sheet</a>),
+        the one unexplained interaction on the release candidate's record and the trust
+        boundary that closed it
+        (<a class="link" href="findings.html#innocence">misattribution manufactures innocence</a>),
+        where the evolution track finally ran out of room
+        (<a class="link" href="findings.html#closed">the compose world is closed</a>),
         the corrections we have had to make to our own record, and the process lessons
-        from twenty-eight experiments.
+        from thirty-one experiments.
       </p>
     </div>
   </div>

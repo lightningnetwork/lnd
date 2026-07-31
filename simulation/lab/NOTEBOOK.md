@@ -1121,3 +1121,24 @@ third decimal, gaining under the production-default fee limit while
 paying 267 fewer ppm. The WHY.md circularity caveat is now a
 measured quantity, and the quantity is approximately zero. What
 remains is replay, next week, on a real node's history.
+
+## 2026-07-30 — exp-030: misattribution manufactures innocence
+
+The unknown-times-shift interaction gave up its mechanism in one
+ablation: the whole 0.034 loss is the quarantine, disarmed by
+evidence the rest of the stack fabricates. A named failure writes
+hard lower bounds on every hop before the reported index; a shifted
+report names the wrong hop; so the guilty channel collects a bound
+proving it can carry the amount it just refused, walks off the
+suspect list, and leaves its 1/sqrt(n) share of suspicion
+concentrated on the innocent. One channel in ten convicted on the
+mix tier never failed at all, against zero under unknown-only — the
+counters read the simulator's ground truth, so this is measured, not
+inferred. The fix is a trust boundary, one field wide: only a
+settlement proves innocence. ProvenOK, written by settlements alone,
+replaces LowerOK in the quarantine's three suppression rules, takes
+the mix ABOVE its pre-quarantine reference, and leaves the clean
+tier identical to seven decimals. The quarantine keeps its place in
+the release candidate, and the PR narrative swaps "unexplained
+interaction on the record" for a mechanism, a fix, and a magnitude
+caveat pending a wider corpus.

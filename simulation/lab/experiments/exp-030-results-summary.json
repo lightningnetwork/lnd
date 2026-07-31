@@ -1,0 +1,2182 @@
+{
+  "_meta": {
+    "experiment": "exp-030, the deg_hard_mix interaction",
+    "finding_under_investigation": "the round-6 branch tip loses 0.0343 of objective against the round-2 interval router on deg_hard_mix (unknown 0.2 + shift 0.1) at z = -11.1, while unknown-only, shift-only and unknown-0.3 all sit at or above it.",
+    "reference_arm": "round2",
+    "variants": {
+      "round2": "the interval router before rounds 3-6 (the reference)",
+      "V0": "round-6 branch tip, unmodified",
+      "V1_no_quarantine": "V0 with the store-level quarantine never recorded",
+      "V2_no_probe_on_named": "V0 with no LowerOK written for hops before a named failure",
+      "V3_probe_no_suppress": "V0 where only a SETTLEMENT-derived lower bound silences the quarantine",
+      "V4_corroborate": "V0 where a payment that has seen an unreadable failure stops trusting later named reports for forwarding evidence"
+    },
+    "replicates": {
+      "deg_hard_mix": 32,
+      "other_tiers": 16
+    },
+    "bootstrap": 10000,
+    "bootstrap_seed": 20260729,
+    "worktree": "throwaway detached worktree at ffe5e5537; NOTHING committed, the integration agent owns the branch"
+  },
+  "tiers": {
+    "hard_test": {
+      "round2": {
+        "objective": 0.5714903079413529,
+        "success": 0.7153174603174602,
+        "attempts": 10.147738095238093,
+        "give_up_rate": 0.2846825396825397,
+        "fee_ppm": 3452.6895509211668,
+        "attribution_unknown": 0.0,
+        "attribution_shifted": 0.0,
+        "max_replicate_range": 3.877777777772096e-06,
+        "replicates": 16
+      },
+      "V0": {
+        "objective": 0.5714903267981906,
+        "success": 0.7153174603174602,
+        "attempts": 10.17363095238095,
+        "give_up_rate": 0.2846825396825397,
+        "fee_ppm": 3454.643603391786,
+        "attribution_unknown": 0.0,
+        "attribution_shifted": 0.0,
+        "max_replicate_range": 2.9333333333436684e-06,
+        "replicates": 16
+      },
+      "V1_no_quarantine": {
+        "objective": 0.5714903451315239,
+        "success": 0.7153174603174602,
+        "attempts": 10.159345238095238,
+        "give_up_rate": 0.2846825396825397,
+        "fee_ppm": 3448.8786804751194,
+        "attribution_unknown": 0.0,
+        "attribution_shifted": 0.0,
+        "max_replicate_range": 2.9333333333436684e-06,
+        "replicates": 16
+      },
+      "V2_no_probe_on_named": {
+        "objective": 0.5709611457689061,
+        "success": 0.7144246031746031,
+        "attempts": 10.706071428571429,
+        "give_up_rate": 0.2855753968253968,
+        "fee_ppm": 3283.9096559991403,
+        "attribution_unknown": 0.0,
+        "attribution_shifted": 0.0,
+        "max_replicate_range": 0.1430666028571429,
+        "replicates": 16
+      },
+      "V3_probe_no_suppress": {
+        "objective": 0.5714813526315239,
+        "success": 0.7153174603174602,
+        "attempts": 10.154285714285715,
+        "give_up_rate": 0.2846825396825397,
+        "fee_ppm": 3451.7195976626194,
+        "attribution_unknown": 0.0,
+        "attribution_shifted": 0.0,
+        "max_replicate_range": 0.0007227222222222496,
+        "replicates": 16
+      },
+      "V4_corroborate": {
+        "objective": 0.5714902621324397,
+        "success": 0.7153174603174602,
+        "attempts": 10.145059523809524,
+        "give_up_rate": 0.2846825396825397,
+        "fee_ppm": 3451.338508554332,
+        "attribution_unknown": 0.0,
+        "attribution_shifted": 0.0,
+        "max_replicate_range": 3.877777777772096e-06,
+        "replicates": 16
+      }
+    },
+    "deg_hard_unk20": {
+      "round2": {
+        "objective": 0.5719454052136431,
+        "success": 0.7210912698412699,
+        "attempts": 11.705525793650795,
+        "give_up_rate": 0.2789087301587302,
+        "fee_ppm": 3668.3688642380976,
+        "attribution_unknown": 14.05,
+        "attribution_shifted": 0.0,
+        "max_replicate_range": 0.12559431285714295,
+        "replicates": 16
+      },
+      "V0": {
+        "objective": 0.5747355001262613,
+        "success": 0.7293055555555555,
+        "attempts": 11.892728174603175,
+        "give_up_rate": 0.27069444444444446,
+        "fee_ppm": 3802.208462971709,
+        "attribution_unknown": 13.875,
+        "attribution_shifted": 0.0,
+        "max_replicate_range": 0.1428571428571429,
+        "replicates": 16
+      },
+      "V1_no_quarantine": {
+        "objective": 0.5697805315322507,
+        "success": 0.7191567460317461,
+        "attempts": 11.674295634920636,
+        "give_up_rate": 0.280843253968254,
+        "fee_ppm": 3704.2006439883235,
+        "attribution_unknown": 14.0375,
+        "attribution_shifted": 0.0,
+        "max_replicate_range": 0.16666666666666674,
+        "replicates": 16
+      },
+      "V2_no_probe_on_named": {
+        "objective": 0.5154292942223784,
+        "success": 0.6774603174603174,
+        "attempts": 15.287916666666666,
+        "give_up_rate": 0.32253968253968257,
+        "fee_ppm": 3310.8565361678566,
+        "attribution_unknown": 20.90625,
+        "attribution_shifted": 0.0,
+        "max_replicate_range": 0.2740854823809524,
+        "replicates": 16
+      },
+      "V3_probe_no_suppress": {
+        "objective": 0.567448193812834,
+        "success": 0.720109126984127,
+        "attempts": 11.947450396825397,
+        "give_up_rate": 0.279890873015873,
+        "fee_ppm": 3592.242283128229,
+        "attribution_unknown": 13.775,
+        "attribution_shifted": 0.0,
+        "max_replicate_range": 0.16666666666666674,
+        "replicates": 16
+      },
+      "V4_corroborate": {
+        "objective": 0.5294956604489865,
+        "success": 0.6837103174603174,
+        "attempts": 13.567688492063493,
+        "give_up_rate": 0.31628968253968254,
+        "fee_ppm": 3266.390404212615,
+        "attribution_unknown": 17.15625,
+        "attribution_shifted": 0.0,
+        "max_replicate_range": 0.1428571428571429,
+        "replicates": 16
+      }
+    },
+    "deg_hard_shift10": {
+      "round2": {
+        "objective": 0.5266126241630256,
+        "success": 0.674781746031746,
+        "attempts": 12.730853174603174,
+        "give_up_rate": 0.32521825396825393,
+        "fee_ppm": 3390.4891012985854,
+        "attribution_unknown": 0.0,
+        "attribution_shifted": 7.525,
+        "max_replicate_range": 0.2857142857142857,
+        "replicates": 16
+      },
+      "V0": {
+        "objective": 0.523041195591597,
+        "success": 0.6712103174603175,
+        "attempts": 12.721924603174603,
+        "give_up_rate": 0.32878968253968255,
+        "fee_ppm": 3390.3828639741164,
+        "attribution_unknown": 0.0,
+        "attribution_shifted": 7.54375,
+        "max_replicate_range": 0.2857142857142857,
+        "replicates": 16
+      },
+      "V1_no_quarantine": {
+        "objective": 0.5255345429807912,
+        "success": 0.6738888888888889,
+        "attempts": 12.764781746031748,
+        "give_up_rate": 0.32611111111111113,
+        "fee_ppm": 3402.4073620153877,
+        "attribution_unknown": 0.0,
+        "attribution_shifted": 7.58125,
+        "max_replicate_range": 0.2857142857142857,
+        "replicates": 16
+      },
+      "V2_no_probe_on_named": {
+        "objective": 0.5353467427030115,
+        "success": 0.6783531746031746,
+        "attempts": 11.034960317460317,
+        "give_up_rate": 0.3216468253968254,
+        "fee_ppm": 3447.5926469449323,
+        "attribution_unknown": 0.0,
+        "attribution_shifted": 7.01875,
+        "max_replicate_range": 0.14542969469924816,
+        "replicates": 16
+      },
+      "V3_probe_no_suppress": {
+        "objective": 0.524826919492696,
+        "success": 0.6729960317460317,
+        "attempts": 12.816567460317462,
+        "give_up_rate": 0.3270039682539682,
+        "fee_ppm": 3389.845633511719,
+        "attribution_unknown": 0.0,
+        "attribution_shifted": 7.6125,
+        "max_replicate_range": 0.2857142857142857,
+        "replicates": 16
+      },
+      "V4_corroborate": {
+        "objective": 0.5264274001236483,
+        "success": 0.674781746031746,
+        "attempts": 12.791567460317461,
+        "give_up_rate": 0.32521825396825393,
+        "fee_ppm": 3398.9868846515164,
+        "attribution_unknown": 0.0,
+        "attribution_shifted": 7.5875,
+        "max_replicate_range": 0.2857142857142857,
+        "replicates": 16
+      }
+    },
+    "deg_hard_mix": {
+      "round2": {
+        "objective": 0.5039327044840327,
+        "success": 0.6642906746031746,
+        "attempts": 13.453948412698413,
+        "give_up_rate": 0.3357093253968254,
+        "fee_ppm": 3975.654403158668,
+        "attribution_unknown": 17.46875,
+        "attribution_shifted": 6.775,
+        "max_replicate_range": 0.2857142857142857,
+        "replicates": 32
+      },
+      "V0": {
+        "objective": 0.46983486737703356,
+        "success": 0.6366170634920635,
+        "attempts": 15.146026785714287,
+        "give_up_rate": 0.3633829365079365,
+        "fee_ppm": 4016.605173976851,
+        "attribution_unknown": 20.05625,
+        "attribution_shifted": 8.3125,
+        "max_replicate_range": 0.3987029362637363,
+        "replicates": 32
+      },
+      "V1_no_quarantine": {
+        "objective": 0.5053465791468075,
+        "success": 0.6656299603174604,
+        "attempts": 13.501180555555555,
+        "give_up_rate": 0.33437003968253964,
+        "fee_ppm": 3977.476183970825,
+        "attribution_unknown": 17.475,
+        "attribution_shifted": 6.803125,
+        "max_replicate_range": 0.2857142857142857,
+        "replicates": 32
+      },
+      "V2_no_probe_on_named": {
+        "objective": 0.49812005047950897,
+        "success": 0.6597668650793651,
+        "attempts": 13.491006944444445,
+        "give_up_rate": 0.3402331349206349,
+        "fee_ppm": 3546.980833034725,
+        "attribution_unknown": 17.084375,
+        "attribution_shifted": 7.0875,
+        "max_replicate_range": 0.3340511122807017,
+        "replicates": 32
+      },
+      "V3_probe_no_suppress": {
+        "objective": 0.5104661618045011,
+        "success": 0.6768253968253968,
+        "attempts": 13.690064484126983,
+        "give_up_rate": 0.32317460317460317,
+        "fee_ppm": 4021.7869244981957,
+        "attribution_unknown": 17.8,
+        "attribution_shifted": 7.284375,
+        "max_replicate_range": 0.29386902571428564,
+        "replicates": 32
+      },
+      "V4_corroborate": {
+        "objective": 0.4910262753069426,
+        "success": 0.6510019841269841,
+        "attempts": 13.87640376984127,
+        "give_up_rate": 0.3489980158730158,
+        "fee_ppm": 3461.3476711638605,
+        "attribution_unknown": 17.66875,
+        "attribution_shifted": 7.60625,
+        "max_replicate_range": 0.5,
+        "replicates": 32
+      }
+    },
+    "deg_hard_unk30": {
+      "round2": {
+        "objective": 0.5270564023730453,
+        "success": 0.6765674603174603,
+        "attempts": 11.965694444444445,
+        "give_up_rate": 0.32343253968253965,
+        "fee_ppm": 3736.0367299931872,
+        "attribution_unknown": 20.50625,
+        "attribution_shifted": 0.0,
+        "max_replicate_range": 0.1428571428571429,
+        "replicates": 16
+      },
+      "V0": {
+        "objective": 0.5350992255096996,
+        "success": 0.6912996031746032,
+        "attempts": 12.293581349206349,
+        "give_up_rate": 0.30870039682539685,
+        "fee_ppm": 3630.968828869535,
+        "attribution_unknown": 21.4875,
+        "attribution_shifted": 0.0,
+        "max_replicate_range": 0.16666666666666674,
+        "replicates": 16
+      },
+      "V1_no_quarantine": {
+        "objective": 0.5288401359941284,
+        "success": 0.6783531746031746,
+        "attempts": 12.079484126984127,
+        "give_up_rate": 0.3216468253968254,
+        "fee_ppm": 3751.1698857541282,
+        "attribution_unknown": 20.65,
+        "attribution_shifted": 0.0,
+        "max_replicate_range": 0.1428571428571429,
+        "replicates": 16
+      },
+      "V2_no_probe_on_named": {
+        "objective": 0.4497100480799093,
+        "success": 0.6148611111111111,
+        "attempts": 15.637529761904762,
+        "give_up_rate": 0.38513888888888886,
+        "fee_ppm": 3335.7899367858636,
+        "attribution_unknown": 31.75,
+        "attribution_shifted": 0.0,
+        "max_replicate_range": 0.5037791578947368,
+        "replicates": 16
+      },
+      "V3_probe_no_suppress": {
+        "objective": 0.5259332681925553,
+        "success": 0.6920039682539683,
+        "attempts": 14.341676587301587,
+        "give_up_rate": 0.30799603174603174,
+        "fee_ppm": 3531.2090350248923,
+        "attribution_unknown": 27.53125,
+        "attribution_shifted": 0.0,
+        "max_replicate_range": 0.3198431951182304,
+        "replicates": 16
+      },
+      "V4_corroborate": {
+        "objective": 0.4896983601266883,
+        "success": 0.6567757936507936,
+        "attempts": 14.003184523809523,
+        "give_up_rate": 0.3432242063492063,
+        "fee_ppm": 3537.9784134504,
+        "attribution_unknown": 26.38125,
+        "attribution_shifted": 0.0,
+        "max_replicate_range": 0.27169874285714285,
+        "replicates": 16
+      }
+    }
+  },
+  "vs_round2": {
+    "hard_test": {
+      "V0": {
+        "objective": {
+          "delta": 1.8856837608050015e-08,
+          "ci_lo": -2.8846153832251532e-08,
+          "ci_hi": 8.541666665640157e-08,
+          "ci_excludes_zero": false,
+          "pos": 1,
+          "neg": 1,
+          "n": 10,
+          "sign_p": 1.0,
+          "mean_ref": 0.5714903079413529,
+          "mean_var": 0.5714903267981906,
+          "replicate_z": 0.1068144812111845
+        },
+        "success": {
+          "delta": 0.0,
+          "ci_lo": 0.0,
+          "ci_hi": 0.0,
+          "ci_excludes_zero": false,
+          "pos": 0,
+          "neg": 0,
+          "n": 10,
+          "sign_p": 1.0,
+          "mean_ref": 0.7153174603174602,
+          "mean_var": 0.7153174603174602,
+          "replicate_z": 0.0
+        },
+        "attempts": {
+          "delta": 0.02589285714285694,
+          "ci_lo": 0.0,
+          "ci_hi": 0.07767857142857082,
+          "ci_excludes_zero": false,
+          "pos": 1,
+          "neg": 0,
+          "n": 10,
+          "sign_p": 1.0,
+          "mean_ref": 10.147738095238093,
+          "mean_var": 10.17363095238095,
+          "replicate_z": 146669.98572490658
+        },
+        "give_up_rate": {
+          "delta": 0.0,
+          "ci_lo": 0.0,
+          "ci_hi": 0.0,
+          "ci_excludes_zero": false,
+          "pos": 0,
+          "neg": 0,
+          "n": 10,
+          "sign_p": 1.0,
+          "mean_ref": 0.2846825396825397,
+          "mean_var": 0.2846825396825397,
+          "replicate_z": 0.0
+        }
+      },
+      "V1_no_quarantine": {
+        "objective": {
+          "delta": 3.719017094283572e-08,
+          "ci_lo": -2.8846153832251532e-08,
+          "ci_hi": 1.404166666607587e-07,
+          "ci_excludes_zero": false,
+          "pos": 1,
+          "neg": 1,
+          "n": 10,
+          "sign_p": 1.0,
+          "mean_ref": 0.5714903079413529,
+          "mean_var": 0.5714903451315239,
+          "replicate_z": 0.22814380968672215
+        },
+        "success": {
+          "delta": 0.0,
+          "ci_lo": 0.0,
+          "ci_hi": 0.0,
+          "ci_excludes_zero": false,
+          "pos": 0,
+          "neg": 0,
+          "n": 10,
+          "sign_p": 1.0,
+          "mean_ref": 0.7153174603174602,
+          "mean_var": 0.7153174603174602,
+          "replicate_z": 0.0
+        },
+        "attempts": {
+          "delta": 0.011607142857142705,
+          "ci_lo": 0.0,
+          "ci_hi": 0.034821428571428115,
+          "ci_excludes_zero": false,
+          "pos": 1,
+          "neg": 0,
+          "n": 10,
+          "sign_p": 1.0,
+          "mean_ref": 10.147738095238093,
+          "mean_var": 10.159345238095238,
+          "replicate_z": 71204.23821328761
+        },
+        "give_up_rate": {
+          "delta": 0.0,
+          "ci_lo": 0.0,
+          "ci_hi": 0.0,
+          "ci_excludes_zero": false,
+          "pos": 0,
+          "neg": 0,
+          "n": 10,
+          "sign_p": 1.0,
+          "mean_ref": 0.2846825396825397,
+          "mean_var": 0.2846825396825397,
+          "replicate_z": 0.0
+        }
+      },
+      "V2_no_probe_on_named": {
+        "objective": {
+          "delta": -0.0005291621724469425,
+          "ci_lo": -0.011088577696518784,
+          "ci_hi": 0.0085081732970059,
+          "ci_excludes_zero": false,
+          "pos": 3,
+          "neg": 4,
+          "n": 10,
+          "sign_p": 1.0,
+          "mean_ref": 0.5714903079413529,
+          "mean_var": 0.5709611457689061,
+          "replicate_z": -0.15290804986331955
+        },
+        "success": {
+          "delta": -0.0008928571428571397,
+          "ci_lo": -0.002678571428571419,
+          "ci_hi": 0.0,
+          "ci_excludes_zero": false,
+          "pos": 0,
+          "neg": 1,
+          "n": 10,
+          "sign_p": 1.0,
+          "mean_ref": 0.7153174603174602,
+          "mean_var": 0.7144246031746031,
+          "replicate_z": -0.2580022753506809
+        },
+        "attempts": {
+          "delta": 0.5583333333333337,
+          "ci_lo": -0.6283333333333332,
+          "ci_hi": 1.9733333333333338,
+          "ci_excludes_zero": false,
+          "pos": 3,
+          "neg": 4,
+          "n": 10,
+          "sign_p": 1.0,
+          "mean_ref": 10.147738095238093,
+          "mean_var": 10.706071428571429,
+          "replicate_z": 161.33742285262645
+        },
+        "give_up_rate": {
+          "delta": 0.0008928571428571428,
+          "ci_lo": 0.0,
+          "ci_hi": 0.0026785714285714286,
+          "ci_excludes_zero": false,
+          "pos": 1,
+          "neg": 0,
+          "n": 10,
+          "sign_p": 1.0,
+          "mean_ref": 0.2846825396825397,
+          "mean_var": 0.2855753968253968,
+          "replicate_z": 0.25800227535068176
+        }
+      },
+      "V3_probe_no_suppress": {
+        "objective": {
+          "delta": -8.955309829056235e-06,
+          "ci_lo": -2.6856314102557954e-05,
+          "ci_hi": 0.0,
+          "ci_excludes_zero": false,
+          "pos": 0,
+          "neg": 2,
+          "n": 10,
+          "sign_p": 0.5,
+          "mean_ref": 0.5714903079413529,
+          "mean_var": 0.5714813526315239,
+          "replicate_z": -0.36362991761924085
+        },
+        "success": {
+          "delta": 0.0,
+          "ci_lo": 0.0,
+          "ci_hi": 0.0,
+          "ci_excludes_zero": false,
+          "pos": 0,
+          "neg": 0,
+          "n": 10,
+          "sign_p": 1.0,
+          "mean_ref": 0.7153174603174602,
+          "mean_var": 0.7153174603174602,
+          "replicate_z": 0.0
+        },
+        "attempts": {
+          "delta": 0.00654761904761898,
+          "ci_lo": 0.0,
+          "ci_hi": 0.01547619047619051,
+          "ci_excludes_zero": false,
+          "pos": 2,
+          "neg": 0,
+          "n": 10,
+          "sign_p": 0.5,
+          "mean_ref": 10.147738095238093,
+          "mean_var": 10.154285714285715,
+          "replicate_z": 265.8657511952076
+        },
+        "give_up_rate": {
+          "delta": 0.0,
+          "ci_lo": 0.0,
+          "ci_hi": 0.0,
+          "ci_excludes_zero": false,
+          "pos": 0,
+          "neg": 0,
+          "n": 10,
+          "sign_p": 1.0,
+          "mean_ref": 0.2846825396825397,
+          "mean_var": 0.2846825396825397,
+          "replicate_z": 0.0
+        }
+      },
+      "V4_corroborate": {
+        "objective": {
+          "delta": -4.580891330707715e-08,
+          "ci_lo": -1.1270451769629374e-07,
+          "ci_hi": 0.0,
+          "ci_excludes_zero": false,
+          "pos": 0,
+          "neg": 2,
+          "n": 10,
+          "sign_p": 0.5,
+          "mean_ref": 0.5714903079413529,
+          "mean_var": 0.5714902621324397,
+          "replicate_z": -0.2143218388202162
+        },
+        "success": {
+          "delta": 0.0,
+          "ci_lo": 0.0,
+          "ci_hi": 0.0,
+          "ci_excludes_zero": false,
+          "pos": 0,
+          "neg": 0,
+          "n": 10,
+          "sign_p": 1.0,
+          "mean_ref": 0.7153174603174602,
+          "mean_var": 0.7153174603174602,
+          "replicate_z": 0.0
+        },
+        "attempts": {
+          "delta": -0.00267857142857153,
+          "ci_lo": -0.00803571428571459,
+          "ci_hi": 0.0,
+          "ci_excludes_zero": false,
+          "pos": 0,
+          "neg": 1,
+          "n": 10,
+          "sign_p": 1.0,
+          "mean_ref": 10.147738095238093,
+          "mean_var": 10.145059523809524,
+          "replicate_z": -12531.979314472255
+        },
+        "give_up_rate": {
+          "delta": 0.0,
+          "ci_lo": 0.0,
+          "ci_hi": 0.0,
+          "ci_excludes_zero": false,
+          "pos": 0,
+          "neg": 0,
+          "n": 10,
+          "sign_p": 1.0,
+          "mean_ref": 0.2846825396825397,
+          "mean_var": 0.2846825396825397,
+          "replicate_z": 0.0
+        }
+      }
+    },
+    "deg_hard_unk20": {
+      "V0": {
+        "objective": {
+          "delta": 0.002790094912618163,
+          "ci_lo": -0.015091371923715407,
+          "ci_hi": 0.02751413072715444,
+          "ci_excludes_zero": false,
+          "pos": 4,
+          "neg": 3,
+          "n": 10,
+          "sign_p": 1.0,
+          "mean_ref": 0.5719454052136431,
+          "mean_var": 0.5747355001262613,
+          "replicate_z": 0.3961601770944603
+        },
+        "success": {
+          "delta": 0.008214285714285719,
+          "ci_lo": -0.005357142857142871,
+          "ci_hi": 0.030000000000000027,
+          "ci_excludes_zero": false,
+          "pos": 1,
+          "neg": 1,
+          "n": 10,
+          "sign_p": 1.0,
+          "mean_ref": 0.7210912698412699,
+          "mean_var": 0.7293055555555555,
+          "replicate_z": 1.1663305318249129
+        },
+        "attempts": {
+          "delta": 0.1872023809523813,
+          "ci_lo": -0.7419642857142854,
+          "ci_hi": 1.1791666666666667,
+          "ci_excludes_zero": false,
+          "pos": 3,
+          "neg": 3,
+          "n": 10,
+          "sign_p": 1.0,
+          "mean_ref": 11.705525793650795,
+          "mean_var": 11.892728174603175,
+          "replicate_z": 26.580503786879387
+        },
+        "give_up_rate": {
+          "delta": -0.008214285714285712,
+          "ci_lo": -0.029999999999999992,
+          "ci_hi": 0.005357142857142857,
+          "ci_excludes_zero": false,
+          "pos": 1,
+          "neg": 1,
+          "n": 10,
+          "sign_p": 1.0,
+          "mean_ref": 0.2789087301587302,
+          "mean_var": 0.27069444444444446,
+          "replicate_z": -1.1663305318249118
+        }
+      },
+      "V1_no_quarantine": {
+        "objective": {
+          "delta": -0.002164873681392365,
+          "ci_lo": -0.005085582824404777,
+          "ci_hi": 8.581306227896101e-05,
+          "ci_excludes_zero": false,
+          "pos": 1,
+          "neg": 3,
+          "n": 10,
+          "sign_p": 0.625,
+          "mean_ref": 0.5719454052136431,
+          "mean_var": 0.5697805315322507,
+          "replicate_z": -0.30031936787499713
+        },
+        "success": {
+          "delta": -0.0019345238095238137,
+          "ci_lo": -0.004761904761904778,
+          "ci_hi": 0.0,
+          "ci_excludes_zero": false,
+          "pos": 0,
+          "neg": 2,
+          "n": 10,
+          "sign_p": 0.5,
+          "mean_ref": 0.7210912698412699,
+          "mean_var": 0.7191567460317461,
+          "replicate_z": -0.26836437276176867
+        },
+        "attempts": {
+          "delta": -0.031230158730158664,
+          "ci_lo": -0.07192460317460317,
+          "ci_hi": -0.0037499999999999643,
+          "ci_excludes_zero": true,
+          "pos": 0,
+          "neg": 4,
+          "n": 10,
+          "sign_p": 0.125,
+          "mean_ref": 11.705525793650795,
+          "mean_var": 11.674295634920636,
+          "replicate_z": -4.332364335661764
+        },
+        "give_up_rate": {
+          "delta": 0.0019345238095238085,
+          "ci_lo": 0.0,
+          "ci_hi": 0.004761904761904761,
+          "ci_excludes_zero": false,
+          "pos": 2,
+          "neg": 0,
+          "n": 10,
+          "sign_p": 0.5,
+          "mean_ref": 0.2789087301587302,
+          "mean_var": 0.280843253968254,
+          "replicate_z": 0.26836437276176794
+        }
+      },
+      "V2_no_probe_on_named": {
+        "objective": {
+          "delta": -0.05651611099126473,
+          "ci_lo": -0.09261320386734968,
+          "ci_hi": -0.024235228841943186,
+          "ci_excludes_zero": true,
+          "pos": 0,
+          "neg": 7,
+          "n": 10,
+          "sign_p": 0.015625,
+          "mean_ref": 0.5719454052136431,
+          "mean_var": 0.5154292942223784,
+          "replicate_z": -4.846605543184463
+        },
+        "success": {
+          "delta": -0.04363095238095239,
+          "ci_lo": -0.08142857142857145,
+          "ci_hi": -0.010714285714285721,
+          "ci_excludes_zero": true,
+          "pos": 0,
+          "neg": 4,
+          "n": 10,
+          "sign_p": 0.125,
+          "mean_ref": 0.7210912698412699,
+          "mean_var": 0.6774603174603174,
+          "replicate_z": -3.7416236176729374
+        },
+        "attempts": {
+          "delta": 3.5823908730158736,
+          "ci_lo": -0.2248015873015868,
+          "ci_hi": 7.877390873015874,
+          "ci_excludes_zero": false,
+          "pos": 6,
+          "neg": 1,
+          "n": 10,
+          "sign_p": 0.125,
+          "mean_ref": 11.705525793650795,
+          "mean_var": 15.287916666666666,
+          "replicate_z": 307.21214107771397
+        },
+        "give_up_rate": {
+          "delta": 0.04363095238095238,
+          "ci_lo": 0.010714285714285714,
+          "ci_hi": 0.08142857142857142,
+          "ci_excludes_zero": true,
+          "pos": 4,
+          "neg": 0,
+          "n": 10,
+          "sign_p": 0.125,
+          "mean_ref": 0.2789087301587302,
+          "mean_var": 0.32253968253968257,
+          "replicate_z": 3.741623617672937
+        }
+      },
+      "V3_probe_no_suppress": {
+        "objective": {
+          "delta": -0.004497211400809158,
+          "ci_lo": -0.04650240963312858,
+          "ci_hi": 0.038600040068117396,
+          "ci_excludes_zero": false,
+          "pos": 3,
+          "neg": 4,
+          "n": 10,
+          "sign_p": 1.0,
+          "mean_ref": 0.5719454052136431,
+          "mean_var": 0.567448193812834,
+          "replicate_z": -0.4337082058006699
+        },
+        "success": {
+          "delta": -0.0009821428571428537,
+          "ci_lo": -0.04196428571428572,
+          "ci_hi": 0.040000000000000015,
+          "ci_excludes_zero": false,
+          "pos": 2,
+          "neg": 2,
+          "n": 10,
+          "sign_p": 1.0,
+          "mean_ref": 0.7210912698412699,
+          "mean_var": 0.720109126984127,
+          "replicate_z": -0.09471723217964126
+        },
+        "attempts": {
+          "delta": 0.24192460317460335,
+          "ci_lo": -0.9902976190476188,
+          "ci_hi": 1.8722222222222222,
+          "ci_excludes_zero": false,
+          "pos": 4,
+          "neg": 4,
+          "n": 10,
+          "sign_p": 1.0,
+          "mean_ref": 11.705525793650795,
+          "mean_var": 11.947450396825397,
+          "replicate_z": 23.33105478719941
+        },
+        "give_up_rate": {
+          "delta": 0.0009821428571428592,
+          "ci_lo": -0.039999999999999994,
+          "ci_hi": 0.04196428571428571,
+          "ci_excludes_zero": false,
+          "pos": 2,
+          "neg": 2,
+          "n": 10,
+          "sign_p": 1.0,
+          "mean_ref": 0.2789087301587302,
+          "mean_var": 0.279890873015873,
+          "replicate_z": 0.09471723217964179
+        }
+      },
+      "V4_corroborate": {
+        "objective": {
+          "delta": -0.042449744764656586,
+          "ci_lo": -0.08305034410676186,
+          "ci_hi": -0.006811200662092479,
+          "ci_excludes_zero": true,
+          "pos": 2,
+          "neg": 5,
+          "n": 10,
+          "sign_p": 0.453125,
+          "mean_ref": 0.5719454052136431,
+          "mean_var": 0.5294956604489865,
+          "replicate_z": -6.245035903191271
+        },
+        "success": {
+          "delta": -0.03738095238095239,
+          "ci_lo": -0.0754761904761905,
+          "ci_hi": 0.0,
+          "ci_excludes_zero": false,
+          "pos": 0,
+          "neg": 3,
+          "n": 10,
+          "sign_p": 0.25,
+          "mean_ref": 0.7210912698412699,
+          "mean_var": 0.6837103174603174,
+          "replicate_z": -5.499335532139552
+        },
+        "attempts": {
+          "delta": 1.862162698412699,
+          "ci_lo": -0.6005952380952373,
+          "ci_hi": 4.575357142857143,
+          "ci_excludes_zero": false,
+          "pos": 5,
+          "neg": 2,
+          "n": 10,
+          "sign_p": 0.453125,
+          "mean_ref": 11.705525793650795,
+          "mean_var": 13.567688492063493,
+          "replicate_z": 273.9538947441048
+        },
+        "give_up_rate": {
+          "delta": 0.03738095238095238,
+          "ci_lo": 0.0,
+          "ci_hi": 0.07619047619047618,
+          "ci_excludes_zero": false,
+          "pos": 3,
+          "neg": 0,
+          "n": 10,
+          "sign_p": 0.25,
+          "mean_ref": 0.2789087301587302,
+          "mean_var": 0.31628968253968254,
+          "replicate_z": 5.4993355321395505
+        }
+      }
+    },
+    "deg_hard_shift10": {
+      "V0": {
+        "objective": {
+          "delta": -0.00357142857142857,
+          "ci_lo": -0.01071428571428571,
+          "ci_hi": 0.0,
+          "ci_excludes_zero": false,
+          "pos": 0,
+          "neg": 1,
+          "n": 10,
+          "sign_p": 1.0,
+          "mean_ref": 0.5266126241630256,
+          "mean_var": 0.523041195591597,
+          "replicate_z": -0.215097792289822
+        },
+        "success": {
+          "delta": -0.00357142857142857,
+          "ci_lo": -0.01071428571428571,
+          "ci_hi": 0.0,
+          "ci_excludes_zero": false,
+          "pos": 0,
+          "neg": 1,
+          "n": 10,
+          "sign_p": 1.0,
+          "mean_ref": 0.674781746031746,
+          "mean_var": 0.6712103174603175,
+          "replicate_z": -0.215097792289822
+        },
+        "attempts": {
+          "delta": -0.00892857142857153,
+          "ci_lo": -0.02678571428571459,
+          "ci_hi": 0.0,
+          "ci_excludes_zero": false,
+          "pos": 0,
+          "neg": 1,
+          "n": 10,
+          "sign_p": 1.0,
+          "mean_ref": 12.730853174603174,
+          "mean_var": 12.721924603174603,
+          "replicate_z": -0.5377444807245614
+        },
+        "give_up_rate": {
+          "delta": 0.0035714285714285713,
+          "ci_lo": 0.0,
+          "ci_hi": 0.010714285714285714,
+          "ci_excludes_zero": false,
+          "pos": 1,
+          "neg": 0,
+          "n": 10,
+          "sign_p": 1.0,
+          "mean_ref": 0.32521825396825393,
+          "mean_var": 0.32878968253968255,
+          "replicate_z": 0.2150977922898221
+        }
+      },
+      "V1_no_quarantine": {
+        "objective": {
+          "delta": -0.0010780811822344249,
+          "ci_lo": -0.0032342723928571403,
+          "ci_hi": 2.884615386555822e-08,
+          "ci_excludes_zero": false,
+          "pos": 1,
+          "neg": 1,
+          "n": 10,
+          "sign_p": 1.0,
+          "mean_ref": 0.5266126241630256,
+          "mean_var": 0.5255345429807912,
+          "replicate_z": -0.07465014906083521
+        },
+        "success": {
+          "delta": -0.0008928571428571397,
+          "ci_lo": -0.002678571428571419,
+          "ci_hi": 0.0,
+          "ci_excludes_zero": false,
+          "pos": 0,
+          "neg": 1,
+          "n": 10,
+          "sign_p": 1.0,
+          "mean_ref": 0.674781746031746,
+          "mean_var": 0.6738888888888889,
+          "replicate_z": -0.06182458232521462
+        },
+        "attempts": {
+          "delta": 0.03392857142857153,
+          "ci_lo": 0.0,
+          "ci_hi": 0.10178571428571459,
+          "ci_excludes_zero": false,
+          "pos": 1,
+          "neg": 0,
+          "n": 10,
+          "sign_p": 1.0,
+          "mean_ref": 12.730853174603174,
+          "mean_var": 12.764781746031748,
+          "replicate_z": 2.349334128358171
+        },
+        "give_up_rate": {
+          "delta": 0.0008928571428571425,
+          "ci_lo": 0.0,
+          "ci_hi": 0.0026785714285714273,
+          "ci_excludes_zero": false,
+          "pos": 1,
+          "neg": 0,
+          "n": 10,
+          "sign_p": 1.0,
+          "mean_ref": 0.32521825396825393,
+          "mean_var": 0.32611111111111113,
+          "replicate_z": 0.061824582325214816
+        }
+      },
+      "V2_no_probe_on_named": {
+        "objective": {
+          "delta": 0.00873411853998592,
+          "ci_lo": -0.025009870136737444,
+          "ci_hi": 0.038668151747284676,
+          "ci_excludes_zero": false,
+          "pos": 5,
+          "neg": 2,
+          "n": 10,
+          "sign_p": 0.453125,
+          "mean_ref": 0.5266126241630256,
+          "mean_var": 0.5353467427030115,
+          "replicate_z": 0.6895763907255202
+        },
+        "success": {
+          "delta": 0.00357142857142857,
+          "ci_lo": -0.026428571428571423,
+          "ci_hi": 0.030714285714285704,
+          "ci_excludes_zero": false,
+          "pos": 2,
+          "neg": 1,
+          "n": 10,
+          "sign_p": 1.0,
+          "mean_ref": 0.674781746031746,
+          "mean_var": 0.6783531746031746,
+          "replicate_z": 0.28197153642291695
+        },
+        "attempts": {
+          "delta": -1.6958928571428569,
+          "ci_lo": -3.9758928571428562,
+          "ci_hi": 0.40821428571428625,
+          "ci_excludes_zero": false,
+          "pos": 2,
+          "neg": 6,
+          "n": 10,
+          "sign_p": 0.2890625,
+          "mean_ref": 12.730853174603174,
+          "mean_var": 11.034960317460317,
+          "replicate_z": -133.89418407042214
+        },
+        "give_up_rate": {
+          "delta": -0.003571428571428574,
+          "ci_lo": -0.030714285714285722,
+          "ci_hi": 0.02642857142857143,
+          "ci_excludes_zero": false,
+          "pos": 1,
+          "neg": 2,
+          "n": 10,
+          "sign_p": 1.0,
+          "mean_ref": 0.32521825396825393,
+          "mean_var": 0.3216468253968254,
+          "replicate_z": -0.2819715364229173
+        }
+      },
+      "V3_probe_no_suppress": {
+        "objective": {
+          "delta": -0.0017857046703296687,
+          "ci_lo": -0.005357142857142871,
+          "ci_hi": 2.884615386555822e-08,
+          "ci_excludes_zero": false,
+          "pos": 1,
+          "neg": 1,
+          "n": 10,
+          "sign_p": 1.0,
+          "mean_ref": 0.5266126241630256,
+          "mean_var": 0.524826919492696,
+          "replicate_z": -0.11191946131163263
+        },
+        "success": {
+          "delta": -0.0017857142857142904,
+          "ci_lo": -0.005357142857142871,
+          "ci_hi": 0.0,
+          "ci_excludes_zero": false,
+          "pos": 0,
+          "neg": 1,
+          "n": 10,
+          "sign_p": 1.0,
+          "mean_ref": 0.674781746031746,
+          "mean_var": 0.6729960317460317,
+          "replicate_z": -0.11192006395813127
+        },
+        "attempts": {
+          "delta": 0.08571428571428577,
+          "ci_lo": 0.0,
+          "ci_hi": 0.2571428571428573,
+          "ci_excludes_zero": false,
+          "pos": 1,
+          "neg": 0,
+          "n": 10,
+          "sign_p": 1.0,
+          "mean_ref": 12.730853174603174,
+          "mean_var": 12.816567460317462,
+          "replicate_z": 5.3721630699902905
+        },
+        "give_up_rate": {
+          "delta": 0.001785714285714285,
+          "ci_lo": 0.0,
+          "ci_hi": 0.005357142857142855,
+          "ci_excludes_zero": false,
+          "pos": 1,
+          "neg": 0,
+          "n": 10,
+          "sign_p": 1.0,
+          "mean_ref": 0.32521825396825393,
+          "mean_var": 0.3270039682539682,
+          "replicate_z": 0.11192006395813094
+        }
+      },
+      "V4_corroborate": {
+        "objective": {
+          "delta": -0.00018522403937728526,
+          "ci_lo": -0.0005557009642857214,
+          "ci_hi": 2.884615386555822e-08,
+          "ci_excludes_zero": false,
+          "pos": 1,
+          "neg": 1,
+          "n": 10,
+          "sign_p": 1.0,
+          "mean_ref": 0.5266126241630256,
+          "mean_var": 0.5264274001236483,
+          "replicate_z": -0.012084596857175714
+        },
+        "success": {
+          "delta": 0.0,
+          "ci_lo": 0.0,
+          "ci_hi": 0.0,
+          "ci_excludes_zero": false,
+          "pos": 0,
+          "neg": 0,
+          "n": 10,
+          "sign_p": 1.0,
+          "mean_ref": 0.674781746031746,
+          "mean_var": 0.674781746031746,
+          "replicate_z": 0.0
+        },
+        "attempts": {
+          "delta": 0.06071428571428576,
+          "ci_lo": 0.0,
+          "ci_hi": 0.1821428571428573,
+          "ci_excludes_zero": false,
+          "pos": 1,
+          "neg": 0,
+          "n": 10,
+          "sign_p": 1.0,
+          "mean_ref": 12.730853174603174,
+          "mean_var": 12.791567460317461,
+          "replicate_z": 3.961190290392206
+        },
+        "give_up_rate": {
+          "delta": 0.0,
+          "ci_lo": 0.0,
+          "ci_hi": 0.0,
+          "ci_excludes_zero": false,
+          "pos": 0,
+          "neg": 0,
+          "n": 10,
+          "sign_p": 1.0,
+          "mean_ref": 0.32521825396825393,
+          "mean_var": 0.32521825396825393,
+          "replicate_z": 0.0
+        }
+      }
+    },
+    "deg_hard_mix": {
+      "V0": {
+        "objective": {
+          "delta": -0.03409783710699911,
+          "ci_lo": -0.10836151377683076,
+          "ci_hi": 0.03886170787335916,
+          "ci_excludes_zero": false,
+          "pos": 1,
+          "neg": 6,
+          "n": 10,
+          "sign_p": 0.125,
+          "mean_ref": 0.5039327044840327,
+          "mean_var": 0.46983486737703356,
+          "replicate_z": -2.14848042609465
+        },
+        "success": {
+          "delta": -0.027673611111111118,
+          "ci_lo": -0.10024305555555557,
+          "ci_hi": 0.033958333333333326,
+          "ci_excludes_zero": false,
+          "pos": 2,
+          "neg": 3,
+          "n": 10,
+          "sign_p": 1.0,
+          "mean_ref": 0.6642906746031746,
+          "mean_var": 0.6366170634920635,
+          "replicate_z": -1.7436945224708502
+        },
+        "attempts": {
+          "delta": 1.692078373015874,
+          "ci_lo": -3.1682043650793643,
+          "ci_hi": 5.8254117063492075,
+          "ci_excludes_zero": false,
+          "pos": 6,
+          "neg": 1,
+          "n": 10,
+          "sign_p": 0.125,
+          "mean_ref": 13.453948412698413,
+          "mean_var": 15.146026785714287,
+          "replicate_z": 106.61665291070516
+        },
+        "give_up_rate": {
+          "delta": 0.027673611111111097,
+          "ci_lo": -0.033958333333333354,
+          "ci_hi": 0.10024305555555554,
+          "ci_excludes_zero": false,
+          "pos": 3,
+          "neg": 2,
+          "n": 10,
+          "sign_p": 1.0,
+          "mean_ref": 0.3357093253968254,
+          "mean_var": 0.3633829365079365,
+          "replicate_z": 1.743694522470849
+        }
+      },
+      "V1_no_quarantine": {
+        "objective": {
+          "delta": 0.0014138746627747278,
+          "ci_lo": 0.0,
+          "ci_hi": 0.004120755341346161,
+          "ci_excludes_zero": false,
+          "pos": 2,
+          "neg": 0,
+          "n": 10,
+          "sign_p": 0.5,
+          "mean_ref": 0.5039327044840327,
+          "mean_var": 0.5053465791468075,
+          "replicate_z": 0.1393215689070867
+        },
+        "success": {
+          "delta": 0.0013392857142857095,
+          "ci_lo": 0.0,
+          "ci_hi": 0.004017857142857129,
+          "ci_excludes_zero": false,
+          "pos": 1,
+          "neg": 0,
+          "n": 10,
+          "sign_p": 1.0,
+          "mean_ref": 0.6642906746031746,
+          "mean_var": 0.6656299603174604,
+          "replicate_z": 0.13197166046030406
+        },
+        "attempts": {
+          "delta": 0.04723214285714317,
+          "ci_lo": -0.03374999999999968,
+          "ci_hi": 0.17544642857142917,
+          "ci_excludes_zero": false,
+          "pos": 1,
+          "neg": 1,
+          "n": 10,
+          "sign_p": 1.0,
+          "mean_ref": 13.453948412698413,
+          "mean_var": 13.501180555555555,
+          "replicate_z": 4.654200558900103
+        },
+        "give_up_rate": {
+          "delta": -0.0013392857142857152,
+          "ci_lo": -0.004017857142857145,
+          "ci_hi": 0.0,
+          "ci_excludes_zero": false,
+          "pos": 0,
+          "neg": 1,
+          "n": 10,
+          "sign_p": 1.0,
+          "mean_ref": 0.3357093253968254,
+          "mean_var": 0.33437003968253964,
+          "replicate_z": -0.13197166046030462
+        }
+      },
+      "V2_no_probe_on_named": {
+        "objective": {
+          "delta": -0.005812654004523752,
+          "ci_lo": -0.06161257280871905,
+          "ci_hi": 0.05457244490165096,
+          "ci_excludes_zero": false,
+          "pos": 2,
+          "neg": 5,
+          "n": 10,
+          "sign_p": 0.453125,
+          "mean_ref": 0.5039327044840327,
+          "mean_var": 0.49812005047950897,
+          "replicate_z": -0.33740008447742087
+        },
+        "success": {
+          "delta": -0.004523809523809532,
+          "ci_lo": -0.057291666666666685,
+          "ci_hi": 0.04793154761904762,
+          "ci_excludes_zero": false,
+          "pos": 3,
+          "neg": 2,
+          "n": 10,
+          "sign_p": 1.0,
+          "mean_ref": 0.6642906746031746,
+          "mean_var": 0.6597668650793651,
+          "replicate_z": -0.2625880904497694
+        },
+        "attempts": {
+          "delta": 0.03705853174603142,
+          "ci_lo": -3.4745039682539685,
+          "ci_hi": 2.6434672619047612,
+          "ci_excludes_zero": false,
+          "pos": 5,
+          "neg": 2,
+          "n": 10,
+          "sign_p": 0.453125,
+          "mean_ref": 13.453948412698413,
+          "mean_var": 13.491006944444445,
+          "replicate_z": 2.1510916927085595
+        },
+        "give_up_rate": {
+          "delta": 0.0045238095238095116,
+          "ci_lo": -0.04793154761904763,
+          "ci_hi": 0.05729166666666665,
+          "ci_excludes_zero": false,
+          "pos": 2,
+          "neg": 3,
+          "n": 10,
+          "sign_p": 1.0,
+          "mean_ref": 0.3357093253968254,
+          "mean_var": 0.3402331349206349,
+          "replicate_z": 0.2625880904497682
+        }
+      },
+      "V3_probe_no_suppress": {
+        "objective": {
+          "delta": 0.006533457320468422,
+          "ci_lo": -0.033230304335211465,
+          "ci_hi": 0.060170987404300026,
+          "ci_excludes_zero": false,
+          "pos": 2,
+          "neg": 4,
+          "n": 10,
+          "sign_p": 0.6875,
+          "mean_ref": 0.5039327044840327,
+          "mean_var": 0.5104661618045011,
+          "replicate_z": 0.4490334193852347
+        },
+        "success": {
+          "delta": 0.01253472222222222,
+          "ci_lo": -0.014513888888888892,
+          "ci_hi": 0.05,
+          "ci_excludes_zero": false,
+          "pos": 2,
+          "neg": 2,
+          "n": 10,
+          "sign_p": 1.0,
+          "mean_ref": 0.6642906746031746,
+          "mean_var": 0.6768253968253968,
+          "replicate_z": 0.8614901581824354
+        },
+        "attempts": {
+          "delta": 0.23611607142857222,
+          "ci_lo": -4.075937499999999,
+          "ci_hi": 3.420014880952382,
+          "ci_excludes_zero": false,
+          "pos": 5,
+          "neg": 2,
+          "n": 10,
+          "sign_p": 0.453125,
+          "mean_ref": 13.453948412698413,
+          "mean_var": 13.690064484126983,
+          "replicate_z": 16.227856359177782
+        },
+        "give_up_rate": {
+          "delta": -0.012534722222222228,
+          "ci_lo": -0.050000000000000024,
+          "ci_hi": 0.01451388888888889,
+          "ci_excludes_zero": false,
+          "pos": 2,
+          "neg": 2,
+          "n": 10,
+          "sign_p": 1.0,
+          "mean_ref": 0.3357093253968254,
+          "mean_var": 0.32317460317460317,
+          "replicate_z": -0.8614901581824359
+        }
+      },
+      "V4_corroborate": {
+        "objective": {
+          "delta": -0.012906429177090136,
+          "ci_lo": -0.0746439019880844,
+          "ci_hi": 0.057420581225337754,
+          "ci_excludes_zero": false,
+          "pos": 2,
+          "neg": 5,
+          "n": 10,
+          "sign_p": 0.453125,
+          "mean_ref": 0.5039327044840327,
+          "mean_var": 0.4910262753069426,
+          "replicate_z": -0.7400627925130251
+        },
+        "success": {
+          "delta": -0.013288690476190482,
+          "ci_lo": -0.06953869047619048,
+          "ci_hi": 0.04571428571428572,
+          "ci_excludes_zero": false,
+          "pos": 2,
+          "neg": 4,
+          "n": 10,
+          "sign_p": 0.6875,
+          "mean_ref": 0.6642906746031746,
+          "mean_var": 0.6510019841269841,
+          "replicate_z": -0.7619818965967496
+        },
+        "attempts": {
+          "delta": 0.4224553571428574,
+          "ci_lo": -3.8258184523809518,
+          "ci_hi": 3.3026785714285722,
+          "ci_excludes_zero": false,
+          "pos": 6,
+          "neg": 1,
+          "n": 10,
+          "sign_p": 0.125,
+          "mean_ref": 13.453948412698413,
+          "mean_var": 13.87640376984127,
+          "replicate_z": 24.223856732906082
+        },
+        "give_up_rate": {
+          "delta": 0.013288690476190463,
+          "ci_lo": -0.04571428571428574,
+          "ci_hi": 0.06964285714285713,
+          "ci_excludes_zero": false,
+          "pos": 4,
+          "neg": 2,
+          "n": 10,
+          "sign_p": 0.6875,
+          "mean_ref": 0.3357093253968254,
+          "mean_var": 0.3489980158730158,
+          "replicate_z": 0.7619818965967485
+        }
+      }
+    },
+    "deg_hard_unk30": {
+      "V0": {
+        "objective": {
+          "delta": 0.008042823136654312,
+          "ci_lo": -0.01691257692449912,
+          "ci_hi": 0.04529939275504491,
+          "ci_excludes_zero": false,
+          "pos": 3,
+          "neg": 4,
+          "n": 10,
+          "sign_p": 1.0,
+          "mean_ref": 0.5270564023730453,
+          "mean_var": 0.5350992255096996,
+          "replicate_z": 0.7542183685640624
+        },
+        "success": {
+          "delta": 0.01473214285714287,
+          "ci_lo": -0.002678571428571419,
+          "ci_hi": 0.046875000000000035,
+          "ci_excludes_zero": false,
+          "pos": 1,
+          "neg": 1,
+          "n": 10,
+          "sign_p": 1.0,
+          "mean_ref": 0.6765674603174603,
+          "mean_var": 0.6912996031746032,
+          "replicate_z": 1.3815115118631227
+        },
+        "attempts": {
+          "delta": 0.3278869047619044,
+          "ci_lo": -0.8146428571428579,
+          "ci_hi": 1.4968452380952377,
+          "ci_excludes_zero": false,
+          "pos": 5,
+          "neg": 2,
+          "n": 10,
+          "sign_p": 0.453125,
+          "mean_ref": 11.965694444444445,
+          "mean_var": 12.293581349206349,
+          "replicate_z": 30.74770166908281
+        },
+        "give_up_rate": {
+          "delta": -0.014732142857142857,
+          "ci_lo": -0.046875,
+          "ci_hi": 0.0026785714285714295,
+          "ci_excludes_zero": false,
+          "pos": 1,
+          "neg": 1,
+          "n": 10,
+          "sign_p": 1.0,
+          "mean_ref": 0.32343253968253965,
+          "mean_var": 0.30870039682539685,
+          "replicate_z": -1.3815115118631214
+        }
+      },
+      "V1_no_quarantine": {
+        "objective": {
+          "delta": 0.0017837336210830613,
+          "ci_lo": 0.0,
+          "ci_hi": 0.005260579317511627,
+          "ci_excludes_zero": false,
+          "pos": 2,
+          "neg": 0,
+          "n": 10,
+          "sign_p": 0.5,
+          "mean_ref": 0.5270564023730453,
+          "mean_var": 0.5288401359941284,
+          "replicate_z": 0.20398037682281359
+        },
+        "success": {
+          "delta": 0.0017857142857142904,
+          "ci_lo": 0.0,
+          "ci_hi": 0.005357142857142871,
+          "ci_excludes_zero": false,
+          "pos": 1,
+          "neg": 0,
+          "n": 10,
+          "sign_p": 1.0,
+          "mean_ref": 0.6765674603174603,
+          "mean_var": 0.6783531746031746,
+          "replicate_z": 0.20420687741295912
+        },
+        "attempts": {
+          "delta": 0.11378968253968251,
+          "ci_lo": -0.006944444444444464,
+          "ci_hi": 0.28720238095238065,
+          "ci_excludes_zero": false,
+          "pos": 2,
+          "neg": 1,
+          "n": 10,
+          "sign_p": 1.0,
+          "mean_ref": 11.965694444444445,
+          "mean_var": 12.079484126984127,
+          "replicate_z": 13.012516021814635
+        },
+        "give_up_rate": {
+          "delta": -0.0017857142857142852,
+          "ci_lo": -0.005357142857142856,
+          "ci_hi": 0.0,
+          "ci_excludes_zero": false,
+          "pos": 0,
+          "neg": 1,
+          "n": 10,
+          "sign_p": 1.0,
+          "mean_ref": 0.32343253968253965,
+          "mean_var": 0.3216468253968254,
+          "replicate_z": -0.20420687741295854
+        }
+      },
+      "V2_no_probe_on_named": {
+        "objective": {
+          "delta": -0.07734635429313602,
+          "ci_lo": -0.1241179729794681,
+          "ci_hi": -0.034165266887622406,
+          "ci_excludes_zero": true,
+          "pos": 0,
+          "neg": 7,
+          "n": 10,
+          "sign_p": 0.015625,
+          "mean_ref": 0.5270564023730453,
+          "mean_var": 0.4497100480799093,
+          "replicate_z": -3.2300252783262735
+        },
+        "success": {
+          "delta": -0.06170634920634919,
+          "ci_lo": -0.10931547619047617,
+          "ci_hi": -0.0211111111111111,
+          "ci_excludes_zero": true,
+          "pos": 0,
+          "neg": 6,
+          "n": 10,
+          "sign_p": 0.03125,
+          "mean_ref": 0.6765674603174603,
+          "mean_var": 0.6148611111111111,
+          "replicate_z": -2.576890269635165
+        },
+        "attempts": {
+          "delta": 3.6718353174603173,
+          "ci_lo": 0.4503472222222221,
+          "ci_hi": 7.560238095238094,
+          "ci_excludes_zero": true,
+          "pos": 5,
+          "neg": 2,
+          "n": 10,
+          "sign_p": 0.453125,
+          "mean_ref": 11.965694444444445,
+          "mean_var": 15.637529761904762,
+          "replicate_z": 153.33781406553652
+        },
+        "give_up_rate": {
+          "delta": 0.061706349206349195,
+          "ci_lo": 0.021111111111111115,
+          "ci_hi": 0.10942460317460316,
+          "ci_excludes_zero": true,
+          "pos": 6,
+          "neg": 0,
+          "n": 10,
+          "sign_p": 0.03125,
+          "mean_ref": 0.32343253968253965,
+          "mean_var": 0.38513888888888886,
+          "replicate_z": 2.576890269635165
+        }
+      },
+      "V3_probe_no_suppress": {
+        "objective": {
+          "delta": -0.0011231341804900693,
+          "ci_lo": -0.04759101850592914,
+          "ci_hi": 0.05527752258284975,
+          "ci_excludes_zero": false,
+          "pos": 2,
+          "neg": 5,
+          "n": 10,
+          "sign_p": 0.453125,
+          "mean_ref": 0.5270564023730453,
+          "mean_var": 0.5259332681925553,
+          "replicate_z": -0.06895572493153737
+        },
+        "success": {
+          "delta": 0.015436507936507948,
+          "ci_lo": -0.026984126984126933,
+          "ci_hi": 0.06972222222222221,
+          "ci_excludes_zero": false,
+          "pos": 2,
+          "neg": 3,
+          "n": 10,
+          "sign_p": 1.0,
+          "mean_ref": 0.6765674603174603,
+          "mean_var": 0.6920039682539683,
+          "replicate_z": 0.947736800877059
+        },
+        "attempts": {
+          "delta": 2.3759821428571426,
+          "ci_lo": 0.13419642857142805,
+          "ci_hi": 4.76125,
+          "ci_excludes_zero": true,
+          "pos": 6,
+          "neg": 2,
+          "n": 10,
+          "sign_p": 0.2890625,
+          "mean_ref": 11.965694444444445,
+          "mean_var": 14.341676587301587,
+          "replicate_z": 145.87533166661603
+        },
+        "give_up_rate": {
+          "delta": -0.015436507936507932,
+          "ci_lo": -0.06972222222222221,
+          "ci_hi": 0.027480158730158733,
+          "ci_excludes_zero": false,
+          "pos": 3,
+          "neg": 2,
+          "n": 10,
+          "sign_p": 1.0,
+          "mean_ref": 0.32343253968253965,
+          "mean_var": 0.30799603174603174,
+          "replicate_z": -0.947736800877058
+        }
+      },
+      "V4_corroborate": {
+        "objective": {
+          "delta": -0.03735804224635697,
+          "ci_lo": -0.09641028502418818,
+          "ci_hi": 0.022677618902554698,
+          "ci_excludes_zero": false,
+          "pos": 2,
+          "neg": 5,
+          "n": 10,
+          "sign_p": 0.453125,
+          "mean_ref": 0.5270564023730453,
+          "mean_var": 0.4896983601266883,
+          "replicate_z": -2.71616002555662
+        },
+        "success": {
+          "delta": -0.019791666666666645,
+          "ci_lo": -0.08333333333333333,
+          "ci_hi": 0.04125000000000005,
+          "ci_excludes_zero": false,
+          "pos": 2,
+          "neg": 3,
+          "n": 10,
+          "sign_p": 1.0,
+          "mean_ref": 0.6765674603174603,
+          "mean_var": 0.6567757936507936,
+          "replicate_z": -1.4389762044980718
+        },
+        "attempts": {
+          "delta": 2.037490079365079,
+          "ci_lo": -0.4975099206349213,
+          "ci_hi": 4.496240079365078,
+          "ci_excludes_zero": false,
+          "pos": 5,
+          "neg": 2,
+          "n": 10,
+          "sign_p": 0.453125,
+          "mean_ref": 11.965694444444445,
+          "mean_var": 14.003184523809523,
+          "replicate_z": 148.13809218226055
+        },
+        "give_up_rate": {
+          "delta": 0.019791666666666666,
+          "ci_lo": -0.041249999999999995,
+          "ci_hi": 0.08395833333333333,
+          "ci_excludes_zero": false,
+          "pos": 3,
+          "neg": 2,
+          "n": 10,
+          "sign_p": 1.0,
+          "mean_ref": 0.32343253968253965,
+          "mean_var": 0.3432242063492063,
+          "replicate_z": 1.4389762044980734
+        }
+      }
+    }
+  },
+  "recovery": {
+    "V1_no_quarantine": {
+      "deg_hard_mix_delta_vs_round2": 0.0014138746627747278,
+      "V0_delta_vs_round2": -0.03409783710699911,
+      "recovered_fraction": 1.0414652301357996,
+      "unk30_delta_vs_round2": 0.0017837336210830613,
+      "unk30_V0_delta": 0.008042823136654312,
+      "hard_test_delta_vs_round2": 3.719017094283572e-08
+    },
+    "V2_no_probe_on_named": {
+      "deg_hard_mix_delta_vs_round2": -0.005812654004523752,
+      "V0_delta_vs_round2": -0.03409783710699911,
+      "recovered_fraction": 0.8295301257295697,
+      "unk30_delta_vs_round2": -0.07734635429313602,
+      "unk30_V0_delta": 0.008042823136654312,
+      "hard_test_delta_vs_round2": -0.0005291621724469425
+    },
+    "V3_probe_no_suppress": {
+      "deg_hard_mix_delta_vs_round2": 0.006533457320468422,
+      "V0_delta_vs_round2": -0.03409783710699911,
+      "recovered_fraction": 1.1916091422446067,
+      "unk30_delta_vs_round2": -0.0011231341804900693,
+      "unk30_V0_delta": 0.008042823136654312,
+      "hard_test_delta_vs_round2": -8.955309829056235e-06
+    },
+    "V4_corroborate": {
+      "deg_hard_mix_delta_vs_round2": -0.012906429177090136,
+      "V0_delta_vs_round2": -0.03409783710699911,
+      "recovered_fraction": 0.6214883326297289,
+      "unk30_delta_vs_round2": -0.03735804224635697,
+      "unk30_V0_delta": 0.008042823136654312,
+      "hard_test_delta_vs_round2": -4.580891330707715e-08
+    }
+  },
+  "counters": {
+    "_note": "collected from a separately instrumented throwaway build of the branch tip (V0I), one pass per file, counters summed per tier. The ground-truth pairs come from the SIMULATOR side, before any degradation is applied, so 'innocent' means a directed channel the simulator never actually failed on.",
+    "_caveat": "hard_test carries no attribution section, so degrade() never runs and no true-fail pairs are recorded there. Its 552/552 'innocent' figure is an artifact of that and must not be read as a result; only the four degraded tiers are interpretable.",
+    "per_tier": {
+      "hard_test": {
+        "clear_suspect_by_lowerok": 0,
+        "distinct_bounded_pairs": 412,
+        "distinct_true_fail_pairs": 0,
+        "hard_bounds_on_guilty": 0,
+        "hard_bounds_on_innocent": 552,
+        "named_hard_bounds": 552,
+        "probes_written": 3777,
+        "promotions": 0,
+        "shifted_attributions": 0,
+        "single_suspect_hard": 0,
+        "suspects_filtered_lowerok": 0,
+        "suspects_recorded": 0,
+        "zero_suspect_contradiction": 0
+      },
+      "deg_hard_unk20": {
+        "clear_suspect_by_lowerok": 77,
+        "distinct_bounded_pairs": 508,
+        "distinct_true_fail_pairs": 604,
+        "hard_bounds_on_guilty": 596,
+        "hard_bounds_on_innocent": 0,
+        "named_hard_bounds": 592,
+        "probes_written": 4534,
+        "promotions": 8,
+        "shifted_attributions": 0,
+        "single_suspect_hard": 4,
+        "suspects_filtered_lowerok": 791,
+        "suspects_recorded": 1243,
+        "zero_suspect_contradiction": 1
+      },
+      "deg_hard_shift10": {
+        "clear_suspect_by_lowerok": 0,
+        "distinct_bounded_pairs": 505,
+        "distinct_true_fail_pairs": 492,
+        "hard_bounds_on_guilty": 653,
+        "hard_bounds_on_innocent": 60,
+        "named_hard_bounds": 713,
+        "probes_written": 4870,
+        "promotions": 0,
+        "shifted_attributions": 74,
+        "single_suspect_hard": 0,
+        "suspects_filtered_lowerok": 0,
+        "suspects_recorded": 0,
+        "zero_suspect_contradiction": 0
+      },
+      "deg_hard_mix": {
+        "clear_suspect_by_lowerok": 133,
+        "distinct_bounded_pairs": 578,
+        "distinct_true_fail_pairs": 632,
+        "hard_bounds_on_guilty": 630,
+        "hard_bounds_on_innocent": 67,
+        "named_hard_bounds": 692,
+        "probes_written": 5257,
+        "promotions": 17,
+        "shifted_attributions": 79,
+        "single_suspect_hard": 5,
+        "suspects_filtered_lowerok": 1100,
+        "suspects_recorded": 1527,
+        "zero_suspect_contradiction": 2
+      },
+      "deg_hard_unk30": {
+        "clear_suspect_by_lowerok": 121,
+        "distinct_bounded_pairs": 444,
+        "distinct_true_fail_pairs": 574,
+        "hard_bounds_on_guilty": 523,
+        "hard_bounds_on_innocent": 1,
+        "named_hard_bounds": 516,
+        "probes_written": 3747,
+        "promotions": 11,
+        "shifted_attributions": 0,
+        "single_suspect_hard": 8,
+        "suspects_filtered_lowerok": 1086,
+        "suspects_recorded": 1922,
+        "zero_suspect_contradiction": 2
+      }
+    },
+    "reading": {
+      "wrong_convictions_are_shift_driven": {
+        "deg_hard_unk20_innocent_share": 0.0,
+        "deg_hard_unk30_innocent_share": 0.19,
+        "deg_hard_shift10_innocent_share": 8.42,
+        "deg_hard_mix_innocent_share": 9.61,
+        "statement": "unreadable failures alone convict nobody innocent (0.0% at unknown 0.2, 0.2% at unknown 0.3). Add misattribution and roughly one hard bound in ten lands on a channel that never failed."
+      },
+      "the_quarantine_amplifies_rather_than_absorbs": {
+        "promotions_unk20": 8,
+        "promotions_unk30": 11,
+        "promotions_mix": 17,
+        "statement": "deg_hard_mix promotes MORE quarantined suspicion into hard bounds (17) than deg_hard_unk30 does (11) despite carrying fewer unreadable failures. The extra convictions are the wrong ones."
+      },
+      "the_suppression_rules_fire_far_more_often": {
+        "suspects_filtered_lowerok": {
+          "deg_hard_unk20": 791,
+          "deg_hard_mix": 1100,
+          "deg_hard_unk30": 1086
+        },
+        "clear_suspect_by_lowerok": {
+          "deg_hard_unk20": 77,
+          "deg_hard_mix": 133,
+          "deg_hard_unk30": 121
+        },
+        "statement": "going from unknown-only to the mix, the rule that drops a channel from the suspect list because a lower bound says it can carry the amount fires 39% more often (791 -> 1100), and the rule that clears an accumulated suspicion for the same reason fires 73% more often (77 -> 133)."
+      }
+    }
+  },
+  "mechanism_verdict": {
+    "confirmed": "YES, and it is quarantine-mediated.",
+    "decisive_test": {
+      "V1_no_quarantine_on_deg_hard_mix": 0.5053465791468075,
+      "V0_on_deg_hard_mix": 0.46983486737703356,
+      "round2_on_deg_hard_mix": 0.5039327044840327,
+      "statement": "disabling the store-level quarantine and changing nothing else moves deg_hard_mix from 0.4698 back to 0.5053, at or fractionally above the round-2 reference of 0.5039. The whole of the loss is quarantine-mediated."
+    },
+    "why_only_the_MIX": [
+      "A named failure writes two kinds of hard evidence: an upper bound on the channel it names, and a LOWER bound on every hop BEFORE that index, because a hop that forwarded has proven it can carry the amount. That inference is only sound if the report is honest.",
+      "A shifted attribution names the wrong hop. When it shifts blame downstream the true culprit now sits BEFORE the reported index and collects a lower bound saying it can carry the very amount it just refused.",
+      "That false lower bound then disarms the quarantine on the guilty channel through three separate rules: it is filtered out of the suspect list (LowerOK >= amt), recordSuspect early-returns on it, and normalize's contradiction rule clears any suspicion already standing against it.",
+      "Removing the guilty channel from the suspect list also concentrates the suspicion mass on the innocent ones that remain, because the weight each suspect receives is 1/sqrt(len(suspects)). Fewer suspects means faster conviction of whoever is left.",
+      "Unreadable failures alone never trigger this: with no shift there is no false lower bound, and the quarantine convicts correctly (0.0% innocent at unknown 0.2). Shift alone costs only 0.006 because without unreadable failures the quarantine barely runs -- suspects_recorded is 0 on the shift-only tier. The two are needed together: the shift manufactures the false exculpatory evidence, and the unreadable failures are what would otherwise have convicted the guilty channel."
+    ],
+    "counter_signature": "on deg_hard_mix the instrumented build records 79 shifted attributions, 1,100 suspects filtered out by a lower bound, 133 suspicions cleared by one, 17 promotions, and 67 hard bounds on directed channels the simulator never failed on -- against 0 innocent bounds on the unknown-only tier."
+  },
+  "fix_candidates": {
+    "V1_no_quarantine": {
+      "description": "V0 with the store-level quarantine never recorded",
+      "deg_hard_mix": 0.5053465791468075,
+      "recovered_fraction_of_the_0.034": 1.0414652301357996,
+      "cost_on_deg_hard_unk30_vs_V0": -0.006259089515571192,
+      "cost_on_deg_hard_unk20_vs_V0": -0.004954968594010567,
+      "cost_on_hard_test_vs_V0": 1.83333332959279e-08,
+      "deg_hard_shift10_vs_V0": 0.002493347389194156
+    },
+    "V2_no_probe_on_named": {
+      "description": "V0 with no LowerOK written for hops before a named failure",
+      "deg_hard_mix": 0.49812005047950897,
+      "recovered_fraction_of_the_0.034": 0.8295301257295697,
+      "cost_on_deg_hard_unk30_vs_V0": -0.0853891774297903,
+      "cost_on_deg_hard_unk20_vs_V0": -0.059306205903882914,
+      "cost_on_hard_test_vs_V0": -0.0005291810292844534,
+      "deg_hard_shift10_vs_V0": 0.012305547111414517
+    },
+    "V3_probe_no_suppress": {
+      "description": "V0 where only a SETTLEMENT-derived lower bound silences the quarantine",
+      "deg_hard_mix": 0.5104661618045011,
+      "recovered_fraction_of_the_0.034": 1.1916091422446067,
+      "cost_on_deg_hard_unk30_vs_V0": -0.009165957317144313,
+      "cost_on_deg_hard_unk20_vs_V0": -0.007287306313427333,
+      "cost_on_hard_test_vs_V0": -8.974166666675387e-06,
+      "deg_hard_shift10_vs_V0": 0.00178572390109899
+    },
+    "V4_corroborate": {
+      "description": "V0 where a payment that has seen an unreadable failure stops trusting later named reports for forwarding evidence",
+      "deg_hard_mix": 0.4910262753069426,
+      "recovered_fraction_of_the_0.034": 0.6214883326297289,
+      "cost_on_deg_hard_unk30_vs_V0": -0.045400865383011246,
+      "cost_on_deg_hard_unk20_vs_V0": -0.04523983967727474,
+      "cost_on_hard_test_vs_V0": -6.466575086516713e-08,
+      "deg_hard_shift10_vs_V0": 0.0033862045320512957
+    }
+  },
+  "vs_V0": {
+    "V1_no_quarantine": {
+      "hard_test": {
+        "delta": 1.8333333334785706e-08,
+        "ci_lo": 0.0,
+        "ci_hi": 5.500000000435712e-08,
+        "ci_excludes_zero": false,
+        "pos": 1,
+        "neg": 0,
+        "sign_p": 1.0,
+        "replicate_z": 0.1356439454723366
+      },
+      "deg_hard_unk20": {
+        "delta": -0.004954968594010528,
+        "ci_lo": -0.029345209800824213,
+        "ci_hi": 0.013192982003467293,
+        "ci_excludes_zero": false,
+        "pos": 3,
+        "neg": 4,
+        "sign_p": 1.0,
+        "replicate_z": -0.5519802789771117
+      },
+      "deg_hard_shift10": {
+        "delta": 0.0024933473891941447,
+        "ci_lo": 0.0,
+        "ci_hi": 0.007480022936813191,
+        "ci_excludes_zero": false,
+        "pos": 2,
+        "neg": 0,
+        "sign_p": 0.5,
+        "replicate_z": 0.16426919509493518
+      },
+      "deg_hard_mix": {
+        "delta": 0.035511711769773836,
+        "ci_lo": -0.03747029551194007,
+        "ci_hi": 0.10964334390519052,
+        "ci_excludes_zero": false,
+        "pos": 6,
+        "neg": 1,
+        "sign_p": 0.125,
+        "replicate_z": 2.1617226898155004
+      },
+      "deg_hard_unk30": {
+        "delta": -0.00625908951557125,
+        "ci_lo": -0.04390090403790371,
+        "ci_hi": 0.01903081772589131,
+        "ci_excludes_zero": false,
+        "pos": 4,
+        "neg": 3,
+        "sign_p": 1.0,
+        "replicate_z": -0.6231160679320062
+      }
+    },
+    "V2_no_probe_on_named": {
+      "hard_test": {
+        "delta": -0.0005291810292845506,
+        "ci_lo": -0.011088606168741003,
+        "ci_hi": 0.008508069023501635,
+        "ci_excludes_zero": false,
+        "pos": 3,
+        "neg": 4,
+        "sign_p": 1.0,
+        "replicate_z": -0.15291349883619101
+      },
+      "deg_hard_unk20": {
+        "delta": -0.05930620590388289,
+        "ci_lo": -0.1093998913230076,
+        "ci_hi": -0.01804416629127345,
+        "ci_excludes_zero": true,
+        "pos": 0,
+        "neg": 7,
+        "sign_p": 0.015625,
+        "replicate_z": -4.62264398776663
+      },
+      "deg_hard_shift10": {
+        "delta": 0.01230554711141449,
+        "ci_lo": -0.023020122825296873,
+        "ci_hi": 0.04448832100736927,
+        "ci_excludes_zero": false,
+        "pos": 5,
+        "neg": 2,
+        "sign_p": 0.453125,
+        "replicate_z": 0.911534599274844
+      },
+      "deg_hard_mix": {
+        "delta": 0.02828518310247536,
+        "ci_lo": 0.002631406323637127,
+        "ci_hi": 0.06305304567640768,
+        "ci_excludes_zero": true,
+        "pos": 5,
+        "neg": 2,
+        "sign_p": 0.453125,
+        "replicate_z": 1.3135715000940942
+      },
+      "deg_hard_unk30": {
+        "delta": -0.08538917742979032,
+        "ci_lo": -0.1348793277694304,
+        "ci_hi": -0.039028119286905534,
+        "ci_excludes_zero": true,
+        "pos": 0,
+        "neg": 7,
+        "sign_p": 0.015625,
+        "replicate_z": -3.492280893671578
+      }
+    },
+    "V3_probe_no_suppress": {
+      "hard_test": {
+        "delta": -8.974166666664284e-06,
+        "ci_lo": -2.6922499999992856e-05,
+        "ci_hi": 0.0,
+        "ci_excludes_zero": false,
+        "pos": 0,
+        "neg": 1,
+        "sign_p": 1.0,
+        "replicate_z": -0.3643980935259718
+      },
+      "deg_hard_unk20": {
+        "delta": -0.007287306313427321,
+        "ci_lo": -0.04188572908804337,
+        "ci_hi": 0.025750204861304804,
+        "ci_excludes_zero": false,
+        "pos": 3,
+        "neg": 5,
+        "sign_p": 0.7265625,
+        "replicate_z": -0.6245636823480658
+      },
+      "deg_hard_shift10": {
+        "delta": 0.0017857239010989011,
+        "ci_lo": 0.0,
+        "ci_hi": 0.00535715247252746,
+        "ci_excludes_zero": false,
+        "pos": 2,
+        "neg": 0,
+        "sign_p": 0.5,
+        "replicate_z": 0.1074120950667766
+      },
+      "deg_hard_mix": {
+        "delta": 0.04063129442746753,
+        "ci_lo": -0.007213559746722259,
+        "ci_hi": 0.10680264195903322,
+        "ci_excludes_zero": false,
+        "pos": 4,
+        "neg": 4,
+        "sign_p": 1.0,
+        "replicate_z": 2.0882490979557176
+      },
+      "deg_hard_unk30": {
+        "delta": -0.00916595731714438,
+        "ci_lo": -0.04736926358922633,
+        "ci_hi": 0.04289140134564815,
+        "ci_excludes_zero": false,
+        "pos": 2,
+        "neg": 6,
+        "sign_p": 0.2890625,
+        "replicate_z": -0.5385027494828074
+      }
+    },
+    "V4_corroborate": {
+      "hard_test": {
+        "delta": -6.466575091512717e-08,
+        "ci_lo": -1.633333333250775e-07,
+        "ci_hi": 0.0,
+        "ci_excludes_zero": false,
+        "pos": 0,
+        "neg": 2,
+        "sign_p": 0.5,
+        "replicate_z": -0.3344723840531916
+      },
+      "deg_hard_unk20": {
+        "delta": -0.045239839677274754,
+        "ci_lo": -0.09762333380168413,
+        "ci_hi": -0.0006343964586391915,
+        "ci_excludes_zero": true,
+        "pos": 2,
+        "neg": 5,
+        "sign_p": 0.453125,
+        "replicate_z": -5.2300585473810095
+      },
+      "deg_hard_shift10": {
+        "delta": 0.0033862045320512844,
+        "ci_lo": 0.0,
+        "ci_hi": 0.01015859436538461,
+        "ci_excludes_zero": false,
+        "pos": 2,
+        "neg": 0,
+        "sign_p": 0.5,
+        "replicate_z": 0.2113304712867349
+      },
+      "deg_hard_mix": {
+        "delta": 0.02119140792990897,
+        "ci_lo": -0.014498195846874984,
+        "ci_hi": 0.06151907501473523,
+        "ci_excludes_zero": false,
+        "pos": 4,
+        "neg": 3,
+        "sign_p": 1.0,
+        "replicate_z": 0.9764315679636121
+      },
+      "deg_hard_unk30": {
+        "delta": -0.04540086538301128,
+        "ci_lo": -0.09591125959759358,
+        "ci_hi": 0.0011080194254510373,
+        "ci_excludes_zero": false,
+        "pos": 2,
+        "neg": 5,
+        "sign_p": 0.453125,
+        "replicate_z": -3.1064285296627645
+      }
+    }
+  },
+  "fix_surface": {
+    "question": "the smallest change that recovers the 0.034 without giving back the unknown-only gains",
+    "ranking": "V3 > V1 >> V4 > V2",
+    "recommended": "V3_probe_no_suppress",
+    "V3_what_it_is": "one field and three call sites. A new ProvenOK on the interval, written ONLY by recordSettlement. The quarantine's three suppression rules read ProvenOK instead of LowerOK: the suspect-list filter in recordUnattributedFailure, the early return in recordSuspect, and the contradiction rule in normalize. LowerOK keeps its full role in path finding and in the bounds; it simply stops being accepted as proof of innocence.",
+    "V3_why_it_is_principled": "a settlement is ground truth that the channel carried the amount. A hop sitting before the index a failure named is only proven if the naming is honest, which under misattribution is exactly the assumption that fails. The fix draws the line where the evidence actually changes character.",
+    "measured": {
+      "V1_no_quarantine": {
+        "deg_hard_mix_vs_V0": 0.035511711769773836,
+        "deg_hard_mix_replicate_z": 2.1617226898155004,
+        "deg_hard_unk20_vs_V0": -0.004954968594010528,
+        "deg_hard_unk30_vs_V0": -0.00625908951557125,
+        "hard_test_vs_V0": 1.8333333334785706e-08,
+        "deg_hard_shift10_vs_V0": 0.0024933473891941447
+      },
+      "V2_no_probe_on_named": {
+        "deg_hard_mix_vs_V0": 0.02828518310247536,
+        "deg_hard_mix_replicate_z": 1.3135715000940942,
+        "deg_hard_unk20_vs_V0": -0.05930620590388289,
+        "deg_hard_unk30_vs_V0": -0.08538917742979032,
+        "hard_test_vs_V0": -0.0005291810292845506,
+        "deg_hard_shift10_vs_V0": 0.01230554711141449
+      },
+      "V3_probe_no_suppress": {
+        "deg_hard_mix_vs_V0": 0.04063129442746753,
+        "deg_hard_mix_replicate_z": 2.0882490979557176,
+        "deg_hard_unk20_vs_V0": -0.007287306313427321,
+        "deg_hard_unk30_vs_V0": -0.00916595731714438,
+        "hard_test_vs_V0": -8.974166666664284e-06,
+        "deg_hard_shift10_vs_V0": 0.0017857239010989011
+      },
+      "V4_corroborate": {
+        "deg_hard_mix_vs_V0": 0.02119140792990897,
+        "deg_hard_mix_replicate_z": 0.9764315679636121,
+        "deg_hard_unk20_vs_V0": -0.045239839677274754,
+        "deg_hard_unk30_vs_V0": -0.04540086538301128,
+        "hard_test_vs_V0": -6.466575091512717e-08,
+        "deg_hard_shift10_vs_V0": 0.0033862045320512844
+      }
+    },
+    "verdict_text": "V3 recovers the whole loss and then some: deg_hard_mix goes 0.4698 -> 0.5105, which is +0.0406 against the branch tip and +0.0065 against the round-2 reference the loss was measured from. The clean tier is untouched to seven decimals. It does give back part of the unknown-only gains, -0.0073 on unknown 0.2 and -0.0092 on unknown 0.3, neither significant and both an order below what the two alternatives cost. V1 (delete the quarantine) recovers nearly as much but throws away the mechanism; V2 and V4 recover less and destroy the unknown-only tiers with CI-solid losses of 0.06 to 0.09.",
+    "not_committed": "none of this is committed. The integration agent owns the branch; these are throwaway builds in a detached worktree."
+  },
+  "statistical_caveat": {
+    "what_is_strong": "the ablation (V1 recovers what V0 loses), the ground-truth counters (67 hard bounds on channels that never failed under the mix, 0 under unknown-only), and the replicate-noise z on the tier mean (V0 -2.1, V3 +2.1 against V0).",
+    "what_is_weak": "deg_hard_mix has large BETWEEN-FILE variance. At n=10 files the paired bootstrap CI straddles zero for every variant on that tier, including the original V0 loss. The round-6 z of -11.1 was computed against REPLICATE noise on the same ten files, which is the right question for 'did the code change do this' and the wrong one for 'would this hold on other files'.",
+    "consequence": "the mechanism is established; the exact magnitude on a fresh corpus is not. A wider degraded corpus would be the way to pin the number if the fix is taken upstream."
+  }
+}

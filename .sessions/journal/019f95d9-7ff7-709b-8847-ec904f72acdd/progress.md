@@ -1,7 +1,7 @@
 ---
 session_id: 019f95d9-7ff7-709b-8847-ec904f72acdd
 shortname: routing-evolution
-last_updated: 2026-07-31T00:46:54Z
+last_updated: 2026-07-31T07:05:13Z
 compaction_count: 5
 progress_pct: 85
 current_step: 4
@@ -77,6 +77,21 @@ exp-018 omni adjudication is LIVE overnight.
        Dashboard v64 PUBLISHED (445e8fb89). Specialist roster in
        champions/README (7a2014c8e). exp-023 verdict: edge is
        INFORMATIONAL (1673ab3bd).
+14.[ ] 2026-07-31 state: exp-031 CLOSED (90cef300f): compose
+       world CLOSED at any seed/budget (800 evals returned seed to
+       7 digits; 19 pool accepts all died on full val). Evolution
+       track at measured boundary; TREE FREE, no runs planned.
+       LIVE: (a) dashboard v66 agent a4683636d7bfec63e (findings
+       §21-23 = exp-029/030/031; on wake review+commit+publish via
+       refresh_dashboard.sh code_full3), (b) exp-032 re-pin in
+       benchmark agent a7b0df7ce66fc0246 (wider degraded corpus
+       n=30, 3 arms + optional broken-tip mix arm + deg-mainnet
+       n=30; LAST sim experiment; clears PR to quote magnitudes).
+       SHIP STATE: RC interval-router@eb4fc3e62 + rebased
+       b489649f6 + interval-sim@dcde83cca all on fork; PR draft in
+       docs/interval_routing_pr_draft.md. Pending user: unbudgeted
+       branch existence, intervalMaxFeePrice ceiling (lean keep
+       both). NEXT WEEK: offline replay (needs node access).
 13.[ ] 2026-07-29 evening wave:
        DONE: interval-router ROUND 3 verified+pushed (1bcbb1485:
        budget fee price clamp(remaining/2,30k,420k) msat/nat,

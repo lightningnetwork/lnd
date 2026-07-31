@@ -1142,3 +1142,20 @@ tier identical to seven decimals. The quarantine keeps its place in
 the release candidate, and the PR narrative swaps "unexplained
 interaction on the record" for a mechanism, a fix, and a magnitude
 caveat pending a wider corpus.
+
+## 2026-07-31 — exp-031: the compose world is closed
+
+code_full3 gave the wall its double budget overnight and the wall
+did not move: the seed again, to seven digits, after 60 proposals
+and nineteen pool accepts that all died on the full validation set.
+With exp-028's specialist seed going backwards and this arm going
+nowhere, the ladder ends monotone at zero and stays there under
+both pre-registered perturbations. The compose world is closed to
+the recipe at any seed and any practical budget, and the sentence
+that matters for the program is the one that took thirty-one
+experiments to earn: every mechanism the frontier owns was bred
+under one pressure at a time, no run has ever built machinery under
+two at once, and the thing that carries all three mechanism families
+today is the integration branch, hand-assembled and validated three
+different ways. Evolution found the paradigm; engineering is
+shipping it. Breeding resumes when a new world reopens the space.

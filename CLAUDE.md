@@ -6,7 +6,7 @@ an in-process payment simulator. NOT tied to the current Dijkstra +
 mission-control paradigm — whole routing algorithms are the candidates.
 
 Read `simulation/lab/NOTEBOOK.md` first for the full story; experiment
-writeups live in `simulation/lab/experiments/` (exp-001…exp-027).
+writeups live in `simulation/lab/experiments/` (exp-001…exp-031).
 
 ## Headline results (all validated, held-out, reproducible)
 
@@ -191,10 +191,34 @@ the corrections to our own published claims, live in
 next.
 
 ### Live
-- **code_full2** — compose world seeded FROM econ2 (400 evals). TREE
-  LOCKED (`routing/`, `cmd/routesim/`) until it exits.
+- Nothing. The tree is FREE — code_full3 closed 2026-07-31; no run
+  holds `routing/` or `cmd/routesim/`. The evolution track is at its
+  measured boundary (exp-031); the ship track owns the frontier.
 
 ### Closed since exp-011 (champions UNCHANGED throughout: hb1 + mx_c3)
+- **exp-031** — the compose world is CLOSED. The 800-eval arm
+  returned the hand seed to seven digits (60 proposals, 19 pool
+  accepts, all below seed on full val; 698 evals consumed). With
+  exp-028 (specialist seed went backwards) both pre-registered
+  escapes have failed: the ladder ends monotone at zero, stable
+  under both perturbations. Every frontier mechanism was bred under
+  ONE pressure; no run ever built machinery under two at once. The
+  integration branch (all three mechanism families, hand-assembled)
+  owns the frontier; breeding resumes if a new world (foreign-graph
+  corpus, replay scenarios) reopens the space.
+- **exp-030** — misattribution manufactures innocence. The
+  deg_hard_mix interaction resolved by ablation + ground-truth
+  counters: shifted reports write false LowerOK on the guilty
+  channel (proving it can carry the amount it just refused), which
+  disarms the quarantine's three suppression rules and concentrates
+  1/sqrt(n) suspicion on innocents — 9.6% of mix convictions landed
+  on channels that never failed vs 0.0% unknown-only. Fix V3
+  (ProvenOK: only settlements prove innocence, forward-only, NOT
+  persisted) measured best of four variants, implemented on the RC
+  (8eabe1daf), committed version validated == throwaway (mix 0.5138,
+  above pre-quarantine ref; innocent convictions 9.6%→8.4% = the
+  shift-only floor). QUARANTINE KEEPS. Magnitude caveat: one 10-file
+  corpus; wider-corpus re-pin queued before the PR quotes numbers.
 - **exp-029** — the foreign balance sheet. First liquidity family we
   did NOT author (dijkstrasden's model graph, balances fit to
   ln-scores data; loader flag 7d10989fd, `from_graph` +

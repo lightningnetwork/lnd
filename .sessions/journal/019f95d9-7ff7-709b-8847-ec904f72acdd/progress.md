@@ -1,7 +1,7 @@
 ---
 session_id: 019f95d9-7ff7-709b-8847-ec904f72acdd
 shortname: routing-evolution
-last_updated: 2026-07-31T07:05:13Z
+last_updated: 2026-07-31T07:14:33Z
 compaction_count: 5
 progress_pct: 85
 current_step: 4
@@ -81,9 +81,9 @@ exp-018 omni adjudication is LIVE overnight.
        world CLOSED at any seed/budget (800 evals returned seed to
        7 digits; 19 pool accepts all died on full val). Evolution
        track at measured boundary; TREE FREE, no runs planned.
-       LIVE: (a) dashboard v66 agent a4683636d7bfec63e (findings
-       §21-23 = exp-029/030/031; on wake review+commit+publish via
-       refresh_dashboard.sh code_full3), (b) exp-032 re-pin in
+       DONE: dashboard v66 PUBLISHED (version 66 confirmed,
+       §21-23, commit pushed both remotes).
+       LIVE: exp-032 re-pin ONLY, in
        benchmark agent a7b0df7ce66fc0246 (wider degraded corpus
        n=30, 3 arms + optional broken-tip mix arm + deg-mainnet
        n=30; LAST sim experiment; clears PR to quote magnitudes).

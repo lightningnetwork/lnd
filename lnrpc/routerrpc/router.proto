@@ -354,6 +354,64 @@ message SendPaymentRequest {
     base64.
     */
     map<uint64, bytes> first_hop_custom_records = 25;
+
+    /*
+    The complete variable-sized trampoline onion to place in the final hop's
+    BOLT 4 type 20 record. The destination must be a trampoline node and the
+    request must include a payment address.
+    */
+    bytes trampoline_onion = 26;
+
+    /*
+    An ordered list of trampoline relays to use when paying a BOLT 11 invoice.
+    The invoice recipient is appended automatically as the final trampoline
+    onion hop. This field is mutually exclusive with trampoline_onion and
+    requires payment_request.
+    */
+    repeated TrampolineHop trampoline_hops = 27;
+
+    /*
+    The number of random bytes added after the encoded trampoline hop payloads.
+    The resulting onion remains bounded by the normal BOLT 4 payment-onion
+    limit.
+    */
+    uint32 trampoline_padding_bytes = 28;
+
+    /*
+    A canonical raw BOLT 12 invoice TLV stream to pay through its
+    trampoline-capable blinded path. The optional trampoline_hops are
+    prepended as clear trampoline relays.
+    */
+    bytes bolt12_invoice = 29;
+
+    /*
+    The 32-byte private session key used to construct an explicitly supplied
+    trampoline_onion. This key is retained locally so nested trampoline
+    failures can be decrypted, including after restart. It must be supplied
+    together with trampoline_error_path and may only be used with
+    trampoline_onion.
+    */
+    bytes trampoline_error_session_key = 30;
+
+    /*
+    The ordered compressed public keys of every hop in an explicitly supplied
+    trampoline_onion, including the final recipient. This path is retained
+    locally for nested failure decryption and is never sent in an onion. It
+    must be supplied together with trampoline_error_session_key and may only
+    be used with trampoline_onion.
+    */
+    repeated bytes trampoline_error_path = 31;
+}
+
+message TrampolineHop {
+    // The compressed public key of the selected trampoline relay.
+    bytes pub_key = 1;
+
+    // The fee budget assigned to this relay in millisatoshis.
+    uint64 fee_msat = 2;
+
+    // The CLTV expiry delta assigned to this relay.
+    uint32 cltv_expiry_delta = 3;
 }
 
 message TrackPaymentRequest {

@@ -3340,6 +3340,12 @@ message Hop {
     MPP payments.
     */
     uint64 total_amt_msat = 16;
+
+    /*
+    The complete variable-sized trampoline onion encoded as BOLT 4 TLV type
+    20. This field is valid only on the final hop of the outer route.
+    */
+    bytes trampoline_onion = 17;
 }
 
 message MPPRecord {
@@ -4629,6 +4635,8 @@ enum FeatureBit {
     ROUTE_BLINDING_OPTIONAL = 25;
     AMP_REQ = 30;
     AMP_OPT = 31;
+    TRAMPOLINE_ROUTING_REQ = 56;
+    TRAMPOLINE_ROUTING_OPT = 57;
 }
 
 message Feature {
@@ -5035,6 +5043,9 @@ message Failure {
         MPP_TIMEOUT = 23;
         INVALID_ONION_PAYLOAD = 24;
         INVALID_ONION_BLINDING = 25;
+        TEMPORARY_TRAMPOLINE_FAILURE = 26;
+        TRAMPOLINE_FEE_OR_EXPIRY_INSUFFICIENT = 27;
+        UNKNOWN_NEXT_TRAMPOLINE = 28;
 
         /*
         An internal error occurred.
@@ -5081,6 +5092,15 @@ message Failure {
 
     // A failure type-dependent block height.
     uint32 height = 9;
+
+    // A trampoline relay's quoted base fee in millisatoshis.
+    uint32 trampoline_fee_base_msat = 10;
+
+    // A trampoline relay's quoted proportional fee in millionths.
+    uint32 trampoline_fee_proportional_millionths = 11;
+
+    // A trampoline relay's quoted CLTV expiry delta.
+    uint32 trampoline_cltv_expiry_delta = 12;
 }
 
 message ChannelUpdate {

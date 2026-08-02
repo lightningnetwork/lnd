@@ -686,6 +686,24 @@ func (p *OnionProcessor) Stop() error {
 	return nil
 }
 
+// ProcessTrampolineOnion peels one layer from an embedded trampoline onion.
+// The payment hash is authenticated as associated data, while replayData is
+// persisted alongside the packet hash by the Sphinx replay log.
+func (p *OnionProcessor) ProcessTrampolineOnion(
+	packet *sphinx.OnionPacket, assocData []byte,
+	replayData uint32,
+	pathKey *btcec.PublicKey) (*sphinx.ProcessedPacket, error) {
+
+	var opts []sphinx.ProcessOnionOpt
+	if pathKey != nil {
+		opts = append(opts, sphinx.WithBlindingPoint(pathKey))
+	}
+
+	return p.router.ProcessOnionPacket(
+		packet, assocData, replayData, opts...,
+	)
+}
+
 // ReconstructBlindingInfo contains the information required to reconstruct a
 // blinded onion.
 type ReconstructBlindingInfo struct {

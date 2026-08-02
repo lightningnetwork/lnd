@@ -10,6 +10,7 @@ import (
 	sphinx "github.com/lightningnetwork/lightning-onion"
 	"github.com/lightningnetwork/lnd/lnwire"
 	"github.com/lightningnetwork/lnd/record"
+	"github.com/lightningnetwork/lnd/routing/trampoline"
 	"github.com/lightningnetwork/lnd/tlv"
 )
 
@@ -117,6 +118,10 @@ type Payload struct {
 	// totalAmtMsat holds the info provided in total_amount_msat when
 	// parsed from a TLV onion payload.
 	totalAmtMsat lnwire.MilliSatoshi
+
+	// trampolineOnion is the nested type 20 onion delivered to the final
+	// hop of an ordinary payment onion.
+	trampolineOnion *sphinx.OnionPacket
 }
 
 // NewLegacyPayload builds a Payload from the amount, cltv, and next hop
@@ -141,15 +146,16 @@ func NewLegacyPayload(f *sphinx.HopData) *Payload {
 // does not perform validation of TLV types included in the payload.
 func ParseTLVPayload(r io.Reader) (*Payload, map[tlv.Type][]byte, error) {
 	var (
-		cid           uint64
-		amt           uint64
-		totalAmtMsat  uint64
-		cltv          uint32
-		mpp           = &record.MPP{}
-		amp           = &record.AMP{}
-		encryptedData []byte
-		blindingPoint *btcec.PublicKey
-		metadata      []byte
+		cid             uint64
+		amt             uint64
+		totalAmtMsat    uint64
+		cltv            uint32
+		mpp             = &record.MPP{}
+		amp             = &record.AMP{}
+		encryptedData   []byte
+		blindingPoint   *btcec.PublicKey
+		metadata        []byte
+		trampolineOnion *sphinx.OnionPacket
 	)
 
 	tlvStream, err := tlv.NewStream(
@@ -162,6 +168,7 @@ func ParseTLVPayload(r io.Reader) (*Payload, map[tlv.Type][]byte, error) {
 		amp.Record(),
 		record.NewMetadataRecord(&metadata),
 		record.NewTotalAmtMsatBlinded(&totalAmtMsat),
+		trampoline.NewOnionPacketRecord(&trampolineOnion),
 	)
 	if err != nil {
 		return nil, nil, err
@@ -209,13 +216,14 @@ func ParseTLVPayload(r io.Reader) (*Payload, map[tlv.Type][]byte, error) {
 			AmountToForward: lnwire.MilliSatoshi(amt),
 			OutgoingCLTV:    cltv,
 		},
-		MPP:           mpp,
-		AMP:           amp,
-		metadata:      metadata,
-		encryptedData: encryptedData,
-		blindingPoint: blindingPoint,
-		customRecords: customRecords,
-		totalAmtMsat:  lnwire.MilliSatoshi(totalAmtMsat),
+		MPP:             mpp,
+		AMP:             amp,
+		metadata:        metadata,
+		encryptedData:   encryptedData,
+		blindingPoint:   blindingPoint,
+		customRecords:   customRecords,
+		totalAmtMsat:    lnwire.MilliSatoshi(totalAmtMsat),
+		trampolineOnion: trampolineOnion,
 	}, parsedTypes, nil
 }
 
@@ -279,6 +287,7 @@ func ValidateParsedPayloadTypes(parsedTypes tlv.TypeMap,
 	_, hasAMP := parsedTypes[record.AMPOnionType]
 	_, hasEncryptedData := parsedTypes[record.EncryptedDataOnionType]
 	_, hasBlinding := parsedTypes[record.BlindingPointOnionType]
+	_, hasTrampoline := parsedTypes[trampoline.OnionPacketType]
 
 	// All cleartext hops (including final hop) and the final hop in a
 	// blinded path require the forwading amount and expiry TLVs to be set.
@@ -297,9 +306,13 @@ func ValidateParsedPayloadTypes(parsedTypes tlv.TypeMap,
 			FinalHop:  isFinalHop,
 		}
 
-	// If encrypted data is not provided, blinding points should not be
-	// set.
-	case !hasEncryptedData && (hasBlinding || updateAddBlinding):
+	// A final outer trampoline payload may carry the current path key
+	// needed to peel the embedded onion at the next blinded trampoline
+	// hop. In every other cleartext payload, blinding points are invalid.
+	case !hasEncryptedData && (hasBlinding || updateAddBlinding) &&
+		!(isFinalHop && hasTrampoline && hasBlinding &&
+			!updateAddBlinding):
+
 		return ErrInvalidPayload{
 			Type:      record.EncryptedDataOnionType,
 			Violation: OmittedViolation,
@@ -361,6 +374,14 @@ func ValidateParsedPayloadTypes(parsedTypes tlv.TypeMap,
 		return ErrInvalidPayload{
 			Type:      record.NextHopOnionType,
 			Violation: OmittedViolation,
+			FinalHop:  isFinalHop,
+		}
+
+	// A trampoline onion is only carried by the final outer hop.
+	case !isFinalHop && hasTrampoline:
+		return ErrInvalidPayload{
+			Type:      trampoline.OnionPacketType,
+			Violation: IncludedViolation,
 			FinalHop:  isFinalHop,
 		}
 
@@ -429,6 +450,12 @@ func (h *Payload) Metadata() []byte {
 // payee.
 func (h *Payload) TotalAmtMsat() lnwire.MilliSatoshi {
 	return h.totalAmtMsat
+}
+
+// TrampolineOnion returns the nested trampoline onion carried by this outer
+// payload, or nil for an ordinary payment.
+func (h *Payload) TrampolineOnion() *sphinx.OnionPacket {
+	return h.trampolineOnion
 }
 
 // getMinRequiredViolation checks for unrecognized required (even) fields in the
@@ -545,6 +572,7 @@ func ValidatePayloadWithBlinded(isFinalHop bool,
 		allowedTLVs[record.AmtOnionType] = true
 		allowedTLVs[record.LockTimeOnionType] = true
 		allowedTLVs[record.TotalAmtMsatBlindedType] = true
+		allowedTLVs[trampoline.OnionPacketType] = true
 	}
 
 	for tlvType := range payloadParsed {

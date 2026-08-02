@@ -1208,6 +1208,13 @@ func (s *Switch) parseFailedPayment(deobfuscator ErrorDecrypter,
 		// error. If we're unable to then we'll bail early.
 		failure, err := deobfuscator.DecryptError(htlc.Reason)
 		if err != nil {
+			var opaque interface {
+				TrampolineFailureReason() lnwire.OpaqueReason
+			}
+			if errors.As(err, &opaque) {
+				return err
+			}
+
 			log.Errorf("unable to de-obfuscate onion failure "+
 				"(hash=%v, pid=%d): %v",
 				paymentHash, attemptID, err)

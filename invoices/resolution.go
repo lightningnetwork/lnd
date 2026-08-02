@@ -4,6 +4,7 @@ import (
 	"time"
 
 	"github.com/lightningnetwork/lnd/lntypes"
+	"github.com/lightningnetwork/lnd/lnwire"
 )
 
 // HtlcResolution describes how an htlc should be resolved.
@@ -24,6 +25,66 @@ type HtlcFailResolution struct {
 
 	// Outcome indicates the outcome of the invoice registry update.
 	Outcome FailResolutionResult
+}
+
+// HtlcErrorResolution fails an HTLC with a specific authenticated wire
+// failure selected by a subsystem other than the invoice registry.
+type HtlcErrorResolution struct {
+	// Failure is encrypted by the incoming link's error encrypter.
+	Failure lnwire.FailureMessage
+
+	// circuitKey identifies the HTLC resolved by this failure.
+	circuitKey CircuitKey
+
+	// AcceptHeight is the height at which the HTLC was accepted.
+	AcceptHeight int32
+}
+
+// HtlcNestedErrorResolution forwards an opaque downstream trampoline failure
+// after the downstream ordinary payment path has been fully peeled.
+type HtlcNestedErrorResolution struct {
+	// Reason is wrapped by the current trampoline and incoming outer error
+	// secrets before it is returned to the previous hop.
+	Reason lnwire.OpaqueReason
+
+	// circuitKey identifies the HTLC resolved by this failure.
+	circuitKey CircuitKey
+
+	// AcceptHeight is the height at which the HTLC was accepted.
+	AcceptHeight int32
+}
+
+// NewNestedErrorResolution constructs an opaque nested HTLC failure
+// resolution.
+func NewNestedErrorResolution(key CircuitKey, acceptHeight int32,
+	reason lnwire.OpaqueReason) *HtlcNestedErrorResolution {
+
+	return &HtlcNestedErrorResolution{
+		Reason:       append(lnwire.OpaqueReason(nil), reason...),
+		circuitKey:   key,
+		AcceptHeight: acceptHeight,
+	}
+}
+
+// CircuitKey returns the circuit key for the failed HTLC.
+func (f *HtlcNestedErrorResolution) CircuitKey() CircuitKey {
+	return f.circuitKey
+}
+
+// NewErrorResolution constructs a wire-specific HTLC failure resolution.
+func NewErrorResolution(key CircuitKey, acceptHeight int32,
+	failure lnwire.FailureMessage) *HtlcErrorResolution {
+
+	return &HtlcErrorResolution{
+		Failure:      failure,
+		circuitKey:   key,
+		AcceptHeight: acceptHeight,
+	}
+}
+
+// CircuitKey returns the circuit key for the failed HTLC.
+func (f *HtlcErrorResolution) CircuitKey() CircuitKey {
+	return f.circuitKey
 }
 
 // NewFailResolution returns a htlc failure resolution.

@@ -12,9 +12,11 @@ import (
 	"sync/atomic"
 	"time"
 
+	"github.com/btcsuite/btcd/btcec/v2"
 	"github.com/btcsuite/btcd/btcutil/v2"
 	"github.com/btcsuite/btcd/wire/v2"
 	"github.com/btcsuite/btclog/v2"
+	sphinx "github.com/lightningnetwork/lightning-onion"
 	"github.com/lightningnetwork/lnd/channeldb"
 	"github.com/lightningnetwork/lnd/chanstate"
 	"github.com/lightningnetwork/lnd/contractcourt"
@@ -149,6 +151,10 @@ type ChannelLinkConfig struct {
 	// Registry is a sub-system which responsible for managing the invoices
 	// in thread-safe manner.
 	Registry InvoiceDatabase
+
+	// TrampolineRegistry handles final outer hops carrying an embedded
+	// trampoline onion. It is nil when trampoline routing is disabled.
+	TrampolineRegistry TrampolineRegistry
 
 	// PreimageCache is a global witness beacon that houses any new
 	// preimages discovered by other links. We'll use this to add new
@@ -513,9 +519,10 @@ func (m *hookMap) invoke() {
 
 // hodlHtlc contains htlc data that is required for resolution.
 type hodlHtlc struct {
-	add        lnwire.UpdateAddHTLC
-	sourceRef  channeldb.AddRef
-	obfuscator hop.ErrorEncrypter
+	add                  lnwire.UpdateAddHTLC
+	sourceRef            channeldb.AddRef
+	obfuscator           hop.ErrorEncrypter
+	trampolineObfuscator hop.ErrorEncrypter
 }
 
 // NewChannelLink creates a new instance of a ChannelLink given a configuration
@@ -676,6 +683,11 @@ func (l *channelLink) Stop() {
 	// registered from this point on. It is now safe to remove all
 	// subscriptions and tear down the queue.
 	l.cfg.Registry.HodlUnsubscribeAll(l.hodlQueue.ChanIn())
+	if l.cfg.TrampolineRegistry != nil {
+		l.cfg.TrampolineRegistry.HodlUnsubscribeAll(
+			l.hodlQueue.ChanIn(),
+		)
+	}
 
 	if l.cfg.ChainEvents.Cancel != nil {
 		l.cfg.ChainEvents.Cancel()
@@ -1566,10 +1578,54 @@ func (l *channelLink) processHtlcResolution(resolution invoices.HtlcResolution,
 		// result.
 		failure := getResolutionFailure(res, htlc.add.Amount)
 
-		l.sendHTLCError(
-			htlc.add, htlc.sourceRef, failure, htlc.obfuscator,
-			true,
+		if htlc.trampolineObfuscator != nil {
+			l.sendTrampolineHTLCError(
+				htlc.add, htlc.sourceRef, failure,
+				htlc.trampolineObfuscator, htlc.obfuscator,
+				true,
+			)
+		} else {
+			l.sendHTLCError(
+				htlc.add, htlc.sourceRef, failure,
+				htlc.obfuscator, true,
+			)
+		}
+
+		return nil
+
+	case *invoices.HtlcErrorResolution:
+		l.log.Debugf("received wire failure resolution for %v: %T",
+			circuitKey, res.Failure)
+
+		failure := NewLinkError(res.Failure)
+		if htlc.trampolineObfuscator != nil {
+			l.sendTrampolineHTLCError(
+				htlc.add, htlc.sourceRef, failure,
+				htlc.trampolineObfuscator, htlc.obfuscator,
+				true,
+			)
+		} else {
+			l.sendHTLCError(
+				htlc.add, htlc.sourceRef, failure,
+				htlc.obfuscator, true,
+			)
+		}
+
+		return nil
+
+	case *invoices.HtlcNestedErrorResolution:
+		if htlc.trampolineObfuscator == nil {
+			return errors.New(
+				"nested failure has no trampoline error " +
+					"encrypter",
+			)
+		}
+
+		l.forwardTrampolineHTLCError(
+			htlc.add, htlc.sourceRef, res.Reason,
+			htlc.trampolineObfuscator, htlc.obfuscator,
 		)
+
 		return nil
 
 	// Fail if we do not get a settle of fail resolution, since we
@@ -3563,9 +3619,6 @@ func (l *channelLink) processExitHop(add lnwire.UpdateAddHTLC,
 		return nil
 	}
 
-	// Notify the invoiceRegistry of the exit hop htlc. If we crash right
-	// after this, this code will be re-executed after restart. We will
-	// receive back a resolution event.
 	invoiceHash := lntypes.Hash(add.PaymentHash)
 
 	circuitKey := models.CircuitKey{
@@ -3573,19 +3626,77 @@ func (l *channelLink) processExitHop(add lnwire.UpdateAddHTLC,
 		HtlcID: add.ID,
 	}
 
-	event, err := l.cfg.Registry.NotifyExitHopHtlc(
-		invoiceHash, add.Amount, add.Expiry, int32(heightNow),
-		circuitKey, l.hodlQueue.ChanIn(), add.CustomRecords, payload,
+	var (
+		event                 invoices.HtlcResolution
+		err                   error
+		trampolineObfuscator  hop.ErrorEncrypter
+		trampolineFailureCode lnwire.FailCode
 	)
+
+	trampolinePayload, ok := payload.(interface {
+		TrampolineOnion() *sphinx.OnionPacket
+		BlindingPoint() *btcec.PublicKey
+	})
+	if ok && trampolinePayload.TrampolineOnion() != nil {
+		if l.cfg.TrampolineRegistry == nil {
+			failure := &lnwire.FailTemporaryTrampolineFailure{}
+			linkErr := NewLinkError(failure)
+			l.sendHTLCError(
+				add, sourceRef, linkErr, obfuscator, true,
+			)
+
+			return nil
+		}
+
+		trampolineObfuscator, trampolineFailureCode =
+			l.cfg.ExtractErrorEncrypter(
+				trampolinePayload.TrampolineOnion().
+					EphemeralKey,
+			)
+		if trampolineFailureCode != lnwire.CodeNone {
+			failure := &lnwire.FailTemporaryTrampolineFailure{}
+			linkErr := NewLinkError(failure)
+			l.sendHTLCError(
+				add, sourceRef, linkErr, obfuscator, true,
+			)
+
+			return nil
+		}
+
+		event, err = l.cfg.TrampolineRegistry.NotifyTrampolineHtlc(
+			TrampolineHtlc{
+				PaymentHash:   invoiceHash,
+				Amount:        add.Amount,
+				Expiry:        add.Expiry,
+				CurrentHeight: int32(heightNow),
+				CircuitKey:    circuitKey,
+				HodlChan:      l.hodlQueue.ChanIn(),
+				Onion: trampolinePayload.
+					TrampolineOnion(),
+				MPP: payload.MultiPath(),
+				CurrentPathKey: trampolinePayload.
+					BlindingPoint(),
+			},
+		)
+	} else {
+		// If we crash after this call, the exit-hop notification is
+		// replayed and returns the durable invoice resolution.
+		event, err = l.cfg.Registry.NotifyExitHopHtlc(
+			invoiceHash, add.Amount, add.Expiry, int32(heightNow),
+			circuitKey, l.hodlQueue.ChanIn(), add.CustomRecords,
+			payload,
+		)
+	}
 	if err != nil {
 		return err
 	}
 
 	// Create a hodlHtlc struct and decide either resolved now or later.
 	htlc := hodlHtlc{
-		add:        add,
-		sourceRef:  sourceRef,
-		obfuscator: obfuscator,
+		add:                  add,
+		sourceRef:            sourceRef,
+		obfuscator:           obfuscator,
+		trampolineObfuscator: trampolineObfuscator,
 	}
 
 	// If the event is nil, the invoice is being held, so we save payment
@@ -3683,7 +3794,52 @@ func (l *channelLink) sendHTLCError(add lnwire.UpdateAddHTLC,
 		return
 	}
 
-	err = l.channel.FailHTLC(add.ID, reason, &sourceRef, nil, nil)
+	l.sendEncryptedHTLCError(
+		add, sourceRef, failure, e, reason, isReceive,
+	)
+}
+
+// sendTrampolineHTLCError creates a failure at the current trampoline hop and
+// then applies the incoming ordinary payment-onion layer.
+func (l *channelLink) sendTrampolineHTLCError(add lnwire.UpdateAddHTLC,
+	sourceRef channeldb.AddRef, failure *LinkError,
+	trampolineEncrypter, outerEncrypter hop.ErrorEncrypter,
+	isReceive bool) {
+
+	reason, err := trampolineEncrypter.EncryptFirstHop(
+		failure.WireMessage(),
+	)
+	if err != nil {
+		l.log.Errorf("unable to obfuscate trampoline error: %v", err)
+		return
+	}
+	reason = outerEncrypter.IntermediateEncrypt(reason)
+
+	l.sendEncryptedHTLCError(
+		add, sourceRef, failure, outerEncrypter, reason, isReceive,
+	)
+}
+
+// forwardTrampolineHTLCError wraps a downstream nested failure with the
+// current trampoline and incoming ordinary payment-onion layers.
+func (l *channelLink) forwardTrampolineHTLCError(add lnwire.UpdateAddHTLC,
+	sourceRef channeldb.AddRef, downstream lnwire.OpaqueReason,
+	trampolineEncrypter, outerEncrypter hop.ErrorEncrypter) {
+
+	reason := trampolineEncrypter.IntermediateEncrypt(downstream)
+	reason = outerEncrypter.IntermediateEncrypt(reason)
+	failure := NewLinkError(&lnwire.FailTemporaryTrampolineFailure{})
+
+	l.sendEncryptedHTLCError(
+		add, sourceRef, failure, outerEncrypter, reason, true,
+	)
+}
+
+func (l *channelLink) sendEncryptedHTLCError(add lnwire.UpdateAddHTLC,
+	sourceRef channeldb.AddRef, failure *LinkError,
+	e hop.ErrorEncrypter, reason lnwire.OpaqueReason, isReceive bool) {
+
+	err := l.channel.FailHTLC(add.ID, reason, &sourceRef, nil, nil)
 	if err != nil {
 		l.log.Errorf("unable to cancel htlc: %v", err)
 		return

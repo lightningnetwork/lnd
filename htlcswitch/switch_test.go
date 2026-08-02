@@ -43,6 +43,42 @@ func genPreimage() ([32]byte, error) {
 	return preimage, nil
 }
 
+type testOpaqueTrampolineError struct{}
+
+func (*testOpaqueTrampolineError) Error() string {
+	return "opaque trampoline test failure"
+}
+
+//nolint:ll // The method name is fixed by the trampoline failure interface.
+func (*testOpaqueTrampolineError) TrampolineFailureReason() lnwire.OpaqueReason {
+	return make(lnwire.OpaqueReason, 292)
+}
+
+type testOpaqueTrampolineDecrypter struct{}
+
+func (*testOpaqueTrampolineDecrypter) DecryptError(
+	lnwire.OpaqueReason) (*ForwardingError, error) {
+
+	return nil, &testOpaqueTrampolineError{}
+}
+
+// TestParseFailedPaymentPreservesOpaqueTrampolineError verifies the switch
+// returns an outer-peeled nested failure to a trampoline relay unchanged.
+func TestParseFailedPaymentPreservesOpaqueTrampolineError(t *testing.T) {
+	t.Parallel()
+
+	s := &Switch{}
+	err := s.parseFailedPayment(
+		&testOpaqueTrampolineDecrypter{}, 1, lntypes.Hash{},
+		false, false, &lnwire.UpdateFailHTLC{
+			Reason: make(lnwire.OpaqueReason, 292),
+		},
+	)
+
+	var opaque *testOpaqueTrampolineError
+	require.ErrorAs(t, err, &opaque)
+}
+
 // TestSwitchAddDuplicateLink tests that the switch will reject duplicate links
 // for live links. It also tests that we can successfully add a link after
 // having removed it.

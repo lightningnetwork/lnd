@@ -17,6 +17,7 @@ import (
 	paymentsdb "github.com/lightningnetwork/lnd/payments/db"
 	"github.com/lightningnetwork/lnd/routing/route"
 	"github.com/lightningnetwork/lnd/routing/shards"
+	"github.com/lightningnetwork/lnd/routing/trampoline"
 	"github.com/lightningnetwork/lnd/tlv"
 )
 
@@ -340,7 +341,12 @@ lifecycle:
 	//
 	// Optionally delete the failed attempts from the database. If we are
 	// configured to keep failed payment attempts, we skip deletion.
-	if !p.router.cfg.KeepFailedPaymentAttempts {
+	htlc, failure := payment.TerminalInfo()
+	var trampolineFailure *OpaqueTrampolineError
+	if failure != nil && *failure == paymentsdb.FailureReasonError {
+		trampolineFailure = TrampolineFailureFromPayment(payment)
+	}
+	if !p.router.cfg.KeepFailedPaymentAttempts && trampolineFailure == nil {
 		err = p.router.cfg.Control.DeleteFailedAttempts(
 			cleanupCtx, p.identifier,
 		)
@@ -350,9 +356,11 @@ lifecycle:
 		}
 	}
 
-	htlc, failure := payment.TerminalInfo()
 	if htlc != nil {
 		return htlc.Settle.Preimage, &htlc.Route, nil
+	}
+	if trampolineFailure != nil {
+		return [32]byte{}, nil, trampolineFailure
 	}
 
 	// Otherwise return the payment failure reason.
@@ -558,8 +566,59 @@ func (p *paymentLifecycle) collectResult(
 	// Using the created circuit, initialize the error decrypter, so we can
 	// parse+decode any failures incurred by this payment within the
 	// switch.
-	errorDecryptor := &htlcswitch.SphinxErrorDecrypter{
-		OnionErrorDecrypter: sphinx.NewOnionErrorDecrypter(circuit),
+	var errorDecryptor htlcswitch.ErrorDecrypter
+	finalHop := attempt.Route.FinalHop()
+	// Trampoline error paths require two nested onion domains.
+	//nolint:nestif
+	if len(finalHop.TrampolineOnion) == 0 {
+		errorDecryptor = &htlcswitch.SphinxErrorDecrypter{
+			OnionErrorDecrypter: sphinx.NewOnionErrorDecrypter(
+				circuit,
+			),
+		}
+	} else {
+		outerSecrets, err := trampoline.GenerateSharedSecrets(
+			attempt.SessionKey(), circuit.PaymentPath,
+		)
+		if err != nil {
+			return nil, fmt.Errorf(
+				"derive outer error path: %w", err,
+			)
+		}
+
+		var trampolineSecrets [][32]byte
+		if len(finalHop.TrampolineErrorPath) != 0 {
+			var innerSession *btcec.PrivateKey
+			if finalHop.HasTrampolineErrorSessionKey {
+				key := finalHop.TrampolineErrorSessionKey[:]
+				innerSession, err =
+					trampoline.ParseErrorSessionKey(key)
+			} else {
+				innerSession, err = trampoline.DeriveSessionKey(
+					attempt.SessionKey(),
+				)
+			}
+			if err != nil {
+				return nil, err
+			}
+			trampolineSecrets, err =
+				trampoline.GenerateSharedSecrets(
+					innerSession,
+					finalHop.TrampolineErrorPath,
+				)
+			if err != nil {
+				return nil, fmt.Errorf(
+					"derive trampoline error path: %w",
+					err,
+				)
+			}
+		}
+
+		errorDecryptor = &trampolineErrorDecrypter{
+			outerSecrets:      outerSecrets,
+			trampolineSecrets: trampolineSecrets,
+			outerHopCount:     len(circuit.PaymentPath),
+		}
 	}
 
 	// Now ask the switch to return the result of the payment when
@@ -668,6 +727,19 @@ func (p *paymentLifecycle) createNewPaymentAttempt(rt *route.Route,
 
 	if shard.AMP() != nil {
 		hop.AMP = shard.AMP()
+	}
+
+	if hop.TrampolineOnionBuilder != nil {
+		onion, errorPath, err := hop.TrampolineOnionBuilder(sessionKey)
+		if err != nil {
+			return nil, fmt.Errorf(
+				"build attempt trampoline onion: %w", err,
+			)
+		}
+
+		hop.TrampolineOnion = onion
+		hop.TrampolineErrorPath = errorPath
+		hop.TrampolineOnionBuilder = nil
 	}
 
 	hash := shard.Hash()
@@ -1071,6 +1143,16 @@ func marshallError(sendError error, time time.Time) *paymentsdb.HTLCFailInfo {
 
 	case errors.Is(sendError, htlcswitch.ErrUnreadableFailureMessage):
 		response.Reason = paymentsdb.HTLCFailUnreadable
+		return response
+	}
+
+	var trampolineErr *OpaqueTrampolineError
+	if errors.As(sendError, &trampolineErr) &&
+		len(trampolineErr.Reason) == trampoline.FailurePacketSize {
+
+		response.Reason = paymentsdb.HTLCFailTrampoline
+		copy(response.TrampolineReason[:], trampolineErr.Reason)
+
 		return response
 	}
 

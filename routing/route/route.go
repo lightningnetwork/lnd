@@ -14,6 +14,7 @@ import (
 	sphinx "github.com/lightningnetwork/lightning-onion"
 	"github.com/lightningnetwork/lnd/lnwire"
 	"github.com/lightningnetwork/lnd/record"
+	"github.com/lightningnetwork/lnd/routing/trampoline"
 	"github.com/lightningnetwork/lnd/tlv"
 )
 
@@ -38,6 +39,12 @@ var (
 	// ErrAMPMissingMPP is returned when the caller tries to attach an AMP
 	// record but no MPP record is presented for the final hop.
 	ErrAMPMissingMPP = errors.New("cannot send AMP without MPP record")
+
+	// ErrIntermediateTrampolineOnion is returned when a trampoline onion
+	// is attached before the final hop of the ordinary payment route.
+	ErrIntermediateTrampolineOnion = errors.New(
+		"cannot send trampoline onion to intermediate hop",
+	)
 
 	// ErrMissingField is returned if a required TLV is missing.
 	ErrMissingField = errors.New("required tlv missing")
@@ -186,7 +193,37 @@ type Hop struct {
 	// spread over more than one HTLC. This field should only be set for
 	// the final hop in a blinded path.
 	TotalAmtMsat lnwire.MilliSatoshi
+
+	// TrampolineOnion is the peeled trampoline onion delivered to this
+	// route's final hop in TLV type 20.
+	TrampolineOnion []byte
+
+	// TrampolineOnionBuilder derives an attempt-specific trampoline onion
+	// from the ordinary payment attempt's session key. It is cleared before
+	// the attempt is persisted.
+	TrampolineOnionBuilder TrampolineOnionBuilder
+
+	// TrampolineErrorPath contains the inner onion path needed to decrypt
+	// nested trampoline failures after an attempt restart. It is local
+	// payment metadata and is never placed in an onion payload.
+	TrampolineErrorPath []*btcec.PublicKey
+
+	// TrampolineErrorSessionKey is the inner onion session key supplied by
+	// a caller that constructed TrampolineOnion explicitly. Automatically
+	// constructed onions derive this key from the outer attempt session
+	// key.
+	// This value is local payment metadata and is never sent on the wire.
+	TrampolineErrorSessionKey [btcec.PrivKeyBytesLen]byte
+
+	// HasTrampolineErrorSessionKey distinguishes a valid explicit key from
+	// the zero value used by automatically constructed onions.
+	HasTrampolineErrorSessionKey bool
 }
+
+// TrampolineOnionBuilder creates an attempt-specific trampoline onion and
+// returns the inner error path that must be persisted with the attempt.
+type TrampolineOnionBuilder func(*btcec.PrivateKey) ([]byte,
+	[]*btcec.PublicKey, error)
 
 // Copy returns a deep copy of the Hop.
 func (h *Hop) Copy() *Hop {
@@ -205,6 +242,21 @@ func (h *Hop) Copy() *Hop {
 	if h.BlindingPoint != nil {
 		b := *h.BlindingPoint
 		c.BlindingPoint = &b
+	}
+
+	c.TrampolineOnion = bytes.Clone(h.TrampolineOnion)
+	if h.TrampolineErrorPath != nil {
+		c.TrampolineErrorPath = make(
+			[]*btcec.PublicKey, len(h.TrampolineErrorPath),
+		)
+		for i, node := range h.TrampolineErrorPath {
+			if node == nil {
+				continue
+			}
+
+			copyNode := *node
+			c.TrampolineErrorPath[i] = &copyNode
+		}
 	}
 
 	return &c
@@ -329,6 +381,21 @@ func (h *Hop) PackHopPayload(w io.Writer, nextChanID uint64,
 		totalAmtInt := uint64(h.TotalAmtMsat)
 		records = append(records,
 			record.NewTotalAmtMsatBlinded(&totalAmtInt),
+		)
+	}
+
+	if h.TrampolineOnion != nil {
+		if !finalHop {
+			return ErrIntermediateTrampolineOnion
+		}
+
+		packet, err := trampoline.DecodeOnionPacket(h.TrampolineOnion)
+		if err != nil {
+			return err
+		}
+
+		records = append(
+			records, trampoline.NewOnionPacketRecord(&packet),
 		)
 	}
 
@@ -471,6 +538,13 @@ func (h *Hop) PayloadSize(nextChanID uint64) uint64 {
 		addRecord(
 			record.TotalAmtMsatBlindedType,
 			tlv.SizeTUint64(uint64(h.AmtToForward)),
+		)
+	}
+
+	if h.TrampolineOnion != nil {
+		addRecord(
+			trampoline.OnionPacketType,
+			uint64(len(h.TrampolineOnion)),
 		)
 	}
 

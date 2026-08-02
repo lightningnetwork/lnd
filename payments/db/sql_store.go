@@ -13,6 +13,7 @@ import (
 	"github.com/lightningnetwork/lnd/lntypes"
 	"github.com/lightningnetwork/lnd/lnwire"
 	"github.com/lightningnetwork/lnd/routing/route"
+	"github.com/lightningnetwork/lnd/routing/trampoline"
 	"github.com/lightningnetwork/lnd/sqldb"
 	"github.com/lightningnetwork/lnd/sqldb/sqlc"
 )
@@ -1348,6 +1349,88 @@ func (s *SQLStore) insertRouteHops(ctx context.Context, db SQLQueries,
 			}
 		}
 
+		if hop.TrampolineOnion != nil {
+			packet, err := trampoline.DecodeOnionPacket(
+				hop.TrampolineOnion,
+			)
+			if err != nil {
+				return err
+			}
+			encoded, err := trampoline.EncodeOnionPacket(packet)
+			if err != nil {
+				return err
+			}
+
+			err = db.InsertPaymentHopCustomRecord(
+				ctx, sqlc.InsertPaymentHopCustomRecordParams{
+					HopID: hopID,
+					Key: int64(
+						trampoline.OnionPacketType,
+					),
+					Value: encoded,
+				},
+			)
+			if err != nil {
+				return fmt.Errorf("failed to insert "+
+					"trampoline onion: %w", err)
+			}
+		}
+
+		if len(hop.TrampolineErrorPath) != 0 {
+			pathRecord := trampoline.NewErrorPathRecord(
+				&hop.TrampolineErrorPath,
+			)
+			var encoded bytes.Buffer
+			if err := pathRecord.Encode(&encoded); err != nil {
+				return err
+			}
+
+			err = db.InsertPaymentHopCustomRecord(
+				ctx, sqlc.InsertPaymentHopCustomRecordParams{
+					HopID: hopID,
+					Key: int64(
+						trampoline.ErrorPathDBType,
+					),
+					Value: encoded.Bytes(),
+				},
+			)
+			if err != nil {
+				return fmt.Errorf("failed to insert "+
+					"trampoline error path: %w", err)
+			}
+		}
+
+		if hop.HasTrampolineErrorSessionKey {
+			if len(hop.TrampolineErrorPath) == 0 {
+				return errors.New(
+					"error session key " +
+						"requires an error path",
+				)
+			}
+			keyRecord := trampoline.NewErrorSessionKeyRecord(
+				&hop.TrampolineErrorSessionKey,
+			)
+			var encoded bytes.Buffer
+			if err := keyRecord.Encode(&encoded); err != nil {
+				return err
+			}
+
+			keyType := trampoline.ErrorSessionKeyDBType
+			err = db.InsertPaymentHopCustomRecord(
+				ctx, sqlc.InsertPaymentHopCustomRecordParams{
+					HopID: hopID,
+					Key:   int64(keyType),
+					Value: encoded.Bytes(),
+				},
+			)
+			if err != nil {
+				return fmt.Errorf(
+					"insert trampoline error session "+
+						"key: %w", err,
+				)
+			}
+		}
+
 		// Insert MPP data if present.
 		if hop.MPP != nil {
 			paymentAddr := hop.MPP.PaymentAddr()
@@ -1668,7 +1751,13 @@ func (s *SQLStore) FailAttempt(ctx context.Context, paymentHash lntypes.Hash,
 		}
 
 		var failureMsg bytes.Buffer
-		if failInfo.Message != nil {
+		if failInfo.Reason == HTLCFailTrampoline {
+			if _, err := failureMsg.Write(
+				failInfo.TrampolineReason[:],
+			); err != nil {
+				return err
+			}
+		} else if failInfo.Message != nil {
 			err := lnwire.EncodeFailureMessage(
 				&failureMsg, failInfo.Message, 0,
 			)

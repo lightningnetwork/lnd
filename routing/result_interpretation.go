@@ -306,6 +306,14 @@ func (i *interpretedResult) processPaymentOutcomeFinal(route *mcRoute,
 		// destination correctly. Continue the payment process.
 		i.successPairRange(route, 0, n-1)
 
+	// A trampoline fee or expiry quote proves that the outer payment
+	// reached the selected relay. The caller must start a new payment with
+	// the quoted policy, but mission control must not penalize the outer
+	// route and prevent that immediate retry.
+	case *lnwire.FailTrampolineFeeOrExpiryInsufficient:
+		i.successPairRange(route, 0, n-1)
+		i.finalFailureReason = &reasonError
+
 	// We do not expect to receive an invalid blinding error from the final
 	// node in the route. This could erroneously happen in the following
 	// cases:

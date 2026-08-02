@@ -88,10 +88,28 @@ type ForwardingError struct {
 	// zero is the self node.
 	FailureSourceIdx int
 
+	// TrampolineFailureSourceIdx is the zero-based inner trampoline path
+	// index that authenticated a nested failure. It is nil for ordinary
+	// payment-onion failures.
+	TrampolineFailureSourceIdx *int
+
 	// msg is the wire message associated with the error. This value may
 	// be nil in the case where we fail to decode failure message sent by
 	// a peer.
 	msg lnwire.FailureMessage
+}
+
+// NewTrampolineForwardingError creates a forwarding error authenticated by an
+// inner trampoline path. The ordinary source index identifies the outer
+// trampoline peer for mission control.
+func NewTrampolineForwardingError(failure lnwire.FailureMessage,
+	outerIndex, trampolineIndex int) *ForwardingError {
+
+	return &ForwardingError{
+		FailureSourceIdx:           outerIndex,
+		TrampolineFailureSourceIdx: &trampolineIndex,
+		msg:                        failure,
+	}
 }
 
 // WireMessage extracts a valid wire failure message from an internal

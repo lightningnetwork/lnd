@@ -710,6 +710,9 @@
         "MPP_TIMEOUT",
         "INVALID_ONION_PAYLOAD",
         "INVALID_ONION_BLINDING",
+        "TEMPORARY_TRAMPOLINE_FAILURE",
+        "TRAMPOLINE_FEE_OR_EXPIRY_INSUFFICIENT",
+        "UNKNOWN_NEXT_TRAMPOLINE",
         "INTERNAL_FAILURE",
         "UNKNOWN_FAILURE",
         "UNREADABLE_FAILURE"
@@ -905,6 +908,21 @@
           "type": "integer",
           "format": "int64",
           "description": "A failure type-dependent block height."
+        },
+        "trampoline_fee_base_msat": {
+          "type": "integer",
+          "format": "int64",
+          "description": "A trampoline relay's quoted base fee in millisatoshis."
+        },
+        "trampoline_fee_proportional_millionths": {
+          "type": "integer",
+          "format": "int64",
+          "description": "A trampoline relay's quoted proportional fee in millionths."
+        },
+        "trampoline_cltv_expiry_delta": {
+          "type": "integer",
+          "format": "int64",
+          "description": "A trampoline relay's quoted CLTV expiry delta."
         }
       }
     },
@@ -937,7 +955,9 @@
         "ROUTE_BLINDING_REQUIRED",
         "ROUTE_BLINDING_OPTIONAL",
         "AMP_REQ",
-        "AMP_OPT"
+        "AMP_OPT",
+        "TRAMPOLINE_ROUTING_REQ",
+        "TRAMPOLINE_ROUTING_OPT"
       ],
       "default": "DATALOSS_PROTECT_REQ"
     },
@@ -1053,6 +1073,11 @@
           "type": "string",
           "format": "uint64",
           "description": "The total amount that is sent to the recipient (possibly across multiple\nHTLCs), as specified by the sender when making a payment to a blinded path.\nThis value is only set in the final hop payload of a blinded payment. This\nvalue is analogous to the MPPRecord that is used for regular (non-blinded)\nMPP payments."
+        },
+        "trampoline_onion": {
+          "type": "string",
+          "format": "byte",
+          "description": "The complete variable-sized trampoline onion encoded as BOLT 4 TLV type\n20. This field is valid only on the final hop of the outer route."
         }
       }
     },
@@ -2103,6 +2128,42 @@
             "format": "byte"
           },
           "description": "An optional field that can be used to pass an arbitrary set of TLV records\nto the first hop peer of this payment. This can be used to pass application\nspecific data during the payment attempt. Record types are required to be in\nthe custom range \u003e= 65536. When using REST, the values must be encoded as\nbase64."
+        },
+        "trampoline_onion": {
+          "type": "string",
+          "format": "byte",
+          "description": "The complete variable-sized trampoline onion to place in the final hop's\nBOLT 4 type 20 record. The destination must be a trampoline node and the\nrequest must include a payment address."
+        },
+        "trampoline_hops": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "$ref": "#/definitions/routerrpcTrampolineHop"
+          },
+          "description": "An ordered list of trampoline relays to use when paying a BOLT 11 invoice.\nThe invoice recipient is appended automatically as the final trampoline\nonion hop. This field is mutually exclusive with trampoline_onion and\nrequires payment_request."
+        },
+        "trampoline_padding_bytes": {
+          "type": "integer",
+          "format": "int64",
+          "description": "The number of random bytes added after the encoded trampoline hop payloads.\nThe resulting onion remains bounded by the normal BOLT 4 payment-onion\nlimit."
+        },
+        "bolt12_invoice": {
+          "type": "string",
+          "format": "byte",
+          "description": "A canonical raw BOLT 12 invoice TLV stream to pay through its\ntrampoline-capable blinded path. The optional trampoline_hops are\nprepended as clear trampoline relays."
+        },
+        "trampoline_error_session_key": {
+          "type": "string",
+          "format": "byte",
+          "description": "The 32-byte private session key used to construct an explicitly supplied\ntrampoline_onion. This key is retained locally so nested trampoline\nfailures can be decrypted, including after restart. It must be supplied\ntogether with trampoline_error_path and may only be used with\ntrampoline_onion."
+        },
+        "trampoline_error_path": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "format": "byte"
+          },
+          "description": "The ordered compressed public keys of every hop in an explicitly supplied\ntrampoline_onion, including the final recipient. This path is retained\nlocally for nested failure decryption and is never sent in an onion. It\nmust be supplied together with trampoline_error_session_key and may only\nbe used with trampoline_onion."
         }
       }
     },
@@ -2156,6 +2217,26 @@
     },
     "routerrpcSubscribedEvent": {
       "type": "object"
+    },
+    "routerrpcTrampolineHop": {
+      "type": "object",
+      "properties": {
+        "pub_key": {
+          "type": "string",
+          "format": "byte",
+          "description": "The compressed public key of the selected trampoline relay."
+        },
+        "fee_msat": {
+          "type": "string",
+          "format": "uint64",
+          "description": "The fee budget assigned to this relay in millisatoshis."
+        },
+        "cltv_expiry_delta": {
+          "type": "integer",
+          "format": "int64",
+          "description": "The CLTV expiry delta assigned to this relay."
+        }
+      }
     },
     "routerrpcUpdateChanStatusRequest": {
       "type": "object",

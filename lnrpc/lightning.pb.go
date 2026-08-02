@@ -758,6 +758,8 @@ const (
 	FeatureBit_ROUTE_BLINDING_OPTIONAL     FeatureBit = 25
 	FeatureBit_AMP_REQ                     FeatureBit = 30
 	FeatureBit_AMP_OPT                     FeatureBit = 31
+	FeatureBit_TRAMPOLINE_ROUTING_REQ      FeatureBit = 56
+	FeatureBit_TRAMPOLINE_ROUTING_OPT      FeatureBit = 57
 )
 
 // Enum value maps for FeatureBit.
@@ -790,6 +792,8 @@ var (
 		25: "ROUTE_BLINDING_OPTIONAL",
 		30: "AMP_REQ",
 		31: "AMP_OPT",
+		56: "TRAMPOLINE_ROUTING_REQ",
+		57: "TRAMPOLINE_ROUTING_OPT",
 	}
 	FeatureBit_value = map[string]int32{
 		"DATALOSS_PROTECT_REQ":        0,
@@ -819,6 +823,8 @@ var (
 		"ROUTE_BLINDING_OPTIONAL":     25,
 		"AMP_REQ":                     30,
 		"AMP_OPT":                     31,
+		"TRAMPOLINE_ROUTING_REQ":      56,
+		"TRAMPOLINE_ROUTING_OPT":      57,
 	}
 )
 
@@ -1357,32 +1363,35 @@ const (
 	//The numbers assigned in this enumeration match the failure codes as
 	//defined in BOLT #4. Because protobuf 3 requires enums to start with 0,
 	//a RESERVED value is added.
-	Failure_RESERVED                             Failure_FailureCode = 0
-	Failure_INCORRECT_OR_UNKNOWN_PAYMENT_DETAILS Failure_FailureCode = 1
-	Failure_INCORRECT_PAYMENT_AMOUNT             Failure_FailureCode = 2
-	Failure_FINAL_INCORRECT_CLTV_EXPIRY          Failure_FailureCode = 3
-	Failure_FINAL_INCORRECT_HTLC_AMOUNT          Failure_FailureCode = 4
-	Failure_FINAL_EXPIRY_TOO_SOON                Failure_FailureCode = 5
-	Failure_INVALID_REALM                        Failure_FailureCode = 6
-	Failure_EXPIRY_TOO_SOON                      Failure_FailureCode = 7
-	Failure_INVALID_ONION_VERSION                Failure_FailureCode = 8
-	Failure_INVALID_ONION_HMAC                   Failure_FailureCode = 9
-	Failure_INVALID_ONION_KEY                    Failure_FailureCode = 10
-	Failure_AMOUNT_BELOW_MINIMUM                 Failure_FailureCode = 11
-	Failure_FEE_INSUFFICIENT                     Failure_FailureCode = 12
-	Failure_INCORRECT_CLTV_EXPIRY                Failure_FailureCode = 13
-	Failure_CHANNEL_DISABLED                     Failure_FailureCode = 14
-	Failure_TEMPORARY_CHANNEL_FAILURE            Failure_FailureCode = 15
-	Failure_REQUIRED_NODE_FEATURE_MISSING        Failure_FailureCode = 16
-	Failure_REQUIRED_CHANNEL_FEATURE_MISSING     Failure_FailureCode = 17
-	Failure_UNKNOWN_NEXT_PEER                    Failure_FailureCode = 18
-	Failure_TEMPORARY_NODE_FAILURE               Failure_FailureCode = 19
-	Failure_PERMANENT_NODE_FAILURE               Failure_FailureCode = 20
-	Failure_PERMANENT_CHANNEL_FAILURE            Failure_FailureCode = 21
-	Failure_EXPIRY_TOO_FAR                       Failure_FailureCode = 22
-	Failure_MPP_TIMEOUT                          Failure_FailureCode = 23
-	Failure_INVALID_ONION_PAYLOAD                Failure_FailureCode = 24
-	Failure_INVALID_ONION_BLINDING               Failure_FailureCode = 25
+	Failure_RESERVED                              Failure_FailureCode = 0
+	Failure_INCORRECT_OR_UNKNOWN_PAYMENT_DETAILS  Failure_FailureCode = 1
+	Failure_INCORRECT_PAYMENT_AMOUNT              Failure_FailureCode = 2
+	Failure_FINAL_INCORRECT_CLTV_EXPIRY           Failure_FailureCode = 3
+	Failure_FINAL_INCORRECT_HTLC_AMOUNT           Failure_FailureCode = 4
+	Failure_FINAL_EXPIRY_TOO_SOON                 Failure_FailureCode = 5
+	Failure_INVALID_REALM                         Failure_FailureCode = 6
+	Failure_EXPIRY_TOO_SOON                       Failure_FailureCode = 7
+	Failure_INVALID_ONION_VERSION                 Failure_FailureCode = 8
+	Failure_INVALID_ONION_HMAC                    Failure_FailureCode = 9
+	Failure_INVALID_ONION_KEY                     Failure_FailureCode = 10
+	Failure_AMOUNT_BELOW_MINIMUM                  Failure_FailureCode = 11
+	Failure_FEE_INSUFFICIENT                      Failure_FailureCode = 12
+	Failure_INCORRECT_CLTV_EXPIRY                 Failure_FailureCode = 13
+	Failure_CHANNEL_DISABLED                      Failure_FailureCode = 14
+	Failure_TEMPORARY_CHANNEL_FAILURE             Failure_FailureCode = 15
+	Failure_REQUIRED_NODE_FEATURE_MISSING         Failure_FailureCode = 16
+	Failure_REQUIRED_CHANNEL_FEATURE_MISSING      Failure_FailureCode = 17
+	Failure_UNKNOWN_NEXT_PEER                     Failure_FailureCode = 18
+	Failure_TEMPORARY_NODE_FAILURE                Failure_FailureCode = 19
+	Failure_PERMANENT_NODE_FAILURE                Failure_FailureCode = 20
+	Failure_PERMANENT_CHANNEL_FAILURE             Failure_FailureCode = 21
+	Failure_EXPIRY_TOO_FAR                        Failure_FailureCode = 22
+	Failure_MPP_TIMEOUT                           Failure_FailureCode = 23
+	Failure_INVALID_ONION_PAYLOAD                 Failure_FailureCode = 24
+	Failure_INVALID_ONION_BLINDING                Failure_FailureCode = 25
+	Failure_TEMPORARY_TRAMPOLINE_FAILURE          Failure_FailureCode = 26
+	Failure_TRAMPOLINE_FEE_OR_EXPIRY_INSUFFICIENT Failure_FailureCode = 27
+	Failure_UNKNOWN_NEXT_TRAMPOLINE               Failure_FailureCode = 28
 	//
 	//An internal error occurred.
 	Failure_INTERNAL_FAILURE Failure_FailureCode = 997
@@ -1424,40 +1433,46 @@ var (
 		23:  "MPP_TIMEOUT",
 		24:  "INVALID_ONION_PAYLOAD",
 		25:  "INVALID_ONION_BLINDING",
+		26:  "TEMPORARY_TRAMPOLINE_FAILURE",
+		27:  "TRAMPOLINE_FEE_OR_EXPIRY_INSUFFICIENT",
+		28:  "UNKNOWN_NEXT_TRAMPOLINE",
 		997: "INTERNAL_FAILURE",
 		998: "UNKNOWN_FAILURE",
 		999: "UNREADABLE_FAILURE",
 	}
 	Failure_FailureCode_value = map[string]int32{
-		"RESERVED":                             0,
-		"INCORRECT_OR_UNKNOWN_PAYMENT_DETAILS": 1,
-		"INCORRECT_PAYMENT_AMOUNT":             2,
-		"FINAL_INCORRECT_CLTV_EXPIRY":          3,
-		"FINAL_INCORRECT_HTLC_AMOUNT":          4,
-		"FINAL_EXPIRY_TOO_SOON":                5,
-		"INVALID_REALM":                        6,
-		"EXPIRY_TOO_SOON":                      7,
-		"INVALID_ONION_VERSION":                8,
-		"INVALID_ONION_HMAC":                   9,
-		"INVALID_ONION_KEY":                    10,
-		"AMOUNT_BELOW_MINIMUM":                 11,
-		"FEE_INSUFFICIENT":                     12,
-		"INCORRECT_CLTV_EXPIRY":                13,
-		"CHANNEL_DISABLED":                     14,
-		"TEMPORARY_CHANNEL_FAILURE":            15,
-		"REQUIRED_NODE_FEATURE_MISSING":        16,
-		"REQUIRED_CHANNEL_FEATURE_MISSING":     17,
-		"UNKNOWN_NEXT_PEER":                    18,
-		"TEMPORARY_NODE_FAILURE":               19,
-		"PERMANENT_NODE_FAILURE":               20,
-		"PERMANENT_CHANNEL_FAILURE":            21,
-		"EXPIRY_TOO_FAR":                       22,
-		"MPP_TIMEOUT":                          23,
-		"INVALID_ONION_PAYLOAD":                24,
-		"INVALID_ONION_BLINDING":               25,
-		"INTERNAL_FAILURE":                     997,
-		"UNKNOWN_FAILURE":                      998,
-		"UNREADABLE_FAILURE":                   999,
+		"RESERVED":                              0,
+		"INCORRECT_OR_UNKNOWN_PAYMENT_DETAILS":  1,
+		"INCORRECT_PAYMENT_AMOUNT":              2,
+		"FINAL_INCORRECT_CLTV_EXPIRY":           3,
+		"FINAL_INCORRECT_HTLC_AMOUNT":           4,
+		"FINAL_EXPIRY_TOO_SOON":                 5,
+		"INVALID_REALM":                         6,
+		"EXPIRY_TOO_SOON":                       7,
+		"INVALID_ONION_VERSION":                 8,
+		"INVALID_ONION_HMAC":                    9,
+		"INVALID_ONION_KEY":                     10,
+		"AMOUNT_BELOW_MINIMUM":                  11,
+		"FEE_INSUFFICIENT":                      12,
+		"INCORRECT_CLTV_EXPIRY":                 13,
+		"CHANNEL_DISABLED":                      14,
+		"TEMPORARY_CHANNEL_FAILURE":             15,
+		"REQUIRED_NODE_FEATURE_MISSING":         16,
+		"REQUIRED_CHANNEL_FEATURE_MISSING":      17,
+		"UNKNOWN_NEXT_PEER":                     18,
+		"TEMPORARY_NODE_FAILURE":                19,
+		"PERMANENT_NODE_FAILURE":                20,
+		"PERMANENT_CHANNEL_FAILURE":             21,
+		"EXPIRY_TOO_FAR":                        22,
+		"MPP_TIMEOUT":                           23,
+		"INVALID_ONION_PAYLOAD":                 24,
+		"INVALID_ONION_BLINDING":                25,
+		"TEMPORARY_TRAMPOLINE_FAILURE":          26,
+		"TRAMPOLINE_FEE_OR_EXPIRY_INSUFFICIENT": 27,
+		"UNKNOWN_NEXT_TRAMPOLINE":               28,
+		"INTERNAL_FAILURE":                      997,
+		"UNKNOWN_FAILURE":                       998,
+		"UNREADABLE_FAILURE":                    999,
 	}
 )
 
@@ -10324,9 +10339,13 @@ type Hop struct {
 	//This value is only set in the final hop payload of a blinded payment. This
 	//value is analogous to the MPPRecord that is used for regular (non-blinded)
 	//MPP payments.
-	TotalAmtMsat  uint64 `protobuf:"varint,16,opt,name=total_amt_msat,json=totalAmtMsat,proto3" json:"total_amt_msat,omitempty"`
-	unknownFields protoimpl.UnknownFields
-	sizeCache     protoimpl.SizeCache
+	TotalAmtMsat uint64 `protobuf:"varint,16,opt,name=total_amt_msat,json=totalAmtMsat,proto3" json:"total_amt_msat,omitempty"`
+	//
+	//The complete variable-sized trampoline onion encoded as BOLT 4 TLV type
+	//20. This field is valid only on the final hop of the outer route.
+	TrampolineOnion []byte `protobuf:"bytes,17,opt,name=trampoline_onion,json=trampolineOnion,proto3" json:"trampoline_onion,omitempty"`
+	unknownFields   protoimpl.UnknownFields
+	sizeCache       protoimpl.SizeCache
 }
 
 func (x *Hop) Reset() {
@@ -10473,6 +10492,13 @@ func (x *Hop) GetTotalAmtMsat() uint64 {
 		return x.TotalAmtMsat
 	}
 	return 0
+}
+
+func (x *Hop) GetTrampolineOnion() []byte {
+	if x != nil {
+		return x.TrampolineOnion
+	}
+	return nil
 }
 
 type MPPRecord struct {
@@ -17029,9 +17055,15 @@ type Failure struct {
 	//the failure message. Position zero is the sender node.
 	FailureSourceIndex uint32 `protobuf:"varint,8,opt,name=failure_source_index,json=failureSourceIndex,proto3" json:"failure_source_index,omitempty"`
 	// A failure type-dependent block height.
-	Height        uint32 `protobuf:"varint,9,opt,name=height,proto3" json:"height,omitempty"`
-	unknownFields protoimpl.UnknownFields
-	sizeCache     protoimpl.SizeCache
+	Height uint32 `protobuf:"varint,9,opt,name=height,proto3" json:"height,omitempty"`
+	// A trampoline relay's quoted base fee in millisatoshis.
+	TrampolineFeeBaseMsat uint32 `protobuf:"varint,10,opt,name=trampoline_fee_base_msat,json=trampolineFeeBaseMsat,proto3" json:"trampoline_fee_base_msat,omitempty"`
+	// A trampoline relay's quoted proportional fee in millionths.
+	TrampolineFeeProportionalMillionths uint32 `protobuf:"varint,11,opt,name=trampoline_fee_proportional_millionths,json=trampolineFeeProportionalMillionths,proto3" json:"trampoline_fee_proportional_millionths,omitempty"`
+	// A trampoline relay's quoted CLTV expiry delta.
+	TrampolineCltvExpiryDelta uint32 `protobuf:"varint,12,opt,name=trampoline_cltv_expiry_delta,json=trampolineCltvExpiryDelta,proto3" json:"trampoline_cltv_expiry_delta,omitempty"`
+	unknownFields             protoimpl.UnknownFields
+	sizeCache                 protoimpl.SizeCache
 }
 
 func (x *Failure) Reset() {
@@ -17116,6 +17148,27 @@ func (x *Failure) GetFailureSourceIndex() uint32 {
 func (x *Failure) GetHeight() uint32 {
 	if x != nil {
 		return x.Height
+	}
+	return 0
+}
+
+func (x *Failure) GetTrampolineFeeBaseMsat() uint32 {
+	if x != nil {
+		return x.TrampolineFeeBaseMsat
+	}
+	return 0
+}
+
+func (x *Failure) GetTrampolineFeeProportionalMillionths() uint32 {
+	if x != nil {
+		return x.TrampolineFeeProportionalMillionths
+	}
+	return 0
+}
+
+func (x *Failure) GetTrampolineCltvExpiryDelta() uint32 {
+	if x != nil {
+		return x.TrampolineCltvExpiryDelta
 	}
 	return 0
 }
@@ -19648,7 +19701,7 @@ const file_lightning_proto_rawDesc = "" +
 	"\x11direction_reverse\x18\x02 \x01(\bR\x10directionReverse\"^\n" +
 	"\x13QueryRoutesResponse\x12$\n" +
 	"\x06routes\x18\x01 \x03(\v2\f.lnrpc.RouteR\x06routes\x12!\n" +
-	"\fsuccess_prob\x18\x02 \x01(\x01R\vsuccessProb\"\xa5\x05\n" +
+	"\fsuccess_prob\x18\x02 \x01(\x01R\vsuccessProb\"\xd0\x05\n" +
 	"\x03Hop\x12\x1b\n" +
 	"\achan_id\x18\x01 \x01(\x04B\x020\x01R\x06chanId\x12'\n" +
 	"\rchan_capacity\x18\x02 \x01(\x03B\x02\x18\x01R\fchanCapacity\x12(\n" +
@@ -19669,7 +19722,8 @@ const file_lightning_proto_rawDesc = "" +
 	"\bmetadata\x18\r \x01(\fR\bmetadata\x12%\n" +
 	"\x0eblinding_point\x18\x0e \x01(\fR\rblindingPoint\x12%\n" +
 	"\x0eencrypted_data\x18\x0f \x01(\fR\rencryptedData\x12$\n" +
-	"\x0etotal_amt_msat\x18\x10 \x01(\x04R\ftotalAmtMsat\x1a@\n" +
+	"\x0etotal_amt_msat\x18\x10 \x01(\x04R\ftotalAmtMsat\x12)\n" +
+	"\x10trampoline_onion\x18\x11 \x01(\fR\x0ftrampolineOnion\x1a@\n" +
 	"\x12CustomRecordsEntry\x12\x10\n" +
 	"\x03key\x18\x01 \x01(\x04R\x03key\x12\x14\n" +
 	"\x05value\x18\x02 \x01(\fR\x05value:\x028\x01\"T\n" +
@@ -20214,7 +20268,7 @@ const file_lightning_proto_rawDesc = "" +
 	"\x12method_permissions\x18\x01 \x03(\v25.lnrpc.ListPermissionsResponse.MethodPermissionsEntryR\x11methodPermissions\x1ac\n" +
 	"\x16MethodPermissionsEntry\x12\x10\n" +
 	"\x03key\x18\x01 \x01(\tR\x03key\x123\n" +
-	"\x05value\x18\x02 \x01(\v2\x1d.lnrpc.MacaroonPermissionListR\x05value:\x028\x01\"\xcc\b\n" +
+	"\x05value\x18\x02 \x01(\v2\x1d.lnrpc.MacaroonPermissionListR\x05value:\x028\x01\"\x85\v\n" +
 	"\aFailure\x12.\n" +
 	"\x04code\x18\x01 \x01(\x0e2\x1a.lnrpc.Failure.FailureCodeR\x04code\x12;\n" +
 	"\x0echannel_update\x18\x03 \x01(\v2\x14.lnrpc.ChannelUpdateR\rchannelUpdate\x12\x1b\n" +
@@ -20224,7 +20278,11 @@ const file_lightning_proto_rawDesc = "" +
 	"cltvExpiry\x12\x14\n" +
 	"\x05flags\x18\a \x01(\rR\x05flags\x120\n" +
 	"\x14failure_source_index\x18\b \x01(\rR\x12failureSourceIndex\x12\x16\n" +
-	"\x06height\x18\t \x01(\rR\x06height\"\x8b\x06\n" +
+	"\x06height\x18\t \x01(\rR\x06height\x127\n" +
+	"\x18trampoline_fee_base_msat\x18\n" +
+	" \x01(\rR\x15trampolineFeeBaseMsat\x12S\n" +
+	"&trampoline_fee_proportional_millionths\x18\v \x01(\rR#trampolineFeeProportionalMillionths\x12?\n" +
+	"\x1ctrampoline_cltv_expiry_delta\x18\f \x01(\rR\x19trampolineCltvExpiryDelta\"\xf5\x06\n" +
 	"\vFailureCode\x12\f\n" +
 	"\bRESERVED\x10\x00\x12(\n" +
 	"$INCORRECT_OR_UNKNOWN_PAYMENT_DETAILS\x10\x01\x12\x1c\n" +
@@ -20252,7 +20310,10 @@ const file_lightning_proto_rawDesc = "" +
 	"\x0eEXPIRY_TOO_FAR\x10\x16\x12\x0f\n" +
 	"\vMPP_TIMEOUT\x10\x17\x12\x19\n" +
 	"\x15INVALID_ONION_PAYLOAD\x10\x18\x12\x1a\n" +
-	"\x16INVALID_ONION_BLINDING\x10\x19\x12\x15\n" +
+	"\x16INVALID_ONION_BLINDING\x10\x19\x12 \n" +
+	"\x1cTEMPORARY_TRAMPOLINE_FAILURE\x10\x1a\x12)\n" +
+	"%TRAMPOLINE_FEE_OR_EXPIRY_INSUFFICIENT\x10\x1b\x12\x1b\n" +
+	"\x17UNKNOWN_NEXT_TRAMPOLINE\x10\x1c\x12\x15\n" +
 	"\x10INTERNAL_FAILURE\x10\xe5\a\x12\x14\n" +
 	"\x0fUNKNOWN_FAILURE\x10\xe6\a\x12\x17\n" +
 	"\x12UNREADABLE_FAILURE\x10\xe7\aJ\x04\b\x02\x10\x03\"\xb3\x03\n" +
@@ -20405,7 +20466,7 @@ const file_lightning_proto_rawDesc = "" +
 	"\x14FAILURE_REASON_ERROR\x10\x03\x12,\n" +
 	"(FAILURE_REASON_INCORRECT_PAYMENT_DETAILS\x10\x04\x12'\n" +
 	"#FAILURE_REASON_INSUFFICIENT_BALANCE\x10\x05\x12\x1b\n" +
-	"\x17FAILURE_REASON_CANCELED\x10\x06*\x89\x05\n" +
+	"\x17FAILURE_REASON_CANCELED\x10\x06*\xc1\x05\n" +
 	"\n" +
 	"FeatureBit\x12\x18\n" +
 	"\x14DATALOSS_PROTECT_REQ\x10\x00\x12\x18\n" +
@@ -20435,7 +20496,9 @@ const file_lightning_proto_rawDesc = "" +
 	"\x17ROUTE_BLINDING_REQUIRED\x10\x18\x12\x1b\n" +
 	"\x17ROUTE_BLINDING_OPTIONAL\x10\x19\x12\v\n" +
 	"\aAMP_REQ\x10\x1e\x12\v\n" +
-	"\aAMP_OPT\x10\x1f*\xac\x01\n" +
+	"\aAMP_OPT\x10\x1f\x12\x1a\n" +
+	"\x16TRAMPOLINE_ROUTING_REQ\x108\x12\x1a\n" +
+	"\x16TRAMPOLINE_ROUTING_OPT\x109*\xac\x01\n" +
 	"\rUpdateFailure\x12\x1a\n" +
 	"\x16UPDATE_FAILURE_UNKNOWN\x10\x00\x12\x1a\n" +
 	"\x16UPDATE_FAILURE_PENDING\x10\x01\x12\x1c\n" +

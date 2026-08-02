@@ -15,6 +15,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/btcsuite/btcd/btcec/v2"
 	"github.com/btcsuite/btcd/btcutil/v2"
 	"github.com/jedib0t/go-pretty/v6/table"
 	"github.com/jedib0t/go-pretty/v6/text"
@@ -55,6 +56,42 @@ var (
 			"format is: <record_id>=<hex_value>,<record_id>=" +
 			"<hex_value>,.. For example: --data 3438382=0a21ff. " +
 			"Custom record ids start from 65536.",
+	}
+
+	trampolineOnionFlag = cli.StringFlag{
+		Name: "trampoline_onion",
+		Usage: "hex-encoded trampoline onion to place in the final " +
+			"outer hop",
+	}
+
+	trampolineErrorSessionKeyFlag = cli.StringFlag{
+		Name: "trampoline_error_session_key",
+		Usage: "hex-encoded 32-byte private session key used to " +
+			"construct an explicit trampoline onion",
+	}
+
+	trampolineErrorPathFlag = cli.StringSliceFlag{
+		Name: "trampoline_error_hop",
+		Usage: "compressed pubkey in the ordered error path for an " +
+			"explicit trampoline onion; may be repeated",
+	}
+
+	trampolineHopsFlag = cli.StringSliceFlag{
+		Name: "trampoline_hop",
+		Usage: "ordered BOLT 11 trampoline relay formatted as " +
+			"<pubkey>:<fee_msat>:<cltv_delta>; may be repeated",
+	}
+
+	trampolinePaddingFlag = cli.UintFlag{
+		Name: "trampoline_padding_bytes",
+		Usage: "number of random trailing bytes to add to an " +
+			"automatically constructed trampoline onion",
+	}
+
+	bolt12InvoiceFlag = cli.StringFlag{
+		Name: "bolt12_invoice",
+		Usage: "hex-encoded canonical BOLT 12 invoice TLV stream to " +
+			"pay through its trampoline-capable blinded path",
 	}
 
 	inflightUpdatesFlag = cli.BoolFlag{
@@ -199,7 +236,10 @@ func PaymentFlags() []cli.Flag {
 			Name:  "allow_self_payment",
 			Usage: "allow sending a circular payment to self",
 		},
-		dataFlag, inflightUpdatesFlag, maxPartsFlag, jsonFlag,
+		dataFlag, trampolineOnionFlag, trampolineErrorSessionKeyFlag,
+		trampolineErrorPathFlag, trampolineHopsFlag,
+		trampolinePaddingFlag, bolt12InvoiceFlag, inflightUpdatesFlag,
+		maxPartsFlag, jsonFlag,
 		maxShardSizeSatFlag, maxShardSizeMsatFlag, ampFlag,
 		timePrefFlag,
 	}
@@ -348,6 +388,17 @@ func SendPayment(ctx *cli.Context) error {
 
 	args := ctx.Args()
 
+	if ctx.IsSet(bolt12InvoiceFlag.Name) {
+		req := &routerrpc.SendPaymentRequest{
+			DestCustomRecords: make(map[uint64][]byte),
+			Cancelable:        ctx.Bool(cancelableFlag.Name),
+		}
+
+		return SendPaymentRequest(
+			ctx, req, conn, conn, routerRPCSendPayment,
+		)
+	}
+
 	// If a payment request was provided, we can exit early since all of the
 	// details of the payment are encoded within the request.
 	if ctx.IsSet("pay_req") {
@@ -480,6 +531,14 @@ func SendPayment(ctx *cli.Context) error {
 	if err != nil {
 		return err
 	}
+	if len(payAddr) == 0 && ctx.IsSet(trampolineOnionFlag.Name) {
+		payAddr = make([]byte, 32)
+		if _, err := rand.Read(payAddr); err != nil {
+			return fmt.Errorf(
+				"generate trampoline payment address: %w", err,
+			)
+		}
+	}
 
 	req.PaymentAddr = payAddr
 
@@ -549,6 +608,102 @@ func SendPaymentRequest(ctx *cli.Context, req *routerrpc.SendPaymentRequest,
 	req.AllowSelfPayment = ctx.Bool("allow_self_payment")
 
 	req.MaxParts = uint32(ctx.Uint(maxPartsFlag.Name))
+
+	if ctx.IsSet(trampolineOnionFlag.Name) {
+		onion, err := hex.DecodeString(
+			ctx.String(trampolineOnionFlag.Name),
+		)
+		if err != nil {
+			return fmt.Errorf("decode trampoline onion: %w", err)
+		}
+		req.TrampolineOnion = onion
+	}
+	if ctx.IsSet(trampolineErrorSessionKeyFlag.Name) {
+		key, err := hex.DecodeString(
+			ctx.String(trampolineErrorSessionKeyFlag.Name),
+		)
+		if err != nil {
+			return fmt.Errorf(
+				"decode trampoline error session key: %w", err,
+			)
+		}
+		req.TrampolineErrorSessionKey = key
+	}
+	if ctx.IsSet(trampolineErrorPathFlag.Name) {
+		for i, encoded := range ctx.StringSlice(
+			trampolineErrorPathFlag.Name,
+		) {
+			node, err := hex.DecodeString(encoded)
+			if err != nil {
+				return fmt.Errorf(
+					"decode trampoline error hop %d: %w",
+					i, err,
+				)
+			}
+			if _, err := btcec.ParsePubKey(node); err != nil {
+				return fmt.Errorf(
+					"parse trampoline error hop %d: %w",
+					i, err,
+				)
+			}
+			req.TrampolineErrorPath = append(
+				req.TrampolineErrorPath, node,
+			)
+		}
+	}
+	if ctx.IsSet(bolt12InvoiceFlag.Name) {
+		invoice, err := hex.DecodeString(
+			ctx.String(bolt12InvoiceFlag.Name),
+		)
+		if err != nil {
+			return fmt.Errorf("decode BOLT 12 invoice: %w", err)
+		}
+		req.Bolt12Invoice = invoice
+	}
+	if ctx.IsSet(trampolineHopsFlag.Name) {
+		for i, encoded := range ctx.StringSlice(
+			trampolineHopsFlag.Name,
+		) {
+			fields := strings.Split(encoded, ":")
+			if len(fields) != 3 {
+				return fmt.Errorf("trampoline hop %d must be "+
+					"<pubkey>:<fee_msat>:<cltv_delta>", i)
+			}
+			pubKey, err := hex.DecodeString(fields[0])
+			if err != nil {
+				return fmt.Errorf("decode trampoline hop %d "+
+					"pubkey: %w", i, err)
+			}
+			if _, err := btcec.ParsePubKey(pubKey); err != nil {
+				return fmt.Errorf("parse trampoline hop %d "+
+					"pubkey: %w", i, err)
+			}
+			fee, err := strconv.ParseUint(fields[1], 10, 64)
+			if err != nil {
+				return fmt.Errorf(
+					"parse trampoline hop %d fee: %w",
+					i, err,
+				)
+			}
+			delta, err := strconv.ParseUint(fields[2], 10, 32)
+			if err != nil {
+				return fmt.Errorf(
+					"parse trampoline hop %d cltv: %w",
+					i, err,
+				)
+			}
+			req.TrampolineHops = append(
+				req.TrampolineHops, &routerrpc.TrampolineHop{
+					PubKey:          pubKey,
+					FeeMsat:         fee,
+					CltvExpiryDelta: uint32(delta),
+				},
+			)
+		}
+	}
+	req.TrampolinePaddingBytes = uint32(
+		ctx.Uint(trampolinePaddingFlag.Name),
+	)
 
 	switch {
 	// If the max shard size is specified, then it should either be in sat

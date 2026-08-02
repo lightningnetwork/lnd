@@ -4,10 +4,12 @@ import (
 	"bytes"
 	"context"
 	"crypto/rand"
+	"encoding/binary"
 	"encoding/hex"
 	"errors"
 	"fmt"
 	"image/color"
+	"math"
 	"math/big"
 	prand "math/rand"
 	"net"
@@ -60,6 +62,7 @@ import (
 	"github.com/lightningnetwork/lnd/lnpeer"
 	"github.com/lightningnetwork/lnd/lnrpc"
 	"github.com/lightningnetwork/lnd/lnrpc/routerrpc"
+	"github.com/lightningnetwork/lnd/lntypes"
 	"github.com/lightningnetwork/lnd/lnutils"
 	"github.com/lightningnetwork/lnd/lnwallet"
 	"github.com/lightningnetwork/lnd/lnwallet/chainfee"
@@ -79,10 +82,12 @@ import (
 	"github.com/lightningnetwork/lnd/routing"
 	"github.com/lightningnetwork/lnd/routing/localchans"
 	"github.com/lightningnetwork/lnd/routing/route"
+	"github.com/lightningnetwork/lnd/routing/trampoline"
 	"github.com/lightningnetwork/lnd/subscribe"
 	"github.com/lightningnetwork/lnd/sweep"
 	"github.com/lightningnetwork/lnd/ticker"
 	"github.com/lightningnetwork/lnd/tor"
+	"github.com/lightningnetwork/lnd/trampolinerelay"
 	"github.com/lightningnetwork/lnd/walletunlocker"
 	"github.com/lightningnetwork/lnd/watchtower/blob"
 	"github.com/lightningnetwork/lnd/watchtower/wtclient"
@@ -374,6 +379,8 @@ type server struct {
 
 	chanRouter *routing.ChannelRouter
 
+	trampolineRelay *trampolinerelay.Service
+
 	controlTower routing.ControlTower
 
 	authGossiper *discovery.AuthenticatedGossiper
@@ -664,6 +671,116 @@ func noiseDial(idKey keychain.SingleKeyECDH,
 	}
 }
 
+func (s *server) reconcileTrampolinePayment(ctx context.Context,
+	hash lntypes.Hash) ([32]byte, error) {
+
+	subscription, err := s.controlTower.SubscribePayment(hash)
+	if err != nil {
+		return [32]byte{}, err
+	}
+	defer subscription.Close()
+
+	for {
+		select {
+		case update, ok := <-subscription.Updates():
+			if !ok {
+				return [32]byte{}, errors.New(
+					"payment reconciliation subscription " +
+						"closed",
+				)
+			}
+
+			payment, ok := update.(paymentsdb.DBMPPayment)
+			if !ok {
+				continue
+			}
+
+			// FailPayment is recorded before the active attempt is
+			// failed. Wait for that attempt update so its
+			// authenticated trampoline failure is available for
+			// reconciliation.
+			if !payment.Terminated() {
+				continue
+			}
+
+			settled, failure := payment.TerminalInfo()
+			if settled != nil {
+				return [32]byte(settled.Settle.Preimage), nil
+			}
+			if failure == nil {
+				continue
+			}
+
+			opaque := routing.TrampolineFailureFromPayment(payment)
+			if opaque != nil {
+				return [32]byte{}, opaque
+			}
+
+			return [32]byte{}, *failure
+
+		case <-ctx.Done():
+			return [32]byte{}, ctx.Err()
+		}
+	}
+}
+
+func (s *server) cancelTrampolinePayment(ctx context.Context,
+	hash lntypes.Hash) error {
+
+	return s.controlTower.FailPayment(
+		ctx, hash, paymentsdb.FailureReasonTimeout,
+	)
+}
+
+func (s *server) resolveTrampolineIntroduction(ctx context.Context,
+	introduction lnwire.IntroductionNode) (*btcec.PublicKey, error) {
+
+	node, ok := introduction.(lnwire.SciddirIntro)
+	if !ok {
+		return nil, fmt.Errorf(
+			"unsupported introduction node %T", introduction,
+		)
+	}
+
+	scid := binary.BigEndian.Uint64(node.SCID[:])
+	info, _, _, err := s.v1Graph.FetchChannelEdgesByID(ctx, scid)
+	if err != nil {
+		return nil, err
+	}
+
+	vertex := info.NodeKey1Bytes
+	if node.Direction == 1 {
+		vertex = info.NodeKey2Bytes
+	}
+
+	return btcec.ParsePubKey(vertex[:])
+}
+
+func (s *server) resolveTrampolineNextNode(ctx context.Context,
+	scid lnwire.ShortChannelID, self route.Vertex) (
+	*btcec.PublicKey, error) {
+
+	info, _, _, err := s.v1Graph.FetchChannelEdgesByID(
+		ctx, scid.ToUint64(),
+	)
+	if err != nil {
+		return nil, err
+	}
+
+	switch self {
+	case info.NodeKey1Bytes:
+		return btcec.ParsePubKey(info.NodeKey2Bytes[:])
+
+	case info.NodeKey2Bytes:
+		return btcec.ParsePubKey(info.NodeKey1Bytes[:])
+
+	default:
+		return nil, fmt.Errorf(
+			"channel %v is not incident to local node", scid,
+		)
+	}
+}
+
 // newServer creates a new instance of the server which is to listen using the
 // passed listener address.
 //
@@ -756,6 +873,7 @@ func newServer(ctx context.Context, cfg *Config, listenAddrs []net.Addr,
 		NoWumbo:                      !cfg.ProtocolOptions.Wumbo(),
 		NoScriptEnforcementLease:     cfg.ProtocolOptions.NoScriptEnforcementLease(),
 		NoKeysend:                    !cfg.AcceptKeySend,
+		EnableTrampoline:             cfg.ProtocolOptions.Trampoline(),
 		NoOptionScidAlias:            !cfg.ProtocolOptions.ScidAlias(),
 		NoZeroConf:                   !cfg.ProtocolOptions.ZeroConf(),
 		NoAnySegwit:                  cfg.ProtocolOptions.NoAnySegwit(),
@@ -1202,6 +1320,96 @@ func newServer(ctx context.Context, cfg *Config, listenAddrs []net.Addr,
 	})
 	if err != nil {
 		return nil, fmt.Errorf("can't create router: %w", err)
+	}
+
+	if cfg.ProtocolOptions.Trampoline() {
+		policy := cc.RoutingPolicy
+		switch {
+		case policy.BaseFee < 0 || policy.BaseFee > math.MaxUint32:
+			return nil, fmt.Errorf(
+				"trampoline base fee %d exceeds uint32",
+				policy.BaseFee,
+			)
+
+		case policy.FeeRate < 0 || policy.FeeRate > math.MaxUint32:
+			return nil, fmt.Errorf(
+				"trampoline fee rate %d exceeds uint32",
+				policy.FeeRate,
+			)
+
+		case policy.TimeLockDelta > math.MaxUint16:
+			return nil, fmt.Errorf(
+				"trampoline timelock delta %d exceeds uint16",
+				policy.TimeLockDelta,
+			)
+		}
+
+		trampolineStore, err := trampolinerelay.NewKVStore(
+			dbs.ChanStateDB,
+		)
+		if err != nil {
+			return nil, fmt.Errorf(
+				"can't create trampoline relay store: %w", err,
+			)
+		}
+
+		s.trampolineRelay, err = trampolinerelay.NewService(
+			trampolinerelay.Config{
+				OnionProcessor:    s.sphinxPayment,
+				BlindingProcessor: sphinxRouter,
+				PaymentSender:     s.chanRouter,
+				InvoiceRegistry:   s.invoices,
+				PaymentReconciler: s.reconcileTrampolinePayment,
+				PaymentCanceler:   s.cancelTrampolinePayment,
+				ResolveIntroductionNode: func(
+					introduction lnwire.IntroductionNode) (
+					*btcec.PublicKey, error) {
+
+					return s.resolveTrampolineIntroduction(
+						ctx, introduction,
+					)
+				},
+				ResolveNextNode: func(
+					scid lnwire.ShortChannelID) (
+					*btcec.PublicKey, error) {
+
+					self := route.NewVertex(
+						nodeKeyDesc.PubKey,
+					)
+
+					return s.resolveTrampolineNextNode(
+						ctx, scid, self,
+					)
+				},
+				RelayConfig: trampoline.RelayConfig{
+					MaxParts: routerrpc.
+						DefaultMaxParts,
+					MaxAttempts:        3,
+					HoldBlocks:         40,
+					RecoveryBlocks:     6,
+					ExpirySafetyBlocks: 1,
+					MaxReorgDepth:      6,
+				},
+				PayTimeout: routing.DefaultPayAttemptTimeout,
+				MaxParts:   routerrpc.DefaultMaxParts,
+				MaxGroups:  10_000,
+				FeeBaseMsat: uint32(
+					policy.BaseFee,
+				),
+				FeeProportionalMillionths: uint32(
+					policy.FeeRate,
+				),
+				CLTVExpiryDelta: uint16(
+					policy.TimeLockDelta,
+				),
+				Store: trampolineStore,
+			},
+		)
+		if err != nil {
+			return nil, fmt.Errorf(
+				"can't create trampoline relay: %w", err,
+			)
+		}
 	}
 
 	chanSeries := discovery.NewChanSeries(
@@ -2086,6 +2294,12 @@ func (s *server) registerBlockConsumers() {
 		s.txPublisher,
 	}
 	s.blockbeatDispatcher.RegisterQueue(consumers)
+
+	if s.trampolineRelay != nil {
+		s.blockbeatDispatcher.RegisterQueue([]chainio.Consumer{
+			s.trampolineRelay,
+		})
+	}
 }
 
 // signAliasUpdate takes a ChannelUpdate and returns the signature. This is
@@ -2514,6 +2728,17 @@ func (s *server) Start(ctx context.Context) error {
 		// htlcSwitch must be started before chainArb since the latter
 		// relies on htlcSwitch to deliver resolution message upon
 		// start.
+		//
+		// Register the relay join before switch cleanup.
+		// Cleanup is reversed. RequestStop runs first.
+		// The router and switch drain before this join.
+		cleanup = cleanup.add(func() error {
+			if s.trampolineRelay != nil {
+				s.trampolineRelay.WaitForShutdown()
+			}
+
+			return nil
+		})
 		cleanup = cleanup.add(s.htlcSwitch.Stop)
 		if err := s.htlcSwitch.Start(); err != nil {
 			startErr = err
@@ -2573,6 +2798,14 @@ func (s *server) Start(ctx context.Context) error {
 		if err := s.sphinxPayment.Start(); err != nil {
 			startErr = err
 			return
+		}
+		if s.trampolineRelay != nil {
+			cleanup = cleanup.add(func() error {
+				s.trampolineRelay.RequestStop()
+
+				return nil
+			})
+			s.trampolineRelay.Start()
 		}
 
 		cleanup = cleanup.add(func() error {
@@ -2896,6 +3129,9 @@ func (s *server) Stop() error {
 		if err := s.chanStatusMgr.Stop(); err != nil {
 			srvrLog.Warnf("failed to stop chanStatusMgr: %v", err)
 		}
+		if s.trampolineRelay != nil {
+			s.trampolineRelay.RequestStop()
+		}
 		if err := s.htlcSwitch.Stop(); err != nil {
 			srvrLog.Warnf("failed to stop htlcSwitch: %v", err)
 		}
@@ -2915,6 +3151,13 @@ func (s *server) Stop() error {
 		}
 		if err := s.chanRouter.Stop(); err != nil {
 			srvrLog.Warnf("failed to stop chanRouter: %v", err)
+		}
+		// A worker can stay in SendPayment until the switch and
+		// router stop its HTLC. Shutdown was signaled above to block
+		// new work.
+		// Join here only after both dependencies drain.
+		if s.trampolineRelay != nil {
+			s.trampolineRelay.WaitForShutdown()
 		}
 		if err := s.graphBuilder.Stop(); err != nil {
 			srvrLog.Warnf("failed to stop graphBuilder %v", err)
@@ -4714,13 +4957,14 @@ func (s *server) peerConnected(conn net.Conn, connReq *connmgr.ConnReq,
 
 			return s.defaultOnionActorOpts
 		},
-		ActorSystem:     s.actorSystem,
-		WitnessBeacon:   s.witnessBeacon,
-		Invoices:        s.invoices,
-		ChannelNotifier: s.channelNotifier,
-		HtlcNotifier:    s.htlcNotifier,
-		TowerClient:     towerClient,
-		DisconnectPeer:  s.DisconnectPeer,
+		ActorSystem:        s.actorSystem,
+		WitnessBeacon:      s.witnessBeacon,
+		Invoices:           s.invoices,
+		TrampolineRegistry: s.trampolineRegistry(),
+		ChannelNotifier:    s.channelNotifier,
+		HtlcNotifier:       s.htlcNotifier,
+		TowerClient:        towerClient,
+		DisconnectPeer:     s.DisconnectPeer,
 		GenNodeAnnouncement: func(...netann.NodeAnnModifier) (
 			lnwire.NodeAnnouncement1, error) {
 
@@ -4791,6 +5035,15 @@ func (s *server) peerConnected(conn net.Conn, connReq *connmgr.ConnReq,
 	// vector if we held the server's mutex throughout the procedure.
 	s.wg.Add(1)
 	go s.peerInitializer(p)
+}
+
+// trampolineRegistry returns a nil interface when the relay is disabled.
+func (s *server) trampolineRegistry() htlcswitch.TrampolineRegistry {
+	if s.trampolineRelay == nil {
+		return nil
+	}
+
+	return s.trampolineRelay
 }
 
 // addPeer adds the passed peer to the server's global state of all active

@@ -39,6 +39,10 @@ type ProtocolOptions struct {
 	// the new experimental RBF coop close feature.
 	RbfCoopClose bool `long:"rbf-coop-close" description:"if set, then lnd will signal that it supports the new RBF based coop close protocol"`
 
+	// TrampolineRouting enables the experimental trampoline sender,
+	// receiver, relay, and feature advertisement.
+	TrampolineRouting bool `long:"trampoline-routing" description:"enable experimental trampoline routing support"`
+
 	// NoAnchors should be set if we don't want to support opening or accepting
 	// channels having the anchor commitment type.
 	NoAnchors bool `long:"no-anchors" description:"disable support for anchor commitments"`
@@ -137,6 +141,11 @@ type ProtocolOptions struct {
 // channels.
 func (l *ProtocolOptions) Wumbo() bool {
 	return l.WumboChans
+}
+
+// Trampoline returns true when experimental trampoline routing is enabled.
+func (l *ProtocolOptions) Trampoline() bool {
+	return l.TrampolineRouting
 }
 
 // NoAnchorCommitments returns true if we have disabled support for the anchor

@@ -62,6 +62,7 @@ import (
 	"github.com/lightningnetwork/lnd/sqldb"
 	"github.com/lightningnetwork/lnd/sweep"
 	"github.com/lightningnetwork/lnd/tor"
+	"github.com/lightningnetwork/lnd/trampolinerelay"
 	"github.com/lightningnetwork/lnd/watchtower"
 	"github.com/lightningnetwork/lnd/watchtower/wtclient"
 )
@@ -217,6 +218,10 @@ func SetupLoggers(root *build.SubLoggerManager, interceptor signal.Interceptor) 
 	AddSubLogger(root, chainio.Subsystem, interceptor, chainio.UseLogger)
 	AddSubLogger(root, msgmux.Subsystem, interceptor, msgmux.UseLogger)
 	AddSubLogger(root, sqldb.Subsystem, interceptor, sqldb.UseLogger)
+	AddSubLogger(
+		root, trampolinerelay.Subsystem, interceptor,
+		trampolinerelay.UseLogger,
+	)
 	AddSubLogger(
 		root, paymentsdb.Subsystem, interceptor, paymentsdb.UseLogger,
 	)

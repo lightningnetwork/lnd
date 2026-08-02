@@ -3,6 +3,7 @@ package routerrpc
 import (
 	"bytes"
 	"context"
+	"encoding/hex"
 	"testing"
 	"time"
 
@@ -10,16 +11,55 @@ import (
 	"github.com/btcsuite/btcd/btcec/v2/ecdsa"
 	"github.com/btcsuite/btcd/chaincfg/v2"
 	"github.com/btcsuite/btcd/chainhash/v2"
+	sphinx "github.com/lightningnetwork/lightning-onion"
 	"github.com/lightningnetwork/lnd/lnrpc"
 	"github.com/lightningnetwork/lnd/lnwire"
 	paymentsdb "github.com/lightningnetwork/lnd/payments/db"
 	"github.com/lightningnetwork/lnd/queue"
 	"github.com/lightningnetwork/lnd/routing"
 	"github.com/lightningnetwork/lnd/routing/route"
+	"github.com/lightningnetwork/lnd/routing/trampoline"
 	"github.com/lightningnetwork/lnd/zpay32"
 	"github.com/stretchr/testify/require"
 	"google.golang.org/grpc"
 )
+
+// TestSendToRouteRejectsDisabledTrampoline verifies that a predefined route
+// cannot bypass the experimental trampoline protocol gate.
+func TestSendToRouteRejectsDisabledTrampoline(t *testing.T) {
+	t.Parallel()
+
+	sourcePriv, _ := btcec.PrivKeyFromBytes(bytes.Repeat([]byte{0x21}, 32))
+	destPriv, _ := btcec.PrivKeyFromBytes(bytes.Repeat([]byte{0x22}, 32))
+	sessionPriv, _ := btcec.PrivKeyFromBytes(bytes.Repeat([]byte{0x23}, 32))
+	onion, err := trampoline.EncodeOnionPacket(&sphinx.OnionPacket{
+		EphemeralKey: sessionPriv.PubKey(),
+		RoutingInfo:  bytes.Repeat([]byte{0x17}, 97),
+	})
+	require.NoError(t, err)
+
+	server := &Server{cfg: &Config{
+		RouterBackend: &RouterBackend{
+			SelfNode: route.NewVertex(sourcePriv.PubKey()),
+		},
+	}}
+	_, err = server.SendToRouteV2(t.Context(), &SendToRouteRequest{
+		PaymentHash: make([]byte, 32),
+		Route: &lnrpc.Route{
+			TotalAmtMsat:  1_000,
+			TotalTimeLock: 120,
+			Hops: []*lnrpc.Hop{{
+				PubKey: hex.EncodeToString(
+					destPriv.PubKey().SerializeCompressed(),
+				),
+				AmtToForwardMsat: 1_000,
+				Expiry:           110,
+				TrampolineOnion:  onion,
+			}},
+		},
+	})
+	require.ErrorContains(t, err, "trampoline routing is disabled")
+}
 
 type streamMock struct {
 	grpc.ServerStream

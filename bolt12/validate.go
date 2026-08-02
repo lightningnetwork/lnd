@@ -18,11 +18,13 @@ import (
 )
 
 // Bolt12Features defines the set of BOLT 12 feature bits understood and
-// supported by our implementation: multi-path payments (MPP), both the
-// compulsory and optional variants.
+// supported by our implementation: multi-path payments (MPP) and trampoline
+// routing, both the compulsory and optional variants.
 var Bolt12Features = map[lnwire.FeatureBit]string{
-	lnwire.MPPRequired: "mpp",
-	lnwire.MPPOptional: "mpp",
+	lnwire.MPPRequired:               "mpp",
+	lnwire.MPPOptional:               "mpp",
+	lnwire.TrampolineRoutingRequired: "trampoline_routing",
+	lnwire.TrampolineRoutingOptional: "trampoline_routing",
 }
 
 var (

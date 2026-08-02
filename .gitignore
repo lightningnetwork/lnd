@@ -89,3 +89,6 @@ coverage.txt
 
 # All test data generated from rapid.
 */testdata
+
+# P model-checker output generated when p check runs from the repository root.
+/PCheckerOutput/

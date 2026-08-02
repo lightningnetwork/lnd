@@ -1,0 +1,65 @@
+{
+  "version": 1,
+  "id": "cancel",
+  "config": {
+    "max_parts": 4,
+    "max_attempts": 3,
+    "hold_blocks": 40,
+    "recovery_blocks": 6,
+    "expiry_safety_blocks": 1,
+    "max_reorg_depth": 6
+  },
+  "relay": {
+    "expected_total_msat": 100,
+    "downstream_msat": 90,
+    "required_cltv": 600,
+    "start_height": 500
+  },
+  "invariants": [
+    "NoForwardAfterTerminal",
+    "TerminalResolvesAcceptedParts"
+  ],
+  "events": [
+    {
+      "seq": 0,
+      "event": "add_part",
+      "payload": {
+        "channel_id": 8,
+        "htlc_id": 12,
+        "amount_msat": 100,
+        "cltv": 700
+      },
+      "expected": {
+        "state": "ready",
+        "actions": [
+          {
+            "kind": "payment_ready",
+            "amount_msat": 100
+          }
+        ]
+      }
+    },
+    {
+      "seq": 1,
+      "event": "cancel",
+      "expected": {
+        "state": "canceled",
+        "actions": [
+          {
+            "kind": "fail_part",
+            "channel_id": 8,
+            "htlc_id": 12,
+            "amount_msat": 100
+          }
+        ]
+      }
+    },
+    {
+      "seq": 2,
+      "event": "cancel",
+      "expected": {
+        "state": "canceled"
+      }
+    }
+  ]
+}

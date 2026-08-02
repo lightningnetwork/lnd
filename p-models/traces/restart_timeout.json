@@ -1,0 +1,128 @@
+{
+  "version": 1,
+  "id": "restart-timeout",
+  "config": {
+    "max_parts": 4,
+    "max_attempts": 3,
+    "hold_blocks": 40,
+    "recovery_blocks": 6,
+    "expiry_safety_blocks": 1,
+    "max_reorg_depth": 6
+  },
+  "relay": {
+    "expected_total_msat": 100,
+    "downstream_msat": 90,
+    "required_cltv": 600,
+    "start_height": 500
+  },
+  "invariants": [
+    "NoDuplicatePartResolution",
+    "BoundedHoldsAndRetries",
+    "TerminalResolvesAcceptedParts"
+  ],
+  "events": [
+    {
+      "seq": 0,
+      "event": "add_part",
+      "payload": {
+        "channel_id": 3,
+        "htlc_id": 7,
+        "amount_msat": 100,
+        "cltv": 700
+      },
+      "expected": {
+        "state": "ready",
+        "actions": [
+          {
+            "kind": "payment_ready",
+            "amount_msat": 100
+          }
+        ]
+      }
+    },
+    {
+      "seq": 1,
+      "event": "begin_attempt",
+      "expected": {
+        "state": "paying",
+        "attempts": 1,
+        "active_attempt": 1,
+        "actions": [
+          {
+            "kind": "start_downstream",
+            "attempt_id": 1,
+            "amount_msat": 90
+          }
+        ]
+      }
+    },
+    {
+      "seq": 2,
+      "event": "restart",
+      "expected": {
+        "state": "recovering",
+        "attempts": 1,
+        "active_attempt": 1,
+        "actions": [
+          {
+            "kind": "query_downstream",
+            "attempt_id": 1,
+            "amount_msat": 90
+          }
+        ]
+      }
+    },
+    {
+      "seq": 3,
+      "event": "reconcile_pending",
+      "payload": {
+        "attempt_id": 1
+      },
+      "expected": {
+        "state": "recovering",
+        "attempts": 1,
+        "active_attempt": 1
+      }
+    },
+    {
+      "seq": 4,
+      "event": "observe_height",
+      "payload": {
+        "height": 506
+      },
+      "expected": {
+        "state": "canceling",
+        "attempts": 1,
+        "active_attempt": 1,
+        "actions": [
+          {
+            "kind": "cancel_downstream",
+            "attempt_id": 1,
+            "amount_msat": 90
+          }
+        ]
+      }
+    },
+    {
+      "seq": 5,
+      "event": "reconcile_failure",
+      "payload": {
+        "attempt_id": 1,
+        "retryable": true
+      },
+      "expected": {
+        "state": "timed_out",
+        "attempts": 1,
+        "active_attempt": 0,
+        "actions": [
+          {
+            "kind": "fail_part",
+            "channel_id": 3,
+            "htlc_id": 7,
+            "amount_msat": 100
+          }
+        ]
+      }
+    }
+  ]
+}

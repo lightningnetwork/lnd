@@ -1,0 +1,10 @@
+<Project>
+  <ProjectName>TrampolineModels</ProjectName>
+  <InputFiles>
+    <PFile>src/types.p</PFile>
+    <PFile>src/trampoline.p</PFile>
+    <PFile>src/monitors.p</PFile>
+    <PFile>test/trampoline_test.p</PFile>
+  </InputFiles>
+  <OutputDir>PGenerated</OutputDir>
+</Project>

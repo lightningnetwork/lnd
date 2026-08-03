@@ -10,26 +10,167 @@ on:
         required: true
         type: string
 
+# Default to read-only. The find-duplicates job reads untrusted issue text with
+# the model, so it must not hold a write token; post-comment takes issues: write
+# but runs no model and only shells out to scripts/comment-on-duplicates.sh,
+# which re-validates every issue number it is handed.
+permissions:
+  contents: read
+
+# Serialize runs for the same issue so an `issues: opened` event and a
+# workflow_dispatch for the same number can't both read "no prior comment" and
+# double-post. Mirrors pr-severity.yml.
+concurrency:
+  group: claude-dedupe-${{ github.event.issue.number || inputs.issue_number }}
+  cancel-in-progress: true
+
 jobs:
-  claude-dedupe-issues:
+  find-duplicates:
     runs-on: ubuntu-latest
     timeout-minutes: 10
+    # Read-only: the model inspects the issue and searches for duplicates, then
+    # records the candidate issue numbers to a file.
     permissions:
       contents: read
-      issues: write
-      id-token: write
+      issues: read
 
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
+        with:
+          persist-credentials: false
 
-      - name: Run Claude Code slash command
-        uses: anthropics/claude-code-action@v1
+      - name: Find duplicate issues with Claude
+        # Pinned to a full commit SHA rather than the mutable @v1 tag: this step
+        # feeds untrusted issue text to the model with CLAUDE_CODE_OAUTH_TOKEN in
+        # process, so a repointed tag would run attacker-controlled action code
+        # with that secret present. Bump deliberately when updating.
+        uses: anthropics/claude-code-action@ba0aafd4308cbba7165f9f2cdb0cfbed5a3c99ce # v1
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         with:
           github_token: ${{ secrets.GITHUB_TOKEN }}
+          claude_code_oauth_token: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
+
+          # Accept any issue author: this job holds only read scope and merely
+          # records candidate issue numbers to a file; the comment is posted by
+          # a separate, model-free job. "*" is safe ONLY while this job stays
+          # read-only. Before granting this job a write token or a mutating tool
+          # (a write-capable gh subcommand, a Bash mutation), replace "*" with
+          # an explicit allowlist — otherwise any fork author's issue text would
+          # steer a privileged model.
           allowed_non_write_users: "*"
           model: claude-haiku-4-5-20251001
-          prompt: "/dedupe ${{ github.repository }}/issues/${{ github.event.issue.number || inputs.issue_number }}"
-          claude_code_oauth_token: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
+
+          # Read-only gh tools plus Write to record the result. No comment or
+          # edit tools, and no access to the duplicate-comment script.
+          claude_args: >-
+            --allowedTools
+            "Bash(gh issue view:*)"
+            "Bash(gh search:*)"
+            "Bash(gh issue list:*)"
+            "Write"
+
+          prompt: |
+            Find up to 3 likely duplicate issues for issue
+            #${{ github.event.issue.number || inputs.issue_number }} in the
+            ${{ github.repository }} repository. Follow these steps precisely:
+
+            1. View the issue and check whether it (a) is closed, (b) does not
+               need deduping (e.g. broad product feedback without a specific
+               solution, or positive feedback), or (c) already has a duplicates
+               comment. If any of these hold, write an empty `duplicates.txt`
+               (create the file with no content) and stop.
+
+            2. Summarize the issue.
+
+            3. Search GitHub for duplicates of this issue using several diverse
+               keyword searches and search approaches, based on the summary.
+
+            4. Filter out false positives that are likely not actually
+               duplicates of the original issue. If no plausible duplicates
+               remain, write an empty `duplicates.txt` and stop.
+
+            5. Otherwise, write the chosen duplicate issue numbers to a file
+               named `duplicates.txt` in the current working directory: digits
+               only, one issue number per line, at most 3 lines. Do not include
+               `#`, URLs, or any other text.
+
+            Notes:
+            - Use `gh` to interact with GitHub, not web fetch.
+            - Do NOT use any tools beyond `gh issue view`, `gh search`,
+              `gh issue list`, and `Write`. You do NOT post comments; a separate
+              step does that from the file you write.
+            - Make a todo list first.
+
+      - name: Upload duplicate candidates
+        uses: actions/upload-artifact@v4
+        with:
+          name: dedupe-result
+          path: duplicates.txt
+          if-no-files-found: warn
+          retention-days: 1
+
+  post-comment:
+    runs-on: ubuntu-latest
+    needs: find-duplicates
+    timeout-minutes: 5
+    # Write scope lives here, in a job that runs no model. The base issue number
+    # comes from the trusted event payload, and comment-on-duplicates.sh
+    # re-validates every candidate issue number before posting.
+    permissions:
+      contents: read
+      issues: write
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+
+      - name: Download duplicate candidates
+        uses: actions/download-artifact@v4
+        # find-duplicates uploads with if-no-files-found: warn, so when the
+        # model writes no file at all (timeout, refusal) no artifact exists and
+        # download-artifact would otherwise hard-fail the job. Tolerate a
+        # missing artifact so the no-op guard in the next step is reachable.
+        continue-on-error: true
+        with:
+          name: dedupe-result
+          path: result
+
+      - name: Post duplicate comment
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GITHUB_REPOSITORY: ${{ github.repository }}
+          BASE_ISSUE: ${{ github.event.issue.number || inputs.issue_number }}
+        run: |
+          set -euo pipefail
+
+          # Distinguish a genuine "no duplicates" verdict from a find-duplicates
+          # run that produced no artifact at all (model crash/timeout, or a
+          # tolerated missing-artifact download). The latter gets a warning so a
+          # broken run doesn't read as a healthy no-op, mirroring the pr-severity
+          # apply step; the present-but-empty case stays a silent no-op.
+          if [[ ! -f result/duplicates.txt ]]; then
+            echo "::warning::dedupe find-duplicates produced no result; nothing posted."
+            exit 0
+          fi
+          if [[ ! -s result/duplicates.txt ]]; then
+            echo "No duplicate candidates; nothing to post."
+            exit 0
+          fi
+
+          # Extract up to 3 purely-numeric issue ids. comment-on-duplicates.sh
+          # re-validates these and the base issue (numeric, existing, at most 3)
+          # before posting.
+          mapfile -t DUPS < <(grep -oE '^[0-9]+$' result/duplicates.txt | head -n 3)
+
+          if [[ ${#DUPS[@]} -eq 0 ]]; then
+            echo "No valid numeric duplicate ids; nothing to post."
+            exit 0
+          fi
+
+          ./scripts/comment-on-duplicates.sh \
+            --base-issue "$BASE_ISSUE" \
+            --potential-duplicates "${DUPS[@]}"

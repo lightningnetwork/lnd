@@ -1,16 +1,19 @@
 name: PR Severity Classification
 
 on:
-  # Use pull_request_target to allow running on fork PRs with access to secrets.
-  # This is safe because we don't checkout or execute any code from the PR -
-  # we only read PR metadata (changed files, labels) via the GitHub API.
+  # Use pull_request_target so the workflow runs on fork PRs with the base
+  # repository's workflow definition. The classify job below reads PR metadata
+  # with a read-only token and never checks out or executes PR code; the write
+  # scope needed to apply the label lives in a separate, model-free job.
   pull_request_target:
     types: [opened, synchronize, labeled]
 
+# Default the whole workflow to read-only. Each job opts into exactly the scope
+# it needs: classify stays read-only (untrusted PR metadata reaches the model,
+# so it must not hold a write token), apply takes pull-requests: write but runs
+# no model.
 permissions:
   contents: read
-  pull-requests: write
-  issues: write
 
 concurrency:
   group: pr-severity-${{ github.event.pull_request.number }}
@@ -20,6 +23,14 @@ jobs:
   classify:
     name: Classify PR Severity
     runs-on: ubuntu-latest
+    # Cap the model run: it fires on every pull_request_target synchronize with
+    # attacker-controllable input, so bound its runner-minute/token cost rather
+    # than inheriting GitHub's 6h default. Mirrors the dedupe workflow.
+    timeout-minutes: 10
+    # Read-only: the classifier only inspects PR metadata via the GitHub API.
+    permissions:
+      contents: read
+      pull-requests: read
     # Skip if PR has skip-severity-check label.
     # For labeled events, only run if 'reclassify' label was added.
     if: |
@@ -30,43 +41,78 @@ jobs:
         uses: actions/checkout@v4
         with:
           fetch-depth: 1
+          # Don't leave the job token in .git/config: nothing here needs a
+          # persisted git credential, and the classifier runs on untrusted
+          # fork-PR input.
+          persist-credentials: false
 
       - name: Classify PR with Claude
-        uses: anthropics/claude-code-action@v1
+        # Pinned to a full commit SHA rather than the mutable @v1 tag: this step
+        # runs on pull_request_target with CLAUDE_CODE_OAUTH_TOKEN and
+        # GITHUB_TOKEN in-process and is reachable by any fork author, so a
+        # repointed tag would run attacker-controlled action code with those
+        # secrets present. Bump deliberately when updating.
+        uses: anthropics/claude-code-action@ba0aafd4308cbba7165f9f2cdb0cfbed5a3c99ce # v1
+        env:
+          # gh (invoked by the Bash(gh pr view) tool) authenticates from
+          # GH_TOKEN; set it explicitly so classification doesn't depend on the
+          # action propagating its github_token input into the tool environment,
+          # matching the dedupe find-duplicates step.
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         with:
           claude_code_oauth_token: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
           github_token: ${{ secrets.GITHUB_TOKEN }}
 
-          # Allow any user since this workflow only reads PR metadata via API
-          # and doesn't execute any code from the PR. Tool permissions are
-          # restricted to gh pr commands only.
+          # Accept any PR author: this job holds only a read-only token, reads
+          # PR metadata via the API, and writes its verdict to a file. The
+          # privileged label/comment step runs separately without the model.
+          # "*" is safe ONLY while this job stays read-only. Before granting it
+          # a write token or a mutating tool (a write-capable gh subcommand, a
+          # Bash mutation), replace "*" with an explicit allowlist — otherwise
+          # any fork author's PR text would steer a privileged model.
           allowed_non_write_users: "*"
 
-          # Allow Claude to manage labels and post comments.
-          # Keep permissions minimal to limit prompt injection risk.
-          claude_args: --allowedTools "Bash(gh pr view:*)" "Bash(gh pr edit:*)" "Bash(gh pr comment:*)"
+          # Pin the model so the severity decision (which gates the label the
+          # apply job applies) is reproducible from the workflow file and does
+          # not drift on an action-default change.
+          model: claude-sonnet-5
+
+          # The classifier only needs to read PR data and record its verdict to
+          # the workspace. It has no write-capable gh tools.
+          #
+          # Security note: because this runs on pull_request_target, the OAuth
+          # token above is present in-process while the model reads untrusted
+          # fork-PR text. The read-only github_token bounds what the model can
+          # WRITE via the API, but the in-process token's protection rests on
+          # this allowlist staying minimal — read-only `gh pr view` plus
+          # `Write`, with no network- or shell-mutating tool a prompt injection
+          # could use to exfiltrate it. Keep it that way: do not add `Bash`
+          # verbs beyond `gh pr view`, and never add a tool that can make
+          # outbound requests. (A stricter design would drop Bash entirely and
+          # pre-fetch PR metadata via the API in a separate step.)
+          claude_args: --allowedTools "Bash(gh pr view:*)" "Write"
 
           prompt: |
             You are a PR severity classifier for the lnd (Lightning Network Daemon) repository.
 
             ## Tool Constraints
 
-            You ONLY have access to these commands:
+            You ONLY have access to:
             - `gh pr view` - to read PR metadata
-            - `gh pr edit` - to add/remove labels
-            - `gh pr comment` - to post comments
+            - `Write` - to record your verdict to files
 
-            You do NOT have access to `gh api`, `gh label`, or any other
-            `gh` subcommand. Do not attempt to use them. For ALL label
-            operations, use `gh pr edit` with `--add-label` or
-            `--remove-label`.
+            You do NOT have access to `gh api`, `gh label`, `gh pr edit`,
+            `gh pr comment`, or any other command. Do not attempt to use them.
+            You do NOT apply labels or post comments yourself. A separate,
+            deterministic step reads the files you write and applies the label
+            and comment. Your job is only to classify and record the result.
 
             ## Your Task
 
             Analyze PR #${{ github.event.pull_request.number }} and:
             1. Determine its severity level based on the files changed
-            2. Apply the appropriate severity label
-            3. Post a detailed comment explaining your determination
+            2. Record the severity, whether a comment should be posted, and the
+               comment body, to files (see "Output" below).
 
             ## Severity Levels
 
@@ -130,51 +176,49 @@ jobs:
 
             ## Steps
 
-            1. First, check for existing override labels AND existing severity labels:
+            1. Read the current labels AND comments to detect overrides and prior
+               bot activity:
                ```
-               gh pr view ${{ github.event.pull_request.number }} --json labels --jq '.labels[].name'
+               gh pr view ${{ github.event.pull_request.number }} --json labels,comments
                ```
-               Note which `severity-*` label (if any) is currently applied. This is
-               the "previous severity".
+               Note which `severity-*` label (if any) is currently applied. This
+               is the "previous severity". Look for the HTML marker
+               `<!-- pr-severity-bot -->` in comment bodies to tell whether the
+               bot has commented before.
 
-            2. If an override label exists (severity-override-*), use that level and skip classification.
+            2. If an override label exists (severity-override-*), use that level
+               and skip classification.
 
-            3. Check for existing bot comments. Look for the HTML marker `<!-- pr-severity-bot -->`:
-               ```
-               gh pr view ${{ github.event.pull_request.number }} --json comments --jq '.comments[].body' | grep -c 'pr-severity-bot' || true
-               ```
-               This tells you whether the bot has commented before.
-
-            4. Get the list of changed files:
+            3. Get the list of changed files:
                ```
                gh pr view ${{ github.event.pull_request.number }} --json files,additions,deletions
                ```
 
-            5. Classify each file and determine the new overall severity.
+            4. Classify each file and determine the new overall severity.
 
-            6. **Decide whether to comment.** Only post a comment if EITHER:
-               - The bot has NOT commented before (no existing comment with `<!-- pr-severity-bot -->`), OR
-               - The newly determined severity is DIFFERENT from the previous severity label.
+            5. **Decide whether a comment should be posted.** Set should_comment
+               to "true" only if EITHER:
+               - The bot has NOT commented before (no existing comment with
+                 `<!-- pr-severity-bot -->`), OR
+               - The newly determined severity is DIFFERENT from the previous
+                 severity label.
 
-               If the bot already commented AND the severity has NOT changed, just
-               stop here — do NOT post another comment. Still update the label if
-               needed (step 7-8), but skip the comment.
+               Otherwise set should_comment to "false" (the label may still be
+               updated by the apply step, but no new comment is posted).
 
-            7. Remove any existing severity-* labels (not override labels):
-               ```
-               gh pr edit ${{ github.event.pull_request.number }} --remove-label "severity-critical" 2>/dev/null || true
-               gh pr edit ${{ github.event.pull_request.number }} --remove-label "severity-high" 2>/dev/null || true
-               gh pr edit ${{ github.event.pull_request.number }} --remove-label "severity-medium" 2>/dev/null || true
-               gh pr edit ${{ github.event.pull_request.number }} --remove-label "severity-low" 2>/dev/null || true
-               ```
+            ## Output
 
-            8. Apply the new severity label:
-               ```
-               gh pr edit ${{ github.event.pull_request.number }} --add-label "severity-<level>"
-               ```
+            Record your verdict by writing these files in the current working
+            directory (the repository root). Do NOT apply labels or comment
+            yourself.
 
-            9. If you determined in step 6 that a comment should be posted, post it
-               with your analysis. Use this format:
+            1. `severity.txt` - exactly one lowercase word, one of:
+               `critical`, `high`, `medium`, `low`. Nothing else.
+
+            2. `should_comment.txt` - exactly `true` or `false`.
+
+            3. `comment.md` - only if should_comment is `true`. The full comment
+               markdown, in this format:
 
                If this is a severity CHANGE (previous label existed but differs),
                prepend: `> ⚠️ Severity changed: **<OLD>** → **<NEW>** (files changed since last classification)`
@@ -203,16 +247,67 @@ jobs:
                <!-- pr-severity-bot -->
                ```
 
-            10. Post the comment using `gh pr comment`:
-               ```
-               gh pr comment ${{ github.event.pull_request.number }} --body "YOUR_COMMENT_HERE"
-               ```
+               If should_comment is `false`, do not create `comment.md`.
 
-            11. If you decided in step 6 to SKIP commenting, do NOT post any comment.
-                Just ensure the label is correct and exit.
+               Keep the comment concise and factual: it is posted verbatim under
+               the bot's identity, and the apply step defangs any `@`-mentions
+               and links, so do not rely on them.
 
             ## Emoji Mapping
             - critical: 🔴
             - high: 🟠
             - medium: 🟡
             - low: 🟢
+
+      - name: Upload classification result
+        uses: actions/upload-artifact@v4
+        with:
+          name: pr-severity-result
+          path: |
+            severity.txt
+            should_comment.txt
+            comment.md
+          if-no-files-found: warn
+          retention-days: 1
+
+  apply:
+    name: Apply Severity Label
+    runs-on: ubuntu-latest
+    needs: classify
+    timeout-minutes: 5
+    # Write scope lives here, in a job that runs no model. The only inputs are
+    # the PR number from the trusted event payload and the classifier's files,
+    # which are strictly validated before use.
+    permissions:
+      contents: read
+      pull-requests: write
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          # Needed for scripts/apply-pr-severity.sh; no persisted git credential
+          # is required here.
+          persist-credentials: false
+
+      - name: Download classification result
+        uses: actions/download-artifact@v4
+        # classify uploads with if-no-files-found: warn, so if the model writes
+        # no verdict at all (timeout, refusal) no artifact exists and
+        # download-artifact would otherwise hard-fail the job. Tolerate a
+        # missing artifact so the no-op guard in the next step is reachable.
+        continue-on-error: true
+        with:
+          name: pr-severity-result
+          path: result
+
+      - name: Apply label and comment
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          PR_NUMBER: ${{ github.event.pull_request.number }}
+          REPO: ${{ github.repository }}
+        # Validate the severity, reconcile the label, and sanitize + post the
+        # model-authored comment. The logic lives in a checked-in script so the
+        # untrusted-comment sanitizer is unit-tested
+        # (scripts/apply-pr-severity_test.sh), mirroring how the dedupe workflow
+        # delegates to scripts/comment-on-duplicates.sh.
+        run: ./scripts/apply-pr-severity.sh result

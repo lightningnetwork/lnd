@@ -1572,7 +1572,7 @@
         "outgoing_requested_chan_id": {
           "type": "string",
           "format": "uint64",
-          "description": "The requested outgoing channel id for this forwarded htlc. Because of\nnon-strict forwarding, this isn't necessarily the channel over which the\npacket will be forwarded eventually. A different channel to the same peer\nmay be selected as well."
+          "description": "The requested outgoing channel id for this forwarded htlc. Because of\nnon-strict forwarding, this isn't necessarily the channel over which the\npacket will be forwarded eventually. A different channel to the same peer\nmay be selected as well. This is set to a sentinel value (all bits set)\nif the outgoing_requested_node_id is specified for blinded routes."
         },
         "outgoing_amount_msat": {
           "type": "string",
@@ -1609,6 +1609,11 @@
             "format": "byte"
           },
           "description": "The custom records of the peer's incoming p2p wire message."
+        },
+        "outgoing_requested_node_id": {
+          "type": "string",
+          "format": "byte",
+          "description": "The requested outgoing node for a blinded forward. When non-empty, this\nfield contains exactly one 33-byte compressed public key and\noutgoing_requested_chan_id is set to 18446744073709551615\n(0xffffffffffffffff). Clients MUST NOT interpret that value as an actual\nchannel ID; the presence of this field identifies a node-addressed\nforward.\n\nThe possible next-hop representations are:\n  node ID empty, channel ID 0: final receive;\n  node ID empty, ordinary channel ID: channel-addressed forward;\n  node ID present, channel ID MaxUint64: node-addressed forward."
         }
       }
     },

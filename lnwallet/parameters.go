@@ -41,8 +41,10 @@ func DefaultRoutingFeeLimitForAmount(a lnwire.MilliSatoshi) lnwire.MilliSatoshi 
 
 // DustLimitForSize retrieves the dust limit for a given pkscript size. Given
 // the size, it automatically determines whether the script is a witness script
-// or not. It calls btcd's GetDustThreshold method under the hood. It must be
-// called with a proper size parameter or else a panic occurs.
+// or not. It calls btcd's GetDustThreshold method under the hood. Any size that
+// doesn't map to one of the well-known templates is treated as a generic
+// witness output, so the helper stays well-defined for arbitrary (including
+// future witness-version) script lengths.
 func DustLimitForSize(scriptSize int) btcutil.Amount {
 	var (
 		dustlimit btcutil.Amount
@@ -66,11 +68,11 @@ func DustLimitForSize(scriptSize int) btcutil.Amount {
 	case input.P2PKHSize:
 		pkscript, _ = input.GenerateP2PKH([]byte{})
 
-	case input.UnknownWitnessSize:
-		pkscript, _ = input.GenerateUnknownWitness()
-
+	// Any other length (the explicit UnknownWitnessSize, or an otherwise
+	// unrecognized size) is priced as a generic witness output rather than
+	// treated as a hard error.
 	default:
-		panic("invalid script size")
+		pkscript, _ = input.GenerateUnknownWitness()
 	}
 
 	// Call GetDustThreshold with a TxOut containing the generated

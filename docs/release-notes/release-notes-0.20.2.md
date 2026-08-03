@@ -42,6 +42,10 @@
 
 ## RPC Additions
 
+* The [HTLC interceptor](https://github.com/lightningnetwork/lnd/pull/10942) now
+  exposes the next hop of a blinded route that identifies it by node ID
+  (`next_node_id`) rather than by channel.
+
 ## lncli Additions
 
 # Improvements
@@ -60,6 +64,15 @@
 
 ## RPC Updates
 
+* `ForwardHtlcInterceptRequest.outgoing_requested_chan_id` now holds a reserved
+  sentinel value (`18446744073709551615`, all bits set) when the
+  [HTLC interceptor](https://github.com/lightningnetwork/lnd/pull/10942) reports
+  a blinded forward that identifies the next hop by node ID. The sender of such
+  a forward requests no channel, so a zero value here would make a client that
+  detects the exit hop by a zero channel ID classify the forward as a final
+  receive. Clients that switch on this field must handle the sentinel and read
+  `outgoing_requested_node_id` for the next hop.
+
 ## lncli Updates
 
 ## Breaking Changes
@@ -70,6 +83,13 @@
 
 # Technical and Architectural Updates
 ## BOLT Spec Updates
+
+* [Fixed an issue](https://github.com/lightningnetwork/lnd/pull/10942) where an
+  lnd node acting as a relaying node (including the introduction node) in a
+  blinded path failed to forward the payment when the next hop was identified by
+  node ID (`next_node_id`) rather than a short channel ID. The next hop's public
+  key is now resolved to one of our channels with that peer using non-strict
+  forwarding.
 
 ## Testing
 

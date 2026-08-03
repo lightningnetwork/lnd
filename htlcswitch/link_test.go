@@ -40,6 +40,7 @@ import (
 	"github.com/lightningnetwork/lnd/lnwallet/chainfee"
 	"github.com/lightningnetwork/lnd/lnwire"
 	"github.com/lightningnetwork/lnd/ticker"
+	"github.com/lightningnetwork/lnd/tlv"
 	"github.com/stretchr/testify/require"
 )
 
@@ -776,8 +777,9 @@ func testChannelLinkInboundFee(t *testing.T, //nolint:thelper
 	hops := []*hop.Payload{
 		{
 			FwdInfo: hop.ForwardingInfo{
-				NextHop: n.carolChannelLink.
-					ShortChanID(),
+				NextHop: hop.NewChannelNextHop(
+					n.carolChannelLink.ShortChanID(),
+				),
 				AmountToForward: 1_000_000,
 				OutgoingCLTV:    106,
 			},
@@ -6392,6 +6394,134 @@ func TestCheckHtlcForward(t *testing.T) {
 			t.Fatalf("expected FailFeeInsufficient failure code")
 		}
 	})
+}
+
+// recordingAuxShaper is a minimal AuxTrafficShaper that records the channel id
+// it is asked about and declines to handle the traffic, so the normal
+// forwarding path proceeds. Only the methods reached by CheckHtlcForward are
+// implemented; the rest are inherited from the embedded (nil) interface and
+// must never be called.
+type recordingAuxShaper struct {
+	AuxTrafficShaper
+
+	gotCID lnwire.ShortChannelID
+}
+
+// ShouldHandleTraffic records the short channel ID passed to the shaper.
+func (a *recordingAuxShaper) ShouldHandleTraffic(cid lnwire.ShortChannelID,
+	_, _ fn.Option[tlv.Blob]) (bool, error) {
+
+	a.gotCID = cid
+
+	return false, nil
+}
+
+// IsCustomHTLC returns false as recordingAuxShaper handles standard HTLCs.
+func (a *recordingAuxShaper) IsCustomHTLC(_ lnwire.CustomRecords) bool {
+	return false
+}
+
+// TestCheckHtlcForwardAuxShaperChannel asserts that during non-strict
+// forwarding the aux traffic shaper is keyed on the channel actually being
+// evaluated (the link's own SCID), not the sender-requested SCID, which fixes
+// both the node-ID/blinded path (where no SCID is requested) and pre-existing
+// parallel-channel forwarding. It also asserts the real SCID handed to the
+// shaper never leaks into the sender-facing channel_update, which continues to
+// reference the requested (alias) SCID.
+func TestCheckHtlcForwardAuxShaperChannel(t *testing.T) {
+	t.Parallel()
+
+	const (
+		chanScid      = 42
+		requestedScid = 99
+	)
+
+	fetchLastChannelUpdate := func(lnwire.ShortChannelID) (
+		*lnwire.ChannelUpdate1, error) {
+
+		return &lnwire.ChannelUpdate1{}, nil
+	}
+
+	// Record the SCID used to build the returned channel_update on failure.
+	var updateScid lnwire.ShortChannelID
+	failAliasUpdate := func(sid lnwire.ShortChannelID,
+		incoming bool) *lnwire.ChannelUpdate1 {
+
+		updateScid = sid
+
+		return &lnwire.ChannelUpdate1{
+			ShortChannelID: sid,
+		}
+	}
+
+	testChannel, _, err := createTestChannel(
+		t, alicePrivKey, bobPrivKey, 100000, 100000, 1000, 1000,
+		lnwire.NewShortChanIDFromInt(chanScid),
+	)
+	require.NoError(t, err)
+
+	shaper := &recordingAuxShaper{}
+	link := channelLink{
+		cfg: ChannelLinkConfig{
+			FwrdingPolicy: models.ForwardingPolicy{
+				TimeLockDelta: 20,
+				MinHTLCOut:    500,
+				MaxHTLC:       1000,
+				BaseFee:       10,
+			},
+			FetchLastChannelUpdate: fetchLastChannelUpdate,
+			MaxOutgoingCltvExpiry:  DefaultMaxOutgoingCltvExpiry,
+			HtlcNotifier:           &mockHTLCNotifier{},
+		},
+		log:     log,
+		channel: testChannel.channel,
+	}
+	link.cfg.AuxTrafficShaper = fn.Some[AuxTrafficShaper](shaper)
+	link.attachFailAliasUpdate(failAliasUpdate)
+
+	require.Equal(
+		t, lnwire.NewShortChanIDFromInt(chanScid), link.ShortChanID(),
+	)
+
+	var hash [32]byte
+	requested := lnwire.NewShortChanIDFromInt(requestedScid)
+
+	// A satisfiable forward: the shaper must be queried about the channel
+	// being evaluated (the link's own SCID), not the requested SCID.
+	result := link.CheckHtlcForward(
+		hash, 1500, 1000, 200, 150, models.InboundFee{}, 0, requested,
+		nil,
+	)
+	require.Nil(t, result, "expected policy to be satisfied")
+	require.Equal(
+		t, link.ShortChanID(), shaper.gotCID,
+		"aux shaper must be keyed on the evaluated channel",
+	)
+	require.NotEqual(
+		t, requested, shaper.gotCID,
+		"aux shaper must not be keyed on the requested SCID",
+	)
+
+	// A failing forward: the returned channel_update must reference the
+	// requested (alias) SCID, never the real channel SCID handed to the
+	// shaper.
+	result = link.CheckHtlcForward(
+		hash, 100, 50, 200, 150, models.InboundFee{}, 0, requested, nil,
+	)
+	require.NotNil(t, result)
+	require.Equal(
+		t, requested, updateScid,
+		"channel_update must reference the requested SCID, not the "+
+			"real channel SCID",
+	)
+
+	wireErr := result.WireMessage()
+	failAmt, ok := wireErr.(*lnwire.FailAmountBelowMinimum)
+	require.True(t, ok, "expected FailAmountBelowMinimum failure")
+	require.Equal(
+		t, requested, failAmt.Update.ShortChannelID,
+		"failure update must carry the requested SCID",
+	)
 }
 
 // TestChannelLinkCanceledInvoice in this test checks the interaction

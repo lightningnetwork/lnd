@@ -200,13 +200,32 @@ func validateShutdown(chanThawHeight fn.Option[uint32],
 		return ErrTaprootShutdownNonceMissing
 	}
 
-	// Next, we'll verify that the remote party is sending the expected
-	// shutdown script.
-	return fn.MapOption(func(addr lnwire.DeliveryAddress) error {
-		return validateShutdownScript(
-			addr, msg.ShutdownScript, &chainParams,
-		)
-	})(upfrontAddr).UnwrapOr(nil)
+	// Finally, verify the remote party's delivery script. We validate it in
+	// all cases (mirroring the negotiation closer), rather than only when
+	// an upfront shutdown script is on record: passing a nil upfront script
+	// still runs the well-formedness check on the peer's script, and a
+	// non-nil upfront script additionally enforces the exact match.
+	return validateRemoteDeliveryScript(
+		upfrontAddr, msg.ShutdownScript, chainParams,
+	)
+}
+
+// validateRemoteDeliveryScript checks a delivery script the remote party sent
+// us, against any upfront shutdown script we have on record for them. We end up
+// paying to this script, so it has to be present, and it has to be one of the
+// delivery forms we accept. An absent script is rejected here rather than
+// treated as nothing to check.
+func validateRemoteDeliveryScript(upfrontAddr fn.Option[lnwire.DeliveryAddress],
+	script lnwire.DeliveryAddress, chainParams chaincfg.Params) error {
+
+	if len(script) == 0 {
+		return fmt.Errorf("%w: no delivery script",
+			ErrInvalidShutdownScript)
+	}
+
+	return validateShutdownScript(
+		upfrontAddr.UnwrapOr(nil), script, &chainParams,
+	)
 }
 
 // ProcessEvent takes a protocol event, and implements a state transition for
@@ -914,7 +933,7 @@ func validateAndExtractSigAndNonce(
 // incoming event, and decide if we need to update the remote party's address,
 // or reject it if it doesn't include our latest address.
 func (c *ClosingNegotiation) updateAndValidateCloseTerms(event ProtocolEvent,
-	isTaproot bool) error {
+	env *Environment) error {
 
 	assertLocalScriptMatches := func(localScriptInMsg []byte) error {
 		if !bytes.Equal(
@@ -945,9 +964,19 @@ func (c *ClosingNegotiation) updateAndValidateCloseTerms(event ProtocolEvent,
 		oldRemoteAddr := c.RemoteDeliveryScript
 		newRemoteAddr := msg.SigMsg.CloserScript
 
-		// If they're sending a new script, then we'll update to the new
-		// one.
+		// If they're sending a new script, then we'll make sure it's
+		// well-formed (and matches any upfront script on record) before
+		// we update to the new one, just as we do for the initial
+		// shutdown script.
 		if !bytes.Equal(oldRemoteAddr, newRemoteAddr) {
+			err := validateRemoteDeliveryScript(
+				env.RemoteUpfrontShutdown, newRemoteAddr,
+				env.ChainParams,
+			)
+			if err != nil {
+				return err
+			}
+
 			c.RemoteDeliveryScript = newRemoteAddr
 		}
 
@@ -998,7 +1027,7 @@ func (c *ClosingNegotiation) ProcessEvent(event ProtocolEvent, env *Environment,
 	// At this point, we know its a new signature message. We'll validate,
 	// and maybe update the set of close terms based on what we receive. We
 	// might update the remote party's address for example.
-	err := c.updateAndValidateCloseTerms(event, env.IsTaproot())
+	err := c.updateAndValidateCloseTerms(event, env)
 	if err != nil {
 		return nil, fmt.Errorf("event violates close terms: %w", err)
 	}

@@ -44,6 +44,10 @@ const (
 	// a return value on a channel.
 	timeout = time.Second * 5
 
+	// shortTimeout is the window a test waits for when it expects nothing
+	// to show up on a channel.
+	shortTimeout = time.Millisecond * 250
+
 	// testCltvRejectDelta is the minimum delta between expiry and current
 	// height below which htlcs are rejected.
 	testCltvRejectDelta = 13
@@ -387,12 +391,30 @@ type mockUpdateHandler struct {
 	cid                  lnwire.ChannelID
 	isOutgoingAddBlocked atomic.Bool
 	isIncomingAddBlocked atomic.Bool
+
+	// flushHooks receives the hooks registered through OnFlushedOnce when
+	// the handler was built with deferFlush set. Tests that want to control
+	// when the channel looks flushed read the hook from here and call it
+	// themselves, standing in for the link's own goroutine.
+	flushHooks chan func()
 }
 
 // newMockUpdateHandler creates a new mockUpdateHandler.
 func newMockUpdateHandler(cid lnwire.ChannelID) *mockUpdateHandler {
 	return &mockUpdateHandler{
 		cid: cid,
+	}
+}
+
+// newDeferredFlushUpdateHandler creates a mock link that holds on to the hooks
+// registered through OnFlushedOnce instead of running them inline, so a test
+// can decide when the channel becomes flushed.
+func newDeferredFlushUpdateHandler(
+	cid lnwire.ChannelID) *mockUpdateHandler {
+
+	return &mockUpdateHandler{
+		cid:        cid,
+		flushHooks: make(chan func(), 1),
 	}
 }
 
@@ -464,6 +486,12 @@ func (m *mockUpdateHandler) IsFlushing(dir htlcswitch.LinkDirection) bool {
 }
 
 func (m *mockUpdateHandler) OnFlushedOnce(hook func()) {
+	if m.flushHooks != nil {
+		m.flushHooks <- hook
+
+		return
+	}
+
 	hook()
 }
 func (m *mockUpdateHandler) OnCommitOnce(

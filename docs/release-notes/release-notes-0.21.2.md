@@ -58,6 +58,16 @@
   and legacy payment paths, including keysend records and preimage-dependent
   settlement outcomes.
 
+* [Fixed a data race](https://github.com/lightningnetwork/lnd/pull/11019) in the
+  legacy cooperative close state machine, which was advanced from both the link
+  goroutine and the peer goroutine with nothing synchronizing the two. The link
+  now reports a flushed channel to the peer's channel manager instead of driving
+  the closer itself, so every step of a close runs on a single goroutine. The
+  same change has the RBF closer validate the remote party's delivery script in
+  all cases, rather than only when an upfront shutdown script was on record for
+  that peer, and rejects an absent script instead of treating it as nothing to
+  check.
+
 # New Features
 
 ## Functional Enhancements

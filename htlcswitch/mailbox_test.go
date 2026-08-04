@@ -1,11 +1,13 @@
 package htlcswitch
 
 import (
+	"errors"
 	prand "math/rand"
 	"reflect"
 	"testing"
 	"time"
 
+	"github.com/btcsuite/btcd/btcec/v2"
 	"github.com/btcsuite/btcd/btcutil/v2"
 	"github.com/davecgh/go-spew/spew"
 	"github.com/lightningnetwork/lnd/channeldb"
@@ -166,6 +168,96 @@ func TestMailBoxCouriers(t *testing.T) {
 		t.Fatalf("recvd packets mismatched: expected %v, got %v",
 			spew.Sdump(sentPackets), spew.Sdump(recvdPackets))
 	}
+}
+
+// TestMailBoxAdmissionBudgets checks message-count and serialized-size
+// admission behavior for the wire-message queue.
+func TestMailBoxAdmissionBudgets(t *testing.T) {
+	t.Parallel()
+
+	t.Run("message count", func(t *testing.T) {
+		mailbox := newMemoryMailBox(&mailBoxConfig{})
+		msg := &lnwire.UpdateFee{}
+
+		for i := 0; i < maxWireMessages; i++ {
+			require.NoError(t, mailbox.AddMessage(msg))
+		}
+
+		require.ErrorIs(
+			t, mailbox.AddMessage(msg), errWireMessageQueueFull,
+		)
+		require.Equal(t, maxWireMessages, mailbox.wireMessages.Len())
+		require.LessOrEqual(
+			t, mailbox.wireBytes, uint32(maxWireBytes),
+		)
+	})
+
+	t.Run("encoded bytes", func(t *testing.T) {
+		mailbox := newMemoryMailBox(&mailBoxConfig{})
+		msg := &lnwire.Warning{
+			Data: make([]byte, lnwire.MaxMsgBody-40),
+		}
+
+		for {
+			err := mailbox.AddMessage(msg)
+			if errors.Is(err, errWireMessageQueueFull) {
+				break
+			}
+			require.NoError(t, err)
+		}
+
+		require.Less(t, mailbox.wireMessages.Len(), maxWireMessages)
+		require.LessOrEqual(
+			t, mailbox.wireBytes, uint32(maxWireBytes),
+		)
+	})
+
+	t.Run("commitment message sizes", func(t *testing.T) {
+		_, pubKey := btcec.PrivKeyFromBytes(make([]byte, 32))
+		extraData := lnwire.ExtraOpaqueData{
+			0xfe, 0x00, 0x01, 0x00, 0x00, 0x03, 0x01, 0x02, 0x03,
+		}
+
+		messages := []lnwire.Message{
+			&lnwire.CommitSig{ExtraData: extraData},
+			&lnwire.RevokeAndAck{
+				NextRevocationKey: pubKey,
+				ExtraData:         extraData,
+			},
+			&lnwire.Stfu{ExtraData: extraData},
+		}
+		for _, msg := range messages {
+			mailbox := newMemoryMailBox(&mailBoxConfig{})
+			sizeableMsg, ok := msg.(lnwire.SizeableMessage)
+			require.True(t, ok)
+
+			expectedSize, err := sizeableMsg.SerializedSize()
+			require.NoError(t, err)
+
+			require.NoError(t, mailbox.AddMessage(msg))
+			require.Equal(t, expectedSize, mailbox.wireBytes)
+		}
+	})
+
+	t.Run("reset restores byte budget", func(t *testing.T) {
+		mailbox := newMemoryMailBox(&mailBoxConfig{})
+		mailbox.Start()
+		t.Cleanup(mailbox.Stop)
+
+		msg := &lnwire.Warning{
+			Data: make([]byte, lnwire.MaxMsgBody-40),
+		}
+		for {
+			err := mailbox.AddMessage(msg)
+			if errors.Is(err, errWireMessageQueueFull) {
+				break
+			}
+			require.NoError(t, err)
+		}
+
+		require.NoError(t, mailbox.ResetMessages())
+		require.NoError(t, mailbox.AddMessage(msg))
+	})
 }
 
 // TestMailBoxResetAfterShutdown tests that ResetMessages and ResetPackets

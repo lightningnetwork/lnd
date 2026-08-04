@@ -1614,6 +1614,10 @@
           "type": "string",
           "format": "byte",
           "description": "The requested outgoing node for a blinded forward. When non-empty, this\nfield contains exactly one 33-byte compressed public key and\noutgoing_requested_chan_id is set to 18446744073709551615\n(0xffffffffffffffff). Clients MUST NOT interpret that value as an actual\nchannel ID; the presence of this field identifies a node-addressed\nforward.\n\nThe possible next-hop representations are:\n  node ID empty, channel ID 0: final receive;\n  node ID empty, ordinary channel ID: channel-addressed forward;\n  node ID present, channel ID MaxUint64: node-addressed forward."
+        },
+        "is_on_chain": {
+          "type": "boolean",
+          "description": "Whether this forward is on-chain, requiring settle-only semantics."
         }
       }
     },

@@ -466,6 +466,21 @@ func (p InterceptedPacket) AutoFailHeight() int32 {
 	)
 }
 
+// IsOnChain returns true when the intercepted packet is on-chain, or false if
+// off-chain. This can be passed to the interceptor to let it know that we
+// expect settle-only semantics for the response.
+func (p InterceptedPacket) IsOnChain() bool {
+	return fn.ElimEither(
+		p.Deadline,
+		func(h OffChainAutoFailHeight) bool {
+			return false
+		},
+		func(d OnChainSettleDeadline) bool {
+			return true
+		},
+	)
+}
+
 // InterceptedForward is passed to the ForwardInterceptor for every forwarded
 // htlc. It contains all the information about the packet which accordingly
 // the interceptor decides if to hold or not.

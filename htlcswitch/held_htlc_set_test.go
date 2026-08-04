@@ -600,3 +600,15 @@ func TestInterceptableSwitchForwardPacketReturnsHoldError(t *testing.T) {
 	err = s.ForwardPacket(nil)
 	require.ErrorIs(t, err, errNilHeldForward)
 }
+
+// TestIsOnChain ensures that mock forwards signal their on-chain/off-chain
+// state correctly.
+func TestIsOnChain(t *testing.T) {
+	key := testCircuitKey()
+
+	offChainForward := newMockInterceptedForward(key, 100)
+	require.False(t, offChainForward.packet.IsOnChain())
+
+	onChainForward := newMockOnChainInterceptedForward(key, 100)
+	require.True(t, onChainForward.packet.IsOnChain())
+}

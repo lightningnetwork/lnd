@@ -2857,8 +2857,10 @@ type ForwardHtlcInterceptRequest struct {
 	//	node ID empty, ordinary channel ID: channel-addressed forward;
 	//	node ID present, channel ID MaxUint64: node-addressed forward.
 	OutgoingRequestedNodeId []byte `protobuf:"bytes,12,opt,name=outgoing_requested_node_id,json=outgoingRequestedNodeId,proto3" json:"outgoing_requested_node_id,omitempty"`
-	unknownFields           protoimpl.UnknownFields
-	sizeCache               protoimpl.SizeCache
+	// Whether this forward is on-chain, requiring settle-only semantics.
+	IsOnChain     bool `protobuf:"varint,13,opt,name=is_on_chain,json=isOnChain,proto3" json:"is_on_chain,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
 }
 
 func (x *ForwardHtlcInterceptRequest) Reset() {
@@ -2973,6 +2975,13 @@ func (x *ForwardHtlcInterceptRequest) GetOutgoingRequestedNodeId() []byte {
 		return x.OutgoingRequestedNodeId
 	}
 	return nil
+}
+
+func (x *ForwardHtlcInterceptRequest) GetIsOnChain() bool {
+	if x != nil {
+		return x.IsOnChain
+	}
+	return false
 }
 
 // *
@@ -3813,7 +3822,7 @@ const file_routerrpc_router_proto_rawDesc = "" +
 	"\n" +
 	"CircuitKey\x12\x17\n" +
 	"\achan_id\x18\x01 \x01(\x04R\x06chanId\x12\x17\n" +
-	"\ahtlc_id\x18\x02 \x01(\x04R\x06htlcId\"\xe4\x06\n" +
+	"\ahtlc_id\x18\x02 \x01(\x04R\x06htlcId\"\x84\a\n" +
 	"\x1bForwardHtlcInterceptRequest\x12G\n" +
 	"\x14incoming_circuit_key\x18\x01 \x01(\v2\x15.routerrpc.CircuitKeyR\x12incomingCircuitKey\x120\n" +
 	"\x14incoming_amount_msat\x18\x05 \x01(\x04R\x12incomingAmountMsat\x12'\n" +
@@ -3828,7 +3837,8 @@ const file_routerrpc_router_proto_rawDesc = "" +
 	"\x10auto_fail_height\x18\n" +
 	" \x01(\x05R\x0eautoFailHeight\x12t\n" +
 	"\x16in_wire_custom_records\x18\v \x03(\v2?.routerrpc.ForwardHtlcInterceptRequest.InWireCustomRecordsEntryR\x13inWireCustomRecords\x12;\n" +
-	"\x1aoutgoing_requested_node_id\x18\f \x01(\fR\x17outgoingRequestedNodeId\x1a@\n" +
+	"\x1aoutgoing_requested_node_id\x18\f \x01(\fR\x17outgoingRequestedNodeId\x12\x1e\n" +
+	"\vis_on_chain\x18\r \x01(\bR\tisOnChain\x1a@\n" +
 	"\x12CustomRecordsEntry\x12\x10\n" +
 	"\x03key\x18\x01 \x01(\x04R\x03key\x12\x14\n" +
 	"\x05value\x18\x02 \x01(\fR\x05value:\x028\x01\x1aF\n" +

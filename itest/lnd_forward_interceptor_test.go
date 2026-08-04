@@ -84,6 +84,7 @@ func testForwardInterceptorDedupHtlc(ht *lntest.HarnessTest) {
 	// saves all intercepted packets. These packets are held to simulate a
 	// pending payment.
 	packet := ht.ReceiveHtlcInterceptor(interceptor)
+	require.False(ht, packet.IsOnChain)
 
 	// Here we should wait for the channel to contain a pending htlc, and
 	// also be shown as being active.
@@ -232,6 +233,7 @@ func testForwardInterceptorBasic(ht *lntest.HarnessTest) {
 	// we check the payment statuses.
 	for _, tc := range testCases {
 		request := ht.ReceiveHtlcInterceptor(interceptor)
+		require.False(ht, request.IsOnChain)
 
 		// Assert sanity of informational packet data.
 		require.NotZero(ht, request.OutgoingRequestedChanId)
@@ -387,6 +389,7 @@ func testForwardInterceptorRestart(ht *lntest.HarnessTest) {
 	// all intercepted packets. These packets are held to simulate a
 	// pending payment.
 	packet := ht.ReceiveHtlcInterceptor(bobInterceptor)
+	require.False(ht, packet.IsOnChain)
 	require.Equal(ht, lntest.CustomRecordsWithUnaccountable(
 		customRecords,
 	), packet.InWireCustomRecords)
@@ -431,6 +434,7 @@ func testForwardInterceptorRestart(ht *lntest.HarnessTest) {
 
 	// We should get another notification about the held HTLC.
 	packet = ht.ReceiveHtlcInterceptor(bobInterceptor)
+	require.False(ht, packet.IsOnChain)
 
 	require.Len(ht, packet.InWireCustomRecords, 2)
 	require.Equal(ht, lntest.CustomRecordsWithUnaccountable(customRecords),
@@ -439,6 +443,7 @@ func testForwardInterceptorRestart(ht *lntest.HarnessTest) {
 	// And now we forward the payment at Carol, expecting only an
 	// accountability signal in our incoming custom records.
 	packet = ht.ReceiveHtlcInterceptor(carolInterceptor)
+	require.False(ht, packet.IsOnChain)
 	require.Len(ht, packet.InWireCustomRecords, 1)
 	err = carolInterceptor.Send(&routerrpc.ForwardHtlcInterceptResponse{
 		IncomingCircuitKey: packet.IncomingCircuitKey,
@@ -522,7 +527,8 @@ func testForwardInterceptorOnChainSettleAfterRestart(ht *lntest.HarnessTest) {
 	}
 	ht.SendPaymentAssertInflight(alice, req)
 
-	_ = ht.ReceiveHtlcInterceptor(interceptor)
+	intercepted := ht.ReceiveHtlcInterceptor(interceptor)
+	require.False(ht, intercepted.IsOnChain)
 	ht.AssertIncomingHTLCActive(bob, cpAB, invoice.RHash)
 	ht.AssertPaymentStatus(alice, payHash, lnrpc.Payment_IN_FLIGHT)
 
@@ -545,7 +551,8 @@ func testForwardInterceptorOnChainSettleAfterRestart(ht *lntest.HarnessTest) {
 
 	// After restart, the incoming contest resolver re-offers the HTLC to
 	// the interceptor through the on-chain path.
-	intercepted := ht.ReceiveHtlcInterceptor(interceptor)
+	intercepted = ht.ReceiveHtlcInterceptor(interceptor)
+	require.True(ht, intercepted.IsOnChain)
 
 	// Mine one block after the on-chain intercept has been offered. With
 	// the current bug, the held entry is evicted here because the on-chain
@@ -616,6 +623,7 @@ func testForwardInterceptorOnChainSettleNoRestart(ht *lntest.HarnessTest) {
 	ht.SendPaymentAssertInflight(alice, req)
 
 	intercepted := ht.ReceiveHtlcInterceptor(interceptor)
+	require.False(ht, intercepted.IsOnChain)
 	ht.AssertIncomingHTLCActive(bob, cpAB, invoice.RHash)
 	ht.AssertPaymentStatus(alice, payHash, lnrpc.Payment_IN_FLIGHT)
 

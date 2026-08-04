@@ -968,6 +968,9 @@ message ForwardHtlcInterceptRequest {
     //   node ID empty, ordinary channel ID: channel-addressed forward;
     //   node ID present, channel ID MaxUint64: node-addressed forward.
     bytes outgoing_requested_node_id = 12;
+
+    // Whether this forward is on-chain, requiring settle-only semantics.
+    bool is_on_chain = 13;
 }
 
 /**

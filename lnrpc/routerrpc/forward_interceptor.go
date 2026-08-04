@@ -98,6 +98,7 @@ func (r *forwardInterceptor) onIntercept(
 		OnionBlob:               htlc.OnionBlob[:],
 		AutoFailHeight:          htlc.AutoFailHeight(),
 		InWireCustomRecords:     htlc.InWireCustomRecords,
+		IsOnChain:               htlc.IsOnChain(),
 	}
 
 	// A node-ID forward has no requested outgoing channel. Expose the

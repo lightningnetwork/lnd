@@ -162,6 +162,12 @@ type ChanCloseCfg struct {
 // procedure. This includes shutting down a channel, marking it ineligible for
 // routing HTLC's, negotiating fees with the remote party, and finally
 // broadcasting the fully signed closure transaction to the network.
+//
+// NOTE: The state machine takes no locks of its own. Nearly every method reads
+// and writes the same fields, so all of them MUST be driven from a single
+// goroutine. In production that's the peer's channelManager, which is the one
+// place the close messages from the wire, the local close requests, and the
+// link's flush notification all meet.
 type ChanCloser struct {
 	// state is the current state of the state machine.
 	state closeState

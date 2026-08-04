@@ -9454,7 +9454,7 @@ func (lc *LightningChannel) UpdateFee(feePerKw chainfee.SatPerKWeight) error {
 		EntryType: FeeUpdate,
 	}
 
-	lc.updateLogs.Local.appendUpdate(pd)
+	lc.updateLogs.Local.appendFeeUpdate(pd)
 
 	return nil
 }
@@ -9527,7 +9527,7 @@ func (lc *LightningChannel) ReceiveUpdateFee(feePerKw chainfee.SatPerKWeight) er
 		EntryType: FeeUpdate,
 	}
 
-	lc.updateLogs.Remote.appendUpdate(pd)
+	lc.updateLogs.Remote.appendFeeUpdate(pd)
 
 	return nil
 }

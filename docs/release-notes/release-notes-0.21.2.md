@@ -69,6 +69,10 @@
 
 ## Functional Updates
 
+* [The HTLC forward interceptor now validates](https://github.com/lightningnetwork/lnd/pull/11028)
+  that derived auto-fail heights are within the supported range before they are
+  exposed through the interceptor API.
+
 ## RPC Updates
 
 * `ForwardHtlcInterceptRequest.outgoing_requested_chan_id` now holds a reserved

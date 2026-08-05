@@ -4,6 +4,7 @@ import (
 	"crypto/sha256"
 	"errors"
 	"fmt"
+	"math"
 	"sync"
 	"sync/atomic"
 
@@ -661,13 +662,35 @@ func (s *InterceptableSwitch) removeOnChainIntercept(key models.CircuitKey) {
 	}
 }
 
-// handleExpired checks that the htlc isn't too close to the channel
-// force-close broadcast height. If it is, it is cancelled back.
+// handleExpired checks that the htlc's expiry is within the range that can be
+// offered to the interceptor. Expiries near the channel force-close broadcast
+// height and expiries whose auto-fail height cannot be represented are failed
+// back.
 func (s *InterceptableSwitch) handleExpired(fwd *interceptedForward) (
 	bool, error) {
 
 	height := uint32(s.currentHeight)
-	if fwd.packet.incomingTimeout >= height+s.cltvInterceptDelta {
+	incomingTimeout := fwd.packet.incomingTimeout
+
+	// The interceptor auto-fail height is the incoming timeout less the
+	// reject delta and is exposed as an int32 block height. Calculate it in
+	// int64 so that we can check the representable range before conversion.
+	autoFailHeight := int64(incomingTimeout) - int64(s.cltvRejectDelta)
+	if autoFailHeight > math.MaxInt32 {
+		log.Debugf("Interception rejected because htlc expires too "+
+			"far in the future: circuit=%v, height=%v, "+
+			"incoming_timeout=%v", fwd.packet.inKey(), height,
+			incomingTimeout)
+
+		err := fwd.FailWithCode(lnwire.CodeExpiryTooFar)
+		if err != nil {
+			return false, err
+		}
+
+		return true, nil
+	}
+
+	if incomingTimeout >= height+s.cltvInterceptDelta {
 		return false, nil
 	}
 
@@ -675,7 +698,7 @@ func (s *InterceptableSwitch) handleExpired(fwd *interceptedForward) (
 		"expires too soon: circuit=%v, "+
 		"height=%v, incoming_timeout=%v",
 		fwd.packet.inKey(), height,
-		fwd.packet.incomingTimeout)
+		incomingTimeout)
 
 	err := fwd.FailWithCode(
 		lnwire.CodeExpiryTooSoon,
@@ -858,6 +881,9 @@ func (f *interceptedForward) FailWithCode(code lnwire.FailCode) error {
 		}
 
 		failureMsg = lnwire.NewExpiryTooSoon(*update)
+
+	case lnwire.CodeExpiryTooFar:
+		failureMsg = &lnwire.FailExpiryTooFar{}
 
 	default:
 		return ErrUnsupportedFailureCode

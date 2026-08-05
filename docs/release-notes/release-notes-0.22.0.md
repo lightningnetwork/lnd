@@ -140,6 +140,11 @@
 
 ## Code Health
 
+* [Update btcd to
+  v0.26.2](https://github.com/lightningnetwork/lnd/pull/11029), bringing in
+  the tagged v2 submodule releases btcutil/v2 v2.0.1, wire/v2 v2.0.1, and
+  v2transport v1.1.0.
+
 ## Tooling and Documentation
 
 * [`dev.Dockerfile` now uses](https://github.com/lightningnetwork/lnd/pull/10903)

@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"math"
 	mrand "math/rand"
 	"reflect"
 	"testing"
@@ -3894,15 +3895,19 @@ func assertOutgoingLinkReceive(t *testing.T, targetLink *mockChannelLink,
 }
 
 func assertOutgoingLinkReceiveIntercepted(t *testing.T,
-	targetLink *mockChannelLink) {
+	targetLink *mockChannelLink) *htlcPacket {
 
 	t.Helper()
 
 	select {
-	case <-targetLink.packets:
+	case packet := <-targetLink.packets:
+		return packet
+
 	case <-time.After(time.Second):
 		t.Fatal("request was not propagated to destination")
 	}
+
+	return nil
 }
 
 type interceptableSwitchTestContext struct {
@@ -4367,6 +4372,70 @@ func TestInterceptableSwitchWatchDog(t *testing.T) {
 		Key:      intercepted.IncomingCircuit,
 		Preimage: c.preimage,
 	}))
+}
+
+// TestInterceptableSwitchExpiryTooFar asserts that an intercepted forward with
+// an incoming expiry outside the supported auto-fail height range is failed
+// back and that subsequent forwards can still be intercepted.
+func TestInterceptableSwitchExpiryTooFar(t *testing.T) {
+	t.Parallel()
+
+	c := newInterceptableSwitchTestContext(t)
+	defer c.finish()
+
+	notifier := &mock.ChainNotifier{
+		EpochChan: make(chan *chainntnfs.BlockEpoch, 1),
+	}
+	notifier.EpochChan <- &chainntnfs.BlockEpoch{Height: testStartingHeight}
+
+	switchForwardInterceptor, err := NewInterceptableSwitch(
+		&InterceptableSwitchConfig{
+			Switch:             c.s,
+			CltvRejectDelta:    c.cltvRejectDelta,
+			CltvInterceptDelta: c.cltvInterceptDelta,
+			Notifier:           notifier,
+		},
+	)
+	require.NoError(t, err)
+	require.NoError(t, switchForwardInterceptor.Start())
+
+	switchForwardInterceptor.SetInterceptor(
+		c.forwardInterceptor.InterceptForwardHtlc,
+	)
+	linkQuit := make(chan struct{})
+
+	packet := c.createTestPacket()
+	packet.incomingTimeout = math.MaxUint32
+
+	err = switchForwardInterceptor.ForwardPackets(linkQuit, false, packet)
+	require.NoError(t, err, "can't forward htlc packet")
+
+	// The forward is failed back rather than being intercepted or sent to
+	// the outgoing link.
+	assertOutgoingLinkReceive(t, c.bobChannelLink, false)
+	failPacket := assertOutgoingLinkReceiveIntercepted(
+		t, c.aliceChannelLink,
+	)
+	failHtlc, ok := failPacket.htlc.(*lnwire.UpdateFailHTLC)
+	require.True(t, ok)
+
+	fwdErr, err := newMockDeobfuscator().DecryptError(failHtlc.Reason)
+	require.NoError(t, err)
+	require.IsType(t, &lnwire.FailExpiryTooFar{}, fwdErr.WireMessage())
+	assertNumCircuits(t, c.s, 0, 0)
+
+	// A later forward with a representable auto-fail height is intercepted
+	// normally.
+	require.NoError(t, switchForwardInterceptor.ForwardPackets(
+		linkQuit, false, c.createTestPacket(),
+	))
+
+	intercepted := c.forwardInterceptor.getIntercepted()
+	require.Equal(t,
+		int32(testStartingHeight+c.cltvInterceptDelta+1-
+			c.cltvRejectDelta),
+		intercepted.AutoFailHeight(),
+	)
 }
 
 // TestSwitchDustForwarding tests that the switch properly fails HTLC's which

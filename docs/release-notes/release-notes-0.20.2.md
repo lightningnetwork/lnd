@@ -46,6 +46,11 @@
   reply state is released as soon as any reply fails validation so that a
   peer cannot pin it by deliberately forcing an error.
 
+* [Refined invoice update
+  handling](https://github.com/lightningnetwork/lnd/pull/11024) across MPP, AMP,
+  and legacy payment paths, including keysend records and preimage-dependent
+  settlement outcomes.
+
 # New Features
 
 ## Functional Enhancements

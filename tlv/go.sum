@@ -2,8 +2,8 @@ github.com/btcsuite/btcd/btcec/v2 v2.5.0 h1:KioMXOWa76b86sTZZOmbzv/ldaQCmB8KFAyn
 github.com/btcsuite/btcd/btcec/v2 v2.5.0/go.mod h1:+K/MYXcLBtHEQjRbjHuJChuybk4LCgjdjgRwil+e+Kk=
 github.com/btcsuite/btcd/chainhash/v2 v2.0.0 h1:PMLlSloHJuEeB80XG9EjpXWNEKAZAMLl6YHZ6YsEuoA=
 github.com/btcsuite/btcd/chainhash/v2 v2.0.0/go.mod h1:mKxcZ7oGTXE7IRV+sS9hP4EVBwc/SzfNR+52IsOP9j8=
-github.com/btcsuite/btcd/wire/v2 v2.0.0 h1:mYSKzZZ0a1sK+aMhXzfDSVsSzRkWkU3x2U04TFRS2z8=
-github.com/btcsuite/btcd/wire/v2 v2.0.0/go.mod h1:bGxkPkk8IiDvUo1D96wE03llBIk7p2MdWYRyAQwLmqM=
+github.com/btcsuite/btcd/wire/v2 v2.0.1 h1:edmb35tvRyQpFp331L9PwZFccaTCOQwevSsU6ra4BR4=
+github.com/btcsuite/btcd/wire/v2 v2.0.1/go.mod h1:ENBpJL0JYUNlqvajhIFTOcWGNNumjCynDk4PL0OG58I=
 github.com/creack/pty v1.1.9/go.mod h1:oKZEueFk5CKHvIhNR5MUki03XCEU+Q6VDXinZuGJ33E=
 github.com/davecgh/go-spew v1.1.1 h1:vj9j/u1bqnvCEfJOwUhtlOARqs3+rkHYY13jYWTU97c=
 github.com/davecgh/go-spew v1.1.1/go.mod h1:J7Y8YcW2NihsgmVo/mv3lAwl/skON4iLHjSsI+c5H38=

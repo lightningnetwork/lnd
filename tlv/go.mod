@@ -2,7 +2,7 @@ module github.com/lightningnetwork/lnd/tlv
 
 require (
 	github.com/btcsuite/btcd/btcec/v2 v2.5.0
-	github.com/btcsuite/btcd/wire/v2 v2.0.0
+	github.com/btcsuite/btcd/wire/v2 v2.0.1
 	github.com/davecgh/go-spew v1.1.1
 	github.com/decred/dcrd/dcrec/secp256k1/v4 v4.4.0
 	github.com/lightningnetwork/lnd/fn/v2 v2.0.2

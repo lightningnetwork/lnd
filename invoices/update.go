@@ -128,16 +128,36 @@ func resolveReplayedHtlc(ctx *invoiceUpdateCtx, inv *Invoice) (bool,
 		return true, ctx.acceptRes(resultReplayToAccepted), nil
 
 	case HtlcStateSettled:
-		pre := inv.Terms.PaymentPreimage
+		var preimage *lntypes.Preimage
+		switch {
+		// AMP invoices store a separate preimage on each HTLC.
+		case inv.IsAMP():
+			if htlc.AMP == nil || htlc.AMP.Preimage == nil {
+				return true, nil, ErrHTLCPreimageMissing
+			}
 
-		// Terms.PaymentPreimage will be nil for AMP invoices.
-		// Set it to the HTLCs AMP Preimage instead.
-		if pre == nil {
-			pre = htlc.AMP.Preimage
+			preimage = htlc.AMP.Preimage
+			if htlc.AMP.Hash != ctx.hash ||
+				!preimage.Matches(htlc.AMP.Hash) {
+
+				return true, nil, ErrHTLCPreimageMismatch
+			}
+
+		// Regular invoices store their preimage at the invoice level.
+		case inv.Terms.PaymentPreimage == nil:
+			return true, nil, errors.New(
+				"settled invoice missing payment preimage",
+			)
+
+		default:
+			preimage = inv.Terms.PaymentPreimage
+			if !preimage.Matches(ctx.hash) {
+				return true, nil, ErrInvoicePreimageMismatch
+			}
 		}
 
 		return true, ctx.settleRes(
-			*pre,
+			*preimage,
 			ResultReplayToSettled,
 		), nil
 
@@ -154,6 +174,12 @@ func resolveReplayedHtlc(ctx *invoiceUpdateCtx, inv *Invoice) (bool,
 // function.
 func updateInvoice(ctx *invoiceUpdateCtx, inv *Invoice) (
 	*InvoiceUpdateDesc, HtlcResolution, error) {
+
+	// AMP records are processed together with their corresponding MPP
+	// payload.
+	if ctx.amp != nil && ctx.mpp == nil {
+		return nil, ctx.failRes(ResultAmpError), nil
+	}
 
 	// If no MPP payload was provided, then we expect this to be a keysend,
 	// or a payment to an invoice created before we started to require the
@@ -414,6 +440,12 @@ func reconstructAMPPreimages(ctx *invoiceUpdateCtx,
 func updateLegacy(ctx *invoiceUpdateCtx,
 	inv *Invoice) (*InvoiceUpdateDesc, HtlcResolution, error) {
 
+	// AMP invoices use the MPP update path, where each HTLC's AMP data is
+	// available for processing.
+	if inv.IsAMP() {
+		return nil, ctx.failRes(ResultHtlcInvoiceTypeMismatch), nil
+	}
+
 	// If the invoice is already canceled, there is no further
 	// checking to do.
 	if inv.State == ContractCanceled {
@@ -432,12 +464,11 @@ func updateLegacy(ctx *invoiceUpdateCtx,
 	// if we're in this method it means that the remote party didn't supply
 	// the expected payload. However if this is a keysend payment, then
 	// we'll permit it to pass.
-	_, isKeySend := ctx.customRecords[record.KeySendType]
 	invoiceFeatures := inv.Terms.Features
 	paymentAddrRequired := invoiceFeatures.RequiresFeature(
 		lnwire.PaymentAddrRequired,
 	)
-	if !isKeySend && paymentAddrRequired {
+	if !isValidKeySend(ctx) && paymentAddrRequired {
 		log.Warnf("Payment to pay_hash=%v doesn't include MPP "+
 			"payload, rejecting", ctx.hash)
 		return nil, ctx.failRes(ResultAddressMismatch), nil
@@ -489,8 +520,15 @@ func updateLegacy(ctx *invoiceUpdateCtx,
 		return &update, ctx.acceptRes(resultDuplicateToAccepted), nil
 
 	case ContractSettled:
+		// Legacy settlement uses the invoice-level payment preimage.
+		preimage := inv.Terms.PaymentPreimage
+		if preimage == nil {
+			return nil, ctx.failRes(ResultHtlcInvoiceTypeMismatch),
+				nil
+		}
+
 		return &update, ctx.settleRes(
-			*inv.Terms.PaymentPreimage, ResultDuplicateToSettled,
+			*preimage, ResultDuplicateToSettled,
 		), nil
 	}
 
@@ -504,12 +542,35 @@ func updateLegacy(ctx *invoiceUpdateCtx,
 		return &update, ctx.acceptRes(resultAccepted), nil
 	}
 
+	// A legacy invoice provides its settlement preimage at the invoice
+	// level.
+	preimage := inv.Terms.PaymentPreimage
+	if preimage == nil {
+		return nil, ctx.failRes(ResultHtlcInvoiceTypeMismatch), nil
+	}
+
 	update.State = &InvoiceStateUpdateDesc{
 		NewState: ContractSettled,
-		Preimage: inv.Terms.PaymentPreimage,
+		Preimage: preimage,
 	}
 
 	return &update, ctx.settleRes(
-		*inv.Terms.PaymentPreimage, ResultSettled,
+		*preimage, ResultSettled,
 	), nil
+}
+
+// isValidKeySend reports whether the custom records contain a keysend
+// preimage whose hash matches the payment hash.
+func isValidKeySend(ctx *invoiceUpdateCtx) bool {
+	preimageBytes, ok := ctx.customRecords[record.KeySendType]
+	if !ok {
+		return false
+	}
+
+	preimage, err := lntypes.MakePreimage(preimageBytes)
+	if err != nil {
+		return false
+	}
+
+	return preimage.Hash() == ctx.hash
 }

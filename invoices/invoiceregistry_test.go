@@ -99,6 +99,10 @@ func TestInvoiceRegistry(t *testing.T) {
 			test: testAMPWithoutMPPPayload,
 		},
 		{
+			name: "AMPWithoutMPPExistingInvoice",
+			test: testAMPWithoutMPPExistingInvoice,
+		},
+		{
 			name: "SpontaneousAmpPayment",
 			test: testSpontaneousAmpPayment,
 		},
@@ -1876,6 +1880,46 @@ func testAMPWithoutMPPPayload(t *testing.T,
 	// We should receive the ResultAmpError failure.
 	require.NotNil(t, resolution)
 	checkFailResolution(t, resolution, invpkg.ResultAmpError)
+}
+
+// testAMPWithoutMPPExistingInvoice checks AMP handling for an existing invoice
+// when spontaneous AMP payments are disabled.
+func testAMPWithoutMPPExistingInvoice(t *testing.T,
+	makeDB func(t *testing.T) (invpkg.InvoiceDB, *clock.TestClock)) {
+
+	t.Parallel()
+	defer timeout()()
+
+	cfg := defaultRegistryConfig()
+	cfg.AcceptAMP = false
+	ctx := newTestContext(t, &cfg, makeDB)
+	ctxb := t.Context()
+
+	invoice := newInvoice(t, false, true)
+	_, err := ctx.registry.AddInvoice(
+		ctxb, invoice, testInvoicePaymentHash,
+	)
+	require.NoError(t, err)
+
+	payload := &mockPayload{
+		amp: record.NewAMP([32]byte{}, [32]byte{}, 0),
+	}
+
+	hodlChan := make(chan interface{}, 1)
+	resolution, err := ctx.registry.NotifyExitHopHtlc(
+		testInvoicePaymentHash, invoice.Terms.Value, testHtlcExpiry,
+		testCurrentHeight, getCircuitKey(10), hodlChan, nil, payload,
+	)
+	require.NoError(t, err)
+	require.NotNil(t, resolution)
+	checkFailResolution(t, resolution, invpkg.ResultAmpError)
+
+	storedInvoice, err := ctx.registry.LookupInvoice(
+		ctxb, testInvoicePaymentHash,
+	)
+	require.NoError(t, err)
+	require.Equal(t, invpkg.ContractOpen, storedInvoice.State)
+	require.Empty(t, storedInvoice.Htlcs)
 }
 
 // testSpontaneousAmpPayment tests receiving a spontaneous AMP payment with both

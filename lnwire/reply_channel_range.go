@@ -217,9 +217,13 @@ func (c *ReplyChannelRange) MsgType() MessageType {
 	return MsgReplyChannelRange
 }
 
-// LastBlockHeight returns the last block height covered by the range of a
-// QueryChannelRange message.
+// LastBlockHeight returns the last block height covered by a ReplyChannelRange
+// message. Messages with zero blocks return their first block height.
 func (c *ReplyChannelRange) LastBlockHeight() uint32 {
+	if c.NumBlocks == 0 {
+		return c.FirstBlockHeight
+	}
+
 	// Handle overflows by casting to uint64.
 	lastBlockHeight := uint64(c.FirstBlockHeight) + uint64(c.NumBlocks) - 1
 	if lastBlockHeight > math.MaxUint32 {

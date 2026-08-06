@@ -918,8 +918,9 @@ func (h *htlcSuccessResolver) resolveLegacySuccessTx() error {
 	return h.resolveSuccessTxOutput(h.htlcResolution.ClaimOutpoint)
 }
 
-// resolveSuccessTx waits for the sweeping tx of the second-level success tx to
-// confirm and offers the output from the success tx to the sweeper.
+// resolveSuccessTx waits for the commitment HTLC spend. If it creates the
+// expected second-level success output, the resolver sweeps that output;
+// otherwise it checkpoints a foreign spend.
 func (h *htlcSuccessResolver) resolveSuccessTx() error {
 	h.log.Infof("waiting for 2nd-level HTLC success transaction to confirm")
 
@@ -934,22 +935,27 @@ func (h *htlcSuccessResolver) resolveSuccessTx() error {
 	if err != nil {
 		return err
 	}
+	_, err = h.validatedSpendInput(commitSpend)
+	if err != nil {
+		return err
+	}
+	secondLevelOutpoint, matches, err := h.matchSecondLevelOutput(
+		commitSpend.SpendingTx, commitSpend.SpenderInputIndex,
+	)
+	if err != nil {
+		return err
+	}
 
-	// We'll use this input index to determine the second-level output
-	// index on the transaction, as the signatures requires the indexes to
-	// be the same. We don't look for the second-level output script
-	// directly, as there might be more than one HTLC output to the same
-	// pkScript.
-	op := wire.OutPoint{
-		Hash:  *commitSpend.SpenderTxHash,
-		Index: commitSpend.SpenderInputIndex,
+	spendTxID := commitSpend.SpendingTx.TxHash()
+	if !matches {
+		return h.checkpointForeignSpend(spendTxID)
 	}
 
 	// If the 2nd-stage sweeping has already been started, we can
 	// fast-forward to start the resolving process for the stage two
 	// output.
 	if h.outputIncubating {
-		return h.resolveSuccessTxOutput(op)
+		return h.resolveSuccessTxOutput(secondLevelOutpoint)
 	}
 
 	// Now that the second-level transaction has confirmed, we checkpoint
@@ -960,15 +966,14 @@ func (h *htlcSuccessResolver) resolveSuccessTx() error {
 		return err
 	}
 
-	h.log.Infof("2nd-level HTLC success tx=%v confirmed",
-		commitSpend.SpenderTxHash)
+	h.log.Infof("2nd-level HTLC success tx=%v confirmed", spendTxID)
 
 	// Send the sweep request for the output from the success tx.
 	if err := h.sweepSuccessTxOutput(); err != nil {
 		return err
 	}
 
-	return h.resolveSuccessTxOutput(op)
+	return h.resolveSuccessTxOutput(secondLevelOutpoint)
 }
 
 // resolveSuccessTxOutput waits for the spend of the output from the 2nd-level

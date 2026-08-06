@@ -325,6 +325,33 @@ func cloneTxOut(txOut *wire.TxOut) *wire.TxOut {
 	}
 }
 
+// newSuccessTestResolution creates a success resolution with distinct
+// commitment and second-level output descriptors.
+func newSuccessTestResolution(
+	commitOutpoint wire.OutPoint) lnwallet.IncomingHtlcResolution {
+
+	secondLevelOutput := cloneTxOut(testSignDesc.Output)
+	secondLevelOutput.PkScript = []byte{txscript.OP_TRUE}
+	sweepSignDesc := testSignDesc
+	sweepSignDesc.Output = secondLevelOutput
+
+	successTx := &wire.MsgTx{
+		TxIn:  []*wire.TxIn{{PreviousOutPoint: commitOutpoint}},
+		TxOut: []*wire.TxOut{cloneTxOut(secondLevelOutput)},
+	}
+
+	return lnwallet.IncomingHtlcResolution{
+		Preimage:        testResPreimage,
+		SignedSuccessTx: successTx,
+		SignDetails: &input.SignDetails{
+			SignDesc: testSignDesc,
+			PeerSig:  testSig,
+		},
+		ClaimOutpoint: wire.OutPoint{Hash: successTx.TxHash()},
+		SweepSignDesc: sweepSignDesc,
+	}
+}
+
 // newTaprootSuccessSpendFixture creates success and auxiliary leaves with the
 // same script and different leaf versions.
 func newTaprootSuccessSpendFixture(
@@ -396,6 +423,128 @@ func TestHtlcSuccessTaprootClassification(t *testing.T) {
 		dummyBytes, testResPreimage[:], fixture.successScript,
 		fixture.auxControl,
 	}))
+}
+
+// TestHtlcSuccessMatchSecondLevelOutput tests matching the success transaction
+// output against the sweep descriptor.
+func TestHtlcSuccessMatchSecondLevelOutput(t *testing.T) {
+	claim := wire.OutPoint{Index: 2}
+	newMatch := func() (*htlcSuccessResolver, *wire.MsgTx) {
+		resolution := newSuccessTestResolution(claim)
+		tx := &wire.MsgTx{
+			TxIn: []*wire.TxIn{
+				{PreviousOutPoint: wire.OutPoint{Index: 1}},
+				{PreviousOutPoint: claim},
+			},
+			TxOut: []*wire.TxOut{
+				cloneTxOut(
+					resolution.SignDetails.SignDesc.Output,
+				),
+				cloneTxOut(resolution.SweepSignDesc.Output),
+			},
+		}
+
+		return &htlcSuccessResolver{
+			htlcResolution: resolution,
+		}, tx
+	}
+
+	testCases := []struct {
+		name        string
+		prepare     func(*htlcSuccessResolver, *wire.MsgTx) *wire.MsgTx
+		matches     bool
+		expectedErr error
+	}{
+		{
+			name:    "match",
+			matches: true,
+		},
+		{
+			name: "commitment descriptor decoy",
+			prepare: func(resolver *htlcSuccessResolver,
+				tx *wire.MsgTx) *wire.MsgTx {
+
+				// This decoy proves the matcher uses the sweep
+				// descriptor, not the commitment descriptor.
+				resolution := &resolver.htlcResolution
+				signDetails := resolution.SignDetails
+				tx.TxOut[1] = cloneTxOut(
+					signDetails.SignDesc.Output,
+				)
+
+				return tx
+			},
+		},
+		{
+			name: "missing indexed output",
+			prepare: func(_ *htlcSuccessResolver,
+				tx *wire.MsgTx) *wire.MsgTx {
+
+				tx.TxOut = tx.TxOut[:1]
+
+				return tx
+			},
+		},
+		{
+			name: "missing expected output",
+			prepare: func(resolver *htlcSuccessResolver,
+				tx *wire.MsgTx) *wire.MsgTx {
+
+				resolution := &resolver.htlcResolution
+				resolution.SweepSignDesc.Output = nil
+
+				return tx
+			},
+			expectedErr: errInvalidSuccessResolver,
+		},
+		{
+			name: "nil indexed output",
+			prepare: func(_ *htlcSuccessResolver,
+				tx *wire.MsgTx) *wire.MsgTx {
+
+				tx.TxOut[1] = nil
+
+				return tx
+			},
+			expectedErr: errInvalidSpendDetails,
+		},
+		{
+			name: "nil transaction",
+			prepare: func(_ *htlcSuccessResolver,
+				_ *wire.MsgTx) *wire.MsgTx {
+
+				return nil
+			},
+			expectedErr: errInvalidSpendDetails,
+		},
+	}
+
+	for _, testCase := range testCases {
+		t.Run(testCase.name, func(t *testing.T) {
+			resolver, tx := newMatch()
+			if testCase.prepare != nil {
+				tx = testCase.prepare(resolver, tx)
+			}
+
+			outpoint, matches, err :=
+				resolver.matchSecondLevelOutput(tx, 1)
+			if testCase.expectedErr != nil {
+				require.ErrorIs(t, err, testCase.expectedErr)
+				return
+			}
+
+			require.NoError(t, err)
+			require.Equal(t, testCase.matches, matches)
+			if matches {
+				require.Equal(t, wire.OutPoint{
+					Hash:  tx.TxHash(),
+					Index: 1,
+				}, outpoint)
+			} else {
+				require.Zero(t, outpoint)
+			}
+		})
+	}
 }
 
 // TestHtlcSuccessSecondStageResolution tests successful sweep of a second

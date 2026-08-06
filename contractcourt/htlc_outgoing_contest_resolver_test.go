@@ -7,6 +7,7 @@ import (
 	"github.com/btcsuite/btcd/wire/v2"
 	"github.com/lightningnetwork/lnd/chainntnfs"
 	"github.com/lightningnetwork/lnd/channeldb"
+	"github.com/lightningnetwork/lnd/fn/v2"
 	"github.com/lightningnetwork/lnd/graph/db/models"
 	"github.com/lightningnetwork/lnd/input"
 	"github.com/lightningnetwork/lnd/kvdb"
@@ -20,6 +21,10 @@ import (
 
 const (
 	outgoingContestHtlcExpiry = 110
+
+	// outgoingContestIncomingHtlcExpiry is kept distinct from the outgoing
+	// HTLC expiry to verify that the supplied value is retained.
+	outgoingContestIncomingHtlcExpiry = 144
 )
 
 // TestHtlcOutgoingResolverTimeout tests resolution of an offered htlc that
@@ -114,6 +119,36 @@ func TestHtlcOutgoingResolverRemoteClaim(t *testing.T) {
 type resolveResult struct {
 	err          error
 	nextResolver ContractResolver
+}
+
+// TestHtlcOutgoingResolverSupplementDeadline checks that the outgoing contest
+// resolver forwards the incoming HTLC deadline to the timeout resolver it
+// transitions into once the outgoing HTLC expires on-chain.
+func TestHtlcOutgoingResolverSupplementDeadline(t *testing.T) {
+	t.Parallel()
+	defer timeout()()
+
+	ctx := newOutgoingResolverTestContext(t)
+
+	// Initially the embedded timeout resolver carries no deadline.
+	require.True(t, ctx.resolver.incomingHTLCExpiryHeight.IsNone())
+
+	// Supply the deadline through the contest resolver, as the channel
+	// arbitrator does when constructing the resolver.
+	deadline := fn.Some(int32(outgoingContestIncomingHtlcExpiry))
+	ctx.resolver.SupplementDeadline(deadline)
+
+	// Drive the contest resolver to the point where it returns the embedded
+	// timeout resolver.
+	ctx.resolve()
+	ctx.notifyEpoch(outgoingContestHtlcExpiry)
+
+	result := <-ctx.resolverResultChan
+	require.NoError(t, result.err)
+
+	timeoutRes, ok := result.nextResolver.(*htlcTimeoutResolver)
+	require.True(t, ok, "expected htlcTimeoutResolver")
+	require.Equal(t, deadline, timeoutRes.incomingHTLCExpiryHeight)
 }
 
 type outgoingResolverTestContext struct {

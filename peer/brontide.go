@@ -675,6 +675,14 @@ type Brontide struct {
 	// well as lnwire.ClosingSigned messages.
 	chanCloseMsgs chan *closeMsg
 
+	// chanCloseFlushed carries the ID of a channel whose link has finished
+	// draining its HTLCs, which is the point a legacy cooperative close can
+	// move on to fee negotiation. The link notices this from its own
+	// goroutine, so it hands the channel over here rather than advance the
+	// closer itself, which keeps every step of the negotiation on the
+	// channelManager goroutine.
+	chanCloseFlushed chan lnwire.ChannelID
+
 	// remoteFeatures is the feature vector received from the peer during
 	// the connection handshake.
 	remoteFeatures *lnwire.FeatureVector
@@ -753,6 +761,7 @@ func NewBrontide(cfg Config) *Brontide {
 		localCloseChanReqs: make(chan *htlcswitch.ChanClose),
 		linkFailures:       make(chan linkFailureReport),
 		chanCloseMsgs:      make(chan *closeMsg),
+		chanCloseFlushed:   make(chan lnwire.ChannelID),
 		resentChanSyncMsg:  make(map[lnwire.ChannelID]struct{}),
 		startReady:         make(chan struct{}),
 		log:                peerLog.WithPrefix(logPrefix),
@@ -3278,6 +3287,11 @@ out:
 		case closeMsg := <-p.chanCloseMsgs:
 			p.handleCloseMsg(closeMsg)
 
+		// A link has finished draining the HTLCs from a channel we're
+		// cooperatively closing, so we can now start fee negotiation.
+		case cid := <-p.chanCloseFlushed:
+			p.handleChanFlushed(cid)
+
 		// The channel reannounce delay has elapsed, broadcast the
 		// reenabled channel updates to the network. This should only
 		// fire once, so we set the reenableTimeout channel to nil to
@@ -5306,23 +5320,7 @@ func (p *Brontide) handleCloseMsg(msg *closeMsg) {
 		chanCloser = c
 	})
 
-	handleErr := func(err error) {
-		err = fmt.Errorf("unable to process close msg: %w", err)
-		p.log.Error(err)
-
-		// As the negotiations failed, we'll reset the channel state
-		// machine to ensure we act to on-chain events as normal.
-		chanCloser.Channel().ResetState()
-		if chanCloser.CloseRequest() != nil {
-			chanCloser.CloseRequest().Err <- err
-		}
-
-		p.deleteActiveChanCloser(
-			msg.cid, chanCloser.Channel().ChannelPoint(),
-		)
-
-		p.Disconnect(err)
-	}
+	handleErr := p.negotiateCloseErrHandler(msg.cid, chanCloser)
 
 	// Next, we'll process the next message using the target state machine.
 	// We'll either continue negotiation, or halt.
@@ -5364,30 +5362,34 @@ func (p *Brontide) handleCloseMsg(msg *closeMsg) {
 			})
 		})
 
-		beginNegotiation := func() {
-			oClosingSigned, err := chanCloser.BeginNegotiation()
-			if err != nil {
-				handleErr(err)
-				return
-			}
-
-			oClosingSigned.WhenSome(func(msg lnwire.ClosingSigned) {
-				p.queueMsg(&msg, nil)
-			})
-		}
-
+		// Without a link there's no commitment traffic left to drain,
+		// so the channel is already flushed as far as we're concerned.
 		if link == nil {
-			beginNegotiation()
-		} else {
-			// Now we register a flush hook to advance the
-			// ChanCloser and possibly send out a ClosingSigned
-			// when the link finishes draining.
-			link.OnFlushedOnce(func() {
-				// Remove link in goroutine to prevent deadlock.
-				go p.cfg.Switch.RemoveLink(msg.cid)
-				beginNegotiation()
-			})
+			p.beginNegotiation(chanCloser, handleErr)
+
+			return
 		}
+
+		// Otherwise, we register a flush hook so we hear about it once
+		// the link finishes draining.
+		link.OnFlushedOnce(func() {
+			// Remove link in goroutine to prevent deadlock.
+			go p.cfg.Switch.RemoveLink(msg.cid)
+
+			// The link runs this hook on its own goroutine, and may
+			// well hold its lock while it does, so we hand the
+			// channel to the channelManager instead of advancing
+			// the closer from here. That keeps the state machine
+			// owned by a single goroutine, and it means we can't
+			// block the link on work the channelManager is doing,
+			// which may itself be waiting on the link's lock.
+			go func() {
+				select {
+				case p.chanCloseFlushed <- msg.cid:
+				case <-p.cg.Done():
+				}
+			}()
+		})
 
 	case *lnwire.ClosingSigned:
 		oClosingSigned, err := chanCloser.ReceiveClosingSigned(*typed)
@@ -5404,6 +5406,73 @@ func (p *Brontide) handleCloseMsg(msg *closeMsg) {
 		panic("impossible closeMsg type")
 	}
 
+	p.maybeFinalizeChanClosure(chanCloser)
+}
+
+// handleChanFlushed is called once a link has drained the HTLCs from a channel
+// we're cooperatively closing, which is our cue to move the negotiation along.
+// The link notices the flush from its own goroutine and hands the channel to us
+// over chanCloseFlushed, so that the closer only ever advances here.
+//
+// NOTE: MUST be called from the channelManager goroutine.
+func (p *Brontide) handleChanFlushed(cid lnwire.ChannelID) {
+	// We deliberately don't go through fetchActiveChanCloser here, as that
+	// would build a fresh closer if the negotiation has already been torn
+	// down while we were waiting on the link.
+	chanCloserE, found := p.activeChanCloses.Load(cid)
+	if !found {
+		p.log.Debugf("ChannelID(%v) flushed, but no chan closer is "+
+			"active", cid)
+
+		return
+	}
+
+	// The RBF closer drives its own flush handling, so there's nothing for
+	// us to do if that's the one closing this channel.
+	if chanCloserE.IsRight() {
+		return
+	}
+
+	var chanCloser *chancloser.ChanCloser
+	chanCloserE.WhenLeft(func(c *chancloser.ChanCloser) {
+		chanCloser = c
+	})
+
+	p.beginNegotiation(
+		chanCloser, p.negotiateCloseErrHandler(cid, chanCloser),
+	)
+}
+
+// beginNegotiation starts the fee negotiation phase of a legacy cooperative
+// close, sending out our opening offer if it falls to us to make one, and wraps
+// the closure up if the negotiation ran all the way through to a broadcast
+// transaction.
+//
+// NOTE: MUST be called from the channelManager goroutine.
+func (p *Brontide) beginNegotiation(chanCloser *chancloser.ChanCloser,
+	handleErr func(error)) {
+
+	oClosingSigned, err := chanCloser.BeginNegotiation()
+	if err != nil {
+		handleErr(err)
+
+		return
+	}
+
+	oClosingSigned.WhenSome(func(msg lnwire.ClosingSigned) {
+		p.queueMsg(&msg, nil)
+	})
+
+	p.maybeFinalizeChanClosure(chanCloser)
+}
+
+// maybeFinalizeChanClosure wraps up a cooperative closure if the negotiation
+// has run to completion, and does nothing if it hasn't.
+//
+// NOTE: MUST be called from the channelManager goroutine.
+func (p *Brontide) maybeFinalizeChanClosure(
+	chanCloser *chancloser.ChanCloser) {
+
 	// If we haven't finished close negotiations, then we'll continue as we
 	// can't yet finalize the closure.
 	if _, err := chanCloser.ClosingTx(); err != nil {
@@ -5414,6 +5483,32 @@ func (p *Brontide) handleCloseMsg(msg *closeMsg) {
 	// the channel closure by notifying relevant sub-systems and launching a
 	// goroutine to wait for close tx conf.
 	p.finalizeChanClosure(chanCloser)
+}
+
+// negotiateCloseErrHandler returns the function used to tear down a legacy
+// close negotiation once one of the steps we drive it through has failed.
+//
+// NOTE: MUST be called from the channelManager goroutine.
+func (p *Brontide) negotiateCloseErrHandler(cid lnwire.ChannelID,
+	chanCloser *chancloser.ChanCloser) func(error) {
+
+	return func(err error) {
+		err = fmt.Errorf("unable to process close msg: %w", err)
+		p.log.Error(err)
+
+		// As the negotiations failed, we'll reset the channel state
+		// machine to ensure we act to on-chain events as normal.
+		chanCloser.Channel().ResetState()
+		if chanCloser.CloseRequest() != nil {
+			chanCloser.CloseRequest().Err <- err
+		}
+
+		p.deleteActiveChanCloser(
+			cid, chanCloser.Channel().ChannelPoint(),
+		)
+
+		p.Disconnect(err)
+	}
 }
 
 // HandleLocalCloseChanReqs accepts a *htlcswitch.ChanClose and passes it onto

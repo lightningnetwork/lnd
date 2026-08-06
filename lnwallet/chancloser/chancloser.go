@@ -164,6 +164,12 @@ type ChanCloseCfg struct {
 // procedure. This includes shutting down a channel, marking it ineligible for
 // routing HTLC's, negotiating fees with the remote party, and finally
 // broadcasting the fully signed closure transaction to the network.
+//
+// NOTE: The state machine takes no locks of its own. Nearly every method reads
+// and writes the same fields, so all of them MUST be driven from a single
+// goroutine. In production that's the peer's channelManager, which is the one
+// place the close messages from the wire, the local close requests, and the
+// link's flush notification all meet.
 type ChanCloser struct {
 	// state is the current state of the state machine.
 	state closeState
@@ -592,10 +598,13 @@ func (c *ChanCloser) ReceiveShutdown(msg lnwire.Shutdown) (
 	noShutdown := fn.None[lnwire.Shutdown]()
 
 	// We'll track their remote close output, even if it's dust in BTC
-	// terms, it might still carry value in custom channel terms.
+	// terms, it might still carry value in custom channel terms. We only
+	// commit it to our state in the branches below that go on to accept the
+	// message: a Shutdown that shows up at a point where we can't act on it
+	// has no business overwriting an output we already settled on.
 	_, dustAmt := c.cfg.Channel.RemoteBalanceDust()
 	_, remoteBalance := c.cfg.Channel.CommitBalances()
-	c.remoteCloseOutput = fn.Some(types.CloseOutput{
+	remoteCloseOutput := fn.Some(types.CloseOutput{
 		Amt:             remoteBalance,
 		DustLimit:       dustAmt,
 		PkScript:        msg.Address,
@@ -642,6 +651,7 @@ func (c *ChanCloser) ReceiveShutdown(msg lnwire.Shutdown) (
 		// address. We'll use this when we craft the closure
 		// transaction.
 		c.remoteDeliveryScript = msg.Address
+		c.remoteCloseOutput = remoteCloseOutput
 
 		// We'll generate a shutdown message of our own to send across
 		// the wire.
@@ -691,6 +701,7 @@ func (c *ChanCloser) ReceiveShutdown(msg lnwire.Shutdown) (
 		// address, we'll record their preferred delivery closing
 		// script.
 		c.remoteDeliveryScript = msg.Address
+		c.remoteCloseOutput = remoteCloseOutput
 
 		// At this point, we can now start the fee negotiation state, by
 		// constructing and sending our initial signature for what we

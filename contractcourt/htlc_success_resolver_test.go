@@ -649,6 +649,38 @@ func TestHtlcSuccessMatchSecondLevelOutput(t *testing.T) {
 	}
 }
 
+// TestHtlcSuccessSkipsForeignSuccessOutput tests that Launch does not offer a
+// phantom second-level output after a foreign commitment spend.
+func TestHtlcSuccessSkipsForeignSuccessOutput(t *testing.T) {
+	commitOutpoint := wire.OutPoint{Index: 2}
+	resolution := newSuccessTestResolution(commitOutpoint)
+	ctx := newHtlcResolverTestContext(t, func(htlc channeldb.HTLC,
+		cfg ResolverConfig) ContractResolver {
+
+		return newSuccessResolver(resolution, 0, htlc, cfg)
+	})
+	resolver := requireSuccessResolver(t, ctx.resolver)
+	foreignTx := &wire.MsgTx{
+		TxIn: []*wire.TxIn{{PreviousOutPoint: commitOutpoint}},
+		TxOut: []*wire.TxOut{{
+			Value:    resolution.SweepSignDesc.Output.Value,
+			PkScript: []byte{txscript.OP_FALSE},
+		}},
+	}
+	ctx.notifier.SpendChan <- newSpendDetail(
+		commitOutpoint, foreignTx, 0,
+	)
+
+	require.NoError(t, resolver.sweepSuccessTxOutput())
+	sweeper, ok := resolver.Sweeper.(*mockSweeper)
+	require.True(t, ok)
+	select {
+	case sweptInput := <-sweeper.sweptInputs:
+		t.Fatalf("unexpected phantom sweep: %v", sweptInput.OutPoint())
+	default:
+	}
+}
+
 // TestHtlcSuccessForeignSpendCheckpointError tests rollback and retry after a
 // foreign-spend checkpoint failure.
 func TestHtlcSuccessForeignSpendCheckpointError(t *testing.T) {
@@ -886,6 +918,10 @@ func TestHtlcSuccessCheckpointClaim(t *testing.T) {
 func TestHtlcSuccessSecondStageResolutionSweeper(t *testing.T) {
 	commitOutpoint := wire.OutPoint{Index: 2}
 	htlcOutpoint := wire.OutPoint{Index: 3}
+	secondLevelOutput := cloneTxOut(testSignDesc.Output)
+	secondLevelOutput.PkScript = []byte{txscript.OP_TRUE}
+	sweepSignDesc := testSignDesc
+	sweepSignDesc.Output = secondLevelOutput
 
 	successTx := &wire.MsgTx{
 		TxIn: []*wire.TxIn{
@@ -893,12 +929,7 @@ func TestHtlcSuccessSecondStageResolutionSweeper(t *testing.T) {
 				PreviousOutPoint: commitOutpoint,
 			},
 		},
-		TxOut: []*wire.TxOut{
-			{
-				Value:    123,
-				PkScript: []byte{0xff, 0xff},
-			},
-		},
+		TxOut: []*wire.TxOut{cloneTxOut(secondLevelOutput)},
 	}
 
 	reSignedSuccessTx := &wire.MsgTx{
@@ -949,7 +980,7 @@ func TestHtlcSuccessSecondStageResolutionSweeper(t *testing.T) {
 			PeerSig:  testSig,
 		},
 		ClaimOutpoint: htlcOutpoint,
-		SweepSignDesc: testSignDesc,
+		SweepSignDesc: sweepSignDesc,
 	}
 
 	firstStage := &channeldb.ResolverReport{

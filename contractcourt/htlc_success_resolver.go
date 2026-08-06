@@ -766,7 +766,8 @@ func (h *htlcSuccessResolver) sweepSuccessTx() error {
 }
 
 // sweepSuccessTxOutput attempts to sweep the output of the second level
-// success tx.
+// success tx. If the second-level success output cannot be found, Resolve will
+// checkpoint the foreign spend through the normal resolver-removal path.
 func (h *htlcSuccessResolver) sweepSuccessTxOutput() error {
 	h.log.Debugf("sweeping output %v from 2nd-level HTLC success tx",
 		h.htlcResolution.ClaimOutpoint)
@@ -781,6 +782,28 @@ func (h *htlcSuccessResolver) sweepSuccessTxOutput() error {
 	)
 	if err != nil {
 		return err
+	}
+	_, err = h.validatedSpendInput(commitSpend)
+	if err != nil {
+		return err
+	}
+	secondLevelOutpoint, matches, err := h.matchSecondLevelOutput(
+		commitSpend.SpendingTx, commitSpend.SpenderInputIndex,
+	)
+	if err != nil {
+		return err
+	}
+	if !matches {
+		// A resolver restored from a checkpoint written before
+		// commitment spend validation may have outputIncubating set
+		// without an expected second-level output.
+		//
+		// launchResolvers completes before the resolveContract
+		// goroutines start. If Launch marks the resolver resolved,
+		// resolveContract skips it and cannot remove it from the log.
+		// Return without a phantom sweep so Resolve can receive the
+		// historical spend and own checkpointing and cleanup.
+		return nil
 	}
 
 	// The HTLC success tx has a CSV lock that we must wait for, and if
@@ -805,16 +828,6 @@ func (h *htlcSuccessResolver) sweepSuccessTxOutput() error {
 			h, h.htlc.RHash[:], waitHeight)
 	}
 
-	// We'll use this input index to determine the second-level output
-	// index on the transaction, as the signatures requires the indexes to
-	// be the same. We don't look for the second-level output script
-	// directly, as there might be more than one HTLC output to the same
-	// pkScript.
-	op := &wire.OutPoint{
-		Hash:  *commitSpend.SpenderTxHash,
-		Index: commitSpend.SpenderInputIndex,
-	}
-
 	// Let the sweeper sweep the second-level output now that the
 	// CSV/CLTV locks have expired.
 	var witType input.StandardWitnessType
@@ -824,7 +837,7 @@ func (h *htlcSuccessResolver) sweepSuccessTxOutput() error {
 		witType = input.HtlcAcceptedSuccessSecondLevel
 	}
 	inp := h.makeSweepInput(
-		op, witType,
+		&secondLevelOutpoint, witType,
 		input.LeaseHtlcAcceptedSuccessSecondLevel,
 		&h.htlcResolution.SweepSignDesc,
 		h.htlcResolution.CsvDelay, uint32(commitSpend.SpendingHeight),
@@ -1009,8 +1022,8 @@ func (h *htlcSuccessResolver) Launch() error {
 	// second-level success tx or the output from the second-level success
 	// tx.
 	case h.isZeroFeeOutput():
-		// If the second-level success tx has already been swept, we
-		// can go ahead and sweep its output.
+		// If the second-level success tx has confirmed, offer the
+		// output to the sweeper.
 		if h.outputIncubating {
 			return h.sweepSuccessTxOutput()
 		}

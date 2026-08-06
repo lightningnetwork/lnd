@@ -68,6 +68,11 @@
   that peer, and rejects an absent script instead of treating it as nothing to
   check.
 
+* Outgoing contest resolvers now [retain the corresponding incoming HTLC
+  expiry](https://github.com/lightningnetwork/lnd/pull/11032) when transitioning
+  to timeout resolution, allowing the sweeper to continue using an
+  expiry-aware confirmation target.
+
 # New Features
 
 ## Functional Enhancements

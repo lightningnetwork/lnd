@@ -232,6 +232,78 @@ func TestHtlcSuccessSingleStage(t *testing.T) {
 	)
 }
 
+// TestHtlcSuccessValidatedSpendInput tests extraction and validation of the
+// notified HTLC input.
+func TestHtlcSuccessValidatedSpendInput(t *testing.T) {
+	claim := wire.OutPoint{Index: 2}
+	resolver := &htlcSuccessResolver{
+		htlcResolution: lnwallet.IncomingHtlcResolution{
+			ClaimOutpoint: claim,
+		},
+	}
+	spendInput := &wire.TxIn{PreviousOutPoint: claim}
+	validSpend := &chainntnfs.SpendDetail{
+		SpendingTx: &wire.MsgTx{
+			TxIn: []*wire.TxIn{{}, spendInput},
+		},
+		SpenderInputIndex: 1,
+	}
+
+	input, err := resolver.validatedSpendInput(validSpend)
+	require.NoError(t, err)
+	require.Same(t, spendInput, input)
+
+	testCases := []struct {
+		name    string
+		spend   *chainntnfs.SpendDetail
+		errText string
+	}{
+		{
+			name:    "missing spend detail",
+			errText: "missing spend detail",
+		},
+		{
+			name:    "missing spending tx",
+			spend:   &chainntnfs.SpendDetail{},
+			errText: "missing spending tx",
+		},
+		{
+			name: "input index out of range",
+			spend: &chainntnfs.SpendDetail{
+				SpendingTx:        &wire.MsgTx{},
+				SpenderInputIndex: 1,
+			},
+			errText: "spender input index",
+		},
+		{
+			name: "nil spender input",
+			spend: &chainntnfs.SpendDetail{
+				SpendingTx: &wire.MsgTx{
+					TxIn: []*wire.TxIn{nil},
+				},
+			},
+			errText: "spender input 0 is nil",
+		},
+		{
+			name: "unexpected input outpoint",
+			spend: &chainntnfs.SpendDetail{
+				SpendingTx: &wire.MsgTx{
+					TxIn: []*wire.TxIn{{}},
+				},
+			},
+			errText: "input",
+		},
+	}
+
+	for _, testCase := range testCases {
+		t.Run(testCase.name, func(t *testing.T) {
+			_, err := resolver.validatedSpendInput(testCase.spend)
+			require.ErrorIs(t, err, errInvalidSpendDetails)
+			require.ErrorContains(t, err, testCase.errText)
+		})
+	}
+}
+
 // TestHtlcSuccessSecondStageResolution tests successful sweep of a second
 // stage htlc claim, going through the Nursery.
 func TestHtlcSuccessSecondStageResolution(t *testing.T) {

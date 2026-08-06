@@ -2,6 +2,7 @@ package contractcourt
 
 import (
 	"encoding/binary"
+	"errors"
 	"fmt"
 	"io"
 	"sync"
@@ -10,6 +11,7 @@ import (
 	"github.com/btcsuite/btcd/chaincfg/chainhash"
 	"github.com/btcsuite/btcd/txscript"
 	"github.com/btcsuite/btcd/wire"
+	"github.com/lightningnetwork/lnd/chainntnfs"
 	"github.com/lightningnetwork/lnd/channeldb"
 	"github.com/lightningnetwork/lnd/fn/v2"
 	"github.com/lightningnetwork/lnd/graph/db/models"
@@ -19,6 +21,9 @@ import (
 	"github.com/lightningnetwork/lnd/lnwallet"
 	"github.com/lightningnetwork/lnd/sweep"
 )
+
+// errInvalidSpendDetails identifies malformed notifier spend data.
+var errInvalidSpendDetails = errors.New("invalid spend details")
 
 // htlcSuccessResolver is a resolver that's capable of sweeping an incoming
 // HTLC output on-chain. If this is the remote party's commitment, we'll sweep
@@ -429,6 +434,40 @@ func (h *htlcSuccessResolver) isTaproot() bool {
 // channel.
 func (h *htlcSuccessResolver) isTaprootFinal() bool {
 	return h.chanType.IsTaprootFinal()
+}
+
+// validatedSpendInput returns the transaction input reported to spend this
+// resolver's HTLC outpoint after validating the notifier data.
+func (h *htlcSuccessResolver) validatedSpendInput(
+	spend *chainntnfs.SpendDetail) (*wire.TxIn, error) {
+
+	switch {
+	case spend == nil:
+		return nil, fmt.Errorf("%w: missing spend detail for %v",
+			errInvalidSpendDetails, h.outpoint())
+
+	case spend.SpendingTx == nil:
+		return nil, fmt.Errorf("%w: missing spending tx for %v",
+			errInvalidSpendDetails, h.outpoint())
+
+	case spend.SpenderInputIndex >= uint32(len(spend.SpendingTx.TxIn)):
+		return nil, fmt.Errorf("%w: spender input index %d out of "+
+			"range", errInvalidSpendDetails,
+			spend.SpenderInputIndex)
+	}
+
+	spendingInput := spend.SpendingTx.TxIn[spend.SpenderInputIndex]
+	if spendingInput == nil {
+		return nil, fmt.Errorf("%w: spender input %d is nil",
+			errInvalidSpendDetails, spend.SpenderInputIndex)
+	}
+	if spendingInput.PreviousOutPoint != h.outpoint() {
+		return nil, fmt.Errorf("%w: input %v, expected %v",
+			errInvalidSpendDetails, spendingInput.PreviousOutPoint,
+			h.outpoint())
+	}
+
+	return spendingInput, nil
 }
 
 // sweepRemoteCommitOutput creates a sweep request to sweep the HTLC output on

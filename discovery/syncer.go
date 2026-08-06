@@ -1394,20 +1394,20 @@ func (g *GossipSyncer) replyChanRangeQuery(ctx context.Context,
 			continue
 		}
 
-		// Otherwise, we need to send our existing channel chunk as is
-		// as its own reply and start a new one for the current block.
-		// We'll mark the end of our current chunk as the height before
-		// the current block to ensure the whole query range is replied
-		// to.
-		log.Infof("GossipSyncer(%x): sending range chunk of size=%v",
-			g.cfg.peerPub[:], len(channelChunk))
+		// Otherwise, send the pending range before starting a new
+		// chunk for the current block. If the first block exceeds the
+		// chunk size, then there is no preceding range to send.
+		if channelRange.Height > firstHeight {
+			log.Infof("GossipSyncer(%x): sending range chunk of "+
+				"size=%v", g.cfg.peerPub[:], len(channelChunk))
 
-		lastHeight = channelRange.Height - 1
-		err := sendReplyForChunk(
-			channelChunk, firstHeight, lastHeight, false,
-		)
-		if err != nil {
-			return err
+			lastHeight = channelRange.Height - 1
+			err := sendReplyForChunk(
+				channelChunk, firstHeight, lastHeight, false,
+			)
+			if err != nil {
+				return err
+			}
 		}
 
 		// With the reply constructed, we'll start tallying channels for

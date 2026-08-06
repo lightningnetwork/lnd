@@ -3,10 +3,68 @@ package lnwire
 import (
 	"bytes"
 	"encoding/hex"
+	"math"
 	"testing"
 
 	"github.com/stretchr/testify/require"
 )
+
+// TestChannelRangeLastBlockHeight tests the inclusive boundary calculation
+// for query and reply channel ranges.
+func TestChannelRangeLastBlockHeight(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name             string
+		firstBlockHeight uint32
+		numBlocks        uint32
+		expected         uint32
+	}{
+		{
+			name: "empty at genesis",
+		},
+		{
+			name:             "empty after genesis",
+			firstBlockHeight: 500_000,
+			expected:         500_000,
+		},
+		{
+			name:             "single block",
+			firstBlockHeight: 500_000,
+			numBlocks:        1,
+			expected:         500_000,
+		},
+		{
+			name:      "multiple blocks",
+			numBlocks: 5,
+			expected:  4,
+		},
+		{
+			name:             "overflow",
+			firstBlockHeight: math.MaxUint32 - 1,
+			numBlocks:        3,
+			expected:         math.MaxUint32,
+		},
+	}
+
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			t.Parallel()
+
+			query := &QueryChannelRange{
+				FirstBlockHeight: test.firstBlockHeight,
+				NumBlocks:        test.numBlocks,
+			}
+			reply := &ReplyChannelRange{
+				FirstBlockHeight: test.firstBlockHeight,
+				NumBlocks:        test.numBlocks,
+			}
+
+			require.Equal(t, test.expected, query.LastBlockHeight())
+			require.Equal(t, test.expected, reply.LastBlockHeight())
+		})
+	}
+}
 
 // TestReplyChannelRangeUnsorted tests that decoding a ReplyChannelRange request
 // that contains duplicate or unsorted ids returns an ErrUnsortedSIDs failure.

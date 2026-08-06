@@ -1100,9 +1100,55 @@ func TestGossipSyncerReplyChanRangeQuery(t *testing.T) {
 	}
 }
 
-// TestGossipSyncerReplyChanRangeQuery tests a variety of
-// QueryChannelRange messages to ensure the underlying queries are
-// executed with the correct block range.
+// TestGossipSyncerReplyChanRangeQueryDenseFirstBlock tests that a dense first
+// block does not cause a zero-block reply to be sent before the final reply.
+func TestGossipSyncerReplyChanRangeQueryDenseFirstBlock(t *testing.T) {
+	t.Parallel()
+	ctx := t.Context()
+
+	const (
+		chunkSize           = 2
+		startingBlockHeight = 100
+		numBlocks           = 50
+	)
+
+	msgChan, syncer, chanSeries := newTestSyncer(
+		lnwire.NewShortChanIDFromInt(10), defaultEncoding, chunkSize,
+	)
+	query := &lnwire.QueryChannelRange{
+		FirstBlockHeight: startingBlockHeight,
+		NumBlocks:        numBlocks,
+	}
+	chanSeries.filterRangeResp <- []lnwire.ShortChannelID{
+		{BlockHeight: startingBlockHeight, TxIndex: 1},
+		{BlockHeight: startingBlockHeight, TxIndex: 2},
+		{BlockHeight: startingBlockHeight, TxIndex: 3},
+	}
+
+	require.NoError(t, syncer.replyChanRangeQuery(ctx, query))
+
+	msg := <-msgChan
+	require.Len(t, msg, 1)
+	reply, ok := msg[0].(*lnwire.ReplyChannelRange)
+	require.True(t, ok)
+	require.Equal(t, uint32(startingBlockHeight), reply.FirstBlockHeight)
+	require.Equal(t, uint32(numBlocks), reply.NumBlocks)
+	require.Equal(t, uint8(1), reply.Complete)
+	require.Len(t, reply.ShortChanIDs, chunkSize)
+	for _, scid := range reply.ShortChanIDs {
+		require.Equal(t, uint32(startingBlockHeight), scid.BlockHeight)
+	}
+
+	select {
+	case extraMsg := <-msgChan:
+		t.Fatalf("unexpected extra reply: %v", extraMsg)
+	default:
+	}
+}
+
+// TestGossipSyncerReplyChanRangeQueryBlockRange tests a variety of
+// QueryChannelRange messages to ensure the underlying queries are executed
+// with the correct block range.
 func TestGossipSyncerReplyChanRangeQueryBlockRange(t *testing.T) {
 	t.Parallel()
 	ctx := t.Context()
@@ -1133,6 +1179,18 @@ func TestGossipSyncerReplyChanRangeQueryBlockRange(t *testing.T) {
 			FirstBlockHeight: uint32(1000),
 			NumBlocks:        uint32(math.MaxUint32),
 		},
+
+		// zero-block range at the genesis block
+		{
+			FirstBlockHeight: uint32(0),
+			NumBlocks:        uint32(0),
+		},
+
+		// zero-block range after the genesis block
+		{
+			FirstBlockHeight: uint32(1000),
+			NumBlocks:        uint32(0),
+		},
 	}
 
 	// Next construct the expected filterRangeReq startHeight and endHeight
@@ -1149,6 +1207,14 @@ func TestGossipSyncerReplyChanRangeQueryBlockRange(t *testing.T) {
 		{
 			startHeight: uint32(1000),
 			endHeight:   uint32(math.MaxUint32),
+		},
+		{
+			startHeight: uint32(0),
+			endHeight:   uint32(0),
+		},
+		{
+			startHeight: uint32(1000),
+			endHeight:   uint32(1000),
 		},
 	}
 

@@ -82,6 +82,21 @@ func TestDustLimitForSize(t *testing.T) {
 			size:          input.UnknownWitnessSize,
 			expectedLimit: btcutil.Amount(354),
 		},
+		{
+			// An arbitrary short length that matches no known
+			// template is priced as a generic witness output
+			// rather than treated as an error.
+			name:          "arbitrary small size",
+			size:          7,
+			expectedLimit: btcutil.Amount(354),
+		},
+		{
+			// The largest witness program length is also handled
+			// as a generic witness output.
+			name:          "arbitrary large witness size",
+			size:          42,
+			expectedLimit: btcutil.Amount(354),
+		},
 	}
 
 	for _, test := range tests {

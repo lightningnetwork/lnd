@@ -1471,6 +1471,89 @@ func TestRbfChannelActiveTransitions(t *testing.T) {
 		)
 	})
 
+	// Even when the remote party never committed to an upfront shutdown
+	// script, we should still validate the delivery script they send, and
+	// reject one that isn't a well-formed delivery script.
+	name := "remote_initiated_bad_script_no_upfront_fail"
+	t.Run(name, func(t *testing.T) {
+		// The spec dropped p2pkh and p2sh for co-op closes to keep the
+		// dust calculations uniform, and a delivery script has to be
+		// something we can actually pay to, so none of these are
+		// acceptable even though some of them are perfectly valid
+		// scripts in their own right.
+		badScripts := []struct {
+			name   string
+			script lnwire.DeliveryAddress
+		}{
+			{
+				name:   "empty",
+				script: lnwire.DeliveryAddress{},
+			},
+			{
+				name: "garbage",
+				script: lnwire.DeliveryAddress(
+					bytes.Repeat([]byte{0xff}, 5),
+				),
+			},
+			{
+				// Provably unspendable: paying a close output
+				// here would burn the remote party's balance.
+				name: "op_return",
+				script: lnwire.DeliveryAddress(append(
+					[]byte{txscript.OP_RETURN, 32},
+					bytes.Repeat([]byte{0xAB}, 32)...,
+				)),
+			},
+			{
+				name: "bare_op_return",
+				script: lnwire.DeliveryAddress(
+					[]byte{txscript.OP_RETURN},
+				),
+			},
+			{
+				name: "p2pkh",
+				script: lnwire.DeliveryAddress(append(append(
+					[]byte{
+						txscript.OP_DUP,
+						txscript.OP_HASH160, 20,
+					},
+					bytes.Repeat([]byte{0xAB}, 20)...,
+				),
+					txscript.OP_EQUALVERIFY,
+					txscript.OP_CHECKSIG,
+				)),
+			},
+			{
+				name: "p2sh",
+				script: lnwire.DeliveryAddress(append(append(
+					[]byte{txscript.OP_HASH160, 20},
+					bytes.Repeat([]byte{0xAB}, 20)...,
+				), txscript.OP_EQUAL)),
+			},
+		}
+
+		for _, badScript := range badScripts {
+			t.Run(badScript.name, func(t *testing.T) {
+				// Note the config carries no remoteUpfrontAddr,
+				// so the only thing standing between the peer's
+				// script and the rest of the close flow is the
+				// delivery-script validation itself.
+				closeHarness := newCloser(t, &harnessCfg{
+					localUpfrontAddr: fn.Some(localAddr),
+				})
+				defer closeHarness.stopAndAssert()
+
+				event := &ShutdownReceived{
+					ShutdownScript: badScript.script,
+				}
+				closeHarness.sendEventAndExpectFailure(
+					ctx, event, ErrInvalidShutdownScript,
+				)
+				closeHarness.assertNoStateTransitions()
+			})
+		}
+	})
+
 	// When we receive a shutdown, we should transition to the shutdown
 	// pending state, with the local+remote shutdown addrs known.
 	t.Run("remote_initiated_close_ok", func(t *testing.T) {
@@ -1736,8 +1819,12 @@ func TestRbfShutdownPendingTransitions(t *testing.T) {
 		// This will cause a self transition back to ShutdownPending.
 		closeHarness.assertStateTransitions(&ShutdownPending{})
 
-		// Next, we'll send in a shutdown complete event.
-		closeHarness.chanCloser.SendEvent(ctx, &ShutdownReceived{})
+		// Next, we'll send in a shutdown complete event. The script is
+		// incidental to what this test exercises, but a shutdown always
+		// carries one, so we supply the remote party's.
+		closeHarness.chanCloser.SendEvent(ctx, &ShutdownReceived{
+			ShutdownScript: remoteAddr,
+		})
 
 		// We should transition to the channel flushing state, then the
 		// self event to have this state cache he early offer should
@@ -3141,7 +3228,8 @@ func TestNextCloseeNonceStorageFromClosingSig(t *testing.T) {
 	// updateAndValidateCloseTerms should only validate close terms, not
 	// update the nonce. The nonce rotation happens in
 	// LocalOfferSent.ProcessEvent.
-	err := negotiation.updateAndValidateCloseTerms(sigEvent, true)
+	env := &Environment{ChainParams: chaincfg.RegressionNetParams}
+	err := negotiation.updateAndValidateCloseTerms(sigEvent, env)
 	require.NoError(t, err)
 
 	// Verify the RemoteCloseeNonce was NOT modified — it should still

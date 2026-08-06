@@ -22,12 +22,7 @@ import (
 )
 
 const (
-	defaultEncoding   = lnwire.EncodingSortedPlain
 	latestKnownHeight = 1337
-)
-
-var (
-	defaultChunkSize = encodingTypeToChunkSize[defaultEncoding]
 )
 
 type horizonQuery struct {
@@ -182,8 +177,7 @@ var _ ChannelGraphTimeSeries = (*mockChannelGraphTimeSeries)(nil)
 // ignored. If no flags are provided, both a channelGraphSyncer and replyHandler
 // will be spawned by default.
 func newTestSyncer(hID lnwire.ShortChannelID,
-	encodingType lnwire.QueryEncoding, chunkSize int32,
-	flags ...bool) (chan []lnwire.Message,
+	chunkSize int32, flags ...bool) (chan []lnwire.Message,
 	*GossipSyncer, *mockChannelGraphTimeSeries) {
 
 	var (
@@ -204,7 +198,6 @@ func newTestSyncer(hID lnwire.ShortChannelID,
 	msgChan := make(chan []lnwire.Message, 20)
 	cfg := gossipSyncerCfg{
 		channelSeries:          newMockChannelGraphTimeSeries(hID),
-		encodingType:           encodingType,
 		chunkSize:              chunkSize,
 		batchSize:              chunkSize,
 		noSyncChannels:         !syncChannels,
@@ -276,7 +269,6 @@ func newErrorInjectingSyncer(hID lnwire.ShortChannelID, chunkSize int32) (
 
 	cfg := gossipSyncerCfg{
 		channelSeries:          newMockChannelGraphTimeSeries(hID),
-		encodingType:           defaultEncoding,
 		chunkSize:              chunkSize,
 		batchSize:              chunkSize,
 		noSyncChannels:         false,
@@ -343,7 +335,7 @@ func TestGossipSyncerFilterGossipMsgsNoHorizon(t *testing.T) {
 	// First, we'll create a GossipSyncer instance with a canned sendToPeer
 	// message to allow us to intercept their potential sends.
 	msgChan, syncer, _ := newTestSyncer(
-		lnwire.NewShortChanIDFromInt(10), defaultEncoding,
+		lnwire.NewShortChanIDFromInt(10),
 		defaultChunkSize,
 	)
 
@@ -393,7 +385,7 @@ func TestGossipSyncerFilterGossipMsgsAllInMemory(t *testing.T) {
 	// First, we'll create a GossipSyncer instance with a canned sendToPeer
 	// message to allow us to intercept their potential sends.
 	msgChan, syncer, chanSeries := newTestSyncer(
-		lnwire.NewShortChanIDFromInt(10), defaultEncoding,
+		lnwire.NewShortChanIDFromInt(10),
 		defaultChunkSize,
 	)
 
@@ -547,7 +539,7 @@ func TestGossipSyncerApplyNoHistoricalGossipFilter(t *testing.T) {
 	// First, we'll create a GossipSyncer instance with a canned sendToPeer
 	// message to allow us to intercept their potential sends.
 	_, syncer, chanSeries := newTestSyncer(
-		lnwire.NewShortChanIDFromInt(10), defaultEncoding,
+		lnwire.NewShortChanIDFromInt(10),
 		defaultChunkSize,
 	)
 	syncer.cfg.ignoreHistoricalFilters = true
@@ -608,7 +600,7 @@ func TestGossipSyncerApplyGossipFilter(t *testing.T) {
 	// First, we'll create a GossipSyncer instance with a canned sendToPeer
 	// message to allow us to intercept their potential sends.
 	msgChan, syncer, chanSeries := newTestSyncer(
-		lnwire.NewShortChanIDFromInt(10), defaultEncoding,
+		lnwire.NewShortChanIDFromInt(10),
 		defaultChunkSize,
 	)
 
@@ -728,7 +720,7 @@ func TestGossipSyncerQueryChannelRangeWrongChainHash(t *testing.T) {
 	// First, we'll create a GossipSyncer instance with a canned sendToPeer
 	// message to allow us to intercept their potential sends.
 	msgChan, syncer, _ := newTestSyncer(
-		lnwire.NewShortChanIDFromInt(10), defaultEncoding,
+		lnwire.NewShortChanIDFromInt(10),
 		defaultChunkSize,
 	)
 
@@ -781,7 +773,7 @@ func TestGossipSyncerReplyShortChanIDsWrongChainHash(t *testing.T) {
 	// First, we'll create a GossipSyncer instance with a canned sendToPeer
 	// message to allow us to intercept their potential sends.
 	msgChan, syncer, _ := newTestSyncer(
-		lnwire.NewShortChanIDFromInt(10), defaultEncoding,
+		lnwire.NewShortChanIDFromInt(10),
 		defaultChunkSize,
 	)
 
@@ -831,7 +823,7 @@ func TestGossipSyncerReplyShortChanIDs(t *testing.T) {
 	// First, we'll create a GossipSyncer instance with a canned sendToPeer
 	// message to allow us to intercept their potential sends.
 	msgChan, syncer, chanSeries := newTestSyncer(
-		lnwire.NewShortChanIDFromInt(10), defaultEncoding,
+		lnwire.NewShortChanIDFromInt(10),
 		defaultChunkSize,
 	)
 
@@ -941,7 +933,7 @@ func TestGossipSyncerReplyChanRangeQuery(t *testing.T) {
 	// We'll now create our test gossip syncer that will shortly respond to
 	// our canned query.
 	msgChan, syncer, chanSeries := newTestSyncer(
-		lnwire.NewShortChanIDFromInt(10), defaultEncoding, chunkSize,
+		lnwire.NewShortChanIDFromInt(10), chunkSize,
 	)
 
 	// Next, we'll craft a query to ask for all the new chan ID's after
@@ -1109,7 +1101,7 @@ func TestGossipSyncerReplyChanRangeQueryBlockRange(t *testing.T) {
 	// First create our test gossip syncer that will handle and
 	// respond to the test queries
 	_, syncer, chanSeries := newTestSyncer(
-		lnwire.NewShortChanIDFromInt(10), defaultEncoding, math.MaxInt32,
+		lnwire.NewShortChanIDFromInt(10), math.MaxInt32,
 	)
 
 	// Next construct test queries with various startBlock and endBlock
@@ -1223,7 +1215,7 @@ func TestGossipSyncerReplyChanRangeQueryNoNewChans(t *testing.T) {
 	// We'll now create our test gossip syncer that will shortly respond to
 	// our canned query.
 	msgChan, syncer, chanSeries := newTestSyncer(
-		lnwire.NewShortChanIDFromInt(10), defaultEncoding,
+		lnwire.NewShortChanIDFromInt(10),
 		defaultChunkSize,
 	)
 
@@ -1305,7 +1297,7 @@ func TestGossipSyncerGenChanRangeQuery(t *testing.T) {
 	const startingHeight = 200
 	_, syncer, _ := newTestSyncer(
 		lnwire.ShortChannelID{BlockHeight: startingHeight},
-		defaultEncoding, defaultChunkSize,
+		defaultChunkSize,
 	)
 
 	// If we now ask the syncer to generate an initial range query, it
@@ -1367,7 +1359,7 @@ func testGossipSyncerProcessChanRangeReply(t *testing.T, legacy bool) {
 		BlockHeight: latestKnownHeight,
 	}
 	_, syncer, chanSeries := newTestSyncer(
-		highestID, defaultEncoding, defaultChunkSize,
+		highestID, defaultChunkSize,
 	)
 
 	startingState := syncer.state
@@ -1604,7 +1596,7 @@ func TestGossipSyncerSynchronizeChanIDs(t *testing.T) {
 	// First, we'll create a GossipSyncer instance with a canned sendToPeer
 	// message to allow us to intercept their potential sends.
 	msgChan, syncer, _ := newTestSyncer(
-		lnwire.NewShortChanIDFromInt(10), defaultEncoding, chunkSize,
+		lnwire.NewShortChanIDFromInt(10), chunkSize,
 	)
 
 	// Next, we'll construct a set of chan ID's that we should query for,
@@ -1842,13 +1834,13 @@ func TestGossipSyncerRoutineSync(t *testing.T) {
 		BlockHeight: 1144,
 	}
 	msgChan1, syncer1, chanSeries1 := newTestSyncer(
-		highestID, defaultEncoding, chunkSize, true, false,
+		highestID, chunkSize, true, false,
 	)
 	syncer1.Start()
 	defer syncer1.Stop()
 
 	msgChan2, syncer2, chanSeries2 := newTestSyncer(
-		highestID, defaultEncoding, chunkSize, false, true,
+		highestID, chunkSize, false, true,
 	)
 	syncer2.Start()
 	defer syncer2.Stop()
@@ -1990,13 +1982,13 @@ func TestGossipSyncerAlreadySynced(t *testing.T) {
 		BlockHeight: 1144,
 	}
 	msgChan1, syncer1, chanSeries1 := newTestSyncer(
-		highestID, defaultEncoding, chunkSize,
+		highestID, chunkSize,
 	)
 	syncer1.Start()
 	defer syncer1.Stop()
 
 	msgChan2, syncer2, chanSeries2 := newTestSyncer(
-		highestID, defaultEncoding, chunkSize,
+		highestID, chunkSize,
 	)
 	syncer2.Start()
 	defer syncer2.Stop()
@@ -2307,7 +2299,7 @@ func TestGossipSyncerSyncTransitions(t *testing.T) {
 				lnwire.ShortChannelID{
 					BlockHeight: latestKnownHeight,
 				},
-				defaultEncoding, defaultChunkSize,
+				defaultChunkSize,
 			)
 			syncer.setSyncState(chansSynced)
 
@@ -2356,7 +2348,7 @@ func TestProcessSyncTransitionShutdown(t *testing.T) {
 	// the syncer's quit channel.
 	_, syncer, _ := newTestSyncer(
 		lnwire.ShortChannelID{BlockHeight: latestKnownHeight},
-		defaultEncoding, defaultChunkSize,
+		defaultChunkSize,
 	)
 	syncer.setSyncState(chansSynced)
 	syncer.setSyncType(PassiveSync)
@@ -2405,7 +2397,7 @@ func TestGossipSyncerHistoricalSync(t *testing.T) {
 	// historical sync requests in this state.
 	msgChan, syncer, _ := newTestSyncer(
 		lnwire.ShortChannelID{BlockHeight: latestKnownHeight},
-		defaultEncoding, defaultChunkSize, true, true, true,
+		defaultChunkSize, true, true, true,
 	)
 	syncer.setSyncType(PassiveSync)
 	syncer.setSyncState(chansSynced)
@@ -2447,7 +2439,7 @@ func TestGossipSyncerSyncedSignal(t *testing.T) {
 	// We'll create a new gossip syncer and manually override its state to
 	// chansSynced.
 	_, syncer, _ := newTestSyncer(
-		lnwire.NewShortChanIDFromInt(10), defaultEncoding,
+		lnwire.NewShortChanIDFromInt(10),
 		defaultChunkSize,
 	)
 	syncer.setSyncState(chansSynced)
@@ -2470,7 +2462,7 @@ func TestGossipSyncerSyncedSignal(t *testing.T) {
 	// We'll try this again, but this time we'll request the signal after
 	// the syncer is active and has already reached its chansSynced state.
 	_, syncer, _ = newTestSyncer(
-		lnwire.NewShortChanIDFromInt(10), defaultEncoding,
+		lnwire.NewShortChanIDFromInt(10),
 		defaultChunkSize,
 	)
 
@@ -2498,7 +2490,7 @@ func TestGossipSyncerMaxChannelRangeReplies(t *testing.T) {
 
 	msgChan, syncer, chanSeries := newTestSyncer(
 		lnwire.ShortChannelID{BlockHeight: latestKnownHeight},
-		defaultEncoding, defaultChunkSize,
+		defaultChunkSize,
 	)
 
 	// We'll tune the maxQueryChanRangeReplies to a more sensible value for
@@ -2579,7 +2571,7 @@ func TestGossipSyncerMaxChannelRangeSCIDs(t *testing.T) {
 
 	_, syncer, _ := newTestSyncer(
 		lnwire.ShortChannelID{BlockHeight: latestKnownHeight},
-		defaultEncoding, defaultChunkSize,
+		defaultChunkSize,
 	)
 
 	query, err := syncer.genChanRangeQuery(ctx, true)
@@ -2638,7 +2630,7 @@ func TestGossipSyncerChanRangeReplyNoQuery(t *testing.T) {
 
 	_, syncer, _ := newTestSyncer(
 		lnwire.ShortChannelID{BlockHeight: latestKnownHeight},
-		defaultEncoding, defaultChunkSize,
+		defaultChunkSize,
 	)
 
 	// Note that we deliberately skip genChanRangeQuery here, so

@@ -35,6 +35,10 @@
   overflowing offset and limit combinations without reaching a slice-bounds
   panic.
 
+* [Fixed an issue](https://github.com/lightningnetwork/lnd/pull/10869) where an
+  incoming HTLC resolver could treat a foreign commitment spend as its own
+  success transaction and offer a phantom input to the sweeper.
+
 # New Features
 
 ## Functional Enhancements

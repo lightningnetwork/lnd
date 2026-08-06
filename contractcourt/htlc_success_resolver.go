@@ -18,6 +18,7 @@ import (
 	"github.com/lightningnetwork/lnd/graph/db/models"
 	"github.com/lightningnetwork/lnd/input"
 	"github.com/lightningnetwork/lnd/labels"
+	"github.com/lightningnetwork/lnd/lntypes"
 	"github.com/lightningnetwork/lnd/lnutils"
 	"github.com/lightningnetwork/lnd/lnwallet"
 	"github.com/lightningnetwork/lnd/sweep"
@@ -168,12 +169,64 @@ func (h *htlcSuccessResolver) resolveRemoteCommitOutput() error {
 	if err != nil {
 		return err
 	}
+	spendingInput, err := h.validatedSpendInput(sweepTxDetails)
+	if err != nil {
+		return err
+	}
+
+	signDesc := &h.htlcResolution.SweepSignDesc
+	if len(signDesc.WitnessScript) == 0 {
+		return fmt.Errorf("%w: missing success witness script",
+			errInvalidSuccessResolver)
+	}
+	if h.isTaproot() {
+		_, err := txscript.ParseControlBlock(signDesc.ControlBlock)
+		if err != nil {
+			return fmt.Errorf(
+				"%w: invalid success control block: %w",
+				errInvalidSuccessResolver, err,
+			)
+		}
+	}
+
+	spendTxID := sweepTxDetails.SpendingTx.TxHash()
+	witness := spendingInput.Witness
+	if !h.isPreimageSpend(witness) {
+		return h.checkpointForeignSpend(spendTxID)
+	}
+
+	var preimage lntypes.Preimage
+	copy(preimage[:], witness[localPreimageIndex])
+	if !preimage.Matches(h.htlc.RHash) {
+		return fmt.Errorf("%w: spend preimage does not match HTLC hash",
+			errInvalidSuccessResolver)
+	}
 
 	// TODO(yy): should also update the `RecoveredBalance` and
 	// `LimboBalance` like other paths?
 
 	// Checkpoint the resolver, and write the outcome to disk.
 	return h.checkpointClaim(sweepTxDetails.SpenderTxHash)
+}
+
+// isPreimageSpend returns true when the witness reveals the expected HTLC
+// success leaf and includes a correctly sized preimage.
+func (h *htlcSuccessResolver) isPreimageSpend(witness wire.TxWitness) bool {
+	if h.isTaproot() {
+		return h.isTaprootPreimageSpend(witness)
+	}
+
+	if !checkSizeAndIndex(
+		witness, expectedLocalWitnessSuccessSize, localPreimageIndex,
+	) {
+
+		return false
+	}
+
+	return bytes.Equal(
+		witness[len(witness)-1],
+		h.htlcResolution.SweepSignDesc.WitnessScript,
+	)
 }
 
 // isTaprootPreimageSpend returns true when the witness reveals the expected

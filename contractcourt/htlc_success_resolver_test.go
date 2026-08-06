@@ -194,7 +194,13 @@ func TestHtlcSuccessSingleStage(t *testing.T) {
 	htlcOutpoint := wire.OutPoint{Index: 3}
 
 	sweepTx := &wire.MsgTx{
-		TxIn:  []*wire.TxIn{{}},
+		TxIn: []*wire.TxIn{{
+			PreviousOutPoint: htlcOutpoint,
+			Witness: wire.TxWitness{
+				dummyBytes, testResPreimage[:],
+				testSignDesc.WitnessScript,
+			},
+		}},
 		TxOut: []*wire.TxOut{{}},
 	}
 
@@ -240,7 +246,8 @@ func TestHtlcSuccessSingleStage(t *testing.T) {
 			reports: []*channeldb.ResolverReport{
 				claim,
 			},
-			finalHtlcStored: true,
+			finalHtlcStored:  true,
+			finalHtlcSettled: true,
 		},
 	}
 
@@ -448,6 +455,76 @@ func TestHtlcSuccessTaprootClassification(t *testing.T) {
 		dummyBytes, testResPreimage[:], fixture.successScript,
 		fixture.auxControl,
 	}))
+}
+
+// TestHtlcSuccessSingleStageClassification tests direct HTLC spend paths.
+func TestHtlcSuccessSingleStageClassification(t *testing.T) {
+	fixture := newTaprootSuccessSpendFixture(t)
+
+	claimOutpoint := wire.OutPoint{Index: 3}
+	resolution := lnwallet.IncomingHtlcResolution{
+		Preimage:      testResPreimage,
+		SweepSignDesc: fixture.signDesc,
+		ClaimOutpoint: claimOutpoint,
+	}
+	auxSpendTx := &wire.MsgTx{TxIn: []*wire.TxIn{{
+		PreviousOutPoint: claimOutpoint,
+		Witness: wire.TxWitness{
+			dummyBytes, testResPreimage[:], fixture.successScript,
+			fixture.auxControl,
+		},
+	}}}
+	auxSpendTxID := auxSpendTx.TxHash()
+	testHtlcSuccess(t, resolution, []checkpoint{{
+		preCheckpoint: func(
+			ctx *htlcResolverTestContext, _ bool) error {
+
+			ctx.notifier.SpendChan <- newSpendDetail(
+				claimOutpoint, auxSpendTx, 0,
+			)
+
+			return nil
+		},
+		resolved: false,
+		reports: []*channeldb.ResolverReport{{
+			OutPoint:        claimOutpoint,
+			Amount:          testHtlcAmt.ToSatoshis(),
+			ResolverType:    channeldb.ResolverTypeIncomingHtlc,
+			ResolverOutcome: channeldb.ResolverOutcomeTimeout,
+			SpendTxID:       &auxSpendTxID,
+		}},
+		finalHtlcStored:      true,
+		checkpointsOnRestart: true,
+	}})
+
+	wrongPreimage := make([]byte, 32)
+	wrongPreimage[0] = 1
+	ctx := newHtlcResolverTestContext(t, func(htlc channeldb.HTLC,
+		cfg ResolverConfig) ContractResolver {
+
+		return newSuccessResolver(resolution, 0, htlc, cfg)
+	})
+	ctx.checkpoint = func(_ ContractResolver,
+		_ ...*channeldb.ResolverReport) error {
+
+		t.Fatal("unexpected checkpoint")
+		return nil
+	}
+	wrongSpendTx := &wire.MsgTx{TxIn: []*wire.TxIn{{
+		PreviousOutPoint: claimOutpoint,
+		Witness: wire.TxWitness{
+			dummyBytes, wrongPreimage, fixture.successScript,
+			fixture.successControl,
+		},
+	}}}
+	ctx.notifier.SpendChan <- newSpendDetail(
+		claimOutpoint, wrongSpendTx, 0,
+	)
+	err := requireSuccessResolver(t, ctx.resolver).
+		resolveRemoteCommitOutput()
+	require.ErrorIs(t, err, errInvalidSuccessResolver)
+	require.False(t, ctx.finalHtlcOutcomeStored)
+	require.Empty(t, ctx.htlcNotifier.finalHtlcEvents)
 }
 
 // TestHtlcSuccessMatchSecondLevelOutput tests matching the success transaction
@@ -722,7 +799,8 @@ func TestHtlcSuccessSecondStageResolution(t *testing.T) {
 				secondStage,
 				firstStage,
 			},
-			finalHtlcStored: true,
+			finalHtlcStored:  true,
+			finalHtlcSettled: true,
 		},
 	}
 
@@ -941,11 +1019,27 @@ func TestHtlcSuccessSecondStageResolutionSweeper(t *testing.T) {
 				secondStage,
 				firstStage,
 			},
-			finalHtlcStored: true,
+			finalHtlcStored:  true,
+			finalHtlcSettled: true,
 		},
 	}
 
 	testHtlcSuccess(t, twoStageResolution, checkpoints)
+}
+
+// newSpendDetail creates notifier spend details for the selected transaction
+// input.
+func newSpendDetail(spent wire.OutPoint, tx *wire.MsgTx,
+	inputIndex uint32) *chainntnfs.SpendDetail {
+
+	txid := tx.TxHash()
+	return &chainntnfs.SpendDetail{
+		SpendingTx:        tx,
+		SpenderTxHash:     &txid,
+		SpenderInputIndex: inputIndex,
+		SpendingHeight:    10,
+		SpentOutPoint:     &spent,
+	}
 }
 
 // checkpoint holds expected data we expect the resolver to checkpoint itself
@@ -957,10 +1051,12 @@ type checkpoint struct {
 	preCheckpoint func(*htlcResolverTestContext, bool) error
 
 	// data we expect the resolver to be checkpointed with next.
-	incubating      bool
-	resolved        bool
-	reports         []*channeldb.ResolverReport
-	finalHtlcStored bool
+	incubating           bool
+	resolved             bool
+	reports              []*channeldb.ResolverReport
+	finalHtlcStored      bool
+	finalHtlcSettled     bool
+	checkpointsOnRestart bool
 }
 
 // testHtlcSuccess tests resolution of a success resolver. It takes a a list of
@@ -1007,8 +1103,13 @@ func testHtlcSuccess(t *testing.T, resolution lnwallet.IncomingHtlcResolution,
 			},
 		)
 
+		nextCheckpoint := i + 1
+		if checkpoints[i].checkpointsOnRestart {
+			nextCheckpoint = i
+		}
+
 		// Run from the given checkpoint, ensuring we'll hit the rest.
-		_ = runFromCheckpoint(t, ctx, checkpoints[i+1:])
+		_ = runFromCheckpoint(t, ctx, checkpoints[nextCheckpoint:])
 	}
 }
 
@@ -1072,6 +1173,10 @@ func runFromCheckpoint(t *testing.T, ctx *htlcResolverTestContext,
 		// Check that the final htlc outcome is stored.
 		if cp.finalHtlcStored != ctx.finalHtlcOutcomeStored {
 			t.Fatal("final htlc store expectation failed")
+		}
+		if cp.finalHtlcStored {
+			require.Equal(t, cp.finalHtlcSettled,
+				ctx.finalHtlcSettled)
 		}
 
 		// Finally encode the resolver, and store it for later use.

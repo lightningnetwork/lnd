@@ -34,6 +34,9 @@ http:
     - selector: walletrpc.WalletKit.PublishTransaction
       post: "/v2/wallet/tx"
       body: "*"
+    - selector: walletrpc.WalletKit.SubmitPackage
+      post: "/v2/wallet/tx/package"
+      body: "*"
     - selector: walletrpc.WalletKit.SendOutputs
       post: "/v2/wallet/send"
       body: "*"

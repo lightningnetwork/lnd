@@ -208,6 +208,19 @@ func (h *HarnessRPC) PublishTransaction(
 	return resp
 }
 
+// SubmitPackage makes a RPC call to the node's WalletKitClient and asserts.
+func (h *HarnessRPC) SubmitPackage(
+	req *walletrpc.SubmitPackageRequest) *walletrpc.SubmitPackageResponse {
+
+	ctxt, cancel := context.WithTimeout(h.runCtx, DefaultTimeout)
+	defer cancel()
+
+	resp, err := h.WalletKit.SubmitPackage(ctxt, req)
+	h.NoError(err, "SubmitPackage")
+
+	return resp
+}
+
 // GetTransaction makes a RPC call to the node's WalletKitClient and asserts.
 func (h *HarnessRPC) GetTransaction(
 	req *walletrpc.GetTransactionRequest) *lnrpc.Transaction {

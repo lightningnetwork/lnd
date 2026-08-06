@@ -206,7 +206,10 @@ func (h *htlcSuccessResolver) resolveRemoteCommitOutput() error {
 	// `LimboBalance` like other paths?
 
 	// Checkpoint the resolver, and write the outcome to disk.
-	return h.checkpointClaim(sweepTxDetails.SpenderTxHash)
+	return h.checkpointClaim(
+		h.htlcResolution.ClaimOutpoint,
+		&spendTxID,
+	)
 }
 
 // isPreimageSpend returns true when the witness reveals the expected HTLC
@@ -264,10 +267,12 @@ func (h *htlcSuccessResolver) isTaprootPreimageSpend(
 	)
 }
 
-// checkpointClaim checkpoints the success resolver with the reports it needs.
-// If this htlc was claimed two stages, it will write reports for both stages,
-// otherwise it will just write for the single htlc claim.
-func (h *htlcSuccessResolver) checkpointClaim(spendTx *chainhash.Hash) error {
+// checkpointClaim checkpoints a successful HTLC claim. claimOutpoint is the
+// output recovered in the final stage, and spendTxID identifies the transaction
+// that spent it. A two-stage claim writes reports for both stages.
+func (h *htlcSuccessResolver) checkpointClaim(claimOutpoint wire.OutPoint,
+	spendTxID *chainhash.Hash) error {
+
 	// Mark the htlc as final settled.
 	err := h.ChainArbitratorConfig.PutFinalHtlcOutcome(
 		h.ChannelArbitratorConfig.ShortChanID, h.htlc.HtlcIndex, true,
@@ -292,11 +297,11 @@ func (h *htlcSuccessResolver) checkpointClaim(spendTx *chainhash.Hash) error {
 	amt := btcutil.Amount(h.htlcResolution.SweepSignDesc.Output.Value)
 	reports := []*channeldb.ResolverReport{
 		{
-			OutPoint:        h.htlcResolution.ClaimOutpoint,
+			OutPoint:        claimOutpoint,
 			Amount:          amt,
 			ResolverType:    channeldb.ResolverTypeIncomingHtlc,
 			ResolverOutcome: channeldb.ResolverOutcomeClaimed,
-			SpendTxID:       spendTx,
+			SpendTxID:       spendTxID,
 		},
 	}
 
@@ -306,11 +311,10 @@ func (h *htlcSuccessResolver) checkpointClaim(spendTx *chainhash.Hash) error {
 		// If the SignedSuccessTx is not nil, we are claiming the htlc
 		// in two stages, so we need to create a report for the first
 		// stage transaction as well.
-		spendTx := h.htlcResolution.SignedSuccessTx
-		spendTxID := spendTx.TxHash()
+		spendTxID := claimOutpoint.Hash
 
 		report := &channeldb.ResolverReport{
-			OutPoint:        spendTx.TxIn[0].PreviousOutPoint,
+			OutPoint:        h.outpoint(),
 			Amount:          h.htlc.Amt.ToSatoshis(),
 			ResolverType:    channeldb.ResolverTypeIncomingHtlc,
 			ResolverOutcome: channeldb.ResolverOutcomeFirstStage,
@@ -976,7 +980,7 @@ func (h *htlcSuccessResolver) resolveSuccessTxOutput(op wire.OutPoint) error {
 	h.currentReport.LimboBalance = 0
 	h.reportLock.Unlock()
 
-	return h.checkpointClaim(spend.SpenderTxHash)
+	return h.checkpointClaim(op, spend.SpenderTxHash)
 }
 
 // Launch creates an input based on the details of the incoming htlc resolution

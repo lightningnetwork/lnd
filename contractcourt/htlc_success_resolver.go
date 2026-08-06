@@ -277,6 +277,73 @@ func (h *htlcSuccessResolver) checkpointClaim(spendTx *chainhash.Hash) error {
 	return h.Checkpoint(h, reports...)
 }
 
+// checkpointForeignSpend checkpoints an HTLC spend as failed when it occurred
+// outside the expected success path. Persisting the cleared
+// outputIncubating state prevents a restored resolver from offering a phantom
+// second-level output to the sweeper.
+func (h *htlcSuccessResolver) checkpointForeignSpend(
+	spendTxID chainhash.Hash) error {
+
+	h.log.Warnf("HTLC outpoint %v was spent by tx %v outside the "+
+		"expected success path", h.outpoint(), spendTxID)
+
+	err := h.ChainArbitratorConfig.PutFinalHtlcOutcome(
+		h.ChannelArbitratorConfig.ShortChanID, h.htlc.HtlcIndex, false,
+	)
+	if err != nil {
+		return err
+	}
+
+	// The final outcome is a separate durable write. If the resolver
+	// checkpoint below fails, only the live resolver state can be restored;
+	// retrying records the same failed outcome again.
+	report := &channeldb.ResolverReport{
+		OutPoint:        h.outpoint(),
+		Amount:          h.htlc.Amt.ToSatoshis(),
+		ResolverType:    channeldb.ResolverTypeIncomingHtlc,
+		ResolverOutcome: channeldb.ResolverOutcomeTimeout,
+		SpendTxID:       &spendTxID,
+	}
+
+	h.reportLock.Lock()
+	previousReport := h.currentReport
+	h.currentReport.RecoveredBalance = 0
+	h.currentReport.LimboBalance = 0
+	h.reportLock.Unlock()
+
+	// A foreign spend leaves no second-level success output to sweep.
+	previousIncubating := h.outputIncubating
+	h.outputIncubating = false
+
+	// Persist the terminal outcome while unresolved. If resolver removal
+	// does not complete during this run, a restart reloads the resolver and
+	// retries the terminal transition instead of skipping it as already
+	// resolved.
+	if err := h.Checkpoint(h, report); err != nil {
+		h.outputIncubating = previousIncubating
+
+		h.reportLock.Lock()
+		h.currentReport = previousReport
+		h.reportLock.Unlock()
+
+		return err
+	}
+
+	h.markResolved()
+	h.ChainArbitratorConfig.HtlcNotifier.NotifyFinalHtlcEvent(
+		models.CircuitKey{
+			ChanID: h.ShortChanID,
+			HtlcID: h.htlc.HtlcIndex,
+		},
+		channeldb.FinalHtlcInfo{
+			Settled:  false,
+			Offchain: false,
+		},
+	)
+
+	return nil
+}
+
 // Stop signals the resolver to cancel any current resolution processes, and
 // suspend.
 //

@@ -3,8 +3,32 @@ package lnwallet
 import (
 	"testing"
 
+	"github.com/lightningnetwork/lnd/chanstate"
 	"github.com/stretchr/testify/require"
 )
+
+// TestHandleFundingCounterPartySigsMissingReservation tests the missing
+// reservation response.
+func TestHandleFundingCounterPartySigsMissingReservation(t *testing.T) {
+	t.Parallel()
+
+	wallet := &LightningWallet{
+		fundingLimbo: make(map[uint64]*ChannelReservation),
+	}
+	completeChan := make(chan *chanstate.OpenChannel, 1)
+	errChan := make(chan error, 1)
+
+	wallet.handleFundingCounterPartySigs(&addCounterPartySigsMsg{
+		pendingFundingID: 1,
+		completeChan:     completeChan,
+		err:              errChan,
+	})
+
+	require.Len(t, completeChan, 1)
+	require.Nil(t, <-completeChan)
+	require.Len(t, errChan, 1)
+	require.ErrorContains(t, <-errChan, "non-existent funding state")
+}
 
 // TestRegisterFundingIntent checks RegisterFundingIntent behaves as expected.
 func TestRegisterFundingIntent(t *testing.T) {

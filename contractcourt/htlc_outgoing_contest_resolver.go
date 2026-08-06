@@ -229,10 +229,14 @@ func (h *htlcOutgoingContestResolver) Encode(w io.Writer) error {
 	return h.htlcTimeoutResolver.Encode(w)
 }
 
-// SupplementDeadline does nothing for an incoming htlc resolver.
+// SupplementDeadline forwards the incoming HTLC's expiry height to the inner
+// timeout resolver. This resolver morphs into that timeout resolver once the
+// outgoing HTLC expires on-chain, so the deadline is retained across the
+// transition.
 //
 // NOTE: Part of the htlcContractResolver interface.
-func (h *htlcOutgoingContestResolver) SupplementDeadline(_ fn.Option[int32]) {
+func (h *htlcOutgoingContestResolver) SupplementDeadline(d fn.Option[int32]) {
+	h.htlcTimeoutResolver.SupplementDeadline(d)
 }
 
 // newOutgoingContestResolverFromReader attempts to decode an encoded ContractResolver

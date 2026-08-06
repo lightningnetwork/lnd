@@ -26,6 +26,9 @@ import (
 // errInvalidSpendDetails identifies malformed notifier spend data.
 var errInvalidSpendDetails = errors.New("invalid spend details")
 
+// errInvalidSuccessResolver identifies malformed success resolver state.
+var errInvalidSuccessResolver = errors.New("invalid success resolver")
+
 // htlcSuccessResolver is a resolver that's capable of sweeping an incoming
 // HTLC output on-chain. If this is the remote party's commitment, we'll sweep
 // it directly from the commitment output *immediately*. If this is our
@@ -504,6 +507,60 @@ func (h *htlcSuccessResolver) validatedSpendInput(
 	}
 
 	return spendingInput, nil
+}
+
+// matchSecondLevelOutput checks whether the transaction spending the
+// commitment HTLC created the output expected by our sweep descriptor.
+//
+// The HTLC input uses SINGLE|ANYONECANPAY, so it commits to the transaction
+// output at the same index. A match returns that output's actual outpoint.
+func (h *htlcSuccessResolver) matchSecondLevelOutput(
+	spendingTx *wire.MsgTx,
+	outputIndex uint32) (wire.OutPoint, bool, error) {
+
+	var zeroOutpoint wire.OutPoint
+	if spendingTx == nil {
+		return zeroOutpoint, false, fmt.Errorf(
+			"%w: missing spending tx", errInvalidSpendDetails,
+		)
+	}
+
+	expected := h.htlcResolution.SweepSignDesc.Output
+	if expected == nil {
+		return zeroOutpoint, false, fmt.Errorf(
+			"%w: missing expected output for %v",
+			errInvalidSuccessResolver, h.outpoint(),
+		)
+	}
+
+	// The success output should be at the same index as the HTLC input
+	// being spent. If that output is missing, this cannot be our success
+	// tx.
+	if outputIndex >= uint32(len(spendingTx.TxOut)) {
+		return zeroOutpoint, false, nil
+	}
+
+	actual := spendingTx.TxOut[outputIndex]
+	if actual == nil {
+		return zeroOutpoint, false, fmt.Errorf(
+			"%w: output %d is nil", errInvalidSpendDetails,
+			outputIndex,
+		)
+	}
+
+	// The spender consumed the HTLC, but only an exact value/script match
+	// gives us a second-level success output that our sweep descriptor can
+	// spend.
+	if actual.Value != expected.Value ||
+		!bytes.Equal(actual.PkScript, expected.PkScript) {
+
+		return zeroOutpoint, false, nil
+	}
+
+	return wire.OutPoint{
+		Hash:  spendingTx.TxHash(),
+		Index: outputIndex,
+	}, true, nil
 }
 
 // sweepRemoteCommitOutput creates a sweep request to sweep the HTLC output on

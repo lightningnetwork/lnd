@@ -134,6 +134,27 @@ func streamToRecords(t *testing.T, data []byte) []tlv.Record {
 	return lnwire.TlvMapToRecords(typeMap)
 }
 
+// payerIDFromStream returns the invreq_payer_id public key carried by a raw
+// BOLT 12 TLV stream. It reads the field straight from the parsed type map so
+// callers stay independent of the typed message decoders.
+func payerIDFromStream(t *testing.T, data []byte) *btcec.PublicKey {
+	t.Helper()
+
+	stream, err := tlv.NewStream()
+	require.NoError(t, err)
+
+	typeMap, err := stream.DecodeWithParsedTypesP2P(bytes.NewReader(data))
+	require.NoError(t, err)
+
+	raw, ok := typeMap[invreqPayerIDType]
+	require.True(t, ok, "stream carries no invreq_payer_id")
+
+	pubKey, err := btcec.ParsePubKey(raw)
+	require.NoError(t, err)
+
+	return pubKey
+}
+
 // recordFromWireBytes builds a single tlv.Record whose encoding is the
 // supplied full TLV byte slice. The slice must be a complete
 // type+length+value sequence. Inputs are trusted spec fixtures, so the

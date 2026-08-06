@@ -682,6 +682,159 @@ func TestHtlcSuccessSkipsForeignSuccessOutput(t *testing.T) {
 	}
 }
 
+// TestHtlcSuccessRejectsMalformedRestoredSpend tests validation before output
+// matching on the restored commitment-spend path.
+func TestHtlcSuccessRejectsMalformedRestoredSpend(t *testing.T) {
+	commitOutpoint := wire.OutPoint{Index: 2}
+	resolution := newSuccessTestResolution(commitOutpoint)
+	ctx := newHtlcResolverTestContext(t, func(htlc channeldb.HTLC,
+		cfg ResolverConfig) ContractResolver {
+
+		return newSuccessResolver(resolution, 0, htlc, 0, cfg)
+	})
+	ctx.checkpoint = func(_ ContractResolver,
+		_ ...*channeldb.ResolverReport) error {
+
+		t.Fatal("unexpected checkpoint")
+		return nil
+	}
+	ctx.notifier.SpendChan <- &chainntnfs.SpendDetail{
+		SpendingTx: &wire.MsgTx{},
+	}
+
+	resolver := requireSuccessResolver(t, ctx.resolver)
+	err := resolver.resolveSuccessTx()
+	require.ErrorIs(t, err, errInvalidSpendDetails)
+	require.False(t, resolver.IsResolved())
+	require.False(t, ctx.finalHtlcOutcomeStored)
+	require.Empty(t, ctx.htlcNotifier.finalHtlcEvents)
+}
+
+// TestHtlcSuccessForeignSpend tests checkpointing foreign commitment spends
+// before and after resolver restoration.
+func TestHtlcSuccessForeignSpend(t *testing.T) {
+	commitOutpoint := wire.OutPoint{Index: 2}
+	resolution := newSuccessTestResolution(commitOutpoint)
+	foreignTx := &wire.MsgTx{
+		TxIn: []*wire.TxIn{{PreviousOutPoint: commitOutpoint}},
+		TxOut: []*wire.TxOut{{
+			Value:    resolution.SweepSignDesc.Output.Value,
+			PkScript: []byte{txscript.OP_FALSE},
+		}},
+	}
+	foreignTxID := foreignTx.TxHash()
+	foreignSpend := newSpendDetail(commitOutpoint, foreignTx, 0)
+	foreignSpend.SpenderTxHash = nil
+	resolverType := channeldb.ResolverTypeIncomingHtlc
+	resolverOutcome := channeldb.ResolverOutcomeTimeout
+
+	testCases := []struct {
+		name    string
+		restart bool
+	}{
+		{
+			// A fresh resolver offers the commitment HTLC, but a
+			// foreign transaction confirms instead.
+			name: "fresh resolver",
+		},
+		{
+			// A restored resolver replays a historical spend.
+			// Launch avoids a phantom second-level sweep.
+			name:    "restored resolver",
+			restart: true,
+		},
+	}
+	for _, testCase := range testCases {
+		t.Run(testCase.name, func(t *testing.T) {
+			defer timeout()()
+			ctx := newHtlcResolverTestContext(
+				t, func(htlc channeldb.HTLC,
+					cfg ResolverConfig) ContractResolver {
+
+					resolver := newSuccessResolver(
+						resolution, 0, htlc, 0, cfg,
+					)
+					if !testCase.restart {
+						return resolver
+					}
+
+					resolver.outputIncubating = true
+					var state bytes.Buffer
+					err := resolver.Encode(&state)
+					require.NoError(t, err)
+					decode := newSuccessResolverFromReader
+					restored, err := decode(&state, cfg)
+					require.NoError(t, err)
+					restored.Supplement(htlc)
+
+					return restored
+				},
+			)
+
+			var reports []*channeldb.ResolverReport
+			ctx.checkpoint = func(_ ContractResolver,
+				r ...*channeldb.ResolverReport) error {
+
+				reports = r
+				return nil
+			}
+
+			ctx.resolve()
+			resolver := requireSuccessResolver(t, ctx.resolver)
+			sweeper, ok := resolver.Sweeper.(*mockSweeper)
+			require.True(t, ok)
+			if !testCase.restart {
+				select {
+				case input := <-sweeper.sweptInputs:
+					require.Equal(
+						t, commitOutpoint,
+						input.OutPoint(),
+					)
+
+				case <-time.After(time.Second):
+					t.Fatal("expected input to be swept")
+				}
+			}
+			// Launch and Resolve each register after restart.
+			// Each receives its own historical-spend replay.
+			go func() {
+				ctx.notifier.SpendChan <- foreignSpend
+				if testCase.restart {
+					ctx.notifier.SpendChan <- foreignSpend
+				}
+			}()
+			ctx.waitForResult()
+
+			require.True(t, resolver.IsResolved())
+			require.False(t, resolver.outputIncubating)
+			require.Zero(t, resolver.currentReport.LimboBalance)
+			require.Zero(t, resolver.currentReport.RecoveredBalance)
+			require.True(t, ctx.finalHtlcOutcomeStored)
+			require.False(t, ctx.finalHtlcSettled)
+			require.Equal(t, []*channeldb.ResolverReport{{
+				OutPoint:        commitOutpoint,
+				Amount:          testHtlcAmt.ToSatoshis(),
+				ResolverType:    resolverType,
+				ResolverOutcome: resolverOutcome,
+				SpendTxID:       &foreignTxID,
+			}}, reports)
+			require.Equal(t, []finalHtlcEvent{{
+				key: testCircuitKey,
+				info: channeldb.FinalHtlcInfo{
+					Settled: false,
+				},
+			}}, ctx.htlcNotifier.finalHtlcEvents)
+
+			select {
+			case sweptInput := <-sweeper.sweptInputs:
+				t.Fatalf("unexpected phantom sweep: %v",
+					sweptInput.OutPoint())
+			default:
+			}
+		})
+	}
+}
+
 // TestHtlcSuccessForeignSpendCheckpointError tests rollback and retry after a
 // foreign-spend checkpoint failure.
 func TestHtlcSuccessForeignSpendCheckpointError(t *testing.T) {
@@ -1031,7 +1184,6 @@ func TestHtlcSuccessSecondStageResolutionSweeper(t *testing.T) {
 
 				ctx.notifier.SpendChan <- &chainntnfs.SpendDetail{
 					SpendingTx:        reSignedSuccessTx,
-					SpenderTxHash:     &reSignedHash,
 					SpenderInputIndex: 1,
 					SpendingHeight:    10,
 					SpentOutPoint:     &commitOutpoint,
@@ -1054,7 +1206,6 @@ func TestHtlcSuccessSecondStageResolutionSweeper(t *testing.T) {
 				if resumed {
 					ctx.notifier.SpendChan <- &chainntnfs.SpendDetail{
 						SpendingTx:        reSignedSuccessTx,
-						SpenderTxHash:     &reSignedHash,
 						SpenderInputIndex: 1,
 						SpendingHeight:    10,
 						SpentOutPoint:     &commitOutpoint,
@@ -1069,7 +1220,6 @@ func TestHtlcSuccessSecondStageResolutionSweeper(t *testing.T) {
 				// spend.
 				ctx.notifier.SpendChan <- &chainntnfs.SpendDetail{
 					SpendingTx:        reSignedSuccessTx,
-					SpenderTxHash:     &reSignedHash,
 					SpenderInputIndex: 1,
 					SpendingHeight:    10,
 					SpentOutPoint:     &commitOutpoint,

@@ -136,6 +136,15 @@
 
 ## Testing
 
+* [Fixed an invalid delivery-script fixture in the RBF cooperative close
+  tests](https://github.com/lightningnetwork/lnd/pull/11042).
+  `TestRbfChannelActiveTransitions` shadowed the package-level delivery
+  addresses with byte blobs that are not well-formed shutdown scripts. The
+  subtests using them all tripped an earlier guard in `validateShutdown`, so the
+  bad fixture was never reached and nothing failed — but reordering those guards
+  would have panicked the package's test binary from inside the mock error
+  reporter, far from the fixture actually at fault.
+
 ## Database
 
 ## Code Health

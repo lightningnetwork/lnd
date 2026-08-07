@@ -5375,8 +5375,9 @@ func TestFeeUpdateOldDiskFormat(t *testing.T) {
 				err)
 		}
 	}
-	// Check that the expected number of items is found in the logs.
-	expFee := numHTLCs / 5
+	// Replacement semantics retain the final pending fee value alongside
+	// all of the HTLCs.
+	expFee := 1
 	assertLogItems(expFee, numHTLCs)
 
 	// Now, Alice will send a new commitment to Bob, but we'll simulate a

@@ -14,6 +14,16 @@ import (
 	"github.com/lightningnetwork/lnd/lnwire"
 )
 
+const (
+	// maxWireMessages is the maximum number of ordered messages that can
+	// wait for a channel link. It accommodates a full commitment batch.
+	maxWireMessages = 1000
+
+	// maxWireBytes bounds the encoded size of messages that can wait for a
+	// channel link.
+	maxWireBytes = 4 * 1024 * 1024
+)
+
 var (
 	// ErrMailBoxShuttingDown is returned when the mailbox is interrupted by
 	// a shutdown request.
@@ -22,6 +32,12 @@ var (
 	// ErrPacketAlreadyExists signals that an attempt to add a packet failed
 	// because it already exists in the mailbox.
 	ErrPacketAlreadyExists = errors.New("mailbox already has packet")
+
+	// errWireMessageQueueFull signals that the wire-message queue has
+	// reached one of its admission budgets.
+	errWireMessageQueueFull = errors.New(
+		"mailbox wire message queue is full",
+	)
 )
 
 // MailBox is an interface which represents a concurrent-safe, in-order
@@ -122,6 +138,7 @@ type memoryMailBox struct {
 	cfg *mailBoxConfig
 
 	wireMessages *list.List
+	wireBytes    uint32
 	wireMtx      sync.Mutex
 	wireCond     *sync.Cond
 
@@ -158,6 +175,13 @@ type memoryMailBox struct {
 	// the outstanding dust in the memoryMailBox given the current set
 	// feeRate.
 	isDust dustClosure
+}
+
+// queuedWireMessage stores a wire message and its encoded size charged to the
+// wire-message budget.
+type queuedWireMessage struct {
+	msg  lnwire.Message
+	size uint32
 }
 
 // newMemoryMailBox creates a new instance of the memoryMailBox.
@@ -383,6 +407,7 @@ func (m *memoryMailBox) wireMailCourier() {
 			select {
 			case msgDone := <-m.msgReset:
 				m.wireMessages.Init()
+				m.wireBytes = 0
 				close(msgDone)
 			case <-m.quit:
 				m.wireCond.L.Unlock()
@@ -397,7 +422,9 @@ func (m *memoryMailBox) wireMailCourier() {
 		entry := m.wireMessages.Front()
 
 		//nolint:forcetypeassert
-		nextMsg := m.wireMessages.Remove(entry).(lnwire.Message)
+		queuedMsg := m.wireMessages.Remove(entry).(*queuedWireMessage)
+		m.wireBytes -= queuedMsg.size
+		nextMsg := queuedMsg.msg
 
 		// Now that we're done with the condition, we can unlock it to
 		// allow any callers to append to the end of our target queue.
@@ -411,6 +438,7 @@ func (m *memoryMailBox) wireMailCourier() {
 		case msgDone := <-m.msgReset:
 			m.wireCond.L.Lock()
 			m.wireMessages.Init()
+			m.wireBytes = 0
 			m.wireCond.L.Unlock()
 
 			close(msgDone)
@@ -560,10 +588,28 @@ func (m *memoryMailBox) pktMailCourier() {
 // NOTE: This method is safe for concrete use and part of the MailBox
 // interface.
 func (m *memoryMailBox) AddMessage(msg lnwire.Message) error {
+	msgSize, err := wireMessageSize(msg)
+	if err != nil {
+		return fmt.Errorf(
+			"unable to determine wire message size: %w", err,
+		)
+	}
+
 	// First, we'll lock the condition, and add the message to the end of
 	// the wire message inbox.
 	m.wireCond.L.Lock()
-	m.wireMessages.PushBack(msg)
+	if m.wireMessages.Len() >= maxWireMessages ||
+		m.wireBytes+msgSize > maxWireBytes {
+
+		m.wireCond.L.Unlock()
+		return errWireMessageQueueFull
+	}
+
+	m.wireMessages.PushBack(&queuedWireMessage{
+		msg:  msg,
+		size: msgSize,
+	})
+	m.wireBytes += msgSize
 	m.wireCond.L.Unlock()
 
 	// With the message added, we signal to the mailCourier that there are
@@ -571,6 +617,16 @@ func (m *memoryMailBox) AddMessage(msg lnwire.Message) error {
 	m.wireCond.Signal()
 
 	return nil
+}
+
+// wireMessageSize returns the serialized bytes charged to the wire-message
+// budget.
+func wireMessageSize(msg lnwire.Message) (uint32, error) {
+	if sizeableMsg, ok := msg.(lnwire.SizeableMessage); ok {
+		return sizeableMsg.SerializedSize()
+	}
+
+	return lnwire.MessageSerializedSize(msg)
 }
 
 // AddPacket appends a new message to the end of the packet queue.

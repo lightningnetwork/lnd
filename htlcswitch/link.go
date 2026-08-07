@@ -363,6 +363,14 @@ type channelLink struct {
 	// forwarded sent by the switch.
 	mailBox MailBox
 
+	// mailBoxIngressMtx guards mailBoxIngressFailed and serializes peer
+	// message admission into the mailbox.
+	mailBoxIngressMtx sync.Mutex
+
+	// mailBoxIngressFailed is set after the first peer message admission
+	// failure so later messages cannot be processed across a gap.
+	mailBoxIngressFailed bool
+
 	// upstream is a channel that new messages sent from the remote peer to
 	// the local peer will be sent across.
 	upstream chan lnwire.Message
@@ -394,6 +402,11 @@ type channelLink struct {
 
 	// log is a link-specific logging instance.
 	log btclog.Logger
+
+	// warningLogged and unknownMessageLogged track whether each non-fatal
+	// message class has already been recorded for this link lifetime.
+	warningLogged        bool
+	unknownMessageLogged bool
 
 	// isOutgoingAddBlocked tracks whether the channelLink can send an
 	// UpdateAddHTLC.
@@ -1862,14 +1875,20 @@ func (l *channelLink) handleUpstreamMsg(ctx context.Context,
 	// log it and move on. We choose not to disconnect from our peer,
 	// although we "MAY" do so according to the specification.
 	case *lnwire.Warning:
-		l.log.Warnf("received warning message from peer: %v",
-			msg.Warning())
+		if !l.warningLogged {
+			l.log.Warnf("received warning message from peer: %v",
+				msg.Warning())
+			l.warningLogged = true
+		}
 
 	case *lnwire.Error:
 		l.processRemoteError(msg)
 
 	default:
-		l.log.Warnf("received unknown message of type %T", msg)
+		if !l.unknownMessageLogged {
+			l.log.Warnf("received unknown message of type %T", msg)
+			l.unknownMessageLogged = true
+		}
 	}
 
 	if err != nil {
@@ -2804,10 +2823,23 @@ func (l *channelLink) HandleChannelUpdate(message lnwire.Message) {
 	default:
 	}
 
-	err := l.mailBox.AddMessage(message)
-	if err != nil {
-		l.log.Errorf("failed to add Message to mailbox: %v", err)
+	l.mailBoxIngressMtx.Lock()
+	if l.mailBoxIngressFailed {
+		l.mailBoxIngressMtx.Unlock()
+		return
 	}
+
+	err := l.mailBox.AddMessage(message)
+	if err == nil {
+		l.mailBoxIngressMtx.Unlock()
+		return
+	}
+
+	l.mailBoxIngressFailed = true
+	l.mailBoxIngressMtx.Unlock()
+
+	l.log.Errorf("failed to add Message to mailbox: %v", err)
+	go l.cfg.Peer.Disconnect(err)
 }
 
 // updateChannelFee updates the commitment fee-per-kw on this channel by
@@ -4583,6 +4615,16 @@ func (l *channelLink) processRemoteRevokeAndAck(ctx context.Context,
 // processRemoteUpdateFee takes an `UpdateFee` msg sent from the remote and
 // processes it.
 func (l *channelLink) processRemoteUpdateFee(msg *lnwire.UpdateFee) error {
+	// BOLT 2 only permits the channel initiator to send fee updates.
+	// Validate the sender's role before applying message-specific
+	// calculations.
+	if l.channel.IsInitiator() {
+		err := fmt.Errorf("received fee update as initiator")
+		l.failf(LinkFailureError{code: ErrInvalidUpdate}, "%v", err)
+
+		return err
+	}
+
 	// Check and see if their proposed fee-rate would make us exceed the fee
 	// threshold.
 	fee := chainfee.SatPerKWeight(msg.FeePerKw)
@@ -4601,8 +4643,9 @@ func (l *channelLink) processRemoteUpdateFee(msg *lnwire.UpdateFee) error {
 
 	if isDust {
 		// The proposed fee-rate makes us exceed the fee threshold.
-		l.failf(LinkFailureError{code: ErrInternalError},
-			"fee threshold exceeded: %v", err)
+		err := fmt.Errorf("fee threshold exceeded")
+		l.failf(LinkFailureError{code: ErrInternalError}, "%v", err)
+
 		return err
 	}
 
@@ -4611,6 +4654,7 @@ func (l *channelLink) processRemoteUpdateFee(msg *lnwire.UpdateFee) error {
 	if err := l.channel.ReceiveUpdateFee(fee); err != nil {
 		l.failf(LinkFailureError{code: ErrInvalidUpdate},
 			"error receiving fee update: %v", err)
+
 		return err
 	}
 

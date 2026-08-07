@@ -32,6 +32,10 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
+// Both of these must stay well-formed delivery scripts (they're P2TR here).
+// Tests that drive a shutdown all the way through validateShutdown depend on
+// them clearing the delivery-script check, and tests that target an earlier
+// guard depend on the script not being what fails.
 var (
 	localAddr = lnwire.DeliveryAddress(append(
 		[]byte{txscript.OP_1, txscript.OP_DATA_32},
@@ -1369,8 +1373,6 @@ func testRemoteInitiatedCloseOkTaproot(t *testing.T, ctx context.Context) {
 // ChannelActive state.
 func TestRbfChannelActiveTransitions(t *testing.T) {
 	ctx := t.Context()
-	localAddr := lnwire.DeliveryAddress(bytes.Repeat([]byte{0x01}, 20))
-	remoteAddr := lnwire.DeliveryAddress(bytes.Repeat([]byte{0x02}, 20))
 
 	feeRate := chainfee.SatPerVByte(1000)
 

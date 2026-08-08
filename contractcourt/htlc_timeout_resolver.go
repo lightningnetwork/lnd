@@ -2,6 +2,7 @@ package contractcourt
 
 import (
 	"encoding/binary"
+	"errors"
 	"fmt"
 	"io"
 	"sync"
@@ -20,6 +21,8 @@ import (
 	"github.com/lightningnetwork/lnd/lnwire"
 	"github.com/lightningnetwork/lnd/sweep"
 )
+
+var errPreimageMismatch = errors.New("revealed preimage does not match HTLC")
 
 // htlcTimeoutResolver is a ContractResolver that's capable of resolving an
 // outgoing HTLC. The HTLC may be on our commitment transaction, or on the
@@ -213,6 +216,16 @@ func (h *htlcTimeoutResolver) claimCleanUp(
 	if err != nil {
 		return fmt.Errorf("unable to create pre-image from witness: %w",
 			err)
+	}
+
+	// The classifier above only asserts that the element at the preimage
+	// index is the right length, so confirm it actually opens this HTLC
+	// before we treat it as a claim. Otherwise a witness that merely has
+	// the shape of a success spend would poison the preimage cache and
+	// settle the incoming link with a preimage that isn't ours.
+	if !preimage.Matches(h.htlc.RHash) {
+		return fmt.Errorf("%w: preimage %v, htlc hash %v",
+			errPreimageMismatch, preimage, h.htlc.RHash)
 	}
 
 	log.Infof("%T(%v): extracting preimage=%v from on-chain "+

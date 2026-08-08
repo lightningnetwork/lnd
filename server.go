@@ -364,6 +364,10 @@ type server struct {
 	missionController *routing.MissionController
 	defaultMC         *routing.MissionControl
 
+	// intervalStore holds the liquidity beliefs of the interval router. It
+	// is nil unless that router is the one selected.
+	intervalStore *routing.IntervalStore
+
 	graphBuilder *graph.Builder
 
 	chanRouter *routing.ChannelRouter
@@ -1121,9 +1125,27 @@ func newServer(ctx context.Context, cfg *Config, listenAddrs []net.Addr,
 		srvrLog.Infof("Using the experimental interval router for " +
 			"payments")
 
+		s.intervalStore = routing.NewIntervalStore(
+			routingConfig.MaxMcHistory,
+		)
+
+		// The beliefs are worth keeping across a restart, but only a
+		// node running the native SQL backend has anywhere to keep
+		// them. Everywhere else the router starts cold, which costs it
+		// the attempts it takes to relearn the network.
+		if cfg.DB.UseNativeSQL && dbs.NativeSQLStore != nil {
+			srvrLog.Infof("Persisting liquidity interval beliefs " +
+				"to the native SQL store")
+
+			s.intervalStore.UsePersistence(
+				routing.NewSQLIntervalStore(
+					dbs.NativeSQLStore.GetBaseDB(),
+				), routingConfig.IntervalFlushInterval,
+			)
+		}
+
 		paymentSessionSource = routing.NewIntervalSessionSource(
-			stockSessionSource,
-			routing.NewIntervalStore(routingConfig.MaxMcHistory),
+			stockSessionSource, s.intervalStore,
 			routing.DefaultIntervalConfig(),
 		)
 
@@ -2552,6 +2574,14 @@ func (s *server) Start(ctx context.Context) error {
 		})
 		s.missionController.RunStoreTickers()
 
+		if s.intervalStore != nil {
+			cleanup = cleanup.add(s.intervalStore.Stop)
+			if err := s.intervalStore.Start(ctx); err != nil {
+				startErr = err
+				return
+			}
+		}
+
 		// Before we start the connMgr, we'll check to see if we have
 		// any backups to recover. We do this now as we want to ensure
 		// that have all the information we need to handle channel
@@ -2897,6 +2927,13 @@ func (s *server) Stop() error {
 				err)
 		}
 		s.missionController.StopStoreTickers()
+
+		if s.intervalStore != nil {
+			if err := s.intervalStore.Stop(); err != nil {
+				srvrLog.Warnf("Unable to stop interval "+
+					"store: %v", err)
+			}
+		}
 
 		// Disconnect from each active peers to ensure that
 		// peerTerminationWatchers signal completion to each peer.

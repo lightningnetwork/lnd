@@ -499,7 +499,16 @@ next.
   trying without changing WHAT it retries. Estimator worth ≤0.02 of
   objective; paradigm worth 0.18–0.22.
 
-### Next, in priority order (user directives 2026-07-30)
+### Next, in priority order (user directives 2026-08-07)
+**PR decisions settled (2026-08-07): DRAFT PR opens on upstream lnd
+once the post-drift rebase refresh lands and the user edits the
+narrative; the unbudgeted code path STAYS (validated fallback); the
+420k msat/nat fee-price ceiling STAYS (exp-029/032 measured the
+clamp's cost at <=0.0095). GEPA is formally dormant at its measured
+boundary (exp-031); breeding resumes only if replay-derived
+scenarios reopen the space.**
+
+### Prior directives (2026-07-30)
 **The ship target is the interval router in the next lnd major
 release** — the soft_unknown PR is DROPPED (user: doesn't move the
 needle); everything funnels toward the integration branch.

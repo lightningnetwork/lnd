@@ -349,6 +349,43 @@ func (s *IntervalStore) RecordSettlement(key IntervalKey,
 	})
 }
 
+// RecordSuspectFailure quarantines a failure that could not be attributed to
+// one channel with confidence. The weight says how much this failure implicates
+// this channel rather than the others it could equally have been.
+//
+// Unlike the three observations above, this one writes only the forward
+// direction. A failure we are not sure happened here is not evidence about the
+// liquidity on the other side of the channel, and inferring one from the other
+// is only sound when we know where the failure was.
+func (s *IntervalStore) RecordSuspectFailure(key IntervalKey,
+	amt, capacity lnwire.MilliSatoshi, weight float64) {
+
+	if amt == 0 || capacity == 0 || weight <= 0 {
+		return
+	}
+
+	if amt > capacity {
+		amt = capacity
+	}
+
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	entry := s.entryLocked(key)
+	entry.recordSuspect(amt, capacity, weight)
+
+	// The quarantine itself is never written down. It is soft evidence about
+	// an attribution we did not trust, and carrying it across a restart
+	// would mean restoring a suspicion that nothing since has been able to
+	// clear. Only a promotion, which leaves an ordinary bound behind, is
+	// worth persisting.
+	if entry.SuspectAmt == 0 {
+		s.markDirtyLocked(key)
+	}
+
+	s.evictLocked()
+}
+
 // update applies an observation to both directions of a channel under the
 // store's lock. Observations of a zero amount, or of a channel whose capacity
 // we do not know, carry no information the model can use and are dropped. The

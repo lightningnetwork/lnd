@@ -82,6 +82,18 @@ type IntervalConfig struct {
 	// payment that still cannot be routed is given up on rather than cut
 	// any finer.
 	MinShardAmt lnwire.MilliSatoshi
+
+	// DisableQuarantine stops the router holding an ambiguous failure as
+	// soft evidence against the channels that could have caused it. With it
+	// set, a failure that cannot name a hop leaves nothing behind in the
+	// node wide store and is handled entirely within the payment, which is
+	// what the router did before the quarantine existed.
+	//
+	// The sense is inverted so that the zero value keeps the behaviour the
+	// router was validated with. The mechanism measured as a null on the
+	// tiers built to reward it, so this exists to make turning it off a
+	// configuration change rather than a patch.
+	DisableQuarantine bool
 }
 
 // DefaultIntervalConfig returns the configuration the interval router was

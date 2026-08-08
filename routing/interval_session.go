@@ -985,10 +985,14 @@ func (p *intervalPaymentSession) recordUnattributedFailure(rt *route.Route,
 			continue
 		}
 
-		// A hop we have already proven carries this amount cannot be
-		// the one that refused it.
+		// A hop we have watched settle this amount is struck off the
+		// list. Only a settlement counts: a lower bound can also come
+		// from a failure reported further along the route, and when the
+		// report names the wrong hop that bound lands on the very
+		// channel that refused. See LiquidityInterval.ProvenOK.
 		amt := intervalHopAmount(rt, i)
-		if p.store.Get(key, p.capacities[key]).LowerOK >= amt {
+		proven := p.store.Get(key, p.capacities[key]).ProvenOK
+		if proven != 0 && proven >= amt {
 			continue
 		}
 
@@ -1013,8 +1017,30 @@ func (p *intervalPaymentSession) recordUnattributedFailure(rt *route.Route,
 		return
 	}
 
+	// How much this one failure implicates any one of its suspects falls
+	// with the number of them, which is also the weight the quarantine
+	// records. Three failures naming two channels each will convict a
+	// channel they agree on; five are needed when each names five.
+	weight := 1 / math.Sqrt(float64(len(suspects)))
+
 	share := intervalSuspicionMass / math.Sqrt(float64(len(suspects)))
 	for _, item := range suspects {
+		// Hold the observation in the store's quarantine, where it
+		// prices as a discount for every payment rather than only for
+		// this one, and where enough agreement across payments turns it
+		// into a bound. Until then it is not allowed to rule anything
+		// out, because we cannot say it happened here.
+		//
+		// This is the only place anything is ever written to the
+		// quarantine, so switching it off here leaves the whole
+		// mechanism inert: nothing is recorded, so nothing prices.
+		if !p.cfg.DisableQuarantine {
+			p.store.RecordSuspectFailure(
+				item.key, item.amt,
+				p.capacities[item.key], weight,
+			)
+		}
+
 		p.suspects[item.key]++
 		p.penalties[item.key] += share
 

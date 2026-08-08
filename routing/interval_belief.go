@@ -122,6 +122,31 @@ const (
 	// a belief when it is restored, since whatever evidence stood behind it
 	// is now at least one restart old.
 	intervalRestoredConfidence = 0.5
+
+	// intervalSuspectPromoteWeight is the corroboration a quarantined
+	// observation needs before it becomes a bound. A failure that names two
+	// suspects contributes about 0.7 to each of them, so roughly three such
+	// failures agreeing on the same channel promote; one naming five
+	// suspects contributes 0.45, so five are needed. The more ambiguous a
+	// failure is, the more of them it takes to convict.
+	intervalSuspectPromoteWeight = 2.05
+
+	// intervalSuspectPenalty is how hard a quarantined observation prices,
+	// per unit of the weight standing behind it. A single ambiguous failure
+	// discounts an amount noticeably without ruling it out, which is the
+	// whole point of holding it apart from the bounds.
+	intervalSuspectPenalty = 0.55
+
+	// intervalSuspectPenaltyCap bounds the discount, so that a channel
+	// which keeps turning up in ambiguous failures without ever being
+	// convicted cannot be priced out of the graph entirely.
+	intervalSuspectPenaltyCap = 3.0
+
+	// intervalSuspectEstimateNumerator and
+	// intervalSuspectEstimateDenominator give the estimate a promoted
+	// suspicion leaves behind, as a fraction of the amount it named.
+	intervalSuspectEstimateNumerator   = 68
+	intervalSuspectEstimateDenominator = 100
 )
 
 // Liquidity mode classifications. The model does not just carry a probability
@@ -327,6 +352,48 @@ type LiquidityInterval struct {
 	// observation, because from that point the bounds describe evidence we
 	// gathered ourselves.
 	Restored bool
+
+	// ProvenOK is the largest amount this direction has been watched
+	// actually move, which is to say the largest amount a payment settled
+	// over it. It is the only evidence class strong enough to clear a
+	// suspicion, and nothing but a settlement ever writes it.
+	//
+	// LowerOK is not that, which is the distinction this field exists to
+	// draw. LowerOK also rises when a failure reported by some hop implies
+	// that the hops before it forwarded, and under misattribution that
+	// implication is exactly what breaks: blame shifted downstream puts the
+	// guilty channel before the reported index, so it collects a lower bound
+	// claiming it carried the amount it had in fact just refused. Reading
+	// that as proof of innocence lets the culprit walk out of every
+	// suspicion it should have been held for.
+	//
+	// A settlement proves the forward direction and only the forward
+	// direction. It does move balance to the other side, which is why the
+	// reverse interval slides up, but sliding an interval is an inference
+	// about a balance and this field is a record of something watched. So
+	// the reverse direction is left alone.
+	//
+	// NOTE: this is not persisted. It says a settlement was watched by this
+	// process, and a settlement from before a restart is evidence about a
+	// network that has had the restart to move on. A failure observed now
+	// outranks it, so a restored belief starts with nothing here and earns
+	// it back with the first settlement.
+	ProvenOK lnwire.MilliSatoshi
+
+	// SuspectAmt is the smallest amount that a failure we could not
+	// attribute has named for this channel, and SuspectWeight is how much
+	// corroboration those failures carry between them. Zero means nothing
+	// is under suspicion.
+	//
+	// This pair is the quarantine. An observation whose attribution we do
+	// not trust is held here rather than written into the bounds above,
+	// because a bound is a claim of certainty and an ambiguous failure is
+	// not one. Quarantined evidence prices as a discount and never as an
+	// impossibility. It is promoted into a real upper bound once enough
+	// independent failures agree on it, and it is cleared the moment the
+	// channel proves it can carry the amount after all.
+	SuspectAmt    lnwire.MilliSatoshi
+	SuspectWeight float64
 }
 
 // markRestored turns a belief loaded from disk into soft evidence. The bounds
@@ -336,6 +403,12 @@ type LiquidityInterval struct {
 func (l *LiquidityInterval) markRestored() {
 	l.Restored = true
 	l.Confidence *= intervalRestoredConfidence
+
+	// Proof of a settlement does not survive a restart. It is never written
+	// down, and a belief being seeded in must not carry one regardless of
+	// what the caller handed us, because a settlement from before the
+	// restart says nothing about a failure observed after it.
+	l.ProvenOK = 0
 }
 
 // normalize restores the invariant 0 <= LowerOK <= Estimate < UpperFail <=
@@ -368,6 +441,30 @@ func (l *LiquidityInterval) normalize(capacity lnwire.MilliSatoshi) {
 		}
 	}
 
+	if l.ProvenOK > capacity {
+		l.ProvenOK = capacity
+	}
+
+	if l.SuspectAmt > capacity {
+		l.SuspectAmt = capacity
+	}
+
+	// A channel we have watched settle the suspected amount is a channel the
+	// suspicion was wrong about. This is the contradiction rule, and putting
+	// it here means it fires no matter which settlement moved the bound.
+	//
+	// It reads ProvenOK rather than LowerOK on purpose. See ProvenOK.
+	if l.SuspectAmt != 0 && l.ProvenOK >= l.SuspectAmt {
+		l.clearSuspect()
+	}
+
+	// A bound we do trust says everything the suspicion was reaching for.
+	if l.SuspectAmt != 0 && l.UpperFail != 0 &&
+		l.UpperFail <= l.SuspectAmt {
+
+		l.clearSuspect()
+	}
+
 	if capacity == 0 {
 		return
 	}
@@ -381,6 +478,80 @@ func (l *LiquidityInterval) normalize(capacity lnwire.MilliSatoshi) {
 
 		l.Mode = intervalModeRich
 	}
+}
+
+// clearSuspect empties the quarantine.
+func (l *LiquidityInterval) clearSuspect() {
+	l.SuspectAmt = 0
+	l.SuspectWeight = 0
+}
+
+// recordSuspect quarantines a failure we cannot attribute with confidence. The
+// weight says how much this one failure implicates this channel, which is a
+// question of how many other channels it implicated equally.
+//
+// Nothing is written to the bounds until the weight standing behind the
+// quarantine crosses the promotion threshold. At that point enough independent
+// failures have agreed on the same channel and the same amount that treating it
+// as proven is the better bet than continuing to guess.
+func (l *LiquidityInterval) recordSuspect(amt, capacity lnwire.MilliSatoshi,
+	weight float64) {
+
+	// An amount we have watched settle over this channel is not a suspicion
+	// worth holding. Only a settlement counts here; see ProvenOK.
+	if l.ProvenOK != 0 && l.ProvenOK >= amt {
+		return
+	}
+
+	if l.SuspectAmt == 0 || amt < l.SuspectAmt {
+		l.SuspectAmt = amt
+	}
+	l.SuspectWeight += weight
+
+	if l.SuspectWeight < intervalSuspectPromoteWeight {
+		// Deliberately not marked as known. Known says the bounds hold
+		// evidence, and a suspicion is held apart from them precisely
+		// because we cannot say that. A channel under suspicion is still
+		// priced off the prior, discounted at the amount named.
+		l.normalize(capacity)
+
+		return
+	}
+
+	// Convicted. The suspicion becomes an ordinary upper bound, and the
+	// quarantine that held it is emptied, since from here it is the bound
+	// that speaks.
+	suspect := l.SuspectAmt
+	if l.UpperFail == 0 || suspect < l.UpperFail {
+		l.UpperFail = suspect
+	}
+
+	failed := suspect * intervalSuspectEstimateNumerator /
+		intervalSuspectEstimateDenominator
+	if l.Estimate == 0 || failed < l.Estimate {
+		l.Estimate = failed
+	}
+
+	l.Confidence = math.Max(l.Confidence, intervalFailureConfidence)
+	l.Failures++
+	l.Known = true
+	l.Restored = false
+	l.clearSuspect()
+	l.normalize(capacity)
+}
+
+// suspectFactor returns the discount a quarantined observation applies to the
+// given amount. It is always above zero: a suspicion we have not convicted must
+// never say impossible, because an impossible amount is never attempted and the
+// attempt is the only thing that could clear the suspicion.
+func (l *LiquidityInterval) suspectFactor(amt lnwire.MilliSatoshi) float64 {
+	if l.SuspectAmt == 0 || amt < l.SuspectAmt {
+		return 1
+	}
+
+	weight := math.Min(l.SuspectWeight, intervalSuspectPenaltyCap)
+
+	return math.Exp(-intervalSuspectPenalty * weight)
 }
 
 // intervalStrongObservation reports whether an observation of the given amount
@@ -505,6 +676,11 @@ func (l *LiquidityInterval) Probability(amt,
 	}
 
 	probability := l.rawProbability(amt, capacity, prior)
+
+	// A quarantined failure discounts the amount it named without ruling it
+	// out. Multiplying leaves a proven zero at zero and leaves a restored
+	// belief above its floor, so neither of those rules is disturbed.
+	probability *= l.suspectFactor(amt)
 
 	// A belief we restored from disk describes a network that has had every
 	// chance to move on since we wrote it down. The bounds are still worth
@@ -783,6 +959,13 @@ func (l *LiquidityInterval) recordSettlement(reverse *LiquidityInterval,
 		l.UpperFail -= amt
 	} else {
 		l.UpperFail = 0
+	}
+
+	// This is the only place ProvenOK is ever written. The amount really
+	// moved over this channel in this direction, which is the one claim
+	// strong enough to clear a suspicion.
+	if amt > l.ProvenOK {
+		l.ProvenOK = amt
 	}
 
 	l.Known = true

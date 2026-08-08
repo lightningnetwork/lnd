@@ -1,6 +1,7 @@
 package contractcourt
 
 import (
+	"bytes"
 	"encoding/binary"
 	"errors"
 	"fmt"
@@ -170,6 +171,41 @@ func (h *htlcSuccessResolver) resolveRemoteCommitOutput() error {
 
 	// Checkpoint the resolver, and write the outcome to disk.
 	return h.checkpointClaim(sweepTxDetails.SpenderTxHash)
+}
+
+// isTaprootPreimageSpend returns true when the witness reveals the expected
+// Taproot HTLC success leaf and includes a correctly sized preimage.
+func (h *htlcSuccessResolver) isTaprootPreimageSpend(
+	witness wire.TxWitness) bool {
+
+	// A BIP341 annex is an optional trailing witness element and is not
+	// part of the tapscript execution stack.
+	witness = input.StripTaprootAnnex(witness)
+	if !checkSizeAndIndex(
+		witness, localTaprootWitnessSuccessSize, localPreimageIndex,
+	) {
+
+		return false
+	}
+
+	tapScript := witness[len(witness)-2]
+	controlBlockBytes := witness[len(witness)-1]
+	controlBlock, err := txscript.ParseControlBlock(
+		controlBlockBytes,
+	)
+	expected, expectedErr := txscript.ParseControlBlock(
+		h.htlcResolution.SweepSignDesc.ControlBlock,
+	)
+	if err != nil || expectedErr != nil ||
+		controlBlock.LeafVersion != expected.LeafVersion {
+
+		return false
+	}
+
+	return bytes.Equal(
+		tapScript,
+		h.htlcResolution.SweepSignDesc.WitnessScript,
+	)
 }
 
 // checkpointClaim checkpoints the success resolver with the reports it needs.

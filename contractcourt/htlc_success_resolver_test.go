@@ -7,8 +7,10 @@ import (
 	"testing"
 	"time"
 
+	"github.com/btcsuite/btcd/btcec/v2"
 	"github.com/btcsuite/btcd/btcutil"
 	"github.com/btcsuite/btcd/chaincfg/chainhash"
+	"github.com/btcsuite/btcd/txscript"
 	"github.com/btcsuite/btcd/wire"
 	"github.com/davecgh/go-spew/spew"
 	"github.com/lightningnetwork/lnd/chainntnfs"
@@ -19,6 +21,7 @@ import (
 	"github.com/lightningnetwork/lnd/kvdb"
 	"github.com/lightningnetwork/lnd/lnmock"
 	"github.com/lightningnetwork/lnd/lntest/mock"
+	"github.com/lightningnetwork/lnd/lntypes"
 	"github.com/lightningnetwork/lnd/lnwallet"
 	"github.com/lightningnetwork/lnd/lnwire"
 	"github.com/stretchr/testify/require"
@@ -301,6 +304,97 @@ func TestHtlcSuccessValidatedSpendInput(t *testing.T) {
 			require.ErrorContains(t, err, testCase.errText)
 		})
 	}
+}
+
+type taprootSuccessSpendFixture struct {
+	signDesc       input.SignDescriptor
+	successScript  []byte
+	successControl []byte
+	timeoutScript  []byte
+	timeoutControl []byte
+	auxControl     []byte
+}
+
+// cloneTxOut returns a copy of a transaction output.
+func cloneTxOut(txOut *wire.TxOut) *wire.TxOut {
+	pkScript := append([]byte(nil), txOut.PkScript...)
+	return &wire.TxOut{
+		Value:    txOut.Value,
+		PkScript: pkScript,
+	}
+}
+
+// newTaprootSuccessSpendFixture creates success and auxiliary leaves with the
+// same script and different leaf versions.
+func newTaprootSuccessSpendFixture(
+	t *testing.T) *taprootSuccessSpendFixture {
+
+	t.Helper()
+	_, taprootKey := btcec.PrivKeyFromBytes([]byte{1})
+	successLeaf, err := input.SenderHTLCTapLeafSuccess(
+		taprootKey, testResHash[:],
+	)
+	require.NoError(t, err)
+
+	auxLeaf := txscript.NewTapLeaf(0xc2, successLeaf.Script)
+	tree, err := input.SenderHTLCScriptTaproot(
+		taprootKey, taprootKey, taprootKey, testResHash[:],
+		lntypes.Remote, fn.Some(auxLeaf),
+	)
+	require.NoError(t, err)
+	controlBytes := func(path input.ScriptPath) []byte {
+		control, err := tree.CtrlBlockForPath(path)
+		require.NoError(t, err)
+		serialized, err := control.ToBytes()
+		require.NoError(t, err)
+
+		return serialized
+	}
+	auxIndex := tree.TapScriptTree().LeafProofIndex[auxLeaf.TapHash()]
+	auxProof := tree.TapScriptTree().LeafMerkleProofs[auxIndex]
+	auxControl := auxProof.ToControlBlock(taprootKey)
+	auxControlBytes, err := auxControl.ToBytes()
+	require.NoError(t, err)
+
+	signDesc := testSignDesc
+	signDesc.Output = cloneTxOut(testSignDesc.Output)
+	signDesc.Output.PkScript = tree.PkScript()
+	signDesc.WitnessScript = successLeaf.Script
+	signDesc.ControlBlock = controlBytes(input.ScriptPathSuccess)
+
+	return &taprootSuccessSpendFixture{
+		signDesc:       signDesc,
+		successScript:  successLeaf.Script,
+		successControl: signDesc.ControlBlock,
+		timeoutScript:  tree.TimeoutTapLeaf.Script,
+		timeoutControl: controlBytes(input.ScriptPathTimeout),
+		auxControl:     auxControlBytes,
+	}
+}
+
+// TestHtlcSuccessTaprootClassification tests Taproot success leaf identity.
+func TestHtlcSuccessTaprootClassification(t *testing.T) {
+	fixture := newTaprootSuccessSpendFixture(t)
+	resolver := &htlcSuccessResolver{
+		htlcResolution: lnwallet.IncomingHtlcResolution{
+			SweepSignDesc: fixture.signDesc,
+		},
+	}
+	successWitness := wire.TxWitness{
+		dummyBytes, testResPreimage[:], fixture.successScript,
+		fixture.successControl,
+	}
+	require.True(t, resolver.isTaprootPreimageSpend(append(
+		successWitness, []byte{txscript.TaprootAnnexTag},
+	)))
+	require.False(t, resolver.isTaprootPreimageSpend(wire.TxWitness{
+		dummyBytes, dummyBytes, fixture.timeoutScript,
+		fixture.timeoutControl,
+	}))
+	require.False(t, resolver.isTaprootPreimageSpend(wire.TxWitness{
+		dummyBytes, testResPreimage[:], fixture.successScript,
+		fixture.auxControl,
+	}))
 }
 
 // TestHtlcSuccessSecondStageResolution tests successful sweep of a second

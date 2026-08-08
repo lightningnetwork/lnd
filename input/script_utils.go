@@ -472,6 +472,25 @@ func SenderHtlcSpendRevoke(signer Signer, signDesc *SignDescriptor,
 	return SenderHtlcSpendRevokeWithKey(signer, signDesc, revokeKey, sweepTx)
 }
 
+// StripTaprootAnnex removes the BIP341 annex from a Taproot witness stack if
+// one is present, returning the stack as the script interpreter sees it. The
+// caller must only use this for a Taproot spend because earlier witness
+// versions treat the final element as the witness script.
+func StripTaprootAnnex(witness wire.TxWitness) wire.TxWitness {
+	if len(witness) < 2 {
+		return witness
+	}
+
+	lastElement := witness[len(witness)-1]
+	if len(lastElement) == 0 ||
+		lastElement[0] != txscript.TaprootAnnexTag {
+
+		return witness
+	}
+
+	return witness[:len(witness)-1]
+}
+
 // IsHtlcSpendRevoke is used to determine if the passed spend is spending a
 // HTLC output using the revocation key.
 func IsHtlcSpendRevoke(txIn *wire.TxIn, signDesc *SignDescriptor) (

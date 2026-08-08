@@ -1100,12 +1100,36 @@ func newServer(ctx context.Context, cfg *Config, listenAddrs []net.Addr,
 	if err != nil {
 		return nil, fmt.Errorf("error getting source node: %w", err)
 	}
-	paymentSessionSource := &routing.SessionSource{
+	stockSessionSource := &routing.SessionSource{
 		GraphSessionFactory: s.v1Graph,
 		SourceNode:          sourceNode,
 		MissionControl:      s.defaultMC,
 		GetLink:             s.htlcSwitch.GetLinkByShortID,
 		PathFindingConfig:   pathFindingConfig,
+	}
+
+	// Select the routing algorithm used to send payments. The default is
+	// the production stack the session source above implements; the
+	// interval router is an alternative paradigm that replaces mission
+	// control with per directed channel liquidity intervals and plans MPP
+	// shard amounts together with the routes that carry them.
+	var paymentSessionSource routing.PaymentSessionSource = stockSessionSource
+	switch routingConfig.PaymentRouter {
+	case routing.DefaultPaymentRouter:
+
+	case routing.IntervalPaymentRouter:
+		srvrLog.Infof("Using the experimental interval router for " +
+			"payments")
+
+		paymentSessionSource = routing.NewIntervalSessionSource(
+			stockSessionSource,
+			routing.NewIntervalStore(routingConfig.MaxMcHistory),
+			routing.DefaultIntervalConfig(),
+		)
+
+	default:
+		return nil, fmt.Errorf("unknown router type %v",
+			routingConfig.PaymentRouter)
 	}
 
 	s.controlTower = routing.NewControlTower(dbs.PaymentsDB)

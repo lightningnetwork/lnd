@@ -1,7 +1,7 @@
 ---
 session_id: 019f95d9-7ff7-709b-8847-ec904f72acdd
 shortname: routing-evolution
-last_updated: 2026-08-08T00:17:45Z
+last_updated: 2026-08-08T00:36:01Z
 compaction_count: 5
 progress_pct: 85
 current_step: 4
@@ -77,7 +77,22 @@ exp-018 omni adjudication is LIVE overnight.
        Dashboard v64 PUBLISHED (445e8fb89). Specialist roster in
        champions/README (7a2014c8e). exp-023 verdict: edge is
        INFORMATIONAL (1673ab3bd).
-15.[ ] 2026-08-07 PR WEEK: user decisions — DRAFT PR now (after
+16.[ ] 2026-08-08 PR-READY: refresh landed (28 upstream commits,
+       ZERO overlap, migration 000016 clear, battery green). OP
+       rewritten (technical-writing skill: improvement story +
+       development story + simulator-exclusion note) and explainer
+       expanded to ~420 lines (worked example, persistence
+       mechanics, config reference, provenance). Docs identical
+       across branches (verified by diff). PUSHED: RC
+       interval-router@66c6a2e77 (28 commits) + PR branch
+       interval-router-rebased@7fa8e8014 (on master d932f4867).
+       GOTCHA hit: worktree was left on the SPARE branch post-agent
+       so the docs commit landed there first; recovered via abort +
+       cherry-pick to RC; both verified identical. Quarantine
+       checklist resolved (KEEPS). AWAITING USER: PR-draft narrative
+       edit, then open DRAFT PR from interval-router-rebased; node
+       access for replay.
+15.[x] 2026-08-07 PR WEEK: user decisions — DRAFT PR now (after
        refresh + user narrative edit), unbudgeted path KEEPS, 420k
        ceiling KEEPS. GEPA formally dormant (exp-031 boundary).
        LIVE: integration agent a1115c4fbee460647 on post-drift

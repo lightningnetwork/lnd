@@ -13,7 +13,6 @@ import (
 	"github.com/lightningnetwork/lnd/kvdb"
 	"github.com/lightningnetwork/lnd/lnmock"
 	"github.com/lightningnetwork/lnd/lntest/mock"
-	"github.com/lightningnetwork/lnd/lntypes"
 	"github.com/lightningnetwork/lnd/lnwallet"
 	"github.com/lightningnetwork/lnd/lnwire"
 	"github.com/stretchr/testify/require"
@@ -76,7 +75,10 @@ func TestHtlcOutgoingResolverRemoteClaim(t *testing.T) {
 	ctx.resolve()
 
 	// The remote party sweeps the htlc. Notify our resolver of this event.
-	preimage := lntypes.Preimage{}
+	// The revealed preimage has to open this HTLC's payment hash, as that's
+	// the only thing that makes the spend a claim rather than some other
+	// spend of the output.
+	preimage := testResPreimage
 	spendTx := &wire.MsgTx{
 		TxIn: []*wire.TxIn{
 			{

@@ -94,7 +94,7 @@ type htlcTimeoutTestCase struct {
 }
 
 func genHtlcTimeoutTestCases() []htlcTimeoutTestCase {
-	fakePreimageBytes := bytes.Repeat([]byte{1}, lntypes.HashSize)
+	fakePreimageBytes := testResPreimage[:]
 
 	var (
 		htlcOutpoint wire.OutPoint
@@ -269,7 +269,7 @@ func genHtlcTimeoutTestCases() []htlcTimeoutTestCase {
 }
 
 func testHtlcTimeoutResolver(t *testing.T, testCase htlcTimeoutTestCase) {
-	fakePreimageBytes := bytes.Repeat([]byte{1}, lntypes.HashSize)
+	fakePreimageBytes := testResPreimage[:]
 	var fakePreimage lntypes.Preimage
 
 	fakeSignDesc := &input.SignDescriptor{
@@ -354,8 +354,12 @@ func testHtlcTimeoutResolver(t *testing.T, testCase htlcTimeoutTestCase) {
 		contractResolverKit: *newContractResolverKit(
 			cfg,
 		),
+		// The hash has to correspond to the preimage the spending
+		// witnesses reveal, since a claim is only accepted when the
+		// revealed preimage actually opens this HTLC.
 		htlc: channeldb.HTLC{
-			Amt: testHtlcAmt,
+			Amt:   testHtlcAmt,
+			RHash: testResHash,
 		},
 	}
 	resolver.initLogger("timeoutResolver")
@@ -792,7 +796,7 @@ func TestHtlcTimeoutSingleStageRemoteSpend(t *testing.T) {
 		TxOut: []*wire.TxOut{{}},
 	}
 
-	fakePreimageBytes := bytes.Repeat([]byte{1}, lntypes.HashSize)
+	fakePreimageBytes := testResPreimage[:]
 	var fakePreimage lntypes.Preimage
 	copy(fakePreimage[:], fakePreimageBytes)
 
@@ -920,7 +924,7 @@ func TestHtlcTimeoutSecondStageRemoteSpend(t *testing.T) {
 		TxOut: []*wire.TxOut{},
 	}
 
-	fakePreimageBytes := bytes.Repeat([]byte{1}, lntypes.HashSize)
+	fakePreimageBytes := testResPreimage[:]
 	var fakePreimage lntypes.Preimage
 	copy(fakePreimage[:], fakePreimageBytes)
 
@@ -1292,7 +1296,7 @@ func TestHtlcTimeoutSecondStageSweeperRemoteSpend(t *testing.T) {
 		TxOut: []*wire.TxOut{{}},
 	}
 
-	fakePreimageBytes := bytes.Repeat([]byte{1}, lntypes.HashSize)
+	fakePreimageBytes := testResPreimage[:]
 	var fakePreimage lntypes.Preimage
 	copy(fakePreimage[:], fakePreimageBytes)
 
@@ -1680,5 +1684,53 @@ func TestClaimCleanUpTaprootBreachAnnex(t *testing.T) {
 
 	err := resolver.claimCleanUp(spend)
 	require.ErrorContains(t, err, "breach attempt failed")
+	require.False(t, resolver.IsResolved())
+}
+
+// TestClaimCleanUpPreimageMismatch tests that a witness which merely has the
+// shape of a success spend cannot inject a foreign preimage. The classifier
+// only asserts the element at the preimage index is 32 bytes, so claimCleanUp
+// has to confirm the preimage actually opens this HTLC.
+func TestClaimCleanUpPreimageMismatch(t *testing.T) {
+	t.Parallel()
+
+	var preimage lntypes.Preimage
+	copy(preimage[:], preimageBytes)
+
+	// Build a resolver whose HTLC is locked to an entirely different
+	// payment hash than the one the spending witness reveals.
+	var otherHash lntypes.Hash
+	copy(otherHash[:], bytes.Repeat([]byte{9}, lntypes.HashSize))
+
+	resolver := &htlcTimeoutResolver{
+		htlcResolution: lnwallet.OutgoingHtlcResolution{
+			SweepSignDesc: input.SignDescriptor{
+				Output: &wire.TxOut{},
+			},
+		},
+		htlc: channeldb.HTLC{RHash: otherHash},
+	}
+
+	// A remote-commitment success spend on a legacy channel, carrying a
+	// well-formed preimage for some other payment.
+	spendingTx := &wire.MsgTx{
+		TxIn: []*wire.TxIn{{
+			Witness: wire.TxWitness{
+				dummyBytes, dummyBytes, dummyBytes,
+				preimageBytes, dummyBytes,
+			},
+		}},
+	}
+	spend := &chainntnfs.SpendDetail{SpendingTx: spendingTx}
+
+	// The witness passes the shape check, so this is exactly the input
+	// claimCleanUp would be handed in practice.
+	require.True(t, isPreimageSpend(false, spend, false))
+
+	err := resolver.claimCleanUp(spend)
+	require.ErrorIs(t, err, errPreimageMismatch)
+
+	// Nothing should have been resolved off the back of a foreign
+	// preimage.
 	require.False(t, resolver.IsResolved())
 }

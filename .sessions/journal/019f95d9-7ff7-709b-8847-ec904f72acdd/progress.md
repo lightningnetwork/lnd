@@ -1,7 +1,7 @@
 ---
 session_id: 019f95d9-7ff7-709b-8847-ec904f72acdd
 shortname: routing-evolution
-last_updated: 2026-08-08T00:36:01Z
+last_updated: 2026-08-08T01:12:09Z
 compaction_count: 5
 progress_pct: 85
 current_step: 4
@@ -77,7 +77,18 @@ exp-018 omni adjudication is LIVE overnight.
        Dashboard v64 PUBLISHED (445e8fb89). Specialist roster in
        champions/README (7a2014c8e). exp-023 verdict: edge is
        INFORMATIONAL (1673ab3bd).
-16.[ ] 2026-08-08 PR-READY: refresh landed (28 upstream commits,
+17.[x] 2026-08-08 THE PR IS OPEN:
+       https://github.com/lightningnetwork/lnd/pull/11048 (DRAFT,
+       open, 31 commits from interval-router-rebased@0da8d1dda).
+       Narrative pass done by lead (4 curse-of-knowledge fixes:
+       CI-solid spelled out, objective defined, re-pin plainified,
+       null de-duped); draft file deleted per its checklist (final
+       text = PR body, also committed in history at 393a13a3f);
+       release notes point at #11048 both entries. RC
+       interval-router@50033577e. Digest mailed.
+       REMAINING: replay (user node access); monitor PR review
+       feedback; dashboard v67 when there is news.
+16.[x] 2026-08-08 PR-READY: refresh landed (28 upstream commits,
        ZERO overlap, migration 000016 clear, battery green). OP
        rewritten (technical-writing skill: improvement story +
        development story + simulator-exclusion note) and explainer

@@ -191,7 +191,9 @@ func (h *htlcTimeoutResolver) claimCleanUp(
 	// If this is a taproot channel, and there's only a single witness
 	// element, then we're actually on the losing side of a breach
 	// attempt...
-	case h.isTaproot() && len(spendingInput.Witness) == 1:
+	case h.isTaproot() &&
+		len(input.StripTaprootAnnex(spendingInput.Witness)) == 1:
+
 		return fmt.Errorf("breach attempt failed")
 
 	// Otherwise, they'll be spending directly from our commitment output.
@@ -332,6 +334,15 @@ func isPreimageSpend(isTaproot bool, spend *chainntnfs.SpendDetail,
 	spenderIndex := spend.SpenderInputIndex
 	spendingInput := spend.SpendingTx.TxIn[spenderIndex]
 	spendingWitness := spendingInput.Witness
+
+	// A taproot spender may append a BIP341 annex to any of the script
+	// paths enumerated below. The annex isn't part of the spend path, so we
+	// drop it before matching the stack against the shapes we know. Every
+	// index checked below is counted from the front of the stack, so
+	// removing a trailing element leaves them all in place.
+	if isTaproot {
+		spendingWitness = input.StripTaprootAnnex(spendingWitness)
+	}
 
 	switch {
 	// If this is a taproot remote commitment, then we can detect the type

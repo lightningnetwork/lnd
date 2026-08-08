@@ -2314,3 +2314,64 @@ func TestStripTaprootAnnex(t *testing.T) {
 		})
 	}
 }
+
+// TestIsHtlcSpendRevokeTaprootAnnex tests that a taproot revocation spend is
+// still recognized when the spender appends an annex to the key spend witness.
+func TestIsHtlcSpendRevokeTaprootAnnex(t *testing.T) {
+	t.Parallel()
+
+	taprootPkScript := append(
+		[]byte{txscript.OP_1, 0x20}, bytes.Repeat([]byte{1}, 32)...,
+	)
+	signDesc := &SignDescriptor{
+		Output: &wire.TxOut{PkScript: taprootPkScript},
+	}
+
+	dummySigBytes := bytes.Repeat([]byte{2}, 64)
+
+	testCases := []struct {
+		name     string
+		witness  wire.TxWitness
+		expected bool
+	}{
+		{
+			name:     "key spend",
+			witness:  wire.TxWitness{dummySigBytes},
+			expected: true,
+		},
+		{
+			name: "key spend with annex",
+			witness: wire.TxWitness{
+				dummySigBytes,
+				{txscript.TaprootAnnexTag},
+			},
+			expected: true,
+		},
+		{
+			name: "script path spend",
+			witness: wire.TxWitness{
+				dummySigBytes, {txscript.OP_TRUE},
+			},
+			expected: false,
+		},
+		{
+			name: "script path spend with annex",
+			witness: wire.TxWitness{
+				dummySigBytes, {txscript.OP_TRUE},
+				{txscript.TaprootAnnexTag},
+			},
+			expected: false,
+		},
+	}
+
+	for _, tc := range testCases {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+
+			txIn := &wire.TxIn{Witness: tc.witness}
+			isRevoke, err := IsHtlcSpendRevoke(txIn, signDesc)
+			require.NoError(t, err)
+			require.Equal(t, tc.expected, isRevoke)
+		})
+	}
+}

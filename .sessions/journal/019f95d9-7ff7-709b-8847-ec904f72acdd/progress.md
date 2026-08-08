@@ -1,7 +1,7 @@
 ---
 session_id: 019f95d9-7ff7-709b-8847-ec904f72acdd
 shortname: routing-evolution
-last_updated: 2026-07-31T07:58:13Z
+last_updated: 2026-08-08T00:17:45Z
 compaction_count: 5
 progress_pct: 85
 current_step: 4
@@ -77,7 +77,18 @@ exp-018 omni adjudication is LIVE overnight.
        Dashboard v64 PUBLISHED (445e8fb89). Specialist roster in
        champions/README (7a2014c8e). exp-023 verdict: edge is
        INFORMATIONAL (1673ab3bd).
-14.[ ] 2026-07-31 state: exp-031 CLOSED (90cef300f): compose
+15.[ ] 2026-08-07 PR WEEK: user decisions — DRAFT PR now (after
+       refresh + user narrative edit), unbudgeted path KEEPS, 420k
+       ceiling KEEPS. GEPA formally dormant (exp-031 boundary).
+       LIVE: integration agent a1115c4fbee460647 on post-drift
+       rebase refresh (week of upstream movement; watch adjacent
+       sqldb migration numbers; full battery; PR-draft staleness
+       pass). On wake: verify + push both branches, hand
+       docs/interval_routing_pr_draft.md to user for edit, then
+       open DRAFT PR on lightningnetwork/lnd from the fork branch
+       interval-router-rebased. Replay still gated on user node
+       access.
+14.[x] 2026-07-31 state: exp-031 CLOSED (90cef300f): compose
        world CLOSED at any seed/budget (800 evals returned seed to
        7 digits; 19 pool accepts all died on full val). Evolution
        track at measured boundary; TREE FREE, no runs planned.

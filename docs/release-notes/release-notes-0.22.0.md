@@ -96,6 +96,11 @@
 
 ## Performance Improvements
 
+* Gossip channel-range replies now [store freshness values without interface
+  boxing](https://github.com/lightningnetwork/lnd/issues/11006), reducing each
+  buffered channel entry by 16 bytes and avoiding two heap allocations when
+  timestamps are present.
+
 ## Deprecations
 
 # Technical and Architectural Updates

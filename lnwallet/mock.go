@@ -132,6 +132,13 @@ func (w *mockWalletController) ListAddresses(string,
 	return nil, nil
 }
 
+// CreateAccount currently returns a dummy value.
+func (w *mockWalletController) CreateAccount(waddrmgr.KeyScope,
+	string) (*waddrmgr.AccountProperties, error) {
+
+	return nil, nil
+}
+
 // ImportAccount currently returns a dummy value.
 func (w *mockWalletController) ImportAccount(string, *hdkeychain.ExtendedKey,
 	uint32, *waddrmgr.AddressType, bool) (*waddrmgr.AccountProperties,

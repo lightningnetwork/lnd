@@ -122,6 +122,13 @@ func (w *WalletController) ListAddresses(string,
 	return nil, nil
 }
 
+// CreateAccount currently returns a dummy value.
+func (w *WalletController) CreateAccount(waddrmgr.KeyScope,
+	string) (*waddrmgr.AccountProperties, error) {
+
+	return nil, nil
+}
+
 // ImportAccount currently returns a dummy value.
 func (w *WalletController) ImportAccount(string, *hdkeychain.ExtendedKey,
 	uint32, *waddrmgr.AddressType, bool) (*waddrmgr.AccountProperties,

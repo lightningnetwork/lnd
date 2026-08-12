@@ -7,6 +7,12 @@ VERSION_CHECK = @$(call print, "Building master with date version tag")
 DOCKER_RELEASE_GOCACHE = $(shell bash -c 'cache="$$($(GOCC) env GOCACHE 2>/dev/null)" || cache=/tmp/go-cache; printf "%s" "$$cache"')
 DOCKER_RELEASE_GOMODCACHE = $(shell bash -c 'cache="$$($(GOCC) env GOMODCACHE 2>/dev/null)" || cache=/tmp/go-modcache; printf "%s" "$$cache"')
 
+# A linked worktree has a .git file that points outside the worktree. Mount
+# its common Git directory at the same absolute path so tag checks and git
+# archive work inside the release helper too.
+DOCKER_RELEASE_GIT_COMMON_DIR = $(shell if [ -f .git ]; then git rev-parse --path-format=absolute --git-common-dir; fi)
+DOCKER_RELEASE_GIT_MOUNT = $(if $(DOCKER_RELEASE_GIT_COMMON_DIR),-v $(DOCKER_RELEASE_GIT_COMMON_DIR):$(DOCKER_RELEASE_GIT_COMMON_DIR):ro)
+
 define check_docker_release_cache
 	@cache="$(1)"; \
 	if ! mkdir -p "$$cache"; then \
@@ -35,6 +41,7 @@ DOCKER_RELEASE_HELPER = docker run \
   --rm \
   --user $(shell id -u):$(shell id -g) \
   -v $(shell pwd):/tmp/build/lnd \
+  $(DOCKER_RELEASE_GIT_MOUNT) \
   -v $(DOCKER_RELEASE_GOCACHE):/tmp/build/.cache \
   -v $(DOCKER_RELEASE_GOMODCACHE):/tmp/build/.modcache \
   -e SKIP_VERSION_CHECK \

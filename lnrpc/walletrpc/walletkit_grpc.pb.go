@@ -57,6 +57,61 @@ type WalletKitClient interface {
 	// name and key scope filter can be provided to filter through all of the
 	// wallet accounts and return only those matching.
 	ListAccounts(ctx context.Context, in *ListAccountsRequest, opts ...grpc.CallOption) (*ListAccountsResponse, error)
+	// lncli: `wallet accounts create`
+	// XCreateAccount is an experimental API that creates a new named account
+	// within the wallet, deriving the account's keys from the wallet's master
+	// key.
+	//
+	// In contrast to ImportAccount, which registers a watch-only account from an
+	// externally supplied extended public key, the account created here is fully
+	// owned by the wallet: it derives its own addresses and can sign for its own
+	// outputs. That makes it usable as an isolated pocket of funds inside a single
+	// wallet, because coin selection, change, balance and address derivation can
+	// all be scoped to it by name.
+	//
+	// NOTE: The X prefix marks this API as experimental: it may change or be
+	// removed without the usual deprecation period. It additionally requires
+	// i_know_what_i_am_doing on release builds, because a seed-only restore does
+	// not rediscover the funds an account created here holds; see the recovery
+	// note below. That second gate comes off once recovery handles these
+	// accounts, at which point the X can be dropped too.
+	//
+	// NOTE: The wallet must be unlocked, as deriving the account key requires
+	// access to the master private key.
+	//
+	// NOTE: The call is not idempotent, and the account is created before the
+	// response is sent. A client that cancels or times out may still have had
+	// the account created, in which case its retry fails with "already exists"
+	// — indistinguishable from a genuine name clash. Check ListAccounts before
+	// retrying.
+	//
+	// NOTE: The account's address type is permanent and also fixes the type of
+	// its change outputs. lnd resolves a custom account name within the key
+	// scope implied by the requested address type, so every later call must ask
+	// for the address type that maps to the same scope or the account will
+	// appear not to exist. NextAddr and NewAddress take lnrpc.AddressType,
+	// which has no HYBRID_NESTED_WITNESS_PUBKEY_HASH member: an account created
+	// as HYBRID_NESTED_WITNESS_PUBKEY_HASH must be addressed with
+	// NESTED_PUBKEY_HASH, which maps to the same BIP-0049Plus scope.
+	// TAPROOT_PUBKEY and WITNESS_PUBKEY_HASH map across unchanged.
+	//
+	// NOTE: Funds held in an account created here are not rediscovered by a
+	// seed-only recovery, because lnd's recovery scan only rederives addresses
+	// for the wallet's default account (btcwallet's RecoveryManager hardcodes
+	// waddrmgr.DefaultAccountNum). They are still recoverable, but only by
+	// reconstructing the account first, and the account name is not what has to
+	// be reproduced: accounts are derived from an index that btcwallet assigns
+	// sequentially per key scope, shared with accounts created by ImportAccount.
+	//
+	// To keep an account recoverable, record its key scope, the account index
+	// (the account's derivation_path in the response), and how many addresses
+	// it has issued. To restore: re-create every account in that key scope in
+	// their original order so the index counter lands on the same value,
+	// re-derive at least as many addresses as were previously issued with
+	// NextAddr — a rescan only searches for addresses already present in the
+	// wallet database, and a freshly created account has none — and only then
+	// rescan with --reset-wallet-transactions.
+	XCreateAccount(ctx context.Context, in *XCreateAccountRequest, opts ...grpc.CallOption) (*XCreateAccountResponse, error)
 	// lncli: `wallet requiredreserve`
 	// RequiredReserve returns the minimum amount of satoshis that should be kept
 	// in the wallet in order to fee bump anchor channels if necessary. The value
@@ -383,6 +438,15 @@ func (c *walletKitClient) ListAccounts(ctx context.Context, in *ListAccountsRequ
 	return out, nil
 }
 
+func (c *walletKitClient) XCreateAccount(ctx context.Context, in *XCreateAccountRequest, opts ...grpc.CallOption) (*XCreateAccountResponse, error) {
+	out := new(XCreateAccountResponse)
+	err := c.cc.Invoke(ctx, "/walletrpc.WalletKit/XCreateAccount", in, out, opts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
 func (c *walletKitClient) RequiredReserve(ctx context.Context, in *RequiredReserveRequest, opts ...grpc.CallOption) (*RequiredReserveResponse, error) {
 	out := new(RequiredReserveResponse)
 	err := c.cc.Invoke(ctx, "/walletrpc.WalletKit/RequiredReserve", in, out, opts...)
@@ -604,6 +668,61 @@ type WalletKitServer interface {
 	// name and key scope filter can be provided to filter through all of the
 	// wallet accounts and return only those matching.
 	ListAccounts(context.Context, *ListAccountsRequest) (*ListAccountsResponse, error)
+	// lncli: `wallet accounts create`
+	// XCreateAccount is an experimental API that creates a new named account
+	// within the wallet, deriving the account's keys from the wallet's master
+	// key.
+	//
+	// In contrast to ImportAccount, which registers a watch-only account from an
+	// externally supplied extended public key, the account created here is fully
+	// owned by the wallet: it derives its own addresses and can sign for its own
+	// outputs. That makes it usable as an isolated pocket of funds inside a single
+	// wallet, because coin selection, change, balance and address derivation can
+	// all be scoped to it by name.
+	//
+	// NOTE: The X prefix marks this API as experimental: it may change or be
+	// removed without the usual deprecation period. It additionally requires
+	// i_know_what_i_am_doing on release builds, because a seed-only restore does
+	// not rediscover the funds an account created here holds; see the recovery
+	// note below. That second gate comes off once recovery handles these
+	// accounts, at which point the X can be dropped too.
+	//
+	// NOTE: The wallet must be unlocked, as deriving the account key requires
+	// access to the master private key.
+	//
+	// NOTE: The call is not idempotent, and the account is created before the
+	// response is sent. A client that cancels or times out may still have had
+	// the account created, in which case its retry fails with "already exists"
+	// — indistinguishable from a genuine name clash. Check ListAccounts before
+	// retrying.
+	//
+	// NOTE: The account's address type is permanent and also fixes the type of
+	// its change outputs. lnd resolves a custom account name within the key
+	// scope implied by the requested address type, so every later call must ask
+	// for the address type that maps to the same scope or the account will
+	// appear not to exist. NextAddr and NewAddress take lnrpc.AddressType,
+	// which has no HYBRID_NESTED_WITNESS_PUBKEY_HASH member: an account created
+	// as HYBRID_NESTED_WITNESS_PUBKEY_HASH must be addressed with
+	// NESTED_PUBKEY_HASH, which maps to the same BIP-0049Plus scope.
+	// TAPROOT_PUBKEY and WITNESS_PUBKEY_HASH map across unchanged.
+	//
+	// NOTE: Funds held in an account created here are not rediscovered by a
+	// seed-only recovery, because lnd's recovery scan only rederives addresses
+	// for the wallet's default account (btcwallet's RecoveryManager hardcodes
+	// waddrmgr.DefaultAccountNum). They are still recoverable, but only by
+	// reconstructing the account first, and the account name is not what has to
+	// be reproduced: accounts are derived from an index that btcwallet assigns
+	// sequentially per key scope, shared with accounts created by ImportAccount.
+	//
+	// To keep an account recoverable, record its key scope, the account index
+	// (the account's derivation_path in the response), and how many addresses
+	// it has issued. To restore: re-create every account in that key scope in
+	// their original order so the index counter lands on the same value,
+	// re-derive at least as many addresses as were previously issued with
+	// NextAddr — a rescan only searches for addresses already present in the
+	// wallet database, and a freshly created account has none — and only then
+	// rescan with --reset-wallet-transactions.
+	XCreateAccount(context.Context, *XCreateAccountRequest) (*XCreateAccountResponse, error)
 	// lncli: `wallet requiredreserve`
 	// RequiredReserve returns the minimum amount of satoshis that should be kept
 	// in the wallet in order to fee bump anchor channels if necessary. The value
@@ -873,6 +992,9 @@ func (UnimplementedWalletKitServer) GetTransaction(context.Context, *GetTransact
 func (UnimplementedWalletKitServer) ListAccounts(context.Context, *ListAccountsRequest) (*ListAccountsResponse, error) {
 	return nil, status.Errorf(codes.Unimplemented, "method ListAccounts not implemented")
 }
+func (UnimplementedWalletKitServer) XCreateAccount(context.Context, *XCreateAccountRequest) (*XCreateAccountResponse, error) {
+	return nil, status.Errorf(codes.Unimplemented, "method XCreateAccount not implemented")
+}
 func (UnimplementedWalletKitServer) RequiredReserve(context.Context, *RequiredReserveRequest) (*RequiredReserveResponse, error) {
 	return nil, status.Errorf(codes.Unimplemented, "method RequiredReserve not implemented")
 }
@@ -1104,6 +1226,24 @@ func _WalletKit_ListAccounts_Handler(srv interface{}, ctx context.Context, dec f
 	}
 	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
 		return srv.(WalletKitServer).ListAccounts(ctx, req.(*ListAccountsRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
+func _WalletKit_XCreateAccount_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(XCreateAccountRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(WalletKitServer).XCreateAccount(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: "/walletrpc.WalletKit/XCreateAccount",
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(WalletKitServer).XCreateAccount(ctx, req.(*XCreateAccountRequest))
 	}
 	return interceptor(ctx, in, info, handler)
 }
@@ -1510,6 +1650,10 @@ var WalletKit_ServiceDesc = grpc.ServiceDesc{
 		{
 			MethodName: "ListAccounts",
 			Handler:    _WalletKit_ListAccounts_Handler,
+		},
+		{
+			MethodName: "XCreateAccount",
+			Handler:    _WalletKit_XCreateAccount_Handler,
 		},
 		{
 			MethodName: "RequiredReserve",

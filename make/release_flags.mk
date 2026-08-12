@@ -1,13 +1,42 @@
 VERSION_TAG = $(shell date +%Y%m%d)-01
 VERSION_CHECK = @$(call print, "Building master with date version tag")
 
+# Create these directories before Docker bind mounts them. Docker creates a
+# missing bind-mount source as root, which makes the cache unwritable because
+# the release helper deliberately runs as the invoking user.
+DOCKER_RELEASE_GOCACHE = $(shell bash -c 'cache="$$($(GOCC) env GOCACHE 2>/dev/null)" || cache=/tmp/go-cache; printf "%s" "$$cache"')
+DOCKER_RELEASE_GOMODCACHE = $(shell bash -c 'cache="$$($(GOCC) env GOMODCACHE 2>/dev/null)" || cache=/tmp/go-modcache; printf "%s" "$$cache"')
+
+define check_docker_release_cache
+	@cache="$(1)"; \
+	if ! mkdir -p "$$cache"; then \
+		echo "error: cannot create Docker release cache: $$cache"; \
+		exit 1; \
+	fi; \
+	cache_ok=1; \
+	for shard in $$(printf '%02x\n' $$(seq 0 255)); do \
+		shard_dir="$$cache/$$shard"; created=; \
+		if [ ! -e "$$shard_dir" ]; then \
+			mkdir "$$shard_dir" || { cache_ok=; break; }; created=1; \
+		fi; \
+		test_dir=$$(mktemp -d "$$shard_dir/.lnd-release-cache.XXXXXX" 2>/dev/null) || { cache_ok=; break; }; \
+		rmdir "$$test_dir"; \
+		if [ -n "$$created" ] && ! rmdir "$$shard_dir"; then cache_ok=; break; fi; \
+	done; \
+	if [ -z "$$cache_ok" ]; then \
+		echo "error: Docker release cache cannot create directories: $$cache"; \
+		echo "hint: remove or chown root-owned files in this cache"; \
+		exit 1; \
+	fi
+endef
+
 DOCKER_RELEASE_HELPER = docker run \
   -it \
   --rm \
   --user $(shell id -u):$(shell id -g) \
   -v $(shell pwd):/tmp/build/lnd \
-  -v $(shell bash -c "$(GOCC) env GOCACHE || (mkdir -p /tmp/go-cache; echo /tmp/go-cache)"):/tmp/build/.cache \
-  -v $(shell bash -c "$(GOCC) env GOMODCACHE || (mkdir -p /tmp/go-modcache; echo /tmp/go-modcache)"):/tmp/build/.modcache \
+  -v $(DOCKER_RELEASE_GOCACHE):/tmp/build/.cache \
+  -v $(DOCKER_RELEASE_GOMODCACHE):/tmp/build/.modcache \
   -e SKIP_VERSION_CHECK \
   lnd-release-helper
 

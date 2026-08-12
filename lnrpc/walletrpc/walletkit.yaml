@@ -63,6 +63,9 @@ http:
       body: "*"
     - selector: walletrpc.WalletKit.ListAccounts
       get: "/v2/wallet/accounts"
+    - selector: walletrpc.WalletKit.XCreateAccount
+      post: "/v2/wallet/accounts/create"
+      body: "*"
     - selector: walletrpc.WalletKit.RequiredReserve
       get: "/v2/wallet/reserve"
     - selector: walletrpc.WalletKit.ListAddresses

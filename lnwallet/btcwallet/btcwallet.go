@@ -99,6 +99,17 @@ type BtcWallet struct {
 
 	chainKeyScope waddrmgr.KeyScope
 
+	// accountMtx serialises the calls that add a named account, meaning
+	// CreateAccount and ImportAccount. Both do the same check-then-act
+	// against the same invariant — a name must exist in at most one key
+	// scope — and both need two database transactions to do it, since
+	// btcwallet exposes no way to check and create in one. Without a lock
+	// covering both, two concurrent calls (in either combination) can pass
+	// their duplicate checks and then each create the name under a
+	// different scope, which is precisely the ambiguity the checks exist
+	// to prevent.
+	accountMtx sync.Mutex
+
 	blockCache *blockcache.BlockCache
 
 	*input.MusigSessionManager
@@ -469,6 +480,27 @@ func (b *BtcWallet) keyScopeForAccountAddr(accountName string,
 	// key scope.
 	accountNumber, err := b.wallet.AccountNumber(addrKeyScope, accountName)
 	if err != nil {
+		// A custom account lives in exactly one key scope — one of
+		// BIP-0049Plus, BIP-0084 or BIP-0086, fixed when it was
+		// created — so asking for an address type that maps elsewhere
+		// reports the account as missing even though it exists. That
+		// bare "not found" says nothing about which scope to ask for,
+		// so check whether the name resolves anywhere before passing
+		// it on.
+		if waddrmgr.IsError(err, waddrmgr.ErrAccountNotFound) {
+			scope, _, lookupErr := b.lookupFirstCustomAccount(
+				accountName,
+			)
+			if lookupErr == nil {
+				return waddrmgr.KeyScope{}, 0, fmt.Errorf(
+					"account %v exists under key scope "+
+						"%v, not %v; request the "+
+						"address type belonging to "+
+						"that scope instead",
+					accountName, scope, addrKeyScope)
+			}
+		}
+
 		return waddrmgr.KeyScope{}, 0, err
 	}
 
@@ -782,6 +814,100 @@ func (b *BtcWallet) ListAddresses(name string,
 	return addresses, nil
 }
 
+// accountCreator is the subset of btcwallet's wallet API needed to derive a
+// brand new account from the wallet's master key. It is declared here because
+// btcwallet's base.Interface does not include NextAccount yet.
+type accountCreator interface {
+	// NextAccount creates the next account within the given key scope and
+	// returns its account number.
+	NextAccount(scope waddrmgr.KeyScope, name string) (uint32, error)
+}
+
+// CreateAccount creates a new account within the given key scope, deriving the
+// account's keys from the wallet's master key.
+//
+// In contrast to ImportAccount, which registers a watch-only account from an
+// externally supplied extended public key, the account created here is fully
+// owned by the wallet: it derives its own addresses and can sign for its own
+// outputs. That makes it usable as an isolated pocket of funds inside a single
+// wallet, because coin selection, change, balance and address derivation can
+// all be scoped to it by name.
+//
+// NOTE: The wallet must be unlocked, as deriving the account key requires
+// access to the master private key.
+//
+// This is a part of the WalletController interface.
+func (b *BtcWallet) CreateAccount(keyScope waddrmgr.KeyScope,
+	name string) (*waddrmgr.AccountProperties, error) {
+
+	if name == "" {
+		return nil, errors.New("account name is required")
+	}
+
+	// The wallet creates both of these accounts itself, in every key scope,
+	// and neither is backed by a derived account key we could recreate
+	// here.
+	if name == lnwallet.DefaultAccountName ||
+		name == waddrmgr.ImportedAddrAccountName {
+
+		return nil, fmt.Errorf("account name %v is reserved by the "+
+			"wallet", name)
+	}
+
+	// Everything below reads and then mutates the account namespace, and
+	// btcwallet cannot do that in one database transaction, so hold the
+	// lock across both. It only serialises callers within this process;
+	// nothing stops a second process driving the same wallet, but lnd is
+	// the sole writer of its own.
+	b.accountMtx.Lock()
+	defer b.accountMtx.Unlock()
+
+	// Reject a duplicate name in *any* key scope, not just the requested
+	// one. Coin selection resolves a custom account name through
+	// lookupFirstCustomAccount, which returns whichever scope happens to
+	// match first, so the same name existing under two scopes would make
+	// every later funding call for that name ambiguous. btcwallet's own
+	// duplicate check is per-scope, so it would not catch that.
+	_, err := b.ListAccounts(name, nil)
+	switch {
+	case err == nil:
+		return nil, fmt.Errorf("account %v already exists", name)
+
+	// The name is free in every scope, which is what we want.
+	case waddrmgr.IsError(err, waddrmgr.ErrAccountNotFound):
+
+	default:
+		return nil, err
+	}
+
+	// btcwallet's base.Interface does not expose NextAccount yet, even
+	// though the concrete *wallet.Wallet implements it. Assert for the
+	// capability instead of widening the interface, so lnd doesn't need to
+	// carry a forked btcwallet: a replace directive here would not
+	// propagate to modules that depend on lnd, and would have to be
+	// duplicated by every one of them. This assertion can be dropped once
+	// NextAccount is part of base.Interface upstream.
+	creator, ok := b.wallet.(accountCreator)
+	if !ok {
+		return nil, fmt.Errorf("wallet of type %T does not support "+
+			"creating accounts", b.wallet)
+	}
+
+	account, err := creator.NextAccount(keyScope, name)
+	if err != nil {
+		return nil, fmt.Errorf("unable to create account %v: %w",
+			name, err)
+	}
+
+	props, err := b.wallet.AccountProperties(keyScope, account)
+	if err != nil {
+		return nil, fmt.Errorf("unable to fetch properties of new "+
+			"account %v: %w", name, err)
+	}
+
+	return props, nil
+}
+
 // ImportAccount imports an account backed by an account extended public key.
 // The master key fingerprint denotes the fingerprint of the root key
 // corresponding to the account public key (also known as the key with
@@ -811,6 +937,12 @@ func (b *BtcWallet) ImportAccount(name string, accountPubKey *hdkeychain.Extende
 	masterKeyFingerprint uint32, addrType *waddrmgr.AddressType,
 	dryRun bool) (*waddrmgr.AccountProperties, []address.Address,
 	[]address.Address, error) {
+
+	// This shares the account namespace with CreateAccount and does the
+	// same check-then-act against it, so it takes the same lock; see the
+	// field's documentation.
+	b.accountMtx.Lock()
+	defer b.accountMtx.Unlock()
 
 	// For custom accounts, we first check if there is no existing account
 	// with the same name.

@@ -303,6 +303,33 @@ func (h *HarnessRPC) ListAccounts(
 	return resp
 }
 
+// XCreateAccount makes a RPC call to the node's WalletKitClient and asserts.
+func (h *HarnessRPC) XCreateAccount(req *walletrpc.XCreateAccountRequest,
+) *walletrpc.XCreateAccountResponse {
+
+	ctxt, cancel := context.WithTimeout(h.runCtx, DefaultTimeout)
+	defer cancel()
+
+	resp, err := h.WalletKit.XCreateAccount(ctxt, req)
+	h.NoError(err, "XCreateAccount")
+
+	return resp
+}
+
+// XCreateAccountAssertErr makes the XCreateAccount RPC call and asserts an
+// error is returned. It then returns the error.
+func (h *HarnessRPC) XCreateAccountAssertErr(
+	req *walletrpc.XCreateAccountRequest) error {
+
+	ctxt, cancel := context.WithTimeout(h.runCtx, DefaultTimeout)
+	defer cancel()
+
+	_, err := h.WalletKit.XCreateAccount(ctxt, req)
+	require.Error(h, err)
+
+	return err
+}
+
 // ImportAccount makes a RPC call to the node's WalletKitClient and asserts.
 func (h *HarnessRPC) ImportAccount(
 	req *walletrpc.ImportAccountRequest) *walletrpc.ImportAccountResponse {

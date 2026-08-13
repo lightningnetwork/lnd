@@ -102,6 +102,7 @@ type interceptedPackets struct {
 	packets  []*htlcPacket
 	linkQuit <-chan struct{}
 	isReplay bool
+	done     chan error
 }
 
 type onchainInterceptRequest struct {
@@ -307,6 +308,10 @@ func (s *InterceptableSwitch) run() error {
 
 		case packets := <-s.intercepted:
 			var notIntercepted []*htlcPacket
+			if packets.isReplay {
+				s.reconcileReplays(packets)
+			}
+
 			for _, p := range packets.packets {
 				intercepted, err := s.interceptForward(
 					p, packets.isReplay,
@@ -362,6 +367,52 @@ func (s *InterceptableSwitch) run() error {
 			return nil
 		}
 	}
+}
+
+// reconcileReplays forwards adds with known incoming circuits while the
+// incoming link remains paused. Packets that still require interception remain
+// in the batch for the event loop to process.
+func (s *InterceptableSwitch) reconcileReplays(packets *interceptedPackets) {
+	var err error
+	defer func() {
+		packets.done <- err
+	}()
+
+	var known []*htlcPacket
+	known, packets.packets = s.partitionReplays(packets.packets)
+	err = s.htlcSwitch.ForwardPackets(packets.linkQuit, known...)
+}
+
+// partitionReplays separates adds with known incoming circuits from packets
+// that still require interceptor processing.
+func (s *InterceptableSwitch) partitionReplays(
+	packets []*htlcPacket) ([]*htlcPacket, []*htlcPacket) {
+
+	var known, remaining []*htlcPacket
+	for _, packet := range packets {
+		if !s.isKnownReplay(packet) {
+			remaining = append(remaining, packet)
+			continue
+		}
+
+		known = append(known, packet)
+	}
+
+	return known, remaining
+}
+
+// isKnownReplay reports whether the packet is a remote add with an incoming
+// circuit that the switch can reconcile.
+func (s *InterceptableSwitch) isKnownReplay(packet *htlcPacket) bool {
+	if _, isAdd := packet.htlc.(*lnwire.UpdateAddHTLC); !isAdd {
+		return false
+	}
+
+	if packet.incomingChanID == hop.Source {
+		return false
+	}
+
+	return s.htlcSwitch.circuits.LookupCircuit(packet.inKey()) != nil
 }
 
 func (s *InterceptableSwitch) failExpiredHtlcs() {
@@ -445,9 +496,14 @@ func (s *InterceptableSwitch) Resolve(res *FwdResolution) error {
 // ForwardPackets attempts to forward the batch of htlcs to a connected
 // interceptor. If the interceptor signals the resume action, the htlcs are
 // forwarded to the switch. The link's quit signal should be provided to allow
-// cancellation of forwarding during link shutdown.
+// cancellation of forwarding during link shutdown. Replay calls return after
+// the switch has reconciled any circuits that already exist.
 func (s *InterceptableSwitch) ForwardPackets(linkQuit <-chan struct{},
 	isReplay bool, packets ...*htlcPacket) error {
+	var done chan error
+	if isReplay {
+		done = make(chan error, 1)
+	}
 
 	// Synchronize with the main event loop. This should be light in the
 	// case where there is no interceptor.
@@ -456,10 +512,28 @@ func (s *InterceptableSwitch) ForwardPackets(linkQuit <-chan struct{},
 		packets:  packets,
 		linkQuit: linkQuit,
 		isReplay: isReplay,
+		done:     done,
 	}:
 
 	case <-linkQuit:
 		log.Debugf("Forward cancelled because link quit")
+
+	case <-s.quit:
+		return errors.New("interceptable switch quit")
+	}
+
+	if !isReplay {
+		return nil
+	}
+
+	// Keep the incoming link paused until the switch reconciles any
+	// existing replay circuits.
+	select {
+	case err := <-done:
+		return err
+
+	case <-linkQuit:
+		log.Debugf("Replay reconciliation cancelled because link quit")
 
 	case <-s.quit:
 		return errors.New("interceptable switch quit")

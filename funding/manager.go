@@ -1582,6 +1582,15 @@ func (f *Manager) fundeeProcessOpenChannel(peer lnpeer.Peer,
 		return
 	}
 
+	// Enforce BOLT-02: The funder MUST set the channel_type in
+	// open_channel. Reject if it's omitted.
+	if msg.ChannelType == nil {
+		err := errors.New("channel type required but not provided")
+		f.failFundingFlow(peer, cid, err)
+
+		return
+	}
+
 	log.Infof("Recv'd fundingRequest(amt=%v, push=%v, delay=%v, "+
 		"pendingId=%x) from peer(%x)", amt, msg.PushAmount,
 		msg.CsvDelay, msg.PendingChannelID,
@@ -1594,10 +1603,8 @@ func (f *Manager) fundeeProcessOpenChannel(peer lnpeer.Peer,
 	// funds to the channel ourselves.
 	//
 	// Before we init the channel, we'll also check to see what commitment
-	// format we can use with this peer. This is dependent on *both* us and
-	// the remote peer are signaling the proper feature bit if we're using
-	// implicit negotiation, and simply the channel type sent over if we're
-	// using explicit negotiation.
+	// format we can use with this peer. This is dependent on the channel
+	// type sent by the funder and the feature bits both peers are signaling
 	chanType, commitType, err := negotiateCommitmentType(
 		msg.ChannelType, peer.LocalFeatures(), peer.RemoteFeatures(),
 	)
@@ -1617,52 +1624,45 @@ func (f *Manager) fundeeProcessOpenChannel(peer lnpeer.Peer,
 		scidFeatureVal = true
 	}
 
-	var (
-		zeroConf bool
-		scid     bool
-	)
+	// Since we always negotiate an explicit channel type now, chanType is
+	// guaranteed to be non-nil.
+	//
+	// Check if the channel type includes the zero-conf or scid-alias bits.
+	featureVec := lnwire.RawFeatureVector(*chanType)
+	zeroConf := featureVec.IsSet(lnwire.ZeroConfRequired)
+	scid := featureVec.IsSet(lnwire.ScidAliasRequired)
 
-	// Only echo back a channel type in AcceptChannel if we actually used
-	// explicit negotiation above.
-	if chanType != nil {
-		// Check if the channel type includes the zero-conf or
-		// scid-alias bits.
-		featureVec := lnwire.RawFeatureVector(*chanType)
-		zeroConf = featureVec.IsSet(lnwire.ZeroConfRequired)
-		scid = featureVec.IsSet(lnwire.ScidAliasRequired)
+	// If the zero-conf channel type was negotiated, ensure that the
+	// acceptor allows it.
+	if zeroConf && !acceptorResp.ZeroConf {
+		// Fail the funding flow.
+		flowErr := fmt.Errorf("channel acceptor blocked zero-conf " +
+			"channel negotiation")
+		log.Errorf("Cancelling funding flow for %v based on channel "+
+			"acceptor response: %v", cid, flowErr)
+		f.failFundingFlow(peer, cid, flowErr)
 
-		// If the zero-conf channel type was negotiated, ensure that
-		// the acceptor allows it.
-		if zeroConf && !acceptorResp.ZeroConf {
+		return
+	}
+
+	// If the zero-conf channel type wasn't negotiated and the fundee still
+	// wants a zero-conf channel, perform more checks. Require that both
+	// sides have the scid-alias feature bit set. We don't require anchors
+	// here - this is for compatibility with LDK.
+	if !zeroConf && acceptorResp.ZeroConf {
+		if !scidFeatureVal {
 			// Fail the funding flow.
-			flowErr := fmt.Errorf("channel acceptor blocked " +
-				"zero-conf channel negotiation")
-			log.Errorf("Cancelling funding flow for %v based on "+
-				"channel acceptor response: %v", cid, flowErr)
+			flowErr := fmt.Errorf("scid-alias feature must be " +
+				"negotiated for zero-conf")
+			log.Errorf("Cancelling funding flow for zero-conf "+
+				"channel %v: %v", cid,
+				flowErr)
 			f.failFundingFlow(peer, cid, flowErr)
 			return
 		}
 
-		// If the zero-conf channel type wasn't negotiated and the
-		// fundee still wants a zero-conf channel, perform more checks.
-		// Require that both sides have the scid-alias feature bit set.
-		// We don't require anchors here - this is for compatibility
-		// with LDK.
-		if !zeroConf && acceptorResp.ZeroConf {
-			if !scidFeatureVal {
-				// Fail the funding flow.
-				flowErr := fmt.Errorf("scid-alias feature " +
-					"must be negotiated for zero-conf")
-				log.Errorf("Cancelling funding flow for "+
-					"zero-conf channel %v: %v", cid,
-					flowErr)
-				f.failFundingFlow(peer, cid, flowErr)
-				return
-			}
-
-			// Set zeroConf to true to enable the zero-conf flow.
-			zeroConf = true
-		}
+		// Set zeroConf to true to enable the zero-conf flow.
+		zeroConf = true
 	}
 
 	public := msg.ChannelFlags&lnwire.FFAnnounceChannel != 0
@@ -2063,65 +2063,42 @@ func (f *Manager) funderProcessAcceptChannel(peer lnpeer.Peer,
 	// Create the channel identifier.
 	cid := newChanIdentifier(msg.PendingChannelID)
 
-	// Perform some basic validation of any custom TLV records included.
-	//
+	// Channel type in our reservation should never be nil since we always
+	// negotiate the channel type explicitly and fall back to the default
+	// only when the RPC caller does not request one.
+	if resCtx.channelType == nil {
+		err := errors.New("channel type not set by funder")
+		f.failFundingFlow(peer, cid, err)
+		return
+	}
+
+	// We'll want to quickly check that the ChannelType echoed by the
+	// channel request recipient matches what we proposed.
 	// TODO: Return errors as funding.Error to give context to remote peer?
-	if resCtx.channelType != nil {
-		// We'll want to quickly check that the ChannelType echoed by
-		// the channel request recipient matches what we proposed.
-		if msg.ChannelType == nil {
-			err := errors.New("explicit channel type not echoed " +
-				"back")
+	if msg.ChannelType == nil {
+		err := errors.New("explicit channel type not echoed back")
+		f.failFundingFlow(peer, cid, err)
+		return
+	}
+	proposedFeatures := lnwire.RawFeatureVector(*resCtx.channelType)
+	ackedFeatures := lnwire.RawFeatureVector(*msg.ChannelType)
+	if !proposedFeatures.Equals(&ackedFeatures) {
+		err := errors.New("channel type mismatch")
+		f.failFundingFlow(peer, cid, err)
+		return
+	}
+
+	// We'll want to do the same with the LeaseExpiry if one should be set.
+	if resCtx.reservation.LeaseExpiry() != 0 {
+		if msg.LeaseExpiry == nil {
+			err := errors.New("lease expiry not echoed back")
 			f.failFundingFlow(peer, cid, err)
 			return
 		}
-		proposedFeatures := lnwire.RawFeatureVector(*resCtx.channelType)
-		ackedFeatures := lnwire.RawFeatureVector(*msg.ChannelType)
-		if !proposedFeatures.Equals(&ackedFeatures) {
-			err := errors.New("channel type mismatch")
-			f.failFundingFlow(peer, cid, err)
-			return
-		}
+		if uint32(*msg.LeaseExpiry) !=
+			resCtx.reservation.LeaseExpiry() {
 
-		// We'll want to do the same with the LeaseExpiry if one should
-		// be set.
-		if resCtx.reservation.LeaseExpiry() != 0 {
-			if msg.LeaseExpiry == nil {
-				err := errors.New("lease expiry not echoed " +
-					"back")
-				f.failFundingFlow(peer, cid, err)
-				return
-			}
-			if uint32(*msg.LeaseExpiry) !=
-				resCtx.reservation.LeaseExpiry() {
-
-				err := errors.New("lease expiry mismatch")
-				f.failFundingFlow(peer, cid, err)
-				return
-			}
-		}
-	} else if msg.ChannelType != nil {
-		// The spec isn't too clear about whether it's okay to set the
-		// channel type in the accept_channel response if we didn't
-		// explicitly set it in the open_channel message. For now, we
-		// check that it's the same type we'd have arrived through
-		// implicit negotiation. If it's another type, we fail the flow.
-		_, implicitCommitType := implicitNegotiateCommitmentType(
-			peer.LocalFeatures(), peer.RemoteFeatures(),
-		)
-
-		_, negotiatedCommitType, err := negotiateCommitmentType(
-			msg.ChannelType, peer.LocalFeatures(),
-			peer.RemoteFeatures(),
-		)
-		if err != nil {
-			err := errors.New("received unexpected channel type")
-			f.failFundingFlow(peer, cid, err)
-			return
-		}
-
-		if implicitCommitType != negotiatedCommitType {
-			err := errors.New("negotiated unexpected channel type")
+			err := errors.New("lease expiry mismatch")
 			f.failFundingFlow(peer, cid, err)
 			return
 		}
@@ -4994,28 +4971,23 @@ func (f *Manager) handleInitFundingMsg(msg *InitFundingMsg) {
 		return
 	}
 
-	var (
-		zeroConf bool
-		scid     bool
-	)
+	// Since we always negotiate an explicit channel type now, chanType is
+	// guaranteed to be non-nil.
+	//
+	// Check if the returned chanType includes either the zero-conf or
+	// scid-alias bits.
+	featureVec := lnwire.RawFeatureVector(*chanType)
+	zeroConf := featureVec.IsSet(lnwire.ZeroConfRequired)
+	scid := featureVec.IsSet(lnwire.ScidAliasRequired)
 
-	if chanType != nil {
-		// Check if the returned chanType includes either the zero-conf
-		// or scid-alias bits.
-		featureVec := lnwire.RawFeatureVector(*chanType)
-		zeroConf = featureVec.IsSet(lnwire.ZeroConfRequired)
-		scid = featureVec.IsSet(lnwire.ScidAliasRequired)
+	// The option-scid-alias channel type for a public channel is disallowed
+	if scid && !msg.Private {
+		err = fmt.Errorf("option-scid-alias chantype for public " +
+			"channel")
+		log.Error(err)
+		msg.Err <- err
 
-		// The option-scid-alias channel type for a public channel is
-		// disallowed.
-		if scid && !msg.Private {
-			err = fmt.Errorf("option-scid-alias chantype for " +
-				"public channel")
-			log.Error(err)
-			msg.Err <- err
-
-			return
-		}
+		return
 	}
 
 	// The current variant of taproot channels can only be used with

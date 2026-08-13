@@ -3244,9 +3244,21 @@ func restartChannel(channelOld *LightningChannel) (*LightningChannel, error) {
 		return nil, err
 	}
 
+	// The aux components are re-applied every time a channel is loaded in
+	// production, so a restart must not silently drop them here either.
+	// Otherwise the restarted side stops producing aux signatures while
+	// its peer still expects them.
+	var chanOpts []ChannelOpt
+	channelOld.leafStore.WhenSome(func(s AuxLeafStore) {
+		chanOpts = append(chanOpts, WithLeafStore(s))
+	})
+	channelOld.auxSigner.WhenSome(func(s AuxSigner) {
+		chanOpts = append(chanOpts, WithAuxSigner(s))
+	})
+
 	channelNew, err := NewLightningChannel(
 		channelOld.Signer, nodeChannels[0],
-		channelOld.sigPool,
+		channelOld.sigPool, chanOpts...,
 	)
 	if err != nil {
 		return nil, err
@@ -3490,10 +3502,16 @@ func testChanSyncOweCommitment(t *testing.T,
 	// At this point, we should be able to resume the prior state update
 	// without any issues, resulting in Alice settling the 3 htlc's, and
 	// adding one of her own.
+	// The link carries the aux signatures across from the wire message, so
+	// a faithful simulation of the restart has to do so as well.
+	aliceReAuxBlob, err := aliceReCommitSig.CustomRecords.Serialize()
+	require.NoError(t, err, "unable to serialize aux sig blob")
+
 	err = bobChannel.ReceiveNewCommitment(&CommitSigs{
 		CommitSig:  aliceReCommitSig.CommitSig,
 		HtlcSigs:   aliceReCommitSig.HtlcSigs,
 		PartialSig: aliceReCommitSig.PartialSig,
+		AuxSigBlob: aliceReAuxBlob,
 	})
 	require.NoError(t, err, "bob unable to process alice's commitment")
 	bobRevocation, _, _, err := bobChannel.RevokeCurrentCommitment()
@@ -4826,10 +4844,14 @@ func testChanSyncOweRevocationAndCommitForceTransition(t *testing.T,
 	// message to Bob.
 	_, _, err = aliceChannel.ReceiveRevocation(bobRevocation)
 	require.NoError(t, err, "alice unable to recv revocation")
+	bobAuxBlob, err := bobSigMsg.CustomRecords.Serialize()
+	require.NoError(t, err, "unable to serialize aux sig blob")
+
 	err = aliceChannel.ReceiveNewCommitment(&CommitSigs{
 		CommitSig:  bobSigMsg.CommitSig,
 		HtlcSigs:   bobSigMsg.HtlcSigs,
 		PartialSig: bobSigMsg.PartialSig,
+		AuxSigBlob: bobAuxBlob,
 	})
 	require.NoError(t, err, "alice unable to rev bob's commitment")
 	aliceRevocation, _, _, err = aliceChannel.RevokeCurrentCommitment()

@@ -1,0 +1,247 @@
+# Release Notes
+- [Bug Fixes](#bug-fixes)
+- [New Features](#new-features)
+    - [Functional Enhancements](#functional-enhancements)
+    - [RPC Additions](#rpc-additions)
+    - [lncli Additions](#lncli-additions)
+- [Improvements](#improvements)
+    - [Functional Updates](#functional-updates)
+    - [RPC Updates](#rpc-updates)
+    - [lncli Updates](#lncli-updates)
+    - [Breaking Changes](#breaking-changes)
+    - [Performance Improvements](#performance-improvements)
+    - [Deprecations](#deprecations)
+- [Technical and Architectural Updates](#technical-and-architectural-updates)
+    - [BOLT Spec Updates](#bolt-spec-updates)
+    - [BOLT 12 (Offers)](#bolt-12-offers)
+    - [Testing](#testing)
+    - [Database](#database)
+    - [Code Health](#code-health)
+    - [Tooling and Documentation](#tooling-and-documentation)
+- [Contributors (Alphabetical Order)](#contributors-alphabetical-order)
+
+# Bug Fixes
+
+* [Fixed an overflow](https://github.com/lightningnetwork/lnd/pull/11290)
+  in the accumulated fee calculation for blinded paths. The aggregate base fee
+  and fee rate advertised in a blinded path's payinfo were computed with
+  `uint32` arithmetic, which wrapped once the summed fees exceeded about 4295
+  msat or 4295 ppm. The under-reported fees made payers underpay, so payments
+  to such invoices failed. The aggregates are now computed with checked
+  arithmetic, and a candidate path whose aggregate fees don't fit in the
+  invoice's `uint32` payinfo fields is skipped instead of being advertised
+  with under-reported fees.
+
+* [Tightened the validation](https://github.com/lightningnetwork/lnd/pull/11068)
+  of auxiliary HTLC signatures on taproot overlay channels. Their count is now
+  checked against the number of HTLCs on the commitment, mirroring the check
+  that already exists for the BTC level signatures. A commitment that fails the
+  check is rejected as an invalid commitment, which force closes the channel.
+  This is a change in behaviour for one configuration in particular: a taproot
+  overlay channel whose peer runs `lnd` with no aux signer attached (`tapd`
+  stopped, or `lnd` started standalone). Such a peer's commitments used to be
+  accepted, leaving HTLCs on disk with an empty auxiliary signature that could
+  not be swept at force close time. They now force close the channel as soon as
+  a commitment carries an HTLC. Peers running an older `tapd` with the aux
+  signer attached are unaffected.
+
+* Bitcoind outbound peer health checks [now use](https://github.com/lightningnetwork/lnd/pull/10686)
+  `getnetworkinfo.connections_out` instead of `getpeerinfo`. The same PR also
+  [clarifies](https://github.com/lightningnetwork/lnd/issues/10568) the ZMQ
+  port-mismatch warnings so they no longer suggest that the connection failed.
+
+* [Fixed a bug](https://github.com/lightningnetwork/lnd/pull/10890)
+  where `ListChannels` reported 100% `uptime` for channels whose peer
+  was offline. The channel fitness store assumed a peer was online when
+  it first started tracking it, but channels are loaded on startup
+  regardless of peer connectivity. Uptime is now seeded from the peer's
+  actual connection state.
+
+* [Fixed a bug](https://github.com/lightningnetwork/lnd/pull/10897) in the
+  sweeper whereby inputs that receive an extra budget from an aux sweeper
+  (such as custom channel outputs, whose value is mostly carried off-chain)
+  were filtered against their own budget alone. This could permanently
+  exclude such inputs from sweeping even though their input set could
+  comfortably pay its fees.
+
+* [Fixed a bug](https://github.com/lightningnetwork/lnd/pull/10963) in
+  `GetNetworkInfo` where encountering an already-seen channel skipped the
+  rest of that node's channels instead of just that channel, undercounting
+  the reported network statistics such as total network capacity, channel
+  count and max out degree.
+
+* lnd [no longer keeps one Postgres connection for each schema
+  migration](https://github.com/lightningnetwork/lnd/pull/11267). Startup
+  no longer hangs on a fresh database when `db.postgres.maxconnections` is
+  set to a low value.
+
+* [Fixed a bug](https://github.com/lightningnetwork/lnd/pull/11219) in the
+  `NodeAnnouncement2` address decoders, where all decoded addresses aliased
+  one scratch array and truncated records decoded without an error.
+
+# New Features
+
+## Functional Enhancements
+
+* lnd now supports an [outbound remote
+  signer](https://github.com/lightningnetwork/lnd/pull/8754) (experimental).
+  Instead of the watch-only node dialing the signer, the signer opens a single
+  outbound connection to the watch-only node, so the signer needs no open
+  inbound port. The watch-only node enables this with
+  `remotesigner.experimentalallowinboundconnection` and
+  `remotesigner.experimentalrpclisten`, and the signer with
+  `remotesigner.experimentalenable`. See
+  [remote-signing.md](https://github.com/lightningnetwork/lnd/blob/master/docs/remote-signing.md)
+  for setup.
+
+* A new `watchonlyrpc.WatchOnly` service with a
+  [`SignCoordinatorStreams`](https://github.com/lightningnetwork/lnd/pull/8754)
+  RPC, used by an outbound remote signer to connect to its watch-only node.
+
+* Add [graph-based pathfinding for onion
+  messages](https://github.com/lightningnetwork/lnd/pull/10612), which finds
+  the shortest path to a destination through nodes that advertise onion
+  message support.
+
+## RPC Additions
+
+* The `routerrpc.EstimateRouteFee` RPC now supports [restricting fee estimates
+  to specific first-hop outgoing
+  channels](https://github.com/lightningnetwork/lnd/pull/10501) via the new
+  `outgoing_chan_ids` field in `RouteFeeRequest`.
+
+## lncli Additions
+
+* The `estimateroutefee` command now supports [restricting fee estimates to
+  specific first-hop outgoing
+  channels](https://github.com/lightningnetwork/lnd/pull/10501) via the new
+  `--outgoing_chan_id` flag.
+
+# Improvements
+
+## Functional Updates
+
+## RPC Updates
+
+## lncli Updates
+
+## Breaking Changes
+
+## Performance Improvements
+
+* The SQL (Postgres and SQLite) kvdb backend now [caches nested bucket
+  lookups](https://github.com/lightningnetwork/lnd/pull/11264) within a
+  transaction instead of querying the database for every lookup. This mostly
+  benefits the wallet, which resolves the same buckets repeatedly. On a
+  remote signing node with 255 key family accounts, `WalletBalance` issues
+  ~60% fewer queries.
+
+## Deprecations
+
+# Technical and Architectural Updates
+
+## BOLT Spec Updates
+
+* The fundee now [enforces the BOLT-02 bound on
+  `push_msat`](https://github.com/lightningnetwork/lnd/pull/10765),
+  rejecting incoming `open_channel` messages where `push_msat` exceeds
+  `1000 * funding_satoshis`. Oversized pushes were previously caught
+  later in the reservation flow as a funder-balance-dust error; they now
+  surface a clearer, spec-aligned error string up front.
+
+## BOLT 12 (Offers)
+
+* [Initial BOLT 12 Offer codec](https://github.com/lightningnetwork/lnd/pull/10789):
+  add a new `bolt12/` package with the BOLT 12 `offer` TLV codec and full
+  reader/writer validation, plus a typed `lnwire.BlindedPath` introduction-node
+  codec shared by HTLC routing and onion messaging.
+
+* [BOLT 12 invoice request
+  codec](https://github.com/lightningnetwork/lnd/pull/10832): add the
+  `invoice_request` TLV message to the `bolt12/` package with structural
+  reader/writer validation. This includes an observable RPC behavior change
+  in `SubscribeOnionMessages`, ensuring a nil reply path remains nil in the
+  RPC response rather than being emitted as an empty struct.
+
+* [BOLT 12 invoice
+  codec](https://github.com/lightningnetwork/lnd/pull/10941): add the
+  `invoice` TLV message to the `bolt12/` package with structural
+  reader/writer validation. Schnorr signature verification is not yet
+  performed; callers must verify the signature independently until the
+  Merkle and signing primitives land.
+
+* [BOLT 12 invoice_error
+  codec](https://github.com/lightningnetwork/lnd/pull/10958): add the
+  `invoice_error` TLV message to `bolt12/` for onion-message replies.
+
+* [BOLT 12 string codec](https://github.com/lightningnetwork/lnd/pull/11001):
+  add checksumless bech32 encoding/decoding for BOLT 12 `lno`, `lnr`, and `lni`
+  strings with continuation line handling.
+
+* [BOLT 12 Merkle tree and BIP-340
+  signatures](https://github.com/lightningnetwork/lnd/pull/11061): add Merkle
+  tree construction over TLV records and BIP-340 Schnorr message signatures for
+  invoice requests and invoices, and verify the signature on read so a decoded
+  message with an invalid signature is rejected.
+
+* [BOLT 12 string codecs and payment
+  validation](https://github.com/lightningnetwork/lnd/pull/11146): add
+  validated `Decode`/`Encode` string entry points for offers, invoice
+  requests, and invoices, and `ValidateInvoiceForPayment` to bundle the
+  payer-side invoice checks into one call.
+
+* [BOLT 12 offer
+  store](https://github.com/lightningnetwork/lnd/pull/11278): add the
+  `offers` package with a SQL-backed store for BOLT 12 offers. The store
+  keeps the encoded offer, a disabled flag and the creation time. It finds
+  an offer by its hash. `CreateOffer` validates the parameters, encodes the
+  offer and stores it. The `offers` table migration is a development
+  migration for now, so a normal build does not change the database
+  schema.
+
+## Testing
+
+* [BOLT 12 spec test vectors](https://github.com/lightningnetwork/lnd/pull/11001):
+  add spec test vectors for offer decoding and format string parsing in
+  `bolt12/test-vectors/`.
+
+* [BOLT 12 signature test
+  vectors](https://github.com/lightningnetwork/lnd/pull/11061): add spec test
+  vectors pinning Merkle tree construction and BIP-340 signature verification
+  in `bolt12/test-vectors/`.
+
+* [BOLT 12 fuzz
+  harnesses](https://github.com/lightningnetwork/lnd/pull/11146): fuzz the
+  `bolt12/` decoders for panics and encode/decode bijection, and pin Merkle
+  root determinism.
+
+## Database
+
+## Code Health
+
+## Tooling and Documentation
+
+* [`dev.Dockerfile` now uses](https://github.com/lightningnetwork/lnd/pull/10903)
+  [cache mounts](https://docs.docker.com/build/cache/optimize/#use-cache-mounts)
+  to cache the `GOMODCACHE` and `GOCACHE` directories so that dependencies don't
+  need to be re-downloaded and re-built every time the image is re-created.
+  As a result of this change, `dev.Dockerfile` now requires
+  [BuildKit](https://docs.docker.com/build/buildkit) to build. When using
+  `docker build`, this can be enabled by setting the environmental variable
+  `DOCKER_BUILDKIT=1`. BuildKit also does not unnecessarily rebuild images when
+  the build context is a remote git repository because COPY layers are more
+  smartly compared to cache.
+
+# Contributors (Alphabetical Order)
+
+* Abdullahi Yunus
+* Allen Piscitello
+* bitromortac
+* Boris Nagaev
+* Erick Cestari
+* George Tsagkarelis
+* Jared Tobin
+* Kevin Cai
+* Vandit Singh
+* Viktor Torstensson
+* s1ns3nz0

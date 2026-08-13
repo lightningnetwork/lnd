@@ -191,6 +191,27 @@ type WalletKitClient interface {
 	// remain supported. This is an advanced API that depends on the internals of
 	// the UtxoSweeper, so things may change.
 	PendingSweeps(ctx context.Context, in *PendingSweepsRequest, opts ...grpc.CallOption) (*PendingSweepsResponse, error)
+	// lncli: `wallet registersweepdescriptor`
+	// RegisterSweepDescriptor registers a fixed output descriptor for on-chain
+	// discovery and automatic sweeping. The descriptor must use only public key
+	// material. Any keys that should be signed by lnd must be explicitly bound to
+	// a wallet key locator.
+	//
+	// The first version of this RPC supports fixed-index P2WSH descriptors. The
+	// registration remains active while lnd waits for the output and for a
+	// satisfiable Miniscript branch. Additional satisfaction data, such as a
+	// hash preimage, can be supplied through AddSweepDescriptorData.
+	RegisterSweepDescriptor(ctx context.Context, in *RegisterSweepDescriptorRequest, opts ...grpc.CallOption) (*RegisterSweepDescriptorResponse, error)
+	// lncli: `wallet addsweepdescriptordata`
+	// AddSweepDescriptorData supplies data that became available after a sweep
+	// descriptor was registered. Supplying data may make a Miniscript branch
+	// satisfiable and trigger an automatic sweep.
+	AddSweepDescriptorData(ctx context.Context, in *AddSweepDescriptorDataRequest, opts ...grpc.CallOption) (*AddSweepDescriptorDataResponse, error)
+	// lncli: `wallet listsweepdescriptors`
+	// ListSweepDescriptors lists descriptor sweep registrations and their current
+	// lifecycle state. A registration ID can be supplied to select a single
+	// registration.
+	ListSweepDescriptors(ctx context.Context, in *ListSweepDescriptorsRequest, opts ...grpc.CallOption) (*ListSweepDescriptorsResponse, error)
 	// lncli: `wallet bumpfee`
 	// BumpFee is an endpoint that allows users to interact with lnd's sweeper
 	// directly. It takes an outpoint from an unconfirmed transaction and sends it
@@ -500,6 +521,33 @@ func (c *walletKitClient) PendingSweeps(ctx context.Context, in *PendingSweepsRe
 	return out, nil
 }
 
+func (c *walletKitClient) RegisterSweepDescriptor(ctx context.Context, in *RegisterSweepDescriptorRequest, opts ...grpc.CallOption) (*RegisterSweepDescriptorResponse, error) {
+	out := new(RegisterSweepDescriptorResponse)
+	err := c.cc.Invoke(ctx, "/walletrpc.WalletKit/RegisterSweepDescriptor", in, out, opts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func (c *walletKitClient) AddSweepDescriptorData(ctx context.Context, in *AddSweepDescriptorDataRequest, opts ...grpc.CallOption) (*AddSweepDescriptorDataResponse, error) {
+	out := new(AddSweepDescriptorDataResponse)
+	err := c.cc.Invoke(ctx, "/walletrpc.WalletKit/AddSweepDescriptorData", in, out, opts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func (c *walletKitClient) ListSweepDescriptors(ctx context.Context, in *ListSweepDescriptorsRequest, opts ...grpc.CallOption) (*ListSweepDescriptorsResponse, error) {
+	out := new(ListSweepDescriptorsResponse)
+	err := c.cc.Invoke(ctx, "/walletrpc.WalletKit/ListSweepDescriptors", in, out, opts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
 func (c *walletKitClient) BumpFee(ctx context.Context, in *BumpFeeRequest, opts ...grpc.CallOption) (*BumpFeeResponse, error) {
 	out := new(BumpFeeResponse)
 	err := c.cc.Invoke(ctx, "/walletrpc.WalletKit/BumpFee", in, out, opts...)
@@ -738,6 +786,27 @@ type WalletKitServer interface {
 	// remain supported. This is an advanced API that depends on the internals of
 	// the UtxoSweeper, so things may change.
 	PendingSweeps(context.Context, *PendingSweepsRequest) (*PendingSweepsResponse, error)
+	// lncli: `wallet registersweepdescriptor`
+	// RegisterSweepDescriptor registers a fixed output descriptor for on-chain
+	// discovery and automatic sweeping. The descriptor must use only public key
+	// material. Any keys that should be signed by lnd must be explicitly bound to
+	// a wallet key locator.
+	//
+	// The first version of this RPC supports fixed-index P2WSH descriptors. The
+	// registration remains active while lnd waits for the output and for a
+	// satisfiable Miniscript branch. Additional satisfaction data, such as a
+	// hash preimage, can be supplied through AddSweepDescriptorData.
+	RegisterSweepDescriptor(context.Context, *RegisterSweepDescriptorRequest) (*RegisterSweepDescriptorResponse, error)
+	// lncli: `wallet addsweepdescriptordata`
+	// AddSweepDescriptorData supplies data that became available after a sweep
+	// descriptor was registered. Supplying data may make a Miniscript branch
+	// satisfiable and trigger an automatic sweep.
+	AddSweepDescriptorData(context.Context, *AddSweepDescriptorDataRequest) (*AddSweepDescriptorDataResponse, error)
+	// lncli: `wallet listsweepdescriptors`
+	// ListSweepDescriptors lists descriptor sweep registrations and their current
+	// lifecycle state. A registration ID can be supplied to select a single
+	// registration.
+	ListSweepDescriptors(context.Context, *ListSweepDescriptorsRequest) (*ListSweepDescriptorsResponse, error)
 	// lncli: `wallet bumpfee`
 	// BumpFee is an endpoint that allows users to interact with lnd's sweeper
 	// directly. It takes an outpoint from an unconfirmed transaction and sends it
@@ -911,6 +980,15 @@ func (UnimplementedWalletKitServer) EstimateFee(context.Context, *EstimateFeeReq
 }
 func (UnimplementedWalletKitServer) PendingSweeps(context.Context, *PendingSweepsRequest) (*PendingSweepsResponse, error) {
 	return nil, status.Errorf(codes.Unimplemented, "method PendingSweeps not implemented")
+}
+func (UnimplementedWalletKitServer) RegisterSweepDescriptor(context.Context, *RegisterSweepDescriptorRequest) (*RegisterSweepDescriptorResponse, error) {
+	return nil, status.Errorf(codes.Unimplemented, "method RegisterSweepDescriptor not implemented")
+}
+func (UnimplementedWalletKitServer) AddSweepDescriptorData(context.Context, *AddSweepDescriptorDataRequest) (*AddSweepDescriptorDataResponse, error) {
+	return nil, status.Errorf(codes.Unimplemented, "method AddSweepDescriptorData not implemented")
+}
+func (UnimplementedWalletKitServer) ListSweepDescriptors(context.Context, *ListSweepDescriptorsRequest) (*ListSweepDescriptorsResponse, error) {
+	return nil, status.Errorf(codes.Unimplemented, "method ListSweepDescriptors not implemented")
 }
 func (UnimplementedWalletKitServer) BumpFee(context.Context, *BumpFeeRequest) (*BumpFeeResponse, error) {
 	return nil, status.Errorf(codes.Unimplemented, "method BumpFee not implemented")
@@ -1342,6 +1420,60 @@ func _WalletKit_PendingSweeps_Handler(srv interface{}, ctx context.Context, dec 
 	return interceptor(ctx, in, info, handler)
 }
 
+func _WalletKit_RegisterSweepDescriptor_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(RegisterSweepDescriptorRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(WalletKitServer).RegisterSweepDescriptor(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: "/walletrpc.WalletKit/RegisterSweepDescriptor",
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(WalletKitServer).RegisterSweepDescriptor(ctx, req.(*RegisterSweepDescriptorRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
+func _WalletKit_AddSweepDescriptorData_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(AddSweepDescriptorDataRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(WalletKitServer).AddSweepDescriptorData(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: "/walletrpc.WalletKit/AddSweepDescriptorData",
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(WalletKitServer).AddSweepDescriptorData(ctx, req.(*AddSweepDescriptorDataRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
+func _WalletKit_ListSweepDescriptors_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(ListSweepDescriptorsRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(WalletKitServer).ListSweepDescriptors(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: "/walletrpc.WalletKit/ListSweepDescriptors",
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(WalletKitServer).ListSweepDescriptors(ctx, req.(*ListSweepDescriptorsRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
 func _WalletKit_BumpFee_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
 	in := new(BumpFeeRequest)
 	if err := dec(in); err != nil {
@@ -1562,6 +1694,18 @@ var WalletKit_ServiceDesc = grpc.ServiceDesc{
 		{
 			MethodName: "PendingSweeps",
 			Handler:    _WalletKit_PendingSweeps_Handler,
+		},
+		{
+			MethodName: "RegisterSweepDescriptor",
+			Handler:    _WalletKit_RegisterSweepDescriptor_Handler,
+		},
+		{
+			MethodName: "AddSweepDescriptorData",
+			Handler:    _WalletKit_AddSweepDescriptorData_Handler,
+		},
+		{
+			MethodName: "ListSweepDescriptors",
+			Handler:    _WalletKit_ListSweepDescriptors_Handler,
 		},
 		{
 			MethodName: "BumpFee",

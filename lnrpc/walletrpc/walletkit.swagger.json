@@ -638,6 +638,119 @@
         ]
       }
     },
+    "/v2/wallet/sweep-descriptors": {
+      "get": {
+        "summary": "lncli: `wallet listsweepdescriptors`\nListSweepDescriptors lists descriptor sweep registrations and their current\nlifecycle state. A registration ID can be supplied to select a single\nregistration.",
+        "operationId": "WalletKit_ListSweepDescriptors",
+        "responses": {
+          "200": {
+            "description": "A successful response.",
+            "schema": {
+              "$ref": "#/definitions/walletrpcListSweepDescriptorsResponse"
+            }
+          },
+          "default": {
+            "description": "An unexpected error response.",
+            "schema": {
+              "$ref": "#/definitions/rpcStatus"
+            }
+          }
+        },
+        "parameters": [
+          {
+            "name": "registration_id",
+            "description": "An optional registration ID. When omitted, all registrations are returned.",
+            "in": "query",
+            "required": false,
+            "type": "string",
+            "format": "byte"
+          }
+        ],
+        "tags": [
+          "WalletKit"
+        ]
+      },
+      "post": {
+        "summary": "lncli: `wallet registersweepdescriptor`\nRegisterSweepDescriptor registers a fixed output descriptor for on-chain\ndiscovery and automatic sweeping. The descriptor must use only public key\nmaterial. Any keys that should be signed by lnd must be explicitly bound to\na wallet key locator.",
+        "description": "The first version of this RPC supports fixed-index P2WSH descriptors. The\nregistration remains active while lnd waits for the output and for a\nsatisfiable Miniscript branch. Additional satisfaction data, such as a\nhash preimage, can be supplied through AddSweepDescriptorData.",
+        "operationId": "WalletKit_RegisterSweepDescriptor",
+        "responses": {
+          "200": {
+            "description": "A successful response.",
+            "schema": {
+              "$ref": "#/definitions/walletrpcRegisterSweepDescriptorResponse"
+            }
+          },
+          "default": {
+            "description": "An unexpected error response.",
+            "schema": {
+              "$ref": "#/definitions/rpcStatus"
+            }
+          }
+        },
+        "parameters": [
+          {
+            "name": "body",
+            "in": "body",
+            "required": true,
+            "schema": {
+              "$ref": "#/definitions/walletrpcRegisterSweepDescriptorRequest"
+            }
+          }
+        ],
+        "tags": [
+          "WalletKit"
+        ]
+      }
+    },
+    "/v2/wallet/sweep-descriptors/{registration_id}/data": {
+      "post": {
+        "summary": "lncli: `wallet addsweepdescriptordata`\nAddSweepDescriptorData supplies data that became available after a sweep\ndescriptor was registered. Supplying data may make a Miniscript branch\nsatisfiable and trigger an automatic sweep.",
+        "operationId": "WalletKit_AddSweepDescriptorData",
+        "responses": {
+          "200": {
+            "description": "A successful response.",
+            "schema": {
+              "$ref": "#/definitions/walletrpcAddSweepDescriptorDataResponse"
+            }
+          },
+          "default": {
+            "description": "An unexpected error response.",
+            "schema": {
+              "$ref": "#/definitions/rpcStatus"
+            }
+          }
+        },
+        "parameters": [
+          {
+            "name": "registration_id",
+            "description": "The stable ID returned by RegisterSweepDescriptor.",
+            "in": "path",
+            "required": true,
+            "type": "string",
+            "format": "byte"
+          },
+          {
+            "name": "body",
+            "in": "body",
+            "required": true,
+            "schema": {
+              "type": "object",
+              "properties": {
+                "preimage": {
+                  "type": "string",
+                  "format": "byte",
+                  "description": "A 32-byte preimage. lnd derives its SHA256 digest and makes the preimage\navailable only to matching hash fragments in the descriptor."
+                }
+              }
+            }
+          }
+        ],
+        "tags": [
+          "WalletKit"
+        ]
+      }
+    },
     "/v2/wallet/sweeps": {
       "get": {
         "summary": "lncli: `wallet listsweeps`\nListSweeps returns a list of the sweep transactions our node has produced.\nNote that these sweeps may not be confirmed yet, as we record sweeps on\nbroadcast, not confirmation.",
@@ -1383,6 +1496,15 @@
         }
       }
     },
+    "walletrpcAddSweepDescriptorDataResponse": {
+      "type": "object",
+      "properties": {
+        "status": {
+          "$ref": "#/definitions/walletrpcSweepDescriptorStatus",
+          "description": "The updated state of the registration."
+        }
+      }
+    },
     "walletrpcAddrRequest": {
       "type": "object",
       "properties": {
@@ -1911,6 +2033,19 @@
         }
       }
     },
+    "walletrpcListSweepDescriptorsResponse": {
+      "type": "object",
+      "properties": {
+        "descriptors": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "$ref": "#/definitions/walletrpcSweepDescriptorStatus"
+          },
+          "description": "The matching descriptor sweep registrations."
+        }
+      }
+    },
     "walletrpcListSweepsResponse": {
       "type": "object",
       "properties": {
@@ -2072,6 +2207,84 @@
         "publish_error": {
           "type": "string",
           "description": "If blank, then no error occurred and the transaction was successfully\npublished. If not the empty string, then a string representation of the\nbroadcast error.\n\nTODO(roasbeef): map to a proper enum type"
+        }
+      }
+    },
+    "walletrpcRegisterSweepDescriptorRequest": {
+      "type": "object",
+      "properties": {
+        "output_descriptor": {
+          "type": "string",
+          "description": "The output descriptor to watch and sweep. Private descriptors (WIF or xprv)\nare rejected. The initial implementation accepts fixed-index wsh()\ndescriptors only."
+        },
+        "derivation_index": {
+          "type": "integer",
+          "format": "int64",
+          "description": "The derivation index to use for wildcard descriptors. This must be zero in\nthe initial fixed-index implementation."
+        },
+        "height_hint": {
+          "type": "integer",
+          "format": "int64",
+          "description": "Required. The non-zero earliest block height at which the output may\nhave been created."
+        },
+        "min_confs": {
+          "type": "integer",
+          "format": "int64",
+          "description": "The number of confirmations required before the output may be swept. This\nis the registration's source-finality policy: the initial implementation\ndoes not roll an offered input back after a deeper funding reorganization."
+        },
+        "key_bindings": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "$ref": "#/definitions/walletrpcSweepDescriptorKeyBinding"
+          },
+          "description": "Keys in the descriptor for which lnd should produce signatures."
+        },
+        "budget_sat": {
+          "type": "string",
+          "format": "uint64",
+          "description": "Required. The non-zero maximum number of satoshis the sweep may spend on\nfees."
+        },
+        "deadline_delta": {
+          "type": "integer",
+          "format": "int64",
+          "description": "The number of blocks from offering a satisfiable output to the sweeper by\nwhich the sweep should confirm. A value of zero uses the sweeper's default\ndeadline."
+        },
+        "immediate": {
+          "type": "boolean",
+          "description": "Whether to offer a satisfiable output to the sweeper immediately."
+        },
+        "label": {
+          "type": "string",
+          "description": "An optional human-readable label for this registration."
+        },
+        "expected_value_sat": {
+          "type": "string",
+          "format": "uint64",
+          "description": "Required. The exact value in satoshis of the output to watch. An output is\naccepted only when both its script and value match this registration."
+        }
+      }
+    },
+    "walletrpcRegisterSweepDescriptorResponse": {
+      "type": "object",
+      "properties": {
+        "registration_id": {
+          "type": "string",
+          "format": "byte",
+          "description": "The stable ID of the registration."
+        },
+        "output_descriptor": {
+          "type": "string",
+          "description": "The parsed descriptor serialized in canonical form."
+        },
+        "address": {
+          "type": "string",
+          "description": "The address derived from the descriptor."
+        },
+        "pk_script": {
+          "type": "string",
+          "format": "byte",
+          "description": "The exact output script watched by lnd."
         }
       }
     },
@@ -2271,6 +2484,116 @@
         }
       }
     },
+    "walletrpcSweepDescriptorKeyBinding": {
+      "type": "object",
+      "properties": {
+        "descriptor_key": {
+          "type": "string",
+          "description": "The key expression as it appears in the descriptor."
+        },
+        "key_locator": {
+          "$ref": "#/definitions/signrpcKeyLocator",
+          "description": "The key locator of the corresponding key in lnd's wallet."
+        }
+      },
+      "description": "SweepDescriptorKeyBinding binds a key expression used in a descriptor to a key\ncontrolled by lnd. The descriptor_key must exactly match the key expression in\nthe canonical descriptor and the derived public keys must agree."
+    },
+    "walletrpcSweepDescriptorState": {
+      "type": "string",
+      "enum": [
+        "SWEEP_DESCRIPTOR_STATE_UNKNOWN",
+        "SWEEP_DESCRIPTOR_STATE_REGISTERED",
+        "SWEEP_DESCRIPTOR_STATE_WATCHING",
+        "SWEEP_DESCRIPTOR_STATE_FOUND",
+        "SWEEP_DESCRIPTOR_STATE_WAITING",
+        "SWEEP_DESCRIPTOR_STATE_SWEEPING",
+        "SWEEP_DESCRIPTOR_STATE_SWEPT",
+        "SWEEP_DESCRIPTOR_STATE_FAILED"
+      ],
+      "default": "SWEEP_DESCRIPTOR_STATE_UNKNOWN",
+      "description": "SweepDescriptorState describes the lifecycle of a descriptor sweep.\n\n - SWEEP_DESCRIPTOR_STATE_UNKNOWN: The state is unknown or was not set.\n - SWEEP_DESCRIPTOR_STATE_REGISTERED: The registration was accepted and is being initialized.\n - SWEEP_DESCRIPTOR_STATE_WATCHING: lnd is watching the chain for an output matching the descriptor.\n - SWEEP_DESCRIPTOR_STATE_FOUND: A matching output was found.\n - SWEEP_DESCRIPTOR_STATE_WAITING: The output is waiting for a satisfiable Miniscript branch.\n - SWEEP_DESCRIPTOR_STATE_SWEEPING: The output has been handed to lnd's batching sweeper.\n - SWEEP_DESCRIPTOR_STATE_SWEPT: The sweep transaction was confirmed.\n - SWEEP_DESCRIPTOR_STATE_FAILED: The registration failed and will not make further progress."
+    },
+    "walletrpcSweepDescriptorStatus": {
+      "type": "object",
+      "properties": {
+        "registration_id": {
+          "type": "string",
+          "format": "byte",
+          "description": "The stable ID of the registration."
+        },
+        "output_descriptor": {
+          "type": "string",
+          "description": "The descriptor serialized in canonical form."
+        },
+        "address": {
+          "type": "string",
+          "description": "The address derived from the descriptor."
+        },
+        "pk_script": {
+          "type": "string",
+          "format": "byte",
+          "description": "The exact output script watched by lnd."
+        },
+        "state": {
+          "$ref": "#/definitions/walletrpcSweepDescriptorState",
+          "description": "The current lifecycle state."
+        },
+        "outpoint": {
+          "$ref": "#/definitions/lnrpcOutPoint",
+          "description": "The matching outpoint, once an output has been found."
+        },
+        "sweep_txid": {
+          "type": "string",
+          "format": "byte",
+          "description": "The transaction ID of the confirmed sweep transaction."
+        },
+        "failure_reason": {
+          "type": "string",
+          "description": "The terminal error when state is SWEEP_DESCRIPTOR_STATE_FAILED."
+        },
+        "height_hint": {
+          "type": "integer",
+          "format": "int64",
+          "description": "The earliest block height watched by this registration."
+        },
+        "min_confs": {
+          "type": "integer",
+          "format": "int64",
+          "description": "The requested confirmation depth of a matching output."
+        },
+        "key_bindings": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "$ref": "#/definitions/walletrpcSweepDescriptorKeyBinding"
+          },
+          "description": "Keys in the descriptor that are bound to lnd wallet keys."
+        },
+        "budget_sat": {
+          "type": "string",
+          "format": "uint64",
+          "description": "The maximum number of satoshis the sweep may spend on fees."
+        },
+        "deadline_delta": {
+          "type": "integer",
+          "format": "int64",
+          "description": "The requested sweep deadline delta."
+        },
+        "immediate": {
+          "type": "boolean",
+          "description": "Whether the sweep is offered to the sweeper immediately."
+        },
+        "label": {
+          "type": "string",
+          "description": "The optional human-readable registration label."
+        },
+        "expected_value_sat": {
+          "type": "string",
+          "format": "uint64",
+          "description": "The exact output value required by this registration."
+        }
+      }
+    },
     "walletrpcTapLeaf": {
       "type": "object",
       "properties": {
@@ -2454,10 +2777,11 @@
         "TAPROOT_HTLC_ACCEPTED_SUCCESS_SECOND_LEVEL_FINAL",
         "TAPROOT_HTLC_OFFERED_REMOTE_TIMEOUT_FINAL",
         "TAPROOT_HTLC_ACCEPTED_REMOTE_SUCCESS_FINAL",
-        "TAPROOT_COMMITMENT_REVOKE_FINAL"
+        "TAPROOT_COMMITMENT_REVOKE_FINAL",
+        "DESCRIPTOR_WSH"
       ],
       "default": "UNKNOWN_WITNESS",
-      "description": " - COMMITMENT_TIME_LOCK: A witness that allows us to spend the output of a commitment transaction\nafter a relative lock-time lockout.\n - COMMITMENT_NO_DELAY: A witness that allows us to spend a settled no-delay output immediately on a\ncounterparty's commitment transaction.\n - COMMITMENT_REVOKE: A witness that allows us to sweep the settled output of a malicious\ncounterparty's who broadcasts a revoked commitment transaction.\n - HTLC_OFFERED_REVOKE: A witness that allows us to sweep an HTLC which we offered to the remote\nparty in the case that they broadcast a revoked commitment state.\n - HTLC_ACCEPTED_REVOKE: A witness that allows us to sweep an HTLC output sent to us in the case that\nthe remote party broadcasts a revoked commitment state.\n - HTLC_OFFERED_TIMEOUT_SECOND_LEVEL: A witness that allows us to sweep an HTLC output that we extended to a\nparty, but was never fulfilled.  This HTLC output isn't directly on the\ncommitment transaction, but is the result of a confirmed second-level HTLC\ntransaction. As a result, we can only spend this after a CSV delay.\n - HTLC_ACCEPTED_SUCCESS_SECOND_LEVEL: A witness that allows us to sweep an HTLC output that was offered to us, and\nfor which we have a payment preimage. This HTLC output isn't directly on our\ncommitment transaction, but is the result of confirmed second-level HTLC\ntransaction. As a result, we can only spend this after a CSV delay.\n - HTLC_OFFERED_REMOTE_TIMEOUT: A witness that allows us to sweep an HTLC that we offered to the remote\nparty which lies in the commitment transaction of the remote party. We can\nspend this output after the absolute CLTV timeout of the HTLC as passed.\n - HTLC_ACCEPTED_REMOTE_SUCCESS: A witness that allows us to sweep an HTLC that was offered to us by the\nremote party. We use this witness in the case that the remote party goes to\nchain, and we know the pre-image to the HTLC. We can sweep this without any\nadditional timeout.\n - HTLC_SECOND_LEVEL_REVOKE: A witness that allows us to sweep an HTLC from the remote party's commitment\ntransaction in the case that the broadcast a revoked commitment, but then\nalso immediately attempt to go to the second level to claim the HTLC.\n - WITNESS_KEY_HASH: A witness type that allows us to spend a regular p2wkh output that's sent to\nan output which is under complete control of the backing wallet.\n - NESTED_WITNESS_KEY_HASH: A witness type that allows us to sweep an output that sends to a nested P2SH\nscript that pays to a key solely under our control.\n - COMMITMENT_ANCHOR: A witness type that allows us to spend our anchor on the commitment\ntransaction.\n - COMMITMENT_NO_DELAY_TWEAKLESS: A witness type that is similar to the COMMITMENT_NO_DELAY type,\nbut it omits the tweak that randomizes the key we need to\nspend with a channel peer supplied set of randomness.\n - COMMITMENT_TO_REMOTE_CONFIRMED: A witness type that allows us to spend our output on the counterparty's\ncommitment transaction after a confirmation.\n - HTLC_OFFERED_TIMEOUT_SECOND_LEVEL_INPUT_CONFIRMED: A witness type that allows us to sweep an HTLC output that we extended\nto a party, but was never fulfilled. This _is_ the HTLC output directly\non our commitment transaction, and the input to the second-level HTLC\ntimeout transaction. It can only be spent after CLTV expiry, and\ncommitment confirmation.\n - HTLC_ACCEPTED_SUCCESS_SECOND_LEVEL_INPUT_CONFIRMED: A witness type that allows us to sweep an HTLC output that was offered\nto us, and for which we have a payment preimage. This _is_ the HTLC\noutput directly on our commitment transaction, and the input to the\nsecond-level HTLC success transaction. It can only be spent after the\ncommitment has confirmed.\n - LEASE_COMMITMENT_TIME_LOCK: A witness type that allows us to spend our output on our local\ncommitment transaction after a relative and absolute lock-time lockout as\npart of the script enforced lease commitment type.\n - LEASE_COMMITMENT_TO_REMOTE_CONFIRMED: A witness type that allows us to spend our output on the counterparty's\ncommitment transaction after a confirmation and absolute locktime as part\nof the script enforced lease commitment type.\n - LEASE_HTLC_OFFERED_TIMEOUT_SECOND_LEVEL: A witness type that allows us to sweep an HTLC output that we extended\nto a party, but was never fulfilled. This HTLC output isn't directly on\nthe commitment transaction, but is the result of a confirmed second-level\nHTLC transaction. As a result, we can only spend this after a CSV delay\nand CLTV locktime as part of the script enforced lease commitment type.\n - LEASE_HTLC_ACCEPTED_SUCCESS_SECOND_LEVEL: A witness type that allows us to sweep an HTLC output that was offered\nto us, and for which we have a payment preimage. This HTLC output isn't\ndirectly on our commitment transaction, but is the result of confirmed\nsecond-level HTLC transaction. As a result, we can only spend this after\na CSV delay and CLTV locktime as part of the script enforced lease\ncommitment type.\n - TAPROOT_PUB_KEY_SPEND: A witness type that allows us to spend a regular p2tr output that's sent\nto an output which is under complete control of the backing wallet.\n - TAPROOT_LOCAL_COMMIT_SPEND: A witness type that allows us to spend our settled local commitment after a\nCSV delay when we force close the channel.\n - TAPROOT_REMOTE_COMMIT_SPEND: A witness type that allows us to spend our settled local commitment after\na CSV delay when the remote party has force closed the channel.\n - TAPROOT_ANCHOR_SWEEP_SPEND: A witness type that we'll use for spending our own anchor output.\n - TAPROOT_HTLC_OFFERED_TIMEOUT_SECOND_LEVEL: A witness that allows us to timeout an HTLC we offered to the remote party\non our commitment transaction. We use this when we need to go on chain to\ntime out an HTLC.\n - TAPROOT_HTLC_ACCEPTED_SUCCESS_SECOND_LEVEL: A witness type that allows us to sweep an HTLC we accepted on our commitment\ntransaction after we go to the second level on chain.\n - TAPROOT_HTLC_SECOND_LEVEL_REVOKE: A witness that allows us to sweep an HTLC on the revoked transaction of the\nremote party that goes to the second level.\n - TAPROOT_HTLC_ACCEPTED_REVOKE: A witness that allows us to sweep an HTLC sent to us by the remote party\nin the event that they broadcast a revoked state.\n - TAPROOT_HTLC_OFFERED_REVOKE: A witness that allows us to sweep an HTLC we offered to the remote party if\nthey broadcast a revoked commitment.\n - TAPROOT_HTLC_OFFERED_REMOTE_TIMEOUT: A witness that allows us to sweep an HTLC we offered to the remote party\nthat lies on the commitment transaction for the remote party. We can spend\nthis output after the absolute CLTV timeout of the HTLC as passed.\n - TAPROOT_HTLC_LOCAL_OFFERED_TIMEOUT: A witness type that allows us to sign the second level HTLC timeout\ntransaction when spending from an HTLC residing on our local commitment\ntransaction.\nThis is used by the sweeper to re-sign inputs if it needs to aggregate\nseveral second level HTLCs.\n - TAPROOT_HTLC_ACCEPTED_REMOTE_SUCCESS: A witness that allows us to sweep an HTLC that was offered to us by the\nremote party for a taproot channels. We use this witness in the case that\nthe remote party goes to chain, and we know the pre-image to the HTLC. We\ncan sweep this without any additional timeout.\n - TAPROOT_HTLC_ACCEPTED_LOCAL_SUCCESS: A witness type that allows us to sweep the HTLC offered to us on our local\ncommitment transaction. We'll use this when we need to go on chain to sweep\nthe HTLC. In this case, this is the second level HTLC success transaction.\n - TAPROOT_COMMITMENT_REVOKE: A witness that allows us to sweep the settled output of a malicious\ncounterparty's who broadcasts a revoked taproot commitment transaction.\n - TAPROOT_LOCAL_COMMIT_SPEND_FINAL: A witness type that allows us to spend our settled local commitment after a\nCSV delay when we force close a production taproot channel.\n - TAPROOT_REMOTE_COMMIT_SPEND_FINAL: A witness type that allows us to spend our settled local commitment after\na CSV delay when the remote party has force closed a production taproot\nchannel.\n - TAPROOT_HTLC_OFFERED_TIMEOUT_SECOND_LEVEL_FINAL: A witness that allows us to timeout an HTLC we offered to the remote party\non our production taproot commitment transaction. We use this when we need\nto go on chain to time out an HTLC.\n - TAPROOT_HTLC_ACCEPTED_SUCCESS_SECOND_LEVEL_FINAL: A witness type that allows us to sweep an HTLC we accepted on our\nproduction taproot commitment transaction after we go to the second level\non chain.\n - TAPROOT_HTLC_OFFERED_REMOTE_TIMEOUT_FINAL: A witness that allows us to sweep an HTLC we offered to the remote party\nthat lies on the production taproot commitment transaction for the remote\nparty. We can spend this output after the absolute CLTV timeout of the\nHTLC as passed.\n - TAPROOT_HTLC_ACCEPTED_REMOTE_SUCCESS_FINAL: A witness that allows us to sweep an HTLC that was offered to us by the\nremote party for a production taproot channel. We use this witness in the\ncase that the remote party goes to chain, and we know the pre-image to the\nHTLC. We can sweep this without any additional timeout.\n - TAPROOT_COMMITMENT_REVOKE_FINAL: A witness type that allows us to sweep the settled output of a malicious\ncounterparty's who broadcasts a revoked production taproot commitment\ntransaction."
+      "description": " - COMMITMENT_TIME_LOCK: A witness that allows us to spend the output of a commitment transaction\nafter a relative lock-time lockout.\n - COMMITMENT_NO_DELAY: A witness that allows us to spend a settled no-delay output immediately on a\ncounterparty's commitment transaction.\n - COMMITMENT_REVOKE: A witness that allows us to sweep the settled output of a malicious\ncounterparty's who broadcasts a revoked commitment transaction.\n - HTLC_OFFERED_REVOKE: A witness that allows us to sweep an HTLC which we offered to the remote\nparty in the case that they broadcast a revoked commitment state.\n - HTLC_ACCEPTED_REVOKE: A witness that allows us to sweep an HTLC output sent to us in the case that\nthe remote party broadcasts a revoked commitment state.\n - HTLC_OFFERED_TIMEOUT_SECOND_LEVEL: A witness that allows us to sweep an HTLC output that we extended to a\nparty, but was never fulfilled.  This HTLC output isn't directly on the\ncommitment transaction, but is the result of a confirmed second-level HTLC\ntransaction. As a result, we can only spend this after a CSV delay.\n - HTLC_ACCEPTED_SUCCESS_SECOND_LEVEL: A witness that allows us to sweep an HTLC output that was offered to us, and\nfor which we have a payment preimage. This HTLC output isn't directly on our\ncommitment transaction, but is the result of confirmed second-level HTLC\ntransaction. As a result, we can only spend this after a CSV delay.\n - HTLC_OFFERED_REMOTE_TIMEOUT: A witness that allows us to sweep an HTLC that we offered to the remote\nparty which lies in the commitment transaction of the remote party. We can\nspend this output after the absolute CLTV timeout of the HTLC as passed.\n - HTLC_ACCEPTED_REMOTE_SUCCESS: A witness that allows us to sweep an HTLC that was offered to us by the\nremote party. We use this witness in the case that the remote party goes to\nchain, and we know the pre-image to the HTLC. We can sweep this without any\nadditional timeout.\n - HTLC_SECOND_LEVEL_REVOKE: A witness that allows us to sweep an HTLC from the remote party's commitment\ntransaction in the case that the broadcast a revoked commitment, but then\nalso immediately attempt to go to the second level to claim the HTLC.\n - WITNESS_KEY_HASH: A witness type that allows us to spend a regular p2wkh output that's sent to\nan output which is under complete control of the backing wallet.\n - NESTED_WITNESS_KEY_HASH: A witness type that allows us to sweep an output that sends to a nested P2SH\nscript that pays to a key solely under our control.\n - COMMITMENT_ANCHOR: A witness type that allows us to spend our anchor on the commitment\ntransaction.\n - COMMITMENT_NO_DELAY_TWEAKLESS: A witness type that is similar to the COMMITMENT_NO_DELAY type,\nbut it omits the tweak that randomizes the key we need to\nspend with a channel peer supplied set of randomness.\n - COMMITMENT_TO_REMOTE_CONFIRMED: A witness type that allows us to spend our output on the counterparty's\ncommitment transaction after a confirmation.\n - HTLC_OFFERED_TIMEOUT_SECOND_LEVEL_INPUT_CONFIRMED: A witness type that allows us to sweep an HTLC output that we extended\nto a party, but was never fulfilled. This _is_ the HTLC output directly\non our commitment transaction, and the input to the second-level HTLC\ntimeout transaction. It can only be spent after CLTV expiry, and\ncommitment confirmation.\n - HTLC_ACCEPTED_SUCCESS_SECOND_LEVEL_INPUT_CONFIRMED: A witness type that allows us to sweep an HTLC output that was offered\nto us, and for which we have a payment preimage. This _is_ the HTLC\noutput directly on our commitment transaction, and the input to the\nsecond-level HTLC success transaction. It can only be spent after the\ncommitment has confirmed.\n - LEASE_COMMITMENT_TIME_LOCK: A witness type that allows us to spend our output on our local\ncommitment transaction after a relative and absolute lock-time lockout as\npart of the script enforced lease commitment type.\n - LEASE_COMMITMENT_TO_REMOTE_CONFIRMED: A witness type that allows us to spend our output on the counterparty's\ncommitment transaction after a confirmation and absolute locktime as part\nof the script enforced lease commitment type.\n - LEASE_HTLC_OFFERED_TIMEOUT_SECOND_LEVEL: A witness type that allows us to sweep an HTLC output that we extended\nto a party, but was never fulfilled. This HTLC output isn't directly on\nthe commitment transaction, but is the result of a confirmed second-level\nHTLC transaction. As a result, we can only spend this after a CSV delay\nand CLTV locktime as part of the script enforced lease commitment type.\n - LEASE_HTLC_ACCEPTED_SUCCESS_SECOND_LEVEL: A witness type that allows us to sweep an HTLC output that was offered\nto us, and for which we have a payment preimage. This HTLC output isn't\ndirectly on our commitment transaction, but is the result of confirmed\nsecond-level HTLC transaction. As a result, we can only spend this after\na CSV delay and CLTV locktime as part of the script enforced lease\ncommitment type.\n - TAPROOT_PUB_KEY_SPEND: A witness type that allows us to spend a regular p2tr output that's sent\nto an output which is under complete control of the backing wallet.\n - TAPROOT_LOCAL_COMMIT_SPEND: A witness type that allows us to spend our settled local commitment after a\nCSV delay when we force close the channel.\n - TAPROOT_REMOTE_COMMIT_SPEND: A witness type that allows us to spend our settled local commitment after\na CSV delay when the remote party has force closed the channel.\n - TAPROOT_ANCHOR_SWEEP_SPEND: A witness type that we'll use for spending our own anchor output.\n - TAPROOT_HTLC_OFFERED_TIMEOUT_SECOND_LEVEL: A witness that allows us to timeout an HTLC we offered to the remote party\non our commitment transaction. We use this when we need to go on chain to\ntime out an HTLC.\n - TAPROOT_HTLC_ACCEPTED_SUCCESS_SECOND_LEVEL: A witness type that allows us to sweep an HTLC we accepted on our commitment\ntransaction after we go to the second level on chain.\n - TAPROOT_HTLC_SECOND_LEVEL_REVOKE: A witness that allows us to sweep an HTLC on the revoked transaction of the\nremote party that goes to the second level.\n - TAPROOT_HTLC_ACCEPTED_REVOKE: A witness that allows us to sweep an HTLC sent to us by the remote party\nin the event that they broadcast a revoked state.\n - TAPROOT_HTLC_OFFERED_REVOKE: A witness that allows us to sweep an HTLC we offered to the remote party if\nthey broadcast a revoked commitment.\n - TAPROOT_HTLC_OFFERED_REMOTE_TIMEOUT: A witness that allows us to sweep an HTLC we offered to the remote party\nthat lies on the commitment transaction for the remote party. We can spend\nthis output after the absolute CLTV timeout of the HTLC as passed.\n - TAPROOT_HTLC_LOCAL_OFFERED_TIMEOUT: A witness type that allows us to sign the second level HTLC timeout\ntransaction when spending from an HTLC residing on our local commitment\ntransaction.\nThis is used by the sweeper to re-sign inputs if it needs to aggregate\nseveral second level HTLCs.\n - TAPROOT_HTLC_ACCEPTED_REMOTE_SUCCESS: A witness that allows us to sweep an HTLC that was offered to us by the\nremote party for a taproot channels. We use this witness in the case that\nthe remote party goes to chain, and we know the pre-image to the HTLC. We\ncan sweep this without any additional timeout.\n - TAPROOT_HTLC_ACCEPTED_LOCAL_SUCCESS: A witness type that allows us to sweep the HTLC offered to us on our local\ncommitment transaction. We'll use this when we need to go on chain to sweep\nthe HTLC. In this case, this is the second level HTLC success transaction.\n - TAPROOT_COMMITMENT_REVOKE: A witness that allows us to sweep the settled output of a malicious\ncounterparty's who broadcasts a revoked taproot commitment transaction.\n - TAPROOT_LOCAL_COMMIT_SPEND_FINAL: A witness type that allows us to spend our settled local commitment after a\nCSV delay when we force close a production taproot channel.\n - TAPROOT_REMOTE_COMMIT_SPEND_FINAL: A witness type that allows us to spend our settled local commitment after\na CSV delay when the remote party has force closed a production taproot\nchannel.\n - TAPROOT_HTLC_OFFERED_TIMEOUT_SECOND_LEVEL_FINAL: A witness that allows us to timeout an HTLC we offered to the remote party\non our production taproot commitment transaction. We use this when we need\nto go on chain to time out an HTLC.\n - TAPROOT_HTLC_ACCEPTED_SUCCESS_SECOND_LEVEL_FINAL: A witness type that allows us to sweep an HTLC we accepted on our\nproduction taproot commitment transaction after we go to the second level\non chain.\n - TAPROOT_HTLC_OFFERED_REMOTE_TIMEOUT_FINAL: A witness that allows us to sweep an HTLC we offered to the remote party\nthat lies on the production taproot commitment transaction for the remote\nparty. We can spend this output after the absolute CLTV timeout of the\nHTLC as passed.\n - TAPROOT_HTLC_ACCEPTED_REMOTE_SUCCESS_FINAL: A witness that allows us to sweep an HTLC that was offered to us by the\nremote party for a production taproot channel. We use this witness in the\ncase that the remote party goes to chain, and we know the pre-image to the\nHTLC. We can sweep this without any additional timeout.\n - TAPROOT_COMMITMENT_REVOKE_FINAL: A witness type that allows us to sweep the settled output of a malicious\ncounterparty's who broadcasts a revoked production taproot commitment\ntransaction.\n - DESCRIPTOR_WSH: A witness constructed from a registered native P2WSH output descriptor and\nits selected Miniscript satisfaction plan."
     }
   }
 }

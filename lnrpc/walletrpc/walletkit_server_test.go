@@ -31,10 +31,10 @@ func TestWitnessTypeMapping(t *testing.T) {
 	t.Parallel()
 
 	// Tests that both enum types have the same length except the
-	// UNKNOWN_WITNESS type which is only present in the walletrpc
-	// witness type enum.
+	// UNKNOWN_WITNESS and DESCRIPTOR_WSH types, which don't correspond to
+	// concrete entries in the statically numbered input witness type enum.
 	require.Equal(
-		t, len(allWitnessTypes), len(WitnessType_name)-1,
+		t, len(allWitnessTypes), len(WitnessType_name)-2,
 		"number of witness types should match proto definition",
 	)
 

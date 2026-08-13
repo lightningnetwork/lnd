@@ -16,6 +16,7 @@ import (
 	graphdb "github.com/lightningnetwork/lnd/graph/db"
 	"github.com/lightningnetwork/lnd/htlcswitch"
 	"github.com/lightningnetwork/lnd/invoices"
+	"github.com/lightningnetwork/lnd/kvdb"
 	"github.com/lightningnetwork/lnd/lncfg"
 	"github.com/lightningnetwork/lnd/lnrpc/autopilotrpc"
 	"github.com/lightningnetwork/lnd/lnrpc/chainrpc"
@@ -115,7 +116,8 @@ func (s *subRPCServerConfigs) PopulateDependencies(cfg *Config,
 	routerBackend *routerrpc.RouterBackend,
 	nodeSigner *netann.NodeSigner,
 	graphDB *graphdb.ChannelGraph,
-	chanStateDB chanstate.Store,
+	chanStateDB chanstate.Store, descriptorSweepDB kvdb.Backend,
+	descriptorSweepReady <-chan struct{},
 	sweeper *sweep.UtxoSweeper,
 	tower *watchtower.Standalone,
 	towerClientMgr *wtclient.Manager,
@@ -194,6 +196,15 @@ func (s *subRPCServerConfigs) PopulateDependencies(cfg *Config,
 			)
 			subCfgValue.FieldByName("Sweeper").Set(
 				reflect.ValueOf(sweeper),
+			)
+			subCfgValue.FieldByName("ChainNotifier").Set(
+				reflect.ValueOf(cc.ChainNotifier),
+			)
+			subCfgValue.FieldByName("DescriptorSweepDB").Set(
+				reflect.ValueOf(descriptorSweepDB),
+			)
+			subCfgValue.FieldByName("DescriptorSweepReady").Set(
+				reflect.ValueOf(descriptorSweepReady),
 			)
 			subCfgValue.FieldByName("Chain").Set(
 				reflect.ValueOf(cc.ChainIO),

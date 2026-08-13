@@ -275,6 +275,45 @@ func (h *HarnessRPC) BumpFeeAssertErr(req *walletrpc.BumpFeeRequest) error {
 	return err
 }
 
+// RegisterSweepDescriptor registers a descriptor sweep and asserts success.
+func (h *HarnessRPC) RegisterSweepDescriptor(
+	req *walletrpc.RegisterSweepDescriptorRequest) *walletrpc.RegisterSweepDescriptorResponse {
+
+	ctxt, cancel := context.WithTimeout(h.runCtx, DefaultTimeout)
+	defer cancel()
+
+	resp, err := h.WalletKit.RegisterSweepDescriptor(ctxt, req)
+	h.NoError(err, "RegisterSweepDescriptor")
+
+	return resp
+}
+
+// AddSweepDescriptorData adds late satisfaction data and asserts success.
+func (h *HarnessRPC) AddSweepDescriptorData(
+	req *walletrpc.AddSweepDescriptorDataRequest) *walletrpc.AddSweepDescriptorDataResponse {
+
+	ctxt, cancel := context.WithTimeout(h.runCtx, DefaultTimeout)
+	defer cancel()
+
+	resp, err := h.WalletKit.AddSweepDescriptorData(ctxt, req)
+	h.NoError(err, "AddSweepDescriptorData")
+
+	return resp
+}
+
+// ListSweepDescriptors lists descriptor sweeps and asserts success.
+func (h *HarnessRPC) ListSweepDescriptors(
+	req *walletrpc.ListSweepDescriptorsRequest) *walletrpc.ListSweepDescriptorsResponse {
+
+	ctxt, cancel := context.WithTimeout(h.runCtx, DefaultTimeout)
+	defer cancel()
+
+	resp, err := h.WalletKit.ListSweepDescriptors(ctxt, req)
+	h.NoError(err, "ListSweepDescriptors")
+
+	return resp
+}
+
 // BumpForceCloseFee makes a RPC call to the node's WalletKitClient and asserts.
 //
 //nolint:ll

@@ -44,6 +44,14 @@ http:
       get: "/v2/wallet/estimatefee/{conf_target}"
     - selector: walletrpc.WalletKit.PendingSweeps
       get: "/v2/wallet/sweeps/pending"
+    - selector: walletrpc.WalletKit.RegisterSweepDescriptor
+      post: "/v2/wallet/sweep-descriptors"
+      body: "*"
+    - selector: walletrpc.WalletKit.AddSweepDescriptorData
+      post: "/v2/wallet/sweep-descriptors/{registration_id}/data"
+      body: "*"
+    - selector: walletrpc.WalletKit.ListSweepDescriptors
+      get: "/v2/wallet/sweep-descriptors"
     - selector: walletrpc.WalletKit.BumpFee
       post: "/v2/wallet/bumpfee"
       body: "*"

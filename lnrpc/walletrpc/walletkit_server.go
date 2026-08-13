@@ -47,6 +47,7 @@ import (
 	"github.com/lightningnetwork/lnd/lnwallet/chanfunding"
 	"github.com/lightningnetwork/lnd/macaroons"
 	"github.com/lightningnetwork/lnd/sweep"
+	"github.com/lightningnetwork/lnd/sweep/descriptorsweep"
 	"google.golang.org/grpc"
 	"gopkg.in/macaroon-bakery.v2/bakery"
 )
@@ -108,6 +109,18 @@ var (
 			Action: "read",
 		}},
 		"/walletrpc.WalletKit/PendingSweeps": {{
+			Entity: "onchain",
+			Action: "read",
+		}},
+		"/walletrpc.WalletKit/RegisterSweepDescriptor": {{
+			Entity: "onchain",
+			Action: "write",
+		}},
+		"/walletrpc.WalletKit/AddSweepDescriptorData": {{
+			Entity: "onchain",
+			Action: "write",
+		}},
+		"/walletrpc.WalletKit/ListSweepDescriptors": {{
 			Entity: "onchain",
 			Action: "read",
 		}},
@@ -268,6 +281,8 @@ type WalletKit struct {
 	UnimplementedWalletKitServer
 
 	cfg *Config
+
+	descriptorSweeper *descriptorsweep.Service
 }
 
 // A compile time check to ensure that WalletKit fully implements the
@@ -315,8 +330,24 @@ func New(cfg *Config) (*WalletKit, lnrpc.MacaroonPerms, error) {
 		}
 	}
 
-	walletKit := &WalletKit{
-		cfg: cfg,
+	walletKit := &WalletKit{cfg: cfg}
+	if cfg.DescriptorSweepDB != nil && cfg.ChainNotifier != nil &&
+		cfg.KeyRing != nil && cfg.Sweeper != nil && cfg.Chain != nil &&
+		cfg.ChainParams != nil && cfg.DescriptorSweepReady != nil {
+
+		service, err := descriptorsweep.New(descriptorsweep.Config{
+			DB:          cfg.DescriptorSweepDB,
+			Notifier:    cfg.ChainNotifier,
+			KeyRing:     cfg.KeyRing,
+			Sweeper:     cfg.Sweeper,
+			BlockSource: cfg.Chain,
+			ChainParams: cfg.ChainParams,
+			Ready:       cfg.DescriptorSweepReady,
+		})
+		if err != nil {
+			return nil, nil, err
+		}
+		walletKit.descriptorSweeper = service
 	}
 
 	return walletKit, macPermissions, nil
@@ -326,6 +357,9 @@ func New(cfg *Config) (*WalletKit, lnrpc.MacaroonPerms, error) {
 //
 // NOTE: This is part of the lnrpc.SubServer interface.
 func (w *WalletKit) Start() error {
+	if w.descriptorSweeper != nil {
+		return w.descriptorSweeper.Start()
+	}
 	return nil
 }
 
@@ -333,7 +367,222 @@ func (w *WalletKit) Start() error {
 //
 // NOTE: This is part of the lnrpc.SubServer interface.
 func (w *WalletKit) Stop() error {
+	if w.descriptorSweeper != nil {
+		return w.descriptorSweeper.Stop()
+	}
 	return nil
+}
+
+// DescriptorSweeper returns the descriptor sweep service used by the RPC
+// adapters. It is nil only in narrowly scoped WalletKit unit tests that do not
+// construct the daemon dependencies.
+func (w *WalletKit) DescriptorSweeper() *descriptorsweep.Service {
+	return w.descriptorSweeper
+}
+
+// RegisterSweepDescriptor registers a fixed descriptor for discovery and
+// automatic sweeping.
+func (w *WalletKit) RegisterSweepDescriptor(ctx context.Context,
+	req *RegisterSweepDescriptorRequest) (*RegisterSweepDescriptorResponse,
+	error) {
+
+	service, err := w.requireDescriptorSweeper()
+	if err != nil {
+		return nil, err
+	}
+	if req.BudgetSat > math.MaxInt64 {
+		return nil, errors.New("sweep budget exceeds maximum satoshi amount")
+	}
+	if req.ExpectedValueSat > math.MaxInt64 {
+		return nil, errors.New("expected value exceeds maximum satoshi amount")
+	}
+
+	bindings := make([]descriptorsweep.KeyBinding, len(req.KeyBindings))
+	for i, binding := range req.KeyBindings {
+		if binding == nil || binding.KeyLocator == nil {
+			return nil, fmt.Errorf("key binding %d has no key locator", i)
+		}
+		if binding.KeyLocator.KeyFamily < 0 {
+			return nil, fmt.Errorf("key binding %d has negative key family", i)
+		}
+		if binding.KeyLocator.KeyIndex < 0 {
+			return nil, fmt.Errorf("key binding %d has negative key index", i)
+		}
+
+		bindings[i] = descriptorsweep.KeyBinding{
+			DescriptorKey: binding.DescriptorKey,
+			KeyLocator: keychain.KeyLocator{
+				Family: keychain.KeyFamily(
+					binding.KeyLocator.KeyFamily,
+				),
+				Index: uint32(binding.KeyLocator.KeyIndex),
+			},
+		}
+	}
+
+	record, err := service.Register(ctx, descriptorsweep.RegisterRequest{
+		Descriptor:      req.OutputDescriptor,
+		DerivationIndex: req.DerivationIndex,
+		KeyBindings:     bindings,
+		HeightHint:      req.HeightHint,
+		MinConfs:        req.MinConfs,
+		ExpectedValue:   btcutil.Amount(req.ExpectedValueSat),
+		Budget:          btcutil.Amount(req.BudgetSat),
+		DeadlineDelta:   req.DeadlineDelta,
+		Immediate:       req.Immediate,
+		Label:           req.Label,
+	})
+	if err != nil {
+		return nil, err
+	}
+
+	return &RegisterSweepDescriptorResponse{
+		RegistrationId:   record.ID.Bytes(),
+		OutputDescriptor: record.CanonicalDescriptor,
+		Address:          record.Address,
+		PkScript:         append([]byte(nil), record.PkScript...),
+	}, nil
+}
+
+// AddSweepDescriptorData supplies satisfaction data that became available
+// after descriptor registration.
+func (w *WalletKit) AddSweepDescriptorData(ctx context.Context,
+	req *AddSweepDescriptorDataRequest) (*AddSweepDescriptorDataResponse,
+	error) {
+
+	service, err := w.requireDescriptorSweeper()
+	if err != nil {
+		return nil, err
+	}
+	id, err := descriptorsweep.RegistrationIDFromBytes(req.RegistrationId)
+	if err != nil {
+		return nil, err
+	}
+
+	switch data := req.Data.(type) {
+	case *AddSweepDescriptorDataRequest_Preimage:
+		record, err := service.AddPreimage(ctx, id, data.Preimage)
+		if err != nil {
+			return nil, err
+		}
+
+		return &AddSweepDescriptorDataResponse{
+			Status: marshalSweepDescriptorStatus(record),
+		}, nil
+
+	default:
+		return nil, errors.New("sweep descriptor data is required")
+	}
+}
+
+// ListSweepDescriptors lists descriptor sweep registrations, optionally
+// selecting a single registration by ID.
+func (w *WalletKit) ListSweepDescriptors(_ context.Context,
+	req *ListSweepDescriptorsRequest) (*ListSweepDescriptorsResponse, error) {
+
+	service, err := w.requireDescriptorSweeper()
+	if err != nil {
+		return nil, err
+	}
+
+	var records []*descriptorsweep.Record
+	if len(req.RegistrationId) != 0 {
+		id, err := descriptorsweep.RegistrationIDFromBytes(
+			req.RegistrationId,
+		)
+		if err != nil {
+			return nil, err
+		}
+		record, err := service.Get(id)
+		if err != nil {
+			return nil, err
+		}
+		records = []*descriptorsweep.Record{record}
+	} else {
+		records = service.List()
+	}
+
+	resp := &ListSweepDescriptorsResponse{
+		Descriptors: make([]*SweepDescriptorStatus, len(records)),
+	}
+	for i, record := range records {
+		resp.Descriptors[i] = marshalSweepDescriptorStatus(record)
+	}
+
+	return resp, nil
+}
+
+func (w *WalletKit) requireDescriptorSweeper() (*descriptorsweep.Service,
+	error) {
+
+	if w.descriptorSweeper == nil {
+		return nil, errors.New("descriptor sweep service is unavailable")
+	}
+
+	return w.descriptorSweeper, nil
+}
+
+func marshalSweepDescriptorStatus(
+	record *descriptorsweep.Record) *SweepDescriptorStatus {
+
+	bindings := make([]*SweepDescriptorKeyBinding, len(record.KeyBindings))
+	for i, binding := range record.KeyBindings {
+		bindings[i] = &SweepDescriptorKeyBinding{
+			DescriptorKey: binding.DescriptorKey,
+			KeyLocator: &signrpc.KeyLocator{
+				KeyFamily: int32(binding.KeyLocator.Family),
+				KeyIndex:  int32(binding.KeyLocator.Index),
+			},
+		}
+	}
+
+	result := &SweepDescriptorStatus{
+		RegistrationId:   record.ID.Bytes(),
+		OutputDescriptor: record.CanonicalDescriptor,
+		Address:          record.Address,
+		PkScript:         append([]byte(nil), record.PkScript...),
+		State:            marshalSweepDescriptorState(record.Status),
+		FailureReason:    record.Error,
+		HeightHint:       record.HeightHint,
+		MinConfs:         record.MinConfs,
+		ExpectedValueSat: uint64(record.ExpectedValue),
+		KeyBindings:      bindings,
+		BudgetSat:        uint64(record.Budget),
+		DeadlineDelta:    record.DeadlineDelta,
+		Immediate:        record.Immediate,
+		Label:            record.Label,
+	}
+	if record.OutPoint != nil {
+		result.Outpoint = lnrpc.MarshalOutPoint(record.OutPoint)
+	}
+	if record.SweepTxID != nil {
+		result.SweepTxid = append([]byte(nil), record.SweepTxID[:]...)
+	}
+
+	return result
+}
+
+func marshalSweepDescriptorState(
+	status descriptorsweep.Status) SweepDescriptorState {
+
+	switch status {
+	case descriptorsweep.StatusRegistered:
+		return SweepDescriptorState_SWEEP_DESCRIPTOR_STATE_REGISTERED
+	case descriptorsweep.StatusWatching:
+		return SweepDescriptorState_SWEEP_DESCRIPTOR_STATE_WATCHING
+	case descriptorsweep.StatusFound:
+		return SweepDescriptorState_SWEEP_DESCRIPTOR_STATE_FOUND
+	case descriptorsweep.StatusWaiting:
+		return SweepDescriptorState_SWEEP_DESCRIPTOR_STATE_WAITING
+	case descriptorsweep.StatusSweeping:
+		return SweepDescriptorState_SWEEP_DESCRIPTOR_STATE_SWEEPING
+	case descriptorsweep.StatusSwept:
+		return SweepDescriptorState_SWEEP_DESCRIPTOR_STATE_SWEPT
+	case descriptorsweep.StatusFailed:
+		return SweepDescriptorState_SWEEP_DESCRIPTOR_STATE_FAILED
+	default:
+		return SweepDescriptorState_SWEEP_DESCRIPTOR_STATE_UNKNOWN
+	}
 }
 
 // Name returns a unique string representation of the sub-server. This can be
@@ -977,6 +1226,10 @@ func (w *WalletKit) PendingSweeps(ctx context.Context,
 	rpcPendingSweeps := make([]*PendingSweep, 0, len(inputsMap))
 	for _, inp := range inputsMap {
 		witnessType, ok := allWitnessTypes[inp.WitnessType]
+		if !ok && descriptorsweep.IsWitnessType(inp.WitnessType) {
+			witnessType = WitnessType_DESCRIPTOR_WSH
+			ok = true
+		}
 		if !ok {
 			return nil, fmt.Errorf("unhandled witness type %v for "+
 				"input %v", inp.WitnessType, inp.OutPoint)

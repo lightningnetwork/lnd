@@ -6,8 +6,10 @@ package walletrpc
 import (
 	"github.com/btcsuite/btcd/chaincfg/v2"
 	"github.com/btcsuite/btcwallet/wallet"
+	"github.com/lightningnetwork/lnd/chainntnfs"
 	"github.com/lightningnetwork/lnd/chanstate"
 	"github.com/lightningnetwork/lnd/keychain"
+	"github.com/lightningnetwork/lnd/kvdb"
 	"github.com/lightningnetwork/lnd/lnwallet"
 	"github.com/lightningnetwork/lnd/lnwallet/chainfee"
 	"github.com/lightningnetwork/lnd/macaroons"
@@ -62,6 +64,16 @@ type Config struct {
 	// Sweeper is the central batching engine of lnd. It is responsible for
 	// sweeping inputs in batches back into the wallet.
 	Sweeper *sweep.UtxoSweeper
+
+	// ChainNotifier watches exact descriptor scripts and block epochs.
+	ChainNotifier chainntnfs.ChainNotifier
+
+	// DescriptorSweepDB durably stores descriptor registrations and assets.
+	DescriptorSweepDB kvdb.Backend
+
+	// DescriptorSweepReady is closed after the chain notifier and UTXO
+	// sweeper have both started.
+	DescriptorSweepReady <-chan struct{}
 
 	// Chain is an interface that the WalletKit will use to determine state
 	// about the backing chain of the wallet.

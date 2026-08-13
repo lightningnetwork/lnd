@@ -60,16 +60,16 @@ func createNewSubServer(configRegistry lnrpc.SubServerConfigDispatcher) (
 			"WalletKit RPC server")
 
 	case config.ChainNotifier == nil:
-		return nil, nil, fmt.Errorf("ChainNotifier must be set to create " +
-			"WalletKit RPC server")
+		return nil, nil, fmt.Errorf("ChainNotifier must be set to " +
+			"create WalletKit RPC server")
 
 	case config.DescriptorSweepDB == nil:
-		return nil, nil, fmt.Errorf("DescriptorSweepDB must be set to " +
-			"create WalletKit RPC server")
+		return nil, nil, fmt.Errorf("DescriptorSweepDB must be set " +
+			"to create WalletKit RPC server")
 
 	case config.DescriptorSweepReady == nil:
-		return nil, nil, fmt.Errorf("DescriptorSweepReady must be set to " +
-			"create WalletKit RPC server")
+		return nil, nil, fmt.Errorf("DescriptorSweepReady must be " +
+			"set to create WalletKit RPC server")
 
 	case config.Chain == nil:
 		return nil, nil, fmt.Errorf("Chain must be set to create " +

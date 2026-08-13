@@ -956,7 +956,9 @@ func (r *RPCKeyRing) remoteSign(tx *wire.MsgTx, signDesc *input.SignDescriptor,
 	)
 
 	// Catch incorrect signing input index, just in case.
-	if signDesc.InputIndex < 0 || signDesc.InputIndex >= len(packet.Inputs) {
+	if signDesc.InputIndex < 0 ||
+		signDesc.InputIndex >= len(packet.Inputs) {
+
 		return nil, fmt.Errorf("invalid input index in sign descriptor")
 	}
 	in := &packet.Inputs[signDesc.InputIndex]
@@ -1159,24 +1161,11 @@ func (r *RPCKeyRing) remoteSign(tx *wire.MsgTx, signDesc *input.SignDescriptor,
 			Bip32Path:            d.Bip32Path,
 		}}
 
-		// We also need to supply a control block. But because we don't
-		// know the internal key nor the merkle proofs (both is not
-		// supplied through the SignOutputRaw RPC) and is technically
-		// not really needed by the signer (since we only want a
-		// signature, the full witness stack is assembled by the caller
-		// of this RPC), we can get by with faking certain information
-		// that we don't have.
-		fakeInternalKey, _ := btcec.ParsePubKey(d.PubKey)
-		fakeKeyIsOdd := d.PubKey[0] == input.PubKeyFormatCompressedOdd
-		controlBlock := txscript.ControlBlock{
-			InternalKey:     fakeInternalKey,
-			OutputKeyYIsOdd: fakeKeyIsOdd,
-			LeafVersion:     leaf.LeafVersion,
-		}
-		blockBytes, err := controlBlock.ToBytes()
+		blockBytes, err := taprootScriptControlBlock(
+			signDesc, d.PubKey, leaf,
+		)
 		if err != nil {
-			return nil, fmt.Errorf("error serializing control "+
-				"block: %v", err)
+			return nil, err
 		}
 
 		in.TaprootLeafScript = []*psbt.TaprootTapLeafScript{{
@@ -1218,6 +1207,85 @@ func (r *RPCKeyRing) remoteSign(tx *wire.MsgTx, signDesc *input.SignDescriptor,
 	in = &signedPacket.Inputs[signDesc.InputIndex]
 
 	return extractSignature(in, signDesc.SignMethod)
+}
+
+// taprootScriptControlBlock returns the real control block when the caller
+// supplied one. Older SignOutputRaw callers don't provide the tree proof, so
+// the historical synthetic single-leaf block remains as a fallback: the
+// remote signer only needs it to identify the leaf being signed. Strict and
+// hardware signers can validate the actual output commitment when it is
+// available.
+func taprootScriptControlBlock(signDesc *input.SignDescriptor,
+	derivationPubKey []byte, leaf txscript.TapLeaf) ([]byte, error) {
+
+	if len(signDesc.ControlBlock) != 0 {
+		controlBlock, err := txscript.ParseControlBlock(
+			signDesc.ControlBlock,
+		)
+		if err != nil {
+			return nil, fmt.Errorf(
+				"invalid taproot control block: %w", err,
+			)
+		}
+		if controlBlock.LeafVersion != leaf.LeafVersion {
+			return nil, fmt.Errorf(
+				"taproot control block leaf version %v "+
+					"does not match leaf version %v",
+				controlBlock.LeafVersion, leaf.LeafVersion)
+		}
+		if signDesc.Output == nil {
+			return nil, fmt.Errorf(
+				"taproot script signing output is missing",
+			)
+		}
+		version, program, err := txscript.ExtractWitnessProgramInfo(
+			signDesc.Output.PkScript,
+		)
+		if err != nil || version != 1 ||
+			len(program) != schnorr.PubKeyBytesLen {
+
+			return nil, fmt.Errorf(
+				"taproot script signing output has invalid " +
+					"witness program",
+			)
+		}
+		if err := txscript.VerifyTaprootLeafCommitment(
+			controlBlock, program, leaf.Script,
+		); err != nil {
+			return nil, fmt.Errorf(
+				"control block does not commit leaf to "+
+					"output: %w",
+				err,
+			)
+		}
+
+		return bytes.Clone(signDesc.ControlBlock), nil
+	}
+
+	// SignDescriptor historically did not always carry the internal key or
+	// Merkle proof. Preserve that compatibility by constructing a valid
+	// placeholder around the derivation key.
+	fakeInternalKey, err := btcec.ParsePubKey(derivationPubKey)
+	if err != nil {
+		return nil, fmt.Errorf(
+			"parse derivation key for taproot control block: %w",
+			err,
+		)
+	}
+	controlBlock := txscript.ControlBlock{
+		InternalKey: fakeInternalKey,
+		OutputKeyYIsOdd: derivationPubKey[0] ==
+			input.PubKeyFormatCompressedOdd,
+		LeafVersion: leaf.LeafVersion,
+	}
+	blockBytes, err := controlBlock.ToBytes()
+	if err != nil {
+		return nil, fmt.Errorf(
+			"serialize taproot control block: %w", err,
+		)
+	}
+
+	return blockBytes, nil
 }
 
 // extractSignature attempts to extract the signature from the PSBT input,

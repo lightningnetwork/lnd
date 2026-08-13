@@ -680,6 +680,8 @@ func newRPCServer(cfg *Config, interceptorChain *rpcperms.InterceptorChain,
 // addDeps populates all dependencies needed by the RPC server, and any
 // of the sub-servers that it maintains. When this is done, the RPC server can
 // be started, and start accepting RPC calls.
+//
+//nolint:funlen // Keep the daemon's dependency wiring in one auditable place.
 func (r *rpcServer) addDeps(ctx context.Context, s *server,
 	macService *macaroons.Service,
 	subServerCgs *subRPCServerConfigs, atpl *autopilot.Manager,

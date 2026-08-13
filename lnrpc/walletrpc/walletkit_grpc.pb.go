@@ -197,10 +197,12 @@ type WalletKitClient interface {
 	// material. Any keys that should be signed by lnd must be explicitly bound to
 	// a wallet key locator.
 	//
-	// The first version of this RPC supports fixed-index P2WSH descriptors. The
-	// registration remains active while lnd waits for the output and for a
-	// satisfiable Miniscript branch. Additional satisfaction data, such as a
-	// hash preimage, can be supplied through AddSweepDescriptorData.
+	// This RPC supports fixed-index native P2WSH descriptors and P2TR descriptors
+	// with Miniscript script paths. A P2TR registration never uses its key path,
+	// so its internal key may remain unbound. The registration remains active
+	// while lnd waits for the output and for a satisfiable Miniscript branch.
+	// Additional satisfaction data, such as a hash preimage, can be supplied
+	// through AddSweepDescriptorData.
 	RegisterSweepDescriptor(ctx context.Context, in *RegisterSweepDescriptorRequest, opts ...grpc.CallOption) (*RegisterSweepDescriptorResponse, error)
 	// lncli: `wallet addsweepdescriptordata`
 	// AddSweepDescriptorData supplies data that became available after a sweep
@@ -792,10 +794,12 @@ type WalletKitServer interface {
 	// material. Any keys that should be signed by lnd must be explicitly bound to
 	// a wallet key locator.
 	//
-	// The first version of this RPC supports fixed-index P2WSH descriptors. The
-	// registration remains active while lnd waits for the output and for a
-	// satisfiable Miniscript branch. Additional satisfaction data, such as a
-	// hash preimage, can be supplied through AddSweepDescriptorData.
+	// This RPC supports fixed-index native P2WSH descriptors and P2TR descriptors
+	// with Miniscript script paths. A P2TR registration never uses its key path,
+	// so its internal key may remain unbound. The registration remains active
+	// while lnd waits for the output and for a satisfiable Miniscript branch.
+	// Additional satisfaction data, such as a hash preimage, can be supplied
+	// through AddSweepDescriptorData.
 	RegisterSweepDescriptor(context.Context, *RegisterSweepDescriptorRequest) (*RegisterSweepDescriptorResponse, error)
 	// lncli: `wallet addsweepdescriptordata`
 	// AddSweepDescriptorData supplies data that became available after a sweep

@@ -9,6 +9,8 @@ import (
 	"time"
 
 	"github.com/btcsuite/btcd/btcec/v2"
+	"github.com/btcsuite/btcd/btcec/v2/schnorr"
+	"github.com/btcsuite/btcd/chainhash/v2"
 	"github.com/btcsuite/btcd/descriptors"
 	"github.com/btcsuite/btcd/txscript/v2"
 	"github.com/btcsuite/btcd/wire/v2"
@@ -25,38 +27,47 @@ func (s *Service) verifyBindings(desc *descriptors.Descriptor,
 	bindings []KeyBinding) error {
 
 	keys := desc.Keys()
-	if len(bindings) != len(keys) {
-		return fmt.Errorf("descriptor has %d keys, got %d bindings",
-			len(keys), len(bindings))
-	}
-
 	remaining := make(map[string]struct{}, len(keys))
 	for _, key := range keys {
+		// Validate every descriptor key, including keys that aren't
+		// bound to lnd. Otherwise an unbound Taproot internal key could
+		// smuggle a
+		// private or ranged key expression into durable RPC state.
+		if _, err := descriptorPubKey(key); err != nil {
+			return fmt.Errorf("descriptor key %q: %w", key, err)
+		}
 		remaining[key] = struct{}{}
 	}
 	for _, binding := range bindings {
 		if _, ok := remaining[binding.DescriptorKey]; !ok {
-			return fmt.Errorf("unknown or duplicate descriptor key %q",
-				binding.DescriptorKey)
+			return fmt.Errorf(
+				"unknown or duplicate descriptor key %q",
+				binding.DescriptorKey,
+			)
 		}
 
 		derived, err := s.cfg.KeyRing.DeriveKey(binding.KeyLocator)
 		if err != nil {
-			return fmt.Errorf("derive key %q: %w", binding.DescriptorKey, err)
+			return fmt.Errorf(
+				"derive key %q: %w",
+				binding.DescriptorKey,
+				err,
+			)
 		}
 		if derived.PubKey == nil {
 			return fmt.Errorf("derived key %q has no public key",
 				binding.DescriptorKey)
 		}
 
-		want, err := descriptorPubKey(binding.DescriptorKey)
-		if err != nil {
-			return fmt.Errorf("descriptor key %q: %w",
-				binding.DescriptorKey, err)
-		}
-		if !bytes.Equal(want, derived.PubKey.SerializeCompressed()) {
-			return fmt.Errorf("descriptor key %q does not match locator",
-				binding.DescriptorKey)
+		if !descriptorKeyMatches(
+			binding.DescriptorKey, derived.PubKey,
+			desc.DescType() == descriptors.DescTypeTr,
+		) {
+
+			return fmt.Errorf(
+				"descriptor key %q does not match locator",
+				binding.DescriptorKey,
+			)
 		}
 
 		delete(remaining, binding.DescriptorKey)
@@ -65,22 +76,56 @@ func (s *Service) verifyBindings(desc *descriptors.Descriptor,
 	return nil
 }
 
-func descriptorPubKey(key string) ([]byte, error) {
-	// Fixed-index MVP bindings intentionally only accept a raw compressed key.
-	// Extended keys and origin paths are range-capable and need a derivation
-	// aware binding format before they can be safely accepted.
-	if len(key) != 66 {
-		return nil, errors.New("only raw compressed public keys are supported")
+func descriptorKeyMatches(key string, pubKey *btcec.PublicKey,
+	taproot bool) bool {
+
+	want, err := descriptorPubKey(key)
+	if err != nil || pubKey == nil {
+		return false
 	}
+
+	// All raw keys in tr() are converted to x-only by BIP386, including
+	// compressed descriptor keys. Compare only the x coordinate in that
+	// context while retaining the wallet's real parity for remote signing.
+	if taproot || len(key) == 64 {
+		return bytes.Equal(want[1:], schnorr.SerializePubKey(pubKey))
+	}
+
+	return bytes.Equal(want, pubKey.SerializeCompressed())
+}
+
+func descriptorPubKey(key string) ([]byte, error) {
+	// Fixed-index MVP bindings intentionally only accept raw compressed or
+	// x-only keys. Extended keys and origin paths are range-capable and
+	// need a
+	// derivation-aware binding format before they can be safely accepted.
 	raw, err := hex.DecodeString(key)
 	if err != nil {
 		return nil, err
 	}
-	pubKey, err := btcec.ParsePubKey(raw)
-	if err != nil {
-		return nil, err
+	switch len(raw) {
+	case schnorr.PubKeyBytesLen:
+		pubKey, err := schnorr.ParsePubKey(raw)
+		if err != nil {
+			return nil, err
+		}
+
+		return pubKey.SerializeCompressed(), nil
+
+	case btcec.PubKeyBytesLenCompressed:
+		pubKey, err := btcec.ParsePubKey(raw)
+		if err != nil {
+			return nil, err
+		}
+
+		return pubKey.SerializeCompressed(), nil
+
+	default:
+		return nil, errors.New(
+			"only raw compressed or x-only public keys are " +
+				"supported",
+		)
 	}
-	return pubKey.SerializeCompressed(), nil
 }
 
 func rejectTimeLocks(desc *descriptors.Descriptor) error {
@@ -92,15 +137,63 @@ func rejectTimeLocks(desc *descriptors.Descriptor) error {
 		switch timelock.Type {
 		case descriptors.TimelockTypeAbsolute:
 			if timelock.Value >= txscript.LockTimeThreshold {
-				return errors.New("time-based CLTV is not supported")
+				return errors.New(
+					"time-based CLTV is not supported",
+				)
 			}
 
 		case descriptors.TimelockTypeRelative:
 			if timelock.Value&wire.SequenceLockTimeIsSeconds != 0 {
-				return errors.New("time-based CSV is not supported")
+				return errors.New(
+					"time-based CSV is not supported",
+				)
 			}
 		}
 	}
+
+	return nil
+}
+
+func validateSupportedPaths(desc *descriptors.Descriptor,
+	bindings []KeyBinding) error {
+
+	availableKeys := make(map[string]struct{}, len(bindings))
+	for _, binding := range bindings {
+		availableKeys[binding.DescriptorKey] = struct{}{}
+	}
+	absolute := uint32(txscript.LockTimeThreshold - 1)
+	relative := uint32(wire.SequenceLockTimeMask)
+	plan, err := desc.PlanAt(0, 0, descriptors.Assets{
+		LookupEcdsaSig: func(key string) bool {
+			_, ok := availableKeys[key]
+			return ok
+		},
+		LookupTapLeafScriptSig: func(key, _ string) (uint32, bool) {
+			_, ok := availableKeys[key]
+			return schnorr.SignatureSize, ok
+		},
+		LookupPreimage: func(hashFunc string, _ []byte) bool {
+			return hashFunc == "sha256"
+		},
+		AbsoluteLocktime: &absolute,
+		RelativeLocktime: &relative,
+	})
+	if err != nil {
+		return errors.New(
+			"descriptor has no path satisfiable by the " +
+				"registered keys and supported data",
+		)
+	}
+	if desc.DescType() != descriptors.DescTypeTr {
+		return nil
+	}
+	spendInfo, ok := plan.TaprootSpendInfo()
+	if !ok || spendInfo.Kind != descriptors.TaprootSpendScriptPath {
+		return errors.New(
+			"taproot key-path-only descriptors are not supported",
+		)
+	}
+
 	return nil
 }
 
@@ -131,6 +224,7 @@ func (s *Service) resume(id RegistrationID) error {
 		if err == nil || isRetryable(err) {
 			return err
 		}
+
 		return deterministic(err)
 	default:
 		if record.OutPoint != nil {
@@ -140,8 +234,10 @@ func (s *Service) resume(id RegistrationID) error {
 			s.mu.RLock()
 			bestHeight := s.bestHeight
 			s.mu.RUnlock()
+
 			return s.scanMatureBlocks(id, bestHeight)
 		}
+
 		return s.watchOutput(id)
 	}
 }
@@ -170,16 +266,20 @@ func (s *Service) waitForReady() {
 		var err error
 		epochs, err = s.cfg.Notifier.RegisterBlockEpochNtfn(nil)
 		if err == nil {
-			// A nil best block asks the notifier to send its current tip
-			// immediately. Consume that tip before restoring registrations so
-			// CLTV/CSV scheduling and frozen fee deadlines never start from
+			// A nil best block asks the notifier to send its
+			// current tip immediately. Consume that tip before
+			// restoring registrations so CLTV/CSV scheduling and
+			// frozen fee deadlines never start from
 			// height zero after a restart.
 			for {
 				select {
 				case epoch, ok := <-epochs.Epochs:
 					if !ok {
 						epochs.Cancel()
-						err = errors.New("block epoch stream closed before current tip")
+						err = errors.New(
+							"epoch stream closed",
+						)
+
 						break
 					}
 					if epoch == nil || epoch.Height < 0 {
@@ -195,6 +295,7 @@ func (s *Service) waitForReady() {
 					epochs.Cancel()
 					return
 				}
+
 				break
 			}
 			if err == nil {
@@ -210,9 +311,10 @@ func (s *Service) waitForReady() {
 	}
 
 	// Keep notifierReady false while draining registrations. Register and
-	// AddPreimage only persist and mark the ID pending in that state. Taking
-	// and clearing pending under the same lock used to publish readiness
-	// ensures data added while an ID is being resumed triggers another pass.
+	// AddPreimage only persist and mark the ID pending in that state.
+	// Taking and clearing pending under the same lock used to publish
+	// readiness ensures data added while an ID is being resumed triggers
+	// another pass.
 	for {
 		s.mu.Lock()
 		if len(s.pending) == 0 {
@@ -280,9 +382,16 @@ func (s *Service) restoreSweep(id RegistrationID) error {
 			"restored descriptor plan changed frozen branch",
 		))
 	}
+	if err := verifyFrozenTaprootPlan(desc, plan, frozen); err != nil {
+		return deterministic(err)
+	}
 
-	inp, err := newDescriptorInput(desc, plan, frozen)
+	inp, err := newDescriptorInput(s.cfg.KeyRing, desc, plan, frozen)
 	if err != nil {
+		if isRetryable(err) {
+			return err
+		}
+
 		return deterministic(err)
 	}
 	params := sweep.Params{
@@ -300,6 +409,7 @@ func (s *Service) restoreSweep(id RegistrationID) error {
 		return retryablef("restore descriptor sweep input: %w", err)
 	}
 	s.launch(func() { s.consumeSweepResult(id, result) })
+
 	return nil
 }
 
@@ -330,7 +440,11 @@ func (s *Service) watchOutput(id RegistrationID) error {
 	}
 
 	event, err := s.cfg.Notifier.RegisterConfirmationsNtfn(
-		nil, pkScript, minConfs, heightHint, chainntnfs.WithIncludeBlock(),
+		nil,
+		pkScript,
+		minConfs,
+		heightHint,
+		chainntnfs.WithIncludeBlock(),
 	)
 	if err != nil {
 		s.mu.Unlock()
@@ -351,6 +465,7 @@ func (s *Service) watchOutput(id RegistrationID) error {
 	s.mu.Unlock()
 
 	go s.consumeConfirmation(id, event)
+
 	return nil
 }
 
@@ -365,6 +480,7 @@ func (s *Service) consumeConfirmation(id RegistrationID,
 			s.handleRegistrationError(id, retryable(errors.New(
 				"descriptor confirmation stream closed",
 			)))
+
 			return
 		}
 		if err := s.outputConfirmed(id, conf); err != nil {
@@ -411,17 +527,22 @@ func (s *Service) outputConfirmed(id RegistrationID,
 			))
 		}
 
-		// A script-only notifier may first report an output with a value
-		// chosen by an unrelated party. Advance past that block and persist
-		// the scan cursor; re-registering the same script can replay the
+		// A script-only notifier may first report an output with a
+		// value chosen by an unrelated party. Advance past that block
+		// and persist the scan cursor; re-registering the same script
+		// can replay the
 		// notifier's cached match forever.
 		bestHeight := s.bestHeight
-		_, err := s.updateRecordLocked(id, func(next *storedRecord) error {
-			next.WatchHeight = conf.BlockHeight + 1
-			next.BlockScan = true
-			next.Status = StatusWatching
-			return nil
-		})
+		_, err := s.updateRecordLocked(
+			id,
+			func(next *storedRecord) error {
+				next.WatchHeight = conf.BlockHeight + 1
+				next.BlockScan = true
+				next.Status = StatusWatching
+
+				return nil
+			},
+		)
 		if err != nil {
 			s.mu.Unlock()
 			return err
@@ -439,6 +560,7 @@ func (s *Service) outputConfirmed(id RegistrationID,
 		next.ConfirmationHeight = conf.BlockHeight
 		next.BlockScan = false
 		next.Status = StatusFound
+
 		return nil
 	})
 	if err != nil {
@@ -469,7 +591,9 @@ func findExactOutput(block *wire.MsgBlock, pkScript []byte,
 	expectedValue int64) (*exactOutputMatch, error) {
 
 	if block == nil {
-		return nil, errors.New("descriptor confirmation did not include its block")
+		return nil, errors.New(
+			"descriptor confirmation did not include its block",
+		)
 	}
 
 	var match *exactOutputMatch
@@ -484,7 +608,10 @@ func findExactOutput(block *wire.MsgBlock, pkScript []byte,
 				continue
 			}
 			if match != nil {
-				return nil, errors.New("confirmed block has multiple exact descriptor outputs")
+				return nil, errors.New(
+					"confirmed block has multiple exact " +
+						"descriptor outputs",
+				)
 			}
 			match = &exactOutputMatch{
 				tx:          tx,
@@ -498,14 +625,16 @@ func findExactOutput(block *wire.MsgBlock, pkScript []byte,
 
 func (s *Service) scanMatureBlocks(id RegistrationID,
 	bestHeight uint32) error {
+
 	select {
 	case <-s.quit:
 		return nil
 	default:
 	}
 
-	// Readiness restore and block epochs can overlap briefly. Serializing the
-	// range scan prevents duplicate block work and duplicate sweeper offers.
+	// Readiness restore and block epochs can overlap briefly. Serializing
+	// the range scan prevents duplicate block work and duplicate sweeper
+	// offers.
 	s.scanMu.Lock()
 	defer s.scanMu.Unlock()
 
@@ -538,8 +667,11 @@ func (s *Service) scanMatureBlocks(id RegistrationID,
 	for height := startHeight; height <= matureThrough; height++ {
 		blockHash, err := s.cfg.BlockSource.GetBlockHash(int64(height))
 		if err != nil {
-			return retryablef("get descriptor scan block %d hash: %w",
-				height, err)
+			return retryablef(
+				"get descriptor scan block %d hash: %w",
+				height,
+				err,
+			)
 		}
 		block, err := s.cfg.BlockSource.GetBlock(blockHash)
 		if err != nil {
@@ -582,19 +714,25 @@ func (s *Service) scanMatureBlocks(id RegistrationID,
 				return err
 			}
 			s.mu.Unlock()
+
 			continue
 		}
 
 		txid := match.tx.TxHash()
 		op := wire.OutPoint{Hash: txid, Index: match.outputIndex}
-		_, err = s.updateRecordLocked(id, func(next *storedRecord) error {
-			next.OutPoint = &op
-			next.Value = match.tx.TxOut[match.outputIndex].Value
-			next.ConfirmationHeight = height
-			next.BlockScan = false
-			next.Status = StatusFound
-			return nil
-		})
+		_, err = s.updateRecordLocked(
+			id,
+			func(next *storedRecord) error {
+				next.OutPoint = &op
+				txOut := match.tx.TxOut[match.outputIndex]
+				next.Value = txOut.Value
+				next.ConfirmationHeight = height
+				next.BlockScan = false
+				next.Status = StatusFound
+
+				return nil
+			},
+		)
 		if err != nil {
 			s.mu.Unlock()
 			return err
@@ -620,6 +758,7 @@ func (s *Service) consumeEpochs(event *chainntnfs.BlockEpochEvent) {
 					return
 				}
 				event = replacement
+
 				continue
 			}
 			if epoch == nil || epoch.Height < 0 {
@@ -630,7 +769,8 @@ func (s *Service) consumeEpochs(event *chainntnfs.BlockEpochEvent) {
 			ids := make([]RegistrationID, 0, len(s.records))
 			scanIDs := make([]RegistrationID, 0, len(s.records))
 			for id, record := range s.records {
-				if record.BlockScan && record.Status != StatusFailed &&
+				if record.BlockScan &&
+					record.Status != StatusFailed &&
 					record.Status != StatusSwept {
 
 					scanIDs = append(scanIDs, id)
@@ -648,7 +788,6 @@ func (s *Service) consumeEpochs(event *chainntnfs.BlockEpochEvent) {
 				if err := s.scanMatureBlocks(
 					id, uint32(epoch.Height),
 				); err != nil {
-
 					s.handleRegistrationError(id, err)
 				}
 			}
@@ -688,6 +827,7 @@ func (s *Service) reconnectEpochs() *chainntnfs.BlockEpochEvent {
 				default:
 				}
 			}
+
 			return nil
 		}
 		if backoff < maximum {
@@ -743,6 +883,7 @@ func (s *Service) trySweep(id RegistrationID) error {
 			},
 		)
 		s.mu.Unlock()
+
 		return storeErr
 	}
 
@@ -758,47 +899,76 @@ func (s *Service) trySweep(id RegistrationID) error {
 		*constraints.AbsoluteLocktime >= txscript.LockTimeThreshold {
 
 		s.mu.Unlock()
-		return deterministic(errors.New("selected path has time-based CLTV"))
+		return deterministic(
+			errors.New("selected path has time-based CLTV"),
+		)
 	}
 	if constraints.RelativeLocktime != nil &&
-		*constraints.RelativeLocktime&wire.SequenceLockTimeIsSeconds != 0 {
+		*constraints.RelativeLocktime&
+			wire.SequenceLockTimeIsSeconds != 0 {
 
 		s.mu.Unlock()
-		return deterministic(errors.New("selected path has time-based CSV"))
+		return deterministic(
+			errors.New("selected path has time-based CSV"),
+		)
 	}
 
 	// Freeze all witness material and the exact branch before giving the
 	// input to UtxoSweeper. The only mutable object after this point is the
 	// durable lifecycle record, never the input implementation.
-	frozen := record.cloneForInput()
 	bestHeight := s.bestHeight
 	var deadline *int32
 	if record.DeadlineDelta > 0 {
 		if bestHeight > math.MaxInt32-record.DeadlineDelta {
 			s.mu.Unlock()
 			return deterministic(errors.New(
-				"selected sweep deadline exceeds maximum block height",
+				"selected sweep deadline exceeds maximum " +
+					"block height",
 			))
 		}
 		value := int32(bestHeight + record.DeadlineDelta)
 		deadline = &value
 	}
+	var tapLeafHash *chainhash.Hash
+	var tapControlBlock []byte
+	if desc.DescType() == descriptors.DescTypeTr {
+		spendInfo, ok := plan.TaprootSpendInfo()
+		if !ok || spendInfo.Kind != descriptors.TaprootSpendScriptPath {
+			s.mu.Unlock()
+			return deterministic(errors.New(
+				"selected taproot plan is not a script path",
+			))
+		}
+		leafHash := spendInfo.LeafHash
+		tapLeafHash = &leafHash
+		tapControlBlock = append([]byte(nil), spendInfo.ControlBlock...)
+	}
+
 	next, err := s.updateRecordLocked(id, func(next *storedRecord) error {
 		next.PlanLocktime = cloneUint32(constraints.AbsoluteLocktime)
 		next.PlanSequence = cloneUint32(constraints.RelativeLocktime)
 		next.PlanDeadlineHeight = cloneInt32(deadline)
+		next.PlanTapLeafHash = cloneHash(tapLeafHash)
+		next.PlanTapControlBlock = append(
+			[]byte(nil), tapControlBlock...,
+		)
 		next.Status = StatusSweeping
+
 		return nil
 	})
 	if err != nil {
 		s.mu.Unlock()
 		return err
 	}
-	frozen = next.cloneForInput()
+	frozen := next.cloneForInput()
 	s.mu.Unlock()
 
-	inp, err := newDescriptorInput(desc, plan, frozen)
+	inp, err := newDescriptorInput(s.cfg.KeyRing, desc, plan, frozen)
 	if err != nil {
+		if isRetryable(err) {
+			return err
+		}
+
 		return deterministic(err)
 	}
 	params := sweep.Params{
@@ -818,6 +988,7 @@ func (s *Service) trySweep(id RegistrationID) error {
 	}
 
 	s.launch(func() { s.consumeSweepResult(id, result) })
+
 	return nil
 }
 
@@ -831,15 +1002,19 @@ func (s *Service) consumeSweepResult(id RegistrationID,
 			s.handleRegistrationError(id, retryable(errors.New(
 				"descriptor sweep result stream closed",
 			)))
+
 			return
 		}
 		var persistErr error
 		if sweepResult.Err != nil {
-			// A sweeper result can represent a transient publisher or
-			// backend failure. Re-offer the exact frozen branch unless the
-			// input was definitively spent by somebody else.
+			// A sweeper result can represent a transient publisher
+			// or backend failure. Re-offer the exact frozen branch
+			// unless somebody else definitively spent the input.
 			if errors.Is(sweepResult.Err, sweep.ErrRemoteSpend) ||
-				errors.Is(sweepResult.Err, sweep.ErrExclusiveGroupSpend) {
+				errors.Is(
+					sweepResult.Err,
+					sweep.ErrExclusiveGroupSpend,
+				) {
 
 				s.failDurably(id, sweepResult.Err)
 				return
@@ -849,22 +1024,30 @@ func (s *Service) consumeSweepResult(id RegistrationID,
 			)
 		} else {
 			persistSuccess := func() error {
-				return s.persistTransition(id, func(next *storedRecord) error {
-					next.Status = StatusSwept
-					next.Error = ""
-					if sweepResult.Tx != nil {
-						txid := sweepResult.Tx.TxHash()
-						next.SweepTxID = &txid
-					}
-					return nil
-				})
+				return s.persistTransition(
+					id, func(next *storedRecord) error {
+						next.Status = StatusSwept
+						next.Error = ""
+						if sweepResult.Tx != nil {
+							tx := sweepResult.Tx
+							txid := tx.TxHash()
+							next.SweepTxID = &txid
+						}
+
+						return nil
+					},
+				)
 			}
 			persistErr = persistSuccess()
 			if persistErr != nil {
+				retry := retryKey{
+					id: id, kind: "persist-success",
+				}
 				s.scheduleRetry(
-					retryKey{id: id, kind: "persist-success"},
+					retry,
 					persistSuccess, nil,
 				)
+
 				return
 			}
 		}
@@ -884,7 +1067,8 @@ func makeAssets(record *storedRecord, bestHeight uint32) descriptors.Assets {
 	}
 
 	// Candidate lock values expose every currently mature branch to PlanAt.
-	// The returned Plan.TxConstraints then freezes only the selected branch.
+	// The returned Plan.TxConstraints then freezes only the selected
+	// branch.
 	var absolute, relative *uint32
 	if bestHeight > 0 {
 		absolute = &bestHeight
@@ -901,6 +1085,10 @@ func makeAssets(record *storedRecord, bestHeight uint32) descriptors.Assets {
 			_, ok := availableKeys[key]
 			return ok
 		},
+		LookupTapLeafScriptSig: func(key, _ string) (uint32, bool) {
+			_, ok := availableKeys[key]
+			return schnorr.SignatureSize, ok
+		},
 		LookupPreimage: func(hashFunc string, hash []byte) bool {
 			_, ok := record.Preimages[preimageKey(hashFunc, hash)]
 			return ok
@@ -914,6 +1102,7 @@ func makeFrozenAssets(record *storedRecord) descriptors.Assets {
 	assets := makeAssets(record, 0)
 	assets.AbsoluteLocktime = cloneUint32(record.PlanLocktime)
 	assets.RelativeLocktime = cloneUint32(record.PlanSequence)
+
 	return assets
 }
 
@@ -921,7 +1110,36 @@ func sameOptionalUint32(a, b *uint32) bool {
 	if a == nil || b == nil {
 		return a == nil && b == nil
 	}
+
 	return *a == *b
+}
+
+func verifyFrozenTaprootPlan(desc *descriptors.Descriptor,
+	plan *descriptors.Plan, record *storedRecord) error {
+
+	if desc.DescType() != descriptors.DescTypeTr {
+		return nil
+	}
+	if record.PlanTapLeafHash == nil ||
+		len(record.PlanTapControlBlock) == 0 {
+
+		return errors.New(
+			"frozen taproot plan has no selected leaf identity",
+		)
+	}
+
+	spendInfo, ok := plan.TaprootSpendInfo()
+	if !ok || spendInfo.Kind != descriptors.TaprootSpendScriptPath {
+		return errors.New("restored taproot plan is not a script path")
+	}
+	if *record.PlanTapLeafHash != spendInfo.LeafHash || !bytes.Equal(
+		record.PlanTapControlBlock, spendInfo.ControlBlock,
+	) {
+
+		return errors.New("restored taproot plan changed frozen leaf")
+	}
+
+	return nil
 }
 
 func preimageKey(hashFunc string, hash []byte) string {
@@ -938,7 +1156,21 @@ func (r *storedRecord) cloneForInput() *storedRecord {
 	result.PlanLocktime = cloneUint32(r.PlanLocktime)
 	result.PlanSequence = cloneUint32(r.PlanSequence)
 	result.PlanDeadlineHeight = cloneInt32(r.PlanDeadlineHeight)
+	result.PlanTapLeafHash = cloneHash(r.PlanTapLeafHash)
+	result.PlanTapControlBlock = append(
+		[]byte(nil), r.PlanTapControlBlock...,
+	)
+
 	return &result
+}
+
+func cloneHash(value *chainhash.Hash) *chainhash.Hash {
+	if value == nil {
+		return nil
+	}
+	cloned := *value
+
+	return &cloned
 }
 
 func cloneUint32(value *uint32) *uint32 {
@@ -946,6 +1178,7 @@ func cloneUint32(value *uint32) *uint32 {
 		return nil
 	}
 	cloned := *value
+
 	return &cloned
 }
 
@@ -954,6 +1187,7 @@ func cloneInt32(value *int32) *int32 {
 		return nil
 	}
 	cloned := *value
+
 	return &cloned
 }
 
@@ -968,27 +1202,59 @@ type descriptorInput struct {
 	preimage     fn.Option[lntypes.Preimage]
 }
 
-func newDescriptorInput(desc *descriptors.Descriptor, plan *descriptors.Plan,
+func newDescriptorInput(keyRing keychain.KeyRing,
+	desc *descriptors.Descriptor, plan *descriptors.Plan,
 	record *storedRecord) (*descriptorInput, error) {
 
 	if record.OutPoint == nil {
 		return nil, errors.New("descriptor input has no outpoint")
 	}
-	witnessType, err := newDescriptorWitnessType(desc, plan, record)
+	witnessType, err := newDescriptorWitnessType(
+		keyRing,
+		desc,
+		plan,
+		record,
+	)
 	if err != nil {
 		return nil, err
+	}
+
+	signMethod := input.WitnessV0SignMethod
+	hashType := txscript.SigHashAll
+	witnessScript := append([]byte(nil), record.WitnessScript...)
+	var controlBlock []byte
+	if desc.DescType() == descriptors.DescTypeTr {
+		spendInfo, ok := plan.TaprootSpendInfo()
+		if !ok {
+			return nil, errors.New(
+				"taproot descriptor plan has no spend metadata",
+			)
+		}
+		if spendInfo.Kind != descriptors.TaprootSpendScriptPath {
+			return nil, errors.New(
+				"taproot key-path descriptor sweeps are not " +
+					"supported",
+			)
+		}
+		signMethod = input.TaprootScriptSpendSignMethod
+		hashType = txscript.SigHashDefault
+		witnessScript = append([]byte(nil), spendInfo.LeafScript...)
+		controlBlock = append([]byte(nil), spendInfo.ControlBlock...)
 	}
 
 	return &descriptorInput{
 		op: *record.OutPoint,
 		signDesc: input.SignDescriptor{
-			WitnessScript: append([]byte(nil), record.WitnessScript...),
+			WitnessScript: witnessScript,
 			Output: &wire.TxOut{
-				Value:    record.Value,
-				PkScript: append([]byte(nil), record.PkScript...),
+				Value: record.Value,
+				PkScript: append(
+					[]byte(nil),
+					record.PkScript...),
 			},
-			HashType:   txscript.SigHashAll,
-			SignMethod: input.WitnessV0SignMethod,
+			HashType:     hashType,
+			SignMethod:   signMethod,
+			ControlBlock: controlBlock,
 		},
 		witnessType:  witnessType,
 		heightHint:   record.ConfirmationHeight,
@@ -1005,6 +1271,7 @@ func firstPreimage(preimages map[string][]byte) fn.Option[lntypes.Preimage] {
 		copy(preimage[:], raw)
 		return fn.Some(preimage)
 	}
+
 	return fn.None[lntypes.Preimage]()
 }
 
@@ -1012,6 +1279,7 @@ func valueOrZero(value *uint32) uint32 {
 	if value == nil {
 		return 0
 	}
+
 	return *value
 }
 
@@ -1021,10 +1289,17 @@ func (i *descriptorInput) RequiredLockTime() (uint32, bool) {
 	if i.locktime == nil {
 		return 0, false
 	}
+
 	return *i.locktime, true
 }
-func (i *descriptorInput) WitnessType() input.WitnessType  { return i.witnessType }
-func (i *descriptorInput) SignDesc() *input.SignDescriptor { return &i.signDesc }
+
+func (i *descriptorInput) WitnessType() input.WitnessType {
+	return i.witnessType
+}
+
+func (i *descriptorInput) SignDesc() *input.SignDescriptor {
+	return &i.signDesc
+}
 func (i *descriptorInput) CraftInputScript(signer input.Signer,
 	tx *wire.MsgTx, hashes *txscript.TxSigHashes,
 	fetcher txscript.PrevOutputFetcher, index int) (*input.Script, error) {
@@ -1032,6 +1307,7 @@ func (i *descriptorInput) CraftInputScript(signer input.Signer,
 	i.signDesc.SigHashes = hashes
 	i.signDesc.PrevOutputFetcher = fetcher
 	i.signDesc.InputIndex = index
+
 	return i.witnessType.craft(signer, &i.signDesc, tx, index)
 }
 func (i *descriptorInput) BlocksToMaturity() uint32    { return i.sequence }
@@ -1051,6 +1327,8 @@ type descriptorWitnessType struct {
 	preimages     map[string][]byte
 	witnessScript []byte
 	witnessSize   lntypes.WeightUnit
+	taproot       bool
+	leafHash      string
 }
 
 // IsWitnessType reports whether a sweeper witness belongs to this service.
@@ -1061,42 +1339,111 @@ func IsWitnessType(witness input.WitnessType) bool {
 	return ok
 }
 
-func newDescriptorWitnessType(desc *descriptors.Descriptor,
-	plan *descriptors.Plan, record *storedRecord) (*descriptorWitnessType, error) {
+// IsTaprootWitnessType reports whether a sweeper witness is a descriptor
+// Taproot script-path spend.
+func IsTaprootWitnessType(witness input.WitnessType) bool {
+	descriptorWitness, ok := witness.(*descriptorWitnessType)
+	return ok && descriptorWitness.taproot
+}
 
-	bindings := make(map[string]keychain.KeyDescriptor, len(record.KeyBindings))
+func newDescriptorWitnessType(keyRing keychain.KeyRing,
+	desc *descriptors.Descriptor, plan *descriptors.Plan,
+	record *storedRecord) (*descriptorWitnessType, error) {
+
+	bindings := make(
+		map[string]keychain.KeyDescriptor,
+		len(record.KeyBindings),
+	)
 	for _, binding := range record.KeyBindings {
-		pubKeyBytes, err := descriptorPubKey(binding.DescriptorKey)
-		if err != nil {
-			return nil, err
+		if keyRing == nil {
+			return nil, errors.New(
+				"descriptor witness key ring is required",
+			)
 		}
-		pubKey, err := btcec.ParsePubKey(pubKeyBytes)
+		derived, err := keyRing.DeriveKey(binding.KeyLocator)
 		if err != nil {
-			return nil, err
+			return nil, retryable(fmt.Errorf("derive key %q: %w",
+				binding.DescriptorKey, err))
+		}
+		if derived.PubKey == nil {
+			return nil, fmt.Errorf(
+				"derived key %q has no public key",
+				binding.DescriptorKey,
+			)
+		}
+		if !descriptorKeyMatches(
+			binding.DescriptorKey, derived.PubKey,
+			desc.DescType() == descriptors.DescTypeTr,
+		) {
+
+			return nil, fmt.Errorf(
+				"descriptor key %q no longer matches locator",
+				binding.DescriptorKey,
+			)
 		}
 		bindings[binding.DescriptorKey] = keychain.KeyDescriptor{
 			KeyLocator: binding.KeyLocator,
-			PubKey:     pubKey,
+			// Preserve the wallet's actual compressed point. An
+			// x-only descriptor key does not encode parity, while
+			// remote signer PSBT derivations require the exact
+			// locator-derived public key.
+			PubKey: derived.PubKey,
 		}
 	}
 
-	maxWeight, err := desc.MaxWeightToSatisfy()
-	if err != nil {
-		return nil, err
+	witnessScript := append([]byte(nil), record.WitnessScript...)
+	taproot := desc.DescType() == descriptors.DescTypeTr
+	var leafHash string
+	var witnessSize lntypes.WeightUnit
+	if taproot {
+		spendInfo, ok := plan.TaprootSpendInfo()
+		if !ok {
+			return nil, errors.New(
+				"taproot descriptor plan has no spend metadata",
+			)
+		}
+		if spendInfo.Kind != descriptors.TaprootSpendScriptPath {
+			return nil, errors.New(
+				"taproot key-path descriptor sweeps are not " +
+					"supported",
+			)
+		}
+		witnessScript = append([]byte(nil), spendInfo.LeafScript...)
+		leafHash = hex.EncodeToString(spendInfo.LeafHash[:])
+		// Schnorr signatures have the fixed 64-byte size advertised to
+		// PlanAt, so the frozen plan's complete serialized witness is
+		// exact.
+		witnessSize = lntypes.WeightUnit(plan.WitnessSize())
+	} else {
+		maxWeight, err := desc.MaxWeightToSatisfy()
+		if err != nil {
+			return nil, err
+		}
+		// MaxWeightToSatisfy is relative to an empty witness. lnd
+		// expects the complete serialized witness, including the
+		// element-count byte.
+		witnessSize = lntypes.WeightUnit(maxWeight + 1)
 	}
+
 	return &descriptorWitnessType{
 		desc:          desc,
 		plan:          plan,
 		bindings:      bindings,
 		preimages:     record.Preimages,
-		witnessScript: append([]byte(nil), record.WitnessScript...),
-		// MaxWeightToSatisfy is relative to an empty witness. lnd expects
-		// the complete serialized witness, including the element-count byte.
-		witnessSize: lntypes.WeightUnit(maxWeight + 1),
+		witnessScript: witnessScript,
+		witnessSize:   witnessSize,
+		taproot:       taproot,
+		leafHash:      leafHash,
 	}, nil
 }
 
-func (w *descriptorWitnessType) String() string { return "descriptor-wsh" }
+func (w *descriptorWitnessType) String() string {
+	if w.taproot {
+		return "descriptor-tr"
+	}
+
+	return "descriptor-wsh"
+}
 func (w *descriptorWitnessType) WitnessGenerator(signer input.Signer,
 	desc *input.SignDescriptor) input.WitnessGenerator {
 
@@ -1137,9 +1484,34 @@ func (w *descriptorWitnessType) craft(signer input.Signer,
 			}
 			serialized := signature.Serialize()
 			serialized = append(serialized, byte(local.HashType))
+
 			return serialized, true
 		},
-		LookupPreimage: func(hashFunc string, hash []byte) ([]byte, bool) {
+		LookupTapLeafScriptSig: func(
+			key, leafHash string,
+		) ([]byte, bool) {
+
+			if !w.taproot || leafHash != w.leafHash {
+				return nil, false
+			}
+			keyDesc, ok := w.bindings[key]
+			if !ok {
+				return nil, false
+			}
+			local := *signDesc
+			local.KeyDesc = keyDesc
+			local.InputIndex = index
+			signature, err := signer.SignOutputRaw(tx, &local)
+			if err != nil {
+				return nil, false
+			}
+
+			return signature.Serialize(), true
+		},
+		LookupPreimage: func(
+			hashFunc string, hash []byte,
+		) ([]byte, bool) {
+
 			preimage, ok := w.preimages[preimageKey(hashFunc, hash)]
 			return append([]byte(nil), preimage...), ok
 		},
@@ -1150,7 +1522,12 @@ func (w *descriptorWitnessType) craft(signer input.Signer,
 		return nil, err
 	}
 	witness := append(wire.TxWitness{}, result.Witness...)
-	witness = append(witness, append([]byte(nil), w.witnessScript...))
+	if !w.taproot {
+		witness = append(
+			witness,
+			append([]byte(nil), w.witnessScript...),
+		)
+	}
 
 	return &input.Script{
 		Witness:   witness,

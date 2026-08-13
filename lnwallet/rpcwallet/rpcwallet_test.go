@@ -5,6 +5,8 @@ import (
 	"errors"
 	"testing"
 
+	"github.com/btcsuite/btcd/btcec/v2"
+	"github.com/btcsuite/btcd/btcec/v2/schnorr"
 	"github.com/btcsuite/btcd/chainhash/v2"
 	"github.com/btcsuite/btcd/psbt/v2"
 	"github.com/btcsuite/btcd/txscript/v2"
@@ -228,4 +230,68 @@ func TestPopulateNonSignedInputWitnessUtxosEmptyPkScript(t *testing.T) {
 	populateNonSignedInputWitnessUtxos(packet, tx, signDesc, fetchInfo)
 
 	require.Nil(t, packet.Inputs[0].WitnessUtxo)
+}
+
+func TestTaprootScriptControlBlock(t *testing.T) {
+	t.Parallel()
+
+	internalKey, err := btcec.NewPrivateKey()
+	require.NoError(t, err)
+	leafA := txscript.NewBaseTapLeaf([]byte{txscript.OP_TRUE})
+	leafB := txscript.NewBaseTapLeaf([]byte{txscript.OP_2})
+	tree := txscript.AssembleTaprootScriptTree(leafA, leafB)
+	proof := tree.LeafMerkleProofs[0]
+	controlBlock := proof.ToControlBlock(internalKey.PubKey())
+	controlBlockBytes, err := controlBlock.ToBytes()
+	require.NoError(t, err)
+	rootHash := tree.RootNode.TapHash()
+	outputKey := txscript.ComputeTaprootOutputKey(
+		internalKey.PubKey(), rootHash[:],
+	)
+	pkScript, err := txscript.PayToTaprootScript(outputKey)
+	require.NoError(t, err)
+	derivationKey, err := btcec.NewPrivateKey()
+	require.NoError(t, err)
+	signDesc := &input.SignDescriptor{
+		ControlBlock: controlBlockBytes,
+		Output: &wire.TxOut{
+			Value:    50_000,
+			PkScript: pkScript,
+		},
+	}
+
+	got, err := taprootScriptControlBlock(
+		signDesc, derivationKey.PubKey().SerializeCompressed(), leafA,
+	)
+	require.NoError(t, err)
+	require.Equal(t, controlBlockBytes, got)
+	got[0] ^= 1
+	require.NotEqual(t, got, signDesc.ControlBlock,
+		"helper must not return SignDescriptor-owned storage")
+
+	wrongLeaf := leafB
+	_, err = taprootScriptControlBlock(
+		signDesc, derivationKey.PubKey().SerializeCompressed(),
+		wrongLeaf,
+	)
+	require.ErrorContains(t, err, "does not commit")
+
+	bad := *signDesc
+	bad.ControlBlock = []byte{1}
+	_, err = taprootScriptControlBlock(
+		&bad, derivationKey.PubKey().SerializeCompressed(), leafA,
+	)
+	require.ErrorContains(t, err, "invalid taproot control block")
+
+	// Existing callers without a real proof retain the synthetic fallback.
+	fallback := &input.SignDescriptor{}
+	got, err = taprootScriptControlBlock(
+		fallback, derivationKey.PubKey().SerializeCompressed(), leafA,
+	)
+	require.NoError(t, err)
+	parsed, err := txscript.ParseControlBlock(got)
+	require.NoError(t, err)
+	require.Empty(t, parsed.InclusionProof)
+	require.Equal(t, schnorr.SerializePubKey(derivationKey.PubKey()),
+		schnorr.SerializePubKey(parsed.InternalKey))
 }

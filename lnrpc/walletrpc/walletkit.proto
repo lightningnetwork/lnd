@@ -261,10 +261,12 @@ service WalletKit {
     material. Any keys that should be signed by lnd must be explicitly bound to
     a wallet key locator.
 
-    The first version of this RPC supports fixed-index P2WSH descriptors. The
-    registration remains active while lnd waits for the output and for a
-    satisfiable Miniscript branch. Additional satisfaction data, such as a
-    hash preimage, can be supplied through AddSweepDescriptorData.
+    This RPC supports fixed-index native P2WSH descriptors and P2TR descriptors
+    with Miniscript script paths. A P2TR registration never uses its key path,
+    so its internal key may remain unbound. The registration remains active
+    while lnd waits for the output and for a satisfiable Miniscript branch.
+    Additional satisfaction data, such as a hash preimage, can be supplied
+    through AddSweepDescriptorData.
     */
     rpc RegisterSweepDescriptor (RegisterSweepDescriptorRequest)
         returns (RegisterSweepDescriptorResponse);
@@ -1240,6 +1242,12 @@ enum WitnessType {
     its selected Miniscript satisfaction plan.
     */
     DESCRIPTOR_WSH = 43;
+
+    /*
+    A script-path witness constructed from a registered P2TR output descriptor
+    and its selected Miniscript satisfaction plan.
+    */
+    DESCRIPTOR_TR = 44;
 }
 
 message PendingSweep {
@@ -1778,8 +1786,10 @@ message SweepDescriptorKeyBinding {
 message RegisterSweepDescriptorRequest {
     /*
     The output descriptor to watch and sweep. Private descriptors (WIF or xprv)
-    are rejected. The initial implementation accepts fixed-index wsh()
-    descriptors only.
+    are rejected. The implementation accepts fixed-index native wsh()
+    descriptors and tr() descriptors with Miniscript script paths. A tr()
+    descriptor is always swept through a script path, so its internal key does
+    not need an lnd key binding.
     */
     string output_descriptor = 1;
 

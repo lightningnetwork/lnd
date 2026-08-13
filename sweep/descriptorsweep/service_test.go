@@ -2,8 +2,8 @@ package descriptorsweep
 
 import (
 	"bytes"
-	"context"
 	"crypto/sha256"
+	"encoding/hex"
 	"errors"
 	"fmt"
 	"sync"
@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"github.com/btcsuite/btcd/btcec/v2"
+	"github.com/btcsuite/btcd/btcec/v2/schnorr"
 	"github.com/btcsuite/btcd/btcutil/v2"
 	"github.com/btcsuite/btcd/chaincfg/v2"
 	"github.com/btcsuite/btcd/chainhash/v2"
@@ -31,6 +32,33 @@ type testKeyRing struct {
 	keys map[keychain.KeyLocator]*btcec.PublicKey
 }
 
+type failOnceKeyRing struct {
+	mu       sync.Mutex
+	delegate *testKeyRing
+	failures int
+}
+
+func (k *failOnceKeyRing) DeriveNextKey(family keychain.KeyFamily) (
+	keychain.KeyDescriptor, error) {
+
+	return k.delegate.DeriveNextKey(family)
+}
+
+func (k *failOnceKeyRing) DeriveKey(locator keychain.KeyLocator) (
+	keychain.KeyDescriptor, error) {
+
+	k.mu.Lock()
+	defer k.mu.Unlock()
+	if k.failures > 0 {
+		k.failures--
+		return keychain.KeyDescriptor{}, errors.New(
+			"transient key ring failure",
+		)
+	}
+
+	return k.delegate.DeriveKey(locator)
+}
+
 func (k *testKeyRing) DeriveNextKey(keychain.KeyFamily) (
 	keychain.KeyDescriptor, error) {
 
@@ -44,11 +72,25 @@ func (k *testKeyRing) DeriveKey(locator keychain.KeyLocator) (
 	if !ok {
 		return keychain.KeyDescriptor{}, fmt.Errorf("key not found")
 	}
+
 	return keychain.KeyDescriptor{KeyLocator: locator, PubKey: key}, nil
 }
 
 type testSweeper struct {
 	inputs chan input.Input
+}
+
+type captureSigner struct {
+	input.Signer
+	signDesc *input.SignDescriptor
+}
+
+func (s *captureSigner) SignOutputRaw(tx *wire.MsgTx,
+	signDesc *input.SignDescriptor) (input.Signature, error) {
+
+	cloned := *signDesc
+	s.signDesc = &cloned
+	return s.Signer.SignOutputRaw(tx, signDesc)
 }
 
 func (s *testSweeper) SweepInput(inp input.Input, _ sweep.Params) (
@@ -80,6 +122,7 @@ func (s *failOnceStore) put(record *storedRecord) error {
 		s.failures--
 		return errors.New("transient store failure")
 	}
+
 	return s.delegate.put(record)
 }
 
@@ -130,6 +173,7 @@ func (s *testBlockSource) GetBlockHash(height int64) (*chainhash.Hash, error) {
 	if !ok {
 		return nil, fmt.Errorf("block %d not found", height)
 	}
+
 	return &hash, nil
 }
 
@@ -143,6 +187,7 @@ func (s *testBlockSource) GetBlock(
 	if !ok {
 		return nil, fmt.Errorf("block %v not found", hash)
 	}
+
 	return block.Copy(), nil
 }
 
@@ -179,6 +224,7 @@ func newReadyTestNotifier() *readyTestNotifier {
 		blockEpochs:     make(chan *chainntnfs.BlockEpoch, 1),
 	}
 	notifier.blockEpochs <- &chainntnfs.BlockEpoch{Height: 100}
+
 	return notifier
 }
 
@@ -195,7 +241,9 @@ func (n *readyTestNotifier) RegisterConfirmationsNtfn(_ *chainhash.Hash,
 	if n.confFailures > 0 {
 		n.confFailures--
 		n.mu.Unlock()
-		return nil, errors.New("transient confirmation registration failure")
+		return nil, errors.New(
+			"transient confirmation registration failure",
+		)
 	}
 	n.mu.Unlock()
 
@@ -278,6 +326,7 @@ func testBackend(t *testing.T) kvdb.Backend {
 	db, cleanup, err := kvdb.GetTestBackend(t.TempDir(), "descriptor.db")
 	require.NoError(t, err)
 	t.Cleanup(cleanup)
+
 	return db
 }
 
@@ -335,13 +384,13 @@ func TestRegisterValidatesAndPersists(t *testing.T) {
 	})
 	require.NoError(t, err)
 
-	record, err := service.Register(context.Background(), RegisterRequest{
+	record, err := service.Register(t.Context(), RegisterRequest{
 		Descriptor: descriptor,
 		KeyBindings: []KeyBinding{{
-			DescriptorKey: fmt.Sprintf("%x", keys[0].PubKey().SerializeCompressed()),
+			DescriptorKey: compressedKeyString(keys[0]),
 			KeyLocator:    locA,
 		}, {
-			DescriptorKey: fmt.Sprintf("%x", keys[1].PubKey().SerializeCompressed()),
+			DescriptorKey: compressedKeyString(keys[1]),
 			KeyLocator:    locB,
 		}},
 		ExpectedValue:   50_000,
@@ -367,7 +416,7 @@ func TestRegisterValidatesAndPersists(t *testing.T) {
 	other, err := btcec.NewPrivateKey()
 	require.NoError(t, err)
 	bad := other.PubKey().SerializeCompressed()
-	_, err = service.Register(context.Background(), RegisterRequest{
+	_, err = service.Register(t.Context(), RegisterRequest{
 		Descriptor: fmt.Sprintf("wsh(pk(%x))", bad),
 		KeyBindings: []KeyBinding{{
 			DescriptorKey: fmt.Sprintf("%x", bad), KeyLocator: locA,
@@ -379,6 +428,185 @@ func TestRegisterValidatesAndPersists(t *testing.T) {
 	require.ErrorContains(t, err, "does not match locator")
 }
 
+func TestRegisterTaprootWithUnboundInternalKey(t *testing.T) {
+	t.Parallel()
+
+	internalKey, err := btcec.NewPrivateKey()
+	require.NoError(t, err)
+	leafKey, err := btcec.NewPrivateKey()
+	require.NoError(t, err)
+	internal := hex.EncodeToString(
+		schnorr.SerializePubKey(internalKey.PubKey()),
+	)
+	leaf := hex.EncodeToString(schnorr.SerializePubKey(leafKey.PubKey()))
+	descriptor := fmt.Sprintf("tr(%s,pk(%s))", internal, leaf)
+	locator := keychain.KeyLocator{Family: 31, Index: 7}
+	service, err := New(Config{
+		DB:       testBackend(t),
+		Notifier: &chainntnfs.MockChainNotifier{},
+		KeyRing: &testKeyRing{
+			keys: map[keychain.KeyLocator]*btcec.PublicKey{
+				locator: leafKey.PubKey(),
+			},
+		},
+		Sweeper:     &testSweeper{inputs: make(chan input.Input, 1)},
+		BlockSource: newTestBlockSource(),
+		ChainParams: &chaincfg.RegressionNetParams,
+		Ready:       make(chan struct{}),
+	})
+	require.NoError(t, err)
+	_, err = service.Register(t.Context(), RegisterRequest{
+		Descriptor:    fmt.Sprintf("tr(%s)", internal),
+		ExpectedValue: 50_000,
+		HeightHint:    100,
+		Budget:        10_000,
+	})
+	require.ErrorContains(t, err, "no path satisfiable")
+
+	record, err := service.Register(t.Context(), RegisterRequest{
+		Descriptor: descriptor,
+		KeyBindings: []KeyBinding{{
+			DescriptorKey: leaf,
+			KeyLocator:    locator,
+		}},
+		ExpectedValue: 50_000,
+		HeightHint:    100,
+		Budget:        10_000,
+	})
+	require.NoError(t, err)
+	require.True(t, txscript.IsPayToTaproot(record.PkScript))
+	require.Empty(t, record.WitnessScript)
+	require.Len(t, record.KeyBindings, 1)
+	require.NotContains(t, record.KeyBindings, KeyBinding{
+		DescriptorKey: internal,
+	})
+
+	const privateWIF = "L4rK1yDtCWekvXuE6oXD9jCYfFNV2cWRpVuPLBcCU2" +
+		"z8TrisoyY1"
+
+	// Binding only the leaf must not let private or ranged material in an
+	// unbound internal-key position enter durable/listable state.
+	_, err = service.Register(t.Context(), RegisterRequest{
+		Descriptor: fmt.Sprintf("tr(%s,pk(%s))", privateWIF, leaf),
+		KeyBindings: []KeyBinding{{
+			DescriptorKey: leaf,
+			KeyLocator:    locator,
+		}},
+		ExpectedValue: 50_000,
+		HeightHint:    100,
+		Budget:        10_000,
+	})
+	require.ErrorContains(t, err, "descriptor key")
+
+	// Use a known-valid BIP32 xpub wildcard. It is valid descriptor syntax,
+	// but outside this service's raw, fixed-key contract.
+	const validXpub = "xpub6ERApfZwUNrhLCkDtcHTcxd75RbzS1ed54G1Lk" +
+		"BUHQVHQKqhMkhgbmJbZRkrgZw4koxb5JaHWkY4ALHY2grBGR" +
+		"jaDMzQLcgJvLJuZZvRcEL"
+	_, err = service.Register(t.Context(), RegisterRequest{
+		Descriptor: fmt.Sprintf("tr(%s/*,pk(%s))", validXpub, leaf),
+		KeyBindings: []KeyBinding{{
+			DescriptorKey: leaf,
+			KeyLocator:    locator,
+		}},
+		ExpectedValue: 50_000,
+		HeightHint:    100,
+		Budget:        10_000,
+	})
+	require.ErrorContains(t, err, "descriptor key")
+}
+
+func TestTaprootCompressedKeyMatchesXOnlyLocator(t *testing.T) {
+	t.Parallel()
+
+	internalKey, err := btcec.NewPrivateKey()
+	require.NoError(t, err)
+	leafKey := oddYPrivateKey(t)
+	internal := hex.EncodeToString(
+		schnorr.SerializePubKey(internalKey.PubKey()),
+	)
+	// Parsing the x-only point returns its even-Y lift. BIP386 converts
+	// compressed and x-only keys in tr() to this x-only identity, so the
+	// descriptor must still bind to the odd-Y locator key with the same x.
+	evenLift, err := schnorr.ParsePubKey(
+		schnorr.SerializePubKey(leafKey.PubKey()),
+	)
+	require.NoError(t, err)
+	compressedLeaf := hex.EncodeToString(evenLift.SerializeCompressed())
+	require.True(t, descriptorKeyMatches(
+		compressedLeaf, leafKey.PubKey(), true,
+	))
+	require.False(t, descriptorKeyMatches(
+		compressedLeaf, leafKey.PubKey(), false,
+	))
+
+	locator := keychain.KeyLocator{Family: 34, Index: 10}
+	service, err := New(Config{
+		DB:       testBackend(t),
+		Notifier: &chainntnfs.MockChainNotifier{},
+		KeyRing: &testKeyRing{
+			keys: map[keychain.KeyLocator]*btcec.PublicKey{
+				locator: leafKey.PubKey(),
+			},
+		},
+		Sweeper:     &testSweeper{inputs: make(chan input.Input, 1)},
+		BlockSource: newTestBlockSource(),
+		ChainParams: &chaincfg.RegressionNetParams,
+		Ready:       make(chan struct{}),
+	})
+	require.NoError(t, err)
+	_, err = service.Register(t.Context(), RegisterRequest{
+		Descriptor: fmt.Sprintf(
+			"tr(%s,pk(%s))", internal, compressedLeaf,
+		),
+		KeyBindings: []KeyBinding{{
+			DescriptorKey: compressedLeaf,
+			KeyLocator:    locator,
+		}},
+		ExpectedValue: 50_000,
+		HeightHint:    100,
+		Budget:        10_000,
+	})
+	require.NoError(t, err)
+}
+
+func TestRegisterRejectsUnsupportedPreimageOnlyPath(t *testing.T) {
+	t.Parallel()
+
+	key, err := btcec.NewPrivateKey()
+	require.NoError(t, err)
+	keyString := hex.EncodeToString(key.PubKey().SerializeCompressed())
+	locator := keychain.KeyLocator{Family: 35, Index: 11}
+	service, err := New(Config{
+		DB:       testBackend(t),
+		Notifier: &chainntnfs.MockChainNotifier{},
+		KeyRing: &testKeyRing{
+			keys: map[keychain.KeyLocator]*btcec.PublicKey{
+				locator: key.PubKey(),
+			},
+		},
+		Sweeper:     &testSweeper{inputs: make(chan input.Input, 1)},
+		BlockSource: newTestBlockSource(),
+		ChainParams: &chaincfg.RegressionNetParams,
+		Ready:       make(chan struct{}),
+	})
+	require.NoError(t, err)
+	digest := bytes.Repeat([]byte{1}, 20)
+	_, err = service.Register(t.Context(), RegisterRequest{
+		Descriptor: fmt.Sprintf(
+			"wsh(and_v(v:pk(%s),hash160(%x)))", keyString, digest,
+		),
+		KeyBindings: []KeyBinding{{
+			DescriptorKey: keyString,
+			KeyLocator:    locator,
+		}},
+		ExpectedValue: 50_000,
+		HeightHint:    100,
+		Budget:        10_000,
+	})
+	require.ErrorContains(t, err, "no path satisfiable")
+}
+
 func TestRegisterRejectsZeroBudget(t *testing.T) {
 	t.Parallel()
 
@@ -388,9 +616,12 @@ func TestRegisterRejectsZeroBudget(t *testing.T) {
 	service, err := New(Config{
 		DB:       testBackend(t),
 		Notifier: &chainntnfs.MockChainNotifier{},
-		KeyRing: &testKeyRing{keys: map[keychain.KeyLocator]*btcec.PublicKey{
-			locatorA: keys[0].PubKey(), locatorB: keys[1].PubKey(),
-		}},
+		KeyRing: &testKeyRing{
+			keys: map[keychain.KeyLocator]*btcec.PublicKey{
+				locatorA: keys[0].PubKey(),
+				locatorB: keys[1].PubKey(),
+			},
+		},
 		Sweeper:     &testSweeper{inputs: make(chan input.Input, 1)},
 		BlockSource: newTestBlockSource(),
 		ChainParams: &chaincfg.RegressionNetParams,
@@ -398,13 +629,13 @@ func TestRegisterRejectsZeroBudget(t *testing.T) {
 	})
 	require.NoError(t, err)
 
-	_, err = service.Register(context.Background(), RegisterRequest{
+	_, err = service.Register(t.Context(), RegisterRequest{
 		Descriptor: descriptor,
 		KeyBindings: []KeyBinding{{
-			DescriptorKey: fmt.Sprintf("%x", keys[0].PubKey().SerializeCompressed()),
+			DescriptorKey: compressedKeyString(keys[0]),
 			KeyLocator:    locatorA,
 		}, {
-			DescriptorKey: fmt.Sprintf("%x", keys[1].PubKey().SerializeCompressed()),
+			DescriptorKey: compressedKeyString(keys[1]),
 			KeyLocator:    locatorB,
 		}},
 		ExpectedValue: 50_000,
@@ -426,22 +657,22 @@ func TestRegisterValueAndLabelValidation(t *testing.T) {
 
 	req := base
 	req.ExpectedValue = 0
-	_, err := service.Register(context.Background(), req)
+	_, err := service.Register(t.Context(), req)
 	require.ErrorContains(t, err, "expected output value must be positive")
 
 	req = base
 	req.ExpectedValue = btcutil.MaxSatoshi + 1
-	_, err = service.Register(context.Background(), req)
+	_, err = service.Register(t.Context(), req)
 	require.ErrorContains(t, err, "maximum money")
 
 	req = base
 	req.Budget = req.ExpectedValue + 1
-	_, err = service.Register(context.Background(), req)
+	_, err = service.Register(t.Context(), req)
 	require.ErrorContains(t, err, "budget must not exceed expected")
 
 	req = base
 	req.Label = string(bytes.Repeat([]byte{'a'}, 501))
-	_, err = service.Register(context.Background(), req)
+	_, err = service.Register(t.Context(), req)
 	require.ErrorContains(t, err, "label must not exceed 500 bytes")
 
 	idA := registrationID("wsh(pk(02))", nil, 0, 10_000)
@@ -454,7 +685,7 @@ func TestRegisterRejectsTooManyConfirmations(t *testing.T) {
 	t.Parallel()
 
 	service := &Service{}
-	_, err := service.Register(context.Background(), RegisterRequest{
+	_, err := service.Register(t.Context(), RegisterRequest{
 		Descriptor:    "wsh(pk(02))",
 		ExpectedValue: 1,
 		HeightHint:    1,
@@ -475,9 +706,12 @@ func TestRegisterBeforeNotifierReadiness(t *testing.T) {
 	service, err := New(Config{
 		DB:       testBackend(t),
 		Notifier: notifier,
-		KeyRing: &testKeyRing{keys: map[keychain.KeyLocator]*btcec.PublicKey{
-			locA: keys[0].PubKey(), locB: keys[1].PubKey(),
-		}},
+		KeyRing: &testKeyRing{
+			keys: map[keychain.KeyLocator]*btcec.PublicKey{
+				locA: keys[0].PubKey(),
+				locB: keys[1].PubKey(),
+			},
+		},
 		Sweeper:     &testSweeper{inputs: make(chan input.Input, 1)},
 		BlockSource: newTestBlockSource(),
 		ChainParams: &chaincfg.RegressionNetParams,
@@ -487,13 +721,13 @@ func TestRegisterBeforeNotifierReadiness(t *testing.T) {
 	require.NoError(t, service.Start())
 	t.Cleanup(func() { require.NoError(t, service.Stop()) })
 
-	record, err := service.Register(context.Background(), RegisterRequest{
+	record, err := service.Register(t.Context(), RegisterRequest{
 		Descriptor: descriptor,
 		KeyBindings: []KeyBinding{{
-			DescriptorKey: fmt.Sprintf("%x", keys[0].PubKey().SerializeCompressed()),
+			DescriptorKey: compressedKeyString(keys[0]),
 			KeyLocator:    locA,
 		}, {
-			DescriptorKey: fmt.Sprintf("%x", keys[1].PubKey().SerializeCompressed()),
+			DescriptorKey: compressedKeyString(keys[1]),
 			KeyLocator:    locB,
 		}},
 		ExpectedValue: 50_000,
@@ -540,9 +774,12 @@ func TestTransientWatchFailureRetries(t *testing.T) {
 	service, err := New(Config{
 		DB:       testBackend(t),
 		Notifier: notifier,
-		KeyRing: &testKeyRing{keys: map[keychain.KeyLocator]*btcec.PublicKey{
-			locA: keys[0].PubKey(), locB: keys[1].PubKey(),
-		}},
+		KeyRing: &testKeyRing{
+			keys: map[keychain.KeyLocator]*btcec.PublicKey{
+				locA: keys[0].PubKey(),
+				locB: keys[1].PubKey(),
+			},
+		},
 		Sweeper:     &testSweeper{inputs: make(chan input.Input, 1)},
 		BlockSource: newTestBlockSource(),
 		ChainParams: &chaincfg.RegressionNetParams,
@@ -551,13 +788,13 @@ func TestTransientWatchFailureRetries(t *testing.T) {
 	require.NoError(t, err)
 	service.retryInitial = time.Millisecond
 	service.retryMax = 5 * time.Millisecond
-	record, err := service.Register(context.Background(), RegisterRequest{
+	record, err := service.Register(t.Context(), RegisterRequest{
 		Descriptor: descriptor,
 		KeyBindings: []KeyBinding{{
-			DescriptorKey: fmt.Sprintf("%x", keys[0].PubKey().SerializeCompressed()),
+			DescriptorKey: compressedKeyString(keys[0]),
 			KeyLocator:    locA,
 		}, {
-			DescriptorKey: fmt.Sprintf("%x", keys[1].PubKey().SerializeCompressed()),
+			DescriptorKey: compressedKeyString(keys[1]),
 			KeyLocator:    locB,
 		}},
 		ExpectedValue: 50_000,
@@ -596,10 +833,14 @@ func TestReadinessDrainDoesNotDoubleWatch(t *testing.T) {
 	service, err := New(Config{
 		DB:       testBackend(t),
 		Notifier: notifier,
-		KeyRing: &testKeyRing{keys: map[keychain.KeyLocator]*btcec.PublicKey{
-			locA1: keysA[0].PubKey(), locA2: keysA[1].PubKey(),
-			locB1: keysB[0].PubKey(), locB2: keysB[1].PubKey(),
-		}},
+		KeyRing: &testKeyRing{
+			keys: map[keychain.KeyLocator]*btcec.PublicKey{
+				locA1: keysA[0].PubKey(),
+				locA2: keysA[1].PubKey(),
+				locB1: keysB[0].PubKey(),
+				locB2: keysB[1].PubKey(),
+			},
+		},
 		Sweeper:     &testSweeper{inputs: make(chan input.Input, 1)},
 		BlockSource: newTestBlockSource(),
 		ChainParams: &chaincfg.RegressionNetParams,
@@ -611,14 +852,14 @@ func TestReadinessDrainDoesNotDoubleWatch(t *testing.T) {
 		second keychain.KeyLocator) []KeyBinding {
 
 		return []KeyBinding{{
-			DescriptorKey: fmt.Sprintf("%x", keys[0].PubKey().SerializeCompressed()),
+			DescriptorKey: compressedKeyString(keys[0]),
 			KeyLocator:    first,
 		}, {
-			DescriptorKey: fmt.Sprintf("%x", keys[1].PubKey().SerializeCompressed()),
+			DescriptorKey: compressedKeyString(keys[1]),
 			KeyLocator:    second,
 		}}
 	}
-	recordA, err := service.Register(context.Background(), RegisterRequest{
+	recordA, err := service.Register(t.Context(), RegisterRequest{
 		Descriptor:    descriptorA,
 		KeyBindings:   binding(keysA, locA1, locA2),
 		ExpectedValue: 50_000,
@@ -639,7 +880,7 @@ func TestReadinessDrainDoesNotDoubleWatch(t *testing.T) {
 	registered := make(chan registerResult, 1)
 	go func() {
 		record, err := service.Register(
-			context.Background(), RegisterRequest{
+			t.Context(), RegisterRequest{
 				Descriptor:    descriptorB,
 				KeyBindings:   binding(keysB, locB1, locB2),
 				ExpectedValue: 50_000,
@@ -682,22 +923,25 @@ func TestAddPreimageWaitsForReadiness(t *testing.T) {
 	service, err := New(Config{
 		DB:       testBackend(t),
 		Notifier: notifier,
-		KeyRing: &testKeyRing{keys: map[keychain.KeyLocator]*btcec.PublicKey{
-			locA: keys[0].PubKey(), locB: keys[1].PubKey(),
-		}},
+		KeyRing: &testKeyRing{
+			keys: map[keychain.KeyLocator]*btcec.PublicKey{
+				locA: keys[0].PubKey(),
+				locB: keys[1].PubKey(),
+			},
+		},
 		Sweeper:     sweeper,
 		BlockSource: newTestBlockSource(),
 		ChainParams: &chaincfg.RegressionNetParams,
 		Ready:       ready,
 	})
 	require.NoError(t, err)
-	record, err := service.Register(context.Background(), RegisterRequest{
+	record, err := service.Register(t.Context(), RegisterRequest{
 		Descriptor: descriptor,
 		KeyBindings: []KeyBinding{{
-			DescriptorKey: fmt.Sprintf("%x", keys[0].PubKey().SerializeCompressed()),
+			DescriptorKey: compressedKeyString(keys[0]),
 			KeyLocator:    locA,
 		}, {
-			DescriptorKey: fmt.Sprintf("%x", keys[1].PubKey().SerializeCompressed()),
+			DescriptorKey: compressedKeyString(keys[1]),
 			KeyLocator:    locB,
 		}},
 		ExpectedValue: 50_000,
@@ -718,7 +962,7 @@ func TestAddPreimageWaitsForReadiness(t *testing.T) {
 	require.NoError(t, service.Start())
 	t.Cleanup(func() { require.NoError(t, service.Stop()) })
 	updated, err := service.AddPreimage(
-		context.Background(), record.ID, preimage,
+		t.Context(), record.ID, preimage,
 	)
 	require.NoError(t, err)
 	require.Equal(t, StatusWaiting, updated.Status)
@@ -760,7 +1004,7 @@ func TestAddPreimageRejectsFailedRegistration(t *testing.T) {
 		quit:    make(chan struct{}),
 	}
 
-	_, err = service.AddPreimage(context.Background(), id, preimage)
+	_, err = service.AddPreimage(t.Context(), id, preimage)
 	require.ErrorContains(t, err, "already frozen")
 	require.Empty(t, record.Preimages)
 	require.NoError(t, service.trySweep(id))
@@ -779,9 +1023,12 @@ func TestWrongValueRewatchesFromNextBlock(t *testing.T) {
 	service, err := New(Config{
 		DB:       testBackend(t),
 		Notifier: notifier,
-		KeyRing: &testKeyRing{keys: map[keychain.KeyLocator]*btcec.PublicKey{
-			locA: keys[0].PubKey(), locB: keys[1].PubKey(),
-		}},
+		KeyRing: &testKeyRing{
+			keys: map[keychain.KeyLocator]*btcec.PublicKey{
+				locA: keys[0].PubKey(),
+				locB: keys[1].PubKey(),
+			},
+		},
 		Sweeper:     &testSweeper{inputs: make(chan input.Input, 1)},
 		BlockSource: blockSource,
 		ChainParams: &chaincfg.RegressionNetParams,
@@ -790,13 +1037,13 @@ func TestWrongValueRewatchesFromNextBlock(t *testing.T) {
 	require.NoError(t, err)
 	service.retryInitial = time.Millisecond
 	service.retryMax = 5 * time.Millisecond
-	record, err := service.Register(context.Background(), RegisterRequest{
+	record, err := service.Register(t.Context(), RegisterRequest{
 		Descriptor: descriptor,
 		KeyBindings: []KeyBinding{{
-			DescriptorKey: fmt.Sprintf("%x", keys[0].PubKey().SerializeCompressed()),
+			DescriptorKey: compressedKeyString(keys[0]),
 			KeyLocator:    locA,
 		}, {
-			DescriptorKey: fmt.Sprintf("%x", keys[1].PubKey().SerializeCompressed()),
+			DescriptorKey: compressedKeyString(keys[1]),
 			KeyLocator:    locB,
 		}},
 		ExpectedValue: 50_000,
@@ -820,8 +1067,9 @@ func TestWrongValueRewatchesFromNextBlock(t *testing.T) {
 		Value: int64(record.ExpectedValue), PkScript: record.PkScript,
 	})
 	firstEvent.Confirmed <- &chainntnfs.TxConfirmation{
-		// The notification points at the wrong-value transaction. Full-block
-		// scanning must still find the valid transaction in the same block.
+		// The notification points at the wrong-value transaction.
+		// Full-block scanning must still find the valid transaction in
+		// the same block.
 		Tx:          wrongValueTx,
 		BlockHeight: 120,
 		Block: &wire.MsgBlock{Transactions: []*wire.MsgTx{
@@ -842,17 +1090,28 @@ func TestWrongValueRewatchesFromNextBlock(t *testing.T) {
 	service.mu.Lock()
 	service.records[secondID] = &storedRecord{
 		Record: Record{
-			ID: secondID, CanonicalDescriptor: record.CanonicalDescriptor,
-			KeyBindings:   append([]KeyBinding(nil), record.KeyBindings...),
-			PkScript:      append([]byte(nil), record.PkScript...),
-			WitnessScript: append([]byte(nil), record.WitnessScript...),
-			ExpectedValue: 25_000, HeightHint: 90, MinConfs: 1,
-			Budget: 1_000, Status: StatusWatching,
+			ID:                  secondID,
+			CanonicalDescriptor: record.CanonicalDescriptor,
+			KeyBindings: append(
+				[]KeyBinding(nil), record.KeyBindings...,
+			),
+			PkScript: append(
+				[]byte(nil), record.PkScript...,
+			),
+			WitnessScript: append(
+				[]byte(nil), record.WitnessScript...,
+			),
+			ExpectedValue: 25_000,
+			HeightHint:    90,
+			MinConfs:      1,
+			Budget:        1_000,
+			Status:        StatusWatching,
 		},
 		WatchHeight: 90,
 		Preimages:   make(map[string][]byte),
 	}
-	require.NoError(t, newStore(service.cfg.DB).put(service.records[secondID]))
+	err = newStore(service.cfg.DB).put(service.records[secondID])
+	require.NoError(t, err)
 	service.bestHeight = 132
 	service.mu.Unlock()
 	require.NoError(t, service.watchOutput(secondID))
@@ -869,7 +1128,9 @@ func TestWrongValueRewatchesFromNextBlock(t *testing.T) {
 	scanTx.AddTxOut(&wire.TxOut{
 		Value: 25_000, PkScript: record.PkScript,
 	})
-	blockSource.add(132, &wire.MsgBlock{Transactions: []*wire.MsgTx{scanTx}})
+	blockSource.add(132, &wire.MsgBlock{
+		Transactions: []*wire.MsgTx{scanTx},
+	})
 	wrongEvent.Confirmed <- &chainntnfs.TxConfirmation{
 		Tx: wrongOnlyTx, BlockHeight: 130,
 		Block: &wire.MsgBlock{Transactions: []*wire.MsgTx{wrongOnlyTx}},
@@ -943,7 +1204,9 @@ func TestAddPreimageRejectsUnrelatedData(t *testing.T) {
 	require.NoError(t, err)
 	record := &storedRecord{
 		Record: Record{
-			ID:                  registrationID(desc.String(), nil, 0, 50_000),
+			ID: registrationID(
+				desc.String(), nil, 0, 50_000,
+			),
 			CanonicalDescriptor: desc.String(),
 			Status:              StatusWaiting,
 		},
@@ -956,7 +1219,7 @@ func TestAddPreimageRejectsUnrelatedData(t *testing.T) {
 	}
 
 	_, err = service.AddPreimage(
-		context.Background(), record.ID, bytes.Repeat([]byte{0x99}, 32),
+		t.Context(), record.ID, bytes.Repeat([]byte{0x99}, 32),
 	)
 	require.ErrorContains(t, err, "does not match")
 	require.Empty(t, record.Preimages)
@@ -971,7 +1234,8 @@ func TestStoreRejectsUnknownVersion(t *testing.T) {
 	id := RegistrationID{1}
 	err := kvdb.Update(db, func(tx kvdb.RwTx) error {
 		bucket := tx.ReadWriteBucket(descriptorSweepBucket)
-		return bucket.Put(id[:], []byte{descriptorSweepStoreVersion + 1})
+		version := []byte{descriptorSweepStoreVersion + 1}
+		return bucket.Put(id[:], version)
 	}, func() {})
 	require.NoError(t, err)
 
@@ -1042,18 +1306,18 @@ func TestRestoreSweepKeepsFrozenBranch(t *testing.T) {
 			ID:                  RegistrationID{3},
 			CanonicalDescriptor: desc.String(),
 			KeyBindings: []KeyBinding{{
-				DescriptorKey: fmt.Sprintf("%x", keys[0].PubKey().SerializeCompressed()),
+				DescriptorKey: compressedKeyString(keys[0]),
 				KeyLocator:    locA,
 			}, {
-				DescriptorKey: fmt.Sprintf("%x", keys[1].PubKey().SerializeCompressed()),
+				DescriptorKey: compressedKeyString(keys[1]),
 				KeyLocator:    locB,
 			}},
 			PkScript: pkScript, WitnessScript: witnessScript,
 			OutPoint: &outpoint, Value: 50_000,
 			Status: StatusSweeping, Budget: 10_000,
 		},
-		// A success preimage arriving in storage must not switch an already
-		// frozen timeout plan during restart.
+		// A success preimage arriving in storage must not switch an
+		// already frozen timeout plan during restart.
 		Preimages: map[string][]byte{
 			preimageKey("sha256", hash[:]): preimage,
 		},
@@ -1064,7 +1328,15 @@ func TestRestoreSweepKeepsFrozenBranch(t *testing.T) {
 	record.DeadlineDelta = 99
 	sweeper := &restartSweeper{}
 	service := &Service{
-		cfg:        Config{Sweeper: sweeper},
+		cfg: Config{
+			Sweeper: sweeper,
+			KeyRing: &testKeyRing{
+				keys: map[keychain.KeyLocator]*btcec.PublicKey{
+					locA: keys[0].PubKey(),
+					locB: keys[1].PubKey(),
+				},
+			},
+		},
 		records:    map[RegistrationID]*storedRecord{record.ID: record},
 		bestHeight: 800,
 		quit:       make(chan struct{}),
@@ -1072,12 +1344,68 @@ func TestRestoreSweepKeepsFrozenBranch(t *testing.T) {
 
 	require.NoError(t, service.restoreSweep(record.ID))
 	require.NotNil(t, sweeper.input)
+	descriptorInput, ok := sweeper.input.(*descriptorInput)
+	require.True(t, ok)
 	require.Equal(t, locktime,
-		valueOrZero(sweeper.input.(*descriptorInput).locktime))
+		valueOrZero(descriptorInput.locktime))
 	require.Equal(t, deadline,
 		sweeper.params.DeadlineHeight.UnwrapOr(0))
-	_, err = service.AddPreimage(context.Background(), record.ID, preimage)
+	_, err = service.AddPreimage(t.Context(), record.ID, preimage)
 	require.ErrorContains(t, err, "already frozen")
+}
+
+func TestRestoreSweepRetriesTransientKeyRingFailure(t *testing.T) {
+	t.Parallel()
+
+	key, err := btcec.NewPrivateKey()
+	require.NoError(t, err)
+	keyString := hex.EncodeToString(key.PubKey().SerializeCompressed())
+	desc, err := descriptors.NewDescriptor("wsh(pk(" + keyString + "))")
+	require.NoError(t, err)
+	_, pkScript, witnessScript, err := descriptorScripts(
+		desc, &chaincfg.RegressionNetParams, 0,
+	)
+	require.NoError(t, err)
+	locator := keychain.KeyLocator{Family: 36, Index: 12}
+	outpoint := wire.OutPoint{Index: 3}
+	record := &storedRecord{
+		Record: Record{
+			ID:                  RegistrationID{36},
+			CanonicalDescriptor: desc.String(),
+			KeyBindings: []KeyBinding{{
+				DescriptorKey: keyString,
+				KeyLocator:    locator,
+			}},
+			PkScript:      pkScript,
+			WitnessScript: witnessScript,
+			OutPoint:      &outpoint,
+			Value:         50_000,
+			Budget:        10_000,
+			Status:        StatusSweeping,
+		},
+		Preimages: map[string][]byte{},
+	}
+	keyRing := &failOnceKeyRing{
+		delegate: &testKeyRing{
+			keys: map[keychain.KeyLocator]*btcec.PublicKey{
+				locator: key.PubKey(),
+			},
+		},
+		failures: 1,
+	}
+	sweeper := &restartSweeper{}
+	service := &Service{
+		cfg:     Config{Sweeper: sweeper, KeyRing: keyRing},
+		records: map[RegistrationID]*storedRecord{record.ID: record},
+		quit:    make(chan struct{}),
+	}
+
+	err = service.restoreSweep(record.ID)
+	require.ErrorContains(t, err, "transient key ring failure")
+	require.True(t, isRetryable(err))
+	require.Nil(t, sweeper.input)
+	require.NoError(t, service.restoreSweep(record.ID))
+	require.NotNil(t, sweeper.input)
 }
 
 func TestFrozenPlanUsesOnlySelectedBranch(t *testing.T) {
@@ -1094,10 +1422,10 @@ func TestFrozenPlanUsesOnlySelectedBranch(t *testing.T) {
 		Record: Record{
 			CanonicalDescriptor: desc.String(),
 			KeyBindings: []KeyBinding{{
-				DescriptorKey: fmt.Sprintf("%x", keys[0].PubKey().SerializeCompressed()),
+				DescriptorKey: compressedKeyString(keys[0]),
 				KeyLocator:    locA,
 			}, {
-				DescriptorKey: fmt.Sprintf("%x", keys[1].PubKey().SerializeCompressed()),
+				DescriptorKey: compressedKeyString(keys[1]),
 				KeyLocator:    locB,
 			}},
 			WitnessScript: witnessScript,
@@ -1163,7 +1491,10 @@ func TestDescriptorInputUsesSelectedCSV(t *testing.T) {
 		ConfirmationHeight: 100,
 	}, PlanSequence: constraints.RelativeLocktime}
 
-	inp, err := newDescriptorInput(desc, plan, record)
+	keyRing := &testKeyRing{keys: map[keychain.KeyLocator]*btcec.PublicKey{
+		record.KeyBindings[0].KeyLocator: key.PubKey(),
+	}}
+	inp, err := newDescriptorInput(keyRing, desc, plan, record)
 	require.NoError(t, err)
 	require.Equal(t, sequence, inp.BlocksToMaturity())
 	require.Equal(t, uint32(100), inp.HeightHint())
@@ -1179,9 +1510,9 @@ func TestImmediatePlanWinsOverMatureTimeout(t *testing.T) {
 	require.NoError(t, err)
 	record := &storedRecord{
 		Record: Record{KeyBindings: []KeyBinding{{
-			DescriptorKey: fmt.Sprintf("%x", keys[0].PubKey().SerializeCompressed()),
+			DescriptorKey: compressedKeyString(keys[0]),
 		}, {
-			DescriptorKey: fmt.Sprintf("%x", keys[1].PubKey().SerializeCompressed()),
+			DescriptorKey: compressedKeyString(keys[1]),
 		}}},
 		Preimages: make(map[string][]byte),
 	}
@@ -1209,7 +1540,7 @@ func TestDescriptorWitness(t *testing.T) {
 	witnessScript, err := desc.ScriptCodeAt(0, 0)
 	require.NoError(t, err)
 	hash := sha256.Sum256(preimage)
-	keyA := fmt.Sprintf("%x", keys[0].PubKey().SerializeCompressed())
+	keyA := compressedKeyString(keys[0])
 	assets := descriptors.Assets{
 		LookupEcdsaSig: func(key string) bool { return key == keyA },
 		LookupPreimage: func(string, []byte) bool { return true },
@@ -1219,15 +1550,25 @@ func TestDescriptorWitness(t *testing.T) {
 
 	record := &storedRecord{
 		Record: Record{
-			KeyBindings: []KeyBinding{{DescriptorKey: keyA,
-				KeyLocator: keychain.KeyLocator{Family: 3, Index: 4}}},
+			KeyBindings: []KeyBinding{{
+				DescriptorKey: keyA,
+				KeyLocator: keychain.KeyLocator{
+					Family: 3,
+					Index:  4,
+				},
+			}},
 			WitnessScript: witnessScript,
 		},
 		Preimages: map[string][]byte{
 			preimageKey("sha256", hash[:]): preimage,
 		},
 	}
-	witnessType, err := newDescriptorWitnessType(desc, plan, record)
+	keyRing := &testKeyRing{keys: map[keychain.KeyLocator]*btcec.PublicKey{
+		record.KeyBindings[0].KeyLocator: keys[0].PubKey(),
+	}}
+	witnessType, err := newDescriptorWitnessType(
+		keyRing, desc, plan, record,
+	)
 	require.NoError(t, err)
 
 	tx := wire.NewMsgTx(2)
@@ -1259,7 +1600,353 @@ func TestDescriptorWitness(t *testing.T) {
 	var actual int
 	actual += wire.VarIntSerializeSize(uint64(len(script.Witness)))
 	for _, element := range script.Witness {
-		actual += wire.VarIntSerializeSize(uint64(len(element))) + len(element)
+		actual += wire.VarIntSerializeSize(
+			uint64(len(element)),
+		) + len(element)
 	}
 	require.LessOrEqual(t, actual, int(bound))
+}
+
+func TestTaprootDescriptorWitnessPaths(t *testing.T) {
+	t.Parallel()
+
+	internalKey, err := btcec.NewPrivateKey()
+	require.NoError(t, err)
+	successKey := evenYPrivateKey(t)
+	timeoutKey := evenYPrivateKey(t)
+	preimage := bytes.Repeat([]byte{0x51}, 32)
+	hash := sha256.Sum256(preimage)
+	const locktime = uint32(500)
+
+	internal := hex.EncodeToString(
+		schnorr.SerializePubKey(internalKey.PubKey()),
+	)
+	success := hex.EncodeToString(
+		schnorr.SerializePubKey(successKey.PubKey()),
+	)
+	timeout := hex.EncodeToString(
+		schnorr.SerializePubKey(timeoutKey.PubKey()),
+	)
+	desc, err := descriptors.NewDescriptor(fmt.Sprintf(
+		"tr(%s,{and_v(v:pk(%s),sha256(%x)),"+
+			"and_v(v:pk(%s),after(%d))})",
+		internal, success, hash, timeout, locktime,
+	))
+	require.NoError(t, err)
+	addressString, pkScript, witnessScript, err := descriptorScripts(
+		desc, &chaincfg.RegressionNetParams, 0,
+	)
+	require.NoError(t, err)
+	require.NotEmpty(t, addressString)
+	require.True(t, txscript.IsPayToTaproot(pkScript))
+	require.Empty(t, witnessScript)
+
+	tests := []struct {
+		name         string
+		key          *btcec.PrivateKey
+		keyString    string
+		preimages    map[string][]byte
+		assetsHeight uint32
+		locktime     uint32
+	}{
+		{
+			name:      "preimage",
+			key:       successKey,
+			keyString: success,
+			preimages: map[string][]byte{
+				preimageKey("sha256", hash[:]): preimage,
+			},
+		},
+		{
+			name:         "cltv",
+			key:          timeoutKey,
+			keyString:    timeout,
+			preimages:    map[string][]byte{},
+			assetsHeight: locktime,
+			locktime:     locktime,
+		},
+	}
+
+	for testIndex, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			t.Parallel()
+
+			outpoint := wire.OutPoint{Index: uint32(testIndex)}
+			record := &storedRecord{
+				Record: Record{
+					CanonicalDescriptor: desc.String(),
+					KeyBindings: []KeyBinding{{
+						DescriptorKey: test.keyString,
+						KeyLocator: keychain.KeyLocator{
+							Family: 21,
+							Index: uint32(
+								testIndex + 1,
+							),
+						},
+					}},
+					PkScript:           pkScript,
+					OutPoint:           &outpoint,
+					Value:              50_000,
+					ConfirmationHeight: 100,
+				},
+				Preimages: test.preimages,
+			}
+			assets := makeAssets(record, test.assetsHeight)
+			plan, err := desc.PlanAt(0, 0, assets)
+			require.NoError(t, err)
+			constraints := plan.TxConstraints()
+			record.PlanLocktime = cloneUint32(
+				constraints.AbsoluteLocktime,
+			)
+			record.PlanSequence = cloneUint32(
+				constraints.RelativeLocktime,
+			)
+
+			locator := record.KeyBindings[0].KeyLocator
+			keyRing := &testKeyRing{
+				keys: map[keychain.KeyLocator]*btcec.PublicKey{
+					locator: test.key.PubKey(),
+				},
+			}
+			inp, err := newDescriptorInput(
+				keyRing, desc, plan, record,
+			)
+			require.NoError(t, err)
+			require.Equal(
+				t, input.TaprootScriptSpendSignMethod,
+				inp.SignDesc().SignMethod,
+			)
+			require.Equal(t, txscript.SigHashDefault,
+				inp.SignDesc().HashType)
+			require.True(t, IsTaprootWitnessType(inp.WitnessType()))
+
+			tx := wire.NewMsgTx(2)
+			tx.LockTime = test.locktime
+			tx.AddTxIn(&wire.TxIn{
+				PreviousOutPoint: outpoint,
+				Sequence: valueOrZero(
+					record.PlanSequence,
+				),
+			})
+			tx.AddTxOut(&wire.TxOut{
+				Value:    40_000,
+				PkScript: []byte{txscript.OP_TRUE},
+			})
+			fetcher := txscript.NewCannedPrevOutputFetcher(
+				pkScript, record.Value,
+			)
+			hashes := txscript.NewTxSigHashes(tx, fetcher)
+			script, err := inp.CraftInputScript(
+				newTestSigner(
+					[]*btcec.PrivateKey{test.key},
+				),
+				tx,
+				hashes, fetcher, 0,
+			)
+			require.NoError(t, err)
+			require.Empty(t, script.SigScript)
+			require.GreaterOrEqual(t, len(script.Witness), 3)
+
+			spendInfo, ok := plan.TaprootSpendInfo()
+			require.True(t, ok)
+			require.Equal(t, descriptors.TaprootSpendScriptPath,
+				spendInfo.Kind)
+			require.Equal(t, spendInfo.LeafScript,
+				script.Witness[len(script.Witness)-2])
+			require.Equal(t, spendInfo.ControlBlock,
+				script.Witness[len(script.Witness)-1])
+
+			tx.TxIn[0].Witness = script.Witness
+			engine, err := txscript.NewEngine(
+				pkScript, tx, 0, txscript.StandardVerifyFlags,
+				nil, hashes, record.Value, fetcher,
+			)
+			require.NoError(t, err)
+			require.NoError(t, engine.Execute())
+
+			bound, nested, err := inp.WitnessType().SizeUpperBound()
+			require.NoError(t, err)
+			require.False(t, nested)
+			var actual int
+			actual += wire.VarIntSerializeSize(
+				uint64(len(script.Witness)),
+			)
+			for _, element := range script.Witness {
+				actual += wire.VarIntSerializeSize(
+					uint64(len(element)),
+				) + len(element)
+			}
+			require.LessOrEqual(t, actual, int(bound))
+		})
+	}
+}
+
+func TestTaprootDescriptorPreservesOddYBinding(t *testing.T) {
+	t.Parallel()
+
+	internalKey, err := btcec.NewPrivateKey()
+	require.NoError(t, err)
+	leafKey := oddYPrivateKey(t)
+	internal := hex.EncodeToString(
+		schnorr.SerializePubKey(internalKey.PubKey()),
+	)
+	leaf := hex.EncodeToString(schnorr.SerializePubKey(leafKey.PubKey()))
+	desc, err := descriptors.NewDescriptor(fmt.Sprintf(
+		"tr(%s,pk(%s))", internal, leaf,
+	))
+	require.NoError(t, err)
+	_, pkScript, _, err := descriptorScripts(
+		desc, &chaincfg.RegressionNetParams, 0,
+	)
+	require.NoError(t, err)
+
+	locator := keychain.KeyLocator{Family: 32, Index: 8}
+	keyRing := &testKeyRing{keys: map[keychain.KeyLocator]*btcec.PublicKey{
+		locator: leafKey.PubKey(),
+	}}
+	outpoint := wire.OutPoint{Index: 1}
+	record := &storedRecord{
+		Record: Record{
+			KeyBindings: []KeyBinding{{
+				DescriptorKey: leaf,
+				KeyLocator:    locator,
+			}},
+			PkScript: pkScript,
+			OutPoint: &outpoint,
+			Value:    50_000,
+		},
+		Preimages: map[string][]byte{},
+	}
+	plan, err := desc.PlanAt(0, 0, makeAssets(record, 0))
+	require.NoError(t, err)
+	inp, err := newDescriptorInput(keyRing, desc, plan, record)
+	require.NoError(t, err)
+
+	tx := wire.NewMsgTx(2)
+	tx.AddTxIn(&wire.TxIn{PreviousOutPoint: outpoint})
+	tx.AddTxOut(&wire.TxOut{
+		Value: 40_000, PkScript: []byte{txscript.OP_TRUE},
+	})
+	fetcher := txscript.NewCannedPrevOutputFetcher(pkScript, record.Value)
+	hashes := txscript.NewTxSigHashes(tx, fetcher)
+	signer := &captureSigner{Signer: newTestSigner(
+		[]*btcec.PrivateKey{leafKey},
+	)}
+	_, err = inp.CraftInputScript(signer, tx, hashes, fetcher, 0)
+	require.NoError(t, err)
+	require.NotNil(t, signer.signDesc)
+	require.Equal(t, input.PubKeyFormatCompressedOdd,
+		signer.signDesc.KeyDesc.PubKey.SerializeCompressed()[0])
+	require.Equal(t, leafKey.PubKey().SerializeCompressed(),
+		signer.signDesc.KeyDesc.PubKey.SerializeCompressed())
+}
+
+func TestRestoreTaprootSweepVerifiesFrozenLeaf(t *testing.T) {
+	t.Parallel()
+
+	internalKey, err := btcec.NewPrivateKey()
+	require.NoError(t, err)
+	leafA := evenYPrivateKey(t)
+	leafB := evenYPrivateKey(t)
+	internal := hex.EncodeToString(
+		schnorr.SerializePubKey(internalKey.PubKey()),
+	)
+	keyA := hex.EncodeToString(schnorr.SerializePubKey(leafA.PubKey()))
+	keyB := hex.EncodeToString(schnorr.SerializePubKey(leafB.PubKey()))
+	desc, err := descriptors.NewDescriptor(fmt.Sprintf(
+		"tr(%s,{pk(%s),pk(%s)})", internal, keyA, keyB,
+	))
+	require.NoError(t, err)
+	_, pkScript, _, err := descriptorScripts(
+		desc, &chaincfg.RegressionNetParams, 0,
+	)
+	require.NoError(t, err)
+	locator := keychain.KeyLocator{Family: 33, Index: 9}
+	outpoint := wire.OutPoint{Index: 2}
+	record := &storedRecord{
+		Record: Record{
+			ID:                  RegistrationID{33},
+			CanonicalDescriptor: desc.String(),
+			KeyBindings: []KeyBinding{{
+				DescriptorKey: keyA,
+				KeyLocator:    locator,
+			}},
+			PkScript: pkScript,
+			OutPoint: &outpoint,
+			Value:    50_000,
+			Budget:   10_000,
+			Status:   StatusSweeping,
+		},
+		Preimages: map[string][]byte{},
+	}
+	plan, err := desc.PlanAt(0, 0, makeFrozenAssets(record))
+	require.NoError(t, err)
+	spendInfo, ok := plan.TaprootSpendInfo()
+	require.True(t, ok)
+	record.PlanTapLeafHash = cloneHash(&spendInfo.LeafHash)
+	record.PlanTapControlBlock = append(
+		[]byte(nil), spendInfo.ControlBlock...,
+	)
+
+	storage := newStore(testBackend(t))
+	require.NoError(t, storage.init())
+	require.NoError(t, storage.put(record))
+	loaded, err := storage.list()
+	require.NoError(t, err)
+	require.Len(t, loaded, 1)
+	require.Equal(t, spendInfo.LeafHash, *loaded[0].PlanTapLeafHash)
+	require.Equal(t, spendInfo.ControlBlock,
+		loaded[0].PlanTapControlBlock)
+
+	sweeper := &restartSweeper{}
+	service := &Service{
+		cfg: Config{
+			Sweeper: sweeper,
+			KeyRing: &testKeyRing{
+				keys: map[keychain.KeyLocator]*btcec.PublicKey{
+					locator: leafA.PubKey(),
+				},
+			},
+		},
+		records: map[RegistrationID]*storedRecord{record.ID: record},
+		quit:    make(chan struct{}),
+	}
+	require.NoError(t, service.restoreSweep(record.ID))
+	require.NotNil(t, sweeper.input)
+
+	record.PlanTapControlBlock[0] ^= 1
+	err = service.restoreSweep(record.ID)
+	require.ErrorContains(t, err, "changed frozen leaf")
+}
+
+func compressedKeyString(key *btcec.PrivateKey) string {
+	return hex.EncodeToString(key.PubKey().SerializeCompressed())
+}
+
+func evenYPrivateKey(t *testing.T) *btcec.PrivateKey {
+	t.Helper()
+
+	for {
+		key, err := btcec.NewPrivateKey()
+		require.NoError(t, err)
+		if key.PubKey().SerializeCompressed()[0] !=
+			input.PubKeyFormatCompressedOdd {
+
+			return key
+		}
+	}
+}
+
+func oddYPrivateKey(t *testing.T) *btcec.PrivateKey {
+	t.Helper()
+
+	for {
+		key, err := btcec.NewPrivateKey()
+		require.NoError(t, err)
+		if key.PubKey().SerializeCompressed()[0] ==
+			input.PubKeyFormatCompressedOdd {
+
+			return key
+		}
+	}
 }

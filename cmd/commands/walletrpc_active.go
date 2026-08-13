@@ -119,8 +119,11 @@ func parseAddrType(addrTypeStr string) (walletrpc.AddressType, error) {
 	case "p2tr":
 		return walletrpc.AddressType_TAPROOT_PUBKEY, nil
 	default:
-		return 0, errors.New("invalid address type, supported address " +
-			"types are: p2wkh, p2tr, np2wkh, and np2wkh-p2wkh")
+		return 0, errors.New(
+			"invalid address type, supported address " +
+				"types are: p2wkh, p2tr, np2wkh, and " +
+				"np2wkh-p2wkh",
+		)
 	}
 }
 
@@ -221,7 +224,11 @@ func pendingSweeps(ctx *cli.Context) error {
 	var pendingSweepsResp = struct {
 		PendingSweeps []*PendingSweep `json:"pending_sweeps"`
 	}{
-		PendingSweeps: make([]*PendingSweep, 0, len(resp.PendingSweeps)),
+		PendingSweeps: make(
+			[]*PendingSweep,
+			0,
+			len(resp.PendingSweeps),
+		),
 	}
 
 	for _, protoPendingSweep := range resp.PendingSweeps {
@@ -241,51 +248,53 @@ var registerSweepDescriptorCommand = cli.Command{
 	Usage:     "Register a fixed output descriptor for automatic sweeping.",
 	ArgsUsage: "descriptor",
 	Description: `
-	Register a public fixed-index P2WSH output descriptor. lnd watches for the
-	corresponding output and automatically offers it to the batching sweeper
-	once a Miniscript branch is satisfiable.
+	Register a fixed-index native P2WSH descriptor or a P2TR descriptor with
+	Miniscript script paths. lnd watches for the output and offers it to the
+	batching sweeper once a Miniscript branch can be spent. P2TR key-path
+	spending is disabled, so its internal key may remain unbound.
 
-	Each key that lnd should sign for must be bound with a key_binding flag in
-	the form '<descriptor-key>=<key-family>:<key-index>'. The descriptor key is
-	the exact key expression used in the descriptor.`,
+	Bind each signing key with a key_binding flag in this form:
+	'<descriptor-key>=<key-family>:<key-index>'. The descriptor key is the
+	exact key expression used in the descriptor.`,
 	Flags: []cli.Flag{
 		cli.StringSliceFlag{
 			Name: "key_binding",
-			Usage: "Bind a descriptor key to an lnd key locator; may " +
-				"be repeated.",
+			Usage: "Bind a descriptor key to an lnd key " +
+				"locator; may be repeated.",
 		},
 		cli.UintFlag{
-			Name:  "derivation_index",
-			Usage: "Descriptor derivation index (currently must be zero).",
+			Name: "derivation_index",
+			Usage: "Descriptor derivation index (must currently " +
+				"be zero).",
 		},
 		cli.UintFlag{
 			Name: "height_hint",
-			Usage: "Required non-zero earliest block height at which the " +
-				"output may appear.",
+			Usage: "Required earliest non-zero block height at " +
+				"which the output may appear.",
 		},
 		cli.UintFlag{
 			Name:  "min_confs",
 			Value: 1,
-			Usage: "Confirmations required before sweeping the output.",
+			Usage: "Confirmations required before sweeping the " +
+				"output.",
 		},
 		cli.Uint64Flag{
-			Name: "expected_value_sat",
-			Usage: "Required exact value of the watched output in " +
-				"satoshis.",
+			Name:  "expected_value_sat",
+			Usage: "Watched-output value in satoshis (required).",
 		},
 		cli.Uint64Flag{
-			Name: "budget_sat",
-			Usage: "Required non-zero maximum sweep fee budget in " +
-				"satoshis.",
+			Name:  "budget_sat",
+			Usage: "Sweep fee budget in satoshis (required).",
 		},
 		cli.UintFlag{
 			Name: "deadline_delta",
-			Usage: "Blocks from offering a satisfiable output to the " +
-				"sweeper by which it should confirm.",
+			Usage: "Blocks from offering a satisfiable output to " +
+				"the sweeper by which it should confirm.",
 		},
 		cli.BoolFlag{
-			Name:  "immediate",
-			Usage: "Sweep immediately when a branch becomes satisfiable.",
+			Name: "immediate",
+			Usage: "Sweep immediately when a branch becomes " +
+				"satisfiable.",
 		},
 		cli.StringFlag{
 			Name:  "label",
@@ -342,6 +351,7 @@ func registerSweepDescriptor(ctx *cli.Context) error {
 	}
 
 	printRespJSON(resp)
+
 	return nil
 }
 
@@ -362,17 +372,25 @@ func parseSweepDescriptorKeyBinding(
 
 	family, err := strconv.ParseInt(locator[0], 10, 32)
 	if err != nil {
-		return nil, fmt.Errorf("invalid key family in %q: %w", binding, err)
+		return nil, fmt.Errorf(
+			"invalid key family in %q: %w", binding, err,
+		)
 	}
 	if family < 0 {
-		return nil, fmt.Errorf("invalid negative key family in %q", binding)
+		return nil, fmt.Errorf(
+			"invalid negative key family in %q", binding,
+		)
 	}
 	index, err := strconv.ParseInt(locator[1], 10, 32)
 	if err != nil {
-		return nil, fmt.Errorf("invalid key index in %q: %w", binding, err)
+		return nil, fmt.Errorf(
+			"invalid key index in %q: %w", binding, err,
+		)
 	}
 	if index < 0 {
-		return nil, fmt.Errorf("invalid negative key index in %q", binding)
+		return nil, fmt.Errorf(
+			"invalid negative key index in %q", binding,
+		)
 	}
 
 	return &walletrpc.SweepDescriptorKeyBinding{
@@ -402,11 +420,15 @@ func addSweepDescriptorData(ctx *cli.Context) error {
 		return cli.ShowCommandHelp(ctx, "addsweepdescriptordata")
 	}
 
-	id, err := decodeSweepDescriptorHex("registration ID", ctx.Args().First())
+	id, err := decodeSweepDescriptorHex(
+		"registration ID", ctx.Args().First(),
+	)
 	if err != nil {
 		return err
 	}
-	preimage, err := decodeSweepDescriptorHex("preimage", ctx.String("preimage"))
+	preimage, err := decodeSweepDescriptorHex(
+		"preimage", ctx.String("preimage"),
+	)
 	if err != nil {
 		return err
 	}
@@ -427,6 +449,7 @@ func addSweepDescriptorData(ctx *cli.Context) error {
 	}
 
 	printRespJSON(resp)
+
 	return nil
 }
 
@@ -466,6 +489,7 @@ func listSweepDescriptors(ctx *cli.Context) error {
 	}
 
 	printRespJSON(resp)
+
 	return nil
 }
 
@@ -2212,7 +2236,9 @@ func requiredReserve(ctx *cli.Context) error {
 	defer cleanUp()
 
 	req := &walletrpc.RequiredReserveRequest{
-		AdditionalPublicChannels: uint32(ctx.Uint64("additional_channels")),
+		AdditionalPublicChannels: uint32(
+			ctx.Uint64("additional_channels"),
+		),
 	}
 	resp, err := walletClient.RequiredReserve(ctxc, req)
 	if err != nil {

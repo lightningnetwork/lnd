@@ -55,11 +55,12 @@ func TestParseSweepDescriptorKeyBinding(t *testing.T) {
 	}
 
 	for _, test := range tests {
-		test := test
 		t.Run(test.name, func(t *testing.T) {
 			t.Parallel()
 
-			binding, err := parseSweepDescriptorKeyBinding(test.binding)
+			binding, err := parseSweepDescriptorKeyBinding(
+				test.binding,
+			)
 			if test.wantErrText != "" {
 				require.ErrorContains(t, err, test.wantErrText)
 				return
@@ -69,7 +70,9 @@ func TestParseSweepDescriptorKeyBinding(t *testing.T) {
 			require.Equal(t, test.wantKey, binding.DescriptorKey)
 			require.Equal(t, test.wantFamily,
 				binding.KeyLocator.KeyFamily)
-			require.Equal(t, test.wantIndex, binding.KeyLocator.KeyIndex)
+			require.Equal(
+				t, test.wantIndex, binding.KeyLocator.KeyIndex,
+			)
 		})
 	}
 }

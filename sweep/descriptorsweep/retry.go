@@ -21,6 +21,7 @@ func deterministic(err error) error {
 	if err == nil {
 		return nil
 	}
+
 	return &deterministicError{err: err}
 }
 
@@ -36,6 +37,7 @@ func retryable(err error) error {
 	if err == nil || isRetryable(err) {
 		return err
 	}
+
 	return &retryableError{err: err}
 }
 
@@ -52,12 +54,13 @@ func (s *Service) retryBounds() (time.Duration, time.Duration) {
 	if maximum < initial {
 		maximum = initial
 	}
+
 	return initial, maximum
 }
 
 // scheduleRetry runs at most one retry worker for a registration and operation
-// kind. Delays grow exponentially but are capped, and every wait is interruptible
-// by Stop.
+// kind. Delays grow exponentially but are capped, and every wait can be
+// interrupted by Stop.
 func (s *Service) scheduleRetry(key retryKey, task func() error,
 	onDeterministic func(error)) {
 
@@ -72,9 +75,9 @@ func (s *Service) scheduleRetry(key retryKey, task func() error,
 		s.retrying = make(map[retryKey]bool)
 	}
 	if _, ok := s.retrying[key]; ok {
-		// The active worker will run the task again even if its current call
-		// succeeds. This closes the race where a newly attached result stream
-		// fails before the worker that attached it has exited.
+		// The active worker will run the task again even if its current
+		// call succeeds. This closes the race where a newly attached
+		// result stream fails before the worker that attached it exits.
 		s.retrying[key] = true
 		s.mu.Unlock()
 		return
@@ -99,6 +102,7 @@ func (s *Service) scheduleRetry(key retryKey, task func() error,
 				s.mu.Lock()
 				delete(s.retrying, key)
 				s.mu.Unlock()
+
 				return
 			}
 
@@ -110,10 +114,12 @@ func (s *Service) scheduleRetry(key retryKey, task func() error,
 					s.retrying[key] = false
 					s.mu.Unlock()
 					backoff = initial
+
 					continue
 				}
 				delete(s.retrying, key)
 				s.mu.Unlock()
+
 				return
 			}
 			if !isRetryable(err) {
@@ -123,6 +129,7 @@ func (s *Service) scheduleRetry(key retryKey, task func() error,
 				if onDeterministic != nil {
 					onDeterministic(err)
 				}
+
 				return
 			}
 			s.mu.Lock()
@@ -146,13 +153,10 @@ func (s *Service) handleRegistrationError(id RegistrationID, err error) {
 	if err == nil {
 		return
 	}
-	if !isRetryable(err) {
-		if !isDeterministic(err) {
-			err = retryable(err)
-		} else {
-			s.failDurably(id, err)
-			return
-		}
+	if isDeterministic(err) {
+		s.failDurably(id, err)
+
+		return
 	}
 
 	s.scheduleRetry(retryKey{id: id, kind: "resume"}, func() error {
@@ -172,13 +176,18 @@ func (s *Service) failDurably(id RegistrationID, failure error) {
 		return
 	}
 
-	s.scheduleRetry(retryKey{id: id, kind: "persist-failure"}, func() error {
-		return s.persistTransition(id, func(next *storedRecord) error {
-			next.Status = StatusFailed
-			next.Error = failure.Error()
-			return nil
-		})
-	}, nil)
+	s.scheduleRetry(
+		retryKey{id: id, kind: "persist-failure"}, func() error {
+			return s.persistTransition(
+				id, func(next *storedRecord) error {
+					next.Status = StatusFailed
+					next.Error = failure.Error()
+
+					return nil
+				},
+			)
+		}, nil,
+	)
 }
 
 func (s *Service) persistTransition(id RegistrationID,
@@ -187,6 +196,7 @@ func (s *Service) persistTransition(id RegistrationID,
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	_, err := s.updateRecordLocked(id, mutate)
+
 	return err
 }
 
@@ -204,6 +214,7 @@ func (s *Service) launch(worker func()) bool {
 		s.wg.Add(1)
 		s.mu.Unlock()
 		go worker()
+
 		return true
 	}
 }

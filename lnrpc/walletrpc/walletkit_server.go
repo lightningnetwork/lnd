@@ -382,31 +382,41 @@ func (w *WalletKit) DescriptorSweeper() *descriptorsweep.Service {
 
 // RegisterSweepDescriptor registers a fixed descriptor for discovery and
 // automatic sweeping.
-func (w *WalletKit) RegisterSweepDescriptor(ctx context.Context,
-	req *RegisterSweepDescriptorRequest) (*RegisterSweepDescriptorResponse,
-	error) {
+func (w *WalletKit) RegisterSweepDescriptor(
+	ctx context.Context, req *RegisterSweepDescriptorRequest,
+) (*RegisterSweepDescriptorResponse, error) {
 
 	service, err := w.requireDescriptorSweeper()
 	if err != nil {
 		return nil, err
 	}
 	if req.BudgetSat > math.MaxInt64 {
-		return nil, errors.New("sweep budget exceeds maximum satoshi amount")
+		return nil, errors.New(
+			"sweep budget exceeds maximum satoshi amount",
+		)
 	}
 	if req.ExpectedValueSat > math.MaxInt64 {
-		return nil, errors.New("expected value exceeds maximum satoshi amount")
+		return nil, errors.New(
+			"expected value exceeds maximum satoshi amount",
+		)
 	}
 
 	bindings := make([]descriptorsweep.KeyBinding, len(req.KeyBindings))
 	for i, binding := range req.KeyBindings {
 		if binding == nil || binding.KeyLocator == nil {
-			return nil, fmt.Errorf("key binding %d has no key locator", i)
+			return nil, fmt.Errorf(
+				"key binding %d has no key locator", i,
+			)
 		}
 		if binding.KeyLocator.KeyFamily < 0 {
-			return nil, fmt.Errorf("key binding %d has negative key family", i)
+			return nil, fmt.Errorf(
+				"key binding %d has negative key family", i,
+			)
 		}
 		if binding.KeyLocator.KeyIndex < 0 {
-			return nil, fmt.Errorf("key binding %d has negative key index", i)
+			return nil, fmt.Errorf(
+				"key binding %d has negative key index", i,
+			)
 		}
 
 		bindings[i] = descriptorsweep.KeyBinding{
@@ -446,9 +456,9 @@ func (w *WalletKit) RegisterSweepDescriptor(ctx context.Context,
 
 // AddSweepDescriptorData supplies satisfaction data that became available
 // after descriptor registration.
-func (w *WalletKit) AddSweepDescriptorData(ctx context.Context,
-	req *AddSweepDescriptorDataRequest) (*AddSweepDescriptorDataResponse,
-	error) {
+func (w *WalletKit) AddSweepDescriptorData(
+	ctx context.Context, req *AddSweepDescriptorDataRequest,
+) (*AddSweepDescriptorDataResponse, error) {
 
 	service, err := w.requireDescriptorSweeper()
 	if err != nil {
@@ -477,8 +487,9 @@ func (w *WalletKit) AddSweepDescriptorData(ctx context.Context,
 
 // ListSweepDescriptors lists descriptor sweep registrations, optionally
 // selecting a single registration by ID.
-func (w *WalletKit) ListSweepDescriptors(_ context.Context,
-	req *ListSweepDescriptorsRequest) (*ListSweepDescriptorsResponse, error) {
+func (w *WalletKit) ListSweepDescriptors(
+	_ context.Context, req *ListSweepDescriptorsRequest,
+) (*ListSweepDescriptorsResponse, error) {
 
 	service, err := w.requireDescriptorSweeper()
 	if err != nil {
@@ -516,7 +527,9 @@ func (w *WalletKit) requireDescriptorSweeper() (*descriptorsweep.Service,
 	error) {
 
 	if w.descriptorSweeper == nil {
-		return nil, errors.New("descriptor sweep service is unavailable")
+		return nil, errors.New(
+			"descriptor sweep service is unavailable",
+		)
 	}
 
 	return w.descriptorSweeper, nil
@@ -638,8 +651,9 @@ func (r *ServerShell) RegisterWithRestServer(ctx context.Context,
 // methods routed towards it.
 //
 // NOTE: This is part of the lnrpc.GrpcHandler interface.
-func (r *ServerShell) CreateSubServer(configRegistry lnrpc.SubServerConfigDispatcher) (
-	lnrpc.SubServer, lnrpc.MacaroonPerms, error) {
+func (r *ServerShell) CreateSubServer(
+	configRegistry lnrpc.SubServerConfigDispatcher,
+) (lnrpc.SubServer, lnrpc.MacaroonPerms, error) {
 
 	subServer, macPermissions, err := createNewSubServer(configRegistry)
 	if err != nil {
@@ -1226,9 +1240,18 @@ func (w *WalletKit) PendingSweeps(ctx context.Context,
 	rpcPendingSweeps := make([]*PendingSweep, 0, len(inputsMap))
 	for _, inp := range inputsMap {
 		witnessType, ok := allWitnessTypes[inp.WitnessType]
-		if !ok && descriptorsweep.IsWitnessType(inp.WitnessType) {
-			witnessType = WitnessType_DESCRIPTOR_WSH
-			ok = true
+		if !ok {
+			switch {
+			case descriptorsweep.IsTaprootWitnessType(
+				inp.WitnessType,
+			):
+				witnessType = WitnessType_DESCRIPTOR_TR
+				ok = true
+
+			case descriptorsweep.IsWitnessType(inp.WitnessType):
+				witnessType = WitnessType_DESCRIPTOR_WSH
+				ok = true
+			}
 		}
 		if !ok {
 			return nil, fmt.Errorf("unhandled witness type %v for "+

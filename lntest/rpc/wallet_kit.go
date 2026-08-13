@@ -277,7 +277,8 @@ func (h *HarnessRPC) BumpFeeAssertErr(req *walletrpc.BumpFeeRequest) error {
 
 // RegisterSweepDescriptor registers a descriptor sweep and asserts success.
 func (h *HarnessRPC) RegisterSweepDescriptor(
-	req *walletrpc.RegisterSweepDescriptorRequest) *walletrpc.RegisterSweepDescriptorResponse {
+	req *walletrpc.RegisterSweepDescriptorRequest,
+) *walletrpc.RegisterSweepDescriptorResponse {
 
 	ctxt, cancel := context.WithTimeout(h.runCtx, DefaultTimeout)
 	defer cancel()
@@ -290,7 +291,8 @@ func (h *HarnessRPC) RegisterSweepDescriptor(
 
 // AddSweepDescriptorData adds late satisfaction data and asserts success.
 func (h *HarnessRPC) AddSweepDescriptorData(
-	req *walletrpc.AddSweepDescriptorDataRequest) *walletrpc.AddSweepDescriptorDataResponse {
+	req *walletrpc.AddSweepDescriptorDataRequest,
+) *walletrpc.AddSweepDescriptorDataResponse {
 
 	ctxt, cancel := context.WithTimeout(h.runCtx, DefaultTimeout)
 	defer cancel()
@@ -303,7 +305,8 @@ func (h *HarnessRPC) AddSweepDescriptorData(
 
 // ListSweepDescriptors lists descriptor sweeps and asserts success.
 func (h *HarnessRPC) ListSweepDescriptors(
-	req *walletrpc.ListSweepDescriptorsRequest) *walletrpc.ListSweepDescriptorsResponse {
+	req *walletrpc.ListSweepDescriptorsRequest,
+) *walletrpc.ListSweepDescriptorsResponse {
 
 	ctxt, cancel := context.WithTimeout(h.runCtx, DefaultTimeout)
 	defer cancel()

@@ -55,7 +55,10 @@ func ParseRegistrationID(id string) (RegistrationID, error) {
 		return result, err
 	}
 	if len(raw) != len(result) {
-		return result, fmt.Errorf("registration id must be %d bytes", len(result))
+		return result, fmt.Errorf(
+			"registration id must be %d bytes",
+			len(result),
+		)
 	}
 	copy(result[:], raw)
 
@@ -66,9 +69,13 @@ func ParseRegistrationID(id string) (RegistrationID, error) {
 func RegistrationIDFromBytes(id []byte) (RegistrationID, error) {
 	var result RegistrationID
 	if len(id) != len(result) {
-		return result, fmt.Errorf("registration id must be %d bytes", len(result))
+		return result, fmt.Errorf(
+			"registration id must be %d bytes",
+			len(result),
+		)
 	}
 	copy(result[:], id)
+
 	return result, nil
 }
 
@@ -121,9 +128,10 @@ type KeyBinding struct {
 	KeyLocator    keychain.KeyLocator
 }
 
-// RegisterRequest describes one fixed-index native P2WSH output to watch and
-// sweep. Ranged and multipath descriptors are deliberately excluded from the
-// first version of the service.
+// RegisterRequest describes one fixed-index native P2WSH or P2TR output to
+// watch and sweep. P2TR registrations use script paths only. Ranged and
+// multipath descriptors are deliberately excluded from the first version of
+// the service.
 type RegisterRequest struct {
 	Descriptor      string
 	DerivationIndex uint32
@@ -165,14 +173,16 @@ type Record struct {
 
 type storedRecord struct {
 	Record
-	WatchHeight        uint32
-	BlockScan          bool
-	Preimages          map[string][]byte
-	PlanLocktime       *uint32
-	PlanSequence       *uint32
-	PlanDeadlineHeight *int32
-	HasStartingFeeRate bool
-	StartingFeeRate    chainfee.SatPerKWeight
+	WatchHeight         uint32
+	BlockScan           bool
+	Preimages           map[string][]byte
+	PlanLocktime        *uint32
+	PlanSequence        *uint32
+	PlanDeadlineHeight  *int32
+	PlanTapLeafHash     *chainhash.Hash
+	PlanTapControlBlock []byte
+	HasStartingFeeRate  bool
+	StartingFeeRate     chainfee.SatPerKWeight
 }
 
 func (r *storedRecord) snapshot() *Record {
@@ -188,6 +198,7 @@ func (r *storedRecord) snapshot() *Record {
 		txid := *r.SweepTxID
 		result.SweepTxID = &txid
 	}
+
 	return &result
 }
 
@@ -215,7 +226,7 @@ type Config struct {
 	ChainParams *chaincfg.Params
 
 	// Ready is closed after both the chain notifier and UTXO sweeper have
-	// started. WalletKit itself starts before either dependency, so notifier
+	// started. WalletKit itself starts before either dependency. Notifier
 	// registrations must be deferred until this explicit lifecycle signal.
 	Ready <-chan struct{}
 }
@@ -266,11 +277,17 @@ func New(cfg Config) (*Service, error) {
 	case cfg.Sweeper == nil:
 		return nil, errors.New("descriptor sweep sweeper is required")
 	case cfg.BlockSource == nil:
-		return nil, errors.New("descriptor sweep block source is required")
+		return nil, errors.New(
+			"descriptor sweep block source is required",
+		)
 	case cfg.ChainParams == nil:
-		return nil, errors.New("descriptor sweep chain params are required")
+		return nil, errors.New(
+			"descriptor sweep chain params are required",
+		)
 	case cfg.Ready == nil:
-		return nil, errors.New("descriptor sweep ready signal is required")
+		return nil, errors.New(
+			"descriptor sweep ready signal is required",
+		)
 	}
 
 	storage := newStore(cfg.DB)
@@ -295,6 +312,7 @@ func (s *Service) storage() recordStore {
 	if s.store != nil {
 		return s.store
 	}
+
 	return newStore(s.cfg.DB)
 }
 
@@ -313,9 +331,12 @@ func (s *Service) updateRecordLocked(id RegistrationID,
 		return nil, err
 	}
 	if err := s.storage().put(next); err != nil {
-		return nil, retryable(fmt.Errorf("persist descriptor sweep: %w", err))
+		return nil, retryable(
+			fmt.Errorf("persist descriptor sweep: %w", err),
+		)
 	}
 	s.records[id] = next
+
 	return next, nil
 }
 
@@ -324,7 +345,8 @@ func registrationID(descriptor string, bindings []KeyBinding,
 
 	copyBindings := append([]KeyBinding(nil), bindings...)
 	sort.Slice(copyBindings, func(i, j int) bool {
-		return copyBindings[i].DescriptorKey < copyBindings[j].DescriptorKey
+		return copyBindings[i].DescriptorKey <
+			copyBindings[j].DescriptorKey
 	})
 
 	h := sha256.New()
@@ -339,6 +361,7 @@ func registrationID(descriptor string, bindings []KeyBinding,
 
 	var id RegistrationID
 	copy(id[:], h.Sum(nil))
+
 	return id
 }
 
@@ -357,9 +380,12 @@ func descriptorScripts(desc *descriptors.Descriptor, params *chaincfg.Params,
 	if err != nil {
 		return "", nil, nil, err
 	}
-	witnessScript, err := desc.ScriptCodeAt(0, index)
-	if err != nil {
-		return "", nil, nil, err
+	var witnessScript []byte
+	if desc.DescType() == descriptors.DescTypeWsh {
+		witnessScript, err = desc.ScriptCodeAt(0, index)
+		if err != nil {
+			return "", nil, nil, err
+		}
 	}
 
 	return addressString, pkScript, witnessScript, nil
@@ -414,6 +440,7 @@ func (s *Service) Stop() error {
 	s.mu.Unlock()
 
 	s.wg.Wait()
+
 	return nil
 }
 
@@ -428,13 +455,17 @@ func (s *Service) Register(_ context.Context,
 		return nil, errors.New("expected output value must be positive")
 	}
 	if req.ExpectedValue > btcutil.MaxSatoshi {
-		return nil, errors.New("expected output value exceeds maximum money")
+		return nil, errors.New(
+			"expected output value exceeds maximum money",
+		)
 	}
 	if req.Budget <= 0 {
 		return nil, errors.New("sweep budget must be positive")
 	}
 	if req.Budget > req.ExpectedValue {
-		return nil, errors.New("sweep budget must not exceed expected output value")
+		return nil, errors.New(
+			"sweep budget must not exceed expected output value",
+		)
 	}
 	if req.MinConfs == 0 {
 		req.MinConfs = 1
@@ -444,7 +475,9 @@ func (s *Service) Register(_ context.Context,
 			chainntnfs.MaxNumConfs)
 	}
 	if req.DeadlineDelta > uint32(math.MaxInt32) {
-		return nil, errors.New("deadline delta exceeds maximum block height")
+		return nil, errors.New(
+			"deadline delta exceeds maximum block height",
+		)
 	}
 	if len(req.Label) > 500 {
 		return nil, errors.New("label must not exceed 500 bytes")
@@ -454,11 +487,17 @@ func (s *Service) Register(_ context.Context,
 	if err != nil {
 		return nil, fmt.Errorf("parse descriptor: %w", err)
 	}
-	if desc.DescType() != descriptors.DescTypeWsh {
-		return nil, fmt.Errorf("only native wsh descriptors are supported")
+	switch desc.DescType() {
+	case descriptors.DescTypeWsh, descriptors.DescTypeTr:
+	default:
+		return nil, fmt.Errorf(
+			"only native wsh and tr descriptors are supported",
+		)
 	}
 	if desc.MultipathLen() != 1 {
-		return nil, errors.New("multipath descriptors are not supported")
+		return nil, errors.New(
+			"multipath descriptors are not supported",
+		)
 	}
 	if req.DerivationIndex != 0 {
 		return nil, errors.New("ranged descriptors are not supported")
@@ -468,6 +507,9 @@ func (s *Service) Register(_ context.Context,
 		return nil, err
 	}
 	if err := s.verifyBindings(desc, req.KeyBindings); err != nil {
+		return nil, err
+	}
+	if err := validateSupportedPaths(desc, req.KeyBindings); err != nil {
 		return nil, err
 	}
 
@@ -489,18 +531,20 @@ func (s *Service) Register(_ context.Context,
 			Descriptor:          req.Descriptor,
 			CanonicalDescriptor: canonical,
 			DerivationIndex:     req.DerivationIndex,
-			KeyBindings:         append([]KeyBinding(nil), req.KeyBindings...),
-			Address:             addr,
-			PkScript:            pkScript,
-			WitnessScript:       witnessScript,
-			ExpectedValue:       req.ExpectedValue,
-			HeightHint:          req.HeightHint,
-			MinConfs:            req.MinConfs,
-			Budget:              req.Budget,
-			DeadlineDelta:       req.DeadlineDelta,
-			Immediate:           req.Immediate,
-			Label:               req.Label,
-			Status:              StatusRegistered,
+			KeyBindings: append(
+				[]KeyBinding(nil),
+				req.KeyBindings...),
+			Address:       addr,
+			PkScript:      pkScript,
+			WitnessScript: witnessScript,
+			ExpectedValue: req.ExpectedValue,
+			HeightHint:    req.HeightHint,
+			MinConfs:      req.MinConfs,
+			Budget:        req.Budget,
+			DeadlineDelta: req.DeadlineDelta,
+			Immediate:     req.Immediate,
+			Label:         req.Label,
+			Status:        StatusRegistered,
 		},
 		WatchHeight: req.HeightHint,
 		Preimages:   make(map[string][]byte),
@@ -554,8 +598,11 @@ func (s *Service) AddPreimage(_ context.Context, id RegistrationID,
 	}
 	if record.Status == StatusSweeping || record.Status == StatusSwept ||
 		record.Status == StatusFailed {
+
 		s.mu.Unlock()
-		return nil, errors.New("descriptor sweep branch is already frozen")
+		return nil, errors.New(
+			"descriptor sweep branch is already frozen",
+		)
 	}
 	hash := sha256.Sum256(preimage)
 	desc, err := descriptors.NewDescriptor(record.CanonicalDescriptor)
@@ -570,14 +617,18 @@ func (s *Service) AddPreimage(_ context.Context, id RegistrationID,
 	}
 	if !policyCommitsSHA256(policy, hash[:]) {
 		s.mu.Unlock()
-		return nil, errors.New("preimage does not match a descriptor sha256 commitment")
+		return nil, errors.New(
+			"preimage does not match a descriptor sha256 " +
+				"commitment",
+		)
 	}
-	record, err = s.updateRecordLocked(id, func(next *storedRecord) error {
+	_, err = s.updateRecordLocked(id, func(next *storedRecord) error {
 		if next.Preimages == nil {
 			next.Preimages = make(map[string][]byte)
 		}
 		next.Preimages[preimageKey("sha256", hash[:])] =
 			append([]byte(nil), preimage...)
+
 		return nil
 	})
 	if err != nil {
@@ -602,6 +653,7 @@ func (s *Service) AddPreimage(_ context.Context, id RegistrationID,
 			return nil, err
 		}
 	}
+
 	return s.Get(id)
 }
 
@@ -624,6 +676,7 @@ func policyCommitsSHA256(policy *descriptors.SemanticPolicy,
 			return true
 		}
 	}
+
 	return false
 }
 
@@ -636,6 +689,7 @@ func (s *Service) Get(id RegistrationID) (*Record, error) {
 	if !ok {
 		return nil, ErrNotFound
 	}
+
 	return record.snapshot(), nil
 }
 
@@ -651,5 +705,6 @@ func (s *Service) List() []*Record {
 	sort.Slice(result, func(i, j int) bool {
 		return result[i].ID.String() < result[j].ID.String()
 	})
+
 	return result
 }

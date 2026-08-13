@@ -8,8 +8,11 @@ import (
 	"testing"
 	"time"
 
+	"github.com/btcsuite/btcd/btcec/v2"
+	"github.com/btcsuite/btcd/btcec/v2/schnorr"
 	"github.com/btcsuite/btcd/btcutil/v2"
 	"github.com/btcsuite/btcd/chainhash/v2"
+	"github.com/btcsuite/btcd/txscript/v2"
 	"github.com/btcsuite/btcd/wire/v2"
 	"github.com/lightningnetwork/lnd/lnrpc"
 	"github.com/lightningnetwork/lnd/lnrpc/signrpc"
@@ -25,7 +28,8 @@ const (
 	descriptorSweepValue            = btcutil.Amount(1_000_000)
 )
 
-// testDescriptorSweep exercises both branches of a toy P2WSH HTLC descriptor:
+// testDescriptorSweep exercises both branches of toy native P2WSH and P2TR
+// HTLC descriptors:
 //
 //	(key_success && sha256(preimage)) ||
 //	(key_timeout && after(cltv_height))
@@ -37,42 +41,64 @@ const (
 func testDescriptorSweep(ht *lntest.HarnessTest) {
 	tests := []struct {
 		name            string
+		taproot         bool
 		providePreimage bool
 		keyFamilyOffset int32
 	}{
 		{
-			name:            "preimage branch",
+			name:            "p2wsh preimage branch",
+			taproot:         false,
 			providePreimage: true,
 			keyFamilyOffset: 0,
 		},
 		{
-			name:            "cltv branch",
+			name:            "p2wsh cltv branch",
+			taproot:         false,
 			providePreimage: false,
 			keyFamilyOffset: 10,
+		},
+		{
+			name:            "p2tr preimage branch",
+			taproot:         true,
+			providePreimage: true,
+			keyFamilyOffset: 20,
+		},
+		{
+			name:            "p2tr cltv branch",
+			taproot:         true,
+			providePreimage: false,
+			keyFamilyOffset: 30,
 		},
 	}
 
 	for _, test := range tests {
-		test := test
 		if !ht.Run(test.name, func(t *testing.T) {
 			st := ht.Subtest(t)
 			testDescriptorSweepBranch(
-				st, test.providePreimage, test.keyFamilyOffset,
+				st, test.taproot, test.providePreimage,
+				test.keyFamilyOffset,
 			)
 		}) {
+
 			break
 		}
 	}
 }
 
-func testDescriptorSweepBranch(ht *lntest.HarnessTest, providePreimage bool,
-	keyFamilyOffset int32) {
+func testDescriptorSweepBranch(ht *lntest.HarnessTest, taproot,
+	providePreimage bool, keyFamilyOffset int32) {
 
 	branchName := "preimage"
 	if !providePreimage {
 		branchName = "cltv"
 	}
-	alice := ht.NewNodeWithCoins("descriptor-sweeper-"+branchName, nil)
+	descriptorType := "p2wsh"
+	if taproot {
+		descriptorType = "p2tr"
+	}
+	alice := ht.NewNodeWithCoins(
+		"descriptor-sweeper-"+descriptorType+"-"+branchName, nil,
+	)
 
 	successKey := alice.RPC.DeriveNextKey(&walletrpc.KeyReq{
 		KeyFamily: descriptorSweepSuccessKeyFamily + keyFamilyOffset,
@@ -84,11 +110,9 @@ func testDescriptorSweepBranch(ht *lntest.HarnessTest, providePreimage bool,
 	preimage := bytes.Repeat([]byte{byte(keyFamilyOffset + 1)}, 32)
 	paymentHash := sha256.Sum256(preimage)
 	cltvHeight := ht.CurrentHeight() + 6
-	descriptor := fmt.Sprintf(
-		"wsh(or_i(and_v(v:pk(%s),sha256(%x)),"+
-			"and_v(v:pk(%s),after(%d))))",
-		hex.EncodeToString(successKey.RawKeyBytes), paymentHash,
-		hex.EncodeToString(timeoutKey.RawKeyBytes), cltvHeight,
+	descriptor, keyBindings := descriptorSweepHTLC(
+		ht, taproot, successKey, timeoutKey, paymentHash, cltvHeight,
+		keyFamilyOffset,
 	)
 
 	registerResp := alice.RPC.RegisterSweepDescriptor(
@@ -97,19 +121,25 @@ func testDescriptorSweepBranch(ht *lntest.HarnessTest, providePreimage bool,
 			HeightHint:       ht.CurrentHeight(),
 			MinConfs:         1,
 			ExpectedValueSat: uint64(descriptorSweepValue),
-			KeyBindings: []*walletrpc.SweepDescriptorKeyBinding{
-				descriptorSweepKeyBinding(successKey),
-				descriptorSweepKeyBinding(timeoutKey),
-			},
-			BudgetSat:     100_000,
-			DeadlineDelta: 10,
-			Immediate:     true,
-			Label:         "itest toy htlc",
+			KeyBindings:      keyBindings,
+			BudgetSat:        100_000,
+			DeadlineDelta:    10,
+			Immediate:        true,
+			Label:            "itest toy htlc",
 		},
 	)
 	require.Len(ht, registerResp.RegistrationId, 32)
 	require.NotEmpty(ht, registerResp.Address)
 	require.NotEmpty(ht, registerResp.PkScript)
+	if taproot {
+		require.True(ht, txscript.IsPayToTaproot(registerResp.PkScript))
+	} else {
+		require.True(
+			ht, txscript.IsPayToWitnessScriptHash(
+				registerResp.PkScript,
+			),
+		)
+	}
 
 	// Fund the descriptor only after the chain watch has been installed.
 	fundResp := alice.RPC.SendCoins(&lnrpc.SendCoinsRequest{
@@ -134,7 +164,8 @@ func testDescriptorSweepBranch(ht *lntest.HarnessTest, providePreimage bool,
 		alice.RPC.AddSweepDescriptorData(
 			&walletrpc.AddSweepDescriptorDataRequest{
 				RegistrationId: registerResp.RegistrationId,
-				Data: &walletrpc.AddSweepDescriptorDataRequest_Preimage{
+				Data: &walletrpc.
+					AddSweepDescriptorDataRequest_Preimage{
 					Preimage: preimage,
 				},
 			},
@@ -153,19 +184,29 @@ func testDescriptorSweepBranch(ht *lntest.HarnessTest, providePreimage bool,
 		pendingSweep.Outpoint.TxidStr)
 	require.Equal(ht, fundingOutpoint.Index,
 		pendingSweep.Outpoint.OutputIndex)
-	require.Equal(ht, walletrpc.WitnessType_DESCRIPTOR_WSH,
-		pendingSweep.WitnessType)
+	witnessType := walletrpc.WitnessType_DESCRIPTOR_WSH
+	if taproot {
+		witnessType = walletrpc.WitnessType_DESCRIPTOR_TR
+	}
+	require.Equal(ht, witnessType, pendingSweep.WitnessType)
+	assertDescriptorSweepWitness(
+		ht, descriptorInput.Witness, registerResp.PkScript, taproot,
+	)
 	if providePreimage {
 		// lnd uses the current height as the default transaction
 		// locktime. What matters here is that the success branch does
 		// not inherit the future CLTV from the timeout branch.
 		require.Less(ht, sweepTx.LockTime, cltvHeight)
-		require.True(ht, witnessContains(descriptorInput.Witness, preimage),
-			"success witness does not contain the supplied preimage")
+		require.True(
+			ht, witnessContains(descriptorInput.Witness, preimage),
+			"success witness is missing the supplied preimage",
+		)
 	} else {
 		require.Equal(ht, cltvHeight, sweepTx.LockTime)
-		require.False(ht, witnessContains(descriptorInput.Witness, preimage),
-			"timeout witness unexpectedly contains the preimage")
+		require.False(
+			ht, witnessContains(descriptorInput.Witness, preimage),
+			"timeout witness unexpectedly contains the preimage",
+		)
 	}
 
 	ht.MineBlockWithTx(sweepTx)
@@ -175,13 +216,104 @@ func testDescriptorSweepBranch(ht *lntest.HarnessTest, providePreimage bool,
 	)
 }
 
-func descriptorSweepKeyBinding(
-	key *signrpc.KeyDescriptor) *walletrpc.SweepDescriptorKeyBinding {
+func descriptorSweepHTLC(ht *lntest.HarnessTest, taproot bool,
+	successKey, timeoutKey *signrpc.KeyDescriptor,
+	paymentHash [sha256.Size]byte, cltvHeight uint32,
+	keyFamilyOffset int32) (string,
+	[]*walletrpc.SweepDescriptorKeyBinding) {
+
+	if !taproot {
+		success := hex.EncodeToString(successKey.RawKeyBytes)
+		timeout := hex.EncodeToString(timeoutKey.RawKeyBytes)
+		return fmt.Sprintf(
+				"wsh(or_i(and_v(v:pk(%s),sha256(%x)),"+
+					"and_v(v:pk(%s),after(%d))))",
+				success, paymentHash, timeout, cltvHeight,
+			), []*walletrpc.SweepDescriptorKeyBinding{
+				descriptorSweepKeyBinding(
+					ht, successKey, false,
+				),
+				descriptorSweepKeyBinding(
+					ht, timeoutKey, false,
+				),
+			}
+	}
+
+	_, internalKey := btcec.PrivKeyFromBytes(
+		bytes.Repeat([]byte{byte(keyFamilyOffset + 2)}, 32),
+	)
+	internal := hex.EncodeToString(schnorr.SerializePubKey(internalKey))
+	success := descriptorSweepKeyString(ht, successKey, true)
+	timeout := descriptorSweepKeyString(ht, timeoutKey, true)
+
+	// Put the two alternatives in distinct leaves. A successful spend must
+	// therefore reveal both the selected leaf and its Merkle control path.
+	// The deterministic internal key remains external and unbound, so lnd
+	// can use only the script paths.
+	descriptor := fmt.Sprintf(
+		"tr(%s,{and_v(v:pk(%s),sha256(%x)),"+
+			"and_v(v:pk(%s),after(%d))})",
+		internal, success, paymentHash, timeout, cltvHeight,
+	)
+
+	return descriptor, []*walletrpc.SweepDescriptorKeyBinding{
+		descriptorSweepKeyBinding(ht, successKey, true),
+		descriptorSweepKeyBinding(ht, timeoutKey, true),
+	}
+}
+
+func descriptorSweepKeyBinding(ht *lntest.HarnessTest,
+	key *signrpc.KeyDescriptor,
+	taproot bool) *walletrpc.SweepDescriptorKeyBinding {
 
 	return &walletrpc.SweepDescriptorKeyBinding{
-		DescriptorKey: hex.EncodeToString(key.RawKeyBytes),
+		DescriptorKey: descriptorSweepKeyString(ht, key, taproot),
 		KeyLocator:    key.KeyLoc,
 	}
+}
+
+func descriptorSweepKeyString(ht *lntest.HarnessTest,
+	key *signrpc.KeyDescriptor, taproot bool) string {
+
+	if !taproot {
+		return hex.EncodeToString(key.RawKeyBytes)
+	}
+
+	pubKey, err := btcec.ParsePubKey(key.RawKeyBytes)
+	require.NoError(ht, err)
+
+	return hex.EncodeToString(schnorr.SerializePubKey(pubKey))
+}
+
+func assertDescriptorSweepWitness(ht *lntest.HarnessTest,
+	witness wire.TxWitness, pkScript []byte, taproot bool) {
+
+	require.NotEmpty(ht, witness)
+	version, program, err := txscript.ExtractWitnessProgramInfo(pkScript)
+	require.NoError(ht, err)
+
+	if !taproot {
+		require.Equal(ht, 0, version)
+		witnessScript := witness[len(witness)-1]
+		scriptHash := sha256.Sum256(witnessScript)
+		require.Equal(ht, program, scriptHash[:])
+
+		return
+	}
+
+	require.Equal(ht, 1, version)
+	require.GreaterOrEqual(ht, len(witness), 3)
+	revealedScript := witness[len(witness)-2]
+	controlBlockBytes := witness[len(witness)-1]
+	require.NotEmpty(ht, revealedScript)
+	require.Len(ht, controlBlockBytes,
+		txscript.ControlBlockBaseSize+txscript.ControlBlockNodeSize)
+
+	controlBlock, err := txscript.ParseControlBlock(controlBlockBytes)
+	require.NoError(ht, err)
+	require.NoError(ht, txscript.VerifyTaprootLeafCommitment(
+		controlBlock, program, revealedScript,
+	))
 }
 
 func findDescriptorOutput(ht *lntest.HarnessTest, tx *wire.MsgTx,
@@ -197,6 +329,7 @@ func findDescriptorOutput(ht *lntest.HarnessTest, tx *wire.MsgTx,
 	}
 
 	require.Fail(ht, "descriptor output not found in funding transaction")
+
 	return wire.OutPoint{}
 }
 
@@ -209,8 +342,11 @@ func findDescriptorInput(ht *lntest.HarnessTest, tx *wire.MsgTx,
 		}
 	}
 
-	require.Failf(ht, "descriptor output not swept", "transaction %v does not "+
-		"spend %v", tx.TxHash(), want)
+	require.Failf(
+		ht, "descriptor output not swept",
+		"transaction %v does not spend %v", tx.TxHash(), want,
+	)
+
 	return nil
 }
 
@@ -234,6 +370,7 @@ func waitSweepDescriptorState(ht *lntest.HarnessTest,
 				RegistrationId: registrationID,
 			},
 		)
+
 		return len(resp.Descriptors) == 1 &&
 			resp.Descriptors[0].State == want
 	}, lntest.DefaultTimeout, 100*time.Millisecond,

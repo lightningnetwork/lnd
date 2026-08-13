@@ -3,6 +3,7 @@ package descriptorsweep
 import (
 	"bytes"
 	"encoding/gob"
+	"errors"
 	"fmt"
 
 	"github.com/lightningnetwork/lnd/kvdb"
@@ -29,9 +30,10 @@ func newStore(db kvdb.Backend) *store {
 func (s *store) init() error {
 	return kvdb.Update(s.db, func(tx kvdb.RwTx) error {
 		_, err := tx.CreateTopLevelBucket(descriptorSweepBucket)
-		if err == kvdb.ErrBucketExists {
+		if errors.Is(err, kvdb.ErrBucketExists) {
 			return nil
 		}
+
 		return err
 	}, func() {})
 }
@@ -48,6 +50,7 @@ func (s *store) put(record *storedRecord) error {
 		if bucket == nil {
 			return kvdb.ErrBucketNotFound
 		}
+
 		return bucket.Put(record.ID[:], encoded)
 	}, func() {})
 }
@@ -61,19 +64,27 @@ func (s *store) list() ([]*storedRecord, error) {
 		}
 
 		return bucket.ForEach(func(_, value []byte) error {
-			if len(value) == 0 || value[0] != descriptorSweepStoreVersion {
-				return fmt.Errorf("unknown descriptor sweep store version")
+			if len(value) == 0 ||
+				value[0] != descriptorSweepStoreVersion {
+
+				return errors.New(
+					"unknown descriptor sweep " +
+						"store version",
+				)
 			}
+
 			var record storedRecord
-			if err := gob.NewDecoder(bytes.NewReader(value[1:])).Decode(
-				&record,
-			); err != nil {
-				return fmt.Errorf("decode descriptor sweep: %w", err)
+			decoder := gob.NewDecoder(bytes.NewReader(value[1:]))
+			if err := decoder.Decode(&record); err != nil {
+				return fmt.Errorf(
+					"decode descriptor sweep: %w", err,
+				)
 			}
 			if record.Preimages == nil {
 				record.Preimages = make(map[string][]byte)
 			}
 			records = append(records, &record)
+
 			return nil
 		})
 	}, func() {

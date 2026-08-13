@@ -250,6 +250,9 @@ const (
 	// A witness constructed from a registered native P2WSH output descriptor and
 	// its selected Miniscript satisfaction plan.
 	WitnessType_DESCRIPTOR_WSH WitnessType = 43
+	// A script-path witness constructed from a registered P2TR output descriptor
+	// and its selected Miniscript satisfaction plan.
+	WitnessType_DESCRIPTOR_TR WitnessType = 44
 )
 
 // Enum value maps for WitnessType.
@@ -299,6 +302,7 @@ var (
 		41: "TAPROOT_HTLC_ACCEPTED_REMOTE_SUCCESS_FINAL",
 		42: "TAPROOT_COMMITMENT_REVOKE_FINAL",
 		43: "DESCRIPTOR_WSH",
+		44: "DESCRIPTOR_TR",
 	}
 	WitnessType_value = map[string]int32{
 		"UNKNOWN_WITNESS":                                    0,
@@ -345,6 +349,7 @@ var (
 		"TAPROOT_HTLC_ACCEPTED_REMOTE_SUCCESS_FINAL":         41,
 		"TAPROOT_COMMITMENT_REVOKE_FINAL":                    42,
 		"DESCRIPTOR_WSH":                                     43,
+		"DESCRIPTOR_TR":                                      44,
 	}
 )
 
@@ -4798,8 +4803,10 @@ func (x *SweepDescriptorKeyBinding) GetKeyLocator() *signrpc.KeyLocator {
 type RegisterSweepDescriptorRequest struct {
 	state protoimpl.MessageState `protogen:"open.v1"`
 	// The output descriptor to watch and sweep. Private descriptors (WIF or xprv)
-	// are rejected. The initial implementation accepts fixed-index wsh()
-	// descriptors only.
+	// are rejected. The implementation accepts fixed-index native wsh()
+	// descriptors and tr() descriptors with Miniscript script paths. A tr()
+	// descriptor is always swept through a script path, so its internal key does
+	// not need an lnd key binding.
 	OutputDescriptor string `protobuf:"bytes,1,opt,name=output_descriptor,json=outputDescriptor,proto3" json:"output_descriptor,omitempty"`
 	// The derivation index to use for wildcard descriptors. This must be zero in
 	// the initial fixed-index implementation.
@@ -5791,7 +5798,7 @@ const file_walletrpc_walletkit_proto_rawDesc = "" +
 	"\x13WITNESS_PUBKEY_HASH\x10\x01\x12\x1e\n" +
 	"\x1aNESTED_WITNESS_PUBKEY_HASH\x10\x02\x12%\n" +
 	"!HYBRID_NESTED_WITNESS_PUBKEY_HASH\x10\x03\x12\x12\n" +
-	"\x0eTAPROOT_PUBKEY\x10\x04*\xcb\f\n" +
+	"\x0eTAPROOT_PUBKEY\x10\x04*\xde\f\n" +
 	"\vWitnessType\x12\x13\n" +
 	"\x0fUNKNOWN_WITNESS\x10\x00\x12\x18\n" +
 	"\x14COMMITMENT_TIME_LOCK\x10\x01\x12\x17\n" +
@@ -5837,7 +5844,8 @@ const file_walletrpc_walletkit_proto_rawDesc = "" +
 	")TAPROOT_HTLC_OFFERED_REMOTE_TIMEOUT_FINAL\x10(\x12.\n" +
 	"*TAPROOT_HTLC_ACCEPTED_REMOTE_SUCCESS_FINAL\x10)\x12#\n" +
 	"\x1fTAPROOT_COMMITMENT_REVOKE_FINAL\x10*\x12\x12\n" +
-	"\x0eDESCRIPTOR_WSH\x10+*V\n" +
+	"\x0eDESCRIPTOR_WSH\x10+\x12\x11\n" +
+	"\rDESCRIPTOR_TR\x10,*V\n" +
 	"\x11ChangeAddressType\x12#\n" +
 	"\x1fCHANGE_ADDRESS_TYPE_UNSPECIFIED\x10\x00\x12\x1c\n" +
 	"\x18CHANGE_ADDRESS_TYPE_P2TR\x10\x01*\xb6\x02\n" +

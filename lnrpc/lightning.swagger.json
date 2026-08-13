@@ -3571,7 +3571,7 @@
         },
         "commitment_type": {
           "$ref": "#/definitions/lnrpcCommitmentType",
-          "description": "The explicit commitment type to use. Note this field will only be used if\nthe remote peer supports explicit channel negotiation."
+          "description": "The commitment type to request. If UNKNOWN, lnd selects a default from\nboth peers' supported features; the selected type is always sent\nexplicitly."
         },
         "remote_max_value_in_flight_msat": {
           "type": "string",
@@ -6608,7 +6608,7 @@
         },
         "commitment_type": {
           "$ref": "#/definitions/lnrpcCommitmentType",
-          "description": "The explicit commitment type to use. Note this field will only be used if\nthe remote peer supports explicit channel negotiation."
+          "description": "The commitment type to request. If UNKNOWN, lnd selects a default from\nboth peers' supported features; the selected type is always sent\nexplicitly."
         },
         "zero_conf": {
           "type": "boolean",

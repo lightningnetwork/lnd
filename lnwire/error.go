@@ -26,6 +26,11 @@ const (
 	// FundingOpen request for a channel that is above their current
 	// soft-limit.
 	ErrChanTooLarge FundingError = 2
+
+	// ErrChanTypeRequired is returned by a remote peer that receives a
+	// FundingOpen request which doesn't specify an explicit channel type,
+	// as mandated by BOLT-02.
+	ErrChanTypeRequired FundingError = 3
 )
 
 // String returns a human readable version of the target FundingError.
@@ -35,6 +40,8 @@ func (e FundingError) String() string {
 		return "Number of pending channels exceed maximum"
 	case ErrChanTooLarge:
 		return "channel too large"
+	case ErrChanTypeRequired:
+		return "channel type required"
 	default:
 		return "unknown error"
 	}

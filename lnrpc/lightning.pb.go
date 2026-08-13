@@ -7331,8 +7331,9 @@ type BatchOpenChannel struct {
 	// pending channel ID to identify the channel while it is in the pre-pending
 	// state.
 	PendingChanId []byte `protobuf:"bytes,8,opt,name=pending_chan_id,json=pendingChanId,proto3" json:"pending_chan_id,omitempty"`
-	// The explicit commitment type to use. Note this field will only be used if
-	// the remote peer supports explicit channel negotiation.
+	// The commitment type to request. If UNKNOWN, lnd selects a default from
+	// both peers' supported features; the selected type is always sent
+	// explicitly.
 	CommitmentType CommitmentType `protobuf:"varint,9,opt,name=commitment_type,json=commitmentType,proto3,enum=lnrpc.CommitmentType" json:"commitment_type,omitempty"`
 	// The maximum amount of coins in millisatoshi that can be pending within
 	// the channel. It only applies to the remote party.
@@ -7655,8 +7656,9 @@ type OpenChannelRequest struct {
 	// Max local csv is the maximum csv delay we will allow for our own commitment
 	// transaction.
 	MaxLocalCsv uint32 `protobuf:"varint,17,opt,name=max_local_csv,json=maxLocalCsv,proto3" json:"max_local_csv,omitempty"`
-	// The explicit commitment type to use. Note this field will only be used if
-	// the remote peer supports explicit channel negotiation.
+	// The commitment type to request. If UNKNOWN, lnd selects a default from
+	// both peers' supported features; the selected type is always sent
+	// explicitly.
 	CommitmentType CommitmentType `protobuf:"varint,18,opt,name=commitment_type,json=commitmentType,proto3,enum=lnrpc.CommitmentType" json:"commitment_type,omitempty"`
 	// If this is true, then a zero-conf channel open will be attempted.
 	ZeroConf bool `protobuf:"varint,19,opt,name=zero_conf,json=zeroConf,proto3" json:"zero_conf,omitempty"`

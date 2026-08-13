@@ -520,6 +520,19 @@ func (s *InterceptableSwitch) interceptForward(packet *htlcPacket,
 			return false, nil
 		}
 
+		// Let the switch reconcile replayed packets with circuits that
+		// have already been committed. The circuit map remains the source
+		// of truth for whether a replay should be dropped or failed back
+		// during recovery.
+		if isReplay {
+			circuit := s.htlcSwitch.circuits.LookupCircuit(
+				packet.inKey(),
+			)
+			if circuit != nil {
+				return false, nil
+			}
+		}
+
 		intercepted := &interceptedForward{
 			htlc:       htlc,
 			packet:     packet,

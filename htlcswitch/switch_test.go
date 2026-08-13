@@ -4307,6 +4307,104 @@ func TestSwitchHoldForward(t *testing.T) {
 	}
 }
 
+// TestInterceptableSwitchReplayAfterResume verifies that an incoming link
+// replay is reconciled by the switch after the interceptor has resumed the
+// original forward and the outgoing circuit has been opened.
+func TestInterceptableSwitchReplayAfterResume(t *testing.T) {
+	t.Parallel()
+
+	c := newInterceptableSwitchTestContext(t)
+	defer c.finish()
+
+	notifier := &mock.ChainNotifier{
+		EpochChan: make(chan *chainntnfs.BlockEpoch, 1),
+	}
+	notifier.EpochChan <- &chainntnfs.BlockEpoch{
+		Height: testStartingHeight,
+	}
+
+	interceptSwitch, err := NewInterceptableSwitch(
+		&InterceptableSwitchConfig{
+			Switch:             c.s,
+			CltvRejectDelta:    c.cltvRejectDelta,
+			CltvInterceptDelta: c.cltvInterceptDelta,
+			Notifier:           notifier,
+		},
+	)
+	require.NoError(t, err)
+	require.NoError(t, interceptSwitch.Start())
+	defer func() {
+		require.NoError(t, interceptSwitch.Stop())
+	}()
+
+	c.forwardInterceptor.interceptedChan = make(chan InterceptedPacket, 1)
+	interceptSwitch.SetInterceptor(
+		c.forwardInterceptor.InterceptForwardHtlc,
+	)
+
+	linkQuit := make(chan struct{})
+	packet := c.createTestPacket()
+
+	// Retain the packet as it was received from the incoming link so that it
+	// can be replayed after the outgoing link assigns its circuit key.
+	replay := *packet
+	htlc := *packet.htlc.(*lnwire.UpdateAddHTLC)
+	replay.htlc = &htlc
+
+	require.NoError(t, interceptSwitch.ForwardPackets(
+		linkQuit, false, packet,
+	))
+
+	intercepted := c.forwardInterceptor.getIntercepted()
+	require.NoError(t, interceptSwitch.Resolve(&FwdResolution{
+		Key:    intercepted.IncomingCircuit,
+		Action: FwdActionResume,
+	}))
+
+	outgoing := assertOutgoingLinkReceive(t, c.bobChannelLink, true)
+	assertNumCircuits(t, c.s, 1, 1)
+
+	// Replay the incoming add as processRemoteAdds does when the incoming
+	// link restarts before the return packet has been committed. The replay
+	// must not be offered to the interceptor again.
+	require.NoError(t, interceptSwitch.ForwardPackets(
+		linkQuit, true, &replay,
+	))
+
+	// Wait for the replay to finish processing by sending a request through
+	// the same event loop.
+	err = interceptSwitch.Resolve(&FwdResolution{
+		Key: models.CircuitKey{
+			ChanID: c.aliceChannelLink.ShortChanID(),
+			HtlcID: c.incomingHtlcID + 1,
+		},
+		Action: FwdActionResume,
+	})
+	require.ErrorIs(t, err, ErrFwdNotExists)
+
+	select {
+	case <-c.forwardInterceptor.interceptedChan:
+		require.Fail(t, "replay was offered to the interceptor")
+
+	default:
+	}
+
+	assertOutgoingLinkReceive(t, c.bobChannelLink, false)
+	assertNumCircuits(t, c.s, 1, 1)
+
+	// The outgoing settle must still traverse the original circuit and
+	// resolve the incoming HTLC.
+	require.NoError(t, interceptSwitch.ForwardPackets(
+		linkQuit, false,
+		c.createSettlePacket(outgoing.outgoingHTLCID),
+	))
+
+	settle := assertOutgoingLinkReceive(t, c.aliceChannelLink, true)
+	_, ok := settle.htlc.(*lnwire.UpdateFulfillHTLC)
+	require.True(t, ok)
+	assertNumCircuits(t, c.s, 0, 0)
+}
+
 func TestInterceptableSwitchWatchDog(t *testing.T) {
 	t.Parallel()
 

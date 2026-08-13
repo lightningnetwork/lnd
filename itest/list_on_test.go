@@ -452,8 +452,12 @@ var allTestCases = []*lntest.TestCase{
 		TestFunc: testForwardInterceptorBasic,
 	},
 	{
-		Name:     "forward interceptor restart",
-		TestFunc: testForwardInterceptorRestart,
+		Name:     "forward interceptor restart before resume",
+		TestFunc: testForwardInterceptorRestartBeforeResume,
+	},
+	{
+		Name:     "forward interceptor restart after resume",
+		TestFunc: testForwardInterceptorRestartAfterResume,
 	},
 	{
 		Name:     "forward interceptor on chain settle after restart",

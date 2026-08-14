@@ -1,6 +1,7 @@
 package btcwallet
 
 import (
+	"math"
 	"testing"
 
 	"github.com/btcsuite/btcd/btcjson"
@@ -134,6 +135,79 @@ func TestPreviousOutpoints(t *testing.T) {
 					respOutpoint.IsOurOutput,
 				)
 			}
+		})
+	}
+}
+
+// TestTransactionDetailsPage verifies the bounds returned for transaction
+// pagination, including requests that would overflow with uint32 addition.
+func TestTransactionDetailsPage(t *testing.T) {
+	t.Parallel()
+
+	txDetails := []*lnwallet.TransactionDetail{{}, {}, {}, {}}
+
+	testCases := []struct {
+		name          string
+		offset        uint32
+		limit         uint32
+		expectedPage  []*lnwallet.TransactionDetail
+		expectedFirst uint64
+		expectedLast  uint64
+	}{
+		{
+			name:          "zero limit returns remainder",
+			offset:        1,
+			expectedPage:  txDetails[1:],
+			expectedFirst: 1,
+			expectedLast:  3,
+		},
+		{
+			name:          "limit selects page",
+			offset:        1,
+			limit:         2,
+			expectedPage:  txDetails[1:3],
+			expectedFirst: 1,
+			expectedLast:  2,
+		},
+		{
+			name:          "limit exceeds remainder",
+			offset:        2,
+			limit:         10,
+			expectedPage:  txDetails[2:],
+			expectedFirst: 2,
+			expectedLast:  3,
+		},
+		{
+			name:          "offset plus limit exceeds uint32",
+			offset:        1,
+			limit:         math.MaxUint32,
+			expectedPage:  txDetails[1:],
+			expectedFirst: 1,
+			expectedLast:  3,
+		},
+		{
+			name:         "offset equals transaction count",
+			offset:       uint32(len(txDetails)),
+			limit:        1,
+			expectedPage: []*lnwallet.TransactionDetail{},
+		},
+		{
+			name:         "maximum offset",
+			offset:       math.MaxUint32,
+			limit:        1,
+			expectedPage: []*lnwallet.TransactionDetail{},
+		},
+	}
+
+	for _, testCase := range testCases {
+		t.Run(testCase.name, func(t *testing.T) {
+			page, first, last := transactionDetailsPage(
+				txDetails, testCase.offset, testCase.limit,
+			)
+
+			require.Equal(t, testCase.expectedPage, page)
+			require.Equal(t, testCase.expectedFirst, first)
+			require.Equal(t, testCase.expectedLast, last)
 		})
 	}
 }

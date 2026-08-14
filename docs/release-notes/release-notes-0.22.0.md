@@ -55,6 +55,12 @@
   the reported network statistics such as total network capacity, channel
   count and max out degree.
 
+* The sweeper now [isolates singleton
+  inputs](https://github.com/lightningnetwork/lnd/pull/10842) from a rejected
+  sweep batch when no-broadcast mempool probes show that an individual input
+  has a script or witness failure, avoiding fatal failure of the entire batch
+  when only one input is invalid.
+
 # New Features
 
 ## Functional Enhancements
@@ -159,3 +165,4 @@
 * Boris Nagaev
 * Erick Cestari
 * Jared Tobin
+* Yong Yu

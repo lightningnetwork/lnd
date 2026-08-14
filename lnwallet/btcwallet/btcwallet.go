@@ -7,6 +7,7 @@ import (
 	"errors"
 	"fmt"
 	"math"
+	"regexp"
 	"sync"
 	"time"
 
@@ -74,6 +75,19 @@ var (
 		waddrmgr.KeyScopeBIP0084,
 		waddrmgr.KeyScopeBIP0086,
 	}
+
+	btcdNonStandardInputPattern = regexp.MustCompile(
+		`^transaction ([0-9a-f]{64}) has a non-standard input: ` +
+			`transaction input #[0-9]+ has a non-standard ` +
+			`script form$`,
+	)
+	btcdScriptInputPattern = regexp.MustCompile(
+		`^failed to (validate|parse) input ([0-9a-f]{64}):[0-9]+ ` +
+			`which references output [0-9a-f]{64}:[0-9]+ - .+ ` +
+			`\(input witness \[([0-9a-f]*( [0-9a-f]*)*)?\], ` +
+			`input script bytes ` +
+			`[0-9a-f]*, prev output script bytes [0-9a-f]*\)$`,
+	)
 
 	// errNoImportedAddrGen is an error returned when a new address is
 	// requested for the default imported account within the wallet.
@@ -1142,6 +1156,44 @@ func mapRpcclientError(err error) error {
 	return err
 }
 
+// normalizeMempoolAcceptError corrects exact raw btcd input rejections for the
+// transaction being tested that btcwallet cannot distinguish.
+func normalizeMempoolAcceptError(backend string, txHash chainhash.Hash,
+	rejectReason string, err error) error {
+
+	if backend != "btcd" {
+		return err
+	}
+
+	txid := txHash.String()
+	switch {
+	case errors.Is(err, chain.ErrNonStandardScript):
+		matches := btcdNonStandardInputPattern.FindStringSubmatch(
+			rejectReason,
+		)
+		if len(matches) != 2 || matches[1] != txid {
+			return err
+		}
+
+		return fmt.Errorf("%w: %s", chain.ErrNonStandardInputs,
+			rejectReason)
+
+	case errors.Is(err, chain.ErrUndefined):
+		matches := btcdScriptInputPattern.FindStringSubmatch(
+			rejectReason,
+		)
+		if len(matches) != 5 || matches[2] != txid {
+			return err
+		}
+
+		return fmt.Errorf("%w: %s", chain.ErrScriptVerifyFlag,
+			rejectReason)
+
+	default:
+		return err
+	}
+}
+
 // PublishTransaction performs cursory validation (dust checks, etc), then
 // finally broadcasts the passed transaction to the Bitcoin network. If
 // publishing the transaction fails, an error describing the reason is returned
@@ -1204,6 +1256,9 @@ func (b *BtcWallet) PublishTransaction(tx *wire.MsgTx, label string) error {
 	// We need to use the string to create an error type and map it to a
 	// btcwallet error.
 	err = b.chain.MapRPCErr(errors.New(result.RejectReason))
+	err = normalizeMempoolAcceptError(
+		b.chain.BackEnd(), tx.TxHash(), result.RejectReason, err,
+	)
 
 	//nolint:ll
 	// These two errors are ignored inside `PublishTransaction`:
@@ -1928,6 +1983,10 @@ func (b *BtcWallet) CheckMempoolAcceptance(tx *wire.MsgTx) error {
 	// error and return it.
 	if !result.Allowed {
 		err := b.chain.MapRPCErr(errors.New(result.RejectReason))
+		err = normalizeMempoolAcceptError(
+			b.chain.BackEnd(), tx.TxHash(), result.RejectReason,
+			err,
+		)
 
 		return fmt.Errorf("mempool rejection: %w", err)
 	}

@@ -133,9 +133,13 @@ func (q *QueryChannelRange) SerializedSize() (uint32, error) {
 	return MessageSerializedSize(&msgCpy)
 }
 
-// LastBlockHeight returns the last block height covered by the range of a
-// QueryChannelRange message.
+// LastBlockHeight returns the last block height covered by a QueryChannelRange
+// message. Messages with zero blocks return their first block height.
 func (q *QueryChannelRange) LastBlockHeight() uint32 {
+	if q.NumBlocks == 0 {
+		return q.FirstBlockHeight
+	}
+
 	// Handle overflows by casting to uint64.
 	lastBlockHeight := uint64(q.FirstBlockHeight) + uint64(q.NumBlocks) - 1
 	if lastBlockHeight > math.MaxUint32 {

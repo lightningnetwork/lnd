@@ -21,6 +21,15 @@
 
 # Bug Fixes
 
+* Channel funding attempts [now return
+  cleanly](https://github.com/lightningnetwork/lnd/pull/11035) when their
+  pending wallet reservation is no longer present.
+
+* Zero-block [`query_channel_range` and `reply_channel_range`
+  messages](https://github.com/lightningnetwork/lnd/pull/11035) now retain their
+  first block height when calculating a defensive range boundary, and dense
+  first blocks no longer produce zero-block reply prefixes.
+
 # New Features
 
 ## Functional Enhancements
@@ -60,3 +69,5 @@
 ## Tooling and Documentation
 
 # Contributors (Alphabetical Order)
+
+* Yong Yu

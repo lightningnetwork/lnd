@@ -2257,6 +2257,7 @@ func (l *LightningWallet) handleFundingCounterPartySigs(msg *addCounterPartySigs
 	l.limboMtx.RUnlock()
 	if !ok {
 		msg.err <- fmt.Errorf("attempted to update non-existent funding state")
+		msg.completeChan <- nil
 		return
 	}
 

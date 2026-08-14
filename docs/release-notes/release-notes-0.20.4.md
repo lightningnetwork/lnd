@@ -21,6 +21,11 @@
 
 # Bug Fixes
 
+* [`GetTransactions`
+  pagination](https://github.com/lightningnetwork/lnd/pull/11075) now handles
+  overflowing offset and limit combinations without reaching a slice-bounds
+  panic.
+
 # New Features
 
 ## Functional Enhancements
@@ -56,3 +61,5 @@
 ## Tooling and Documentation
 
 # Contributors (Alphabetical Order)
+
+* Ziggie

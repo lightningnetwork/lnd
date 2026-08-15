@@ -2944,6 +2944,16 @@ type PendingSweep struct {
 	//
 	// Deprecated: Marked as deprecated in walletrpc/walletkit.proto.
 	SatPerByte uint32 `protobuf:"varint,4,opt,name=sat_per_byte,json=satPerByte,proto3" json:"sat_per_byte,omitempty"`
+	// The current fee rate we'll use to sweep the output, expressed in sat/vbyte.
+	// The fee rate is only determined once a sweeping transaction for the output
+	// is created, so it's possible for this to be 0 before this.
+	//
+	// Deprecated: Marked as deprecated in walletrpc/walletkit.proto.
+	SatPerVbyte uint64 `protobuf:"varint,10,opt,name=sat_per_vbyte,json=satPerVbyte,proto3" json:"sat_per_vbyte,omitempty"`
+	// The fee rate we'll use to sweep the output, expressed in sat/kweight. The
+	// fee rate is only determined once a sweeping transaction for the output is
+	// created, so it's possible for this to be 0 before this.
+	SatPerKw uint64 `protobuf:"varint,17,opt,name=sat_per_kw,json=satPerKw,proto3" json:"sat_per_kw,omitempty"`
 	// The number of broadcast attempts we've made to sweep the output.
 	BroadcastAttempts uint32 `protobuf:"varint,5,opt,name=broadcast_attempts,json=broadcastAttempts,proto3" json:"broadcast_attempts,omitempty"`
 	// Deprecated.
@@ -2969,13 +2979,13 @@ type PendingSweep struct {
 	//
 	// Deprecated: Marked as deprecated in walletrpc/walletkit.proto.
 	RequestedSatPerByte uint32 `protobuf:"varint,9,opt,name=requested_sat_per_byte,json=requestedSatPerByte,proto3" json:"requested_sat_per_byte,omitempty"`
-	// The current fee rate we'll use to sweep the output, expressed in sat/vbyte.
-	// The fee rate is only determined once a sweeping transaction for the output
-	// is created, so it's possible for this to be 0 before this.
-	SatPerVbyte uint64 `protobuf:"varint,10,opt,name=sat_per_vbyte,json=satPerVbyte,proto3" json:"sat_per_vbyte,omitempty"`
 	// The requested starting fee rate, expressed in sat/vbyte, for this
 	// output. When not requested, this field will be 0.
+	//
+	// Deprecated: Marked as deprecated in walletrpc/walletkit.proto.
 	RequestedSatPerVbyte uint64 `protobuf:"varint,11,opt,name=requested_sat_per_vbyte,json=requestedSatPerVbyte,proto3" json:"requested_sat_per_vbyte,omitempty"`
+	// The requested fee rate, expressed in sat/kweight, for this output.
+	RequestedSatPerKw uint64 `protobuf:"varint,16,opt,name=requested_sat_per_kw,json=requestedSatPerKw,proto3" json:"requested_sat_per_kw,omitempty"`
 	// Whether this input will be swept immediately.
 	Immediate bool `protobuf:"varint,12,opt,name=immediate,proto3" json:"immediate,omitempty"`
 	// The budget for this sweep, expressed in satoshis. This is the maximum amount
@@ -3049,6 +3059,21 @@ func (x *PendingSweep) GetSatPerByte() uint32 {
 	return 0
 }
 
+// Deprecated: Marked as deprecated in walletrpc/walletkit.proto.
+func (x *PendingSweep) GetSatPerVbyte() uint64 {
+	if x != nil {
+		return x.SatPerVbyte
+	}
+	return 0
+}
+
+func (x *PendingSweep) GetSatPerKw() uint64 {
+	if x != nil {
+		return x.SatPerKw
+	}
+	return 0
+}
+
 func (x *PendingSweep) GetBroadcastAttempts() uint32 {
 	if x != nil {
 		return x.BroadcastAttempts
@@ -3088,16 +3113,17 @@ func (x *PendingSweep) GetRequestedSatPerByte() uint32 {
 	return 0
 }
 
-func (x *PendingSweep) GetSatPerVbyte() uint64 {
+// Deprecated: Marked as deprecated in walletrpc/walletkit.proto.
+func (x *PendingSweep) GetRequestedSatPerVbyte() uint64 {
 	if x != nil {
-		return x.SatPerVbyte
+		return x.RequestedSatPerVbyte
 	}
 	return 0
 }
 
-func (x *PendingSweep) GetRequestedSatPerVbyte() uint64 {
+func (x *PendingSweep) GetRequestedSatPerKw() uint64 {
 	if x != nil {
-		return x.RequestedSatPerVbyte
+		return x.RequestedSatPerKw
 	}
 	return 0
 }
@@ -3250,6 +3276,9 @@ type BumpFeeRequest struct {
 	// fee function that the sweeper will use to bump the fee rate. When the
 	// deadline is reached, ALL the budget will be spent as fees.
 	DeadlineDelta uint32 `protobuf:"varint,8,opt,name=deadline_delta,json=deadlineDelta,proto3" json:"deadline_delta,omitempty"`
+	// The fee rate, expressed in sat/kweight, that should be used to spend the
+	// input with.
+	SatPerKw      uint64 `protobuf:"varint,9,opt,name=sat_per_kw,json=satPerKw,proto3" json:"sat_per_kw,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -3338,6 +3367,13 @@ func (x *BumpFeeRequest) GetBudget() uint64 {
 func (x *BumpFeeRequest) GetDeadlineDelta() uint32 {
 	if x != nil {
 		return x.DeadlineDelta
+	}
+	return 0
+}
+
+func (x *BumpFeeRequest) GetSatPerKw() uint64 {
+	if x != nil {
+		return x.SatPerKw
 	}
 	return 0
 }
@@ -4868,29 +4904,32 @@ const file_walletrpc_walletkit_proto_rawDesc = "" +
 	"\x13EstimateFeeResponse\x12\x1c\n" +
 	"\n" +
 	"sat_per_kw\x18\x01 \x01(\x03R\bsatPerKw\x125\n" +
-	"\x18min_relay_fee_sat_per_kw\x18\x02 \x01(\x03R\x13minRelayFeeSatPerKw\"\x90\x05\n" +
+	"\x18min_relay_fee_sat_per_kw\x18\x02 \x01(\x03R\x13minRelayFeeSatPerKw\"\xe7\x05\n" +
 	"\fPendingSweep\x12+\n" +
 	"\boutpoint\x18\x01 \x01(\v2\x0f.lnrpc.OutPointR\boutpoint\x129\n" +
 	"\fwitness_type\x18\x02 \x01(\x0e2\x16.walletrpc.WitnessTypeR\vwitnessType\x12\x1d\n" +
 	"\n" +
 	"amount_sat\x18\x03 \x01(\rR\tamountSat\x12$\n" +
 	"\fsat_per_byte\x18\x04 \x01(\rB\x02\x18\x01R\n" +
-	"satPerByte\x12-\n" +
+	"satPerByte\x12&\n" +
+	"\rsat_per_vbyte\x18\n" +
+	" \x01(\x04B\x02\x18\x01R\vsatPerVbyte\x12\x1c\n" +
+	"\n" +
+	"sat_per_kw\x18\x11 \x01(\x04R\bsatPerKw\x12-\n" +
 	"\x12broadcast_attempts\x18\x05 \x01(\rR\x11broadcastAttempts\x126\n" +
 	"\x15next_broadcast_height\x18\x06 \x01(\rB\x02\x18\x01R\x13nextBroadcastHeight\x12\x18\n" +
 	"\x05force\x18\a \x01(\bB\x02\x18\x01R\x05force\x126\n" +
 	"\x15requested_conf_target\x18\b \x01(\rB\x02\x18\x01R\x13requestedConfTarget\x127\n" +
-	"\x16requested_sat_per_byte\x18\t \x01(\rB\x02\x18\x01R\x13requestedSatPerByte\x12\"\n" +
-	"\rsat_per_vbyte\x18\n" +
-	" \x01(\x04R\vsatPerVbyte\x125\n" +
-	"\x17requested_sat_per_vbyte\x18\v \x01(\x04R\x14requestedSatPerVbyte\x12\x1c\n" +
+	"\x16requested_sat_per_byte\x18\t \x01(\rB\x02\x18\x01R\x13requestedSatPerByte\x129\n" +
+	"\x17requested_sat_per_vbyte\x18\v \x01(\x04B\x02\x18\x01R\x14requestedSatPerVbyte\x12/\n" +
+	"\x14requested_sat_per_kw\x18\x10 \x01(\x04R\x11requestedSatPerKw\x12\x1c\n" +
 	"\timmediate\x18\f \x01(\bR\timmediate\x12\x16\n" +
 	"\x06budget\x18\r \x01(\x04R\x06budget\x12'\n" +
 	"\x0fdeadline_height\x18\x0e \x01(\rR\x0edeadlineHeight\x12'\n" +
 	"\x0fmaturity_height\x18\x0f \x01(\rR\x0ematurityHeight\"\x16\n" +
 	"\x14PendingSweepsRequest\"W\n" +
 	"\x15PendingSweepsResponse\x12>\n" +
-	"\x0epending_sweeps\x18\x01 \x03(\v2\x17.walletrpc.PendingSweepR\rpendingSweeps\"\x9f\x02\n" +
+	"\x0epending_sweeps\x18\x01 \x03(\v2\x17.walletrpc.PendingSweepR\rpendingSweeps\"\xbd\x02\n" +
 	"\x0eBumpFeeRequest\x12+\n" +
 	"\boutpoint\x18\x01 \x01(\v2\x0f.lnrpc.OutPointR\boutpoint\x12\x1f\n" +
 	"\vtarget_conf\x18\x02 \x01(\rR\n" +
@@ -4901,7 +4940,9 @@ const file_walletrpc_walletkit_proto_rawDesc = "" +
 	"\rsat_per_vbyte\x18\x05 \x01(\x04R\vsatPerVbyte\x12\x1c\n" +
 	"\timmediate\x18\x06 \x01(\bR\timmediate\x12\x16\n" +
 	"\x06budget\x18\a \x01(\x04R\x06budget\x12%\n" +
-	"\x0edeadline_delta\x18\b \x01(\rR\rdeadlineDelta\")\n" +
+	"\x0edeadline_delta\x18\b \x01(\rR\rdeadlineDelta\x12\x1c\n" +
+	"\n" +
+	"sat_per_kw\x18\t \x01(\x04R\bsatPerKw\")\n" +
 	"\x0fBumpFeeResponse\x12\x16\n" +
 	"\x06status\x18\x01 \x01(\tR\x06status\"\xf7\x01\n" +
 	"\x18BumpForceCloseFeeRequest\x122\n" +

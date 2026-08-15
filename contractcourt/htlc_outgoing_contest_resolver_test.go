@@ -3,6 +3,7 @@ package contractcourt
 import (
 	"fmt"
 	"testing"
+	"time"
 
 	"github.com/btcsuite/btcd/wire/v2"
 	"github.com/lightningnetwork/lnd/chainntnfs"
@@ -116,6 +117,79 @@ func TestHtlcOutgoingResolverRemoteClaim(t *testing.T) {
 	ctx.waitForResult(false)
 }
 
+// TestHtlcOutgoingResolverSpendReorg verifies only a stable remote claim
+// resolves the contested HTLC.
+func TestHtlcOutgoingResolverSpendReorg(t *testing.T) {
+	t.Parallel()
+	defer timeout()()
+
+	ctx := newOutgoingResolverTestContext(t)
+	ctx.resolver.ChannelCloseConfs = fn.Some(uint32(2))
+	require.NoError(t, ctx.resolver.Launch())
+	resultChan := make(chan resolveResult, 1)
+	go func() {
+		nextResolver, err := ctx.resolver.Resolve()
+		resultChan <- resolveResult{
+			nextResolver: nextResolver,
+			err:          err,
+		}
+	}()
+	ctx.notifyEpoch(testInitialBlockHeight)
+
+	spendTx := &wire.MsgTx{
+		TxIn: []*wire.TxIn{{
+			Witness: [][]byte{
+				{0}, {1}, {2}, make([]byte, lntypes.HashSize),
+			},
+		}},
+		TxOut: []*wire.TxOut{{PkScript: []byte{1}}},
+	}
+	spendHash := spendTx.TxHash()
+	ctx.notifier.SpendChan <- &chainntnfs.SpendDetail{
+		SpendingTx:     spendTx,
+		SpenderTxHash:  &spendHash,
+		SpendingHeight: 10,
+	}
+	select {
+	case <-ctx.notifier.ConfRegistered:
+	case <-time.After(defaultTimeout):
+		t.Fatal("first spend confirmation was not registered")
+	}
+
+	select {
+	case <-ctx.preimageDB.newPreimages:
+		t.Fatal("preimage stored before stable spend")
+	case <-ctx.resolutionChan:
+		t.Fatal("resolution delivered before stable spend")
+	case <-resultChan:
+		t.Fatal("resolver completed before stable spend")
+	default:
+	}
+
+	ctx.notifier.SpendReorgChan <- struct{}{}
+	replacementTx := spendTx.Copy()
+	replacementTx.LockTime = 1
+	replacementTx.TxOut[0].PkScript = []byte{2}
+	replacementTx.TxIn[0].Witness[3] = testResPreimage[:]
+	replacementHash := replacementTx.TxHash()
+	ctx.notifier.SpendChan <- &chainntnfs.SpendDetail{
+		SpendingTx:     replacementTx,
+		SpenderTxHash:  &replacementHash,
+		SpendingHeight: 11,
+	}
+	ctx.notifier.WaitForConfRegistrationAndSend(t)
+
+	preimages := <-ctx.preimageDB.newPreimages
+	require.Equal(t, []lntypes.Preimage{testResPreimage}, preimages)
+	resolution := <-ctx.resolutionChan
+	require.NotNil(t, resolution.PreImage)
+	require.Equal(t, testResPreimage[:], resolution.PreImage[:])
+	result := <-resultChan
+	require.NoError(t, result.err)
+	require.Nil(t, result.nextResolver)
+	require.True(t, ctx.resolver.IsResolved())
+}
+
 type resolveResult struct {
 	err          error
 	nextResolver ContractResolver
@@ -162,10 +236,13 @@ type outgoingResolverTestContext struct {
 
 func newOutgoingResolverTestContext(t *testing.T) *outgoingResolverTestContext {
 	notifier := &mock.ChainNotifier{
-		EpochChan:   make(chan *chainntnfs.BlockEpoch),
-		SpendChan:   make(chan *chainntnfs.SpendDetail),
-		ConfChan:    make(chan *chainntnfs.TxConfirmation),
-		AutoConfirm: true,
+		EpochChan:        make(chan *chainntnfs.BlockEpoch),
+		SpendChan:        make(chan *chainntnfs.SpendDetail),
+		SpendReorgChan:   make(chan struct{}, 1),
+		ConfChan:         make(chan *chainntnfs.TxConfirmation),
+		NegativeConfChan: make(chan int32, 1),
+		ConfRegistered:   make(chan struct{}, 1),
+		AutoConfirm:      true,
 	}
 
 	checkPointChan := make(chan struct{}, 1)

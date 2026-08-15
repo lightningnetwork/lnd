@@ -941,6 +941,12 @@ func (n *NeutrinoNotifier) RegisterConfirmationsNtfn(txid *chainhash.Hash,
 	if err != nil {
 		return nil, err
 	}
+	registered := false
+	defer func() {
+		if !registered {
+			ntfn.Event.Cancel()
+		}
+	}()
 
 	// To determine whether this transaction has confirmed on-chain, we'll
 	// update our filter to watch for the transaction at tip and we'll also
@@ -985,6 +991,7 @@ func (n *NeutrinoNotifier) RegisterConfirmationsNtfn(txid *chainhash.Hash,
 	// If a historical rescan was not requested by the txNotifier, then we
 	// can return to the caller.
 	if ntfn.HistoricalDispatch == nil {
+		registered = true
 		return ntfn.Event, nil
 	}
 
@@ -1000,6 +1007,7 @@ func (n *NeutrinoNotifier) RegisterConfirmationsNtfn(txid *chainhash.Hash,
 	// rescan to ensure we can detect if the event happened in the past.
 	select {
 	case n.notificationRegistry <- ntfn.HistoricalDispatch:
+		registered = true
 	case <-n.quit:
 		return nil, chainntnfs.ErrChainNotifierShuttingDown
 	}

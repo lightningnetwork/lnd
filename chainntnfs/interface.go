@@ -76,6 +76,10 @@ type NotifierOptions struct {
 	// IncludeBlock if true, then the dispatched confirmation notification
 	// will include the block that mined the transaction.
 	IncludeBlock bool
+
+	// TxIDOnlyMatch makes the txid authoritative while pkScript is used
+	// only to locate relevant blocks for light clients.
+	TxIDOnlyMatch bool
 }
 
 // DefaultNotifierOptions returns the set of default options for the notifier.
@@ -95,6 +99,14 @@ func WithIncludeBlock() NotifierOption {
 	}
 }
 
+// WithTxIDOnlyMatch makes a confirmation request match only on its txid. The
+// supplied pkScript remains required as a light-client filter hint.
+func WithTxIDOnlyMatch() NotifierOption {
+	return func(o *NotifierOptions) {
+		o.TxIDOnlyMatch = true
+	}
+}
+
 // ChainNotifier represents a trusted source to receive notifications concerning
 // targeted events on the Bitcoin blockchain. The interface specification is
 // intentionally general in order to support a wide array of chain notification
@@ -111,7 +123,8 @@ type ChainNotifier interface {
 	// on the script, but we should also dispatch once the transaction
 	// containing the script reaches numConfs confirmations. This can be
 	// useful in instances where we only know the script in advance, but not
-	// the transaction containing it.
+	// the transaction containing it. With WithTxIDOnlyMatch, pkScript is a
+	// filter hint and need not be created by the transaction.
 	//
 	// The returned ConfirmationEvent should properly notify the client once
 	// the specified number of confirmations has been reached for the txid,

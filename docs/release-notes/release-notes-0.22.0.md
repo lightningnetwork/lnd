@@ -22,6 +22,9 @@
 
 # Bug Fixes
 
+* [Improved safety](https://github.com/lightningnetwork/lnd/pull/11054)
+  across contract and sweep resolution lifecycles.
+
 * Bitcoind outbound peer health checks [now use](https://github.com/lightningnetwork/lnd/pull/10686)
   `getnetworkinfo.connections_out` instead of `getpeerinfo`. The same PR also
   [clarifies](https://github.com/lightningnetwork/lnd/issues/10568) the ZMQ
@@ -159,3 +162,4 @@
 * Boris Nagaev
 * Erick Cestari
 * Jared Tobin
+* Yong Yu

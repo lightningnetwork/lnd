@@ -30,6 +30,11 @@
   first block height when calculating a defensive range boundary, and dense
   first blocks no longer produce zero-block reply prefixes.
 
+* [`GetTransactions`
+  pagination](https://github.com/lightningnetwork/lnd/pull/11075) now handles
+  overflowing offset and limit combinations without reaching a slice-bounds
+  panic.
+
 # New Features
 
 ## Functional Enhancements
@@ -67,3 +72,4 @@
 # Contributors (Alphabetical Order)
 
 * Yong Yu
+* Ziggie

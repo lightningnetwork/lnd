@@ -1469,6 +1469,38 @@ func unminedTransactionsToDetail(
 	return txDetail, nil
 }
 
+// transactionDetailsPage applies the requested offset and limit to a set of
+// transaction details. A zero limit means that all remaining transactions are
+// returned.
+func transactionDetailsPage(txDetails []*lnwallet.TransactionDetail,
+	indexOffset, maxTransactions uint32) ([]*lnwallet.TransactionDetail,
+	uint64, uint64) {
+
+	total := uint64(len(txDetails))
+	first := uint64(indexOffset)
+	if first >= total {
+		return []*lnwallet.TransactionDetail{}, 0, 0
+	}
+
+	end := total
+	if maxTransactions != 0 {
+		// Compare the limit to the remaining count. This avoids adding
+		// caller-controlled values before deciding whether to clamp the
+		// requested end.
+		limit := uint64(maxTransactions)
+		remaining := total - first
+		if limit < remaining {
+			end = first + limit
+		}
+	}
+
+	// Both bounds are no greater than len(txDetails), so these conversions
+	// are safe on both 32-bit and 64-bit platforms.
+	page := txDetails[int(first):int(end)]
+
+	return page, first, end - 1
+}
+
 // ListTransactionDetails returns a list of all transactions which are relevant
 // to the wallet over [startHeight;endHeight]. If start height is greater than
 // end height, the transactions will be retrieved in reverse order. To include
@@ -1522,32 +1554,11 @@ func (b *BtcWallet) ListTransactionDetails(startHeight, endHeight int32,
 		txDetails = append(txDetails, detail)
 	}
 
-	// Return empty transaction list, if offset is more than all
-	// transactions.
-	if int(indexOffset) >= len(txDetails) {
-		txDetails = []*lnwallet.TransactionDetail{}
+	page, firstIndex, lastIndex := transactionDetailsPage(
+		txDetails, indexOffset, maxTransactions,
+	)
 
-		return txDetails, 0, 0, nil
-	}
-
-	end := indexOffset + maxTransactions
-
-	// If maxTransactions is set to 0, then we'll return all transactions
-	// starting from the offset.
-	if maxTransactions == 0 {
-		end = uint32(len(txDetails))
-		txDetails = txDetails[indexOffset:end]
-
-		return txDetails, uint64(indexOffset), uint64(end - 1), nil
-	}
-
-	if end > uint32(len(txDetails)) {
-		end = uint32(len(txDetails))
-	}
-
-	txDetails = txDetails[indexOffset:end]
-
-	return txDetails, uint64(indexOffset), uint64(end - 1), nil
+	return page, firstIndex, lastIndex, nil
 }
 
 // txSubscriptionClient encapsulates the transaction notification client from

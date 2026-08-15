@@ -550,6 +550,12 @@ type WalletController interface {
 	// recovery progress made so far.
 	GetRecoveryInfo() (bool, float64, error)
 
+	// Birthday returns the birthday of the wallet's master key, meaning the
+	// earliest time at which any of its keys could have been used. Blocks
+	// before that point cannot contain any of the wallet's outputs, so this
+	// is where a rescan of the chain starts.
+	Birthday() time.Time
+
 	// Start initializes the wallet, making any necessary connections,
 	// starting up required goroutines etc.
 	Start() error

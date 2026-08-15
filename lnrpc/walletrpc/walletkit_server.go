@@ -2689,7 +2689,28 @@ func (w *WalletKit) ListAccounts(ctx context.Context,
 		rpcAccounts = append(rpcAccounts, rpcAccount)
 	}
 
-	return &ListAccountsResponse{Accounts: rpcAccounts}, nil
+	// The accounts above are extended public keys, which say nothing about
+	// when they were created. We return the wallet's birthday along with
+	// them so that a watch-only wallet importing this response doesn't have
+	// to rescan the chain from lnd's default birthday.
+	//
+	// A wallet that somehow has no birthday at all reports zero rather than
+	// the nonsense a uint64 cast of a pre-epoch time would produce, since
+	// zero is what the InitWallet request already reads as "unknown".
+	//
+	// The comparison has to stay a positivity check and not become an
+	// IsZero one: a non-zero time before 1970 has a negative Unix value,
+	// which is exactly what the cast below would turn into a timestamp
+	// somewhere past the year 292 billion.
+	var birthdayTimestamp uint64
+	if birthday := w.cfg.Wallet.Birthday(); birthday.Unix() > 0 {
+		birthdayTimestamp = uint64(birthday.Unix())
+	}
+
+	return &ListAccountsResponse{
+		Accounts:                   rpcAccounts,
+		MasterKeyBirthdayTimestamp: birthdayTimestamp,
+	}, nil
 }
 
 // RequiredReserve returns the minimum amount of satoshis that should be

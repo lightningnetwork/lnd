@@ -1882,6 +1882,11 @@
             "type": "object",
             "$ref": "#/definitions/walletrpcAccount"
           }
+        },
+        "master_key_birthday_timestamp": {
+          "type": "string",
+          "format": "uint64",
+          "description": "The birthday of the wallet's master key, expressed in seconds since the unix\nepoch. This is the earliest time any of the wallet's keys could have been\nused, so it is where a rescan of the chain has to start. The accounts above\nare extended public keys, which carry no notion of when they were created,\nso this value needs to be transported alongside them when importing them\ninto a watch-only wallet. It corresponds to the\nWatchOnly.master_key_birthday_timestamp field of the InitWallet request."
         }
       }
     },

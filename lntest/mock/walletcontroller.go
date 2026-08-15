@@ -34,6 +34,7 @@ type WalletController struct {
 	PublishedTransactions chan *wire.MsgTx
 	index                 uint32
 	Utxos                 []*lnwallet.Utxo
+	WalletBirthday        time.Time
 }
 
 // A compile time check to ensure this mocked WalletController implements the
@@ -283,6 +284,12 @@ func (w *WalletController) IsSynced() (bool, int64, error) {
 // GetRecoveryInfo currently returns dummy values.
 func (w *WalletController) GetRecoveryInfo() (bool, float64, error) {
 	return true, float64(1), nil
+}
+
+// Birthday returns the mock wallet's birthday, which is the zero time unless a
+// test set one explicitly.
+func (w *WalletController) Birthday() time.Time {
+	return w.WalletBirthday
 }
 
 // Start currently does nothing.

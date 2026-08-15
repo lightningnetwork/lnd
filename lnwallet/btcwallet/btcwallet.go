@@ -1894,6 +1894,14 @@ func (b *BtcWallet) GetRecoveryInfo() (bool, float64, error) {
 	return isRecoveryMode, progress, nil
 }
 
+// Birthday returns the birthday of the wallet's master key, meaning the
+// earliest time at which any of its keys could have been used.
+//
+// This is a part of the WalletController interface.
+func (b *BtcWallet) Birthday() time.Time {
+	return b.wallet.AddrManager().Birthday()
+}
+
 // FetchTx attempts to fetch a transaction in the wallet's database identified
 // by the passed transaction hash. If the transaction can't be found, then a
 // nil pointer is returned.

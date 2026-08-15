@@ -7,11 +7,13 @@ import (
 	"io"
 	"sync/atomic"
 
+	"github.com/btcsuite/btcd/btcutil/v2"
 	"github.com/btcsuite/btcd/wire/v2"
 	"github.com/btcsuite/btclog/v2"
 	"github.com/lightningnetwork/lnd/channeldb"
 	"github.com/lightningnetwork/lnd/chanstate"
 	"github.com/lightningnetwork/lnd/fn/v2"
+	"github.com/lightningnetwork/lnd/lnwallet"
 	"github.com/lightningnetwork/lnd/sweep"
 )
 
@@ -167,6 +169,15 @@ func (r *contractResolverKit) IsResolved() bool {
 // markResolved marks the resolver as resolved.
 func (r *contractResolverKit) markResolved() {
 	r.resolved.Store(true)
+}
+
+// requiredConfsForSpend returns the confirmation depth for a resolver spend.
+func (r *contractResolverKit) requiredConfsForSpend(
+	value btcutil.Amount) uint32 {
+
+	return r.ChannelCloseConfs.UnwrapOrFunc(func() uint32 {
+		return lnwallet.CloseConfsForCapacity(value)
+	})
 }
 
 // isLaunched returns true if the resolver has been launched.

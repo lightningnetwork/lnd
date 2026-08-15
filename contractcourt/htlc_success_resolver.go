@@ -160,7 +160,9 @@ func (h *htlcSuccessResolver) resolveRemoteCommitOutput() error {
 	sweepTxDetails, err := waitForSpend(
 		&h.htlcResolution.ClaimOutpoint,
 		h.htlcResolution.SweepSignDesc.Output.PkScript,
-		h.broadcastHeight, 1, h.Notifier, h.quit,
+		h.broadcastHeight,
+		h.requiredConfsForSpend(h.htlc.Amt.ToSatoshis()),
+		h.Notifier, h.quit,
 	)
 	if err != nil {
 		return err
@@ -556,7 +558,9 @@ func (h *htlcSuccessResolver) sweepSuccessTxOutput() error {
 	commitSpend, err := waitForSpend(
 		&h.htlcResolution.SignedSuccessTx.TxIn[0].PreviousOutPoint,
 		h.htlcResolution.SignDetails.SignDesc.Output.PkScript,
-		h.broadcastHeight, 1, h.Notifier, h.quit,
+		h.broadcastHeight,
+		h.requiredConfsForSpend(h.htlc.Amt.ToSatoshis()),
+		h.Notifier, h.quit,
 	)
 	if err != nil {
 		return err
@@ -699,7 +703,9 @@ func (h *htlcSuccessResolver) resolveSuccessTx() error {
 
 	// Wait for the second level transaction to confirm.
 	commitSpend, err := waitForSpend(
-		&outpoint, pkScript, h.broadcastHeight, 1, h.Notifier, h.quit,
+		&outpoint, pkScript, h.broadcastHeight,
+		h.requiredConfsForSpend(h.htlc.Amt.ToSatoshis()),
+		h.Notifier, h.quit,
 	)
 	if err != nil {
 		return err
@@ -752,7 +758,9 @@ func (h *htlcSuccessResolver) resolveSuccessTxOutput(op wire.OutPoint) error {
 
 	spend, err := waitForSpend(
 		&op, h.htlcResolution.SweepSignDesc.Output.PkScript,
-		h.broadcastHeight, 1, h.Notifier, h.quit,
+		h.broadcastHeight,
+		h.requiredConfsForSpend(h.htlc.Amt.ToSatoshis()),
+		h.Notifier, h.quit,
 	)
 	if err != nil {
 		return err

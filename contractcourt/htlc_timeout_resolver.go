@@ -1270,9 +1270,20 @@ func (h *htlcTimeoutResolver) resolveRemoteCommitOutput() error {
 		return h.claimCleanUp(spend)
 	}
 
+	// TODO(yy): should also update the `RecoveredBalance` and
+	// `LimboBalance` like other paths?
+
+	return h.resolveTimeoutSpend(spend)
+}
+
+// resolveTimeoutSpend fails the incoming HTLC and checkpoints its confirmed
+// on-chain timeout spend.
+func (h *htlcTimeoutResolver) resolveTimeoutSpend(
+	spend *chainntnfs.SpendDetail) error {
+
 	// Send the clean up msg to fail the incoming HTLC.
 	failureMsg := &lnwire.FailPermanentChannelFailure{}
-	err = h.DeliverResolutionMsg(ResolutionMsg{
+	err := h.DeliverResolutionMsg(ResolutionMsg{
 		SourceChan: h.ShortChanID,
 		HtlcIndex:  h.htlc.HtlcIndex,
 		Failure:    failureMsg,
@@ -1280,9 +1291,6 @@ func (h *htlcTimeoutResolver) resolveRemoteCommitOutput() error {
 	if err != nil {
 		return err
 	}
-
-	// TODO(yy): should also update the `RecoveredBalance` and
-	// `LimboBalance` like other paths?
 
 	// Checkpoint the resolver, and write the outcome to disk.
 	return h.checkpointClaim(spend)

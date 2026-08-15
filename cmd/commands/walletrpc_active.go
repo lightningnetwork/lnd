@@ -21,6 +21,7 @@ import (
 	"github.com/btcsuite/btcd/txscript/v2"
 	"github.com/btcsuite/btcd/wire/v2"
 	"github.com/lightningnetwork/lnd"
+	"github.com/lightningnetwork/lnd/lnrpc/signrpc"
 	"github.com/lightningnetwork/lnd/lnrpc/walletrpc"
 	"github.com/lightningnetwork/lnd/lnwallet/chainfee"
 	"github.com/lightningnetwork/lnd/lnwallet/chanfunding"
@@ -81,6 +82,9 @@ func walletCommands() []cli.Command {
 			Subcommands: []cli.Command{
 				estimateFeeRateCommand,
 				pendingSweepsCommand,
+				registerSweepDescriptorCommand,
+				addSweepDescriptorDataCommand,
+				listSweepDescriptorsCommand,
 				bumpFeeCommand,
 				bumpCloseFeeCommand,
 				bumpForceCloseFeeCommand,
@@ -115,8 +119,11 @@ func parseAddrType(addrTypeStr string) (walletrpc.AddressType, error) {
 	case "p2tr":
 		return walletrpc.AddressType_TAPROOT_PUBKEY, nil
 	default:
-		return 0, errors.New("invalid address type, supported address " +
-			"types are: p2wkh, p2tr, np2wkh, and np2wkh-p2wkh")
+		return 0, errors.New(
+			"invalid address type, supported address " +
+				"types are: p2wkh, p2tr, np2wkh, and " +
+				"np2wkh-p2wkh",
+		)
 	}
 }
 
@@ -217,7 +224,11 @@ func pendingSweeps(ctx *cli.Context) error {
 	var pendingSweepsResp = struct {
 		PendingSweeps []*PendingSweep `json:"pending_sweeps"`
 	}{
-		PendingSweeps: make([]*PendingSweep, 0, len(resp.PendingSweeps)),
+		PendingSweeps: make(
+			[]*PendingSweep,
+			0,
+			len(resp.PendingSweeps),
+		),
 	}
 
 	for _, protoPendingSweep := range resp.PendingSweeps {
@@ -230,6 +241,269 @@ func pendingSweeps(ctx *cli.Context) error {
 	printJSON(pendingSweepsResp)
 
 	return nil
+}
+
+var registerSweepDescriptorCommand = cli.Command{
+	Name:      "registersweepdescriptor",
+	Usage:     "Register a fixed output descriptor for automatic sweeping.",
+	ArgsUsage: "descriptor",
+	Description: `
+	Register a fixed-index native P2WSH descriptor or a P2TR descriptor with
+	Miniscript script paths. lnd watches for the output and offers it to the
+	batching sweeper once a Miniscript branch can be spent. P2TR key-path
+	spending is disabled, so its internal key may remain unbound.
+
+	Bind each signing key with a key_binding flag in this form:
+	'<descriptor-key>=<key-family>:<key-index>'. The descriptor key is the
+	exact key expression used in the descriptor.`,
+	Flags: []cli.Flag{
+		cli.StringSliceFlag{
+			Name: "key_binding",
+			Usage: "Bind a descriptor key to an lnd key " +
+				"locator; may be repeated.",
+		},
+		cli.UintFlag{
+			Name: "derivation_index",
+			Usage: "Descriptor derivation index (must currently " +
+				"be zero).",
+		},
+		cli.UintFlag{
+			Name: "height_hint",
+			Usage: "Required earliest non-zero block height at " +
+				"which the output may appear.",
+		},
+		cli.UintFlag{
+			Name:  "min_confs",
+			Value: 1,
+			Usage: "Confirmations required before sweeping the " +
+				"output.",
+		},
+		cli.Uint64Flag{
+			Name:  "expected_value_sat",
+			Usage: "Watched-output value in satoshis (required).",
+		},
+		cli.Uint64Flag{
+			Name:  "budget_sat",
+			Usage: "Sweep fee budget in satoshis (required).",
+		},
+		cli.UintFlag{
+			Name: "deadline_delta",
+			Usage: "Blocks from offering a satisfiable output to " +
+				"the sweeper by which it should confirm.",
+		},
+		cli.BoolFlag{
+			Name: "immediate",
+			Usage: "Sweep immediately when a branch becomes " +
+				"satisfiable.",
+		},
+		cli.StringFlag{
+			Name:  "label",
+			Usage: "Optional human-readable registration label.",
+		},
+	},
+	Action: actionDecorator(registerSweepDescriptor),
+}
+
+func registerSweepDescriptor(ctx *cli.Context) error {
+	if ctx.NArg() != 1 {
+		return cli.ShowCommandHelp(ctx, "registersweepdescriptor")
+	}
+	if ctx.Uint("height_hint") == 0 {
+		return errors.New("height_hint must be non-zero")
+	}
+	if ctx.Uint64("budget_sat") == 0 {
+		return errors.New("budget_sat must be non-zero")
+	}
+	if ctx.Uint64("expected_value_sat") == 0 {
+		return errors.New("expected_value_sat must be non-zero")
+	}
+
+	bindings := make([]*walletrpc.SweepDescriptorKeyBinding, 0,
+		len(ctx.StringSlice("key_binding")))
+	for _, binding := range ctx.StringSlice("key_binding") {
+		keyBinding, err := parseSweepDescriptorKeyBinding(binding)
+		if err != nil {
+			return err
+		}
+
+		bindings = append(bindings, keyBinding)
+	}
+
+	client, cleanUp := getWalletClient(ctx)
+	defer cleanUp()
+
+	resp, err := client.RegisterSweepDescriptor(
+		getContext(), &walletrpc.RegisterSweepDescriptorRequest{
+			OutputDescriptor: ctx.Args().First(),
+			DerivationIndex:  uint32(ctx.Uint("derivation_index")),
+			HeightHint:       uint32(ctx.Uint("height_hint")),
+			MinConfs:         uint32(ctx.Uint("min_confs")),
+			ExpectedValueSat: ctx.Uint64("expected_value_sat"),
+			KeyBindings:      bindings,
+			BudgetSat:        ctx.Uint64("budget_sat"),
+			DeadlineDelta:    uint32(ctx.Uint("deadline_delta")),
+			Immediate:        ctx.Bool("immediate"),
+			Label:            ctx.String("label"),
+		},
+	)
+	if err != nil {
+		return err
+	}
+
+	printRespJSON(resp)
+
+	return nil
+}
+
+func parseSweepDescriptorKeyBinding(
+	binding string) (*walletrpc.SweepDescriptorKeyBinding, error) {
+
+	parts := strings.SplitN(binding, "=", 2)
+	if len(parts) != 2 || parts[0] == "" {
+		return nil, fmt.Errorf("invalid key binding %q: expected "+
+			"<descriptor-key>=<key-family>:<key-index>", binding)
+	}
+
+	locator := strings.Split(parts[1], ":")
+	if len(locator) != 2 {
+		return nil, fmt.Errorf("invalid key binding %q: expected "+
+			"<descriptor-key>=<key-family>:<key-index>", binding)
+	}
+
+	family, err := strconv.ParseInt(locator[0], 10, 32)
+	if err != nil {
+		return nil, fmt.Errorf(
+			"invalid key family in %q: %w", binding, err,
+		)
+	}
+	if family < 0 {
+		return nil, fmt.Errorf(
+			"invalid negative key family in %q", binding,
+		)
+	}
+	index, err := strconv.ParseInt(locator[1], 10, 32)
+	if err != nil {
+		return nil, fmt.Errorf(
+			"invalid key index in %q: %w", binding, err,
+		)
+	}
+	if index < 0 {
+		return nil, fmt.Errorf(
+			"invalid negative key index in %q", binding,
+		)
+	}
+
+	return &walletrpc.SweepDescriptorKeyBinding{
+		DescriptorKey: parts[0],
+		KeyLocator: &signrpc.KeyLocator{
+			KeyFamily: int32(family),
+			KeyIndex:  int32(index),
+		},
+	}, nil
+}
+
+var addSweepDescriptorDataCommand = cli.Command{
+	Name:      "addsweepdescriptordata",
+	Usage:     "Add late satisfaction data to a sweep descriptor.",
+	ArgsUsage: "registration_id",
+	Flags: []cli.Flag{
+		cli.StringFlag{
+			Name:  "preimage",
+			Usage: "32-byte preimage encoded as hexadecimal.",
+		},
+	},
+	Action: actionDecorator(addSweepDescriptorData),
+}
+
+func addSweepDescriptorData(ctx *cli.Context) error {
+	if ctx.NArg() != 1 || !ctx.IsSet("preimage") {
+		return cli.ShowCommandHelp(ctx, "addsweepdescriptordata")
+	}
+
+	id, err := decodeSweepDescriptorHex(
+		"registration ID", ctx.Args().First(),
+	)
+	if err != nil {
+		return err
+	}
+	preimage, err := decodeSweepDescriptorHex(
+		"preimage", ctx.String("preimage"),
+	)
+	if err != nil {
+		return err
+	}
+
+	client, cleanUp := getWalletClient(ctx)
+	defer cleanUp()
+
+	resp, err := client.AddSweepDescriptorData(
+		getContext(), &walletrpc.AddSweepDescriptorDataRequest{
+			RegistrationId: id,
+			Data: &walletrpc.AddSweepDescriptorDataRequest_Preimage{
+				Preimage: preimage,
+			},
+		},
+	)
+	if err != nil {
+		return err
+	}
+
+	printRespJSON(resp)
+
+	return nil
+}
+
+var listSweepDescriptorsCommand = cli.Command{
+	Name:      "listsweepdescriptors",
+	Usage:     "List descriptor sweep registrations and their status.",
+	ArgsUsage: "[registration_id]",
+	Action:    actionDecorator(listSweepDescriptors),
+}
+
+func listSweepDescriptors(ctx *cli.Context) error {
+	if ctx.NArg() > 1 {
+		return cli.ShowCommandHelp(ctx, "listsweepdescriptors")
+	}
+
+	var id []byte
+	if ctx.NArg() == 1 {
+		var err error
+		id, err = decodeSweepDescriptorHex(
+			"registration ID", ctx.Args().First(),
+		)
+		if err != nil {
+			return err
+		}
+	}
+
+	client, cleanUp := getWalletClient(ctx)
+	defer cleanUp()
+
+	resp, err := client.ListSweepDescriptors(
+		getContext(), &walletrpc.ListSweepDescriptorsRequest{
+			RegistrationId: id,
+		},
+	)
+	if err != nil {
+		return err
+	}
+
+	printRespJSON(resp)
+
+	return nil
+}
+
+func decodeSweepDescriptorHex(name, value string) ([]byte, error) {
+	decoded, err := hex.DecodeString(value)
+	if err != nil {
+		return nil, fmt.Errorf("invalid %s: %w", name, err)
+	}
+	if len(decoded) != 32 {
+		return nil, fmt.Errorf("invalid %s: expected 32 bytes, got %d",
+			name, len(decoded))
+	}
+
+	return decoded, nil
 }
 
 var bumpFeeCommand = cli.Command{
@@ -1962,7 +2236,9 @@ func requiredReserve(ctx *cli.Context) error {
 	defer cleanUp()
 
 	req := &walletrpc.RequiredReserveRequest{
-		AdditionalPublicChannels: uint32(ctx.Uint64("additional_channels")),
+		AdditionalPublicChannels: uint32(
+			ctx.Uint64("additional_channels"),
+		),
 	}
 	resp, err := walletClient.RequiredReserve(ctxc, req)
 	if err != nil {

@@ -378,6 +378,11 @@ type server struct {
 
 	sweeper *sweep.UtxoSweeper
 
+	// descriptorSweepReady is closed once both the chain notifier and UTXO
+	// sweeper have started, allowing WalletKit's descriptor service to
+	// safely install watches and offer inputs.
+	descriptorSweepReady chan struct{}
+
 	chainArb *contractcourt.ChainArbitrator
 
 	sphinxPayment *hop.OnionProcessor
@@ -832,7 +837,8 @@ func newServer(ctx context.Context, cfg *Config, listenAddrs []net.Addr,
 		peerConnectedListeners:    make(map[string][]chan<- lnpeer.Peer),
 		peerDisconnectedListeners: make(map[string][]chan<- struct{}),
 
-		invoiceHtlcModifier: invoiceHtlcModifier,
+		invoiceHtlcModifier:  invoiceHtlcModifier,
+		descriptorSweepReady: make(chan struct{}),
 
 		customMessageServer: subscribe.NewServer(),
 
@@ -2380,6 +2386,7 @@ func (s *server) Start(ctx context.Context) error {
 			startErr = err
 			return
 		}
+		close(s.descriptorSweepReady)
 
 		cleanup = cleanup.add(s.utxoNursery.Stop)
 		if err := s.utxoNursery.Start(); err != nil {

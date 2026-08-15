@@ -59,6 +59,12 @@
 
 ## Functional Enhancements
 
+* [WalletKit can now watch](https://github.com/lightningnetwork/lnd/pull/11067)
+  a fixed native P2WSH descriptor or a P2TR descriptor with Miniscript script
+  paths, then submit the matching output to the existing sweeper when a branch
+  becomes satisfiable. A client can add an SHA256 preimage after registration,
+  or let a height-based CLTV or block-based CSV path mature automatically.
+
 ## RPC Additions
 
 * The `routerrpc.EstimateRouteFee` RPC now supports [restricting fee estimates
@@ -159,3 +165,4 @@
 * Boris Nagaev
 * Erick Cestari
 * Jared Tobin
+* sputn1ck

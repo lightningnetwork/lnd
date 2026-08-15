@@ -255,6 +255,38 @@ service WalletKit {
     */
     rpc PendingSweeps (PendingSweepsRequest) returns (PendingSweepsResponse);
 
+    /* lncli: `wallet registersweepdescriptor`
+    RegisterSweepDescriptor registers a fixed output descriptor for on-chain
+    discovery and automatic sweeping. The descriptor must use only public key
+    material. Any keys that should be signed by lnd must be explicitly bound to
+    a wallet key locator.
+
+    This RPC supports fixed-index native P2WSH descriptors and P2TR descriptors
+    with Miniscript script paths. A P2TR registration never uses its key path,
+    so its internal key may remain unbound. The registration remains active
+    while lnd waits for the output and for a satisfiable Miniscript branch.
+    Additional satisfaction data, such as a hash preimage, can be supplied
+    through AddSweepDescriptorData.
+    */
+    rpc RegisterSweepDescriptor (RegisterSweepDescriptorRequest)
+        returns (RegisterSweepDescriptorResponse);
+
+    /* lncli: `wallet addsweepdescriptordata`
+    AddSweepDescriptorData supplies data that became available after a sweep
+    descriptor was registered. Supplying data may make a Miniscript branch
+    satisfiable and trigger an automatic sweep.
+    */
+    rpc AddSweepDescriptorData (AddSweepDescriptorDataRequest)
+        returns (AddSweepDescriptorDataResponse);
+
+    /* lncli: `wallet listsweepdescriptors`
+    ListSweepDescriptors lists descriptor sweep registrations and their current
+    lifecycle state. A registration ID can be supplied to select a single
+    registration.
+    */
+    rpc ListSweepDescriptors (ListSweepDescriptorsRequest)
+        returns (ListSweepDescriptorsResponse);
+
     /* lncli: `wallet bumpfee`
     BumpFee is an endpoint that allows users to interact with lnd's sweeper
     directly. It takes an outpoint from an unconfirmed transaction and sends it
@@ -1204,6 +1236,18 @@ enum WitnessType {
     transaction.
     */
     TAPROOT_COMMITMENT_REVOKE_FINAL = 42;
+
+    /*
+    A witness constructed from a registered native P2WSH output descriptor and
+    its selected Miniscript satisfaction plan.
+    */
+    DESCRIPTOR_WSH = 43;
+
+    /*
+    A script-path witness constructed from a registered P2TR output descriptor
+    and its selected Miniscript satisfaction plan.
+    */
+    DESCRIPTOR_TR = 44;
 }
 
 message PendingSweep {
@@ -1697,4 +1741,192 @@ message ListLeasesRequest {
 message ListLeasesResponse {
     // The list of currently leased utxos.
     repeated UtxoLease locked_utxos = 1;
+}
+
+// SweepDescriptorState describes the lifecycle of a descriptor sweep.
+enum SweepDescriptorState {
+    // The state is unknown or was not set.
+    SWEEP_DESCRIPTOR_STATE_UNKNOWN = 0;
+
+    // The registration was accepted and is being initialized.
+    SWEEP_DESCRIPTOR_STATE_REGISTERED = 1;
+
+    // lnd is watching the chain for an output matching the descriptor.
+    SWEEP_DESCRIPTOR_STATE_WATCHING = 2;
+
+    // A matching output was found.
+    SWEEP_DESCRIPTOR_STATE_FOUND = 3;
+
+    // The output is waiting for a satisfiable Miniscript branch.
+    SWEEP_DESCRIPTOR_STATE_WAITING = 4;
+
+    // The output has been handed to lnd's batching sweeper.
+    SWEEP_DESCRIPTOR_STATE_SWEEPING = 5;
+
+    // The sweep transaction was confirmed.
+    SWEEP_DESCRIPTOR_STATE_SWEPT = 6;
+
+    // The registration failed and will not make further progress.
+    SWEEP_DESCRIPTOR_STATE_FAILED = 7;
+}
+
+/*
+SweepDescriptorKeyBinding binds a key expression used in a descriptor to a key
+controlled by lnd. The descriptor_key must exactly match the key expression in
+the canonical descriptor and the derived public keys must agree.
+*/
+message SweepDescriptorKeyBinding {
+    // The key expression as it appears in the descriptor.
+    string descriptor_key = 1;
+
+    // The key locator of the corresponding key in lnd's wallet.
+    signrpc.KeyLocator key_locator = 2;
+}
+
+message RegisterSweepDescriptorRequest {
+    /*
+    The output descriptor to watch and sweep. Private descriptors (WIF or xprv)
+    are rejected. The implementation accepts fixed-index native wsh()
+    descriptors and tr() descriptors with Miniscript script paths. A tr()
+    descriptor is always swept through a script path, so its internal key does
+    not need an lnd key binding.
+    */
+    string output_descriptor = 1;
+
+    /*
+    The derivation index to use for wildcard descriptors. This must be zero in
+    the initial fixed-index implementation.
+    */
+    uint32 derivation_index = 2;
+
+    // Required. The non-zero earliest block height at which the output may
+    // have been created.
+    uint32 height_hint = 3;
+
+    /*
+    The number of confirmations required before the output may be swept. This
+    is the registration's source-finality policy: the initial implementation
+    does not roll an offered input back after a deeper funding reorganization.
+    */
+    uint32 min_confs = 4;
+
+    // Keys in the descriptor for which lnd should produce signatures.
+    repeated SweepDescriptorKeyBinding key_bindings = 5;
+
+    // Required. The non-zero maximum number of satoshis the sweep may spend on
+    // fees.
+    uint64 budget_sat = 6;
+
+    /*
+    The number of blocks from offering a satisfiable output to the sweeper by
+    which the sweep should confirm. A value of zero uses the sweeper's default
+    deadline.
+    */
+    uint32 deadline_delta = 7;
+
+    // Whether to offer a satisfiable output to the sweeper immediately.
+    bool immediate = 8;
+
+    // An optional human-readable label for this registration.
+    string label = 9;
+
+    /*
+    Required. The exact value in satoshis of the output to watch. An output is
+    accepted only when both its script and value match this registration.
+    */
+    uint64 expected_value_sat = 10;
+}
+
+message RegisterSweepDescriptorResponse {
+    // The stable ID of the registration.
+    bytes registration_id = 1;
+
+    // The parsed descriptor serialized in canonical form.
+    string output_descriptor = 2;
+
+    // The address derived from the descriptor.
+    string address = 3;
+
+    // The exact output script watched by lnd.
+    bytes pk_script = 4;
+}
+
+message AddSweepDescriptorDataRequest {
+    // The stable ID returned by RegisterSweepDescriptor.
+    bytes registration_id = 1;
+
+    oneof data {
+        /*
+        A 32-byte preimage. lnd derives its SHA256 digest and makes the preimage
+        available only to matching hash fragments in the descriptor.
+        */
+        bytes preimage = 2;
+    }
+}
+
+message AddSweepDescriptorDataResponse {
+    // The updated state of the registration.
+    SweepDescriptorStatus status = 1;
+}
+
+message ListSweepDescriptorsRequest {
+    /*
+    An optional registration ID. When omitted, all registrations are returned.
+    */
+    bytes registration_id = 1;
+}
+
+message ListSweepDescriptorsResponse {
+    // The matching descriptor sweep registrations.
+    repeated SweepDescriptorStatus descriptors = 1;
+}
+
+message SweepDescriptorStatus {
+    // The stable ID of the registration.
+    bytes registration_id = 1;
+
+    // The descriptor serialized in canonical form.
+    string output_descriptor = 2;
+
+    // The address derived from the descriptor.
+    string address = 3;
+
+    // The exact output script watched by lnd.
+    bytes pk_script = 4;
+
+    // The current lifecycle state.
+    SweepDescriptorState state = 5;
+
+    // The matching outpoint, once an output has been found.
+    lnrpc.OutPoint outpoint = 6;
+
+    // The transaction ID of the confirmed sweep transaction.
+    bytes sweep_txid = 7;
+
+    // The terminal error when state is SWEEP_DESCRIPTOR_STATE_FAILED.
+    string failure_reason = 8;
+
+    // The earliest block height watched by this registration.
+    uint32 height_hint = 9;
+
+    // The requested confirmation depth of a matching output.
+    uint32 min_confs = 10;
+
+    // Keys in the descriptor that are bound to lnd wallet keys.
+    repeated SweepDescriptorKeyBinding key_bindings = 11;
+
+    // The maximum number of satoshis the sweep may spend on fees.
+    uint64 budget_sat = 12;
+
+    // The requested sweep deadline delta.
+    uint32 deadline_delta = 13;
+
+    // Whether the sweep is offered to the sweeper immediately.
+    bool immediate = 14;
+
+    // The optional human-readable registration label.
+    string label = 15;
+
+    // The exact output value required by this registration.
+    uint64 expected_value_sat = 16;
 }

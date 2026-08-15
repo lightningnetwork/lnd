@@ -10,6 +10,7 @@ require (
 	github.com/btcsuite/btcd/btcutil/v2 v2.0.0
 	github.com/btcsuite/btcd/chaincfg/v2 v2.0.0
 	github.com/btcsuite/btcd/chainhash/v2 v2.0.0
+	github.com/btcsuite/btcd/descriptors v0.0.0-20260813130254-877b61a38433
 	github.com/btcsuite/btcd/psbt/v2 v2.0.0
 	github.com/btcsuite/btcd/txscript/v2 v2.0.0
 	github.com/btcsuite/btcd/wire/v2 v2.0.0
@@ -208,6 +209,10 @@ require (
 
 // TODO(elle): remove once the gossip V2 sqldb changes have been made.
 replace github.com/lightningnetwork/lnd/sqldb => ./sqldb
+
+// TODO: Remove this replacement once the descriptor extensions required by
+// the descriptor sweep service land in btcsuite/btcd.
+replace github.com/btcsuite/btcd/descriptors => github.com/sputn1ck/btcd/descriptors v0.0.0-20260813130254-877b61a38433
 
 // We want to format raw bytes as hex instead of base64. The forked version
 // allows us to specify that as an option.

@@ -492,6 +492,10 @@ var allTestCases = []*lntest.TestCase{
 		TestFunc: testNonstdSweep,
 	},
 	{
+		Name:     "descriptor sweep",
+		TestFunc: testDescriptorSweep,
+	},
+	{
 		Name:     "multiple channel creation and update subscription",
 		TestFunc: testBasicChannelCreationAndUpdates,
 	},

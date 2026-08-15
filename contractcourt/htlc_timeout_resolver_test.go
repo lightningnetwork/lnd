@@ -1612,6 +1612,106 @@ func TestHtlcTimeoutRejectsMalformedOutput(t *testing.T) {
 	}
 }
 
+// TestHtlcTimeoutSkipsRestoredForeignOutput tests that Launch skips a phantom
+// sweep and leaves a replayed foreign spend for Resolve to checkpoint.
+func TestHtlcTimeoutSkipsRestoredForeignOutput(t *testing.T) {
+	// Arrange an incubating resolver restored from disk with a historical
+	// foreign spend that omits the committed second-level output.
+	commitOutpoint := wire.OutPoint{Index: 3}
+	timeoutTx := &wire.MsgTx{
+		TxIn: []*wire.TxIn{{
+			PreviousOutPoint: commitOutpoint,
+			Witness:          wire.TxWitness{{0x01}},
+		}},
+		TxOut: []*wire.TxOut{cloneTxOut(testSignDesc.Output)},
+	}
+	resolution := lnwallet.OutgoingHtlcResolution{
+		ClaimOutpoint:   commitOutpoint,
+		SignedTimeoutTx: timeoutTx,
+		SignDetails: &input.SignDetails{
+			SignDesc: testSignDesc,
+			PeerSig:  testSig,
+		},
+		SweepSignDesc: testSignDesc,
+	}
+	foreignTx := &wire.MsgTx{
+		TxIn: []*wire.TxIn{{
+			PreviousOutPoint: commitOutpoint,
+			Witness:          wire.TxWitness{{0x01}},
+		}},
+	}
+	foreignSpend := newSpendDetail(commitOutpoint, foreignTx, 0)
+
+	ctx := newHtlcResolverTestContext(t, func(htlc channeldb.HTLC,
+		cfg ResolverConfig) ContractResolver {
+
+		resolver := newTimeoutResolver(resolution, 0, htlc, 0, cfg)
+		resolver.outputIncubating = true
+		var state bytes.Buffer
+		require.NoError(t, resolver.Encode(&state))
+
+		restored, err := newTimeoutResolverFromReader(&state, cfg)
+		require.NoError(t, err)
+		restored.Supplement(htlc)
+
+		return restored
+	})
+	var (
+		checkpoints int
+		reports     []*channeldb.ResolverReport
+	)
+	ctx.checkpoint = func(_ ContractResolver,
+		got ...*channeldb.ResolverReport) error {
+
+		checkpoints++
+		reports = got
+		return nil
+	}
+
+	resolver, ok := ctx.resolver.(*htlcTimeoutResolver)
+	require.True(t, ok)
+	sweeper, ok := resolver.Sweeper.(*mockSweeper)
+	require.True(t, ok)
+	ctx.notifier.SpendChan <- foreignSpend
+
+	// Act by launching the restored resolver before Resolve can consume
+	// the replayed spend.
+	require.NoError(t, resolver.Launch())
+
+	// Assert Launch leaves cleanup ownership intact and submits no phantom
+	// sweep, checkpoint, report, outcome, or notification.
+	require.False(t, resolver.IsResolved())
+	require.True(t, resolver.outputIncubating)
+	require.Empty(t, sweeper.sweptInputs)
+	require.Zero(t, checkpoints)
+	require.Empty(t, reports)
+	require.Empty(t, ctx.resolutionChan)
+	require.False(t, ctx.finalHtlcOutcomeStored)
+	require.Empty(t, ctx.htlcNotifier.finalHtlcEvents)
+
+	ctx.notifier.SpendChan <- foreignSpend
+
+	// Act again by resolving the same historical spend through the normal
+	// terminal lifecycle.
+	nextResolver, err := resolver.Resolve()
+
+	// Assert Resolve owns the timeout checkpoint and failure notification
+	// while leaving the sweeper untouched.
+	require.NoError(t, err)
+	require.Nil(t, nextResolver)
+	require.True(t, resolver.IsResolved())
+	require.Equal(t, 1, checkpoints)
+	require.Len(t, reports, 1)
+	require.Equal(t, commitOutpoint, reports[0].OutPoint)
+	require.Equal(t, foreignTx.TxHash(), *reports[0].SpendTxID)
+	require.Equal(t, channeldb.ResolverOutcomeTimeout,
+		reports[0].ResolverOutcome)
+	require.NotNil(t, (<-ctx.resolutionChan).Failure)
+	require.Empty(t, sweeper.sweptInputs)
+	require.False(t, ctx.finalHtlcOutcomeStored)
+	require.Empty(t, ctx.htlcNotifier.finalHtlcEvents)
+}
+
 // TestHtlcTimeoutSecondStageSweeperRemoteSpend tests that if a local timeout
 // tx is offered to the sweeper, but the output is swept by the remote node, we
 // properly detect this and extract the preimage.

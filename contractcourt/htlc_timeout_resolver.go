@@ -602,7 +602,7 @@ func (h *htlcTimeoutResolver) waitForConfirmedSpend(op *wire.OutPoint,
 	// We'll block here until either we exit, or the HTLC output on the
 	// commitment transaction has been spent.
 	spend, err := waitForSpend(
-		op, pkScript, h.broadcastHeight, h.Notifier, h.quit,
+		op, pkScript, h.broadcastHeight, 1, h.Notifier, h.quit,
 	)
 	if err != nil {
 		return nil, err
@@ -1270,7 +1270,7 @@ func (h *htlcTimeoutResolver) resolveTimeoutTxOutput(op wire.OutPoint) error {
 
 	spend, err := waitForSpend(
 		&op, h.htlcResolution.SweepSignDesc.Output.PkScript,
-		h.broadcastHeight, h.Notifier, h.quit,
+		h.broadcastHeight, 1, h.Notifier, h.quit,
 	)
 	if err != nil {
 		return err

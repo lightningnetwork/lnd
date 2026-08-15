@@ -279,9 +279,10 @@ func testHtlcTimeoutResolver(t *testing.T, testCase htlcTimeoutTestCase) {
 	copy(fakePreimage[:], fakePreimageBytes)
 
 	notifier := &mock.ChainNotifier{
-		EpochChan: make(chan *chainntnfs.BlockEpoch),
-		SpendChan: make(chan *chainntnfs.SpendDetail, 1),
-		ConfChan:  make(chan *chainntnfs.TxConfirmation),
+		EpochChan:   make(chan *chainntnfs.BlockEpoch),
+		SpendChan:   make(chan *chainntnfs.SpendDetail, 1),
+		ConfChan:    make(chan *chainntnfs.TxConfirmation),
+		AutoConfirm: true,
 	}
 
 	witnessBeacon := newMockWitnessBeacon()
@@ -293,9 +294,10 @@ func testHtlcTimeoutResolver(t *testing.T, testCase htlcTimeoutTestCase) {
 	//nolint:ll
 	chainCfg := ChannelArbitratorConfig{
 		ChainArbitratorConfig: ChainArbitratorConfig{
-			Notifier:   notifier,
-			Sweeper:    newMockSweeper(),
-			PreimageDB: witnessBeacon,
+			Notifier:          notifier,
+			Sweeper:           newMockSweeper(),
+			PreimageDB:        witnessBeacon,
+			ChannelCloseConfs: fn.Some(uint32(1)),
 			IncubateOutputs: func(wire.OutPoint,
 				fn.Option[lnwallet.OutgoingHtlcResolution],
 				fn.Option[lnwallet.IncomingHtlcResolution],

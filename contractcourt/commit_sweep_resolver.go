@@ -2,6 +2,7 @@ package contractcourt
 
 import (
 	"encoding/binary"
+	"errors"
 	"fmt"
 	"io"
 	"sync"
@@ -98,11 +99,16 @@ func (c *commitSweepResolver) ResolverKey() []byte {
 	return key[:]
 }
 
-// waitForSpend waits for the given outpoint to be spent, and returns the
-// details of the spending tx.
-func waitForSpend(op *wire.OutPoint, pkScript []byte, heightHint uint32,
-	notifier chainntnfs.ChainNotifier, quit <-chan struct{}) (
-	*chainntnfs.SpendDetail, error) {
+// waitForSpend waits for the given outpoint's spend to reach numConfs and
+// returns the details of the spending transaction.
+func waitForSpend(op *wire.OutPoint, pkScript []byte, heightHint,
+	numConfs uint32, notifier chainntnfs.ChainNotifier,
+	quit <-chan struct{}) (*chainntnfs.SpendDetail, error) {
+
+	finality, err := chainntnfs.NewSpendFinality(numConfs)
+	if err != nil {
+		return nil, err
+	}
 
 	spendNtfn, err := notifier.RegisterSpendNtfn(
 		op, pkScript, heightHint,
@@ -111,17 +117,14 @@ func waitForSpend(op *wire.OutPoint, pkScript []byte, heightHint uint32,
 		return nil, err
 	}
 
-	select {
-	case spendDetail, ok := <-spendNtfn.Spend:
-		if !ok {
-			return nil, errResolverShuttingDown
-		}
-
-		return spendDetail, nil
-
-	case <-quit:
+	spend, err := chainntnfs.WaitForSpendConfirmations(
+		spendNtfn, notifier, pkScript, finality, quit,
+	)
+	if errors.Is(err, chainntnfs.ErrChainNotifierShuttingDown) {
 		return nil, errResolverShuttingDown
 	}
+
+	return spend, err
 }
 
 // Resolve instructs the contract resolver to resolve the output on-chain. Once

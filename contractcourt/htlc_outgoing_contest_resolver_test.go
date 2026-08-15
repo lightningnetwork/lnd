@@ -162,9 +162,10 @@ type outgoingResolverTestContext struct {
 
 func newOutgoingResolverTestContext(t *testing.T) *outgoingResolverTestContext {
 	notifier := &mock.ChainNotifier{
-		EpochChan: make(chan *chainntnfs.BlockEpoch),
-		SpendChan: make(chan *chainntnfs.SpendDetail),
-		ConfChan:  make(chan *chainntnfs.TxConfirmation),
+		EpochChan:   make(chan *chainntnfs.BlockEpoch),
+		SpendChan:   make(chan *chainntnfs.SpendDetail),
+		ConfChan:    make(chan *chainntnfs.TxConfirmation),
+		AutoConfirm: true,
 	}
 
 	checkPointChan := make(chan struct{}, 1)
@@ -176,8 +177,9 @@ func newOutgoingResolverTestContext(t *testing.T) *outgoingResolverTestContext {
 
 	chainCfg := ChannelArbitratorConfig{
 		ChainArbitratorConfig: ChainArbitratorConfig{
-			Notifier:   notifier,
-			PreimageDB: preimageDB,
+			Notifier:          notifier,
+			PreimageDB:        preimageDB,
+			ChannelCloseConfs: fn.Some(uint32(1)),
 			DeliverResolutionMsg: func(msgs ...ResolutionMsg) error {
 				if len(msgs) != 1 {
 					return fmt.Errorf("expected 1 "+

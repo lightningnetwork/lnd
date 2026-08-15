@@ -55,9 +55,10 @@ func newHtlcResolverTestContext(t *testing.T,
 		cfg ResolverConfig) ContractResolver) *htlcResolverTestContext {
 
 	notifier := &mock.ChainNotifier{
-		EpochChan: make(chan *chainntnfs.BlockEpoch, 1),
-		SpendChan: make(chan *chainntnfs.SpendDetail, 1),
-		ConfChan:  make(chan *chainntnfs.TxConfirmation, 1),
+		EpochChan:   make(chan *chainntnfs.BlockEpoch, 1),
+		SpendChan:   make(chan *chainntnfs.SpendDetail, 1),
+		ConfChan:    make(chan *chainntnfs.TxConfirmation, 1),
+		AutoConfirm: true,
 	}
 
 	testCtx := &htlcResolverTestContext{
@@ -72,8 +73,9 @@ func newHtlcResolverTestContext(t *testing.T,
 	witnessBeacon := newMockWitnessBeacon()
 	chainCfg := ChannelArbitratorConfig{
 		ChainArbitratorConfig: ChainArbitratorConfig{
-			Notifier:   notifier,
-			PreimageDB: witnessBeacon,
+			Notifier:          notifier,
+			PreimageDB:        witnessBeacon,
+			ChannelCloseConfs: fn.Some(uint32(1)),
 			PublishTx: func(_ *wire.MsgTx, _ string) error {
 				return nil
 			},

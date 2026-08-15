@@ -11,10 +11,13 @@ import (
 
 // ChainNotifier is a mock implementation of the ChainNotifier interface.
 type ChainNotifier struct {
-	SpendChan      chan *chainntnfs.SpendDetail
-	EpochChan      chan *chainntnfs.BlockEpoch
-	ConfChan       chan *chainntnfs.TxConfirmation
-	ConfRegistered chan struct{}
+	SpendChan        chan *chainntnfs.SpendDetail
+	SpendReorgChan   chan struct{}
+	EpochChan        chan *chainntnfs.BlockEpoch
+	ConfChan         chan *chainntnfs.TxConfirmation
+	NegativeConfChan chan int32
+	ConfRegistered   chan struct{}
+	AutoConfirm      bool
 }
 
 // RegisterConfirmationsNtfn returns a ConfirmationEvent that contains a channel
@@ -31,9 +34,20 @@ func (c *ChainNotifier) RegisterConfirmationsNtfn(txid *chainhash.Hash,
 		}
 	}
 
+	confChan := c.ConfChan
+	options := chainntnfs.DefaultNotifierOptions()
+	for _, option := range opts {
+		option(options)
+	}
+	if c.AutoConfirm && options.TxIDOnlyMatch && numConfs == 1 {
+		confChan = make(chan *chainntnfs.TxConfirmation, 1)
+		confChan <- &chainntnfs.TxConfirmation{}
+	}
+
 	return &chainntnfs.ConfirmationEvent{
-		Confirmed: c.ConfChan,
-		Cancel:    func() {},
+		Confirmed:    confChan,
+		NegativeConf: c.NegativeConfChan,
+		Cancel:       func() {},
 	}, nil
 }
 
@@ -44,6 +58,7 @@ func (c *ChainNotifier) RegisterSpendNtfn(outpoint *wire.OutPoint,
 
 	return &chainntnfs.SpendEvent{
 		Spend:  c.SpendChan,
+		Reorg:  c.SpendReorgChan,
 		Cancel: func() {},
 	}, nil
 }

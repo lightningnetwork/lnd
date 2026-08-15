@@ -425,9 +425,10 @@ type incomingResolverTestContext struct {
 
 func newIncomingResolverTestContext(t *testing.T, isExit bool) *incomingResolverTestContext {
 	notifier := &mock.ChainNotifier{
-		EpochChan: make(chan *chainntnfs.BlockEpoch),
-		SpendChan: make(chan *chainntnfs.SpendDetail),
-		ConfChan:  make(chan *chainntnfs.TxConfirmation),
+		EpochChan:   make(chan *chainntnfs.BlockEpoch),
+		SpendChan:   make(chan *chainntnfs.SpendDetail),
+		ConfChan:    make(chan *chainntnfs.TxConfirmation),
+		AutoConfirm: true,
 	}
 	witnessBeacon := newMockWitnessBeacon()
 	registry := &mockRegistry{
@@ -450,10 +451,11 @@ func newIncomingResolverTestContext(t *testing.T, isExit bool) *incomingResolver
 
 	chainCfg := ChannelArbitratorConfig{
 		ChainArbitratorConfig: ChainArbitratorConfig{
-			Notifier:       notifier,
-			PreimageDB:     witnessBeacon,
-			Registry:       registry,
-			OnionProcessor: onionProcessor,
+			Notifier:          notifier,
+			PreimageDB:        witnessBeacon,
+			Registry:          registry,
+			OnionProcessor:    onionProcessor,
+			ChannelCloseConfs: fn.Some(uint32(1)),
 			PutFinalHtlcOutcome: func(chanId lnwire.ShortChannelID,
 				htlcId uint64, settled bool) error {
 

@@ -20,9 +20,10 @@ type SpendNotifier struct {
 func MakeMockSpendNotifier() *SpendNotifier {
 	return &SpendNotifier{
 		ChainNotifier: &ChainNotifier{
-			SpendChan: make(chan *chainntnfs.SpendDetail),
-			EpochChan: make(chan *chainntnfs.BlockEpoch),
-			ConfChan:  make(chan *chainntnfs.TxConfirmation),
+			SpendChan:   make(chan *chainntnfs.SpendDetail),
+			EpochChan:   make(chan *chainntnfs.BlockEpoch),
+			ConfChan:    make(chan *chainntnfs.TxConfirmation),
+			AutoConfirm: true,
 		},
 		spendMap: make(map[wire.OutPoint][]chan *chainntnfs.SpendDetail),
 		spends:   make(map[wire.OutPoint]*chainntnfs.SpendDetail),

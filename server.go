@@ -1286,11 +1286,12 @@ func newServer(ctx context.Context, cfg *Config, listenAddrs []net.Addr,
 	)
 
 	s.txPublisher = sweep.NewTxPublisher(sweep.TxPublisherConfig{
-		Signer:     cc.Wallet.Cfg.Signer,
-		Wallet:     cc.Wallet,
-		Estimator:  cc.FeeEstimator,
-		Notifier:   cc.ChainNotifier,
-		AuxSweeper: s.implCfg.AuxSweeper,
+		Signer:         cc.Wallet.Cfg.Signer,
+		Wallet:         cc.Wallet,
+		Estimator:      cc.FeeEstimator,
+		Notifier:       cc.ChainNotifier,
+		SpendConfDepth: s.cfg.Dev.ChannelCloseConfs(),
+		AuxSweeper:     s.implCfg.AuxSweeper,
 	})
 
 	s.sweeper = sweep.New(&sweep.UtxoSweeperConfig{

@@ -1655,6 +1655,111 @@ func TestBreachSpendReorg(t *testing.T) {
 	}
 }
 
+// TestBreachSpendRetry verifies the spend monitor retries a transient
+// confirmation registration error.
+func TestBreachSpendRetry(t *testing.T) {
+	t.Parallel()
+
+	notifier := &chainntnfs.MockChainNotifier{}
+	brar := NewBreachArbitrator(&BreachConfig{
+		Notifier:       notifier,
+		SpendConfDepth: fn.Some(uint32(2)),
+	})
+
+	outpoint := wire.OutPoint{Index: 1}
+	pkScript := []byte{txscript.OP_TRUE}
+	spendingTx := &wire.MsgTx{
+		TxIn: []*wire.TxIn{{PreviousOutPoint: outpoint}},
+	}
+	spendingHash := spendingTx.TxHash()
+	spendDetail := &chainntnfs.SpendDetail{
+		SpentOutPoint:     &outpoint,
+		SpenderTxHash:     &spendingHash,
+		SpendingTx:        spendingTx,
+		SpendingHeight:    10,
+		SpenderInputIndex: 0,
+	}
+	breachInfo := &retributionInfo{
+		breachedOutputs: []breachedOutput{{
+			amt:      1000,
+			outpoint: outpoint,
+			signDesc: input.SignDescriptor{
+				Output: &wire.TxOut{PkScript: pkScript},
+			},
+		}},
+	}
+
+	firstCanceled := make(chan struct{})
+	firstSpend := chainntnfs.NewSpendEvent(func() {
+		close(firstCanceled)
+	})
+	firstSpend.Spend <- spendDetail
+	secondCanceled := make(chan struct{})
+	secondSpend := chainntnfs.NewSpendEvent(func() {
+		close(secondCanceled)
+	})
+	secondSpend.Spend <- spendDetail
+	notifier.On(
+		"RegisterSpendNtfn", &outpoint, pkScript,
+		testifymock.Anything,
+	).Return(firstSpend, nil).Once()
+	notifier.On(
+		"RegisterSpendNtfn", &outpoint, pkScript,
+		testifymock.Anything,
+	).Return(secondSpend, nil).Once()
+
+	registerErr := errors.New("temporary registration failure")
+	notifier.On(
+		"RegisterConfirmationsNtfn", &spendingHash, pkScript,
+		uint32(2), uint32(10),
+	).Return(nil, registerErr).Once()
+	registered := make(chan struct{})
+	confEvent := chainntnfs.NewConfirmationEvent(2, func() {})
+	notifier.On(
+		"RegisterConfirmationsNtfn", &spendingHash, pkScript,
+		uint32(2), uint32(10),
+	).Run(func(_ testifymock.Arguments) {
+		close(registered)
+	}).Return(confEvent, nil).Once()
+
+	type waitResult struct {
+		spends []spend
+		err    error
+	}
+	resultChan := make(chan waitResult, 1)
+	go func() {
+		spends, err := brar.waitForSpendEvent(breachInfo)
+		resultChan <- waitResult{spends: spends, err: err}
+	}()
+
+	select {
+	case <-registered:
+	case <-time.After(defaultTimeout):
+		t.Fatal("breach spend was not registered again")
+	}
+	confEvent.Confirmed <- &chainntnfs.TxConfirmation{}
+
+	select {
+	case result := <-resultChan:
+		require.NoError(t, result.err)
+		require.Len(t, result.spends, 1)
+		require.Same(t, spendDetail, result.spends[0].detail)
+	case <-time.After(defaultTimeout):
+		t.Fatal("breach spend retry did not complete")
+	}
+	select {
+	case <-firstCanceled:
+	default:
+		t.Fatal("first spend subscription was not canceled")
+	}
+	select {
+	case <-secondCanceled:
+	default:
+		t.Fatal("second spend subscription was not canceled")
+	}
+	notifier.AssertExpectations(t)
+}
+
 // TestBreachSpendShutdownJoinsWorkers verifies shutdown releases workers that
 // started before a later registration failed.
 func TestBreachSpendShutdownJoinsWorkers(t *testing.T) {

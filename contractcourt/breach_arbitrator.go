@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"io"
 	"sync"
+	"time"
 
 	"github.com/btcsuite/btcd/blockchain"
 	"github.com/btcsuite/btcd/btcutil/v2"
@@ -41,6 +42,10 @@ const (
 	// the channel peer can do by pinning the HTLC outputs of the
 	// commitment with low-fee HTLC transactions.
 	blocksPassedSplitPublish = 4
+
+	// breachSpendRetryInterval bounds retries after a transient notifier
+	// registration failure.
+	breachSpendRetryInterval = time.Second
 )
 
 var (
@@ -416,9 +421,30 @@ type spend struct {
 	detail *chainntnfs.SpendDetail
 }
 
-// waitForSpendEvent waits for any of the breached outputs to get spent, and
-// returns the spend details for those outputs.
+// waitForSpendEvent retries transient notification failures while waiting for
+// breached outputs to be spent.
 func (b *BreachArbitrator) waitForSpendEvent(
+	breachInfo *retributionInfo) ([]spend, error) {
+
+	for {
+		spends, err := b.waitForSpendAttempt(breachInfo)
+		if err == nil || errors.Is(err, errBrarShuttingDown) ||
+			errors.Is(err, chainntnfs.ErrNumConfsOutOfRange) {
+
+			return spends, err
+		}
+
+		brarLog.Errorf("Unable to monitor breach spends: %v", err)
+		select {
+		case <-time.After(breachSpendRetryInterval):
+		case <-b.quit:
+			return nil, errBrarShuttingDown
+		}
+	}
+}
+
+// waitForSpendAttempt waits for any breached output to reach finality once.
+func (b *BreachArbitrator) waitForSpendAttempt(
 	breachInfo *retributionInfo) ([]spend, error) {
 
 	inputs := breachInfo.breachedOutputs
@@ -468,7 +494,10 @@ func (b *BreachArbitrator) waitForSpendEvent(
 				stopWaiters()
 				return nil, errBrarShuttingDown
 			default:
-				continue
+				stopWaiters()
+				return nil, fmt.Errorf(
+					"register spend notification: %w", err,
+				)
 			}
 		}
 
@@ -497,7 +526,8 @@ func (b *BreachArbitrator) waitForSpendEvent(
 			sp, err := chainntnfs.WaitForSpendConfirmations(
 				spendEv, b.cfg.Notifier,
 				inputs[index].signDesc.Output.PkScript,
-				spendFinality, exit,
+				spendFinality,
+				exit,
 			)
 			if err != nil {
 				select {

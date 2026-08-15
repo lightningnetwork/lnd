@@ -284,7 +284,6 @@ func testHtlcTimeoutResolver(t *testing.T, testCase htlcTimeoutTestCase) {
 		ConfChan:    make(chan *chainntnfs.TxConfirmation),
 		AutoConfirm: true,
 	}
-
 	witnessBeacon := newMockWitnessBeacon()
 	checkPointChan := make(chan struct{}, 1)
 	incubateChan := make(chan struct{}, 1)
@@ -552,6 +551,120 @@ func TestHtlcTimeoutResolver(t *testing.T) {
 			testHtlcTimeoutResolver(t, testCase)
 		})
 	}
+}
+
+// TestHtlcTimeoutResolverSpendReorg verifies terminal state follows a stable
+// replacement spend.
+func TestHtlcTimeoutResolverSpendReorg(t *testing.T) {
+	t.Parallel()
+	defer timeout()()
+
+	resolution := lnwallet.OutgoingHtlcResolution{
+		ClaimOutpoint: testChanPoint2,
+		SweepSignDesc: testSignDesc,
+	}
+	ctx := newHtlcResolverTestContext(t,
+		func(htlc channeldb.HTLC,
+			cfg ResolverConfig) ContractResolver {
+
+			resolver := &htlcTimeoutResolver{
+				contractResolverKit: *newContractResolverKit(
+					cfg,
+				),
+				htlcResolution: resolution,
+				htlc:           htlc,
+			}
+			resolver.initLogger("htlcTimeoutResolver")
+
+			return resolver
+		},
+	)
+	ctx.notifier.SpendReorgChan = make(chan struct{}, 1)
+	ctx.notifier.NegativeConfChan = make(chan int32, 1)
+	ctx.notifier.ConfRegistered = make(chan struct{}, 1)
+	resolver, ok := ctx.resolver.(*htlcTimeoutResolver)
+	require.True(t, ok)
+	resolver.ChannelCloseConfs = fn.Some(uint32(2))
+
+	checkpointChan := make(chan []*channeldb.ResolverReport, 1)
+	ctx.checkpoint = func(_ ContractResolver,
+		reports ...*channeldb.ResolverReport) error {
+
+		checkpointChan <- reports
+		return nil
+	}
+
+	require.NoError(t, resolver.Launch())
+	resultChan := make(chan resolveResult, 1)
+	go func() {
+		nextResolver, err := resolver.Resolve()
+		resultChan <- resolveResult{
+			nextResolver: nextResolver,
+			err:          err,
+		}
+	}()
+
+	firstTx := &wire.MsgTx{
+		TxIn: []*wire.TxIn{{
+			Witness: wire.TxWitness{
+				nil, nil, nil,
+				make([]byte, lntypes.HashSize), nil,
+			},
+		}},
+		TxOut: []*wire.TxOut{{PkScript: []byte{txscript.OP_RETURN}}},
+	}
+	firstHash := firstTx.TxHash()
+	ctx.notifier.SpendChan <- &chainntnfs.SpendDetail{
+		SpendingTx:        firstTx,
+		SpenderTxHash:     &firstHash,
+		SpentOutPoint:     &testChanPoint2,
+		SpendingHeight:    10,
+		SpenderInputIndex: 0,
+	}
+	select {
+	case <-ctx.notifier.ConfRegistered:
+	case <-time.After(defaultTimeout):
+		t.Fatal("first spend confirmation was not registered")
+	}
+
+	select {
+	case <-ctx.resolutionChan:
+		t.Fatal("resolution delivered before stable spend")
+	case <-checkpointChan:
+		t.Fatal("checkpoint written before stable spend")
+	case <-resultChan:
+		t.Fatal("resolver completed before stable spend")
+	default:
+	}
+
+	ctx.notifier.SpendReorgChan <- struct{}{}
+	replacementTx := firstTx.Copy()
+	replacementTx.LockTime = 1
+	replacementTx.TxIn[0].Witness[remotePreimageIndex] =
+		testResPreimage[:]
+	replacementHash := replacementTx.TxHash()
+	ctx.notifier.SpendChan <- &chainntnfs.SpendDetail{
+		SpendingTx:        replacementTx,
+		SpenderTxHash:     &replacementHash,
+		SpentOutPoint:     &testChanPoint2,
+		SpendingHeight:    11,
+		SpenderInputIndex: 0,
+	}
+	ctx.notifier.WaitForConfRegistrationAndSend(t)
+
+	resolutionMsg := <-ctx.resolutionChan
+	require.NotNil(t, resolutionMsg.PreImage)
+	require.Equal(t, testResPreimage[:], resolutionMsg.PreImage[:])
+	reports := <-checkpointChan
+	require.Len(t, reports, 1)
+	require.Equal(t, channeldb.ResolverOutcomeClaimed,
+		reports[0].ResolverOutcome)
+	require.Equal(t, &replacementHash, reports[0].SpendTxID)
+
+	result := <-resultChan
+	require.NoError(t, result.err)
+	require.Nil(t, result.nextResolver)
+	require.True(t, resolver.IsResolved())
 }
 
 // NOTE: the following tests essentially checks many of the same scenarios as

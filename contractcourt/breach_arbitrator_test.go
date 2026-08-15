@@ -34,6 +34,7 @@ import (
 	"github.com/lightningnetwork/lnd/lnwire"
 	"github.com/lightningnetwork/lnd/shachain"
 	"github.com/lightningnetwork/lnd/tlv"
+	testifymock "github.com/stretchr/testify/mock"
 	"github.com/stretchr/testify/require"
 )
 
@@ -1652,6 +1653,97 @@ func TestBreachSpendReorg(t *testing.T) {
 	case <-time.After(defaultTimeout):
 		t.Fatal("replacement spend was not delivered")
 	}
+}
+
+// TestBreachSpendShutdownJoinsWorkers verifies shutdown releases workers that
+// started before a later registration failed.
+func TestBreachSpendShutdownJoinsWorkers(t *testing.T) {
+	t.Parallel()
+
+	notifier := &chainntnfs.MockChainNotifier{}
+	brar := NewBreachArbitrator(&BreachConfig{
+		Notifier:       notifier,
+		SpendConfDepth: fn.Some(uint32(2)),
+	})
+	pkScript := []byte{txscript.OP_TRUE}
+	firstOutpoint := wire.OutPoint{Index: 1}
+	secondOutpoint := wire.OutPoint{Index: 2}
+	breachInfo := &retributionInfo{
+		breachedOutputs: []breachedOutput{
+			{
+				outpoint: firstOutpoint,
+				signDesc: input.SignDescriptor{
+					Output: &wire.TxOut{PkScript: pkScript},
+				},
+			},
+			{
+				outpoint: secondOutpoint,
+				signDesc: input.SignDescriptor{
+					Output: &wire.TxOut{PkScript: pkScript},
+				},
+			},
+		},
+	}
+
+	firstCanceled := make(chan struct{})
+	firstSpend := chainntnfs.NewSpendEvent(func() {
+		close(firstCanceled)
+	})
+	notifier.On(
+		"RegisterSpendNtfn", &firstOutpoint, pkScript,
+		testifymock.Anything,
+	).Return(firstSpend, nil).Once()
+	registrationStarted := make(chan struct{})
+	releaseRegistration := make(chan struct{})
+	registerErr := errors.New("registration failed")
+	notifier.On(
+		"RegisterSpendNtfn", &secondOutpoint, pkScript,
+		testifymock.Anything,
+	).Run(func(_ testifymock.Arguments) {
+		close(registrationStarted)
+		<-releaseRegistration
+	}).Return(nil, registerErr).Once()
+
+	waitErr := make(chan error, 1)
+	go func() {
+		_, err := brar.waitForSpendEvent(breachInfo)
+		waitErr <- err
+	}()
+	select {
+	case <-registrationStarted:
+	case <-time.After(defaultTimeout):
+		t.Fatal("second registration did not start")
+	}
+
+	stopErr := make(chan error, 1)
+	go func() {
+		stopErr <- brar.Stop()
+	}()
+	select {
+	case <-brar.quit:
+	case <-time.After(defaultTimeout):
+		t.Fatal("breach arbitrator did not begin shutdown")
+	}
+	close(releaseRegistration)
+
+	select {
+	case err := <-waitErr:
+		require.ErrorIs(t, err, errBrarShuttingDown)
+	case <-time.After(defaultTimeout):
+		t.Fatal("spend wait did not stop")
+	}
+	select {
+	case err := <-stopErr:
+		require.NoError(t, err)
+	case <-time.After(defaultTimeout):
+		t.Fatal("breach arbitrator stop deadlocked")
+	}
+	select {
+	case <-firstCanceled:
+	default:
+		t.Fatal("started spend subscription was not canceled")
+	}
+	notifier.AssertExpectations(t)
 }
 
 func testBreachSpends(t *testing.T, test breachTest) {

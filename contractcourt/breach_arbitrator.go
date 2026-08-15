@@ -436,6 +436,10 @@ func (b *BreachArbitrator) waitForSpendEvent(
 	exit := make(chan struct{})
 	waitErr := make(chan error, len(inputs))
 	var wg sync.WaitGroup
+	stopWaiters := func() {
+		close(exit)
+		wg.Wait()
+	}
 
 	// We'll now launch a goroutine for each of the HTLC outputs, that will
 	// signal the moment they detect a spend event.
@@ -461,6 +465,7 @@ func (b *BreachArbitrator) waitForSpendEvent(
 			// to avoid entering an infinite loop.
 			select {
 			case <-b.quit:
+				stopWaiters()
 				return nil, errBrarShuttingDown
 			default:
 				continue
@@ -475,20 +480,24 @@ func (b *BreachArbitrator) waitForSpendEvent(
 		finality, err := chainntnfs.NewSpendFinality(numConfs)
 		if err != nil {
 			spendNtfn.Cancel()
+			stopWaiters()
+
 			return nil, err
 		}
 
 		// Launch a goroutine waiting for a spend event.
 		b.wg.Add(1)
 		wg.Add(1)
-		go func(index int, spendEv *chainntnfs.SpendEvent) {
+		go func(index int, spendEv *chainntnfs.SpendEvent,
+			spendFinality *chainntnfs.SpendFinality) {
+
 			defer b.wg.Done()
 			defer wg.Done()
 
 			sp, err := chainntnfs.WaitForSpendConfirmations(
 				spendEv, b.cfg.Notifier,
-				inputs[index].signDesc.Output.PkScript, finality,
-				exit,
+				inputs[index].signDesc.Output.PkScript,
+				spendFinality, exit,
 			)
 			if err != nil {
 				select {
@@ -512,7 +521,7 @@ func (b *BreachArbitrator) waitForSpendEvent(
 
 			allSpends <- spend{index, sp}
 			anySpend <- struct{}{}
-		}(i, spendNtfn)
+		}(i, spendNtfn, finality)
 	}
 
 	// We'll wait for any of the outputs to be spent, or that we are
@@ -521,8 +530,7 @@ func (b *BreachArbitrator) waitForSpendEvent(
 	// A goroutine have signalled that a spend occurred.
 	case <-anySpend:
 		// Signal for the remaining goroutines to exit.
-		close(exit)
-		wg.Wait()
+		stopWaiters()
 
 		// At this point all goroutines that can send on the allSpends
 		// channel have exited. We can therefore safely close the
@@ -538,8 +546,7 @@ func (b *BreachArbitrator) waitForSpendEvent(
 		return spends, nil
 
 	case err := <-waitErr:
-		close(exit)
-		wg.Wait()
+		stopWaiters()
 
 		if errors.Is(err, chainntnfs.ErrChainNotifierShuttingDown) {
 			return nil, errBrarShuttingDown
@@ -548,8 +555,7 @@ func (b *BreachArbitrator) waitForSpendEvent(
 		return nil, err
 
 	case <-b.quit:
-		close(exit)
-		wg.Wait()
+		stopWaiters()
 
 		return nil, errBrarShuttingDown
 	}

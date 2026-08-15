@@ -1552,6 +1552,108 @@ func TestBreachSpends(t *testing.T) {
 	}
 }
 
+// TestBreachSpendReorg verifies that a reorged spend does not advance breach
+// output state before a replacement reaches the required depth.
+func TestBreachSpendReorg(t *testing.T) {
+	// Arrange: Configure the arbiter to require two spend confirmations.
+	notifier := &mock.ChainNotifier{
+		SpendChan:        make(chan *chainntnfs.SpendDetail, 2),
+		SpendReorgChan:   make(chan struct{}, 1),
+		ConfChan:         make(chan *chainntnfs.TxConfirmation, 1),
+		NegativeConfChan: make(chan int32, 1),
+		ConfRegistered:   make(chan struct{}, 2),
+	}
+	brar := NewBreachArbitrator(&BreachConfig{
+		Notifier:       notifier,
+		SpendConfDepth: fn.Some(uint32(2)),
+	})
+
+	outpoint := wire.OutPoint{Index: 1}
+	pkScript := []byte{txscript.OP_TRUE}
+	breachInfo := &retributionInfo{
+		breachedOutputs: []breachedOutput{{
+			amt:         1000,
+			outpoint:    outpoint,
+			witnessType: input.CommitmentRevoke,
+			signDesc: input.SignDescriptor{
+				Output: &wire.TxOut{
+					Value:    1000,
+					PkScript: pkScript,
+				},
+			},
+		}},
+	}
+	newSpend := func(lockTime uint32) *chainntnfs.SpendDetail {
+		tx := &wire.MsgTx{
+			TxIn: []*wire.TxIn{{
+				PreviousOutPoint: outpoint,
+			}},
+			TxOut:    []*wire.TxOut{{Value: 900}},
+			LockTime: lockTime,
+		}
+		txHash := tx.TxHash()
+
+		return &chainntnfs.SpendDetail{
+			SpentOutPoint:     &outpoint,
+			SpendingHeight:    10,
+			SpendingTx:        tx,
+			SpenderTxHash:     &txHash,
+			SpenderInputIndex: 0,
+		}
+	}
+	type waitResult struct {
+		spends []spend
+		err    error
+	}
+	resultChan := make(chan waitResult, 1)
+	go func() {
+		spends, err := brar.waitForSpendEvent(breachInfo)
+		resultChan <- waitResult{spends: spends, err: err}
+	}()
+
+	// Act: Reorg the first candidate, then deliver a replacement.
+	notifier.SpendChan <- newSpend(1)
+	select {
+	case <-notifier.ConfRegistered:
+	case <-time.After(defaultTimeout):
+		t.Fatal("first spend confirmation was not registered")
+	}
+
+	notifier.SpendReorgChan <- struct{}{}
+	replacement := newSpend(2)
+	notifier.SpendChan <- replacement
+	select {
+	case <-notifier.ConfRegistered:
+	case <-time.After(defaultTimeout):
+		t.Fatal("replacement confirmation was not registered")
+	}
+
+	// Assert: The breach output remains active until the replacement is
+	// confirmed, then transitions to its terminal state.
+	select {
+	case <-resultChan:
+		t.Fatal("reorged spend advanced breach state")
+	default:
+	}
+	require.Len(t, breachInfo.breachedOutputs, 1)
+
+	notifier.ConfChan <- &chainntnfs.TxConfirmation{}
+	select {
+	case result := <-resultChan:
+		require.NoError(t, result.err)
+		require.Len(t, result.spends, 1)
+		require.Equal(
+			t, replacement.SpenderTxHash,
+			result.spends[0].detail.SpenderTxHash,
+		)
+		updateBreachInfo(breachInfo, result.spends)
+		require.Empty(t, breachInfo.breachedOutputs)
+
+	case <-time.After(defaultTimeout):
+		t.Fatal("replacement spend was not delivered")
+	}
+}
+
 func testBreachSpends(t *testing.T, test breachTest) {
 	brar, alice, _, bobClose, contractBreaches := initBreachedState(t)
 
@@ -2147,7 +2249,8 @@ func createTestArbiter(t *testing.T, contractBreaches chan *ContractBreachEvent,
 		PublishTransaction: func(_ *wire.MsgTx, _ string) error {
 			return nil
 		},
-		Store: store,
+		Store:          store,
+		SpendConfDepth: fn.Some(uint32(1)),
 	})
 
 	if err := ba.Start(); err != nil {

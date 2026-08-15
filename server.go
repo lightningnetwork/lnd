@@ -1357,7 +1357,8 @@ func newServer(ctx context.Context, cfg *Config, listenAddrs []net.Addr,
 			Store: contractcourt.NewRetributionStore(
 				dbs.ChanStateDB,
 			),
-			AuxSweeper: s.implCfg.AuxSweeper,
+			SpendConfDepth: s.cfg.Dev.ChannelCloseConfs(),
+			AuxSweeper:     s.implCfg.AuxSweeper,
 		},
 	)
 

@@ -1066,6 +1066,10 @@ func (h *htlcTimeoutResolver) isZeroFeeOutput() bool {
 func (h *htlcTimeoutResolver) waitHtlcSpendAndCheckPreimage() (
 	*chainntnfs.SpendDetail, error) {
 
+	if h.htlcResolution.SweepSignDesc.Output == nil {
+		return nil, fmt.Errorf("%w", errInvalidSecondLevelOutput)
+	}
+
 	// Wait for the htlc output to be spent, which can happen in one of the
 	// paths,
 	// 1. The remote party spends the htlc output using the preimage.
@@ -1303,6 +1307,11 @@ func (h *htlcTimeoutResolver) resolveTimeoutTx() error {
 	h.log.Debug("waiting for first-stage 2nd-level HTLC timeout tx to " +
 		"confirm")
 
+	expectedOutput := h.htlcResolution.SweepSignDesc.Output
+	if expectedOutput == nil {
+		return fmt.Errorf("%w", errInvalidSecondLevelOutput)
+	}
+
 	// Wait for the second level transaction to confirm.
 	spend, err := h.watchHtlcSpend()
 	if err != nil {
@@ -1317,15 +1326,32 @@ func (h *htlcTimeoutResolver) resolveTimeoutTx() error {
 	}
 
 	op := h.htlcResolution.ClaimOutpoint
-	spenderTxid := *spend.SpenderTxHash
+	var spenderTxid chainhash.Hash
 
 	// If the timeout tx is a re-signed tx, we will need to find the actual
 	// spent outpoint from the spending tx.
 	if h.isZeroFeeOutput() {
-		op = wire.OutPoint{
-			Hash:  spenderTxid,
-			Index: spend.SpenderInputIndex,
+		var matches bool
+		op, matches, err = matchSecondLevelOutput(
+			spend.SpendingTx, spend.SpenderInputIndex,
+			expectedOutput,
+		)
+		if err != nil {
+			return err
 		}
+		if !matches {
+			spenderTxid = spend.SpendingTx.TxHash()
+			terminalSpend := *spend
+			spentOutpoint := h.outpoint()
+			terminalSpend.SpentOutPoint = &spentOutpoint
+			terminalSpend.SpenderTxHash = &spenderTxid
+
+			return h.resolveTimeoutSpend(&terminalSpend)
+		}
+
+		spenderTxid = op.Hash
+	} else {
+		spenderTxid = *spend.SpenderTxHash
 	}
 
 	// If the 2nd-stage sweeping has already been started, we can

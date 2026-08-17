@@ -612,6 +612,26 @@ func isPreimageSpend(isTaproot bool, spend *chainntnfs.SpendDetail,
 	}
 }
 
+// isPreimageSpend classifies a validated spend as success, non-success, or
+// malformed. Only true authorizes claim cleanup; false leaves the spend to the
+// existing timeout path, while an error must propagate before cleanup.
+func (h *htlcTimeoutResolver) isPreimageSpend(
+	spend *chainntnfs.SpendDetail) (bool, error) {
+
+	if h.isTaproot() {
+		return h.isTaprootPreimageSpend(spend)
+	}
+
+	_, err := validatedSpendInput(spend, h.outpoint())
+	if err != nil {
+		return false, err
+	}
+
+	return isPreimageSpend(
+		false, spend, !h.isRemoteCommitOutput(),
+	), nil
+}
+
 // checkSizeAndIndex checks that the witness is of the expected size and that
 // the witness element at the specified index is of the expected size.
 func checkSizeAndIndex(witness wire.TxWitness, size, index int) bool {
@@ -1123,12 +1143,15 @@ func (h *htlcTimeoutResolver) consumeSpendEvents(resultChan chan *spendResult,
 			log.Debugf("Found mempool spend of HTLC output %s "+
 				"in tx=%s", op, spendDetail.SpenderTxHash)
 
-			// Check whether the spend reveals the preimage, if not
-			// continue the loop.
-			hasPreimage := isPreimageSpend(
-				h.isTaproot(), spendDetail,
-				!h.isRemoteCommitOutput(),
-			)
+			// Authenticated success leaves; non-success stays under
+			// observation, while malformed data propagates.
+			hasPreimage, err := h.isPreimageSpend(spendDetail)
+			if err != nil {
+				result.err = err
+				resultChan <- result
+
+				return
+			}
 			if !hasPreimage {
 				log.Debugf("HTLC output %s spent doesn't "+
 					"reveal preimage", op)
@@ -1191,10 +1214,13 @@ func (h *htlcTimeoutResolver) waitHtlcSpendAndCheckPreimage() (
 		return nil, err
 	}
 
-	// If the spend reveals the pre-image, then we'll enter the clean up
-	// workflow to pass the preimage back to the incoming link, add it to
-	// the witness cache, and exit.
-	if isPreimageSpend(h.isTaproot(), spend, !h.isRemoteCommitOutput()) {
+	// Only authenticated success authorizes cleanup; non-success keeps the
+	// timeout path and malformed data returns before cleanup.
+	hasPreimage, err := h.isPreimageSpend(spend)
+	if err != nil {
+		return nil, err
+	}
+	if hasPreimage {
 		return nil, h.claimCleanUp(spend)
 	}
 
@@ -1376,10 +1402,13 @@ func (h *htlcTimeoutResolver) resolveRemoteCommitOutput() error {
 		return err
 	}
 
-	// If the spend reveals the preimage, then we'll enter the clean up
-	// workflow to pass the preimage back to the incoming link, add it to
-	// the witness cache, and exit.
-	if isPreimageSpend(h.isTaproot(), spend, !h.isRemoteCommitOutput()) {
+	// Only authenticated success authorizes cleanup; non-success keeps the
+	// timeout path and malformed data returns before cleanup.
+	hasPreimage, err := h.isPreimageSpend(spend)
+	if err != nil {
+		return err
+	}
+	if hasPreimage {
 		return h.claimCleanUp(spend)
 	}
 
@@ -1414,10 +1443,13 @@ func (h *htlcTimeoutResolver) resolveTimeoutTx() error {
 		return err
 	}
 
-	// If the spend reveals the preimage, then we'll enter the clean up
-	// workflow to pass the preimage back to the incoming link, add it to
-	// the witness cache, and exit.
-	if isPreimageSpend(h.isTaproot(), spend, !h.isRemoteCommitOutput()) {
+	// Only authenticated success authorizes cleanup; non-success keeps the
+	// timeout path and malformed data returns before cleanup.
+	hasPreimage, err := h.isPreimageSpend(spend)
+	if err != nil {
+		return err
+	}
+	if hasPreimage {
 		return h.claimCleanUp(spend)
 	}
 

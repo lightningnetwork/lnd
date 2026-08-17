@@ -99,7 +99,7 @@ func genHtlcTimeoutTestCases() []htlcTimeoutTestCase {
 	fakePreimageBytes := testResPreimage[:]
 
 	var (
-		htlcOutpoint wire.OutPoint
+		htlcOutpoint = testChanPoint2
 		fakePreimage lntypes.Preimage
 	)
 	fakeSignDesc := &input.SignDescriptor{
@@ -438,6 +438,9 @@ func testHtlcTimeoutResolver(t *testing.T, testCase htlcTimeoutTestCase) {
 	if err != nil {
 		t.Fatalf("unable to generate tx: %v", err)
 	}
+	if testCase.remoteCommit {
+		spendingTx.TxIn[0].PreviousOutPoint = testChanPoint2
+	}
 	spendTxHash := spendingTx.TxHash()
 
 	select {
@@ -570,7 +573,9 @@ func TestHtlcTimeoutSingleStage(t *testing.T) {
 	commitOutpoint := wire.OutPoint{Index: 3}
 
 	sweepTx := &wire.MsgTx{
-		TxIn:  []*wire.TxIn{{}},
+		TxIn: []*wire.TxIn{{
+			PreviousOutPoint: commitOutpoint,
+		}},
 		TxOut: []*wire.TxOut{{}},
 	}
 
@@ -794,7 +799,9 @@ func TestHtlcTimeoutSingleStageRemoteSpend(t *testing.T) {
 	htlcOutpoint := wire.OutPoint{Index: 3}
 
 	spendTx := &wire.MsgTx{
-		TxIn:  []*wire.TxIn{{}},
+		TxIn: []*wire.TxIn{{
+			PreviousOutPoint: commitOutpoint,
+		}},
 		TxOut: []*wire.TxOut{{}},
 	}
 
@@ -1297,6 +1304,7 @@ func TestHtlcTimeoutSecondStageSweeperRemoteSpend(t *testing.T) {
 		TxIn:  []*wire.TxIn{{}},
 		TxOut: []*wire.TxOut{{}},
 	}
+	spendTx.TxIn[0].PreviousOutPoint = commitOutpoint
 
 	fakePreimageBytes := testResPreimage[:]
 	var fakePreimage lntypes.Preimage
@@ -2398,5 +2406,186 @@ func TestHtlcOutgoingResolverTaprootRegistration(t *testing.T) {
 		require.ErrorIs(t, resolved.err, errResolverShuttingDown)
 		require.Nil(t, resolved.nextResolver)
 		require.False(t, resolver.IsResolved())
+	}
+}
+
+// taprootSpendForPath creates a notifier spend for a realistic fixture path.
+func taprootSpendForPath(t *testing.T, fixture *taprootHtlcFixture,
+	path string) *chainntnfs.SpendDetail {
+
+	t.Helper()
+	script, control := fixture.successScript, fixture.successControl
+	preimage := testResPreimage[:]
+	if path == "auxiliary" {
+		proof := fixture.tree.TapscriptTree.LeafMerkleProofs[2]
+		block := proof.ToControlBlock(fixture.revocationKey)
+		var err error
+		control, err = block.ToBytes()
+		require.NoError(t, err)
+		script = proof.Script
+	}
+	if path == "wrong" {
+		preimage = bytes.Repeat([]byte{9}, lntypes.HashSize)
+	}
+	witness := wire.TxWitness{
+		dummyBytes, dummyBytes, preimage, script, control,
+	}
+	if fixture.localCommit {
+		witness = wire.TxWitness{dummyBytes, preimage, script, control}
+	}
+	if path == "key" {
+		witness = wire.TxWitness{dummyBytes}
+	}
+	tx := &wire.MsgTx{TxIn: []*wire.TxIn{{
+		PreviousOutPoint: fixture.watchedOutpoint,
+		Witness:          witness,
+	}}}
+	txHash := tx.TxHash()
+
+	return &chainntnfs.SpendDetail{
+		SpentOutPoint:     &fixture.watchedOutpoint,
+		SpendingTx:        tx,
+		SpenderTxHash:     &txHash,
+		SpenderInputIndex: 0,
+	}
+}
+
+// TestHtlcTimeoutTaprootSpendPath tests every Taproot spend decision point.
+//
+//nolint:ll
+func TestHtlcTimeoutTaprootSpendPath(t *testing.T) {
+	// Arrange: Combine every resolver entry point with authenticated success,
+	// benign alternate paths, and dishonest preimage witnesses.
+	// Act: Deliver each spend through the same explicit notifier event or the
+	// paired mempool/block streams used by the production decision path.
+	// Assert: Only valid success paths reveal and persist a preimage, while
+	// every other path preserves the resolver state appropriate to its site.
+	testCases := []struct {
+		name  string
+		site  string
+		path  string
+		local bool
+	}{
+		{"confirmed success", "confirmed", "success", false},
+		{"confirmed auxiliary", "confirmed", "auxiliary", true},
+		{"mempool success", "mempool", "success", false},
+		{"mempool wrong preimage", "mempool", "wrong", false},
+		{"mempool key path", "mempool", "key", true},
+		{"remote success", "remote", "success", false},
+		{"remote auxiliary", "remote", "auxiliary", false},
+		{"local success", "local", "success", true},
+		{"local wrong preimage", "local", "wrong", true},
+		{"local key path", "local", "key", true},
+	}
+	for _, testCase := range testCases {
+		t.Run(testCase.name, func(t *testing.T) {
+			variant := taprootHtlcNoAux
+			if testCase.path == "auxiliary" {
+				variant = taprootHtlcUnrelatedAux
+			}
+			fixture := newTaprootHtlcFixture(
+				t, testCase.local, variant,
+			)
+			spend := taprootSpendForPath(t, fixture, testCase.path)
+			notifier, spendChan, _, _ := newSpendMockNotifier()
+			beacon := newMockWitnessBeacon()
+			resolutionChan := make(chan ResolutionMsg, 1)
+			checkpointChan := make(chan struct{}, 1)
+			chainCfg := ChannelArbitratorConfig{
+				ChainArbitratorConfig: ChainArbitratorConfig{
+					Notifier:   notifier,
+					PreimageDB: beacon,
+					DeliverResolutionMsg: func(...ResolutionMsg) error {
+						resolutionChan <- ResolutionMsg{}
+						return nil
+					},
+				},
+			}
+			fixture.resolver.contractResolverKit = *newContractResolverKit(
+				ResolverConfig{
+					ChannelArbitratorConfig: chainCfg,
+					Checkpoint: func(ContractResolver,
+						...*channeldb.ResolverReport) error {
+
+						checkpointChan <- struct{}{}
+						return nil
+					},
+				},
+			)
+			fixture.resolver.initLogger("htlcTimeoutResolver")
+			fixture.resolver.currentReport = ContractReport{LimboBalance: 1}
+			initialReport := fixture.resolver.currentReport
+			var (
+				returnedSpend *chainntnfs.SpendDetail
+				err           error
+			)
+			switch testCase.site {
+			case "confirmed":
+				spendChan <- spend
+				returnedSpend, err = fixture.resolver.
+					waitHtlcSpendAndCheckPreimage()
+			case "mempool":
+				block := make(chan *chainntnfs.SpendDetail)
+				mempool := make(chan *chainntnfs.SpendDetail)
+				result := make(chan *spendResult, 1)
+				go fixture.resolver.consumeSpendEvents(
+					result, block, mempool,
+				)
+				mempool <- spend
+				if testCase.path == "key" {
+					close(block)
+				}
+				spendResult := <-result
+				returnedSpend, err = spendResult.spend, spendResult.err
+				close(fixture.resolver.quit)
+			case "remote":
+				spendChan <- spend
+				err = fixture.resolver.resolveRemoteCommitOutput()
+			case "local":
+				spendChan <- spend
+				close(spendChan)
+				err = fixture.resolver.resolveTimeoutTx()
+			}
+			switch testCase.path {
+			case "success":
+				require.NoError(t, err)
+				if testCase.site == "mempool" {
+					require.Same(t, spend, returnedSpend)
+					break
+				}
+				require.Nil(t, returnedSpend)
+				require.Len(t, beacon.newPreimages, 1)
+				require.Len(t, resolutionChan, 1)
+				require.Len(t, checkpointChan, 1)
+				require.True(t, fixture.resolver.IsResolved())
+
+			case "wrong":
+				require.ErrorIs(t, err, errPreimageMismatch)
+
+			case "auxiliary":
+				require.NoError(t, err)
+				if testCase.site == "confirmed" {
+					require.Same(t, spend, returnedSpend)
+				}
+
+			case "key":
+				require.ErrorIs(t, err, errResolverShuttingDown)
+			}
+
+			if testCase.path != "success" {
+				require.Empty(t, beacon.newPreimages)
+				require.Equal(t, initialReport,
+					fixture.resolver.currentReport)
+				if testCase.site == "remote" {
+					require.True(t, fixture.resolver.IsResolved())
+					require.Len(t, resolutionChan, 1)
+					require.Len(t, checkpointChan, 1)
+				} else {
+					require.False(t, fixture.resolver.IsResolved())
+					require.Empty(t, resolutionChan)
+					require.Empty(t, checkpointChan)
+				}
+			}
+		})
 	}
 }

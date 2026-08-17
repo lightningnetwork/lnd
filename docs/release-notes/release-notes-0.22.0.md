@@ -145,6 +145,12 @@
 
 ## Database
 
+* [Fixed a bug](https://github.com/lightningnetwork/lnd/pull/11071) where a fresh
+  Postgres database could hang during startup migrations when a small
+  `db.postgres.maxconnections` was set. Each migration reserved a pool connection
+  that was never released, exhausting a small pool mid-startup. Migrations now
+  reuse a single connection.
+
 ## Code Health
 
 ## Tooling and Documentation
@@ -167,3 +173,4 @@
 * Erick Cestari
 * Jared Tobin
 * Nishant Bansal
+* Vandit Singh

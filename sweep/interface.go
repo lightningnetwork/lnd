@@ -83,12 +83,29 @@ type AuxNotifyOpts struct {
 	// commitments) and should not be broadcast again.
 	SkipBroadcast bool
 
-	// SkipProofVerify indicates whether asset-level proof
+	// SkipProofVerify indicates whether aux-level proof
 	// verification should be skipped. This is used when the input
 	// proofs contain placeholder witnesses (e.g. second-level HTLC
 	// outputs) that cannot pass VM-level validation, and the
 	// on-chain confirmation serves as proof of validity instead.
 	SkipProofVerify bool
+
+	// ConfirmHeight is an optional confirmation height hint for the
+	// transaction. When set, the porter uses this as the height hint
+	// when scanning for the on-chain confirmation instead of the
+	// current chain tip. This is critical for breach justice sweeps
+	// where NotifyBroadcast is called after the tx has already been
+	// confirmed and the chain has advanced past the confirmation
+	// block.
+	ConfirmHeight uint32
+
+	// LookupInputProofs indicates that the aux sweeper should look
+	// up the input proofs from its proof archive rather than using
+	// the proofs embedded in the resolution blob. This is needed
+	// when the resolution blob carries a stale proof (e.g. the
+	// commit-level proof for a second-level HTLC output that has
+	// since been imported with a proper second-level proof).
+	LookupInputProofs bool
 }
 
 // AuxSweeper is used to enable a 3rd party to further shape the sweeping

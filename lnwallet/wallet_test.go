@@ -3,7 +3,7 @@ package lnwallet
 import (
 	"testing"
 
-	"github.com/lightningnetwork/lnd/chanstate"
+	"github.com/lightningnetwork/lnd/channeldb"
 	"github.com/stretchr/testify/require"
 )
 
@@ -15,7 +15,7 @@ func TestHandleFundingCounterPartySigsMissingReservation(t *testing.T) {
 	wallet := &LightningWallet{
 		fundingLimbo: make(map[uint64]*ChannelReservation),
 	}
-	completeChan := make(chan *chanstate.OpenChannel, 1)
+	completeChan := make(chan *channeldb.OpenChannel, 1)
 	errChan := make(chan error, 1)
 
 	wallet.handleFundingCounterPartySigs(&addCounterPartySigsMsg{

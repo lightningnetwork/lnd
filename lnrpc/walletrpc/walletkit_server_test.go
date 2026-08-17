@@ -562,8 +562,8 @@ func TestFundPsbtCoinSelect(t *testing.T) {
 		expectChangeOutputIndex: 0,
 		expectedFee:             calcFee(0, 1, 0, 1, 0),
 
-		expectedContainedErrStr: "maxFeeRatio must be greater than " +
-			"0.00 got -0.20",
+		expectedContainedErrStr: "maxFeeRatio must be between 0.00 " +
+			"and 100.00, got -0.20",
 	}, {
 		name: "1 p2wpkh utxo, existing p2wkh change, big fee ratio",
 		utxos: []*lnwallet.Utxo{

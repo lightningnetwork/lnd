@@ -1749,6 +1749,9 @@ const (
 	taprootHtlcDuplicateTimeout
 	// taprootHtlcDuplicateSuccess exposes indistinguishable success leaves.
 	taprootHtlcDuplicateSuccess
+	// taprootHtlcDifferentVersionSuccess reuses the success script under a
+	// distinct leaf version so authentication cannot match by script alone.
+	taprootHtlcDifferentVersionSuccess
 )
 
 // taprootHtlcFixture binds an actual HTLC tree to its resolver-owned data.
@@ -1807,6 +1810,12 @@ func newTaprootHtlcFixture(t *testing.T, localCommit bool,
 		auxLeaf = fn.Some(baseTree.TimeoutTapLeaf)
 	case taprootHtlcDuplicateSuccess:
 		auxLeaf = fn.Some(baseTree.SuccessTapLeaf)
+
+	case taprootHtlcDifferentVersionSuccess:
+		auxLeaf = fn.Some(txscript.NewTapLeaf(
+			txscript.TapscriptLeafVersion(0xc2),
+			baseTree.SuccessTapLeaf.Script,
+		))
 	}
 	tree := buildTree(auxLeaf)
 	commitmentScript, err := input.PayToTaprootScript(tree.TaprootKey)
@@ -1866,6 +1875,7 @@ func newTaprootHtlcFixture(t *testing.T, localCommit bool,
 	return &taprootHtlcFixture{
 		resolver: &htlcTimeoutResolver{
 			htlcResolution: resolution,
+			htlc:           channeldb.HTLC{RHash: testResHash},
 		},
 		tree:              tree,
 		commitmentScript:  commitmentScript,
@@ -2094,5 +2104,131 @@ func TestCanonicalTaprootSuccessHashes(t *testing.T) {
 
 		_, err := fixture.resolver.canonicalTaprootSuccessHashes()
 		require.Error(t, err)
+	}
+}
+
+// TestTaprootPreimageSpend authenticates committed success candidates.
+//
+//nolint:ll
+func TestTaprootPreimageSpend(t *testing.T) {
+	// Arrange: Build cases spanning valid success proofs, other committed
+	// paths, malformed witnesses, mismatched preimages, and wrong inputs.
+	testCases := []struct {
+		name    string
+		local   bool
+		variant taprootHtlcVariant
+		path    string
+		annex   bool
+		want    bool
+		wantErr string
+	}{
+		{name: "local success", local: true, want: true},
+		{name: "local success with annex", local: true, annex: true, want: true},
+		{name: "remote success", want: true},
+		{name: "remote success with annex", annex: true, want: true},
+		{name: "unrelated auxiliary", local: true,
+			variant: taprootHtlcUnrelatedAux, path: "aux"},
+		{name: "different leaf version", variant: taprootHtlcDifferentVersionSuccess, path: "aux"},
+		{name: "timeout leaf", local: true, path: "timeout"},
+		{name: "local duplicate timeout", local: true,
+			variant: taprootHtlcDuplicateTimeout, want: true},
+		{name: "remote duplicate timeout",
+			variant: taprootHtlcDuplicateTimeout, want: true},
+		{name: "local duplicate success", local: true,
+			variant: taprootHtlcDuplicateSuccess, path: "duplicate", want: true},
+		{name: "remote duplicate success", variant: taprootHtlcDuplicateSuccess,
+			path: "duplicate", want: true},
+		{name: "key path", local: true, path: "key"},
+		{name: "key path with annex", local: true, path: "key", annex: true},
+		{name: "empty witness", path: "empty", wantErr: "malformed"},
+		{name: "corrupt control", local: true, path: "corrupt",
+			wantErr: "malformed"},
+		{name: "short preimage", local: true, path: "short",
+			wantErr: "malformed"},
+		{name: "wrong preimage", path: "wrong", wantErr: "mismatch"},
+		{name: "wrong outpoint", local: true, path: "outpoint",
+			wantErr: "spend"},
+	}
+	for _, testCase := range testCases {
+		t.Run(testCase.name, func(t *testing.T) {
+			fixture := newTaprootHtlcFixture(t, testCase.local, testCase.variant)
+			script, control := fixture.successScript, fixture.successControl
+			switch testCase.path {
+			case "aux":
+				proof := fixture.tree.TapscriptTree.LeafMerkleProofs[2]
+				block := proof.ToControlBlock(fixture.revocationKey)
+				script = proof.Script
+				controlBytes, err := block.ToBytes()
+				require.NoError(t, err)
+				control = controlBytes
+			case "timeout":
+				script, control = fixture.timeoutScript, fixture.timeoutControl
+			case "duplicate":
+				branch := txscript.NewTapBranch(
+					fixture.tree.SuccessTapLeaf,
+					fixture.tree.TimeoutTapLeaf,
+				).TapHash()
+				proof := txscript.TapscriptProof{
+					TapLeaf:        fixture.tree.SuccessTapLeaf,
+					RootNode:       fixture.tree.TapscriptTree.RootNode,
+					InclusionProof: branch[:],
+				}
+				block := proof.ToControlBlock(fixture.revocationKey)
+				controlBytes, err := block.ToBytes()
+				require.NoError(t, err)
+				control = controlBytes
+			case "corrupt":
+				control = append([]byte(nil), control...)
+				control[len(control)-1] ^= 1
+			}
+			preimage := testResPreimage[:]
+			if testCase.path == "wrong" {
+				preimage = bytes.Repeat([]byte{9}, lntypes.HashSize)
+			}
+			witness := wire.TxWitness{
+				dummyBytes, dummyBytes, preimage, script, control,
+			}
+			if testCase.local {
+				witness = wire.TxWitness{dummyBytes, preimage, script, control}
+			}
+			switch testCase.path {
+			case "key":
+				witness = wire.TxWitness{dummyBytes}
+			case "empty":
+				witness = nil
+			case "short":
+				witness[localPreimageIndex] = preimage[:31]
+			}
+			if testCase.annex {
+				witness = append(witness, []byte{txscript.TaprootAnnexTag})
+			}
+			outpoint := fixture.watchedOutpoint
+			if testCase.path == "outpoint" {
+				outpoint.Index++
+			}
+			spend := &chainntnfs.SpendDetail{
+				SpendingTx: &wire.MsgTx{TxIn: []*wire.TxIn{{
+					PreviousOutPoint: outpoint, Witness: witness,
+				}}},
+			}
+			// Act: Classify the fully assembled spend against the resolver's
+			// authoritative outpoint, output key, leaf version, and script.
+			result, err := fixture.resolver.isTaprootPreimageSpend(spend)
+			// Assert: Each case distinguishes authenticated success claims
+			// from benign other paths and malformed or dishonest candidates.
+			switch testCase.wantErr {
+			case "mismatch":
+				require.ErrorIs(t, err, errPreimageMismatch)
+			case "spend":
+				require.ErrorIs(t, err, errInvalidSpendDetails)
+			case "malformed":
+				require.Error(t, err)
+				require.NotErrorIs(t, err, errPreimageMismatch)
+			default:
+				require.NoError(t, err)
+			}
+			require.Equal(t, testCase.want, result)
+			require.False(t, fixture.resolver.IsResolved())
+		})
 	}
 }

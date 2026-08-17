@@ -224,6 +224,88 @@ func (h *htlcTimeoutResolver) taprootTimeoutProof() ([]byte, []byte, error) {
 	return witness[len(witness)-2], witness[len(witness)-1], nil
 }
 
+// isTaprootPreimageSpend authenticates success against the authoritative
+// commitment output. False identifies valid non-success; errors identify
+// malformed notifier data or invalid commitment proofs.
+func (h *htlcTimeoutResolver) isTaprootPreimageSpend(
+	spend *chainntnfs.SpendDetail) (bool, error) {
+
+	spendingInput, err := validatedSpendInput(spend, h.outpoint())
+	if err != nil {
+		return false, err
+	}
+	witness := input.StripTaprootAnnex(spendingInput.Witness)
+	if len(witness) == 1 {
+		return false, nil
+	}
+	if len(witness) < 2 {
+		return false, errors.New("truncated tapscript witness")
+	}
+	revealedScript := witness[len(witness)-2]
+	controlBlock, err := txscript.ParseControlBlock(witness[len(witness)-1])
+	if err != nil {
+		return false, fmt.Errorf("parse taproot control block: %w", err)
+	}
+	commitScript, err := h.taprootHtlcCommitmentScript()
+	if err != nil {
+		return false, err
+	}
+	version, witnessProgram, err := txscript.ExtractWitnessProgramInfo(
+		commitScript,
+	)
+	if err != nil || version != 1 || len(witnessProgram) != 32 {
+		return false, errors.New("invalid taproot commitment script")
+	}
+	if err := txscript.VerifyTaprootLeafCommitment(
+		controlBlock, witnessProgram, revealedScript,
+	); err != nil {
+		return false, fmt.Errorf("verify taproot leaf: %w", err)
+	}
+	if controlBlock.LeafVersion != txscript.BaseLeafVersion {
+		return false, nil
+	}
+	identities, err := h.canonicalTaprootSuccessHashes()
+	if err != nil {
+		return false, err
+	}
+	// The canonical success leaf is paired with the independently hashed
+	// timeout leaf. This remains true when a duplicate timeout leaf makes
+	// the stored timeout proof unavailable.
+	isSuccess := false
+	if len(controlBlock.InclusionProof) >= chainhash.HashSize {
+		var sibling chainhash.Hash
+		copy(sibling[:], controlBlock.InclusionProof[:32])
+		isSuccess = sibling == identities.timeoutLeafHash
+	}
+	// A verified timeout proof names the canonical success leaf by hash.
+	// This also authenticates an indistinguishable duplicate success leaf
+	// without using candidate-supplied keys.
+	candidateHash := txscript.NewBaseTapLeaf(revealedScript).TapHash()
+	identities.storedProofSibling.WhenSome(func(sibling chainhash.Hash) {
+		isSuccess = isSuccess || candidateHash == sibling
+	})
+	if !isSuccess {
+		return false, nil
+	}
+	preimageIndex := taprootRemotePreimageIndex
+	witnessSize := remoteTaprootWitnessSuccessSize
+	if h.htlcResolution.SignedTimeoutTx != nil {
+		preimageIndex = localPreimageIndex
+		witnessSize = localTaprootWitnessSuccessSize
+	}
+	if !checkSizeAndIndex(witness, witnessSize, preimageIndex) {
+		return false, errors.New("invalid taproot success witness")
+	}
+	var preimage lntypes.Preimage
+	copy(preimage[:], witness[preimageIndex])
+	if !preimage.Matches(h.htlc.RHash) {
+		return false, fmt.Errorf("%w: preimage %v, htlc hash %v",
+			errPreimageMismatch, preimage, h.htlc.RHash)
+	}
+
+	return true, nil
+}
+
 // outpoint returns the outpoint of the HTLC output we're attempting to sweep.
 func (h *htlcTimeoutResolver) outpoint() wire.OutPoint {
 	// The primary key for this resolver will be the outpoint of the HTLC

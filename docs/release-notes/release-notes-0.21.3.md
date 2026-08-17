@@ -29,6 +29,15 @@
   the close transaction is actually broadcast, and
   `WaitingCloseChannel.ClosingTx` is never empty.
 
+* Peer connections [now rate limit inbound ping replies and bound outgoing
+  message queue growth](https://github.com/lightningnetwork/lnd/pull/11131),
+  preventing peer-controlled resource exhaustion.
+
+* Channel updates carrying [inbound fees now sign the same bytes that are
+  broadcast](https://github.com/lightningnetwork/lnd/pull/11131), preventing
+  remote signature failures. Forwarded updates also preserve unknown signed
+  TLV extensions.
+
 * Channel funding attempts [now return
   cleanly](https://github.com/lightningnetwork/lnd/pull/11035) when their
   pending wallet reservation is no longer present.

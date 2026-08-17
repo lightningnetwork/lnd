@@ -307,6 +307,26 @@ type WalletController interface {
 	// wallet accounts and return the addresses of only those matching.
 	ListAddresses(string, bool) (AccountAddressMap, error)
 
+	// CreateAccount creates a new account within the given key scope,
+	// deriving the account's keys from the wallet's master key.
+	//
+	// In contrast to ImportAccount, which registers a watch-only account
+	// from an externally supplied extended public key, the account created
+	// here is fully owned by the wallet: it derives its own addresses and
+	// can sign for its own outputs. That makes it usable as an isolated
+	// pocket of funds inside a single wallet, because coin selection,
+	// change, balance and address derivation can all be scoped to it by
+	// name.
+	//
+	// A custom account only ever exists within a single key scope, so the
+	// scope chosen here permanently fixes both the account's address type
+	// and the address type used for its change outputs.
+	//
+	// NOTE: The wallet must be unlocked, as deriving the account key
+	// requires access to the master private key.
+	CreateAccount(keyScope waddrmgr.KeyScope,
+		name string) (*waddrmgr.AccountProperties, error)
+
 	// ImportAccount imports an account backed by an account extended public
 	// key. The master key fingerprint denotes the fingerprint of the root
 	// key corresponding to the account public key (also known as the key

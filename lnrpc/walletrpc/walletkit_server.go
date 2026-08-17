@@ -32,6 +32,7 @@ import (
 	base "github.com/btcsuite/btcwallet/wallet"
 	"github.com/btcsuite/btcwallet/wtxmgr"
 	"github.com/grpc-ecosystem/grpc-gateway/v2/runtime"
+	"github.com/lightningnetwork/lnd/build"
 	"github.com/lightningnetwork/lnd/channeldb"
 	"github.com/lightningnetwork/lnd/chanstate"
 	"github.com/lightningnetwork/lnd/contractcourt"
@@ -170,6 +171,10 @@ var (
 		"/walletrpc.WalletKit/ListAccounts": {{
 			Entity: "onchain",
 			Action: "read",
+		}},
+		"/walletrpc.WalletKit/XCreateAccount": {{
+			Entity: "onchain",
+			Action: "write",
 		}},
 		"/walletrpc.WalletKit/RequiredReserve": {{
 			Entity: "onchain",
@@ -2690,6 +2695,95 @@ func (w *WalletKit) ListAccounts(ctx context.Context,
 	}
 
 	return &ListAccountsResponse{Accounts: rpcAccounts}, nil
+}
+
+// errAccountCreationNotAcked is returned on a release build when the caller
+// has not acknowledged that a created account is invisible to a seed-only
+// restore.
+var errAccountCreationNotAcked = errors.New("XCreateAccount is experimental: " +
+	"funds in a created account are NOT rediscovered by a seed-only " +
+	"restore. Set i_know_what_i_am_doing to proceed, having recorded the " +
+	"account's key scope and index")
+
+// defaultXCreateAccountAddrType is the address type a new account is created
+// with when the request does not specify one. A custom account lives in exactly
+// one key scope, and that scope permanently fixes the address type of both its
+// receive and its change addresses, so an unset value cannot be resolved later.
+// Taproot is chosen because it is the most recent scope the wallet supports and
+// its outputs are the cheapest to spend.
+const defaultXCreateAccountAddrType = AddressType_TAPROOT_PUBKEY
+
+// XCreateAccount is an experimental API that creates a new named account
+// within the wallet, deriving the account's keys from the wallet's master
+// key.
+//
+// In contrast to ImportAccount, which registers a watch-only account from an
+// externally supplied extended public key, the account created here is fully
+// owned by the wallet: it derives its own addresses and can sign for its own
+// outputs. That makes it usable as an isolated pocket of funds inside a single
+// wallet, because coin selection, change, balance and address derivation can
+// all be scoped to it by name.
+func (w *WalletKit) XCreateAccount(_ context.Context,
+	req *XCreateAccountRequest) (*XCreateAccountResponse, error) {
+
+	// Kept behind an explicit acknowledgement while recovery cannot find
+	// these accounts: funds held in one are not rediscovered by a
+	// seed-only restore, and reconstructing it by hand means reproducing
+	// its key scope, its account index and the addresses it issued. That
+	// is a foot-gun rather than a reason to withhold the RPC, so this
+	// follows AbandonChannel: available in dev builds, and on release
+	// builds to a caller that attests to knowing the consequence.
+	// Removing the gate is the last step of fixing recovery.
+	if !req.GetIKnowWhatIAmDoing() && !build.IsDevBuild() {
+		return nil, errAccountCreationNotAcked
+	}
+
+	addrType := req.AddressType
+	if addrType == AddressType_UNKNOWN {
+		addrType = defaultXCreateAccountAddrType
+	}
+
+	// Map the requested address type onto the key scope the account will
+	// live in.
+	var keyScope waddrmgr.KeyScope
+	switch addrType {
+	case AddressType_WITNESS_PUBKEY_HASH:
+		keyScope = waddrmgr.KeyScopeBIP0084
+
+	// An account derived by the wallet stores no address schema of its own,
+	// so BIP-0049Plus always behaves as the hybrid scheme (nested pubkeys
+	// externally, witness pubkeys internally). Honouring a request for the
+	// strict nested scheme is impossible here, and silently substituting
+	// the hybrid one would hand back an account whose change outputs are
+	// not what the caller asked for.
+	case AddressType_NESTED_WITNESS_PUBKEY_HASH:
+		return nil, fmt.Errorf("address type %v cannot be created; "+
+			"use %v, which is what a wallet-derived account of "+
+			"this key scope provides", req.AddressType,
+			AddressType_HYBRID_NESTED_WITNESS_PUBKEY_HASH)
+
+	case AddressType_HYBRID_NESTED_WITNESS_PUBKEY_HASH:
+		keyScope = waddrmgr.KeyScopeBIP0049Plus
+
+	case AddressType_TAPROOT_PUBKEY:
+		keyScope = waddrmgr.KeyScopeBIP0086
+
+	default:
+		return nil, fmt.Errorf("unhandled address type %v",
+			req.AddressType)
+	}
+
+	account, err := w.cfg.Wallet.CreateAccount(keyScope, req.Name)
+	if err != nil {
+		return nil, err
+	}
+
+	rpcAccount, err := marshalWalletAccount(w.internalScope(), account)
+	if err != nil {
+		return nil, err
+	}
+
+	return &XCreateAccountResponse{Account: rpcAccount}, nil
 }
 
 // RequiredReserve returns the minimum amount of satoshis that should be

@@ -13,6 +13,14 @@ import (
 // provided by the wallerpc.
 var walletTestCases = []*lntest.TestCase{
 	{
+		Name:     "xcreate account",
+		TestFunc: testXCreateAccount,
+	},
+	{
+		Name:     "xcreate account rejections",
+		TestFunc: testXCreateAccountRejections,
+	},
+	{
 		Name: "listunspent P2WPKH",
 		TestFunc: func(ht *lntest.HarnessTest) {
 			runTestListUnspent(ht, ht.FundCoins)

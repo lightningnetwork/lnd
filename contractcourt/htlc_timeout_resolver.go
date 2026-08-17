@@ -983,6 +983,49 @@ func (h *htlcTimeoutResolver) isSigHashDefault() bool {
 	)
 }
 
+// isAuxChannel reports whether this resolver is running for an aux/custom
+// (taproot asset) channel. Only such channels carry a tapscript root, so
+// this is the authoritative, self-contained predicate used to keep every
+// aux-specific code path in this resolver from running on non-custom
+// channels.
+func (h *htlcTimeoutResolver) isAuxChannel() bool {
+	return h.chanType.HasTapscriptRoot()
+}
+
+// buildSecondLevelResolveReq returns a ResolutionReq targeting the
+// just-confirmed second-level HTLC tx. The fast path clones the
+// ResolveReq preserved on htlcResolution at force-close time and updates
+// only the fields that differ for a second-level sweep. The slow path
+// (used when the resolver was recovered from the briefcase and the
+// in-memory ResolveReq is gone) reconstructs the request from historical
+// channel state.
+func (h *htlcTimeoutResolver) buildSecondLevelResolveReq(
+	witType input.WitnessType, secondLevelTx *wire.MsgTx,
+	spendingHeight uint32) (*lnwallet.ResolutionReq, error) {
+
+	if h.htlcResolution.ResolveReq != nil {
+		req := *h.htlcResolution.ResolveReq
+		req.Type = witType
+		req.SecondLevel = fn.Some(lnwallet.SecondLevelInfo{
+			Tx:          secondLevelTx,
+			BlockHeight: spendingHeight,
+		})
+
+		return &req, nil
+	}
+
+	chanState, err := h.FetchHistoricalChannel()
+	if err != nil {
+		return nil, fmt.Errorf("fetch historical channel: %w", err)
+	}
+
+	return lnwallet.NewSecondLevelResolveReq(
+		chanState, &h.htlc, h.htlcResolution.SignDetails,
+		h.htlcResolution.SweepSignDesc, h.htlcResolution.CsvDelay,
+		h.broadcastHeight, secondLevelTx, spendingHeight, witType,
+	)
+}
+
 // publishTimeoutTx directly broadcasts the pre-signed second-level HTLC
 // timeout transaction. This is used when the transaction was signed with
 // SigHashDefault (baked-in fees), where the sweeper's normal tx-rebuilding
@@ -1119,6 +1162,46 @@ func (h *htlcTimeoutResolver) sweepTimeoutTxOutput() error {
 	}
 
 	resolutionBlob := h.htlcResolution.ResolutionBlob
+
+	// The aux blob re-resolution below is an aux/custom (taproot asset)
+	// channel concern only. The AuxResolver is a daemon-global option
+	// (present on every resolver whenever tapd is attached, regardless of
+	// channel type), so we additionally gate on the channel type here to
+	// guarantee this path never executes for a non-custom channel.
+	auxResolver := fn.None[lnwallet.AuxContractResolver]()
+	if h.isAuxChannel() {
+		auxResolver = h.AuxResolver
+	}
+	auxResolver.WhenSome(func(a lnwallet.AuxContractResolver) {
+		secondLevelReq, err := h.buildSecondLevelResolveReq(
+			witType, h.htlcResolution.SignedTimeoutTx,
+			uint32(commitSpend.SpendingHeight),
+		)
+		if err != nil {
+			h.log.Errorf("Unable to build second-level timeout "+
+				"ResolveReq (htlcID=%v): %v — falling back "+
+				"to original blob", h.htlc.HtlcIndex, err)
+
+			return
+		}
+
+		resolveBlob := a.ResolveContract(*secondLevelReq)
+		if err := resolveBlob.Err(); err != nil {
+			h.log.Errorf("Unable to re-resolve aux blob for "+
+				"second-level timeout output sweep "+
+				"(htlcID=%v): %v — falling back to original "+
+				"blob; output sweep may fail aux proof "+
+				"verification",
+				h.htlc.HtlcIndex, err)
+
+			return
+		}
+		h.log.Infof("re-resolved aux blob for second-level timeout "+
+			"output sweep (htlcID=%v, secondLevelTxid=%v)",
+			h.htlc.HtlcIndex,
+			h.htlcResolution.SignedTimeoutTx.TxHash())
+		resolutionBlob = resolveBlob.OkToSome()
+	})
 
 	// Let the sweeper sweep the second-level output now that the CSV/CLTV
 	// locks have expired.

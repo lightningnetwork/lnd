@@ -8,6 +8,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/btcsuite/btcd/btcec/v2"
 	"github.com/btcsuite/btcd/btcutil/v2"
 	"github.com/btcsuite/btcd/chainhash/v2"
 	"github.com/btcsuite/btcd/txscript/v2"
@@ -1734,3 +1735,245 @@ func TestClaimCleanUpPreimageMismatch(t *testing.T) {
 	// preimage.
 	require.False(t, resolver.IsResolved())
 }
+
+// taprootHtlcVariant selects a realistic auxiliary-leaf topology for a test.
+// Each value exercises a distinct proof-identity or tree-layout boundary.
+type taprootHtlcVariant uint8
+
+const (
+	// taprootHtlcNoAux isolates the canonical two-leaf HTLC tree.
+	taprootHtlcNoAux taprootHtlcVariant = iota
+	// taprootHtlcUnrelatedAux adds a distinct committed third leaf.
+	taprootHtlcUnrelatedAux
+	// taprootHtlcDuplicateTimeout exposes timeout-proof hash ambiguity.
+	taprootHtlcDuplicateTimeout
+	// taprootHtlcDuplicateSuccess exposes indistinguishable success leaves.
+	taprootHtlcDuplicateSuccess
+)
+
+// taprootHtlcFixture binds an actual HTLC tree to its resolver-owned data.
+// This lets tests compare candidate proofs with the authoritative output.
+type taprootHtlcFixture struct {
+	resolver          *htlcTimeoutResolver
+	tree              *input.HtlcScriptTree
+	commitmentScript  []byte
+	watchedOutpoint   wire.OutPoint
+	timeoutScript     []byte
+	timeoutControl    []byte
+	successScript     []byte
+	successControl    []byte
+	localCommit       bool
+	revocationKey     *btcec.PublicKey
+	timeoutProofIndex int
+}
+
+// newTaprootHtlcFixture creates an actual sender or receiver HTLC tree and
+// resolution data matching the commitment side under test.
+func newTaprootHtlcFixture(t *testing.T, localCommit bool,
+	variant taprootHtlcVariant) *taprootHtlcFixture {
+
+	t.Helper()
+	_, senderKey := btcec.PrivKeyFromBytes(bytes.Repeat([]byte{2}, 32))
+	_, receiverKey := btcec.PrivKeyFromBytes(bytes.Repeat([]byte{3}, 32))
+	_, revocationKey := btcec.PrivKeyFromBytes(bytes.Repeat([]byte{4}, 32))
+	buildTree := func(aux input.AuxTapLeaf) *input.HtlcScriptTree {
+		var (
+			tree *input.HtlcScriptTree
+			err  error
+		)
+		if localCommit {
+			tree, err = input.SenderHTLCScriptTaproot(
+				senderKey, receiverKey, revocationKey,
+				testResHash[:], lntypes.Local, aux,
+			)
+		} else {
+			tree, err = input.ReceiverHTLCScriptTaproot(
+				500, senderKey, receiverKey, revocationKey,
+				testResHash[:], lntypes.Remote, aux,
+			)
+		}
+		require.NoError(t, err)
+
+		return tree
+	}
+	baseTree := buildTree(input.NoneTapLeaf())
+	auxLeaf := input.NoneTapLeaf()
+	switch variant {
+	case taprootHtlcUnrelatedAux:
+		auxLeaf = fn.Some(txscript.NewBaseTapLeaf([]byte{
+			txscript.OP_TRUE,
+		}))
+	case taprootHtlcDuplicateTimeout:
+		auxLeaf = fn.Some(baseTree.TimeoutTapLeaf)
+	case taprootHtlcDuplicateSuccess:
+		auxLeaf = fn.Some(baseTree.SuccessTapLeaf)
+	}
+	tree := buildTree(auxLeaf)
+	commitmentScript, err := input.PayToTaprootScript(tree.TaprootKey)
+	require.NoError(t, err)
+	timeoutControl, err := tree.CtrlBlockForPath(input.ScriptPathTimeout)
+	require.NoError(t, err)
+	timeoutControlBytes, err := timeoutControl.ToBytes()
+	require.NoError(t, err)
+	successIndex := 1
+	timeoutIndex := 0
+	if localCommit {
+		successIndex = 0
+		timeoutIndex = 1
+	}
+	successControl := tree.TapscriptTree.LeafMerkleProofs[successIndex].
+		ToControlBlock(revocationKey)
+	successControlBytes, err := successControl.ToBytes()
+	require.NoError(t, err)
+
+	watchedOutpoint := wire.OutPoint{
+		Hash:  chainhash.Hash{byte(variant + 1)},
+		Index: uint32(timeoutIndex),
+	}
+	resolution := lnwallet.OutgoingHtlcResolution{
+		ClaimOutpoint: watchedOutpoint,
+		SweepSignDesc: input.SignDescriptor{
+			Output:        &wire.TxOut{PkScript: commitmentScript},
+			WitnessScript: tree.TimeoutTapLeaf.Script,
+			ControlBlock:  timeoutControlBytes,
+		},
+	}
+	if localCommit {
+		secondLevelScript, err := input.PayToTaprootScript(senderKey)
+		require.NoError(t, err)
+		resolution.SignedTimeoutTx = &wire.MsgTx{
+			TxIn: []*wire.TxIn{{
+				PreviousOutPoint: watchedOutpoint,
+				Witness: wire.TxWitness{
+					dummyBytes, dummyBytes,
+					tree.TimeoutTapLeaf.Script,
+					timeoutControlBytes,
+				},
+			}},
+		}
+		resolution.SignDetails = &input.SignDetails{
+			SignDesc: input.SignDescriptor{
+				Output: &wire.TxOut{PkScript: commitmentScript},
+			},
+		}
+		// A local SweepSignDesc describes the second-level output, not
+		// the commitment HTLC output selected by the helper.
+		resolution.SweepSignDesc.Output = &wire.TxOut{
+			PkScript: secondLevelScript,
+		}
+	}
+
+	return &taprootHtlcFixture{
+		resolver: &htlcTimeoutResolver{
+			htlcResolution: resolution,
+		},
+		tree:              tree,
+		commitmentScript:  commitmentScript,
+		watchedOutpoint:   watchedOutpoint,
+		timeoutScript:     tree.TimeoutTapLeaf.Script,
+		timeoutControl:    timeoutControlBytes,
+		successScript:     tree.SuccessTapLeaf.Script,
+		successControl:    successControlBytes,
+		localCommit:       localCommit,
+		revocationKey:     revocationKey,
+		timeoutProofIndex: timeoutIndex,
+	}
+}
+
+// TestTaprootHtlcCommitmentScript tests that commitment scripts come from
+// authoritative resolution outputs for both commitment sides.
+func TestTaprootHtlcCommitmentScript(t *testing.T) {
+	// Arrange canonical, auxiliary, and duplicate-leaf trees so both
+	// commitment sides and every authoritative data source are covered.
+	variants := []taprootHtlcVariant{
+		taprootHtlcNoAux, taprootHtlcUnrelatedAux,
+		taprootHtlcDuplicateTimeout, taprootHtlcDuplicateSuccess,
+	}
+	for _, localCommit := range []bool{true, false} {
+		for _, variant := range variants {
+			// Act by reading the stored commitment output rather
+			// than rebuilding a program from candidate proof data.
+			fixture := newTaprootHtlcFixture(
+				t, localCommit, variant,
+			)
+			name := fmt.Sprintf("local=%v/variant=%v",
+				localCommit, variant)
+			t.Run(name, func(t *testing.T) {
+				script, err := fixture.resolver.
+					taprootHtlcCommitmentScript()
+				// Assert the program is returned and state
+				// remains unchanged; error cases follow below.
+				require.NoError(t, err)
+				require.Equal(
+					t, fixture.commitmentScript, script,
+				)
+				require.False(t, fixture.resolver.IsResolved())
+			})
+		}
+	}
+
+	local := newTaprootHtlcFixture(t, true, taprootHtlcNoAux)
+	remote := newTaprootHtlcFixture(t, false, taprootHtlcNoAux)
+	testCases := []struct {
+		name     string
+		resolver *htlcTimeoutResolver
+	}{
+		{
+			name: "missing local sign details",
+			resolver: func() *htlcTimeoutResolver {
+				local.resolver.htlcResolution.SignDetails = nil
+				return local.resolver
+			}(),
+		},
+		{
+			name: "missing remote output",
+			resolver: func() *htlcTimeoutResolver {
+				remote.resolver.htlcResolution.SweepSignDesc.
+					Output = nil
+				return remote.resolver
+			}(),
+		},
+	}
+	for _, testCase := range testCases {
+		t.Run(testCase.name, func(t *testing.T) {
+			script, err := testCase.resolver.
+				taprootHtlcCommitmentScript()
+
+			require.Error(t, err)
+			require.Nil(t, script)
+			require.False(t, testCase.resolver.IsResolved())
+		})
+	}
+
+	for _, localCommit := range []bool{true, false} {
+		for _, missingOutput := range []bool{true, false} {
+			fixture := newTaprootHtlcFixture(
+				t, localCommit, taprootHtlcNoAux,
+			)
+			switch {
+			case localCommit && missingOutput:
+				fixture.resolver.htlcResolution.SignDetails.
+					SignDesc.Output = nil
+
+			case localCommit:
+				output := fixture.resolver.htlcResolution.
+					SignDetails.SignDesc.Output
+				output.PkScript = nil
+
+			case missingOutput:
+				fixture.resolver.htlcResolution.
+					SweepSignDesc.Output = nil
+
+			default:
+				fixture.resolver.htlcResolution.
+					SweepSignDesc.Output.PkScript = nil
+			}
+
+			_, err := fixture.resolver.taprootHtlcCommitmentScript()
+			require.Error(t, err)
+		}
+	}
+}
+
+// setTaprootTimeoutControl replaces the stored timeout proof on either
+// commitment side of a fixture.

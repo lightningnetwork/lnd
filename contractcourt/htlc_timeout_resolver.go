@@ -106,6 +106,34 @@ func (h *htlcTimeoutResolver) isTaprootFinal() bool {
 	return h.chanType.IsTaprootFinal()
 }
 
+// taprootHtlcCommitmentScript returns the authoritative script of the HTLC
+// output on the commitment transaction. These stored commitment outputs, and
+// never a script reconstructed from a control-block proof, define the program
+// against which tapscript spends must be verified.
+func (h *htlcTimeoutResolver) taprootHtlcCommitmentScript() ([]byte, error) {
+	var output *wire.TxOut
+	if h.htlcResolution.SignedTimeoutTx != nil {
+		if h.htlcResolution.SignDetails == nil {
+			return nil, errors.New(
+				"missing local HTLC sign details",
+			)
+		}
+
+		output = h.htlcResolution.SignDetails.SignDesc.Output
+	} else {
+		output = h.htlcResolution.SweepSignDesc.Output
+	}
+
+	if output == nil {
+		return nil, errors.New("missing commitment HTLC output")
+	}
+	if len(output.PkScript) == 0 {
+		return nil, errors.New("missing commitment HTLC script")
+	}
+
+	return output.PkScript, nil
+}
+
 // outpoint returns the outpoint of the HTLC output we're attempting to sweep.
 func (h *htlcTimeoutResolver) outpoint() wire.OutPoint {
 	// The primary key for this resolver will be the outpoint of the HTLC

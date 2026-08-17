@@ -24,6 +24,7 @@ import (
 	"github.com/lightningnetwork/lnd/lntypes"
 	"github.com/lightningnetwork/lnd/lnwallet"
 	"github.com/lightningnetwork/lnd/lnwire"
+	testifymock "github.com/stretchr/testify/mock"
 	"github.com/stretchr/testify/require"
 )
 
@@ -2230,5 +2231,172 @@ func TestTaprootPreimageSpend(t *testing.T) {
 			require.Equal(t, testCase.want, result)
 			require.False(t, fixture.resolver.IsResolved())
 		})
+	}
+}
+
+// spendRegistration preserves the output identity passed to the notifier.
+// Tests use this copy to verify the resolver watched authoritative data.
+type spendRegistration struct {
+	outpoint wire.OutPoint
+	pkScript []byte
+}
+
+// newSpendMockNotifier configures the standard testify-backed notifier mock.
+// Its explicit events let tests drive chain activity and inspect registrations.
+func newSpendMockNotifier() (*chainntnfs.MockChainNotifier,
+	chan *chainntnfs.SpendDetail, chan *chainntnfs.BlockEpoch,
+	chan spendRegistration) {
+
+	spendChan := make(chan *chainntnfs.SpendDetail, 1)
+	epochChan := make(chan *chainntnfs.BlockEpoch, 1)
+	// Two slots let a timeout resolver register both commitment and
+	// second-level outputs when a test only needs to drive its events.
+	registered := make(chan spendRegistration, 2)
+	notifier := &chainntnfs.MockChainNotifier{}
+	notifier.On(
+		"RegisterSpendNtfn", testifymock.Anything,
+		testifymock.Anything, testifymock.Anything,
+	).Run(func(args testifymock.Arguments) {
+		outpoint, ok := args.Get(0).(*wire.OutPoint)
+		if !ok {
+			panic("mock spend outpoint has unexpected type")
+		}
+		pkScript, ok := args.Get(1).([]byte)
+		if !ok {
+			panic("mock spend script has unexpected type")
+		}
+		registered <- spendRegistration{
+			outpoint: *outpoint,
+			pkScript: append([]byte(nil), pkScript...),
+		}
+	}).Return(&chainntnfs.SpendEvent{
+		Spend: spendChan,
+		Cancel: func() {
+		},
+	}, nil)
+	notifier.On(
+		"RegisterBlockEpochNtfn", testifymock.Anything,
+	).Return(&chainntnfs.BlockEpochEvent{
+		Epochs: epochChan,
+		Cancel: func() {
+		},
+	}, nil)
+
+	return notifier, spendChan, epochChan, registered
+}
+
+// TestTaprootChainDetailsToWatch tests that local Taproot spend watches use
+// the authoritative commitment output even when the timeout proof is unsafe.
+func TestTaprootChainDetailsToWatch(t *testing.T) {
+	// Arrange: Build valid and malformed local timeout proofs backed by an
+	// authoritative commitment output, plus one missing-output failure.
+	// Act: Derive each watch target and start the spend wait through the
+	// testify-backed notifier so its exact registration can be observed.
+	// Assert: Every usable resolution watches the stored output; missing
+	// authoritative data fails without resolving the contract.
+	testCases := []struct {
+		name      string
+		variant   taprootHtlcVariant
+		malformed bool
+	}{
+		{"duplicate timeout", taprootHtlcDuplicateTimeout, false},
+		{"malformed proof", taprootHtlcNoAux, true},
+	}
+
+	for _, testCase := range testCases {
+		t.Run(testCase.name, func(t *testing.T) {
+			fixture := newTaprootHtlcFixture(
+				t, true, testCase.variant,
+			)
+			if testCase.malformed {
+				setTaprootTimeoutControl(fixture, []byte{1})
+			}
+
+			outpoint, script, err := fixture.resolver.
+				chainDetailsToWatch()
+			require.NoError(t, err)
+			require.Equal(t, fixture.watchedOutpoint, *outpoint)
+			require.Equal(t, fixture.commitmentScript, script)
+
+			notifier, _, _, registered := newSpendMockNotifier()
+			chainCfg := ChannelArbitratorConfig{
+				ChainArbitratorConfig: ChainArbitratorConfig{
+					Notifier: notifier,
+				},
+			}
+			resolverCfg := ResolverConfig{
+				ChannelArbitratorConfig: chainCfg,
+			}
+			fixture.resolver.contractResolverKit =
+				*newContractResolverKit(resolverCfg)
+			result := make(chan error, 1)
+			go func() {
+				_, err := fixture.resolver.watchHtlcSpend()
+				result <- err
+			}()
+
+			registration := <-registered
+			require.Equal(t, fixture.watchedOutpoint,
+				registration.outpoint)
+			require.Equal(t, fixture.commitmentScript,
+				registration.pkScript)
+			close(fixture.resolver.quit)
+			require.ErrorIs(t, <-result, errResolverShuttingDown)
+			require.False(t, fixture.resolver.IsResolved())
+		})
+	}
+
+	fixture := newTaprootHtlcFixture(t, true, taprootHtlcNoAux)
+	fixture.resolver.htlcResolution.SignDetails = nil
+	_, _, err := fixture.resolver.chainDetailsToWatch()
+	require.Error(t, err)
+}
+
+// TestHtlcOutgoingResolverTaprootRegistration tests that contest resolution
+// registers the authoritative local commitment output before waiting.
+func TestHtlcOutgoingResolverTaprootRegistration(t *testing.T) {
+	// Arrange: Create duplicate-timeout trees with valid and malformed
+	// proofs while keeping the commitment output authoritative.
+	// Act: Run resolution through the testify notifier and capture its
+	// registration before stopping the asynchronous wait.
+	// Assert: Resolution always registers the exact HTLC output, then exits
+	// unresolved with the expected shutdown result and no successor.
+	for _, malformed := range []bool{false, true} {
+		fixture := newTaprootHtlcFixture(
+			t, true, taprootHtlcDuplicateTimeout,
+		)
+		if malformed {
+			setTaprootTimeoutControl(fixture, []byte{1})
+		}
+		notifier, _, _, registered := newSpendMockNotifier()
+		chainCfg := ChannelArbitratorConfig{
+			ChainArbitratorConfig: ChainArbitratorConfig{
+				Notifier: notifier,
+			},
+		}
+		fixture.resolver.contractResolverKit = *newContractResolverKit(
+			ResolverConfig{
+				ChannelArbitratorConfig: chainCfg,
+			},
+		)
+		resolver := &htlcOutgoingContestResolver{
+			htlcTimeoutResolver: fixture.resolver,
+		}
+		result := make(chan resolveResult, 1)
+		go func() {
+			next, err := resolver.Resolve()
+			result <- resolveResult{nextResolver: next, err: err}
+		}()
+
+		registration := <-registered
+		require.Equal(t, fixture.watchedOutpoint, registration.outpoint)
+		require.Equal(
+			t, fixture.commitmentScript, registration.pkScript,
+		)
+		close(resolver.quit)
+		resolved := <-result
+		require.ErrorIs(t, resolved.err, errResolverShuttingDown)
+		require.Nil(t, resolved.nextResolver)
+		require.False(t, resolver.IsResolved())
 	}
 }

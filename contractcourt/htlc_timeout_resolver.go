@@ -491,10 +491,8 @@ func (h *htlcTimeoutResolver) chainDetailsToWatch() (*wire.OutPoint, []byte, err
 	}
 
 	// If SignedTimeoutTx is not nil, this is the local party's commitment,
-	// and we'll need to grab watch the output that our timeout transaction
-	// points to. We can directly grab the outpoint, then also extract the
-	// witness script (the last element of the witness stack) to
-	// re-construct the pkScript we need to watch.
+	// and we'll need to watch the output that our timeout transaction points
+	// to. The outpoint can be read directly from the transaction input.
 	//
 	//nolint:ll
 	outPointToWatch := h.htlcResolution.SignedTimeoutTx.TxIn[0].PreviousOutPoint
@@ -505,34 +503,10 @@ func (h *htlcTimeoutResolver) chainDetailsToWatch() (*wire.OutPoint, []byte, err
 		err           error
 	)
 	switch {
-	// For taproot channels, then final witness element is the control
-	// block, and the one before it the witness script. We can use both of
-	// these together to reconstruct the taproot output key, then map that
-	// into a v1 witness program.
+	// A control block can select the wrong duplicate leaf, so Taproot watch
+	// registration must use the independently stored commitment output.
 	case h.isTaproot():
-		// First, we'll parse the control block into something we can
-		// use.
-		ctrlBlockBytes := witness[len(witness)-1]
-		ctrlBlock, err := txscript.ParseControlBlock(ctrlBlockBytes)
-		if err != nil {
-			return nil, nil, err
-		}
-
-		// With the control block, we'll grab the witness script, then
-		// use that to derive the tapscript root.
-		witnessScript := witness[len(witness)-2]
-		tapscriptRoot := ctrlBlock.RootHash(witnessScript)
-
-		// Once we have the root, then we can derive the output key
-		// from the internal key, then turn that into a witness
-		// program.
-		outputKey := txscript.ComputeTaprootOutputKey(
-			ctrlBlock.InternalKey, tapscriptRoot,
-		)
-		scriptToWatch, err = txscript.PayToTaprootScript(outputKey)
-		if err != nil {
-			return nil, nil, err
-		}
+		scriptToWatch, err = h.taprootHtlcCommitmentScript()
 
 	// For regular channels, the witness script is the last element on the
 	// stack. We can then use this to re-derive the output that we're

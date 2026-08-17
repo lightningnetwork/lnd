@@ -8,6 +8,7 @@ import (
 	"sync"
 	"sync/atomic"
 
+	"github.com/btcsuite/btcd/btcutil/v2"
 	"github.com/btcsuite/btcd/txscript/v2"
 	"github.com/btcsuite/btcd/wire/v2"
 	"github.com/btcsuite/btclog/v2"
@@ -15,6 +16,7 @@ import (
 	"github.com/lightningnetwork/lnd/chanstate"
 	"github.com/lightningnetwork/lnd/fn/v2"
 	"github.com/lightningnetwork/lnd/input"
+	"github.com/lightningnetwork/lnd/lntypes"
 	"github.com/lightningnetwork/lnd/sweep"
 )
 
@@ -258,6 +260,111 @@ var (
 	// progressing because it received the quit signal.
 	errResolverShuttingDown = errors.New("resolver shutting down")
 )
+
+// secondLevelAnchorInput builds the sweepable input for the CPFP anchor at
+// index 1 of a pre-signed DeterministicHTLCs second-level HTLC tx, along
+// with the fee budget the sweeper may spend on the child. The pre-signed
+// parent cannot be RBF'd under SigHashDefault, so CPFP via this anchor is
+// its only fee-bumping path.
+//
+// The anchor is a taproot output spendable by the broadcaster's ToLocalKey
+// via key-path (fast) or by anyone after 16 blocks via script path. We use
+// the key-path. The delay key is derived from the second-level HTLC
+// output's sweep sign descriptor (delay base point plus the commitment
+// point's single tweak), which is exactly the key the anchor is keyed to.
+//
+// It returns a nil input when the tx carries no anchor or the descriptor
+// lacks the key material: the parent then still publishes at its baked-in
+// floor fee, CPFP is just unavailable.
+func secondLevelAnchorInput(parentTx *wire.MsgTx,
+	htlcSweepDesc input.SignDescriptor, parentFee btcutil.Amount,
+	broadcastHeight uint32, budgetCfg BudgetConfig,
+	log btclog.Logger) (input.Input, btcutil.Amount, error) {
+
+	// The anchor sits at index 1 of every DeterministicHTLCs second-level
+	// tx (index 0 is the HTLC output). If the tx only has one output the
+	// caller built it without an anchor and there's nothing to sweep.
+	if len(parentTx.TxOut) < 2 {
+		return nil, 0, nil
+	}
+
+	if htlcSweepDesc.KeyDesc.PubKey == nil ||
+		len(htlcSweepDesc.SingleTweak) == 0 {
+
+		log.Warnf("cannot sweep second-level anchor: sweep sign " +
+			"descriptor lacks delay key material; CPFP " +
+			"unavailable")
+
+		return nil, 0, nil
+	}
+	delayKey := input.TweakPubKeyWithTweak(
+		htlcSweepDesc.KeyDesc.PubKey, htlcSweepDesc.SingleTweak,
+	)
+	anchorTree, err := input.NewAnchorScriptTree(delayKey)
+	if err != nil {
+		return nil, 0, fmt.Errorf("build anchor script tree: %w", err)
+	}
+
+	op := wire.OutPoint{
+		Hash:  parentTx.TxHash(),
+		Index: 1,
+	}
+
+	// Build the sign descriptor for the key-path spend. Clone the HTLC
+	// output's SweepSignDesc (which already carries the local delay key
+	// descriptor + tweak) and swap the anchor-specific fields.
+	signDesc := htlcSweepDesc
+	signDesc.Output = parentTx.TxOut[1]
+	signDesc.WitnessScript = anchorTree.SweepLeaf.Script
+	signDesc.TapTweak = anchorTree.TapscriptRoot
+	signDesc.HashType = txscript.SigHashDefault
+
+	// We pass the parent tx fee + weight so the sweeper computes the
+	// effective package fee rate for CPFP. The baked-in parent fee is
+	// the floor rate (see lnwallet.HtlcSuccessFee / HtlcTimeoutFee under
+	// sigHashDefault) and the weight includes the appended anchor.
+	strippedSize := parentTx.SerializeSizeStripped()
+	parentWeight := lntypes.WeightUnit(
+		(strippedSize * 3) + parentTx.SerializeSize(),
+	)
+	parentInfo := &input.TxInfo{
+		Fee:    parentFee,
+		Weight: parentWeight,
+	}
+
+	anchorInput := input.MakeBaseInput(
+		&op, input.TaprootAnchorSweepSpend, &signDesc,
+		broadcastHeight, parentInfo,
+	)
+
+	// The budget bounds the fees the sweeper may pay for the CPFP child
+	// (funded from wallet inputs, so it can and usually must exceed the
+	// anchor's own value). Derive it from the value under protection,
+	// the second-level HTLC output, with the same configuration used
+	// for commitment anchor CPFP, plus the anchor value itself.
+	budget := calculateBudget(
+		btcutil.Amount(parentTx.TxOut[0].Value),
+		budgetCfg.AnchorCPFPRatio, budgetCfg.AnchorCPFP,
+	) + AnchorOutputValue
+
+	return &anchorInput, budget, nil
+}
+
+// preSignedTxFee returns the exact fee baked into a pre-signed second-level
+// HTLC tx: the value of the commitment output it spends (carried by the sign
+// details' sign descriptor) minus the sum of its outputs.
+func preSignedTxFee(tx *wire.MsgTx,
+	signDetails *input.SignDetails) btcutil.Amount {
+
+	inputValue := signDetails.SignDesc.Output.Value
+
+	var outputValue int64
+	for _, txOut := range tx.TxOut {
+		outputValue += txOut.Value
+	}
+
+	return btcutil.Amount(inputValue - outputValue)
+}
 
 // isSecondLevelSigHashDefault returns true when a pre-signed second-level
 // HTLC transaction was signed with SigHashDefault. In this case the tx

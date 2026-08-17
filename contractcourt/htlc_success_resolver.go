@@ -599,19 +599,33 @@ func (h *htlcSuccessResolver) isSigHashDefault() bool {
 // publishSuccessTx directly broadcasts the pre-signed second-level HTLC
 // success transaction. This is used when the transaction was signed with
 // SigHashDefault (baked-in fees), where the sweeper's normal tx-rebuilding
-// flow would invalidate the peer's signature.
+// flow would invalidate the peer's signature. The anchor output appended
+// to the second-level tx is handed over alongside it so the sweeper can
+// CPFP the parent once it is in the mempool.
 func (h *htlcSuccessResolver) publishSuccessTx() error {
 	parentTx := h.htlcResolution.SignedSuccessTx
 	h.log.Infof("publishing pre-signed 2nd-level HTLC success tx=%v "+
 		"(SigHashDefault, baked-in fees)", parentTx.TxHash())
 
+	// The CPFP anchor at index 1 is the parent's only fee-bumping path.
 	// The deadline is the HTLC's refund timeout so the sweeper prioritises
 	// confirmation before the HTLC expires.
+	anchor, budget, err := secondLevelAnchorInput(
+		parentTx, h.htlcResolution.SweepSignDesc,
+		preSignedTxFee(parentTx, h.htlcResolution.SignDetails),
+		h.broadcastHeight, h.Budget, h.log,
+	)
+	if err != nil {
+		return err
+	}
+
 	return h.publishPreSignedHtlcTx(sweep.PreSignedTxRequest{
 		Tx: parentTx,
 		Label: labels.MakeLabel(
 			labels.LabelTypeChannelClose, &h.ShortChanID,
 		),
+		Anchor:         anchor,
+		Budget:         budget,
 		DeadlineHeight: fn.Some(int32(h.htlc.RefundTimeout)),
 	})
 }

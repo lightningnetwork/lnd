@@ -242,6 +242,7 @@ func (h *htlcSuccessResolver) Stop() {
 	defer h.log.Debugf("stopped")
 
 	close(h.quit)
+	h.wg.Wait()
 }
 
 // report returns a report on the resolution state of the contract.
@@ -430,17 +431,49 @@ func (h *htlcSuccessResolver) isSigHashDefault() bool {
 // publishSuccessTx directly broadcasts the pre-signed second-level HTLC
 // success transaction. This is used when the transaction was signed with
 // SigHashDefault (baked-in fees), where the sweeper's normal tx-rebuilding
-// flow would invalidate the peer's signature.
+// flow would invalidate the peer's signature. After broadcast, the anchor
+// output appended to the second-level tx is offered to the sweeper for
+// CPFP fee bumping.
 func (h *htlcSuccessResolver) publishSuccessTx() error {
+	parentTx := h.htlcResolution.SignedSuccessTx
 	h.log.Infof("publishing pre-signed 2nd-level HTLC success tx=%v "+
-		"(SigHashDefault, baked-in fees)",
-		h.htlcResolution.SignedSuccessTx.TxHash())
+		"(SigHashDefault, baked-in fees)", parentTx.TxHash())
 
 	label := labels.MakeLabel(
 		labels.LabelTypeChannelClose, &h.ShortChanID,
 	)
 
-	return h.PublishTx(h.htlcResolution.SignedSuccessTx, label)
+	return publishPreSignedHtlcTx(
+		parentTx, label, h.PublishTx, h.Notifier, h.quit, &h.wg,
+		h.log, func() error {
+			return h.sweepSecondLevelAnchor(parentTx)
+		},
+	)
+}
+
+// sweepSecondLevelAnchor offers the anchor output at index 1 of the
+// just-broadcast second-level HTLC tx to the sweeper for CPFP fee
+// bumping. The pre-signed parent tx cannot be RBF'd under SigHashDefault;
+// CPFP via the anchor is the only fee-bumping path. The deadline is set
+// to the HTLC's refund timeout so the sweeper prioritises confirmation
+// before the HTLC expires.
+func (h *htlcSuccessResolver) sweepSecondLevelAnchor(
+	parentTx *wire.MsgTx) error {
+
+	return offerSecondLevelAnchorToSweeper(&secondLevelAnchorSweepReq{
+		sweeper:       h.Sweeper,
+		parentTx:      parentTx,
+		htlcSweepDesc: h.htlcResolution.SweepSignDesc,
+		parentFee: preSignedTxFee(
+			parentTx, h.htlcResolution.SignDetails,
+		),
+		budget:          h.Budget,
+		broadcastHeight: h.broadcastHeight,
+		deadlineHeight:  fn.Some(int32(h.htlc.RefundTimeout)),
+		quit:            h.quit,
+		wg:              &h.wg,
+		log:             h.log,
+	})
 }
 
 // isTaproot returns true if the resolver is for a taproot output.

@@ -1010,15 +1010,30 @@ func (h *htlcTimeoutResolver) isSigHashDefault() bool {
 // publishTimeoutTx directly broadcasts the pre-signed second-level HTLC
 // timeout transaction. This is used when the transaction was signed with
 // SigHashDefault (baked-in fees), where the sweeper's normal tx-rebuilding
-// flow would invalidate the peer's signature.
+// flow would invalidate the peer's signature. The anchor output appended
+// to the second-level tx is handed over alongside it so the sweeper can
+// CPFP the parent once it is in the mempool.
 func (h *htlcTimeoutResolver) publishTimeoutTx() error {
 	parentTx := h.htlcResolution.SignedTimeoutTx
 	h.log.Infof("publishing pre-signed 2nd-level HTLC timeout tx=%v "+
 		"(SigHashDefault, baked-in fees)", parentTx.TxHash())
 
+	// The CPFP anchor at index 1 is the parent's only fee-bumping path.
 	// The deadline is the incoming HTLC's expiry: past that height our
 	// upstream peer can claw back the funds, matching the deadline the
 	// other timeout-path sweeps use.
+	anchor, budget, err := secondLevelAnchorInput(
+		parentTx, h.htlcResolution.SweepSignDesc,
+		preSignedTxFee(parentTx, h.htlcResolution.SignDetails),
+		h.broadcastHeight, h.Budget, h.log,
+	)
+	if err != nil {
+		return err
+	}
+
+	// The sweeper watches the commitment HTLC output the tx spends: a
+	// confirmed spend of it is what tells it the tx confirmed, or that
+	// it never will.
 	return h.publishPreSignedHtlcTx(sweep.PreSignedTxRequest{
 		Tx: parentTx,
 		SpentOutputs: []*wire.TxOut{
@@ -1028,6 +1043,8 @@ func (h *htlcTimeoutResolver) publishTimeoutTx() error {
 		Label: labels.MakeLabel(
 			labels.LabelTypeChannelClose, &h.ShortChanID,
 		),
+		Anchor:         anchor,
+		Budget:         budget,
 		DeadlineHeight: h.incomingHTLCExpiryHeight,
 	})
 }

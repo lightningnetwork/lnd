@@ -148,7 +148,24 @@ type ChainControlBuilder interface {
 	// BuildChainControl is responsible for creating a fully populated chain
 	// control instance from a wallet.
 	BuildChainControl(*chainreg.PartialChainControl,
-		*btcwallet.Config) (*chainreg.ChainControl, func(), error)
+		*btcwallet.Config) (*ChainControlResult, error)
+}
+
+// ChainControlResult is the result of creating the active chain control. It
+// carries the chain control itself, the cleanup hook for any resources created
+// during initialization and, if applicable, the inbound remote signer
+// connection used by the dedicated remote signer RPC server.
+type ChainControlResult struct {
+	// ChainControl is the initialized chain control for the active wallet.
+	ChainControl *chainreg.ChainControl
+
+	// CleanUp releases all resources created while building the chain
+	// control result.
+	CleanUp func()
+
+	// InboundRemoteSignerConn is the optional inbound remote signer
+	// connection exposed through the dedicated remote signer RPC server.
+	InboundRemoteSignerConn rpcwallet.InboundRemoteSignerConnection
 }
 
 // ImplementationCfg is a struct that holds all configuration items for
@@ -764,7 +781,7 @@ func (w *walletReBroadcaster) Started() bool {
 // NOTE: This is part of the ChainControlBuilder interface.
 func (d *DefaultWalletImpl) BuildChainControl(
 	partialChainControl *chainreg.PartialChainControl,
-	walletConfig *btcwallet.Config) (*chainreg.ChainControl, func(), error) {
+	walletConfig *btcwallet.Config) (*ChainControlResult, error) {
 
 	walletController, err := btcwallet.New(
 		*walletConfig, partialChainControl.Cfg.BlockCache,
@@ -772,7 +789,7 @@ func (d *DefaultWalletImpl) BuildChainControl(
 	if err != nil {
 		err := fmt.Errorf("unable to create wallet controller: %w", err)
 		d.logger.Error(err)
-		return nil, nil, err
+		return nil, err
 	}
 
 	keyRing := keychain.NewBtcWalletKeyRing(
@@ -833,10 +850,13 @@ func (d *DefaultWalletImpl) BuildChainControl(
 	if err != nil {
 		err := fmt.Errorf("unable to create chain control: %w", err)
 		d.logger.Error(err)
-		return nil, nil, err
+		return nil, err
 	}
 
-	return activeChainControl, cleanUp, nil
+	return &ChainControlResult{
+		ChainControl: activeChainControl,
+		CleanUp:      cleanUp,
+	}, nil
 }
 
 // RPCSignerWalletImpl is a wallet implementation that uses a remote signer over
@@ -873,7 +893,18 @@ func NewRPCSignerWalletImpl(cfg *Config, logger btclog.Logger,
 // NOTE: This is part of the ChainControlBuilder interface.
 func (d *RPCSignerWalletImpl) BuildChainControl(
 	partialChainControl *chainreg.PartialChainControl,
-	walletConfig *btcwallet.Config) (*chainreg.ChainControl, func(), error) {
+	walletConfig *btcwallet.Config) (*ChainControlResult, error) {
+
+	// Keeps track of both the remote signer and the chain control clean up
+	// functions.
+	var (
+		cleanUpTasks []func()
+		cleanUp      = func() {
+			for i := len(cleanUpTasks) - 1; i >= 0; i-- {
+				cleanUpTasks[i]()
+			}
+		}
+	)
 
 	walletController, err := btcwallet.New(
 		*walletConfig, partialChainControl.Cfg.BlockCache,
@@ -881,8 +912,20 @@ func (d *RPCSignerWalletImpl) BuildChainControl(
 	if err != nil {
 		err := fmt.Errorf("unable to create wallet controller: %w", err)
 		d.logger.Error(err)
-		return nil, nil, err
+		return &ChainControlResult{CleanUp: cleanUp}, err
 	}
+
+	// Create the remote signer connection instance.
+	remoteSignerConn, err := rpcwallet.BuildRemoteSignerConnection(
+		context.TODO(), d.DefaultWalletImpl.cfg.RemoteSigner,
+	)
+	if err != nil {
+		err := fmt.Errorf("unable to set up remote signer: %w", err)
+		d.logger.Error(err)
+		return &ChainControlResult{CleanUp: cleanUp}, err
+	}
+
+	cleanUpTasks = append(cleanUpTasks, remoteSignerConn.Stop)
 
 	baseKeyRing := keychain.NewBtcWalletKeyRing(
 		walletController.InternalWallet(), walletConfig.CoinType,
@@ -890,13 +933,14 @@ func (d *RPCSignerWalletImpl) BuildChainControl(
 
 	rpcKeyRing, err := rpcwallet.NewRPCKeyRing(
 		baseKeyRing, walletController,
-		d.DefaultWalletImpl.cfg.RemoteSigner, walletConfig.NetParams,
+		remoteSignerConn, walletConfig.NetParams,
 	)
 	if err != nil {
 		err := fmt.Errorf("unable to create RPC remote signing wallet "+
 			"%v", err)
 		d.logger.Error(err)
-		return nil, nil, err
+
+		return &ChainControlResult{CleanUp: cleanUp}, err
 	}
 
 	// Create, and start the lnwallet, which handles the core payment
@@ -915,16 +959,29 @@ func (d *RPCSignerWalletImpl) BuildChainControl(
 
 	// We've created the wallet configuration now, so we can finish
 	// initializing the main chain control.
-	activeChainControl, cleanUp, err := chainreg.NewChainControl(
+	activeChainControl, ccCleanUp, err := chainreg.NewChainControl(
 		lnWalletConfig, rpcKeyRing, partialChainControl,
 	)
 	if err != nil {
 		err := fmt.Errorf("unable to create chain control: %w", err)
 		d.logger.Error(err)
-		return nil, nil, err
+		return &ChainControlResult{CleanUp: cleanUp}, err
 	}
 
-	return activeChainControl, cleanUp, nil
+	cleanUpTasks = append(cleanUpTasks, ccCleanUp)
+
+	// Note that if the remote signer connection does implement the
+	// InboundRemoteSignerConnection interface, the type assertion leaves
+	// inboundRemoteSignerConn nil, which is what want to set it to in that
+	// case.
+	inboundRemoteSignerConn, _ := remoteSignerConn.(rpcwallet.
+		InboundRemoteSignerConnection)
+
+	return &ChainControlResult{
+		ChainControl:            activeChainControl,
+		CleanUp:                 cleanUp,
+		InboundRemoteSignerConn: inboundRemoteSignerConn,
+	}, nil
 }
 
 // DatabaseInstances is a struct that holds all instances to the actual

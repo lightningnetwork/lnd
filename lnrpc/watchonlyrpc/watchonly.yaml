@@ -1,0 +1,8 @@
+type: google.api.Service
+config_version: 3
+
+http:
+  rules:
+    - selector: watchonlyrpc.WatchOnly.SignCoordinatorStreams
+      post: "/v2/watchonly/stream"
+      body: "*"

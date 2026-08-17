@@ -1977,3 +1977,122 @@ func TestTaprootHtlcCommitmentScript(t *testing.T) {
 
 // setTaprootTimeoutControl replaces the stored timeout proof on either
 // commitment side of a fixture.
+func setTaprootTimeoutControl(fixture *taprootHtlcFixture, control []byte) {
+	resolution := &fixture.resolver.htlcResolution
+	if fixture.localCommit {
+		witness := resolution.SignedTimeoutTx.TxIn[0].Witness
+		witness[len(witness)-1] = control
+		return
+	}
+
+	resolution.SweepSignDesc.ControlBlock = control
+}
+
+// TestCanonicalTaprootSuccessHashes tests independent timeout hashing and the
+// optional identity obtained from a verified stored proof.
+func TestCanonicalTaprootSuccessHashes(t *testing.T) {
+	// Arrange: Cover both commitment owners and every supported auxiliary
+	// leaf topology, then corrupt the stored proof in controlled ways.
+	// Act: Ask the resolver to derive identities from each authoritative
+	// commitment, including the deliberately damaged proof variants.
+	// Assert: Valid trees expose only unambiguous identities, while absent
+	// or unauthenticated proofs never contribute a success-leaf sibling.
+	variants := []taprootHtlcVariant{
+		taprootHtlcNoAux, taprootHtlcUnrelatedAux,
+		taprootHtlcDuplicateTimeout, taprootHtlcDuplicateSuccess,
+	}
+	for _, localCommit := range []bool{true, false} {
+		for _, variant := range variants {
+			fixture := newTaprootHtlcFixture(
+				t, localCommit, variant,
+			)
+			name := fmt.Sprintf("local=%v/variant=%v",
+				localCommit, variant)
+			t.Run(name, func(t *testing.T) {
+				identities, err := fixture.resolver.
+					canonicalTaprootSuccessHashes()
+				require.NoError(t, err)
+				require.Equal(t,
+					txscript.NewBaseTapLeaf(
+						fixture.timeoutScript,
+					).TapHash(),
+					identities.timeoutLeafHash,
+				)
+				if variant == taprootHtlcDuplicateTimeout {
+					sibling := identities.storedProofSibling
+					missing := sibling.IsNone()
+					require.True(t, missing)
+
+					return
+				}
+				require.Equal(t,
+					fixture.tree.SuccessTapLeaf.TapHash(),
+					identities.storedProofSibling.
+						UnwrapOrFail(t),
+				)
+			})
+		}
+	}
+	for _, localCommit := range []bool{true, false} {
+		for _, mutation := range []string{
+			"malformed proof", "siblingless proof",
+			"different commitment",
+		} {
+			fixture := newTaprootHtlcFixture(
+				t, localCommit, taprootHtlcUnrelatedAux,
+			)
+			switch mutation {
+			case "malformed proof":
+				setTaprootTimeoutControl(fixture, []byte{1})
+			case "siblingless proof":
+				control, err := txscript.ParseControlBlock(
+					fixture.timeoutControl,
+				)
+				require.NoError(t, err)
+				control.InclusionProof = nil
+				controlBytes, err := control.ToBytes()
+				require.NoError(t, err)
+				setTaprootTimeoutControl(fixture, controlBytes)
+
+			case "different commitment":
+				other := newTaprootHtlcFixture(
+					t, localCommit, taprootHtlcNoAux,
+				)
+				resolution := &fixture.resolver.htlcResolution
+				if localCommit {
+					resolution.SignDetails.
+						SignDesc.Output.PkScript =
+						other.commitmentScript
+				} else {
+					resolution.SweepSignDesc.Output.
+						PkScript =
+						other.commitmentScript
+				}
+			}
+			t.Run(fmt.Sprintf("local=%v/%s", localCommit,
+				mutation), func(t *testing.T) {
+				identities, err := fixture.resolver.
+					canonicalTaprootSuccessHashes()
+				require.NoError(t, err)
+				require.True(t,
+					identities.storedProofSibling.IsNone())
+			})
+		}
+	}
+
+	for _, localCommit := range []bool{true, false} {
+		fixture := newTaprootHtlcFixture(
+			t, localCommit, taprootHtlcNoAux,
+		)
+		if localCommit {
+			fixture.resolver.htlcResolution.SignedTimeoutTx.
+				TxIn[0].Witness = nil
+		} else {
+			fixture.resolver.htlcResolution.SweepSignDesc.
+				WitnessScript = nil
+		}
+
+		_, err := fixture.resolver.canonicalTaprootSuccessHashes()
+		require.Error(t, err)
+	}
+}

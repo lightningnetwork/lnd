@@ -134,6 +134,96 @@ func (h *htlcTimeoutResolver) taprootHtlcCommitmentScript() ([]byte, error) {
 	return output.PkScript, nil
 }
 
+// taprootSuccessHashes identifies the canonical success path without using a
+// candidate spend's script or keys. HTLC trees order sender leaves as
+// {success, timeout} and receiver leaves as {timeout, success}, with an
+// optional auxiliary leaf appended third. Btcd pairs the first two leaves, so
+// the independently hashed timeout leaf authenticates their shared edge. The
+// hash-keyed LeafProofIndex can select a duplicate auxiliary occurrence;
+// therefore a verified stored proof supplies only an optional success hash.
+type taprootSuccessHashes struct {
+	timeoutLeafHash    chainhash.Hash
+	storedProofSibling fn.Option[chainhash.Hash]
+}
+
+// canonicalTaprootSuccessHashes derives success identities from the trusted
+// timeout resolution. The timeout leaf hash remains authoritative even when a
+// stored proof is unavailable or was selected for a duplicate leaf.
+func (h *htlcTimeoutResolver) canonicalTaprootSuccessHashes() (
+	taprootSuccessHashes, error) {
+
+	timeoutScript, controlBytes, err := h.taprootTimeoutProof()
+	if err != nil {
+		return taprootSuccessHashes{}, err
+	}
+
+	identities := taprootSuccessHashes{
+		timeoutLeafHash: txscript.NewBaseTapLeaf(
+			timeoutScript,
+		).TapHash(),
+	}
+
+	commitScript, err := h.taprootHtlcCommitmentScript()
+	if err != nil {
+		return identities, nil
+	}
+	_, witnessProgram, err := txscript.ExtractWitnessProgramInfo(
+		commitScript,
+	)
+	if err != nil || len(witnessProgram) != 32 {
+		return identities, nil
+	}
+
+	controlBlock, err := txscript.ParseControlBlock(controlBytes)
+	if err != nil {
+		return identities, nil
+	}
+	if err := txscript.VerifyTaprootLeafCommitment(
+		controlBlock, witnessProgram, timeoutScript,
+	); err != nil {
+		return identities, nil
+	}
+
+	if len(controlBlock.InclusionProof) < chainhash.HashSize {
+		return identities, nil
+	}
+
+	var sibling chainhash.Hash
+	copy(sibling[:], controlBlock.InclusionProof[:chainhash.HashSize])
+	identities.storedProofSibling = fn.Some(sibling)
+
+	return identities, nil
+}
+
+// taprootTimeoutProof returns the trusted timeout script and its stored
+// control block. Missing or truncated trusted resolution data is an error;
+// malformed proof bytes are handled as an unavailable optional identity by
+// canonicalTaprootSuccessHashes.
+func (h *htlcTimeoutResolver) taprootTimeoutProof() ([]byte, []byte, error) {
+	if h.htlcResolution.SignedTimeoutTx == nil {
+		script := h.htlcResolution.SweepSignDesc.WitnessScript
+		if len(script) == 0 {
+			return nil, nil, errors.New(
+				"missing remote timeout script",
+			)
+		}
+
+		return script, h.htlcResolution.SweepSignDesc.ControlBlock, nil
+	}
+
+	timeoutTx := h.htlcResolution.SignedTimeoutTx
+	if len(timeoutTx.TxIn) == 0 || timeoutTx.TxIn[0] == nil {
+		return nil, nil, errors.New("missing local timeout input")
+	}
+
+	witness := timeoutTx.TxIn[0].Witness
+	if len(witness) < 2 || len(witness[len(witness)-2]) == 0 {
+		return nil, nil, errors.New("missing local timeout script")
+	}
+
+	return witness[len(witness)-2], witness[len(witness)-1], nil
+}
+
 // outpoint returns the outpoint of the HTLC output we're attempting to sweep.
 func (h *htlcTimeoutResolver) outpoint() wire.OutPoint {
 	// The primary key for this resolver will be the outpoint of the HTLC

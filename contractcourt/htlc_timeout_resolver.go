@@ -621,6 +621,7 @@ func (h *htlcTimeoutResolver) Stop() {
 	defer h.log.Debugf("stopped")
 
 	close(h.quit)
+	h.wg.Wait()
 }
 
 // report returns a report on the resolution state of the contract.
@@ -985,17 +986,44 @@ func (h *htlcTimeoutResolver) isSigHashDefault() bool {
 // publishTimeoutTx directly broadcasts the pre-signed second-level HTLC
 // timeout transaction. This is used when the transaction was signed with
 // SigHashDefault (baked-in fees), where the sweeper's normal tx-rebuilding
-// flow would invalidate the peer's signature.
+// flow would invalidate the peer's signature. After broadcast, the anchor
+// output appended to the second-level tx is offered to the sweeper for
+// CPFP fee bumping.
 func (h *htlcTimeoutResolver) publishTimeoutTx() error {
+	parentTx := h.htlcResolution.SignedTimeoutTx
 	h.log.Infof("publishing pre-signed 2nd-level HTLC timeout tx=%v "+
-		"(SigHashDefault, baked-in fees)",
-		h.htlcResolution.SignedTimeoutTx.TxHash())
+		"(SigHashDefault, baked-in fees)", parentTx.TxHash())
 
 	label := labels.MakeLabel(
 		labels.LabelTypeChannelClose, &h.ShortChanID,
 	)
 
-	return h.PublishTx(h.htlcResolution.SignedTimeoutTx, label)
+	return publishPreSignedHtlcTx(
+		parentTx, label, h.PublishTx, h.Notifier, h.quit, &h.wg,
+		h.log, func() (<-chan sweep.Result, error) {
+			// The deadline is the incoming HTLC's expiry: past
+			// that height our upstream peer can claw back the
+			// funds, matching the deadline the other timeout-path
+			// sweeps use.
+			return offerSecondLevelAnchorToSweeper(
+				&secondLevelAnchorSweepReq{
+					sweeper:  h.Sweeper,
+					parentTx: parentTx,
+					htlcSweepDesc: h.htlcResolution.
+						SweepSignDesc,
+					parentFee: preSignedTxFee(
+						parentTx,
+						h.htlcResolution.SignDetails,
+					),
+					budget:          h.Budget,
+					broadcastHeight: h.broadcastHeight,
+					deadlineHeight: h.
+						incomingHTLCExpiryHeight,
+					log: h.log,
+				},
+			)
+		},
+	)
 }
 
 // waitHtlcSpendAndCheckPreimage waits for the htlc output to be spent and

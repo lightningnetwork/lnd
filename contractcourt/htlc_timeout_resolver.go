@@ -2,6 +2,7 @@ package contractcourt
 
 import (
 	"encoding/binary"
+	"errors"
 	"fmt"
 	"io"
 	"sync"
@@ -21,6 +22,8 @@ import (
 	"github.com/lightningnetwork/lnd/lnwire"
 	"github.com/lightningnetwork/lnd/sweep"
 )
+
+var errPreimageMismatch = errors.New("revealed preimage does not match HTLC")
 
 // htlcTimeoutResolver is a ContractResolver that's capable of resolving an
 // outgoing HTLC. The HTLC may be on our commitment transaction, or on the
@@ -203,7 +206,9 @@ func (h *htlcTimeoutResolver) claimCleanUp(
 	// If this is a taproot channel, and there's only a single witness
 	// element, then we're actually on the losing side of a breach
 	// attempt...
-	case h.isTaproot() && len(spendingInput.Witness) == 1:
+	case h.isTaproot() &&
+		len(input.StripTaprootAnnex(spendingInput.Witness)) == 1:
+
 		return fmt.Errorf("breach attempt failed")
 
 	// Otherwise, they'll be spending directly from our commitment output.
@@ -223,6 +228,16 @@ func (h *htlcTimeoutResolver) claimCleanUp(
 	if err != nil {
 		return fmt.Errorf("unable to create pre-image from witness: %w",
 			err)
+	}
+
+	// The classifier above only asserts that the element at the preimage
+	// index is the right length, so confirm it actually opens this HTLC
+	// before we treat it as a claim. Otherwise a witness that merely has
+	// the shape of a success spend would poison the preimage cache and
+	// settle the incoming link with a preimage that isn't ours.
+	if !preimage.Matches(h.htlc.RHash) {
+		return fmt.Errorf("%w: preimage %v, htlc hash %v",
+			errPreimageMismatch, preimage, h.htlc.RHash)
 	}
 
 	log.Infof("%T(%v): extracting preimage=%v from on-chain "+
@@ -344,6 +359,15 @@ func isPreimageSpend(isTaproot bool, spend *chainntnfs.SpendDetail,
 	spenderIndex := spend.SpenderInputIndex
 	spendingInput := spend.SpendingTx.TxIn[spenderIndex]
 	spendingWitness := spendingInput.Witness
+
+	// A taproot spender may append a BIP341 annex to any of the script
+	// paths enumerated below. The annex isn't part of the spend path, so we
+	// drop it before matching the stack against the shapes we know. Every
+	// index checked below is counted from the front of the stack, so
+	// removing a trailing element leaves them all in place.
+	if isTaproot {
+		spendingWitness = input.StripTaprootAnnex(spendingWitness)
+	}
 
 	switch {
 	// If this is a taproot remote commitment, then we can detect the type

@@ -32,6 +32,15 @@ func (s *SecretKeyRing) DeriveKey(
 	}, nil
 }
 
+// DeriveAndStoreKey currently returns dummy values.
+func (s *SecretKeyRing) DeriveAndStoreKey(
+	_ keychain.KeyLocator) (keychain.KeyDescriptor, error) {
+
+	return keychain.KeyDescriptor{
+		PubKey: s.RootKey.PubKey(),
+	}, nil
+}
+
 // DerivePrivKey currently returns dummy values.
 func (s *SecretKeyRing) DerivePrivKey(
 	_ keychain.KeyDescriptor) (*btcec.PrivateKey, error) {

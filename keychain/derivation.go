@@ -1,6 +1,7 @@
 package keychain
 
 import (
+	"errors"
 	"fmt"
 
 	"github.com/btcsuite/btcd/btcec/v2"
@@ -33,7 +34,18 @@ const (
 	//
 	// NOTE: BRICK SQUUUUUAD.
 	BIP0043Purpose = 1017
+
+	// MaxKeyIndexExtension is the maximum number of keys a single
+	// DeriveAndStoreKey call is allowed to derive and persist. Since that
+	// method fills in every index between a family's current next index and
+	// the requested one, this bounds both the work and the number of
+	// address records a single call can cause.
+	MaxKeyIndexExtension = 25_000
 )
+
+// ErrKeyExtensionTooLarge is returned when a DeriveAndStoreKey call would need
+// to derive more than MaxKeyIndexExtension keys to reach the requested index.
+var ErrKeyExtensionTooLarge = errors.New("key index extension too large")
 
 // IsKnownVersion returns true if the given version is one of the known
 // derivation scheme versions as defined by this package.
@@ -196,7 +208,30 @@ type KeyRing interface {
 	// passed KeyLocator. This may be used in several recovery scenarios,
 	// or when manually rotating something like our current default node
 	// key.
+	//
+	// NOTE: The derived key is not recorded in the wallet, so the wallet
+	// cannot map the resulting public key back to its KeyLocator later on.
+	// Callers that intend to sign with the key must use DeriveAndStoreKey
+	// instead.
 	DeriveKey(keyLoc KeyLocator) (KeyDescriptor, error)
+
+	// DeriveAndStoreKey attempts to derive an arbitrary key specified by
+	// the passed KeyLocator, and also records that key in the wallet. This
+	// is the variant of DeriveKey that must be used for a key the wallet is
+	// later expected to sign with, since signing requires the wallet to be
+	// able to look the key's KeyLocator back up.
+	//
+	// Recording a key implies recording every key in the family that
+	// precedes it, so on return the family's next index is guaranteed to be
+	// above the requested one, and any key at or below it will not be
+	// handed out by DeriveNextKey again. The call is monotonic and
+	// idempotent: an index the family has already advanced past leaves the
+	// wallet untouched, and the family's index is never rewound.
+	//
+	// An error wrapping ErrKeyExtensionTooLarge is returned if reaching the
+	// requested index would require deriving more than
+	// MaxKeyIndexExtension keys.
+	DeriveAndStoreKey(keyLoc KeyLocator) (KeyDescriptor, error)
 }
 
 // SecretKeyRing is a ring similar to the regular KeyRing interface, but it is

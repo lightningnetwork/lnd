@@ -253,6 +253,98 @@ func (b *BtcWalletKeyRing) DeriveKey(keyLoc KeyLocator) (KeyDescriptor, error) {
 	return keyDesc, nil
 }
 
+// DeriveAndStoreKey attempts to derive an arbitrary key specified by the passed
+// KeyLocator, and also records that key (along with every key in the family
+// preceding it) in the wallet's address manager.
+//
+// NOTE: This is part of the keychain.KeyRing interface.
+func (b *BtcWalletKeyRing) DeriveAndStoreKey(
+	keyLoc KeyLocator) (KeyDescriptor, error) {
+
+	var keyDesc KeyDescriptor
+
+	db := b.wallet.Database()
+	err := walletdb.Update(db, func(tx walletdb.ReadWriteTx) error {
+		addrmgrNs := tx.ReadWriteBucket(waddrmgrNamespaceKey)
+
+		scope, err := b.keyScope()
+		if err != nil {
+			return err
+		}
+
+		// If the account doesn't exist, then we may need to create it
+		// for the first time in order to derive the keys that we
+		// require. We skip this if we're using a remote signer in which
+		// case we _need_ to create all accounts when creating the
+		// wallet, so it must exist now.
+		if !b.wallet.AddrManager().WatchOnly() {
+			err = b.createAccountIfNotExists(
+				addrmgrNs, keyLoc.Family, scope,
+			)
+			if err != nil {
+				return err
+			}
+		}
+
+		// Every index between the family's current next index and the
+		// requested one is derived and persisted, so we bound the
+		// amount of work (and the number of address records) a single
+		// call can cause.
+		props, err := scope.AccountProperties(
+			addrmgrNs, uint32(keyLoc.Family),
+		)
+		if err != nil {
+			return err
+		}
+
+		nextIndex := props.ExternalKeyCount
+		if keyLoc.Index >= nextIndex &&
+			keyLoc.Index-nextIndex >= MaxKeyIndexExtension {
+
+			return fmt.Errorf("%w: extending key family %d from "+
+				"index %d to index %d requires deriving %d "+
+				"keys, maximum is %d", ErrKeyExtensionTooLarge,
+				keyLoc.Family, nextIndex, keyLoc.Index,
+				keyLoc.Index-nextIndex+1, MaxKeyIndexExtension)
+		}
+
+		// This is a no-op if the family has already advanced past the
+		// requested index, so the family's index is never rewound.
+		err = scope.ExtendExternalAddresses(
+			addrmgrNs, uint32(keyLoc.Family), keyLoc.Index,
+		)
+		if err != nil {
+			return err
+		}
+
+		path := waddrmgr.DerivationPath{
+			InternalAccount: uint32(keyLoc.Family),
+			Branch:          0,
+			Index:           keyLoc.Index,
+		}
+		addr, err := scope.DeriveFromKeyPath(addrmgrNs, path)
+		if err != nil {
+			return err
+		}
+
+		pubKeyAddr, ok := addr.(waddrmgr.ManagedPubKeyAddress)
+		if !ok {
+			return fmt.Errorf("address is not a managed pubkey " +
+				"addr")
+		}
+
+		keyDesc.KeyLocator = keyLoc
+		keyDesc.PubKey = pubKeyAddr.PubKey()
+
+		return nil
+	})
+	if err != nil {
+		return keyDesc, err
+	}
+
+	return keyDesc, nil
+}
+
 // DerivePrivKey attempts to derive the private key that corresponds to the
 // passed key descriptor.
 //

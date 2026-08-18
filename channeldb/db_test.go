@@ -14,6 +14,7 @@ import (
 	"github.com/btcsuite/btcd/btcutil/v2"
 	"github.com/btcsuite/btcd/chainhash/v2"
 	"github.com/btcsuite/btcd/wire/v2"
+	"github.com/lightningnetwork/lnd/fn/v2"
 	"github.com/lightningnetwork/lnd/graph/db/models"
 	"github.com/lightningnetwork/lnd/keychain"
 	"github.com/lightningnetwork/lnd/kvdb"
@@ -21,6 +22,7 @@ import (
 	"github.com/lightningnetwork/lnd/lnwire"
 	"github.com/lightningnetwork/lnd/routing/route"
 	"github.com/lightningnetwork/lnd/shachain"
+	"github.com/lightningnetwork/lnd/tlv"
 	"github.com/stretchr/testify/require"
 )
 
@@ -382,7 +384,7 @@ func TestRestoreChannelShells(t *testing.T) {
 	// Ensure that it isn't possible to modify the commitment state machine
 	// of this restored channel.
 	channel := nodeChans[0]
-	_, err = channel.UpdateCommitment(nil, nil)
+	_, err = channel.UpdateCommitment(nil, nil, fn.None[tlv.Blob]())
 	if err != ErrNoRestoredChannelMutation {
 		t.Fatalf("able to mutate restored channel")
 	}

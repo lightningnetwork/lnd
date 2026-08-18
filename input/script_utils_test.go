@@ -2375,3 +2375,129 @@ func TestTaprootHtlcScriptGeneration(t *testing.T) {
 		"receiver success leaf should be identical across variants",
 	)
 }
+
+// TestStripTaprootAnnex tests the exact BIP341 annex predicate.
+func TestStripTaprootAnnex(t *testing.T) {
+	t.Parallel()
+
+	stack := wire.TxWitness{{txscript.OP_TRUE}}
+	testCases := []struct {
+		name     string
+		witness  wire.TxWitness
+		expected wire.TxWitness
+	}{
+		{
+			name: "single byte",
+			witness: append(
+				stack, []byte{txscript.TaprootAnnexTag},
+			),
+			expected: stack,
+		},
+		{
+			name: "payload",
+			witness: append(
+				stack, []byte{txscript.TaprootAnnexTag, 1},
+			),
+			expected: stack,
+		},
+		{
+			name:     "single element",
+			witness:  wire.TxWitness{{txscript.TaprootAnnexTag}},
+			expected: wire.TxWitness{{txscript.TaprootAnnexTag}},
+		},
+		{
+			name:     "empty",
+			witness:  append(stack, nil),
+			expected: append(stack, nil),
+		},
+		{
+			name: "non annex",
+			witness: append(
+				stack, []byte{txscript.OP_TRUE},
+			),
+			expected: append(stack, []byte{txscript.OP_TRUE}),
+		},
+		{
+			name: "strips one annex",
+			witness: append(
+				stack, []byte{txscript.TaprootAnnexTag},
+				[]byte{txscript.TaprootAnnexTag},
+			),
+			expected: append(
+				stack, []byte{txscript.TaprootAnnexTag},
+			),
+		},
+	}
+
+	for _, testCase := range testCases {
+		t.Run(testCase.name, func(t *testing.T) {
+			t.Parallel()
+
+			require.Equal(
+				t, testCase.expected,
+				StripTaprootAnnex(testCase.witness),
+			)
+		})
+	}
+}
+
+// TestIsHtlcSpendRevokeTaprootAnnex tests that a taproot revocation spend is
+// still recognized when the spender appends an annex to the key spend witness.
+func TestIsHtlcSpendRevokeTaprootAnnex(t *testing.T) {
+	t.Parallel()
+
+	taprootPkScript := append(
+		[]byte{txscript.OP_1, 0x20}, bytes.Repeat([]byte{1}, 32)...,
+	)
+	signDesc := &SignDescriptor{
+		Output: &wire.TxOut{PkScript: taprootPkScript},
+	}
+
+	dummySigBytes := bytes.Repeat([]byte{2}, 64)
+
+	testCases := []struct {
+		name     string
+		witness  wire.TxWitness
+		expected bool
+	}{
+		{
+			name:     "key spend",
+			witness:  wire.TxWitness{dummySigBytes},
+			expected: true,
+		},
+		{
+			name: "key spend with annex",
+			witness: wire.TxWitness{
+				dummySigBytes,
+				{txscript.TaprootAnnexTag},
+			},
+			expected: true,
+		},
+		{
+			name: "script path spend",
+			witness: wire.TxWitness{
+				dummySigBytes, {txscript.OP_TRUE},
+			},
+			expected: false,
+		},
+		{
+			name: "script path spend with annex",
+			witness: wire.TxWitness{
+				dummySigBytes, {txscript.OP_TRUE},
+				{txscript.TaprootAnnexTag},
+			},
+			expected: false,
+		},
+	}
+
+	for _, tc := range testCases {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+
+			txIn := &wire.TxIn{Witness: tc.witness}
+			isRevoke, err := IsHtlcSpendRevoke(txIn, signDesc)
+			require.NoError(t, err)
+			require.Equal(t, tc.expected, isRevoke)
+		})
+	}
+}

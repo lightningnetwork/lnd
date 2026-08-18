@@ -1,7 +1,9 @@
 package contractcourt
 
 import (
+	"bytes"
 	"encoding/binary"
+	"errors"
 	"fmt"
 	"io"
 	"sync"
@@ -10,15 +12,23 @@ import (
 	"github.com/btcsuite/btcd/chaincfg/chainhash"
 	"github.com/btcsuite/btcd/txscript"
 	"github.com/btcsuite/btcd/wire"
+	"github.com/lightningnetwork/lnd/chainntnfs"
 	"github.com/lightningnetwork/lnd/channeldb"
 	"github.com/lightningnetwork/lnd/fn/v2"
 	"github.com/lightningnetwork/lnd/graph/db/models"
 	"github.com/lightningnetwork/lnd/input"
 	"github.com/lightningnetwork/lnd/labels"
+	"github.com/lightningnetwork/lnd/lntypes"
 	"github.com/lightningnetwork/lnd/lnutils"
 	"github.com/lightningnetwork/lnd/lnwallet"
 	"github.com/lightningnetwork/lnd/sweep"
 )
+
+// errInvalidSpendDetails identifies malformed notifier spend data.
+var errInvalidSpendDetails = errors.New("invalid spend details")
+
+// errInvalidSuccessResolver identifies malformed success resolver state.
+var errInvalidSuccessResolver = errors.New("invalid success resolver")
 
 // htlcSuccessResolver is a resolver that's capable of sweeping an incoming
 // HTLC output on-chain. If this is the remote party's commitment, we'll sweep
@@ -164,18 +174,110 @@ func (h *htlcSuccessResolver) resolveRemoteCommitOutput() error {
 	if err != nil {
 		return err
 	}
+	spendingInput, err := h.validatedSpendInput(sweepTxDetails)
+	if err != nil {
+		return err
+	}
+
+	signDesc := &h.htlcResolution.SweepSignDesc
+	if len(signDesc.WitnessScript) == 0 {
+		return fmt.Errorf("%w: missing success witness script",
+			errInvalidSuccessResolver)
+	}
+	if h.isTaproot() {
+		_, err := txscript.ParseControlBlock(signDesc.ControlBlock)
+		if err != nil {
+			return fmt.Errorf(
+				"%w: invalid success control block: %w",
+				errInvalidSuccessResolver, err,
+			)
+		}
+	}
+
+	spendTxID := sweepTxDetails.SpendingTx.TxHash()
+	witness := spendingInput.Witness
+	if !h.isPreimageSpend(witness) {
+		return h.checkpointForeignSpend(spendTxID)
+	}
+
+	var preimage lntypes.Preimage
+	copy(preimage[:], witness[localPreimageIndex])
+	if !preimage.Matches(h.htlc.RHash) {
+		return fmt.Errorf("%w: spend preimage does not match HTLC hash",
+			errInvalidSuccessResolver)
+	}
 
 	// TODO(yy): should also update the `RecoveredBalance` and
 	// `LimboBalance` like other paths?
 
 	// Checkpoint the resolver, and write the outcome to disk.
-	return h.checkpointClaim(sweepTxDetails.SpenderTxHash)
+	return h.checkpointClaim(
+		h.htlcResolution.ClaimOutpoint,
+		&spendTxID,
+	)
 }
 
-// checkpointClaim checkpoints the success resolver with the reports it needs.
-// If this htlc was claimed two stages, it will write reports for both stages,
-// otherwise it will just write for the single htlc claim.
-func (h *htlcSuccessResolver) checkpointClaim(spendTx *chainhash.Hash) error {
+// isPreimageSpend returns true when the witness reveals the expected HTLC
+// success leaf and includes a correctly sized preimage.
+func (h *htlcSuccessResolver) isPreimageSpend(witness wire.TxWitness) bool {
+	if h.isTaproot() {
+		return h.isTaprootPreimageSpend(witness)
+	}
+
+	if !checkSizeAndIndex(
+		witness, expectedLocalWitnessSuccessSize, localPreimageIndex,
+	) {
+
+		return false
+	}
+
+	return bytes.Equal(
+		witness[len(witness)-1],
+		h.htlcResolution.SweepSignDesc.WitnessScript,
+	)
+}
+
+// isTaprootPreimageSpend returns true when the witness reveals the expected
+// Taproot HTLC success leaf and includes a correctly sized preimage.
+func (h *htlcSuccessResolver) isTaprootPreimageSpend(
+	witness wire.TxWitness) bool {
+
+	// A BIP341 annex is an optional trailing witness element and is not
+	// part of the tapscript execution stack.
+	witness = input.StripTaprootAnnex(witness)
+	if !checkSizeAndIndex(
+		witness, localTaprootWitnessSuccessSize, localPreimageIndex,
+	) {
+
+		return false
+	}
+
+	tapScript := witness[len(witness)-2]
+	controlBlockBytes := witness[len(witness)-1]
+	controlBlock, err := txscript.ParseControlBlock(
+		controlBlockBytes,
+	)
+	expected, expectedErr := txscript.ParseControlBlock(
+		h.htlcResolution.SweepSignDesc.ControlBlock,
+	)
+	if err != nil || expectedErr != nil ||
+		controlBlock.LeafVersion != expected.LeafVersion {
+
+		return false
+	}
+
+	return bytes.Equal(
+		tapScript,
+		h.htlcResolution.SweepSignDesc.WitnessScript,
+	)
+}
+
+// checkpointClaim checkpoints a successful HTLC claim. claimOutpoint is the
+// output recovered in the final stage, and spendTxID identifies the transaction
+// that spent it. A two-stage claim writes reports for both stages.
+func (h *htlcSuccessResolver) checkpointClaim(claimOutpoint wire.OutPoint,
+	spendTxID *chainhash.Hash) error {
+
 	// Mark the htlc as final settled.
 	err := h.ChainArbitratorConfig.PutFinalHtlcOutcome(
 		h.ChannelArbitratorConfig.ShortChanID, h.htlc.HtlcIndex, true,
@@ -200,11 +302,11 @@ func (h *htlcSuccessResolver) checkpointClaim(spendTx *chainhash.Hash) error {
 	amt := btcutil.Amount(h.htlcResolution.SweepSignDesc.Output.Value)
 	reports := []*channeldb.ResolverReport{
 		{
-			OutPoint:        h.htlcResolution.ClaimOutpoint,
+			OutPoint:        claimOutpoint,
 			Amount:          amt,
 			ResolverType:    channeldb.ResolverTypeIncomingHtlc,
 			ResolverOutcome: channeldb.ResolverOutcomeClaimed,
-			SpendTxID:       spendTx,
+			SpendTxID:       spendTxID,
 		},
 	}
 
@@ -214,11 +316,10 @@ func (h *htlcSuccessResolver) checkpointClaim(spendTx *chainhash.Hash) error {
 		// If the SignedSuccessTx is not nil, we are claiming the htlc
 		// in two stages, so we need to create a report for the first
 		// stage transaction as well.
-		spendTx := h.htlcResolution.SignedSuccessTx
-		spendTxID := spendTx.TxHash()
+		spendTxID := claimOutpoint.Hash
 
 		report := &channeldb.ResolverReport{
-			OutPoint:        spendTx.TxIn[0].PreviousOutPoint,
+			OutPoint:        h.outpoint(),
 			Amount:          h.htlc.Amt.ToSatoshis(),
 			ResolverType:    channeldb.ResolverTypeIncomingHtlc,
 			ResolverOutcome: channeldb.ResolverOutcomeFirstStage,
@@ -230,6 +331,73 @@ func (h *htlcSuccessResolver) checkpointClaim(spendTx *chainhash.Hash) error {
 	// Finally, we checkpoint the resolver with our report(s).
 	h.markResolved()
 	return h.Checkpoint(h, reports...)
+}
+
+// checkpointForeignSpend checkpoints an HTLC spend as failed when it occurred
+// outside the expected success path. Persisting the cleared
+// outputIncubating state prevents a restored resolver from offering a phantom
+// second-level output to the sweeper.
+func (h *htlcSuccessResolver) checkpointForeignSpend(
+	spendTxID chainhash.Hash) error {
+
+	h.log.Warnf("HTLC outpoint %v was spent by tx %v outside the "+
+		"expected success path", h.outpoint(), spendTxID)
+
+	err := h.ChainArbitratorConfig.PutFinalHtlcOutcome(
+		h.ChannelArbitratorConfig.ShortChanID, h.htlc.HtlcIndex, false,
+	)
+	if err != nil {
+		return err
+	}
+
+	// The final outcome is a separate durable write. If the resolver
+	// checkpoint below fails, only the live resolver state can be restored;
+	// retrying records the same failed outcome again.
+	report := &channeldb.ResolverReport{
+		OutPoint:        h.outpoint(),
+		Amount:          h.htlc.Amt.ToSatoshis(),
+		ResolverType:    channeldb.ResolverTypeIncomingHtlc,
+		ResolverOutcome: channeldb.ResolverOutcomeTimeout,
+		SpendTxID:       &spendTxID,
+	}
+
+	h.reportLock.Lock()
+	previousReport := h.currentReport
+	h.currentReport.RecoveredBalance = 0
+	h.currentReport.LimboBalance = 0
+	h.reportLock.Unlock()
+
+	// A foreign spend leaves no second-level success output to sweep.
+	previousIncubating := h.outputIncubating
+	h.outputIncubating = false
+
+	// Persist the terminal outcome while unresolved. If resolver removal
+	// does not complete during this run, a restart reloads the resolver and
+	// retries the terminal transition instead of skipping it as already
+	// resolved.
+	if err := h.Checkpoint(h, report); err != nil {
+		h.outputIncubating = previousIncubating
+
+		h.reportLock.Lock()
+		h.currentReport = previousReport
+		h.reportLock.Unlock()
+
+		return err
+	}
+
+	h.markResolved()
+	h.ChainArbitratorConfig.HtlcNotifier.NotifyFinalHtlcEvent(
+		models.CircuitKey{
+			ChanID: h.ShortChanID,
+			HtlcID: h.htlc.HtlcIndex,
+		},
+		channeldb.FinalHtlcInfo{
+			Settled:  false,
+			Offchain: false,
+		},
+	)
+
+	return nil
 }
 
 // Stop signals the resolver to cancel any current resolution processes, and
@@ -431,6 +599,94 @@ func (h *htlcSuccessResolver) isTaprootFinal() bool {
 	return h.chanType.IsTaprootFinal()
 }
 
+// validatedSpendInput returns the transaction input reported to spend this
+// resolver's HTLC outpoint after validating the notifier data.
+func (h *htlcSuccessResolver) validatedSpendInput(
+	spend *chainntnfs.SpendDetail) (*wire.TxIn, error) {
+
+	switch {
+	case spend == nil:
+		return nil, fmt.Errorf("%w: missing spend detail for %v",
+			errInvalidSpendDetails, h.outpoint())
+
+	case spend.SpendingTx == nil:
+		return nil, fmt.Errorf("%w: missing spending tx for %v",
+			errInvalidSpendDetails, h.outpoint())
+
+	case spend.SpenderInputIndex >= uint32(len(spend.SpendingTx.TxIn)):
+		return nil, fmt.Errorf("%w: spender input index %d out of "+
+			"range", errInvalidSpendDetails,
+			spend.SpenderInputIndex)
+	}
+
+	spendingInput := spend.SpendingTx.TxIn[spend.SpenderInputIndex]
+	if spendingInput == nil {
+		return nil, fmt.Errorf("%w: spender input %d is nil",
+			errInvalidSpendDetails, spend.SpenderInputIndex)
+	}
+	if spendingInput.PreviousOutPoint != h.outpoint() {
+		return nil, fmt.Errorf("%w: input %v, expected %v",
+			errInvalidSpendDetails, spendingInput.PreviousOutPoint,
+			h.outpoint())
+	}
+
+	return spendingInput, nil
+}
+
+// matchSecondLevelOutput checks whether the transaction spending the
+// commitment HTLC created the output expected by our sweep descriptor.
+//
+// The HTLC input uses SINGLE|ANYONECANPAY, so it commits to the transaction
+// output at the same index. A match returns that output's actual outpoint.
+func (h *htlcSuccessResolver) matchSecondLevelOutput(
+	spendingTx *wire.MsgTx,
+	outputIndex uint32) (wire.OutPoint, bool, error) {
+
+	var zeroOutpoint wire.OutPoint
+	if spendingTx == nil {
+		return zeroOutpoint, false, fmt.Errorf(
+			"%w: missing spending tx", errInvalidSpendDetails,
+		)
+	}
+
+	expected := h.htlcResolution.SweepSignDesc.Output
+	if expected == nil {
+		return zeroOutpoint, false, fmt.Errorf(
+			"%w: missing expected output for %v",
+			errInvalidSuccessResolver, h.outpoint(),
+		)
+	}
+
+	// The success output should be at the same index as the HTLC input
+	// being spent. If that output is missing, this cannot be our success
+	// tx.
+	if outputIndex >= uint32(len(spendingTx.TxOut)) {
+		return zeroOutpoint, false, nil
+	}
+
+	actual := spendingTx.TxOut[outputIndex]
+	if actual == nil {
+		return zeroOutpoint, false, fmt.Errorf(
+			"%w: output %d is nil", errInvalidSpendDetails,
+			outputIndex,
+		)
+	}
+
+	// The spender consumed the HTLC, but only an exact value/script match
+	// gives us a second-level success output that our sweep descriptor can
+	// spend.
+	if actual.Value != expected.Value ||
+		!bytes.Equal(actual.PkScript, expected.PkScript) {
+
+		return zeroOutpoint, false, nil
+	}
+
+	return wire.OutPoint{
+		Hash:  spendingTx.TxHash(),
+		Index: outputIndex,
+	}, true, nil
+}
+
 // sweepRemoteCommitOutput creates a sweep request to sweep the HTLC output on
 // the remote commitment via the direct preimage-spend.
 func (h *htlcSuccessResolver) sweepRemoteCommitOutput() error {
@@ -544,7 +800,8 @@ func (h *htlcSuccessResolver) sweepSuccessTx() error {
 }
 
 // sweepSuccessTxOutput attempts to sweep the output of the second level
-// success tx.
+// success tx. If the second-level success output cannot be found, Resolve will
+// checkpoint the foreign spend through the normal resolver-removal path.
 func (h *htlcSuccessResolver) sweepSuccessTxOutput() error {
 	h.log.Debugf("sweeping output %v from 2nd-level HTLC success tx",
 		h.htlcResolution.ClaimOutpoint)
@@ -559,6 +816,28 @@ func (h *htlcSuccessResolver) sweepSuccessTxOutput() error {
 	)
 	if err != nil {
 		return err
+	}
+	_, err = h.validatedSpendInput(commitSpend)
+	if err != nil {
+		return err
+	}
+	secondLevelOutpoint, matches, err := h.matchSecondLevelOutput(
+		commitSpend.SpendingTx, commitSpend.SpenderInputIndex,
+	)
+	if err != nil {
+		return err
+	}
+	if !matches {
+		// A resolver restored from a checkpoint written before
+		// commitment spend validation may have outputIncubating set
+		// without an expected second-level output.
+		//
+		// launchResolvers completes before the resolveContract
+		// goroutines start. If Launch marks the resolver resolved,
+		// resolveContract skips it and cannot remove it from the log.
+		// Return without a phantom sweep so Resolve can receive the
+		// historical spend and own checkpointing and cleanup.
+		return nil
 	}
 
 	// The HTLC success tx has a CSV lock that we must wait for, and if
@@ -583,16 +862,6 @@ func (h *htlcSuccessResolver) sweepSuccessTxOutput() error {
 			h, h.htlc.RHash[:], waitHeight)
 	}
 
-	// We'll use this input index to determine the second-level output
-	// index on the transaction, as the signatures requires the indexes to
-	// be the same. We don't look for the second-level output script
-	// directly, as there might be more than one HTLC output to the same
-	// pkScript.
-	op := &wire.OutPoint{
-		Hash:  *commitSpend.SpenderTxHash,
-		Index: commitSpend.SpenderInputIndex,
-	}
-
 	// Let the sweeper sweep the second-level output now that the
 	// CSV/CLTV locks have expired.
 	var witType input.StandardWitnessType
@@ -605,7 +874,7 @@ func (h *htlcSuccessResolver) sweepSuccessTxOutput() error {
 		witType = input.HtlcAcceptedSuccessSecondLevel
 	}
 	inp := h.makeSweepInput(
-		op, witType,
+		&secondLevelOutpoint, witType,
 		input.LeaseHtlcAcceptedSuccessSecondLevel,
 		&h.htlcResolution.SweepSignDesc,
 		h.htlcResolution.CsvDelay, uint32(commitSpend.SpendingHeight),
@@ -687,8 +956,9 @@ func (h *htlcSuccessResolver) resolveLegacySuccessTx() error {
 	return h.resolveSuccessTxOutput(h.htlcResolution.ClaimOutpoint)
 }
 
-// resolveSuccessTx waits for the sweeping tx of the second-level success tx to
-// confirm and offers the output from the success tx to the sweeper.
+// resolveSuccessTx waits for the commitment HTLC spend. If it creates the
+// expected second-level success output, the resolver sweeps that output;
+// otherwise it checkpoints a foreign spend.
 func (h *htlcSuccessResolver) resolveSuccessTx() error {
 	h.log.Infof("waiting for 2nd-level HTLC success transaction to confirm")
 
@@ -703,22 +973,27 @@ func (h *htlcSuccessResolver) resolveSuccessTx() error {
 	if err != nil {
 		return err
 	}
+	_, err = h.validatedSpendInput(commitSpend)
+	if err != nil {
+		return err
+	}
+	secondLevelOutpoint, matches, err := h.matchSecondLevelOutput(
+		commitSpend.SpendingTx, commitSpend.SpenderInputIndex,
+	)
+	if err != nil {
+		return err
+	}
 
-	// We'll use this input index to determine the second-level output
-	// index on the transaction, as the signatures requires the indexes to
-	// be the same. We don't look for the second-level output script
-	// directly, as there might be more than one HTLC output to the same
-	// pkScript.
-	op := wire.OutPoint{
-		Hash:  *commitSpend.SpenderTxHash,
-		Index: commitSpend.SpenderInputIndex,
+	spendTxID := commitSpend.SpendingTx.TxHash()
+	if !matches {
+		return h.checkpointForeignSpend(spendTxID)
 	}
 
 	// If the 2nd-stage sweeping has already been started, we can
 	// fast-forward to start the resolving process for the stage two
 	// output.
 	if h.outputIncubating {
-		return h.resolveSuccessTxOutput(op)
+		return h.resolveSuccessTxOutput(secondLevelOutpoint)
 	}
 
 	// Now that the second-level transaction has confirmed, we checkpoint
@@ -729,15 +1004,14 @@ func (h *htlcSuccessResolver) resolveSuccessTx() error {
 		return err
 	}
 
-	h.log.Infof("2nd-level HTLC success tx=%v confirmed",
-		commitSpend.SpenderTxHash)
+	h.log.Infof("2nd-level HTLC success tx=%v confirmed", spendTxID)
 
 	// Send the sweep request for the output from the success tx.
 	if err := h.sweepSuccessTxOutput(); err != nil {
 		return err
 	}
 
-	return h.resolveSuccessTxOutput(op)
+	return h.resolveSuccessTxOutput(secondLevelOutpoint)
 }
 
 // resolveSuccessTxOutput waits for the spend of the output from the 2nd-level
@@ -762,7 +1036,7 @@ func (h *htlcSuccessResolver) resolveSuccessTxOutput(op wire.OutPoint) error {
 	h.currentReport.LimboBalance = 0
 	h.reportLock.Unlock()
 
-	return h.checkpointClaim(spend.SpenderTxHash)
+	return h.checkpointClaim(op, spend.SpenderTxHash)
 }
 
 // Launch creates an input based on the details of the incoming htlc resolution
@@ -791,8 +1065,8 @@ func (h *htlcSuccessResolver) Launch() error {
 	// second-level success tx or the output from the second-level success
 	// tx.
 	case h.isZeroFeeOutput():
-		// If the second-level success tx has already been swept, we
-		// can go ahead and sweep its output.
+		// If the second-level success tx has confirmed, offer the
+		// output to the sweeper.
 		if h.outputIncubating {
 			return h.sweepSuccessTxOutput()
 		}

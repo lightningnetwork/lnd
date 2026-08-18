@@ -222,6 +222,15 @@ type OpenChannel struct {
 	// immutable.
 	CustomBlob fn.Option[tlv.Blob]
 
+	// RevocationAuxSigs is an optional blob carrying the revocation aux
+	// signatures attached to the most recently sent RevokeAndAck. It is
+	// only ever set for aux/custom (taproot asset) channels, and is
+	// persisted so the exact same signatures can be re-attached if that
+	// RevokeAndAck has to be retransmitted on channel reestablish. Only
+	// the latest revocation can ever be owed to the peer, so a single
+	// slot suffices; it is overwritten on every revocation.
+	RevocationAuxSigs fn.Option[tlv.Blob]
+
 	// Db persists channel state through the Store contract. This field
 	// intentionally keeps the existing name while callers still construct
 	// channels through the channeldb compatibility alias. The store
@@ -791,7 +800,8 @@ func (c *OpenChannel) SyncPending(addr net.Addr, pendingHeight uint32) error {
 // commitment. Keys correspond to htlc indices and values indicate whether the
 // htlc was settled or failed.
 func (c *OpenChannel) UpdateCommitment(newCommitment *ChannelCommitment,
-	unsignedAckedUpdates []LogUpdate) (map[uint64]bool, error) {
+	unsignedAckedUpdates []LogUpdate,
+	revocationAuxSigs fn.Option[tlv.Blob]) (map[uint64]bool, error) {
 
 	c.Lock()
 	defer c.Unlock()
@@ -802,6 +812,13 @@ func (c *OpenChannel) UpdateCommitment(newCommitment *ChannelCommitment,
 	if c.hasChanStatus(ChanStatusRestored) {
 		return nil, ErrNoRestoredChannelMutation
 	}
+
+	// Record the aux sigs attached to the RevokeAndAck this commitment
+	// update corresponds to (custom channels only, None otherwise), so
+	// they persist alongside it and survive for retransmission. This
+	// overwrites the previous revocation's sigs, which can no longer be
+	// owed to the peer.
+	c.RevocationAuxSigs = revocationAuxSigs
 
 	finalHtlcs, err := c.Db.UpdateChannelCommitment(
 		c, newCommitment, unsignedAckedUpdates,

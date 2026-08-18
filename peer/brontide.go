@@ -1768,6 +1768,10 @@ func (p *Brontide) Disconnect(reason error) {
 	if !atomic.CompareAndSwapInt32(&p.disconnect, 0, 1) {
 		return
 	}
+	// Even if a teardown dependency panics, release the peer's waiters.
+	// Recovery callbacks propagate cleanup panics so an incomplete teardown
+	// cannot be mistaken for a successful disconnect.
+	defer p.cg.Quit()
 
 	// Make sure initialization has completed before we try to tear things
 	// down.
@@ -1956,6 +1960,23 @@ func (p *Brontide) readNextMessage() (lnwire.Message, error) {
 	p.logWireMessage(nextMsg, true)
 
 	return nextMsg, nil
+}
+
+// readNextMessageWithRecovery contains only wire read and decode panics. The
+// caller treats the resulting error as fatal to this peer. Message dispatch
+// must stay outside this boundary because its handlers can change shared
+// protocol state before panicking.
+func (p *Brontide) readNextMessageWithRecovery() (msg lnwire.Message,
+	err error) {
+
+	defer fn.RecoverPanic(func(pnc fn.Panic) {
+		fn.LogRecoveredPanic(context.Background(), p.log, pnc)
+		msg = nil
+		err = fmt.Errorf("panic while reading peer message: %T",
+			pnc.Value)
+	})
+
+	return p.readNextMessage()
 }
 
 // msgStream implements a goroutine-safe, in-order stream of messages to be
@@ -2268,13 +2289,20 @@ func newDiscMsgStream(p *Brontide) *msgStream {
 func (p *Brontide) readHandler() {
 	defer p.cg.WgDone()
 
-	// We'll stop the timer after a new messages is received, and also
+	// We'll stop the timer after a new message is received, and also
 	// reset it after we process the next message.
 	idleTimer := time.AfterFunc(idleTimeout, func() {
 		err := fmt.Errorf("peer %s no answer for %s -- disconnecting",
 			p, idleTimeout)
 		p.Disconnect(err)
 	})
+
+	// The timer belongs to this handler and must remain active while it
+	// reads messages. Defer its cleanup so every exit path, including panic
+	// recovery, disarms a timer that has not fired. This defer runs before
+	// WgDone, so an armed timer does not outlive the handler and request a
+	// redundant disconnect after teardown.
+	defer idleTimer.Stop()
 
 	// Initialize our negotiated gossip sync method before reading messages
 	// off the wire. When using gossip queries, this ensures a gossip
@@ -2285,11 +2313,34 @@ func (p *Brontide) readHandler() {
 	p.initGossipSync()
 
 	discStream := newDiscMsgStream(p)
+	p.runReadHandler(idleTimer, discStream)
+}
+
+// runReadHandler owns the discovery stream for the duration of the read loop.
+// A recovered wire-read panic becomes a read error, so the peer is disconnected
+// before this function stops the stream.
+func (p *Brontide) runReadHandler(idleTimer *time.Timer,
+	discStream *msgStream) {
+
 	discStream.Start()
 	defer discStream.Stop()
+	// A dispatch panic remains fatal, but it still has to release discovery
+	// consumers before Stop waits for them. On ordinary exit this closes the
+	// peer as before.
+	defer p.Disconnect(errors.New("read handler closed"))
+
+	p.readHandlerLoop(idleTimer, discStream)
+
+	p.log.Trace("readHandler for peer done")
+}
+
+// readHandlerLoop reads and dispatches peer messages until the peer exits.
+func (p *Brontide) readHandlerLoop(idleTimer *time.Timer,
+	discStream *msgStream) {
+
 out:
 	for atomic.LoadInt32(&p.disconnect) == 0 {
-		nextMsg, err := p.readNextMessage()
+		nextMsg, err := p.readNextMessageWithRecovery()
 		if !idleTimer.Stop() {
 			select {
 			case <-idleTimer.C:
@@ -2556,10 +2607,6 @@ out:
 
 		idleTimer.Reset(idleTimeout)
 	}
-
-	p.Disconnect(errors.New("read handler closed"))
-
-	p.log.Trace("readHandler for peer done")
 }
 
 // handleCustomMessage handles the given custom message if a handler is
@@ -5377,6 +5424,7 @@ func (p *Brontide) StartTime() time.Time {
 // message is received from the remote peer. We'll use this message to advance
 // the chan closer state machine.
 func (p *Brontide) handleCloseMsg(msg *closeMsg) {
+
 	link := p.fetchLinkFromKeyAndCid(msg.cid)
 
 	// We'll now fetch the matching closing state machine in order to

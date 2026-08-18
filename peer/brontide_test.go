@@ -42,6 +42,60 @@ var (
 	p2wshAddress = "bc1qrp33g0q5c5txsp9arysrx4k6zdkfs4nce4xj0gdcccefvpysxf3qccfmv3"
 )
 
+// panicReadHeaderConn injects a panic in the wire read without involving
+// message dispatch or a shared handler.
+type panicReadHeaderConn struct {
+	MessageConn
+	panicNext  atomic.Bool
+	called     chan struct{}
+	panicValue any
+}
+
+type panicCloseConn struct {
+	MessageConn
+}
+
+func (c *panicCloseConn) Close() error {
+	panic("close failed")
+}
+
+func (c *panicReadHeaderConn) ReadNextHeader() (uint32, error) {
+	length, err := c.MessageConn.ReadNextHeader()
+	if c.panicNext.Swap(false) {
+		close(c.called)
+		panic(c.panicValue)
+	}
+
+	return length, err
+}
+
+// panickingStringer verifies that containment never depends on successfully
+// formatting the value supplied to panic.
+type panickingStringer struct{}
+
+// String simulates a panic raised while formatting another panic's value.
+func (panickingStringer) String() string {
+	panic("panic while formatting panic value")
+}
+
+// requirePeerGoroutinesExit verifies that recovered teardown does not leave a
+// peer goroutine blocked on a leaked lock or another shutdown dependency.
+func requirePeerGoroutinesExit(t *testing.T, peer *Brontide) {
+	t.Helper()
+
+	done := make(chan struct{})
+	go func() {
+		peer.cg.WgWait()
+		close(done)
+	}()
+
+	select {
+	case <-done:
+	case <-time.After(timeout):
+		t.Fatal("peer goroutines did not exit")
+	}
+}
+
 // TestPeerChannelClosureShutdownResponseLinkRemoved tests the shutdown
 // response we get if the link for the channel can't be found in the
 // switch. This test was added due to a regression.
@@ -2343,6 +2397,177 @@ func TestPeerPriorityMessageSharesQueueBudget(t *testing.T) {
 	_, err = fn.RecvOrTimeout(peer.cg.Done(), timeout)
 	require.NoError(t, err)
 	peer.cg.WgWait()
+}
+
+// TestReadHandlerPanicRecovery verifies that a wire-read panic disconnects the
+// peer and releases its wait-group entry.
+func TestReadHandlerPanicRecovery(t *testing.T) {
+	t.Parallel()
+
+	params := createTestPeer(t)
+	conn := &panicReadHeaderConn{
+		MessageConn: params.mockConn,
+		called:      make(chan struct{}),
+		panicValue:  panickingStringer{},
+	}
+
+	alicePeer := params.peer
+	alicePeer.cfg.Conn = conn
+
+	startPeerDone := startPeer(t, params.mockConn, alicePeer)
+	_, err := fn.RecvOrTimeout(startPeerDone, 2*timeout)
+	require.NoError(t, err)
+	conn.panicNext.Store(true)
+
+	var buf bytes.Buffer
+	_, err = lnwire.WriteMessage(&buf, &lnwire.Ping{}, 0)
+	require.NoError(t, err)
+
+	select {
+	case params.mockConn.readMessages <- buf.Bytes():
+	case <-time.After(timeout):
+		t.Fatal("timeout sending ping to peer")
+	}
+
+	select {
+	case <-conn.called:
+	case <-time.After(timeout):
+		t.Fatal("wire read was not called")
+	}
+
+	select {
+	case <-alicePeer.cg.Done():
+	case <-time.After(timeout):
+		t.Fatal("peer was not disconnected after wire-read panic")
+	}
+
+	requirePeerGoroutinesExit(t, alicePeer)
+}
+
+// TestDisconnectPanicSignalsQuit verifies that a teardown panic cannot leave
+// peer waiters blocked after the disconnect flag has been set.
+func TestDisconnectPanicSignalsQuit(t *testing.T) {
+	t.Parallel()
+
+	params := createTestPeer(t)
+	peer := params.peer
+	peer.cfg.Conn = &panicCloseConn{MessageConn: params.mockConn}
+
+	require.PanicsWithValue(t, "close failed", func() {
+		peer.Disconnect(fmt.Errorf("test disconnect"))
+	})
+	require.Equal(t, int32(1), atomic.LoadInt32(&peer.disconnect))
+	select {
+	case <-peer.cg.Done():
+	default:
+		t.Fatal("peer quit signal was not closed")
+	}
+}
+
+// TestReadHandlerDoesNotRecoverDispatchPanic ensures that a shared handler is
+// never resumed after it panics with an unknown partial state change.
+func TestReadHandlerDoesNotRecoverDispatchPanic(t *testing.T) {
+	t.Parallel()
+
+	params := createTestPeer(t)
+	peer := params.peer
+	router := msgmux.NewMultiMsgRouter()
+	router.Start(t.Context())
+	t.Cleanup(router.Stop)
+	peer.msgRouter = fn.Some[msgmux.Router](router)
+	mutated := false
+	peer.cfg.HandleCustomMessage = func([33]byte, *lnwire.Custom) error {
+		mutated = true
+		panic("dispatch failed")
+	}
+
+	params.mockConn.readMessages <- []byte{0x9c, 0x41, 0x4, 0x5, 0x6}
+	idleTimer := time.NewTimer(time.Hour)
+	defer idleTimer.Stop()
+
+	require.PanicsWithValue(t, "dispatch failed", func() {
+		peer.readHandlerLoop(idleTimer, nil)
+	})
+	require.True(t, mutated)
+}
+
+// TestReadHandlerPanicDisconnectsBeforeStreamStop verifies that panic recovery
+// signals peer shutdown before waiting for the discovery stream to exit.
+func TestReadHandlerPanicDisconnectsBeforeStreamStop(t *testing.T) {
+	t.Parallel()
+
+	params := createTestPeer(t)
+	conn := &panicReadHeaderConn{
+		MessageConn: params.mockConn,
+		called:      make(chan struct{}),
+		panicValue:  "wire-read panic",
+	}
+	conn.panicNext.Store(true)
+
+	alicePeer := params.peer
+	alicePeer.cfg.Conn = conn
+
+	// Keep the discovery consumer inside apply until peer shutdown. If the
+	// stream is stopped before recovery disconnects the peer, Stop waits
+	// forever for this callback and recovery can never run.
+	applyStarted := make(chan struct{})
+	discStream := newMsgStream(
+		alicePeer, "test discovery stream started",
+		"test discovery stream stopped", 1,
+		func(lnwire.Message) {
+			close(applyStarted)
+			<-alicePeer.cg.Done()
+		},
+	)
+
+	idleTimer := time.AfterFunc(time.Hour, func() {})
+	defer idleTimer.Stop()
+
+	readDone := make(chan struct{})
+	go func() {
+		defer close(readDone)
+
+		alicePeer.runReadHandler(idleTimer, discStream)
+	}()
+
+	discStream.AddMsg(&lnwire.ChannelUpdate1{})
+	select {
+	case <-applyStarted:
+	case <-time.After(timeout):
+		t.Fatal("discovery stream did not enter apply")
+	}
+
+	var buf bytes.Buffer
+	_, err := lnwire.WriteMessage(&buf, &lnwire.Ping{}, 0)
+	require.NoError(t, err)
+
+	select {
+	case params.mockConn.readMessages <- buf.Bytes():
+	case <-time.After(timeout):
+		t.Fatal("timeout sending ping to peer")
+	}
+
+	select {
+	case <-conn.called:
+	case <-time.After(timeout):
+		t.Fatal("wire read was not called")
+	}
+
+	select {
+	case <-readDone:
+	case <-time.After(timeout):
+		t.Fatal("read handler blocked stopping discovery stream")
+	}
+
+	select {
+	case <-alicePeer.cg.Done():
+	default:
+		t.Fatal("peer was not disconnected before stream shutdown")
+	}
+
+	require.Equal(
+		t, int32(1), atomic.LoadInt32(&discStream.streamShutdown),
+	)
 }
 
 // TestMessageSummaryPingIncludesNumPongBytes ensures the debug summary for a

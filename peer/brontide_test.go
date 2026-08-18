@@ -12,6 +12,7 @@ import (
 	"github.com/btcsuite/btcd/btcec/v2"
 	"github.com/btcsuite/btcd/btcutil/v2"
 	"github.com/btcsuite/btcd/chaincfg/v2"
+	"github.com/btcsuite/btcd/chainhash/v2"
 	"github.com/btcsuite/btcd/txscript/v2"
 	"github.com/btcsuite/btcd/wire/v2"
 	"github.com/lightningnetwork/lnd/chainntnfs"
@@ -1729,6 +1730,70 @@ func TestReadHandlerPanicDisconnectsBeforeStreamStop(t *testing.T) {
 	require.Equal(
 		t, int32(1), atomic.LoadInt32(&discStream.streamShutdown),
 	)
+}
+
+// TestCloseFinNotificationUnblocks asserts that a full client update channel
+// cannot hold peer teardown open after either the request or peer is canceled.
+func TestCloseFinNotificationUnblocks(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name         string
+		shutdownPeer bool
+	}{
+		{
+			name: "request canceled",
+		},
+		{
+			name:         "peer stopped",
+			shutdownPeer: true,
+		},
+	}
+
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			t.Parallel()
+
+			ctx, cancel := context.WithCancel(t.Context())
+			defer cancel()
+			updates := make(chan interface{}, 1)
+			updates <- struct{}{}
+			peerQuit := make(chan struct{})
+			closeReq := &htlcswitch.ChanClose{
+				Updates: updates,
+				Ctx:     ctx,
+			}
+
+			done := make(chan struct{})
+			go func() {
+				defer close(done)
+
+				sendFinalCloseUpdate(
+					closeReq, chainhash.Hash{}, peerQuit,
+				)
+			}()
+
+			select {
+			case <-done:
+				t.Fatal("notification returned while no exit " +
+					"condition was ready")
+			case <-time.After(50 * time.Millisecond):
+			}
+
+			if test.shutdownPeer {
+				close(peerQuit)
+			} else {
+				cancel()
+			}
+
+			select {
+			case <-done:
+			case <-time.After(timeout):
+				t.Fatal("final close notification blocked " +
+					"teardown")
+			}
+		})
+	}
 }
 
 // TestMessageSummaryPingIncludesNumPongBytes ensures the debug summary for a

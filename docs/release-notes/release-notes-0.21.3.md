@@ -45,7 +45,28 @@
 
 ## RPC Additions
 
+* A new [`walletrpc.XCreateAccount`](https://github.com/lightningnetwork/lnd/pull/11065)
+  RPC creates a named wallet account whose keys are derived from the wallet's
+  master key. Unlike `ImportAccount`, which registers a watch-only account from
+  an extended public key, the resulting account can sign for its own outputs, so
+  a single wallet can be partitioned into isolated pockets of funds: coin
+  selection, change, balance and address derivation can all be scoped to an
+  account by name.
+
+  The RPC is **experimental**, which the `X` prefix marks: it may change or be
+  removed without the usual deprecation period. It is additionally gated on
+  release builds, where a caller must set `i_know_what_i_am_doing`, following
+  the same pattern as `AbandonChannel`. A seed-only restore does not rediscover
+  funds held in an account created this way, because the recovery scan only
+  rederives addresses for the default account, and reconstructing one by hand
+  requires reproducing its key scope, its account index and the addresses it
+  had issued. Both gates come off once recovery handles these accounts.
+
 ## lncli Additions
+
+* A new [`wallet accounts create`](https://github.com/lightningnetwork/lnd/pull/11065)
+  command creates a wallet-owned named account via the new `XCreateAccount`
+  RPC.
 
 # Improvements
 
@@ -79,5 +100,6 @@
 
 # Contributors (Alphabetical Order)
 
+* Elle Mouton
 * Yong Yu
 * Ziggie

@@ -2,13 +2,16 @@ package contractcourt
 
 import (
 	"bytes"
+	"errors"
 	"fmt"
 	"reflect"
 	"testing"
 	"time"
 
+	"github.com/btcsuite/btcd/btcec/v2"
 	"github.com/btcsuite/btcd/btcutil"
 	"github.com/btcsuite/btcd/chaincfg/chainhash"
+	"github.com/btcsuite/btcd/txscript"
 	"github.com/btcsuite/btcd/wire"
 	"github.com/davecgh/go-spew/spew"
 	"github.com/lightningnetwork/lnd/chainntnfs"
@@ -19,12 +22,20 @@ import (
 	"github.com/lightningnetwork/lnd/kvdb"
 	"github.com/lightningnetwork/lnd/lnmock"
 	"github.com/lightningnetwork/lnd/lntest/mock"
+	"github.com/lightningnetwork/lnd/lntypes"
 	"github.com/lightningnetwork/lnd/lnwallet"
 	"github.com/lightningnetwork/lnd/lnwire"
 	"github.com/stretchr/testify/require"
 )
 
-var testHtlcAmt = lnwire.MilliSatoshi(200000)
+var (
+	testHtlcAmt     = lnwire.MilliSatoshi(200000)
+	testShortChanID = lnwire.NewShortChanIDFromInt(99)
+	testCircuitKey  = models.CircuitKey{
+		ChanID: testShortChanID,
+		HtlcID: 7,
+	}
+)
 
 type htlcResolverTestContext struct {
 	resolver ContractResolver
@@ -33,10 +44,12 @@ type htlcResolverTestContext struct {
 		_ ...*channeldb.ResolverReport) error
 
 	notifier           *mock.ChainNotifier
+	htlcNotifier       *mockHTLCNotifier
 	resolverResultChan chan resolveResult
 	resolutionChan     chan ResolutionMsg
 
 	finalHtlcOutcomeStored bool
+	finalHtlcSettled       bool
 
 	t *testing.T
 }
@@ -60,17 +73,18 @@ func newHtlcResolverTestContext(t *testing.T,
 		ConfChan:  make(chan *chainntnfs.TxConfirmation, 1),
 	}
 
+	htlcNotifier := &mockHTLCNotifier{}
 	testCtx := &htlcResolverTestContext{
 		checkpoint:     nil,
 		notifier:       notifier,
+		htlcNotifier:   htlcNotifier,
 		resolutionChan: make(chan ResolutionMsg, 1),
 		t:              t,
 	}
 
-	htlcNotifier := &mockHTLCNotifier{}
-
 	witnessBeacon := newMockWitnessBeacon()
 	chainCfg := ChannelArbitratorConfig{
+		ShortChanID: testShortChanID,
 		ChainArbitratorConfig: ChainArbitratorConfig{
 			Notifier:   notifier,
 			PreimageDB: witnessBeacon,
@@ -95,10 +109,13 @@ func newHtlcResolverTestContext(t *testing.T,
 				testCtx.resolutionChan <- msgs[0]
 				return nil
 			},
-			PutFinalHtlcOutcome: func(chanId lnwire.ShortChannelID,
-				htlcId uint64, settled bool) error {
+			PutFinalHtlcOutcome: func(chanID lnwire.ShortChannelID,
+				htlcID uint64, settled bool) error {
 
+				require.Equal(t, testCircuitKey.ChanID, chanID)
+				require.Equal(t, testCircuitKey.HtlcID, htlcID)
 				testCtx.finalHtlcOutcomeStored = true
+				testCtx.finalHtlcSettled = settled
 
 				return nil
 			},
@@ -131,6 +148,7 @@ func newHtlcResolverTestContext(t *testing.T,
 	}
 
 	htlc := channeldb.HTLC{
+		HtlcIndex: testCircuitKey.HtlcID,
 		RHash:     testResHash,
 		OnionBlob: lnmock.MockOnion(),
 		Amt:       testHtlcAmt,
@@ -176,7 +194,13 @@ func TestHtlcSuccessSingleStage(t *testing.T) {
 	htlcOutpoint := wire.OutPoint{Index: 3}
 
 	sweepTx := &wire.MsgTx{
-		TxIn:  []*wire.TxIn{{}},
+		TxIn: []*wire.TxIn{{
+			PreviousOutPoint: htlcOutpoint,
+			Witness: wire.TxWitness{
+				dummyBytes, testResPreimage[:],
+				testSignDesc.WitnessScript,
+			},
+		}},
 		TxOut: []*wire.TxOut{{}},
 	}
 
@@ -222,7 +246,8 @@ func TestHtlcSuccessSingleStage(t *testing.T) {
 			reports: []*channeldb.ResolverReport{
 				claim,
 			},
-			finalHtlcStored: true,
+			finalHtlcStored:  true,
+			finalHtlcSettled: true,
 		},
 	}
 
@@ -231,11 +256,676 @@ func TestHtlcSuccessSingleStage(t *testing.T) {
 	)
 }
 
-// TestHtlcSuccessSecondStageResolution tests successful sweep of a second
-// stage htlc claim, going through the Nursery.
+// TestHtlcSuccessValidatedSpendInput tests extraction and validation of the
+// notified HTLC input.
+func TestHtlcSuccessValidatedSpendInput(t *testing.T) {
+	claim := wire.OutPoint{Index: 2}
+	resolver := &htlcSuccessResolver{
+		htlcResolution: lnwallet.IncomingHtlcResolution{
+			ClaimOutpoint: claim,
+		},
+	}
+	spendInput := &wire.TxIn{PreviousOutPoint: claim}
+	validSpend := &chainntnfs.SpendDetail{
+		SpendingTx: &wire.MsgTx{
+			TxIn: []*wire.TxIn{{}, spendInput},
+		},
+		SpenderInputIndex: 1,
+	}
+
+	input, err := resolver.validatedSpendInput(validSpend)
+	require.NoError(t, err)
+	require.Same(t, spendInput, input)
+
+	testCases := []struct {
+		name    string
+		spend   *chainntnfs.SpendDetail
+		errText string
+	}{
+		{
+			name:    "missing spend detail",
+			errText: "missing spend detail",
+		},
+		{
+			name:    "missing spending tx",
+			spend:   &chainntnfs.SpendDetail{},
+			errText: "missing spending tx",
+		},
+		{
+			name: "input index out of range",
+			spend: &chainntnfs.SpendDetail{
+				SpendingTx:        &wire.MsgTx{},
+				SpenderInputIndex: 1,
+			},
+			errText: "spender input index",
+		},
+		{
+			name: "nil spender input",
+			spend: &chainntnfs.SpendDetail{
+				SpendingTx: &wire.MsgTx{
+					TxIn: []*wire.TxIn{nil},
+				},
+			},
+			errText: "spender input 0 is nil",
+		},
+		{
+			name: "unexpected input outpoint",
+			spend: &chainntnfs.SpendDetail{
+				SpendingTx: &wire.MsgTx{
+					TxIn: []*wire.TxIn{{}},
+				},
+			},
+			errText: "input",
+		},
+	}
+
+	for _, testCase := range testCases {
+		t.Run(testCase.name, func(t *testing.T) {
+			_, err := resolver.validatedSpendInput(testCase.spend)
+			require.ErrorIs(t, err, errInvalidSpendDetails)
+			require.ErrorContains(t, err, testCase.errText)
+		})
+	}
+}
+
+type taprootSuccessSpendFixture struct {
+	signDesc       input.SignDescriptor
+	successScript  []byte
+	successControl []byte
+	timeoutScript  []byte
+	timeoutControl []byte
+	auxControl     []byte
+}
+
+// cloneTxOut returns a copy of a transaction output.
+func cloneTxOut(txOut *wire.TxOut) *wire.TxOut {
+	pkScript := append([]byte(nil), txOut.PkScript...)
+	return &wire.TxOut{
+		Value:    txOut.Value,
+		PkScript: pkScript,
+	}
+}
+
+// newSuccessTestResolution creates a success resolution with distinct
+// commitment and second-level output descriptors.
+func newSuccessTestResolution(
+	commitOutpoint wire.OutPoint) lnwallet.IncomingHtlcResolution {
+
+	secondLevelOutput := cloneTxOut(testSignDesc.Output)
+	secondLevelOutput.PkScript = []byte{txscript.OP_TRUE}
+	sweepSignDesc := testSignDesc
+	sweepSignDesc.Output = secondLevelOutput
+
+	successTx := &wire.MsgTx{
+		TxIn:  []*wire.TxIn{{PreviousOutPoint: commitOutpoint}},
+		TxOut: []*wire.TxOut{cloneTxOut(secondLevelOutput)},
+	}
+
+	return lnwallet.IncomingHtlcResolution{
+		Preimage:        testResPreimage,
+		SignedSuccessTx: successTx,
+		SignDetails: &input.SignDetails{
+			SignDesc: testSignDesc,
+			PeerSig:  testSig,
+		},
+		ClaimOutpoint: wire.OutPoint{Hash: successTx.TxHash()},
+		SweepSignDesc: sweepSignDesc,
+	}
+}
+
+// requireSuccessResolver returns the concrete success resolver used by a test.
+func requireSuccessResolver(t *testing.T,
+	resolver ContractResolver) *htlcSuccessResolver {
+
+	t.Helper()
+	successResolver, ok := resolver.(*htlcSuccessResolver)
+	require.True(t, ok)
+
+	return successResolver
+}
+
+// newTaprootSuccessSpendFixture creates success and auxiliary leaves with the
+// same script and different leaf versions.
+func newTaprootSuccessSpendFixture(
+	t *testing.T) *taprootSuccessSpendFixture {
+
+	t.Helper()
+	_, taprootKey := btcec.PrivKeyFromBytes([]byte{1})
+	successLeaf, err := input.SenderHTLCTapLeafSuccess(
+		taprootKey, testResHash[:],
+	)
+	require.NoError(t, err)
+
+	auxLeaf := txscript.NewTapLeaf(0xc2, successLeaf.Script)
+	tree, err := input.SenderHTLCScriptTaproot(
+		taprootKey, taprootKey, taprootKey, testResHash[:],
+		lntypes.Remote, fn.Some(auxLeaf),
+	)
+	require.NoError(t, err)
+	controlBytes := func(path input.ScriptPath) []byte {
+		control, err := tree.CtrlBlockForPath(path)
+		require.NoError(t, err)
+		serialized, err := control.ToBytes()
+		require.NoError(t, err)
+
+		return serialized
+	}
+	auxIndex := tree.TapScriptTree().LeafProofIndex[auxLeaf.TapHash()]
+	auxProof := tree.TapScriptTree().LeafMerkleProofs[auxIndex]
+	auxControl := auxProof.ToControlBlock(taprootKey)
+	auxControlBytes, err := auxControl.ToBytes()
+	require.NoError(t, err)
+
+	signDesc := testSignDesc
+	signDesc.Output = cloneTxOut(testSignDesc.Output)
+	signDesc.Output.PkScript = tree.PkScript()
+	signDesc.WitnessScript = successLeaf.Script
+	signDesc.ControlBlock = controlBytes(input.ScriptPathSuccess)
+
+	return &taprootSuccessSpendFixture{
+		signDesc:       signDesc,
+		successScript:  successLeaf.Script,
+		successControl: signDesc.ControlBlock,
+		timeoutScript:  tree.TimeoutTapLeaf.Script,
+		timeoutControl: controlBytes(input.ScriptPathTimeout),
+		auxControl:     auxControlBytes,
+	}
+}
+
+// TestHtlcSuccessTaprootClassification tests Taproot success leaf identity.
+func TestHtlcSuccessTaprootClassification(t *testing.T) {
+	fixture := newTaprootSuccessSpendFixture(t)
+	resolver := &htlcSuccessResolver{
+		htlcResolution: lnwallet.IncomingHtlcResolution{
+			SweepSignDesc: fixture.signDesc,
+		},
+	}
+	successWitness := wire.TxWitness{
+		dummyBytes, testResPreimage[:], fixture.successScript,
+		fixture.successControl,
+	}
+	require.True(t, resolver.isTaprootPreimageSpend(append(
+		successWitness, []byte{txscript.TaprootAnnexTag},
+	)))
+	require.False(t, resolver.isTaprootPreimageSpend(wire.TxWitness{
+		dummyBytes, dummyBytes, fixture.timeoutScript,
+		fixture.timeoutControl,
+	}))
+	require.False(t, resolver.isTaprootPreimageSpend(wire.TxWitness{
+		dummyBytes, testResPreimage[:], fixture.successScript,
+		fixture.auxControl,
+	}))
+}
+
+// TestHtlcSuccessSingleStageClassification tests direct HTLC spend paths.
+func TestHtlcSuccessSingleStageClassification(t *testing.T) {
+	fixture := newTaprootSuccessSpendFixture(t)
+
+	claimOutpoint := wire.OutPoint{Index: 3}
+	resolution := lnwallet.IncomingHtlcResolution{
+		Preimage:      testResPreimage,
+		SweepSignDesc: fixture.signDesc,
+		ClaimOutpoint: claimOutpoint,
+	}
+	auxSpendTx := &wire.MsgTx{TxIn: []*wire.TxIn{{
+		PreviousOutPoint: claimOutpoint,
+		Witness: wire.TxWitness{
+			dummyBytes, testResPreimage[:], fixture.successScript,
+			fixture.auxControl,
+		},
+	}}}
+	auxSpendTxID := auxSpendTx.TxHash()
+	testHtlcSuccess(t, resolution, []checkpoint{{
+		preCheckpoint: func(
+			ctx *htlcResolverTestContext, _ bool) error {
+
+			ctx.notifier.SpendChan <- newSpendDetail(
+				claimOutpoint, auxSpendTx, 0,
+			)
+
+			return nil
+		},
+		resolved: false,
+		reports: []*channeldb.ResolverReport{{
+			OutPoint:        claimOutpoint,
+			Amount:          testHtlcAmt.ToSatoshis(),
+			ResolverType:    channeldb.ResolverTypeIncomingHtlc,
+			ResolverOutcome: channeldb.ResolverOutcomeTimeout,
+			SpendTxID:       &auxSpendTxID,
+		}},
+		finalHtlcStored:      true,
+		checkpointsOnRestart: true,
+	}})
+
+	wrongPreimage := make([]byte, 32)
+	wrongPreimage[0] = 1
+	ctx := newHtlcResolverTestContext(t, func(htlc channeldb.HTLC,
+		cfg ResolverConfig) ContractResolver {
+
+		return newSuccessResolver(resolution, 0, htlc, cfg)
+	})
+	ctx.checkpoint = func(_ ContractResolver,
+		_ ...*channeldb.ResolverReport) error {
+
+		t.Fatal("unexpected checkpoint")
+		return nil
+	}
+	wrongSpendTx := &wire.MsgTx{TxIn: []*wire.TxIn{{
+		PreviousOutPoint: claimOutpoint,
+		Witness: wire.TxWitness{
+			dummyBytes, wrongPreimage, fixture.successScript,
+			fixture.successControl,
+		},
+	}}}
+	ctx.notifier.SpendChan <- newSpendDetail(
+		claimOutpoint, wrongSpendTx, 0,
+	)
+	err := requireSuccessResolver(t, ctx.resolver).
+		resolveRemoteCommitOutput()
+	require.ErrorIs(t, err, errInvalidSuccessResolver)
+	require.False(t, ctx.finalHtlcOutcomeStored)
+	require.Empty(t, ctx.htlcNotifier.finalHtlcEvents)
+}
+
+// TestHtlcSuccessMatchSecondLevelOutput tests matching the success transaction
+// output against the sweep descriptor.
+func TestHtlcSuccessMatchSecondLevelOutput(t *testing.T) {
+	claim := wire.OutPoint{Index: 2}
+	newMatch := func() (*htlcSuccessResolver, *wire.MsgTx) {
+		resolution := newSuccessTestResolution(claim)
+		tx := &wire.MsgTx{
+			TxIn: []*wire.TxIn{
+				{PreviousOutPoint: wire.OutPoint{Index: 1}},
+				{PreviousOutPoint: claim},
+			},
+			TxOut: []*wire.TxOut{
+				cloneTxOut(
+					resolution.SignDetails.SignDesc.Output,
+				),
+				cloneTxOut(resolution.SweepSignDesc.Output),
+			},
+		}
+
+		return &htlcSuccessResolver{
+			htlcResolution: resolution,
+		}, tx
+	}
+
+	testCases := []struct {
+		name        string
+		prepare     func(*htlcSuccessResolver, *wire.MsgTx) *wire.MsgTx
+		matches     bool
+		expectedErr error
+	}{
+		{
+			name:    "match",
+			matches: true,
+		},
+		{
+			name: "commitment descriptor decoy",
+			prepare: func(resolver *htlcSuccessResolver,
+				tx *wire.MsgTx) *wire.MsgTx {
+
+				// This decoy proves the matcher uses the sweep
+				// descriptor, not the commitment descriptor.
+				resolution := &resolver.htlcResolution
+				signDetails := resolution.SignDetails
+				tx.TxOut[1] = cloneTxOut(
+					signDetails.SignDesc.Output,
+				)
+
+				return tx
+			},
+		},
+		{
+			name: "missing indexed output",
+			prepare: func(_ *htlcSuccessResolver,
+				tx *wire.MsgTx) *wire.MsgTx {
+
+				tx.TxOut = tx.TxOut[:1]
+
+				return tx
+			},
+		},
+		{
+			name: "missing expected output",
+			prepare: func(resolver *htlcSuccessResolver,
+				tx *wire.MsgTx) *wire.MsgTx {
+
+				resolution := &resolver.htlcResolution
+				resolution.SweepSignDesc.Output = nil
+
+				return tx
+			},
+			expectedErr: errInvalidSuccessResolver,
+		},
+		{
+			name: "nil indexed output",
+			prepare: func(_ *htlcSuccessResolver,
+				tx *wire.MsgTx) *wire.MsgTx {
+
+				tx.TxOut[1] = nil
+
+				return tx
+			},
+			expectedErr: errInvalidSpendDetails,
+		},
+		{
+			name: "nil transaction",
+			prepare: func(_ *htlcSuccessResolver,
+				_ *wire.MsgTx) *wire.MsgTx {
+
+				return nil
+			},
+			expectedErr: errInvalidSpendDetails,
+		},
+	}
+
+	for _, testCase := range testCases {
+		t.Run(testCase.name, func(t *testing.T) {
+			resolver, tx := newMatch()
+			if testCase.prepare != nil {
+				tx = testCase.prepare(resolver, tx)
+			}
+
+			outpoint, matches, err :=
+				resolver.matchSecondLevelOutput(tx, 1)
+			if testCase.expectedErr != nil {
+				require.ErrorIs(t, err, testCase.expectedErr)
+				return
+			}
+
+			require.NoError(t, err)
+			require.Equal(t, testCase.matches, matches)
+			if matches {
+				require.Equal(t, wire.OutPoint{
+					Hash:  tx.TxHash(),
+					Index: 1,
+				}, outpoint)
+			} else {
+				require.Zero(t, outpoint)
+			}
+		})
+	}
+}
+
+// TestHtlcSuccessSkipsForeignSuccessOutput tests that Launch does not offer a
+// phantom second-level output after a foreign commitment spend.
+func TestHtlcSuccessSkipsForeignSuccessOutput(t *testing.T) {
+	commitOutpoint := wire.OutPoint{Index: 2}
+	resolution := newSuccessTestResolution(commitOutpoint)
+	ctx := newHtlcResolverTestContext(t, func(htlc channeldb.HTLC,
+		cfg ResolverConfig) ContractResolver {
+
+		return newSuccessResolver(resolution, 0, htlc, cfg)
+	})
+	resolver := requireSuccessResolver(t, ctx.resolver)
+	foreignTx := &wire.MsgTx{
+		TxIn: []*wire.TxIn{{PreviousOutPoint: commitOutpoint}},
+		TxOut: []*wire.TxOut{{
+			Value:    resolution.SweepSignDesc.Output.Value,
+			PkScript: []byte{txscript.OP_FALSE},
+		}},
+	}
+	ctx.notifier.SpendChan <- newSpendDetail(
+		commitOutpoint, foreignTx, 0,
+	)
+
+	require.NoError(t, resolver.sweepSuccessTxOutput())
+	sweeper, ok := resolver.Sweeper.(*mockSweeper)
+	require.True(t, ok)
+	select {
+	case sweptInput := <-sweeper.sweptInputs:
+		t.Fatalf("unexpected phantom sweep: %v", sweptInput.OutPoint())
+	default:
+	}
+}
+
+// TestHtlcSuccessRejectsMalformedRestoredSpend tests validation before output
+// matching on the restored commitment-spend path.
+func TestHtlcSuccessRejectsMalformedRestoredSpend(t *testing.T) {
+	commitOutpoint := wire.OutPoint{Index: 2}
+	resolution := newSuccessTestResolution(commitOutpoint)
+	ctx := newHtlcResolverTestContext(t, func(htlc channeldb.HTLC,
+		cfg ResolverConfig) ContractResolver {
+
+		return newSuccessResolver(resolution, 0, htlc, cfg)
+	})
+	ctx.checkpoint = func(_ ContractResolver,
+		_ ...*channeldb.ResolverReport) error {
+
+		t.Fatal("unexpected checkpoint")
+		return nil
+	}
+	ctx.notifier.SpendChan <- &chainntnfs.SpendDetail{
+		SpendingTx: &wire.MsgTx{},
+	}
+
+	resolver := requireSuccessResolver(t, ctx.resolver)
+	err := resolver.resolveSuccessTx()
+	require.ErrorIs(t, err, errInvalidSpendDetails)
+	require.False(t, resolver.IsResolved())
+	require.False(t, ctx.finalHtlcOutcomeStored)
+	require.Empty(t, ctx.htlcNotifier.finalHtlcEvents)
+}
+
+// TestHtlcSuccessForeignSpend tests checkpointing foreign commitment spends
+// before and after resolver restoration.
+func TestHtlcSuccessForeignSpend(t *testing.T) {
+	commitOutpoint := wire.OutPoint{Index: 2}
+	resolution := newSuccessTestResolution(commitOutpoint)
+	foreignTx := &wire.MsgTx{
+		TxIn: []*wire.TxIn{{PreviousOutPoint: commitOutpoint}},
+		TxOut: []*wire.TxOut{{
+			Value:    resolution.SweepSignDesc.Output.Value,
+			PkScript: []byte{txscript.OP_FALSE},
+		}},
+	}
+	foreignTxID := foreignTx.TxHash()
+	foreignSpend := newSpendDetail(commitOutpoint, foreignTx, 0)
+	foreignSpend.SpenderTxHash = nil
+	resolverType := channeldb.ResolverTypeIncomingHtlc
+	resolverOutcome := channeldb.ResolverOutcomeTimeout
+
+	testCases := []struct {
+		name    string
+		restart bool
+	}{
+		{
+			// A fresh resolver offers the commitment HTLC, but a
+			// foreign transaction confirms instead.
+			name: "fresh resolver",
+		},
+		{
+			// A restored resolver replays a historical spend.
+			// Launch avoids a phantom second-level sweep.
+			name:    "restored resolver",
+			restart: true,
+		},
+	}
+	for _, testCase := range testCases {
+		t.Run(testCase.name, func(t *testing.T) {
+			defer timeout()()
+			ctx := newHtlcResolverTestContext(
+				t, func(htlc channeldb.HTLC,
+					cfg ResolverConfig) ContractResolver {
+
+					resolver := newSuccessResolver(
+						resolution, 0, htlc, cfg,
+					)
+					if !testCase.restart {
+						return resolver
+					}
+
+					resolver.outputIncubating = true
+					var state bytes.Buffer
+					err := resolver.Encode(&state)
+					require.NoError(t, err)
+					decode := newSuccessResolverFromReader
+					restored, err := decode(&state, cfg)
+					require.NoError(t, err)
+					restored.Supplement(htlc)
+
+					return restored
+				},
+			)
+
+			var reports []*channeldb.ResolverReport
+			ctx.checkpoint = func(_ ContractResolver,
+				r ...*channeldb.ResolverReport) error {
+
+				reports = r
+				return nil
+			}
+
+			ctx.resolve()
+			resolver := requireSuccessResolver(t, ctx.resolver)
+			sweeper, ok := resolver.Sweeper.(*mockSweeper)
+			require.True(t, ok)
+			if !testCase.restart {
+				select {
+				case input := <-sweeper.sweptInputs:
+					require.Equal(
+						t, commitOutpoint,
+						input.OutPoint(),
+					)
+
+				case <-time.After(time.Second):
+					t.Fatal("expected input to be swept")
+				}
+			}
+			// Launch and Resolve each register after restart.
+			// Each receives its own historical-spend replay.
+			go func() {
+				ctx.notifier.SpendChan <- foreignSpend
+				if testCase.restart {
+					ctx.notifier.SpendChan <- foreignSpend
+				}
+			}()
+			ctx.waitForResult()
+
+			require.True(t, resolver.IsResolved())
+			require.False(t, resolver.outputIncubating)
+			require.Zero(t, resolver.currentReport.LimboBalance)
+			require.Zero(t, resolver.currentReport.RecoveredBalance)
+			require.True(t, ctx.finalHtlcOutcomeStored)
+			require.False(t, ctx.finalHtlcSettled)
+			require.Equal(t, []*channeldb.ResolverReport{{
+				OutPoint:        commitOutpoint,
+				Amount:          testHtlcAmt.ToSatoshis(),
+				ResolverType:    resolverType,
+				ResolverOutcome: resolverOutcome,
+				SpendTxID:       &foreignTxID,
+			}}, reports)
+			require.Equal(t, []finalHtlcEvent{{
+				key: testCircuitKey,
+				info: channeldb.FinalHtlcInfo{
+					Settled: false,
+				},
+			}}, ctx.htlcNotifier.finalHtlcEvents)
+
+			select {
+			case sweptInput := <-sweeper.sweptInputs:
+				t.Fatalf("unexpected phantom sweep: %v",
+					sweptInput.OutPoint())
+			default:
+			}
+		})
+	}
+}
+
+// TestHtlcSuccessForeignSpendCheckpointError tests rollback and retry after a
+// foreign-spend checkpoint failure.
+func TestHtlcSuccessForeignSpendCheckpointError(t *testing.T) {
+	t.Parallel()
+
+	commitOutpoint := wire.OutPoint{Index: 4}
+	resolution := newSuccessTestResolution(commitOutpoint)
+	var resolverCfg ResolverConfig
+	ctx := newHtlcResolverTestContext(t, func(htlc channeldb.HTLC,
+		cfg ResolverConfig) ContractResolver {
+
+		resolverCfg = cfg
+		return newSuccessResolver(resolution, 0, htlc, cfg)
+	})
+	resolver := requireSuccessResolver(t, ctx.resolver)
+	resolver.outputIncubating = true
+	resolver.currentReport.RecoveredBalance = 1
+	previousReport := resolver.currentReport
+
+	errCheckpoint := errors.New("checkpoint failed")
+	checkpointCalls := 0
+	ctx.checkpoint = func(_ ContractResolver,
+		reports ...*channeldb.ResolverReport) error {
+
+		checkpointCalls++
+		require.False(t, resolver.IsResolved())
+		require.False(t, resolver.outputIncubating)
+		require.Zero(t, resolver.currentReport.LimboBalance)
+		require.Zero(t, resolver.currentReport.RecoveredBalance)
+		require.Len(t, reports, 1)
+		require.Equal(t, channeldb.ResolverOutcomeTimeout,
+			reports[0].ResolverOutcome)
+		if checkpointCalls == 1 {
+			return errCheckpoint
+		}
+
+		var state bytes.Buffer
+		require.NoError(t, resolver.Encode(&state))
+		restored, err := newSuccessResolverFromReader(
+			&state, resolverCfg,
+		)
+		require.NoError(t, err)
+		require.False(t, restored.IsResolved())
+
+		return nil
+	}
+
+	foreignTx := &wire.MsgTx{
+		TxIn:  []*wire.TxIn{{PreviousOutPoint: commitOutpoint}},
+		TxOut: []*wire.TxOut{{PkScript: []byte{txscript.OP_FALSE}}},
+	}
+	spendTxID := foreignTx.TxHash()
+
+	err := resolver.checkpointForeignSpend(spendTxID)
+	require.ErrorIs(t, err, errCheckpoint)
+	require.False(t, resolver.IsResolved())
+	require.True(t, resolver.outputIncubating)
+	require.Equal(t, previousReport, resolver.currentReport)
+	require.Empty(t, ctx.htlcNotifier.finalHtlcEvents)
+
+	require.NoError(t, resolver.checkpointForeignSpend(spendTxID))
+	require.Equal(t, 2, checkpointCalls)
+	require.True(t, resolver.IsResolved())
+	require.False(t, resolver.outputIncubating)
+	require.Zero(t, resolver.currentReport.LimboBalance)
+	require.Zero(t, resolver.currentReport.RecoveredBalance)
+	require.Equal(t, []finalHtlcEvent{{
+		key: testCircuitKey,
+		info: channeldb.FinalHtlcInfo{
+			Settled: false,
+		},
+	}}, ctx.htlcNotifier.finalHtlcEvents)
+}
+
+// TestHtlcSuccessSecondStageResolution tests the legacy pre-anchor path, where
+// a successful second-stage HTLC claim goes through the Nursery.
 func TestHtlcSuccessSecondStageResolution(t *testing.T) {
 	commitOutpoint := wire.OutPoint{Index: 2}
-	htlcOutpoint := wire.OutPoint{Index: 3}
+	signedSuccessTx := &wire.MsgTx{
+		TxIn: []*wire.TxIn{{
+			PreviousOutPoint: commitOutpoint,
+		}},
+		TxOut: []*wire.TxOut{{
+			Value:    111,
+			PkScript: []byte{0xaa, 0xaa},
+		}},
+	}
+	successTx := signedSuccessTx.TxHash()
+	htlcOutpoint := wire.OutPoint{
+		Hash:  successTx,
+		Index: 3,
+	}
 
 	sweepTx := &wire.MsgTx{
 		TxIn:  []*wire.TxIn{{}},
@@ -246,25 +936,12 @@ func TestHtlcSuccessSecondStageResolution(t *testing.T) {
 	// twoStageResolution is a resolution for htlc on our own commitment
 	// which is spent from the signed success tx.
 	twoStageResolution := lnwallet.IncomingHtlcResolution{
-		Preimage: [32]byte{},
-		SignedSuccessTx: &wire.MsgTx{
-			TxIn: []*wire.TxIn{
-				{
-					PreviousOutPoint: commitOutpoint,
-				},
-			},
-			TxOut: []*wire.TxOut{
-				{
-					Value:    111,
-					PkScript: []byte{0xaa, 0xaa},
-				},
-			},
-		},
-		ClaimOutpoint: htlcOutpoint,
-		SweepSignDesc: testSignDesc,
+		Preimage:        [32]byte{},
+		SignedSuccessTx: signedSuccessTx,
+		ClaimOutpoint:   htlcOutpoint,
+		SweepSignDesc:   testSignDesc,
 	}
 
-	successTx := twoStageResolution.SignedSuccessTx.TxHash()
 	firstStage := &channeldb.ResolverReport{
 		OutPoint:        commitOutpoint,
 		Amount:          testHtlcAmt.ToSatoshis(),
@@ -307,13 +984,83 @@ func TestHtlcSuccessSecondStageResolution(t *testing.T) {
 				secondStage,
 				firstStage,
 			},
-			finalHtlcStored: true,
+			finalHtlcStored:  true,
+			finalHtlcSettled: true,
 		},
 	}
 
 	testHtlcSuccess(
 		t, twoStageResolution, checkpoints,
 	)
+}
+
+// TestHtlcSuccessCheckpointClaim tests that a re-signed success transaction is
+// recorded with the outpoint and transaction that actually confirmed.
+func TestHtlcSuccessCheckpointClaim(t *testing.T) {
+	commitOutpoint := wire.OutPoint{Index: 2}
+	resolution := lnwallet.IncomingHtlcResolution{
+		SignedSuccessTx: &wire.MsgTx{
+			TxIn: []*wire.TxIn{{
+				PreviousOutPoint: commitOutpoint,
+			}},
+			TxOut: []*wire.TxOut{{}},
+		},
+		ClaimOutpoint: wire.OutPoint{Index: 3},
+		SweepSignDesc: testSignDesc,
+	}
+
+	ctx := newHtlcResolverTestContext(
+		t, func(htlc channeldb.HTLC,
+			cfg ResolverConfig) ContractResolver {
+
+			return newSuccessResolver(resolution, 0, htlc, cfg)
+		},
+	)
+	resolver := requireSuccessResolver(t, ctx.resolver)
+
+	secondLevelOutpoint := wire.OutPoint{
+		Hash:  chainhash.Hash{1},
+		Index: 4,
+	}
+	spendTxID := chainhash.Hash{2}
+	var reports []*channeldb.ResolverReport
+	ctx.checkpoint = func(gotResolver ContractResolver,
+		gotReports ...*channeldb.ResolverReport) error {
+
+		require.Same(t, resolver, gotResolver)
+		reports = gotReports
+		return nil
+	}
+
+	require.NoError(t, resolver.checkpointClaim(
+		secondLevelOutpoint, &spendTxID,
+	))
+	require.True(t, resolver.IsResolved())
+	require.True(t, ctx.finalHtlcOutcomeStored)
+	require.Equal(t, []*channeldb.ResolverReport{
+		{
+			OutPoint: secondLevelOutpoint,
+			Amount: btcutil.Amount(
+				testSignDesc.Output.Value,
+			),
+			ResolverType:    channeldb.ResolverTypeIncomingHtlc,
+			ResolverOutcome: channeldb.ResolverOutcomeClaimed,
+			SpendTxID:       &spendTxID,
+		},
+		{
+			OutPoint:        commitOutpoint,
+			Amount:          testHtlcAmt.ToSatoshis(),
+			ResolverType:    channeldb.ResolverTypeIncomingHtlc,
+			ResolverOutcome: channeldb.ResolverOutcomeFirstStage,
+			SpendTxID:       &secondLevelOutpoint.Hash,
+		},
+	}, reports)
+	require.Equal(t, []finalHtlcEvent{{
+		key: testCircuitKey,
+		info: channeldb.FinalHtlcInfo{
+			Settled: true,
+		},
+	}}, ctx.htlcNotifier.finalHtlcEvents)
 }
 
 // TestHtlcSuccessSecondStageResolutionSweeper test that a resolver with
@@ -324,6 +1071,10 @@ func TestHtlcSuccessSecondStageResolution(t *testing.T) {
 func TestHtlcSuccessSecondStageResolutionSweeper(t *testing.T) {
 	commitOutpoint := wire.OutPoint{Index: 2}
 	htlcOutpoint := wire.OutPoint{Index: 3}
+	secondLevelOutput := cloneTxOut(testSignDesc.Output)
+	secondLevelOutput.PkScript = []byte{txscript.OP_TRUE}
+	sweepSignDesc := testSignDesc
+	sweepSignDesc.Output = secondLevelOutput
 
 	successTx := &wire.MsgTx{
 		TxIn: []*wire.TxIn{
@@ -331,12 +1082,7 @@ func TestHtlcSuccessSecondStageResolutionSweeper(t *testing.T) {
 				PreviousOutPoint: commitOutpoint,
 			},
 		},
-		TxOut: []*wire.TxOut{
-			{
-				Value:    123,
-				PkScript: []byte{0xff, 0xff},
-			},
-		},
+		TxOut: []*wire.TxOut{cloneTxOut(secondLevelOutput)},
 	}
 
 	reSignedSuccessTx := &wire.MsgTx{
@@ -364,18 +1110,14 @@ func TestHtlcSuccessSecondStageResolutionSweeper(t *testing.T) {
 			successTx.TxOut[0],
 		},
 	}
-	reSignedHash := successTx.TxHash()
+	reSignedHash := reSignedSuccessTx.TxHash()
+	secondLevelOutpoint := wire.OutPoint{
+		Hash:  reSignedHash,
+		Index: 1,
+	}
 
 	sweepTx := &wire.MsgTx{
-		TxIn: []*wire.TxIn{
-
-			{
-				PreviousOutPoint: wire.OutPoint{
-					Hash:  reSignedHash,
-					Index: 1,
-				},
-			},
-		},
+		TxIn:  []*wire.TxIn{{PreviousOutPoint: secondLevelOutpoint}},
 		TxOut: []*wire.TxOut{{}},
 	}
 	sweepHash := sweepTx.TxHash()
@@ -391,7 +1133,7 @@ func TestHtlcSuccessSecondStageResolutionSweeper(t *testing.T) {
 			PeerSig:  testSig,
 		},
 		ClaimOutpoint: htlcOutpoint,
-		SweepSignDesc: testSignDesc,
+		SweepSignDesc: sweepSignDesc,
 	}
 
 	firstStage := &channeldb.ResolverReport{
@@ -403,7 +1145,7 @@ func TestHtlcSuccessSecondStageResolutionSweeper(t *testing.T) {
 	}
 
 	secondStage := &channeldb.ResolverReport{
-		OutPoint:        htlcOutpoint,
+		OutPoint:        secondLevelOutpoint,
 		Amount:          btcutil.Amount(testSignDesc.Output.Value),
 		ResolverType:    channeldb.ResolverTypeIncomingHtlc,
 		ResolverOutcome: channeldb.ResolverOutcomeClaimed,
@@ -441,7 +1183,6 @@ func TestHtlcSuccessSecondStageResolutionSweeper(t *testing.T) {
 
 				ctx.notifier.SpendChan <- &chainntnfs.SpendDetail{
 					SpendingTx:        reSignedSuccessTx,
-					SpenderTxHash:     &reSignedHash,
 					SpenderInputIndex: 1,
 					SpendingHeight:    10,
 					SpentOutPoint:     &commitOutpoint,
@@ -464,7 +1205,6 @@ func TestHtlcSuccessSecondStageResolutionSweeper(t *testing.T) {
 				if resumed {
 					ctx.notifier.SpendChan <- &chainntnfs.SpendDetail{
 						SpendingTx:        reSignedSuccessTx,
-						SpenderTxHash:     &reSignedHash,
 						SpenderInputIndex: 1,
 						SpendingHeight:    10,
 						SpentOutPoint:     &commitOutpoint,
@@ -479,7 +1219,6 @@ func TestHtlcSuccessSecondStageResolutionSweeper(t *testing.T) {
 				// spend.
 				ctx.notifier.SpendChan <- &chainntnfs.SpendDetail{
 					SpendingTx:        reSignedSuccessTx,
-					SpenderTxHash:     &reSignedHash,
 					SpenderInputIndex: 1,
 					SpendingHeight:    10,
 					SpentOutPoint:     &commitOutpoint,
@@ -526,11 +1265,27 @@ func TestHtlcSuccessSecondStageResolutionSweeper(t *testing.T) {
 				secondStage,
 				firstStage,
 			},
-			finalHtlcStored: true,
+			finalHtlcStored:  true,
+			finalHtlcSettled: true,
 		},
 	}
 
 	testHtlcSuccess(t, twoStageResolution, checkpoints)
+}
+
+// newSpendDetail creates notifier spend details for the selected transaction
+// input.
+func newSpendDetail(spent wire.OutPoint, tx *wire.MsgTx,
+	inputIndex uint32) *chainntnfs.SpendDetail {
+
+	txid := tx.TxHash()
+	return &chainntnfs.SpendDetail{
+		SpendingTx:        tx,
+		SpenderTxHash:     &txid,
+		SpenderInputIndex: inputIndex,
+		SpendingHeight:    10,
+		SpentOutPoint:     &spent,
+	}
 }
 
 // checkpoint holds expected data we expect the resolver to checkpoint itself
@@ -542,10 +1297,12 @@ type checkpoint struct {
 	preCheckpoint func(*htlcResolverTestContext, bool) error
 
 	// data we expect the resolver to be checkpointed with next.
-	incubating      bool
-	resolved        bool
-	reports         []*channeldb.ResolverReport
-	finalHtlcStored bool
+	incubating           bool
+	resolved             bool
+	reports              []*channeldb.ResolverReport
+	finalHtlcStored      bool
+	finalHtlcSettled     bool
+	checkpointsOnRestart bool
 }
 
 // testHtlcSuccess tests resolution of a success resolver. It takes a a list of
@@ -592,8 +1349,13 @@ func testHtlcSuccess(t *testing.T, resolution lnwallet.IncomingHtlcResolution,
 			},
 		)
 
+		nextCheckpoint := i + 1
+		if checkpoints[i].checkpointsOnRestart {
+			nextCheckpoint = i
+		}
+
 		// Run from the given checkpoint, ensuring we'll hit the rest.
-		_ = runFromCheckpoint(t, ctx, checkpoints[i+1:])
+		_ = runFromCheckpoint(t, ctx, checkpoints[nextCheckpoint:])
 	}
 }
 
@@ -658,6 +1420,10 @@ func runFromCheckpoint(t *testing.T, ctx *htlcResolverTestContext,
 		if cp.finalHtlcStored != ctx.finalHtlcOutcomeStored {
 			t.Fatal("final htlc store expectation failed")
 		}
+		if cp.finalHtlcStored {
+			require.Equal(t, cp.finalHtlcSettled,
+				ctx.finalHtlcSettled)
+		}
 
 		// Finally encode the resolver, and store it for later use.
 		b := bytes.Buffer{}
@@ -702,6 +1468,19 @@ func runFromCheckpoint(t *testing.T, ctx *htlcResolverTestContext,
 
 	// Wait for the resolver to fully complete.
 	ctx.waitForResult()
+	if len(expectedCheckpoints) != 0 {
+		lastCheckpoint := len(expectedCheckpoints) - 1
+		finalCheckpoint := expectedCheckpoints[lastCheckpoint]
+		if finalCheckpoint.finalHtlcStored {
+			expectedSettled := finalCheckpoint.finalHtlcSettled
+			require.Equal(t, []finalHtlcEvent{{
+				key: testCircuitKey,
+				info: channeldb.FinalHtlcInfo{
+					Settled: expectedSettled,
+				},
+			}}, ctx.htlcNotifier.finalHtlcEvents)
+		}
+	}
 
 	return checkpointedState
 }

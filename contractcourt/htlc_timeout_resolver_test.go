@@ -94,7 +94,7 @@ type htlcTimeoutTestCase struct {
 }
 
 func genHtlcTimeoutTestCases() []htlcTimeoutTestCase {
-	fakePreimageBytes := bytes.Repeat([]byte{1}, lntypes.HashSize)
+	fakePreimageBytes := testResPreimage[:]
 
 	var (
 		htlcOutpoint wire.OutPoint
@@ -269,7 +269,7 @@ func genHtlcTimeoutTestCases() []htlcTimeoutTestCase {
 }
 
 func testHtlcTimeoutResolver(t *testing.T, testCase htlcTimeoutTestCase) {
-	fakePreimageBytes := bytes.Repeat([]byte{1}, lntypes.HashSize)
+	fakePreimageBytes := testResPreimage[:]
 	var fakePreimage lntypes.Preimage
 
 	fakeSignDesc := &input.SignDescriptor{
@@ -353,8 +353,12 @@ func testHtlcTimeoutResolver(t *testing.T, testCase htlcTimeoutTestCase) {
 		contractResolverKit: *newContractResolverKit(
 			cfg,
 		),
+		// The hash has to correspond to the preimage the spending
+		// witnesses reveal, since a claim is only accepted when the
+		// revealed preimage actually opens this HTLC.
 		htlc: channeldb.HTLC{
-			Amt: testHtlcAmt,
+			Amt:   testHtlcAmt,
+			RHash: testResHash,
 		},
 	}
 	resolver.initLogger("timeoutResolver")
@@ -791,7 +795,7 @@ func TestHtlcTimeoutSingleStageRemoteSpend(t *testing.T) {
 		TxOut: []*wire.TxOut{{}},
 	}
 
-	fakePreimageBytes := bytes.Repeat([]byte{1}, lntypes.HashSize)
+	fakePreimageBytes := testResPreimage[:]
 	var fakePreimage lntypes.Preimage
 	copy(fakePreimage[:], fakePreimageBytes)
 
@@ -919,7 +923,7 @@ func TestHtlcTimeoutSecondStageRemoteSpend(t *testing.T) {
 		TxOut: []*wire.TxOut{},
 	}
 
-	fakePreimageBytes := bytes.Repeat([]byte{1}, lntypes.HashSize)
+	fakePreimageBytes := testResPreimage[:]
 	var fakePreimage lntypes.Preimage
 	copy(fakePreimage[:], fakePreimageBytes)
 
@@ -1291,7 +1295,7 @@ func TestHtlcTimeoutSecondStageSweeperRemoteSpend(t *testing.T) {
 		TxOut: []*wire.TxOut{{}},
 	}
 
-	fakePreimageBytes := bytes.Repeat([]byte{1}, lntypes.HashSize)
+	fakePreimageBytes := testResPreimage[:]
 	var fakePreimage lntypes.Preimage
 	copy(fakePreimage[:], fakePreimageBytes)
 
@@ -1505,11 +1509,16 @@ func TestCheckSizeAndIndex(t *testing.T) {
 func TestIsPreimageSpend(t *testing.T) {
 	t.Parallel()
 
+	// annexBytes is a minimal but valid BIP341 annex: a single element
+	// leading with the 0x50 tag.
+	annexBytes := []byte{txscript.TaprootAnnexTag}
+
 	testCases := []struct {
 		name        string
 		witness     wire.TxWitness
 		isTaproot   bool
 		localCommit bool
+		expected    bool
 	}{
 		{
 			// Test a preimage spend on the remote commitment for
@@ -1521,6 +1530,20 @@ func TestIsPreimageSpend(t *testing.T) {
 			},
 			isTaproot:   true,
 			localCommit: false,
+			expected:    true,
+		},
+		{
+			// The same spend with an annex appended. The spender
+			// chooses whether to include one, so it must not
+			// change how we classify the spend.
+			name: "tap preimage spend on remote with annex",
+			witness: wire.TxWitness{
+				dummyBytes, dummyBytes, preimageBytes,
+				dummyBytes, dummyBytes, annexBytes,
+			},
+			isTaproot:   true,
+			localCommit: false,
+			expected:    true,
 		},
 		{
 			// Test a preimage spend on the local commitment for
@@ -1532,6 +1555,26 @@ func TestIsPreimageSpend(t *testing.T) {
 			},
 			isTaproot:   true,
 			localCommit: true,
+			expected:    true,
+		},
+		{
+			name: "tap preimage spend on local with annex",
+			witness: wire.TxWitness{
+				dummyBytes, preimageBytes,
+				dummyBytes, dummyBytes, annexBytes,
+			},
+			isTaproot:   true,
+			localCommit: true,
+			expected:    true,
+		},
+		{
+			// An annex must not turn a key spend into something
+			// that looks like a preimage spend.
+			name:        "tap key spend with annex",
+			witness:     wire.TxWitness{dummyBytes, annexBytes},
+			isTaproot:   true,
+			localCommit: true,
+			expected:    false,
 		},
 		{
 			// Test a preimage spend on the remote commitment for
@@ -1543,6 +1586,7 @@ func TestIsPreimageSpend(t *testing.T) {
 			},
 			isTaproot:   false,
 			localCommit: false,
+			expected:    true,
 		},
 		{
 			// Test a preimage spend on the local commitment for
@@ -1553,6 +1597,20 @@ func TestIsPreimageSpend(t *testing.T) {
 			},
 			isTaproot:   false,
 			localCommit: true,
+			expected:    true,
+		},
+		{
+			// The annex is a taproot concept only. On a legacy
+			// spend the final element is the witness script, so a
+			// script that happens to lead with 0x50 must be left
+			// on the stack.
+			name: "legacy witness script leading with annex tag",
+			witness: wire.TxWitness{
+				dummyBytes, preimageBytes, annexBytes,
+			},
+			isTaproot:   false,
+			localCommit: true,
+			expected:    true,
 		},
 	}
 
@@ -1578,7 +1636,102 @@ func TestIsPreimageSpend(t *testing.T) {
 			result := isPreimageSpend(
 				tc.isTaproot, spend, tc.localCommit,
 			)
-			require.True(t, result)
+			require.Equal(t, tc.expected, result)
 		})
 	}
+}
+
+// TestClaimCleanUpTaprootBreachAnnex tests that an annex on a taproot key
+// spend doesn't hide the fact that we're on the losing side of a breach. The
+// key spend path is a lone signature, so the annex has to come off before the
+// stack is counted.
+func TestClaimCleanUpTaprootBreachAnnex(t *testing.T) {
+	t.Parallel()
+
+	// A v1 witness program, so the resolver treats this as taproot.
+	taprootPkScript := append(
+		[]byte{txscript.OP_1, 0x20},
+		bytes.Repeat([]byte{1}, lntypes.HashSize)...,
+	)
+
+	// A local commitment, so claimCleanUp reaches the breach check rather
+	// than the remote sweep cases above it.
+	resolver := &htlcTimeoutResolver{
+		htlcResolution: lnwallet.OutgoingHtlcResolution{
+			SweepSignDesc: input.SignDescriptor{
+				Output: &wire.TxOut{PkScript: taprootPkScript},
+			},
+			SignedTimeoutTx: &wire.MsgTx{
+				TxIn: []*wire.TxIn{{}},
+			},
+		},
+		htlc: channeldb.HTLC{RHash: testResHash},
+	}
+
+	// A key spend carrying an annex. The annex is preimage sized, so
+	// without stripping it would be read as the preimage.
+	spendingTx := &wire.MsgTx{
+		TxIn: []*wire.TxIn{{
+			Witness: wire.TxWitness{
+				dummyBytes,
+				append(
+					[]byte{txscript.TaprootAnnexTag},
+					bytes.Repeat([]byte{7}, 31)...,
+				),
+			},
+		}},
+	}
+	spend := &chainntnfs.SpendDetail{SpendingTx: spendingTx}
+
+	err := resolver.claimCleanUp(spend)
+	require.ErrorContains(t, err, "breach attempt failed")
+	require.False(t, resolver.IsResolved())
+}
+
+// TestClaimCleanUpPreimageMismatch tests that a witness which merely has the
+// shape of a success spend cannot inject a foreign preimage. The classifier
+// only asserts the element at the preimage index is 32 bytes, so claimCleanUp
+// has to confirm the preimage actually opens this HTLC.
+func TestClaimCleanUpPreimageMismatch(t *testing.T) {
+	t.Parallel()
+
+	var preimage lntypes.Preimage
+	copy(preimage[:], preimageBytes)
+
+	// Build a resolver whose HTLC is locked to an entirely different
+	// payment hash than the one the spending witness reveals.
+	var otherHash lntypes.Hash
+	copy(otherHash[:], bytes.Repeat([]byte{9}, lntypes.HashSize))
+
+	resolver := &htlcTimeoutResolver{
+		htlcResolution: lnwallet.OutgoingHtlcResolution{
+			SweepSignDesc: input.SignDescriptor{
+				Output: &wire.TxOut{},
+			},
+		},
+		htlc: channeldb.HTLC{RHash: otherHash},
+	}
+
+	// A remote-commitment success spend on a legacy channel, carrying a
+	// well-formed preimage for some other payment.
+	spendingTx := &wire.MsgTx{
+		TxIn: []*wire.TxIn{{
+			Witness: wire.TxWitness{
+				dummyBytes, dummyBytes, dummyBytes,
+				preimageBytes, dummyBytes,
+			},
+		}},
+	}
+	spend := &chainntnfs.SpendDetail{SpendingTx: spendingTx}
+
+	// The witness passes the shape check, so this is exactly the input
+	// claimCleanUp would be handed in practice.
+	require.True(t, isPreimageSpend(false, spend, false))
+
+	err := resolver.claimCleanUp(spend)
+	require.ErrorIs(t, err, errPreimageMismatch)
+
+	// Nothing should have been resolved off the back of a foreign
+	// preimage.
+	require.False(t, resolver.IsResolved())
 }

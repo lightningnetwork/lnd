@@ -134,7 +134,26 @@
   codec](https://github.com/lightningnetwork/lnd/pull/10958): add the
   `invoice_error` TLV message to `bolt12/` for onion-message replies.
 
+* [BOLT 12 string codec](https://github.com/lightningnetwork/lnd/pull/11001):
+  add checksumless bech32 encoding/decoding for BOLT 12 `lno`, `lnr`, and `lni`
+  strings with continuation line handling.
+
+* [BOLT 12 Merkle tree and BIP-340
+  signatures](https://github.com/lightningnetwork/lnd/pull/11061): add Merkle
+  tree construction over TLV records and BIP-340 Schnorr message signatures for
+  invoice requests and invoices, and verify the signature on read so a decoded
+  message with an invalid signature is rejected.
+
 ## Testing
+
+* [BOLT 12 spec test vectors](https://github.com/lightningnetwork/lnd/pull/11001):
+  add spec test vectors for offer decoding and format string parsing in
+  `bolt12/test-vectors/`.
+
+* [BOLT 12 signature test
+  vectors](https://github.com/lightningnetwork/lnd/pull/11061): add spec test
+  vectors pinning Merkle tree construction and BIP-340 signature verification
+  in `bolt12/test-vectors/`.
 
 ## Database
 

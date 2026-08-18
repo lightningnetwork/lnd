@@ -2,6 +2,7 @@ package protofsm
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"sync"
 	"sync/atomic"
@@ -584,9 +585,23 @@ func (s *StateMachine[Event, Env]) executeDaemonEvent(ctx context.Context,
 // applyEvents applies a new event to the state machine. This will continue
 // until no further events are emitted by the state machine. Along the way,
 // we'll also ensure to execute any daemon events that are emitted.
+//
+//nolint:nonamedreturns // Recovery sets the state and error returned to caller.
 func (s *StateMachine[Event, Env]) applyEvents(ctx context.Context,
-	currentState State[Event, Env], newEvent Event) (State[Event, Env],
-	error) {
+	currentState State[Event, Env], newEvent Event) (
+	finalState State[Event, Env], err error) {
+
+	// Convert a transition panic into an error so the caller can report the
+	// failure and stop the state machine through its normal error path.
+	defer fn.RecoverPanic(func(p fn.Panic) {
+		err = errors.New("panic during state transition")
+
+		fn.LogRecoveredPanic(ctx, s.log, p)
+
+		// Return the last known state so the caller can proceed with
+		// its teardown.
+		finalState = currentState
+	})
 
 	eventQueue := fn.NewQueue(newEvent)
 

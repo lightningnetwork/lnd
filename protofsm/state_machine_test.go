@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"sync/atomic"
 	"testing"
+	"time"
 
 	"github.com/btcsuite/btcd/btcec/v2"
 	"github.com/btcsuite/btcd/chainhash/v2"
@@ -867,4 +868,83 @@ func TestStateMachineMsgMapper(t *testing.T) {
 	dummyMapper.AssertExpectations(t)
 	adapters.AssertExpectations(t)
 	env.AssertExpectations(t)
+}
+
+// panicState is a state whose ProcessEvent always panics. It exercises the
+// state-machine recovery path.
+type panicState struct {
+}
+
+func (p *panicState) String() string {
+	return "panicState"
+}
+
+func (p *panicState) ProcessEvent(event dummyEvents, env *dummyEnv,
+) (*StateTransition[dummyEvents, *dummyEnv], error) {
+
+	panic("simulated panic in state transition")
+}
+
+func (p *panicState) IsTerminal() bool {
+	return false
+}
+
+// dummyErrReporter is a simple ErrorReporter that forwards any reported error
+// over a channel so tests can assert on it.
+type dummyErrReporter struct {
+	errChan chan error
+}
+
+func (d *dummyErrReporter) ReportError(err error) {
+	d.errChan <- err
+}
+
+// TestStateMachinePanicRecovery verifies that a panic raised while processing
+// an event is converted into a reported error and the machine stops.
+func TestStateMachinePanicRecovery(t *testing.T) {
+	t.Parallel()
+	ctx := t.Context()
+
+	// We'll create a state machine whose initial state panics as soon as it
+	// processes any event.
+	env := &dummyEnv{}
+	startingState := &panicState{}
+	adapters := newDaemonAdapters()
+
+	errReporter := &dummyErrReporter{
+		errChan: make(chan error, 1),
+	}
+
+	cfg := StateMachineCfg[dummyEvents, *dummyEnv]{
+		ErrorReporter: errReporter,
+		Daemon:        adapters,
+		InitialState:  startingState,
+		Env:           env,
+	}
+	stateMachine := NewStateMachine(cfg)
+
+	stateMachine.Start(ctx)
+	defer stateMachine.Stop()
+
+	require.True(t, stateMachine.IsRunning())
+
+	// Sending an event causes ProcessEvent to panic and exercises the
+	// recovery path.
+	stateMachine.SendEvent(ctx, &goToFin{})
+
+	// The recovered panic should be surfaced to the error reporter as a
+	// normal error.
+	select {
+	case err := <-errReporter.errChan:
+		require.EqualError(t, err, "panic during state transition")
+
+	case <-time.After(time.Second):
+		t.Fatalf("no error reported after panic")
+	}
+
+	// The state machine should tear itself down after the panic, so it's no
+	// longer running.
+	require.Eventually(t, func() bool {
+		return !stateMachine.IsRunning()
+	}, time.Second, 10*time.Millisecond)
 }

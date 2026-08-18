@@ -1,14 +1,23 @@
 package pool
 
 import (
+	"context"
 	"errors"
+	"fmt"
 	"sync"
 	"time"
+
+	"github.com/lightningnetwork/lnd/fn/v2"
 )
 
 // ErrWorkerPoolExiting signals that a shutdown of the Worker has been
 // requested.
 var ErrWorkerPoolExiting = errors.New("worker pool exiting")
+
+// ErrWorkerTaskPanic signals that a submitted task panicked while being
+// executed by one of the pool's worker goroutines. The error returned to the
+// submitter wraps this sentinel error.
+var ErrWorkerTaskPanic = errors.New("worker task panicked")
 
 // DefaultWorkerTimeout is the default duration after which a worker goroutine
 // will exit to free up resources after having received no newly submitted
@@ -110,9 +119,14 @@ func (w *Worker) Stop() error {
 	return nil
 }
 
-// Submit accepts a function closure to the worker pool. The returned error will
-// be either the result of the closure's execution or an ErrWorkerPoolExiting if
-// a shutdown is requested.
+// Submit accepts a function closure to the worker pool. The returned error is
+// the result of the closure's execution, ErrWorkerPoolExiting if shutdown is
+// requested, or an error wrapping ErrWorkerTaskPanic if the closure panics.
+//
+// A panicking worker is retired, so its WorkerState is not reused. Effects that
+// the closure performed outside WorkerState are not rolled back. Callers must
+// treat those effects as having an unknown result and retire or reset their
+// owner before continuing.
 func (w *Worker) Submit(fn func(WorkerState) error) error {
 	req := &request{
 		fn:      fn,
@@ -188,7 +202,9 @@ func (w *Worker) spawnWorker(req *request) {
 	state := w.cfg.NewWorkerState()
 	defer state.Cleanup()
 
-	req.errChan <- req.fn(state)
+	if w.runTask(req, state) {
+		return
+	}
 
 	// We'll use a timer to implement the worker timeouts, as this reduces
 	// the number of total allocations that would otherwise be necessary
@@ -206,7 +222,10 @@ func (w *Worker) spawnWorker(req *request) {
 		// non-blocking case first so that under high load we can spare
 		// allocating a timeout.
 		case req := <-w.work:
-			req.errChan <- req.fn(state)
+			if w.runTask(req, state) {
+				return
+			}
+
 			continue
 
 		case <-w.quit:
@@ -229,7 +248,9 @@ func (w *Worker) spawnWorker(req *request) {
 
 		// Process any new requests that get submitted.
 		case req := <-w.work:
-			req.errChan <- req.fn(state)
+			if w.runTask(req, state) {
+				return
+			}
 
 			// Stop the timer, draining the timer's channel if a
 			// notification was already delivered.
@@ -247,4 +268,51 @@ func (w *Worker) spawnWorker(req *request) {
 			return
 		}
 	}
+}
+
+// runTask executes the task attached to the given request against the worker's
+// state, then hands the outcome back to the submitter.
+//
+// A recovered task panic is returned to the submitter as an ordinary error.
+// The returned boolean reports whether the caller should retire the worker
+// instead of reusing its state.
+//
+// NOTE: Exactly one value is always delivered on the request's error channel,
+// on every exit path. The channel is buffered with a size of one, so the send
+// never blocks.
+//
+//nolint:nonamedreturns // Recovery must report whether the worker is reusable.
+func (w *Worker) runTask(req *request, state WorkerState) (panicked bool) {
+	var err error
+
+	// Deliver the outcome of the task to the submitter, which is blocked
+	// waiting on this channel.
+	defer func() {
+		req.errChan <- err
+	}()
+
+	defer fn.RecoverPanic(func(p fn.Panic) {
+		panicked = true
+
+		fn.LogRecoveredPanic(context.Background(), log, p)
+
+		// Formatting the original value could call the same broken
+		// String or Error method that caused the panic. The structured
+		// report above records the value best-effort. This error can
+		// always be constructed, so the submitter observes the failure.
+		panicString, ok := p.Value.(string)
+		if ok {
+			err = fmt.Errorf(
+				"%w: %s", ErrWorkerTaskPanic, panicString,
+			)
+
+			return
+		}
+
+		err = fmt.Errorf("%w: %T", ErrWorkerTaskPanic, p.Value)
+	})
+
+	err = req.fn(state)
+
+	return false
 }

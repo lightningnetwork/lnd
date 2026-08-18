@@ -5,6 +5,7 @@ import (
 	"time"
 
 	"github.com/lightningnetwork/lnd/graph/db/models"
+	"github.com/lightningnetwork/lnd/lnwire"
 )
 
 // htlcRef uniquely identifies an in-flight forwarded HTLC by its incoming
@@ -15,6 +16,11 @@ type htlcRef = models.CircuitKey
 // score the HTLC that is not carried by the settle/fail hooks (which only
 // identify the circuit).
 type pendingHTLC struct {
+	// incomingChan is the channel_id of the incoming channel, which earns
+	// the fee as revenue if the HTLC settles. Resolutions only identify the
+	// HTLC by its incoming circuit key, so it is captured at forward time.
+	incomingChan lnwire.ChannelID
+
 	// fee is the fee in millisatoshis that our policy requires to forward
 	// this HTLC. It is deliberately not the fee the sender chose to pay,
 	// which may be inflated: scoring on the required fee means an attacker
@@ -22,10 +28,9 @@ type pendingHTLC struct {
 	// move a channel's reputation.
 	fee uint64
 
-	// accountable is the accountable signal as this node would forward it
-	// on the outgoing link, i.e. the bit received on the incoming link and
-	// only if this node forwards the experimental accountability signal at
-	// all.
+	// accountable is the accountable signal as received on the incoming
+	// link, regardless of whether this node forwards the experimental
+	// signal downstream.
 	accountable bool
 
 	// addedAt is the time at which the HTLC was forwarded.

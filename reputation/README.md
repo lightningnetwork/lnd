@@ -16,6 +16,10 @@ The package is **observational only**: it watches the HTLCs the node forwards,
 maintains a per-channel reputation score, and logs the decision it would make
 for each HTLC. It never affects forwarding, alters the wire, or writes to disk.
 
+Channels are identified by their `channel_id` rather than their short channel
+id, so a zero-conf channel confirming (or, in future, a splice) does not split
+the channel's history.
+
 ## Reputation scoring
 
 Every forwarded HTLC contributes an `effective_fee` to its outgoing channel's
@@ -42,7 +46,9 @@ An HTLC's outgoing channel is considered to have sufficient reputation when:
 
 This is evaluated two ways for each forward: against the HTLC's own risk alone,
 and against that plus the risk of the accountable HTLCs already in flight on the
-outgoing channel. Both verdicts are logged.
+outgoing channel. Both verdicts are logged at debug level (subsystem `REPM`),
+as is the reputation change applied on each resolution, since these lines fire
+once per forwarded HTLC.
 
 The rolling windows are implemented as decaying averages to avoid storing
 per-HTLC history; see `decaying_average.go`.

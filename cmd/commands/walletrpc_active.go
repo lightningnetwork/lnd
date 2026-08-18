@@ -11,6 +11,7 @@ import (
 	"errors"
 	"fmt"
 	"math"
+	"os"
 	"sort"
 	"strconv"
 	"strings"
@@ -49,6 +50,7 @@ var (
 		Usage: "Interact with wallet accounts.",
 		Subcommands: []cli.Command{
 			listAccountsCommand,
+			createAccountCommand,
 			importAccountCommand,
 			importPubKeyCommand,
 		},
@@ -1870,6 +1872,103 @@ func listLeases(ctx *cli.Context) error {
 	}
 
 	printJSON(marshallLocks(response.LockedUtxos))
+	return nil
+}
+
+var createAccountCommand = cli.Command{
+	Name:      "create",
+	Usage:     "Create a new on-chain wallet account (experimental).",
+	ArgsUsage: "name",
+	Description: `
+	Creates a new named account within the wallet, deriving the account's
+	keys from the wallet's master key.
+
+	This wraps the experimental XCreateAccount RPC: the X prefix marks it
+	as an API that may change or be removed without the usual deprecation
+	period, and it is gated as described below until recovery handles
+	these accounts.
+
+	Unlike 'accounts import', which registers a watch-only account from an
+	extended public key, the account created here is fully owned by the
+	wallet: it derives its own addresses and can sign for its own outputs.
+	Coin selection, change, balance and address derivation can then all be
+	scoped to the account by passing its name, which makes it usable as an
+	isolated pocket of funds inside a single wallet.
+
+	The address type permanently fixes the key scope the account lives in,
+	and therefore the address type of both its receive and its change
+	outputs. It defaults to taproot and cannot be changed afterwards.
+
+	IMPORTANT: funds held in an account created here are NOT found by a
+	seed-only restore, because the wallet's recovery scan only rederives
+	addresses for the default account. Recovering them additionally
+	requires the account's key scope and index, and re-deriving the
+	addresses it had issued, before rescanning. Record the derivation path
+	printed below alongside your seed before depositing to this account.
+	`,
+	Flags: []cli.Flag{
+		cli.StringFlag{
+			Name: "address_type",
+			Usage: "(optional) the address type the " +
+				"account holds, one of: p2wkh, " +
+				"np2wkh-p2wkh, p2tr; defaults to p2tr",
+		},
+		cli.BoolFlag{
+			Name: "i_know_what_i_am_doing",
+			Usage: "required on a release build, " +
+				"confirming you accept that a seed-only " +
+				"restore will not rediscover this " +
+				"account's funds",
+		},
+	},
+	Action: actionDecorator(createAccount),
+}
+
+func createAccount(ctx *cli.Context) error {
+	ctxc := getContext()
+
+	// Display the command's help message if we do not have the expected
+	// number of arguments/flags.
+	if ctx.NArg() != 1 || ctx.NumFlags() > 2 {
+		return cli.ShowCommandHelp(ctx, "create")
+	}
+
+	addrType, err := parseAddrType(ctx.String("address_type"))
+	if err != nil {
+		return err
+	}
+
+	// The server always refuses this one, since a wallet-derived account
+	// carries no address schema and would silently behave as the hybrid
+	// scheme. Say so here rather than spending a round trip on it.
+	if addrType == walletrpc.AddressType_NESTED_WITNESS_PUBKEY_HASH {
+		return errors.New("np2wkh accounts cannot be created; a " +
+			"wallet-derived account of that key scope provides " +
+			"the hybrid scheme, so use np2wkh-p2wkh instead")
+	}
+
+	walletClient, cleanUp := getWalletClient(ctx)
+	defer cleanUp()
+
+	req := &walletrpc.XCreateAccountRequest{
+		Name:              ctx.Args().First(),
+		AddressType:       addrType,
+		IKnowWhatIAmDoing: ctx.Bool("i_know_what_i_am_doing"),
+	}
+	resp, err := walletClient.XCreateAccount(ctxc, req)
+	if err != nil {
+		return err
+	}
+
+	printRespJSON(resp)
+
+	// The derivation path in the response is what a later recovery needs,
+	// so point at it here rather than only in the command's help text:
+	// this is the one moment the operator is looking at it.
+	_, _ = fmt.Fprintf(os.Stderr, "\nNOTE: a seed-only restore will not "+
+		"find funds in this account. Record its derivation path "+
+		"(above) with your seed before depositing.\n")
+
 	return nil
 }
 

@@ -46,6 +46,15 @@ var (
 	// supported in remote signing mode.
 	ErrRemoteSigningPrivateKeyNotAvailable = errors.New("deriving " +
 		"private key is not supported by RPC based key ring")
+
+	// ErrRemoteSigningAccountCreation is returned when an account creation
+	// is requested from the RPC wallet, which has no master private key to
+	// derive one from. The account has to be created on the remote signer
+	// and its extended public key imported here instead.
+	ErrRemoteSigningAccountCreation = errors.New("creating accounts is " +
+		"not supported when using a remote signer; create the " +
+		"account on the signer and import its extended public key " +
+		"instead")
 )
 
 // RPCKeyRing is an implementation of the SecretKeyRing interface that uses a
@@ -231,6 +240,21 @@ func (r *RPCKeyRing) SignPsbt(packet *psbt.Packet) ([]uint32, error) {
 	packet.Unknowns = signedPacket.Unknowns
 
 	return resp.SignedInputs, nil
+}
+
+// CreateAccount is not supported when a remote signer is in use.
+//
+// The local wallet is watch-only, so it holds no master private key to derive
+// an account from; the promoted BtcWallet implementation would fail deep inside
+// waddrmgr with a bare "watching-only wallet". Creating the account on the
+// remote signer and importing its extended public key here (ImportAccount) is
+// the supported path, and has to be driven by the operator.
+//
+// NOTE: This is a part of the WalletController interface.
+func (r *RPCKeyRing) CreateAccount(waddrmgr.KeyScope,
+	string) (*waddrmgr.AccountProperties, error) {
+
+	return nil, ErrRemoteSigningAccountCreation
 }
 
 // FinalizePsbt expects a partial transaction with all inputs and outputs fully

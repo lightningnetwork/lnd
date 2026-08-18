@@ -5180,7 +5180,7 @@ const file_walletrpc_walletkit_proto_rawDesc = "" +
 	"\x1fTAPROOT_COMMITMENT_REVOKE_FINAL\x10**V\n" +
 	"\x11ChangeAddressType\x12#\n" +
 	"\x1fCHANGE_ADDRESS_TYPE_UNSPECIFIED\x10\x00\x12\x1c\n" +
-	"\x18CHANGE_ADDRESS_TYPE_P2TR\x10\x012\x81\x13\n" +
+	"\x18CHANGE_ADDRESS_TYPE_P2TR\x10\x012\xc3\x13\n" +
 	"\tWalletKit\x12L\n" +
 	"\vListUnspent\x12\x1d.walletrpc.ListUnspentRequest\x1a\x1e.walletrpc.ListUnspentResponse\x12L\n" +
 	"\vLeaseOutput\x12\x1d.walletrpc.LeaseOutputRequest\x1a\x1e.walletrpc.LeaseOutputResponse\x12R\n" +
@@ -5188,7 +5188,8 @@ const file_walletrpc_walletkit_proto_rawDesc = "" +
 	"\n" +
 	"ListLeases\x12\x1c.walletrpc.ListLeasesRequest\x1a\x1d.walletrpc.ListLeasesResponse\x12:\n" +
 	"\rDeriveNextKey\x12\x11.walletrpc.KeyReq\x1a\x16.signrpc.KeyDescriptor\x128\n" +
-	"\tDeriveKey\x12\x13.signrpc.KeyLocator\x1a\x16.signrpc.KeyDescriptor\x12;\n" +
+	"\tDeriveKey\x12\x13.signrpc.KeyLocator\x1a\x16.signrpc.KeyDescriptor\x12@\n" +
+	"\x11DeriveAndStoreKey\x12\x13.signrpc.KeyLocator\x1a\x16.signrpc.KeyDescriptor\x12;\n" +
 	"\bNextAddr\x12\x16.walletrpc.AddrRequest\x1a\x17.walletrpc.AddrResponse\x12F\n" +
 	"\x0eGetTransaction\x12 .walletrpc.GetTransactionRequest\x1a\x12.lnrpc.Transaction\x12O\n" +
 	"\fListAccounts\x12\x1e.walletrpc.ListAccountsRequest\x1a\x1f.walletrpc.ListAccountsResponse\x12U\n" +
@@ -5358,62 +5359,64 @@ var file_walletrpc_walletkit_proto_depIdxs = []int32{
 	67, // 42: walletrpc.WalletKit.ListLeases:input_type -> walletrpc.ListLeasesRequest
 	9,  // 43: walletrpc.WalletKit.DeriveNextKey:input_type -> walletrpc.KeyReq
 	78, // 44: walletrpc.WalletKit.DeriveKey:input_type -> signrpc.KeyLocator
-	10, // 45: walletrpc.WalletKit.NextAddr:input_type -> walletrpc.AddrRequest
-	23, // 46: walletrpc.WalletKit.GetTransaction:input_type -> walletrpc.GetTransactionRequest
-	15, // 47: walletrpc.WalletKit.ListAccounts:input_type -> walletrpc.ListAccountsRequest
-	17, // 48: walletrpc.WalletKit.XCreateAccount:input_type -> walletrpc.XCreateAccountRequest
-	19, // 49: walletrpc.WalletKit.RequiredReserve:input_type -> walletrpc.RequiredReserveRequest
-	21, // 50: walletrpc.WalletKit.ListAddresses:input_type -> walletrpc.ListAddressesRequest
-	24, // 51: walletrpc.WalletKit.SignMessageWithAddr:input_type -> walletrpc.SignMessageWithAddrRequest
-	26, // 52: walletrpc.WalletKit.VerifyMessageWithAddr:input_type -> walletrpc.VerifyMessageWithAddrRequest
-	28, // 53: walletrpc.WalletKit.ImportAccount:input_type -> walletrpc.ImportAccountRequest
-	30, // 54: walletrpc.WalletKit.ImportPublicKey:input_type -> walletrpc.ImportPublicKeyRequest
-	32, // 55: walletrpc.WalletKit.ImportTapscript:input_type -> walletrpc.ImportTapscriptRequest
-	37, // 56: walletrpc.WalletKit.PublishTransaction:input_type -> walletrpc.Transaction
-	39, // 57: walletrpc.WalletKit.SubmitPackage:input_type -> walletrpc.SubmitPackageRequest
-	23, // 58: walletrpc.WalletKit.RemoveTransaction:input_type -> walletrpc.GetTransactionRequest
-	43, // 59: walletrpc.WalletKit.SendOutputs:input_type -> walletrpc.SendOutputsRequest
-	45, // 60: walletrpc.WalletKit.EstimateFee:input_type -> walletrpc.EstimateFeeRequest
-	48, // 61: walletrpc.WalletKit.PendingSweeps:input_type -> walletrpc.PendingSweepsRequest
-	50, // 62: walletrpc.WalletKit.BumpFee:input_type -> walletrpc.BumpFeeRequest
-	52, // 63: walletrpc.WalletKit.BumpForceCloseFee:input_type -> walletrpc.BumpForceCloseFeeRequest
-	54, // 64: walletrpc.WalletKit.ListSweeps:input_type -> walletrpc.ListSweepsRequest
-	56, // 65: walletrpc.WalletKit.LabelTransaction:input_type -> walletrpc.LabelTransactionRequest
-	58, // 66: walletrpc.WalletKit.FundPsbt:input_type -> walletrpc.FundPsbtRequest
-	63, // 67: walletrpc.WalletKit.SignPsbt:input_type -> walletrpc.SignPsbtRequest
-	65, // 68: walletrpc.WalletKit.FinalizePsbt:input_type -> walletrpc.FinalizePsbtRequest
-	4,  // 69: walletrpc.WalletKit.ListUnspent:output_type -> walletrpc.ListUnspentResponse
-	6,  // 70: walletrpc.WalletKit.LeaseOutput:output_type -> walletrpc.LeaseOutputResponse
-	8,  // 71: walletrpc.WalletKit.ReleaseOutput:output_type -> walletrpc.ReleaseOutputResponse
-	68, // 72: walletrpc.WalletKit.ListLeases:output_type -> walletrpc.ListLeasesResponse
-	79, // 73: walletrpc.WalletKit.DeriveNextKey:output_type -> signrpc.KeyDescriptor
-	79, // 74: walletrpc.WalletKit.DeriveKey:output_type -> signrpc.KeyDescriptor
-	11, // 75: walletrpc.WalletKit.NextAddr:output_type -> walletrpc.AddrResponse
-	80, // 76: walletrpc.WalletKit.GetTransaction:output_type -> lnrpc.Transaction
-	16, // 77: walletrpc.WalletKit.ListAccounts:output_type -> walletrpc.ListAccountsResponse
-	18, // 78: walletrpc.WalletKit.XCreateAccount:output_type -> walletrpc.XCreateAccountResponse
-	20, // 79: walletrpc.WalletKit.RequiredReserve:output_type -> walletrpc.RequiredReserveResponse
-	22, // 80: walletrpc.WalletKit.ListAddresses:output_type -> walletrpc.ListAddressesResponse
-	25, // 81: walletrpc.WalletKit.SignMessageWithAddr:output_type -> walletrpc.SignMessageWithAddrResponse
-	27, // 82: walletrpc.WalletKit.VerifyMessageWithAddr:output_type -> walletrpc.VerifyMessageWithAddrResponse
-	29, // 83: walletrpc.WalletKit.ImportAccount:output_type -> walletrpc.ImportAccountResponse
-	31, // 84: walletrpc.WalletKit.ImportPublicKey:output_type -> walletrpc.ImportPublicKeyResponse
-	36, // 85: walletrpc.WalletKit.ImportTapscript:output_type -> walletrpc.ImportTapscriptResponse
-	38, // 86: walletrpc.WalletKit.PublishTransaction:output_type -> walletrpc.PublishResponse
-	41, // 87: walletrpc.WalletKit.SubmitPackage:output_type -> walletrpc.SubmitPackageResponse
-	42, // 88: walletrpc.WalletKit.RemoveTransaction:output_type -> walletrpc.RemoveTransactionResponse
-	44, // 89: walletrpc.WalletKit.SendOutputs:output_type -> walletrpc.SendOutputsResponse
-	46, // 90: walletrpc.WalletKit.EstimateFee:output_type -> walletrpc.EstimateFeeResponse
-	49, // 91: walletrpc.WalletKit.PendingSweeps:output_type -> walletrpc.PendingSweepsResponse
-	51, // 92: walletrpc.WalletKit.BumpFee:output_type -> walletrpc.BumpFeeResponse
-	53, // 93: walletrpc.WalletKit.BumpForceCloseFee:output_type -> walletrpc.BumpForceCloseFeeResponse
-	55, // 94: walletrpc.WalletKit.ListSweeps:output_type -> walletrpc.ListSweepsResponse
-	57, // 95: walletrpc.WalletKit.LabelTransaction:output_type -> walletrpc.LabelTransactionResponse
-	59, // 96: walletrpc.WalletKit.FundPsbt:output_type -> walletrpc.FundPsbtResponse
-	64, // 97: walletrpc.WalletKit.SignPsbt:output_type -> walletrpc.SignPsbtResponse
-	66, // 98: walletrpc.WalletKit.FinalizePsbt:output_type -> walletrpc.FinalizePsbtResponse
-	69, // [69:99] is the sub-list for method output_type
-	39, // [39:69] is the sub-list for method input_type
+	78, // 45: walletrpc.WalletKit.DeriveAndStoreKey:input_type -> signrpc.KeyLocator
+	10, // 46: walletrpc.WalletKit.NextAddr:input_type -> walletrpc.AddrRequest
+	23, // 47: walletrpc.WalletKit.GetTransaction:input_type -> walletrpc.GetTransactionRequest
+	15, // 48: walletrpc.WalletKit.ListAccounts:input_type -> walletrpc.ListAccountsRequest
+	17, // 49: walletrpc.WalletKit.XCreateAccount:input_type -> walletrpc.XCreateAccountRequest
+	19, // 50: walletrpc.WalletKit.RequiredReserve:input_type -> walletrpc.RequiredReserveRequest
+	21, // 51: walletrpc.WalletKit.ListAddresses:input_type -> walletrpc.ListAddressesRequest
+	24, // 52: walletrpc.WalletKit.SignMessageWithAddr:input_type -> walletrpc.SignMessageWithAddrRequest
+	26, // 53: walletrpc.WalletKit.VerifyMessageWithAddr:input_type -> walletrpc.VerifyMessageWithAddrRequest
+	28, // 54: walletrpc.WalletKit.ImportAccount:input_type -> walletrpc.ImportAccountRequest
+	30, // 55: walletrpc.WalletKit.ImportPublicKey:input_type -> walletrpc.ImportPublicKeyRequest
+	32, // 56: walletrpc.WalletKit.ImportTapscript:input_type -> walletrpc.ImportTapscriptRequest
+	37, // 57: walletrpc.WalletKit.PublishTransaction:input_type -> walletrpc.Transaction
+	39, // 58: walletrpc.WalletKit.SubmitPackage:input_type -> walletrpc.SubmitPackageRequest
+	23, // 59: walletrpc.WalletKit.RemoveTransaction:input_type -> walletrpc.GetTransactionRequest
+	43, // 60: walletrpc.WalletKit.SendOutputs:input_type -> walletrpc.SendOutputsRequest
+	45, // 61: walletrpc.WalletKit.EstimateFee:input_type -> walletrpc.EstimateFeeRequest
+	48, // 62: walletrpc.WalletKit.PendingSweeps:input_type -> walletrpc.PendingSweepsRequest
+	50, // 63: walletrpc.WalletKit.BumpFee:input_type -> walletrpc.BumpFeeRequest
+	52, // 64: walletrpc.WalletKit.BumpForceCloseFee:input_type -> walletrpc.BumpForceCloseFeeRequest
+	54, // 65: walletrpc.WalletKit.ListSweeps:input_type -> walletrpc.ListSweepsRequest
+	56, // 66: walletrpc.WalletKit.LabelTransaction:input_type -> walletrpc.LabelTransactionRequest
+	58, // 67: walletrpc.WalletKit.FundPsbt:input_type -> walletrpc.FundPsbtRequest
+	63, // 68: walletrpc.WalletKit.SignPsbt:input_type -> walletrpc.SignPsbtRequest
+	65, // 69: walletrpc.WalletKit.FinalizePsbt:input_type -> walletrpc.FinalizePsbtRequest
+	4,  // 70: walletrpc.WalletKit.ListUnspent:output_type -> walletrpc.ListUnspentResponse
+	6,  // 71: walletrpc.WalletKit.LeaseOutput:output_type -> walletrpc.LeaseOutputResponse
+	8,  // 72: walletrpc.WalletKit.ReleaseOutput:output_type -> walletrpc.ReleaseOutputResponse
+	68, // 73: walletrpc.WalletKit.ListLeases:output_type -> walletrpc.ListLeasesResponse
+	79, // 74: walletrpc.WalletKit.DeriveNextKey:output_type -> signrpc.KeyDescriptor
+	79, // 75: walletrpc.WalletKit.DeriveKey:output_type -> signrpc.KeyDescriptor
+	79, // 76: walletrpc.WalletKit.DeriveAndStoreKey:output_type -> signrpc.KeyDescriptor
+	11, // 77: walletrpc.WalletKit.NextAddr:output_type -> walletrpc.AddrResponse
+	80, // 78: walletrpc.WalletKit.GetTransaction:output_type -> lnrpc.Transaction
+	16, // 79: walletrpc.WalletKit.ListAccounts:output_type -> walletrpc.ListAccountsResponse
+	18, // 80: walletrpc.WalletKit.XCreateAccount:output_type -> walletrpc.XCreateAccountResponse
+	20, // 81: walletrpc.WalletKit.RequiredReserve:output_type -> walletrpc.RequiredReserveResponse
+	22, // 82: walletrpc.WalletKit.ListAddresses:output_type -> walletrpc.ListAddressesResponse
+	25, // 83: walletrpc.WalletKit.SignMessageWithAddr:output_type -> walletrpc.SignMessageWithAddrResponse
+	27, // 84: walletrpc.WalletKit.VerifyMessageWithAddr:output_type -> walletrpc.VerifyMessageWithAddrResponse
+	29, // 85: walletrpc.WalletKit.ImportAccount:output_type -> walletrpc.ImportAccountResponse
+	31, // 86: walletrpc.WalletKit.ImportPublicKey:output_type -> walletrpc.ImportPublicKeyResponse
+	36, // 87: walletrpc.WalletKit.ImportTapscript:output_type -> walletrpc.ImportTapscriptResponse
+	38, // 88: walletrpc.WalletKit.PublishTransaction:output_type -> walletrpc.PublishResponse
+	41, // 89: walletrpc.WalletKit.SubmitPackage:output_type -> walletrpc.SubmitPackageResponse
+	42, // 90: walletrpc.WalletKit.RemoveTransaction:output_type -> walletrpc.RemoveTransactionResponse
+	44, // 91: walletrpc.WalletKit.SendOutputs:output_type -> walletrpc.SendOutputsResponse
+	46, // 92: walletrpc.WalletKit.EstimateFee:output_type -> walletrpc.EstimateFeeResponse
+	49, // 93: walletrpc.WalletKit.PendingSweeps:output_type -> walletrpc.PendingSweepsResponse
+	51, // 94: walletrpc.WalletKit.BumpFee:output_type -> walletrpc.BumpFeeResponse
+	53, // 95: walletrpc.WalletKit.BumpForceCloseFee:output_type -> walletrpc.BumpForceCloseFeeResponse
+	55, // 96: walletrpc.WalletKit.ListSweeps:output_type -> walletrpc.ListSweepsResponse
+	57, // 97: walletrpc.WalletKit.LabelTransaction:output_type -> walletrpc.LabelTransactionResponse
+	59, // 98: walletrpc.WalletKit.FundPsbt:output_type -> walletrpc.FundPsbtResponse
+	64, // 99: walletrpc.WalletKit.SignPsbt:output_type -> walletrpc.SignPsbtResponse
+	66, // 100: walletrpc.WalletKit.FinalizePsbt:output_type -> walletrpc.FinalizePsbtResponse
+	70, // [70:101] is the sub-list for method output_type
+	39, // [39:70] is the sub-list for method input_type
 	39, // [39:39] is the sub-list for extension type_name
 	39, // [39:39] is the sub-list for extension extendee
 	0,  // [0:39] is the sub-list for field type_name

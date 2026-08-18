@@ -832,6 +832,162 @@ func TestPeerChannelClosureFeeNegotiationsInitiator(t *testing.T) {
 	notifier.ConfChan <- &chainntnfs.TxConfirmation{}
 }
 
+// TestPeerChannelClosurePanicRecovery verifies that a panic while advancing a
+// legacy cooperative close reports the failure and disconnects the peer.
+func TestPeerChannelClosurePanicRecovery(t *testing.T) {
+	t.Parallel()
+
+	harness, err := createTestPeerWithChannel(t, noUpdate)
+	require.NoError(t, err, "unable to create test channels")
+
+	var (
+		alicePeer  = harness.peer
+		bobChan    = harness.channel
+		mockSwitch = harness.mockSwitch
+	)
+
+	chanPoint := bobChan.ChannelPoint()
+	chanID := lnwire.NewChanIDFromOutPoint(chanPoint)
+	mockLink := newMockUpdateHandler(chanID)
+	mockSwitch.links = append(mockSwitch.links, mockLink)
+
+	// Make the initiator send a shutdown request so the recovery path has
+	// an active chan closer and a local close request to fail.
+	updateChan := make(chan interface{}, 1)
+	errChan := make(chan error, 1)
+	closeCommand := &htlcswitch.ChanClose{
+		CloseType:      contractcourt.CloseRegular,
+		ChanPoint:      &chanPoint,
+		Updates:        updateChan,
+		TargetFeePerKw: 12500,
+		Err:            errChan,
+	}
+
+	alicePeer.localCloseChanReqs <- closeCommand
+
+	// Alice should now send a Shutdown request to Bob.
+	select {
+	case outMsg := <-alicePeer.outgoingQueue:
+		require.IsType(t, &lnwire.Shutdown{}, outMsg.msg)
+
+	case <-time.After(timeout):
+		t.Fatalf("did not receive shutdown request")
+	}
+
+	// The chan closer should now be tracked as active.
+	_, found := alicePeer.activeChanCloses.Load(chanID)
+	require.True(t, found, "chan closer not active")
+
+	// Deliver an unsupported close-related message to exercise recovery.
+	alicePeer.chanCloseMsgs <- &closeMsg{
+		cid: chanID,
+		msg: &lnwire.Warning{ChanID: chanID},
+	}
+
+	// The local close request should receive the recovered error.
+	select {
+	case err := <-errChan:
+		require.ErrorContains(t, err, "panic while handling close msg")
+
+	case <-time.After(timeout):
+		t.Fatalf("close request was not failed")
+	}
+
+	// The peer should also have been disconnected, and the chan closer
+	// removed so that we react to on-chain events as normal.
+	select {
+	case <-alicePeer.cg.Done():
+
+	case <-time.After(timeout):
+		t.Fatalf("peer was not disconnected")
+	}
+
+	_, found = alicePeer.activeChanCloses.Load(chanID)
+	require.False(t, found, "chan closer was not removed")
+}
+
+// TestPeerClosePanicFailureReporting verifies recovery from a panic raised
+// while reporting a cooperative-close failure.
+func TestPeerClosePanicFailureReporting(t *testing.T) {
+	t.Parallel()
+
+	harness, err := createTestPeerWithChannel(t, noUpdate)
+	require.NoError(t, err, "unable to create test channels")
+
+	var (
+		alicePeer  = harness.peer
+		bobChan    = harness.channel
+		mockSwitch = harness.mockSwitch
+	)
+
+	chanPoint := bobChan.ChannelPoint()
+	chanID := lnwire.NewChanIDFromOutPoint(chanPoint)
+	mockSwitch.links = append(
+		mockSwitch.links, newMockUpdateHandler(chanID),
+	)
+
+	// Start a local close so the closer has an error channel. Closing that
+	// channel makes the ordinary failure path panic while reporting the
+	// original recovered panic.
+	errChan := make(chan error, 1)
+	alicePeer.localCloseChanReqs <- &htlcswitch.ChanClose{
+		CloseType:      contractcourt.CloseRegular,
+		ChanPoint:      &chanPoint,
+		Updates:        make(chan interface{}, 1),
+		TargetFeePerKw: 12500,
+		Err:            errChan,
+	}
+
+	select {
+	case outMsg := <-alicePeer.outgoingQueue:
+		require.IsType(t, &lnwire.Shutdown{}, outMsg.msg)
+	case <-time.After(timeout):
+		t.Fatal("did not receive shutdown request")
+	}
+	close(errChan)
+
+	alicePeer.chanCloseMsgs <- &closeMsg{
+		cid: chanID,
+		msg: &lnwire.Warning{ChanID: chanID},
+	}
+
+	select {
+	case <-alicePeer.cg.Done():
+	case <-time.After(timeout):
+		t.Fatal("peer was not disconnected after secondary panic")
+	}
+}
+
+// TestPeerFlushedClosePanicRecovery verifies recovery on the channel-flush
+// cooperative-close path.
+func TestPeerFlushedClosePanicRecovery(t *testing.T) {
+	t.Parallel()
+
+	harness, err := createTestPeerWithChannel(t, noUpdate)
+	require.NoError(t, err, "unable to create test channels")
+
+	alicePeer := harness.peer
+	chanID := lnwire.ChannelID{1}
+
+	// A nil legacy closer makes beginNegotiation panic and also exercises
+	// recovery from a failure-reporting panic.
+	alicePeer.activeChanCloses.Store(
+		chanID, makeNegotiateCloser(nil),
+	)
+
+	select {
+	case alicePeer.chanCloseFlushed <- chanID:
+	case <-time.After(timeout):
+		t.Fatal("channelManager did not accept flush notification")
+	}
+
+	select {
+	case <-alicePeer.cg.Done():
+	case <-time.After(timeout):
+		t.Fatal("peer was not disconnected after flush-path panic")
+	}
+}
+
 // TestChooseDeliveryScript tests that chooseDeliveryScript correctly errors
 // when upfront and user set scripts that do not match are provided, allows
 // matching values and returns appropriate values in the case where one or none

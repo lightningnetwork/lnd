@@ -1902,9 +1902,14 @@ var createAccountCommand = cli.Command{
 	IMPORTANT: funds held in an account created here are NOT found by a
 	seed-only restore, because the wallet's recovery scan only rederives
 	addresses for the default account. Recovering them additionally
-	requires the account's key scope and index, and re-deriving the
-	addresses it had issued, before rescanning. Record the derivation path
-	printed below alongside your seed before depositing to this account.
+	requires the account's key scope and index, plus both
+	external_key_count and internal_key_count. Replay NextAddr with
+	change=false at least external_key_count times and NextAddr with
+	change=true at least internal_key_count times before rescanning.
+	Record the derivation path and both counters printed below
+	alongside your seed before depositing to this account. The
+	counters start at zero and increase as the account is used, so
+	the path alone is not enough.
 	`,
 	Flags: []cli.Flag{
 		cli.StringFlag{
@@ -1962,12 +1967,15 @@ func createAccount(ctx *cli.Context) error {
 
 	printRespJSON(resp)
 
-	// The derivation path in the response is what a later recovery needs,
-	// so point at it here rather than only in the command's help text:
-	// this is the one moment the operator is looking at it.
+	// The derivation path and both branch counters in the response are
+	// what a later recovery needs, so point at them here rather than
+	// only in the command's help text: this is the one moment the
+	// operator is looking at them.
 	_, _ = fmt.Fprintf(os.Stderr, "\nNOTE: a seed-only restore will not "+
 		"find funds in this account. Record its derivation path "+
-		"(above) with your seed before depositing.\n")
+		"and both external_key_count and internal_key_count "+
+		"(above) with your seed. On restore, replay NextAddr "+
+		"on each branch before rescanning.\n")
 
 	return nil
 }

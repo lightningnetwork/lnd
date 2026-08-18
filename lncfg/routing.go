@@ -10,6 +10,8 @@ type Routing struct {
 
 	StrictZombiePruning bool `long:"strictgraphpruning" description:"If true, then the graph will be pruned more aggressively for zombies. In practice this means that edges with a single stale edge will be considered a zombie."`
 
+	NoReputation bool `long:"no-reputation" description:"EXPERIMENTAL: disable the read-only local reputation subsystem (channel jamming mitigation), which is enabled by default. The subsystem only observes HTLC forwarding to compute and log reputation; it does NOT currently affect routing in any way."`
+
 	BlindedPaths BlindedPaths `group:"blinding" namespace:"blinding"`
 }
 

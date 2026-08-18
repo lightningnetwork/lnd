@@ -3931,6 +3931,24 @@ func ChooseAddr(addr lnwire.DeliveryAddress) fn.Option[lnwire.DeliveryAddress] {
 	return fn.Some(addr)
 }
 
+// sendFinalCloseUpdate notifies the close caller that its transaction has
+// confirmed. The caller may have stopped reading its bounded update channel,
+// so cancellation of either the request or peer must always release this send.
+func sendFinalCloseUpdate(closeReq *htlcswitch.ChanClose,
+	closingTxid chainhash.Hash, peerQuit <-chan struct{}) {
+
+	select {
+	case closeReq.Updates <- &ChannelCloseUpdate{
+		ClosingTxid: closingTxid[:],
+		Success:     true,
+	}:
+
+	case <-closeReq.Ctx.Done():
+
+	case <-peerQuit:
+	}
+}
+
 // observeRbfCloseUpdates observes the channel for any updates that may
 // indicate that a new txid has been broadcasted, or the channel fully closed
 // on chain.
@@ -4055,10 +4073,14 @@ func (p *Brontide) observeRbfCloseUpdates(chanCloser *chancloser.RbfChanCloser,
 				// update to the client.
 				closingTxid := closeState.ConfirmedTx.TxHash()
 				if closeReq != nil {
-					closeReq.Updates <- &ChannelCloseUpdate{
-						ClosingTxid: closingTxid[:],
-						Success:     true,
-					}
+					// Updates is bounded. The caller may no
+					// longer be reading. Stop waiting when
+					// the request or peer shuts down, so
+					// cleanup can proceed.
+					sendFinalCloseUpdate(
+						closeReq, closingTxid,
+						p.cg.Done(),
+					)
 				}
 				chanID := lnwire.NewChanIDFromOutPoint(
 					*closeReq.ChanPoint,

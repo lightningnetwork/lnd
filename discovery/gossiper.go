@@ -6,7 +6,6 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
-	"runtime/debug"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -1739,21 +1738,14 @@ func (d *AuthenticatedGossiper) finalizeGossipProcessing(logCtx context.Context,
 		peerPub = "unknown"
 	}
 
-	log.ErrorS(logCtx, "Panic during gossip message processing",
-		fmt.Errorf("%v", r),
+	fn.LogRecoveredPanic(
+		logCtx, log, fn.Panic{
+			Value: r,
+			Stack: fn.PanicStack(),
+		},
 		slog.String("context", ctxStr),
 		slog.String("msg_type", msgType),
 		slog.String("peer", peerPub),
-	)
-	// Truncate the stack trace to avoid filling up disk space if an
-	// attacker repeatedly triggers panics.
-	const maxStackSize = 8192
-	stack := debug.Stack()
-	if len(stack) > maxStackSize {
-		stack = stack[:maxStackSize]
-	}
-	log.DebugS(logCtx, "Panic stack trace",
-		slog.String("stack", string(stack)),
 	)
 
 	// Signal any dependents waiting on this message so they don't block

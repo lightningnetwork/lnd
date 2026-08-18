@@ -7,6 +7,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"log/slog"
 	"sync"
 	"sync/atomic"
 	"time"
@@ -61,6 +62,10 @@ var (
 	// errNoPartialSig is returned when a partial sig is not found in the
 	// expected TLV.
 	errNoPartialSig = fmt.Errorf("partial sig not found")
+
+	// errInternalFunding is the generic peer-facing error used when funding
+	// message handling fails locally.
+	errInternalFunding = errors.New("funding failed due to internal error")
 )
 
 // WriteOutpoint writes an outpoint to an io.Writer. This is not the same as
@@ -996,7 +1001,7 @@ func (f *Manager) failFundingFlow(peer lnpeer.Peer, cid *chanIdentifier,
 
 	// For all other error types we just send a generic error.
 	default:
-		msg = lnwire.ErrorData("funding failed due to internal error")
+		msg = lnwire.ErrorData(errInternalFunding.Error())
 	}
 
 	errMsg := &lnwire.Error{
@@ -1048,28 +1053,8 @@ func (f *Manager) reservationCoordinator() {
 	for {
 		select {
 		case fmsg := <-f.fundingMsgs:
-			switch msg := fmsg.msg.(type) {
-			case *lnwire.OpenChannel:
-				f.fundeeProcessOpenChannel(fmsg.peer, msg)
+			f.handleFundingMsg(fmsg)
 
-			case *lnwire.AcceptChannel:
-				f.funderProcessAcceptChannel(fmsg.peer, msg)
-
-			case *lnwire.FundingCreated:
-				f.fundeeProcessFundingCreated(fmsg.peer, msg)
-
-			case *lnwire.FundingSigned:
-				f.funderProcessFundingSigned(fmsg.peer, msg)
-
-			case *lnwire.ChannelReady:
-				f.handleChannelReady(fmsg.peer, msg)
-
-			case *lnwire.Warning:
-				f.handleWarningMsg(fmsg.peer, msg)
-
-			case *lnwire.Error:
-				f.handleErrorMsg(fmsg.peer, msg)
-			}
 		case req := <-f.fundingRequests:
 			f.handleInitFundingMsg(req)
 
@@ -1079,6 +1064,113 @@ func (f *Manager) reservationCoordinator() {
 		case <-f.quit:
 			return
 		}
+	}
+}
+
+// handleFundingMsg dispatches a funding message received from a peer to the
+// handler for its message type.
+//
+// A recovered panic is reported through the existing funding failure handling,
+// after which the coordinator can process the next message.
+func (f *Manager) handleFundingMsg(fmsg *fundingMsg) {
+	defer fn.RecoverPanic(func(pnc fn.Panic) {
+		fn.LogRecoveredPanic(
+			context.Background(), log, pnc,
+			slog.String(
+				"message_type", fmsg.msg.MsgType().String(),
+			),
+		)
+
+		err := fmt.Errorf("panic while processing %v msg: %v",
+			fmsg.msg.MsgType(), pnc.Value)
+
+		// Recover any panic raised while reporting the funding failure.
+		// This lets the coordinator return to its loop.
+		defer fn.RecoverPanic(func(reportingPanic fn.Panic) {
+			fn.LogRecoveredPanic(
+				context.Background(), log, reportingPanic,
+			)
+		})
+
+		f.failFundingMsgAfterPanic(fmsg, err)
+	})
+
+	switch msg := fmsg.msg.(type) {
+	case *lnwire.OpenChannel:
+		f.fundeeProcessOpenChannel(fmsg.peer, msg)
+
+	case *lnwire.AcceptChannel:
+		f.funderProcessAcceptChannel(fmsg.peer, msg)
+
+	case *lnwire.FundingCreated:
+		f.fundeeProcessFundingCreated(fmsg.peer, msg)
+
+	case *lnwire.FundingSigned:
+		f.funderProcessFundingSigned(fmsg.peer, msg)
+
+	case *lnwire.ChannelReady:
+		f.handleChannelReady(fmsg.peer, msg)
+
+	case *lnwire.Warning:
+		f.handleWarningMsg(fmsg.peer, msg)
+
+	case *lnwire.Error:
+		f.handleErrorMsg(fmsg.peer, msg)
+	}
+}
+
+// failFundingMsgAfterPanic reports a recovered funding-message failure. It
+// rebuilds the channel identifier from the message and applies the cleanup
+// available at that stage of the funding flow.
+func (f *Manager) failFundingMsgAfterPanic(fmsg *fundingMsg, err error) {
+	switch msg := fmsg.msg.(type) {
+	// The first two stages still have an active reservation. The flow can
+	// be failed directly and the local caller notified.
+	case *lnwire.OpenChannel:
+		f.failFundingFlow(
+			fmsg.peer, newChanIdentifier(msg.PendingChannelID), err,
+		)
+
+	case *lnwire.AcceptChannel:
+		f.failFundingFlow(
+			fmsg.peer, newChanIdentifier(msg.PendingChannelID), err,
+		)
+
+	// FundingCreated normally still has a reservation keyed by the pending
+	// channel ID. However, its handler can persist the pending channel and
+	// remove that reservation before later work panics. In that window the
+	// cancellation below becomes a no-op and the zombie sweeper eventually
+	// handles the persisted channel; sending an error is the conservative
+	// choice rather than continuing an uncertain funding handshake.
+	case *lnwire.FundingCreated:
+		f.failFundingFlow(
+			fmsg.peer, newChanIdentifier(msg.PendingChannelID), err,
+		)
+
+	// At the last two stages the funding transaction may already be signed
+	// or broadcast, and the pending-channel mapping may be consumed. Send a
+	// generic warning and leave any remaining reservation to the zombie
+	// sweeper.
+	case *lnwire.FundingSigned:
+		f.sendWarning(
+			fmsg.peer, newChanIdentifier(msg.ChanID),
+			errInternalFunding,
+		)
+
+	case *lnwire.ChannelReady:
+		// The handler installs a barrier for the channel before it does
+		// any work, which we need to lift, otherwise a retry from the
+		// peer would be silently ignored as a duplicate.
+		f.handleChannelReadyBarriers.Delete(msg.ChanID)
+
+		f.sendWarning(
+			fmsg.peer, newChanIdentifier(msg.ChanID),
+			errInternalFunding,
+		)
+
+	// A warning or an error from the peer has no flow of its own to fail,
+	// so there's nothing further to do here.
+	default:
 	}
 }
 

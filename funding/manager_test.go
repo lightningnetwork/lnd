@@ -1020,6 +1020,8 @@ func assertFundingMsgSent(t *testing.T, msgChan chan lnwire.Message,
 		sentMsg, ok = msg.(*lnwire.FundingSigned)
 	case "ChannelReady":
 		sentMsg, ok = msg.(*lnwire.ChannelReady)
+	case "Warning":
+		sentMsg, ok = msg.(*lnwire.Warning)
 	case "Error":
 		sentMsg, ok = msg.(*lnwire.Error)
 	default:
@@ -3887,6 +3889,229 @@ func TestFundingManagerRejectPush(t *testing.T) {
 		t, err, "non-zero push amounts are disabled",
 		"expected ErrNonZeroPushAmount error, got \"%v\"", err.Error(),
 	)
+}
+
+// mockPanicAcceptor panics the first time it's asked to accept a channel, and
+// accepts every channel after that. This lets us drive a panic through the
+// reservation coordinator, then assert that it's still able to serve the next
+// message.
+type mockPanicAcceptor struct {
+	panicked atomic.Bool
+}
+
+func (m *mockPanicAcceptor) Accept(
+	req *acpt.ChannelAcceptRequest) *acpt.ChannelAcceptResponse {
+
+	if m.panicked.CompareAndSwap(false, true) {
+		panic("mock acceptor panic")
+	}
+
+	return &acpt.ChannelAcceptResponse{}
+}
+
+// TestFundingManagerPanicRecovery verifies that a funding-message panic reports
+// the failure and that subsequent messages are processed.
+func TestFundingManagerPanicRecovery(t *testing.T) {
+	t.Parallel()
+
+	alice, bob := setupFundingManagers(t)
+	t.Cleanup(func() {
+		tearDownFundingManagers(t, alice, bob)
+	})
+
+	// Bob's channel acceptor will panic while he processes the first
+	// open_channel message he receives.
+	bob.fundingMgr.cfg.OpenChannelPredicate = &mockPanicAcceptor{}
+
+	// initFunding has Alice kick off a funding flow with Bob, returning the
+	// open_channel message she sends over.
+	initFunding := func() *lnwire.OpenChannel {
+		t.Helper()
+
+		updateChan := make(chan *lnrpc.OpenStatusUpdate)
+		errChan := make(chan error, 1)
+		initReq := &InitFundingMsg{
+			Peer:            bob,
+			TargetPubkey:    bob.privKey.PubKey(),
+			ChainHash:       *fundingNetParams.GenesisHash,
+			LocalFundingAmt: 500000,
+			Updates:         updateChan,
+			Err:             errChan,
+		}
+
+		alice.fundingMgr.InitFundingWorkflow(initReq)
+
+		msg := assertFundingMsgSent(t, alice.msgChan, "OpenChannel")
+		openChannel, ok := msg.(*lnwire.OpenChannel)
+		require.True(t, ok)
+
+		return openChannel
+	}
+
+	openChanReq := initFunding()
+
+	// Let Bob handle the message, which makes his acceptor panic.
+	bob.fundingMgr.ProcessFundingMsg(openChanReq, alice)
+
+	// Bob should fail the funding flow by sending Alice an error for the
+	// pending channel.
+	fundingErr := assertFundingMsgSent(t, bob.msgChan, "Error")
+	errMsg, ok := fundingErr.(*lnwire.Error)
+	require.True(t, ok)
+	require.Equal(
+		t, openChanReq.PendingChannelID, [32]byte(errMsg.ChanID),
+		"error not sent for the pending channel",
+	)
+	require.ErrorContains(t, errMsg, "internal error")
+
+	// A second attempt no longer panics, so it should be answered as usual.
+	openChanReq = initFunding()
+	bob.fundingMgr.ProcessFundingMsg(openChanReq, alice)
+
+	assertFundingMsgSent(t, bob.msgChan, "AcceptChannel")
+}
+
+// TestFundingManagerPanicFailureReporting verifies recovery from a panic raised
+// while reporting a funding failure.
+func TestFundingManagerPanicFailureReporting(t *testing.T) {
+	t.Parallel()
+
+	alice, bob := setupFundingManagers(t)
+	t.Cleanup(func() {
+		tearDownFundingManagers(t, alice, bob)
+	})
+
+	bob.fundingMgr.cfg.OpenChannelPredicate = &mockPanicAcceptor{}
+
+	initFunding := func() *lnwire.OpenChannel {
+		t.Helper()
+
+		initReq := &InitFundingMsg{
+			Peer:            bob,
+			TargetPubkey:    bob.privKey.PubKey(),
+			ChainHash:       *fundingNetParams.GenesisHash,
+			LocalFundingAmt: 500000,
+			Updates:         make(chan *lnrpc.OpenStatusUpdate),
+			Err:             make(chan error, 1),
+		}
+
+		alice.fundingMgr.InitFundingWorkflow(initReq)
+
+		msg := assertFundingMsgSent(t, alice.msgChan, "OpenChannel")
+		openChannel, ok := msg.(*lnwire.OpenChannel)
+		require.True(t, ok)
+
+		return openChannel
+	}
+
+	// The first panic reaches funding-flow failure reporting. Make sending
+	// that failure panic too, then wait until the secondary path has been
+	// entered before restoring normal delivery.
+	workingSendMessage := alice.sendMessage
+	reportingPanicked := make(chan struct{})
+	alice.sendMessage = func(lnwire.Message) error {
+		close(reportingPanicked)
+		panic("failure reporting panic")
+	}
+
+	bob.fundingMgr.ProcessFundingMsg(initFunding(), alice)
+
+	select {
+	case <-reportingPanicked:
+	case <-time.After(5 * time.Second):
+		t.Fatal("secondary funding panic was not triggered")
+	}
+	alice.sendMessage = workingSendMessage
+
+	// Drive a second valid funding message through the same queue.
+	bob.fundingMgr.ProcessFundingMsg(initFunding(), alice)
+	assertFundingMsgSent(t, bob.msgChan, "AcceptChannel")
+}
+
+// TestFailFundingMsgAfterPanicWarning verifies that a late-stage panic produces
+// a generic warning.
+func TestFailFundingMsgAfterPanicWarning(t *testing.T) {
+	t.Parallel()
+
+	chanID := lnwire.ChannelID{1, 2, 3}
+	tests := []struct {
+		name            string
+		msg             lnwire.Message
+		channelReadyMsg bool
+	}{
+		{
+			name: "funding signed",
+			msg: &lnwire.FundingSigned{
+				ChanID: chanID,
+			},
+		},
+		{
+			name: "channel ready",
+			msg: &lnwire.ChannelReady{
+				ChanID: chanID,
+			},
+			channelReadyMsg: true,
+		},
+	}
+
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			t.Parallel()
+
+			alice, bob := setupFundingManagers(t)
+			t.Cleanup(func() {
+				tearDownFundingManagers(t, alice, bob)
+			})
+
+			if test.channelReadyMsg {
+				bob.fundingMgr.handleChannelReadyBarriers.Store(
+					chanID, struct{}{},
+				)
+			}
+
+			const panicDetail = "panic detail"
+			done := make(chan struct{})
+			go func() {
+				defer close(done)
+
+				msgWithPeer := &fundingMsg{
+					msg:  test.msg,
+					peer: alice,
+				}
+				bob.fundingMgr.failFundingMsgAfterPanic(
+					msgWithPeer, errors.New(panicDetail),
+				)
+			}()
+
+			wireMsg := assertFundingMsgSent(
+				t, bob.msgChan, "Warning",
+			)
+			warning, ok := wireMsg.(*lnwire.Warning)
+			require.True(t, ok)
+			require.Equal(t, chanID, warning.ChanID)
+			require.Equal(
+				t, errInternalFunding.Error(),
+				string(warning.Data),
+			)
+			require.NotContains(
+				t, string(warning.Data), panicDetail,
+			)
+			require.NoError(t, wait.NoError(func() error {
+				select {
+				case <-done:
+					return nil
+				default:
+					return errors.New("send blocked")
+				}
+			}, time.Second))
+
+			if test.channelReadyMsg {
+				_, loaded := bob.fundingMgr.
+					handleChannelReadyBarriers.Load(chanID)
+				require.False(t, loaded)
+			}
+		})
+	}
 }
 
 // TestFundingManagerPushAmountExceedsCapacity asserts that the fundee

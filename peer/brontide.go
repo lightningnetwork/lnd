@@ -2245,6 +2245,14 @@ func newDiscMsgStream(p *Brontide) *msgStream {
 func (p *Brontide) readHandler() {
 	defer p.cg.WgDone()
 
+	// Report any panic raised while reading or dispatching a message, then
+	// disconnect through the normal peer cleanup path.
+	defer fn.RecoverPanic(func(pnc fn.Panic) {
+		fn.LogRecoveredPanic(context.Background(), p.log, pnc)
+
+		p.Disconnect(fmt.Errorf("panic in readHandler: %v", pnc.Value))
+	})
+
 	// We'll stop the timer after a new messages is received, and also
 	// reset it after we process the next message.
 	idleTimer := time.AfterFunc(idleTimeout, func() {
@@ -5284,6 +5292,7 @@ func (p *Brontide) StartTime() time.Time {
 // message is received from the remote peer. We'll use this message to advance
 // the chan closer state machine.
 func (p *Brontide) handleCloseMsg(msg *closeMsg) {
+
 	link := p.fetchLinkFromKeyAndCid(msg.cid)
 
 	// We'll now fetch the matching closing state machine in order to

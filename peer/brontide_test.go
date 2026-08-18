@@ -2,6 +2,7 @@ package peer
 
 import (
 	"bytes"
+	"context"
 	"fmt"
 	"testing"
 	"time"
@@ -21,6 +22,7 @@ import (
 	"github.com/lightningnetwork/lnd/lnwallet"
 	"github.com/lightningnetwork/lnd/lnwallet/chancloser"
 	"github.com/lightningnetwork/lnd/lnwire"
+	"github.com/lightningnetwork/lnd/msgmux"
 	"github.com/lightningnetwork/lnd/routing/route"
 	"github.com/lightningnetwork/lnd/tlv"
 	"github.com/stretchr/testify/mock"
@@ -34,6 +36,31 @@ var (
 	// p2wshAddress is a valid pay to witness script hash address.
 	p2wshAddress = "bc1qrp33g0q5c5txsp9arysrx4k6zdkfs4nce4xj0gdcccefvpysxf3qccfmv3"
 )
+
+// readHandlerPanicRouter panics in RouteMsg so the test can exercise
+// readHandler recovery.
+type readHandlerPanicRouter struct {
+	called chan struct{}
+}
+
+func (r *readHandlerPanicRouter) RegisterEndpoint(msgmux.Endpoint) error {
+	return nil
+}
+
+func (r *readHandlerPanicRouter) UnregisterEndpoint(
+	msgmux.EndpointName) error {
+
+	return nil
+}
+
+func (r *readHandlerPanicRouter) RouteMsg(msgmux.PeerMsg) error {
+	r.called <- struct{}{}
+	panic("panic from message router")
+}
+
+func (r *readHandlerPanicRouter) Start(context.Context) {}
+
+func (r *readHandlerPanicRouter) Stop() {}
 
 // TestPeerChannelClosureShutdownResponseLinkRemoved tests the shutdown
 // response we get if the link for the channel can't be found in the
@@ -1263,6 +1290,59 @@ func TestPeerIgnoresPingWithoutPongReply(t *testing.T) {
 	pong, ok := msg.(*lnwire.Pong)
 	require.True(t, ok)
 	require.Len(t, pong.PongBytes, 1)
+}
+
+// TestReadHandlerPanicRecovery verifies that a dispatch panic disconnects the
+// peer and releases its wait-group entry.
+func TestReadHandlerPanicRecovery(t *testing.T) {
+	t.Parallel()
+
+	params := createTestPeer(t)
+	router := &readHandlerPanicRouter{
+		called: make(chan struct{}, 1),
+	}
+
+	alicePeer := params.peer
+	alicePeer.msgRouter = fn.Some[msgmux.Router](router)
+	alicePeer.globalMsgRouter = true
+
+	startPeerDone := startPeer(t, params.mockConn, alicePeer)
+	_, err := fn.RecvOrTimeout(startPeerDone, 2*timeout)
+	require.NoError(t, err)
+
+	var buf bytes.Buffer
+	_, err = lnwire.WriteMessage(&buf, &lnwire.Ping{}, 0)
+	require.NoError(t, err)
+
+	select {
+	case params.mockConn.readMessages <- buf.Bytes():
+	case <-time.After(timeout):
+		t.Fatal("timeout sending ping to peer")
+	}
+
+	select {
+	case <-router.called:
+	case <-time.After(timeout):
+		t.Fatal("message router was not called")
+	}
+
+	select {
+	case <-alicePeer.cg.Done():
+	case <-time.After(timeout):
+		t.Fatal("peer was not disconnected after dispatch panic")
+	}
+
+	wgDone := make(chan struct{})
+	go func() {
+		alicePeer.cg.WgWait()
+		close(wgDone)
+	}()
+
+	select {
+	case <-wgDone:
+	case <-time.After(timeout):
+		t.Fatal("peer goroutines did not exit after dispatch panic")
+	}
 }
 
 // TestMessageSummaryPingIncludesNumPongBytes ensures the debug summary for a

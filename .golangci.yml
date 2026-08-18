@@ -207,6 +207,9 @@ linters:
       multi-func: true
 
     custom:
+      deferrecover:
+        type: module
+        description: Require fn.RecoverPanic to be deferred directly.
       ll:
         type: module
         description: Custom lll linter with 'S' log line exclusion.

@@ -3,6 +3,7 @@ package tor
 import (
 	"errors"
 	"fmt"
+	"sort"
 	"strings"
 )
 
@@ -21,57 +22,100 @@ var (
 	ErrNoServiceFound = errors.New("no active service found")
 )
 
-// CheckOnionService checks that the onion service created by the controller
-// is active. It queries the Tor daemon using the endpoint "onions/current" to
-// get the current onion service and checks that service ID matches the
-// activeServiceID.
+// CheckOnionService checks that all onion services created by the controller
+// are active. It queries the Tor daemon using the endpoint "onions/current" to
+// get the current onion services and checks that their exact set matches every
+// active service tracked by the controller.
 func (c *Controller) CheckOnionService() error {
-	// Check that we have a hidden service created.
-	if c.activeServiceID == "" {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+
+	expectedIDs, expectedSet := c.trackedServiceIDs()
+	if len(expectedIDs) == 0 {
 		return ErrServiceNotCreated
 	}
 
 	// Fetch the onion services that live in current control connection.
 	cmd := "GETINFO onions/current"
-	code, reply, err := c.sendCommand(cmd)
+	code, reply, err := c.sendCommandLocked(cmd)
 
 	// Exit early if we got an error or Tor daemon didn't respond success.
 	// TODO(yy): unify the usage of err and code so we could rely on a
 	// single source to change our state.
 	if err != nil || code != success {
-		log.Debugf("query service:%v got err:%v, reply:%v",
-			c.activeServiceID, err, reply)
+		log.Debugf("query services got err:%v, reply:%v", err, reply)
 
 		return fmt.Errorf("%w: %v", err, reply)
 	}
 
-	// Parse the reply, which should have the following format,
-	//      onions/current=serviceID
-	// After parsing, we get a map as,
-	// 	[onion/current: serviceID]
-	//
-	// NOTE: our current tor controller does NOT support multiple onion
-	// services to be created at the same time, thus we expect the reply to
-	// only contain one serviceID. If multiple serviceIDs are returned, we
-	// would expected the reply to have the following format,
-	//      onions/current=serviceID1, serviceID2, serviceID3,...
-	// Thus a new parser is need to parse that reply.
+	// Parse the comma-separated service IDs from onions/current.
 	resp := parseTorReply(reply)
 	serviceID, ok := resp["onions/current"]
 	if !ok {
 		return ErrNoServiceFound
 	}
 
-	// Check that our active service is indeed the service acknowledged by
-	// Tor daemon. The controller is only aware of a single service but the
-	// Tor daemon might have multiple services registered (for example for
-	// the watchtower as well as the node p2p connections). So we just want
-	// to check that our current controller's ID is contained in the list of
-	// registered services.
-	if !strings.Contains(serviceID, c.activeServiceID) {
-		return fmt.Errorf("%w: controller has: %v, Tor daemon has: %v",
-			ErrServiceIDMismatch, c.activeServiceID, serviceID)
+	if serviceID == "" {
+		return ErrNoServiceFound
+	}
+
+	actualIDs := strings.Split(serviceID, ",")
+	actualSet := make(map[string]struct{}, len(actualIDs))
+	for _, actualID := range actualIDs {
+		if actualID == "" {
+			return serviceIDMismatch(expectedIDs, actualIDs)
+		}
+		if _, duplicate := actualSet[actualID]; duplicate {
+			return serviceIDMismatch(expectedIDs, actualIDs)
+		}
+
+		actualSet[actualID] = struct{}{}
+		if _, expected := expectedSet[actualID]; !expected {
+			return serviceIDMismatch(expectedIDs, actualIDs)
+		}
+	}
+
+	if len(actualSet) != len(expectedSet) {
+		return serviceIDMismatch(expectedIDs, actualIDs)
 	}
 
 	return nil
+}
+
+// trackedServiceIDs returns every registered identity in deterministic order.
+// The active set fallback supports controllers constructed before registration
+// tracking and tests that exercise the control response parser directly.
+func (c *Controller) trackedServiceIDs() ([]string, map[string]struct{}) {
+	expectedIDs := make([]string, 0, len(c.registrations))
+	expectedSet := make(map[string]struct{}, len(c.registrations))
+	for _, registration := range c.registrations {
+		serviceID := registration.serviceID
+		if _, duplicate := expectedSet[serviceID]; duplicate {
+			continue
+		}
+
+		expectedIDs = append(expectedIDs, serviceID)
+		expectedSet[serviceID] = struct{}{}
+	}
+
+	if len(expectedIDs) != 0 {
+		return expectedIDs, expectedSet
+	}
+
+	var remaining []string
+	for serviceID := range c.activeServiceIDs {
+		remaining = append(remaining, serviceID)
+	}
+	sort.Strings(remaining)
+	for _, serviceID := range remaining {
+		expectedSet[serviceID] = struct{}{}
+	}
+
+	return remaining, expectedSet
+}
+
+// serviceIDMismatch constructs a deterministic service set mismatch error.
+func serviceIDMismatch(expectedIDs, actualIDs []string) error {
+	return fmt.Errorf("%w: controller has: %v, Tor daemon has: %v",
+		ErrServiceIDMismatch, expectedIDs, actualIDs)
 }

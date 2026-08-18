@@ -8,12 +8,13 @@ import (
 	"encoding/hex"
 	"errors"
 	"fmt"
+	"net"
 	"net/textproto"
 	"os"
 	"regexp"
 	"strconv"
 	"strings"
-	"sync/atomic"
+	"sync"
 )
 
 const (
@@ -103,12 +104,14 @@ var (
 //   - place under sub-package?
 //   - support async replies from the server
 type Controller struct {
-	// started is used atomically in order to prevent multiple calls to
-	// Start.
+	// mu serializes lifecycle changes, control commands, onion service
+	// registration and restoration, and shutdown.
+	mu sync.Mutex
+
+	// started prevents multiple calls to Start.
 	started int32
 
-	// stopped is used atomically in order to prevent multiple calls to
-	// Stop.
+	// stopped prevents multiple calls to Stop.
 	stopped int32
 
 	// conn is the underlying connection between the controller and the
@@ -133,8 +136,21 @@ type Controller struct {
 	// runs on another host, otherwise the service will not be reachable.
 	targetIPAddress string
 
-	// activeServiceID is the Onion ServiceID created by ADD_ONION.
-	activeServiceID string
+	// registrations contains every successfully registered onion service in
+	// creation order so the complete set can be restored deterministically.
+	registrations []onionServiceRegistration
+
+	// activeServiceIDs contains the services active on the current control
+	// connection.
+	activeServiceIDs map[string]struct{}
+}
+
+// onionServiceRegistration contains the stable identity and original port
+// mapping needed to restore an lnd-managed onion service.
+type onionServiceRegistration struct {
+	serviceID string
+	keyParam  string
+	config    AddOnionConfig
 }
 
 // NewController returns a new Tor controller that will be able to interact with
@@ -143,9 +159,10 @@ func NewController(controlAddr string, targetIPAddress string,
 	password string) *Controller {
 
 	return &Controller{
-		controlAddr:     controlAddr,
-		targetIPAddress: targetIPAddress,
-		password:        password,
+		controlAddr:      controlAddr,
+		targetIPAddress:  targetIPAddress,
+		password:         password,
+		activeServiceIDs: make(map[string]struct{}),
 	}
 }
 
@@ -153,7 +170,10 @@ func NewController(controlAddr string, targetIPAddress string,
 // and a Tor server. Once done, the controller will be able to send commands
 // and expect responses.
 func (c *Controller) Start() error {
-	if !atomic.CompareAndSwapInt32(&c.started, 0, 1) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+
+	if c.started != 0 {
 		return nil
 	}
 
@@ -165,47 +185,66 @@ func (c *Controller) Start() error {
 	}
 
 	c.conn = conn
+	if err := c.authenticate(); err != nil {
+		_ = c.conn.Close()
+		c.conn = nil
 
-	return c.authenticate()
+		return err
+	}
+
+	c.started = 1
+
+	return nil
 }
 
 // Stop closes the connection between the controller and the Tor server.
 func (c *Controller) Stop() error {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+
+	if c.stopped != 0 {
+		return nil
+	}
 	if c.conn == nil {
 		return fmt.Errorf("no connection available to the tor server")
 	}
-
-	if !atomic.CompareAndSwapInt32(&c.stopped, 0, 1) {
-		return nil
-	}
+	c.stopped = 1
 
 	log.Info("Stopping tor controller")
 
-	var delOnionErr error
-
-	// Remove the onion service if one was created successfully.
-	if c.activeServiceID != "" {
-		if err := c.DelOnion(c.activeServiceID); err != nil {
-			log.Errorf("DEL_ONION got error: %v", err)
-			delOnionErr = err
+	var cleanupErrs []error
+	for _, registration := range c.registrations {
+		serviceID := registration.serviceID
+		if _, ok := c.activeServiceIDs[serviceID]; !ok {
+			continue
 		}
+
+		if err := c.delOnionLocked(serviceID); err != nil {
+			log.Errorf("DEL_ONION %s got error: %v", serviceID, err)
+			cleanupErrs = append(cleanupErrs, fmt.Errorf(
+				"delete onion service %s: %w", serviceID, err,
+			))
+
+			continue
+		}
+
+		delete(c.activeServiceIDs, serviceID)
 	}
 
-	closeErr := c.conn.Close()
-	if delOnionErr == nil || closeErr == nil {
-		// Reset service ID. If DEL_ONION failed but the control
-		// connection closed successfully, the ephemeral service is
-		// removed by Tor along with the connection.
-		c.activeServiceID = ""
+	if err := c.conn.Close(); err != nil {
+		cleanupErrs = append(cleanupErrs, err)
+	} else {
+		clear(c.activeServiceIDs)
 	}
+	c.conn = nil
 
-	return errors.Join(delOnionErr, closeErr)
+	return errors.Join(cleanupErrs...)
 }
 
 // Reconnect makes a new socket connection between the tor controller and
 // daemon. It will attempt to close the old connection, make a new connection
-// and authenticate, and finally reset the activeServiceID that the controller
-// is aware of.
+// and authenticate, and finally reset the active service set. Recorded service
+// registrations remain available to RestoreOnionServices.
 //
 // NOTE: Any old onion services will be removed once this function is called.
 // In the case of a Tor daemon restart, previously created onion services will
@@ -213,6 +252,9 @@ func (c *Controller) Stop() error {
 // because the control connection is reset, all the onion services belonging to
 // the old connection will be removed.
 func (c *Controller) Reconnect() error {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+
 	// Require the tor controller to be running when we want to reconnect.
 	// This means the started flag must be 1 and the stopped flag must be
 	// 0.
@@ -233,6 +275,8 @@ func (c *Controller) Reconnect() error {
 			log.Debugf("closing old conn got err: %v", err)
 		}
 	}
+	c.conn = nil
+	clear(c.activeServiceIDs)
 
 	// Make a new connection and authenticate.
 	conn, err := textproto.Dial("tcp", c.controlAddr)
@@ -244,14 +288,11 @@ func (c *Controller) Reconnect() error {
 
 	// Authenticate the connection between the controller and Tor daemon.
 	if err := c.authenticate(); err != nil {
+		_ = c.conn.Close()
+		c.conn = nil
+
 		return err
 	}
-
-	// Reset the activeServiceID. This value would only be set if a
-	// previous onion service was created. Because the old connection has
-	// been closed at this point, the old onion service is no longer
-	// active.
-	c.activeServiceID = ""
 
 	return nil
 }
@@ -259,6 +300,18 @@ func (c *Controller) Reconnect() error {
 // sendCommand sends a command to the Tor server and returns its response, as a
 // single space-delimited string, and code.
 func (c *Controller) sendCommand(command string) (int, string, error) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+
+	return c.sendCommandLocked(command)
+}
+
+// sendCommandLocked sends a command while the controller mutex is held.
+func (c *Controller) sendCommandLocked(command string) (int, string, error) {
+	if c.conn == nil {
+		return 0, "", net.ErrClosed
+	}
+
 	id, err := c.conn.Cmd("%v", command)
 	if err != nil {
 		return 0, "", err
@@ -489,7 +542,7 @@ func (c *Controller) authenticate() error {
 // authenticateViaNull authenticates the controller with the Tor server using
 // the NULL authentication method.
 func (c *Controller) authenticateViaNull() error {
-	_, _, err := c.sendCommand("AUTHENTICATE")
+	_, _, err := c.sendCommandLocked("AUTHENTICATE")
 	return err
 }
 
@@ -497,7 +550,7 @@ func (c *Controller) authenticateViaNull() error {
 // server using the HASHEDPASSWORD authentication method.
 func (c *Controller) authenticateViaHashedPassword() error {
 	cmd := fmt.Sprintf("AUTHENTICATE \"%s\"", c.password)
-	_, _, err := c.sendCommand(cmd)
+	_, _, err := c.sendCommandLocked(cmd)
 	return err
 }
 
@@ -524,7 +577,7 @@ func (c *Controller) authenticateViaSafeCookie(info protocolInfo) error {
 	}
 
 	cmd := fmt.Sprintf("AUTHCHALLENGE SAFECOOKIE %x", clientNonce)
-	_, reply, err := c.sendCommand(cmd)
+	_, reply, err := c.sendCommandLocked(cmd)
 	if err != nil {
 		return err
 	}
@@ -591,7 +644,7 @@ func (c *Controller) authenticateViaSafeCookie(info protocolInfo) error {
 	}
 
 	cmd = fmt.Sprintf("AUTHENTICATE %x", clientHash)
-	if _, _, err := c.sendCommand(cmd); err != nil {
+	if _, _, err := c.sendCommandLocked(cmd); err != nil {
 		return err
 	}
 
@@ -691,7 +744,7 @@ func (i protocolInfo) supportsAuthMethod(method string) bool {
 // response.
 func (c *Controller) protocolInfo() (protocolInfo, error) {
 	cmd := fmt.Sprintf("PROTOCOLINFO %d", ProtocolInfoVersion)
-	_, reply, err := c.sendCommand(cmd)
+	_, reply, err := c.sendCommandLocked(cmd)
 	if err != nil {
 		return nil, err
 	}

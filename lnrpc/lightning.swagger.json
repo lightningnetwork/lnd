@@ -6751,63 +6751,77 @@
       "type": "object",
       "properties": {
         "destination": {
-          "type": "string"
+          "type": "string",
+          "description": "The hex-encoded compressed public key of the payment request signer. For\nnon-blinded payment requests, this is the payee's node public key."
         },
         "payment_hash": {
-          "type": "string"
+          "type": "string",
+          "description": "The hex-encoded payment hash (BOLT-11 `p` field)."
         },
         "num_satoshis": {
           "type": "string",
-          "format": "int64"
+          "format": "int64",
+          "description": "The amount in satoshis. 0 if the payment request does not specify an\namount. Any millisatoshi remainder is truncated; see `num_msat` for the\nexact value."
         },
         "timestamp": {
           "type": "string",
-          "format": "int64"
+          "format": "int64",
+          "description": "The creation time of the payment request as a Unix timestamp (seconds)."
         },
         "expiry": {
           "type": "string",
-          "format": "int64"
+          "format": "int64",
+          "description": "The expiry duration in seconds relative to the `timestamp` field. If\nthe payment request omits the BOLT-11 `x` expiry field, the BOLT-11\ndefault of 3600 seconds is returned."
         },
         "description": {
-          "type": "string"
+          "type": "string",
+          "description": "The description (memo) of the payment (BOLT-11 `d` field). Empty if the\npayment request carries a description hash instead."
         },
         "description_hash": {
-          "type": "string"
+          "type": "string",
+          "description": "The hex-encoded SHA-256 hash of the payment description (BOLT-11 `h`\nfield). Empty if not present."
         },
         "fallback_addr": {
-          "type": "string"
+          "type": "string",
+          "description": "The on-chain fallback address (BOLT-11 `f` field), encoded for the active\nnetwork. Empty if not present."
         },
         "cltv_expiry": {
           "type": "string",
-          "format": "int64"
+          "format": "int64",
+          "description": "The minimum CLTV expiry delta for the final hop (BOLT-11 `c` field). If\nthe payment request omits it, `zpay32.DefaultAssumedFinalCLTVDelta` is\nreturned. This field is ignored for blinded payment paths."
         },
         "route_hints": {
           "type": "array",
           "items": {
             "type": "object",
             "$ref": "#/definitions/lnrpcRouteHint"
-          }
+          },
+          "description": "Route hints that can each be individually used to assist in reaching the\npayment request's destination (BOLT-11 `r` field)."
         },
         "payment_addr": {
           "type": "string",
-          "format": "byte"
+          "format": "byte",
+          "description": "The payment address, also known as the payment secret (BOLT-11 `s`\nfield). This value is used in MPP payments and required by newer payment\nrequests. It is 32 zero bytes if not present. When using REST, this field\nis base64 encoded."
         },
         "num_msat": {
           "type": "string",
-          "format": "int64"
+          "format": "int64",
+          "description": "The amount in millisatoshis. 0 if the payment request does not specify an\namount."
         },
         "features": {
           "type": "object",
           "additionalProperties": {
             "$ref": "#/definitions/lnrpcFeature"
-          }
+          },
+          "description": "The feature bits advertised in the payment request (BOLT-11 `9` field)."
         },
         "blinded_paths": {
           "type": "array",
           "items": {
             "type": "object",
             "$ref": "#/definitions/lnrpcBlindedPaymentPath"
-          }
+          },
+          "description": "The blinded payment paths included in the payment request, if any."
         }
       }
     },

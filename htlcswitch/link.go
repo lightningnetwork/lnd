@@ -79,6 +79,24 @@ func ExpectedFee(f models.ForwardingPolicy,
 	return f.BaseFee + (htlcAmt*f.FeeRate)/1000000
 }
 
+// TotalForwardingFee returns the total fee this node charges to forward
+// amtToForward: the outbound fee the outgoing link charges on the outgoing
+// amount, plus the inbound fee of the incoming link, which is charged on the
+// outgoing amount plus the outbound fee.
+//
+// The two components are calculated and rounded separately on purpose. An
+// aggregate fee applied to the outgoing amount may round slightly higher than
+// the sum of the separately rounded components, which would cause failed
+// forwards for senders. The result is signed because the inbound component may
+// be a discount.
+func TotalForwardingFee(amtToForward, outFee lnwire.MilliSatoshi,
+	inboundFee models.InboundFee) int64 {
+
+	inFee := inboundFee.CalcFee(amtToForward + outFee)
+
+	return inFee + int64(outFee)
+}
+
 // ChannelLinkConfig defines the configuration for the channel link. ALL
 // elements within the configuration MUST be non-nil for channel link to carry
 // out its duties.
@@ -2482,6 +2500,20 @@ func (l *channelLink) UpdateForwardingPolicy(
 	l.cfg.FwrdingPolicy = newPolicy
 }
 
+// AdvertisedFee returns the fee this link's current forwarding policy charges
+// to forward the given outgoing amount (base fee plus the proportional fee).
+//
+// NOTE: Part of the ChannelLink interface.
+func (l *channelLink) AdvertisedFee(
+	amtToForward lnwire.MilliSatoshi) lnwire.MilliSatoshi {
+
+	l.RLock()
+	policy := l.cfg.FwrdingPolicy
+	l.RUnlock()
+
+	return ExpectedFee(policy, amtToForward)
+}
+
 // CheckHtlcForward should return a nil error if the passed HTLC details
 // satisfy the current forwarding policy fo the target link. Otherwise,
 // a LinkError with a valid protocol failure message should be returned
@@ -2501,20 +2533,9 @@ func (l *channelLink) CheckHtlcForward(payHash [32]byte, incomingHtlcAmt,
 
 	// Using the outgoing HTLC amount, we'll calculate the outgoing
 	// fee this incoming HTLC must carry in order to satisfy the constraints
-	// of the outgoing link.
+	// of the outgoing link, then add the inbound fee we charge on top.
 	outFee := ExpectedFee(policy, amtToForward)
-
-	// Then calculate the inbound fee that we charge based on the sum of
-	// outgoing HTLC amount and outgoing fee.
-	inFee := inboundFee.CalcFee(amtToForward + outFee)
-
-	// Add up both fee components. It is important to calculate both fees
-	// separately. An alternative way of calculating is to first determine
-	// an aggregate fee and apply that to the outgoing HTLC amount. However,
-	// rounding may cause the result to be slightly higher than in the case
-	// of separately rounded fee components. This potentially causes failed
-	// forwards for senders and is something to be avoided.
-	expectedFee := inFee + int64(outFee)
+	expectedFee := TotalForwardingFee(amtToForward, outFee, inboundFee)
 
 	// If the actual fee is less than our expected fee, then we'll reject
 	// this HTLC as it didn't provide a sufficient amount of fees, or the

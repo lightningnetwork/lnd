@@ -7764,3 +7764,43 @@ func TestLinkQuiescenceExitHopProcessingDeferred(t *testing.T) {
 
 	// TODO(proofofkeags): make sure these actions are run on resume.
 }
+
+// TestTotalForwardingFee checks that the total forwarding fee is the outbound
+// fee plus the inbound fee charged on the outgoing amount plus the outbound
+// fee, and that an inbound discount yields a signed, possibly negative, total.
+func TestTotalForwardingFee(t *testing.T) {
+	t.Parallel()
+
+	const (
+		amt    = lnwire.MilliSatoshi(100_000)
+		outFee = lnwire.MilliSatoshi(1_000)
+	)
+
+	tests := []struct {
+		name       string
+		inboundFee models.InboundFee
+		want       int64
+	}{{
+		name: "no inbound fee",
+		want: 1_000,
+	}, {
+		// 500 base + 1% of (100_000 + 1_000) = 500 + 1_010.
+		name:       "inbound fee on amount plus outbound fee",
+		inboundFee: models.InboundFee{Base: 500, Rate: 10_000},
+		want:       2_510,
+	}, {
+		// A discount larger than the outbound fee goes negative.
+		name:       "inbound discount",
+		inboundFee: models.InboundFee{Base: -1_500},
+		want:       -500,
+	}}
+
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			t.Parallel()
+
+			got := TotalForwardingFee(amt, outFee, test.inboundFee)
+			require.Equal(t, test.want, got)
+		})
+	}
+}

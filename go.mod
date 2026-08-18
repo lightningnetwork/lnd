@@ -7,6 +7,7 @@ require (
 	github.com/btcsuite/btcd v0.26.0
 	github.com/btcsuite/btcd/address/v2 v2.0.0
 	github.com/btcsuite/btcd/btcec/v2 v2.5.0
+	github.com/btcsuite/btcd/btcutil v1.2.0
 	github.com/btcsuite/btcd/btcutil/v2 v2.0.0
 	github.com/btcsuite/btcd/chaincfg/v2 v2.0.0
 	github.com/btcsuite/btcd/chainhash/v2 v2.0.0

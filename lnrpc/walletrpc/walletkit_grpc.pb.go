@@ -46,7 +46,40 @@ type WalletKitClient interface {
 	DeriveNextKey(ctx context.Context, in *KeyReq, opts ...grpc.CallOption) (*signrpc.KeyDescriptor, error)
 	// DeriveKey attempts to derive an arbitrary key specified by the passed
 	// KeyLocator.
+	//
+	// NOTE: The derived key is not recorded in the wallet, so it will not show up
+	// in ListAccounts or ListAddresses, and the wallet will not be able to map the
+	// returned public key back to its KeyLocator later on. Since that mapping is
+	// required to sign with a key, callers that intend to sign with the derived
+	// key must use DeriveAndStoreKey instead.
 	DeriveKey(ctx context.Context, in *signrpc.KeyLocator, opts ...grpc.CallOption) (*signrpc.KeyDescriptor, error)
+	// DeriveAndStoreKey attempts to derive an arbitrary key specified by the
+	// passed KeyLocator, and also records that key in the wallet. This is the
+	// variant of DeriveKey that must be used for a key the wallet is later
+	// expected to sign with, since signing requires the wallet to be able to look
+	// the key's KeyLocator back up.
+	//
+	// Recording a key implies recording every key in the family that precedes it,
+	// so on return the family's next index (as reported by the external key count
+	// in ListAccounts) is guaranteed to be above the requested one, and any key at
+	// or below it will not be handed out by DeriveNextKey again. This makes the
+	// call usable to restore a key family's derivation index after the wallet was
+	// recovered from seed, where the wallet has no record of the indexes an
+	// external consumer of the key family already used.
+	//
+	// The call is monotonic and idempotent: an index the family has already
+	// advanced past leaves the wallet untouched, and the family's index is never
+	// rewound. To bound the amount of work a single call can trigger, an error is
+	// returned if reaching the requested index would require deriving more than
+	// 25,000 keys. Key families that lnd itself derives from are reserved and
+	// cannot be advanced through this RPC.
+	//
+	// NOTE: Keys in custom key families are not covered by lnd's on-chain
+	// recovery scan guarantees. A consumer that uses them to control on-chain
+	// outputs is expected to keep its own record of the indexes it consumed
+	// (which this RPC exists to restore), since a large unused index gap within
+	// a family can prevent a seed-only recovery from finding later keys.
+	DeriveAndStoreKey(ctx context.Context, in *signrpc.KeyLocator, opts ...grpc.CallOption) (*signrpc.KeyDescriptor, error)
 	// NextAddr returns the next unused address within the wallet.
 	NextAddr(ctx context.Context, in *AddrRequest, opts ...grpc.CallOption) (*AddrResponse, error)
 	// lncli: `wallet gettx`
@@ -411,6 +444,15 @@ func (c *walletKitClient) DeriveKey(ctx context.Context, in *signrpc.KeyLocator,
 	return out, nil
 }
 
+func (c *walletKitClient) DeriveAndStoreKey(ctx context.Context, in *signrpc.KeyLocator, opts ...grpc.CallOption) (*signrpc.KeyDescriptor, error) {
+	out := new(signrpc.KeyDescriptor)
+	err := c.cc.Invoke(ctx, "/walletrpc.WalletKit/DeriveAndStoreKey", in, out, opts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
 func (c *walletKitClient) NextAddr(ctx context.Context, in *AddrRequest, opts ...grpc.CallOption) (*AddrResponse, error) {
 	out := new(AddrResponse)
 	err := c.cc.Invoke(ctx, "/walletrpc.WalletKit/NextAddr", in, out, opts...)
@@ -657,7 +699,40 @@ type WalletKitServer interface {
 	DeriveNextKey(context.Context, *KeyReq) (*signrpc.KeyDescriptor, error)
 	// DeriveKey attempts to derive an arbitrary key specified by the passed
 	// KeyLocator.
+	//
+	// NOTE: The derived key is not recorded in the wallet, so it will not show up
+	// in ListAccounts or ListAddresses, and the wallet will not be able to map the
+	// returned public key back to its KeyLocator later on. Since that mapping is
+	// required to sign with a key, callers that intend to sign with the derived
+	// key must use DeriveAndStoreKey instead.
 	DeriveKey(context.Context, *signrpc.KeyLocator) (*signrpc.KeyDescriptor, error)
+	// DeriveAndStoreKey attempts to derive an arbitrary key specified by the
+	// passed KeyLocator, and also records that key in the wallet. This is the
+	// variant of DeriveKey that must be used for a key the wallet is later
+	// expected to sign with, since signing requires the wallet to be able to look
+	// the key's KeyLocator back up.
+	//
+	// Recording a key implies recording every key in the family that precedes it,
+	// so on return the family's next index (as reported by the external key count
+	// in ListAccounts) is guaranteed to be above the requested one, and any key at
+	// or below it will not be handed out by DeriveNextKey again. This makes the
+	// call usable to restore a key family's derivation index after the wallet was
+	// recovered from seed, where the wallet has no record of the indexes an
+	// external consumer of the key family already used.
+	//
+	// The call is monotonic and idempotent: an index the family has already
+	// advanced past leaves the wallet untouched, and the family's index is never
+	// rewound. To bound the amount of work a single call can trigger, an error is
+	// returned if reaching the requested index would require deriving more than
+	// 25,000 keys. Key families that lnd itself derives from are reserved and
+	// cannot be advanced through this RPC.
+	//
+	// NOTE: Keys in custom key families are not covered by lnd's on-chain
+	// recovery scan guarantees. A consumer that uses them to control on-chain
+	// outputs is expected to keep its own record of the indexes it consumed
+	// (which this RPC exists to restore), since a large unused index gap within
+	// a family can prevent a seed-only recovery from finding later keys.
+	DeriveAndStoreKey(context.Context, *signrpc.KeyLocator) (*signrpc.KeyDescriptor, error)
 	// NextAddr returns the next unused address within the wallet.
 	NextAddr(context.Context, *AddrRequest) (*AddrResponse, error)
 	// lncli: `wallet gettx`
@@ -983,6 +1058,9 @@ func (UnimplementedWalletKitServer) DeriveNextKey(context.Context, *KeyReq) (*si
 func (UnimplementedWalletKitServer) DeriveKey(context.Context, *signrpc.KeyLocator) (*signrpc.KeyDescriptor, error) {
 	return nil, status.Errorf(codes.Unimplemented, "method DeriveKey not implemented")
 }
+func (UnimplementedWalletKitServer) DeriveAndStoreKey(context.Context, *signrpc.KeyLocator) (*signrpc.KeyDescriptor, error) {
+	return nil, status.Errorf(codes.Unimplemented, "method DeriveAndStoreKey not implemented")
+}
 func (UnimplementedWalletKitServer) NextAddr(context.Context, *AddrRequest) (*AddrResponse, error) {
 	return nil, status.Errorf(codes.Unimplemented, "method NextAddr not implemented")
 }
@@ -1172,6 +1250,24 @@ func _WalletKit_DeriveKey_Handler(srv interface{}, ctx context.Context, dec func
 	}
 	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
 		return srv.(WalletKitServer).DeriveKey(ctx, req.(*signrpc.KeyLocator))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
+func _WalletKit_DeriveAndStoreKey_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(signrpc.KeyLocator)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(WalletKitServer).DeriveAndStoreKey(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: "/walletrpc.WalletKit/DeriveAndStoreKey",
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(WalletKitServer).DeriveAndStoreKey(ctx, req.(*signrpc.KeyLocator))
 	}
 	return interceptor(ctx, in, info, handler)
 }
@@ -1638,6 +1734,10 @@ var WalletKit_ServiceDesc = grpc.ServiceDesc{
 		{
 			MethodName: "DeriveKey",
 			Handler:    _WalletKit_DeriveKey_Handler,
+		},
+		{
+			MethodName: "DeriveAndStoreKey",
+			Handler:    _WalletKit_DeriveAndStoreKey_Handler,
 		},
 		{
 			MethodName: "NextAddr",

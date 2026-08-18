@@ -2350,6 +2350,13 @@ out:
 			continue
 		}
 
+		// An endpoint may have applied the message before it panicked,
+		// so ErrRoutePanic means that delivery is unknown. Disconnect
+		// instead of replaying through legacy dispatch.
+		if errors.Is(err, msgmux.ErrRoutePanic) {
+			break out
+		}
+
 		var (
 			targetChan   lnwire.ChannelID
 			isLinkUpdate bool

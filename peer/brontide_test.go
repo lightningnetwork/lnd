@@ -37,6 +37,27 @@ var (
 	p2wshAddress = "bc1qrp33g0q5c5txsp9arysrx4k6zdkfs4nce4xj0gdcccefvpysxf3qccfmv3"
 )
 
+// readHandlerPanicEndpoint models a router endpoint that applies a message
+// before panicking. The peer must treat its delivery state as unknown.
+type readHandlerPanicEndpoint struct {
+	delivered chan msgmux.PeerMsg
+}
+
+func (r *readHandlerPanicEndpoint) Name() msgmux.EndpointName {
+	return "read-handler-partial-delivery"
+}
+
+func (r *readHandlerPanicEndpoint) CanHandle(msgmux.PeerMsg) bool {
+	return true
+}
+
+func (r *readHandlerPanicEndpoint) SendMessage(_ context.Context,
+	msg msgmux.PeerMsg) bool {
+
+	r.delivered <- msg
+	panic("panic after delivery")
+}
+
 // readHandlerPanicRouter panics in RouteMsg so the test can exercise
 // readHandler recovery.
 type readHandlerPanicRouter struct {
@@ -1446,6 +1467,69 @@ func TestPeerIgnoresPingWithoutPongReply(t *testing.T) {
 	pong, ok := msg.(*lnwire.Pong)
 	require.True(t, ok)
 	require.Len(t, pong.PongBytes, 1)
+}
+
+// TestReadHandlerDoesNotReplayAfterRoutePanic asserts that a router panic
+// disconnects the peer without replaying a possibly delivered message through
+// the legacy dispatch switch.
+func TestReadHandlerDoesNotReplayAfterRoutePanic(t *testing.T) {
+	t.Parallel()
+
+	params := createTestPeer(t)
+	endpoint := &readHandlerPanicEndpoint{
+		delivered: make(chan msgmux.PeerMsg, 1),
+	}
+
+	router := msgmux.NewMultiMsgRouter()
+	router.Start(t.Context())
+	t.Cleanup(router.Stop)
+	require.NoError(t, router.RegisterEndpoint(endpoint))
+
+	alicePeer := params.peer
+	alicePeer.msgRouter = fn.Some[msgmux.Router](router)
+	alicePeer.globalMsgRouter = true
+
+	startPeerDone := startPeer(t, params.mockConn, alicePeer)
+	_, err := fn.RecvOrTimeout(startPeerDone, 2*timeout)
+	require.NoError(t, err)
+
+	ping := &lnwire.Ping{
+		NumPongBytes: 1,
+		PaddingBytes: []byte{1, 2, 3},
+	}
+	var buf bytes.Buffer
+	_, err = lnwire.WriteMessage(&buf, ping, 0)
+	require.NoError(t, err)
+
+	select {
+	case params.mockConn.readMessages <- buf.Bytes():
+	case <-time.After(timeout):
+		t.Fatal("timeout sending ping to peer")
+	}
+
+	select {
+	case delivered := <-endpoint.delivered:
+		require.IsType(t, &lnwire.Ping{}, delivered.Message)
+
+	case <-time.After(timeout):
+		t.Fatal("router endpoint did not receive the ping")
+	}
+
+	select {
+	case <-alicePeer.cg.Done():
+	case <-time.After(timeout):
+		t.Fatal("peer was not disconnected after router panic")
+	}
+
+	// Legacy ping handling records the payload and queues a pong. Neither
+	// side effect is allowed after the router's delivery became unknown.
+	require.Empty(t, alicePeer.LastRemotePingPayload())
+	select {
+	case rawMsg := <-params.mockConn.writtenMessages:
+		t.Fatalf("legacy dispatch sent a message: %x", rawMsg)
+
+	case <-time.After(100 * time.Millisecond):
+	}
 }
 
 // TestReadHandlerPanicRecovery verifies that a dispatch panic disconnects the

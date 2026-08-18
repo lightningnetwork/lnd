@@ -3,6 +3,7 @@ package msgmux
 import (
 	"context"
 	"testing"
+	"time"
 
 	"github.com/lightningnetwork/lnd/lnwire"
 	"github.com/stretchr/testify/mock"
@@ -160,4 +161,168 @@ func TestMessageRouterOperation(t *testing.T) {
 
 	commitEndpoint.AssertExpectations(t)
 	fundingEndpoint.AssertExpectations(t)
+}
+
+// panicEndpoint is an endpoint that panics from whichever of the two
+// message-facing methods it was told to.
+type panicEndpoint struct {
+	name          string
+	panicOnHandle bool
+	panicOnSend   bool
+}
+
+func (p *panicEndpoint) Name() EndpointName {
+	return p.name
+}
+
+func (p *panicEndpoint) CanHandle(msg PeerMsg) bool {
+	if p.panicOnHandle {
+		panic("panic from CanHandle")
+	}
+
+	return true
+}
+
+func (p *panicEndpoint) SendMessage(ctx context.Context, msg PeerMsg) bool {
+	if p.panicOnSend {
+		panic("panic from SendMessage")
+	}
+
+	return true
+}
+
+// partialDeliveryPanicEndpoint records the message as delivered before it
+// panics. It models an endpoint that applies a side effect and then fails
+// before it can report successful delivery to the router.
+type partialDeliveryPanicEndpoint struct {
+	delivered chan PeerMsg
+}
+
+func (p *partialDeliveryPanicEndpoint) Name() EndpointName {
+	return "partial-delivery"
+}
+
+func (p *partialDeliveryPanicEndpoint) CanHandle(PeerMsg) bool {
+	return true
+}
+
+func (p *partialDeliveryPanicEndpoint) SendMessage(_ context.Context,
+	msg PeerMsg) bool {
+
+	p.delivered <- msg
+	panic("panic after delivery")
+}
+
+// TestMessageRouterEndpointPanic verifies that an endpoint panic returns an
+// error and that later routing requests are processed.
+func TestMessageRouterEndpointPanic(t *testing.T) {
+	t.Parallel()
+
+	// Run RouteMsg with a timeout so a missing response fails the test.
+	routeWithTimeout := func(t *testing.T, r *MultiMsgRouter,
+		msg PeerMsg) error {
+
+		t.Helper()
+
+		errChan := make(chan error, 1)
+		go func() {
+			errChan <- r.RouteMsg(msg)
+		}()
+
+		select {
+		case err := <-errChan:
+			return err
+
+		case <-time.After(10 * time.Second):
+			t.Fatal("RouteMsg never returned: the router failed " +
+				"to resolve the caller's request")
+
+			return nil
+		}
+	}
+
+	tests := []struct {
+		name     string
+		endpoint *panicEndpoint
+	}{
+		{
+			name: "panic in CanHandle",
+			endpoint: &panicEndpoint{
+				name:          "panic-handle",
+				panicOnHandle: true,
+			},
+		},
+		{
+			name: "panic in SendMessage",
+			endpoint: &panicEndpoint{
+				name:        "panic-send",
+				panicOnSend: true,
+			},
+		},
+	}
+
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			t.Parallel()
+
+			ctx := t.Context()
+			msgRouter := NewMultiMsgRouter()
+			msgRouter.Start(ctx)
+			defer msgRouter.Stop()
+
+			require.NoError(
+				t, msgRouter.RegisterEndpoint(test.endpoint),
+			)
+
+			// Routing to the panicking endpoint should return a
+			// routing error.
+			err := routeWithTimeout(t, msgRouter, PeerMsg{
+				Message: &lnwire.OpenChannel{},
+			})
+			require.ErrorIs(t, err, ErrRoutePanic)
+
+			// A second route verifies that the router remains
+			// available.
+			require.NoError(t, msgRouter.UnregisterEndpoint(
+				test.endpoint.Name(),
+			))
+			require.NoError(t, msgRouter.RegisterEndpoint(
+				&panicEndpoint{name: "healthy"},
+			))
+
+			err = routeWithTimeout(t, msgRouter, PeerMsg{
+				Message: &lnwire.CommitSig{},
+			})
+			require.NoError(t, err)
+		})
+	}
+}
+
+// TestMessageRouterPartialDeliveryPanic asserts that ErrRoutePanic does not
+// claim that delivery failed. An endpoint may apply the message before it
+// panics, so callers must treat delivery as unknown and must not replay it.
+func TestMessageRouterPartialDeliveryPanic(t *testing.T) {
+	t.Parallel()
+
+	ctx := t.Context()
+	msgRouter := NewMultiMsgRouter()
+	msgRouter.Start(ctx)
+	defer msgRouter.Stop()
+
+	endpoint := &partialDeliveryPanicEndpoint{
+		delivered: make(chan PeerMsg, 1),
+	}
+	require.NoError(t, msgRouter.RegisterEndpoint(endpoint))
+
+	msg := PeerMsg{Message: &lnwire.Ping{}}
+	err := msgRouter.RouteMsg(msg)
+	require.ErrorIs(t, err, ErrRoutePanic)
+
+	select {
+	case delivered := <-endpoint.delivered:
+		require.Same(t, msg.Message, delivered.Message)
+
+	case <-time.After(10 * time.Second):
+		t.Fatal("endpoint did not record the partial delivery")
+	}
 }

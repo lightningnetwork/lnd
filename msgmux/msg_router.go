@@ -3,6 +3,7 @@ package msgmux
 import (
 	"context"
 	"fmt"
+	"log/slog"
 	"maps"
 	"sync"
 
@@ -19,6 +20,11 @@ var (
 	// ErrUnableToRouteMsg is returned when a message is unable to be
 	// routed to any endpoints.
 	ErrUnableToRouteMsg = fmt.Errorf("unable to route message")
+
+	// ErrRoutePanic is returned when an endpoint panicked while being
+	// handed a message. The delivery state is unknown when this error is
+	// returned, so callers must not retry or fall back to another handler.
+	ErrRoutePanic = fmt.Errorf("panic while routing message")
 )
 
 // EndpointName is the name of a given endpoint. This MUST be unique across all
@@ -63,7 +69,9 @@ type Router interface {
 
 	// RouteMsg attempts to route the target message to a registered
 	// endpoint. If ANY endpoint could handle the message, then nil is
-	// returned. Otherwise, ErrUnableToRouteMsg is returned.
+	// returned. Otherwise, ErrUnableToRouteMsg is returned. If an endpoint
+	// panics, ErrRoutePanic is returned and delivery must be treated as
+	// unknown.
 	RouteMsg(PeerMsg) error
 
 	// Start starts the peer message router.
@@ -169,7 +177,8 @@ func (p *MultiMsgRouter) UnregisterEndpoint(name EndpointName) error {
 }
 
 // RouteMsg attempts to route the target message to a registered endpoint. If
-// ANY endpoint could handle the message, then nil is returned.
+// ANY endpoint could handle the message, then nil is returned. ErrRoutePanic
+// means an endpoint panicked and the delivery state is unknown.
 func (p *MultiMsgRouter) RouteMsg(msg PeerMsg) error {
 	return sendQueryErr(p.msgChan, msg, p.quit)
 }
@@ -177,6 +186,56 @@ func (p *MultiMsgRouter) RouteMsg(msg PeerMsg) error {
 // Endpoints returns a list of all registered endpoints.
 func (p *MultiMsgRouter) endpoints() fn.Result[EndpointsMap] {
 	return sendQuery(p.endpointQueries, nil, p.quit)
+}
+
+// routeMsg hands the passed message to every endpoint that can handle it, and
+// reports whether any of them took it.
+//
+// Recover endpoint panics as routing errors and always resolve the waiting
+// caller. The router can then continue with later requests.
+//
+//nolint:nonamedreturns // Recovery sets the error returned to the caller.
+func routeMsg(ctx context.Context, endpoints map[EndpointName]Endpoint,
+	msg PeerMsg) (err error) {
+
+	defer fn.RecoverPanic(func(p fn.Panic) {
+		fn.LogRecoveredPanic(
+			ctx, log, p,
+			slog.String(
+				"message_type", fmt.Sprintf("%T", msg.Message),
+			),
+			slog.String(
+				"peer", fmt.Sprintf(
+					"%x", msg.PeerPub.SerializeCompressed(),
+				),
+			),
+		)
+
+		// Return the sentinel used by callers to identify an unknown
+		// delivery result.
+		err = ErrRoutePanic
+	})
+
+	// Loop through all the endpoints and send the message to those that can
+	// handle it the message.
+	var couldSend bool
+	for _, endpoint := range endpoints {
+		if endpoint.CanHandle(msg) {
+			log.Tracef("MsgRouter: sending msg %T to endpoint %s",
+				msg, endpoint.Name())
+
+			sent := endpoint.SendMessage(ctx, msg)
+			couldSend = couldSend || sent
+		}
+	}
+
+	if !couldSend {
+		log.Tracef("MsgRouter: unable to route msg %T", msg.Message)
+
+		return ErrUnableToRouteMsg
+	}
+
+	return nil
 }
 
 // msgRouter is the main goroutine that handles all incoming messages.
@@ -225,31 +284,9 @@ func (p *MultiMsgRouter) msgRouter(ctx context.Context) {
 		// A new message was just sent in. We'll attempt to route it to
 		// all the endpoints that can handle it.
 		case msgQuery := <-p.msgChan:
-			msg := msgQuery.Request
-
-			// Loop through all the endpoints and send the message
-			// to those that can handle it the message.
-			var couldSend bool
-			for _, endpoint := range endpoints {
-				if endpoint.CanHandle(msg) {
-					log.Tracef("MsgRouter: sending "+
-						"msg %T to endpoint %s", msg,
-						endpoint.Name())
-
-					sent := endpoint.SendMessage(ctx, msg)
-					couldSend = couldSend || sent
-				}
-			}
-
-			var err error
-			if !couldSend {
-				log.Tracef("MsgRouter: unable to route "+
-					"msg %T", msg.Message)
-
-				err = ErrUnableToRouteMsg
-			}
-
-			msgQuery.Resolve(err)
+			msgQuery.Resolve(routeMsg(
+				ctx, endpoints, msgQuery.Request,
+			))
 
 		// A query for the endpoint state just came in, we'll send back
 		// a copy of our current state.

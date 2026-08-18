@@ -188,6 +188,21 @@ type Config struct {
 	// events through.
 	HtlcNotifier htlcNotifier
 
+	// ReputationManager is an optional, read-only local reputation
+	// subsystem. When non-nil, the switch feeds it forward/settle/fail
+	// events for forwarded HTLCs so it can track reputation. It is a black
+	// box that never affects forwarding (log-only); when nil the hooks are
+	// skipped.
+	ReputationManager ReputationManager
+
+	// ShouldFwdExpAccountability reports whether this node forwards the
+	// experimental accountability signal. It mirrors the per-link closure
+	// of the same name and is used by the reputation hooks to derive the
+	// outgoing accountable bit the way the outgoing link would (so a peer
+	// that was never told an HTLC was accountable is not penalised). It may
+	// be nil, in which case accountability is treated as forwarded.
+	ShouldFwdExpAccountability func() bool
+
 	// FwdEventTicker is a signal that instructs the htlcswitch to flush any
 	// pending forwarding events.
 	FwdEventTicker ticker.Ticker
@@ -3022,7 +3037,73 @@ func (s *Switch) handlePacketAdd(packet *htlcPacket,
 	// channel.
 	packet.outgoingChanID = destination.ShortChanID()
 
+	// Feed the (read-only) reputation manager this forward. This only
+	// observes the event to update internal reputation state; it never
+	// affects the forwarding decision (log-only).
+	if s.cfg.ReputationManager != nil {
+		// Use the fee the node ADVERTISED for this forward, not the
+		// (possibly larger) fee offered by the incoming HTLC. Scoring
+		// reputation/revenue on the offered fee would let a sender
+		// inflate or destroy reputation by over/under-paying; the
+		// advertised fee is what the node actually charges.
+		//
+		// The advertised fee has two components, mirroring
+		// CheckHtlcForward: the outgoing link's outbound fee on the
+		// outgoing amount, plus the incoming link's inbound fee on the
+		// sum of the two. The total is attributed to the outgoing
+		// link. An inbound discount can push the total negative, in
+		// which case it is clamped at zero: reputation and revenue
+		// track fees actually earned, never owed.
+		outFee := destination.AdvertisedFee(packet.amount)
+		inFee := packet.inboundFee.CalcFee(packet.amount + outFee)
+
+		totalFee := int64(outFee) + inFee
+		if totalFee < 0 {
+			totalFee = 0
+		}
+		advertisedFee := lnwire.MilliSatoshi(totalFee)
+
+		// Derive the outgoing accountable bit exactly as the outgoing
+		// link does: only accountable if we received it accountable AND
+		// this node forwards the experimental accountability signal. A
+		// node running --protocol.no-experimental-accountability drops
+		// the bit, so it must not penalise a peer never told the HTLC
+		// was accountable.
+		outgoingAccountable := htlcAccountable(htlc) &&
+			s.shouldFwdExpAccountability()
+
+		s.cfg.ReputationManager.OnForward(
+			CircuitKey{
+				ChanID: packet.incomingChanID,
+				HtlcID: packet.incomingHTLCID,
+			},
+			packet.outgoingChanID, packet.incomingAmount,
+			packet.amount, advertisedFee, packet.incomingTimeout,
+			s.BestHeight(), outgoingAccountable,
+		)
+	}
+
 	return destination.handleSwitchPacket(packet)
+}
+
+// htlcAccountable extracts the experimental accountable signal from an
+// incoming update_add_htlc's custom records (TLV 106823).
+func htlcAccountable(htlc *lnwire.UpdateAddHTLC) bool {
+	key := uint64(lnwire.ExperimentalAccountableType)
+	rec, ok := htlc.CustomRecords[key]
+
+	return ok && len(rec) > 0 && rec[0] == lnwire.ExperimentalAccountable
+}
+
+// shouldFwdExpAccountability reports whether this node forwards the
+// experimental accountability signal, defaulting to true when the closure is
+// unset.
+func (s *Switch) shouldFwdExpAccountability() bool {
+	if s.cfg.ShouldFwdExpAccountability == nil {
+		return true
+	}
+
+	return s.cfg.ShouldFwdExpAccountability()
 }
 
 // handlePacketSettle handles forwarding a settle packet.
@@ -3101,6 +3182,12 @@ func (s *Switch) handlePacketSettle(packet *htlcPacket) error {
 			},
 		)
 		s.fwdEventMtx.Unlock()
+
+		// Feed the read-only reputation manager this settle;
+		// log-only, never affects resolution.
+		if s.cfg.ReputationManager != nil {
+			s.cfg.ReputationManager.OnSettle(circuit.Incoming)
+		}
 	}
 
 	// Deliver this packet.
@@ -3133,6 +3220,15 @@ func (s *Switch) handlePacketFail(packet *htlcPacket,
 		// If this is a locally initiated HTLC, there's no need to
 		// forward it so we exit.
 		return nil
+	}
+
+	// Feed the read-only reputation manager this forwarded fail;
+	// log-only, never affects resolution. The HTLC is identified by its
+	// incoming circuit key alone: fail paths do not reliably know the
+	// outgoing channel (an add failed back through the outgoing link's
+	// mailbox never had a keystone set).
+	if s.cfg.ReputationManager != nil && circuit != nil {
+		s.cfg.ReputationManager.OnFail(circuit.Incoming)
 	}
 
 	// Exit early if this hasSource is true. This flag is only set via

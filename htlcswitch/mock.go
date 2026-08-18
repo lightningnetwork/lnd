@@ -738,6 +738,10 @@ type mockChannelLink struct {
 
 	checkHtlcForwardResult *LinkError
 
+	// advertisedFee is the fee returned by AdvertisedFee, letting tests
+	// control the outgoing link's advertised forwarding fee.
+	advertisedFee lnwire.MilliSatoshi
+
 	failAliasUpdate func(sid lnwire.ShortChannelID,
 		incoming bool) *lnwire.ChannelUpdate1
 
@@ -846,6 +850,12 @@ func (f *mockChannelLink) HandleChannelUpdate(lnwire.Message) {
 }
 
 func (f *mockChannelLink) UpdateForwardingPolicy(_ models.ForwardingPolicy) {
+}
+
+func (f *mockChannelLink) AdvertisedFee(
+	_ lnwire.MilliSatoshi) lnwire.MilliSatoshi {
+
+	return f.advertisedFee
 }
 func (f *mockChannelLink) CheckHtlcForward([32]byte, lnwire.MilliSatoshi,
 	lnwire.MilliSatoshi, uint32, uint32, models.InboundFee, uint32,

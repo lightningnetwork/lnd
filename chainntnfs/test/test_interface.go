@@ -1902,9 +1902,20 @@ func TestInterfaces(t *testing.T, targetBackEnd string) {
 	log.Printf("Running %v ChainNotifier interface tests",
 		2*len(txNtfnTests)+len(blockNtfnTests)+len(blockCatchupTests))
 
+	// The bitcoind-no-txindex variant runs against the same registered
+	// bitcoind driver as the plain bitcoind variant, but with the
+	// backend's transaction index disabled. This exercises the manual
+	// historical confirmation/spend lookup fallbacks in the notifier.
+	driverType := targetBackEnd
+	txindex := true
+	if targetBackEnd == "bitcoind-no-txindex" {
+		driverType = "bitcoind"
+		txindex = false
+	}
+
 	for _, notifierDriver := range chainntnfs.RegisteredNotifiers() {
 		notifierType := notifierDriver.NotifierType
-		if notifierType != targetBackEnd {
+		if notifierType != driverType {
 			continue
 		}
 
@@ -1928,11 +1939,11 @@ func TestInterfaces(t *testing.T, targetBackEnd string) {
 			newNotifier func() (chainntnfs.TestChainNotifier, error)
 		)
 
-		switch notifierType {
-		case "bitcoind":
+		switch targetBackEnd {
+		case "bitcoind", "bitcoind-no-txindex":
 			var bitcoindConn *chain.BitcoindConn
 			bitcoindConn = unittest.NewBitcoindBackend(
-				t, unittest.NetParams, miner, true, false,
+				t, unittest.NetParams, miner, txindex, false,
 			)
 			newNotifier = func() (chainntnfs.TestChainNotifier, error) {
 				return bitcoindnotify.New(
@@ -1976,21 +1987,21 @@ func TestInterfaces(t *testing.T, targetBackEnd string) {
 		}
 
 		log.Printf("Running ChainNotifier interface tests for: %v",
-			notifierType)
+			targetBackEnd)
 
 		notifier, err := newNotifier()
 		if err != nil {
 			t.Fatalf("unable to create %v notifier: %v",
-				notifierType, err)
+				targetBackEnd, err)
 		}
 		if err := notifier.Start(); err != nil {
 			t.Fatalf("unable to start notifier %v: %v",
-				notifierType, err)
+				targetBackEnd, err)
 		}
 
 		for _, txNtfnTest := range txNtfnTests {
 			for _, scriptDispatch := range []bool{false, true} {
-				testName := fmt.Sprintf("%v %v", notifierType,
+				testName := fmt.Sprintf("%v %v", targetBackEnd,
 					txNtfnTest.name)
 				if scriptDispatch {
 					testName += " with script dispatch"
@@ -2008,7 +2019,7 @@ func TestInterfaces(t *testing.T, targetBackEnd string) {
 		}
 
 		for _, blockNtfnTest := range blockNtfnTests {
-			testName := fmt.Sprintf("%v %v", notifierType,
+			testName := fmt.Sprintf("%v %v", targetBackEnd,
 				blockNtfnTest.name)
 			success := t.Run(testName, func(t *testing.T) {
 				blockNtfnTest.test(miner, notifier, t)
@@ -2026,10 +2037,10 @@ func TestInterfaces(t *testing.T, targetBackEnd string) {
 			notifier, err = newNotifier()
 			if err != nil {
 				t.Fatalf("unable to create %v notifier: %v",
-					notifierType, err)
+					targetBackEnd, err)
 			}
 
-			testName := fmt.Sprintf("%v %v", notifierType,
+			testName := fmt.Sprintf("%v %v", targetBackEnd,
 				blockCatchupTest.name)
 
 			success := t.Run(testName, func(t *testing.T) {

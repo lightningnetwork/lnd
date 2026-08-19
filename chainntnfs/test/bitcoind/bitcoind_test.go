@@ -21,8 +21,20 @@ func TestInterfaces(t *testing.T) {
 		return
 	}
 
-	t.Run("bitcoind rpc polling", func(st *testing.T) {
+	success = t.Run("bitcoind rpc polling", func(st *testing.T) {
 		st.Parallel()
 		chainntnfstest.TestInterfaces(st, "bitcoind-rpc-polling")
+	})
+
+	if !success {
+		return
+	}
+
+	// Run the suite against a bitcoind backend without a transaction
+	// index, which forces the notifier through its manual historical
+	// confirmation and spend lookup fallbacks.
+	t.Run("bitcoind no txindex", func(st *testing.T) {
+		st.Parallel()
+		chainntnfstest.TestInterfaces(st, "bitcoind-no-txindex")
 	})
 }

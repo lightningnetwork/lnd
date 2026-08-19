@@ -10,6 +10,7 @@ COVER_PKG = $$($(GOCC) list -deps -tags="$(DEV_TAGS)" ./... | grep '$(PKG)')
 COVER_FLAGS = -coverprofile=coverage.txt -covermode=atomic -coverpkg=$(PKG)/...
 NUM_ITEST_TRANCHES = 4
 ITEST_PARALLELISM = $(NUM_ITEST_TRANCHES)
+ITEST_TRANCHE_OFFSET = 0
 POSTGRES_START_DELAY = 5
 SHUFFLE_SEED = 0
 
@@ -29,6 +30,12 @@ ifneq ($(parallel),)
 ITEST_PARALLELISM = $(parallel)
 endif
 
+# Run only a subset of the total tranches, starting at this offset. This
+# allows a single itest run to be spread over multiple machines.
+ifneq ($(trancheoffset),)
+ITEST_TRANCHE_OFFSET = $(trancheoffset)
+endif
+
 # Set the seed for shuffling the test cases.
 ifneq ($(shuffleseed),)
 SHUFFLE_SEED = $(shuffleseed)
@@ -45,12 +52,21 @@ ifneq ($(windows),)
 EXEC_SUFFIX = .exe
 endif
 
-# If specific package is being unit tested, construct the full name of the
-# subpackage.
+# If specific packages are being unit tested, construct the full names of
+# the subpackages.
 ifneq ($(pkg),)
-UNITPKG := $(PKG)/$(pkg)
+UNITPKG := $(addprefix $(PKG)/,$(pkg))
 UNIT_TARGETED = yes
-COVER_PKG = $(PKG)/$(pkg)
+COVER_PKG = $(addprefix $(PKG)/,$(pkg))
+
+# When more than one package is targeted, run their test binaries
+# serially. The untargeted path serializes packages via xargs -L 1, and
+# some test fixtures bind fixed ports (e.g. the kvdb postgres fixture's
+# embedded postgres on port 9876), so package binaries collide when go
+# test runs them in parallel.
+ifneq ($(word 2,$(pkg)),)
+UNIT_PKG_FLAGS = -p 1
+endif
 endif
 
 # If a specific unit test case is being target, construct test.run filter.
@@ -141,9 +157,9 @@ UNIT_TARGETED ?= no
 # If a specific package/test case was requested, run the unit test for the
 # targeted case. Otherwise, default to running all tests.
 ifeq ($(UNIT_TARGETED), yes)
-UNIT := $(GOTEST) -tags="$(DEV_TAGS) $(RPC_TAGS) $(LOG_TAGS)" $(TEST_FLAGS) $(UNITPKG)
+UNIT := $(GOTEST) $(UNIT_PKG_FLAGS) -tags="$(DEV_TAGS) $(RPC_TAGS) $(LOG_TAGS)" $(TEST_FLAGS) $(UNITPKG)
 UNIT_DEBUG := $(GOTEST) -v -tags="$(DEV_TAGS) $(RPC_TAGS) $(LOG_TAGS)" $(TEST_FLAGS) $(UNITPKG)
-UNIT_RACE := $(GOTEST) -tags="$(DEV_TAGS) $(RPC_TAGS) $(LOG_TAGS) lowscrypt" $(TEST_FLAGS) -race $(UNITPKG)
+UNIT_RACE := $(GOTEST) $(UNIT_PKG_FLAGS) -tags="$(DEV_TAGS) $(RPC_TAGS) $(LOG_TAGS) lowscrypt" $(TEST_FLAGS) -race $(UNITPKG)
 # NONE is a special value which selects no other tests but only executes the benchmark tests here.
 UNIT_BENCH := $(GOTEST) -tags="$(DEV_TAGS) $(LOG_TAGS)" -test.bench=. -test.run=NONE $(UNITPKG)
 endif

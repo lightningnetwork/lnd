@@ -2,7 +2,6 @@ package peer
 
 import (
 	"bytes"
-	"container/list"
 	"context"
 	"errors"
 	"fmt"
@@ -3125,62 +3124,67 @@ out:
 func (p *Brontide) queueHandler() {
 	defer p.cg.WgDone()
 
-	// priorityMsgs holds an in order list of messages deemed high-priority
-	// to be added to the sendQueue. This predominately includes messages
-	// from the funding manager and htlcswitch.
-	priorityMsgs := list.New()
-
-	// lazyMsgs holds an in order list of messages deemed low-priority to be
-	// added to the sendQueue only after all high-priority messages have
-	// been queued. This predominately includes messages from the gossiper.
-	lazyMsgs := list.New()
+	queue := newMsgQueue(p.queueLimits)
 
 	for {
-		// Examine the front of the priority queue, if it is empty check
-		// the low priority queue.
-		elem := priorityMsgs.Front()
-		if elem == nil {
-			elem = lazyMsgs.Front()
+		elem, next := queue.front()
+
+		// A nil channel disables this select case while the queue is
+		// empty. Incoming messages therefore use one generic path
+		// whether or not a message is ready for writeHandler.
+		var sendQueue chan outgoingMsg
+		if elem != nil {
+			sendQueue = p.sendQueue
 		}
 
-		if elem != nil {
-			front := elem.Value.(outgoingMsg)
+		select {
+		case sendQueue <- next:
+			queue.pop(elem)
 
-			// There's an element on the queue, try adding
-			// it to the sendQueue. We also watch for
-			// messages on the outgoingQueue, in case the
-			// writeHandler cannot accept messages on the
-			// sendQueue.
-			select {
-			case p.sendQueue <- front:
-				if front.priority {
-					priorityMsgs.Remove(elem)
-				} else {
-					lazyMsgs.Remove(elem)
-				}
-			case msg := <-p.outgoingQueue:
-				if msg.priority {
-					priorityMsgs.PushBack(msg)
-				} else {
-					lazyMsgs.PushBack(msg)
-				}
-			case <-p.cg.Done():
-				return
+		case msg := <-p.outgoingQueue:
+			if queue.push(msg) {
+				continue
 			}
-		} else {
-			// If there weren't any messages to send to the
-			// writeHandler, then we'll accept a new message
-			// into the queue from outside sub-systems.
-			select {
-			case msg := <-p.outgoingQueue:
-				if msg.priority {
-					priorityMsgs.PushBack(msg)
-				} else {
-					lazyMsgs.PushBack(msg)
-				}
-			case <-p.cg.Done():
-				return
+
+			p.failQueueOverflow(queue.numMsgs, queue.numBytes)
+
+			return
+
+		case <-p.cg.Done():
+			return
+		}
+	}
+}
+
+// failQueueOverflow tears the connection down after the peer's outgoing
+// message queue has grown past its bounds, then keeps that queue serviced
+// until teardown completes. We disconnect rather than drop or block: dropping
+// would punch a hole in an ordered protocol stream, while blocking would push
+// backpressure onto whichever subsystem happened to be sending.
+//
+// NOTE: This blocks until the peer's context is cancelled, so it must be
+// called from the queueHandler goroutine itself.
+func (p *Brontide) failQueueOverflow(numQueued, queuedBytes int) {
+	err := fmt.Errorf("outgoing message queue exceeded bounds: "+
+		"messages=%d, bytes=%d", numQueued, queuedBytes)
+	p.storeError(err)
+	p.log.Warnf("%v", err)
+
+	// Disconnect gets its own goroutine because we have to keep draining.
+	// Every message producer parks on outgoingQueue until the peer context
+	// is cancelled, and Disconnect waits on the ping manager before that
+	// cancellation. Walking away now could wedge both goroutines.
+	go p.Disconnect(err)
+
+	for {
+		select {
+		case msg := <-p.outgoingQueue:
+			if msg.errChan != nil {
+				msg.errChan <- lnpeer.ErrPeerExiting
 			}
+
+		case <-p.cg.Done():
+			return
 		}
 	}
 }

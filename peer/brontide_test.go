@@ -1559,6 +1559,305 @@ func TestPeerPingFloodDisconnects(t *testing.T) {
 	require.ErrorIs(t, storedErr.Error, errPingFlood)
 }
 
+// startTestQueueHandler isolates queue ownership from unrelated peer loops so
+// focused tests can drive outgoingQueue directly; callers own cancellation
+// and join the registered goroutine before returning.
+func startTestQueueHandler(peer *Brontide) {
+	peer.cg.WgAdd(1)
+	go peer.queueHandler()
+}
+
+// mockQueueWriteConn adds testify-controlled write behavior to the shared
+// connection fixture while inheriting its safe address and close methods.
+type mockQueueWriteConn struct {
+	mock.Mock
+	*mockMessageConn
+}
+
+// Compile-time conformance keeps the focused mock aligned with MessageConn.
+var _ MessageConn = (*mockQueueWriteConn)(nil)
+
+// SetWriteDeadline records each pre-flush deadline for exact call assertions.
+func (m *mockQueueWriteConn) SetWriteDeadline(deadline time.Time) error {
+	return m.Called(deadline).Error(0)
+}
+
+// WriteMessage lets each test control when a serialized message is accepted.
+func (m *mockQueueWriteConn) WriteMessage(msg []byte) error {
+	return m.Called(msg).Error(0)
+}
+
+// Flush records the final wire flush and returns its configured outcome.
+func (m *mockQueueWriteConn) Flush() (int, error) {
+	args := m.Called()
+	return args.Int(0), args.Error(1)
+}
+
+// TestMsgQueueRejectsOverflowWithoutRetention verifies that prospective limit
+// checks leave both priority lists and their accounting at the accepted cap.
+func TestMsgQueueRejectsOverflowWithoutRetention(t *testing.T) {
+	// Arrange: Fill a one-message, one-byte queue with a priority item so a
+	// lazy item would cross both limits and expose either insertion path.
+	queue := newMsgQueue(queueLimits{maxMsgs: 1, maxBytes: 1})
+	require.True(t, queue.push(outgoingMsg{
+		priority: true, queueCost: 1,
+	}))
+
+	// Act: Attempt to append one excess lazy item through the normal push.
+	accepted := queue.push(outgoingMsg{queueCost: 1})
+
+	// Assert: Rejection preserves the exact accepted totals and leaves the
+	// lazy list empty, proving the excess object is no longer retained.
+	require.False(t, accepted)
+	require.Equal(t, 1, queue.numMsgs)
+	require.Equal(t, 1, queue.numBytes)
+	require.Equal(t, 1, queue.priorityMsgs.Len())
+	require.Zero(t, queue.lazyMsgs.Len())
+}
+
+// TestPeerSendMessageQueueBounds verifies that the public sending API accepts
+// an exact queue boundary and returns a stable error for its first excess.
+func TestPeerSendMessageQueueBounds(t *testing.T) {
+	t.Parallel()
+
+	// Arrange: Derive exact data-only boundaries from the production
+	// limits.
+	// The onion size makes each charged message 64 KiB, so 256 distinct
+	// blobs fill the 16 MiB byte budget without approaching the count cap.
+	limits := defaultQueueLimits()
+	onionBlobSize := (1 << 16) - limits.msgOverhead
+	require.Zero(t, limits.maxBytes%(limits.msgOverhead+onionBlobSize))
+	tests := []struct {
+		name        string
+		msgType     lnwire.MessageType
+		payloadSize int
+		numAtLimit  int
+	}{
+		{
+			name:       "message count",
+			msgType:    lnwire.MsgPong,
+			numAtLimit: limits.maxMsgs,
+		},
+		{
+			name:        "message bytes",
+			msgType:     lnwire.MsgOnionMessage,
+			payloadSize: onionBlobSize,
+			numAtLimit: limits.maxBytes /
+				(limits.msgOverhead + onionBlobSize),
+		},
+	}
+
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			// Arrange: Start only the queue handler so no writer
+			// drains it. The row selects a builder that allocates a
+			// fresh peer-controlled blob for every message.
+			params := createTestPeer(t)
+			peer := params.peer
+			startTestQueueHandler(peer)
+			t.Cleanup(func() {
+				peer.cg.Quit()
+				peer.cg.WgWait()
+			})
+
+			// newMsg builds fresh values while keeping rows
+			// declarative, including distinct blobs for every send.
+			newMsg := func() lnwire.Message {
+				switch test.msgType {
+				case lnwire.MsgPong:
+					return lnwire.NewPong(nil)
+
+				case lnwire.MsgOnionMessage:
+					blob := make([]byte, test.payloadSize)
+					return &lnwire.OnionMessage{
+						OnionBlob: blob,
+					}
+
+				default:
+					t.Fatalf(
+						"unsupported queue message: %v",
+						test.msgType,
+					)
+				}
+
+				return nil
+			}
+
+			// Act: Queue the exact boundary through SendMessage.
+			// Its async path waits for queueHandler to
+			// receive its message without requiring a writer.
+			for i := 0; i < test.numAtLimit; i++ {
+				err := peer.SendMessage(false, newMsg())
+				require.NoError(t, err)
+			}
+
+			// Assert: The inclusive boundary remains connected. It
+			// proves the cap describes accepted traffic rather than
+			// the message that merely reaches it.
+			select {
+			case <-peer.cg.Done():
+				t.Fatal("peer disconnected at the inclusive " +
+					"queue limit")
+			default:
+			}
+
+			// Act: Send one additional message synchronously so its
+			// rejected caller receives the precise overflow cause.
+			err := peer.SendMessage(true, newMsg())
+
+			// Assert: The first excess send returns the wrapped
+			// sentinel. Cancellation and joining prove teardown.
+			require.ErrorIs(t, err, errQueueOverflow)
+			_, err = fn.RecvOrTimeout(peer.cg.Done(), timeout)
+			require.NoError(t, err)
+			peer.cg.WgWait()
+		})
+	}
+}
+
+// TestPeerSendMessageMixedWriteAndOverflow verifies that a live writer can
+// complete earlier public sends before a later message crosses the queue cap.
+func TestPeerSendMessageMixedWriteAndOverflow(t *testing.T) {
+	// Arrange: Allow one retained message, make the third wire write block,
+	// and run both queue stages. First two writes must fully acknowledge
+	// before the blocked write lets one message fill the local queue.
+	params := createTestPeer(t)
+	peer := params.peer
+	peer.queueLimits = defaultQueueLimits()
+	peer.queueLimits.maxMsgs = 1
+	releaseWrite := make(chan struct{})
+	thirdWriteStarted := make(chan struct{})
+	var writeCount atomic.Int32
+	conn := &mockQueueWriteConn{mockMessageConn: params.mockConn}
+	conn.On("WriteMessage", mock.Anything).Run(func(mock.Arguments) {
+		if writeCount.Add(1) == 3 {
+			close(thirdWriteStarted)
+			<-releaseWrite
+		}
+	}).Return(nil).Times(3)
+	conn.On("SetWriteDeadline", mock.Anything).Return(nil).Times(3)
+	conn.On("Flush").Return(0, nil).Times(3)
+	peer.cfg.Conn = conn
+	peer.cg.WgAdd(2)
+	go peer.queueHandler()
+	go peer.writeHandler()
+	released := false
+	t.Cleanup(func() {
+		if !released {
+			close(releaseWrite)
+		}
+		peer.cg.Quit()
+		peer.cg.WgWait()
+	})
+
+	// Act: Complete two synchronous sends, block a third in the writer,
+	// admit a fourth asynchronously, then submit the fifth message that
+	// exceeds the one-message local backlog.
+	firstErr := peer.SendMessage(true, lnwire.NewPing(0))
+	secondErr := peer.SendMessage(true, lnwire.NewPing(0))
+	thirdResult := make(chan error, 1)
+	go func() {
+		thirdResult <- peer.SendMessage(true, lnwire.NewPing(0))
+	}()
+	_, err := fn.RecvOrTimeout(thirdWriteStarted, timeout)
+	require.NoError(t, err)
+	queuedErr := peer.SendMessage(false, lnwire.NewPing(0))
+	overflowErr := peer.SendMessage(true, lnwire.NewPing(0))
+
+	// Assert: The live writes and exact-limit admission succeed, while only
+	// the first excess public send receives the typed overflow. Releasing
+	// the in-flight write proves all participating goroutines terminate.
+	require.NoError(t, firstErr)
+	require.NoError(t, secondErr)
+	require.NoError(t, queuedErr)
+	require.ErrorIs(t, overflowErr, errQueueOverflow)
+	close(releaseWrite)
+	released = true
+	_, err = fn.RecvOrTimeout(thirdResult, timeout)
+	require.NoError(t, err)
+	peer.cg.WgWait()
+	conn.AssertExpectations(t)
+}
+
+// TestPeerConcurrentSenders verifies that synchronized public callers share
+// the bounded queue and single writer without racing or losing acknowledgments.
+func TestPeerConcurrentSenders(t *testing.T) {
+	// Arrange: Give each sender one queue slot and configure a testify mock
+	// for the exact write lifecycle, so the race run observes queue and
+	// writer coordination instead of stopping at outgoingQueue admission.
+	const numSenders = 16
+	params := createTestPeer(t)
+	peer := params.peer
+	peer.queueLimits = defaultQueueLimits()
+	peer.queueLimits.maxMsgs = numSenders
+	conn := &mockQueueWriteConn{mockMessageConn: params.mockConn}
+	conn.On("WriteMessage", mock.Anything).Return(nil).Times(numSenders)
+	conn.On("SetWriteDeadline", mock.Anything).Return(nil).Times(numSenders)
+	conn.On("Flush").Return(0, nil).Times(numSenders)
+	peer.cfg.Conn = conn
+	peer.cg.WgAdd(2)
+	go peer.queueHandler()
+	go peer.writeHandler()
+	t.Cleanup(func() {
+		peer.cg.Quit()
+		peer.cg.WgWait()
+	})
+
+	// Act: Launch all synchronous senders concurrently and collect each
+	// public result through a buffered channel that cannot serialize them.
+	results := make(chan error, numSenders)
+	for i := 0; i < numSenders; i++ {
+		go func() {
+			results <- peer.SendMessage(true, lnwire.NewPing(0))
+		}()
+	}
+
+	// Assert: Every sender receives its successful writer acknowledgment,
+	// all expected wire operations occur, and both handlers join cleanly.
+	for i := 0; i < numSenders; i++ {
+		err, recvErr := fn.RecvOrTimeout(results, timeout)
+		require.NoError(t, recvErr)
+		require.NoError(t, err)
+	}
+	peer.cg.Quit()
+	peer.cg.WgWait()
+	conn.AssertExpectations(t)
+}
+
+// TestPeerSendMessageBatchReturnsQueueOverflow verifies that a synchronous
+// variadic send reports a later queue rejection even while its first message
+// remains accepted and pending.
+func TestPeerSendMessageBatchReturnsQueueOverflow(t *testing.T) {
+	t.Parallel()
+
+	// Arrange: Restrict the peer to one retained message and start only the
+	// queue handler. With no writer, the first batch item cannot
+	// acknowledge before the second item crosses the count limit.
+	params := createTestPeer(t)
+	peer := params.peer
+	peer.queueLimits = defaultQueueLimits()
+	peer.queueLimits.maxMsgs = 1
+	startTestQueueHandler(peer)
+	t.Cleanup(func() {
+		peer.cg.Quit()
+		peer.cg.WgWait()
+	})
+
+	// Act: Submit both messages through the public synchronous API so they
+	// share one batch result path and the later rejection initiates
+	// teardown.
+	err := peer.SendMessage(
+		true, lnwire.NewPing(0), lnwire.NewPing(0),
+	)
+
+	// Assert: The overflow sentinel wins over the first message's missing
+	// acknowledgement and generic cancellation, then teardown completes.
+	require.ErrorIs(t, err, errQueueOverflow)
+	_, err = fn.RecvOrTimeout(peer.cg.Done(), timeout)
+	require.NoError(t, err)
+	peer.cg.WgWait()
+}
+
 // TestMessageSummaryPingIncludesNumPongBytes ensures the debug summary for a
 // ping exposes the requested pong size, which makes ignored no-reply pings
 // visible without requiring trace-level logging.

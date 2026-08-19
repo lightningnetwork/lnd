@@ -19,6 +19,7 @@ import (
 	"github.com/lightningnetwork/lnd/contractcourt"
 	"github.com/lightningnetwork/lnd/fn/v2"
 	"github.com/lightningnetwork/lnd/htlcswitch"
+	"github.com/lightningnetwork/lnd/lnpeer"
 	"github.com/lightningnetwork/lnd/lntest/wait"
 	"github.com/lightningnetwork/lnd/lnwallet"
 	"github.com/lightningnetwork/lnd/lnwallet/chancloser"
@@ -1531,6 +1532,254 @@ func TestPeerPingFloodDisconnects(t *testing.T) {
 	storedErr, ok := storedErrors[0].(*TimestampedError)
 	require.True(t, ok)
 	require.ErrorIs(t, storedErr.Error, errPingFlood)
+}
+
+// startTestQueueHandler isolates queue ownership from unrelated peer loops so
+// focused tests can drive outgoingQueue directly; callers own cancellation
+// and join the registered goroutine before returning.
+func startTestQueueHandler(peer *Brontide) {
+	peer.cg.WgAdd(1)
+	go peer.queueHandler()
+}
+
+// TestPeerQueueHandlerBoundsBacklog verifies that crossing a queue bound
+// tears down the peer connection.
+func TestPeerQueueHandlerBoundsBacklog(t *testing.T) {
+	t.Parallel()
+
+	// Arrange: Derive data-only workloads from the production limits. The
+	// count case uses fixed-cost Pongs. The byte case retains distinct
+	// maximum onion blobs and stays below the independent count cap.
+	const onionBlobSize = 65000
+	limits := defaultQueueLimits()
+	tests := []struct {
+		name        string
+		msgType     lnwire.MessageType
+		payloadSize int
+		numMsgs     int
+	}{
+		{
+			name:    "message count",
+			msgType: lnwire.MsgPong,
+			numMsgs: limits.maxMsgs + 1,
+		},
+		{
+			name:        "message bytes",
+			msgType:     lnwire.MsgOnionMessage,
+			payloadSize: onionBlobSize,
+			numMsgs: limits.maxBytes/
+				(limits.msgOverhead+onionBlobSize) + 1,
+		},
+	}
+
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			// Arrange: Start only the queue handler so no writer
+			// drains sendQueue or hides the staged backlog.
+			params := createTestPeer(t)
+			peer := params.peer
+			startTestQueueHandler(peer)
+
+			// Act: Build each row through one path. Onion messages
+			// use fresh slices, modeling memory a forwarding peer
+			// can make us retain.
+			for i := 0; i < test.numMsgs; i++ {
+				var msg lnwire.Message
+				switch test.msgType {
+				case lnwire.MsgPong:
+					msg = lnwire.NewPong(nil)
+
+				case lnwire.MsgOnionMessage:
+					onionBlob := make(
+						[]byte, test.payloadSize,
+					)
+					msg = &lnwire.OnionMessage{
+						OnionBlob: onionBlob,
+					}
+
+				default:
+					t.Fatalf(
+						"unsupported queue message: %v",
+						test.msgType,
+					)
+				}
+
+				peer.queueMsg(msg, nil)
+			}
+
+			// Assert: Cancellation proves overflow, and waiting
+			// proves the asynchronous handler exits cleanly.
+			_, err := fn.RecvOrTimeout(peer.cg.Done(), timeout)
+			require.NoError(t, err)
+			peer.cg.WgWait()
+		})
+	}
+}
+
+// TestPeerMessageQueueCost verifies the non-serializing cost rules used by
+// the outgoing queue byte budget.
+func TestPeerMessageQueueCost(t *testing.T) {
+	t.Parallel()
+
+	// Arrange: Load the production fixed overhead so every table
+	// expectation follows the queue policy without duplicating its value.
+	limits := defaultQueueLimits()
+	tests := []struct {
+		name     string
+		msg      lnwire.Message
+		expected int
+	}{
+		{
+			name:     "fixed message",
+			msg:      lnwire.NewPing(0),
+			expected: limits.msgOverhead,
+		},
+		{
+			name:     "shared Pong payload",
+			msg:      lnwire.NewPong(make([]byte, 1000)),
+			expected: limits.msgOverhead,
+		},
+		{
+			name: "failure reason",
+			msg: &lnwire.UpdateFailHTLC{
+				Reason: make([]byte, 5),
+			},
+			expected: limits.msgOverhead + 5,
+		},
+		{
+			name: "add onion and extra data",
+			msg: &lnwire.UpdateAddHTLC{
+				ExtraData: make([]byte, 7),
+			},
+			expected: limits.msgOverhead +
+				lnwire.OnionPacketSize + 7,
+		},
+		{
+			name: "error data",
+			msg: &lnwire.Error{
+				Data: make([]byte, 3),
+			},
+			expected: limits.msgOverhead + 3,
+		},
+		{
+			name: "warning data",
+			msg: &lnwire.Warning{
+				Data: make([]byte, 4),
+			},
+			expected: limits.msgOverhead + 4,
+		},
+		{
+			name: "onion message blob",
+			msg: &lnwire.OnionMessage{
+				OnionBlob: make([]byte, 6),
+			},
+			expected: limits.msgOverhead + 6,
+		},
+	}
+
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			// Arrange: Select one message shape and its exact
+			// fixed-plus-dynamic cost from the test table.
+
+			// Act: Evaluate its non-serializing queue charge.
+			actual := limits.msgCost(test.msg)
+
+			// Assert: Equality proves this shape charges only
+			// the enumerated payload plus fixed overhead.
+			require.Equal(t, test.expected, actual)
+		})
+	}
+}
+
+// TestPeerQueueHandlerDrainsBacklog verifies that messages leaving the queue
+// decrement its shadow count for a long-lived peer.
+func TestPeerQueueHandlerDrainsBacklog(t *testing.T) {
+	t.Parallel()
+
+	// Arrange: Start the isolated handler and register cleanup that
+	// cancels and joins it so no goroutine survives this test.
+	params := createTestPeer(t)
+	peer := params.peer
+	startTestQueueHandler(peer)
+	t.Cleanup(func() {
+		peer.cg.Quit()
+		peer.cg.WgWait()
+	})
+
+	// Act: Exceed the lifetime count cap while draining each message
+	// immediately, forcing the shadow count back to zero each time.
+	for i := 0; i <= peer.queueLimits.maxMsgs; i++ {
+		peer.queueMsg(lnwire.NewPong(nil), nil)
+
+		select {
+		case <-peer.sendQueue:
+		case <-peer.cg.Done():
+			t.Fatal("healthy drained queue exceeded message bound")
+		case <-time.After(timeout):
+			t.Fatal("queued message was not drained")
+		}
+	}
+
+	// Assert: Every item drained and the peer remains live, proving
+	// only the concurrent backlog contributes to the queue bound.
+	select {
+	case <-peer.cg.Done():
+		t.Fatal("healthy drained queue disconnected")
+	default:
+	}
+}
+
+// TestPeerQueueHandlerServicesQueueDuringTeardown verifies that queue
+// producers are failed while Disconnect waits for peer startup to finish.
+func TestPeerQueueHandlerServicesQueueDuringTeardown(t *testing.T) {
+	t.Parallel()
+
+	// Arrange: Mark the peer started but hold startReady open, so
+	// overflow enters Disconnect without finishing; cleanup later
+	// releases that gate, cancels, and joins the queue goroutine.
+	params := createTestPeer(t)
+	peer := params.peer
+	atomic.StoreInt32(&peer.started, 1)
+	startTestQueueHandler(peer)
+	t.Cleanup(func() {
+		select {
+		case <-peer.startReady:
+		default:
+			close(peer.startReady)
+		}
+
+		peer.cg.Quit()
+		peer.cg.WgWait()
+	})
+
+	// Act: Cross the count cap, wait for Disconnect to block, then
+	// invoke a synchronous sender in a goroutine so the queue handler
+	// must return its result while teardown remains pending.
+	for i := 0; i <= peer.queueLimits.maxMsgs; i++ {
+		peer.queueMsg(lnwire.NewPong(nil), nil)
+	}
+
+	require.Eventually(t, func() bool {
+		return atomic.LoadInt32(&peer.disconnect) == 1
+	}, timeout, 10*time.Millisecond)
+
+	errChan := make(chan error, 1)
+	go func() {
+		errChan <- peer.SendMessage(true, lnwire.NewPing(0))
+	}()
+
+	// Assert: The sender gets ErrPeerExiting while cg remains live,
+	// proving producers are serviced until startup teardown can finish.
+	err, recvErr := fn.RecvOrTimeout(errChan, timeout)
+	require.NoError(t, recvErr)
+	require.ErrorIs(t, err, lnpeer.ErrPeerExiting)
+
+	select {
+	case <-peer.cg.Done():
+		t.Fatal("Disconnect completed before startReady was signaled")
+	default:
+	}
 }
 
 // TestMessageSummaryPingIncludesNumPongBytes ensures the debug summary for a

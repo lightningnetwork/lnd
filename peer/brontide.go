@@ -125,6 +125,10 @@ type outgoingMsg struct {
 	priority bool
 	msg      lnwire.Message
 	errChan  chan error // MUST be buffered.
+
+	// queueCost is calculated before insertion so the generic queue can
+	// account for retained memory without interpreting wire message types.
+	queueCost int
 }
 
 // newChannelMsg packages a channeldb.OpenChannel with a channel that allows
@@ -592,6 +596,9 @@ type Brontide struct {
 	// pingLimits owns the two per-connection inbound Ping policies.
 	pingLimits pingLimits
 
+	// queueLimits supplies one accounting policy to the producer and queue.
+	queueLimits queueLimits
+
 	// lastPingPayload stores an unsafe pointer wrapped as an atomic
 	// variable which points to the last payload the remote party sent us
 	// as their ping.
@@ -754,6 +761,7 @@ func NewBrontide(cfg Config) *Brontide {
 		sendQueue:     make(chan outgoingMsg),
 		outgoingQueue: make(chan outgoingMsg),
 		pingLimits:    defaultPingLimits(),
+		queueLimits:   defaultQueueLimits(),
 		addedChannels: &lnutils.SyncMap[lnwire.ChannelID, struct{}]{},
 		activeChannels: &lnutils.SyncMap[
 			lnwire.ChannelID, *lnwallet.LightningChannel,
@@ -3199,8 +3207,17 @@ func (p *Brontide) queueMsgLazy(msg lnwire.Message, errChan chan error) {
 func (p *Brontide) queue(priority bool, msg lnwire.Message,
 	errChan chan error) {
 
+	// Compute retained-memory accounting at the producer boundary so the
+	// queue handles only generic cost metadata, never wire message types.
+	queuedMsg := outgoingMsg{
+		priority:  priority,
+		msg:       msg,
+		errChan:   errChan,
+		queueCost: p.queueLimits.msgCost(msg),
+	}
+
 	select {
-	case p.outgoingQueue <- outgoingMsg{priority, msg, errChan}:
+	case p.outgoingQueue <- queuedMsg:
 	case <-p.cg.Done():
 		p.log.Tracef("Peer shutting down, could not enqueue msg: %v.",
 			lnutils.SpewLogClosure(msg))

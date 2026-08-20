@@ -1187,6 +1187,12 @@ var queryRoutesCommand = cli.Command{
 				`"fee_proportional_millionths":3,` +
 				`"cltv_expiry_delta":4}]}]'`,
 		},
+		cli.StringFlag{
+			Name: "payment_addr",
+			Usage: "(optional) the 32-byte payment address for MPP " +
+				"payments. When provided, the route will include " +
+				"the MPP record with this payment address.",
+		},
 	},
 	Action: actionDecorator(queryRoutes),
 }
@@ -1278,6 +1284,16 @@ func queryRoutes(ctx *cli.Context) error {
 		TimePref:            ctx.Float64(timePrefFlag.Name),
 		IgnoredPairs:        ignoredPairs,
 		BlindedPaymentPaths: blindedRoutes,
+	}
+
+	// Parse payment_addr if provided
+	if ctx.IsSet("payment_addr") {
+		paymentAddrHex := ctx.String("payment_addr")
+		paymentAddr, err := hex.DecodeString(paymentAddrHex)
+		if err != nil {
+			return fmt.Errorf("unable to decode payment_addr: %w", err)
+		}
+		req.PaymentAddr = paymentAddr
 	}
 
 	outgoingChanIds := ctx.StringSlice("outgoing_chan_id")

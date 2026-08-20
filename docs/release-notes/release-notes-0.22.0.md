@@ -55,6 +55,23 @@
   the reported network statistics such as total network capacity, channel
   count and max out degree.
 
+* [Fixed a bug](https://github.com/lightningnetwork/lnd/issues/10952) where a
+  node using `externalhosts` accumulated a dead clearnet address in its node
+  announcement every time its IP changed while it was down. The configured
+  hosts are now resolved on startup and, together with `externalip` and any
+  NAT-discovered IPs, determine which clearnet addresses we advertise, so the
+  IPs a host used to resolve to are no longer carried over. Onion and I2P
+  addresses are always carried over, and nothing is pruned if a host fails to
+  resolve. Note that a node with `externalip` set previously dropped its
+  persisted onion and I2P addresses at startup and now retains them; an
+  operator who has since removed a Tor or I2P service can clear a leftover
+  address with `lncli peers updatenodeannouncement --address_remove=`. Each host
+  is resolved to a single address, so a host backed by several rotating A
+  records may see its advertised IP change between restarts. Likewise, a
+  clearnet address added with `updatenodeannouncement --address_add` is dropped
+  on restart when `externalhosts` (or `externalip`) is set; onion and I2P
+  additions are kept.
+
 # New Features
 
 ## Functional Enhancements
@@ -148,6 +165,11 @@
 
 ## Code Health
 
+* The `netann.HostAnnouncerConfig` field `AdvertisedIPs` (a set of advertised
+  IP strings) has been replaced by `InitialAddrs`, a map from host to the
+  address it resolved to at startup. Out-of-tree consumers constructing this
+  config must update accordingly.
+
 ## Tooling and Documentation
 
 * [`dev.Dockerfile` now uses](https://github.com/lightningnetwork/lnd/pull/10903)
@@ -163,6 +185,7 @@
 
 # Contributors (Alphabetical Order)
 
+* Abdulkbk
 * bitromortac
 * Boris Nagaev
 * Erick Cestari

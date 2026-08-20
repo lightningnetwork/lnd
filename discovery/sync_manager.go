@@ -660,13 +660,11 @@ func (m *SyncManager) createGossipSyncer(peer lnpeer.Peer) *GossipSyncer {
 	nodeID := route.Vertex(peer.PubKey())
 	log.Infof("Creating new GossipSyncer for peer=%x", nodeID[:])
 
-	encoding := lnwire.EncodingSortedPlain
 	s := newGossipSyncer(gossipSyncerCfg{
 		chainHash:     m.cfg.ChainHash,
 		peerPub:       nodeID,
 		channelSeries: m.cfg.ChanSeries,
-		encodingType:  encoding,
-		chunkSize:     encodingTypeToChunkSize[encoding],
+		chunkSize:     defaultChunkSize,
 		batchSize:     requestBatchSize,
 		sendMsg: func(ctx context.Context, sync bool,
 			msgs ...lnwire.Message) error {

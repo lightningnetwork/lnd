@@ -144,9 +144,9 @@ func (c *ReplyChannelRange) Encode(w *bytes.Buffer, pver uint32) error {
 		return err
 	}
 
-	// For both of the current encoding types, the channel ID's are to be
-	// sorted in place, so we'll do that now. The sorting is applied unless
-	// we were specifically requested not to for testing purposes.
+	// The channel ID's are to be sorted in place, so we'll do that now.
+	// The sorting is applied unless we were specifically requested not
+	// to for testing purposes.
 	if !c.noSort {
 		var scidPreSortIndex map[uint64]int
 		if len(c.Timestamps) != 0 {

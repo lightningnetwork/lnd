@@ -168,14 +168,9 @@ const (
 	// process for a single QueryChannelRange request.
 	maxQueryChanRangeReplies = 500
 
-	// maxQueryChanRangeRepliesZlibFactor specifies the factor applied to
-	// the maximum number of replies allowed for zlib encoded replies.
-	maxQueryChanRangeRepliesZlibFactor = 4
-
 	// maxChanRangeReplySCIDs is the maximum number of short channel IDs
 	// we'll process for a single QueryChannelRange request.
 	maxChanRangeReplySCIDs = 100_000
-
 	// chanRangeQueryBuffer is the number of blocks back that we'll go when
 	// asking the remote peer for their any channels they know of beyond
 	// our highest known channel ID.
@@ -1024,9 +1019,6 @@ func (g *GossipSyncer) bufferChanRangeReply(_ context.Context,
 	case lnwire.EncodingSortedPlain:
 		replyCount = 1
 
-	case lnwire.EncodingSortedZlib:
-		replyCount = maxQueryChanRangeRepliesZlibFactor
-
 	default:
 		return fmt.Errorf(
 			"unhandled encoding type %v", msg.EncodingType,
@@ -1099,6 +1091,12 @@ func (g *GossipSyncer) bufferChanRangeReply(_ context.Context,
 		)
 	}
 
+	switch g.cfg.encodingType {
+	case lnwire.EncodingSortedPlain:
+		g.numChanRangeRepliesRcvd++
+	default:
+		return fmt.Errorf("unhandled encoding type %v", g.cfg.encodingType)
+	}
 	log.Infof("GossipSyncer(%x): buffering chan range reply of size=%v",
 		g.cfg.peerPub[:], len(msg.ShortChanIDs))
 

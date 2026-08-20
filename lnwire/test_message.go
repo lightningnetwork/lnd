@@ -1714,14 +1714,9 @@ func (q *QueryShortChanIDs) RandTestMessage(t *rapid.T) Message {
 	hashBytes := rapid.SliceOfN(rapid.Byte(), 32, 32).Draw(t, "chainHash")
 	copy(chainHash[:], hashBytes)
 
-	encodingType := EncodingSortedPlain
-	if rapid.Bool().Draw(t, "useZlibEncoding") {
-		encodingType = EncodingSortedZlib
-	}
-
 	msg := &QueryShortChanIDs{
 		ChainHash:    chainHash,
-		EncodingType: encodingType,
+		EncodingType: EncodingSortedPlain,
 		ExtraData:    RandExtraOpaqueData(t, nil),
 		noSort:       false,
 	}
@@ -1765,11 +1760,9 @@ func (c *ReplyChannelRange) RandTestMessage(t *rapid.T) Message {
 		NumBlocks: uint32(rapid.IntRange(1, 10000).Draw(
 			t, "numBlocks"),
 		),
-		Complete: uint8(rapid.IntRange(0, 1).Draw(t, "complete")),
-		EncodingType: QueryEncoding(
-			rapid.IntRange(0, 1).Draw(t, "encodingType"),
-		),
-		ExtraData: RandExtraOpaqueData(t, nil),
+		Complete:     uint8(rapid.IntRange(0, 1).Draw(t, "complete")),
+		EncodingType: EncodingSortedPlain,
+		ExtraData:    RandExtraOpaqueData(t, nil),
 	}
 
 	msg.ChainHash = RandChainHash(t)

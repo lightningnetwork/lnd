@@ -55,6 +55,12 @@ type Config struct {
 	// NetParams is the net parameters for the target chain.
 	NetParams *chaincfg.Params
 
+	// IsLocalNet indicates whether the wallet is running on a local
+	// network such as regtest or simnet, where blocks are only mined on
+	// demand and the chain tip is expected to sit idle for long stretches.
+	// When true, the tip-staleness check in IsSynced is skipped.
+	IsLocalNet bool
+
 	// CoinType specifies the BIP 44 coin type to be used for derivation.
 	CoinType uint32
 

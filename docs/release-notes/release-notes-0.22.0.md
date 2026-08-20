@@ -55,6 +55,11 @@
   the reported network statistics such as total network capacity, channel
   count and max out degree.
 
+* [Fixed a bug](https://github.com/lightningnetwork/lnd/pull/10983) in
+  `FundPsbt` where a partial lease rollback used lnd's internal lock ID instead
+  of the caller's custom lock ID, leaving successfully leased inputs locked
+  until expiration.
+
 # New Features
 
 ## Functional Enhancements

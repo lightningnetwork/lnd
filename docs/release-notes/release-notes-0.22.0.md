@@ -72,6 +72,15 @@
   the chain backend via bitcoind's `submitpackage`, allowing a zero-fee v3/TRUC
   parent to be accepted together with a fee-paying CPFP child.
 
+* [Added a `raw_tx_hex` field to the `PendingSweep`
+  response](https://github.com/lightningnetwork/lnd/pull/10670) returned by
+  `walletrpc.PendingSweeps`. The field contains the serialized hex of the most
+  recent sweep transaction lnd broadcast for the input, allowing callers
+  (notably consumers of `BumpFee`) to inspect the in-flight sweep without
+  having to scrape the mempool. As it can briefly lag behind an RBF
+  replacement, callers that rebroadcast should verify the txid against the
+  mempool first.
+
 ## lncli Additions
 
 * The `estimateroutefee` command now supports [restricting fee estimates to
@@ -91,6 +100,11 @@
 ## RPC Updates
 
 ## lncli Updates
+
+* The `lncli wallet bumpfee` command help now points users at `lncli wallet
+  pendingsweeps` to inspect the in-flight sweep transaction, including its
+  raw hex
+  ([#10670](https://github.com/lightningnetwork/lnd/pull/10670)).
 
 ## Breaking Changes
 

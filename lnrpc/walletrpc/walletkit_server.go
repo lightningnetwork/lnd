@@ -84,6 +84,10 @@ var (
 			Entity: "address",
 			Action: "read",
 		}},
+		"/walletrpc.WalletKit/DeriveAndStoreKey": {{
+			Entity: "address",
+			Action: "read",
+		}},
 		"/walletrpc.WalletKit/NextAddr": {{
 			Entity: "address",
 			Action: "read",
@@ -602,6 +606,37 @@ func (w *WalletKit) DeriveKey(ctx context.Context,
 	req *signrpc.KeyLocator) (*signrpc.KeyDescriptor, error) {
 
 	keyDesc, err := w.cfg.KeyRing.DeriveKey(keychain.KeyLocator{
+		Family: keychain.KeyFamily(req.KeyFamily),
+		Index:  uint32(req.KeyIndex),
+	})
+	if err != nil {
+		return nil, err
+	}
+
+	return &signrpc.KeyDescriptor{
+		KeyLoc: &signrpc.KeyLocator{
+			KeyFamily: int32(keyDesc.Family),
+			KeyIndex:  int32(keyDesc.Index),
+		},
+		RawKeyBytes: keyDesc.PubKey.SerializeCompressed(),
+	}, nil
+}
+
+// DeriveAndStoreKey attempts to derive an arbitrary key specified by the passed
+// KeyLocator, and also records that key in the wallet so it can be signed with
+// later on. Recording the key advances the family's next index past the
+// requested one.
+func (w *WalletKit) DeriveAndStoreKey(ctx context.Context,
+	req *signrpc.KeyLocator) (*signrpc.KeyDescriptor, error) {
+
+	if req.KeyFamily < 0 {
+		return nil, fmt.Errorf("key family must not be negative")
+	}
+	if req.KeyIndex < 0 {
+		return nil, fmt.Errorf("key index must not be negative")
+	}
+
+	keyDesc, err := w.cfg.KeyRing.DeriveAndStoreKey(keychain.KeyLocator{
 		Family: keychain.KeyFamily(req.KeyFamily),
 		Index:  uint32(req.KeyIndex),
 	})

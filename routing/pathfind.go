@@ -113,6 +113,7 @@ type finalHopParams struct {
 
 	records     record.CustomSet
 	paymentAddr fn.Option[[32]byte]
+	amp         *record.AMP
 
 	// metadata is additional data that is sent along with the payment to
 	// the payee.
@@ -265,6 +266,12 @@ func newRoute(sourceVertex route.Vertex,
 				mpp = record.NewMPP(finalHop.totalAmt, addr)
 			})
 
+			// If we're attaching an AMP record but the receiver doesn't support
+			// AMP, fail.
+			if finalHop.amp != nil && !supports(lnwire.AMPOptional) {
+				return nil, errors.New("cannot attach AMP record")
+			}
+
 			metadata = finalHop.metadata
 
 			if blindedPathSet != nil {
@@ -312,6 +319,7 @@ func newRoute(sourceVertex route.Vertex,
 			OutgoingTimeLock: outgoingTimeLock,
 			CustomRecords:    customRecords,
 			MPP:              mpp,
+			AMP:              finalHop.amp,
 			Metadata:         metadata,
 			TotalAmtMsat:     totalAmtMsatBlinded,
 		}

@@ -58,7 +58,8 @@ INSERT INTO payment_htlc_attempt_resolutions (
     resolution_type,
     failure_source_index,
     htlc_fail_reason,
-    failure_msg
+    failure_msg,
+    hold_times
 )
 VALUES (
     $1,
@@ -66,7 +67,8 @@ VALUES (
     $3,
     $4,
     $5,
-    $6
+    $6,
+    $7
 )
 `
 
@@ -77,6 +79,7 @@ type FailAttemptParams struct {
 	FailureSourceIndex sql.NullInt32
 	HtlcFailReason     sql.NullInt32
 	FailureMsg         []byte
+	HoldTimes          []byte
 }
 
 func (q *Queries) FailAttempt(ctx context.Context, arg FailAttemptParams) error {
@@ -87,6 +90,7 @@ func (q *Queries) FailAttempt(ctx context.Context, arg FailAttemptParams) error 
 		arg.FailureSourceIndex,
 		arg.HtlcFailReason,
 		arg.FailureMsg,
+		arg.HoldTimes,
 	)
 	return err
 }
@@ -315,6 +319,7 @@ SELECT
     hr.failure_source_index,
     hr.htlc_fail_reason,
     hr.failure_msg,
+    hr.hold_times,
     hr.settle_preimage
 FROM payment_htlc_attempts ha
 LEFT JOIN payment_htlc_attempt_resolutions hr ON hr.attempt_index = ha.attempt_index
@@ -338,6 +343,7 @@ type FetchHtlcAttemptsForPaymentsRow struct {
 	FailureSourceIndex sql.NullInt32
 	HtlcFailReason     sql.NullInt32
 	FailureMsg         []byte
+	HoldTimes          []byte
 	SettlePreimage     []byte
 }
 
@@ -376,6 +382,7 @@ func (q *Queries) FetchHtlcAttemptsForPayments(ctx context.Context, paymentIds [
 			&i.FailureSourceIndex,
 			&i.HtlcFailReason,
 			&i.FailureMsg,
+			&i.HoldTimes,
 			&i.SettlePreimage,
 		); err != nil {
 			return nil, err

@@ -94,6 +94,13 @@
 
 ## Breaking Changes
 
+* The `htlcswitch/hop.ErrorEncrypter` interface changed shape as part of
+  [attributable failures](https://github.com/lightningnetwork/lnd/pull/9888):
+  the `Encrypt*` methods now additionally return the attribution data
+  (`[]byte`), and the former `ErrorEncrypterExtracter` was replaced by
+  `SharedSecretGenerator`. Out-of-tree implementers of this interface must
+  update their implementations accordingly.
+
 ## Performance Improvements
 
 ## Deprecations
@@ -101,6 +108,12 @@
 # Technical and Architectural Updates
 
 ## BOLT Spec Updates
+
+* Added support for [attributable failures (feature
+  36/37)](https://github.com/lightningnetwork/lnd/pull/9888) per BOLT #1044.
+  Per-hop hold times reported via the new `attribution_data` field on
+  `update_fail_htlc` are exposed to senders through `Failure.hold_times` on
+  `SendPaymentV2` results.
 
 * The fundee now [enforces the BOLT-02 bound on
   `push_msat`](https://github.com/lightningnetwork/lnd/pull/10765),

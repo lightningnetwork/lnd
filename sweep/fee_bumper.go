@@ -344,6 +344,10 @@ type TxPublisherConfig struct {
 	// Notifier is used to monitor the confirmation status of the tx.
 	Notifier chainntnfs.ChainNotifier
 
+	// SpendConfDepth optionally overrides the confirmation depth required
+	// before an input spend is treated as final.
+	SpendConfDepth fn.Option[uint32]
+
 	// AuxSweeper is an optional interface that can be used to modify the
 	// way sweep transaction are generated.
 	AuxSweeper fn.Option[AuxSweeper]
@@ -667,9 +671,6 @@ func (t *TxPublisher) createAndCheckTx(r *monitorRecord) (*sweepTxCtx, error) {
 		log.Debugf("Tx %v missing inputs, it's likely the input has "+
 			"been spent by others", sweepCtx.tx.TxHash())
 
-		// Make sure to update the record with the latest attempt.
-		t.updateRecord(r, sweepCtx)
-
 		return sweepCtx, ErrInputMissing
 	}
 
@@ -681,10 +682,14 @@ func (t *TxPublisher) createAndCheckTx(r *monitorRecord) (*sweepTxCtx, error) {
 // missing inputs error, which could happen when one of the input has been spent
 // in another tx, or the input is referencing an orphan. When the input is
 // spent, it will be handled via the TxUnknownSpend flow by creating a
-// TxUnknownSpend bump result, otherwise, a TxFatal bump result is returned.
+// TxUnknownSpend bump result. An orphan returns TxFatal, while a depth-pending
+// spend returns nil so the monitor record remains active.
 func (t *TxPublisher) handleMissingInputs(r *monitorRecord) *BumpResult {
 	// Get the spending txns.
-	spends := t.getSpentInputs(r)
+	spends, pending := t.getSpentInputs(r)
+	if pending && len(spends) == 0 {
+		return nil
+	}
 
 	// Attach the spending txns.
 	r.spentInputs = spends
@@ -714,7 +719,7 @@ func (t *TxPublisher) handleMissingInputs(r *monitorRecord) *BumpResult {
 	// current sweeping tx has been failed due to missing inputs, the
 	// spending tx must be a different tx, thus it should NOT be matched. We
 	// perform a sanity check here to catch the unexpected state.
-	if !t.isUnknownSpent(r, spends) {
+	if r.tx != nil && !t.isUnknownSpent(r, spends) {
 		log.Errorf("Sweeping tx %v has missing inputs, yet the "+
 			"spending tx is the sweeping tx itself: %v",
 			r.tx.TxHash(), r.spentInputs)
@@ -894,6 +899,14 @@ type monitorRecord struct {
 func (t *TxPublisher) Start(beat chainio.Blockbeat) error {
 	log.Info("TxPublisher starting...")
 
+	var finalityErr error
+	t.cfg.SpendConfDepth.WhenSome(func(numConfs uint32) {
+		_, finalityErr = chainntnfs.NewSpendFinality(numConfs)
+	})
+	if finalityErr != nil {
+		return fmt.Errorf("spend finality: %w", finalityErr)
+	}
+
 	if t.started.Swap(true) {
 		return fmt.Errorf("TxPublisher started more than once")
 	}
@@ -980,7 +993,7 @@ func (t *TxPublisher) processRecords() {
 		log.Tracef("Checking monitor recordID=%v", requestID)
 
 		// Check whether the inputs have already been spent.
-		spends := t.getSpentInputs(r)
+		spends, spendPending := t.getSpentInputs(r)
 
 		// If the any of the inputs has been spent, the record will be
 		// marked as failed or confirmed.
@@ -1015,6 +1028,12 @@ func (t *TxPublisher) processRecords() {
 			confirmedRecords[requestID] = r
 
 			// Move to the next record.
+			return nil
+		}
+
+		// Keep the record idle while its only known spend is still
+		// below the required confirmation depth.
+		if spendPending {
 			return nil
 		}
 
@@ -1141,6 +1160,9 @@ func (t *TxPublisher) handleInitialTxError(r *monitorRecord, err error) {
 	// result here so the rest of the inputs can be retried.
 	case errors.Is(err, ErrInputMissing):
 		result = t.handleMissingInputs(r)
+		if result == nil {
+			return
+		}
 
 	// Otherwise this is not a fee-related error and the tx cannot be
 	// retried. In that case we will fail ALL the inputs in this tx, which
@@ -1393,18 +1415,19 @@ func (t *TxPublisher) isUnknownSpent(r *monitorRecord,
 	return false
 }
 
-// getSpentInputs performs a non-blocking read on the spending subscriptions to
-// see whether any of the monitored inputs has been spent. A map of inputs with
-// their spending txns are returned if found.
+// getSpentInputs performs a non-blocking read on the spending subscriptions.
+// It returns stable spends and whether any other spend is depth-pending.
 func (t *TxPublisher) getSpentInputs(
-	r *monitorRecord) map[wire.OutPoint]*wire.MsgTx {
+	r *monitorRecord) (map[wire.OutPoint]*wire.MsgTx, bool) {
 
 	// Create a slice to record the inputs spent.
 	spentInputs := make(map[wire.OutPoint]*wire.MsgTx, len(r.req.Inputs))
+	var spendPending bool
 
 	// Iterate all the inputs and check if they have been spent already.
 	for _, inp := range r.req.Inputs {
 		op := inp.OutPoint()
+		signDesc := inp.SignDesc()
 
 		// For wallet utxos, the height hint is not set - we don't need
 		// to monitor them for third party spend.
@@ -1422,13 +1445,13 @@ func (t *TxPublisher) getSpentInputs(
 		// If the input has already been spent after the height hint, a
 		// spend event is sent back immediately.
 		spendEvent, err := t.cfg.Notifier.RegisterSpendNtfn(
-			&op, inp.SignDesc().Output.PkScript, heightHint,
+			&op, signDesc.Output.PkScript, heightHint,
 		)
 		if err != nil {
 			log.Criticalf("Failed to register spend ntfn for "+
 				"input=%v: %v", op, err)
 
-			return nil
+			return nil, false
 		}
 
 		// Remove the subscription when exit.
@@ -1444,6 +1467,30 @@ func (t *TxPublisher) getSpentInputs(
 			}
 
 			spendingTx := spend.SpendingTx
+			inputValue := btcutil.Amount(signDesc.Output.Value)
+			requiredConfs := t.cfg.SpendConfDepth.UnwrapOrFunc(
+				func() uint32 {
+					return lnwallet.CloseConfsForCapacity(
+						inputValue,
+					)
+				},
+			)
+			finality, err := chainntnfs.NewSpendFinality(
+				requiredConfs,
+			)
+			if err != nil {
+				log.Errorf("Invalid spend finality: %v", err)
+				spendPending = true
+
+				continue
+			}
+			if !finality.IsFinal(
+				spend.SpendingHeight, t.currentHeight.Load(),
+			) {
+
+				spendPending = true
+				continue
+			}
 
 			log.Debugf("Detected spent of input=%v in tx=%v", op,
 				spendingTx.TxHash())
@@ -1456,7 +1503,7 @@ func (t *TxPublisher) getSpentInputs(
 		}
 	}
 
-	return spentInputs
+	return spentInputs, spendPending
 }
 
 // calcCurrentConfTarget calculates the current confirmation target based on
@@ -1853,6 +1900,9 @@ func (t *TxPublisher) handleReplacementTxError(r *monitorRecord,
 	if errors.Is(err, ErrInputMissing) {
 		log.Warnf("Fail to fee bump tx %v: %v", oldTx.TxHash(), err)
 		bumpResult := t.handleMissingInputs(r)
+		if bumpResult == nil {
+			return fn.None[BumpResult]()
+		}
 
 		return fn.Some(*bumpResult)
 	}

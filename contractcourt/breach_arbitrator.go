@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"io"
 	"sync"
+	"time"
 
 	"github.com/btcsuite/btcd/blockchain"
 	"github.com/btcsuite/btcd/btcutil/v2"
@@ -41,6 +42,10 @@ const (
 	// the channel peer can do by pinning the HTLC outputs of the
 	// commitment with low-fee HTLC transactions.
 	blocksPassedSplitPublish = 4
+
+	// breachSpendRetryInterval bounds retries after a transient notifier
+	// registration failure.
+	breachSpendRetryInterval = time.Second
 )
 
 var (
@@ -175,6 +180,10 @@ type BreachConfig struct {
 	// breached channels. This is used in conjunction with DB to recover
 	// from crashes, restarts, or other failures.
 	Store RetributionStorer
+
+	// SpendConfDepth optionally overrides the confirmation depth required
+	// before a breached output is considered spent.
+	SpendConfDepth fn.Option[uint32]
 
 	// AuxSweeper is an optional interface that can be used to modify the
 	// way sweep transaction are generated.
@@ -412,12 +421,31 @@ type spend struct {
 	detail *chainntnfs.SpendDetail
 }
 
-// waitForSpendEvent waits for any of the breached outputs to get spent, and
-// returns the spend details for those outputs. The spendNtfns map is a cache
-// used to store registered spend subscriptions, in case we must call this
-// method multiple times.
-func (b *BreachArbitrator) waitForSpendEvent(breachInfo *retributionInfo,
-	spendNtfns map[wire.OutPoint]*chainntnfs.SpendEvent) ([]spend, error) {
+// waitForSpendEvent retries transient notification failures while waiting for
+// breached outputs to be spent.
+func (b *BreachArbitrator) waitForSpendEvent(
+	breachInfo *retributionInfo) ([]spend, error) {
+
+	for {
+		spends, err := b.waitForSpendAttempt(breachInfo)
+		if err == nil || errors.Is(err, errBrarShuttingDown) ||
+			errors.Is(err, chainntnfs.ErrNumConfsOutOfRange) {
+
+			return spends, err
+		}
+
+		brarLog.Errorf("Unable to monitor breach spends: %v", err)
+		select {
+		case <-time.After(breachSpendRetryInterval):
+		case <-b.quit:
+			return nil, errBrarShuttingDown
+		}
+	}
+}
+
+// waitForSpendAttempt waits for any breached output to reach finality once.
+func (b *BreachArbitrator) waitForSpendAttempt(
+	breachInfo *retributionInfo) ([]spend, error) {
 
 	inputs := breachInfo.breachedOutputs
 
@@ -432,7 +460,12 @@ func (b *BreachArbitrator) waitForSpendEvent(breachInfo *retributionInfo,
 
 	// exit will be used to signal the goroutines that they can exit.
 	exit := make(chan struct{})
+	waitErr := make(chan error, len(inputs))
 	var wg sync.WaitGroup
+	stopWaiters := func() {
+		close(exit)
+		wg.Wait()
+	}
 
 	// We'll now launch a goroutine for each of the HTLC outputs, that will
 	// signal the moment they detect a spend event.
@@ -443,70 +476,82 @@ func (b *BreachArbitrator) waitForSpendEvent(breachInfo *retributionInfo,
 			breachedOutput.witnessType, breachedOutput.outpoint,
 			breachInfo.chanPoint)
 
-		// If we have already registered for a notification for this
-		// output, we'll reuse it.
-		spendNtfn, ok := spendNtfns[breachedOutput.outpoint]
-		if !ok {
-			var err error
-			spendNtfn, err = b.cfg.Notifier.RegisterSpendNtfn(
-				&breachedOutput.outpoint,
-				breachedOutput.signDesc.Output.PkScript,
-				breachInfo.breachHeight,
-			)
-			if err != nil {
-				brarLog.Errorf("Unable to check for spentness "+
-					"of outpoint=%v: %v",
-					breachedOutput.outpoint, err)
+		spendNtfn, err := b.cfg.Notifier.RegisterSpendNtfn(
+			&breachedOutput.outpoint,
+			breachedOutput.signDesc.Output.PkScript,
+			breachInfo.breachHeight,
+		)
+		if err != nil {
+			brarLog.Errorf("Unable to check for spentness "+
+				"of outpoint=%v: %v",
+				breachedOutput.outpoint, err)
 
-				// Registration may have failed if we've been
-				// instructed to shutdown. If so, return here
-				// to avoid entering an infinite loop.
-				select {
-				case <-b.quit:
-					return nil, errBrarShuttingDown
-				default:
-					continue
-				}
+			// Registration may have failed if we've been
+			// instructed to shutdown. If so, return here
+			// to avoid entering an infinite loop.
+			select {
+			case <-b.quit:
+				stopWaiters()
+				return nil, errBrarShuttingDown
+			default:
+				stopWaiters()
+				return nil, fmt.Errorf(
+					"register spend notification: %w", err,
+				)
 			}
-			spendNtfns[breachedOutput.outpoint] = spendNtfn
+		}
+
+		numConfs := b.cfg.SpendConfDepth.UnwrapOrFunc(func() uint32 {
+			return lnwallet.CloseConfsForCapacity(
+				breachedOutput.Amount(),
+			)
+		})
+		finality, err := chainntnfs.NewSpendFinality(numConfs)
+		if err != nil {
+			spendNtfn.Cancel()
+			stopWaiters()
+
+			return nil, err
 		}
 
 		// Launch a goroutine waiting for a spend event.
 		b.wg.Add(1)
 		wg.Add(1)
-		go func(index int, spendEv *chainntnfs.SpendEvent) {
+		go func(index int, spendEv *chainntnfs.SpendEvent,
+			spendFinality *chainntnfs.SpendFinality) {
+
 			defer b.wg.Done()
 			defer wg.Done()
 
-			select {
-			// The output has been taken to the second level!
-			case sp, ok := <-spendEv.Spend:
-				if !ok {
+			sp, err := chainntnfs.WaitForSpendConfirmations(
+				spendEv, b.cfg.Notifier,
+				inputs[index].signDesc.Output.PkScript,
+				spendFinality,
+				exit,
+			)
+			if err != nil {
+				select {
+				case <-exit:
 					return
+				case <-b.quit:
+					return
+				default:
 				}
 
-				brarLog.Infof("Detected spend on %s(%v) by "+
-					"txid(%v) for ChannelPoint(%v)",
-					inputs[index].witnessType,
-					inputs[index].outpoint,
-					sp.SpenderTxHash,
-					breachInfo.chanPoint)
-
-				// First we send the spend event on the
-				// allSpends channel, such that it can be
-				// handled after all go routines have exited.
-				allSpends <- spend{index, sp}
-
-				// Finally we'll signal the anySpend channel
-				// that a spend was detected, such that the
-				// other goroutines can be shut down.
-				anySpend <- struct{}{}
-			case <-exit:
-				return
-			case <-b.quit:
+				waitErr <- err
 				return
 			}
-		}(i, spendNtfn)
+
+			brarLog.Infof("Detected spend on %s(%v) by "+
+				"txid(%v) for ChannelPoint(%v)",
+				inputs[index].witnessType,
+				inputs[index].outpoint,
+				sp.SpenderTxHash,
+				breachInfo.chanPoint)
+
+			allSpends <- spend{index, sp}
+			anySpend <- struct{}{}
+		}(i, spendNtfn, finality)
 	}
 
 	// We'll wait for any of the outputs to be spent, or that we are
@@ -515,8 +560,7 @@ func (b *BreachArbitrator) waitForSpendEvent(breachInfo *retributionInfo,
 	// A goroutine have signalled that a spend occurred.
 	case <-anySpend:
 		// Signal for the remaining goroutines to exit.
-		close(exit)
-		wg.Wait()
+		stopWaiters()
 
 		// At this point all goroutines that can send on the allSpends
 		// channel have exited. We can therefore safely close the
@@ -526,15 +570,23 @@ func (b *BreachArbitrator) waitForSpendEvent(breachInfo *retributionInfo,
 		// Gather all detected spends and return them.
 		var spends []spend
 		for s := range allSpends {
-			breachedOutput := &inputs[s.index]
-			delete(spendNtfns, breachedOutput.outpoint)
-
 			spends = append(spends, s)
 		}
 
 		return spends, nil
 
+	case err := <-waitErr:
+		stopWaiters()
+
+		if errors.Is(err, chainntnfs.ErrChainNotifierShuttingDown) {
+			return nil, errBrarShuttingDown
+		}
+
+		return nil, err
+
 	case <-b.quit:
+		stopWaiters()
+
 		return nil, errBrarShuttingDown
 	}
 }
@@ -720,11 +772,6 @@ func (b *BreachArbitrator) exactRetribution(
 	brarLog.Debugf("Breach transaction %v has been confirmed, sweeping "+
 		"revoked funds", breachInfo.commitHash)
 
-	// We may have to wait for some of the HTLC outputs to be spent to the
-	// second level before broadcasting the justice tx. We'll store the
-	// SpendEvents between each attempt to not re-register unnecessarily.
-	spendNtfns := make(map[wire.OutPoint]*chainntnfs.SpendEvent)
-
 	// Compute both the total value of funds being swept and the
 	// amount of funds that were revoked from the counter party.
 	var totalFunds, revokedFunds btcutil.Amount
@@ -782,7 +829,7 @@ justiceTxBroadcast:
 	go func() {
 		defer wg.Done()
 
-		spends, err := b.waitForSpendEvent(breachInfo, spendNtfns)
+		spends, err := b.waitForSpendEvent(breachInfo)
 		if err != nil {
 			errChan <- err
 			return

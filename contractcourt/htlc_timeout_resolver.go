@@ -626,7 +626,9 @@ func (h *htlcTimeoutResolver) waitForConfirmedSpend(op *wire.OutPoint,
 	// We'll block here until either we exit, or the HTLC output on the
 	// commitment transaction has been spent.
 	spend, err := waitForSpend(
-		op, pkScript, h.broadcastHeight, h.Notifier, h.quit,
+		op, pkScript, h.broadcastHeight,
+		h.requiredConfsForSpend(h.htlc.Amt.ToSatoshis()),
+		h.Notifier, h.quit,
 	)
 	if err != nil {
 		return nil, err
@@ -817,16 +819,6 @@ func (h *htlcTimeoutResolver) SupplementDeadline(d fn.Option[int32]) {
 // ContractResolver interface.
 var _ htlcContractResolver = (*htlcTimeoutResolver)(nil)
 
-// spendResult is used to hold the result of a spend event from either a
-// mempool spend or a block spend.
-type spendResult struct {
-	// spend contains the details of the spend.
-	spend *chainntnfs.SpendDetail
-
-	// err is the error that occurred during the spend notification.
-	err error
-}
-
 // waitForMempoolOrBlockSpend waits for the htlc output to be spent by a
 // transaction that's either be found in the mempool or in a block.
 func (h *htlcTimeoutResolver) waitForMempoolOrBlockSpend(op wire.OutPoint,
@@ -843,107 +835,47 @@ func (h *htlcTimeoutResolver) waitForMempoolOrBlockSpend(op wire.OutPoint,
 		return nil, fmt.Errorf("register spend: %w", err)
 	}
 
+	blockQuit := make(chan struct{})
+	defer close(blockQuit)
+
+	blockResult := make(chan fn.Result[*chainntnfs.SpendDetail], 1)
+	finality, err := chainntnfs.NewSpendFinality(
+		h.requiredConfsForSpend(h.htlc.Amt.ToSatoshis()),
+	)
+	if err != nil {
+		return nil, err
+	}
+	go func() {
+		spend, err := chainntnfs.WaitForSpendConfirmations(
+			blockSpent, h.Notifier, pkScript, finality, blockQuit,
+		)
+		blockResult <- fn.NewResult(spend, err)
+	}()
+
 	// Subscribe for mempool spent(unconfirmed).
 	mempoolSpent, err := h.Mempool.SubscribeMempoolSpent(op)
 	if err != nil {
 		return nil, fmt.Errorf("register mempool spend: %w", err)
 	}
+	defer h.Mempool.CancelMempoolSpendEvent(mempoolSpent)
 
-	// Create a result chan that will be used to receive the spending
-	// events.
-	result := make(chan *spendResult, 2)
-
-	// Create a goroutine that will wait for either a mempool spend or a
-	// block spend.
-	//
-	// NOTE: no need to use waitgroup here as when the resolver exits, the
-	// goroutine will return on the quit channel.
-	go h.consumeSpendEvents(result, blockSpent.Spend, mempoolSpent.Spend)
-
-	// Wait for the spend event to be received.
-	select {
-	case event := <-result:
-		// Cancel the mempool subscription as we don't need it anymore.
-		h.Mempool.CancelMempoolSpendEvent(mempoolSpent)
-
-		return event.spend, event.err
-
-	case <-h.quit:
-		return nil, errResolverShuttingDown
-	}
-}
-
-// consumeSpendEvents consumes the spend events from the block and mempool
-// subscriptions. It exits when a spend event is received from the block, or
-// the resolver itself quits. When a spend event is received from the mempool,
-// however, it won't exit but continuing to wait for a spend event from the
-// block subscription.
-//
-// NOTE: there could be a case where we found the preimage in the mempool,
-// which will be added to our preimage beacon and settle the incoming link,
-// meanwhile the timeout sweep tx confirms. This outgoing HTLC is "free" money
-// and is not swept here.
-//
-// TODO(yy): sweep the outgoing htlc if it's confirmed.
-func (h *htlcTimeoutResolver) consumeSpendEvents(resultChan chan *spendResult,
-	blockSpent, mempoolSpent <-chan *chainntnfs.SpendDetail) {
-
-	op := h.HtlcPoint()
-
-	// Create a result chan to hold the results.
-	result := &spendResult{}
-
-	// Wait for a spend event to arrive.
 	for {
 		select {
-		// If a spend event is received from the block, this outgoing
-		// htlc is spent either by the remote via the preimage or by us
-		// via the timeout. We can exit the loop and `claimCleanUp`
-		// will feed the preimage to the beacon if found. This treats
-		// the block as the final judge and the preimage spent won't
-		// appear in the mempool afterwards.
-		//
-		// NOTE: if a reorg happens, the preimage spend can appear in
-		// the mempool again. Though a rare case, we should handle it
-		// in a dedicated reorg system.
-		case spendDetail, ok := <-blockSpent:
-			if !ok {
-				result.err = fmt.Errorf("block spent err: %w",
-					errResolverShuttingDown)
-			} else {
-				log.Debugf("Found confirmed spend of HTLC "+
-					"output %s in tx=%s", op,
-					spendDetail.SpenderTxHash)
+		case result := <-blockResult:
+			spend, err := result.Unpack()
+			if errors.Is(
+				err, chainntnfs.ErrChainNotifierShuttingDown,
+			) {
 
-				result.spend = spendDetail
-
-				// Once confirmed, persist the state on disk if
-				// we haven't seen the output's spending tx in
-				// mempool before.
+				return nil, errResolverShuttingDown
 			}
 
-			// Send the result and exit the loop.
-			resultChan <- result
+			return spend, err
 
-			return
-
-		// If a spend event is received from the mempool, this can be
-		// either the 2nd stage timeout tx or a preimage spend from the
-		// remote. We will further check whether the spend reveals the
-		// preimage and add it to the preimage beacon to settle the
-		// incoming link.
-		//
-		// NOTE: we won't exit the loop here so we can continue to
-		// watch for the block spend to check point the resolution.
-		case spendDetail, ok := <-mempoolSpent:
+		case spendDetail, ok := <-mempoolSpent.Spend:
 			if !ok {
-				result.err = fmt.Errorf("mempool spent err: %w",
+				return nil, fmt.Errorf("mempool spent: %w",
 					errResolverShuttingDown)
-
-				// This is an internal error so we exit.
-				resultChan <- result
-
-				return
 			}
 
 			log.Debugf("Found mempool spend of HTLC output %s "+
@@ -956,24 +888,15 @@ func (h *htlcTimeoutResolver) consumeSpendEvents(resultChan chan *spendResult,
 				!h.isRemoteCommitOutput(),
 			)
 			if !hasPreimage {
-				log.Debugf("HTLC output %s spent doesn't "+
+				log.Debugf("HTLC output %s spend doesn't "+
 					"reveal preimage", op)
 				continue
 			}
 
-			// Found the preimage spend, send the result and
-			// continue the loop.
-			result.spend = spendDetail
-			resultChan <- result
+			return spendDetail, nil
 
-			continue
-
-		// If the resolver exits, we exit the goroutine.
 		case <-h.quit:
-			result.err = errResolverShuttingDown
-			resultChan <- result
-
-			return
+			return nil, errResolverShuttingDown
 		}
 	}
 }
@@ -1294,7 +1217,9 @@ func (h *htlcTimeoutResolver) resolveTimeoutTxOutput(op wire.OutPoint) error {
 
 	spend, err := waitForSpend(
 		&op, h.htlcResolution.SweepSignDesc.Output.PkScript,
-		h.broadcastHeight, h.Notifier, h.quit,
+		h.broadcastHeight,
+		h.requiredConfsForSpend(h.htlc.Amt.ToSatoshis()),
+		h.Notifier, h.quit,
 	)
 	if err != nil {
 		return err

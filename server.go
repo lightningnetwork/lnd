@@ -1301,11 +1301,12 @@ func newServer(ctx context.Context, cfg *Config, listenAddrs []net.Addr,
 	)
 
 	s.txPublisher = sweep.NewTxPublisher(sweep.TxPublisherConfig{
-		Signer:     cc.Wallet.Cfg.Signer,
-		Wallet:     cc.Wallet,
-		Estimator:  cc.FeeEstimator,
-		Notifier:   cc.ChainNotifier,
-		AuxSweeper: s.implCfg.AuxSweeper,
+		Signer:         cc.Wallet.Cfg.Signer,
+		Wallet:         cc.Wallet,
+		Estimator:      cc.FeeEstimator,
+		Notifier:       cc.ChainNotifier,
+		SpendConfDepth: s.cfg.Dev.ChannelCloseConfs(),
+		AuxSweeper:     s.implCfg.AuxSweeper,
 	})
 
 	s.sweeper = sweep.New(&sweep.UtxoSweeperConfig{
@@ -1317,6 +1318,7 @@ func newServer(ctx context.Context, cfg *Config, listenAddrs []net.Addr,
 		Wallet:               newSweeperWallet(cc.Wallet),
 		Mempool:              cc.MempoolNotifier,
 		Notifier:             cc.ChainNotifier,
+		SpendConfDepth:       s.cfg.Dev.ChannelCloseConfs(),
 		Store:                sweeperStore,
 		MaxInputsPerTx:       sweep.DefaultMaxInputsPerTx,
 		MaxFeeRate:           cfg.Sweeper.MaxFeeRate,
@@ -1370,7 +1372,8 @@ func newServer(ctx context.Context, cfg *Config, listenAddrs []net.Addr,
 			Store: contractcourt.NewRetributionStore(
 				dbs.ChanStateDB,
 			),
-			AuxSweeper: s.implCfg.AuxSweeper,
+			SpendConfDepth: s.cfg.Dev.ChannelCloseConfs(),
+			AuxSweeper:     s.implCfg.AuxSweeper,
 		},
 	)
 

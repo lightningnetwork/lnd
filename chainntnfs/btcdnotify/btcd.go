@@ -1001,7 +1001,6 @@ func (b *BtcdNotifier) RegisterConfirmationsNtfn(txid *chainhash.Hash,
 	if err != nil {
 		return nil, err
 	}
-
 	if ntfn.HistoricalDispatch == nil {
 		return ntfn.Event, nil
 	}
@@ -1010,6 +1009,7 @@ func (b *BtcdNotifier) RegisterConfirmationsNtfn(txid *chainhash.Hash,
 	case b.notificationRegistry <- ntfn.HistoricalDispatch:
 		return ntfn.Event, nil
 	case <-b.quit:
+		ntfn.Event.Cancel()
 		return nil, chainntnfs.ErrChainNotifierShuttingDown
 	}
 }

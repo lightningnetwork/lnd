@@ -10,6 +10,7 @@ import (
 	"github.com/btcsuite/btcd/chainhash/v2"
 	"github.com/btcsuite/btcd/wire/v2"
 	"github.com/btcsuite/btcwallet/chain"
+	"github.com/lightningnetwork/lnd/chainio"
 	"github.com/lightningnetwork/lnd/chainntnfs"
 	"github.com/lightningnetwork/lnd/fn/v2"
 	"github.com/lightningnetwork/lnd/input"
@@ -35,6 +36,17 @@ var (
 
 	testInputCount atomic.Uint64
 )
+
+// TestTxPublisherStartSpendDepth rejects invalid finality configuration.
+func TestTxPublisherStartSpendDepth(t *testing.T) {
+	for _, depth := range []uint32{0, chainntnfs.MaxNumConfs + 1} {
+		cfg := TxPublisherConfig{SpendConfDepth: fn.Some(depth)}
+		tp := NewTxPublisher(cfg)
+		err := tp.Start(chainio.NewBeat(chainntnfs.BlockEpoch{}))
+		require.ErrorIs(t, err, chainntnfs.ErrNumConfsOutOfRange)
+		require.False(t, tp.started.Load())
+	}
+}
 
 func createTestInput(value int64,
 	witnessType input.WitnessType) input.BaseInput {
@@ -423,11 +435,12 @@ func createTestPublisher(t *testing.T) (*TxPublisher, *mockers) {
 
 	// Create a publisher using the mocks.
 	tp := NewTxPublisher(TxPublisherConfig{
-		Estimator:  m.estimator,
-		Signer:     m.signer,
-		Wallet:     m.wallet,
-		Notifier:   m.notifier,
-		AuxSweeper: fn.Some[AuxSweeper](&MockAuxSweeper{}),
+		Estimator:      m.estimator,
+		Signer:         m.signer,
+		Wallet:         m.wallet,
+		Notifier:       m.notifier,
+		SpendConfDepth: fn.Some(uint32(1)),
+		AuxSweeper:     fn.Some[AuxSweeper](&MockAuxSweeper{}),
 	})
 
 	return tp, m
@@ -516,6 +529,40 @@ func TestCreateAndCheckTx(t *testing.T) {
 			require.ErrorIs(t, err, tc.expectedErr)
 		})
 	}
+}
+
+// TestCreateAndCheckTxMissingInputsPreservesRecord verifies a rejected
+// transaction never replaces the last broadcast state.
+func TestCreateAndCheckTxMissingInputsPreservesRecord(t *testing.T) {
+	t.Parallel()
+
+	inp := createTestInput(1000, input.WitnessKeyHash)
+	tp, m := createTestPublisher(t)
+	m.feeFunc.On("FeeRate").Return(chainfee.SatPerKWeight(1000))
+	m.signer.On(
+		"ComputeInputScript", mock.Anything, mock.Anything,
+	).Return(&input.Script{}, nil)
+	m.wallet.On(
+		"CheckMempoolAcceptance", mock.Anything,
+	).Return(chain.ErrMissingInputs).Twice()
+
+	record := &monitorRecord{
+		req: &BumpRequest{
+			DeliveryAddress: changePkScript,
+			Inputs:          []input.Input{&inp},
+			Budget:          btcutil.Amount(1000),
+		},
+		feeFunction: m.feeFunc,
+	}
+	_, err := tp.createAndCheckTx(record)
+	require.ErrorIs(t, err, ErrInputMissing)
+	require.Nil(t, record.tx)
+
+	oldTx := &wire.MsgTx{LockTime: 1}
+	record.tx = oldTx
+	_, err = tp.createAndCheckTx(record)
+	require.ErrorIs(t, err, ErrInputMissing)
+	require.Same(t, oldTx, record.tx)
 }
 
 // createTestBumpRequest creates a new bump request.
@@ -1803,6 +1850,101 @@ func TestProcessRecordsSpent(t *testing.T) {
 	}
 }
 
+// TestProcessRecordsSpendDepth verifies a record remains idle until its spend
+// reaches the configured confirmation depth.
+func TestProcessRecordsSpendDepth(t *testing.T) {
+	t.Parallel()
+
+	tp, m := createTestPublisher(t)
+	tp.cfg.SpendConfDepth = fn.Some(uint32(2))
+	tp.currentHeight.Store(10)
+
+	requestID := uint64(1)
+	req := createTestBumpRequest()
+	op := req.Inputs[0].OutPoint()
+	tx := &wire.MsgTx{LockTime: 1}
+	record := &monitorRecord{
+		requestID: requestID, req: req, tx: tx,
+		feeFunction: m.feeFunc, fee: 1,
+	}
+	subscriber := make(chan *BumpResult, 1)
+	tp.records.Store(requestID, record)
+	tp.subscriberChans.Store(requestID, subscriber)
+
+	m.notifier.On(
+		"RegisterSpendNtfn", &op, mock.Anything, mock.Anything,
+	).Return(createTestSpendEventAtHeight(tx, 10), nil).Once()
+	tp.processRecords()
+
+	select {
+	case <-subscriber:
+		t.Fatal("pending spend produced terminal result")
+	default:
+	}
+	_, ok := tp.records.Load(requestID)
+	require.True(t, ok)
+
+	tp.currentHeight.Store(11)
+	m.notifier.On(
+		"RegisterSpendNtfn", &op, mock.Anything, mock.Anything,
+	).Return(createTestSpendEventAtHeight(tx, 10), nil).Once()
+	m.feeFunc.On("FeeRate").Return(chainfee.SatPerKWeight(1000)).Once()
+	tp.processRecords()
+	tp.wg.Wait()
+
+	result := <-subscriber
+	require.Equal(t, TxConfirmed, result.Event)
+	_, ok = tp.records.Load(requestID)
+	require.False(t, ok)
+}
+
+// TestHandleMissingInputsSpendDepth verifies a depth-pending missing input is
+// retained for another block.
+func TestHandleMissingInputsSpendDepth(t *testing.T) {
+	t.Parallel()
+
+	tp, m := createTestPublisher(t)
+	tp.cfg.SpendConfDepth = fn.Some(uint32(2))
+	tp.currentHeight.Store(10)
+	req := createTestBumpRequest()
+	op := req.Inputs[0].OutPoint()
+	record := &monitorRecord{
+		req: req, tx: &wire.MsgTx{LockTime: 1},
+		feeFunction: m.feeFunc,
+	}
+	unknownTx := &wire.MsgTx{LockTime: 2}
+
+	m.notifier.On(
+		"RegisterSpendNtfn", &op, mock.Anything, mock.Anything,
+	).Return(createTestSpendEventAtHeight(unknownTx, 10), nil).Once()
+	require.Nil(t, tp.handleMissingInputs(record))
+}
+
+// TestHandleMissingInputsInitialRecord verifies a stable unknown spend is
+// classified without an initial broadcast transaction.
+func TestHandleMissingInputsInitialRecord(t *testing.T) {
+	t.Parallel()
+
+	tp, m := createTestPublisher(t)
+	tp.cfg.SpendConfDepth = fn.Some(uint32(2))
+	tp.currentHeight.Store(11)
+	req := createTestBumpRequest()
+	op := req.Inputs[0].OutPoint()
+	unknownTx := &wire.MsgTx{LockTime: 2}
+	record := &monitorRecord{
+		req: req, feeFunction: m.feeFunc,
+	}
+	m.notifier.On(
+		"RegisterSpendNtfn", &op, mock.Anything, mock.Anything,
+	).Return(createTestSpendEventAtHeight(unknownTx, 10), nil).Once()
+	m.feeFunc.On("Increment").Return(true, nil).Once()
+	m.feeFunc.On("FeeRate").Return(chainfee.SatPerKWeight(1000)).Once()
+
+	result := tp.handleMissingInputs(record)
+	require.Equal(t, TxUnknownSpend, result.Event)
+	require.Nil(t, result.Tx)
+}
+
 // TestHandleInitialBroadcastSuccess checks `handleInitialBroadcast` method can
 // successfully broadcast a tx based on the request.
 func TestHandleInitialBroadcastSuccess(t *testing.T) {
@@ -2080,21 +2222,30 @@ func TestHasInputsSpent(t *testing.T) {
 	}
 
 	// Call the method under test.
-	result := tp.getSpentInputs(record)
+	result, pending := tp.getSpentInputs(record)
 
 	// Assert the expected map is created.
 	expected := map[wire.OutPoint]*wire.MsgTx{
 		op1: spendingTx1,
 	}
 	require.Equal(t, expected, result)
+	require.False(t, pending)
 }
 
 // createTestSpendEvent creates a SpendEvent which places the specified tx in
 // the channel, which can be read by a spending subscriber.
 func createTestSpendEvent(tx *wire.MsgTx) *chainntnfs.SpendEvent {
+	return createTestSpendEventAtHeight(tx, 0)
+}
+
+// createTestSpendEventAtHeight creates a SpendEvent at the specified height.
+func createTestSpendEventAtHeight(tx *wire.MsgTx,
+	height int32) *chainntnfs.SpendEvent {
+
 	// Create a monitor record that's confirmed.
 	spendDetails := chainntnfs.SpendDetail{
-		SpendingTx: tx,
+		SpendingTx:     tx,
+		SpendingHeight: height,
 	}
 	spendChan1 := make(chan *chainntnfs.SpendDetail, 1)
 	spendChan1 <- &spendDetails

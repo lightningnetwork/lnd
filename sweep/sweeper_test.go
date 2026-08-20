@@ -361,6 +361,63 @@ func TestMarkInputsSwept(t *testing.T) {
 		s.inputs[inputTerminated.PreviousOutPoint].state)
 }
 
+// TestMonitorSpendReorg verifies a removed candidate is not delivered and a
+// stable replacement is delivered once.
+func TestMonitorSpendReorg(t *testing.T) {
+	t.Parallel()
+	notifier := NewMockNotifier(t)
+	s := New(&UtxoSweeperConfig{
+		Notifier:       notifier,
+		SpendConfDepth: fn.Some(uint32(2)),
+	})
+	op := wire.OutPoint{Hash: chainhash.Hash{1}}
+	cancel, err := s.monitorSpend(op, []byte{1}, 1, 1000)
+	require.NoError(t, err)
+	defer cancel()
+	registered := func(txid chainhash.Hash) bool {
+		notifier.mutex.RLock()
+		defer notifier.mutex.RUnlock()
+		_, ok := notifier.confChannel[txid]
+
+		return ok
+	}
+
+	firstTx := wire.MsgTx{
+		LockTime: 1,
+		TxIn:     []*wire.TxIn{{PreviousOutPoint: op}},
+		TxOut:    []*wire.TxOut{{PkScript: []byte{1}}},
+	}
+	firstHash := firstTx.TxHash()
+	notifier.SpendOutpointAtHeight(op, firstTx, 100)
+	require.Eventually(t, func() bool {
+		return registered(firstHash)
+	}, defaultTestTimeout, time.Millisecond)
+
+	notifier.ReorgOutpoint(op)
+	replacementTx := firstTx.Copy()
+	replacementTx.LockTime = 2
+	replacementTx.TxOut[0].PkScript = []byte{2}
+	replacementHash := replacementTx.TxHash()
+	notifier.SpendOutpointAtHeight(op, *replacementTx, 101)
+	require.Eventually(t, func() bool {
+		return registered(replacementHash)
+	}, defaultTestTimeout, time.Millisecond)
+	select {
+	case <-s.spendChan:
+		t.Fatal("removed spend delivered to collector")
+	default:
+	}
+	require.NoError(t, notifier.ConfirmTx(&replacementHash, 101))
+
+	select {
+	case spend := <-s.spendChan:
+		require.Equal(t, replacementHash, spend.SpendingTx.TxHash())
+	case <-time.After(time.Second):
+		t.Fatal("stable replacement not delivered")
+	}
+	s.wg.Wait()
+}
+
 // TestMempoolLookup checks that the method `mempoolLookup` works as expected.
 func TestMempoolLookup(t *testing.T) {
 	t.Parallel()

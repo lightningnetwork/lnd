@@ -1,9 +1,11 @@
 package contractcourt
 
 import (
+	"errors"
 	"io"
 
 	"github.com/btcsuite/btcd/btcutil/v2"
+	"github.com/lightningnetwork/lnd/chainntnfs"
 	"github.com/lightningnetwork/lnd/channeldb"
 	"github.com/lightningnetwork/lnd/fn/v2"
 	"github.com/lightningnetwork/lnd/lnwallet"
@@ -100,30 +102,18 @@ func (h *htlcOutgoingContestResolver) Resolve() (ContractResolver, error) {
 		return nil, err
 	}
 
-	// First, we'll register for a spend notification for this output. If
-	// the remote party sweeps with the pre-image, we'll be notified.
-	spendNtfn, err := h.Notifier.RegisterSpendNtfn(
-		outPointToWatch, scriptToWatch, h.broadcastHeight,
-	)
-	if err != nil {
-		return nil, err
-	}
+	spendQuit := make(chan struct{})
+	defer close(spendQuit)
 
-	// We'll quickly check to see if the output has already been spent.
-	select {
-	// If the output has already been spent, then we can stop early and
-	// sweep the pre-image from the output.
-	case commitSpend, ok := <-spendNtfn.Spend:
-		if !ok {
-			return nil, errResolverShuttingDown
-		}
-
-		return nil, h.claimCleanUp(commitSpend)
-
-	// If it hasn't, then we'll watch for both the expiration, and the
-	// sweeping out this output.
-	default:
-	}
+	spendResult := make(chan fn.Result[*chainntnfs.SpendDetail], 1)
+	go func() {
+		spend, err := waitForSpend(
+			outPointToWatch, scriptToWatch, h.broadcastHeight,
+			h.requiredConfsForSpend(h.htlc.Amt.ToSatoshis()),
+			h.Notifier, spendQuit,
+		)
+		spendResult <- fn.NewResult(spend, err)
+	}()
 
 	// If we reach this point, then we can't fully act yet, so we'll await
 	// either of our signals triggering: the HTLC expires, or we learn of
@@ -172,11 +162,13 @@ func (h *htlcOutgoingContestResolver) Resolve() (ContractResolver, error) {
 				return h.htlcTimeoutResolver, nil
 			}
 
-		// The output has been spent! This means the preimage has been
-		// revealed on-chain.
-		case commitSpend, ok := <-spendNtfn.Spend:
-			if !ok {
+		case result := <-spendResult:
+			commitSpend, err := result.Unpack()
+			if errors.Is(err, errResolverShuttingDown) {
 				return nil, errResolverShuttingDown
+			}
+			if err != nil {
+				return nil, err
 			}
 
 			// The only way this output can be spent by the remote

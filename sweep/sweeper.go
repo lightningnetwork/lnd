@@ -390,6 +390,10 @@ type UtxoSweeperConfig struct {
 	// certain on-chain events.
 	Notifier chainntnfs.ChainNotifier
 
+	// SpendConfDepth optionally overrides the confirmation depth required
+	// before a monitored input spend is delivered.
+	SpendConfDepth fn.Option[uint32]
+
 	// Mempool is the mempool watcher that will be used to query whether a
 	// given input is already being spent by a transaction in the mempool.
 	Mempool chainntnfs.MempoolWatcher
@@ -1005,10 +1009,10 @@ func (s *UtxoSweeper) markInputsPublishFailed(set InputSet,
 	}
 }
 
-// monitorSpend registers a spend notification with the chain notifier. It
-// returns a cancel function that can be used to cancel the registration.
-func (s *UtxoSweeper) monitorSpend(outpoint wire.OutPoint,
-	script []byte, heightHint uint32) (func(), error) {
+// monitorSpend delivers a confirmed spend and returns its cancellation hook.
+func (s *UtxoSweeper) monitorSpend(
+	outpoint wire.OutPoint, script []byte, heightHint uint32,
+	value btcutil.Amount) (func(), error) {
 
 	log.Tracef("Wait for spend of %v at heightHint=%v",
 		outpoint, heightHint)
@@ -1019,28 +1023,40 @@ func (s *UtxoSweeper) monitorSpend(outpoint wire.OutPoint,
 	if err != nil {
 		return nil, fmt.Errorf("register spend ntfn: %w", err)
 	}
+	numConfs := s.cfg.SpendConfDepth.UnwrapOrFunc(func() uint32 {
+		return lnwallet.CloseConfsForCapacity(value)
+	})
+	finality, err := chainntnfs.NewSpendFinality(numConfs)
+	if err != nil {
+		spendEvent.Cancel()
 
+		return nil, err
+	}
 	s.wg.Add(1)
 	go func() {
 		defer s.wg.Done()
 
+		spend, err := chainntnfs.WaitForSpendConfirmations(
+			spendEvent, s.cfg.Notifier, script, finality, s.quit,
+		)
+		if err != nil {
+			if !errors.Is(
+				err, chainntnfs.ErrChainNotifierShuttingDown,
+			) {
+
+				log.Errorf("Unable to monitor spend of %v: %v",
+					outpoint, err)
+			}
+
+			return
+		}
+
+		log.Debugf("Delivering spend ntfn for %v", outpoint)
+
 		select {
-		case spend, ok := <-spendEvent.Spend:
-			if !ok {
-				log.Debugf("Spend ntfn for %v canceled",
-					outpoint)
-				return
-			}
+		case s.spendChan <- spend:
+			log.Debugf("Delivered spend ntfn for %v", outpoint)
 
-			log.Debugf("Delivering spend ntfn for %v", outpoint)
-
-			select {
-			case s.spendChan <- spend:
-				log.Debugf("Delivered spend ntfn for %v",
-					outpoint)
-
-			case <-s.quit:
-			}
 		case <-s.quit:
 		}
 	}()
@@ -1293,6 +1309,7 @@ func (s *UtxoSweeper) handleNewInput(input *sweepInputMessage) error {
 	cancel, err := s.monitorSpend(
 		outpoint, input.input.SignDesc().Output.PkScript,
 		input.input.HeightHint(),
+		btcutil.Amount(input.input.SignDesc().Output.Value),
 	)
 	if err != nil {
 		err := fmt.Errorf("wait for spend: %w", err)

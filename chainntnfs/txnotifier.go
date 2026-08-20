@@ -69,6 +69,10 @@ var (
 	ErrNoHeightHint = errors.New("a height hint greater than 0 must be " +
 		"provided")
 
+	// ErrNoTxID is returned when txid-only matching is requested without a
+	// transaction hash.
+	ErrNoTxID = errors.New("a txid must be provided for txid-only matching")
+
 	// ErrNumConfsOutOfRange is an error returned when a confirmation/spend
 	// registration is attempted and the number of confirmations provided is
 	// out of range.
@@ -174,6 +178,10 @@ type ConfRequest struct {
 	// PkScript is the public key script of an outpoint created in this
 	// transaction.
 	PkScript txscript.PkScript
+
+	// TxIDOnlyMatch indicates that PkScript is only a filter hint and the
+	// transaction hash alone determines whether a transaction matches.
+	TxIDOnlyMatch bool
 }
 
 // NewConfRequest creates a request for a confirmation notification of either a
@@ -205,11 +213,15 @@ func (r ConfRequest) String() string {
 	return fmt.Sprintf("script=%v", r.PkScript)
 }
 
-// MatchesTx determines whether the given transaction satisfies the confirmation
-// request. If the confirmation request is for a script, then we'll check all of
-// the outputs of the transaction to determine if it matches. Otherwise, we'll
-// match on the txid.
+// MatchesTx determines whether the given transaction satisfies the
+// confirmation request. Txid-only requests ignore the filter script. Other
+// requests require both the txid and output script, or only the output script
+// when no txid was supplied.
 func (r ConfRequest) MatchesTx(tx *wire.MsgTx) bool {
+	if r.TxIDOnlyMatch {
+		return r.TxID == tx.TxHash()
+	}
+
 	scriptMatches := func() bool {
 		pkScript := r.PkScript.Script()
 		for _, txOut := range tx.TxOut {
@@ -504,6 +516,10 @@ type TxNotifier struct {
 	// by transaction hash/output script.
 	confNotifications map[ConfRequest]*confNtfnSet
 
+	// txidConfRequests indexes requests that use their script only as a
+	// compact-filter hint.
+	txidConfRequests map[chainhash.Hash]map[ConfRequest]struct{}
+
 	// confsByInitialHeight is an index of watched transactions/output
 	// scripts by the height that they are included at in the chain. This
 	// is tracked so that incorrect notifications are not sent if a
@@ -553,9 +569,12 @@ func NewTxNotifier(startHeight uint32, reorgSafetyLimit uint32,
 	spendHintCache SpendHintCache) *TxNotifier {
 
 	return &TxNotifier{
-		currentHeight:        startHeight,
-		reorgSafetyLimit:     reorgSafetyLimit,
-		confNotifications:    make(map[ConfRequest]*confNtfnSet),
+		currentHeight:     startHeight,
+		reorgSafetyLimit:  reorgSafetyLimit,
+		confNotifications: make(map[ConfRequest]*confNtfnSet),
+		txidConfRequests: make(
+			map[chainhash.Hash]map[ConfRequest]struct{},
+		),
 		confsByInitialHeight: make(map[uint32]map[ConfRequest]struct{}),
 		ntfnsByConfirmHeight: make(map[uint32]map[*ConfNtfn]struct{}),
 		spendNotifications:   make(map[SpendRequest]*spendNtfnSet),
@@ -593,6 +612,13 @@ func (n *TxNotifier) newConfNtfn(txid *chainhash.Hash,
 	confRequest, err := NewConfRequest(txid, pkScript)
 	if err != nil {
 		return nil, err
+	}
+	if opts.TxIDOnlyMatch {
+		if txid == nil || *txid == ZeroHash {
+			return nil, ErrNoTxID
+		}
+
+		confRequest.TxIDOnlyMatch = true
 	}
 
 	confID := atomic.AddUint64(&n.confClientCounter, 1)
@@ -669,6 +695,15 @@ func (n *TxNotifier) RegisterConf(txid *chainhash.Hash, pkScript []byte,
 		// a confSet to coalesce all notifications for the same request.
 		confSet = newConfNtfnSet()
 		n.confNotifications[ntfn.ConfRequest] = confSet
+
+		if ntfn.TxIDOnlyMatch {
+			requests := n.txidConfRequests[ntfn.TxID]
+			if requests == nil {
+				requests = make(map[ConfRequest]struct{})
+				n.txidConfRequests[ntfn.TxID] = requests
+			}
+			requests[ntfn.ConfRequest] = struct{}{}
+		}
 	}
 	confSet.ntfns[ntfn.ConfID] = ntfn
 
@@ -805,6 +840,9 @@ func (n *TxNotifier) CancelConf(confRequest ConfRequest, confID uint64) {
 	// Finally, we'll clean up any lingering references to this
 	// notification.
 	delete(confSet.ntfns, confID)
+	if len(confSet.ntfns) == 0 && confSet.details == nil {
+		n.removeConfRequest(confRequest)
+	}
 
 	// Remove the queued confirmation notification if the transaction has
 	// already confirmed, but hasn't met its required number of
@@ -813,6 +851,20 @@ func (n *TxNotifier) CancelConf(confRequest ConfRequest, confID uint64) {
 		confHeight := confSet.details.BlockHeight +
 			ntfn.NumConfirmations - 1
 		delete(n.ntfnsByConfirmHeight[confHeight], ntfn)
+	}
+}
+
+// removeConfRequest removes a confirmation request and its auxiliary index.
+func (n *TxNotifier) removeConfRequest(confRequest ConfRequest) {
+	delete(n.confNotifications, confRequest)
+	if !confRequest.TxIDOnlyMatch {
+		return
+	}
+
+	requests := n.txidConfRequests[confRequest.TxID]
+	delete(requests, confRequest)
+	if len(requests) == 0 {
+		delete(n.txidConfRequests, confRequest.TxID)
 	}
 }
 
@@ -1499,7 +1551,7 @@ func (n *TxNotifier) ConnectTip(block *btcutil.Block,
 				}
 			}
 
-			delete(n.confNotifications, confRequest)
+			n.removeConfRequest(confRequest)
 		}
 		delete(n.confsByInitialHeight, matureBlockHeight)
 
@@ -1616,6 +1668,10 @@ func (n *TxNotifier) filterTx(block *btcutil.Block, tx *btcutil.Tx,
 			}
 
 			onConf(confRequest, details)
+		}
+
+		for confRequest := range n.txidConfRequests[*txHash] {
+			notifyDetails(confRequest)
 		}
 
 		for _, txOut := range tx.MsgTx().TxOut {

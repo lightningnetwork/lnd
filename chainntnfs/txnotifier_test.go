@@ -8,6 +8,7 @@ import (
 
 	"github.com/btcsuite/btcd/btcutil/v2"
 	"github.com/btcsuite/btcd/chainhash/v2"
+	"github.com/btcsuite/btcd/txscript/v2"
 	"github.com/btcsuite/btcd/wire/v2"
 	"github.com/lightningnetwork/lnd/chainntnfs"
 	"github.com/stretchr/testify/require"
@@ -205,6 +206,111 @@ func TestTxNotifierRegistrationValidation(t *testing.T) {
 			return
 		}
 	}
+}
+
+// TestTxNotifierTxIDOnlyFutureDispatch verifies a future confirmation can use
+// a script only as its compact-filter hint.
+func TestTxNotifierTxIDOnlyFutureDispatch(t *testing.T) {
+	const startingHeight = 10
+	hintCache := newMockHintCache()
+	n := chainntnfs.NewTxNotifier(
+		startingHeight, chainntnfs.ReorgSafetyLimit, hintCache,
+		hintCache,
+	)
+
+	tx := wire.NewMsgTx(2)
+	tx.AddTxOut(&wire.TxOut{
+		PkScript: []byte{txscript.OP_RETURN},
+	})
+	txid := tx.TxHash()
+
+	defaultRequest, err := chainntnfs.NewConfRequest(
+		&txid, testRawScript,
+	)
+	require.NoError(t, err)
+	require.False(t, defaultRequest.MatchesTx(tx))
+
+	ntfn, err := n.RegisterConf(
+		&txid, testRawScript, 1, startingHeight+1,
+		chainntnfs.WithTxIDOnlyMatch(),
+	)
+	require.NoError(t, err)
+	require.Nil(t, ntfn.HistoricalDispatch)
+
+	block := btcutil.NewBlock(&wire.MsgBlock{
+		Transactions: []*wire.MsgTx{tx},
+	})
+	require.NoError(t, n.ConnectTip(block, startingHeight+1))
+	require.NoError(t, n.NotifyHeight(startingHeight+1))
+
+	select {
+	case conf := <-ntfn.Event.Confirmed:
+		require.Equal(t, txid, conf.Tx.TxHash())
+	default:
+		t.Fatal("txid-only confirmation not delivered")
+	}
+}
+
+// TestTxNotifierTxIDOnlyHistoricalMatch verifies historical scans match the
+// transaction ID independently of the filter script.
+func TestTxNotifierTxIDOnlyHistoricalMatch(t *testing.T) {
+	const startingHeight = 10
+	hintCache := newMockHintCache()
+	n := chainntnfs.NewTxNotifier(
+		startingHeight, chainntnfs.ReorgSafetyLimit, hintCache,
+		hintCache,
+	)
+	tx := wire.NewMsgTx(2)
+	tx.AddTxOut(&wire.TxOut{PkScript: []byte{txscript.OP_RETURN}})
+	txid := tx.TxHash()
+	historical, err := n.RegisterConf(
+		&txid, testRawScript, 1, 1,
+		chainntnfs.WithTxIDOnlyMatch(),
+	)
+	require.NoError(t, err)
+	require.NotNil(t, historical.HistoricalDispatch)
+	require.True(t,
+		historical.HistoricalDispatch.ConfRequest.MatchesTx(tx),
+	)
+}
+
+// TestTxNotifierTxIDOnlyRequiresID verifies txid-only matching rejects a
+// missing transaction hash.
+func TestTxNotifierTxIDOnlyRequiresID(t *testing.T) {
+	hintCache := newMockHintCache()
+	n := chainntnfs.NewTxNotifier(
+		10, chainntnfs.ReorgSafetyLimit, hintCache, hintCache,
+	)
+
+	_, err := n.RegisterConf(
+		nil, testRawScript, 1, 1,
+		chainntnfs.WithTxIDOnlyMatch(),
+	)
+	require.ErrorIs(t, err, chainntnfs.ErrNoTxID)
+}
+
+// TestTxNotifierTxIDOnlyCancelPending verifies canceling the final pending
+// client permits a fresh historical dispatch for the same request.
+func TestTxNotifierTxIDOnlyCancelPending(t *testing.T) {
+	hintCache := newMockHintCache()
+	n := chainntnfs.NewTxNotifier(
+		10, chainntnfs.ReorgSafetyLimit, hintCache, hintCache,
+	)
+	txid := wire.NewMsgTx(2).TxHash()
+	first, err := n.RegisterConf(
+		&txid, testRawScript, 1, 1,
+		chainntnfs.WithTxIDOnlyMatch(),
+	)
+	require.NoError(t, err)
+	require.NotNil(t, first.HistoricalDispatch)
+	first.Event.Cancel()
+
+	second, err := n.RegisterConf(
+		&txid, testRawScript, 1, 1,
+		chainntnfs.WithTxIDOnlyMatch(),
+	)
+	require.NoError(t, err)
+	require.NotNil(t, second.HistoricalDispatch)
 }
 
 // TestTxNotifierFutureConfDispatch tests that the TxNotifier dispatches

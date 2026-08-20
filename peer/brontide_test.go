@@ -393,8 +393,8 @@ func TestPeerChannelClosureAcceptFeeInitiator(t *testing.T) {
 		msg: closingSigned,
 	}
 
-	// Alice should accept Bob's fee, broadcast the cooperative close tx, and
-	// send a ClosingSigned message back to Bob.
+	// Alice should accept Bob's fee, broadcast the cooperative close tx,
+	// and send a ClosingSigned message back to Bob.
 
 	// Alice should now broadcast the closing transaction.
 	select {
@@ -421,7 +421,8 @@ func TestPeerChannelClosureAcceptFeeInitiator(t *testing.T) {
 			bobFee, closingSignedMsg.FeeSatoshis)
 	}
 
-	// Alice should be waiting on a single confirmation for the coop close tx.
+	// Alice should be waiting on a single confirmation
+	// for the coop close tx.
 	notifier.ConfChan <- &chainntnfs.TxConfirmation{}
 }
 
@@ -504,10 +505,10 @@ func TestPeerChannelClosureFeeNegotiationsResponder(t *testing.T) {
 		msg: closingSigned,
 	}
 
-	// Alice will now see the new fee we propose, but with current settings it
-	// won't accept it immediately as it differs too much by its ideal fee. We
-	// should get a new proposal back, which should have the average fee rate
-	// proposed.
+	// Alice will now see the new fee we propose, but with current settings
+	// it won't accept it immediately as it differs too much by its ideal
+	// fee. We should get a new proposal back, which should have the average
+	// fee rate proposed.
 	select {
 	case outMsg := <-alicePeer.outgoingQueue:
 		msg = outMsg.msg
@@ -605,7 +606,8 @@ func TestPeerChannelClosureFeeNegotiationsResponder(t *testing.T) {
 		t.Fatalf("expected to receive closing signed message, got %T", msg)
 	}
 
-	// Alice should be waiting on a single confirmation for the coop close tx.
+	// Alice should be waiting on a single confirmation
+	// for the coop close tx.
 	notifier.ConfChan <- &chainntnfs.TxConfirmation{}
 }
 
@@ -801,7 +803,8 @@ func TestPeerChannelClosureFeeNegotiationsInitiator(t *testing.T) {
 		t.Fatalf("expected to receive closing signed message, got %T", msg)
 	}
 
-	// Alice should be waiting on a single confirmation for the coop close tx.
+	// Alice should be waiting on a single confirmation
+	// for the coop close tx.
 	notifier.ConfChan <- &chainntnfs.TxConfirmation{}
 }
 
@@ -898,8 +901,9 @@ func TestCustomShutdownScript(t *testing.T) {
 	tests := []struct {
 		name string
 
-		// update is a function used to set values on the channel set up for the
-		// test. It is used to set values for upfront shutdown addresses.
+		// update is a function used to set values on the channel
+		// set up for the test. It is used to set values for
+		// upfront shutdown addresses.
 		update func(a, b *chanstate.OpenChannel)
 
 		// userCloseScript is the address specified by the user.

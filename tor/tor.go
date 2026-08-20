@@ -149,13 +149,12 @@ func LookupHost(host, socksAddr string) ([]string, error) {
 // proxy by connecting directly to a DNS server and querying it. The DNS server
 // must have TCP resolution enabled for the given port.
 func LookupSRV(service, proto, name, socksAddr,
-	dnsServer string, streamIsolation bool, skipProxyForClearNetTargets bool,
+	dnsServer string, streamIsolation bool, _ bool,
 	timeout time.Duration) (string, []*net.SRV, error) {
 
 	// Connect to the DNS server we'll be using to query SRV records.
 	conn, err := dialProxy(
-		dnsServer, socksAddr, streamIsolation,
-		skipProxyForClearNetTargets, timeout,
+		dnsServer, socksAddr, streamIsolation, false, timeout,
 	)
 	if err != nil {
 		return "", nil, err

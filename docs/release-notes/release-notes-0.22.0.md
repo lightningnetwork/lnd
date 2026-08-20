@@ -90,6 +90,12 @@
 
 ## RPC Updates
 
+* The `PendingChannels` response now [includes the short channel
+  id](https://github.com/lightningnetwork/lnd/pull/5575) of channels in the
+  `waiting_close_channels` and `pending_force_closing_channels` lists, so a
+  channel can be correlated with earlier `ListChannels` output without having
+  to match on the channel point.
+
 ## lncli Updates
 
 ## Breaking Changes

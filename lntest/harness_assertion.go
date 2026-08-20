@@ -8,6 +8,8 @@ import (
 	"encoding/json"
 	"fmt"
 	"math"
+	"os"
+	"path/filepath"
 	"sort"
 	"strings"
 	"time"
@@ -59,6 +61,67 @@ func (h *HarnessTest) WaitForBlockchainSync(hn *node.HarnessNode) {
 	}, DefaultTimeout)
 
 	require.NoError(h, err, "timeout waiting for blockchain sync")
+}
+
+// AssertNodeLogContains waits until the node's lnd.log contains the given
+// substring, failing the test if it does not appear within DefaultTimeout.
+// Logs flush asynchronously, so the file is polled. This is used to assert on
+// log-only subsystem behaviour (e.g. the read-only reputation subsystem) that
+// is not otherwise exposed over RPC.
+func (h *HarnessTest) AssertNodeLogContains(hn *node.HarnessNode,
+	substr string) {
+
+	h.AssertNodeLogCountAtLeast(hn, substr, 1)
+}
+
+// AssertNodeLogCountAtLeast waits until the node's lnd.log contains at least
+// count occurrences of the given substring, failing the test if that many do
+// not appear within DefaultTimeout. This distinguishes a line logged again from
+// one that was already present earlier in the test.
+func (h *HarnessTest) AssertNodeLogCountAtLeast(hn *node.HarnessNode,
+	substr string, count int) {
+
+	err := wait.NoError(func() error {
+		got := h.CountNodeLogOccurrences(hn, substr)
+		if got >= count {
+			return nil
+		}
+
+		return fmt.Errorf("%s log contains %d occurrences of %q, "+
+			"want at least %d", hn.Name(), got, substr, count)
+	}, DefaultTimeout)
+
+	require.NoError(h, err, "timeout waiting for %d occurrences of log "+
+		"substring %q", count, substr)
+}
+
+// CountNodeLogOccurrences returns the total number of occurrences of substr
+// across the node's lnd.log files. It is useful for asserting that a line was
+// logged *again*, by comparing counts around an action.
+func (h *HarnessTest) CountNodeLogOccurrences(hn *node.HarnessNode,
+	substr string) int {
+
+	var total int
+
+	_ = filepath.WalkDir(hn.Cfg.LogDir, func(path string, d os.DirEntry,
+		err error) error {
+
+		if err != nil || d.IsDir() {
+			return nil
+		}
+		if filepath.Base(path) != "lnd.log" {
+			return nil
+		}
+
+		data, readErr := os.ReadFile(path)
+		if readErr == nil {
+			total += strings.Count(string(data), substr)
+		}
+
+		return nil
+	})
+
+	return total
 }
 
 // WaitForBlockchainSyncTo waits until the node is synced to bestBlock.

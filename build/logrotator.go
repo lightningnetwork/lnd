@@ -2,10 +2,12 @@ package build
 
 import (
 	"compress/gzip"
+	"errors"
 	"fmt"
 	"io"
 	"os"
 	"path/filepath"
+	"sync"
 
 	"github.com/jrick/logrotate/rotator"
 	"github.com/klauspost/compress/zstd"
@@ -18,6 +20,13 @@ type RotatingLogWriter struct {
 	pipe *io.PipeWriter
 
 	rotator *rotator.Rotator
+
+	// wg tracks the rotator Run goroutine so that Close can wait for it
+	// to finish before closing the underlying rotator.
+	wg sync.WaitGroup
+
+	// mu protects the pipe field from concurrent access.
+	mu sync.RWMutex
 }
 
 // NewRotatingLogWriter creates a new file rotating log writer.
@@ -73,23 +82,31 @@ func (r *RotatingLogWriter) InitLogRotator(cfg *FileLoggerConfig,
 	// runtime (like running out of disk space or not being allowed to
 	// create a new logfile for whatever reason).
 	pr, pw := io.Pipe()
+
+	r.mu.Lock()
+	r.pipe = pw
+	r.mu.Unlock()
+	r.wg.Add(1)
 	go func() {
+		defer r.wg.Done()
 		err := r.rotator.Run(pr)
-		if err != nil {
+		if err != nil && !errors.Is(err, io.EOF) {
 			_, _ = fmt.Fprintf(os.Stderr,
 				"failed to run file rotator: %v\n", err)
 		}
 	}()
-
-	r.pipe = pw
 
 	return nil
 }
 
 // Write writes the byte slice to the log rotator, if present.
 func (r *RotatingLogWriter) Write(b []byte) (int, error) {
-	if r.rotator != nil {
-		return r.rotator.Write(b)
+	r.mu.RLock()
+	pipe := r.pipe
+	r.mu.RUnlock()
+
+	if pipe != nil {
+		return pipe.Write(b)
 	}
 
 	return len(b), nil
@@ -97,6 +114,18 @@ func (r *RotatingLogWriter) Write(b []byte) (int, error) {
 
 // Close closes the underlying log rotator if it has already been created.
 func (r *RotatingLogWriter) Close() error {
+	r.mu.Lock()
+	pipe := r.pipe
+	r.pipe = nil
+	r.mu.Unlock()
+
+	if pipe != nil {
+		if err := pipe.Close(); err != nil {
+			return err
+		}
+		r.wg.Wait()
+	}
+
 	if r.rotator != nil {
 		return r.rotator.Close()
 	}

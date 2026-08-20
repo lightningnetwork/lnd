@@ -55,6 +55,13 @@
   the reported network statistics such as total network capacity, channel
   count and max out degree.
 
+* [Fixed a bug](https://github.com/lightningnetwork/lnd/pull/10998) in the
+  watchtower client where a retried `AckUpdate` transaction could commit an
+  acknowledgment everywhere except in the acked-update index it belongs in,
+  after which the client would consider a state backed up that the tower had
+  never been told about. Only the SQL backends could retry a transaction, so
+  `bbolt` was never affected.
+
 # New Features
 
 ## Functional Enhancements
@@ -95,6 +102,23 @@
 ## Breaking Changes
 
 ## Performance Improvements
+
+* [Read-only Postgres transactions now run at `REPEATABLE READ` instead of
+  `SERIALIZABLE`](https://github.com/lightningnetwork/lnd/pull/10997). In
+  Postgres that is snapshot isolation: a read-only transaction still reads from
+  a single consistent snapshot for its whole lifetime, taken when its first
+  statement runs. That snapshot is no longer guaranteed to correspond to a
+  serial ordering of the writers running alongside it, which is acceptable
+  because `lnd`'s read paths only consume a point-in-time view and never
+  depended on being ordered against writers in other transactions. In exchange,
+  such a transaction takes no part in Postgres' serializable snapshot isolation
+  conflict graph: it acquires no `SIRead` predicate locks, is not itself subject
+  to SSI serialization failures, and can no longer cause a concurrent writer to
+  be aborted as a pivot. Since `lnd` is very read heavy, this removes a large
+  amount of needless abort pressure. Read-write transactions are unaffected and
+  remain `SERIALIZABLE`, and the SQLite backend is untouched. See
+  [docs/postgres.md](../postgres.md) for the operator-facing note on long-lived
+  read transactions.
 
 ## Deprecations
 
@@ -145,6 +169,35 @@
   `bolt12/test-vectors/`.
 
 ## Database
+
+* [Four database write paths were hardened against snapshot
+  isolation](https://github.com/lightningnetwork/lnd/pull/10998), preparing for
+  read-write Postgres transactions to move from `SERIALIZABLE` to `REPEATABLE
+  READ`, the way [read-only transactions already
+  did](https://github.com/lightningnetwork/lnd/pull/10997). Under snapshot
+  isolation a pair of transactions that each read what the other writes, but
+  whose write sets don't overlap, both commit rather than one of them being
+  aborted, so each of these paths was changed to conflict on a shared row or to
+  serialize in process instead:
+
+  * A channel open now always writes the peer's link node row, so that it can't
+    race a link node prune that runs when the peer's last channel is closed.
+
+  * `PruneGraphNodes` now takes the cache mutex in both graph stores, like every
+    other graph mutator does, so that a node prune can't interleave with a
+    channel edge being added for that node.
+
+  * Bucket creation in the SQL kvdb backends is now phrased as an upsert, so
+    that two transactions racing to create the same bucket see a retryable
+    serialization failure rather than a unique constraint violation, which is
+    not retried.
+
+  * The watchtower client now evaluates a session for closability when it acks
+    an update for a channel that has already been closed, and the channel close
+    and ack paths conflict on a shared row. This also fixes a pre-existing leak
+    where a session that acked its first update for a channel only after that
+    channel was closed would never be marked closable, and so would hold on to
+    the tower's storage forever.
 
 ## Code Health
 

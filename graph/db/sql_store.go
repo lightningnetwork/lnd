@@ -2115,13 +2115,9 @@ func (s *SQLStore) FilterChannelRange(ctx context.Context,
 
 				switch v {
 				case gossipV1:
-					chanInfo.Node1Freshness =
-						lnwire.UnixTimestamp(n1Update)
+					chanInfo.Node1Freshness = uint64(n1Update)
 				case gossipV2:
-					chanInfo.Node1Freshness =
-						lnwire.BlockHeightTimestamp(
-							n1Height,
-						)
+					chanInfo.Node1Freshness = uint64(n1Height)
 				}
 			}
 
@@ -2142,13 +2138,9 @@ func (s *SQLStore) FilterChannelRange(ctx context.Context,
 
 				switch v {
 				case gossipV1:
-					chanInfo.Node2Freshness =
-						lnwire.UnixTimestamp(n2Update)
+					chanInfo.Node2Freshness = uint64(n2Update)
 				case gossipV2:
-					chanInfo.Node2Freshness =
-						lnwire.BlockHeightTimestamp(
-							n2Height,
-						)
+					chanInfo.Node2Freshness = uint64(n2Height)
 				}
 			}
 

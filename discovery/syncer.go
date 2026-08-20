@@ -1055,22 +1055,17 @@ func (g *GossipSyncer) bufferChanRangeReply(_ context.Context,
 	)
 
 	for i, scid := range msg.ShortChanIDs {
+		var t1, t2 time.Time
+		if len(msg.Timestamps) != 0 {
+			t1 = time.Unix(int64(msg.Timestamps[i].Timestamp1), 0)
+			t2 = time.Unix(int64(msg.Timestamps[i].Timestamp2), 0)
+		}
+
 		info := graphdb.NewV1ChannelUpdateInfo(
-			scid, time.Time{}, time.Time{},
+			scid, t1, t2,
 		)
 
 		if len(msg.Timestamps) != 0 {
-			info.Node1Freshness = lnwire.UnixTimestamp(
-				msg.Timestamps[i].Timestamp1,
-			)
-
-			info.Node2Freshness = lnwire.UnixTimestamp(
-				msg.Timestamps[i].Timestamp2,
-			)
-
-			t1 := time.Unix(int64(msg.Timestamps[i].Timestamp1), 0)
-			t2 := time.Unix(int64(msg.Timestamps[i].Timestamp2), 0)
-
 			// Sort out all channels with outdated or skewed
 			// timestamps. Both timestamps need to be out of
 			// boundaries for us to skip the channel and not query

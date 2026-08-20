@@ -2810,19 +2810,17 @@ type ChannelUpdateInfo struct {
 	// Version is the gossip version of the channel.
 	Version lnwire.GossipVersion
 
-	// Node1Freshness is the update-ordering value of the latest received
-	// update from the node 1 channel peer. For v1 channels this is a
-	// lnwire.UnixTimestamp; for v2 channels it is a
-	// lnwire.BlockHeightTimestamp. A zero value means no update has been
-	// received from this node.
-	Node1Freshness lnwire.Timestamp
+	// Node1Freshness is the concrete update-ordering value of the latest
+	// received update from the node 1 channel peer. Version determines
+	// whether this is a unix timestamp or block height. A zero value means
+	// no update has been received from this node.
+	Node1Freshness uint64
 
-	// Node2Freshness is the update-ordering value of the latest received
-	// update from the node 2 channel peer. For v1 channels this is a
-	// lnwire.UnixTimestamp; for v2 channels it is a
-	// lnwire.BlockHeightTimestamp. A zero value means no update has been
-	// received from this node.
-	Node2Freshness lnwire.Timestamp
+	// Node2Freshness is the concrete update-ordering value of the latest
+	// received update from the node 2 channel peer. Version determines
+	// whether this is a unix timestamp or block height. A zero value means
+	// no update has been received from this node.
+	Node2Freshness uint64
 }
 
 // NewV1ChannelUpdateInfo constructs a ChannelUpdateInfo for a v1 gossip
@@ -2843,8 +2841,8 @@ func NewV1ChannelUpdateInfo(scid lnwire.ShortChannelID,
 	return ChannelUpdateInfo{
 		ShortChannelID: scid,
 		Version:        lnwire.GossipVersion1,
-		Node1Freshness: node1Unix,
-		Node2Freshness: node2Unix,
+		Node1Freshness: uint64(node1Unix),
+		Node2Freshness: uint64(node2Unix),
 	}
 }
 
@@ -2857,16 +2855,38 @@ func NewV2ChannelUpdateInfo(scid lnwire.ShortChannelID,
 	return ChannelUpdateInfo{
 		ShortChannelID: scid,
 		Version:        lnwire.GossipVersion2,
-		Node1Freshness: lnwire.BlockHeightTimestamp(node1BlockHeight),
-		Node2Freshness: lnwire.BlockHeightTimestamp(node2BlockHeight),
+		Node1Freshness: uint64(node1BlockHeight),
+		Node2Freshness: uint64(node2BlockHeight),
 	}
+}
+
+// Node1FreshnessTimestamp returns node 1's freshness with the concrete
+// timestamp type selected by the channel's gossip version.
+func (c ChannelUpdateInfo) Node1FreshnessTimestamp() lnwire.Timestamp {
+	return c.freshnessTimestamp(c.Node1Freshness)
+}
+
+// Node2FreshnessTimestamp returns node 2's freshness with the concrete
+// timestamp type selected by the channel's gossip version.
+func (c ChannelUpdateInfo) Node2FreshnessTimestamp() lnwire.Timestamp {
+	return c.freshnessTimestamp(c.Node2Freshness)
+}
+
+// freshnessTimestamp converts a stored freshness value to its versioned wire
+// representation.
+func (c ChannelUpdateInfo) freshnessTimestamp(value uint64) lnwire.Timestamp {
+	if c.Version == lnwire.GossipVersion1 {
+		return lnwire.UnixTimestamp(value)
+	}
+
+	return lnwire.BlockHeightTimestamp(value)
 }
 
 // Node1FreshnessTime returns the v1 unix-time freshness for node 1's latest
 // update. It returns the zero time if the freshness is not a unix timestamp.
 func (c ChannelUpdateInfo) Node1FreshnessTime() time.Time {
-	if u, ok := c.Node1Freshness.(lnwire.UnixTimestamp); ok {
-		return time.Unix(int64(u), 0)
+	if c.Version == lnwire.GossipVersion1 {
+		return time.Unix(int64(c.Node1Freshness), 0)
 	}
 
 	return time.Time{}
@@ -2875,8 +2895,8 @@ func (c ChannelUpdateInfo) Node1FreshnessTime() time.Time {
 // Node2FreshnessTime returns the v1 unix-time freshness for node 2's latest
 // update. It returns the zero time if the freshness is not a unix timestamp.
 func (c ChannelUpdateInfo) Node2FreshnessTime() time.Time {
-	if u, ok := c.Node2Freshness.(lnwire.UnixTimestamp); ok {
-		return time.Unix(int64(u), 0)
+	if c.Version == lnwire.GossipVersion1 {
+		return time.Unix(int64(c.Node2Freshness), 0)
 	}
 
 	return time.Time{}
@@ -2989,9 +3009,7 @@ func (c *KVStore) FilterChannelRange(_ context.Context,
 					return err
 				}
 
-				chanInfo.Node1Freshness = lnwire.UnixTimestamp(
-					edge.LastUpdate.Unix(),
-				)
+				chanInfo.Node1Freshness = uint64(edge.LastUpdate.Unix())
 			}
 
 			rawPolicy = edges.Get(node2Key)
@@ -3006,9 +3024,7 @@ func (c *KVStore) FilterChannelRange(_ context.Context,
 					return err
 				}
 
-				chanInfo.Node2Freshness = lnwire.UnixTimestamp(
-					edge.LastUpdate.Unix(),
-				)
+				chanInfo.Node2Freshness = uint64(edge.LastUpdate.Unix())
 			}
 
 			channelsPerBlock[cid.BlockHeight] = append(

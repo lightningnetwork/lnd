@@ -94,6 +94,13 @@
 
 ## BOLT Spec Updates
 
+* [Require an explicit `channel_type` during channel
+  funding](https://github.com/lightningnetwork/lnd/pull/11064). It is now always
+  set in `open_channel` and echoed back in `accept_channel`, and an
+  `open_channel` that omits it is rejected. Implicit commitment type negotiation
+  is removed; if the RPC caller doesn't request a type, a default is derived
+  from both peers' features and signaled explicitly.
+
 ## Testing
 
 ## Database
@@ -121,6 +128,7 @@
 * Dario Anongba Varela
 * elsirion
 * Gijs van Dam
+* Nishant Bansal
 * Olaoluwa Osuntokun
 * Yong Yu
 * Ziggie

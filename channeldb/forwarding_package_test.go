@@ -851,6 +851,97 @@ func loadFwdPkgs(t *testing.T, db kvdb.Backend,
 	return fwdPkgs
 }
 
+// TestSwitchPackagerLoadChannelFwdPkgsSet verifies that the batched fwd pkg
+// load returns the same fwd pkgs as the per-channel call, that channels with
+// no fwd pkgs are silently skipped, and that pkgs from distinct channels are
+// not mixed up.
+func TestSwitchPackagerLoadChannelFwdPkgsSet(t *testing.T) {
+	t.Parallel()
+
+	db := makeFwdPkgDB(t, "")
+
+	// Channel 1: two pkgs (heights 0 and 1).
+	ch1 := lnwire.NewShortChanIDFromInt(1)
+	ch1Packager := channeldb.NewChannelPackager(ch1)
+
+	// Channel 2: one pkg (height 7), distinct height to test multi-height
+	// ordering.
+	ch2 := lnwire.NewShortChanIDFromInt(2)
+	ch2Packager := channeldb.NewChannelPackager(ch2)
+
+	// Channel 3: deliberately has no fwd pkgs on disk. It must be silently
+	// dropped from the result, not surface as an error.
+	ch3 := lnwire.NewShortChanIDFromInt(3)
+
+	err := kvdb.Update(db, func(tx kvdb.RwTx) error {
+		ch1Pkg0 := channeldb.NewFwdPkg(
+			ch1, 0, testAdds(), testSettleFails(),
+		)
+		if err := ch1Packager.AddFwdPkg(tx, ch1Pkg0); err != nil {
+			return err
+		}
+
+		ch1Pkg1 := channeldb.NewFwdPkg(
+			ch1, 1, testAdds(), testSettleFails(),
+		)
+		if err := ch1Packager.AddFwdPkg(tx, ch1Pkg1); err != nil {
+			return err
+		}
+
+		ch2Pkg := channeldb.NewFwdPkg(
+			ch2, 7, testAdds(), testSettleFails(),
+		)
+		return ch2Packager.AddFwdPkg(tx, ch2Pkg)
+	}, func() {})
+	require.NoError(t, err)
+
+	// Validate against the per-channel call. Construct the expected
+	// concatenation in the same order LoadChannelFwdPkgsSet processes its
+	// inputs.
+	switchPkgr := channeldb.NewSwitchPackager()
+	var perChannel []*channeldb.FwdPkg
+	err = kvdb.View(db, func(tx kvdb.RTx) error {
+		for _, source := range []lnwire.ShortChannelID{ch1, ch3, ch2} {
+			pkgs, err := switchPkgr.LoadChannelFwdPkgs(tx, source)
+			if err != nil {
+				return err
+			}
+			perChannel = append(perChannel, pkgs...)
+		}
+		return nil
+	}, func() { perChannel = nil })
+	require.NoError(t, err)
+
+	var batched []*channeldb.FwdPkg
+	err = kvdb.View(db, func(tx kvdb.RTx) error {
+		var err error
+		batched, err = switchPkgr.LoadChannelFwdPkgsSet(
+			tx, []lnwire.ShortChannelID{ch1, ch3, ch2},
+		)
+		return err
+	}, func() { batched = nil })
+	require.NoError(t, err)
+
+	require.Len(t, batched, 3, "expected 3 fwd pkgs across the channel set")
+	require.Equal(t, perChannel, batched,
+		"batched load must match per-channel concatenation")
+
+	// Sources should track which channel each pkg belongs to.
+	require.Equal(t, ch1, batched[0].Source)
+	require.Equal(t, ch1, batched[1].Source)
+	require.Equal(t, ch2, batched[2].Source)
+
+	// Empty input should yield no work and no error.
+	var empty []*channeldb.FwdPkg
+	err = kvdb.View(db, func(tx kvdb.RTx) error {
+		var err error
+		empty, err = switchPkgr.LoadChannelFwdPkgsSet(tx, nil)
+		return err
+	}, func() { empty = nil })
+	require.NoError(t, err)
+	require.Empty(t, empty)
+}
+
 // makeFwdPkgDB initializes a test database for forwarding packages. If the
 // provided path is an empty, it will create a temp dir/file to use.
 func makeFwdPkgDB(t *testing.T, path string) kvdb.Backend { // nolint:unparam

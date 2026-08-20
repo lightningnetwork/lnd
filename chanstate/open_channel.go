@@ -431,6 +431,20 @@ func (c *OpenChannel) BroadcastHeight() uint32 {
 	return c.FundingBroadcastHeight
 }
 
+// fundingTxPresent returns true if we expect the funding transaction to be
+// found on disk or already populated within the channel.
+//
+// NOTE: this reads channel state without holding the lock, matching the
+// other ForStore accessors it calls. Callers are responsible for
+// synchronization.
+func (c *OpenChannel) fundingTxPresent() bool {
+	chanType := c.ChanType
+
+	return chanType.IsSingleFunder() && chanType.HasFundingTx() &&
+		c.IsInitiator &&
+		!c.HasChanStatusForStore(ChanStatusRestored)
+}
+
 // SetBroadcastHeight sets the FundingBroadcastHeight.
 func (c *OpenChannel) SetBroadcastHeight(height uint32) {
 	c.Lock()

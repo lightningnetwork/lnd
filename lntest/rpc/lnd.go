@@ -49,6 +49,19 @@ func (h *HarnessRPC) ListPeers() *lnrpc.ListPeersResponse {
 	return resp
 }
 
+// ListPeersReq calls ListPeers with a fully formed request.
+func (h *HarnessRPC) ListPeersReq(
+	req *lnrpc.ListPeersRequest) *lnrpc.ListPeersResponse {
+
+	ctxt, cancel := context.WithTimeout(h.runCtx, DefaultTimeout)
+	defer cancel()
+
+	resp, err := h.LN.ListPeers(ctxt, req)
+	h.NoError(err, "ListPeers")
+
+	return resp
+}
+
 // DisconnectPeer calls the DisconnectPeer RPC on a given node with a specified
 // public key string and asserts there's no error.
 func (h *HarnessRPC) DisconnectPeer(

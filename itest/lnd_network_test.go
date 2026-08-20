@@ -333,3 +333,84 @@ func testDisconnectingTargetPeer(ht *lntest.HarnessTest) {
 	// Check existing connection.
 	ht.AssertConnected(alice, bob)
 }
+
+// testListPeersAddressFields verifies the address-source fields that
+// ListPeers exposes on the Peer message: is_persistent, remembered_addresses
+// (from the LinkNode record), gossip_addresses (from NodeAnnouncement),
+// reconnect_pending, and the include_offline_persistent_peers request flag.
+func testListPeersAddressFields(ht *lntest.HarnessTest) {
+	alice := ht.NewNodeWithCoins("Alice", nil)
+	bob := ht.NewNode("Bob", nil)
+	bobInfo := bob.RPC.GetInfo()
+
+	// Opening a channel writes a LinkNode record for the peer (this is
+	// what remembered_addresses reads from), and puts the peer in the
+	// persistent-reconnect set.
+	ht.ConnectNodes(alice, bob)
+	ht.OpenChannel(alice, bob, lntest.OpenChannelParams{Amt: 100_000})
+
+	// Helper: pull Bob's entry out of Alice's ListPeers response.
+	bobPeer := func(req *lnrpc.ListPeersRequest) *lnrpc.Peer {
+		resp := alice.RPC.ListPeersReq(req)
+		for _, p := range resp.Peers {
+			if p.PubKey == bobInfo.IdentityPubkey {
+				return p
+			}
+		}
+		return nil
+	}
+
+	// While connected, the new fields should be populated.
+	require.NoError(ht, wait.NoError(func() error {
+		p := bobPeer(&lnrpc.ListPeersRequest{})
+		if p == nil {
+			return fmt.Errorf("bob not yet in listpeers")
+		}
+		if !p.IsPersistent {
+			return fmt.Errorf("is_persistent should be true for " +
+				"a channel peer")
+		}
+		if len(p.RememberedAddresses) == 0 {
+			return fmt.Errorf("remembered_addresses should be " +
+				"populated for a channel peer")
+		}
+		if p.ReconnectPending {
+			return fmt.Errorf("reconnect_pending should be " +
+				"false while connected")
+		}
+		return nil
+	}, defaultTimeout))
+
+	// Stop Bob so Alice's connection to him drops.
+	restartBob := ht.SuspendNode(bob)
+
+	// Without include_offline_persistent_peers, Bob should not appear
+	// in the response once his connection is gone.
+	require.NoError(ht, wait.NoError(func() error {
+		p := bobPeer(&lnrpc.ListPeersRequest{})
+		if p != nil {
+			return fmt.Errorf("bob still visible without " +
+				"include_offline_persistent_peers")
+		}
+		return nil
+	}, defaultTimeout))
+
+	// With include_offline_persistent_peers, Bob should appear as an
+	// offline persistent entry: address empty, remembered_addresses
+	// populated, is_persistent true.
+	p := bobPeer(&lnrpc.ListPeersRequest{
+		IncludeOfflinePersistentPeers: true,
+	})
+	require.NotNil(ht, p,
+		"bob should appear when include_offline_persistent_peers=true")
+	require.Empty(ht, p.Address,
+		"offline entry should have empty address")
+	require.True(ht, p.IsPersistent,
+		"offline channel peer should still be is_persistent")
+	require.NotEmpty(ht, p.RememberedAddresses,
+		"offline channel peer should still expose remembered_addresses")
+
+	// Bring Bob back online so the test doesn't leave a hung retry.
+	require.NoError(ht, restartBob())
+}
+

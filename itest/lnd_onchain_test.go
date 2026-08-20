@@ -898,3 +898,61 @@ func testListSweeps(ht *lntest.HarnessTest) {
 	}
 	ht.AssertNumSweeps(alice, req4, 0)
 }
+
+// testSendCoinsWithChangeAddr tests that the SendCoins RPC correctly
+// uses a custom change address when specified.
+func testSendCoinsWithChangeAddr(ht *lntest.HarnessTest) {
+	alice := ht.NewNode("Alice", nil)
+
+	// Create a destination address for the payment.
+	destReq := &lnrpc.NewAddressRequest{
+		Type: lnrpc.AddressType_WITNESS_PUBKEY_HASH,
+	}
+	destResp := alice.RPC.NewAddress(destReq)
+
+	// Create a custom change address.
+	changeReq := &lnrpc.NewAddressRequest{
+		Type: lnrpc.AddressType_WITNESS_PUBKEY_HASH,
+	}
+	changeResp := alice.RPC.NewAddress(changeReq)
+
+	// Get initial balance.
+	initialBal := alice.RPC.WalletBalance()
+
+	// Send coins with custom change address.
+	sendReq := &lnrpc.SendCoinsRequest{
+		Addr:       destResp.Address,
+		Amount:     100000, // 100k sats
+		TargetConf: 6,
+		ChangeAddr: changeResp.Address,
+	}
+	txID := alice.RPC.SendCoins(sendReq)
+	require.NotNil(ht, txID)
+
+	// Mine the transaction.
+	ht.MineBlocksAndAssertNumTxes(1, 1)
+
+	// Verify the transaction exists.
+	tx := ht.GetNumTxsFromMempool(1)[0]
+	require.NotNil(ht, tx)
+
+	// The change output should go to the specified change address.
+	// We verify this by checking the transaction has an output to the
+	// change address.
+	foundChange := false
+	for _, out := range tx.TxOut {
+		_, addrs, _, err := txscript.ExtractPkScriptAddrs(
+			out.PkScript, ht.ChainParams,
+		)
+		require.NoError(ht, err)
+		if len(addrs) > 0 && addrs[0].String() == changeResp.Address {
+			foundChange = true
+			break
+		}
+	}
+	require.True(ht, foundChange, "change output should go to specified address")
+
+	// Verify balance changed appropriately.
+	finalBal := alice.RPC.WalletBalance()
+	require.NotEqual(ht, initialBal.ConfirmedBalance, finalBal.ConfirmedBalance)
+}

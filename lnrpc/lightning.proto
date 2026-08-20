@@ -1162,6 +1162,10 @@ message SendCoinsRequest {
 
     // A list of selected outpoints as inputs for the transaction.
     repeated OutPoint outpoints = 11;
+
+    // An optional address to send the change to. If unset, the change
+    // will be returned to the wallet's change output.
+    string change_addr = 12;
 }
 message SendCoinsResponse {
     // The transaction ID of the transaction

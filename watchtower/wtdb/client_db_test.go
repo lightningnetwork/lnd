@@ -1099,6 +1099,119 @@ func testMarkChannelClosed(h *clientDBHarness) {
 	h.deleteSession(session2.ID, nil)
 }
 
+// testAckAfterChannelClose asserts that a session that acks its first update
+// for a channel only after that channel has been marked as closed is still
+// evaluated for closability. MarkChannelClosed can't have known about such a
+// session, since the session only joins the channel's set of sessions once it
+// acks an update for it, so it is up to AckUpdate to evaluate the session.
+// Without that, the session would never be marked closable and would hold on to
+// the tower's storage forever.
+func testAckAfterChannelClose(h *clientDBHarness) {
+	tower := h.newTower()
+
+	// Create the channel that both of the sessions below will have updates
+	// for.
+	chanID := randChannelID(h.t)
+	h.registerChan(chanID, nil, nil)
+
+	// The first session acks an update for the channel right away, which is
+	// what keeps the channel's details around once it is closed.
+	session1 := h.randSession(h.t, tower.ID, 5)
+	h.insertSession(session1, nil)
+
+	update := randCommittedUpdateForChannel(h.t, chanID, 1)
+	lastApplied := h.commitUpdate(&session1.ID, update, nil)
+	h.ackUpdate(&session1.ID, 1, lastApplied, nil)
+
+	// The second session only ever has this one update, so acking it will
+	// exhaust the session.
+	session2 := h.randSession(h.t, tower.ID, 1)
+	h.insertSession(session2, nil)
+
+	update = randCommittedUpdateForChannel(h.t, chanID, 1)
+	lastApplied = h.commitUpdate(&session2.ID, update, nil)
+
+	// Close the channel before the second session gets to ack its update.
+	// Only the first session is known to the channel at this point, and it
+	// isn't closable since it is not yet exhausted.
+	const closeHeight = 100
+	sl := h.markChannelClosed(chanID, closeHeight, nil)
+	require.Empty(h.t, sl)
+	require.Empty(h.t, h.listClosableSessions(nil))
+
+	// Now let the second session ack its update. That both adds the session
+	// to the channel's set of sessions and exhausts the session, and since
+	// the only channel it has updates for is closed, the session is now
+	// closable.
+	h.ackUpdate(&session2.ID, 1, lastApplied, nil)
+
+	closable := h.listClosableSessions(nil)
+	require.InDeltaMapValues(h.t, closable, map[wtdb.SessionID]uint32{
+		session2.ID: closeHeight,
+	}, 0)
+
+	// A closable session is one that may be deleted, so the tower storage
+	// this session occupies can now actually be reclaimed.
+	h.deleteSession(session2.ID, nil)
+
+	// The first session is still not closable, since it is not exhausted.
+	require.Empty(h.t, h.listClosableSessions(nil))
+	h.deleteSession(session1.ID, wtdb.ErrSessionNotClosable)
+}
+
+// testRogueAckAfterChannelClose asserts that a session that is exhausted by a
+// rogue ack, one for a channel whose details are already gone from the DB, is
+// still evaluated for closability even though that rogue ack didn't saturate
+// the session's rogue update count on its own.
+func testRogueAckAfterChannelClose(h *clientDBHarness) {
+	tower := h.newTower()
+
+	// Two updates are all it takes to exhaust this session.
+	session := h.randSession(h.t, tower.ID, 2)
+	h.insertSession(session, nil)
+
+	// The first update is acked normally, so the session ends up in the
+	// channel's set of sessions and the channel's details survive its
+	// close.
+	chanID1 := randChannelID(h.t)
+	h.registerChan(chanID1, nil, nil)
+
+	update := randCommittedUpdateForChannel(h.t, chanID1, 1)
+	lastApplied := h.commitUpdate(&session.ID, update, nil)
+	h.ackUpdate(&session.ID, 1, lastApplied, nil)
+
+	const closeHeight = 100
+	sl := h.markChannelClosed(chanID1, closeHeight, nil)
+	require.Empty(h.t, sl)
+
+	// The second update is committed for another channel, but that channel
+	// is closed before the update is acked. Since no session ever acked an
+	// update for it, closing it removes its details from the DB entirely.
+	chanID2 := randChannelID(h.t)
+	h.registerChan(chanID2, nil, nil)
+
+	update = randCommittedUpdateForChannel(h.t, chanID2, 2)
+	lastApplied = h.commitUpdate(&session.ID, update, nil)
+
+	sl = h.markChannelClosed(chanID2, closeHeight, nil)
+	require.Empty(h.t, sl)
+	require.Empty(h.t, h.listClosableSessions(nil))
+
+	// Acking that second update is a rogue ack: the channel it belongs to
+	// is no longer known. It only brings the rogue count to one out of the
+	// session's two updates, so it doesn't saturate the session on its own,
+	// but it does exhaust the session, and every other channel the session
+	// has acked updates for is closed. The session is therefore closable.
+	h.ackUpdate(&session.ID, 2, lastApplied, nil)
+
+	closable := h.listClosableSessions(nil)
+	require.InDeltaMapValues(h.t, closable, map[wtdb.SessionID]uint32{
+		session.ID: 0,
+	}, 0)
+
+	h.deleteSession(session.ID, nil)
+}
+
 // testAckUpdate asserts the behavior of AckUpdate.
 func testAckUpdate(h *clientDBHarness) {
 	const blobType = blob.TypeAltruistCommit
@@ -1312,6 +1425,14 @@ func TestClientDB(t *testing.T) {
 		{
 			name: "mark channel closed",
 			run:  testMarkChannelClosed,
+		},
+		{
+			name: "ack after channel close",
+			run:  testAckAfterChannelClose,
+		},
+		{
+			name: "rogue ack after channel close",
+			run:  testRogueAckAfterChannelClose,
 		},
 		{
 			name: "rogue updates",

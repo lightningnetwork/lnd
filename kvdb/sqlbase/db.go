@@ -25,6 +25,11 @@ const (
 	// transaction if it fails with an error that permits transaction
 	// repetition.
 	DefaultNumTxRetries = 50
+
+	// postgresDriverName is the name of the registered SQL driver that is
+	// used whenever the shared SQL backend is backed by Postgres. It is
+	// used to select behavior that only applies to Postgres.
+	postgresDriverName = "pgx"
 )
 
 // Config holds a set of configuration options of a sql database connection.
@@ -62,6 +67,11 @@ type Config struct {
 	// NOTE: Temporary, should be removed when all parts of the LND code
 	// are more resilient against concurrent db access..
 	WithTxLevelLock bool
+
+	// WriteTxRepeatableRead indicates that read-write transactions should
+	// be opened at REPEATABLE READ instead of SERIALIZABLE. This only has
+	// an effect on Postgres.
+	WriteTxRepeatableRead bool
 }
 
 // db holds a reference to the sql db connection.
@@ -94,6 +104,13 @@ type db struct {
 
 // Enforce db implements the walletdb.DB interface.
 var _ walletdb.DB = (*db)(nil)
+
+// isPostgres returns true if the backend is backed by a Postgres database. The
+// shared SQL backend is also used for SQLite, so any Postgres specific behavior
+// needs to be gated on this.
+func (d *db) isPostgres() bool {
+	return d.cfg.DriverName == postgresDriverName
+}
 
 var (
 	// dbConns is a global set of database connections.

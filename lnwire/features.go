@@ -325,6 +325,16 @@ const (
 	// that the node can forward onion messages.
 	OnionMessagesOptional = 39
 
+	// ProvideStorageRequired is a required feature bit that indicates
+	// that the node can store encrypted backup data on behalf of its
+	// channel peers.
+	ProvideStorageRequired FeatureBit = 42
+
+	// ProvideStorageOptional is an optional feature bit that indicates
+	// that the node can store encrypted backup data on behalf of its
+	// channel peers.
+	ProvideStorageOptional FeatureBit = 43
+
 	// MaxBolt11Feature is the maximum feature bit value allowed in bolt 11
 	// invoices.
 	//
@@ -405,6 +415,8 @@ var Features = map[FeatureBit]string{
 	RbfCoopCloseRequiredStaging:          "rbf-coop-close-x",
 	OnionMessagesOptional:                "onion-messages",
 	OnionMessagesRequired:                "onion-messages",
+	ProvideStorageOptional:               "option-provide-storage",
+	ProvideStorageRequired:               "option-provide-storage",
 }
 
 // RawFeatureVector represents a set of feature bits as defined in BOLT-09.  A

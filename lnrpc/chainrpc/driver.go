@@ -50,6 +50,10 @@ func createNewSubServer(configRegistry lnrpc.SubServerConfigDispatcher) (
 		return nil, nil, fmt.Errorf("ChainNotifier must be set to " +
 			"create chainrpc")
 
+	case config.PkScriptNotifier == nil:
+		return nil, nil, fmt.Errorf("PkScriptNotifier must be set to " +
+			"create chainrpc")
+
 	case config.Chain == nil:
 		return nil, nil, fmt.Errorf("field Chain must be set to " +
 			"create chainrpc")

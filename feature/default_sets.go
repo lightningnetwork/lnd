@@ -60,6 +60,10 @@ var defaultSetDesc = setDesc{
 	lnwire.AMPRequired: {
 		SetInvoiceAmp: {}, // 9A
 	},
+	// NOTE: Funding requires an explicit channel type and older peers only
+	// take their explicit negotiation path once they see this bit from us,
+	// so removing it would break funding against them until those versions
+	// age out.
 	lnwire.ExplicitChannelTypeRequired: {
 		SetInit:    {}, // I
 		SetNodeAnn: {}, // N

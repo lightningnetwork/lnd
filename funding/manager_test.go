@@ -5089,6 +5089,112 @@ func TestFundingManagerNoEchoChanType(t *testing.T) {
 	assertFundingMsgSent(t, alice.msgChan, "Error")
 }
 
+// TestFundingManagerRejectMissingChanType verifies that the fundee rejects an
+// OpenChannel message that omits the ChannelType field.
+func TestFundingManagerRejectMissingChanType(t *testing.T) {
+	t.Parallel()
+
+	alice, bob := setupFundingManagers(t)
+	t.Cleanup(func() {
+		tearDownFundingManagers(t, alice, bob)
+	})
+
+	// Build an OpenChannel with the ChannelType field omitted.
+	openChannelReq := &lnwire.OpenChannel{
+		ChainHash:            *fundingNetParams.GenesisHash,
+		PendingChannelID:     [32]byte{0x01},
+		FundingAmount:        btcutil.Amount(10000000),
+		PushAmount:           0,
+		DustLimit:            btcutil.Amount(546),
+		MaxValueInFlight:     lnwire.MilliSatoshi(100000000),
+		ChannelReserve:       btcutil.Amount(10000),
+		HtlcMinimum:          lnwire.MilliSatoshi(1000),
+		FeePerKiloWeight:     15000,
+		CsvDelay:             144,
+		MaxAcceptedHTLCs:     483,
+		FundingKey:           alice.privKey.PubKey(),
+		RevocationPoint:      alice.privKey.PubKey(),
+		PaymentPoint:         alice.privKey.PubKey(),
+		DelayedPaymentPoint:  alice.privKey.PubKey(),
+		HtlcPoint:            alice.privKey.PubKey(),
+		FirstCommitmentPoint: alice.privKey.PubKey(),
+		ChannelType:          nil,
+	}
+	bob.fundingMgr.ProcessFundingMsg(openChannelReq, alice)
+
+	// Bob should reject the OpenChannel message with an Error.
+	errMsg := assertFundingMsgSent(t, bob.msgChan, "Error")
+	err, ok := errMsg.(*lnwire.Error)
+	require.True(t, ok)
+	require.ErrorContains(
+		t, err, "funding failed due to internal error",
+	)
+	assertNumPendingReservations(t, bob, alicePubKey, 0)
+}
+
+// TestFundingManagerAcceptChanType verifies that the fundee accepts an
+// OpenChannel message that includes the ChannelType field and echoes it back
+// in AcceptChannel.
+func TestFundingManagerAcceptChanType(t *testing.T) {
+	t.Parallel()
+
+	alice, bob := setupFundingManagers(t)
+	t.Cleanup(func() {
+		tearDownFundingManagers(t, alice, bob)
+	})
+
+	// Set up feature bits for channel type negotiation.
+	featureBits := []lnwire.FeatureBit{
+		lnwire.ExplicitChannelTypeOptional,
+		lnwire.StaticRemoteKeyOptional,
+		lnwire.AnchorsZeroFeeHtlcTxOptional,
+	}
+	alice.localFeatures = featureBits
+	alice.remoteFeatures = featureBits
+	bob.localFeatures = featureBits
+	bob.remoteFeatures = featureBits
+
+	expectedChanType := (*lnwire.ChannelType)(lnwire.NewRawFeatureVector(
+		lnwire.StaticRemoteKeyRequired,
+		lnwire.AnchorsZeroFeeHtlcTxRequired,
+	))
+
+	// Build an OpenChannel with the ChannelType field properly set.
+	openChannelReq := &lnwire.OpenChannel{
+		ChainHash:            *fundingNetParams.GenesisHash,
+		PendingChannelID:     [32]byte{0x01},
+		FundingAmount:        btcutil.Amount(10000000),
+		PushAmount:           0,
+		DustLimit:            btcutil.Amount(546),
+		MaxValueInFlight:     lnwire.MilliSatoshi(100000000),
+		ChannelReserve:       btcutil.Amount(10000),
+		HtlcMinimum:          lnwire.MilliSatoshi(1000),
+		FeePerKiloWeight:     15000,
+		CsvDelay:             144,
+		MaxAcceptedHTLCs:     483,
+		FundingKey:           alice.privKey.PubKey(),
+		RevocationPoint:      alice.privKey.PubKey(),
+		PaymentPoint:         alice.privKey.PubKey(),
+		DelayedPaymentPoint:  alice.privKey.PubKey(),
+		HtlcPoint:            alice.privKey.PubKey(),
+		FirstCommitmentPoint: alice.privKey.PubKey(),
+		ChannelType:          expectedChanType,
+	}
+	bob.fundingMgr.ProcessFundingMsg(openChannelReq, alice)
+
+	// Bob should accept the OpenChannel message and send AcceptChannel.
+	acceptChannelResponse, ok := assertFundingMsgSent(
+		t, bob.msgChan, "AcceptChannel",
+	).(*lnwire.AcceptChannel)
+	require.True(t, ok)
+
+	// Verify the channel type is echoed back.
+	require.Equal(t, expectedChanType, acceptChannelResponse.ChannelType)
+
+	// Bob should have a new pending reservation.
+	assertNumPendingReservations(t, bob, alicePubKey, 1)
+}
+
 // TestFundingManagerZeroConf tests that the fundingmanager properly handles
 // the whole flow for zero-conf channels.
 func TestFundingManagerZeroConf(t *testing.T) {

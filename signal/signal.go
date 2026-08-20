@@ -113,6 +113,12 @@ type Interceptor struct {
 
 	// Notifier handles sending shutdown notifications.
 	Notifier Notifier
+
+	// requestedShutdown is set to 1 atomically when the shutdown was
+	// triggered programmatically via RequestShutdown, as opposed to an OS
+	// signal. This allows callers to distinguish abnormal shutdowns (e.g.
+	// health check failure) from user-initiated ones and exit accordingly.
+	requestedShutdown uint32
 }
 
 // Intercept starts the interception of interrupt signals and returns an `Interceptor` instance.
@@ -179,6 +185,7 @@ func (c *Interceptor) mainInterruptHandler() {
 
 		case <-c.shutdownRequestChannel:
 			log.Infof("Received shutdown request.")
+			atomic.StoreUint32(&c.requestedShutdown, 1)
 			shutdown()
 
 		case <-c.quit:
@@ -220,6 +227,15 @@ func (c *Interceptor) RequestShutdown() {
 	case c.shutdownRequestChannel <- struct{}{}:
 	case <-c.quit:
 	}
+}
+
+// RequestedShutdown returns true if the shutdown was triggered
+// programmatically via RequestShutdown (e.g. a health check failure), rather
+// than by an OS signal such as SIGINT or SIGTERM. Callers can use this to exit
+// with a non-zero status code so that process managers like systemd with
+// Restart=on-failure will automatically restart the daemon.
+func (c *Interceptor) RequestedShutdown() bool {
+	return atomic.LoadUint32(&c.requestedShutdown) != 0
 }
 
 // ShutdownChannel returns the channel that will be closed once the main

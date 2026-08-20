@@ -158,6 +158,103 @@ func toInsertMigratedInvoiceParams(
 	}
 }
 
+// reconstructLegacyAMPState reconstructs the AMP state for invoices created
+// before reusable AMP invoices were introduced. Those invoices store their
+// HTLCs inline and don't have an AMPState record. The SQL schema requires the
+// AMP state to associate each HTLC with its sub-invoice, so we construct the
+// equivalent modern representation before migrating it.
+func reconstructLegacyAMPState(invoice *Invoice) error {
+	// Return early unless this is a legacy AMP invoice with inline HTLCs
+	// and no AMP state to reconstruct.
+	if !invoice.IsAMP() || len(invoice.AMPState) != 0 ||
+		len(invoice.Htlcs) == 0 {
+
+		return nil
+	}
+
+	ampState := make(AMPInvoiceState)
+	for circuitKey, htlc := range invoice.Htlcs {
+		if htlc.AMP == nil {
+			return fmt.Errorf("legacy AMP invoice contains "+
+				"non-AMP HTLC %v", circuitKey)
+		}
+
+		setID := htlc.AMP.Record.SetID()
+		setState, setExists := ampState[setID]
+		if !setExists {
+			setState = InvoiceStateAMP{
+				State: HtlcStateAccepted,
+				InvoiceKeys: make(
+					map[models.CircuitKey]struct{},
+				),
+			}
+		}
+
+		setState.InvoiceKeys[circuitKey] = struct{}{}
+		if htlc.State != HtlcStateCanceled {
+			setState.AmtPaid += htlc.Amt
+		}
+
+		// Legacy sets can retain HTLCs with different states. A
+		// canceled shard remains stored if replacement shards with
+		// the same set ID later complete the payment. Mark the set
+		// settled if any HTLC settled. Otherwise, mark it accepted
+		// while any HTLC remains accepted. Mark it canceled only when
+		// all HTLCs are canceled. This is only the sub-invoice state;
+		// the parent is validated below.
+		switch htlc.State {
+		case HtlcStateSettled:
+			setState.State = HtlcStateSettled
+
+		case HtlcStateCanceled:
+			if !setExists {
+				setState.State = HtlcStateCanceled
+			}
+
+		case HtlcStateAccepted:
+			if setState.State != HtlcStateSettled {
+				setState.State = HtlcStateAccepted
+			}
+
+		default:
+			return fmt.Errorf("legacy AMP invoice contains "+
+				"HTLC %v with unknown state %v", circuitKey,
+				htlc.State)
+		}
+
+		ampState[setID] = setState
+	}
+
+	// Legacy AMP invoices record settlement only on the parent invoice. A
+	// settled AMP parent with parent-level settle metadata also
+	// distinguishes this representation from reusable AMP invoices, whose
+	// parents remain open and whose settlement events belong to their
+	// sub-invoices. Count settled sets for validation, but don't synthesize
+	// a second settlement event on the reconstructed sub-invoice.
+	var settledSets int
+	for _, state := range ampState {
+		if state.State != HtlcStateSettled {
+			continue
+		}
+
+		settledSets++
+	}
+
+	switch {
+	case invoice.State == ContractSettled && settledSets != 1:
+		return fmt.Errorf("settled legacy AMP invoice has %d settled "+
+			"HTLC sets", settledSets)
+
+	case invoice.State != ContractSettled && settledSets != 0:
+		return fmt.Errorf("legacy AMP invoice in state %v has %d "+
+			"settled HTLC sets", invoice.State, settledSets)
+	}
+
+	invoice.AMPState = ampState
+
+	return nil
+}
+
 // MigrateSingleInvoice migrates a single invoice to the new SQL schema. Note
 // that perfect equality between the old and new schemas is not achievable, as
 // the invoice's add index cannot be mapped directly to its ID due to SQL’s
@@ -165,6 +262,12 @@ func toInsertMigratedInvoiceParams(
 // serve as the add index in the new schema.
 func MigrateSingleInvoice(ctx context.Context, tx SQLInvoiceQueries,
 	invoice *Invoice, paymentHash lntypes.Hash) error {
+
+	err := reconstructLegacyAMPState(invoice)
+	if err != nil {
+		return fmt.Errorf("unable to reconstruct legacy AMP state for "+
+			"invoice(add_index=%v): %w", invoice.AddIndex, err)
+	}
 
 	insertInvoiceParams, err := makeInsertInvoiceParams(
 		invoice, paymentHash,
@@ -488,7 +591,9 @@ func MigrateInvoicesToSQL(ctx context.Context, db kvdb.Backend,
 func migrateInvoices(ctx context.Context, tx *sqlc.Queries,
 	invoices []Invoice) error {
 
-	for i, invoice := range invoices {
+	for i := range invoices {
+		invoice := &invoices[i]
+
 		var paymentHash lntypes.Hash
 		if invoice.Terms.PaymentPreimage != nil {
 			paymentHash = invoice.Terms.PaymentPreimage.Hash()
@@ -511,7 +616,7 @@ func migrateInvoices(ctx context.Context, tx *sqlc.Queries,
 			copy(paymentHash[:], paymentHashBytes)
 		}
 
-		err := MigrateSingleInvoice(ctx, tx, &invoices[i], paymentHash)
+		err := MigrateSingleInvoice(ctx, tx, invoice, paymentHash)
 		if err != nil {
 			return fmt.Errorf("unable to migrate invoice(%v): %w",
 				paymentHash, err)
@@ -534,13 +639,15 @@ func migrateInvoices(ctx context.Context, tx *sqlc.Queries,
 		// however in PostgreSQL it has microsecond precision while in
 		// SQLite it has nanosecond precision if using TEXT storage
 		// class.
-		OverrideInvoiceTimeZone(&invoice)
+		OverrideInvoiceTimeZone(invoice)
 		OverrideInvoiceTimeZone(migratedInvoice)
 
 		// Override the add index before checking for equality.
 		migratedInvoice.AddIndex = invoice.AddIndex
 
-		err = sqldb.CompareRecords(invoice, *migratedInvoice, "invoice")
+		err = sqldb.CompareRecords(
+			*invoice, *migratedInvoice, "invoice",
+		)
 		if err != nil {
 			return err
 		}

@@ -16,6 +16,11 @@ var ErrActorTerminated = fmt.Errorf("actor terminated")
 // backpressure mechanism (e.g., RED-style load shedding).
 var ErrMessageDropped = errors.New("message dropped by backpressure")
 
+// ErrActorPanic indicates that the actor's behavior panicked while processing a
+// message. The message is dropped, and the actor remains available to serve the
+// messages that follow it.
+var ErrActorPanic = errors.New("actor panicked while processing message")
+
 // ErrEmptyActorID is returned when an actor is created with an empty ID.
 var ErrEmptyActorID = fmt.Errorf("actor ID must not be empty")
 

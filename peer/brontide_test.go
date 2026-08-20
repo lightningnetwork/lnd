@@ -2,6 +2,7 @@ package peer
 
 import (
 	"bytes"
+	"context"
 	"fmt"
 	"testing"
 	"time"
@@ -10,6 +11,7 @@ import (
 	"github.com/btcsuite/btcd/btcec/v2"
 	"github.com/btcsuite/btcd/btcutil/v2"
 	"github.com/btcsuite/btcd/chaincfg/v2"
+	"github.com/btcsuite/btcd/chainhash/v2"
 	"github.com/btcsuite/btcd/txscript/v2"
 	"github.com/btcsuite/btcd/wire/v2"
 	"github.com/lightningnetwork/lnd/chainntnfs"
@@ -21,6 +23,7 @@ import (
 	"github.com/lightningnetwork/lnd/lnwallet"
 	"github.com/lightningnetwork/lnd/lnwallet/chancloser"
 	"github.com/lightningnetwork/lnd/lnwire"
+	"github.com/lightningnetwork/lnd/msgmux"
 	"github.com/lightningnetwork/lnd/routing/route"
 	"github.com/lightningnetwork/lnd/tlv"
 	"github.com/stretchr/testify/mock"
@@ -34,6 +37,52 @@ var (
 	// p2wshAddress is a valid pay to witness script hash address.
 	p2wshAddress = "bc1qrp33g0q5c5txsp9arysrx4k6zdkfs4nce4xj0gdcccefvpysxf3qccfmv3"
 )
+
+// readHandlerPanicEndpoint models a router endpoint that applies a message
+// before panicking. The peer must treat its delivery state as unknown.
+type readHandlerPanicEndpoint struct {
+	delivered chan msgmux.PeerMsg
+}
+
+func (r *readHandlerPanicEndpoint) Name() msgmux.EndpointName {
+	return "read-handler-partial-delivery"
+}
+
+func (r *readHandlerPanicEndpoint) CanHandle(msgmux.PeerMsg) bool {
+	return true
+}
+
+func (r *readHandlerPanicEndpoint) SendMessage(_ context.Context,
+	msg msgmux.PeerMsg) bool {
+
+	r.delivered <- msg
+	panic("panic after delivery")
+}
+
+// readHandlerPanicRouter panics in RouteMsg so the test can exercise
+// readHandler recovery.
+type readHandlerPanicRouter struct {
+	called chan struct{}
+}
+
+func (r *readHandlerPanicRouter) RegisterEndpoint(msgmux.Endpoint) error {
+	return nil
+}
+
+func (r *readHandlerPanicRouter) UnregisterEndpoint(
+	msgmux.EndpointName) error {
+
+	return nil
+}
+
+func (r *readHandlerPanicRouter) RouteMsg(msgmux.PeerMsg) error {
+	r.called <- struct{}{}
+	panic("panic from message router")
+}
+
+func (r *readHandlerPanicRouter) Start(context.Context) {}
+
+func (r *readHandlerPanicRouter) Stop() {}
 
 // TestPeerChannelClosureShutdownResponseLinkRemoved tests the shutdown
 // response we get if the link for the channel can't be found in the
@@ -805,6 +854,162 @@ func TestPeerChannelClosureFeeNegotiationsInitiator(t *testing.T) {
 	notifier.ConfChan <- &chainntnfs.TxConfirmation{}
 }
 
+// TestPeerChannelClosurePanicRecovery verifies that a panic while advancing a
+// legacy cooperative close reports the failure and disconnects the peer.
+func TestPeerChannelClosurePanicRecovery(t *testing.T) {
+	t.Parallel()
+
+	harness, err := createTestPeerWithChannel(t, noUpdate)
+	require.NoError(t, err, "unable to create test channels")
+
+	var (
+		alicePeer  = harness.peer
+		bobChan    = harness.channel
+		mockSwitch = harness.mockSwitch
+	)
+
+	chanPoint := bobChan.ChannelPoint()
+	chanID := lnwire.NewChanIDFromOutPoint(chanPoint)
+	mockLink := newMockUpdateHandler(chanID)
+	mockSwitch.links = append(mockSwitch.links, mockLink)
+
+	// Make the initiator send a shutdown request so the recovery path has
+	// an active chan closer and a local close request to fail.
+	updateChan := make(chan interface{}, 1)
+	errChan := make(chan error, 1)
+	closeCommand := &htlcswitch.ChanClose{
+		CloseType:      contractcourt.CloseRegular,
+		ChanPoint:      &chanPoint,
+		Updates:        updateChan,
+		TargetFeePerKw: 12500,
+		Err:            errChan,
+	}
+
+	alicePeer.localCloseChanReqs <- closeCommand
+
+	// Alice should now send a Shutdown request to Bob.
+	select {
+	case outMsg := <-alicePeer.outgoingQueue:
+		require.IsType(t, &lnwire.Shutdown{}, outMsg.msg)
+
+	case <-time.After(timeout):
+		t.Fatalf("did not receive shutdown request")
+	}
+
+	// The chan closer should now be tracked as active.
+	_, found := alicePeer.activeChanCloses.Load(chanID)
+	require.True(t, found, "chan closer not active")
+
+	// Deliver an unsupported close-related message to exercise recovery.
+	alicePeer.chanCloseMsgs <- &closeMsg{
+		cid: chanID,
+		msg: &lnwire.Warning{ChanID: chanID},
+	}
+
+	// The local close request should receive the recovered error.
+	select {
+	case err := <-errChan:
+		require.ErrorContains(t, err, "panic while handling close msg")
+
+	case <-time.After(timeout):
+		t.Fatalf("close request was not failed")
+	}
+
+	// The peer should also have been disconnected, and the chan closer
+	// removed so that we react to on-chain events as normal.
+	select {
+	case <-alicePeer.cg.Done():
+
+	case <-time.After(timeout):
+		t.Fatalf("peer was not disconnected")
+	}
+
+	_, found = alicePeer.activeChanCloses.Load(chanID)
+	require.False(t, found, "chan closer was not removed")
+}
+
+// TestPeerClosePanicFailureReporting verifies recovery from a panic raised
+// while reporting a cooperative-close failure.
+func TestPeerClosePanicFailureReporting(t *testing.T) {
+	t.Parallel()
+
+	harness, err := createTestPeerWithChannel(t, noUpdate)
+	require.NoError(t, err, "unable to create test channels")
+
+	var (
+		alicePeer  = harness.peer
+		bobChan    = harness.channel
+		mockSwitch = harness.mockSwitch
+	)
+
+	chanPoint := bobChan.ChannelPoint()
+	chanID := lnwire.NewChanIDFromOutPoint(chanPoint)
+	mockSwitch.links = append(
+		mockSwitch.links, newMockUpdateHandler(chanID),
+	)
+
+	// Start a local close so the closer has an error channel. Closing that
+	// channel makes the ordinary failure path panic while reporting the
+	// original recovered panic.
+	errChan := make(chan error, 1)
+	alicePeer.localCloseChanReqs <- &htlcswitch.ChanClose{
+		CloseType:      contractcourt.CloseRegular,
+		ChanPoint:      &chanPoint,
+		Updates:        make(chan interface{}, 1),
+		TargetFeePerKw: 12500,
+		Err:            errChan,
+	}
+
+	select {
+	case outMsg := <-alicePeer.outgoingQueue:
+		require.IsType(t, &lnwire.Shutdown{}, outMsg.msg)
+	case <-time.After(timeout):
+		t.Fatal("did not receive shutdown request")
+	}
+	close(errChan)
+
+	alicePeer.chanCloseMsgs <- &closeMsg{
+		cid: chanID,
+		msg: &lnwire.Warning{ChanID: chanID},
+	}
+
+	select {
+	case <-alicePeer.cg.Done():
+	case <-time.After(timeout):
+		t.Fatal("peer was not disconnected after secondary panic")
+	}
+}
+
+// TestPeerFlushedClosePanicRecovery verifies recovery on the channel-flush
+// cooperative-close path.
+func TestPeerFlushedClosePanicRecovery(t *testing.T) {
+	t.Parallel()
+
+	harness, err := createTestPeerWithChannel(t, noUpdate)
+	require.NoError(t, err, "unable to create test channels")
+
+	alicePeer := harness.peer
+	chanID := lnwire.ChannelID{1}
+
+	// A nil legacy closer makes beginNegotiation panic and also exercises
+	// recovery from a failure-reporting panic.
+	alicePeer.activeChanCloses.Store(
+		chanID, makeNegotiateCloser(nil),
+	)
+
+	select {
+	case alicePeer.chanCloseFlushed <- chanID:
+	case <-time.After(timeout):
+		t.Fatal("channelManager did not accept flush notification")
+	}
+
+	select {
+	case <-alicePeer.cg.Done():
+	case <-time.After(timeout):
+		t.Fatal("peer was not disconnected after flush-path panic")
+	}
+}
+
 // TestChooseDeliveryScript tests that chooseDeliveryScript correctly errors
 // when upfront and user set scripts that do not match are provided, allows
 // matching values and returns appropriate values in the case where one or none
@@ -1263,6 +1468,186 @@ func TestPeerIgnoresPingWithoutPongReply(t *testing.T) {
 	pong, ok := msg.(*lnwire.Pong)
 	require.True(t, ok)
 	require.Len(t, pong.PongBytes, 1)
+}
+
+// TestReadHandlerDoesNotReplayAfterRoutePanic asserts that a router panic
+// disconnects the peer without replaying a possibly delivered message through
+// the legacy dispatch switch.
+func TestReadHandlerDoesNotReplayAfterRoutePanic(t *testing.T) {
+	t.Parallel()
+
+	params := createTestPeer(t)
+	endpoint := &readHandlerPanicEndpoint{
+		delivered: make(chan msgmux.PeerMsg, 1),
+	}
+
+	router := msgmux.NewMultiMsgRouter()
+	router.Start(t.Context())
+	t.Cleanup(router.Stop)
+	require.NoError(t, router.RegisterEndpoint(endpoint))
+
+	alicePeer := params.peer
+	alicePeer.msgRouter = fn.Some[msgmux.Router](router)
+	alicePeer.globalMsgRouter = true
+
+	startPeerDone := startPeer(t, params.mockConn, alicePeer)
+	_, err := fn.RecvOrTimeout(startPeerDone, 2*timeout)
+	require.NoError(t, err)
+
+	ping := &lnwire.Ping{
+		NumPongBytes: 1,
+		PaddingBytes: []byte{1, 2, 3},
+	}
+	var buf bytes.Buffer
+	_, err = lnwire.WriteMessage(&buf, ping, 0)
+	require.NoError(t, err)
+
+	select {
+	case params.mockConn.readMessages <- buf.Bytes():
+	case <-time.After(timeout):
+		t.Fatal("timeout sending ping to peer")
+	}
+
+	select {
+	case delivered := <-endpoint.delivered:
+		require.IsType(t, &lnwire.Ping{}, delivered.Message)
+
+	case <-time.After(timeout):
+		t.Fatal("router endpoint did not receive the ping")
+	}
+
+	select {
+	case <-alicePeer.cg.Done():
+	case <-time.After(timeout):
+		t.Fatal("peer was not disconnected after router panic")
+	}
+
+	// Legacy ping handling records the payload and queues a pong. Neither
+	// side effect is allowed after the router's delivery became unknown.
+	require.Empty(t, alicePeer.LastRemotePingPayload())
+	select {
+	case rawMsg := <-params.mockConn.writtenMessages:
+		t.Fatalf("legacy dispatch sent a message: %x", rawMsg)
+
+	case <-time.After(100 * time.Millisecond):
+	}
+}
+
+// TestReadHandlerPanicRecovery verifies that a dispatch panic disconnects the
+// peer and releases its wait-group entry.
+func TestReadHandlerPanicRecovery(t *testing.T) {
+	t.Parallel()
+
+	params := createTestPeer(t)
+	router := &readHandlerPanicRouter{
+		called: make(chan struct{}, 1),
+	}
+
+	alicePeer := params.peer
+	alicePeer.msgRouter = fn.Some[msgmux.Router](router)
+	alicePeer.globalMsgRouter = true
+
+	startPeerDone := startPeer(t, params.mockConn, alicePeer)
+	_, err := fn.RecvOrTimeout(startPeerDone, 2*timeout)
+	require.NoError(t, err)
+
+	var buf bytes.Buffer
+	_, err = lnwire.WriteMessage(&buf, &lnwire.Ping{}, 0)
+	require.NoError(t, err)
+
+	select {
+	case params.mockConn.readMessages <- buf.Bytes():
+	case <-time.After(timeout):
+		t.Fatal("timeout sending ping to peer")
+	}
+
+	select {
+	case <-router.called:
+	case <-time.After(timeout):
+		t.Fatal("message router was not called")
+	}
+
+	select {
+	case <-alicePeer.cg.Done():
+	case <-time.After(timeout):
+		t.Fatal("peer was not disconnected after dispatch panic")
+	}
+
+	wgDone := make(chan struct{})
+	go func() {
+		alicePeer.cg.WgWait()
+		close(wgDone)
+	}()
+
+	select {
+	case <-wgDone:
+	case <-time.After(timeout):
+		t.Fatal("peer goroutines did not exit after dispatch panic")
+	}
+}
+
+// TestCloseFinNotificationUnblocks asserts that a full client update channel
+// cannot hold peer teardown open after either the request or peer is canceled.
+func TestCloseFinNotificationUnblocks(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name         string
+		shutdownPeer bool
+	}{
+		{
+			name: "request canceled",
+		},
+		{
+			name:         "peer stopped",
+			shutdownPeer: true,
+		},
+	}
+
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			t.Parallel()
+
+			ctx, cancel := context.WithCancel(t.Context())
+			defer cancel()
+			updates := make(chan interface{}, 1)
+			updates <- struct{}{}
+			peerQuit := make(chan struct{})
+			closeReq := &htlcswitch.ChanClose{
+				Updates: updates,
+				Ctx:     ctx,
+			}
+
+			done := make(chan struct{})
+			go func() {
+				defer close(done)
+
+				sendFinalCloseUpdate(
+					closeReq, chainhash.Hash{}, peerQuit,
+				)
+			}()
+
+			select {
+			case <-done:
+				t.Fatal("notification returned while no exit " +
+					"condition was ready")
+			case <-time.After(50 * time.Millisecond):
+			}
+
+			if test.shutdownPeer {
+				close(peerQuit)
+			} else {
+				cancel()
+			}
+
+			select {
+			case <-done:
+			case <-time.After(timeout):
+				t.Fatal("final close notification blocked " +
+					"teardown")
+			}
+		})
+	}
 }
 
 // TestMessageSummaryPingIncludesNumPongBytes ensures the debug summary for a

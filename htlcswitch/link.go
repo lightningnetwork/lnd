@@ -1319,6 +1319,13 @@ func (l *channelLink) handleChanSyncErr(err error) {
 //
 // NOTE: This MUST be run as a goroutine.
 func (l *channelLink) htlcManager(ctx context.Context) {
+	// Recover any panic raised while driving the commitment state machine.
+	// Register this defer first so it runs after the cleanup steps below.
+	//
+	// NOTE: The loop does not resume after recovery because an update may
+	// have been applied only partially.
+	defer l.recoverFromPanic(ctx)
+
 	defer func() {
 		l.cfg.BatchTicker.Stop()
 		l.cg.WgDone()
@@ -3814,6 +3821,57 @@ func (l *channelLink) sendMalformedHTLCError(htlcIndex uint64,
 	if err != nil {
 		l.log.Errorf("failed to send UpdateFailMalformedHTLC: %v", err)
 	}
+}
+
+// recoverFromPanic handles a panic raised while htlcManager drives the channel
+// state machine. It records a bounded stack trace and fails the link through
+// the existing internal failure path.
+//
+// We reuse the same machinery the link already uses for an internal failure
+// that may well resolve itself: the link is pulled out of the switch so no
+// further updates are routed to it, a warning is sent to our peer, and we
+// disconnect to recycle the connection. Notably we neither force close the
+// channel nor mark it borked, as the persisted channel state is untouched by a
+// panic. The link is rebuilt from that state once the peer reconnects.
+//
+// NOTE: This method MUST be called via defer to recover from panics.
+func (l *channelLink) recoverFromPanic(ctx context.Context) {
+	r := recover()
+	if r == nil {
+		return
+	}
+
+	fn.LogRecoveredPanic(
+		ctx, l.log, fn.Panic{
+			Value: r,
+			Stack: fn.PanicStack(),
+		},
+	)
+
+	// Recover any panic raised while reporting the link failure so this
+	// handler can return normally.
+	defer func() {
+		reportingPanic := recover()
+		if reportingPanic == nil {
+			return
+		}
+
+		fn.LogRecoveredPanic(
+			ctx, l.log, fn.Panic{
+				Value: reportingPanic,
+				Stack: fn.PanicStack(),
+			},
+		)
+	}()
+
+	l.failf(
+		LinkFailureError{
+			code:          ErrInternalError,
+			Warning:       true,
+			FailureAction: LinkFailureDisconnect,
+		},
+		"panic while driving the channel state-machine: %v", r,
+	)
 }
 
 // failf is a function which is used to encapsulate the action necessary for

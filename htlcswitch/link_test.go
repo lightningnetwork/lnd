@@ -6081,6 +6081,110 @@ func TestChannelLinkFail(t *testing.T) {
 	}
 }
 
+// TestChannelLinkPanicRecovery verifies that a panic during message processing
+// fails the link and requests disconnection without force closing the channel.
+func TestChannelLinkPanicRecovery(t *testing.T) {
+	t.Parallel()
+
+	const chanAmt = btcutil.SatoshiPerBitcoin * 5
+
+	harness, err := newSingleLinkTestHarness(t, chanAmt, 0)
+	require.NoError(t, err)
+
+	//nolint:forcetypeassert
+	coreLink := harness.aliceLink.(*channelLink)
+
+	// Capture the failure the link reports so we can assert on its action.
+	linkErrors := make(chan LinkFailureError, 1)
+	coreLink.cfg.OnChannelFailure = func(_ lnwire.ChannelID,
+		_ lnwire.ShortChannelID, linkErr LinkFailureError) {
+
+		linkErrors <- linkErr
+	}
+
+	// The link only reports an inactive link once its htlcManager goroutine
+	// has returned, so we use this to observe that the goroutine really did
+	// unwind rather than carry on.
+	managerExited := make(chan struct{}, 1)
+	coreLink.cfg.NotifyInactiveLinkEvent = func(wire.OutPoint) {
+		managerExited <- struct{}{}
+	}
+
+	// Arrange for a panic part way through the handling of a message from
+	// our peer. This closure is invoked once the link has accepted a new
+	// commitment, which is as deep into the state-machine as we can get
+	// while still driving it with an ordinary, well formed message.
+	coreLink.cfg.NotifyChannelUpdate = func(*cstate.OpenChannel) {
+		panic("panic while handling upstream message")
+	}
+
+	require.NoError(t, harness.start())
+
+	//nolint:forcetypeassert
+	aliceMsgs := coreLink.cfg.Peer.(*mockPeer).sentMsgs
+
+	ctx := linkTestContext{
+		t:           t,
+		aliceSwitch: harness.aliceSwitch,
+		aliceLink:   harness.aliceLink,
+		bobChannel:  harness.bobChannel,
+		aliceMsgs:   aliceMsgs,
+	}
+
+	// Send an HTLC to the link, then sign a commitment covering it.
+	// Handling the commitment signature trips the panic above.
+	ctx.sendHtlcBobToAlice(generateHtlc(t, coreLink, 0))
+	ctx.sendCommitSigBobToAlice(1)
+
+	// The link should report a failure and request disconnection.
+	var linkErr LinkFailureError
+	select {
+	case linkErr = <-linkErrors:
+	case <-time.After(15 * time.Second):
+		t.Fatal("link did not report a failure after panicking")
+	}
+
+	require.Equal(t, LinkFailureDisconnect, linkErr.FailureAction)
+	require.True(t, linkErr.Warning)
+	require.False(t, linkErr.PermanentFailure)
+	require.True(t, coreLink.failed)
+
+	// The htlcManager goroutine must exit after the interrupted update.
+	select {
+	case <-managerExited:
+	case <-time.After(15 * time.Second):
+		t.Fatal("htlcManager did not exit after panicking")
+	}
+}
+
+// TestChannelLinkPanicFailureReporting verifies recovery from a panic raised
+// while reporting a link failure.
+func TestChannelLinkPanicFailureReporting(t *testing.T) {
+	t.Parallel()
+
+	const chanAmt = btcutil.SatoshiPerBitcoin * 5
+
+	harness, err := newSingleLinkTestHarness(t, chanAmt, 0)
+	require.NoError(t, err)
+
+	//nolint:forcetypeassert
+	coreLink := harness.aliceLink.(*channelLink)
+	coreLink.cfg.OnChannelFailure = func(lnwire.ChannelID,
+		lnwire.ShortChannelID, LinkFailureError) {
+
+		panic("panic while reporting channel failure")
+	}
+
+	require.NotPanics(t, func() {
+		func() {
+			defer coreLink.recoverFromPanic(t.Context())
+
+			panic("original link panic")
+		}()
+	})
+	require.True(t, coreLink.failed)
+}
+
 // TestExpectedFee tests calculation of ExpectedFee returns expected fee, given
 // a baseFee, a feeRate, and an htlc amount.
 func TestExpectedFee(t *testing.T) {

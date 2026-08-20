@@ -77,6 +77,13 @@
 
 ## Code Health
 
+* Critical long-running subsystems [now recover from unexpected handler
+  panics](https://github.com/lightningnetwork/lnd/pull/11097) instead of
+  terminating `lnd`. Recovered failures log a bounded stack trace and follow
+  subsystem-specific containment so affected peers, links, state machines and
+  requests fail safely while unrelated work can continue. This is a containment
+  backstop; the underlying panic remains visible in the logs for diagnosis.
+
 ## Tooling and Documentation
 
 # Contributors (Alphabetical Order)

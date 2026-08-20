@@ -120,6 +120,24 @@ func (b *blockingBehavior) Receive(actorCtx context.Context,
 	return fn.Err[string](actorCtx.Err())
 }
 
+// panicBehavior is an actor behavior that panics on the first message it
+// receives, then echoes every message after that.
+type panicBehavior struct {
+	panicked atomic.Bool
+}
+
+// Receive panics the first time it's called, and echoes the message data on
+// every call after that.
+func (b *panicBehavior) Receive(_ context.Context,
+	msg *testMsg) fn.Result[string] {
+
+	if b.panicked.CompareAndSwap(false, true) {
+		panic("behavior panic")
+	}
+
+	return fn.Ok(fmt.Sprintf("echo: %s", msg.data))
+}
+
 // deadLetterTestMsg is a distinct message type used for testing DLO
 // interactions.
 type deadLetterTestMsg struct {
@@ -389,6 +407,41 @@ func TestActorAskErrorBehavior(t *testing.T) {
 	require.True(t, result.IsErr(), "ask should have returned an error")
 	require.ErrorIs(t, result.Err(), expectedErr, "ask error mismatch")
 
+	h.assertNoDLOMessages()
+}
+
+// TestActorBehaviorPanic verifies that a behavior panic completes the pending
+// request with ErrActorPanic and that later messages are processed.
+func TestActorBehaviorPanic(t *testing.T) {
+	t.Parallel()
+
+	h := newActorTestHarness(t)
+	beh := &panicBehavior{}
+	actor := h.newActor("test-actor-panic", beh, 1)
+
+	// The first message makes the behavior panic. The pending request should
+	// complete with the recovery error.
+	future := actor.Ref().Ask(context.Background(), newTestMsg("panic-msg"))
+
+	awaitCtx, cancel := context.WithTimeout(t.Context(), 5*time.Second)
+	result := future.Await(awaitCtx)
+	cancel()
+	require.True(t, result.IsErr(), "ask should have returned an error")
+	require.ErrorIs(t, result.Err(), ErrActorPanic, "ask error mismatch")
+
+	// The actor should still be alive and serving, so the next message is
+	// echoed as usual.
+	future = actor.Ref().Ask(context.Background(), newTestMsg("live-msg"))
+
+	awaitCtx, cancel = context.WithTimeout(t.Context(), 5*time.Second)
+	result = future.Await(awaitCtx)
+	cancel()
+	require.False(t, result.IsErr(), "ask returned an error: %v",
+		result.Err())
+	require.Equal(t, fn.Ok("echo: live-msg"), result)
+
+	// A panicking message is dropped rather than dead lettered, as the actor
+	// itself is still healthy.
 	h.assertNoDLOMessages()
 }
 

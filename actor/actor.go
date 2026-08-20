@@ -2,6 +2,8 @@ package actor
 
 import (
 	"context"
+	"fmt"
+	"log/slog"
 	"sync"
 
 	"github.com/lightningnetwork/lnd/fn/v2"
@@ -144,14 +146,7 @@ func (a *Actor[M, R]) Start() {
 func (a *Actor[M, R]) process() {
 	// Use the new iterator pattern for receiving messages.
 	for env := range a.mailbox.Receive(a.ctx) {
-		result := a.behavior.Receive(a.ctx, env.message)
-
-		// If a promise was provided (i.e., it was an "ask"
-		// operation), complete the promise with the result from
-		// the behavior.
-		if env.promise != nil {
-			env.promise.Complete(result)
-		}
+		a.deliver(env)
 	}
 
 	// Context was cancelled or mailbox closed, drain remaining messages.
@@ -169,6 +164,39 @@ func (a *Actor[M, R]) process() {
 		if env.promise != nil {
 			env.promise.Complete(fn.Err[R](ErrActorTerminated))
 		}
+	}
+}
+
+// deliver hands a single message to the actor's behavior, completing the
+// envelope's promise with whatever the behavior returned.
+//
+// A recovered behavior panic completes any pending promise with ErrActorPanic.
+// The actor can then continue with the remaining mailbox entries.
+func (a *Actor[M, R]) deliver(env envelope[M, R]) {
+	defer fn.RecoverPanic(func(pnc fn.Panic) {
+		fn.LogRecoveredPanic(
+			a.ctx, log, pnc,
+			slog.String("actor_id", a.id),
+			// Log the concrete Go type instead of calling a method on the
+			// message while already recovering from a panic.
+			slog.String(
+				"message_type", fmt.Sprintf("%T", env.message),
+			),
+		)
+
+		if env.promise != nil {
+			env.promise.Complete(fn.Err[R](
+				fmt.Errorf("%w: %v", ErrActorPanic, pnc.Value),
+			))
+		}
+	})
+
+	result := a.behavior.Receive(a.ctx, env.message)
+
+	// If a promise was provided (i.e., it was an "ask" operation), complete
+	// the promise with the result from the behavior.
+	if env.promise != nil {
+		env.promise.Complete(result)
 	}
 }
 

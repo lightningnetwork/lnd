@@ -238,11 +238,20 @@ func (c *ChannelGraph) populateCache(ctx context.Context) error {
 	for _, v := range []lnwire.GossipVersion{
 		gossipV1, gossipV2,
 	} {
-		// TODO(elle): If we have both v1 and v2 entries for the same
-		// node/channel, prefer v2 when merging.
+		// We iterate v1 first, then v2. AddNodeFeatures and AddChannel
+		// overwrite on key collision, so v2 data takes precedence when
+		// both versions exist. For features specifically we
+		// additionally skip empty v2 entries so they don't shadow a
+		// non-empty v1 feature set; this matches the no-cache
+		// FetchNodeFeatures fallback rule that a non-empty
+		// lower-version vector wins over an empty higher-version one.
 		err := c.db.ForEachNodeCacheable(ctx, v,
 			func(node route.Vertex,
 				features *lnwire.FeatureVector) error {
+
+				if v == gossipV2 && features.IsEmpty() {
+					return nil
+				}
 
 				cache.AddNodeFeatures(node, features)
 
@@ -299,9 +308,8 @@ func (c *ChannelGraph) ForEachNodeDirectedChannel(ctx context.Context,
 		return c.cache.graphCache.ForEachChannel(node, cb)
 	}
 
-	// TODO(elle): once the no-cache path needs to support
-	// pathfinding across gossip versions, this should iterate
-	// across all versions rather than defaulting to v1.
+	// The no-cache path only runs against the KV backend, which is
+	// v1-only.
 	return c.db.ForEachNodeDirectedChannel(
 		ctx, gossipV1, node, cb, reset,
 	)
@@ -320,13 +328,16 @@ func (c *ChannelGraph) FetchNodeFeatures(ctx context.Context,
 		return c.cache.graphCache.GetFeatures(node), nil
 	}
 
-	return c.db.FetchNodeFeatures(ctx, lnwire.GossipVersion1, node)
+	// The no-cache path only runs against the KV backend, which is
+	// v1-only.
+	return c.db.FetchNodeFeatures(ctx, gossipV1, node)
 }
 
 // GraphSession will provide the call-back with access to a NodeTraverser
 // instance which can be used to perform queries against the channel graph. If
 // the graph cache is not enabled, then the call-back will be provided with
-// access to the graph via a consistent read-only transaction.
+// access to the graph via a consistent read-only transaction; the no-cache
+// path only runs against the KV backend, which is v1-only.
 func (c *ChannelGraph) GraphSession(ctx context.Context,
 	cb func(graph NodeTraverser) error, reset func()) error {
 
@@ -679,13 +690,22 @@ func (c *ChannelGraph) HasV1Node(ctx context.Context,
 	return c.db.HasV1Node(ctx, nodePub)
 }
 
-// ForEachChannel iterates through all channel edges stored within the graph.
+// ForEachChannel iterates through all channel edges stored within the graph
+// across all gossip versions.
 func (c *ChannelGraph) ForEachChannel(ctx context.Context,
-	v lnwire.GossipVersion, cb func(*models.ChannelEdgeInfo,
-		*models.ChannelEdgePolicy, *models.ChannelEdgePolicy) error,
+	cb func(*models.ChannelEdgeInfo, *models.ChannelEdgePolicy,
+		*models.ChannelEdgePolicy) error,
 	reset func()) error {
 
-	return c.db.ForEachChannel(ctx, v, cb, reset)
+	return c.db.ForEachChannel(ctx, cb, reset)
+}
+
+// ForEachNode iterates through all stored vertices/nodes in the graph across
+// all gossip versions.
+func (c *ChannelGraph) ForEachNode(ctx context.Context,
+	cb func(*models.Node) error, reset func()) error {
+
+	return c.db.ForEachNode(ctx, cb, reset)
 }
 
 // DisabledChannelIDs returns the channel ids of disabled channels.
@@ -817,26 +837,23 @@ func (c *ChannelGraph) FetchChanInfos(ctx context.Context,
 }
 
 // FetchChannelEdgesByOutpoint attempts to lookup directed edges by funding
-// outpoint.
+// outpoint, returning the highest available gossip version.
 func (c *ChannelGraph) FetchChannelEdgesByOutpoint(ctx context.Context,
 	op *wire.OutPoint) (
 	*models.ChannelEdgeInfo, *models.ChannelEdgePolicy,
 	*models.ChannelEdgePolicy, error) {
 
-	return c.db.FetchChannelEdgesByOutpoint(
-		ctx, lnwire.GossipVersion1, op,
-	)
+	return c.db.FetchChannelEdgesByOutpointPreferred(ctx, op)
 }
 
-// FetchChannelEdgesByID attempts to lookup directed edges by channel ID.
+// FetchChannelEdgesByID attempts to lookup directed edges by channel ID,
+// returning the highest available gossip version.
 func (c *ChannelGraph) FetchChannelEdgesByID(ctx context.Context,
 	chanID uint64) (
 	*models.ChannelEdgeInfo, *models.ChannelEdgePolicy,
 	*models.ChannelEdgePolicy, error) {
 
-	return c.db.FetchChannelEdgesByID(
-		ctx, lnwire.GossipVersion1, chanID,
-	)
+	return c.db.FetchChannelEdgesByIDPreferred(ctx, chanID)
 }
 
 // PutClosedScid stores a SCID for a closed channel in the database.
@@ -926,13 +943,6 @@ func (c *VersionedGraph) ForEachNodeCached(ctx context.Context,
 	return c.ChannelGraph.ForEachNodeCached(ctx, c.v, cb, reset)
 }
 
-// ForEachNode iterates through all stored vertices/nodes in the graph.
-func (c *VersionedGraph) ForEachNode(ctx context.Context,
-	cb func(*models.Node) error, reset func()) error {
-
-	return c.db.ForEachNode(ctx, c.v, cb, reset)
-}
-
 // NumZombies returns the current number of zombie channels in the graph.
 func (c *VersionedGraph) NumZombies(ctx context.Context) (uint64, error) {
 	return c.db.NumZombies(ctx, c.v)
@@ -962,24 +972,6 @@ func (c *VersionedGraph) ChannelView(ctx context.Context) ([]EdgePoint,
 	error) {
 
 	return c.db.ChannelView(ctx, c.v)
-}
-
-// GraphSession provides the callback with access to a NodeTraverser instance
-// for performing queries against the channel graph. If the graph cache is
-// enabled, the callback receives the VersionedGraph directly (which implements
-// NodeTraverser using the cache). Otherwise a read-only database session is
-// used.
-func (c *VersionedGraph) GraphSession(ctx context.Context,
-	cb func(graph NodeTraverser) error, reset func()) error {
-
-	if c.cache != nil && c.cache.isLoaded() {
-		return cb(c)
-	}
-
-	// TODO(elle): the underlying GraphSession currently creates a
-	// NodeTraverser that is hardcoded to GossipVersion1. This needs to be
-	// updated to pass the version through for v2 support.
-	return c.db.GraphSession(ctx, cb, reset)
 }
 
 // FetchNode attempts to look up a target node by its identity public key.
@@ -1104,14 +1096,6 @@ func (c *VersionedGraph) ForEachNodeChannel(ctx context.Context,
 		*models.ChannelEdgePolicy) error, reset func()) error {
 
 	return c.db.ForEachNodeChannel(ctx, c.v, nodePub, cb, reset)
-}
-
-// ForEachChannel iterates through all channel edges stored within the graph.
-func (c *VersionedGraph) ForEachChannel(ctx context.Context,
-	cb func(*models.ChannelEdgeInfo, *models.ChannelEdgePolicy,
-		*models.ChannelEdgePolicy) error, reset func()) error {
-
-	return c.db.ForEachChannel(ctx, c.v, cb, reset)
 }
 
 // ForEachNodeCacheable iterates through all stored vertices/nodes in the graph.

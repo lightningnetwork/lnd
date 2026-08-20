@@ -73,12 +73,13 @@ FROM graph_nodes
 WHERE pub_key = $1
   AND version = $2;
 
--- name: ListNodesPaginated :many
-SELECT *
-FROM graph_nodes
-WHERE version = $1 AND id > $2
-ORDER BY id
-LIMIT $3;
+-- name: ListPreferredNodesPaginated :many
+SELECT sqlc.embed(n)
+FROM graph_preferred_nodes pn
+JOIN graph_nodes n ON n.id = pn.node_id
+WHERE pn.pub_key > $1
+ORDER BY pn.pub_key
+LIMIT $2;
 
 -- name: ListNodeIDsAndPubKeys :many
 SELECT id, pub_key
@@ -978,6 +979,64 @@ WHERE c.version = $1 AND c.id > $2
 ORDER BY c.id
 LIMIT $3;
 
+-- name: ListPreferredChannelsPaginated :many
+SELECT
+    sqlc.embed(c),
+
+    -- Join node pubkeys
+    n1.pub_key AS node1_pubkey,
+    n2.pub_key AS node2_pubkey,
+
+    -- Node 1 policy
+    cp1.id AS policy_1_id,
+    cp1.node_id AS policy_1_node_id,
+    cp1.version AS policy_1_version,
+    cp1.timelock AS policy_1_timelock,
+    cp1.fee_ppm AS policy_1_fee_ppm,
+    cp1.base_fee_msat AS policy_1_base_fee_msat,
+    cp1.min_htlc_msat AS policy_1_min_htlc_msat,
+    cp1.max_htlc_msat AS policy_1_max_htlc_msat,
+    cp1.last_update AS policy_1_last_update,
+    cp1.disabled AS policy_1_disabled,
+    cp1.inbound_base_fee_msat AS policy1_inbound_base_fee_msat,
+    cp1.inbound_fee_rate_milli_msat AS policy1_inbound_fee_rate_milli_msat,
+    cp1.message_flags AS policy1_message_flags,
+    cp1.channel_flags AS policy1_channel_flags,
+    cp1.block_height AS policy1_block_height,
+    cp1.disable_flags AS policy1_disable_flags,
+    cp1.signature AS policy_1_signature,
+
+    -- Node 2 policy
+    cp2.id AS policy_2_id,
+    cp2.node_id AS policy_2_node_id,
+    cp2.version AS policy_2_version,
+    cp2.timelock AS policy_2_timelock,
+    cp2.fee_ppm AS policy_2_fee_ppm,
+    cp2.base_fee_msat AS policy_2_base_fee_msat,
+    cp2.min_htlc_msat AS policy_2_min_htlc_msat,
+    cp2.max_htlc_msat AS policy_2_max_htlc_msat,
+    cp2.last_update AS policy_2_last_update,
+    cp2.disabled AS policy_2_disabled,
+    cp2.inbound_base_fee_msat AS policy2_inbound_base_fee_msat,
+    cp2.inbound_fee_rate_milli_msat AS policy2_inbound_fee_rate_milli_msat,
+    cp2.message_flags AS policy2_message_flags,
+    cp2.channel_flags AS policy2_channel_flags,
+    cp2.signature AS policy_2_signature,
+    cp2.block_height AS policy_2_block_height,
+    cp2.disable_flags AS policy_2_disable_flags
+
+FROM graph_preferred_channels pc
+JOIN graph_channels c ON c.id = pc.channel_id
+JOIN graph_nodes n1 ON c.node_id_1 = n1.id
+JOIN graph_nodes n2 ON c.node_id_2 = n2.id
+LEFT JOIN graph_channel_policies cp1
+    ON cp1.channel_id = c.id AND cp1.node_id = c.node_id_1 AND cp1.version = c.version
+LEFT JOIN graph_channel_policies cp2
+    ON cp2.channel_id = c.id AND cp2.node_id = c.node_id_2 AND cp2.version = c.version
+WHERE pc.scid > $1
+ORDER BY pc.scid
+LIMIT $2;
+
 -- name: ListChannelsWithPoliciesForCachePaginated :many
 SELECT
     c.id as id,
@@ -1435,3 +1494,42 @@ ON CONFLICT (channel_id, node_id, version)
         channel_flags = EXCLUDED.channel_flags,
         signature = EXCLUDED.signature
 RETURNING id;
+
+/* ─────────────────────────────────────────────
+   graph_preferred_nodes table queries
+   ─────────────────────────────────────────────
+*/
+
+-- name: UpsertPreferredNode :exec
+-- Recompute the preferred node for a given pub_key and upsert the result.
+-- Priority: v2 announced > v1 announced > v2 shell > v1 shell.
+INSERT INTO graph_preferred_nodes (pub_key, node_id)
+SELECT n.pub_key, n.id
+FROM graph_nodes n
+WHERE n.pub_key = $1
+ORDER BY
+    (COALESCE(length(n.signature), 0) > 0) DESC,
+    n.version DESC
+LIMIT 1
+ON CONFLICT (pub_key) DO UPDATE SET node_id = EXCLUDED.node_id;
+
+/* ─────────────────────────────────────────────
+   graph_preferred_channels table queries
+   ─────────────────────────────────────────────
+*/
+
+-- name: UpsertPreferredChannel :exec
+-- Recompute the preferred channel for a given SCID and upsert the result.
+-- Priority: v2 with policies > v1 with policies > v2 bare > v1 bare.
+INSERT INTO graph_preferred_channels (scid, channel_id)
+SELECT c.scid, c.id
+FROM graph_channels c
+WHERE c.scid = $1
+ORDER BY
+    EXISTS (
+        SELECT 1 FROM graph_channel_policies p
+        WHERE p.channel_id = c.id AND p.version = c.version
+    ) DESC,
+    c.version DESC
+LIMIT 1
+ON CONFLICT (scid) DO UPDATE SET channel_id = EXCLUDED.channel_id;

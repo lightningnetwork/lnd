@@ -2,6 +2,7 @@ package peer
 
 import (
 	"bytes"
+	"context"
 	"fmt"
 	"sync/atomic"
 	"testing"
@@ -22,6 +23,7 @@ import (
 	"github.com/lightningnetwork/lnd/lnwallet"
 	"github.com/lightningnetwork/lnd/lnwallet/chancloser"
 	"github.com/lightningnetwork/lnd/lnwire"
+	"github.com/lightningnetwork/lnd/msgmux"
 	"github.com/lightningnetwork/lnd/routing/route"
 	"github.com/lightningnetwork/lnd/tlv"
 	"github.com/stretchr/testify/mock"
@@ -1426,6 +1428,109 @@ func TestPeerPongReplyRateLimited(t *testing.T) {
 	// Assert: The peer remains connected, proving reply exhaustion only
 	// suppresses amplification and does not trigger flood teardown.
 	require.Zero(t, atomic.LoadInt32(&peer.disconnect))
+}
+
+// mockMsgRouter records message-router calls while letting a test choose
+// whether a message would be consumed. Embedding mock.Mock keeps every
+// interface interaction explicit and independently assertable.
+type mockMsgRouter struct {
+	mock.Mock
+}
+
+// RegisterEndpoint returns the result configured for one endpoint so tests
+// can exercise router registration without adding a second fake.
+func (m *mockMsgRouter) RegisterEndpoint(endpoint msgmux.Endpoint) error {
+	args := m.Called(endpoint)
+
+	return args.Error(0)
+}
+
+// UnregisterEndpoint returns the configured removal result for the supplied
+// endpoint name.
+func (m *mockMsgRouter) UnregisterEndpoint(name msgmux.EndpointName) error {
+	args := m.Called(name)
+
+	return args.Error(0)
+}
+
+// RouteMsg returns the configured routing result while recording the complete
+// peer message that reached the generic routing boundary.
+func (m *mockMsgRouter) RouteMsg(msg msgmux.PeerMsg) error {
+	args := m.Called(msg)
+
+	return args.Error(0)
+}
+
+// Start records the lifecycle context so any test that starts the mock router
+// must declare that interaction explicitly.
+func (m *mockMsgRouter) Start(ctx context.Context) {
+	m.Called(ctx)
+}
+
+// Stop records shutdown so tests cannot accidentally rely on an unobserved
+// router lifecycle transition.
+func (m *mockMsgRouter) Stop() {
+	m.Called()
+}
+
+// Compile-time verification keeps the focused mock synchronized with the
+// production router interface used by Brontide.
+var _ msgmux.Router = (*mockMsgRouter)(nil)
+
+// TestPeerPingFloodDisconnects verifies flood accounting precedes a generic
+// router that would consume an oversized Ping.
+func TestPeerPingFloodDisconnects(t *testing.T) {
+	t.Parallel()
+
+	// Arrange: Empty the flood budget and retain errors through an active
+	// channel. Install a mock router prepared to consume any message;
+	// marking it global avoids unrelated lifecycle calls.
+	params := createTestPeer(t)
+	peer := params.peer
+	peer.pingLimits.pingLimiter = rate.NewLimiter(0, 0)
+	peer.remoteFeatures = lnwire.EmptyFeatureVector()
+	peer.activeChannels.Store(
+		lnwire.ChannelID{1}, &lnwallet.LightningChannel{},
+	)
+
+	router := &mockMsgRouter{}
+	router.On("RouteMsg", mock.Anything).Return(nil).Maybe()
+	peer.msgRouter = fn.Some[msgmux.Router](router)
+	peer.globalMsgRouter = true
+
+	// Arrange: Encode the first oversized Pong request and register the
+	// focused reader with the control group so shutdown remains joinable.
+	var b bytes.Buffer
+	_, err := lnwire.WriteMessage(&b, &lnwire.Ping{
+		NumPongBytes: lnwire.MaxPongBytes + 1,
+	}, 0)
+	require.NoError(t, err)
+
+	peer.cg.WgAdd(1)
+	go peer.readHandler()
+
+	// Act: Send the oversized Ping through normal decoding, then wait for
+	// the empty flood budget to cancel and fully stop the focused reader.
+	select {
+	case params.mockConn.readMessages <- b.Bytes():
+	case <-peer.cg.Done():
+		t.Fatal("peer disconnected before Ping was delivered")
+	}
+
+	_, err = fn.RecvOrTimeout(peer.cg.Done(), timeout)
+	require.NoError(t, err)
+	peer.cg.WgWait()
+
+	// Assert: Teardown precedes generic routing, and the retained error
+	// matches the stable sentinel without depending on its display text.
+	require.EqualValues(t, 1, atomic.LoadInt32(&peer.disconnect))
+	router.AssertNotCalled(t, "RouteMsg", mock.Anything)
+
+	storedErrors := peer.ErrorBuffer().List()
+	require.NotEmpty(t, storedErrors)
+	storedErr, ok := storedErrors[0].(*TimestampedError)
+	require.True(t, ok)
+	require.ErrorIs(t, storedErr.Error, errPingFlood)
 }
 
 // TestMessageSummaryPingIncludesNumPongBytes ensures the debug summary for a

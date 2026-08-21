@@ -1906,10 +1906,11 @@ var createAccountCommand = cli.Command{
 	external_key_count and internal_key_count. Replay NextAddr with
 	change=false at least external_key_count times and NextAddr with
 	change=true at least internal_key_count times before rescanning.
-	Record the derivation path and both counters printed below
-	alongside your seed before depositing to this account. The
-	counters start at zero and increase as the account is used, so
-	the path alone is not enough.
+	Record the derivation path printed below alongside your seed now.
+	The counters in that output are still zero; they only become
+	meaningful once the account has issued addresses, so read both
+	from ListAccounts before you need to restore. The path alone is
+	not enough.
 	`,
 	Flags: []cli.Flag{
 		cli.StringFlag{
@@ -1967,15 +1968,18 @@ func createAccount(ctx *cli.Context) error {
 
 	printRespJSON(resp)
 
-	// The derivation path and both branch counters in the response are
-	// what a later recovery needs, so point at them here rather than
-	// only in the command's help text: this is the one moment the
-	// operator is looking at them.
+	// The derivation path in the response is what recovery needs to
+	// recreate the account. The branch counters are still zero here
+	// and only become meaningful after addresses are issued, so the
+	// note below tells the operator to read them from ListAccounts
+	// later rather than recording the zeros just printed.
 	_, _ = fmt.Fprintf(os.Stderr, "\nNOTE: a seed-only restore will not "+
 		"find funds in this account. Record its derivation path "+
-		"and both external_key_count and internal_key_count "+
-		"(above) with your seed. On restore, replay NextAddr "+
-		"on each branch before rescanning.\n")
+		"(above) with your seed. Both branch counters start at "+
+		"zero here; read external_key_count and "+
+		"internal_key_count from ListAccounts before you need "+
+		"to restore, then replay NextAddr on each branch before "+
+		"rescanning.\n")
 
 	return nil
 }

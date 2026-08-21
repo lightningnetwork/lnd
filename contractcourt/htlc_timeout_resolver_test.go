@@ -556,6 +556,79 @@ func TestHtlcTimeoutResolver(t *testing.T) {
 	}
 }
 
+// TestHtlcTimeoutRejectsMalformedSpendEvent tests validation of notifier
+// spending transaction inputs.
+func TestHtlcTimeoutRejectsMalformedSpendEvent(t *testing.T) {
+	// Arrange a valid watched outpoint and table mutations covering every
+	// malformed notifier field consumed by validateSpend.
+	htlcOutpoint := wire.OutPoint{Index: 3}
+	validSpend := newSpendDetail(htlcOutpoint, &wire.MsgTx{
+		TxIn: []*wire.TxIn{{PreviousOutPoint: htlcOutpoint}},
+	}, 0)
+
+	testCases := []struct {
+		name  string
+		spend *chainntnfs.SpendDetail
+		valid bool
+	}{
+		{
+			name:  "valid spend",
+			spend: validSpend,
+			valid: true,
+		},
+		{
+			name: "missing detail",
+		},
+		{
+			name:  "missing transaction",
+			spend: &chainntnfs.SpendDetail{},
+		},
+		{
+			name: "input index out of range",
+			spend: &chainntnfs.SpendDetail{
+				SpendingTx:        &wire.MsgTx{},
+				SpenderInputIndex: 1,
+			},
+		},
+		{
+			name: "missing indexed input",
+			spend: &chainntnfs.SpendDetail{
+				SpendingTx: &wire.MsgTx{
+					TxIn: []*wire.TxIn{nil},
+				},
+			},
+		},
+		{
+			name: "unexpected previous outpoint",
+			spend: newSpendDetail(htlcOutpoint, &wire.MsgTx{
+				TxIn: []*wire.TxIn{{}},
+			}, 0),
+		},
+	}
+
+	resolver := &htlcTimeoutResolver{
+		htlcResolution: lnwallet.OutgoingHtlcResolution{
+			ClaimOutpoint: htlcOutpoint,
+		},
+	}
+	for _, testCase := range testCases {
+		t.Run(testCase.name, func(t *testing.T) {
+			// Act by validating the spend before a watcher can log,
+			// classify, or forward its transaction.
+			err := resolver.validateSpend(testCase.spend)
+
+			// Assert valid metadata passes unchanged. Malformed
+			// shapes retain the spend-details sentinel.
+			if testCase.valid {
+				require.NoError(t, err)
+				return
+			}
+
+			require.ErrorIs(t, err, errInvalidSpendDetails)
+		})
+	}
+}
+
 // NOTE: the following tests essentially checks many of the same scenarios as
 // the test above, but they expand on it by checking resuming from checkpoints
 // at every stage.

@@ -128,6 +128,47 @@ func (h *htlcTimeoutResolver) ResolverKey() []byte {
 	return key[:]
 }
 
+// validateSpend validates a notifier spend of the resolver's HTLC output.
+func (h *htlcTimeoutResolver) validateSpend(
+	spend *chainntnfs.SpendDetail) error {
+
+	if spend == nil {
+		return fmt.Errorf(
+			"%w: missing spend detail", errInvalidSpendDetails,
+		)
+	}
+	if spend.SpendingTx == nil {
+		return fmt.Errorf(
+			"%w: missing spending tx", errInvalidSpendDetails,
+		)
+	}
+	if spend.SpenderInputIndex >= uint32(len(spend.SpendingTx.TxIn)) {
+		return fmt.Errorf(
+			"%w: input index %d out of range",
+			errInvalidSpendDetails, spend.SpenderInputIndex,
+		)
+	}
+
+	spendingInput := spend.SpendingTx.TxIn[spend.SpenderInputIndex]
+	if spendingInput == nil {
+		return fmt.Errorf(
+			"%w: missing input %d", errInvalidSpendDetails,
+			spend.SpenderInputIndex,
+		)
+	}
+
+	expected := h.outpoint()
+	if spendingInput.PreviousOutPoint != expected {
+		return fmt.Errorf(
+			"%w: input %d spends %v, expected %v",
+			errInvalidSpendDetails, spend.SpenderInputIndex,
+			spendingInput.PreviousOutPoint, expected,
+		)
+	}
+
+	return nil
+}
+
 const (
 	// expectedRemoteWitnessSuccessSize is the expected size of the witness
 	// on the remote commitment transaction for an outgoing HTLC that is

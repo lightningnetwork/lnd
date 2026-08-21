@@ -133,6 +133,8 @@ func genHtlcTimeoutTestCases() []htlcTimeoutTestCase {
 			remoteCommit: true,
 			timeout:      true,
 			txToBroadcast: func() (*wire.MsgTx, error) {
+				templateTx.TxIn[0].PreviousOutPoint =
+					testChanPoint2
 				witness, err := input.ReceiverHtlcSpendTimeout(
 					signer, fakeSignDesc, sweepTx,
 					fakeTimeout,
@@ -203,6 +205,8 @@ func genHtlcTimeoutTestCases() []htlcTimeoutTestCase {
 			remoteCommit: true,
 			timeout:      false,
 			txToBroadcast: func() (*wire.MsgTx, error) {
+				templateTx.TxIn[0].PreviousOutPoint =
+					testChanPoint2
 				witness, err := input.ReceiverHtlcSpendRedeem(
 					&mock.DummySignature{}, txscript.SigHashAll,
 					fakePreimageBytes, signer, fakeSignDesc,
@@ -629,6 +633,101 @@ func TestHtlcTimeoutRejectsMalformedSpendEvent(t *testing.T) {
 	}
 }
 
+// TestHtlcTimeoutConsumeSpendEvents tests that malformed block and mempool
+// events are returned as errors before they are inspected further.
+func TestHtlcTimeoutConsumeSpendEvents(t *testing.T) {
+	// Arrange equivalent block and mempool cases so both subscription
+	// branches receive malformed notifier data through their real channels.
+	testCases := []struct {
+		name    string
+		mempool bool
+	}{
+		{name: "block"},
+		{name: "mempool", mempool: true},
+	}
+
+	for _, testCase := range testCases {
+		t.Run(testCase.name, func(t *testing.T) {
+			// Arrange channels and route a nil spend through only
+			// the backend selected by this case.
+			blockSpend := make(chan *chainntnfs.SpendDetail, 1)
+			mempoolSpend := make(chan *chainntnfs.SpendDetail, 1)
+			if testCase.mempool {
+				mempoolSpend <- nil
+			} else {
+				blockSpend <- nil
+			}
+
+			resolver := &htlcTimeoutResolver{
+				htlcResolution: lnwallet.OutgoingHtlcResolution{
+					ClaimOutpoint: wire.OutPoint{Index: 3},
+				},
+			}
+			resultChan := make(chan *spendResult, 1)
+
+			// Act by consuming the malformed event through the loop
+			// shared by the block and mempool subscriptions.
+			resolver.consumeSpendEvents(
+				resultChan, blockSpend, mempoolSpend,
+			)
+
+			// Assert the watcher returns validation failure without
+			// forwarding a spend that later code could dereference.
+			result := <-resultChan
+			require.ErrorIs(t, result.err, errInvalidSpendDetails)
+			require.Nil(t, result.spend)
+		})
+	}
+}
+
+// TestHtlcTimeoutRejectsMalformedConfirmedSpend tests that the confirmed-only
+// watcher returns malformed remote commitment spends without side effects.
+func TestHtlcTimeoutRejectsMalformedConfirmedSpend(t *testing.T) {
+	// Arrange a confirmed-only resolver whose notifier reports a
+	// transaction that does not spend the watched HTLC outpoint.
+	htlcOutpoint := wire.OutPoint{Index: 3}
+	ctx := newHtlcResolverTestContext(t, func(htlc channeldb.HTLC,
+		cfg ResolverConfig) ContractResolver {
+
+		resolution := lnwallet.OutgoingHtlcResolution{
+			ClaimOutpoint: htlcOutpoint,
+			SweepSignDesc: testSignDesc,
+		}
+
+		return newTimeoutResolver(resolution, 0, htlc, 0, cfg)
+	})
+	var checkpoints int
+	ctx.checkpoint = func(_ ContractResolver,
+		_ ...*channeldb.ResolverReport) error {
+
+		checkpoints++
+		return nil
+	}
+	ctx.notifier.SpendChan <- newSpendDetail(
+		htlcOutpoint, &wire.MsgTx{TxIn: []*wire.TxIn{{}}}, 0,
+	)
+
+	resolver, ok := ctx.resolver.(*htlcTimeoutResolver)
+	require.True(t, ok)
+
+	// Act by running the remote-commit resolution path that waits directly
+	// for the malformed confirmed notification.
+	err := resolver.resolveRemoteCommitOutput()
+
+	// Assert validation stops resolution before checkpoint, notification,
+	// outcome persistence, or sweep submission can produce side effects.
+	require.ErrorIs(t, err, errInvalidSpendDetails)
+	require.False(t, resolver.IsResolved())
+	require.Zero(t, checkpoints)
+	require.Empty(t, ctx.resolutionChan)
+	require.False(t, ctx.finalHtlcOutcomeStored)
+	require.Empty(t, ctx.htlcNotifier.finalHtlcEvents)
+
+	sweeper, ok := resolver.Sweeper.(*mockSweeper)
+	require.True(t, ok)
+	require.Empty(t, sweeper.sweptInputs)
+}
+
 // NOTE: the following tests essentially checks many of the same scenarios as
 // the test above, but they expand on it by checking resuming from checkpoints
 // at every stage.
@@ -641,7 +740,9 @@ func TestHtlcTimeoutSingleStage(t *testing.T) {
 	commitOutpoint := wire.OutPoint{Index: 3}
 
 	sweepTx := &wire.MsgTx{
-		TxIn:  []*wire.TxIn{{}},
+		TxIn: []*wire.TxIn{{
+			PreviousOutPoint: commitOutpoint,
+		}},
 		TxOut: []*wire.TxOut{{}},
 	}
 
@@ -865,7 +966,9 @@ func TestHtlcTimeoutSingleStageRemoteSpend(t *testing.T) {
 	htlcOutpoint := wire.OutPoint{Index: 3}
 
 	spendTx := &wire.MsgTx{
-		TxIn:  []*wire.TxIn{{}},
+		TxIn: []*wire.TxIn{{
+			PreviousOutPoint: commitOutpoint,
+		}},
 		TxOut: []*wire.TxOut{{}},
 	}
 
@@ -1365,7 +1468,9 @@ func TestHtlcTimeoutSecondStageSweeperRemoteSpend(t *testing.T) {
 	timeoutTx.TxIn[0].Witness = timeoutWitness
 
 	spendTx := &wire.MsgTx{
-		TxIn:  []*wire.TxIn{{}},
+		TxIn: []*wire.TxIn{{
+			PreviousOutPoint: commitOutpoint,
+		}},
 		TxOut: []*wire.TxOut{{}},
 	}
 

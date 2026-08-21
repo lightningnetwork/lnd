@@ -672,6 +672,9 @@ func (h *htlcTimeoutResolver) waitForConfirmedSpend(op *wire.OutPoint,
 	if err != nil {
 		return nil, err
 	}
+	if err := h.validateSpend(spend); err != nil {
+		return nil, fmt.Errorf("invalid confirmed spend: %w", err)
+	}
 
 	return spend, nil
 }
@@ -914,6 +917,31 @@ func (h *htlcTimeoutResolver) waitForMempoolOrBlockSpend(op wire.OutPoint,
 	}
 }
 
+// handleBlockSpent translates a confirmed-spend notification into the result
+// consumed by the watcher. Keeping shutdown and malformed-event handling here
+// lets the select arm terminate uniformly without changing caller-visible
+// error wrapping or successful spend delivery.
+func (h *htlcTimeoutResolver) handleBlockSpent(
+	spendDetail *chainntnfs.SpendDetail, ok bool) *spendResult {
+
+	if !ok {
+		return &spendResult{err: fmt.Errorf(
+			"block spent err: %w", errResolverShuttingDown,
+		)}
+	}
+
+	if err := h.validateSpend(spendDetail); err != nil {
+		return &spendResult{err: fmt.Errorf(
+			"invalid block spend: %w", err,
+		)}
+	}
+
+	log.Debugf("Found confirmed spend of HTLC output %s in tx=%s",
+		h.HtlcPoint(), spendDetail.SpenderTxHash)
+
+	return &spendResult{spend: spendDetail}
+}
+
 // consumeSpendEvents consumes the spend events from the block and mempool
 // subscriptions. It exits when a spend event is received from the block, or
 // the resolver itself quits. When a spend event is received from the mempool,
@@ -948,23 +976,7 @@ func (h *htlcTimeoutResolver) consumeSpendEvents(resultChan chan *spendResult,
 		// the mempool again. Though a rare case, we should handle it
 		// in a dedicated reorg system.
 		case spendDetail, ok := <-blockSpent:
-			if !ok {
-				result.err = fmt.Errorf("block spent err: %w",
-					errResolverShuttingDown)
-			} else {
-				log.Debugf("Found confirmed spend of HTLC "+
-					"output %s in tx=%s", op,
-					spendDetail.SpenderTxHash)
-
-				result.spend = spendDetail
-
-				// Once confirmed, persist the state on disk if
-				// we haven't seen the output's spending tx in
-				// mempool before.
-			}
-
-			// Send the result and exit the loop.
-			resultChan <- result
+			resultChan <- h.handleBlockSpent(spendDetail, ok)
 
 			return
 
@@ -982,6 +994,14 @@ func (h *htlcTimeoutResolver) consumeSpendEvents(resultChan chan *spendResult,
 					errResolverShuttingDown)
 
 				// This is an internal error so we exit.
+				resultChan <- result
+
+				return
+			}
+			if err := h.validateSpend(spendDetail); err != nil {
+				result.err = fmt.Errorf(
+					"invalid mempool spend: %w", err,
+				)
 				resultChan <- result
 
 				return

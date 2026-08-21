@@ -172,7 +172,10 @@ func (c *cipherState) InitializeKey(key [32]byte) {
 	c.nonce = 0
 
 	// Safe to ignore the error here as our key is properly sized
-	// (32-bytes).
+	// (32-bytes). Starting with x/crypto v0.51.0, this can also return an
+	// error when Go's strict FIPS 140-only mode is enabled. Brontide
+	// requires ChaCha20-Poly1305, which isn't permitted in that mode, so
+	// lnd cannot operate with strict FIPS enforcement enabled.
 	c.cipher, _ = chacha20poly1305.New(c.secretKey[:])
 }
 

@@ -128,6 +128,47 @@ func (h *htlcTimeoutResolver) ResolverKey() []byte {
 	return key[:]
 }
 
+// validateSpend validates a notifier spend of the resolver's HTLC output.
+func (h *htlcTimeoutResolver) validateSpend(
+	spend *chainntnfs.SpendDetail) error {
+
+	if spend == nil {
+		return fmt.Errorf(
+			"%w: missing spend detail", errInvalidSpendDetails,
+		)
+	}
+	if spend.SpendingTx == nil {
+		return fmt.Errorf(
+			"%w: missing spending tx", errInvalidSpendDetails,
+		)
+	}
+	if spend.SpenderInputIndex >= uint32(len(spend.SpendingTx.TxIn)) {
+		return fmt.Errorf(
+			"%w: input index %d out of range",
+			errInvalidSpendDetails, spend.SpenderInputIndex,
+		)
+	}
+
+	spendingInput := spend.SpendingTx.TxIn[spend.SpenderInputIndex]
+	if spendingInput == nil {
+		return fmt.Errorf(
+			"%w: missing input %d", errInvalidSpendDetails,
+			spend.SpenderInputIndex,
+		)
+	}
+
+	expected := h.outpoint()
+	if spendingInput.PreviousOutPoint != expected {
+		return fmt.Errorf(
+			"%w: input %d spends %v, expected %v",
+			errInvalidSpendDetails, spend.SpenderInputIndex,
+			spendingInput.PreviousOutPoint, expected,
+		)
+	}
+
+	return nil
+}
+
 const (
 	// expectedRemoteWitnessSuccessSize is the expected size of the witness
 	// on the remote commitment transaction for an outgoing HTLC that is
@@ -631,6 +672,9 @@ func (h *htlcTimeoutResolver) waitForConfirmedSpend(op *wire.OutPoint,
 	if err != nil {
 		return nil, err
 	}
+	if err := h.validateSpend(spend); err != nil {
+		return nil, fmt.Errorf("invalid confirmed spend: %w", err)
+	}
 
 	return spend, nil
 }
@@ -873,6 +917,31 @@ func (h *htlcTimeoutResolver) waitForMempoolOrBlockSpend(op wire.OutPoint,
 	}
 }
 
+// handleBlockSpent translates a confirmed-spend notification into the result
+// consumed by the watcher. Keeping shutdown and malformed-event handling here
+// lets the select arm terminate uniformly without changing caller-visible
+// error wrapping or successful spend delivery.
+func (h *htlcTimeoutResolver) handleBlockSpent(
+	spendDetail *chainntnfs.SpendDetail, ok bool) *spendResult {
+
+	if !ok {
+		return &spendResult{err: fmt.Errorf(
+			"block spent err: %w", errResolverShuttingDown,
+		)}
+	}
+
+	if err := h.validateSpend(spendDetail); err != nil {
+		return &spendResult{err: fmt.Errorf(
+			"invalid block spend: %w", err,
+		)}
+	}
+
+	log.Debugf("Found confirmed spend of HTLC output %s in tx=%s",
+		h.HtlcPoint(), spendDetail.SpenderTxHash)
+
+	return &spendResult{spend: spendDetail}
+}
+
 // consumeSpendEvents consumes the spend events from the block and mempool
 // subscriptions. It exits when a spend event is received from the block, or
 // the resolver itself quits. When a spend event is received from the mempool,
@@ -907,23 +976,7 @@ func (h *htlcTimeoutResolver) consumeSpendEvents(resultChan chan *spendResult,
 		// the mempool again. Though a rare case, we should handle it
 		// in a dedicated reorg system.
 		case spendDetail, ok := <-blockSpent:
-			if !ok {
-				result.err = fmt.Errorf("block spent err: %w",
-					errResolverShuttingDown)
-			} else {
-				log.Debugf("Found confirmed spend of HTLC "+
-					"output %s in tx=%s", op,
-					spendDetail.SpenderTxHash)
-
-				result.spend = spendDetail
-
-				// Once confirmed, persist the state on disk if
-				// we haven't seen the output's spending tx in
-				// mempool before.
-			}
-
-			// Send the result and exit the loop.
-			resultChan <- result
+			resultChan <- h.handleBlockSpent(spendDetail, ok)
 
 			return
 
@@ -941,6 +994,14 @@ func (h *htlcTimeoutResolver) consumeSpendEvents(resultChan chan *spendResult,
 					errResolverShuttingDown)
 
 				// This is an internal error so we exit.
+				resultChan <- result
+
+				return
+			}
+			if err := h.validateSpend(spendDetail); err != nil {
+				result.err = fmt.Errorf(
+					"invalid mempool spend: %w", err,
+				)
 				resultChan <- result
 
 				return
@@ -1005,6 +1066,10 @@ func (h *htlcTimeoutResolver) isZeroFeeOutput() bool {
 func (h *htlcTimeoutResolver) waitHtlcSpendAndCheckPreimage() (
 	*chainntnfs.SpendDetail, error) {
 
+	if h.htlcResolution.SweepSignDesc.Output == nil {
+		return nil, fmt.Errorf("%w", errInvalidSecondLevelOutput)
+	}
+
 	// Wait for the htlc output to be spent, which can happen in one of the
 	// paths,
 	// 1. The remote party spends the htlc output using the preimage.
@@ -1049,6 +1114,16 @@ func (h *htlcTimeoutResolver) sweepTimeoutTxOutput() error {
 
 		return nil
 	}
+	secondLevelOutpoint, matches, err := matchSecondLevelOutput(
+		commitSpend.SpendingTx, commitSpend.SpenderInputIndex,
+		h.htlcResolution.SweepSignDesc.Output,
+	)
+	if err != nil {
+		return err
+	}
+	if !matches {
+		return nil
+	}
 
 	waitHeight := h.deriveWaitHeight(h.htlcResolution.CsvDelay, commitSpend)
 
@@ -1069,16 +1144,6 @@ func (h *htlcTimeoutResolver) sweepTimeoutTxOutput() error {
 			waitHeight)
 	}
 
-	// We'll use this input index to determine the second-level output
-	// index on the transaction, as the signatures requires the indexes to
-	// be the same. We don't look for the second-level output script
-	// directly, as there might be more than one HTLC output to the same
-	// pkScript.
-	op := &wire.OutPoint{
-		Hash:  *commitSpend.SpenderTxHash,
-		Index: commitSpend.SpenderInputIndex,
-	}
-
 	var witType input.StandardWitnessType
 	switch {
 	case h.isTaprootFinal():
@@ -1092,7 +1157,7 @@ func (h *htlcTimeoutResolver) sweepTimeoutTxOutput() error {
 	// Let the sweeper sweep the second-level output now that the CSV/CLTV
 	// locks have expired.
 	inp := h.makeSweepInput(
-		op, witType,
+		&secondLevelOutpoint, witType,
 		input.LeaseHtlcOfferedTimeoutSecondLevel,
 		&h.htlcResolution.SweepSignDesc,
 		h.htlcResolution.CsvDelay, uint32(commitSpend.SpendingHeight),
@@ -1209,9 +1274,20 @@ func (h *htlcTimeoutResolver) resolveRemoteCommitOutput() error {
 		return h.claimCleanUp(spend)
 	}
 
+	// TODO(yy): should also update the `RecoveredBalance` and
+	// `LimboBalance` like other paths?
+
+	return h.resolveTimeoutSpend(spend)
+}
+
+// resolveTimeoutSpend fails the incoming HTLC and checkpoints its confirmed
+// on-chain timeout spend.
+func (h *htlcTimeoutResolver) resolveTimeoutSpend(
+	spend *chainntnfs.SpendDetail) error {
+
 	// Send the clean up msg to fail the incoming HTLC.
 	failureMsg := &lnwire.FailPermanentChannelFailure{}
-	err = h.DeliverResolutionMsg(ResolutionMsg{
+	err := h.DeliverResolutionMsg(ResolutionMsg{
 		SourceChan: h.ShortChanID,
 		HtlcIndex:  h.htlc.HtlcIndex,
 		Failure:    failureMsg,
@@ -1219,9 +1295,6 @@ func (h *htlcTimeoutResolver) resolveRemoteCommitOutput() error {
 	if err != nil {
 		return err
 	}
-
-	// TODO(yy): should also update the `RecoveredBalance` and
-	// `LimboBalance` like other paths?
 
 	// Checkpoint the resolver, and write the outcome to disk.
 	return h.checkpointClaim(spend)
@@ -1233,6 +1306,11 @@ func (h *htlcTimeoutResolver) resolveRemoteCommitOutput() error {
 func (h *htlcTimeoutResolver) resolveTimeoutTx() error {
 	h.log.Debug("waiting for first-stage 2nd-level HTLC timeout tx to " +
 		"confirm")
+
+	expectedOutput := h.htlcResolution.SweepSignDesc.Output
+	if expectedOutput == nil {
+		return fmt.Errorf("%w", errInvalidSecondLevelOutput)
+	}
 
 	// Wait for the second level transaction to confirm.
 	spend, err := h.watchHtlcSpend()
@@ -1248,15 +1326,32 @@ func (h *htlcTimeoutResolver) resolveTimeoutTx() error {
 	}
 
 	op := h.htlcResolution.ClaimOutpoint
-	spenderTxid := *spend.SpenderTxHash
+	var spenderTxid chainhash.Hash
 
 	// If the timeout tx is a re-signed tx, we will need to find the actual
 	// spent outpoint from the spending tx.
 	if h.isZeroFeeOutput() {
-		op = wire.OutPoint{
-			Hash:  spenderTxid,
-			Index: spend.SpenderInputIndex,
+		var matches bool
+		op, matches, err = matchSecondLevelOutput(
+			spend.SpendingTx, spend.SpenderInputIndex,
+			expectedOutput,
+		)
+		if err != nil {
+			return err
 		}
+		if !matches {
+			spenderTxid = spend.SpendingTx.TxHash()
+			terminalSpend := *spend
+			spentOutpoint := h.outpoint()
+			terminalSpend.SpentOutPoint = &spentOutpoint
+			terminalSpend.SpenderTxHash = &spenderTxid
+
+			return h.resolveTimeoutSpend(&terminalSpend)
+		}
+
+		spenderTxid = op.Hash
+	} else {
+		spenderTxid = *spend.SpenderTxHash
 	}
 
 	// If the 2nd-stage sweeping has already been started, we can

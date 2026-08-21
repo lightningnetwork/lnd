@@ -443,7 +443,13 @@ type LightningWallet struct {
 	// as key in the fundingLimbo map. Used to easily look up a channel
 	// reservation given a pending channel ID.
 	reservationIDs map[[32]byte]uint64
-	limboMtx       sync.RWMutex
+
+	// limboMtx guards fundingLimbo and reservationIDs.
+	//
+	// NOTE: Never acquire limboMtx while holding intentMtx. If both
+	// mutexes must be held simultaneously, acquire limboMtx before
+	// intentMtx. See the note on PsbtFundingVerify.
+	limboMtx sync.RWMutex
 
 	// lockedOutPoints is a set of the currently locked outpoint. This
 	// information is kept in order to provide an easy way to unlock all
@@ -746,8 +752,33 @@ func (l *LightningWallet) RegisterFundingIntent(expectedID [32]byte,
 // PsbtFundingVerify looks up a previously registered funding intent by its
 // pending channel ID and tries to advance the state machine by verifying the
 // passed PSBT.
+//
+// NOTE: limboMtx MUST be acquired before intentMtx, never the other way round.
+// handleFundingCancelRequest holds limboMtx for the duration of the call and
+// acquires intentMtx inside it, so acquiring the two in the opposite order here
+// deadlocks the wallet's requestHandler goroutine, which in turn wedges all
+// channel funding for the whole node.
 func (l *LightningWallet) PsbtFundingVerify(pendingChanID [32]byte,
 	packet *psbt.Packet, skipFinalize bool) error {
+
+	// Get the channel reservation that corresponds to this pending channel
+	// ID. This has to happen before intentMtx is acquired, see the note
+	// above.
+	l.limboMtx.Lock()
+	pid, ok := l.reservationIDs[pendingChanID]
+	if !ok {
+		l.limboMtx.Unlock()
+		return fmt.Errorf("no channel reservation found for "+
+			"pendingChannelID(%x)", pendingChanID[:])
+	}
+
+	pendingReservation, ok := l.fundingLimbo[pid]
+	l.limboMtx.Unlock()
+
+	if !ok {
+		return fmt.Errorf("no channel reservation found for "+
+			"reservation ID %v", pid)
+	}
 
 	l.intentMtx.Lock()
 	defer l.intentMtx.Unlock()
@@ -772,28 +803,11 @@ func (l *LightningWallet) PsbtFundingVerify(pendingChanID [32]byte,
 		return fmt.Errorf("error verifying PSBT: %w", err)
 	}
 
-	// Get the channel reservation for that corresponds to this pending
-	// channel ID.
-	l.limboMtx.Lock()
-	pid, ok := l.reservationIDs[pendingChanID]
-	if !ok {
-		l.limboMtx.Unlock()
-		return fmt.Errorf("no channel reservation found for "+
-			"pendingChannelID(%x)", pendingChanID[:])
-	}
-
-	pendingReservation, ok := l.fundingLimbo[pid]
-	l.limboMtx.Unlock()
-
-	if !ok {
-		return fmt.Errorf("no channel reservation found for "+
-			"reservation ID %v", pid)
-	}
-
 	// Now the PSBT has been populated and verified, we can again check
 	// whether the value reserved for anchor fee bumping is respected.
 	isPublic := pendingReservation.partialState.ChannelFlags&lnwire.FFAnnounceChannel != 0
 	hasAnchors := pendingReservation.partialState.ChanType.HasAnchors()
+
 	return l.enforceNewReservedValue(intent, isPublic, hasAnchors)
 }
 

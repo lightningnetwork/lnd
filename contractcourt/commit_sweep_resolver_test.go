@@ -120,6 +120,7 @@ type mockSweeper struct {
 	createSweepTxChan chan *wire.MsgTx
 
 	deadlines []int
+	budgets   []btcutil.Amount
 }
 
 func newMockSweeper() *mockSweeper {
@@ -141,6 +142,8 @@ func (s *mockSweeper) SweepInput(input input.Input, params sweep.Params) (
 	params.DeadlineHeight.WhenSome(func(d int32) {
 		s.deadlines = append(s.deadlines, int(d))
 	})
+
+	s.budgets = append(s.budgets, params.Budget)
 
 	result := make(chan sweep.Result, 1)
 	result <- sweep.Result{

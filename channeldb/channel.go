@@ -286,6 +286,13 @@ type openChannelTlvData struct {
 	// Note: if not set, it means either the channel has not been
 	// closed yet, or it was closed before this field was introduced.
 	closeConfirmationHeight tlv.OptionalRecordT[tlv.TlvType9, uint32]
+
+	// revocationAuxSigs is an optional blob carrying the revocation aux
+	// signatures attached to the most recently sent RevokeAndAck. It is
+	// only ever set for aux/custom (taproot asset) channels, so the same
+	// signatures can be re-attached if that RevokeAndAck has to be
+	// retransmitted on channel reestablish.
+	revocationAuxSigs tlv.OptionalRecordT[tlv.TlvType10, tlv.Blob]
 }
 
 // encode serializes the openChannelTlvData to the given io.Writer.
@@ -313,6 +320,11 @@ func (c *openChannelTlvData) encode(w io.Writer) error {
 			tlvRecords = append(tlvRecords, h.Record())
 		},
 	)
+	c.revocationAuxSigs.WhenSome(
+		func(sigs tlv.RecordT[tlv.TlvType10, tlv.Blob]) {
+			tlvRecords = append(tlvRecords, sigs.Record())
+		},
+	)
 
 	tlv.SortRecords(tlvRecords)
 
@@ -331,6 +343,7 @@ func (c *openChannelTlvData) decode(r io.Reader) error {
 	tapscriptRoot := c.tapscriptRoot.Zero()
 	blob := c.customBlob.Zero()
 	closeConfHeight := c.closeConfirmationHeight.Zero()
+	revocationAuxSigs := c.revocationAuxSigs.Zero()
 
 	// Create the tlv stream.
 	tlvStream, err := tlv.NewStream(
@@ -343,6 +356,7 @@ func (c *openChannelTlvData) decode(r io.Reader) error {
 		blob.Record(),
 		c.confirmationHeight.Record(),
 		closeConfHeight.Record(),
+		revocationAuxSigs.Record(),
 	)
 	if err != nil {
 		return err
@@ -364,6 +378,9 @@ func (c *openChannelTlvData) decode(r io.Reader) error {
 	}
 	if _, ok := tlvs[closeConfHeight.TlvType()]; ok {
 		c.closeConfirmationHeight = tlv.SomeRecordT(closeConfHeight)
+	}
+	if _, ok := tlvs[revocationAuxSigs.TlvType()]; ok {
+		c.revocationAuxSigs = tlv.SomeRecordT(revocationAuxSigs)
 	}
 
 	return nil
@@ -630,6 +647,9 @@ func amendOpenChannelTlvData(channel *OpenChannel, auxData openChannelTlvData) {
 	auxData.closeConfirmationHeight.WhenSomeV(func(h uint32) {
 		channel.CloseConfirmationHeight = fn.Some(h)
 	})
+	auxData.revocationAuxSigs.WhenSomeV(func(sigs tlv.Blob) {
+		channel.RevocationAuxSigs = fn.Some(sigs)
+	})
 }
 
 // extractOpenChannelTlvData creates a new openChannelTlvData from the given
@@ -671,6 +691,11 @@ func extractOpenChannelTlvData(channel *OpenChannel) openChannelTlvData {
 	channel.CloseConfirmationHeight.WhenSome(func(h uint32) {
 		auxData.closeConfirmationHeight = tlv.SomeRecordT(
 			tlv.NewPrimitiveRecord[tlv.TlvType9](h),
+		)
+	})
+	channel.RevocationAuxSigs.WhenSome(func(sigs tlv.Blob) {
+		auxData.revocationAuxSigs = tlv.SomeRecordT(
+			tlv.NewPrimitiveRecord[tlv.TlvType10](sigs),
 		)
 	})
 

@@ -435,9 +435,9 @@ func TestCalculateChangeAmount(t *testing.T) {
 		feeNoChange:   10,
 		feeWithChange: 45,
 		dustLimit:     5,
-		maxFeeRatio:   3.14,
+		maxFeeRatio:   -0.1,
 
-		expectErr: "maxFeeRatio must be between 0.00 and 1.00",
+		expectErr: "maxFeeRatio must be between 0.00 and 100.00",
 	}, {
 		name:          "invalid usage of function",
 		feeNoChange:   5,

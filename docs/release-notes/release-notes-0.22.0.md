@@ -59,6 +59,16 @@
 
 ## Functional Enhancements
 
+* Aux (taproot asset) channels now support full HTLC revocation handling:
+  second-level HTLC transactions are [pre-signed deterministically with a CPFP
+  anchor](https://github.com/lightningnetwork/lnd/pull/11094), the revoking
+  party [hands over revocation aux signatures in
+  RevokeAndAck](https://github.com/lightningnetwork/lnd/pull/11111), and the
+  [breach machinery consumes them to punish revoked
+  commitments](https://github.com/lightningnetwork/lnd/pull/11112) across all
+  second-level spend paths while keeping asset proof chains intact. Regular
+  channels are unaffected.
+
 ## RPC Additions
 
 * The `routerrpc.EstimateRouteFee` RPC now supports [restricting fee estimates
@@ -166,4 +176,5 @@
 * bitromortac
 * Boris Nagaev
 * Erick Cestari
+* George Tsagkarelis
 * Jared Tobin

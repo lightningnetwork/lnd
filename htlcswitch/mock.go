@@ -844,6 +844,7 @@ func (f *mockChannelLink) getDustClosure() dustClosure {
 	dustLimit := btcutil.Amount(400)
 	return dustHelper(
 		channeldb.SingleFunderTweaklessBit, dustLimit, dustLimit,
+		false,
 	)
 }
 

@@ -1326,8 +1326,8 @@ type XCreateAccountRequest struct {
 	// Override the requirement for being in dev mode by setting this to true and
 	// confirming the user knows what they are doing: funds held in an account
 	// created here are not rediscovered by a seed-only restore, so recovering
-	// them requires having recorded the account's key scope and index and the
-	// number of addresses it issued.
+	// them requires having recorded the account's key scope and index and
+	// both external_key_count and internal_key_count.
 	IKnowWhatIAmDoing bool `protobuf:"varint,3,opt,name=i_know_what_i_am_doing,json=iKnowWhatIAmDoing,proto3" json:"i_know_what_i_am_doing,omitempty"`
 	unknownFields     protoimpl.UnknownFields
 	sizeCache         protoimpl.SizeCache

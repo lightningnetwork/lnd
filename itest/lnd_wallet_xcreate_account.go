@@ -329,6 +329,14 @@ func testXCreateAccountBranchRecovery(ht *lntest.HarnessTest) {
 		restored, []string{"--reset-wallet-transactions"},
 	)
 
+	// RestoreNodeWithSeed leaves SkipUnlock set, so RestartNode does
+	// not wait for SyncedToChain. That flag includes wallet.IsSynced():
+	// after --reset-wallet-transactions the wallet height is the
+	// birthday until the rescan reaches tip. Wait here so destAmt
+	// and sawInt are checked against a finished rescan, not a
+	// dest-only intermediate.
+	ht.WaitForBlockchainSync(restored)
+
 	// External funds should be visible; the internal change output
 	// should not. If this assertion fails, the rescan found the
 	// change without a change=true NextAddr replay, and the
@@ -356,6 +364,7 @@ func testXCreateAccountBranchRecovery(ht *lntest.HarnessTest) {
 	ht.RestartNodeWithExtraArgs(
 		restored, []string{"--reset-wallet-transactions"},
 	)
+	ht.WaitForBlockchainSync(restored)
 
 	ht.AssertWalletAccountBalance(restored, createAccountName, wantBal, 0)
 

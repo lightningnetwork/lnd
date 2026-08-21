@@ -62,6 +62,12 @@ const (
 	// DefaultMaxFeeRatio is the default fee to total amount of outputs
 	// ratio that is used to sanity check the fees of a transaction.
 	DefaultMaxFeeRatio float64 = 0.2
+
+	// maxAllowedFeeRatio is the hard ceiling on any caller-supplied
+	// maxFeeRatio. Ratios above 1.0 are legitimate for sweeps of small
+	// asset-bearing outputs, but anything beyond this bound is treated
+	// as a misconfiguration.
+	maxAllowedFeeRatio float64 = 100.0
 )
 
 // selectInputs selects a slice of inputs necessary to meet the specified
@@ -150,10 +156,16 @@ func calculateFees(utxos []wallet.Coin, feeRate chainfee.SatPerKWeight,
 // sanityCheckFee checks if the specified fee amounts to what the provided ratio
 // allows.
 func sanityCheckFee(totalOut, fee btcutil.Amount, maxFeeRatio float64) error {
-	// Sanity check the maxFeeRatio itself.
-	if maxFeeRatio <= 0.00 || maxFeeRatio > 1.00 {
-		return fmt.Errorf("maxFeeRatio must be between 0.00 and 1.00 "+
-			"got %.2f", maxFeeRatio)
+	// Sanity check the maxFeeRatio itself. Ratios above 1.0 are allowed
+	// but only ever reach this code when an RPC caller explicitly
+	// requests one: every internal funding flow passes
+	// DefaultMaxFeeRatio. The opt-in exists because some flows (e.g.
+	// spending small asset-bearing outputs whose BTC value is near dust)
+	// legitimately produce fee-to-output ratios that exceed 100%. A hard
+	// ceiling still catches nonsensical values.
+	if maxFeeRatio <= 0.00 || maxFeeRatio > maxAllowedFeeRatio {
+		return fmt.Errorf("maxFeeRatio must be between 0.00 and "+
+			"%.2f, got %.2f", maxAllowedFeeRatio, maxFeeRatio)
 	}
 
 	maxFee := btcutil.Amount(float64(totalOut) * maxFeeRatio)

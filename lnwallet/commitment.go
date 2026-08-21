@@ -376,8 +376,11 @@ func CommitScriptToRemote(chanType channeldb.ChannelType, initiator bool,
 	}
 }
 
-// HtlcSigHashType returns the sighash type to use for HTLC success and timeout
-// transactions given the channel type.
+// HtlcSigHashType returns the default sighash type to use for HTLC success
+// and timeout transactions given the channel type. For channels where an
+// AuxSigner is available, use ResolveHtlcSigHashType instead, which queries
+// the aux signer for a channel-specific override based on negotiated feature
+// bits.
 func HtlcSigHashType(chanType channeldb.ChannelType) txscript.SigHashType {
 	if chanType.HasAnchors() {
 		return txscript.SigHashSingle | txscript.SigHashAnyOneCanPay
@@ -507,11 +510,32 @@ func CommitWeight(chanType channeldb.ChannelType) lntypes.WeightUnit {
 }
 
 // HtlcTimeoutFee returns the fee in satoshis required for an HTLC timeout
-// transaction based on the current fee rate.
+// transaction based on the current fee rate. When sigHashDefault is true and
+// the channel is taproot, the floor fee rate is used: the pre-signed
+// second-level tx pays only the min-relay-clearing fee, and any further
+// fee bumping is done by the local party via CPFP on the anchor output
+// embedded in the tx.
 func HtlcTimeoutFee(chanType channeldb.ChannelType,
-	feePerKw chainfee.SatPerKWeight) btcutil.Amount {
+	feePerKw chainfee.SatPerKWeight,
+	sigHashDefault bool) btcutil.Amount {
 
 	switch {
+	// For taproot channels with SigHashDefault, the second-level tx is
+	// pre-signed with baked-in fees and cannot be RBF'd. We sign at
+	// 1.1x the floor rate (just enough headroom for aux-leaf weight
+	// not counted by TaprootHtlcTimeoutWeight, and integer-rounding
+	// margin). Any further fee bumping is done locally via CPFP on
+	// the anchor output embedded in the tx. Weight includes the
+	// appended anchor output.
+	case chanType.IsTaproot() && sigHashDefault:
+		weight := lntypes.WeightUnit(input.TaprootHtlcTimeoutWeight) +
+			lntypes.WeightUnit(
+				input.TaprootCommitmentAnchorOutput*4,
+			)
+		feeRate := chainfee.FeePerKwFloor * 11 / 10
+
+		return feeRate.FeeForWeight(weight)
+
 	// For zero-fee HTLC channels, this will always be zero, regardless of
 	// feerate.
 	case chanType.ZeroHtlcTxFee() || chanType.IsTaproot():
@@ -526,11 +550,26 @@ func HtlcTimeoutFee(chanType channeldb.ChannelType,
 }
 
 // HtlcSuccessFee returns the fee in satoshis required for an HTLC success
-// transaction based on the current fee rate.
+// transaction based on the current fee rate. When sigHashDefault is true and
+// the channel is taproot, the floor fee rate is used: the pre-signed
+// second-level tx pays only the min-relay-clearing fee, and any further
+// fee bumping is done by the local party via CPFP on the anchor output
+// embedded in the tx.
 func HtlcSuccessFee(chanType channeldb.ChannelType,
-	feePerKw chainfee.SatPerKWeight) btcutil.Amount {
+	feePerKw chainfee.SatPerKWeight,
+	sigHashDefault bool) btcutil.Amount {
 
 	switch {
+	// See HtlcTimeoutFee for the 1.1x floor-rate rationale.
+	case chanType.IsTaproot() && sigHashDefault:
+		weight := lntypes.WeightUnit(input.TaprootHtlcSuccessWeight) +
+			lntypes.WeightUnit(
+				input.TaprootCommitmentAnchorOutput*4,
+			)
+		feeRate := chainfee.FeePerKwFloor * 11 / 10
+
+		return feeRate.FeeForWeight(weight)
+
 	// For zero-fee HTLC channels, this will always be zero, regardless of
 	// feerate.
 	case chanType.ZeroHtlcTxFee() || chanType.IsTaproot():
@@ -645,11 +684,16 @@ type CommitmentBuilder struct {
 	// auxLeafStore is an interface that allows us to fetch auxiliary
 	// tapscript leaves for the commitment output.
 	auxLeafStore fn.Option[AuxLeafStore]
+
+	// sigHashDefault indicates whether HTLC second-level transactions
+	// for this channel use SigHashDefault.
+	sigHashDefault bool
 }
 
 // NewCommitmentBuilder creates a new CommitmentBuilder from chanState.
 func NewCommitmentBuilder(chanState *chanstate.OpenChannel,
-	leafStore fn.Option[AuxLeafStore]) *CommitmentBuilder {
+	leafStore fn.Option[AuxLeafStore],
+	sigHashDefault bool) *CommitmentBuilder {
 
 	// The anchor channel type MUST be tweakless.
 	if chanState.ChanType.HasAnchors() && !chanState.ChanType.IsTweakless() {
@@ -657,9 +701,10 @@ func NewCommitmentBuilder(chanState *chanstate.OpenChannel,
 	}
 
 	return &CommitmentBuilder{
-		chanState:    chanState,
-		obfuscator:   createStateHintObfuscator(chanState),
-		auxLeafStore: leafStore,
+		chanState:      chanState,
+		obfuscator:     createStateHintObfuscator(chanState),
+		auxLeafStore:   leafStore,
+		sigHashDefault: sigHashDefault,
 	}
 }
 
@@ -728,6 +773,7 @@ func (cb *CommitmentBuilder) createUnsignedCommitmentTx(ourBalance,
 		if HtlcIsDust(
 			cb.chanState.ChanType, false, whoseCommit, feePerKw,
 			htlc.Amount.ToSatoshis(), dustLimit,
+			cb.sigHashDefault,
 		) {
 
 			continue
@@ -739,6 +785,7 @@ func (cb *CommitmentBuilder) createUnsignedCommitmentTx(ourBalance,
 		if HtlcIsDust(
 			cb.chanState.ChanType, true, whoseCommit, feePerKw,
 			htlc.Amount.ToSatoshis(), dustLimit,
+			cb.sigHashDefault,
 		) {
 
 			continue
@@ -853,6 +900,7 @@ func (cb *CommitmentBuilder) createUnsignedCommitmentTx(ourBalance,
 		if HtlcIsDust(
 			cb.chanState.ChanType, false, whoseCommit, feePerKw,
 			htlc.Amount.ToSatoshis(), dustLimit,
+			cb.sigHashDefault,
 		) {
 
 			continue
@@ -881,6 +929,7 @@ func (cb *CommitmentBuilder) createUnsignedCommitmentTx(ourBalance,
 		if HtlcIsDust(
 			cb.chanState.ChanType, true, whoseCommit, feePerKw,
 			htlc.Amount.ToSatoshis(), dustLimit,
+			cb.sigHashDefault,
 		) {
 
 			continue

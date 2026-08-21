@@ -197,7 +197,9 @@ func testXCreateAccountRejections(ht *lntest.HarnessTest) {
 // testXCreateAccountBranchRecovery asserts the manual recovery procedure for
 // a wallet-derived account: both address branches must be replayed, because
 // NextAddr defaults to the external branch and FundPsbt change lives on the
-// internal one.
+// internal one. It first proves the documented failure — replaying only the
+// external branch leaves the internal change output unknown after a rescan —
+// and then proves that replaying the internal branch recovers it.
 func testXCreateAccountBranchRecovery(ht *lntest.HarnessTest) {
 	password := []byte("The Magic Words are Squeamish Ossifrage")
 	alice, mnemonic, _ := ht.NewNodeWithSeed(
@@ -223,7 +225,10 @@ func testXCreateAccountBranchRecovery(ht *lntest.HarnessTest) {
 		Account: createAccountName,
 	}).GetAddress()
 
-	const fundAmt = btcutil.Amount(500_000)
+	const (
+		fundAmt = btcutil.Amount(500_000)
+		destAmt = fundAmt / 2
+	)
 	ht.SendOutputsWithoutChange(
 		[]*wire.TxOut{{
 			Value:    int64(fundAmt),
@@ -243,7 +248,7 @@ func testXCreateAccountBranchRecovery(ht *lntest.HarnessTest) {
 		Template: &walletrpc.FundPsbtRequest_Raw{
 			Raw: &walletrpc.TxTemplate{
 				Outputs: map[string]uint64{
-					dest: uint64(fundAmt / 2),
+					dest: uint64(destAmt),
 				},
 			},
 		},
@@ -280,15 +285,16 @@ func testXCreateAccountBranchRecovery(ht *lntest.HarnessTest) {
 
 	after := alice.RPC.WalletBalance().GetAccountBalance()
 	wantBal := after[createAccountName].GetConfirmedBalance()
-	require.Greater(ht, wantBal, int64(fundAmt/2),
+	require.Greater(ht, wantBal, int64(destAmt),
 		"change should have stayed in the account")
 
 	xpub := account.GetExtendedPublicKey()
 	path := account.GetDerivationPath()
 
-	// Restore the seed into a fresh wallet. The recovery window only
-	// rederives the default account, so the custom account's coins are
-	// still invisible until we reconstruct it by hand.
+	// Restore the seed into a fresh wallet. RecoveryWindow is 0
+	// because a non-zero window would not help here: the recovery
+	// scan only rederives the default account, and the custom
+	// account does not exist until we recreate it below.
 	restored := ht.RestoreNodeWithSeed(
 		"AliceRestore", nil, password, mnemonic, "", 0, nil,
 	)
@@ -307,20 +313,14 @@ func testXCreateAccountBranchRecovery(ht *lntest.HarnessTest) {
 	require.Equal(ht, xpub, restoredAcct.GetExtendedPublicKey())
 	require.Equal(ht, path, restoredAcct.GetDerivationPath())
 
-	// Replay each branch separately. NextAddr defaults to change=false,
-	// which is why a single aggregate count is not enough.
+	// Replay only the external branch first. NextAddr defaults to
+	// change=false, so this is the procedure an operator following
+	// the old single-count instruction would run.
 	for i := uint32(0); i < extCount; i++ {
 		restored.RPC.NextAddr(&walletrpc.AddrRequest{
 			Account: createAccountName,
 			Type:    walletrpc.AddressType_TAPROOT_PUBKEY,
 			Change:  false,
-		})
-	}
-	for i := uint32(0); i < intCount; i++ {
-		restored.RPC.NextAddr(&walletrpc.AddrRequest{
-			Account: createAccountName,
-			Type:    walletrpc.AddressType_TAPROOT_PUBKEY,
-			Change:  true,
 		})
 	}
 
@@ -329,27 +329,41 @@ func testXCreateAccountBranchRecovery(ht *lntest.HarnessTest) {
 		restored, []string{"--reset-wallet-transactions"},
 	)
 
+	// External funds should be visible; the internal change output
+	// should not. If this assertion fails, the rescan found the
+	// change without a change=true NextAddr replay, and the
+	// documented recovery procedure is wrong.
+	ht.AssertWalletAccountBalance(
+		restored, createAccountName, int64(destAmt), 0,
+	)
+	sawExt, sawInt := accountBranchFunds(
+		restored.RPC.ListAddresses(&walletrpc.ListAddressesRequest{
+			AccountName: createAccountName,
+		}),
+	)
+	require.True(ht, sawExt, "external branch funds should be recovered")
+	require.False(ht, sawInt, "internal change should still be unknown")
+
+	// Now replay the internal branch and rescan again.
+	for i := uint32(0); i < intCount; i++ {
+		restored.RPC.NextAddr(&walletrpc.AddrRequest{
+			Account: createAccountName,
+			Type:    walletrpc.AddressType_TAPROOT_PUBKEY,
+			Change:  true,
+		})
+	}
+
+	ht.RestartNodeWithExtraArgs(
+		restored, []string{"--reset-wallet-transactions"},
+	)
+
 	ht.AssertWalletAccountBalance(restored, createAccountName, wantBal, 0)
 
-	// Confirm both branches actually hold coins, not just that the
-	// aggregate balance happens to match.
-	var sawExt, sawInt bool
-	for _, acct := range restored.RPC.ListAddresses(
-		&walletrpc.ListAddressesRequest{
+	sawExt, sawInt = accountBranchFunds(
+		restored.RPC.ListAddresses(&walletrpc.ListAddressesRequest{
 			AccountName: createAccountName,
-		},
-	).GetAccountWithAddresses() {
-		for _, addr := range acct.GetAddresses() {
-			if addr.GetBalance() == 0 {
-				continue
-			}
-			if addr.GetIsInternal() {
-				sawInt = true
-			} else {
-				sawExt = true
-			}
-		}
-	}
+		}),
+	)
 	require.True(ht, sawExt, "external branch funds should be recovered")
 	require.True(ht, sawInt, "internal branch funds should be recovered")
 
@@ -391,4 +405,29 @@ func testXCreateAccountBranchRecovery(ht *lntest.HarnessTest) {
 	require.Less(ht, got, wantBal, "the spend should have paid a fee")
 	require.Greater(ht, got, wantBal-int64(maxCreateAccountSpendFee),
 		"the account should still hold its funds minus fees")
+}
+
+// accountBranchFunds reports whether the named account currently holds a
+// non-zero confirmed balance on the external and internal address
+// branches. Addresses the wallet has not issued yet do not appear, so a
+// missing internal branch after an external-only NextAddr replay is the
+// recovery failure this test documents.
+func accountBranchFunds(
+	resp *walletrpc.ListAddressesResponse,
+) (sawExt, sawInt bool) {
+
+	for _, acct := range resp.GetAccountWithAddresses() {
+		for _, addr := range acct.GetAddresses() {
+			if addr.GetBalance() == 0 {
+				continue
+			}
+			if addr.GetIsInternal() {
+				sawInt = true
+			} else {
+				sawExt = true
+			}
+		}
+	}
+
+	return
 }

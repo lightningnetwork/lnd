@@ -103,6 +103,11 @@ var (
 	// either the Brontide doesn't know of it, or the channel in question
 	// is pending.
 	ErrChannelNotFound = fmt.Errorf("channel not found")
+
+	// errPingFlood gives every flood-teardown path one stable identity. The
+	// peer still records the descriptive text, while callers and tests can
+	// match wrapped instances without depending on that text.
+	errPingFlood = errors.New("ping flood limit exceeded")
 )
 
 // outgoingMsg packages an lnwire.Message to be sent out on the wire, along with
@@ -529,6 +534,9 @@ type Brontide struct {
 
 	pingManager *PingManager
 
+	// pingLimits owns the two per-connection inbound Ping policies.
+	pingLimits pingLimits
+
 	// lastPingPayload stores an unsafe pointer wrapped as an atomic
 	// variable which points to the last payload the remote party sent us
 	// as their ping.
@@ -679,6 +687,7 @@ func NewBrontide(cfg Config) *Brontide {
 		activeSignal:  make(chan struct{}),
 		sendQueue:     make(chan outgoingMsg),
 		outgoingQueue: make(chan outgoingMsg),
+		pingLimits:    defaultPingLimits(),
 		addedChannels: &lnutils.SyncMap[lnwire.ChannelID, struct{}]{},
 		activeChannels: &lnutils.SyncMap[
 			lnwire.ChannelID, *lnwallet.LightningChannel,
@@ -2118,6 +2127,23 @@ out:
 			}
 		}
 
+		// Count valid Pings before routing because consuming endpoints
+		// skip the switch. Oversized requests never reach this point
+		// because this release rejects them during wire decoding.
+		if _, ok := nextMsg.(*lnwire.Ping); ok &&
+			!p.pingLimits.pingLimiter.Allow() {
+
+			p.storeError(errPingFlood)
+			p.log.Warnf("%v", errPingFlood)
+
+			// Stop Ping management before peer cancellation.
+			// Keep queue handling active so a Ping send can finish
+			// through outgoingQueue without deadlock.
+			p.Disconnect(errPingFlood)
+
+			break out
+		}
+
 		// If a message router is active, then we'll try to have it
 		// handle this message. If it can, then we're able to skip the
 		// rest of the message handling logic.
@@ -2150,6 +2176,13 @@ out:
 			// the relevant atomic variable.
 			p.lastPingPayload.Store(msg.PaddingBytes[:])
 
+			// BOLT 1 requires a Pong for every Ping below the size
+			// ceiling. We limit reply frequency to guard against
+			// floods; normal keepalives remain below this limit.
+			if !p.pingLimits.pongLimiter.Allow() {
+				p.log.Debugf("Pong reply rate limited")
+				continue
+			}
 			// Next, we'll send over the amount of specified pong
 			// bytes.
 			pong := lnwire.NewPong(p.cfg.PongBuf[0:msg.NumPongBytes])

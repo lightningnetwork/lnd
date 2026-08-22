@@ -64,6 +64,15 @@
   the chain backend via bitcoind's `submitpackage`, allowing a zero-fee v3/TRUC
   parent to be accepted together with a fee-paying CPFP child.
 
+* A new
+  [`walletrpc.RemoveAccount`](https://github.com/lightningnetwork/lnd/issues/8654)
+  RPC removes a watch-only account that was previously imported via
+  `ImportAccount`, along with all addresses derived from it. Removal is
+  allowed even if the account still holds a balance: the wallet simply stops
+  tracking the account's addresses, while the funds remain under the control
+  of whoever holds the account's keys, and re-importing the same extended
+  public key restores tracking.
+
 ## lncli Additions
 
 * The `estimateroutefee` command now supports [restricting fee estimates to
@@ -75,6 +84,12 @@
   [`wallet submitpackage`](https://github.com/lightningnetwork/lnd/pull/10900)
   command submits a package of hex-encoded transactions via the new
   `SubmitPackage` RPC.
+
+* A new
+  [`wallet accounts remove`](https://github.com/lightningnetwork/lnd/issues/8654)
+  command removes a watch-only account imported via `wallet accounts import`
+  through the new `RemoveAccount` RPC, asking for confirmation first since the
+  wallet stops tracking the account's balance.
 
 # Improvements
 
@@ -158,4 +173,5 @@
 * bitromortac
 * Boris Nagaev
 * Erick Cestari
+* Evan Kaloudis
 * Jared Tobin

@@ -227,6 +227,24 @@ service WalletKit {
     */
     rpc ImportAccount (ImportAccountRequest) returns (ImportAccountResponse);
 
+    /* lncli: `wallet accounts remove`
+    RemoveAccount removes a watch-only account that was previously imported
+    via ImportAccount, along with all addresses derived from it.
+
+    Only accounts imported through ImportAccount can be removed; the wallet's
+    reserved "default" and "imported" accounts, and accounts owned by the
+    wallet itself, are refused.
+
+    NOTE: Removal is allowed even if the account still holds a balance. The
+    wallet simply stops tracking the account's addresses: its balance and
+    UTXOs disappear from the wallet's view and later deposits to its addresses
+    are not detected. The funds themselves are not moved or lost — whoever
+    holds the account's keys retains full control, and re-importing the same
+    extended public key (followed by a rescan once supported) restores
+    tracking.
+    */
+    rpc RemoveAccount (RemoveAccountRequest) returns (RemoveAccountResponse);
+
     /* lncli: `wallet accounts import-pubkey`
     ImportPublicKey imports a public key as watch-only into the wallet. The
     public key is converted into a simple address of the given type and that
@@ -796,6 +814,24 @@ message ImportAccountResponse {
     returned if a dry run was specified within the request.
     */
     repeated string dry_run_internal_addrs = 3;
+}
+
+message RemoveAccountRequest {
+    // The name of the account to remove.
+    string name = 1;
+
+    /*
+    An optional address type used to resolve which key scope the account lives
+    in. Account names are normally unique across all key scopes, so this can
+    usually be left unset; it is only required if the same name exists under
+    more than one key scope, which is possible on wallets created before
+    uniqueness was enforced.
+    */
+    AddressType address_type = 2;
+}
+message RemoveAccountResponse {
+    // The properties of the account that was removed.
+    Account account = 1;
 }
 
 message ImportPublicKeyRequest {

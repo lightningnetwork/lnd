@@ -182,6 +182,22 @@ type WalletKitClient interface {
 	// detected by lnd if they happen after the import. Rescans to detect past
 	// events will be supported later on.
 	ImportAccount(ctx context.Context, in *ImportAccountRequest, opts ...grpc.CallOption) (*ImportAccountResponse, error)
+	// lncli: `wallet accounts remove`
+	// RemoveAccount removes a watch-only account that was previously imported
+	// via ImportAccount, along with all addresses derived from it.
+	//
+	// Only accounts imported through ImportAccount can be removed; the wallet's
+	// reserved "default" and "imported" accounts, and accounts owned by the
+	// wallet itself, are refused.
+	//
+	// NOTE: Removal is allowed even if the account still holds a balance. The
+	// wallet simply stops tracking the account's addresses: its balance and
+	// UTXOs disappear from the wallet's view and later deposits to its addresses
+	// are not detected. The funds themselves are not moved or lost — whoever
+	// holds the account's keys retains full control, and re-importing the same
+	// extended public key (followed by a rescan once supported) restores
+	// tracking.
+	RemoveAccount(ctx context.Context, in *RemoveAccountRequest, opts ...grpc.CallOption) (*RemoveAccountResponse, error)
 	// lncli: `wallet accounts import-pubkey`
 	// ImportPublicKey imports a public key as watch-only into the wallet. The
 	// public key is converted into a simple address of the given type and that
@@ -492,6 +508,15 @@ func (c *walletKitClient) ImportAccount(ctx context.Context, in *ImportAccountRe
 	return out, nil
 }
 
+func (c *walletKitClient) RemoveAccount(ctx context.Context, in *RemoveAccountRequest, opts ...grpc.CallOption) (*RemoveAccountResponse, error) {
+	out := new(RemoveAccountResponse)
+	err := c.cc.Invoke(ctx, "/walletrpc.WalletKit/RemoveAccount", in, out, opts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
 func (c *walletKitClient) ImportPublicKey(ctx context.Context, in *ImportPublicKeyRequest, opts ...grpc.CallOption) (*ImportPublicKeyResponse, error) {
 	out := new(ImportPublicKeyResponse)
 	err := c.cc.Invoke(ctx, "/walletrpc.WalletKit/ImportPublicKey", in, out, opts...)
@@ -793,6 +818,22 @@ type WalletKitServer interface {
 	// detected by lnd if they happen after the import. Rescans to detect past
 	// events will be supported later on.
 	ImportAccount(context.Context, *ImportAccountRequest) (*ImportAccountResponse, error)
+	// lncli: `wallet accounts remove`
+	// RemoveAccount removes a watch-only account that was previously imported
+	// via ImportAccount, along with all addresses derived from it.
+	//
+	// Only accounts imported through ImportAccount can be removed; the wallet's
+	// reserved "default" and "imported" accounts, and accounts owned by the
+	// wallet itself, are refused.
+	//
+	// NOTE: Removal is allowed even if the account still holds a balance. The
+	// wallet simply stops tracking the account's addresses: its balance and
+	// UTXOs disappear from the wallet's view and later deposits to its addresses
+	// are not detected. The funds themselves are not moved or lost — whoever
+	// holds the account's keys retains full control, and re-importing the same
+	// extended public key (followed by a rescan once supported) restores
+	// tracking.
+	RemoveAccount(context.Context, *RemoveAccountRequest) (*RemoveAccountResponse, error)
 	// lncli: `wallet accounts import-pubkey`
 	// ImportPublicKey imports a public key as watch-only into the wallet. The
 	// public key is converted into a simple address of the given type and that
@@ -1009,6 +1050,9 @@ func (UnimplementedWalletKitServer) VerifyMessageWithAddr(context.Context, *Veri
 }
 func (UnimplementedWalletKitServer) ImportAccount(context.Context, *ImportAccountRequest) (*ImportAccountResponse, error) {
 	return nil, status.Errorf(codes.Unimplemented, "method ImportAccount not implemented")
+}
+func (UnimplementedWalletKitServer) RemoveAccount(context.Context, *RemoveAccountRequest) (*RemoveAccountResponse, error) {
+	return nil, status.Errorf(codes.Unimplemented, "method RemoveAccount not implemented")
 }
 func (UnimplementedWalletKitServer) ImportPublicKey(context.Context, *ImportPublicKeyRequest) (*ImportPublicKeyResponse, error) {
 	return nil, status.Errorf(codes.Unimplemented, "method ImportPublicKey not implemented")
@@ -1334,6 +1378,24 @@ func _WalletKit_ImportAccount_Handler(srv interface{}, ctx context.Context, dec 
 	}
 	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
 		return srv.(WalletKitServer).ImportAccount(ctx, req.(*ImportAccountRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
+func _WalletKit_RemoveAccount_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(RemoveAccountRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(WalletKitServer).RemoveAccount(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: "/walletrpc.WalletKit/RemoveAccount",
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(WalletKitServer).RemoveAccount(ctx, req.(*RemoveAccountRequest))
 	}
 	return interceptor(ctx, in, info, handler)
 }
@@ -1674,6 +1736,10 @@ var WalletKit_ServiceDesc = grpc.ServiceDesc{
 		{
 			MethodName: "ImportAccount",
 			Handler:    _WalletKit_ImportAccount_Handler,
+		},
+		{
+			MethodName: "RemoveAccount",
+			Handler:    _WalletKit_RemoveAccount_Handler,
 		},
 		{
 			MethodName: "ImportPublicKey",

@@ -29,4 +29,13 @@ func TestChannelUpdateInfoFreshness(t *testing.T) {
 		v2.Node1FreshnessTimestamp(),
 	)
 	require.True(t, v2.Node1FreshnessTime().IsZero())
+
+	// A version that is neither v1 nor v2 (including the zero value) must
+	// read as detectably absent rather than as either concrete type.
+	unknown := ChannelUpdateInfo{
+		ShortChannelID: scid,
+		Node1Freshness: 789,
+	}
+	require.Nil(t, unknown.Node1FreshnessTimestamp())
+	require.True(t, unknown.Node1FreshnessTime().IsZero())
 }

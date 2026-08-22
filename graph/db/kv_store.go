@@ -2873,13 +2873,20 @@ func (c ChannelUpdateInfo) Node2FreshnessTimestamp() lnwire.Timestamp {
 }
 
 // freshnessTimestamp converts a stored freshness value to its versioned wire
-// representation.
+// representation. For an unknown gossip version it returns nil so that the
+// freshness reads as detectably absent rather than as the wrong concrete
+// type.
 func (c ChannelUpdateInfo) freshnessTimestamp(value uint64) lnwire.Timestamp {
-	if c.Version == lnwire.GossipVersion1 {
+	switch c.Version {
+	case lnwire.GossipVersion1:
 		return lnwire.UnixTimestamp(value)
-	}
 
-	return lnwire.BlockHeightTimestamp(value)
+	case lnwire.GossipVersion2:
+		return lnwire.BlockHeightTimestamp(value)
+
+	default:
+		return nil
+	}
 }
 
 // Node1FreshnessTime returns the v1 unix-time freshness for node 1's latest
@@ -3009,7 +3016,9 @@ func (c *KVStore) FilterChannelRange(_ context.Context,
 					return err
 				}
 
-				chanInfo.Node1Freshness = uint64(edge.LastUpdate.Unix())
+				chanInfo.Node1Freshness = uint64(
+					edge.LastUpdate.Unix(),
+				)
 			}
 
 			rawPolicy = edges.Get(node2Key)
@@ -3024,7 +3033,9 @@ func (c *KVStore) FilterChannelRange(_ context.Context,
 					return err
 				}
 
-				chanInfo.Node2Freshness = uint64(edge.LastUpdate.Unix())
+				chanInfo.Node2Freshness = uint64(
+					edge.LastUpdate.Unix(),
+				)
 			}
 
 			channelsPerBlock[cid.BlockHeight] = append(

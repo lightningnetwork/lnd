@@ -2,7 +2,9 @@ package peer
 
 import (
 	"bytes"
+	"context"
 	"fmt"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -17,14 +19,17 @@ import (
 	"github.com/lightningnetwork/lnd/contractcourt"
 	"github.com/lightningnetwork/lnd/fn/v2"
 	"github.com/lightningnetwork/lnd/htlcswitch"
+	"github.com/lightningnetwork/lnd/lnpeer"
 	"github.com/lightningnetwork/lnd/lntest/wait"
 	"github.com/lightningnetwork/lnd/lnwallet"
 	"github.com/lightningnetwork/lnd/lnwallet/chancloser"
 	"github.com/lightningnetwork/lnd/lnwire"
+	"github.com/lightningnetwork/lnd/msgmux"
 	"github.com/lightningnetwork/lnd/routing/route"
 	"github.com/lightningnetwork/lnd/tlv"
 	"github.com/stretchr/testify/mock"
 	"github.com/stretchr/testify/require"
+	"golang.org/x/time/rate"
 )
 
 var (
@@ -1213,6 +1218,8 @@ func TestPeerIgnoresPingWithoutPongReply(t *testing.T) {
 	_, err := fn.RecvOrTimeout(startPeerDone, 2*timeout)
 	require.NoError(t, err)
 
+	// writePing serializes each boundary request and injects it through the
+	// normal reader path so the assertions cover decoding and dispatch.
 	writePing := func(msg *lnwire.Ping) {
 		t.Helper()
 
@@ -1227,10 +1234,26 @@ func TestPeerIgnoresPingWithoutPongReply(t *testing.T) {
 		}
 	}
 
-	// Act: Deliver a ping in the BOLT 1 no-reply range.
+	// Act: Send the largest Ping BOLT 1 still requires us to answer,
+	// then read its response before exercising the adjacent no-reply value.
+	writePing(&lnwire.Ping{NumPongBytes: lnwire.MaxPongBytes})
+	rawMsg, err := fn.RecvOrTimeout(mockConn.writtenMessages, timeout)
+	require.NoError(t, err)
+
+	msg, err := lnwire.ReadMessage(bytes.NewReader(rawMsg), 0)
+	require.NoError(t, err)
+
+	// Assert: The inclusive boundary receives exactly the requested
+	// bytes, proving the implementation does not suppress one value early.
+	pong, ok := msg.(*lnwire.Pong)
+	require.True(t, ok)
+	require.Len(t, pong.PongBytes, int(lnwire.MaxPongBytes))
+
+	// Act: Send the first BOLT 1 no-reply value and retain a
+	// payload that shows when the read loop has processed it.
 	ignoredPayload := []byte{1, 2, 3}
 	writePing(&lnwire.Ping{
-		NumPongBytes: 65535,
+		NumPongBytes: lnwire.MaxPongBytes + 1,
 		PaddingBytes: ignoredPayload,
 	})
 
@@ -1253,16 +1276,510 @@ func TestPeerIgnoresPingWithoutPongReply(t *testing.T) {
 	// traffic.
 	writePing(&lnwire.Ping{NumPongBytes: 1})
 
-	rawMsg, err := fn.RecvOrTimeout(mockConn.writtenMessages, timeout)
+	rawMsg, err = fn.RecvOrTimeout(mockConn.writtenMessages, timeout)
 	require.NoError(t, err)
 
-	msg, err := lnwire.ReadMessage(bytes.NewReader(rawMsg), 0)
+	msg, err = lnwire.ReadMessage(bytes.NewReader(rawMsg), 0)
 	require.NoError(t, err)
 
 	// Assert: The follow-up ping receives the requested pong reply.
-	pong, ok := msg.(*lnwire.Pong)
+	pong, ok = msg.(*lnwire.Pong)
 	require.True(t, ok)
 	require.Len(t, pong.PongBytes, 1)
+}
+
+// TestPeerPingLimitsProductionBoundaries verifies the exact burst and refill
+// thresholds used by both production Ping policies.
+func TestPeerPingLimitsProductionBoundaries(t *testing.T) {
+	t.Parallel()
+
+	// Arrange: Use fresh production limiters and expected values
+	// so each subtest starts with a full, independent token bucket.
+	limits := defaultPingLimits()
+	tests := []struct {
+		name       string
+		limiter    *rate.Limiter
+		limit      rate.Limit
+		burst      int
+		refillTime time.Duration
+	}{
+		{
+			name:       "Pong replies",
+			limiter:    limits.pongLimiter,
+			limit:      pongReplyRate,
+			burst:      pongReplyBurst,
+			refillTime: time.Second,
+		},
+		{
+			name:       "Ping floods",
+			limiter:    limits.pingLimiter,
+			limit:      pingFloodRate,
+			burst:      pingFloodBurst,
+			refillTime: 100 * time.Millisecond,
+		},
+	}
+
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			// Arrange: Fix one synthetic timestamp and confirm the
+			// limiter uses the intended production configuration.
+			now := time.Now()
+			require.Equal(t, test.limit, test.limiter.Limit())
+			require.Equal(t, test.burst, test.limiter.Burst())
+
+			// Act: Consume the burst, probe one token past it,
+			// then advance exactly one production refill interval.
+			atBoundary := test.limiter.AllowN(now, test.burst)
+			pastBoundary := test.limiter.AllowN(now, 1)
+			afterRefill := test.limiter.AllowN(
+				now.Add(test.refillTime), 1,
+			)
+
+			// Assert: The boundary is inclusive, its successor is
+			// rejected, and one interval restores one token.
+			require.True(t, atBoundary)
+			require.False(t, pastBoundary)
+			require.True(t, afterRefill)
+		})
+	}
+}
+
+// TestPeerPingLimitsAllowHonestCadence verifies that both inbound Ping
+// limiters admit realistic keepalive cadences for long-lived connections.
+func TestPeerPingLimitsAllowHonestCadence(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name    string
+		cadence time.Duration
+	}{
+		{name: "lnd cadence", cadence: time.Minute},
+		{name: "aggressive cadence", cadence: 10 * time.Second},
+		{name: "five second cadence", cadence: 5 * time.Second},
+		{name: "pathological cadence", cadence: 2 * time.Second},
+	}
+
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			// Arrange: Construct the production Ping policy
+			// separately so token history cannot cross test cases.
+			limits := defaultPingLimits()
+			start := time.Now()
+
+			// Act: Advance a synthetic clock at the selected
+			// cadence, avoiding scheduler and wall-clock noise.
+			for i := 0; i < 5000; i++ {
+				elapsed := time.Duration(i) * test.cadence
+				now := start.Add(elapsed)
+
+				// Assert: Both budgets admit each ping, so this
+				// cadence reaches neither protection tier.
+				require.True(
+					t, limits.pongLimiter.AllowN(now, 1),
+				)
+				require.True(
+					t, limits.pingLimiter.AllowN(now, 1),
+				)
+			}
+		})
+	}
+}
+
+// TestPeerPongReplyRateLimited verifies that exhausting the reply budget
+// suppresses Pongs without disconnecting the peer.
+func TestPeerPongReplyRateLimited(t *testing.T) {
+	t.Parallel()
+
+	// Arrange: Start a peer whose reply limiter has one token, so the
+	// first valid ping replies and the second exhausts the budget.
+	params := createTestPeer(t)
+	peer := params.peer
+	peer.pingLimits.pongLimiter = rate.NewLimiter(0, 1)
+
+	startDone := startPeer(t, params.mockConn, peer)
+	_, err := fn.RecvOrTimeout(startDone, 2*timeout)
+	require.NoError(t, err)
+
+	// writePing serializes a valid one-byte-reply ping and injects it
+	// through the mock connection's normal reader path.
+	writePing := func() {
+		var b bytes.Buffer
+		_, err := lnwire.WriteMessage(&b, lnwire.NewPing(1), 0)
+		require.NoError(t, err)
+		select {
+		case params.mockConn.readMessages <- b.Bytes():
+		case <-peer.cg.Done():
+			t.Fatal("peer disconnected before Ping was delivered")
+		}
+	}
+
+	// Act: Deliver two pings, consuming the first expected pong before
+	// allowing a bounded window for an incorrect second reply.
+	writePing()
+	_, err = fn.RecvOrTimeout(params.mockConn.writtenMessages, timeout)
+	require.NoError(t, err)
+
+	writePing()
+	select {
+	case msg := <-params.mockConn.writtenMessages:
+		t.Fatalf("unexpected Pong after reply budget: %x", msg)
+	case <-time.After(shortTimeout):
+	}
+
+	// Assert: The peer remains connected, proving reply exhaustion only
+	// suppresses amplification and does not trigger flood teardown.
+	require.Zero(t, atomic.LoadInt32(&peer.disconnect))
+}
+
+// mockMsgRouter records message-router calls while letting a test choose
+// whether a message would be consumed. Embedding mock.Mock keeps every
+// interface interaction explicit and independently assertable.
+type mockMsgRouter struct {
+	mock.Mock
+}
+
+// RegisterEndpoint returns the result configured for one endpoint so tests
+// can exercise router registration without adding a second fake.
+func (m *mockMsgRouter) RegisterEndpoint(endpoint msgmux.Endpoint) error {
+	args := m.Called(endpoint)
+
+	return args.Error(0)
+}
+
+// UnregisterEndpoint returns the configured removal result for the supplied
+// endpoint name.
+func (m *mockMsgRouter) UnregisterEndpoint(name msgmux.EndpointName) error {
+	args := m.Called(name)
+
+	return args.Error(0)
+}
+
+// RouteMsg returns the configured routing result while recording the complete
+// peer message that reached the generic routing boundary.
+func (m *mockMsgRouter) RouteMsg(msg msgmux.PeerMsg) error {
+	args := m.Called(msg)
+
+	return args.Error(0)
+}
+
+// Start records the lifecycle context so any test that starts the mock router
+// must declare that interaction explicitly.
+func (m *mockMsgRouter) Start(ctx context.Context) {
+	m.Called(ctx)
+}
+
+// Stop records shutdown so tests cannot accidentally rely on an unobserved
+// router lifecycle transition.
+func (m *mockMsgRouter) Stop() {
+	m.Called()
+}
+
+// Compile-time verification keeps the focused mock synchronized with the
+// production router interface used by Brontide.
+var _ msgmux.Router = (*mockMsgRouter)(nil)
+
+// TestPeerPingFloodDisconnects verifies flood accounting precedes a generic
+// router that would consume an oversized Ping.
+func TestPeerPingFloodDisconnects(t *testing.T) {
+	t.Parallel()
+
+	// Arrange: Empty the flood budget and retain errors through an active
+	// channel. Install a mock router prepared to consume any message;
+	// marking it global avoids unrelated lifecycle calls.
+	params := createTestPeer(t)
+	peer := params.peer
+	peer.pingLimits.pingLimiter = rate.NewLimiter(0, 0)
+	peer.remoteFeatures = lnwire.EmptyFeatureVector()
+	peer.activeChannels.Store(
+		lnwire.ChannelID{1}, &lnwallet.LightningChannel{},
+	)
+
+	router := &mockMsgRouter{}
+	router.On("RouteMsg", mock.Anything).Return(nil).Maybe()
+	peer.msgRouter = fn.Some[msgmux.Router](router)
+	peer.globalMsgRouter = true
+
+	// Arrange: Encode the first oversized Pong request and register the
+	// focused reader with the control group so shutdown remains joinable.
+	var b bytes.Buffer
+	_, err := lnwire.WriteMessage(&b, &lnwire.Ping{
+		NumPongBytes: lnwire.MaxPongBytes + 1,
+	}, 0)
+	require.NoError(t, err)
+
+	peer.cg.WgAdd(1)
+	go peer.readHandler()
+
+	// Act: Send the oversized Ping through normal decoding, then wait for
+	// the empty flood budget to cancel and fully stop the focused reader.
+	select {
+	case params.mockConn.readMessages <- b.Bytes():
+	case <-peer.cg.Done():
+		t.Fatal("peer disconnected before Ping was delivered")
+	}
+
+	_, err = fn.RecvOrTimeout(peer.cg.Done(), timeout)
+	require.NoError(t, err)
+	peer.cg.WgWait()
+
+	// Assert: Teardown precedes generic routing, and the retained error
+	// matches the stable sentinel without depending on its display text.
+	require.EqualValues(t, 1, atomic.LoadInt32(&peer.disconnect))
+	router.AssertNotCalled(t, "RouteMsg", mock.Anything)
+
+	storedErrors := peer.ErrorBuffer().List()
+	require.NotEmpty(t, storedErrors)
+	storedErr, ok := storedErrors[0].(*TimestampedError)
+	require.True(t, ok)
+	require.ErrorIs(t, storedErr.Error, errPingFlood)
+}
+
+// startTestQueueHandler isolates queue ownership from unrelated peer loops so
+// focused tests can drive outgoingQueue directly; callers own cancellation
+// and join the registered goroutine before returning.
+func startTestQueueHandler(peer *Brontide) {
+	peer.cg.WgAdd(1)
+	go peer.queueHandler()
+}
+
+// TestPeerQueueHandlerBoundsBacklog verifies that crossing a queue bound
+// tears down the peer connection.
+func TestPeerQueueHandlerBoundsBacklog(t *testing.T) {
+	t.Parallel()
+
+	// Arrange: Derive data-only workloads from the production limits. The
+	// count case uses fixed-cost Pongs. The byte case retains distinct
+	// maximum onion blobs and stays below the independent count cap.
+	const onionBlobSize = 65000
+	limits := defaultQueueLimits()
+	tests := []struct {
+		name        string
+		msgType     lnwire.MessageType
+		payloadSize int
+		numMsgs     int
+	}{
+		{
+			name:    "message count",
+			msgType: lnwire.MsgPong,
+			numMsgs: limits.maxMsgs + 1,
+		},
+		{
+			name:        "message bytes",
+			msgType:     lnwire.MsgOnionMessage,
+			payloadSize: onionBlobSize,
+			numMsgs: limits.maxBytes/
+				(limits.msgOverhead+onionBlobSize) + 1,
+		},
+	}
+
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			// Arrange: Start only the queue handler so no writer
+			// drains sendQueue or hides the staged backlog.
+			params := createTestPeer(t)
+			peer := params.peer
+			startTestQueueHandler(peer)
+
+			// Act: Build each row through one path. Onion messages
+			// use fresh slices, modeling memory a forwarding peer
+			// can make us retain.
+			for i := 0; i < test.numMsgs; i++ {
+				var msg lnwire.Message
+				switch test.msgType {
+				case lnwire.MsgPong:
+					msg = lnwire.NewPong(nil)
+
+				case lnwire.MsgOnionMessage:
+					onionBlob := make(
+						[]byte, test.payloadSize,
+					)
+					msg = &lnwire.OnionMessage{
+						OnionBlob: onionBlob,
+					}
+
+				default:
+					t.Fatalf(
+						"unsupported queue message: %v",
+						test.msgType,
+					)
+				}
+
+				peer.queueMsg(msg, nil)
+			}
+
+			// Assert: Cancellation proves overflow, and waiting
+			// proves the asynchronous handler exits cleanly.
+			_, err := fn.RecvOrTimeout(peer.cg.Done(), timeout)
+			require.NoError(t, err)
+			peer.cg.WgWait()
+		})
+	}
+}
+
+// TestPeerMessageQueueCost verifies the non-serializing cost rules used by
+// the outgoing queue byte budget.
+func TestPeerMessageQueueCost(t *testing.T) {
+	t.Parallel()
+
+	// Arrange: Load the production fixed overhead so every table
+	// expectation follows the queue policy without duplicating its value.
+	limits := defaultQueueLimits()
+	tests := []struct {
+		name     string
+		msg      lnwire.Message
+		expected int
+	}{
+		{
+			name:     "fixed message",
+			msg:      lnwire.NewPing(0),
+			expected: limits.msgOverhead,
+		},
+		{
+			name:     "shared Pong payload",
+			msg:      lnwire.NewPong(make([]byte, 1000)),
+			expected: limits.msgOverhead,
+		},
+		{
+			name: "failure reason",
+			msg: &lnwire.UpdateFailHTLC{
+				Reason: make([]byte, 5),
+			},
+			expected: limits.msgOverhead + 5,
+		},
+		{
+			name: "add onion and extra data",
+			msg: &lnwire.UpdateAddHTLC{
+				ExtraData: make([]byte, 7),
+			},
+			expected: limits.msgOverhead +
+				lnwire.OnionPacketSize + 7,
+		},
+		{
+			name: "error data",
+			msg: &lnwire.Error{
+				Data: make([]byte, 3),
+			},
+			expected: limits.msgOverhead + 3,
+		},
+		{
+			name: "warning data",
+			msg: &lnwire.Warning{
+				Data: make([]byte, 4),
+			},
+			expected: limits.msgOverhead + 4,
+		},
+		{
+			name: "onion message blob",
+			msg: &lnwire.OnionMessage{
+				OnionBlob: make([]byte, 6),
+			},
+			expected: limits.msgOverhead + 6,
+		},
+	}
+
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			// Arrange: Select one message shape and its exact
+			// fixed-plus-dynamic cost from the test table.
+
+			// Act: Evaluate its non-serializing queue charge.
+			actual := limits.msgCost(test.msg)
+
+			// Assert: Equality proves this shape charges only
+			// the enumerated payload plus fixed overhead.
+			require.Equal(t, test.expected, actual)
+		})
+	}
+}
+
+// TestPeerQueueHandlerDrainsBacklog verifies that messages leaving the queue
+// decrement its shadow count for a long-lived peer.
+func TestPeerQueueHandlerDrainsBacklog(t *testing.T) {
+	t.Parallel()
+
+	// Arrange: Start the isolated handler and register cleanup that
+	// cancels and joins it so no goroutine survives this test.
+	params := createTestPeer(t)
+	peer := params.peer
+	startTestQueueHandler(peer)
+	t.Cleanup(func() {
+		peer.cg.Quit()
+		peer.cg.WgWait()
+	})
+
+	// Act: Exceed the lifetime count cap while draining each message
+	// immediately, forcing the shadow count back to zero each time.
+	for i := 0; i <= peer.queueLimits.maxMsgs; i++ {
+		peer.queueMsg(lnwire.NewPong(nil), nil)
+
+		select {
+		case <-peer.sendQueue:
+		case <-peer.cg.Done():
+			t.Fatal("healthy drained queue exceeded message bound")
+		case <-time.After(timeout):
+			t.Fatal("queued message was not drained")
+		}
+	}
+
+	// Assert: Every item drained and the peer remains live, proving
+	// only the concurrent backlog contributes to the queue bound.
+	select {
+	case <-peer.cg.Done():
+		t.Fatal("healthy drained queue disconnected")
+	default:
+	}
+}
+
+// TestPeerQueueHandlerServicesQueueDuringTeardown verifies that queue
+// producers are failed while Disconnect waits for peer startup to finish.
+func TestPeerQueueHandlerServicesQueueDuringTeardown(t *testing.T) {
+	t.Parallel()
+
+	// Arrange: Mark the peer started but hold startReady open, so
+	// overflow enters Disconnect without finishing; cleanup later
+	// releases that gate, cancels, and joins the queue goroutine.
+	params := createTestPeer(t)
+	peer := params.peer
+	atomic.StoreInt32(&peer.started, 1)
+	startTestQueueHandler(peer)
+	t.Cleanup(func() {
+		select {
+		case <-peer.startReady:
+		default:
+			close(peer.startReady)
+		}
+
+		peer.cg.Quit()
+		peer.cg.WgWait()
+	})
+
+	// Act: Cross the count cap, wait for Disconnect to block, then
+	// invoke a synchronous sender in a goroutine so the queue handler
+	// must return its result while teardown remains pending.
+	for i := 0; i <= peer.queueLimits.maxMsgs; i++ {
+		peer.queueMsg(lnwire.NewPong(nil), nil)
+	}
+
+	require.Eventually(t, func() bool {
+		return atomic.LoadInt32(&peer.disconnect) == 1
+	}, timeout, 10*time.Millisecond)
+
+	errChan := make(chan error, 1)
+	go func() {
+		errChan <- peer.SendMessage(true, lnwire.NewPing(0))
+	}()
+
+	// Assert: The sender gets ErrPeerExiting while cg remains live,
+	// proving producers are serviced until startup teardown can finish.
+	err, recvErr := fn.RecvOrTimeout(errChan, timeout)
+	require.NoError(t, recvErr)
+	require.ErrorIs(t, err, lnpeer.ErrPeerExiting)
+
+	select {
+	case <-peer.cg.Done():
+		t.Fatal("Disconnect completed before startReady was signaled")
+	default:
+	}
 }
 
 // TestMessageSummaryPingIncludesNumPongBytes ensures the debug summary for a

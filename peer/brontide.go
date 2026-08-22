@@ -2,7 +2,6 @@ package peer
 
 import (
 	"bytes"
-	"container/list"
 	"context"
 	"errors"
 	"fmt"
@@ -112,6 +111,11 @@ var (
 	// either the Brontide doesn't know of it, or the channel in question
 	// is pending.
 	ErrChannelNotFound = fmt.Errorf("channel not found")
+
+	// errPingFlood gives every flood-teardown path one stable identity. The
+	// peer still records the descriptive text, while callers and tests can
+	// match wrapped instances without depending on that text.
+	errPingFlood = errors.New("ping flood limit exceeded")
 )
 
 // outgoingMsg packages an lnwire.Message to be sent out on the wire, along with
@@ -121,6 +125,10 @@ type outgoingMsg struct {
 	priority bool
 	msg      lnwire.Message
 	errChan  chan error // MUST be buffered.
+
+	// queueCost is calculated before insertion so the generic queue can
+	// account for retained memory without interpreting wire message types.
+	queueCost int
 }
 
 // newChannelMsg packages a chanstate.OpenChannel with a channel that allows
@@ -585,6 +593,12 @@ type Brontide struct {
 
 	pingManager *PingManager
 
+	// pingLimits owns the two per-connection inbound Ping policies.
+	pingLimits pingLimits
+
+	// queueLimits supplies one accounting policy to the producer and queue.
+	queueLimits queueLimits
+
 	// lastPingPayload stores an unsafe pointer wrapped as an atomic
 	// variable which points to the last payload the remote party sent us
 	// as their ping.
@@ -746,6 +760,8 @@ func NewBrontide(cfg Config) *Brontide {
 		activeSignal:  make(chan struct{}),
 		sendQueue:     make(chan outgoingMsg),
 		outgoingQueue: make(chan outgoingMsg),
+		pingLimits:    defaultPingLimits(),
+		queueLimits:   defaultQueueLimits(),
 		addedChannels: &lnutils.SyncMap[lnwire.ChannelID, struct{}]{},
 		activeChannels: &lnutils.SyncMap[
 			lnwire.ChannelID, *lnwallet.LightningChannel,
@@ -2316,6 +2332,22 @@ out:
 			}
 		}
 
+		// Count before routing; consuming endpoints skip the switch.
+		// All Pings, including oversized ones, use the flood budget.
+		if _, ok := nextMsg.(*lnwire.Ping); ok &&
+			!p.pingLimits.pingLimiter.Allow() {
+
+			p.storeError(errPingFlood)
+			p.log.Warnf("%v", errPingFlood)
+
+			// Stop Ping management before peer cancellation.
+			// Keep queue handling active so a Ping send can finish
+			// through outgoingQueue without deadlock.
+			p.Disconnect(errPingFlood)
+
+			break out
+		}
+
 		// If a message router is active, then we'll try to have it
 		// handle this message. If it can, then we're able to skip the
 		// rest of the message handling logic.
@@ -2352,6 +2384,14 @@ out:
 			// or more pong bytes instead of replying or
 			// disconnecting.
 			if msg.NumPongBytes > lnwire.MaxPongBytes {
+				continue
+			}
+
+			// BOLT 1 requires a Pong for every Ping below the size
+			// ceiling. We limit reply frequency to guard against
+			// floods; normal keepalives remain below this limit.
+			if !p.pingLimits.pongLimiter.Allow() {
+				p.log.Debugf("Pong reply rate limited")
 				continue
 			}
 
@@ -3084,62 +3124,67 @@ out:
 func (p *Brontide) queueHandler() {
 	defer p.cg.WgDone()
 
-	// priorityMsgs holds an in order list of messages deemed high-priority
-	// to be added to the sendQueue. This predominately includes messages
-	// from the funding manager and htlcswitch.
-	priorityMsgs := list.New()
-
-	// lazyMsgs holds an in order list of messages deemed low-priority to be
-	// added to the sendQueue only after all high-priority messages have
-	// been queued. This predominately includes messages from the gossiper.
-	lazyMsgs := list.New()
+	queue := newMsgQueue(p.queueLimits)
 
 	for {
-		// Examine the front of the priority queue, if it is empty check
-		// the low priority queue.
-		elem := priorityMsgs.Front()
-		if elem == nil {
-			elem = lazyMsgs.Front()
+		elem, next := queue.front()
+
+		// A nil channel disables this select case while the queue is
+		// empty. Incoming messages therefore use one generic path
+		// whether or not a message is ready for writeHandler.
+		var sendQueue chan outgoingMsg
+		if elem != nil {
+			sendQueue = p.sendQueue
 		}
 
-		if elem != nil {
-			front := elem.Value.(outgoingMsg)
+		select {
+		case sendQueue <- next:
+			queue.pop(elem)
 
-			// There's an element on the queue, try adding
-			// it to the sendQueue. We also watch for
-			// messages on the outgoingQueue, in case the
-			// writeHandler cannot accept messages on the
-			// sendQueue.
-			select {
-			case p.sendQueue <- front:
-				if front.priority {
-					priorityMsgs.Remove(elem)
-				} else {
-					lazyMsgs.Remove(elem)
-				}
-			case msg := <-p.outgoingQueue:
-				if msg.priority {
-					priorityMsgs.PushBack(msg)
-				} else {
-					lazyMsgs.PushBack(msg)
-				}
-			case <-p.cg.Done():
-				return
+		case msg := <-p.outgoingQueue:
+			if queue.push(msg) {
+				continue
 			}
-		} else {
-			// If there weren't any messages to send to the
-			// writeHandler, then we'll accept a new message
-			// into the queue from outside sub-systems.
-			select {
-			case msg := <-p.outgoingQueue:
-				if msg.priority {
-					priorityMsgs.PushBack(msg)
-				} else {
-					lazyMsgs.PushBack(msg)
-				}
-			case <-p.cg.Done():
-				return
+
+			p.failQueueOverflow(queue.numMsgs, queue.numBytes)
+
+			return
+
+		case <-p.cg.Done():
+			return
+		}
+	}
+}
+
+// failQueueOverflow tears the connection down after the peer's outgoing
+// message queue has grown past its bounds, then keeps that queue serviced
+// until teardown completes. We disconnect rather than drop or block: dropping
+// would punch a hole in an ordered protocol stream, while blocking would push
+// backpressure onto whichever subsystem happened to be sending.
+//
+// NOTE: This blocks until the peer's context is cancelled, so it must be
+// called from the queueHandler goroutine itself.
+func (p *Brontide) failQueueOverflow(numQueued, queuedBytes int) {
+	err := fmt.Errorf("outgoing message queue exceeded bounds: "+
+		"messages=%d, bytes=%d", numQueued, queuedBytes)
+	p.storeError(err)
+	p.log.Warnf("%v", err)
+
+	// Disconnect gets its own goroutine because we have to keep draining.
+	// Every message producer parks on outgoingQueue until the peer context
+	// is cancelled, and Disconnect waits on the ping manager before that
+	// cancellation. Walking away now could wedge both goroutines.
+	go p.Disconnect(err)
+
+	for {
+		select {
+		case msg := <-p.outgoingQueue:
+			if msg.errChan != nil {
+				msg.errChan <- lnpeer.ErrPeerExiting
 			}
+
+		case <-p.cg.Done():
+			return
 		}
 	}
 }
@@ -3169,8 +3214,17 @@ func (p *Brontide) queueMsgLazy(msg lnwire.Message, errChan chan error) {
 func (p *Brontide) queue(priority bool, msg lnwire.Message,
 	errChan chan error) {
 
+	// Compute retained-memory accounting at the producer boundary so the
+	// queue handles only generic cost metadata, never wire message types.
+	queuedMsg := outgoingMsg{
+		priority:  priority,
+		msg:       msg,
+		errChan:   errChan,
+		queueCost: p.queueLimits.msgCost(msg),
+	}
+
 	select {
-	case p.outgoingQueue <- outgoingMsg{priority, msg, errChan}:
+	case p.outgoingQueue <- queuedMsg:
 	case <-p.cg.Done():
 		p.log.Tracef("Peer shutting down, could not enqueue msg: %v.",
 			lnutils.SpewLogClosure(msg))

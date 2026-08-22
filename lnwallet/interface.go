@@ -351,6 +351,25 @@ type WalletController interface {
 		dryRun bool) (*waddrmgr.AccountProperties, []address.Address,
 		[]address.Address, error)
 
+	// RemoveAccount removes a watch-only account that was previously
+	// registered via ImportAccount, along with all addresses derived from
+	// it. A nil key scope resolves the name across all default key scopes;
+	// if the same name exists in more than one scope, a scope must be
+	// provided to disambiguate.
+	//
+	// The wallet stops tracking the account's addresses: any balance held
+	// on them disappears from the wallet's view and future deposits to
+	// them are not detected. The funds themselves are unaffected — the
+	// holder of the account's extended keys retains full control, and
+	// re-importing the same extended public key (plus a rescan) restores
+	// tracking.
+	//
+	// The wallet's reserved accounts ("default" and "imported") and
+	// accounts fully owned by the wallet (non-watch-only, i.e. created via
+	// CreateAccount) cannot be removed.
+	RemoveAccount(name string,
+		keyScope *waddrmgr.KeyScope) (*waddrmgr.AccountProperties, error)
+
 	// ImportPublicKey imports a single derived public key into the wallet.
 	// The address type can usually be inferred from the key's version, but
 	// in the case of legacy versions (xpub, tpub), an address type must be

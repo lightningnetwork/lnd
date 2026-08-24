@@ -347,6 +347,8 @@ func (c *OpenChannel) ChannelStatusForStore() ChannelStatus {
 // SetChannelStatusForStore updates the in-memory channel status without taking
 // the channel mutex.
 //
+// TODO(chanstate): remove together with the other ForStore accessors.
+//
 // NOTE: This is a preliminary migration hook for KV-backed store code that
 // still lives in channeldb during this refactor. Callers are responsible for
 // synchronization. Normal callers should use ApplyChanStatus or
@@ -396,6 +398,8 @@ func (c *OpenChannel) hasChanStatus(status ChannelStatus) bool {
 // HasChanStatusForStore returns true if the internal bitfield channel status
 // has the specified status bit set, without taking the channel mutex.
 //
+// TODO(chanstate): remove together with the other ForStore accessors.
+//
 // NOTE: This is a preliminary migration hook for KV-backed store code that
 // still lives in channeldb during this refactor. Callers are responsible for
 // synchronization. Normal callers should use HasChanStatus.
@@ -406,6 +410,8 @@ func (c *OpenChannel) HasChanStatusForStore(status ChannelStatus) bool {
 // ConfirmedScidForStore returns the in-memory confirmed SCID without taking
 // the channel mutex.
 //
+// TODO(chanstate): remove together with the other ForStore accessors.
+//
 // NOTE: This is a preliminary migration hook for KV-backed store code that
 // still lives in channeldb during this refactor. Callers are responsible for
 // synchronization. Normal callers should use ZeroConfRealScid.
@@ -415,6 +421,8 @@ func (c *OpenChannel) ConfirmedScidForStore() lnwire.ShortChannelID {
 
 // SetConfirmedScidForStore updates the in-memory confirmed SCID without taking
 // the channel mutex.
+//
+// TODO(chanstate): remove together with the other ForStore accessors.
 //
 // NOTE: This is a preliminary migration hook for KV-backed store code that
 // still lives in channeldb during this refactor. Callers are responsible for

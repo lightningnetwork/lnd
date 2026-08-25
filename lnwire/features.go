@@ -419,6 +419,13 @@ func (fv RawFeatureVector) IsEmpty() bool {
 	return len(fv.features) == 0
 }
 
+// NumFeatures returns the number of populated bits retained by the vector.
+// Callers that account for decoded memory can use the count without exposing
+// the internal map or allocating a separate bit slice.
+func (fv RawFeatureVector) NumFeatures() int {
+	return len(fv.features)
+}
+
 // OnlyContains determines whether only the specified feature bits are found.
 func (fv RawFeatureVector) OnlyContains(bits ...FeatureBit) bool {
 	if len(bits) != len(fv.features) {

@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"fmt"
+	"net"
 	"sync/atomic"
 	"testing"
 	"time"
@@ -23,6 +24,7 @@ import (
 	"github.com/lightningnetwork/lnd/lnwallet/chancloser"
 	"github.com/lightningnetwork/lnd/lnwire"
 	"github.com/lightningnetwork/lnd/msgmux"
+	"github.com/lightningnetwork/lnd/tor"
 	"github.com/stretchr/testify/mock"
 	"github.com/stretchr/testify/require"
 	"golang.org/x/time/rate"
@@ -1824,6 +1826,198 @@ func TestPeerSendMessageBatchReturnsQueueOverflow(t *testing.T) {
 	_, err = fn.RecvOrTimeout(peer.cg.Done(), timeout)
 	require.NoError(t, err)
 	peer.cg.WgWait()
+}
+
+// TestPeerMessageQueueCost verifies the non-serializing cost rules used by
+// the outgoing queue byte budget.
+func TestPeerMessageQueueCost(t *testing.T) {
+	t.Parallel()
+
+	// Arrange: Load the production fixed overhead and describe each
+	// retained payload declaratively so expectations follow the policy
+	// without serialization hiding whether the original slice is charged.
+	limits := defaultQueueLimits()
+	channelFeatures := lnwire.NewRawFeatureVector(1, 17)
+	nodeFeatures := lnwire.NewRawFeatureVector(3, 9)
+	// The highest defined feature produces a large, mostly empty serialized
+	// span, guarding against multiplication as if every bit were set.
+	sparseFeatures := lnwire.NewRawFeatureVector(
+		lnwire.SimpleTaprootOverlayChansRequired,
+	)
+	// A dense vector retains one map entry for every possible FeatureBit.
+	// Building the complete key space proves queue charging follows decoded
+	// population instead of only the much smaller serialized bit span.
+	denseFeatureBits := make([]lnwire.FeatureBit, 1<<16)
+	for i := range denseFeatureBits {
+		denseFeatureBits[i] = lnwire.FeatureBit(i)
+	}
+	denseFeatures := lnwire.NewRawFeatureVector(denseFeatureBits...)
+	tcpAddr := &net.TCPAddr{
+		IP:   net.IPv4(192, 0, 2, 1),
+		Port: 9735,
+		Zone: "test-zone",
+	}
+	onionAddr := &tor.OnionAddr{
+		OnionService: "abcdefghijklmnop.onion",
+		Port:         9735,
+	}
+	dnsAddr := &lnwire.DNSAddress{
+		Hostname: "node.example.com",
+		Port:     9735,
+	}
+	opaqueAddr := &lnwire.OpaqueAddrs{
+		Payload: make([]byte, 11),
+	}
+	nodeAddrs := []net.Addr{tcpAddr, onionAddr, dnsAddr, opaqueAddr}
+	addressCost := len(nodeAddrs)*queuedAddrOverhead + len(tcpAddr.IP) +
+		len(tcpAddr.Zone) + len(onionAddr.OnionService) +
+		len(dnsAddr.Hostname) + len(opaqueAddr.Payload)
+	tests := []struct {
+		name     string
+		msg      lnwire.Message
+		expected int
+	}{
+		{
+			name:     "fixed message",
+			msg:      lnwire.NewPing(0),
+			expected: limits.msgOverhead,
+		},
+		{
+			name:     "shared Pong payload",
+			msg:      lnwire.NewPong(make([]byte, 1000)),
+			expected: limits.msgOverhead,
+		},
+		{
+			name: "failure reason",
+			msg: &lnwire.UpdateFailHTLC{
+				Reason: make([]byte, 5),
+			},
+			expected: limits.msgOverhead + 5,
+		},
+		{
+			name: "add onion and extra data",
+			msg: &lnwire.UpdateAddHTLC{
+				ExtraData: make([]byte, 7),
+			},
+			expected: limits.msgOverhead +
+				lnwire.OnionPacketSize + 7,
+		},
+		{
+			name: "error data",
+			msg: &lnwire.Error{
+				Data: make([]byte, 3),
+			},
+			expected: limits.msgOverhead + 3,
+		},
+		{
+			name: "warning data",
+			msg: &lnwire.Warning{
+				Data: make([]byte, 4),
+			},
+			expected: limits.msgOverhead + 4,
+		},
+		{
+			name: "channel announcement retained data",
+			msg: &lnwire.ChannelAnnouncement1{
+				Features:        channelFeatures,
+				ExtraOpaqueData: make([]byte, 8),
+			},
+			// Literal 107 pins 8 opaque bytes, 64 bytes of feature
+			// overhead, two map entries, and the three-byte span.
+			expected: limits.msgOverhead + 107,
+		},
+		{
+			name: "node announcement retained data",
+			msg: &lnwire.NodeAnnouncement1{
+				Features:        nodeFeatures,
+				Addresses:       nodeAddrs,
+				ExtraOpaqueData: make([]byte, 9),
+			},
+			// Literal 107 pins 9 opaque bytes, 64 bytes of feature
+			// overhead, two map entries, and the two-byte span.
+			expected: limits.msgOverhead + 107 + addressCost,
+		},
+		{
+			name: "sparse high feature",
+			msg: &lnwire.ChannelAnnouncement1{
+				Features: sparseFeatures,
+			},
+			// Literal 334 covers fixed, sparse-span, and one-entry
+			// costs without charging unset intervening bits.
+			expected: limits.msgOverhead + 334,
+		},
+		{
+			name: "dense feature entries",
+			msg: &lnwire.ChannelAnnouncement1{
+				Features: denseFeatures,
+			},
+			// The expected cost independently derives the retained
+			// entry charge from the full input. This catches a
+			// regression to serialized-span-only accounting.
+			expected: limits.msgOverhead + queuedFeatureOverhead +
+				denseFeatures.SerializeSize() +
+				len(denseFeatureBits)*
+					queuedFeatureEntryOverhead,
+		},
+		{
+			name: "channel update opaque data",
+			msg: &lnwire.ChannelUpdate1{
+				ExtraOpaqueData: make([]byte, 10),
+			},
+			expected: limits.msgOverhead + 10,
+		},
+		{
+			name: "channel range query retained data",
+			msg: &lnwire.QueryChannelRange{
+				QueryOptions: lnwire.NewTimestampQueryOption(),
+				ExtraData:    make([]byte, 11),
+			},
+			// The single query bit retains its vector object, map
+			// entry, and one-byte span in addition to opaque data.
+			expected: limits.msgOverhead + 11 +
+				queuedFeatureOverhead +
+				queuedFeatureEntryOverhead + 1,
+		},
+		{
+			name: "short channel ID query retained data",
+			msg: &lnwire.QueryShortChanIDs{
+				ShortChanIDs: make([]lnwire.ShortChannelID, 2),
+				ExtraData:    make([]byte, 7),
+			},
+			// Decoded SCIDs occupy their padded in-memory width,
+			// while the unknown TLV backing bytes remain retained.
+			expected: limits.msgOverhead +
+				2*queuedShortChanIDSize + 7,
+		},
+		{
+			name: "channel range reply retained data",
+			msg: &lnwire.ReplyChannelRange{
+				ShortChanIDs: make([]lnwire.ShortChannelID, 3),
+				Timestamps:   make(lnwire.Timestamps, 3),
+				ExtraData:    make([]byte, 5),
+			},
+			// Each decoded reply row retains one padded SCID and
+			// one pair of uint32 update timestamps.
+			expected: limits.msgOverhead +
+				3*queuedShortChanIDSize +
+				3*queuedTimestampPairSize + 5,
+		},
+	}
+
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			// Arrange: Select the row's concrete message and exact
+			// fixed-plus-dynamic expectation without an encoder.
+
+			// Act: Evaluate the immutable charge stored with the
+			// message when it enters the outgoing queue.
+			actual := limits.msgCost(test.msg)
+
+			// Assert: Exact equality proves the dynamic bytes are
+			// neither omitted nor counted more than once.
+			require.Equal(t, test.expected, actual)
+		})
+	}
 }
 
 // TestPeerQueueHandlerDrainsBacklog verifies that messages leaving the queue

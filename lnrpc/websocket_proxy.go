@@ -149,6 +149,12 @@ func (p *WebsocketProxy) upgradeToWebSocketProxy(w http.ResponseWriter,
 		p.logger.Errorf("error upgrading websocket:", err)
 		return
 	}
+
+	// Bound the size of the messages we're willing to read from the
+	// client. The gorilla default is unlimited, while the responses we
+	// write back are already capped at the same value further below.
+	conn.SetReadLimit(MaxWsMsgSize)
+
 	defer func() {
 		err := conn.Close()
 		if err != nil && !IsClosedConnError(err) {

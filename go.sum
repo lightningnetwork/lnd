@@ -57,8 +57,8 @@ github.com/btcsuite/btclog v1.0.0 h1:sEkpKJMmfGiyZjADwEIgB1NSwMyfdD1FB8v6+w1T0Ns
 github.com/btcsuite/btclog v1.0.0/go.mod h1:w7xnGOhwT3lmrS4H3b/D1XAXxvh+tbhUm8xeHN2y3TQ=
 github.com/btcsuite/btclog/v2 v2.0.1-0.20250728225537-6090e87c6c5b h1:MQ+Q6sDy37V1wP1Yu79A5KqJutolqUGwA99UZWQDWZM=
 github.com/btcsuite/btclog/v2 v2.0.1-0.20250728225537-6090e87c6c5b/go.mod h1:XItGUfVOxotJL8kkuk2Hj3EVow5KCugXl3wWfQ6K0AE=
-github.com/btcsuite/btcwallet v0.18.0 h1:VSRClNLT7NX0wmJEGALz3jOZRRjWPpUdp7VI1Akie1o=
-github.com/btcsuite/btcwallet v0.18.0/go.mod h1:1ZMc1EEskov+AKKv4kCMZqN8BwVh9rpXwEyxbeWy2A4=
+github.com/btcsuite/btcwallet v0.18.1-0.20260903142755-a960541f35ed h1:2nmty4a4/GIqP+II2NXU+O6yZyRO1wgaeIjCHIZTvv4=
+github.com/btcsuite/btcwallet v0.18.1-0.20260903142755-a960541f35ed/go.mod h1:IQrr6b13s0ZTaj9RlM/LhQ+Xvmo/gK86L9oGu2upIeQ=
 github.com/btcsuite/btcwallet/wallet/txauthor v1.4.0 h1:oIkGj32YK1CvWaJGlVwZA1f+y/KVHkfrd2PoST0ZpQs=
 github.com/btcsuite/btcwallet/wallet/txauthor v1.4.0/go.mod h1:sGrBjcqQ8UPexuRajFs72+o544CJn3Pavv/5H0VAWVk=
 github.com/btcsuite/btcwallet/wallet/txrules v1.3.0 h1:D5aGMwWIxdqek3xEJs4eOdMoh6iga2EI2xSlaXCdnNo=
@@ -67,8 +67,8 @@ github.com/btcsuite/btcwallet/wallet/txsizes v1.3.0 h1:2W9qt0edMoX8crx0Wm4Cv+eAj
 github.com/btcsuite/btcwallet/wallet/txsizes v1.3.0/go.mod h1:42aE6+LMZSSEisQAa15Xml25ncuJFfhCrkcpB5OmkZk=
 github.com/btcsuite/btcwallet/walletdb v1.6.0 h1:Yund5XbdqFxNW7+R2Sxs02bMC5fMrmORj4GN8MV55no=
 github.com/btcsuite/btcwallet/walletdb v1.6.0/go.mod h1:q9xif0Csp52GVb3l252BbHCuyiCnuEbrPWu/HAsvaYc=
-github.com/btcsuite/btcwallet/wtxmgr v1.6.0 h1:ivSSnYCD4Kb5yAMZVyBA1VMYABIFcopPEcmHCrRZXcE=
-github.com/btcsuite/btcwallet/wtxmgr v1.6.0/go.mod h1:Raor7IBIwHSIKE9Lr5o+R9rwX7sRMHU1zjxgEQgn9h8=
+github.com/btcsuite/btcwallet/wtxmgr v1.6.1-0.20260903142755-a960541f35ed h1:HhSbzqX5IJUlBehUY+HLAXM1At+QygEOq0FdLTC5DYY=
+github.com/btcsuite/btcwallet/wtxmgr v1.6.1-0.20260903142755-a960541f35ed/go.mod h1:Raor7IBIwHSIKE9Lr5o+R9rwX7sRMHU1zjxgEQgn9h8=
 github.com/btcsuite/go-socks v0.0.0-20170105172521-4720035b7bfd h1:R/opQEbFEy9JGkIguV40SvRY1uliPX8ifOvi6ICsFCw=
 github.com/btcsuite/go-socks v0.0.0-20170105172521-4720035b7bfd/go.mod h1:HHNXQzUsZCxOoE+CPiyCTO6x34Zs86zZUiwtpXoGdtg=
 github.com/btcsuite/golangcrypto v0.0.0-20150304025918-53f62d9b43e8/go.mod h1:tYvUd8KLhm/oXvUeSEs2VlLghFjQt9+ZaF9ghH0JNjc=

@@ -172,6 +172,9 @@ linters:
         - google.golang.org/protobuf
         - github.com/lightningnetwork/lnd/sqldb
         - github.com/lightningnetwork/lightning-onion
+        # Temporary pins for confirmation-controlled lease expiry.
+        - github.com/btcsuite/btcwallet
+        - github.com/btcsuite/btcwallet/wtxmgr
       replace-local: true
 
     gosec:

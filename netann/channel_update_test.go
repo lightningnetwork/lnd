@@ -1,6 +1,7 @@
 package netann_test
 
 import (
+	"bytes"
 	"errors"
 	"testing"
 	"time"
@@ -11,6 +12,8 @@ import (
 	"github.com/lightningnetwork/lnd/lnwallet"
 	"github.com/lightningnetwork/lnd/lnwire"
 	"github.com/lightningnetwork/lnd/netann"
+	"github.com/lightningnetwork/lnd/tlv"
+	"github.com/stretchr/testify/require"
 )
 
 type mockSigner struct {
@@ -190,4 +193,49 @@ func TestUpdateDisableFlag(t *testing.T) {
 			}
 		})
 	}
+}
+
+// TestChannelUpdateSignaturePreservesExtraData verifies that signing and wire
+// encoding use the same non-mutating canonical TLV representation.
+func TestChannelUpdateSignaturePreservesExtraData(t *testing.T) {
+	// Arrange a typed inbound fee and a separate unknown TLV for signing.
+	// Signing this pre-encoding shape proves DataToSign includes the same
+	// canonical records that Encode will later put on the wire.
+	unknownValue := []byte{3, 2, 1}
+	unknownRecord := tlv.MakePrimitiveRecord(
+		tlv.Type(9), &unknownValue,
+	)
+	extraData, err := lnwire.EncodeRecords([]tlv.Record{unknownRecord})
+	require.NoError(t, err)
+
+	inboundFee := lnwire.Fee{
+		BaseFee: 33,
+		FeeRate: 44,
+	}
+	update := &lnwire.ChannelUpdate1{
+		InboundFee: tlv.SomeRecordT(
+			tlv.NewRecordT[tlv.TlvType55555](inboundFee),
+		),
+		ExtraOpaqueData: extraData,
+	}
+	require.NoError(t, netann.SignChannelUpdate(
+		netann.NewNodeSigner(privKeySigner), testKeyLoc, update,
+	))
+
+	var encoded bytes.Buffer
+	require.NoError(t, update.Encode(&encoded, 0))
+
+	var decoded lnwire.ChannelUpdate1
+	require.NoError(t, decoded.Decode(bytes.NewReader(encoded.Bytes()), 0))
+	require.True(t, decoded.InboundFee.IsSome())
+	require.NotEmpty(t, decoded.ExtraOpaqueData)
+
+	// Act by verifying the decoded wire representation. Decode retains the
+	// complete opaque stream, so verification must reconcile it with the
+	// typed fee exactly as signing did before encoding.
+	err = netann.VerifyChannelUpdateSignature(&decoded, pubKey)
+
+	// Assert that the signature remains valid across the full sign, encode,
+	// decode, and verify lifecycle while the unknown TLV is preserved.
+	require.NoError(t, err)
 }

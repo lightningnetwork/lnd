@@ -273,6 +273,139 @@ func checkNotificationFields(ntfn *chainntnfs.SpendDetail,
 	}
 }
 
+// waitForNotifierEpoch ignores stale epochs until the exact block arrives.
+func waitForNotifierEpoch(t *testing.T,
+	epochClient *chainntnfs.BlockEpochEvent,
+	expectedHash *chainhash.Hash) {
+
+	t.Helper()
+
+	// A bounded wait turns backend synchronization failures into a focused
+	// test error instead of allowing later spend assertions to race.
+	timeout := time.After(30 * time.Second)
+	for {
+		select {
+		case epoch, ok := <-epochClient.Epochs:
+			if !ok {
+				t.Fatalf("epoch channel closed before " +
+					"synchronization")
+			}
+			if epoch.Hash.IsEqual(expectedHash) {
+				return
+			}
+
+		case <-timeout:
+			t.Fatalf(
+				"notifier did not report "+
+					"block %v", expectedHash,
+			)
+		}
+	}
+}
+
+// pollSpendNotification records whether a backend has delivered a spend
+// without delaying the maturity-boundary assertions.
+func pollSpendNotification(spend <-chan *chainntnfs.SpendDetail) (
+	*chainntnfs.SpendDetail, bool) {
+
+	// Non-blocking observation distinguishes an immature registration from
+	// one dispatched by the just-synchronized block.
+	select {
+	case details := <-spend:
+		return details, true
+
+	default:
+		return nil, false
+	}
+}
+
+// testSpendNotificationDepth proves each backend forwards an explicit spend
+// depth for a transaction discovered after registration.
+func testSpendNotificationDepth(
+	miner *rpctest.Harness, notifier chainntnfs.TestChainNotifier,
+	scriptDispatch bool, t *testing.T) {
+
+	// Arrange a spendable output, a synchronized epoch client, and a depth-
+	// three notification before broadcasting the spending transaction.
+	const numConfs = uint32(3)
+	outpoint, output, privKey := chainntnfs.CreateSpendableOutput(t, miner)
+	tipHash, heightHint, err := miner.Client.GetBestBlock()
+	require.NoError(t, err, "unable to get current height")
+	epochClient, err := notifier.RegisterBlockEpochNtfn(nil)
+	require.NoError(t, err, "unable to register for block epochs")
+	t.Cleanup(epochClient.Cancel)
+
+	// A nil best block produces one immediate tip event. Drain it during
+	// Arrange so each later wait corresponds to a newly generated block.
+	waitForNotifierEpoch(t, epochClient, tipHash)
+	var spendClient *chainntnfs.SpendEvent
+	if scriptDispatch {
+		// Register the script-only path here so the subject API and the
+		// exact depth option remain visible in this backend test.
+		spendClient, err = notifier.RegisterSpendNtfn(
+			nil, output.PkScript, uint32(heightHint),
+			chainntnfs.WithSpendNumConfs(numConfs),
+		)
+	} else {
+		// Register the outpoint path with the same explicit option so
+		// both backend dispatch modes prove the public contract.
+		spendClient, err = notifier.RegisterSpendNtfn(
+			outpoint, output.PkScript, uint32(heightHint),
+			chainntnfs.WithSpendNumConfs(numConfs),
+		)
+	}
+	require.NoError(t, err, "unable to register depth-aware spend")
+	t.Cleanup(spendClient.Cancel)
+	spendingTx := chainntnfs.CreateSpendTx(t, outpoint, output, privKey)
+	spenderHash, err := miner.Client.SendRawTransaction(spendingTx, true)
+	require.NoError(t, err, "unable to broadcast spend")
+	require.NoError(
+		t, chainntnfs.WaitForMempoolTx(miner, spenderHash),
+		"spend was not relayed to miner",
+	)
+
+	// Act by mining the inclusion block and two successors, synchronizing
+	// after each one, and recording delivery at every depth boundary.
+	blockHashes, err := miner.Client.Generate(1)
+	require.NoError(t, err, "unable to mine spend inclusion")
+	waitForNotifierEpoch(t, epochClient, blockHashes[0])
+	atOne, atOneOK := pollSpendNotification(spendClient.Spend)
+	_, spendHeight, err := miner.Client.GetBestBlock()
+	require.NoError(t, err, "unable to get spend height")
+
+	blockHashes, err = miner.Client.Generate(1)
+	require.NoError(t, err, "unable to mine second confirmation")
+	waitForNotifierEpoch(t, epochClient, blockHashes[0])
+	atTwo, atTwoOK := pollSpendNotification(spendClient.Spend)
+
+	blockHashes, err = miner.Client.Generate(1)
+	require.NoError(t, err, "unable to mine maturity confirmation")
+	waitForNotifierEpoch(t, epochClient, blockHashes[0])
+	var atThree *chainntnfs.SpendDetail
+	// Block epochs and spend results use independent delivery channels.
+	// Allow a bounded asynchronous handoff after maturity processing.
+	select {
+	case atThree = <-spendClient.Spend:
+		// Retain the result so Assert can verify its transaction and
+		// block metadata.
+
+	case <-time.After(30 * time.Second):
+		t.Fatalf("live spend did not mature")
+	}
+
+	// Assert no backend delivers before the requested depth and every
+	// backend supplies the canonical spend exactly at three confirmations.
+	require.False(t, atOneOK)
+	require.Nil(t, atOne)
+	require.False(t, atTwoOK)
+	require.Nil(t, atTwo)
+	require.NotNil(t, atThree)
+	require.Equal(t, *outpoint, *atThree.SpentOutPoint)
+	require.Equal(t, *spenderHash, *atThree.SpenderTxHash)
+	require.Zero(t, atThree.SpenderInputIndex)
+	require.Equal(t, spendHeight, atThree.SpendingHeight)
+}
+
 func testSpendNotification(miner *rpctest.Harness,
 	notifier chainntnfs.TestChainNotifier, scriptDispatch bool, t *testing.T) {
 
@@ -1834,6 +1967,10 @@ var txNtfnTests = []txNtfnTestCase{
 	{
 		name: "spend ntfn",
 		test: testSpendNotification,
+	},
+	{
+		name: "spend depth ntfn",
+		test: testSpendNotificationDepth,
 	},
 	{
 		name: "historical spend dispatch",

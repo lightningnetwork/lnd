@@ -154,6 +154,10 @@ type ChannelArbitratorConfig struct {
 	// true. Otherwise this value is unset.
 	CloseType channeldb.ClosureType
 
+	// SpendConfDepth is the validated channel-level maturity policy shared
+	// by the funding watcher and every resolver belonging to this channel.
+	SpendConfDepth uint32
+
 	// NotifyChannelResolved is used by the channel arbitrator to signal
 	// that a given channel has been resolved.
 	NotifyChannelResolved func()

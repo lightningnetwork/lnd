@@ -618,7 +618,8 @@ func (u *UtxoNursery) IncubateOutputs(chanPoint wire.OutPoint,
 	defer u.mu.Unlock()
 
 	// 2. Persist the outputs we intended to sweep in the nursery store
-	if err := u.cfg.Store.Incubate(kidOutputs, babyOutputs); err != nil {
+	activeCribs, err := u.cfg.Store.Incubate(kidOutputs, babyOutputs)
+	if err != nil {
 		utxnLog.Errorf("unable to begin incubation of Channel(%s): %v",
 			chanPoint, err)
 		return err
@@ -636,6 +637,12 @@ func (u *UtxoNursery) IncubateOutputs(chanPoint wire.OutPoint,
 	// if the output has already expired, then we'll *immediately* sweep
 	// it. This may happen if the caller raced a block to call this method.
 	for i, babyOutput := range babyOutputs {
+		if _, ok := activeCribs[babyOutput.OutPoint()]; !ok {
+			// The store already advanced this replayed HTLC.
+			// A new callback would be stale lifecycle work.
+			continue
+		}
+
 		if uint32(bestHeight) >= babyOutput.expiry {
 			err = u.sweepCribOutput(
 				babyOutput.expiry, &babyOutputs[i],
@@ -1237,7 +1244,11 @@ func (u *UtxoNursery) waitForTimeoutConf(baby *babyOutput,
 
 	// TODO(conner): add retry utxnLogic?
 
-	err := u.cfg.Store.CribToKinder(baby)
+	// The notifier returns the original inclusion height after the
+	// requested depth. Pass Nursery's processed tip so a short CSV delay
+	// cannot create an already-graduated maturity class.
+	lastGradHeight := atomic.LoadUint32(&u.bestHeight)
+	err := u.cfg.Store.CribToKinder(baby, lastGradHeight)
 	if err != nil {
 		utxnLog.Errorf("Unable to move htlc output from "+
 			"crib to kindergarten bucket: %v", err)

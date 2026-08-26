@@ -983,13 +983,17 @@ func newNurseryStoreInterceptor(ns NurseryStorer) *nurseryStoreInterceptor {
 }
 
 func (i *nurseryStoreInterceptor) Incubate(kidOutputs []kidOutput,
-	babyOutputs []babyOutput) error {
+	babyOutputs []babyOutput) (map[wire.OutPoint]struct{}, error) {
 
 	return i.ns.Incubate(kidOutputs, babyOutputs)
 }
 
-func (i *nurseryStoreInterceptor) CribToKinder(babyOutput *babyOutput) error {
-	err := i.ns.CribToKinder(babyOutput)
+// CribToKinder delegates the state transition to the real store and signals
+// the test only after persistence completes, so assertions cannot race it.
+func (i *nurseryStoreInterceptor) CribToKinder(babyOutput *babyOutput,
+	lastGradHeight uint32) error {
+
+	err := i.ns.CribToKinder(babyOutput, lastGradHeight)
 
 	i.cribToKinderChan <- struct{}{}
 

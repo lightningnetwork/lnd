@@ -728,6 +728,10 @@ var allTestCases = []*lntest.TestCase{
 		TestFunc: testSweepHTLCs,
 	},
 	{
+		Name:     "sweep legacy htlc reorg restart",
+		TestFunc: testSweepLegacyHTLCReorgRestart,
+	},
+	{
 		Name:     "sweep commit output and anchor",
 		TestFunc: testSweepCommitOutputAndAnchor,
 	},

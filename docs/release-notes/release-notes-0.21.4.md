@@ -32,6 +32,13 @@
 
 ## RPC Additions
 
+* WalletKit output leases can now [remain active until their spending
+  transaction reaches a requested confirmation
+  depth](https://github.com/lightningnetwork/lnd/pull/11125). The option is
+  available on both `LeaseOutput` and inputs selected by `FundPsbt`. These
+  leases ignore wall-clock expiration and expose spend progress through
+  `ListLeases`; a zero depth preserves the existing wall-clock behavior.
+
 ## lncli Additions
 
 # Improvements
@@ -66,5 +73,6 @@
 
 # Contributors (Alphabetical Order)
 
+* Andras Banki-Horvath
 * Olaoluwa Osuntokun
 * Ziggie

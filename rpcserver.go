@@ -6199,7 +6199,9 @@ func (r *rpcServer) GetTransactions(ctx context.Context,
 		return nil, err
 	}
 
-	return lnrpc.RPCTransactionDetails(txns, firstIdx, lastIdx), nil
+	return lnrpc.RPCTransactionDetails(
+		txns, firstIdx, lastIdx, req.Reverse,
+	), nil
 }
 
 // DescribeGraph returns a description of the latest graph state from the PoV

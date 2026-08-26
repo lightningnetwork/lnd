@@ -2364,8 +2364,7 @@ func (x *Transaction) GetPreviousOutpoints() []*PreviousOutPoint {
 
 type GetTransactionsRequest struct {
 	state protoimpl.MessageState `protogen:"open.v1"`
-	// The height from which to list transactions, inclusive. If this value is
-	// greater than end_height, transactions will be read in reverse.
+	// The height from which to list transactions, inclusive.
 	StartHeight int32 `protobuf:"varint,1,opt,name=start_height,json=startHeight,proto3" json:"start_height,omitempty"`
 	// The height until which to list transactions, inclusive. To include
 	// unconfirmed transactions, this value should be set to -1, which will
@@ -2381,8 +2380,13 @@ type GetTransactionsRequest struct {
 	// The maximal number of transactions returned in the response to this query.
 	// This value should be set to 0 to return all transactions.
 	MaxTransactions uint32 `protobuf:"varint,5,opt,name=max_transactions,json=maxTransactions,proto3" json:"max_transactions,omitempty"`
-	unknownFields   protoimpl.UnknownFields
-	sizeCache       protoimpl.SizeCache
+	// If set, transactions are returned from oldest to newest (ascending block
+	// height) instead of the default newest to oldest. The ordering of
+	// start_height and end_height does not affect the order of the returned
+	// transactions; use this field to control it.
+	Reverse       bool `protobuf:"varint,6,opt,name=reverse,proto3" json:"reverse,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
 }
 
 func (x *GetTransactionsRequest) Reset() {
@@ -2448,6 +2452,13 @@ func (x *GetTransactionsRequest) GetMaxTransactions() uint32 {
 		return x.MaxTransactions
 	}
 	return 0
+}
+
+func (x *GetTransactionsRequest) GetReverse() bool {
+	if x != nil {
+		return x.Reverse
+	}
+	return false
 }
 
 type TransactionDetails struct {
@@ -18602,14 +18613,15 @@ const file_lightning_proto_rawDesc = "" +
 	"raw_tx_hex\x18\t \x01(\tR\brawTxHex\x12\x14\n" +
 	"\x05label\x18\n" +
 	" \x01(\tR\x05label\x12F\n" +
-	"\x12previous_outpoints\x18\f \x03(\v2\x17.lnrpc.PreviousOutPointR\x11previousOutpoints\"\xc2\x01\n" +
+	"\x12previous_outpoints\x18\f \x03(\v2\x17.lnrpc.PreviousOutPointR\x11previousOutpoints\"\xdc\x01\n" +
 	"\x16GetTransactionsRequest\x12!\n" +
 	"\fstart_height\x18\x01 \x01(\x05R\vstartHeight\x12\x1d\n" +
 	"\n" +
 	"end_height\x18\x02 \x01(\x05R\tendHeight\x12\x18\n" +
 	"\aaccount\x18\x03 \x01(\tR\aaccount\x12!\n" +
 	"\findex_offset\x18\x04 \x01(\rR\vindexOffset\x12)\n" +
-	"\x10max_transactions\x18\x05 \x01(\rR\x0fmaxTransactions\"\x8c\x01\n" +
+	"\x10max_transactions\x18\x05 \x01(\rR\x0fmaxTransactions\x12\x18\n" +
+	"\areverse\x18\x06 \x01(\bR\areverse\"\x8c\x01\n" +
 	"\x12TransactionDetails\x126\n" +
 	"\ftransactions\x18\x01 \x03(\v2\x12.lnrpc.TransactionR\ftransactions\x12\x1d\n" +
 	"\n" +

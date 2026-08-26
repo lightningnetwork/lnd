@@ -2665,7 +2665,7 @@
         "parameters": [
           {
             "name": "start_height",
-            "description": "The height from which to list transactions, inclusive. If this value is\ngreater than end_height, transactions will be read in reverse.",
+            "description": "The height from which to list transactions, inclusive.",
             "in": "query",
             "required": false,
             "type": "integer",
@@ -2701,6 +2701,13 @@
             "required": false,
             "type": "integer",
             "format": "int64"
+          },
+          {
+            "name": "reverse",
+            "description": "If set, transactions are returned from oldest to newest (ascending block\nheight) instead of the default newest to oldest. The ordering of\nstart_height and end_height does not affect the order of the returned\ntransactions; use this field to control it.",
+            "in": "query",
+            "required": false,
+            "type": "boolean"
           }
         ],
         "tags": [
@@ -2871,7 +2878,7 @@
         "parameters": [
           {
             "name": "start_height",
-            "description": "The height from which to list transactions, inclusive. If this value is\ngreater than end_height, transactions will be read in reverse.",
+            "description": "The height from which to list transactions, inclusive.",
             "in": "query",
             "required": false,
             "type": "integer",
@@ -2907,6 +2914,13 @@
             "required": false,
             "type": "integer",
             "format": "int64"
+          },
+          {
+            "name": "reverse",
+            "description": "If set, transactions are returned from oldest to newest (ascending block\nheight) instead of the default newest to oldest. The ordering of\nstart_height and end_height does not affect the order of the returned\ntransactions; use this field to control it.",
+            "in": "query",
+            "required": false,
+            "type": "boolean"
           }
         ],
         "tags": [

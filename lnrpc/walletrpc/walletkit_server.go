@@ -1565,7 +1565,7 @@ func (w *WalletKit) ListSweeps(ctx context.Context,
 		return &ListSweepsResponse{
 			Sweeps: &ListSweepsResponse_TransactionDetails{
 				TransactionDetails: lnrpc.RPCTransactionDetails(
-					txDetails, firstIdx, lastIdx,
+					txDetails, firstIdx, lastIdx, false,
 				),
 			},
 		}, nil

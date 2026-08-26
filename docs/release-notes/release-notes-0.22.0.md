@@ -64,6 +64,12 @@
   the chain backend via bitcoind's `submitpackage`, allowing a zero-fee v3/TRUC
   parent to be accepted together with a fee-paying CPFP child.
 
+* `lnrpc.GetTransactions` now has a
+  [`reverse`](https://github.com/lightningnetwork/lnd/pull/11126) field that
+  returns transactions from oldest to newest (ascending block height) instead of
+  the default newest to oldest. This fixes a long-standing gap where the
+  response order could not be controlled.
+
 ## lncli Additions
 
 * The `estimateroutefee` command now supports [restricting fee estimates to
@@ -75,6 +81,11 @@
   [`wallet submitpackage`](https://github.com/lightningnetwork/lnd/pull/10900)
   command submits a package of hex-encoded transactions via the new
   `SubmitPackage` RPC.
+
+* The `listchaintxns` command now has a
+  [`--reverse`](https://github.com/lightningnetwork/lnd/pull/11126) flag that
+  lists transactions from oldest to newest (ascending block height) instead of
+  the default newest to oldest.
 
 # Improvements
 
@@ -167,3 +178,4 @@
 * Erick Cestari
 * Jared Tobin
 * Nishant Bansal
+* Vandit Singh

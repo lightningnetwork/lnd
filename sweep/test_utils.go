@@ -209,7 +209,8 @@ func (m *MockNotifier) Stop() error {
 
 // RegisterSpendNtfn registers for spend notifications.
 func (m *MockNotifier) RegisterSpendNtfn(outpoint *wire.OutPoint,
-	_ []byte, heightHint uint32) (*chainntnfs.SpendEvent, error) {
+	_ []byte, heightHint uint32,
+	_ ...chainntnfs.SpendOption) (*chainntnfs.SpendEvent, error) {
 
 	log.Debugf("RegisterSpendNtfn for outpoint %v", outpoint)
 

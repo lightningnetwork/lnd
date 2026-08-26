@@ -3217,6 +3217,7 @@ func (c *ChannelArbitrator) createSweepRequest(
 	return sweepRequest{
 		input: &anchorInput,
 		params: sweep.Params{
+			RequiredConfs:  c.cfg.SpendConfDepth,
 			ExclusiveGroup: &exclusiveGroup,
 			Budget:         budget,
 			DeadlineHeight: deadlineHeight,

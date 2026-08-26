@@ -514,6 +514,7 @@ func (h *htlcTimeoutResolver) sweepTimeoutTx() error {
 	_, err := h.Sweeper.SweepInput(
 		inp,
 		sweep.Params{
+			RequiredConfs:  h.SpendConfDepth,
 			Budget:         budget,
 			DeadlineHeight: h.incomingHTLCExpiryHeight,
 		},
@@ -581,7 +582,8 @@ func (h *htlcTimeoutResolver) sweepDirectHtlcOutput() error {
 	_, err := h.Sweeper.SweepInput(
 		sweepInput,
 		sweep.Params{
-			Budget: budget,
+			RequiredConfs: h.SpendConfDepth,
+			Budget:        budget,
 
 			// This is an outgoing HTLC, so we want to make sure
 			// that we sweep it before the incoming HTLC expires.
@@ -598,8 +600,8 @@ func (h *htlcTimeoutResolver) sweepDirectHtlcOutput() error {
 // watchHtlcSpend watches for a spend of the HTLC output. For neutrino backend,
 // it will check blocks for the confirmed spend. For btcd and bitcoind, it will
 // check both the mempool and the blocks.
-func (h *htlcTimeoutResolver) watchHtlcSpend() (*chainntnfs.SpendDetail,
-	error) {
+func (h *htlcTimeoutResolver) watchHtlcSpend(spendConfDepth uint32) (
+	*chainntnfs.SpendDetail, error) {
 
 	// TODO(yy): outpointToWatch is always h.HtlcOutpoint(), can refactor
 	// to remove the redundancy.
@@ -608,25 +610,118 @@ func (h *htlcTimeoutResolver) watchHtlcSpend() (*chainntnfs.SpendDetail,
 		return nil, err
 	}
 
-	// If there's no mempool configured, which is the case for SPV node
-	// such as neutrino, then we will watch for confirmed spend only.
+	// Deep policies retain a one-block view for already-mined preimages.
+	if spendConfDepth > 1 {
+		return h.waitForPreimageOrMatureSpend(
+			outpointToWatch, scriptToWatch, spendConfDepth,
+		)
+	}
+
+	// A block-only backend needs only the terminal view at depth one.
 	if h.Mempool == nil {
-		return h.waitForConfirmedSpend(outpointToWatch, scriptToWatch)
+		return h.waitForConfirmedSpend(
+			outpointToWatch, scriptToWatch, spendConfDepth,
+		)
 	}
 
 	// Watch for a spend of the HTLC output in both the mempool and blocks.
-	return h.waitForMempoolOrBlockSpend(*outpointToWatch, scriptToWatch)
+	return h.waitForMempoolOrBlockSpend(
+		*outpointToWatch, scriptToWatch, spendConfDepth,
+	)
+}
+
+// waitForPreimageOrMatureSpend reveals actionable preimages early while
+// keeping timeout-driven cleanup behind the channel's terminal policy.
+func (h *htlcTimeoutResolver) waitForPreimageOrMatureSpend(
+	op *wire.OutPoint, pkScript []byte, spendConfDepth uint32) (
+	*chainntnfs.SpendDetail, error) {
+
+	// Register both views first so no spend can race their installation.
+	earlySpend, err := h.Notifier.RegisterSpendNtfn(
+		op, pkScript, h.broadcastHeight,
+		chainntnfs.WithSpendNumConfs(1),
+	)
+	if err != nil {
+		return nil, fmt.Errorf("register early spend: %w", err)
+	}
+	defer earlySpend.Cancel()
+
+	matureSpend, err := h.Notifier.RegisterSpendNtfn(
+		op, pkScript, h.broadcastHeight,
+		chainntnfs.WithSpendNumConfs(spendConfDepth),
+	)
+	if err != nil {
+		return nil, fmt.Errorf("register mature spend: %w", err)
+	}
+	defer matureSpend.Cancel()
+
+	// Use the commitment origin to select the preimage witness layout.
+	localCommit := !h.isRemoteCommitOutput()
+
+	// Mempool is an optimization; the early block client closes races.
+	var mempoolSpends <-chan *chainntnfs.SpendDetail
+	if h.Mempool != nil {
+		mempoolEvent, err := h.Mempool.SubscribeMempoolSpent(*op)
+		if err != nil {
+			return nil, fmt.Errorf("register mempool: %w", err)
+		}
+		defer h.Mempool.CancelMempoolSpendEvent(mempoolEvent)
+		mempoolSpends = mempoolEvent.Spend
+	}
+
+	for {
+		select {
+		case spend, ok := <-earlySpend.Spend:
+			if !ok {
+				return nil, errResolverShuttingDown
+			}
+
+			// Preimages persist; other spends wait for maturity.
+			if isPreimageSpend(h.isTaproot(), spend, localCommit) {
+				return spend, nil
+			}
+
+		case _, ok := <-earlySpend.Reorg:
+			if !ok {
+				return nil, errResolverShuttingDown
+			}
+
+			// Drain reorgs so the early client can restart.
+
+		case spend, ok := <-matureSpend.Spend:
+			if !ok {
+				return nil, errResolverShuttingDown
+			}
+
+			return spend, nil
+
+		case spend, ok := <-mempoolSpends:
+			if !ok {
+				return nil, errResolverShuttingDown
+			}
+
+			// Mempool preimages are immediate; timeout spends wait.
+			if isPreimageSpend(h.isTaproot(), spend, localCommit) {
+				return spend, nil
+			}
+
+		case <-h.quit:
+			return nil, errResolverShuttingDown
+		}
+	}
 }
 
 // waitForConfirmedSpend waits for the HTLC output to be spent and confirmed in
 // a block, returns the spend details.
 func (h *htlcTimeoutResolver) waitForConfirmedSpend(op *wire.OutPoint,
-	pkScript []byte) (*chainntnfs.SpendDetail, error) {
+	pkScript []byte, spendConfDepth uint32) (
+	*chainntnfs.SpendDetail, error) {
 
 	// We'll block here until either we exit, or the HTLC output on the
 	// commitment transaction has been spent.
 	spend, err := waitForSpend(
-		op, pkScript, h.broadcastHeight, h.Notifier, h.quit,
+		op, pkScript, h.broadcastHeight, spendConfDepth, h.Notifier,
+		h.quit,
 	)
 	if err != nil {
 		return nil, err
@@ -830,18 +925,22 @@ type spendResult struct {
 // waitForMempoolOrBlockSpend waits for the htlc output to be spent by a
 // transaction that's either be found in the mempool or in a block.
 func (h *htlcTimeoutResolver) waitForMempoolOrBlockSpend(op wire.OutPoint,
-	pkScript []byte) (*chainntnfs.SpendDetail, error) {
+	pkScript []byte, spendConfDepth uint32) (
+	*chainntnfs.SpendDetail, error) {
 
 	log.Infof("%T(%v): waiting for spent of HTLC output %v to be found "+
 		"in mempool or block", h, h.htlcResolution.ClaimOutpoint, op)
 
-	// Subscribe for block spent(confirmed).
+	// Let blocks control terminality while mempool preimages remain an
+	// actionable optimization across reorgs.
 	blockSpent, err := h.Notifier.RegisterSpendNtfn(
 		&op, pkScript, h.broadcastHeight,
+		chainntnfs.WithSpendNumConfs(spendConfDepth),
 	)
 	if err != nil {
 		return nil, fmt.Errorf("register spend: %w", err)
 	}
+	defer blockSpent.Cancel()
 
 	// Subscribe for mempool spent(unconfirmed).
 	mempoolSpent, err := h.Mempool.SubscribeMempoolSpent(op)
@@ -1012,7 +1111,10 @@ func (h *htlcTimeoutResolver) waitHtlcSpendAndCheckPreimage() (
 	//    commitment.
 	// 3. The local party spends the htlc output directlt from the remote
 	//    commitment.
-	spend, err := h.watchHtlcSpend()
+
+	// This preparatory lookup records no final outcome, so keep it at one
+	// confirmation rather than stalling blockbeat at terminal depth.
+	spend, err := h.watchHtlcSpend(1)
 	if err != nil {
 		return nil, err
 	}
@@ -1116,7 +1218,8 @@ func (h *htlcTimeoutResolver) sweepTimeoutTxOutput() error {
 	_, err = h.Sweeper.SweepInput(
 		inp,
 		sweep.Params{
-			Budget: budget,
+			RequiredConfs: h.SpendConfDepth,
+			Budget:        budget,
 
 			// For second level success tx, there's no rush
 			// to get it confirmed, so we use a nil
@@ -1197,7 +1300,7 @@ func (h *htlcTimeoutResolver) resolveRemoteCommitOutput() error {
 	h.log.Debug("waiting for direct-timeout spend of the htlc to confirm")
 
 	// Wait for the direct-timeout HTLC sweep tx to confirm.
-	spend, err := h.watchHtlcSpend()
+	spend, err := h.watchHtlcSpend(h.SpendConfDepth)
 	if err != nil {
 		return err
 	}
@@ -1235,7 +1338,7 @@ func (h *htlcTimeoutResolver) resolveTimeoutTx() error {
 		"confirm")
 
 	// Wait for the second level transaction to confirm.
-	spend, err := h.watchHtlcSpend()
+	spend, err := h.watchHtlcSpend(h.SpendConfDepth)
 	if err != nil {
 		return err
 	}
@@ -1294,7 +1397,7 @@ func (h *htlcTimeoutResolver) resolveTimeoutTxOutput(op wire.OutPoint) error {
 
 	spend, err := waitForSpend(
 		&op, h.htlcResolution.SweepSignDesc.Output.PkScript,
-		h.broadcastHeight, h.Notifier, h.quit,
+		h.broadcastHeight, h.SpendConfDepth, h.Notifier, h.quit,
 	)
 	if err != nil {
 		return err

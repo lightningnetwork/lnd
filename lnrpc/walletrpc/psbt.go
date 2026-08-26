@@ -4,6 +4,7 @@
 package walletrpc
 
 import (
+	"errors"
 	"fmt"
 	"math"
 	"time"
@@ -66,8 +67,9 @@ func lockInputs(w lnwallet.WalletController, outpoints []wire.OutPoint,
 	}
 
 	locks := make(
-		[]*base.ListLeasedOutputResult, len(outpoints),
+		[]*base.ListLeasedOutputResult, 0, len(outpoints),
 	)
+
 	for idx := range outpoints {
 		lock := &base.ListLeasedOutputResult{
 			LockedOutput: &wtxmgr.LockedOutput{
@@ -88,7 +90,9 @@ func lockInputs(w lnwallet.WalletController, outpoints []wire.OutPoint,
 		// Get the details about this outpoint.
 		utxo, err := w.FetchOutpointInfo(&lock.Outpoint)
 		if err != nil {
-			return nil, fmt.Errorf("fetch outpoint info: %w", err)
+			cause := fmt.Errorf("fetch outpoint info: %w", err)
+
+			return nil, rollbackInputLeases(w, locks, cause)
 		}
 
 		var expiration time.Time
@@ -106,29 +110,44 @@ func lockInputs(w lnwallet.WalletController, outpoints []wire.OutPoint,
 			)
 		}
 		if err != nil {
-			// If we run into a problem with locking one output, we
-			// should try to unlock those that we successfully
-			// locked so far. If that fails as well, there's not
-			// much we can do.
-			for i := 0; i < idx; i++ {
-				op := locks[i].Outpoint
-				if err := w.ReleaseOutput(
-					chanfunding.LndInternalLockID, op,
-				); err != nil {
-					log.Errorf("could not release the "+
-						"lock on %v: %v", op, err)
-				}
-			}
+			cause := fmt.Errorf("could not lease UTXO: %w", err)
 
-			return nil, fmt.Errorf("could not lease a lock on "+
-				"UTXO: %v", err)
+			return nil, rollbackInputLeases(w, locks, cause)
 		}
 
 		lock.Expiration = expiration
 		lock.PkScript = utxo.PkScript
 		lock.Value = int64(utxo.Value)
-		locks[idx] = lock
+		locks = append(locks, lock)
 	}
 
 	return locks, nil
+}
+
+// rollbackInputLeases releases every lease acquired before cause interrupted
+// the current FundPsbt attempt. If a release fails, the returned error includes
+// its outpoint and owner ID so the caller can identify and recover the lease.
+func rollbackInputLeases(w lnwallet.WalletController,
+	locks []*base.ListLeasedOutputResult, cause error) error {
+
+	var releaseErrs []error
+	for _, lock := range locks {
+		err := w.ReleaseOutput(lock.LockID, lock.Outpoint)
+		if err == nil {
+			continue
+		}
+
+		releaseErr := fmt.Errorf(
+			"could not release lease %v with lock ID %x: %w",
+			lock.Outpoint, lock.LockID[:], err,
+		)
+		log.Errorf("%v", releaseErr)
+		releaseErrs = append(releaseErrs, releaseErr)
+	}
+
+	if len(releaseErrs) == 0 {
+		return cause
+	}
+
+	return errors.Join(append([]error{cause}, releaseErrs...)...)
 }

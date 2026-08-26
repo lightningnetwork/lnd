@@ -221,6 +221,39 @@ type TransactionSubscription interface {
 	Cancel()
 }
 
+// LeaseOutputOptions controls optional output lease behavior.
+type LeaseOutputOptions struct {
+	// ReleaseAfterSpendConfs keeps the persisted lease until the
+	// transaction spending the output reaches this confirmation count.
+	// Reorganizations reset maturity progress when they disconnect the
+	// spending block.
+	ReleaseAfterSpendConfs uint32
+}
+
+// OutputLeaserWithOptions is an optional wallet capability for callers that
+// require output lease behavior beyond the default WalletController contract.
+// Implementations must apply every non-zero option exactly or return an error.
+type OutputLeaserWithOptions interface {
+	// LeaseOutputWithOptions leases an output with the requested optional
+	// behavior. It returns the same sentinel errors as LeaseOutput and
+	// requires the global coin selection lock to be held. With a non-zero
+	// ReleaseAfterSpendConfs, the returned expiration is retained for
+	// compatibility but is not enforced.
+	LeaseOutputWithOptions(id wtxmgr.LockID, op wire.OutPoint,
+		duration time.Duration, opts LeaseOutputOptions) (
+		time.Time, error)
+}
+
+// WalletControllerWrapper exposes the controller wrapped by an adapter. The
+// nested controller is used to resolve optional capabilities that are not part
+// of the base WalletController interface.
+type WalletControllerWrapper interface {
+	// UnwrapWalletController returns the next controller in the adapter
+	// chain. Implementations must return a non-nil controller other than
+	// themselves.
+	UnwrapWalletController() WalletController
+}
+
 // WalletController defines an abstract interface for controlling a local Pure
 // Go wallet, a local or remote wallet via an RPC mechanism, or possibly even
 // a daemon assisted hardware wallet. This interface serves the purpose of

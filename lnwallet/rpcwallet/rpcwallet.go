@@ -73,6 +73,12 @@ var _ input.Signer = (*RPCKeyRing)(nil)
 var _ keychain.MessageSignerRing = (*RPCKeyRing)(nil)
 var _ lnwallet.WalletController = (*RPCKeyRing)(nil)
 
+// UnwrapWalletController returns the watch-only wallet controller wrapped by
+// the remote-signing adapter.
+func (r *RPCKeyRing) UnwrapWalletController() lnwallet.WalletController {
+	return r.WalletController
+}
+
 // NewRPCKeyRing creates a new remote signing secret key ring that uses the
 // given watch-only base wallet to keep track of addresses and transactions but
 // delegates any signing or ECDH operations to the remove signer through RPC.

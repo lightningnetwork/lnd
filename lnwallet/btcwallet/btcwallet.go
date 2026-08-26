@@ -1150,7 +1150,38 @@ func (b *BtcWallet) LeaseOutput(id wtxmgr.LockID, op wire.OutPoint,
 		return time.Time{}, wtxmgr.ErrOutputAlreadyLocked
 	}
 
-	lockedUntil, err := b.wallet.LeaseOutput(id, op, duration)
+	return b.wallet.LeaseOutput(id, op, duration)
+}
+
+// LeaseOutputWithOptions locks an output and applies optional persisted lease
+// behavior supported by btcwallet. It returns wtxmgr.ErrUnknownOutput if the
+// output is unknown and wtxmgr.ErrOutputAlreadyLocked if another owner holds
+// its lease.
+//
+// NOTE: This method requires the global coin selection lock to be held.
+func (b *BtcWallet) LeaseOutputWithOptions(id wtxmgr.LockID,
+	op wire.OutPoint, duration time.Duration,
+	opts lnwallet.LeaseOutputOptions) (time.Time, error) {
+
+	// Make sure we don't attempt to double lock an output that's been
+	// locked by the in-memory implementation.
+	if b.wallet.LockedOutpoint(op) {
+		return time.Time{}, wtxmgr.ErrOutputAlreadyLocked
+	}
+
+	var lockOpts []wtxmgr.LockOutputOption
+	if opts.ReleaseAfterSpendConfs > 0 {
+		lockOpts = append(
+			lockOpts,
+			wtxmgr.WithReleaseAfterSpend(
+				opts.ReleaseAfterSpendConfs,
+			),
+		)
+	}
+
+	lockedUntil, err := b.wallet.LeaseOutputWithOptions(
+		id, op, duration, lockOpts...,
+	)
 	if err != nil {
 		return time.Time{}, err
 	}

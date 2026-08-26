@@ -2,10 +2,59 @@ package lnwallet
 
 import (
 	"testing"
+	"time"
 
+	"github.com/btcsuite/btcd/wire/v2"
+	"github.com/btcsuite/btcwallet/wtxmgr"
 	"github.com/lightningnetwork/lnd/chanstate"
 	"github.com/stretchr/testify/require"
 )
+
+// leaseOptionsController records optional output lease settings.
+type leaseOptionsController struct {
+	*mockWalletController
+
+	leaseOpts LeaseOutputOptions
+}
+
+// LeaseOutputWithOptions records the options passed through the wallet wrapper.
+func (c *leaseOptionsController) LeaseOutputWithOptions(_ wtxmgr.LockID,
+	_ wire.OutPoint, _ time.Duration,
+	opts LeaseOutputOptions) (time.Time, error) {
+
+	c.leaseOpts = opts
+
+	return time.Unix(123, 0), nil
+}
+
+// TestResolveOutputLeaser verifies that optional lease capability detection
+// reflects the concrete controller behind a LightningWallet wrapper.
+func TestResolveOutputLeaser(t *testing.T) {
+	t.Parallel()
+
+	t.Run("supported", func(t *testing.T) {
+		controller := &leaseOptionsController{
+			mockWalletController: &mockWalletController{},
+		}
+		wallet := &LightningWallet{
+			WalletController: controller,
+		}
+
+		leaser, ok := ResolveOutputLeaser(wallet)
+		require.True(t, ok)
+		require.Same(t, controller, leaser)
+	})
+
+	t.Run("unsupported", func(t *testing.T) {
+		wallet := &LightningWallet{
+			WalletController: &mockWalletController{},
+		}
+
+		leaser, ok := ResolveOutputLeaser(wallet)
+		require.False(t, ok)
+		require.Nil(t, leaser)
+	})
+}
 
 // TestHandleFundingCounterPartySigsMissingReservation tests the missing
 // reservation response.

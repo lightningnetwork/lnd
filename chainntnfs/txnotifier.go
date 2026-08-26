@@ -1828,6 +1828,17 @@ func (n *TxNotifier) handleSpendDetailsAtTip(spendRequest SpendRequest,
 
 	// TODO(wilmer): cancel pending historical rescans if any?
 	spendSet := n.spendNotifications[spendRequest]
+
+	// A script-only request can match several outpoints that reuse one
+	// script. Preserve the first candidate until it disconnects or ages out
+	// so queued clients cannot be retargeted to a less mature replacement.
+	if spendSet.details != nil {
+		Log.Warnf("Ignoring output script reuse for %s at height %d.",
+			spendRequest, details.SpendingHeight)
+
+		return
+	}
+
 	spendSet.rescanStatus = rescanComplete
 	spendSet.details = details
 	n.trackSpendByHeight(spendRequest, details)

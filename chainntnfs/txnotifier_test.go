@@ -405,6 +405,168 @@ func TestTxNotifierSpendDepthCancel(t *testing.T) {
 	require.False(t, spendOpen)
 }
 
+// TestTxNotifierScriptSpendCandidateOwnership verifies a script notification
+// keeps its first canonical spend while that candidate is awaiting maturity.
+func TestTxNotifierScriptSpendCandidateOwnership(t *testing.T) {
+	t.Parallel()
+
+	// Arrange two depth-three clients for one script and two distinct
+	// outpoints that reuse it in consecutive blocks. The second client lets
+	// cancellation expose a stale first-candidate maturity entry.
+	const startHeight = uint32(10)
+	hintCache := newMockHintCache()
+	n := chainntnfs.NewTxNotifier(
+		startHeight, chainntnfs.ReorgSafetyLimit, hintCache, hintCache,
+	)
+	firstClient, err := n.RegisterSpend(
+		nil, testRawScript, startHeight+1,
+		chainntnfs.WithSpendNumConfs(3),
+	)
+	require.NoError(t, err)
+	t.Cleanup(firstClient.Event.Cancel)
+	secondClient, err := n.RegisterSpend(
+		nil, testRawScript, startHeight+1,
+		chainntnfs.WithSpendNumConfs(3),
+	)
+	require.NoError(t, err)
+	firstOutpoint := wire.OutPoint{Hash: chainhash.Hash{1}, Index: 1}
+	secondOutpoint := wire.OutPoint{Hash: chainhash.Hash{2}, Index: 2}
+	firstSpend := createSpendTestTx(firstOutpoint, 2)
+	secondSpend := createSpendTestTx(secondOutpoint, 3)
+
+	// Act by queueing the first candidate, processing a later same-script
+	// spend, canceling one client, and advancing to the original maturity
+	// height. A stale bucket would either deliver the immature replacement
+	// or attempt to send it through the canceled client's closed channel.
+	require.NoError(t, n.ConnectTip(btcutil.NewBlock(&wire.MsgBlock{
+		Transactions: []*wire.MsgTx{firstSpend},
+	}), 11))
+	require.NoError(t, n.NotifyHeight(11))
+	require.NoError(t, n.ConnectTip(btcutil.NewBlock(&wire.MsgBlock{
+		Transactions: []*wire.MsgTx{secondSpend},
+	}), 12))
+	require.NoError(t, n.NotifyHeight(12))
+	secondClient.Event.Cancel()
+	require.NoError(t, n.ConnectTip(
+		btcutil.NewBlock(&wire.MsgBlock{}), 13,
+	))
+	require.NoError(t, n.NotifyHeight(13))
+	delivered, deliveredOK := pollSpendTest(firstClient.Event.Spend)
+	_, canceledOpen := <-secondClient.Event.Spend
+
+	// Assert only the first candidate is delivered at its own depth and
+	// the canceled client stays closed. Reaching the height without a panic
+	// also proves cancellation removed the immutable maturity entry.
+	require.True(t, deliveredOK)
+	require.NotNil(t, delivered)
+	require.Equal(t, firstSpend.TxHash(), *delivered.SpenderTxHash)
+	require.False(t, canceledOpen)
+}
+
+// TestTxNotifierCanceledSpendReorg checks that a spend discovered after its
+// last client cancels cannot remain cached across a block disconnection.
+func TestTxNotifierCanceledSpendReorg(t *testing.T) {
+	t.Parallel()
+
+	// Arrange a notifier with one request whose only client cancels before
+	// the original spend. Distinct transaction versions let the assertions
+	// distinguish stale delivery from the canonical replacement.
+	const startHeight = uint32(10)
+	hintCache := newMockHintCache()
+	n := chainntnfs.NewTxNotifier(
+		startHeight, chainntnfs.ReorgSafetyLimit, hintCache, hintCache,
+	)
+	outpoint := wire.OutPoint{Index: 8}
+	canceledNtfn, err := n.RegisterSpend(
+		&outpoint, testRawScript, startHeight+1,
+	)
+	require.NoError(t, err)
+	canceledNtfn.Event.Cancel()
+	originalTx := createSpendTestTx(outpoint, 2)
+	replacementTx := createSpendTestTx(outpoint, 3)
+
+	// Act by discovering the original spend with no active clients, then
+	// disconnect its block and register a fresh client. Process an empty
+	// block to expose stale candidates, reorg it, and connect the actual
+	// replacement spend at the same height.
+	require.NoError(t, n.ConnectTip(btcutil.NewBlock(&wire.MsgBlock{
+		Transactions: []*wire.MsgTx{originalTx},
+	}), 11))
+	require.NoError(t, n.NotifyHeight(11))
+	require.NoError(t, n.DisconnectTip(11))
+
+	freshNtfn, err := n.RegisterSpend(
+		&outpoint, testRawScript, startHeight+1,
+	)
+	require.NoError(t, err)
+	t.Cleanup(freshNtfn.Event.Cancel)
+	require.NoError(t, n.ConnectTip(
+		btcutil.NewBlock(&wire.MsgBlock{}), 11,
+	))
+	require.NoError(t, n.NotifyHeight(11))
+	staleSpend, staleSpendOK := pollSpendTest(freshNtfn.Event.Spend)
+
+	require.NoError(t, n.DisconnectTip(11))
+	require.NoError(t, n.ConnectTip(btcutil.NewBlock(&wire.MsgBlock{
+		Transactions: []*wire.MsgTx{replacementTx},
+	}), 11))
+	require.NoError(t, n.NotifyHeight(11))
+	replacementSpend, replacementSpendOK := pollSpendTest(
+		freshNtfn.Event.Spend,
+	)
+
+	// Assert the empty block cannot deliver the disconnected transaction.
+	// The registration must stay live for only the canonical replacement,
+	// proving request-level reorg tracking survives client turnover.
+	require.False(t, staleSpendOK)
+	require.Nil(t, staleSpend)
+	require.True(t, replacementSpendOK)
+	require.NotNil(t, replacementSpend)
+	require.Equal(
+		t, replacementTx.TxHash(), *replacementSpend.SpenderTxHash,
+	)
+}
+
+// TestTxNotifierSpendDepthValidation verifies invalid depth requests fail
+// before a spend registration is created.
+func TestTxNotifierSpendDepthValidation(t *testing.T) {
+	t.Parallel()
+
+	// Arrange one standard notifier for global boundary checks and one with
+	// a smaller retained reorg window for its stricter backend boundary.
+	hintCache := newMockHintCache()
+	standard := chainntnfs.NewTxNotifier(
+		10, chainntnfs.ReorgSafetyLimit, hintCache, hintCache,
+	)
+	narrow := chainntnfs.NewTxNotifier(10, 2, hintCache, hintCache)
+	outpoint := wire.OutPoint{Index: 5}
+
+	// Act by requesting zero confirmations, more than the global maximum,
+	// and a globally valid depth that exceeds the narrow notifier's reorg
+	// window. Capture registrations to verify failure is mutation-free.
+	zeroReg, zeroErr := standard.RegisterSpend(
+		&outpoint, testRawScript, 1,
+		chainntnfs.WithSpendNumConfs(0),
+	)
+	globalReg, globalErr := standard.RegisterSpend(
+		&outpoint, testRawScript, 1,
+		chainntnfs.WithSpendNumConfs(chainntnfs.MaxNumConfs+1),
+	)
+	narrowReg, narrowErr := narrow.RegisterSpend(
+		&outpoint, testRawScript, 1,
+		chainntnfs.WithSpendNumConfs(3),
+	)
+
+	// Assert both validation layers return the shared public sentinel and
+	// none exposes a partially registered client to the caller.
+	require.ErrorIs(t, zeroErr, chainntnfs.ErrNumConfsOutOfRange)
+	require.Nil(t, zeroReg)
+	require.ErrorIs(t, globalErr, chainntnfs.ErrNumConfsOutOfRange)
+	require.Nil(t, globalReg)
+	require.ErrorIs(t, narrowErr, chainntnfs.ErrNumConfsOutOfRange)
+	require.Nil(t, narrowReg)
+}
+
 // TestTxNotifierRegistrationValidation ensures that we are not able to register
 // requests with invalid parameters.
 func TestTxNotifierRegistrationValidation(t *testing.T) {

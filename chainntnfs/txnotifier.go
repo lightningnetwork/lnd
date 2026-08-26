@@ -432,6 +432,10 @@ type SpendNtfn struct {
 	// an entry for it.
 	HeightHint uint32
 
+	// NumConfirmations is the depth at which the spend becomes safe to
+	// deliver.
+	NumConfirmations uint32
+
 	// dispatched signals whether a spend notification has been dispatched
 	// to the client.
 	dispatched bool
@@ -1019,7 +1023,8 @@ func (n *TxNotifier) dispatchConfDetails(
 // newSpendNtfn validates all of the parameters required to successfully create
 // and register a spend notification.
 func (n *TxNotifier) newSpendNtfn(outpoint *wire.OutPoint,
-	pkScript []byte, heightHint uint32) (*SpendNtfn, error) {
+	pkScript []byte, heightHint uint32,
+	opts *SpendOptions) (*SpendNtfn, error) {
 
 	// An accompanying output script must always be provided.
 	if len(pkScript) == 0 {
@@ -1032,6 +1037,13 @@ func (n *TxNotifier) newSpendNtfn(outpoint *wire.OutPoint,
 		return nil, ErrNoHeightHint
 	}
 
+	// Keep the requested maturity inside this notifier's retained reorg
+	// history so the candidate cannot be pruned before delivery. Production
+	// notifiers retain ReorgSafetyLimit, currently 144 blocks.
+	if opts.NumConfs > n.reorgSafetyLimit {
+		return nil, ErrNumConfsOutOfRange
+	}
+
 	// Ensure the output script is of a supported type.
 	spendRequest, err := NewSpendRequest(outpoint, pkScript)
 	if err != nil {
@@ -1040,8 +1052,9 @@ func (n *TxNotifier) newSpendNtfn(outpoint *wire.OutPoint,
 
 	spendID := atomic.AddUint64(&n.spendClientCounter, 1)
 	return &SpendNtfn{
-		SpendID:      spendID,
-		SpendRequest: spendRequest,
+		SpendID:          spendID,
+		SpendRequest:     spendRequest,
+		NumConfirmations: opts.NumConfs,
 		Event: NewSpendEvent(func() {
 			n.CancelSpend(spendRequest, spendID)
 		}),
@@ -1057,8 +1070,9 @@ func (n *TxNotifier) newSpendNtfn(outpoint *wire.OutPoint,
 // before the notifier's current tip, the spend details must be provided with
 // the UpdateSpendDetails method, otherwise we will wait for the outpoint/output
 // script to be spent at tip, even though it already has.
-func (n *TxNotifier) RegisterSpend(outpoint *wire.OutPoint, pkScript []byte,
-	heightHint uint32) (*SpendRegistration, error) {
+func (n *TxNotifier) RegisterSpend(
+	outpoint *wire.OutPoint, pkScript []byte, heightHint uint32,
+	optFuncs ...SpendOption) (*SpendRegistration, error) {
 
 	select {
 	case <-n.quit:
@@ -1066,8 +1080,15 @@ func (n *TxNotifier) RegisterSpend(outpoint *wire.OutPoint, pkScript []byte,
 	default:
 	}
 
-	// We'll start by performing a series of validation checks.
-	ntfn, err := n.newSpendNtfn(outpoint, pkScript, heightHint)
+	// Parse the globally valid policy before creating any client state.
+	opts, err := ParseSpendOptions(optFuncs...)
+	if err != nil {
+		return nil, err
+	}
+
+	// Apply request and notifier-specific validation before touching caches
+	// or registration maps.
+	ntfn, err := n.newSpendNtfn(outpoint, pkScript, heightHint, opts)
 	if err != nil {
 		return nil, err
 	}

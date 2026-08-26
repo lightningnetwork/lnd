@@ -794,8 +794,7 @@ message Transaction {
 
 message GetTransactionsRequest {
     /*
-    The height from which to list transactions, inclusive. If this value is
-    greater than end_height, transactions will be read in reverse.
+    The height from which to list transactions, inclusive.
     */
     int32 start_height = 1;
 
@@ -822,6 +821,14 @@ message GetTransactionsRequest {
     This value should be set to 0 to return all transactions.
     */
     uint32 max_transactions = 5;
+
+    /*
+    If set, transactions are returned from oldest to newest (ascending block
+    height) instead of the default newest to oldest. The ordering of
+    start_height and end_height does not affect the order of the returned
+    transactions; use this field to control it.
+    */
+    bool reverse = 6;
 }
 
 message TransactionDetails {

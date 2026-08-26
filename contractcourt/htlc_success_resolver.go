@@ -940,12 +940,13 @@ func (h *htlcSuccessResolver) resolveLegacySuccessTx() error {
 
 	h.log.Infof("incubating incoming htlc output")
 
-	// Send the output to the incubator.
+	// Send the output and terminal policy to the incubator so its persisted
+	// claim survives the same shallow reorgs.
 	err = h.IncubateOutputs(
 		h.ChanPoint, fn.None[lnwallet.OutgoingHtlcResolution](),
 		fn.Some(h.htlcResolution),
 		h.broadcastHeight, fn.Some(int32(h.htlc.RefundTimeout)),
-		WithChanType(h.chanType),
+		WithChanType(h.chanType), WithSpendConfDepth(h.SpendConfDepth),
 	)
 	if err != nil {
 		return err

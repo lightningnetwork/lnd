@@ -178,9 +178,10 @@ type NurseryConfig struct {
 	// height, which drives the incubation of the nursery's outputs.
 	ChainIO lnwallet.BlockChainIO
 
-	// ConfDepth is the number of blocks the nursery store waits before
-	// determining outputs in the chain as confirmed.
-	ConfDepth uint32
+	// ChannelCloseConfs is an optional integration override for the
+	// capacity-derived depth that makes Nursery state transitions durable
+	// against shallow reorgs.
+	ChannelCloseConfs fn.Option[uint32]
 
 	// FetchClosedChannels provides access to a user's channels, such that
 	// they can be marked fully closed after incubation has concluded.
@@ -242,6 +243,36 @@ func NewUtxoNursery(cfg *NurseryConfig) *UtxoNursery {
 	}
 }
 
+// outputSpendConfDepth returns the channel policy for a Nursery output. Live
+// handoffs retain the resolver's validated value, while persisted outputs use
+// their origin channel to reconstruct the same value after restart without a
+// Nursery database migration.
+func (u *UtxoNursery) outputSpendConfDepth(kid *kidOutput) (uint32, error) {
+	if kid.spendConfDepth != 0 {
+		// Revalidate the live handoff at the consumer boundary so a
+		// direct Nursery caller cannot install an unsupported notifier
+		// depth.
+		return resolveSpendConfDepth(
+			0, fn.Some(kid.spendConfDepth),
+		)
+	}
+
+	chanPoint := kid.OriginChanPoint()
+	closeSummary, err := u.cfg.FetchClosedChannel(chanPoint)
+	if err != nil {
+		return 0, fmt.Errorf(
+			"cannot derive spend depth for channel %v: %w",
+			chanPoint, err,
+		)
+	}
+
+	// The origin channel point is already persisted with every output, so
+	// its durable close summary restores the capacity-scaled policy.
+	return resolveSpendConfDepth(
+		closeSummary.Capacity, u.cfg.ChannelCloseConfs,
+	)
+}
+
 // patchZeroHeightHint handles the edge case where a crib output has expiry=0
 // due to a historical bug. This should never happen in normal operation, but
 // we provide a fallback mechanism using the channel close height to determine
@@ -272,6 +303,10 @@ func (u *UtxoNursery) patchZeroHeightHint(baby *babyOutput,
 	}
 
 	heightHint := closeSummary.CloseHeight
+	spendConfDepth, err := u.outputSpendConfDepth(&baby.kidOutput)
+	if err != nil {
+		return 0, err
+	}
 
 	// If the close height is 0, we try to use the short channel ID block
 	// height as a fallback.
@@ -289,20 +324,20 @@ func (u *UtxoNursery) patchZeroHeightHint(baby *babyOutput,
 	// conf depth since channels should have a minimum close height of the
 	// segwit activation height and the conf depth which is a config
 	// parameter should be in the single digit range.
-	if heightHint <= u.cfg.ConfDepth {
+	if heightHint <= spendConfDepth {
 		return 0, fmt.Errorf("cannot use fallback height hint: "+
 			"fallback height hint %v <= confirmation depth %v",
-			heightHint, u.cfg.ConfDepth)
+			heightHint, spendConfDepth)
 	}
 
 	// Use the close height minus the confirmation depth as a conservative
 	// height hint. This ensures we don't miss the confirmation even if it
 	// happened around the close height.
-	heightHint -= u.cfg.ConfDepth
+	heightHint -= spendConfDepth
 
 	utxnLog.Infof("Using fallback height hint %v for crib output "+
 		"%v (channel closed at height %v, conf depth %v)", heightHint,
-		baby.OutPoint(), closeSummary.CloseHeight, u.cfg.ConfDepth)
+		baby.OutPoint(), closeSummary.CloseHeight, spendConfDepth)
 
 	return heightHint, nil
 }
@@ -404,6 +439,10 @@ type IncubateConfig struct {
 	// chanType is the channel type, used to determine which witness type
 	// to select for taproot channels.
 	chanType fn.Option[channeldb.ChannelType]
+
+	// spendConfDepth carries validated policy into early registrations. The
+	// persisted close summary restores it later.
+	spendConfDepth uint32
 }
 
 // IncubateOption is a functional option that can be used to modify the behavior
@@ -416,6 +455,15 @@ type IncubateOption func(*IncubateConfig)
 func WithChanType(ct channeldb.ChannelType) IncubateOption {
 	return func(cfg *IncubateConfig) {
 		cfg.chanType = fn.Some(ct)
+	}
+}
+
+// WithSpendConfDepth returns an IncubateOption that carries the channel's
+// validated spend depth into the Nursery's live confirmation registrations.
+// Persisted outputs reconstruct the same policy from their close summary.
+func WithSpendConfDepth(spendConfDepth uint32) IncubateOption {
+	return func(cfg *IncubateConfig) {
+		cfg.spendConfDepth = spendConfDepth
 	}
 }
 
@@ -491,6 +539,10 @@ func (u *UtxoNursery) IncubateOutputs(chanPoint wire.OutPoint,
 			&htlcRes.ClaimOutpoint, &chanPoint, htlcRes.CsvDelay,
 			witType, &htlcRes.SweepSignDesc, 0, deadlineHeight,
 		)
+		// Keep the live handoff available for the immediate promotion
+		// registration; a later store read reconstructs it from the
+		// channel.
+		htlcOutput.spendConfDepth = cfg.spendConfDepth
 
 		if htlcOutput.Amount() > 0 {
 			kidOutputs = append(kidOutputs, htlcOutput)
@@ -510,6 +562,9 @@ func (u *UtxoNursery) IncubateOutputs(chanPoint wire.OutPoint,
 				&chanPoint, &htlcRes, deadlineHeight,
 				isFinalTaproot,
 			)
+			// Crib registration precedes restart reconstruction, so
+			// retain the validated policy now.
+			htlcOutput.spendConfDepth = cfg.spendConfDepth
 
 			if htlcOutput.Amount() > 0 {
 				babyOutputs = append(babyOutputs, htlcOutput)
@@ -544,6 +599,10 @@ func (u *UtxoNursery) IncubateOutputs(chanPoint wire.OutPoint,
 			witType, &htlcRes.SweepSignDesc, htlcRes.Expiry,
 			deadlineHeight,
 		)
+		// Preserve the live policy for the first confirmation
+		// registration; persisted Kindergarten work will derive it from
+		// originChanPoint.
+		htlcOutput.spendConfDepth = cfg.spendConfDepth
 		kidOutputs = append(kidOutputs, htlcOutput)
 	})
 
@@ -788,10 +847,25 @@ func (u *UtxoNursery) reloadPreschool() error {
 			return err
 		}
 
-		// Use the close height from the channel summary as our height
-		// hint to drive our spend notifications, with our confirmation
-		// depth as a buffer for reorgs.
-		heightHint := closeSummary.CloseHeight - u.cfg.ConfDepth
+		spendConfDepth, err := resolveSpendConfDepth(
+			closeSummary.Capacity, u.cfg.ChannelCloseConfs,
+		)
+		if err != nil {
+			return err
+		}
+
+		// Restore the non-serialized policy before registration so the
+		// promotion and later sweep share one post-restart depth.
+		kid.spendConfDepth = spendConfDepth
+
+		// Use the close height as the notification hint, buffered by
+		// confirmation depth. A corrupt or synthetic low close height
+		// must clamp to the earliest valid notifier height instead of
+		// underflowing past the actual confirmation on restart.
+		heightHint := uint32(1)
+		if closeSummary.CloseHeight > spendConfDepth {
+			heightHint = closeSummary.CloseHeight - spendConfDepth
+		}
 		err = u.registerPreschoolConf(kid, heightHint)
 		if err != nil {
 			return err
@@ -982,8 +1056,13 @@ func (u *UtxoNursery) sweepMatureOutputs(classHeight uint32,
 
 		// Calculate the deadline height and budget for this output.
 		deadline, budget := u.decideDeadlineAndBudget(local)
+		spendConfDepth, err := u.outputSpendConfDepth(&local)
+		if err != nil {
+			return err
+		}
 
 		resultChan, err := u.cfg.SweepInput(&local, sweep.Params{
+			RequiredConfs:  spendConfDepth,
 			DeadlineHeight: deadline,
 			Budget:         budget,
 		})
@@ -1106,10 +1185,15 @@ func (u *UtxoNursery) registerTimeoutConf(baby *babyOutput,
 	heightHint uint32) error {
 
 	birthTxID := baby.timeoutTx.TxHash()
+	spendConfDepth, err := u.outputSpendConfDepth(&baby.kidOutput)
+	if err != nil {
+		return err
+	}
 
-	// Register for the confirmation of presigned htlc txn.
+	// Delay promotion until the parent reaches the final sweep policy. This
+	// preserves the Crib record through shallow reorgs.
 	confChan, err := u.cfg.Notifier.RegisterConfirmationsNtfn(
-		&birthTxID, baby.timeoutTx.TxOut[0].PkScript, u.cfg.ConfDepth,
+		&birthTxID, baby.timeoutTx.TxOut[0].PkScript, spendConfDepth,
 		heightHint,
 	)
 	if err != nil {
@@ -1176,9 +1260,17 @@ func (u *UtxoNursery) registerPreschoolConf(kid *kidOutput, heightHint uint32) e
 	// de-duplicate
 	//  * need to do above?
 
+	spendConfDepth, err := u.outputSpendConfDepth(kid)
+	if err != nil {
+		return err
+	}
+
 	pkScript := kid.signDesc.Output.PkScript
+	// Withhold the persistent Preschool-to-Kindergarten transition until
+	// the parent is deep enough that a shallow reorg cannot orphan the
+	// claim.
 	confChan, err := u.cfg.Notifier.RegisterConfirmationsNtfn(
-		&txID, pkScript, u.cfg.ConfDepth, heightHint,
+		&txID, pkScript, spendConfDepth, heightHint,
 	)
 	if err != nil {
 		return err
@@ -1504,6 +1596,11 @@ type kidOutput struct {
 	breachedOutput
 
 	originChanPoint wire.OutPoint
+
+	// spendConfDepth is intentionally reconstructed instead of serialized.
+	// Live resolver handoffs avoid a database lookup, while restart derives
+	// the identical policy from originChanPoint and the close summary.
+	spendConfDepth uint32
 
 	// isHtlc denotes if this kid output is an HTLC output or not. This
 	// value will be used to determine how to report this output within the

@@ -1412,7 +1412,7 @@ func TestPatchZeroHeightHint(t *testing.T) {
 			}
 
 			cfg := &NurseryConfig{
-				ConfDepth: tc.confDepth,
+				ChannelCloseConfs: fn.Some(tc.confDepth),
 				FetchClosedChannel: func(
 					chanID *wire.OutPoint) (
 					*channeldb.ChannelCloseSummary,

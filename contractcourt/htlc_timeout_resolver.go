@@ -529,18 +529,26 @@ func (h *htlcTimeoutResolver) sweepTimeoutTx() error {
 // resolveSecondLevelTxLegacy sends a second level timeout transaction to the
 // utxo nursery. This transaction uses the legacy SIGHASH_ALL flag.
 func (h *htlcTimeoutResolver) resolveSecondLevelTxLegacy() error {
-	h.log.Debug("incubating htlc output")
+	// A stage-one checkpoint proves Nursery already accepted this logical
+	// output. Replaying incubation after its store entry graduated can
+	// recreate a stale crib, so only the pre-checkpoint path may hand it
+	// off.
+	if !h.outputIncubating {
+		h.log.Debug("incubating htlc output")
 
-	// The utxo nursery will take care of broadcasting the second-level
-	// timeout tx and sweeping its output once it confirms.
-	err := h.IncubateOutputs(
-		h.ChanPoint, fn.Some(h.htlcResolution),
-		fn.None[lnwallet.IncomingHtlcResolution](),
-		h.broadcastHeight, h.incomingHTLCExpiryHeight,
-		WithChanType(h.chanType),
-	)
-	if err != nil {
-		return err
+		// Nursery broadcasts the second-level timeout transaction and
+		// sweeps its output. Carry terminal policy so neither persisted
+		// transition discards the claim after one confirmation.
+		err := h.IncubateOutputs(
+			h.ChanPoint, fn.Some(h.htlcResolution),
+			fn.None[lnwallet.IncomingHtlcResolution](),
+			h.broadcastHeight, h.incomingHTLCExpiryHeight,
+			WithChanType(h.chanType),
+			WithSpendConfDepth(h.SpendConfDepth),
+		)
+		if err != nil {
+			return err
+		}
 	}
 
 	return h.resolveTimeoutTx()

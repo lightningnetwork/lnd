@@ -1406,6 +1406,7 @@ func (n *TxNotifier) updateSpendDetails(spendRequest SpendRequest,
 		"request %v", details.SpendingHeight, spendRequest)
 
 	spendSet.details = details
+	n.trackSpendByHeight(spendRequest, details)
 	for _, ntfn := range spendSet.ntfns {
 		err := n.scheduleSpendNtfn(ntfn, spendSet.details, false)
 		if err != nil {
@@ -1414,6 +1415,31 @@ func (n *TxNotifier) updateSpendDetails(spendRequest SpendRequest,
 	}
 
 	return nil
+}
+
+// trackSpendByHeight indexes shared candidate ownership independently of the
+// current client count, ensuring cancellation cannot hide cached details from
+// the disconnect path that must clear them after a reorg.
+//
+// NOTE: This must be called with the TxNotifier's lock held.
+func (n *TxNotifier) trackSpendByHeight(spendRequest SpendRequest,
+	details *SpendDetail) {
+
+	// Candidates beyond the notifier's reorg window no longer need reverse
+	// indexing because a supported DisconnectTip cannot reach their block.
+	spendHeight := uint32(details.SpendingHeight)
+	if spendHeight+n.reorgSafetyLimit <= n.currentHeight {
+		return
+	}
+
+	spendSet, ok := n.spendsByHeight[spendHeight]
+	if !ok {
+		// Allocate one bucket per inclusion height so every cached
+		// request is invalidated when the block disconnects.
+		spendSet = make(map[SpendRequest]struct{})
+		n.spendsByHeight[spendHeight] = spendSet
+	}
+	spendSet[spendRequest] = struct{}{}
 }
 
 // scheduleSpendNtfn records a canonical spend candidate for one client and
@@ -1503,19 +1529,6 @@ func (n *TxNotifier) dispatchSpendDetails(ntfn *SpendNtfn, details *SpendDetail)
 		ntfn.dispatched = true
 	case <-n.quit:
 		return ErrTxNotifierExiting
-	}
-
-	spendHeight := uint32(details.SpendingHeight)
-
-	// We also add to spendsByHeight to notify on chain reorgs.
-	reorgSafeHeight := spendHeight + n.reorgSafetyLimit
-	if reorgSafeHeight > n.currentHeight {
-		txSet, exists := n.spendsByHeight[spendHeight]
-		if !exists {
-			txSet = make(map[SpendRequest]struct{})
-			n.spendsByHeight[spendHeight] = txSet
-		}
-		txSet[ntfn.SpendRequest] = struct{}{}
 	}
 
 	return nil
@@ -1817,6 +1830,7 @@ func (n *TxNotifier) handleSpendDetailsAtTip(spendRequest SpendRequest,
 	spendSet := n.spendNotifications[spendRequest]
 	spendSet.rescanStatus = rescanComplete
 	spendSet.details = details
+	n.trackSpendByHeight(spendRequest, details)
 
 	for _, ntfn := range spendSet.ntfns {
 		// In the event that this notification was aware that the
@@ -1836,19 +1850,8 @@ func (n *TxNotifier) handleSpendDetailsAtTip(spendRequest SpendRequest,
 		}
 	}
 
-	// We'll note the spending height of the request in order to correctly
-	// handle dispatching notifications when the spending transactions gets
-	// reorged out of the chain.
-	spendHeight := uint32(details.SpendingHeight)
-	opSet, exists := n.spendsByHeight[spendHeight]
-	if !exists {
-		opSet = make(map[SpendRequest]struct{})
-		n.spendsByHeight[spendHeight] = opSet
-	}
-	opSet[spendRequest] = struct{}{}
-
 	Log.Debugf("Spend request %v spent at tip=%d", spendRequest,
-		spendHeight)
+		details.SpendingHeight)
 }
 
 // NotifyHeight dispatches confirmation and spend notifications to the clients

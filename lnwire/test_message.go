@@ -520,7 +520,8 @@ func (a *ChannelUpdate1) RandTestMessage(t *rapid.T) Message {
 		),
 		HtlcMaximumMsat: maxHtlc,
 		InboundFee:      inboundFee,
-		ExtraOpaqueData: extraBytes,
+		// Match Decode's empty shape for stable round-trip equality.
+		ExtraOpaqueData: append(ExtraOpaqueData{}, extraBytes...),
 	}
 }
 

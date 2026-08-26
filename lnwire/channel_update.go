@@ -177,11 +177,48 @@ func (a *ChannelUpdate1) Decode(r io.Reader, _ uint32) error {
 		a.InboundFee = tlv.SomeRecordT(inboundFee)
 	}
 
-	if len(tlvRecords) != 0 {
-		a.ExtraOpaqueData = tlvRecords
-	}
+	// Retain the complete stream, including its canonical empty-slice form,
+	// because legacy rows may store the inbound fee in both the opaque and
+	// typed fields.
+	a.ExtraOpaqueData = tlvRecords
 
 	return nil
+}
+
+// canonicalExtraData returns the encoded TLV stream without changing the
+// receiver. Decode deliberately retains the complete stream for compatibility
+// with persisted updates, so this method removes a retained inbound-fee record
+// before merging the typed field back into a fresh stream. The typed field wins
+// duplicate representations, while opaque-only bytes are cloned verbatim for
+// legacy compatibility.
+func (a *ChannelUpdate1) canonicalExtraData() ([]byte, error) {
+	// Only parse when replacing a retained fee. Cloning otherwise preserves
+	// arbitrary legacy extensions without sharing the receiver's storage.
+	if !a.InboundFee.IsSome() {
+		return bytes.Clone(a.ExtraOpaqueData), nil
+	}
+
+	inboundFee := a.InboundFee.Zero()
+	_, extraData, err := ParseAndExtractExtraData(
+		a.ExtraOpaqueData, &inboundFee,
+	)
+	if err != nil {
+		return nil, fmt.Errorf("parse update extra data: %w", err)
+	}
+
+	recordProducers := make([]tlv.RecordProducer, 0, 1)
+	a.InboundFee.WhenSome(func(
+		fee tlv.RecordT[tlv.TlvType55555, Fee]) {
+
+		recordProducers = append(recordProducers, &fee)
+	})
+
+	encoded, err := MergeAndEncode(recordProducers, extraData, nil)
+	if err != nil {
+		return nil, fmt.Errorf("encode update extra data: %w", err)
+	}
+
+	return encoded, nil
 }
 
 // Encode serializes the target ChannelUpdate into the passed io.Writer
@@ -238,18 +275,13 @@ func (a *ChannelUpdate1) Encode(w *bytes.Buffer, pver uint32) error {
 		}
 	}
 
-	recordProducers := make([]tlv.RecordProducer, 0, 1)
-	a.InboundFee.WhenSome(func(fee tlv.RecordT[tlv.TlvType55555, Fee]) {
-		recordProducers = append(recordProducers, &fee)
-	})
-
-	err := EncodeMessageExtraData(&a.ExtraOpaqueData, recordProducers...)
+	extraData, err := a.canonicalExtraData()
 	if err != nil {
 		return err
 	}
 
 	// Finally, append any extra opaque data.
-	return WriteBytes(w, a.ExtraOpaqueData)
+	return WriteBytes(w, extraData)
 }
 
 // MsgType returns the integer uniquely identifying this message type on the
@@ -311,8 +343,15 @@ func (a *ChannelUpdate1) DataToSign() ([]byte, error) {
 		}
 	}
 
+	// Use Encode's canonical form so signatures cover the emitted bytes
+	// without modifying the caller's update.
+	extraData, err := a.canonicalExtraData()
+	if err != nil {
+		return nil, err
+	}
+
 	// Finally, append any extra opaque data.
-	if err := WriteBytes(buf, a.ExtraOpaqueData); err != nil {
+	if err := WriteBytes(buf, extraData); err != nil {
 		return nil, err
 	}
 

@@ -406,6 +406,129 @@ func testSpendNotificationDepth(
 	require.Equal(t, spendHeight, atThree.SpendingHeight)
 }
 
+// testHistoricalSpendNotificationDepth proves each backend applies explicit
+// maturity to a spend found by its historical dispatch path.
+func testHistoricalSpendNotificationDepth(
+	miner *rpctest.Harness, notifier chainntnfs.TestChainNotifier,
+	scriptDispatch bool, t *testing.T) {
+
+	// Arrange a spend and an epoch client before mining so the depth-aware
+	// registration can begin only after the transaction is historical.
+	const numConfs = uint32(3)
+	outpoint, output, privKey := chainntnfs.CreateSpendableOutput(t, miner)
+	tipHash, heightHint, err := miner.Client.GetBestBlock()
+	require.NoError(t, err, "unable to get current height")
+	spendingTx := chainntnfs.CreateSpendTx(t, outpoint, output, privKey)
+	spenderHash, err := miner.Client.SendRawTransaction(spendingTx, true)
+	require.NoError(t, err, "unable to broadcast spend")
+	require.NoError(
+		t, chainntnfs.WaitForMempoolTx(miner, spenderHash),
+		"spend was not relayed to miner",
+	)
+	epochClient, err := notifier.RegisterBlockEpochNtfn(nil)
+	require.NoError(t, err, "unable to register for block epochs")
+	t.Cleanup(epochClient.Cancel)
+	// Drain the registration-time tip event so the Act phase synchronizes
+	// exclusively with blocks mined after the historical setup completes.
+	waitForNotifierEpoch(t, epochClient, tipHash)
+
+	// Act by mining the spend first, registering from the earlier hint, and
+	// advancing through its remaining depth. An extra block before the
+	// second registration exercises cached delivery strictly after, rather
+	// than exactly at, the maturity boundary.
+	blockHashes, err := miner.Client.Generate(1)
+	require.NoError(t, err, "unable to mine historical spend")
+	waitForNotifierEpoch(t, epochClient, blockHashes[0])
+	_, spendHeight, err := miner.Client.GetBestBlock()
+	require.NoError(t, err, "unable to get historical spend height")
+	var spendClient *chainntnfs.SpendEvent
+	if scriptDispatch {
+		// Register the historical script-only path here so this test
+		// visibly applies the option to the subject API.
+		spendClient, err = notifier.RegisterSpendNtfn(
+			nil, output.PkScript, uint32(heightHint),
+			chainntnfs.WithSpendNumConfs(numConfs),
+		)
+	} else {
+		// Register the historical outpoint path with the same option
+		// so every backend dispatch mode is exercised directly.
+		spendClient, err = notifier.RegisterSpendNtfn(
+			outpoint, output.PkScript, uint32(heightHint),
+			chainntnfs.WithSpendNumConfs(numConfs),
+		)
+	}
+	require.NoError(t, err, "unable to register historical spend")
+	t.Cleanup(spendClient.Cancel)
+
+	blockHashes, err = miner.Client.Generate(1)
+	require.NoError(t, err, "unable to mine pre-maturity block")
+	waitForNotifierEpoch(t, epochClient, blockHashes[0])
+	beforeMaturity, beforeMaturityOK := pollSpendNotification(
+		spendClient.Spend,
+	)
+
+	blockHashes, err = miner.Client.Generate(1)
+	require.NoError(t, err, "unable to mine historical maturity")
+	waitForNotifierEpoch(t, epochClient, blockHashes[0])
+	var matureSpend *chainntnfs.SpendDetail
+	select {
+	case matureSpend = <-spendClient.Spend:
+		// Retain asynchronous delivery so semantic checks remain in the
+		// dedicated Assert phase below.
+
+	case <-time.After(30 * time.Second):
+		t.Fatalf("historical spend did not mature")
+	}
+
+	blockHashes, err = miner.Client.Generate(1)
+	require.NoError(t, err, "unable to mine past historical maturity")
+	waitForNotifierEpoch(t, epochClient, blockHashes[0])
+
+	var cachedClient *chainntnfs.SpendEvent
+	if scriptDispatch {
+		// Repeat the script-only subject call after maturity to prove
+		// cached delivery retains the explicit depth contract.
+		cachedClient, err = notifier.RegisterSpendNtfn(
+			nil, output.PkScript, uint32(heightHint),
+			chainntnfs.WithSpendNumConfs(numConfs),
+		)
+	} else {
+		// Repeat the outpoint subject call after maturity so cached
+		// delivery is covered without hiding the registration option.
+		cachedClient, err = notifier.RegisterSpendNtfn(
+			outpoint, output.PkScript, uint32(heightHint),
+			chainntnfs.WithSpendNumConfs(numConfs),
+		)
+	}
+	require.NoError(t, err, "unable to register cached mature spend")
+	t.Cleanup(cachedClient.Cancel)
+	var cachedSpend *chainntnfs.SpendDetail
+	select {
+	case cachedSpend = <-cachedClient.Spend:
+		// Historical dispatch is asynchronous, so retain its result
+		// after bounded delivery for comparison in the Assert phase.
+
+	case <-time.After(30 * time.Second):
+		t.Fatalf("cached historical spend was not delivered")
+	}
+
+	// Assert the historical candidate remains hidden at depth two, then is
+	// delivered to both the pending client and a post-maturity
+	// registration.
+	require.False(t, beforeMaturityOK)
+	require.Nil(t, beforeMaturity)
+	require.NotNil(t, matureSpend)
+	require.Equal(t, *outpoint, *matureSpend.SpentOutPoint)
+	require.Equal(t, *spenderHash, *matureSpend.SpenderTxHash)
+	require.Zero(t, matureSpend.SpenderInputIndex)
+	require.Equal(t, spendHeight, matureSpend.SpendingHeight)
+	require.NotNil(t, cachedSpend)
+	require.Equal(t, *outpoint, *cachedSpend.SpentOutPoint)
+	require.Equal(t, *spenderHash, *cachedSpend.SpenderTxHash)
+	require.Zero(t, cachedSpend.SpenderInputIndex)
+	require.Equal(t, spendHeight, cachedSpend.SpendingHeight)
+}
+
 func testSpendNotification(miner *rpctest.Harness,
 	notifier chainntnfs.TestChainNotifier, scriptDispatch bool, t *testing.T) {
 
@@ -1975,6 +2098,10 @@ var txNtfnTests = []txNtfnTestCase{
 	{
 		name: "historical spend dispatch",
 		test: testSpendBeforeNtfnRegistration,
+	},
+	{
+		name: "historical spend depth dispatch",
+		test: testHistoricalSpendNotificationDepth,
 	},
 	{
 		name: "reorg spend",

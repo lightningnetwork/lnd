@@ -415,16 +415,28 @@ func (b *BreachArbitrator) contractObserver() {
 // spend is used to wrap the index of the retributionInfo output that gets
 // spent together with the spend details.
 type spend struct {
-	index  int
-	detail *chainntnfs.SpendDetail
+	index       int
+	outpoint    wire.OutPoint
+	detail      *chainntnfs.SpendDetail
+	provisional bool
+	reorg       bool
+}
+
+// breachSpendSubscription keeps an optional shallow observer beside the
+// terminal cleanup observer so both events retain one recovery owner.
+type breachSpendSubscription struct {
+	early    *chainntnfs.SpendEvent
+	terminal *chainntnfs.SpendEvent
 }
 
 // waitForSpendEvent waits for any of the breached outputs to get spent, and
 // returns the spend details for those outputs. The spendNtfns map is a cache
 // used to store registered spend subscriptions, in case we must call this
 // method multiple times.
-func (b *BreachArbitrator) waitForSpendEvent(breachInfo *retributionInfo,
-	spendNtfns map[wire.OutPoint]*chainntnfs.SpendEvent) ([]spend, error) {
+func (b *BreachArbitrator) waitForSpendEvent(
+	breachInfo *retributionInfo,
+	spendNtfns map[wire.OutPoint]*breachSpendSubscription) ([]spend,
+	error) {
 
 	inputs := breachInfo.breachedOutputs
 
@@ -454,8 +466,7 @@ func (b *BreachArbitrator) waitForSpendEvent(breachInfo *retributionInfo,
 		// output, we'll reuse it.
 		spendNtfn, ok := spendNtfns[breachedOutput.outpoint]
 		if !ok {
-			var err error
-			spendNtfn, err = b.cfg.Notifier.RegisterSpendNtfn(
+			terminal, err := b.cfg.Notifier.RegisterSpendNtfn(
 				&breachedOutput.outpoint,
 				breachedOutput.signDesc.Output.PkScript,
 				breachInfo.breachHeight,
@@ -463,6 +474,7 @@ func (b *BreachArbitrator) waitForSpendEvent(breachInfo *retributionInfo,
 					breachSpendConfDepth(),
 				),
 			)
+			spendNtfn = &breachSpendSubscription{terminal: terminal}
 			if err != nil {
 				brarLog.Errorf("Unable to check for spentness "+
 					"of outpoint=%v: %v",
@@ -484,32 +496,74 @@ func (b *BreachArbitrator) waitForSpendEvent(breachInfo *retributionInfo,
 		// Launch a goroutine waiting for a spend event.
 		b.wg.Add(1)
 		wg.Add(1)
-		go func(index int, spendEv *chainntnfs.SpendEvent) {
+		go func(index int, spendEv *breachSpendSubscription) {
 			defer b.wg.Done()
 			defer wg.Done()
 
+			var (
+				earlySpends <-chan *chainntnfs.SpendDetail
+				earlyReorg  <-chan struct{}
+			)
+			if spendEv.early != nil {
+				earlySpends = spendEv.early.Spend
+				earlyReorg = spendEv.early.Reorg
+			}
+
+			var (
+				sp          *chainntnfs.SpendDetail
+				provisional bool
+				reorg       bool
+			)
 			select {
-			// The output has been taken to the second level!
-			case sp, ok := <-spendEv.Spend:
+			case sp = <-earlySpends:
+				provisional = true
+			case _, ok := <-earlyReorg:
+				// Send reorgs to the provisional owner.
+				// This keeps reversal serialized.
 				if !ok {
 					return
 				}
-				brarLog.Infof("Detected spend on %s(%v) by "+
-					"txid(%v) for ChannelPoint(%v)",
-					inputs[index].witnessType,
-					inputs[index].outpoint,
-					sp.SpenderTxHash, breachInfo.chanPoint)
-
-				// Pass the spend to the caller only after every waiter
-				// has stopped, preventing concurrent cache mutation.
-				allSpends <- spend{index, sp}
-
-				anySpend <- struct{}{}
+				provisional = true
+				reorg = true
+			case sp = <-spendEv.terminal.Spend:
 			case <-exit:
 				return
 			case <-b.quit:
 				return
 			}
+
+			// Closed spend channels signal notifier shutdown. Reorg
+			// notifications intentionally carry no spend details.
+			if !reorg && sp == nil {
+				return
+			}
+
+			outpoint := inputs[index].outpoint
+			if reorg {
+				brarLog.Infof(
+					"Shallow spend reorg on %s(%v) for "+
+						"ChannelPoint(%v)",
+					inputs[index].witnessType, outpoint,
+					breachInfo.chanPoint,
+				)
+			} else {
+				brarLog.Infof("Detected spend on %s(%v) by "+
+					"txid(%v) for ChannelPoint(%v)",
+					inputs[index].witnessType, outpoint,
+					sp.SpenderTxHash, breachInfo.chanPoint)
+			}
+
+			// Preserve lifecycle metadata for the caller.
+			// It distinguishes reversible and terminal evidence.
+			allSpends <- spend{
+				index:       index,
+				outpoint:    outpoint,
+				detail:      sp,
+				provisional: provisional,
+				reorg:       reorg,
+			}
+
+			anySpend <- struct{}{}
 		}(i, spendNtfn)
 	}
 
@@ -530,10 +584,6 @@ func (b *BreachArbitrator) waitForSpendEvent(breachInfo *retributionInfo,
 		// Gather all detected spends and return them.
 		var spends []spend
 		for s := range allSpends {
-			breachedOutput := &inputs[s.index]
-			spendNtfns[breachedOutput.outpoint].Cancel()
-			delete(spendNtfns, breachedOutput.outpoint)
-
 			spends = append(spends, s)
 		}
 
@@ -726,7 +776,7 @@ func (b *BreachArbitrator) exactRetribution(
 	// We may have to wait for some of the HTLC outputs to be spent to the
 	// second level before broadcasting the justice tx. We'll store the
 	// SpendEvents between each attempt to not re-register unnecessarily.
-	spendNtfns := make(map[wire.OutPoint]*chainntnfs.SpendEvent)
+	spendNtfns := make(map[wire.OutPoint]*breachSpendSubscription)
 
 	// Compute both the total value of funds being swept and the
 	// amount of funds that were revoked from the counter party.
@@ -813,6 +863,21 @@ Loop:
 			t, r := updateBreachInfo(breachInfo, spends)
 			totalFunds += t
 			revokedFunds += r
+
+			// Terminal events release their subscription pair.
+			// Shallow events retain both observers.
+			for _, spend := range spends {
+				if spend.provisional {
+					continue
+				}
+
+				notify := spendNtfns[spend.outpoint]
+				notify.terminal.Cancel()
+				if notify.early != nil {
+					notify.early.Cancel()
+				}
+				delete(spendNtfns, spend.outpoint)
+			}
 
 			brarLog.Infof("%v spends from breach tx for "+
 				"ChannelPoint(%v) has been detected, %v "+

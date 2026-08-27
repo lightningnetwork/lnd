@@ -71,6 +71,13 @@
 
 ## Code Health
 
+* Selected asynchronous boundaries [now contain unexpected
+  panics](https://github.com/lightningnetwork/lnd/pull/11097) when the affected
+  execution unit can be retired safely. Peer handlers disconnect the affected
+  peer, buffer-pool tasks retire their worker state, legacy cooperative-close
+  failures tear down their negotiation, and zombie reservation sweeps retry on
+  a later tick. Recovered failures use consistent bounded stack reporting.
+
 ## Tooling and Documentation
 
 # Contributors (Alphabetical Order)

@@ -18,6 +18,7 @@ import (
 	"github.com/lightningnetwork/lnd/contractcourt"
 	"github.com/lightningnetwork/lnd/fn/v2"
 	"github.com/lightningnetwork/lnd/htlcswitch"
+	"github.com/lightningnetwork/lnd/lnpeer"
 	"github.com/lightningnetwork/lnd/lntest/wait"
 	"github.com/lightningnetwork/lnd/lnwallet"
 	"github.com/lightningnetwork/lnd/lnwallet/chancloser"
@@ -1615,6 +1616,66 @@ func TestMsgQueueRejectsOverflowWithoutRetention(t *testing.T) {
 	require.Zero(t, queue.lazyMsgs.Len())
 }
 
+// TestMsgQueueOrdersAndReleasesCapacity verifies strict priority selection,
+// FIFO ordering within each class, and exact accounting release on removal.
+func TestMsgQueueOrdersAndReleasesCapacity(t *testing.T) {
+	// Arrange: Interleave lazy and priority messages with distinct costs.
+	// The queue starts below both limits so every item is admitted and the
+	// expected removal totals can prove which element left at each step.
+	queue := newMsgQueue(queueLimits{maxMsgs: 4, maxBytes: 40})
+	lazyFirst := lnwire.NewPing(1)
+	priorityFirst := lnwire.NewPing(2)
+	lazySecond := lnwire.NewPing(3)
+	prioritySecond := lnwire.NewPing(4)
+
+	require.True(t, queue.push(outgoingMsg{
+		msg: lazyFirst, queueCost: 11,
+	}))
+	require.True(t, queue.push(outgoingMsg{
+		priority: true, msg: priorityFirst, queueCost: 7,
+	}))
+	require.True(t, queue.push(outgoingMsg{
+		msg: lazySecond, queueCost: 13,
+	}))
+	require.True(t, queue.push(outgoingMsg{
+		priority: true, msg: prioritySecond, queueCost: 5,
+	}))
+
+	// Act: Repeatedly select and remove the front item, recording both the
+	// chosen message and the shadow totals after each exact cost is
+	// released.
+	var (
+		orderedMsgs    []lnwire.Message
+		remainingMsgs  []int
+		remainingBytes []int
+	)
+	for {
+		elem, msg := queue.front()
+		if elem == nil {
+			break
+		}
+
+		orderedMsgs = append(orderedMsgs, msg.msg)
+		queue.pop(elem)
+		remainingMsgs = append(remainingMsgs, queue.numMsgs)
+		remainingBytes = append(remainingBytes, queue.numBytes)
+	}
+
+	acceptedAfterDrain := queue.push(outgoingMsg{queueCost: 40})
+
+	// Assert: Priority items lead in FIFO order, lazy items follow in FIFO
+	// order, each pop releases its own count and bytes, and the empty queue
+	// can admit an item that consumes the complete byte budget again.
+	require.Equal(t, []lnwire.Message{
+		priorityFirst, prioritySecond, lazyFirst, lazySecond,
+	}, orderedMsgs)
+	require.Equal(t, []int{3, 2, 1, 0}, remainingMsgs)
+	require.Equal(t, []int{29, 24, 13, 0}, remainingBytes)
+	require.True(t, acceptedAfterDrain)
+	require.Equal(t, 1, queue.numMsgs)
+	require.Equal(t, 40, queue.numBytes)
+}
+
 // TestPeerSendMessageQueueBounds verifies that the public sending API accepts
 // an exact queue boundary and returns a stable error for its first excess.
 func TestPeerSendMessageQueueBounds(t *testing.T) {
@@ -1852,6 +1913,134 @@ func TestPeerSendMessageBatchReturnsQueueOverflow(t *testing.T) {
 
 	// Assert: The overflow sentinel wins over the first message's missing
 	// acknowledgement and generic cancellation, then teardown completes.
+	require.ErrorIs(t, err, errQueueOverflow)
+	_, err = fn.RecvOrTimeout(peer.cg.Done(), timeout)
+	require.NoError(t, err)
+	peer.cg.WgWait()
+}
+
+// TestPeerQueueHandlerDrainsBacklog verifies that messages leaving the queue
+// decrement its shadow count for a long-lived peer.
+func TestPeerQueueHandlerDrainsBacklog(t *testing.T) {
+	t.Parallel()
+
+	// Arrange: Start the isolated handler and register cleanup that
+	// cancels and joins it so no goroutine survives this test.
+	params := createTestPeer(t)
+	peer := params.peer
+	startTestQueueHandler(peer)
+	t.Cleanup(func() {
+		peer.cg.Quit()
+		peer.cg.WgWait()
+	})
+
+	// Act: Exceed the lifetime count cap while draining each message
+	// immediately, forcing the shadow count back to zero each time.
+	for i := 0; i <= peer.queueLimits.maxMsgs; i++ {
+		peer.queueMsg(lnwire.NewPong(nil), nil)
+
+		select {
+		case <-peer.sendQueue:
+		case <-peer.cg.Done():
+			t.Fatal("healthy drained queue exceeded message bound")
+		case <-time.After(timeout):
+			t.Fatal("queued message was not drained")
+		}
+	}
+
+	// Assert: Every item drained and the peer remains live, proving
+	// only the concurrent backlog contributes to the queue bound.
+	select {
+	case <-peer.cg.Done():
+		t.Fatal("healthy drained queue disconnected")
+	default:
+	}
+}
+
+// TestPeerQueueHandlerServicesQueueDuringTeardown verifies that queue
+// producers are failed while Disconnect waits for peer startup to finish.
+func TestPeerQueueHandlerServicesQueueDuringTeardown(t *testing.T) {
+	t.Parallel()
+
+	// Arrange: Mark the peer started but hold startReady open, so
+	// overflow enters Disconnect without finishing; cleanup later
+	// releases that gate, cancels, and joins the queue goroutine.
+	params := createTestPeer(t)
+	peer := params.peer
+	atomic.StoreInt32(&peer.started, 1)
+	startTestQueueHandler(peer)
+	t.Cleanup(func() {
+		select {
+		case <-peer.startReady:
+		default:
+			close(peer.startReady)
+		}
+
+		peer.cg.Quit()
+		peer.cg.WgWait()
+	})
+
+	// Act: Cross the count cap, wait for Disconnect to block, then
+	// invoke a synchronous sender in a goroutine so the queue handler
+	// must return its result while teardown remains pending.
+	for i := 0; i <= peer.queueLimits.maxMsgs; i++ {
+		peer.queueMsg(lnwire.NewPong(nil), nil)
+	}
+
+	require.Eventually(t, func() bool {
+		return atomic.LoadInt32(&peer.disconnect) == 1
+	}, timeout, 10*time.Millisecond)
+
+	errChan := make(chan error, 1)
+	go func() {
+		errChan <- peer.SendMessage(true, lnwire.NewPing(0))
+	}()
+
+	// Assert: The sender gets ErrPeerExiting while cg remains live,
+	// proving producers are serviced until startup teardown can finish.
+	err, recvErr := fn.RecvOrTimeout(errChan, timeout)
+	require.NoError(t, recvErr)
+	require.ErrorIs(t, err, lnpeer.ErrPeerExiting)
+
+	select {
+	case <-peer.cg.Done():
+		t.Fatal("Disconnect completed before startReady was signaled")
+	default:
+	}
+}
+
+// TestPeerPriorityMessageSharesQueueBudget verifies that lazy traffic can fill
+// the shared queue budget and cause the first later priority send to tear down
+// the peer rather than bypassing or displacing an already accepted message.
+func TestPeerPriorityMessageSharesQueueBudget(t *testing.T) {
+	t.Parallel()
+
+	// Arrange: Restrict the peer to one fixed-cost message and start only
+	// queue ownership, leaving no writer to drain the lazy message. Cleanup
+	// cancels and joins the handler even if an assertion stops the test
+	// early.
+	params := createTestPeer(t)
+	peer := params.peer
+	peer.queueLimits = queueLimits{
+		maxMsgs:     1,
+		maxBytes:    queuedMsgOverhead,
+		msgOverhead: queuedMsgOverhead,
+	}
+	startTestQueueHandler(peer)
+	t.Cleanup(func() {
+		peer.cg.Quit()
+		peer.cg.WgWait()
+	})
+
+	// Act: Fill the exact shared budget through the public lazy API, then
+	// send one synchronous priority message so its rejection is observable.
+	err := peer.SendMessageLazy(false, lnwire.NewPong(nil))
+	require.NoError(t, err)
+	err = peer.SendMessage(true, lnwire.NewPing(0))
+
+	// Assert: Priority has no reserved capacity: the first excess send gets
+	// the typed overflow cause, disconnects the peer, and finishes
+	// teardown.
 	require.ErrorIs(t, err, errQueueOverflow)
 	_, err = fn.RecvOrTimeout(peer.cg.Done(), timeout)
 	require.NoError(t, err)

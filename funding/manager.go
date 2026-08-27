@@ -7,6 +7,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"log/slog"
 	"sync"
 	"sync/atomic"
 	"time"
@@ -171,14 +172,17 @@ type reservationWithCtx struct {
 	err     chan error
 }
 
-// isLocked checks the reservation's timestamp to determine whether it is
-// locked.
-func (r *reservationWithCtx) isLocked() bool {
+// isExpired reports whether the reservation has been idle for longer than the
+// timeout. A zero timestamp represents a locked reservation and never expires.
+func (r *reservationWithCtx) isExpired(timeout time.Duration) bool {
 	r.updateMtx.RLock()
 	defer r.updateMtx.RUnlock()
 
-	// The time zero value represents a locked reservation.
-	return r.lastUpdated.IsZero()
+	if r.lastUpdated.IsZero() {
+		return false
+	}
+
+	return time.Since(r.lastUpdated) > timeout
 }
 
 // updateTimestamp updates the reservation's timestamp with the current time.
@@ -5327,28 +5331,7 @@ func (f *Manager) handleErrorMsg(peer lnpeer.Peer, msg *lnwire.Error) {
 // funding flow for any reservations that have not been updated since the
 // ReservationTimeout and are not locked waiting for the funding transaction.
 func (f *Manager) pruneZombieReservations() {
-	zombieReservations := make(pendingChannels)
-
-	f.resMtx.RLock()
-	for _, pendingReservations := range f.activeReservations {
-		for pendingChanID, resCtx := range pendingReservations {
-			if resCtx.isLocked() {
-				continue
-			}
-
-			// We don't want to expire PSBT funding reservations.
-			// These reservations are always initiated by us and the
-			// remote peer is likely going to cancel them after some
-			// idle time anyway. So no need for us to also prune
-			// them.
-			sinceLastUpdate := time.Since(resCtx.lastUpdated)
-			isExpired := sinceLastUpdate > f.cfg.ReservationTimeout
-			if !resCtx.reservation.IsPsbt() && isExpired {
-				zombieReservations[pendingChanID] = resCtx
-			}
-		}
-	}
-	f.resMtx.RUnlock()
+	zombieReservations := f.findZombieReservations()
 
 	for pendingChanID, resCtx := range zombieReservations {
 		err := fmt.Errorf("reservation timed out waiting for peer "+
@@ -5367,6 +5350,49 @@ func (f *Manager) pruneZombieReservations() {
 
 		f.failFundingFlow(resCtx.peer, cid, err)
 	}
+}
+
+// findZombieReservations returns the pending reservations that have expired.
+func (f *Manager) findZombieReservations() pendingChannels {
+	zombieReservations := make(pendingChannels)
+
+	f.resMtx.RLock()
+	defer f.resMtx.RUnlock()
+
+	for _, pendingReservations := range f.activeReservations {
+		for pendingChanID, resCtx := range pendingReservations {
+			// We don't want to expire PSBT funding reservations.
+			// These reservations are always initiated by us and the
+			// remote peer is likely going to cancel them after some
+			// idle time anyway. So no need for us to also prune
+			// them.
+			if f.isZombieReservation(pendingChanID, resCtx) {
+
+				zombieReservations[pendingChanID] = resCtx
+			}
+		}
+	}
+
+	return zombieReservations
+}
+
+// isZombieReservation contains only read-only inspection. A malformed entry
+// cannot prevent the sweep from inspecting other reservations. Cancellation
+// stays outside recovery because it can have partial wallet and peer effects.
+func (f *Manager) isZombieReservation(pendingChanID PendingChanID,
+	resCtx *reservationWithCtx) (expired bool) {
+
+	defer fn.RecoverPanic(func(pnc fn.Panic) {
+		fn.LogRecoveredPanic(
+			context.Background(), log, pnc,
+			slog.String("operation", "inspect_zombie_reservation"),
+			slog.String("pending_chan_id", fmt.Sprintf("%x", pendingChanID)),
+		)
+	})
+
+	return !resCtx.reservation.IsPsbt() && resCtx.isExpired(
+		f.cfg.ReservationTimeout,
+	)
 }
 
 // cancelReservationCtx does all needed work in order to securely cancel the

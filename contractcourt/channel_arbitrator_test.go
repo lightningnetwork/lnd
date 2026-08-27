@@ -1038,6 +1038,23 @@ func TestChannelArbitratorLocalForceClosePendingHtlc(t *testing.T) {
 		StateWaitingFullResolution,
 	)
 
+	// Now that the commitment confirmed we cancel the upstream HTLCs of
+	// all outgoing dust HTLCs on it back once more. The outgoing dust HTLC
+	// was already failed before the confirmation, so this is a duplicate,
+	// which the switch processes idempotently. We have to fail dust HTLCs
+	// here as well because an HTLC which is only dust on the commitment
+	// that ends up confirming cannot be detected any earlier.
+	select {
+	case msgs := <-chanArbCtx.resolutions:
+		require.Len(t, msgs, 1)
+		require.EqualValues(
+			t, outgoingDustHtlc.HtlcIndex, msgs[0].HtlcIndex,
+		)
+
+	case <-time.After(defaultTimeout):
+		t.Fatalf("resolution msgs not sent")
+	}
+
 	// We'll grab the old notifier here as our resolvers are still holding
 	// a reference to this instance, and a new one will be created when we
 	// restart the channel arb below.
@@ -2073,6 +2090,458 @@ func TestChannelArbitratorDanglingCommitForceClose(t *testing.T) {
 			chanArbCtx.receiveBlockbeat(6)
 		})
 	}
+}
+
+// TestChannelArbitratorDustOnConfirmedCommit tests that the upstream HTLC of
+// an outgoing HTLC which is only dust on the commitment that ends up
+// confirming is still canceled back. Here the HTLC has an output on our local
+// commitment, but is trimmed on the remote one, so it cannot be classified as
+// dust before the remote commitment confirms.
+func TestChannelArbitratorDustOnConfirmedCommit(t *testing.T) {
+	t.Parallel()
+
+	arbLog := &mockArbitratorLog{
+		state:     StateDefault,
+		newStates: make(chan ArbitratorState, 5),
+		resolvers: make(map[ContractResolver]struct{}),
+	}
+
+	chanArbCtx, err := createTestChannelArbitrator(t, arbLog)
+	require.NoError(t, err)
+
+	chanArb := chanArbCtx.chanArb
+	require.NoError(t, chanArb.Start(nil, newBeatFromHeight(0)))
+	t.Cleanup(chanArbCtx.CleanUp)
+
+	chanArb.UpdateContractSignals(&ContractSignals{
+		ShortChanID: lnwire.ShortChannelID{},
+	})
+
+	// The HTLC has an output on our local commitment, but it is trimmed on
+	// the commitment of the remote party.
+	const htlcIndex = 99
+	liveHTLC := channeldb.HTLC{
+		Incoming:      false,
+		Amt:           10000,
+		HtlcIndex:     htlcIndex,
+		RefundTimeout: 10,
+		OutputIndex:   0,
+	}
+	dustHTLC := liveHTLC
+	dustHTLC.OutputIndex = -1
+	broadcastHeight := liveHTLC.RefundTimeout -
+		chanArb.cfg.OutgoingBroadcastDelta
+
+	chanArb.notifyContractUpdate(&ContractUpdate{
+		HtlcKey: LocalHtlcSet,
+		Htlcs:   []channeldb.HTLC{liveHTLC},
+	})
+	chanArb.notifyContractUpdate(&ContractUpdate{
+		HtlcKey: RemoteHtlcSet,
+		Htlcs:   []channeldb.HTLC{dustHTLC},
+	})
+
+	// Mine up to the broadcast cut off of the HTLC, which makes the
+	// arbitrator go on chain to time the HTLC out.
+	beat := newBeatFromHeight(int32(broadcastHeight))
+	chanArbCtx.chanArb.BlockbeatChan <- beat
+
+	chanArbCtx.AssertStateTransitions(
+		StateBroadcastCommit,
+		StateCommitmentBroadcasted,
+	)
+
+	// The HTLC is not dust on our local commitment, so it must not be
+	// canceled back before we know which commitment confirmed.
+	select {
+	case msgs := <-chanArbCtx.resolutions:
+		t.Fatalf("htlc canceled back before confirmation: %v", msgs)
+
+	case <-time.After(time.Second):
+	}
+
+	// Now the commitment of the remote party confirms, the one on which
+	// the HTLC is dust. There is no output to resolve on chain, so the
+	// incoming HTLC has to be failed back now.
+	closeTx := &wire.MsgTx{
+		TxIn: []*wire.TxIn{{
+			PreviousOutPoint: wire.OutPoint{},
+			Witness:          [][]byte{{0x9}},
+		}},
+	}
+
+	//nolint:ll
+	uniCloseInfo := &LocalUnilateralCloseInfo{
+		SpendDetail: &chainntnfs.SpendDetail{
+			SpendingHeight: int32(broadcastHeight),
+		},
+		LocalForceCloseSummary: &lnwallet.LocalForceCloseSummary{
+			CloseTx: closeTx,
+			ContractResolutions: fn.Some(lnwallet.ContractResolutions{
+				HtlcResolutions: &lnwallet.HtlcResolutions{},
+			}),
+		},
+		ChannelCloseSummary: &channeldb.ChannelCloseSummary{},
+		CommitSet: CommitSet{
+			ConfCommitKey: fn.Some(RemoteHtlcSet),
+			HtlcSets: map[HtlcSetKey][]channeldb.HTLC{
+				LocalHtlcSet:  {liveHTLC},
+				RemoteHtlcSet: {dustHTLC},
+			},
+		},
+	}
+
+	chanArb.cfg.ChainEvents.LocalUnilateralClosure <- uniCloseInfo
+
+	chanArbCtx.AssertStateTransitions(
+		StateContractClosed,
+		StateWaitingFullResolution,
+	)
+
+	select {
+	case msgs := <-chanArbCtx.resolutions:
+		require.Len(t, msgs, 1)
+		require.EqualValues(t, htlcIndex, msgs[0].HtlcIndex)
+
+	case <-time.After(defaultTimeout):
+		t.Fatalf("resolution msgs not sent")
+	}
+
+	chanArbCtx.receiveBlockbeat(int(broadcastHeight + 1))
+}
+
+// TestCheckRemoteDanglingActionsDustDivergence tests that a dangling outgoing
+// HTLC which is dust on one of the remote commitments but has an output on the
+// other one is handled consistently.
+func TestCheckRemoteDanglingActionsDustDivergence(t *testing.T) {
+	t.Parallel()
+
+	const (
+		heightHint = 100
+		htlcIndex  = 3
+	)
+
+	// The HTLC is close enough to its expiry that we would go on chain for
+	// it, which is what makes checkRemoteDanglingActions consider it in the
+	// first place.
+	newHTLC := func(outputIndex int32) channeldb.HTLC {
+		return channeldb.HTLC{
+			HtlcIndex:     htlcIndex,
+			RefundTimeout: heightHint,
+			OutputIndex:   outputIndex,
+			Amt:           lnwire.NewMSatFromSatoshis(1000),
+		}
+	}
+
+	// dustHTLC has been trimmed on the commitment it is part of, while
+	// liveHTLC has an actual output on it.
+	dustHTLC := newHTLC(-1)
+	liveHTLC := newHTLC(0)
+
+	tests := []struct {
+		name         string
+		remote       channeldb.HTLC
+		pending      channeldb.HTLC
+		expectAction ChainAction
+	}{
+		{
+			name:         "dust on both commitments",
+			remote:       dustHTLC,
+			pending:      dustHTLC,
+			expectAction: HtlcFailDustAction,
+		},
+		{
+			name:         "live on both commitments",
+			remote:       liveHTLC,
+			pending:      newHTLC(1),
+			expectAction: HtlcFailDanglingAction,
+		},
+		{
+			name:         "dust on the pending commitment only",
+			remote:       liveHTLC,
+			pending:      dustHTLC,
+			expectAction: HtlcFailDanglingAction,
+		},
+		{
+			name:         "dust on the remote commitment only",
+			remote:       dustHTLC,
+			pending:      liveHTLC,
+			expectAction: HtlcFailDanglingAction,
+		},
+	}
+
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			t.Parallel()
+
+			chanArbCtx, err := createTestChannelArbitrator(
+				t, &mockArbitratorLog{state: StateDefault},
+			)
+			require.NoError(t, err)
+
+			chanArb := chanArbCtx.chanArb
+
+			activeHTLCs := map[HtlcSetKey]htlcSet{
+				LocalHtlcSet: newHtlcSet(nil),
+				RemoteHtlcSet: newHtlcSet(
+					[]channeldb.HTLC{test.remote},
+				),
+				RemotePendingHtlcSet: newHtlcSet(
+					[]channeldb.HTLC{test.pending},
+				),
+			}
+
+			liveOnRemote := fn.NewSet[uint64]()
+			if test.remote.OutputIndex >= 0 {
+				liveOnRemote.Add(test.remote.HtlcIndex)
+			}
+			if test.pending.OutputIndex >= 0 {
+				liveOnRemote.Add(test.pending.HtlcIndex)
+			}
+
+			actions := chanArb.checkRemoteDanglingActions(
+				heightHint, activeHTLCs, liveOnRemote,
+				false,
+			)
+
+			require.Len(t, actions, 1)
+			require.Len(t, actions[test.expectAction], 1)
+			require.Equal(
+				t, uint64(htlcIndex),
+				actions[test.expectAction][0].HtlcIndex,
+			)
+		})
+	}
+}
+
+// TestChannelArbitratorDustPendingCommitConfirms tests that the upstream HTLC
+// of a dangling outgoing HTLC which is only dust on the remote pending
+// commitment is still canceled back once that commitment confirms.
+func TestChannelArbitratorDustPendingCommitConfirms(t *testing.T) {
+	t.Parallel()
+
+	arbLog := &mockArbitratorLog{
+		state:     StateDefault,
+		newStates: make(chan ArbitratorState, 5),
+		resolvers: make(map[ContractResolver]struct{}),
+	}
+
+	chanArbCtx, err := createTestChannelArbitrator(t, arbLog)
+	require.NoError(t, err)
+
+	chanArb := chanArbCtx.chanArb
+	require.NoError(t, chanArb.Start(nil, newBeatFromHeight(0)))
+	t.Cleanup(chanArbCtx.CleanUp)
+
+	chanArb.UpdateContractSignals(&ContractSignals{
+		ShortChanID: lnwire.ShortChannelID{},
+	})
+
+	// The HTLC only exists on the remote commitments. It has an output on
+	// the remote commitment, but a fee update trimmed it on the remote
+	// pending commitment.
+	const htlcIndex = 99
+	liveHTLC := channeldb.HTLC{
+		Incoming:      false,
+		Amt:           10000,
+		HtlcIndex:     htlcIndex,
+		RefundTimeout: 10,
+		OutputIndex:   0,
+	}
+	dustHTLC := liveHTLC
+	dustHTLC.OutputIndex = -1
+	broadcastHeight := liveHTLC.RefundTimeout -
+		chanArb.cfg.OutgoingBroadcastDelta
+
+	chanArb.notifyContractUpdate(&ContractUpdate{
+		HtlcKey: RemoteHtlcSet,
+		Htlcs:   []channeldb.HTLC{liveHTLC},
+	})
+	chanArb.notifyContractUpdate(&ContractUpdate{
+		HtlcKey: RemotePendingHtlcSet,
+		Htlcs:   []channeldb.HTLC{dustHTLC},
+	})
+
+	// Mine up to the broadcast cut off of the HTLC, which makes the
+	// arbitrator go on chain to cancel the incoming HTLC back.
+	beat := newBeatFromHeight(int32(broadcastHeight))
+	chanArbCtx.chanArb.BlockbeatChan <- beat
+
+	chanArbCtx.AssertStateTransitions(
+		StateBroadcastCommit,
+		StateCommitmentBroadcasted,
+	)
+
+	select {
+	case msgs := <-chanArbCtx.resolutions:
+		t.Fatalf("htlc canceled back before confirmation: %v", msgs)
+	case <-time.After(time.Second):
+	}
+
+	// Now the remote pending commitment confirms, the one on which the
+	// HTLC is dust. The incoming HTLC has to be failed back now.
+	closeTx := &wire.MsgTx{
+		TxIn: []*wire.TxIn{{
+			PreviousOutPoint: wire.OutPoint{},
+			Witness:          [][]byte{{0x9}},
+		}},
+	}
+
+	//nolint:ll
+	uniCloseInfo := &LocalUnilateralCloseInfo{
+		SpendDetail: &chainntnfs.SpendDetail{
+			SpendingHeight: int32(broadcastHeight),
+		},
+		LocalForceCloseSummary: &lnwallet.LocalForceCloseSummary{
+			CloseTx: closeTx,
+			ContractResolutions: fn.Some(lnwallet.ContractResolutions{
+				HtlcResolutions: &lnwallet.HtlcResolutions{},
+			}),
+		},
+		ChannelCloseSummary: &channeldb.ChannelCloseSummary{},
+		CommitSet: CommitSet{
+			ConfCommitKey: fn.Some(RemotePendingHtlcSet),
+			HtlcSets: map[HtlcSetKey][]channeldb.HTLC{
+				RemoteHtlcSet:        {liveHTLC},
+				RemotePendingHtlcSet: {dustHTLC},
+			},
+		},
+	}
+
+	chanArb.cfg.ChainEvents.LocalUnilateralClosure <- uniCloseInfo
+
+	chanArbCtx.AssertStateTransitions(
+		StateContractClosed,
+		StateWaitingFullResolution,
+	)
+
+	select {
+	case msgs := <-chanArbCtx.resolutions:
+		require.Len(t, msgs, 1)
+		require.EqualValues(t, htlcIndex, msgs[0].HtlcIndex)
+
+	case <-time.After(defaultTimeout):
+		t.Fatalf("resolution msgs not sent")
+	}
+
+	chanArbCtx.receiveBlockbeat(int(broadcastHeight + 1))
+}
+
+// TestChannelArbitratorDustOnLocalLiveOnRemote tests that an outgoing HTLC
+// which is dust on our local commitment, but still has an output on a remote
+// commitment, is not canceled back before a commitment confirmed.
+func TestChannelArbitratorDustOnLocalLiveOnRemote(t *testing.T) {
+	t.Parallel()
+
+	arbLog := &mockArbitratorLog{
+		state:     StateDefault,
+		newStates: make(chan ArbitratorState, 5),
+		resolvers: make(map[ContractResolver]struct{}),
+	}
+
+	chanArbCtx, err := createTestChannelArbitrator(t, arbLog)
+	require.NoError(t, err)
+
+	chanArb := chanArbCtx.chanArb
+	require.NoError(t, chanArb.Start(nil, newBeatFromHeight(0)))
+	t.Cleanup(chanArbCtx.CleanUp)
+
+	chanArb.UpdateContractSignals(&ContractSignals{
+		ShortChanID: lnwire.ShortChannelID{},
+	})
+
+	// The HTLC is trimmed on our local commitment, but it has an output on
+	// the commitment of the remote party, for example because we lowered
+	// the fee rate and the remote party revoked its old commitment but has
+	// not sent the corresponding commitment signature yet.
+	const htlcIndex = 99
+	dustHTLC := channeldb.HTLC{
+		Incoming:      false,
+		Amt:           10000,
+		HtlcIndex:     htlcIndex,
+		RefundTimeout: 10,
+		OutputIndex:   -1,
+	}
+	liveHTLC := dustHTLC
+	liveHTLC.OutputIndex = 0
+	broadcastHeight := dustHTLC.RefundTimeout -
+		chanArb.cfg.OutgoingBroadcastDelta
+
+	chanArb.notifyContractUpdate(&ContractUpdate{
+		HtlcKey: LocalHtlcSet,
+		Htlcs:   []channeldb.HTLC{dustHTLC},
+	})
+	chanArb.notifyContractUpdate(&ContractUpdate{
+		HtlcKey: RemoteHtlcSet,
+		Htlcs:   []channeldb.HTLC{liveHTLC},
+	})
+
+	// Mine up to the broadcast cut off of the HTLC, which makes the
+	// arbitrator go on chain.
+	beat := newBeatFromHeight(int32(broadcastHeight))
+	chanArbCtx.chanArb.BlockbeatChan <- beat
+
+	chanArbCtx.AssertStateTransitions(
+		StateBroadcastCommit,
+		StateCommitmentBroadcasted,
+	)
+
+	// The HTLC must not be canceled back although it is dust on our local
+	// commitment.
+	select {
+	case msgs := <-chanArbCtx.resolutions:
+		t.Fatalf("dust htlc canceled back: %v", msgs)
+
+	case <-time.After(time.Second):
+	}
+
+	// Now our local commitment confirms, on which the HTLC is dust.
+	// The incoming HTLC has to be failed back now.
+	closeTx := &wire.MsgTx{
+		TxIn: []*wire.TxIn{{
+			PreviousOutPoint: wire.OutPoint{},
+			Witness:          [][]byte{{0x9}},
+		}},
+	}
+
+	//nolint:ll
+	uniCloseInfo := &LocalUnilateralCloseInfo{
+		SpendDetail: &chainntnfs.SpendDetail{
+			SpendingHeight: int32(broadcastHeight),
+		},
+		LocalForceCloseSummary: &lnwallet.LocalForceCloseSummary{
+			CloseTx: closeTx,
+			ContractResolutions: fn.Some(lnwallet.ContractResolutions{
+				HtlcResolutions: &lnwallet.HtlcResolutions{},
+			}),
+		},
+		ChannelCloseSummary: &channeldb.ChannelCloseSummary{},
+		CommitSet: CommitSet{
+			ConfCommitKey: fn.Some(LocalHtlcSet),
+			HtlcSets: map[HtlcSetKey][]channeldb.HTLC{
+				LocalHtlcSet:  {dustHTLC},
+				RemoteHtlcSet: {liveHTLC},
+			},
+		},
+	}
+
+	chanArb.cfg.ChainEvents.LocalUnilateralClosure <- uniCloseInfo
+
+	chanArbCtx.AssertStateTransitions(
+		StateContractClosed,
+		StateWaitingFullResolution,
+	)
+
+	select {
+	case msgs := <-chanArbCtx.resolutions:
+		require.Len(t, msgs, 1)
+		require.EqualValues(t, htlcIndex, msgs[0].HtlcIndex)
+
+	case <-time.After(defaultTimeout):
+		t.Fatalf("resolution msgs not sent")
+	}
+
+	chanArbCtx.receiveBlockbeat(int(broadcastHeight + 1))
 }
 
 // TestChannelArbitratorPendingExpiredHTLC tests that if we have pending htlc

@@ -43,6 +43,13 @@ const (
 	blocksPassedSplitPublish = 4
 )
 
+// breachSpendConfDepth derives the conservative maximum of the existing
+// channel-close policy. Recomputing this deterministic value after restart
+// keeps terminal breach cleanup safe without changing the persisted format.
+func breachSpendConfDepth() uint32 {
+	return lnwallet.CloseConfsForCapacity(btcutil.MaxSatoshi)
+}
+
 var (
 	// retributionBucket stores retribution state on disk between detecting
 	// a contract breach, broadcasting a justice transaction that sweeps the
@@ -452,6 +459,9 @@ func (b *BreachArbitrator) waitForSpendEvent(breachInfo *retributionInfo,
 				&breachedOutput.outpoint,
 				breachedOutput.signDesc.Output.PkScript,
 				breachInfo.breachHeight,
+				chainntnfs.WithSpendNumConfs(
+					breachSpendConfDepth(),
+				),
 			)
 			if err != nil {
 				brarLog.Errorf("Unable to check for spentness "+
@@ -484,22 +494,16 @@ func (b *BreachArbitrator) waitForSpendEvent(breachInfo *retributionInfo,
 				if !ok {
 					return
 				}
-
 				brarLog.Infof("Detected spend on %s(%v) by "+
 					"txid(%v) for ChannelPoint(%v)",
 					inputs[index].witnessType,
 					inputs[index].outpoint,
-					sp.SpenderTxHash,
-					breachInfo.chanPoint)
+					sp.SpenderTxHash, breachInfo.chanPoint)
 
-				// First we send the spend event on the
-				// allSpends channel, such that it can be
-				// handled after all go routines have exited.
+				// Pass the spend to the caller only after every waiter
+				// has stopped, preventing concurrent cache mutation.
 				allSpends <- spend{index, sp}
 
-				// Finally we'll signal the anySpend channel
-				// that a spend was detected, such that the
-				// other goroutines can be shut down.
 				anySpend <- struct{}{}
 			case <-exit:
 				return
@@ -527,6 +531,7 @@ func (b *BreachArbitrator) waitForSpendEvent(breachInfo *retributionInfo,
 		var spends []spend
 		for s := range allSpends {
 			breachedOutput := &inputs[s.index]
+			spendNtfns[breachedOutput.outpoint].Cancel()
 			delete(spendNtfns, breachedOutput.outpoint)
 
 			spends = append(spends, s)
@@ -635,10 +640,8 @@ func updateBreachInfo(breachInfo *retributionInfo, spends []spend) (
 				breachedOutput.witnessType,
 				breachedOutput.outpoint, breachInfo.chanPoint)
 
-			// In this case we'll morph our initial revoke
-			// spend to instead point to the second level
-			// output, and update the sign descriptor in the
-			// process.
+			// Morph the initial revoke spend to the second-level output
+			// only after its notifier reaches the configured depth.
 			convertToSecondLevelRevoke(
 				breachedOutput, breachInfo, s.detail,
 			)
@@ -805,7 +808,8 @@ Loop:
 	for {
 		select {
 		case spends := <-spendChan:
-			// Update the breach info with the new spends.
+			// Update the breach info only after the notifier has delivered
+			// terminal-depth spend evidence.
 			t, r := updateBreachInfo(breachInfo, spends)
 			totalFunds += t
 			revokedFunds += r

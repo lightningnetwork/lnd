@@ -5447,3 +5447,61 @@ func TestChannelReadyUnknownChannelID(t *testing.T) {
 		t, alice, bob, 500000, 0, 1, updateChan, true, nil,
 	)
 }
+
+// TestPruneZombieReservationsPanicRecovery verifies that a malformed
+// reservation cannot terminate the coordinator or leave its mutex read-locked.
+func TestPruneZombieReservationsPanicRecovery(t *testing.T) {
+	t.Parallel()
+
+	manager := &Manager{
+		cfg: &Config{
+			ReservationTimeout: time.Second,
+		},
+		activeReservations: map[serializedPubKey]pendingChannels{
+			{1}: {
+				PendingChanID{1}: nil,
+			},
+		},
+	}
+
+	require.NotPanics(t, manager.pruneZombieReservations)
+	lockReleased := manager.resMtx.TryLock()
+	require.True(
+		t, lockReleased, "reservation lock was not released",
+	)
+	manager.resMtx.Unlock()
+}
+
+// TestReservationExpiryConcurrentUpdate verifies that the zombie sweep reads
+// the reservation timestamp under the same lock used by funding updates.
+func TestReservationExpiryConcurrentUpdate(t *testing.T) {
+	t.Parallel()
+
+	reservation := &reservationWithCtx{
+		lastUpdated: time.Now().Add(-time.Hour),
+	}
+	require.True(t, reservation.isExpired(time.Minute))
+
+	start := make(chan struct{})
+	done := make(chan struct{}, 2)
+	go func() {
+		<-start
+		for range 1000 {
+			reservation.updateTimestamp()
+		}
+		done <- struct{}{}
+	}()
+	go func() {
+		<-start
+		for range 1000 {
+			_ = reservation.isExpired(time.Minute)
+		}
+		done <- struct{}{}
+	}()
+
+	close(start)
+	<-done
+	<-done
+
+	require.False(t, reservation.isExpired(time.Minute))
+}

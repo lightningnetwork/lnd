@@ -2,6 +2,7 @@ package queue
 
 import (
 	"errors"
+	"sync"
 )
 
 // errInvalidSize is returned when an invalid size for a buffer is provided.
@@ -11,6 +12,10 @@ var errInvalidSize = errors.New("buffer size must be > 0")
 // overwrites the oldest item in the buffer when a new item needs to be
 // written.
 type CircularBuffer struct {
+	// mu protects total and items so peer error writers and RPC readers can
+	// safely share one buffer across their independent goroutines.
+	mu sync.RWMutex
+
 	// total is the total number of items that have been added to the
 	// buffer.
 	total int
@@ -36,7 +41,8 @@ func NewCircularBuffer(size int) (*CircularBuffer, error) {
 	}, nil
 }
 
-// index returns the index that should be written to next.
+// index returns the index that should be written to next. Callers must hold
+// either mu for writes or mu's read lock while inspecting the current index.
 func (c *CircularBuffer) index() int {
 	return c.total % len(c.items)
 }
@@ -44,6 +50,9 @@ func (c *CircularBuffer) index() int {
 // Add adds an item to the buffer, overwriting the oldest item if the buffer
 // is full.
 func (c *CircularBuffer) Add(item interface{}) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+
 	// Set the item in the next free index in the items array.
 	c.items[c.index()] = item
 
@@ -54,6 +63,9 @@ func (c *CircularBuffer) Add(item interface{}) {
 // List returns a copy of the items in the buffer ordered from the oldest to
 // newest item.
 func (c *CircularBuffer) List() []interface{} {
+	c.mu.RLock()
+	defer c.mu.RUnlock()
+
 	size := cap(c.items)
 	index := c.index()
 
@@ -98,11 +110,17 @@ func (c *CircularBuffer) List() []interface{} {
 
 // Total returns the total number of items that have been added to the buffer.
 func (c *CircularBuffer) Total() int {
+	c.mu.RLock()
+	defer c.mu.RUnlock()
+
 	return c.total
 }
 
 // Latest returns the item that was most recently added to the buffer.
 func (c *CircularBuffer) Latest() interface{} {
+	c.mu.RLock()
+	defer c.mu.RUnlock()
+
 	// If no items have been added yet, return nil.
 	if c.total == 0 {
 		return nil

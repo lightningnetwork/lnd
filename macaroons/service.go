@@ -161,6 +161,14 @@ func isRegistered(c *checkers.Checker, name string) bool {
 // the specified absolute gRPC URI. That validator is then fully responsible to
 // make sure any macaroon passed for a request to that URI is valid and
 // satisfies all conditions.
+//
+// NOTE: Independently of the registered validator, the RPC interceptor chain
+// enforces protector caveats on all non-whitelisted methods. If a request
+// carries a "macaroon" gRPC metadata value, it must be exactly one hex encoded
+// macaroon; requests with an ambiguous or unparseable value are rejected
+// before they reach the handler. Whether a credential must be present at all
+// remains the validator's decision, so a validator that authenticates through
+// other means leaves protector caveats unenforced for its methods.
 func (svc *Service) RegisterExternalValidator(fullMethod string,
 	validator MacaroonValidator) error {
 

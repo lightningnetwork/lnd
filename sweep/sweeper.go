@@ -1971,6 +1971,30 @@ func (s *UtxoSweeper) handleBumpEventTxPublished(resp *bumpResp) error {
 func (s *UtxoSweeper) handleBumpEventTxFatal(resp *bumpResp) error {
 	r := resp.result
 
+	// Delay while shallow discovery can explain the missing input; then
+	// fall through so a genuine orphan becomes terminal.
+	if resp.deferTerminal && errors.Is(r.Err, ErrInputMissing) {
+		deferMissing := false
+		for _, inp := range resp.set.Inputs() {
+			pending, ok := s.inputs[inp.OutPoint()]
+			if !ok {
+				continue
+			}
+
+			since := pending.missingSince.UnwrapOr(s.currentHeight)
+			pending.missingSince = fn.Some(since)
+			age := s.currentHeight - since
+			if age < int32(pending.params.RequiredConfs) {
+				deferMissing = true
+			}
+		}
+
+		if deferMissing {
+			s.markInputsPublishFailed(resp.set, r.FeeRate)
+			return nil
+		}
+	}
+
 	// Remove the tx from the sweeper store if there is one. Since this is
 	// a broadcast error, it's likely there isn't a tx here.
 	if r.Tx != nil {
@@ -2153,6 +2177,8 @@ func (s *UtxoSweeper) handleBumpEventTxUnknownSpend(r *bumpResp) {
 
 	// Get all the inputs that are not spent in the current sweeping tx.
 	spentInputs := r.result.SpentInputs
+	canRetry := r.result.Err == nil ||
+		errors.Is(r.result.Err, ErrUnknownSpent)
 
 	// Create a slice to track inputs to be retried.
 	inputsToRetry := make([]input.Input, 0, len(r.set.Inputs()))
@@ -2198,6 +2224,14 @@ func (s *UtxoSweeper) handleBumpEventTxUnknownSpend(r *bumpResp) {
 
 			continue
 		}
+		if !canRetry {
+			// A fee-policy failure applies only to viable siblings.
+			// Shallow evidence retains its depth monitor.
+			// It cannot be terminalized batch-wide.
+			s.markInputFatal(input, nil, r.result.Err)
+			continue
+		}
+
 		log.Debugf("Input(%v): updating params: immediate [%v -> true]",
 			op, r.result.FeeRate, input.params.Immediate)
 

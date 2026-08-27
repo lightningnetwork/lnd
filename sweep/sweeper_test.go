@@ -977,6 +977,97 @@ func TestSweeperKeepsPublisherConfirmation(t *testing.T) {
 	require.Equal(t, Published, s.inputs[op].state)
 }
 
+// TestSweeperBoundsMissingInputRetry verifies delayed spend discovery has a
+// finite grace period before a genuine orphan becomes terminal.
+func TestSweeperBoundsMissingInputRetry(t *testing.T) {
+	t.Parallel()
+
+	// Arrange one concrete depth-three input and a mock.Mock input set that
+	// returns it for the provisional update and eventual fatal transition.
+	const startHeight = int32(100)
+	outpoint := wire.OutPoint{Index: 31}
+	inp := input.NewBaseInput(
+		&outpoint, input.CommitmentTimeLock, &input.SignDescriptor{}, 0,
+	)
+	set := &MockInputSet{}
+	set.On("Inputs").Return([]input.Input{inp}).Times(4)
+	s := New(&UtxoSweeperConfig{})
+	s.currentHeight = startHeight
+	s.inputs[outpoint] = &SweeperInput{
+		Input: inp,
+		state: Published,
+		params: Params{
+			RequiredConfs: 3,
+		},
+	}
+	response := &bumpResp{
+		result: &BumpResult{
+			Event:   TxFatal,
+			Err:     ErrInputMissing,
+			FeeRate: 1000,
+		},
+		set:           set,
+		deferTerminal: true,
+	}
+
+	// Act once at first detection, then simulate a retry after the complete
+	// depth window. The second fatal result cannot be a shallow discovery
+	// race and must fall through to normal terminal handling.
+	firstErr := s.handleBumpEventTxFatal(response)
+	firstState := s.inputs[outpoint].state
+	s.inputs[outpoint].state = Published
+	s.currentHeight = startHeight + 3
+	finalErr := s.handleBumpEventTxFatal(response)
+
+	// Assert the first result remained retryable, the same missing-input
+	// window later terminated the orphan, and every mock call was consumed.
+	require.NoError(t, firstErr)
+	require.Equal(t, PublishFailed, firstState)
+	require.NoError(t, finalErr)
+	require.Equal(t, Fatal, s.inputs[outpoint].state)
+	set.AssertExpectations(t)
+}
+
+// TestMonitorFeeBumpResultExitsOnFatal verifies a removed publisher record
+// cannot leave its per-attempt monitor blocked forever.
+func TestMonitorFeeBumpResultExitsOnFatal(t *testing.T) {
+	t.Parallel()
+
+	// Arrange a mock.Mock set and one buffered fatal publisher result.
+	// A nil transaction exercises the record-removal path without unrelated
+	// wallet rebroadcast expectations.
+	set := &MockInputSet{}
+	resultChan := make(chan *BumpResult, 1)
+	resultChan <- &BumpResult{
+		Event: TxFatal,
+		Err:   ErrInputMissing,
+	}
+	s := New(&UtxoSweeperConfig{})
+	done := make(chan struct{})
+
+	// Act by starting the real monitor and receiving the response it must
+	// forward to the serialized collector before terminating its goroutine.
+	s.wg.Add(1)
+	go func() {
+		s.monitorFeeBumpResult(set, resultChan, true)
+		close(done)
+	}()
+	response := <-s.bumpRespChan
+	select {
+	case <-done:
+		// Capture synchronous termination for the Assert phase below.
+
+	case <-time.After(time.Second):
+		require.Fail(t, "fatal publisher monitor did not exit")
+	}
+
+	// Assert the exact fatal result reached the collector and the monitor
+	// exited without waiting for a channel the publisher no longer owns.
+	require.Equal(t, TxFatal, response.result.Event)
+	require.ErrorIs(t, response.result.Err, ErrInputMissing)
+	set.AssertExpectations(t)
+}
+
 // TestSweeperReorgCollectorScoping verifies the collector requeues only the
 // published outpoint named by provisional reorg evidence.
 func TestSweeperReorgCollectorScoping(t *testing.T) {
@@ -1810,6 +1901,60 @@ func TestHandleBumpEventTxUnknownSpendWithRetry(t *testing.T) {
 	siblingInput.AssertExpectations(t)
 	set.AssertExpectations(t)
 	aggregator.AssertExpectations(t)
+}
+
+// TestUnknownSpendRetryErrorPartitionsInputs verifies a retry-policy failure
+// terminalizes only an unspent sibling while preserving depth-owned evidence.
+func TestUnknownSpendRetryErrorPartitionsInputs(t *testing.T) {
+	t.Parallel()
+
+	// Arrange: Place one depth-three spent input and one viable sibling
+	// in a mock.Mock input set. Exact Inputs cardinality covers the state
+	// update, retry allocation, and per-outpoint partition pass.
+	s := New(&UtxoSweeperConfig{})
+	set := &MockInputSet{}
+	deepInput := createTestInput(1000, input.WitnessKeyHash)
+	siblingInput := createTestInput(1000, input.WitnessKeyHash)
+	deepOutpoint := deepInput.OutPoint()
+	siblingOutpoint := siblingInput.OutPoint()
+	set.On("Inputs").Return([]input.Input{
+		&deepInput, &siblingInput,
+	}).Times(3)
+	s.inputs[deepOutpoint] = &SweeperInput{
+		Input: &deepInput,
+		state: Published,
+		params: Params{
+			RequiredConfs: 3,
+		},
+	}
+	s.inputs[siblingOutpoint] = &SweeperInput{
+		Input: &siblingInput,
+		state: Published,
+	}
+	spendingTx := &wire.MsgTx{TxIn: []*wire.TxIn{{
+		PreviousOutPoint: deepOutpoint,
+	}}}
+	resp := &bumpResp{
+		result: &BumpResult{
+			Event: TxUnknownSpend,
+			Err:   errDummy,
+			SpentInputs: map[wire.OutPoint]*wire.MsgTx{
+				deepOutpoint: spendingTx,
+			},
+		},
+		set: set,
+	}
+
+	// Act: Apply the mixed result whose retry fee calculation failed after
+	// the publisher had already observed the deep member's external spend.
+	s.handleBumpEventTxUnknownSpend(resp)
+
+	// Assert: The deep input remains published under its maturity monitor,
+	// while only the retryable sibling receives the fee error as a terminal
+	// result. The mock set is consumed with exact cardinality.
+	require.Equal(t, Published, s.inputs[deepOutpoint].state)
+	require.Equal(t, Fatal, s.inputs[siblingOutpoint].state)
+	set.AssertExpectations(t)
 }
 
 // TestUnknownSpendPreservesTerminalInputs verifies a delayed batch response

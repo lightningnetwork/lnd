@@ -429,6 +429,21 @@ type breachSpendSubscription struct {
 	terminal *chainntnfs.SpendEvent
 }
 
+// needsEarlyBreachSpend reports whether a first-level HTLC spend changes the
+// justice target and therefore must be observed before terminal depth.
+func needsEarlyBreachSpend(witnessType input.StandardWitnessType) bool {
+	switch witnessType {
+	case input.TaprootHtlcAcceptedRevoke,
+		input.TaprootHtlcOfferedRevoke,
+		input.HtlcAcceptedRevoke,
+		input.HtlcOfferedRevoke:
+
+		return true
+	default:
+		return false
+	}
+}
+
 // waitForSpendEvent waits for any of the breached outputs to get spent, and
 // returns the spend details for those outputs. The spendNtfns map is a cache
 // used to store registered spend subscriptions, in case we must call this
@@ -475,6 +490,25 @@ func (b *BreachArbitrator) waitForSpendEvent(
 				),
 			)
 			spendNtfn = &breachSpendSubscription{terminal: terminal}
+
+			// Only first-level HTLC spends need an early observer.
+			// They redirect justice before terminal depth.
+			witnessType := breachedOutput.witnessType
+			needsEarly := needsEarlyBreachSpend(witnessType)
+			depthEnabled := breachSpendConfDepth() > 1
+			if err == nil && depthEnabled && needsEarly {
+				register := b.cfg.Notifier.RegisterSpendNtfn
+				signDesc := breachedOutput.signDesc
+				spendNtfn.early, err = register(
+					&breachedOutput.outpoint,
+					signDesc.Output.PkScript,
+					breachInfo.breachHeight,
+					chainntnfs.WithSpendNumConfs(1),
+				)
+				if err != nil {
+					terminal.Cancel()
+				}
+			}
 			if err != nil {
 				brarLog.Errorf("Unable to check for spentness "+
 					"of outpoint=%v: %v",
@@ -647,16 +681,29 @@ func convertToSecondLevelRevoke(bo *breachedOutput, breachInfo *retributionInfo,
 // updateBreachInfo mutates the passed breachInfo by removing or converting any
 // outputs among the spends. It also counts the total and revoked funds swept
 // by our justice spends.
-func updateBreachInfo(breachInfo *retributionInfo, spends []spend) (
-	btcutil.Amount, btcutil.Amount) {
+func updateBreachInfo(breachInfo *retributionInfo,
+	provisionalOutputs map[wire.OutPoint]breachedOutput,
+	spends []spend) (btcutil.Amount, btcutil.Amount) {
 
 	inputs := breachInfo.breachedOutputs
 	doneOutputs := make(map[int]struct{})
 
 	var totalFunds, revokedFunds btcutil.Amount
 	for _, s := range spends {
+		// Reorg evidence invalidates only the temporary justice target.
+		// The original output was intentionally retained in breachInfo.
+		if s.reorg {
+			delete(provisionalOutputs, s.outpoint)
+			continue
+		}
+
 		breachedOutput := &inputs[s.index]
 		txIn := s.detail.SpendingTx.TxIn[s.detail.SpenderInputIndex]
+		if !s.provisional {
+			// Terminal evidence owns the durable transition.
+			// It makes any in-memory candidate obsolete.
+			delete(provisionalOutputs, s.outpoint)
+		}
 
 		switch breachedOutput.witnessType {
 		case input.TaprootHtlcAcceptedRevoke:
@@ -690,10 +737,38 @@ func updateBreachInfo(breachInfo *retributionInfo, spends []spend) (
 				breachedOutput.witnessType,
 				breachedOutput.outpoint, breachInfo.chanPoint)
 
-			// Morph the initial revoke spend to the second-level output
-			// only after its notifier reaches the configured depth.
+			// A shallow transition redirects the next attempt.
+			// Retain the first-level owner until terminal depth.
+			// Copy the descriptor output because
+			// conversion mutates the pointed-to transaction output.
+			if s.provisional {
+				candidate := *breachedOutput
+				output := *breachedOutput.signDesc.Output
+				candidate.signDesc.Output = &output
+				convertToSecondLevelRevoke(
+					&candidate, breachInfo, s.detail,
+				)
+				provisionalOutputs[s.outpoint] = candidate
+				continue
+			}
+
+			// Terminal depth makes the new target durable.
+			// Store it in the existing recovery record.
 			convertToSecondLevelRevoke(
 				breachedOutput, breachInfo, s.detail,
+			)
+
+			continue
+		}
+
+		// A shallow justice spend is reorgable, so keep its output
+		// persisted until the terminal observer delivers.
+		if s.provisional {
+			brarLog.Infof("Spend on %s(%v) remains "+
+				"provisional for %v",
+				breachedOutput.witnessType,
+				breachedOutput.outpoint,
+				breachInfo.chanPoint,
 			)
 
 			continue
@@ -782,11 +857,29 @@ func (b *BreachArbitrator) exactRetribution(
 	// amount of funds that were revoked from the counter party.
 	var totalFunds, revokedFunds btcutil.Amount
 
+	// Provisional outputs redirect justice after a one-confirmation HTLC
+	// transition without replacing the durable first-level recovery owner.
+	provisionalOutputs := make(map[wire.OutPoint]breachedOutput)
+
 justiceTxBroadcast:
 	// With the breach transaction confirmed, we now create the
 	// justice tx which will claim ALL the funds within the
 	// channel.
-	justiceTxs, err := b.createJusticeTx(breachInfo.breachedOutputs)
+	justiceOutputs := breachInfo.breachedOutputs
+	if len(provisionalOutputs) != 0 {
+		// Build a temporary signing view so shallow transitions can be
+		// discarded without mutating persisted recovery data.
+		justiceOutputs = append(
+			[]breachedOutput(nil), justiceOutputs...,
+		)
+		for i := range justiceOutputs {
+			outpoint := justiceOutputs[i].outpoint
+			if candidate, ok := provisionalOutputs[outpoint]; ok {
+				justiceOutputs[i] = candidate
+			}
+		}
+	}
+	justiceTxs, err := b.createJusticeTx(justiceOutputs)
 	if err != nil {
 		brarLog.Errorf("Unable to create justice tx: %v", err)
 		return
@@ -858,9 +951,11 @@ Loop:
 	for {
 		select {
 		case spends := <-spendChan:
-			// Update the breach info only after the notifier has delivered
-			// terminal-depth spend evidence.
-			t, r := updateBreachInfo(breachInfo, spends)
+			// Update durable recovery only at terminal depth.
+			// The overlay isolates shallow transitions.
+			t, r := updateBreachInfo(
+				breachInfo, provisionalOutputs, spends,
+			)
 			totalFunds += t
 			revokedFunds += r
 

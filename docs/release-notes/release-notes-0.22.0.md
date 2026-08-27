@@ -55,6 +55,11 @@
   the reported network statistics such as total network capacity, channel
   count and max out degree.
 
+* [Fixed a reorganization safety
+  bug](https://github.com/lightningnetwork/lnd/pull/11054) where contract
+  resolvers and the sweeper could treat a spend as terminal before it reached
+  the channel's configured close depth.
+
 # New Features
 
 ## Functional Enhancements

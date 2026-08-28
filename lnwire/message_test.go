@@ -183,6 +183,153 @@ func TestWriteMessage(t *testing.T) {
 	}
 }
 
+// makeChannelUpdateWithExtraData constructs an update whose known inbound-fee
+// record is represented by its typed field while an unknown record remains in
+// the opaque stream. Keeping the representations separate lets callers verify
+// that encoding merges them without taking ownership of the original bytes.
+func makeChannelUpdateWithExtraData(t *testing.T) *lnwire.ChannelUpdate1 {
+	t.Helper()
+
+	unknownValue := []byte{1, 2, 3}
+	unknownRecord := tlv.MakePrimitiveRecord(
+		tlv.Type(9), &unknownValue,
+	)
+	extraData, err := lnwire.EncodeRecords([]tlv.Record{unknownRecord})
+	require.NoError(t, err)
+
+	inboundFee := lnwire.Fee{
+		BaseFee: 11,
+		FeeRate: 22,
+	}
+
+	return &lnwire.ChannelUpdate1{
+		Signature: testNodeSig,
+		InboundFee: tlv.SomeRecordT(
+			tlv.NewRecordT[tlv.TlvType55555](inboundFee),
+		),
+		ExtraOpaqueData: extraData,
+	}
+}
+
+// TestChannelUpdateEncodePreservesReceiver verifies that encoding a channel
+// update does not replace its caller-owned opaque TLV bytes.
+func TestChannelUpdateEncodePreservesReceiver(t *testing.T) {
+	// Arrange an update with typed and opaque records, and snapshot the
+	// opaque bytes to detect both content and length changes.
+	update := makeChannelUpdateWithExtraData(t)
+	originalExtraData := bytes.Clone(update.ExtraOpaqueData)
+
+	// Act by encoding through the public wire-message method that
+	// previously rewrote ExtraOpaqueData in place.
+	var encoded bytes.Buffer
+	err := update.Encode(&encoded, 0)
+
+	// Assert that encoding succeeds and leaves the receiver-owned slice
+	// byte-for-byte unchanged for reuse by other peers or goroutines.
+	require.NoError(t, err)
+	require.Equal(t, originalExtraData, []byte(update.ExtraOpaqueData))
+}
+
+// TestChannelUpdateEncodePreservesUnknownTLV verifies that decoding and then
+// re-encoding an update retains unknown TLVs without duplicating known ones.
+func TestChannelUpdateEncodePreservesUnknownTLV(t *testing.T) {
+	// Arrange a canonical wire encoding containing a typed inbound fee and
+	// an unknown record, then decode it into the legacy typed-plus-opaque
+	// representation retained for persisted graph compatibility.
+	update := makeChannelUpdateWithExtraData(t)
+	var original bytes.Buffer
+	require.NoError(t, update.Encode(&original, 0))
+
+	var decoded lnwire.ChannelUpdate1
+	require.NoError(t, decoded.Decode(bytes.NewReader(original.Bytes()), 0))
+	require.True(t, decoded.InboundFee.IsSome())
+	require.NotEmpty(t, decoded.ExtraOpaqueData)
+
+	// Act by re-encoding the decoded update, which must reconcile the known
+	// record in both representations before constructing the TLV stream.
+	var reencoded bytes.Buffer
+	err := decoded.Encode(&reencoded, 0)
+
+	// Assert that reconciliation succeeds and produces the exact original
+	// wire bytes, proving the unknown record survived without duplication.
+	require.NoError(t, err)
+	require.Equal(t, original.Bytes(), reencoded.Bytes())
+}
+
+// TestChannelUpdateEncodePreservesOpaqueFee verifies compatibility with
+// callers that still represent the known inbound fee only as opaque data.
+func TestChannelUpdateEncodePreservesOpaqueFee(t *testing.T) {
+	// Arrange a canonical update, decode its complete stream, and clear the
+	// typed field to reproduce the legacy opaque-only construction shape.
+	update := makeChannelUpdateWithExtraData(t)
+	var original bytes.Buffer
+	require.NoError(t, update.Encode(&original, 0))
+
+	var opaqueOnly lnwire.ChannelUpdate1
+	require.NoError(t, opaqueOnly.Decode(
+		bytes.NewReader(original.Bytes()), 0,
+	))
+	opaqueOnly.InboundFee = tlv.OptionalRecordT[
+		tlv.TlvType55555, lnwire.Fee,
+	]{}
+
+	// Act by encoding without a typed fee, which clones the retained opaque
+	// stream unchanged so both record forms keep their original wire bytes.
+	var reencoded bytes.Buffer
+	err := opaqueOnly.Encode(&reencoded, 0)
+
+	// Assert the pass-through retains both the known fee and unknown record
+	// by producing the exact original wire bytes.
+	require.NoError(t, err)
+	require.Equal(t, original.Bytes(), reencoded.Bytes())
+}
+
+// TestChannelUpdateEncodeConcurrent verifies that one channel update can be
+// encoded concurrently without racing through receiver mutation.
+func TestChannelUpdateEncodeConcurrent(t *testing.T) {
+	// Arrange a shared update and canonical expected result. Each worker
+	// gets its own buffer so the only shared data is the message receiver.
+	update := makeChannelUpdateWithExtraData(t)
+	var expected bytes.Buffer
+	require.NoError(t, update.Encode(&expected, 0))
+
+	type encodeResult struct {
+		data []byte
+		err  error
+	}
+
+	const workerCount = 8
+	results := make(chan encodeResult, workerCount)
+	var workers sync.WaitGroup
+	workers.Add(workerCount)
+
+	// Act by encoding the shared receiver from independent goroutines. The
+	// buffered result channel gives every worker a shutdown path even if an
+	// encoding fails before the owner begins collecting results.
+	for range workerCount {
+		go func() {
+			defer workers.Done()
+
+			var encoded bytes.Buffer
+			err := update.Encode(&encoded, 0)
+			results <- encodeResult{
+				data: encoded.Bytes(),
+				err:  err,
+			}
+		}()
+	}
+
+	workers.Wait()
+	close(results)
+
+	// Assert in the owning test goroutine that every concurrent encoding
+	// succeeded and matched the same canonical bytes.
+	for result := range results {
+		require.NoError(t, result.err)
+		require.Equal(t, expected.Bytes(), result.data)
+	}
+}
+
 // BenchmarkWriteMessage benchmarks the performance of lnwire.WriteMessage. It
 // generates a test message for each of the lnwire.Message, calls the
 // WriteMessage method and benchmark it.

@@ -2,7 +2,6 @@ package peer
 
 import (
 	"bytes"
-	"container/list"
 	"context"
 	"errors"
 	"fmt"
@@ -112,6 +111,16 @@ var (
 	// either the Brontide doesn't know of it, or the channel in question
 	// is pending.
 	ErrChannelNotFound = fmt.Errorf("channel not found")
+
+	// errPingFlood gives every flood-teardown path one stable identity. The
+	// peer still records the descriptive text, while callers and tests can
+	// match wrapped instances without depending on that text.
+	errPingFlood = errors.New("ping flood limit exceeded")
+
+	// errQueueOverflow identifies teardown caused by a bounded outgoing
+	// backlog. The detailed attempted totals wrap this stable identity so a
+	// synchronous sender can distinguish overload from generic peer exit.
+	errQueueOverflow = errors.New("outgoing message queue limit exceeded")
 )
 
 // outgoingMsg packages an lnwire.Message to be sent out on the wire, along with
@@ -121,6 +130,10 @@ type outgoingMsg struct {
 	priority bool
 	msg      lnwire.Message
 	errChan  chan error // MUST be buffered.
+
+	// queueCost is calculated before insertion so the generic queue can
+	// account for retained memory without interpreting wire message types.
+	queueCost int
 }
 
 // newChannelMsg packages a chanstate.OpenChannel with a channel that allows
@@ -585,6 +598,12 @@ type Brontide struct {
 
 	pingManager *PingManager
 
+	// pingLimits owns the two per-connection inbound Ping policies.
+	pingLimits pingLimits
+
+	// queueLimits supplies one accounting policy to the producer and queue.
+	queueLimits queueLimits
+
 	// lastPingPayload stores an unsafe pointer wrapped as an atomic
 	// variable which points to the last payload the remote party sent us
 	// as their ping.
@@ -746,6 +765,8 @@ func NewBrontide(cfg Config) *Brontide {
 		activeSignal:  make(chan struct{}),
 		sendQueue:     make(chan outgoingMsg),
 		outgoingQueue: make(chan outgoingMsg),
+		pingLimits:    defaultPingLimits(),
+		queueLimits:   defaultQueueLimits(),
 		addedChannels: &lnutils.SyncMap[lnwire.ChannelID, struct{}]{},
 		activeChannels: &lnutils.SyncMap[
 			lnwire.ChannelID, *lnwallet.LightningChannel,
@@ -2316,6 +2337,22 @@ out:
 			}
 		}
 
+		// Count before routing; consuming endpoints skip the switch.
+		// All Pings, including oversized ones, use the flood budget.
+		if _, ok := nextMsg.(*lnwire.Ping); ok &&
+			!p.pingLimits.pingLimiter.Allow() {
+
+			p.storeError(errPingFlood)
+			p.log.Warnf("%v", errPingFlood)
+
+			// Stop Ping management before peer cancellation.
+			// Keep queue handling active so a Ping send can finish
+			// through outgoingQueue without deadlock.
+			p.Disconnect(errPingFlood)
+
+			break out
+		}
+
 		// If a message router is active, then we'll try to have it
 		// handle this message. If it can, then we're able to skip the
 		// rest of the message handling logic.
@@ -2352,6 +2389,14 @@ out:
 			// or more pong bytes instead of replying or
 			// disconnecting.
 			if msg.NumPongBytes > lnwire.MaxPongBytes {
+				continue
+			}
+
+			// BOLT 1 requires a Pong for every Ping below the size
+			// ceiling. We limit reply frequency to guard against
+			// floods; normal keepalives remain below this limit.
+			if !p.pingLimits.pongLimiter.Allow() {
+				p.log.Debugf("Pong reply rate limited")
 				continue
 			}
 
@@ -3084,62 +3129,84 @@ out:
 func (p *Brontide) queueHandler() {
 	defer p.cg.WgDone()
 
-	// priorityMsgs holds an in order list of messages deemed high-priority
-	// to be added to the sendQueue. This predominately includes messages
-	// from the funding manager and htlcswitch.
-	priorityMsgs := list.New()
-
-	// lazyMsgs holds an in order list of messages deemed low-priority to be
-	// added to the sendQueue only after all high-priority messages have
-	// been queued. This predominately includes messages from the gossiper.
-	lazyMsgs := list.New()
+	queue := newMsgQueue(p.queueLimits)
 
 	for {
-		// Examine the front of the priority queue, if it is empty check
-		// the low priority queue.
-		elem := priorityMsgs.Front()
-		if elem == nil {
-			elem = lazyMsgs.Front()
+		elem, next := queue.front()
+
+		// A nil channel disables this select case while the queue is
+		// empty. Incoming messages therefore use one generic path
+		// whether or not a message is ready for writeHandler.
+		var sendQueue chan outgoingMsg
+		if elem != nil {
+			sendQueue = p.sendQueue
 		}
 
-		if elem != nil {
-			front := elem.Value.(outgoingMsg)
+		select {
+		case sendQueue <- next:
+			queue.pop(elem)
 
-			// There's an element on the queue, try adding
-			// it to the sendQueue. We also watch for
-			// messages on the outgoingQueue, in case the
-			// writeHandler cannot accept messages on the
-			// sendQueue.
-			select {
-			case p.sendQueue <- front:
-				if front.priority {
-					priorityMsgs.Remove(elem)
-				} else {
-					lazyMsgs.Remove(elem)
-				}
-			case msg := <-p.outgoingQueue:
-				if msg.priority {
-					priorityMsgs.PushBack(msg)
-				} else {
-					lazyMsgs.PushBack(msg)
-				}
-			case <-p.cg.Done():
-				return
+		case msg := <-p.outgoingQueue:
+			if queue.push(msg) {
+				continue
 			}
-		} else {
-			// If there weren't any messages to send to the
-			// writeHandler, then we'll accept a new message
-			// into the queue from outside sub-systems.
-			select {
-			case msg := <-p.outgoingQueue:
-				if msg.priority {
-					priorityMsgs.PushBack(msg)
-				} else {
-					lazyMsgs.PushBack(msg)
-				}
-			case <-p.cg.Done():
-				return
+
+			// push leaves a rejected message unretained. Include it
+			// in the totals, then return its typed error before
+			// disconnecting.
+			p.failQueueOverflow(
+				msg, queue.numMsgs+1,
+				queue.numBytes+msg.queueCost,
+			)
+
+			return
+
+		case <-p.cg.Done():
+			return
+		}
+	}
+}
+
+// failQueueOverflow reports the rejected message's wrapped sentinel, tears the
+// connection down after the outgoing queue reaches a bound, and keeps that
+// queue serviced until teardown completes. Messages already admitted to the
+// local queue can be abandoned without individual replies; synchronous callers
+// then unblock through peer cancellation. This avoids blocking an arbitrary
+// producer and prevents subsystem-wide backpressure.
+//
+// NOTE: This blocks until the peer's context is cancelled, so it must be
+// called from the queueHandler goroutine itself.
+func (p *Brontide) failQueueOverflow(msg outgoingMsg, numQueued,
+	queuedBytes int) {
+
+	err := fmt.Errorf("%w: messages=%d, bytes=%d", errQueueOverflow,
+		numQueued, queuedBytes)
+
+	// The triggering message was never retained, so it cannot reach the
+	// write handler. A buffered response lets its synchronous SendMessage
+	// caller observe the precise overload error before teardown begins.
+	if msg.errChan != nil {
+		msg.errChan <- err
+	}
+
+	p.storeError(err)
+	p.log.Warnf("%v", err)
+
+	// Disconnect gets its own goroutine because we have to keep draining.
+	// Every message producer parks on outgoingQueue until the peer context
+	// is cancelled, and Disconnect waits on the ping manager before that
+	// cancellation. Walking away now could wedge both goroutines.
+	go p.Disconnect(err)
+
+	for {
+		select {
+		case msg := <-p.outgoingQueue:
+			if msg.errChan != nil {
+				msg.errChan <- lnpeer.ErrPeerExiting
 			}
+
+		case <-p.cg.Done():
+			return
 		}
 	}
 }
@@ -3169,8 +3236,17 @@ func (p *Brontide) queueMsgLazy(msg lnwire.Message, errChan chan error) {
 func (p *Brontide) queue(priority bool, msg lnwire.Message,
 	errChan chan error) {
 
+	// Compute retained-memory accounting at the producer boundary so the
+	// queue handles only generic cost metadata, never wire message types.
+	queuedMsg := outgoingMsg{
+		priority:  priority,
+		msg:       msg,
+		errChan:   errChan,
+		queueCost: p.queueLimits.msgCost(msg),
+	}
+
 	select {
-	case p.outgoingQueue <- outgoingMsg{priority, msg, errChan}:
+	case p.outgoingQueue <- queuedMsg:
 	case <-p.cg.Done():
 		p.log.Tracef("Peer shutting down, could not enqueue msg: %v.",
 			lnutils.SpewLogClosure(msg))
@@ -5117,22 +5193,17 @@ func (p *Brontide) SendMessageLazy(sync bool, msgs ...lnwire.Message) error {
 // messages have been sent to the remote peer or an error is returned, otherwise
 // it returns immediately after queueing.
 func (p *Brontide) sendMessage(sync, priority bool, msgs ...lnwire.Message) error {
-	// Add all incoming messages to the outgoing queue. A list of error
-	// chans is populated for each message if the caller requested a sync
-	// send.
-	var errChans []chan error
+	// One channel covers the whole synchronous batch so a later rejection
+	// cannot be hidden behind an earlier message that is still pending. A
+	// slot per message keeps producers non-blocking if this caller returns
+	// after the first error.
+	var errChan chan error
 	if sync {
-		errChans = make([]chan error, 0, len(msgs))
+		errChan = make(chan error, len(msgs))
 	}
 	for _, msg := range msgs {
-		// If a sync send was requested, create an error chan to listen
-		// for an ack from the writeHandler.
-		var errChan chan error
-		if sync {
-			errChan = make(chan error, 1)
-			errChans = append(errChans, errChan)
-		}
-
+		// Queue every message with the shared result destination. Async
+		// sends retain a nil channel and therefore require no replies.
 		if priority {
 			p.queueMsg(msg, errChan)
 		} else {
@@ -5140,16 +5211,40 @@ func (p *Brontide) sendMessage(sync, priority bool, msgs ...lnwire.Message) erro
 		}
 	}
 
-	// Wait for all replies from the writeHandler. For async sends, this
-	// will be a NOP as the list of error chans is nil.
-	for _, errChan := range errChans {
+	// Async callers are complete once every message reaches outgoingQueue;
+	// only synchronous batches have acknowledgements to collect below.
+	if !sync {
+		return nil
+	}
+
+	// peerExitError drains results already published before cancellation.
+	// Overflow reports its sentinel before initiating teardown, so scanning
+	// past successful replies preserves that more precise batch failure.
+	peerExitError := func() error {
+		for {
+			select {
+			case err := <-errChan:
+				if err != nil {
+					return err
+				}
+			default:
+				return lnpeer.ErrPeerExiting
+			}
+		}
+	}
+
+	// Wait for every synchronous reply so an accepted prefix cannot make a
+	// partially rejected variadic send appear successful.
+	for range msgs {
 		select {
 		case err := <-errChan:
-			return err
+			if err != nil {
+				return err
+			}
 		case <-p.cg.Done():
-			return lnpeer.ErrPeerExiting
+			return peerExitError()
 		case <-p.cfg.Quit:
-			return lnpeer.ErrPeerExiting
+			return peerExitError()
 		}
 	}
 

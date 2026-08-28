@@ -2,7 +2,10 @@ package queue
 
 import (
 	"reflect"
+	"sync"
 	"testing"
+
+	"github.com/stretchr/testify/require"
 )
 
 // TestNewCircularBuffer tests the size parameter check when creating a circular
@@ -195,4 +198,62 @@ func TestLatest(t *testing.T) {
 			}
 		})
 	}
+}
+
+// TestCircularBufferConcurrentAccess verifies that peer error writers and RPC
+// readers can safely share a buffer without corrupting its order or counters.
+func TestCircularBufferConcurrentAccess(t *testing.T) {
+	// Arrange: Create a small wrapping buffer and two finite workers behind
+	// one start gate. The writer repeatedly wraps the storage while the
+	// reader exercises every public observation method against those writes.
+	const (
+		bufferSize = 8
+		iterations = 1000
+	)
+	buffer, err := NewCircularBuffer(bufferSize)
+	require.NoError(t, err)
+
+	start := make(chan struct{})
+	var workers sync.WaitGroup
+	workers.Add(2)
+
+	go func() {
+		defer workers.Done()
+		<-start
+
+		for i := 0; i < iterations; i++ {
+			buffer.Add(i)
+		}
+	}()
+
+	go func() {
+		defer workers.Done()
+		<-start
+
+		for i := 0; i < iterations; i++ {
+			buffer.List()
+			buffer.Latest()
+			buffer.Total()
+		}
+	}()
+
+	// Act: Release both workers together and join them before inspecting
+	// results, keeping test assertions in the owning goroutine.
+	close(start)
+	workers.Wait()
+
+	// Assert: Every write is counted and the retained wrapping window is
+	// still ordered from oldest to newest after concurrent observations.
+	require.Equal(t, iterations, buffer.Total())
+	require.Equal(t, iterations-1, buffer.Latest())
+	require.Equal(t, []interface{}{
+		iterations - 8,
+		iterations - 7,
+		iterations - 6,
+		iterations - 5,
+		iterations - 4,
+		iterations - 3,
+		iterations - 2,
+		iterations - 1,
+	}, buffer.List())
 }

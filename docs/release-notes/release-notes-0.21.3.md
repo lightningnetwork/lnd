@@ -21,6 +21,14 @@
 
 # Bug Fixes
 
+* [Fixed a bug](https://github.com/lightningnetwork/lnd/pull/10782)
+  that could be encountered during co-op closes whereby
+  `ChanStatusCoopBroadcasted` was set before a close transaction
+  actually existed. As a side effect, channels in shutdown
+  negotiation now remain in `ListChannels` (as inactive) until
+  the close transaction is actually broadcast, and
+  `WaitingCloseChannel.ClosingTx` is never empty.
+
 * Channel funding attempts [now return
   cleanly](https://github.com/lightningnetwork/lnd/pull/11035) when their
   pending wallet reservation is no longer present.
@@ -115,6 +123,7 @@
 # Contributors (Alphabetical Order)
 
 * Elle Mouton
+* Jared Tobin
 * LNBiG
 * Yong Yu
 * Ziggie

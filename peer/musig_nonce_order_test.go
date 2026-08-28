@@ -108,7 +108,7 @@ func TestRemoteCloseStartTaprootIntegration(t *testing.T) {
 	feeEstimator := &mockCoopFeeEstimator{}
 	feeEstimator.On(
 		"EstimateFee", mock.Anything, mock.Anything,
-		mock.Anything, mock.Anything,
+		mock.Anything, mock.Anything, mock.Anything,
 	).Return(btcutil.Amount(1000))
 
 	chanObserver := &mockChanObserver{}
@@ -246,9 +246,12 @@ type mockCoopFeeEstimator struct {
 
 func (m *mockCoopFeeEstimator) EstimateFee(
 	chanType channeldb.ChannelType, localTxOut, remoteTxOut *wire.TxOut,
+	extraTxOuts []*wire.TxOut,
 	idealFeeRate chainfee.SatPerKWeight) btcutil.Amount {
 
-	args := m.Called(chanType, localTxOut, remoteTxOut, idealFeeRate)
+	args := m.Called(
+		chanType, localTxOut, remoteTxOut, extraTxOuts, idealFeeRate,
+	)
 
 	amt, _ := args.Get(0).(btcutil.Amount)
 

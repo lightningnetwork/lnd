@@ -51,6 +51,12 @@ type AuxShutdownReq struct {
 	FundingBlob fn.Option[tlv.Blob]
 }
 
+// AuxCloseShapeDesc describes a channel close for which the fee-independent
+// shape of the auxiliary close outputs is being queried.
+type AuxCloseShapeDesc struct {
+	AuxShutdownReq
+}
+
 // AuxCloseDesc is used to describe the channel close that is being performed.
 type AuxCloseDesc struct {
 	AuxShutdownReq

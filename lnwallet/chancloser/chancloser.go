@@ -57,6 +57,11 @@ var (
 	// errNoShutdownNonce is returned when a shutdown message is received
 	// w/o a nonce for a taproot channel.
 	errNoShutdownNonce = fmt.Errorf("shutdown nonce not populated")
+
+	// ErrAuxShapeMismatch is returned when the concrete auxiliary close
+	// outputs don't match the shape that was declared for fee estimation.
+	ErrAuxShapeMismatch = fmt.Errorf("aux close outputs don't match " +
+		"declared shape")
 )
 
 // closeState represents all the possible states the channel closer state
@@ -257,12 +262,18 @@ type ChanCloser struct {
 	// auxOutputs are the optional additional outputs that might be added to
 	// the closing transaction.
 	auxOutputs fn.Option[AuxCloseOutputs]
+
+	// auxShape is the fee-independent shape of the auxiliary close
+	// outputs, as declared by the aux closer when the fee baseline was
+	// established. The concrete outputs are validated against it.
+	auxShape fn.Option[AuxCloseShape]
 }
 
 // calcCoopCloseFee computes an "ideal" absolute co-op close fee given the
-// delivery scripts of both parties and our ideal fee rate.
+// delivery scripts of both parties, any extra (e.g. auxiliary) close outputs
+// to include in the weight estimate, and our ideal fee rate.
 func calcCoopCloseFee(chanType channeldb.ChannelType,
-	localOutput, remoteOutput *wire.TxOut,
+	localOutput, remoteOutput *wire.TxOut, extraOutputs []*wire.TxOut,
 	idealFeeRate chainfee.SatPerKWeight) btcutil.Amount {
 
 	var weightEstimator input.TxWeightEstimator
@@ -283,6 +294,9 @@ func calcCoopCloseFee(chanType channeldb.ChannelType,
 	if remoteOutput != nil {
 		weightEstimator.AddTxOutput(remoteOutput)
 	}
+	for _, extraOutput := range extraOutputs {
+		weightEstimator.AddTxOutput(extraOutput)
+	}
 
 	totalWeight := weightEstimator.Weight()
 
@@ -296,13 +310,78 @@ type SimpleCoopFeeEstimator struct {
 }
 
 // EstimateFee estimates an _absolute_ fee for a co-op close transaction given
-// the local+remote tx outs (for the co-op close transaction), channel type,
-// and ideal fee rate.
+// the local+remote tx outs (for the co-op close transaction), any extra
+// outputs the close transaction will carry, channel type, and ideal fee rate.
 func (d *SimpleCoopFeeEstimator) EstimateFee(chanType channeldb.ChannelType,
-	localTxOut, remoteTxOut *wire.TxOut,
+	localTxOut, remoteTxOut *wire.TxOut, extraTxOuts []*wire.TxOut,
 	idealFeeRate chainfee.SatPerKWeight) btcutil.Amount {
 
-	return calcCoopCloseFee(chanType, localTxOut, remoteTxOut, idealFeeRate)
+	return calcCoopCloseFee(
+		chanType, localTxOut, remoteTxOut, extraTxOuts, idealFeeRate,
+	)
+}
+
+// auxShapeTxOuts synthesizes zero-value outputs matching the declared aux
+// close shape, for use in fee estimation. Only the pkScript sizes matter, as
+// output values don't contribute to transaction weight.
+func auxShapeTxOuts(shape fn.Option[AuxCloseShape]) []*wire.TxOut {
+	var txOuts []*wire.TxOut
+	shape.WhenSome(func(s AuxCloseShape) {
+		txOuts = make([]*wire.TxOut, 0, len(s.Outputs))
+		for _, out := range s.Outputs {
+			txOuts = append(txOuts, &wire.TxOut{
+				PkScript: make([]byte, out.PkScriptSize),
+			})
+		}
+	})
+
+	return txOuts
+}
+
+// validateAuxShape ensures the concrete auxiliary outputs match the shape
+// that was declared for fee estimation. A mismatch would invalidate the
+// negotiated fee, so we fail rather than sign off on a misestimated close
+// transaction.
+func validateAuxShape(shape fn.Option[AuxCloseShape],
+	auxOutputs fn.Option[AuxCloseOutputs]) error {
+
+	var declared []AuxCloseOutputShape
+	shape.WhenSome(func(s AuxCloseShape) {
+		declared = s.Outputs
+	})
+
+	var concrete []lnwallet.CloseOutput
+	auxOutputs.WhenSome(func(outs AuxCloseOutputs) {
+		concrete = outs.ExtraCloseOutputs
+	})
+
+	if len(declared) != len(concrete) {
+		return fmt.Errorf("%w: declared %v aux close outputs, got %v",
+			ErrAuxShapeMismatch, len(declared), len(concrete))
+	}
+
+	// Compare the two sets while being agnostic to ordering: count the
+	// declared outputs per kind, then match each concrete output against
+	// the remaining declared kinds.
+	kinds := make(map[AuxCloseOutputShape]int, len(declared))
+	for _, out := range declared {
+		kinds[out]++
+	}
+	for _, out := range concrete {
+		kind := AuxCloseOutputShape{
+			IsLocal:      out.IsLocal,
+			PkScriptSize: len(out.TxOut.PkScript),
+		}
+		if kinds[kind] == 0 {
+			return fmt.Errorf("%w: output (is_local=%v, "+
+				"pk_script_size=%v) wasn't declared",
+				ErrAuxShapeMismatch, kind.IsLocal,
+				kind.PkScriptSize)
+		}
+		kinds[kind]--
+	}
+
+	return nil
 }
 
 // NewChanCloser creates a new instance of the channel closure given the passed
@@ -333,8 +412,10 @@ func NewChanCloser(cfg ChanCloseCfg, deliveryScript DeliveryAddrWithKey,
 }
 
 // initFeeBaseline computes our ideal fee rate, and also the largest fee we'll
-// accept given information about the delivery script of the remote party.
-func (c *ChanCloser) initFeeBaseline() {
+// accept given information about the delivery script of the remote party. It
+// returns an error if the auxiliary close outputs cannot be enumerated to
+// include in the fee estimate.
+func (c *ChanCloser) initFeeBaseline() error {
 	// Depending on if a balance ends up being dust or not, we'll pass a
 	// nil TxOut into the EstimateFee call which can handle it.
 	var localTxOut, remoteTxOut *wire.TxOut
@@ -351,10 +432,20 @@ func (c *ChanCloser) initFeeBaseline() {
 		}
 	}
 
+	// Fetch the fee-independent shape of any auxiliary close outputs, and
+	// synthesize their weight contribution, so the fee we negotiate
+	// matches the final transaction that will carry them.
+	var err error
+	c.auxShape, err = c.auxCloseShape()
+	if err != nil {
+		return err
+	}
+	extraTxOuts := auxShapeTxOuts(c.auxShape)
+
 	// Given the target fee-per-kw, we'll compute what our ideal _total_
 	// fee will be starting at for this fee negotiation.
 	c.idealFeeSat = c.cfg.FeeEstimator.EstimateFee(
-		0, localTxOut, remoteTxOut, c.idealFeeRate,
+		0, localTxOut, remoteTxOut, extraTxOuts, c.idealFeeRate,
 	)
 
 	// When we're the initiator, we'll want to also factor in the highest
@@ -363,7 +454,7 @@ func (c *ChanCloser) initFeeBaseline() {
 	c.maxFee = c.idealFeeSat * defaultMaxFeeMultiplier
 	if c.cfg.MaxFee > 0 {
 		c.maxFee = c.cfg.FeeEstimator.EstimateFee(
-			0, localTxOut, remoteTxOut, c.cfg.MaxFee,
+			0, localTxOut, remoteTxOut, extraTxOuts, c.cfg.MaxFee,
 		)
 	}
 
@@ -373,6 +464,8 @@ func (c *ChanCloser) initFeeBaseline() {
 	chancloserLog.Infof("Ideal fee for closure of ChannelPoint(%v) "+
 		"is: %v sat (max_fee=%v sat)", c.cfg.Channel.ChannelPoint(),
 		int64(c.idealFeeSat), int64(c.maxFee))
+
+	return nil
 }
 
 // initChanShutdown begins the shutdown process by un-registering the channel,
@@ -752,7 +845,10 @@ func (c *ChanCloser) BeginNegotiation() (fn.Option[lnwire.ClosingSigned],
 	case closeAwaitingFlush:
 		// Now that we know their desired delivery script, we can
 		// compute what our max/ideal fee will be.
-		c.initFeeBaseline()
+		err := c.initFeeBaseline()
+		if err != nil {
+			return noClosingSigned, err
+		}
 
 		// At this point, we can now start the fee negotiation state, by
 		// constructing and sending our initial signature for what we
@@ -952,6 +1048,10 @@ func (c *ChanCloser) ReceiveClosingSigned( //nolint:funlen
 		if err != nil {
 			return noClosing, err
 		}
+		err = validateAuxShape(c.auxShape, c.auxOutputs)
+		if err != nil {
+			return noClosing, err
+		}
 		c.auxOutputs.WhenSome(func(outs AuxCloseOutputs) {
 			closeOpts = append(
 				closeOpts, lnwallet.WithExtraCloseOutputs(
@@ -1023,6 +1123,42 @@ func (c *ChanCloser) ReceiveClosingSigned( //nolint:funlen
 	}
 }
 
+// auxShutdownReq assembles the shutdown request that describes this channel
+// to the aux closer.
+func (c *ChanCloser) auxShutdownReq() types.AuxShutdownReq {
+	return types.AuxShutdownReq{
+		ChanPoint:   c.chanPoint,
+		ShortChanID: c.cfg.Channel.ShortChanID(),
+		InternalKey: c.localInternalKey,
+		Initiator:   c.cfg.Channel.IsInitiator(),
+		CommitBlob:  c.cfg.Channel.LocalCommitmentBlob(),
+		FundingBlob: c.cfg.Channel.FundingBlob(),
+	}
+}
+
+// auxCloseShape returns the fee-independent shape of any additional outputs
+// that will be added to the close transaction.
+func (c *ChanCloser) auxCloseShape() (fn.Option[AuxCloseShape], error) {
+	var closeShape fn.Option[AuxCloseShape]
+	err := fn.MapOptionZ(c.cfg.AuxCloser, func(aux AuxChanCloser) error {
+		shape, err := aux.AuxCloseShape(types.AuxCloseShapeDesc{
+			AuxShutdownReq: c.auxShutdownReq(),
+		})
+		if err != nil {
+			return err
+		}
+
+		closeShape = shape
+
+		return nil
+	})
+	if err != nil {
+		return closeShape, err
+	}
+
+	return closeShape, nil
+}
+
 // auxCloseOutputs returns any additional outputs that should be used when
 // closing the channel.
 func (c *ChanCloser) auxCloseOutputs(
@@ -1030,16 +1166,8 @@ func (c *ChanCloser) auxCloseOutputs(
 
 	var closeOuts fn.Option[AuxCloseOutputs]
 	err := fn.MapOptionZ(c.cfg.AuxCloser, func(aux AuxChanCloser) error {
-		req := types.AuxShutdownReq{
-			ChanPoint:   c.chanPoint,
-			ShortChanID: c.cfg.Channel.ShortChanID(),
-			InternalKey: c.localInternalKey,
-			Initiator:   c.cfg.Channel.IsInitiator(),
-			CommitBlob:  c.cfg.Channel.LocalCommitmentBlob(),
-			FundingBlob: c.cfg.Channel.FundingBlob(),
-		}
 		outs, err := aux.AuxCloseOutputs(types.AuxCloseDesc{
-			AuxShutdownReq:    req,
+			AuxShutdownReq:    c.auxShutdownReq(),
 			CloseFee:          closeFee,
 			CommitFee:         c.cfg.Channel.CommitFee(),
 			LocalCloseOutput:  c.localCloseOutput,
@@ -1084,6 +1212,9 @@ func (c *ChanCloser) proposeCloseSigned(fee btcutil.Amount) (
 	// for the closing purpose.
 	c.auxOutputs, err = c.auxCloseOutputs(fee)
 	if err != nil {
+		return nil, err
+	}
+	if err := validateAuxShape(c.auxShape, c.auxOutputs); err != nil {
 		return nil, err
 	}
 	c.auxOutputs.WhenSome(func(outs AuxCloseOutputs) {

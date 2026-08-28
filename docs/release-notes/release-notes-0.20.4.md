@@ -21,6 +21,12 @@
 
 # Bug Fixes
 
+* TLV decoders [now reject malformed records with incorrect
+  lengths](https://github.com/lightningnetwork/lnd/pull/10249). Fixed-size
+  records such as the inbound fee, Musig2 nonce and short channel ID are
+  validated against their declared length, so a record whose length does not
+  match is no longer silently accepted and re-encoded differently.
+
 * Channel funding attempts [now return
   cleanly](https://github.com/lightningnetwork/lnd/pull/11035) when their
   pending wallet reservation is no longer present.
@@ -89,6 +95,7 @@
 
 # Contributors (Alphabetical Order)
 
+* Erick Cestari
 * LNBiG
 * Yong Yu
 * Ziggie

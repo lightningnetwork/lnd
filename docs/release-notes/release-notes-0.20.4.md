@@ -62,6 +62,9 @@
   transaction confirmed stayed in the `channelReadySent` opening state forever,
   never added to the graph and never announced. Only a restart recovered.
 
+* [Fixed an issue](https://github.com/lightningnetwork/lnd/pull/11140) where the
+  incoming side of a forwarded dust HTLC could remain stuck.
+
 # New Features
 
 ## Functional Enhancements
@@ -98,6 +101,7 @@
 
 # Contributors (Alphabetical Order)
 
+* Boris Nagaev
 * LNBiG
 * Yong Yu
 * Ziggie

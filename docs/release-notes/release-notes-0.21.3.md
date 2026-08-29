@@ -74,6 +74,9 @@
   by including extra outputs in initial fee estimation, preventing underpriced
   taproot/custom channel cooperative closes from failing mempool acceptance.
 
+* [Fixed an issue](https://github.com/lightningnetwork/lnd/pull/11140) where the
+  incoming side of a forwarded dust HTLC could remain stuck.
+
 # New Features
 
 ## Functional Enhancements
@@ -135,6 +138,7 @@
 
 # Contributors (Alphabetical Order)
 
+* Boris Nagaev
 * Elle Mouton
 * Jared Tobin
 * LNBiG

@@ -333,3 +333,358 @@ func testDisconnectingTargetPeer(ht *lntest.HarnessTest) {
 	// Check existing connection.
 	ht.AssertConnected(alice, bob)
 }
+
+// testListPeersAddressFields verifies the address-source fields that
+// ListPeers exposes on the Peer message: is_persistent, remembered_addresses
+// (from the LinkNode record), gossip_addresses (from NodeAnnouncement),
+// reconnect_pending, and the include_offline_persistent_peers request flag.
+func testListPeersAddressFields(ht *lntest.HarnessTest) {
+	alice := ht.NewNodeWithCoins("Alice", nil)
+	bob := ht.NewNode("Bob", nil)
+	bobInfo := bob.RPC.GetInfo()
+
+	// Opening a channel writes a LinkNode record for the peer (this is
+	// what remembered_addresses reads from), and puts the peer in the
+	// persistent-reconnect set.
+	ht.ConnectNodes(alice, bob)
+	ht.OpenChannel(alice, bob, lntest.OpenChannelParams{Amt: 100_000})
+
+	// Helper: pull Bob's entry out of Alice's ListPeers response.
+	bobPeer := func(req *lnrpc.ListPeersRequest) *lnrpc.Peer {
+		resp := alice.RPC.ListPeersReq(req)
+		for _, p := range resp.Peers {
+			if p.PubKey == bobInfo.IdentityPubkey {
+				return p
+			}
+		}
+		return nil
+	}
+
+	// While connected, the new fields should be populated.
+	require.NoError(ht, wait.NoError(func() error {
+		p := bobPeer(&lnrpc.ListPeersRequest{})
+		if p == nil {
+			return fmt.Errorf("bob not yet in listpeers")
+		}
+		if !p.IsPersistent {
+			return fmt.Errorf("is_persistent should be true for " +
+				"a channel peer")
+		}
+		if len(p.RememberedAddresses) == 0 {
+			return fmt.Errorf("remembered_addresses should be " +
+				"populated for a channel peer")
+		}
+		if p.ReconnectPending {
+			return fmt.Errorf("reconnect_pending should be " +
+				"false while connected")
+		}
+		return nil
+	}, defaultTimeout))
+
+	// Stop Bob so Alice's connection to him drops.
+	restartBob := ht.SuspendNode(bob)
+
+	// Without include_offline_persistent_peers, Bob should not appear
+	// in the response once his connection is gone.
+	require.NoError(ht, wait.NoError(func() error {
+		p := bobPeer(&lnrpc.ListPeersRequest{})
+		if p != nil {
+			return fmt.Errorf("bob still visible without " +
+				"include_offline_persistent_peers")
+		}
+		return nil
+	}, defaultTimeout))
+
+	// With include_offline_persistent_peers, Bob should appear as an
+	// offline persistent entry: address empty, remembered_addresses
+	// populated, is_persistent true.
+	p := bobPeer(&lnrpc.ListPeersRequest{
+		IncludeOfflinePersistentPeers: true,
+	})
+	require.NotNil(ht, p,
+		"bob should appear when include_offline_persistent_peers=true")
+	require.Empty(ht, p.Address,
+		"offline entry should have empty address")
+	require.True(ht, p.IsPersistent,
+		"offline channel peer should still be is_persistent")
+	require.NotEmpty(ht, p.RememberedAddresses,
+		"offline channel peer should still expose remembered_addresses")
+
+	// Bring Bob back online so the test doesn't leave a hung retry.
+	require.NoError(ht, restartBob())
+}
+
+// testAutoPersistChannelPeerAddress verifies that when a peer we have an
+// open channel with connects on an address that isn't already in its
+// LinkNode entry, that address is appended to the entry so a future
+// restart can dial it. The scenario: open a channel between Alice and Bob
+// at port A, disconnect them, move Bob to port B, reconnect Alice to Bob
+// at port B, then assert that Alice's remembered_addresses for Bob now
+// contains both A and B.
+func testAutoPersistChannelPeerAddress(ht *lntest.HarnessTest) {
+	// Alice is set up with --nolisten so Bob physically cannot dial
+	// back to her at any point during the test. Combined with the
+	// long backoff on Alice's own persistent-reconnect logic, this
+	// guarantees the only peer connection to Bob we ever observe
+	// during the test is the outbound one we initiate explicitly.
+	aliceArgs := []string{
+		"--nolisten",
+		"--minbackoff=1h",
+		"--maxbackoff=1h",
+	}
+	alice := ht.NewNodeWithCoins("Alice", aliceArgs)
+	bob := ht.NewNode("Bob", nil)
+	bobInfo := bob.RPC.GetInfo()
+
+	portA := bob.Cfg.P2PPort
+	addrA := fmt.Sprintf("127.0.0.1:%d", portA)
+
+	// Open a channel — this seeds Alice's LinkNode entry for Bob with
+	// Bob's address at channel-open time, which is port A.
+	ht.ConnectNodes(alice, bob)
+	ht.OpenChannel(alice, bob, lntest.OpenChannelParams{Amt: 100_000})
+
+	// bobPeer pulls Bob's entry out of Alice's ListPeers response,
+	// including offline persistent entries so the assertion still works
+	// while Alice is disconnected from Bob.
+	bobPeer := func() *lnrpc.Peer {
+		resp := alice.RPC.ListPeersReq(&lnrpc.ListPeersRequest{
+			IncludeOfflinePersistentPeers: true,
+		})
+		for _, p := range resp.Peers {
+			if p.PubKey == bobInfo.IdentityPubkey {
+				return p
+			}
+		}
+		return nil
+	}
+
+	// Sanity: port A appears in remembered_addresses now.
+	require.NoError(ht, wait.NoError(func() error {
+		p := bobPeer()
+		if p == nil {
+			return fmt.Errorf("bob not yet in listpeers")
+		}
+		for _, a := range p.RememberedAddresses {
+			if a == addrA {
+				return nil
+			}
+		}
+		return fmt.Errorf("remembered_addresses %v missing %s",
+			p.RememberedAddresses, addrA)
+	}, defaultTimeout))
+
+	// Move Bob to port B.
+	portB := port.NextAvailablePort()
+	addrB := fmt.Sprintf("127.0.0.1:%d", portB)
+
+	ht.DisconnectNodes(alice, bob)
+	bob.Cfg.P2PPort = portB
+	ht.RestartNode(bob)
+
+	// Reconnect Alice to Bob explicitly at port B. This is a plain
+	// (non-perm) connect — the auto-persist behaviour is what we're
+	// exercising.
+	alice.RPC.ConnectPeer(&lnrpc.ConnectPeerRequest{
+		Addr: &lnrpc.LightningAddress{
+			Pubkey: bobInfo.IdentityPubkey,
+			Host:   addrB,
+		},
+	})
+	ht.AssertConnected(alice, bob)
+
+	// Alice's remembered_addresses for Bob should now list both A
+	// (from channel open) and B (auto-persisted on this connect).
+	require.NoError(ht, wait.NoError(func() error {
+		p := bobPeer()
+		if p == nil {
+			return fmt.Errorf("bob missing from listpeers")
+		}
+		haveA, haveB := false, false
+		for _, a := range p.RememberedAddresses {
+			switch a {
+			case addrA:
+				haveA = true
+			case addrB:
+				haveB = true
+			}
+		}
+		if !haveA {
+			return fmt.Errorf("remembered_addresses %v missing "+
+				"channel-open address %s",
+				p.RememberedAddresses, addrA)
+		}
+		if !haveB {
+			return fmt.Errorf("remembered_addresses %v missing "+
+				"auto-persisted address %s",
+				p.RememberedAddresses, addrB)
+		}
+		return nil
+	}, defaultTimeout))
+}
+
+// testDisconnectForget covers the whole-peer `--forget_node` and
+// per-address `--forget_address` code paths on `lncli disconnect`:
+//
+//   * `--forget_node` without `--force` when open channels exist:
+//     LinkNode preserved (remembered_addresses still populated after
+//     reconnect).
+//   * `--forget_node --force` with open channels: LinkNode gone.
+//   * `--forget_address` for a specific stored address: address removed
+//     from remembered_addresses; live connection left intact when the
+//     removed address isn't the currently-connected one.
+//   * `--forget_address` for the last stored address without `--force`:
+//     rejected; LinkNode still intact.
+//   * `--force` without `--forget_node` or `--forget_address`: rejected.
+//   * `--forget_node` together with `--forget_address`: rejected.
+func testDisconnectForget(ht *lntest.HarnessTest) {
+	// Bob binds a second listener on portB in addition to his default
+	// portA. Alice will seed a second stored address for Bob by
+	// reconnecting on portB — the auto-persist behaviour introduced by
+	// the previous commit captures the address on that outbound.
+	portB := port.NextAvailablePort()
+	addrB := fmt.Sprintf("127.0.0.1:%d", portB)
+	bobArgs := []string{fmt.Sprintf("--listen=%s", addrB)}
+
+	// Alice runs with --nolisten so Bob's own reconnect logic cannot
+	// dial back and create an inbound peer entry that races with the
+	// test. Long backoff on Alice's side is defence-in-depth.
+	aliceArgs := []string{
+		"--nolisten",
+		"--minbackoff=1h",
+		"--maxbackoff=1h",
+	}
+	alice := ht.NewNodeWithCoins("Alice", aliceArgs)
+	bob := ht.NewNode("Bob", bobArgs)
+	bobInfo := bob.RPC.GetInfo()
+
+	addrA := bob.Cfg.P2PAddr()
+
+	ht.ConnectNodes(alice, bob)
+	ht.OpenChannel(alice, bob, lntest.OpenChannelParams{Amt: 100_000})
+
+	bobPeer := func() *lnrpc.Peer {
+		resp := alice.RPC.ListPeersReq(&lnrpc.ListPeersRequest{})
+		for _, p := range resp.Peers {
+			if p.PubKey == bobInfo.IdentityPubkey {
+				return p
+			}
+		}
+		return nil
+	}
+
+	// Sanity: initial state has Bob's portA in remembered_addresses.
+	require.NoError(ht, wait.NoError(func() error {
+		p := bobPeer()
+		if p == nil || len(p.RememberedAddresses) == 0 {
+			return fmt.Errorf("waiting for remembered_addresses")
+		}
+		return nil
+	}, defaultTimeout))
+
+	// --force without --forget_node or --forget_address is rejected.
+	err := alice.RPC.DisconnectPeerReqAssertErr(&lnrpc.DisconnectPeerRequest{
+		PubKey: bobInfo.IdentityPubkey,
+		Force:  true,
+	})
+	require.Error(ht, err)
+
+	// --forget_node together with --forget_address is rejected.
+	err = alice.RPC.DisconnectPeerReqAssertErr(&lnrpc.DisconnectPeerRequest{
+		PubKey:        bobInfo.IdentityPubkey,
+		ForgetNode:    true,
+		ForgetAddress: addrA,
+	})
+	require.Error(ht, err)
+
+	// Seed a second stored address by reconnecting Alice on Bob's
+	// alternate listener. Auto-persist will append portB to Bob's
+	// LinkNode entry.
+	ht.DisconnectNodes(alice, bob)
+	alice.RPC.ConnectPeer(&lnrpc.ConnectPeerRequest{
+		Addr: &lnrpc.LightningAddress{
+			Pubkey: bobInfo.IdentityPubkey,
+			Host:   addrB,
+		},
+	})
+	ht.AssertConnected(alice, bob)
+	require.NoError(ht, wait.NoError(func() error {
+		p := bobPeer()
+		if p == nil {
+			return fmt.Errorf("bob missing from listpeers")
+		}
+		if len(p.RememberedAddresses) < 2 {
+			return fmt.Errorf("waiting for both remembered "+
+				"addresses, got %v", p.RememberedAddresses)
+		}
+		return nil
+	}, defaultTimeout))
+
+	// Alice is now connected on portB, so portA is the non-current
+	// stored address. --forget_address portA removes it cleanly with
+	// no last-address warning, and the connection on portB stays.
+	resp := alice.RPC.DisconnectPeerReq(&lnrpc.DisconnectPeerRequest{
+		PubKey:        bobInfo.IdentityPubkey,
+		ForgetAddress: addrA,
+	})
+	require.NotContains(ht, resp.Status, "last stored address",
+		"non-last removal should not include last-address warning")
+	ht.AssertConnected(alice, bob)
+	require.NoError(ht, wait.NoError(func() error {
+		p := bobPeer()
+		if p == nil {
+			return fmt.Errorf("bob missing")
+		}
+		for _, a := range p.RememberedAddresses {
+			if a == addrA {
+				return fmt.Errorf("portA should be removed " +
+					"but still present")
+			}
+		}
+		return nil
+	}, defaultTimeout))
+
+	// --forget_address on the sole remaining address (portB) without
+	// --force: rejected; LinkNode remains.
+	p := bobPeer()
+	require.Len(ht, p.RememberedAddresses, 1,
+		"expected exactly one remembered address before "+
+			"last-address test")
+	lastAddr := p.RememberedAddresses[0]
+	err = alice.RPC.DisconnectPeerReqAssertErr(&lnrpc.DisconnectPeerRequest{
+		PubKey:        bobInfo.IdentityPubkey,
+		ForgetAddress: lastAddr,
+	})
+	require.Error(ht, err)
+	p = bobPeer()
+	require.Len(ht, p.RememberedAddresses, 1,
+		"LinkNode should be intact after refused --forget_address")
+
+	// --forget_node without --force with an open channel: LinkNode
+	// preserved.
+	alice.RPC.DisconnectPeerReq(&lnrpc.DisconnectPeerRequest{
+		PubKey:     bobInfo.IdentityPubkey,
+		ForgetNode: true,
+	})
+	ht.AssertPeerNotConnected(alice, bob)
+	ht.ConnectNodes(alice, bob)
+	ht.AssertConnected(alice, bob)
+	p = bobPeer()
+	require.NotEmpty(ht, p.RememberedAddresses,
+		"--forget_node without --force should preserve LinkNode "+
+			"when open channels exist")
+
+	// --forget_node --force with an open channel: LinkNode removed.
+	alice.RPC.DisconnectPeerReq(&lnrpc.DisconnectPeerRequest{
+		PubKey:     bobInfo.IdentityPubkey,
+		ForgetNode: true,
+		Force:      true,
+	})
+	ht.AssertPeerNotConnected(alice, bob)
+	ht.ConnectNodes(alice, bob)
+	ht.AssertConnected(alice, bob)
+	p = bobPeer()
+	require.Empty(ht, p.RememberedAddresses,
+		"--forget_node --force should remove LinkNode even with "+
+			"open channels")
+}

@@ -168,14 +168,9 @@ const (
 	// process for a single QueryChannelRange request.
 	maxQueryChanRangeReplies = 500
 
-	// maxQueryChanRangeRepliesZlibFactor specifies the factor applied to
-	// the maximum number of replies allowed for zlib encoded replies.
-	maxQueryChanRangeRepliesZlibFactor = 4
-
 	// maxChanRangeReplySCIDs is the maximum number of short channel IDs
 	// we'll process for a single QueryChannelRange request.
 	maxChanRangeReplySCIDs = 100_000
-
 	// chanRangeQueryBuffer is the number of blocks back that we'll go when
 	// asking the remote peer for their any channels they know of beyond
 	// our highest known channel ID.
@@ -189,18 +184,15 @@ const (
 	// remote peer for in a QueryShortChanIDs message.
 	requestBatchSize = 500
 
+	// defaultChunkSize is the max number of short chan IDs using plain
+	// encoding that we can fit into a single message safely.
+	defaultChunkSize = 8000
+
 	// syncerBufferSize is the size of the syncer's buffers.
 	syncerBufferSize = 50
 )
 
 var (
-	// encodingTypeToChunkSize maps an encoding type, to the max number of
-	// short chan ID's using the encoding type that we can fit into a
-	// single message safely.
-	encodingTypeToChunkSize = map[lnwire.QueryEncoding]int32{
-		lnwire.EncodingSortedPlain: 8000,
-	}
-
 	// ErrGossipSyncerExiting signals that the syncer has been killed.
 	ErrGossipSyncerExiting = errors.New("gossip syncer exiting")
 
@@ -242,12 +234,8 @@ type gossipSyncerCfg struct {
 	// our queries and respond to the queries of the remote peer.
 	channelSeries ChannelGraphTimeSeries
 
-	// encodingType is the current encoding type we're aware of. Requests
-	// with different encoding types will be rejected.
-	encodingType lnwire.QueryEncoding
-
-	// chunkSize is the max number of short chan IDs using the syncer's
-	// encoding type that we can fit into a single message safely.
+	// chunkSize is the max number of short chan IDs that we can fit into a
+	// single message safely.
 	chunkSize int32
 
 	// batchSize is the max number of channels the syncer will query from
@@ -1024,9 +1012,6 @@ func (g *GossipSyncer) bufferChanRangeReply(_ context.Context,
 	case lnwire.EncodingSortedPlain:
 		replyCount = 1
 
-	case lnwire.EncodingSortedZlib:
-		replyCount = maxQueryChanRangeRepliesZlibFactor
-
 	default:
 		return fmt.Errorf(
 			"unhandled encoding type %v", msg.EncodingType,
@@ -1099,6 +1084,7 @@ func (g *GossipSyncer) bufferChanRangeReply(_ context.Context,
 		)
 	}
 
+	g.numChanRangeRepliesRcvd++
 	log.Infof("GossipSyncer(%x): buffering chan range reply of size=%v",
 		g.cfg.peerPub[:], len(msg.ShortChanIDs))
 
@@ -1288,7 +1274,7 @@ func (g *GossipSyncer) replyChanRangeQuery(ctx context.Context,
 			FirstBlockHeight: query.FirstBlockHeight,
 			NumBlocks:        query.NumBlocks,
 			Complete:         0,
-			EncodingType:     g.cfg.encodingType,
+			EncodingType:     lnwire.EncodingSortedPlain,
 			ShortChanIDs:     nil,
 		})
 	}
@@ -1361,7 +1347,7 @@ func (g *GossipSyncer) replyChanRangeQuery(ctx context.Context,
 			NumBlocks:        numBlocks,
 			FirstBlockHeight: firstHeight,
 			Complete:         complete,
-			EncodingType:     g.cfg.encodingType,
+			EncodingType:     lnwire.EncodingSortedPlain,
 			ShortChanIDs:     scids,
 			Timestamps:       timestamps,
 		})

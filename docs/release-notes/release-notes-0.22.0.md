@@ -98,6 +98,13 @@
 
 ## Deprecations
 
+* [Support for decoding `EncodingSortedZlib` (type 1) gossip queries has been
+  removed](https://github.com/lightningnetwork/lnd/pull/10980) as it
+  was dropped from the BOLT 7 specification. `lnd` never produced this encoding,
+  so in practice only the receive path changes. If a legacy peer attempts to
+  send a zlib-encoded `QueryShortChanIDs` or `ReplyChannelRange` message, it
+  will now trigger a fatal wire-decode error and instantly disconnect the peer.
+
 # Technical and Architectural Updates
 
 ## BOLT Spec Updates
@@ -167,3 +174,4 @@
 * Boris Nagaev
 * Erick Cestari
 * Jared Tobin
+* TechLateef

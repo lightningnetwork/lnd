@@ -2,7 +2,6 @@ package lnwire
 
 import (
 	"bytes"
-	"compress/zlib"
 	"encoding/binary"
 	"testing"
 
@@ -312,73 +311,9 @@ func FuzzQueryChannelRange(f *testing.F) {
 	})
 }
 
-func FuzzZlibQueryShortChanIDs(f *testing.F) {
-	f.Fuzz(func(t *testing.T, data []byte) {
-		var buf bytes.Buffer
-		zlibWriter := zlib.NewWriter(&buf)
-		_, err := zlibWriter.Write(data)
-		require.NoError(t, err) // Zlib bug?
-
-		err = zlibWriter.Close()
-		require.NoError(t, err) // Zlib bug?
-
-		compressedPayload := buf.Bytes()
-
-		chainhash := []byte("00000000000000000000000000000000")
-		numBytesInBody := len(compressedPayload) + 1
-		zlibByte := []byte("\x01")
-
-		bodyBytes := make([]byte, 2)
-		binary.BigEndian.PutUint16(bodyBytes, uint16(numBytesInBody))
-
-		payload := chainhash
-		payload = append(payload, bodyBytes...)
-		payload = append(payload, zlibByte...)
-		payload = append(payload, compressedPayload...)
-
-		wireMsgHarness(t, payload, MsgQueryShortChanIDs)
-	})
-}
-
 func FuzzQueryShortChanIDs(f *testing.F) {
 	f.Fuzz(func(t *testing.T, data []byte) {
 		wireMsgHarness(t, data, MsgQueryShortChanIDs)
-	})
-}
-
-func FuzzZlibReplyChannelRange(f *testing.F) {
-	f.Fuzz(func(t *testing.T, data []byte) {
-		var buf bytes.Buffer
-		zlibWriter := zlib.NewWriter(&buf)
-		_, err := zlibWriter.Write(data)
-		require.NoError(t, err) // Zlib bug?
-
-		err = zlibWriter.Close()
-		require.NoError(t, err) // Zlib bug?
-
-		compressedPayload := buf.Bytes()
-
-		// Initialize some []byte vars which will prefix our payload
-		chainhash := []byte("00000000000000000000000000000000")
-		firstBlockHeight := []byte("\x00\x00\x00\x00")
-		numBlocks := []byte("\x00\x00\x00\x00")
-		completeByte := []byte("\x00")
-
-		numBytesInBody := len(compressedPayload) + 1
-		zlibByte := []byte("\x01")
-
-		bodyBytes := make([]byte, 2)
-		binary.BigEndian.PutUint16(bodyBytes, uint16(numBytesInBody))
-
-		payload := chainhash
-		payload = append(payload, firstBlockHeight...)
-		payload = append(payload, numBlocks...)
-		payload = append(payload, completeByte...)
-		payload = append(payload, bodyBytes...)
-		payload = append(payload, zlibByte...)
-		payload = append(payload, compressedPayload...)
-
-		wireMsgHarness(t, payload, MsgReplyChannelRange)
 	})
 }
 

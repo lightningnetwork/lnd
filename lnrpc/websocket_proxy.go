@@ -149,6 +149,12 @@ func (p *WebsocketProxy) upgradeToWebSocketProxy(w http.ResponseWriter,
 		p.logger.Errorf("error upgrading websocket:", err)
 		return
 	}
+
+	// Bound the size of the messages we're willing to read from the
+	// client. The gorilla default is unlimited, while the responses we
+	// write back are already capped at the same value further below.
+	conn.SetReadLimit(MaxWsMsgSize)
+
 	defer func() {
 		err := conn.Close()
 		if err != nil && !IsClosedConnError(err) {
@@ -374,17 +380,23 @@ func forwardHeaders(source, target http.Header) {
 	// requests. We need to allow them to submit the macaroon as a WS
 	// protocol, which is the only allowed header. Set any "protocols" we
 	// declare valid as header fields on the forwarded request.
-	protocol := source.Get(HeaderWebSocketProtocol)
-	for key := range defaultProtocolsToAllow {
-		if strings.HasPrefix(protocol, key) {
-			// The format is "<protocol name>+<value>". We know the
-			// protocol string starts with the name so we only need
-			// to set the value.
-			values := strings.Split(
-				protocol, WebSocketProtocolDelimiter,
-			)
-			target.Set(key, values[1])
+	//
+	// The field is a comma separated list of protocols, so we need to look
+	// at each entry on its own. Only an entry of the form
+	// "<protocol name>+<value>" carries something to forward. A client is
+	// free to send a bare protocol name without the delimiter and value,
+	// in which case there is nothing to set on the target.
+	protocols := strings.Split(source.Get(HeaderWebSocketProtocol), ",")
+	for _, protocol := range protocols {
+		name, value, hasValue := strings.Cut(
+			strings.TrimSpace(protocol),
+			WebSocketProtocolDelimiter,
+		)
+		if !hasValue || !defaultProtocolsToAllow[name] {
+			continue
 		}
+
+		target.Set(name, value)
 	}
 }
 

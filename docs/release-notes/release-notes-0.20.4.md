@@ -65,6 +65,14 @@
 * [Fixed an issue](https://github.com/lightningnetwork/lnd/pull/11140) where the
   incoming side of a forwarded dust HTLC could remain stuck.
 
+* [Fixed a panic](https://github.com/lightningnetwork/lnd/pull/11122) in the
+  REST WebSocket proxy, where a `Sec-Websocket-Protocol` header carrying an
+  allowed field name without the `+` delimiter caused an index out of range
+  while the header was being forwarded to the backend. The header is now parsed
+  as the comma separated list of sub protocols it is, so a bare protocol name
+  can also no longer pick up the value of an unrelated sub protocol in the same
+  list.
+
 # New Features
 
 ## Functional Enhancements
@@ -76,6 +84,12 @@
 # Improvements
 
 ## Functional Updates
+
+* The REST WebSocket proxy now [bounds the size of incoming
+  messages](https://github.com/lightningnetwork/lnd/pull/11122) using
+  `MaxWsMsgSize`, the limit that was already applied to the responses it writes
+  back out. Oversized frames are rejected from their header rather than read in
+  full.
 
 ## RPC Updates
 
@@ -102,6 +116,7 @@
 # Contributors (Alphabetical Order)
 
 * Boris Nagaev
+* Gijs van Dam
 * LNBiG
 * Yong Yu
 * Ziggie

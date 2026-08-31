@@ -158,6 +158,13 @@
 
 ## Code Health
 
+* [Promises for the wallet's funding
+  workflow](https://github.com/lightningnetwork/lnd/pull/11152): the
+  internal requests the `LightningWallet` message handler serves no longer
+  carry their own reply channels. Each request now hands back an
+  `actor.Future`, which removes the paired error and result channels that
+  callers had to drain in the right order.
+
 ## Tooling and Documentation
 
 * [`dev.Dockerfile` now uses](https://github.com/lightningnetwork/lnd/pull/10903)

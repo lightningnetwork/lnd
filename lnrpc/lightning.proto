@@ -2237,8 +2237,9 @@ message BatchOpenChannel {
     bytes pending_chan_id = 8;
 
     /*
-    The explicit commitment type to use. Note this field will only be used if
-    the remote peer supports explicit channel negotiation.
+    The commitment type to request. If UNKNOWN, lnd selects a default from
+    both peers' supported features; the selected type is always sent
+    explicitly.
     */
     CommitmentType commitment_type = 9;
 
@@ -2410,8 +2411,9 @@ message OpenChannelRequest {
     uint32 max_local_csv = 17;
 
     /*
-    The explicit commitment type to use. Note this field will only be used if
-    the remote peer supports explicit channel negotiation.
+    The commitment type to request. If UNKNOWN, lnd selects a default from
+    both peers' supported features; the selected type is always sent
+    explicitly.
     */
     CommitmentType commitment_type = 18;
 

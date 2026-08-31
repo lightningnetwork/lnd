@@ -1599,7 +1599,7 @@ func testNormalWorkflow(t *testing.T, chanType *lnwire.ChannelType) {
 	})
 
 	// If the channel type is set, then we need to make sure both parties
-	// support explicit channel type negotiation.
+	// support the features underlying that type.
 	if chanType != nil {
 		// Alice and Bob will have the same set of feature bits in our
 		// test.
@@ -5087,6 +5087,110 @@ func TestFundingManagerNoEchoChanType(t *testing.T) {
 	acceptChanMsg.ChannelType = nil
 	alice.fundingMgr.ProcessFundingMsg(acceptChanMsg, bob)
 	assertFundingMsgSent(t, alice.msgChan, "Error")
+}
+
+// TestFundingManagerRejectMissingChanType verifies that the fundee rejects an
+// OpenChannel message that omits the ChannelType field.
+func TestFundingManagerRejectMissingChanType(t *testing.T) {
+	t.Parallel()
+
+	alice, bob := setupFundingManagers(t)
+	t.Cleanup(func() {
+		tearDownFundingManagers(t, alice, bob)
+	})
+
+	// Build an OpenChannel with the ChannelType field omitted.
+	openChannelReq := &lnwire.OpenChannel{
+		ChainHash:            *fundingNetParams.GenesisHash,
+		PendingChannelID:     [32]byte{0x01},
+		FundingAmount:        btcutil.Amount(10000000),
+		PushAmount:           0,
+		DustLimit:            btcutil.Amount(546),
+		MaxValueInFlight:     lnwire.MilliSatoshi(100000000),
+		ChannelReserve:       btcutil.Amount(10000),
+		HtlcMinimum:          lnwire.MilliSatoshi(1000),
+		FeePerKiloWeight:     15000,
+		CsvDelay:             144,
+		MaxAcceptedHTLCs:     483,
+		FundingKey:           alice.privKey.PubKey(),
+		RevocationPoint:      alice.privKey.PubKey(),
+		PaymentPoint:         alice.privKey.PubKey(),
+		DelayedPaymentPoint:  alice.privKey.PubKey(),
+		HtlcPoint:            alice.privKey.PubKey(),
+		FirstCommitmentPoint: alice.privKey.PubKey(),
+		ChannelType:          nil,
+	}
+	bob.fundingMgr.ProcessFundingMsg(openChannelReq, alice)
+
+	// Bob should reject the OpenChannel message with an Error.
+	errMsg := assertFundingMsgSent(t, bob.msgChan, "Error")
+	err, ok := errMsg.(*lnwire.Error)
+	require.True(t, ok)
+	require.Equal(t, lnwire.ErrChanTypeRequired.Error(), string(err.Data))
+	assertNumPendingReservations(t, bob, alicePubKey, 0)
+}
+
+// TestFundingManagerAcceptChanType verifies that the fundee accepts an
+// OpenChannel message that includes the ChannelType field and echoes it back
+// in AcceptChannel, even when neither peer advertises the explicit channel
+// type feature bit.
+func TestFundingManagerAcceptChanType(t *testing.T) {
+	t.Parallel()
+
+	alice, bob := setupFundingManagers(t)
+	t.Cleanup(func() {
+		tearDownFundingManagers(t, alice, bob)
+	})
+
+	// Set up only the features underlying the requested channel type.
+	featureBits := []lnwire.FeatureBit{
+		lnwire.StaticRemoteKeyOptional,
+		lnwire.AnchorsZeroFeeHtlcTxOptional,
+	}
+	alice.localFeatures = featureBits
+	alice.remoteFeatures = featureBits
+	bob.localFeatures = featureBits
+	bob.remoteFeatures = featureBits
+
+	expectedChanType := (*lnwire.ChannelType)(lnwire.NewRawFeatureVector(
+		lnwire.StaticRemoteKeyRequired,
+		lnwire.AnchorsZeroFeeHtlcTxRequired,
+	))
+
+	// Build an OpenChannel with the ChannelType field properly set.
+	openChannelReq := &lnwire.OpenChannel{
+		ChainHash:            *fundingNetParams.GenesisHash,
+		PendingChannelID:     [32]byte{0x01},
+		FundingAmount:        btcutil.Amount(10000000),
+		PushAmount:           0,
+		DustLimit:            btcutil.Amount(546),
+		MaxValueInFlight:     lnwire.MilliSatoshi(100000000),
+		ChannelReserve:       btcutil.Amount(10000),
+		HtlcMinimum:          lnwire.MilliSatoshi(1000),
+		FeePerKiloWeight:     15000,
+		CsvDelay:             144,
+		MaxAcceptedHTLCs:     483,
+		FundingKey:           alice.privKey.PubKey(),
+		RevocationPoint:      alice.privKey.PubKey(),
+		PaymentPoint:         alice.privKey.PubKey(),
+		DelayedPaymentPoint:  alice.privKey.PubKey(),
+		HtlcPoint:            alice.privKey.PubKey(),
+		FirstCommitmentPoint: alice.privKey.PubKey(),
+		ChannelType:          expectedChanType,
+	}
+	bob.fundingMgr.ProcessFundingMsg(openChannelReq, alice)
+
+	// Bob should accept the OpenChannel message and send AcceptChannel.
+	acceptChannelResponse, ok := assertFundingMsgSent(
+		t, bob.msgChan, "AcceptChannel",
+	).(*lnwire.AcceptChannel)
+	require.True(t, ok)
+
+	// Verify the channel type is echoed back.
+	require.Equal(t, expectedChanType, acceptChannelResponse.ChannelType)
+
+	// Bob should have a new pending reservation.
+	assertNumPendingReservations(t, bob, alicePubKey, 1)
 }
 
 // TestFundingManagerZeroConf tests that the fundingmanager properly handles

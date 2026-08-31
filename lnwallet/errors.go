@@ -6,6 +6,7 @@ import (
 
 	"github.com/btcsuite/btcd/btcutil/v2"
 	"github.com/btcsuite/btcd/chainhash/v2"
+	"github.com/lightningnetwork/lnd/lnwallet/chainfee"
 	"github.com/lightningnetwork/lnd/lnwire"
 )
 
@@ -94,6 +95,33 @@ func ErrPushAmountTooLarge(pushAmt lnwire.MilliSatoshi,
 	return ReservationError{
 		fmt.Errorf("push amount %v exceeds funding amount %v",
 			pushAmt, lnwire.NewMSatFromSatoshis(fundingAmt)),
+	}
+}
+
+// ErrCommitFeeRateTooLarge returns an error indicating that the commitment fee
+// rate proposed by the channel initiator is unreasonably large, as described by
+// BOLT-02.
+func ErrCommitFeeRateTooLarge(feeRate,
+	maxFeeRate chainfee.SatPerKWeight) ReservationError {
+
+	return ReservationError{
+		fmt.Errorf("commitment fee rate of %v is unreasonably large, "+
+			"max is %v", feeRate, maxFeeRate),
+	}
+}
+
+// ErrBalancesBelowReserve returns an error indicating that neither party would
+// hold more than its channel reserve on the initial commitment transaction,
+// leaving the channel unusable. BOLT-02 requires that we fail such a channel.
+func ErrBalancesBelowReserve(localBalance, localReserve, remoteBalance,
+	remoteReserve btcutil.Amount) ReservationError {
+
+	return ReservationError{
+		fmt.Errorf("both initial balances are below their channel "+
+			"reserve: local balance %v sat with reserve %v sat, "+
+			"remote balance %v sat with reserve %v sat",
+			int64(localBalance), int64(localReserve),
+			int64(remoteBalance), int64(remoteReserve)),
 	}
 }
 

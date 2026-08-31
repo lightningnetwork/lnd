@@ -108,7 +108,24 @@ const (
 	// can have. After this point, pending channel opens will start to be
 	// rejected.
 	pendingChansLimit = 50
+
+	// maxCommitFeeRateMultiplier is the multiple of our own commitment fee
+	// rate estimate that we'll tolerate as the initial fee rate of a
+	// channel opened by a remote peer. BOLT-02 requires that we fail a
+	// channel whose feerate_per_kw we consider "unreasonably large", but
+	// leaves the threshold up to each implementation. Both CLN and Eclair
+	// settle on 10x their own estimate, so we do the same.
+	maxCommitFeeRateMultiplier = 10
 )
+
+// minCommitFeeRateCap is the floor we place on the maximum commitment fee rate
+// we'll accept from a channel initiator. Our fee estimator can report a very
+// low rate on a quiet chain, or fall back to the relay fee entirely, and we
+// don't want that to make us reject a channel opened at a rate that's high
+// relative to our estimate yet perfectly sane in absolute terms. At 100
+// sat/vbyte a commitment transaction confirms under any realistic mempool
+// condition, so we never treat anything at or below it as unreasonable.
+var minCommitFeeRateCap = chainfee.SatPerKVByte(100 * 1000).FeePerKWeight()
 
 var (
 	// ErrFundingManagerShuttingDown is an error returned when attempting to
@@ -1429,6 +1446,34 @@ func (f *Manager) ProcessFundingMsg(msg lnwire.Message, peer lnpeer.Peer) {
 	}
 }
 
+// maxRemoteCommitFeeRate returns the highest commitment fee rate we're willing
+// to accept from the initiator of an inbound channel. The bound scales with our
+// own view of the current network fee rate, but never drops below
+// minCommitFeeRateCap, so a low or stale estimate can't make us turn away
+// channels opened at an absolutely reasonable rate.
+func (f *Manager) maxRemoteCommitFeeRate() chainfee.SatPerKWeight {
+	// We use the same conf target we'd use for a channel we open
+	// ourselves, so that the bound tracks the rate we consider necessary
+	// for a timely unilateral close.
+	ourFeeRate, err := f.cfg.FeeEstimator.EstimateFeePerKW(3)
+	if err != nil {
+		// A fee estimate isn't essential here: without one we simply
+		// fall back to the absolute bound rather than failing an
+		// otherwise valid channel.
+		log.Warnf("Unable to estimate commitment fee rate, using "+
+			"static bound of %v: %v", minCommitFeeRateCap, err)
+
+		return minCommitFeeRateCap
+	}
+
+	maxFeeRate := ourFeeRate * maxCommitFeeRateMultiplier
+	if maxFeeRate < minCommitFeeRateCap {
+		return minCommitFeeRateCap
+	}
+
+	return maxFeeRate
+}
+
 // fundeeProcessOpenChannel creates an initial 'ChannelReservation' within the
 // wallet, then responds to the source peer with an accept channel message
 // progressing the funding workflow.
@@ -1487,6 +1532,23 @@ func (f *Manager) fundeeProcessOpenChannel(peer lnpeer.Peer,
 		f.failFundingFlow(
 			peer, cid,
 			lnwallet.ErrChanTooSmall(amt, f.cfg.MinChanSize),
+		)
+
+		return
+	}
+
+	// Enforce BOLT-02: the receiver MUST fail the channel if it considers
+	// feerate_per_kw unreasonably large. The initiator pays the commitment
+	// fee out of its own balance, so an absurd rate burns most of the
+	// channel capacity before either party can use it.
+	commitFeeRate := chainfee.SatPerKWeight(msg.FeePerKiloWeight)
+	maxCommitFeeRate := f.maxRemoteCommitFeeRate()
+	if commitFeeRate > maxCommitFeeRate {
+		f.failFundingFlow(
+			peer, cid,
+			lnwallet.ErrCommitFeeRateTooLarge(
+				commitFeeRate, maxCommitFeeRate,
+			),
 		)
 
 		return

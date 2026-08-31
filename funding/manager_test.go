@@ -3970,6 +3970,125 @@ func TestFundingManagerPushAmountAtCapacity(t *testing.T) {
 	}
 }
 
+// TestFundingManagerCommitFeeRateTooLarge asserts that the fundee rejects an
+// incoming OpenChannel whose feerate_per_kw exceeds the bound we derive from
+// our own fee estimate, as required by BOLT-02. The boundary itself must still
+// be accepted.
+func TestFundingManagerCommitFeeRateTooLarge(t *testing.T) {
+	t.Parallel()
+
+	alice, bob := setupFundingManagers(t)
+	t.Cleanup(func() {
+		tearDownFundingManagers(t, alice, bob)
+	})
+
+	// The fee rate check happens before any of the heavier funding work, so
+	// we only need to populate the fields Bob inspects up to that point.
+	const fundingAmt = btcutil.Amount(500000)
+	maxFeeRate := bob.fundingMgr.maxRemoteCommitFeeRate()
+
+	newOpenChanMsg := func(
+		feeRate chainfee.SatPerKWeight) *lnwire.OpenChannel {
+
+		return &lnwire.OpenChannel{
+			ChainHash:        *fundingNetParams.GenesisHash,
+			PendingChannelID: [32]byte{0x01},
+			FundingAmount:    fundingAmt,
+			FeePerKiloWeight: uint32(feeRate),
+		}
+	}
+
+	// A fee rate one satoshi per kw above the bound must be rejected with
+	// the spec-aligned error.
+	tooLarge := maxFeeRate + 1
+	bob.fundingMgr.ProcessFundingMsg(newOpenChanMsg(tooLarge), alice)
+
+	msg := assertFundingMsgSent(t, bob.msgChan, "Error")
+	errMsg, ok := msg.(*lnwire.Error)
+	require.True(t, ok, "expected *lnwire.Error, got %T", msg)
+
+	expected := lnwallet.ErrCommitFeeRateTooLarge(tooLarge, maxFeeRate)
+	require.Equal(t, expected.Error(), string(errMsg.Data))
+
+	// The bound itself is still acceptable, so the flow must not fail with
+	// the fee rate error. It may well fail later for unrelated reasons, as
+	// the message we hand Bob is deliberately incomplete.
+	bob.fundingMgr.ProcessFundingMsg(newOpenChanMsg(maxFeeRate), alice)
+
+	forbidden := lnwallet.ErrCommitFeeRateTooLarge(
+		maxFeeRate, maxFeeRate,
+	).Error()
+
+	select {
+	case msg := <-bob.msgChan:
+		errMsg, ok := msg.(*lnwire.Error)
+		if !ok {
+			return
+		}
+		require.NotEqual(t, forbidden, string(errMsg.Data),
+			"fundee rejected a fee rate exactly at the bound")
+
+	case <-time.After(time.Second):
+	}
+}
+
+// TestFundingManagerBalancesBelowReserve asserts that the fundee rejects an
+// incoming OpenChannel when neither party would hold more than its channel
+// reserve on the initial commitment transaction. Such a channel can never be
+// used, as neither side could add an HTLC without dipping below its reserve.
+func TestFundingManagerBalancesBelowReserve(t *testing.T) {
+	t.Parallel()
+
+	alice, bob := setupFundingManagers(t)
+	t.Cleanup(func() {
+		tearDownFundingManagers(t, alice, bob)
+	})
+
+	// Have Bob demand that Alice keeps the entire channel capacity in
+	// reserve. Alice pushes nothing to Bob, so Bob starts out at zero
+	// while Alice sits at (capacity - fees), which is below the reserve we
+	// just made unsatisfiable. That puts both sides at or under their
+	// respective reserves.
+	bob.fundingMgr.cfg.RequiredRemoteChanReserve = func(chanAmt,
+		_ btcutil.Amount) btcutil.Amount {
+
+		return chanAmt
+	}
+
+	const localAmt = btcutil.Amount(500000)
+	updateChan := make(chan *lnrpc.OpenStatusUpdate)
+	errChan := make(chan error, 1)
+	initReq := &InitFundingMsg{
+		Peer:            bob,
+		TargetPubkey:    bob.privKey.PubKey(),
+		ChainHash:       *fundingNetParams.GenesisHash,
+		LocalFundingAmt: localAmt,
+		FundingFeePerKw: 1000,
+		Private:         true,
+		Updates:         updateChan,
+		Err:             errChan,
+	}
+	alice.fundingMgr.InitFundingWorkflow(initReq)
+
+	aliceMsg := assertFundingMsgSent(t, alice.msgChan, "OpenChannel")
+	openChanMsg, ok := aliceMsg.(*lnwire.OpenChannel)
+	require.True(
+		t, ok, "expected *lnwire.OpenChannel, got %T", aliceMsg,
+	)
+
+	bob.fundingMgr.ProcessFundingMsg(openChanMsg, alice)
+
+	// Bob must refuse the channel rather than answer with an
+	// AcceptChannel.
+	bobMsg := assertFundingMsgSent(t, bob.msgChan, "Error")
+	errMsg, ok := bobMsg.(*lnwire.Error)
+	require.True(t, ok, "expected *lnwire.Error, got %T", bobMsg)
+	require.Contains(
+		t, string(errMsg.Data),
+		"both initial balances are below their channel reserve",
+	)
+}
+
 // TestFundingManagerRejectPublicTaprootInitiator checks that a public taproot
 // channel request is rejected by the initiator before an OpenChannel message is
 // sent to the peer.

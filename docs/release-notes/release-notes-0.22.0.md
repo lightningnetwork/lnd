@@ -101,6 +101,17 @@
   later in the reservation flow as a funder-balance-dust error; they now
   surface a clearer, spec-aligned error string up front.
 
+* The fundee now [rejects absurdly high channel
+  feerates](https://github.com/lightningnetwork/lnd/pull/11151), covering the
+  two BOLT-02 checks that bound the commitment feerate an initiator can impose.
+  An incoming `open_channel` is failed if its `feerate_per_kw` exceeds ten times
+  our own estimate (never below 100 sat/vbyte, so a low or stale estimate can't
+  turn away sane channels), or if the resulting `to_local` and `to_remote`
+  amounts would both land at or under their channel reserve. Because all
+  channels are single funder, an initiator proposing such a feerate mostly
+  burns its own capacity; the checks stop it from also spending one of our
+  pending channel slots on a channel that could never be used.
+
 * [Require an explicit `channel_type` during channel
   funding](https://github.com/lightningnetwork/lnd/pull/11064). It is now always
   set in `open_channel` and echoed back in `accept_channel`, and an

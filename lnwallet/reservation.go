@@ -647,6 +647,32 @@ func (r *ChannelReservation) validateReserveBounds() bool {
 	return minChanReserve >= maxDustLimit
 }
 
+// validateInitialBalances checks that at least one side of the initial
+// commitment transaction holds more than the channel reserve it is required to
+// maintain. BOLT#02 mandates that the receiver of open_channel fail the channel
+// if both to_local and to_remote are less than or equal to the channel reserve:
+// in that case neither party can ever add an HTLC without dipping below its
+// reserve, so the channel is dead on arrival. This function should be called
+// with the lock held.
+func (r *ChannelReservation) validateInitialBalances() error {
+	// The reserve stored in our contribution is the one the remote party
+	// requires us to maintain, while the one in their contribution is what
+	// we require of them.
+	commit := r.partialState.LocalCommitment
+	ourBalance := commit.LocalBalance.ToSatoshis()
+	ourReserve := r.ourContribution.ChanReserve
+	theirBalance := commit.RemoteBalance.ToSatoshis()
+	theirReserve := r.theirContribution.ChanReserve
+
+	if ourBalance <= ourReserve && theirBalance <= theirReserve {
+		return ErrBalancesBelowReserve(
+			ourBalance, ourReserve, theirBalance, theirReserve,
+		)
+	}
+
+	return nil
+}
+
 // OurContribution returns the wallet's fully populated contribution to the
 // pending payment channel. See 'ChannelContribution' for further details
 // regarding the contents of a contribution.

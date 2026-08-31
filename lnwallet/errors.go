@@ -97,6 +97,21 @@ func ErrPushAmountTooLarge(pushAmt lnwire.MilliSatoshi,
 	}
 }
 
+// ErrBalancesBelowReserve returns an error indicating that neither party would
+// hold more than its channel reserve on the initial commitment transaction,
+// leaving the channel unusable. BOLT-02 requires that we fail such a channel.
+func ErrBalancesBelowReserve(localBalance, localReserve, remoteBalance,
+	remoteReserve btcutil.Amount) ReservationError {
+
+	return ReservationError{
+		fmt.Errorf("both initial balances are below their channel "+
+			"reserve: local balance %v sat with reserve %v sat, "+
+			"remote balance %v sat with reserve %v sat",
+			int64(localBalance), int64(localReserve),
+			int64(remoteBalance), int64(remoteReserve)),
+	}
+}
+
 // ErrMinHtlcTooLarge returns an error indicating that the MinHTLC value the
 // remote required is too large to be accepted.
 func ErrMinHtlcTooLarge(minHtlc,

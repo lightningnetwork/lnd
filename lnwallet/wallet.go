@@ -2095,6 +2095,14 @@ func (l *LightningWallet) handleSingleContribution(req *addSingleContributionMsg
 		return
 	}
 
+	// Now that both reserves are known, make sure the channel the initiator
+	// is proposing could actually be used: at least one side must start out
+	// above its reserve.
+	if err := pendingReservation.validateInitialBalances(); err != nil {
+		req.err <- err
+		return
+	}
+
 	// Initialize an empty sha-chain for them, tracking the current pending
 	// revocation hash (we don't yet know the preimage so we can't add it
 	// to the chain).

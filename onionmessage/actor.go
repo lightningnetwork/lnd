@@ -259,6 +259,7 @@ func (a *OnionPeerActor) Receive(ctx context.Context,
 		Peer:      a.peerPubKey,
 		PathKey:   pathKeyArr,
 		OnionBlob: req.msg.OnionBlob,
+		Delivered: routingAction.IsRight(),
 	}
 
 	// If we have a payload, add its contents to our update.

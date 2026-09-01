@@ -702,6 +702,7 @@ const (
 type fundingTxOpts struct {
 	extraBytes    []byte
 	fundingTxPrep fundingTxPrepType
+	features      *lnwire.RawFeatureVector
 }
 
 type fundingTxOption func(*fundingTxOpts)
@@ -715,6 +716,12 @@ func withExtraBytes(extraBytes []byte) fundingTxOption {
 func withFundingTxPrep(prep fundingTxPrepType) fundingTxOption {
 	return func(opts *fundingTxOpts) {
 		opts.fundingTxPrep = prep
+	}
+}
+
+func withFeatures(features *lnwire.RawFeatureVector) fundingTxOption {
+	return func(opts *fundingTxOpts) {
+		opts.features = features
 	}
 }
 
@@ -788,6 +795,9 @@ func (ctx *testCtx) createAnnouncementWithoutProof(blockHeight uint32,
 			TxPosition:  0,
 		},
 		Features: testFeatures,
+	}
+	if opts.features != nil {
+		a.Features = opts.features
 	}
 	copy(a.NodeID1[:], key1.SerializeCompressed())
 	copy(a.NodeID2[:], key2.SerializeCompressed())
@@ -4442,13 +4452,19 @@ func TestFutureMsgCacheEviction(t *testing.T) {
 	//
 	// Put the first item.
 	id := c.nextMsgID()
-	evicted, err := c.Put(id, &cachedFutureMsg{height: uint32(id)})
+	evicted, err := c.Put(id, &cachedFutureMsg{
+		height: 1,
+		size:   1,
+	})
 	require.NoError(t, err)
 	require.False(t, evicted, "should not be evicted")
 
 	// Put the second item.
 	id = c.nextMsgID()
-	evicted, err = c.Put(id, &cachedFutureMsg{height: uint32(id)})
+	evicted, err = c.Put(id, &cachedFutureMsg{
+		height: 2,
+		size:   1,
+	})
 	require.NoError(t, err)
 	require.True(t, evicted, "should be evicted")
 
@@ -4462,6 +4478,88 @@ func TestFutureMsgCacheEviction(t *testing.T) {
 	item, err := c.Get(2)
 	require.NoError(t, err)
 	require.EqualValues(t, 2, item.height, "should be the second item")
+}
+
+// denseFeatureVector returns a maximally populated feature vector. This is
+// the largest decoded feature map representable by FeatureBit.
+func denseFeatureVector() *lnwire.RawFeatureVector {
+	features := lnwire.NewRawFeatureVector()
+	for i := 0; i < 1<<16; i++ {
+		features.Set(lnwire.FeatureBit(i))
+	}
+
+	return features
+}
+
+// TestFutureChanAnnCacheBounds verifies that separately allocated but
+// content-identical dense announcements are each charged according to their
+// decoded representation and remain within the retained-memory budget.
+func TestFutureChanAnnCacheBounds(t *testing.T) {
+	t.Parallel()
+
+	const (
+		startHeight  = uint32(100)
+		futureHeight = uint32(200)
+	)
+
+	tCtx, err := createTestCtx(t, startHeight, false)
+	require.NoError(t, err)
+
+	ann, err := tCtx.createRemoteChannelAnnouncement(
+		futureHeight, withFundingTxPrep(fundingTxPrepTypeNone),
+		withFeatures(denseFeatureVector()),
+	)
+	require.NoError(t, err)
+
+	entrySize := futureMsgSize(ann)
+	require.Equal(
+		t, uint64(futureMsgMinSize+(1<<16)*futureFeatureEntrySize),
+		entrySize,
+	)
+	tCtx.gossiper.futureMsgs = newFutureMsgCache(2 * entrySize)
+
+	nodePeer := &mockPeer{
+		pk: remoteKeyPriv1.PubKey(),
+	}
+	err = mustProcess(t, tCtx.gossiper.ProcessRemoteAnnouncement(
+		t.Context(), ann, nodePeer,
+	))
+	require.NoError(t, err)
+	require.Equal(t, 1, tCtx.gossiper.futureMsgs.Len())
+	require.Equal(t, entrySize, tCtx.gossiper.futureMsgs.Size())
+
+	// Model decoding the identical wire message again. The object and its
+	// feature map are distinct allocations, while the canonical wire content
+	// is the same.
+	annCopy := *ann
+	annCopy.Features = ann.Features.Clone()
+	require.NotSame(t, ann, &annCopy)
+	require.NotSame(t, ann.Features, annCopy.Features)
+
+	err = mustProcess(t, tCtx.gossiper.ProcessRemoteAnnouncement(
+		t.Context(), &annCopy, nodePeer,
+	))
+	require.NoError(t, err)
+	require.Equal(t, 2, tCtx.gossiper.futureMsgs.Len())
+	require.Equal(t, 2*entrySize, tCtx.gossiper.futureMsgs.Size())
+
+	// A third dense announcement evicts the oldest entry. The cache never
+	// exceeds its configured retained-memory capacity.
+	nextAnn, err := tCtx.createRemoteChannelAnnouncement(
+		futureHeight+1, withFundingTxPrep(fundingTxPrepTypeNone),
+		withFeatures(denseFeatureVector()),
+	)
+	require.NoError(t, err)
+
+	err = mustProcess(t, tCtx.gossiper.ProcessRemoteAnnouncement(
+		t.Context(), nextAnn, nodePeer,
+	))
+	require.NoError(t, err)
+
+	require.Equal(t, 2, tCtx.gossiper.futureMsgs.Len())
+	require.Equal(t, 2*entrySize, tCtx.gossiper.futureMsgs.Size())
+	_, err = tCtx.gossiper.futureMsgs.Get(1)
+	require.ErrorIs(t, err, cache.ErrElementNotFound)
 }
 
 // TestChanAnnBanningNonChanPeer asserts that non-channel peers who send bogus

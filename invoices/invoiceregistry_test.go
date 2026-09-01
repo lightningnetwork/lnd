@@ -544,6 +544,14 @@ func TestInvoiceRegistry(t *testing.T) {
 			name: "ProcessingErrors",
 			test: testInvoiceRegistryProcessingErrors,
 		},
+		{
+			name: "Bolt12InvoiceNotification",
+			test: testBolt12InvoiceNotification,
+		},
+		{
+			name: "Bolt12InvoiceNoBacklog",
+			test: testBolt12InvoiceNoBacklog,
+		},
 	}
 
 	makeKeyValueDB := func(t *testing.T) (invpkg.InvoiceDB,
@@ -611,6 +619,149 @@ func TestInvoiceRegistry(t *testing.T) {
 					return makeSQLDB(t, false)
 				})
 		})
+	}
+}
+
+// testBolt12InvoiceNotification verifies that an all-invoice subscriber gets
+// the Open event of a BOLT 12 invoice, which has no add index, and that the
+// event does not change the add index the registry records for the client.
+func testBolt12InvoiceNotification(t *testing.T,
+	makeDB func(t *testing.T) (invpkg.InvoiceDB, *clock.TestClock)) {
+
+	t.Parallel()
+
+	ctx := newTestContext(t, nil, makeDB)
+
+	// The client reports add index 1 as seen, so the registry must not
+	// send the stored invoice with that index.
+	ctxb := t.Context()
+	allSubscriptions, err := ctx.registry.SubscribeNotifications(ctxb, 1, 0)
+	require.NoError(t, err)
+	defer allSubscriptions.Cancel()
+
+	expectNew := func(isBolt12 bool, addIndex uint64) {
+		t.Helper()
+
+		select {
+		case inv := <-allSubscriptions.NewInvoices:
+			require.Equal(t, invpkg.ContractOpen, inv.State)
+			require.Equal(t, isBolt12, inv.IsBolt12)
+			require.Equal(t, addIndex, inv.AddIndex)
+
+		case <-time.After(testTimeout):
+			t.Fatal("no new invoice event received")
+		}
+	}
+
+	var preimage lntypes.Preimage
+	preimage[0] = 0x12
+
+	ctx.registry.NotifyNewBolt12Invoice(
+		t.Context(), preimage.Hash(), &invpkg.Invoice{
+			IsBolt12: true,
+			Terms: invpkg.ContractTerm{
+				PaymentPreimage: &preimage,
+				Value:           testInvoiceAmount,
+			},
+		},
+	)
+	expectNew(true, 0)
+
+	_, err = ctx.registry.AddInvoice(
+		ctxb, newInvoice(t, false, false), testInvoicePaymentHash,
+	)
+	require.NoError(t, err)
+
+	second := newInvoiceExpiryTestInvoice(
+		t, lntypes.Preimage{2}, testTime, 0,
+	)
+	_, err = ctx.registry.AddInvoice(
+		ctxb, second, second.Terms.PaymentPreimage.Hash(),
+	)
+	require.NoError(t, err)
+	expectNew(false, 2)
+
+	select {
+	case inv := <-allSubscriptions.NewInvoices:
+		t.Fatalf("unexpected event: %v", inv)
+
+	case <-time.After(100 * time.Millisecond):
+	}
+}
+
+// testBolt12InvoiceNoBacklog verifies that a subscriber that connects after
+// the events gets the stored BOLT 11 invoice from the backlog, but not the
+// BOLT 12 invoice, because no database row backs a BOLT 12 event.
+func testBolt12InvoiceNoBacklog(t *testing.T,
+	makeDB func(t *testing.T) (invpkg.InvoiceDB, *clock.TestClock)) {
+
+	t.Parallel()
+
+	ctx := newTestContext(t, nil, makeDB)
+	ctxb := t.Context()
+
+	// The registry dispatches events in the background. A subscriber that
+	// sees every event shows that the dispatch is done before the late
+	// subscriber connects.
+	early, err := ctx.registry.SubscribeNotifications(ctxb, 0, 0)
+	require.NoError(t, err)
+	defer early.Cancel()
+
+	_, err = ctx.registry.AddInvoice(
+		ctxb, newInvoice(t, false, false), testInvoicePaymentHash,
+	)
+	require.NoError(t, err)
+
+	var preimage lntypes.Preimage
+	preimage[0] = 0x12
+
+	ctx.registry.NotifyNewBolt12Invoice(
+		t.Context(), preimage.Hash(), &invpkg.Invoice{
+			IsBolt12: true,
+			Terms: invpkg.ContractTerm{
+				PaymentPreimage: &preimage,
+				Value:           testInvoiceAmount,
+			},
+		},
+	)
+
+	second := newInvoiceExpiryTestInvoice(
+		t, lntypes.Preimage{2}, testTime, 0,
+	)
+	_, err = ctx.registry.AddInvoice(
+		ctxb, second, second.Terms.PaymentPreimage.Hash(),
+	)
+	require.NoError(t, err)
+
+	for range 3 {
+		select {
+		case <-early.NewInvoices:
+		case <-time.After(testTimeout):
+			t.Fatal("no event received")
+		}
+	}
+
+	// The backlog holds the invoices with an add index above the one the
+	// client reports, so add index 1 asks for everything after the first
+	// invoice. Add index 0 would ask for no backlog at all.
+	late, err := ctx.registry.SubscribeNotifications(ctxb, 1, 0)
+	require.NoError(t, err)
+	defer late.Cancel()
+
+	select {
+	case inv := <-late.NewInvoices:
+		require.False(t, inv.IsBolt12)
+		require.EqualValues(t, 2, inv.AddIndex)
+
+	case <-time.After(testTimeout):
+		t.Fatal("no backlog event received")
+	}
+
+	select {
+	case inv := <-late.NewInvoices:
+		t.Fatalf("unexpected event: %v", inv)
+
+	case <-time.After(100 * time.Millisecond):
 	}
 }
 

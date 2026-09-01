@@ -4584,6 +4584,37 @@ func (s *server) SubscribeOnionMessages() (*subscribe.Client, error) {
 	return s.onionMessageServer.Subscribe()
 }
 
+// CreateOffer creates a new BOLT 12 offer, persists it in the offer
+// store, and returns the encoded offer string and offer hash. The caller
+// checks that the offer store is set.
+func (s *server) CreateOffer(ctx context.Context,
+	description string, amountMsat uint64,
+	absoluteExpiry uint64,
+	quantityMax fn.Option[uint64]) (*offers.CreateOfferResult, error) {
+
+	identity := fn.NewLeft[
+		*btcec.PublicKey, []lnwire.BlindedPath,
+	](s.identityECDH.PubKey())
+
+	// Include the active chain hash so other implementations can
+	// validate the offer on non-mainnet networks. The spec defaults
+	// to Bitcoin mainnet when offer_chains is absent.
+	genesisHash := *s.cfg.ActiveNetParams.GenesisHash
+	chains := [][32]byte{genesisHash}
+
+	return offers.CreateOffer(
+		ctx, s.offerStore, clock.NewDefaultClock(),
+		offers.CreateOfferParams{
+			Identity:       identity,
+			Description:    description,
+			AmountMsat:     amountMsat,
+			AbsoluteExpiry: absoluteExpiry,
+			QuantityMax:    quantityMax,
+			Chains:         chains,
+		},
+	)
+}
+
 // notifyOpenChannelPeerEvent updates the access manager's maps and then calls
 // the channelNotifier's NotifyOpenChannelEvent.
 func (s *server) notifyOpenChannelPeerEvent(op wire.OutPoint,

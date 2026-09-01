@@ -60,6 +60,7 @@ import (
 	"github.com/lightningnetwork/lnd/labels"
 	"github.com/lightningnetwork/lnd/lncfg"
 	"github.com/lightningnetwork/lnd/lnrpc"
+	"github.com/lightningnetwork/lnd/lnrpc/devrpc"
 	"github.com/lightningnetwork/lnd/lnrpc/invoicesrpc"
 	"github.com/lightningnetwork/lnd/lnrpc/routerrpc"
 	"github.com/lightningnetwork/lnd/lnrpc/walletrpc"
@@ -842,6 +843,13 @@ func (r *rpcServer) addDeps(ctx context.Context, s *server,
 		subServerPerms []lnrpc.MacaroonPerms
 	)
 
+	// The dev RPC creates offers only when the node runs with BOLT 12
+	// offers.
+	var offerCreator fn.Option[devrpc.OfferCreator]
+	if s.offerStore != nil {
+		offerCreator = fn.Some[devrpc.OfferCreator](s)
+	}
+
 	// Before we create any of the sub-servers, we need to ensure that all
 	// the dependencies they need are properly populated within each sub
 	// server configuration struct.
@@ -855,7 +863,7 @@ func (r *rpcServer) addDeps(ctx context.Context, s *server,
 		genInvoiceFeatures, genAmpInvoiceFeatures,
 		s.getNodeAnnouncement, s.updateAndBroadcastSelfNode, parseAddr,
 		rpcsLog, s.aliasMgr, r.implCfg.AuxDataParser,
-		invoiceHtlcModifier,
+		invoiceHtlcModifier, offerCreator,
 	)
 	if err != nil {
 		return err

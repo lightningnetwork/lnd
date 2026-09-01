@@ -22,6 +22,7 @@ import (
 	"github.com/btcsuite/btcd/txscript/v2"
 	"github.com/btcsuite/btcd/wire/v2"
 	"github.com/btcsuite/btcwallet/wallet"
+	"github.com/lightningnetwork/lnd/actor"
 	"github.com/lightningnetwork/lnd/channeldb"
 	"github.com/lightningnetwork/lnd/chanstate"
 	"github.com/lightningnetwork/lnd/fn/v2"
@@ -245,29 +246,34 @@ type InitFundingReserveMsg struct {
 	// be used to create the combined key for musig2 based channels.
 	TapscriptRoot fn.Option[chainhash.Hash]
 
-	// err is a channel in which all errors will be sent across. Will be
-	// nil if this initial set is successful.
-	//
-	// NOTE: In order to avoid deadlocks, this channel MUST be buffered.
-	err chan error
+	// resp is the promise the outcome of this request is delivered over.
+	// In the case of a successful reservation initiation it carries a
+	// ChannelReservation with our contributions filled in, otherwise it
+	// carries the error that caused the initiation to fail.
+	resp actor.Promise[fn.Result[*ChannelReservation]]
+}
 
-	// resp is channel in which a ChannelReservation with our contributions
-	// filled in will be sent across this channel in the case of a
-	// successfully reservation initiation. In the case of an error, this
-	// will read a nil pointer.
-	//
-	// NOTE: In order to avoid deadlocks, this channel MUST be buffered.
-	resp chan *ChannelReservation
+// fail resolves the request's promise with the passed error, signaling that
+// the reservation could not be created.
+func (r *InitFundingReserveMsg) fail(err error) {
+	completeWalletResult(r.resp, fn.Err[*ChannelReservation](err))
+}
+
+// succeed resolves the request's promise with the newly created channel
+// reservation.
+func (r *InitFundingReserveMsg) succeed(res *ChannelReservation) {
+	completeWalletResult(r.resp, fn.Ok(res))
 }
 
 // fundingReserveCancelMsg is a message reserved for cancelling an existing
 // channel reservation identified by its reservation ID. Cancelling a reservation
 // frees its locked outputs up, for inclusion within further reservations.
 type fundingReserveCancelMsg struct {
-	pendingFundingID uint64
+	// errRequest carries the promise the outcome of this request is
+	// delivered over.
+	errRequest
 
-	// NOTE: In order to avoid deadlocks, this channel MUST be buffered.
-	err chan error // Buffered
+	pendingFundingID uint64
 }
 
 // addContributionMsg represents a message executing the second phase of the
@@ -278,26 +284,28 @@ type fundingReserveCancelMsg struct {
 // finally generate signatures for all our inputs to the funding transaction,
 // and for the remote node's version of the commitment transaction.
 type addContributionMsg struct {
+	// errRequest carries the promise the outcome of this request is
+	// delivered over.
+	errRequest
+
 	pendingFundingID uint64
 
 	contribution *ChannelContribution
-
-	// NOTE: In order to avoid deadlocks, this channel MUST be buffered.
-	err chan error
 }
 
 // continueContributionMsg represents a message that signals that the
 // interrupted funding process involving a PSBT can now be continued because the
 // finalized transaction is now available.
 type continueContributionMsg struct {
+	// errRequest carries the promise the outcome of this request is
+	// delivered over.
+	errRequest
+
 	pendingFundingID uint64
 
 	// auxFundingDesc is an optional descriptor that contains information
 	// about the custom channel funding flow.
 	auxFundingDesc fn.Option[AuxFundingDesc]
-
-	// NOTE: In order to avoid deadlocks, this channel MUST be buffered.
-	err chan error
 }
 
 // addSingleContributionMsg represents a message executing the second phase of
@@ -306,12 +314,13 @@ type continueContributionMsg struct {
 // sent when on the responding side to a single funder workflow, no further
 // action apart from storing the provided contribution is carried out.
 type addSingleContributionMsg struct {
+	// errRequest carries the promise the outcome of this request is
+	// delivered over.
+	errRequest
+
 	pendingFundingID uint64
 
 	contribution *ChannelContribution
-
-	// NOTE: In order to avoid deadlocks, this channel MUST be buffered.
-	err chan error
 }
 
 // addCounterPartySigsMsg represents the final message required to complete,
@@ -323,6 +332,10 @@ type addSingleContributionMsg struct {
 // configurable number of confirmations, the channel is officially considered
 // 'open'.
 type addCounterPartySigsMsg struct {
+	// openChanRequest carries the promise the completed channel, or the
+	// error that prevented it from being created, is delivered over.
+	openChanRequest
+
 	pendingFundingID uint64
 
 	// Should be order of sorted inputs that are theirs. Sorting is done
@@ -333,13 +346,6 @@ type addCounterPartySigsMsg struct {
 	// This should be 1/2 of the signatures needed to successfully spend our
 	// version of the commitment transaction.
 	theirCommitmentSig input.Signature
-
-	// This channel is used to return the completed channel after the wallet
-	// has completed all of its stages in the funding process.
-	completeChan chan *chanstate.OpenChannel
-
-	// NOTE: In order to avoid deadlocks, this channel MUST be buffered.
-	err chan error
 }
 
 // addSingleFunderSigsMsg represents the next-to-last message required to
@@ -349,6 +355,10 @@ type addCounterPartySigsMsg struct {
 // is processed we (the responder) are able to construct both commitment
 // transactions, signing the remote party's version.
 type addSingleFunderSigsMsg struct {
+	// openChanRequest carries the promise the completed channel, or the
+	// error that prevented it from being created, is delivered over.
+	openChanRequest
+
 	pendingFundingID uint64
 
 	// auxFundingDesc is an optional descriptor that contains information
@@ -362,13 +372,6 @@ type addSingleFunderSigsMsg struct {
 	// theirCommitmentSig are the 1/2 of the signatures needed to
 	// successfully spend our version of the commitment transaction.
 	theirCommitmentSig input.Signature
-
-	// This channel is used to return the completed channel after the wallet
-	// has completed all of its stages in the funding process.
-	completeChan chan *chanstate.OpenChannel
-
-	// NOTE: In order to avoid deadlocks, this channel MUST be buffered.
-	err chan error
 }
 
 // CheckReservedValueTxReq is the request struct used to call
@@ -710,8 +713,8 @@ out:
 func (l *LightningWallet) InitChannelReservation(
 	req *InitFundingReserveMsg) (*ChannelReservation, error) {
 
-	req.resp = make(chan *ChannelReservation, 1)
-	req.err = make(chan error, 1)
+	promise := actor.NewPromise[fn.Result[*ChannelReservation]]()
+	req.resp = promise
 
 	select {
 	case l.msgChan <- req:
@@ -719,7 +722,7 @@ func (l *LightningWallet) InitChannelReservation(
 		return nil, errors.New("wallet shutting down")
 	}
 
-	return <-req.resp, <-req.err
+	return awaitWalletResult(promise.Future()).Unpack()
 }
 
 // RegisterFundingIntent allows a caller to signal to the wallet that if a
@@ -881,20 +884,16 @@ func (l *LightningWallet) handleFundingReserveRequest(req *InitFundingReserveMsg
 
 	// It isn't possible to create a channel with zero funds committed.
 	if noFundsCommitted {
-		err := ErrZeroCapacity()
-		req.err <- err
-		req.resp <- nil
+		req.fail(ErrZeroCapacity())
 		return
 	}
 
 	// If the funding request is for a different chain than the one the
 	// wallet is aware of, then we'll reject the request.
 	if !bytes.Equal(l.Cfg.NetParams.GenesisHash[:], req.ChainHash[:]) {
-		err := ErrChainMismatch(
+		req.fail(ErrChainMismatch(
 			l.Cfg.NetParams.GenesisHash, req.ChainHash,
-		)
-		req.err <- err
-		req.resp <- nil
+		))
 		return
 	}
 
@@ -964,8 +963,7 @@ func (l *LightningWallet) handleFundingReserveRequest(req *InitFundingReserveMsg
 		if req.FundUpToMaxAmt > 0 && req.MinFundAmt > 0 {
 			numAnchorChans, err = l.CurrentNumAnchorChans()
 			if err != nil {
-				req.err <- err
-				req.resp <- nil
+				req.fail(err)
 				return
 			}
 
@@ -1004,8 +1002,7 @@ func (l *LightningWallet) handleFundingReserveRequest(req *InitFundingReserveMsg
 			fundingReq,
 		)
 		if err != nil {
-			req.err <- err
-			req.resp <- nil
+			req.fail(err)
 			return
 		}
 
@@ -1014,8 +1011,7 @@ func (l *LightningWallet) handleFundingReserveRequest(req *InitFundingReserveMsg
 		// example.
 		err = l.RegisterFundingIntent(req.PendingChanID, fundingIntent)
 		if err != nil {
-			req.err <- err
-			req.resp <- nil
+			req.fail(err)
 			return
 		}
 
@@ -1029,8 +1025,7 @@ func (l *LightningWallet) handleFundingReserveRequest(req *InitFundingReserveMsg
 	// At this point there _has_ to be a funding intent, otherwise something
 	// went really wrong.
 	if fundingIntent == nil {
-		req.err <- fmt.Errorf("no funding intent present")
-		req.resp <- nil
+		req.fail(fmt.Errorf("no funding intent present"))
 		return
 	}
 
@@ -1068,8 +1063,7 @@ func (l *LightningWallet) handleFundingReserveRequest(req *InitFundingReserveMsg
 		if err != nil {
 			fundingIntent.Cancel()
 
-			req.err <- err
-			req.resp <- nil
+			req.fail(err)
 			return
 		}
 	}
@@ -1086,8 +1080,7 @@ func (l *LightningWallet) handleFundingReserveRequest(req *InitFundingReserveMsg
 	if err != nil {
 		fundingIntent.Cancel()
 
-		req.err <- err
-		req.resp <- nil
+		req.fail(err)
 		return
 	}
 
@@ -1097,8 +1090,7 @@ func (l *LightningWallet) handleFundingReserveRequest(req *InitFundingReserveMsg
 	if err != nil {
 		fundingIntent.Cancel()
 
-		req.err <- err
-		req.resp <- nil
+		req.fail(err)
 		return
 	}
 
@@ -1112,8 +1104,7 @@ func (l *LightningWallet) handleFundingReserveRequest(req *InitFundingReserveMsg
 	// Funding reservation request successfully handled. The funding inputs
 	// will be marked as unavailable until the reservation is either
 	// completed, or canceled.
-	req.resp <- reservation
-	req.err <- nil
+	req.succeed(reservation)
 
 	walletLog.Debugf("Successfully handled funding reservation with "+
 		"pendingChanID: %x, reservationID: %v",
@@ -1476,7 +1467,8 @@ func (l *LightningWallet) handleFundingCancelRequest(req *fundingReserveCancelMs
 	pendingReservation, ok := l.fundingLimbo[req.pendingFundingID]
 	if !ok {
 		// TODO(roasbeef): make new error, "unknown funding state" or something
-		req.err <- fmt.Errorf("attempted to cancel non-existent funding state")
+		req.complete(fmt.Errorf("attempted to cancel non-existent " +
+			"funding state"))
 		return
 	}
 
@@ -1507,7 +1499,7 @@ func (l *LightningWallet) handleFundingCancelRequest(req *fundingReserveCancelMs
 	}
 	l.intentMtx.Unlock()
 
-	req.err <- nil
+	req.complete(nil)
 }
 
 // createCommitOpts is a struct that holds the options for creating a new
@@ -1605,7 +1597,8 @@ func (l *LightningWallet) handleContributionMsg(req *addContributionMsg) {
 	pendingReservation, ok := l.fundingLimbo[req.pendingFundingID]
 	l.limboMtx.Unlock()
 	if !ok {
-		req.err <- fmt.Errorf("attempted to update non-existent funding state")
+		req.complete(fmt.Errorf("attempted to update non-existent " +
+			"funding state"))
 		return
 	}
 
@@ -1618,7 +1611,7 @@ func (l *LightningWallet) handleContributionMsg(req *addContributionMsg) {
 	if len(shutdown) > 0 {
 		// Validate the shutdown script.
 		if !ValidateUpfrontShutdown(shutdown, &l.Cfg.NetParams) {
-			req.err <- fmt.Errorf("invalid shutdown script")
+			req.complete(fmt.Errorf("invalid shutdown script"))
 			return
 		}
 	}
@@ -1631,7 +1624,7 @@ func (l *LightningWallet) handleContributionMsg(req *addContributionMsg) {
 	// Perform bounds-checking on both ChannelReserve and DustLimit
 	// parameters.
 	if !pendingReservation.validateReserveBounds() {
-		req.err <- fmt.Errorf("invalid reserve and dust bounds")
+		req.complete(fmt.Errorf("invalid reserve and dust bounds"))
 		return
 	}
 
@@ -1650,8 +1643,8 @@ func (l *LightningWallet) handleContributionMsg(req *addContributionMsg) {
 	case *chanfunding.ShimIntent:
 		chanPoint, err = fundingIntent.ChanPoint()
 		if err != nil {
-			req.err <- fmt.Errorf("unable to obtain chan point: %w",
-				err)
+			req.complete(fmt.Errorf("unable to obtain chan "+
+				"point: %w", err))
 			return
 		}
 
@@ -1664,8 +1657,8 @@ func (l *LightningWallet) handleContributionMsg(req *addContributionMsg) {
 	// containing the eventual funding transaction.
 	case *chanfunding.PsbtIntent:
 		if fundingIntent.PendingPsbt != nil {
-			req.err <- fmt.Errorf("PSBT funding already in" +
-				"progress")
+			req.complete(fmt.Errorf("PSBT funding already in" +
+				"progress"))
 			return
 		}
 
@@ -1692,9 +1685,9 @@ func (l *LightningWallet) handleContributionMsg(req *addContributionMsg) {
 		)
 
 		// Exit early because we can't continue the funding flow yet.
-		req.err <- &PsbtFundingRequired{
+		req.complete(&PsbtFundingRequired{
 			Intent: fundingIntent,
-		}
+		})
 		return
 
 	case *chanfunding.FullIntent:
@@ -1713,14 +1706,14 @@ func (l *LightningWallet) handleContributionMsg(req *addContributionMsg) {
 			theirContribution.ChangeOutputs,
 		)
 		if err != nil {
-			req.err <- fmt.Errorf("unable to construct funding "+
-				"tx: %v", err)
+			req.complete(fmt.Errorf("unable to construct funding "+
+				"tx: %v", err))
 			return
 		}
 		chanPoint, err = fundingIntent.ChanPoint()
 		if err != nil {
-			req.err <- fmt.Errorf("unable to obtain chan "+
-				"point: %v", err)
+			req.complete(fmt.Errorf("unable to obtain chan "+
+				"point: %v", err))
 			return
 		}
 
@@ -1755,8 +1748,8 @@ func (l *LightningWallet) handleContributionMsg(req *addContributionMsg) {
 	// If we landed here and didn't exit early, it means we already have
 	// the channel point ready. We can jump directly to the next step.
 	l.handleChanPointReady(&continueContributionMsg{
+		errRequest:       req.errRequest,
 		pendingFundingID: req.pendingFundingID,
-		err:              req.err,
 	})
 }
 
@@ -1855,8 +1848,8 @@ func (l *LightningWallet) handleChanPointReady(req *continueContributionMsg) {
 	pendingReservation, ok := l.fundingLimbo[req.pendingFundingID]
 	l.limboMtx.Unlock()
 	if !ok {
-		req.err <- fmt.Errorf("attempted to update non-existent " +
-			"funding state")
+		req.complete(fmt.Errorf("attempted to update non-existent " +
+			"funding state"))
 		return
 	}
 
@@ -1895,14 +1888,14 @@ func (l *LightningWallet) handleChanPointReady(req *continueContributionMsg) {
 		// funding outpoint in stone for this channel.
 		fundingTx, err := psbtIntent.CompileFundingTx()
 		if err != nil {
-			req.err <- fmt.Errorf("unable to construct funding "+
-				"tx: %v", err)
+			req.complete(fmt.Errorf("unable to construct funding "+
+				"tx: %v", err))
 			return
 		}
 		chanPointPtr, err := psbtIntent.ChanPoint()
 		if err != nil {
-			req.err <- fmt.Errorf("unable to obtain chan "+
-				"point: %v", err)
+			req.complete(fmt.Errorf("unable to obtain chan "+
+				"point: %v", err))
 			return
 		}
 
@@ -1975,7 +1968,7 @@ func (l *LightningWallet) handleChanPointReady(req *continueContributionMsg) {
 		WithAuxLeaves(localAuxLeaves, remoteAuxLeaves),
 	)
 	if err != nil {
-		req.err <- err
+		req.complete(err)
 		return
 	}
 
@@ -2006,7 +1999,7 @@ func (l *LightningWallet) handleChanPointReady(req *continueContributionMsg) {
 	}
 	err = initStateHints(ourCommitTx, theirCommitTx, stateObfuscator)
 	if err != nil {
-		req.err <- err
+		req.complete(err)
 		return
 	}
 
@@ -2032,8 +2025,8 @@ func (l *LightningWallet) handleChanPointReady(req *continueContributionMsg) {
 	fundingIntent := pendingReservation.fundingIntent
 	fundingWitnessScript, fundingOutput, err := fundingIntent.FundingOutput()
 	if err != nil {
-		req.err <- fmt.Errorf("unable to obtain funding "+
-			"output: %w", err)
+		req.complete(fmt.Errorf("unable to obtain funding "+
+			"output: %w", err))
 		return
 	}
 
@@ -2044,13 +2037,13 @@ func (l *LightningWallet) handleChanPointReady(req *continueContributionMsg) {
 		fundingWitnessScript,
 	)
 	if err != nil {
-		req.err <- err
+		req.complete(err)
 		return
 	}
 
 	pendingReservation.ourCommitmentSig = sigTheirCommit
 
-	req.err <- nil
+	req.complete(nil)
 }
 
 // handleSingleContribution is called as the second step to a single funder
@@ -2062,7 +2055,8 @@ func (l *LightningWallet) handleSingleContribution(req *addSingleContributionMsg
 	pendingReservation, ok := l.fundingLimbo[req.pendingFundingID]
 	l.limboMtx.Unlock()
 	if !ok {
-		req.err <- fmt.Errorf("attempted to update non-existent funding state")
+		req.complete(fmt.Errorf("attempted to update non-existent " +
+			"funding state"))
 		return
 	}
 
@@ -2076,7 +2070,7 @@ func (l *LightningWallet) handleSingleContribution(req *addSingleContributionMsg
 	if len(shutdown) > 0 {
 		// Validate the shutdown script.
 		if !ValidateUpfrontShutdown(shutdown, &l.Cfg.NetParams) {
-			req.err <- fmt.Errorf("invalid shutdown script")
+			req.complete(fmt.Errorf("invalid shutdown script"))
 			return
 		}
 	}
@@ -2091,7 +2085,7 @@ func (l *LightningWallet) handleSingleContribution(req *addSingleContributionMsg
 	// parameters. The ChannelReserve may have been changed by the
 	// ChannelAcceptor RPC, so this is necessary.
 	if !pendingReservation.validateReserveBounds() {
-		req.err <- fmt.Errorf("invalid reserve and dust bounds")
+		req.complete(fmt.Errorf("invalid reserve and dust bounds"))
 		return
 	}
 
@@ -2099,7 +2093,7 @@ func (l *LightningWallet) handleSingleContribution(req *addSingleContributionMsg
 	// is proposing could actually be used: at least one side must start out
 	// above its reserve.
 	if err := pendingReservation.validateInitialBalances(); err != nil {
-		req.err <- err
+		req.complete(err)
 		return
 	}
 
@@ -2114,7 +2108,7 @@ func (l *LightningWallet) handleSingleContribution(req *addSingleContributionMsg
 	// process is complete.
 	chanState.RemoteCurrentRevocation = theirContribution.FirstCommitmentPoint
 
-	req.err <- nil
+	req.complete(nil)
 }
 
 // verifyFundingInputs attempts to verify all remote inputs to the funding
@@ -2278,8 +2272,8 @@ func (l *LightningWallet) handleFundingCounterPartySigs(msg *addCounterPartySigs
 	res, ok := l.fundingLimbo[msg.pendingFundingID]
 	l.limboMtx.RUnlock()
 	if !ok {
-		msg.err <- fmt.Errorf("attempted to update non-existent funding state")
-		msg.completeChan <- nil
+		msg.fail(fmt.Errorf("attempted to update non-existent " +
+			"funding state"))
 		return
 	}
 
@@ -2299,8 +2293,7 @@ func (l *LightningWallet) handleFundingCounterPartySigs(msg *addCounterPartySigs
 	if res.partialState.ChanType.HasFundingTx() {
 		err := l.verifyFundingInputs(fundingTx, inputScripts)
 		if err != nil {
-			msg.err <- err
-			msg.completeChan <- nil
+			msg.fail(err)
 			return
 		}
 	}
@@ -2312,9 +2305,8 @@ func (l *LightningWallet) handleFundingCounterPartySigs(msg *addCounterPartySigs
 
 	err := l.verifyCommitSig(res, msg.theirCommitmentSig, commitTx)
 	if err != nil {
-		msg.err <- fmt.Errorf("counterparty's commitment signature is "+
-			"invalid: %w", err)
-		msg.completeChan <- nil
+		msg.fail(fmt.Errorf("counterparty's commitment signature is "+
+			"invalid: %w", err))
 		return
 	}
 
@@ -2335,8 +2327,7 @@ func (l *LightningWallet) handleFundingCounterPartySigs(msg *addCounterPartySigs
 	// of the current height for record keeping purposes.
 	_, bestHeight, err := l.Cfg.ChainIO.GetBestBlock()
 	if err != nil {
-		msg.err <- err
-		msg.completeChan <- nil
+		msg.fail(err)
 		return
 	}
 
@@ -2364,13 +2355,11 @@ func (l *LightningWallet) handleFundingCounterPartySigs(msg *addCounterPartySigs
 	nodeAddr := res.nodeAddr
 	err = res.partialState.SyncPending(nodeAddr, uint32(bestHeight))
 	if err != nil {
-		msg.err <- err
-		msg.completeChan <- nil
+		msg.fail(err)
 		return
 	}
 
-	msg.completeChan <- res.partialState
-	msg.err <- nil
+	msg.succeed(res.partialState)
 }
 
 // handleSingleFunderSigs is called once the remote peer who initiated the
@@ -2383,8 +2372,8 @@ func (l *LightningWallet) handleSingleFunderSigs(req *addSingleFunderSigsMsg) {
 	pendingReservation, ok := l.fundingLimbo[req.pendingFundingID]
 	l.limboMtx.RUnlock()
 	if !ok {
-		req.err <- fmt.Errorf("attempted to update non-existent funding state")
-		req.completeChan <- nil
+		req.fail(fmt.Errorf("attempted to update non-existent " +
+			"funding state"))
 		return
 	}
 
@@ -2446,8 +2435,7 @@ func (l *LightningWallet) handleSingleFunderSigs(req *addSingleFunderSigsMsg) {
 		WithAuxLeaves(localAuxLeaves, remoteAuxLeaves),
 	)
 	if err != nil {
-		req.err <- err
-		req.completeChan <- nil
+		req.fail(err)
 		return
 	}
 
@@ -2460,8 +2448,7 @@ func (l *LightningWallet) handleSingleFunderSigs(req *addSingleFunderSigsMsg) {
 	)
 	err = initStateHints(ourCommitTx, theirCommitTx, stateObfuscator)
 	if err != nil {
-		req.err <- err
-		req.completeChan <- nil
+		req.fail(err)
 		return
 	}
 
@@ -2484,8 +2471,7 @@ func (l *LightningWallet) handleSingleFunderSigs(req *addSingleFunderSigsMsg) {
 		pendingReservation, req.theirCommitmentSig, ourCommitTx,
 	)
 	if err != nil {
-		req.err <- err
-		req.completeChan <- nil
+		req.fail(err)
 		return
 	}
 
@@ -2514,8 +2500,7 @@ func (l *LightningWallet) handleSingleFunderSigs(req *addSingleFunderSigsMsg) {
 		)
 	}
 	if err != nil {
-		req.err <- err
-		req.completeChan <- nil
+		req.fail(err)
 		return
 	}
 
@@ -2527,8 +2512,7 @@ func (l *LightningWallet) handleSingleFunderSigs(req *addSingleFunderSigsMsg) {
 		fundingWitnessScript,
 	)
 	if err != nil {
-		req.err <- err
-		req.completeChan <- nil
+		req.fail(err)
 		return
 	}
 
@@ -2536,8 +2520,7 @@ func (l *LightningWallet) handleSingleFunderSigs(req *addSingleFunderSigsMsg) {
 
 	_, bestHeight, err := l.Cfg.ChainIO.GetBestBlock()
 	if err != nil {
-		req.err <- err
-		req.completeChan <- nil
+		req.fail(err)
 		return
 	}
 
@@ -2557,13 +2540,11 @@ func (l *LightningWallet) handleSingleFunderSigs(req *addSingleFunderSigsMsg) {
 
 	err = chanState.SyncPending(pendingReservation.nodeAddr, uint32(bestHeight))
 	if err != nil {
-		req.err <- err
-		req.completeChan <- nil
+		req.fail(err)
 		return
 	}
 
-	req.completeChan <- chanState
-	req.err <- nil
+	req.succeed(chanState)
 
 	l.limboMtx.Lock()
 	delete(l.fundingLimbo, req.pendingFundingID)

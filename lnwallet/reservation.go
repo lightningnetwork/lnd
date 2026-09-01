@@ -11,6 +11,7 @@ import (
 	"github.com/btcsuite/btcd/btcutil/v2"
 	"github.com/btcsuite/btcd/chainhash/v2"
 	"github.com/btcsuite/btcd/wire/v2"
+	"github.com/lightningnetwork/lnd/actor"
 	"github.com/lightningnetwork/lnd/channeldb"
 	"github.com/lightningnetwork/lnd/chanstate"
 	"github.com/lightningnetwork/lnd/fn/v2"
@@ -693,16 +694,18 @@ func (r *ChannelReservation) OurContribution() *ChannelContribution {
 // transaction belonging to the wallet are available. Additionally, the wallet
 // will generate a signature to the counterparty's version of the commitment
 // transaction.
-func (r *ChannelReservation) ProcessContribution(theirContribution *ChannelContribution) error {
-	errChan := make(chan error, 1)
+func (r *ChannelReservation) ProcessContribution(
+	theirContribution *ChannelContribution) error {
+
+	promise := actor.NewPromise[error]()
 
 	r.wallet.msgChan <- &addContributionMsg{
+		errRequest:       errRequest{resp: promise},
 		pendingFundingID: r.reservationID,
 		contribution:     theirContribution,
-		err:              errChan,
 	}
 
-	return <-errChan
+	return awaitWalletResult(promise.Future())
 }
 
 // IsPsbt returns true if there is a PSBT funding intent mapped to this
@@ -725,15 +728,15 @@ func (r *ChannelReservation) IsCannedShim() bool {
 func (r *ChannelReservation) ProcessPsbt(
 	auxFundingDesc fn.Option[AuxFundingDesc]) error {
 
-	errChan := make(chan error, 1)
+	promise := actor.NewPromise[error]()
 
 	r.wallet.msgChan <- &continueContributionMsg{
+		errRequest:       errRequest{resp: promise},
 		auxFundingDesc:   auxFundingDesc,
 		pendingFundingID: r.reservationID,
-		err:              errChan,
 	}
 
-	return <-errChan
+	return awaitWalletResult(promise.Future())
 }
 
 // RemoteCanceled informs the PSBT funding state machine that the remote peer
@@ -750,16 +753,18 @@ func (r *ChannelReservation) RemoteCanceled() {
 // to this pending single funder channel. Internally, no further action is
 // taken other than recording the initiator's contribution to the single funder
 // channel.
-func (r *ChannelReservation) ProcessSingleContribution(theirContribution *ChannelContribution) error {
-	errChan := make(chan error, 1)
+func (r *ChannelReservation) ProcessSingleContribution(
+	theirContribution *ChannelContribution) error {
+
+	promise := actor.NewPromise[error]()
 
 	r.wallet.msgChan <- &addSingleContributionMsg{
+		errRequest:       errRequest{resp: promise},
 		pendingFundingID: r.reservationID,
 		contribution:     theirContribution,
-		err:              errChan,
 	}
 
-	return <-errChan
+	return awaitWalletResult(promise.Future())
 }
 
 // TheirContribution returns the counterparty's pending contribution to the
@@ -807,18 +812,16 @@ func (r *ChannelReservation) CompleteReservation(fundingInputScripts []*input.Sc
 	commitmentSig input.Signature) (*chanstate.OpenChannel, error) {
 
 	// TODO(roasbeef): add flag for watch or not?
-	errChan := make(chan error, 1)
-	completeChan := make(chan *chanstate.OpenChannel, 1)
+	promise := actor.NewPromise[fn.Result[*chanstate.OpenChannel]]()
 
 	r.wallet.msgChan <- &addCounterPartySigsMsg{
+		openChanRequest:          openChanRequest{resp: promise},
 		pendingFundingID:         r.reservationID,
 		theirFundingInputScripts: fundingInputScripts,
 		theirCommitmentSig:       commitmentSig,
-		completeChan:             completeChan,
-		err:                      errChan,
 	}
 
-	return <-completeChan, <-errChan
+	return awaitWalletResult(promise.Future()).Unpack()
 }
 
 // CompleteReservationSingle finalizes the pending single funder channel
@@ -835,19 +838,17 @@ func (r *ChannelReservation) CompleteReservationSingle(
 	auxFundingDesc fn.Option[AuxFundingDesc]) (*chanstate.OpenChannel,
 	error) {
 
-	errChan := make(chan error, 1)
-	completeChan := make(chan *chanstate.OpenChannel, 1)
+	promise := actor.NewPromise[fn.Result[*chanstate.OpenChannel]]()
 
 	r.wallet.msgChan <- &addSingleFunderSigsMsg{
+		openChanRequest:    openChanRequest{resp: promise},
 		pendingFundingID:   r.reservationID,
 		fundingOutpoint:    fundingPoint,
 		theirCommitmentSig: commitSig,
-		completeChan:       completeChan,
 		auxFundingDesc:     auxFundingDesc,
-		err:                errChan,
 	}
 
-	return <-completeChan, <-errChan
+	return awaitWalletResult(promise.Future()).Unpack()
 }
 
 // TheirSignatures returns the counterparty's signatures to all inputs to the
@@ -920,13 +921,13 @@ func (r *ChannelReservation) LeaseExpiry() uint32 {
 // channel are returned to the free pool, allowing subsequent reservations to
 // utilize the now freed resources.
 func (r *ChannelReservation) Cancel() error {
-	errChan := make(chan error, 1)
+	promise := actor.NewPromise[error]()
 	r.wallet.msgChan <- &fundingReserveCancelMsg{
+		errRequest:       errRequest{resp: promise},
 		pendingFundingID: r.reservationID,
-		err:              errChan,
 	}
 
-	return <-errChan
+	return awaitWalletResult(promise.Future())
 }
 
 // ChanState the current open channel state.

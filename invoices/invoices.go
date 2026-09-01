@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"github.com/lightningnetwork/lnd/feature"
+	"github.com/lightningnetwork/lnd/fn/v2"
 	"github.com/lightningnetwork/lnd/lntypes"
 	"github.com/lightningnetwork/lnd/lnwire"
 	"github.com/lightningnetwork/lnd/record"
@@ -430,6 +431,20 @@ type Invoice struct {
 	// HodlInvoice indicates whether the invoice should be held in the
 	// Accepted state or be settled right away.
 	HodlInvoice bool
+
+	// IsBolt12 indicates whether this invoice was created via the
+	// BOLT 12 offer/invoice-request protocol.
+	IsBolt12 bool
+
+	// OfferID is the database primary key of the offer that spawned
+	// this invoice. It is None for BOLT 11 invoices and BOLT 12 invoices
+	// not tied to an offer.
+	OfferID fn.Option[int64]
+
+	// InvreqPayerID is the 33-byte compressed pubkey from the
+	// invreq_payer_id TLV (type 88) in the invoice request. Nil
+	// for BOLT 11.
+	InvreqPayerID []byte
 }
 
 // HTLCSet returns the set of HTLCs belonging to setID and in the provided

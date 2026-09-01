@@ -82,6 +82,14 @@
 
 ## RPC Updates
 
+* [Corrected the unit descriptions](https://github.com/lightningnetwork/lnd/pull/11155)
+  of `fee_per_mil`, `fee_rate` and `inbound_fee_per_mil` in the
+  `ChannelFeeReport` message. `fee_per_mil` was documented as an absolute
+  amount while `fee_rate` was documented as that same value divided by one
+  million, which is not dimensionally consistent. They are now described as
+  the proportional fee in parts per million and as the equivalent fraction
+  of the amount forwarded. Documentation only; no behaviour change.
+
 ## lncli Updates
 
 ## Breaking Changes
@@ -167,3 +175,4 @@
 * Erick Cestari
 * Jared Tobin
 * Nishant Bansal
+* Porter

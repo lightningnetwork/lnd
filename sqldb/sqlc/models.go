@@ -214,6 +214,14 @@ type MigrationTracker struct {
 	MigrationTime time.Time
 }
 
+type Offer struct {
+	ID         int64
+	Hash       []byte
+	Encoded    string
+	IsDisabled bool
+	CreatedAt  time.Time
+}
+
 type Payment struct {
 	ID                int64
 	AmountMsat        int64

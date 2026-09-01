@@ -18,4 +18,7 @@ type Config struct {
 	ActiveNetParams *chaincfg.Params
 	GraphDB         *graphdb.ChannelGraph
 	Switch          *htlcswitch.Switch
+
+	// OfferCreator is nil when the node runs without BOLT 12 offers.
+	OfferCreator OfferCreator
 }

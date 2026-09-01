@@ -47,6 +47,11 @@
   the reported network statistics such as total network capacity, channel
   count and max out degree.
 
+* Funding responders now [cancel wallet
+  reservations](https://github.com/lightningnetwork/lnd/pull/11156) when
+  channel setup fails before manager registration, ensuring rejected channel
+  proposals do not retain reservation state.
+
 # New Features
 
 ## Functional Enhancements
@@ -166,4 +171,5 @@
 * Boris Nagaev
 * Erick Cestari
 * Jared Tobin
+* moscowchill
 * Nishant Bansal

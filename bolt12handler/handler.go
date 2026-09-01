@@ -8,6 +8,7 @@ import (
 	"errors"
 	"fmt"
 	"math"
+	"sync"
 	"time"
 
 	"github.com/btcsuite/btcd/btcec/v2"
@@ -49,6 +50,15 @@ type Handler struct {
 	// finalCLTVDelta is the final CLTV delta that this node requires for a
 	// BOLT 12 invoice payment.
 	finalCLTVDelta uint16
+
+	// maxInflight is the number of invoice requests that the handler
+	// answers at the same time.
+	maxInflight int
+
+	startOnce sync.Once
+
+	// cg cancels the running invoice requests on Stop and waits for them.
+	cg *fn.ContextGuard
 }
 
 // NewHandler creates a new BOLT 12 invoice request handler. The notifier and
@@ -78,6 +88,8 @@ func NewHandler(offerStore offers.Store, notifier InvoiceNotifier,
 		paymentPathBuilder: paymentPathBuilder,
 		activeChain:        activeChain,
 		finalCLTVDelta:     finalCLTVDelta,
+		maxInflight:        maxInflightRequests,
+		cg:                 fn.NewContextGuard(),
 	}, nil
 }
 

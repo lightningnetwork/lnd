@@ -386,6 +386,7 @@ func TestOnionPeerActorRouting(t *testing.T) {
 		name         string
 		buildHops    buildHopsFunc
 		finalHopTLVs []*lnwire.FinalHopTLV
+		delivered    bool
 	}{
 		{
 			name:      "forward next node",
@@ -404,6 +405,7 @@ func TestOnionPeerActorRouting(t *testing.T) {
 					Value:   []byte{1, 2, 3},
 				},
 			},
+			delivered: true,
 		},
 		{
 			name:      "forward concatenated path",
@@ -443,6 +445,9 @@ func TestOnionPeerActorRouting(t *testing.T) {
 				require.Equal(
 					t, expectedData,
 					update.EncryptedRecipientData,
+				)
+				require.Equal(
+					t, tc.delivered, update.Delivered,
 				)
 
 				for _, fht := range tc.finalHopTLVs {

@@ -33,4 +33,10 @@ type OnionMessageUpdate struct {
 	// the receiver for the last leg of the route, and the sender for the
 	// first leg up to the introduction point.
 	EncryptedRecipientData []byte
+
+	// Delivered is true when this node is the final hop of the message.
+	// For a forwarded message, CustomRecords and ReplyPath come from the
+	// payload of this hop, and BOLT 4 tells a forwarding node to ignore
+	// them.
+	Delivered bool
 }

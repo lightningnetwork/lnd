@@ -8,6 +8,7 @@ import (
 	"errors"
 	"fmt"
 	"math"
+	"sync/atomic"
 	"time"
 
 	"github.com/btcsuite/btcd/btcec/v2"
@@ -21,6 +22,7 @@ import (
 	"github.com/lightningnetwork/lnd/offers"
 	"github.com/lightningnetwork/lnd/routing"
 	"github.com/lightningnetwork/lnd/tlv"
+	"golang.org/x/time/rate"
 )
 
 // InvoiceNotifier sends an Open event for each new BOLT 12 invoice to the
@@ -51,6 +53,23 @@ type Handler struct {
 	// finalCLTVDelta is the final CLTV delta that this node requires for a
 	// BOLT 12 invoice payment.
 	finalCLTVDelta uint16
+
+	// maxInflight is the number of invoice requests that the handler
+	// answers at the same time.
+	maxInflight int
+
+	// requestLimiter limits the rate of the answered invoice requests.
+	requestLimiter *rate.Limiter
+
+	// introResolver resolves a sciddir introduction node of a reply path.
+	// Start sets it before the dispatch starts.
+	introResolver IntroNodeResolver
+
+	started atomic.Bool
+
+	// gm runs the dispatch and the invoice requests. Its Stop cancels them
+	// and waits for them.
+	gm *fn.GoroutineManager
 }
 
 // NewHandler creates a new BOLT 12 invoice request handler. The notifier, the
@@ -81,6 +100,9 @@ func NewHandler(offerStore offers.Store, notifier InvoiceNotifier,
 		clock:              clk,
 		activeChain:        activeChain,
 		finalCLTVDelta:     finalCLTVDelta,
+		maxInflight:        maxInflightRequests,
+		requestLimiter:     rate.NewLimiter(requestRate, requestBurst),
+		gm:                 fn.NewGoroutineManager(),
 	}, nil
 }
 

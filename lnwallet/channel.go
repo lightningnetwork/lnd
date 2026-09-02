@@ -2666,17 +2666,36 @@ func createBreachRetributionLegacy(revokedLog *channeldb.ChannelCommitment,
 
 	// With the commitment outputs located, we'll now generate all the
 	// retribution structs for each of the HTLC transactions active on the
-	// remote commitment transaction.
-	htlcRetributions := make([]HtlcRetribution, len(revokedLog.Htlcs))
-	for i, htlc := range revokedLog.Htlcs {
-		// If the HTLC is dust, then we'll skip it as it doesn't have
-		// an output on the commitment transaction.
-		if HtlcIsDust(
+	// remote commitment transaction. We densely pack the slice so that
+	// skipped dust HTLCs don't leave blank entries behind, as a zero-value
+	// HtlcRetribution carries a nil sign descriptor output that downstream
+	// consumers don't expect.
+	htlcRetributions := make([]HtlcRetribution, 0, len(revokedLog.Htlcs))
+	for _, htlc := range revokedLog.Htlcs {
+		isDust := HtlcIsDust(
 			chanState.ChanType, htlc.Incoming, lntypes.Remote,
 			chainfee.SatPerKWeight(revokedLog.FeePerKw),
 			htlc.Amt.ToSatoshis(),
 			chanState.RemoteChanCfg.DustLimit,
-		) {
+		)
+
+		// If the HTLC is dust, then we'll skip it as it doesn't have
+		// an output on the commitment transaction. As a hardening
+		// measure, we also skip HTLCs whose stored output index marks
+		// them as trimmed, which is how the modern revocation log
+		// format decides dust at write time.
+		if htlc.OutputIndex < 0 || isDust {
+			// If the stored output index and the dust check
+			// disagree, the log entry is suspect, so we log it
+			// loudly to be able to pinpoint the error.
+			if htlc.OutputIndex < 0 && !isDust {
+				walletLog.Warnf("Skipping HTLC(index=%v) "+
+					"in legacy revocation log for "+
+					"ChannelPoint(%v): stored output "+
+					"index negative, but not dust",
+					htlc.HtlcIndex,
+					chanState.FundingOutpoint)
+			}
 
 			continue
 		}
@@ -2694,7 +2713,7 @@ func createBreachRetributionLegacy(revokedLog *channeldb.ChannelCommitment,
 		if err != nil {
 			return nil, 0, 0, err
 		}
-		htlcRetributions[i] = hr
+		htlcRetributions = append(htlcRetributions, hr)
 	}
 
 	// Compute the balances in satoshis.

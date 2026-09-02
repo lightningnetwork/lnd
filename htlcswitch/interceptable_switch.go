@@ -99,9 +99,10 @@ type InterceptableSwitch struct {
 }
 
 type interceptedPackets struct {
-	packets  []*htlcPacket
-	linkQuit <-chan struct{}
-	isReplay bool
+	packets         []*htlcPacket
+	linkQuit        <-chan struct{}
+	isReplay        bool
+	replayProcessed chan struct{}
 }
 
 type onchainInterceptRequest struct {
@@ -307,6 +308,38 @@ func (s *InterceptableSwitch) run() error {
 
 		case packets := <-s.intercepted:
 			var notIntercepted []*htlcPacket
+			if packets.isReplay {
+				var remaining []*htlcPacket
+				for _, p := range packets.packets {
+					_, isAdd := p.htlc.(*lnwire.UpdateAddHTLC)
+					if !isAdd || p.incomingChanID == hop.Source ||
+						s.htlcSwitch.circuits.LookupCircuit(
+							p.inKey(),
+						) == nil {
+
+						remaining = append(remaining, p)
+						continue
+					}
+
+					notIntercepted = append(notIntercepted, p)
+				}
+
+				// Reconcile known replay circuits while the incoming
+				// link remains paused. This prevents that link from
+				// deleting the circuit between lookup and commit.
+				err := s.htlcSwitch.ForwardPackets(
+					packets.linkQuit, notIntercepted...,
+				)
+				if err != nil {
+					log.Errorf("Cannot reconcile replayed packets: %v",
+						err)
+				}
+
+				close(packets.replayProcessed)
+				packets.packets = remaining
+				notIntercepted = nil
+			}
+
 			for _, p := range packets.packets {
 				intercepted, err := s.interceptForward(
 					p, packets.isReplay,
@@ -445,21 +478,40 @@ func (s *InterceptableSwitch) Resolve(res *FwdResolution) error {
 // ForwardPackets attempts to forward the batch of htlcs to a connected
 // interceptor. If the interceptor signals the resume action, the htlcs are
 // forwarded to the switch. The link's quit signal should be provided to allow
-// cancellation of forwarding during link shutdown.
+// cancellation of forwarding during link shutdown. Replay calls return after
+// the switch has reconciled any circuits that already exist.
 func (s *InterceptableSwitch) ForwardPackets(linkQuit <-chan struct{},
 	isReplay bool, packets ...*htlcPacket) error {
+	replayProcessed := make(chan struct{})
 
 	// Synchronize with the main event loop. This should be light in the
 	// case where there is no interceptor.
 	select {
 	case s.intercepted <- &interceptedPackets{
-		packets:  packets,
-		linkQuit: linkQuit,
-		isReplay: isReplay,
+		packets:         packets,
+		linkQuit:        linkQuit,
+		isReplay:        isReplay,
+		replayProcessed: replayProcessed,
 	}:
 
 	case <-linkQuit:
 		log.Debugf("Forward cancelled because link quit")
+
+	case <-s.quit:
+		return errors.New("interceptable switch quit")
+	}
+
+	if !isReplay {
+		return nil
+	}
+
+	// Keep the incoming link paused until any existing replay circuits have
+	// been atomically reconciled by the switch.
+	select {
+	case <-replayProcessed:
+
+	case <-linkQuit:
+		log.Debugf("Replay reconciliation cancelled because link quit")
 
 	case <-s.quit:
 		return errors.New("interceptable switch quit")
@@ -518,19 +570,6 @@ func (s *InterceptableSwitch) interceptForward(packet *htlcPacket,
 		// We are not interested in intercepting initiated payments.
 		if packet.incomingChanID == hop.Source {
 			return false, nil
-		}
-
-		// Let the switch reconcile replayed packets with circuits that
-		// have already been committed. The circuit map remains the source
-		// of truth for whether a replay should be dropped or failed back
-		// during recovery.
-		if isReplay {
-			circuit := s.htlcSwitch.circuits.LookupCircuit(
-				packet.inKey(),
-			)
-			if circuit != nil {
-				return false, nil
-			}
 		}
 
 		intercepted := &interceptedForward{

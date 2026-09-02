@@ -3904,6 +3904,28 @@ func assertOutgoingLinkReceiveIntercepted(t *testing.T,
 	return nil
 }
 
+// commitBlockingCircuitMap blocks circuit commits until the test releases the
+// barrier.
+type commitBlockingCircuitMap struct {
+	CircuitMap
+
+	commitStarted chan struct{}
+	commitRelease chan struct{}
+}
+
+// CommitCircuits signals that a commit has started, then waits for the test to
+// release it.
+func (c *commitBlockingCircuitMap) CommitCircuits(
+	circuits ...*PaymentCircuit) (*CircuitFwdActions, error) {
+
+	close(c.commitStarted)
+	<-c.commitRelease
+
+	return c.CircuitMap.CommitCircuits(circuits...)
+}
+
+var _ CircuitMap = (*commitBlockingCircuitMap)(nil)
+
 type interceptableSwitchTestContext struct {
 	t *testing.T
 
@@ -4364,12 +4386,48 @@ func TestInterceptableSwitchReplayAfterResume(t *testing.T) {
 	outgoing := assertOutgoingLinkReceive(t, c.bobChannelLink, true)
 	assertNumCircuits(t, c.s, 1, 1)
 
+	// Block the switch at circuit commit to verify that the incoming link
+	// remains paused across replay lookup and reconciliation.
+	commitStarted := make(chan struct{})
+	commitRelease := make(chan struct{})
+	c.s.circuits = &commitBlockingCircuitMap{
+		CircuitMap:    c.s.circuits,
+		commitStarted: commitStarted,
+		commitRelease: commitRelease,
+	}
+
 	// Replay the incoming add as processRemoteAdds does when the incoming
 	// link restarts before the return packet has been committed. The replay
 	// must not be offered to the interceptor again.
-	require.NoError(t, interceptSwitch.ForwardPackets(
-		linkQuit, true, &replay,
-	))
+	replayErr := make(chan error, 1)
+	go func() {
+		replayErr <- interceptSwitch.ForwardPackets(
+			linkQuit, true, &replay,
+		)
+	}()
+
+	select {
+	case <-commitStarted:
+	case <-time.After(time.Second):
+		t.Fatal("replay did not reach circuit commit")
+	}
+
+	var (
+		forwardErr    error
+		returnedEarly bool
+	)
+	select {
+	case forwardErr = <-replayErr:
+		returnedEarly = true
+	case <-time.After(100 * time.Millisecond):
+	}
+
+	close(commitRelease)
+	if !returnedEarly {
+		forwardErr = <-replayErr
+	}
+	require.NoError(t, forwardErr)
+	require.False(t, returnedEarly, "replay returned before circuit commit")
 
 	// Wait for the replay to finish processing by sending a request through
 	// the same event loop.

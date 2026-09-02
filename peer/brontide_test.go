@@ -1291,72 +1291,43 @@ func TestPeerIgnoresPingWithoutPongReply(t *testing.T) {
 }
 
 // TestPeerPingLimitsProductionBoundaries verifies the exact burst and refill
-// thresholds used by both production Ping policies.
+// thresholds used by the production Ping flood policy.
 func TestPeerPingLimitsProductionBoundaries(t *testing.T) {
 	t.Parallel()
 
-	// Arrange: Use fresh production limiters and expected values
-	// so each subtest starts with a full, independent token bucket.
-	limits := defaultPingLimits()
-	tests := []struct {
-		name    string
-		limiter *rate.Limiter
-		limit   rate.Limit
-		burst   int
-	}{
-		{
-			name:    "Pong replies",
-			limiter: limits.pongLimiter,
-			limit:   pongReplyRate,
-			burst:   pongReplyBurst,
-		},
-		{
-			name:    "Ping floods",
-			limiter: limits.pingLimiter,
-			limit:   pingFloodRate,
-			burst:   pingFloodBurst,
-		},
-	}
+	// Arrange: Use a fresh production limiter and derive its one-token
+	// interval from the configured rate. A synthetic timestamp and a
+	// two-nanosecond epsilon make both sides of the boundary deterministic
+	// despite rate's duration truncation.
+	limiter := defaultPingLimiter()
+	now := time.Now()
+	refillTime := time.Duration(
+		float64(time.Second) / float64(pingFloodRate),
+	)
+	const boundaryEpsilon = 2 * time.Nanosecond
+	require.Equal(t, pingFloodRate, limiter.Limit())
+	require.Equal(t, pingFloodBurst, limiter.Burst())
 
-	for _, test := range tests {
-		t.Run(test.name, func(t *testing.T) {
-			// Arrange: Derive the one-token interval from the rate
-			// constant under test, then fix a synthetic timestamp.
-			// This makes both sides of the boundary deterministic.
-			// Two nanoseconds keep the pre-boundary deficit above
-			// rate's duration-truncation quantum.
-			now := time.Now()
-			refillTime := time.Duration(
-				float64(time.Second) / float64(test.limit),
-			)
-			const boundaryEpsilon = 2 * time.Nanosecond
-			require.Equal(t, test.limit, test.limiter.Limit())
-			require.Equal(t, test.burst, test.limiter.Burst())
+	// Act: Consume the entire production burst, probe one token past it,
+	// then probe immediately before and exactly at the derived refill time.
+	atBoundary := limiter.AllowN(now, pingFloodBurst)
+	pastBoundary := limiter.AllowN(now, 1)
+	beforeRefill := limiter.AllowN(
+		now.Add(refillTime-boundaryEpsilon), 1,
+	)
+	atRefill := limiter.AllowN(now.Add(refillTime), 1)
 
-			// Act: Consume the burst, probe one token past it, and
-			// test just before and at the derived replacement time.
-			atBoundary := test.limiter.AllowN(now, test.burst)
-			pastBoundary := test.limiter.AllowN(now, 1)
-			beforeRefill := test.limiter.AllowN(
-				now.Add(refillTime-boundaryEpsilon), 1,
-			)
-			atRefill := test.limiter.AllowN(
-				now.Add(refillTime), 1,
-			)
-
-			// Assert: The burst boundary is inclusive, both probes
-			// before refill are rejected, and the derived boundary
-			// restores exactly one token without scheduler timing.
-			require.True(t, atBoundary)
-			require.False(t, pastBoundary)
-			require.False(t, beforeRefill)
-			require.True(t, atRefill)
-		})
-	}
+	// Assert: The configured burst is inclusive, requests remain rejected
+	// until the full refill interval passes, and exactly one token becomes
+	// available at that boundary.
+	require.True(t, atBoundary)
+	require.False(t, pastBoundary)
+	require.False(t, beforeRefill)
+	require.True(t, atRefill)
 }
 
-// TestPeerPingLimitsAllowHonestCadence verifies that both inbound Ping
-// limiters admit realistic keepalive cadences for long-lived connections.
+// TestPeerPingLimitsAllowHonestCadence verifies that the inbound Ping flood
+// limiter admits realistic keepalive cadences for long-lived connections.
 func TestPeerPingLimitsAllowHonestCadence(t *testing.T) {
 	t.Parallel()
 
@@ -1374,7 +1345,7 @@ func TestPeerPingLimitsAllowHonestCadence(t *testing.T) {
 		t.Run(test.name, func(t *testing.T) {
 			// Arrange: Construct the production Ping policy
 			// separately so token history cannot cross test cases.
-			limits := defaultPingLimits()
+			limiter := defaultPingLimiter()
 			start := time.Now()
 
 			// Act: Advance a synthetic clock at the selected
@@ -1383,13 +1354,10 @@ func TestPeerPingLimitsAllowHonestCadence(t *testing.T) {
 				elapsed := time.Duration(i) * test.cadence
 				now := start.Add(elapsed)
 
-				// Assert: Both budgets admit each ping, so this
-				// cadence reaches neither protection tier.
+				// Assert: The flood budget admits every Ping at
+				// this cadence, keeping honest peers connected.
 				require.True(
-					t, limits.pongLimiter.AllowN(now, 1),
-				)
-				require.True(
-					t, limits.pingLimiter.AllowN(now, 1),
+					t, limiter.AllowN(now, 1),
 				)
 			}
 		})
@@ -1561,7 +1529,7 @@ func TestPeerPingFloodDisconnects(t *testing.T) {
 	// marking it global avoids unrelated lifecycle calls.
 	params := createTestPeer(t)
 	peer := params.peer
-	peer.pingLimits.pingLimiter = rate.NewLimiter(0, 0)
+	peer.pingLimiter = rate.NewLimiter(0, 0)
 	peer.remoteFeatures = lnwire.EmptyFeatureVector()
 	peer.activeChannels.Store(
 		lnwire.ChannelID{1}, &lnwallet.LightningChannel{},

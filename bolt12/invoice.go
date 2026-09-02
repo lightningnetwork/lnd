@@ -338,14 +338,16 @@ func DecodeInvoice(data []byte) (*Invoice, error) {
 		data,
 		invreqMetadata.Record(), chains.Record(), offerMeta.Record(),
 		currency.Record(), offerAmt.Record(), desc.Record(),
-		offerFeat.Record(), expiry.Record(), offerPaths.Record(),
+		strictFeaturesRecord(&offerFeat), expiry.Record(),
+		offerPaths.Record(),
 		issuer.Record(), qtyMax.Record(), issuerID.Record(),
-		invreqChain.Record(), invreqAmt.Record(), invreqFeat.Record(),
+		invreqChain.Record(), invreqAmt.Record(),
+		strictFeaturesRecord(&invreqFeat),
 		invreqQty.Record(), payerID.Record(), payerNote.Record(),
 		invreqPaths.Record(), bip353.Record(), invPaths.Record(),
 		blindedPay.Record(), createdAt.Record(), relExp.Record(),
 		payHash.Record(), invAmt.Record(), fallbacks.Record(),
-		invFeat.Record(), nodeID.Record(), sig.Record(),
+		strictFeaturesRecord(&invFeat), nodeID.Record(), sig.Record(),
 	)
 	if err != nil {
 		return nil, fmt.Errorf("decode invoice: %w", err)

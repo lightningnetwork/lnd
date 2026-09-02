@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"github.com/btcsuite/btcd/btcec/v2"
+	"github.com/lightningnetwork/lnd/fn/v2"
 	"github.com/lightningnetwork/lnd/lnwire"
 	"github.com/lightningnetwork/lnd/tlv"
 	"github.com/stretchr/testify/require"
@@ -916,6 +917,240 @@ func TestValidateReadRejectsBadSignature(t *testing.T) {
 			require.ErrorIs(t, tc.validate(t), ErrInvalidSignature)
 		})
 	}
+}
+
+// TestValidateInvoiceNodeID pins the offer_paths binding that the readers
+// cannot check for themselves: invoice_node_id must name the very node the
+// payer sent its invoice_request to.
+func TestValidateInvoiceNodeID(t *testing.T) {
+	t.Parallel()
+
+	_, alicePub := aliceKey()
+	_, bobPub := bobKey()
+
+	tests := []struct {
+		name     string
+		nodeID   fn.Option[*btcec.PublicKey]
+		expected *btcec.PublicKey
+		wantErr  error
+	}{
+		{
+			name:     "matches the path's final node",
+			nodeID:   fn.Some(bobPub),
+			expected: bobPub,
+		},
+		{
+			name:     "another node on the path impersonates",
+			nodeID:   fn.Some(alicePub),
+			expected: bobPub,
+			wantErr:  ErrUnexpectedInvoiceNodeID,
+		},
+		{
+			name:     "invoice_node_id absent",
+			nodeID:   fn.None[*btcec.PublicKey](),
+			expected: bobPub,
+			wantErr:  ErrMissingNodeID,
+		},
+		{
+			name:     "caller supplies no final node",
+			nodeID:   fn.Some(bobPub),
+			expected: nil,
+			wantErr:  ErrNilPublicKey,
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+
+			inv := validInvoice(t)
+			inv.InvoiceNodeID = tlv.OptionalRecordT[
+				tlv.TlvType176, *btcec.PublicKey,
+			]{}
+			tc.nodeID.WhenSome(func(pk *btcec.PublicKey) {
+				inv.InvoiceNodeID = tlv.SomeRecordT(
+					tlv.NewPrimitiveRecord[tlv.TlvType176](
+						pk,
+					),
+				)
+			})
+
+			err := validateInvoiceNodeID(inv, tc.expected)
+			if tc.wantErr == nil {
+				require.NoError(t, err)
+				return
+			}
+			require.ErrorIs(t, err, tc.wantErr)
+		})
+	}
+}
+
+// TestValidateInvoiceForPayment pins the combined payer-side validator: it
+// runs the structural read, the expiry gate, the mirror-match against the
+// request, and the binding to the expected signer in one call, so a caller
+// cannot forget any of them. expectedNodeID is only consulted when
+// offer_issuer_id is absent. Otherwise the expected signer is derived from
+// the request.
+func TestValidateInvoiceForPayment(t *testing.T) {
+	t.Parallel()
+
+	_, bobPub := bobKey()
+	alicePriv, alicePub := aliceKey()
+
+	// validInvoice sets invoice_created_at to 1234567890, so a clock one
+	// second later sits inside the default 7200s expiry window.
+	validNow := time.Unix(1234567890+1, 0)
+
+	// A blinded-path request: no offer_issuer_id, so the caller must supply
+	// the final blinded node.
+	blindedIR := &InvoiceRequest{
+		InvreqMetadata: tlv.SomeRecordT(
+			tlv.NewPrimitiveRecord[tlv.TlvType0](
+				tlv.Blob("metadata"),
+			),
+		),
+	}
+	blindedIREncoded, err := encodeIRBypassValidate(blindedIR)
+	require.NoError(t, err)
+	blindedIRDecoded, err := DecodeInvoiceRequest(blindedIREncoded)
+	require.NoError(t, err)
+
+	// The matching invoice: mirrors the request's signed-range fields and
+	// carries the invoice-specific fields the reader requires, signed by
+	// Bob (invoice_node_id).
+	inv := validInvoice(t)
+	inv.InvreqMetadata = tlv.SomeRecordT(
+		tlv.NewPrimitiveRecord[tlv.TlvType0](
+			tlv.Blob("metadata"),
+		),
+	)
+	invEncoded, err := encodeInvBypassValidate(inv)
+	require.NoError(t, err)
+	invDecoded, err := DecodeInvoice(invEncoded)
+	require.NoError(t, err)
+
+	bobPriv, _ := bobKey()
+	sig, err := SignInvoice(invDecoded, bobPriv)
+	require.NoError(t, err)
+	invDecoded.Signature = tlv.SomeRecordT(
+		tlv.NewPrimitiveRecord[tlv.TlvType240, [64]byte](sig),
+	)
+
+	// Blinded mode, happy path: the final node matches invoice_node_id.
+	require.NoError(t, ValidateInvoiceForPayment(
+		invDecoded, blindedIRDecoded, validNow,
+		bitcoinMainnetGenesisHash, InvoiceFeatureCatalogues{}, bobPub,
+	))
+
+	// The expiry gate is part of the composite, so a caller that only calls
+	// this cannot pay an expired invoice. validInvoice's default 7200s
+	// window is long past 8000s after creation.
+	err = ValidateInvoiceForPayment(
+		invDecoded, blindedIRDecoded, time.Unix(1234567890+8000, 0),
+		bitcoinMainnetGenesisHash, InvoiceFeatureCatalogues{}, bobPub,
+	)
+	require.ErrorIs(t, err, ErrInvoiceExpired)
+
+	// Blinded mode, a legitimate invoice against the wrong expectation:
+	// Bob answered, but the payer believes it addressed Alice.
+	err = ValidateInvoiceForPayment(
+		invDecoded, blindedIRDecoded, validNow,
+		bitcoinMainnetGenesisHash, InvoiceFeatureCatalogues{},
+		alicePub,
+	)
+	require.ErrorIs(t, err, ErrUnexpectedInvoiceNodeID)
+
+	// Blinded mode, the substitution this composite exists to catch. An
+	// intermediate node on the path answers with an invoice of its own,
+	// names itself as invoice_node_id, and signs it correctly, so the
+	// invoice is internally consistent and mirrors the request. Only the
+	// tie to the node the payer actually addressed rejects it.
+	forged := validInvoice(t)
+	forged.InvreqMetadata = tlv.SomeRecordT(
+		tlv.NewPrimitiveRecord[tlv.TlvType0](
+			tlv.Blob("metadata"),
+		),
+	)
+	forged.InvoiceNodeID = tlv.SomeRecordT(
+		tlv.NewPrimitiveRecord[tlv.TlvType176](alicePub),
+	)
+	forgedEncoded, err := encodeInvBypassValidate(forged)
+	require.NoError(t, err)
+	forgedDecoded, err := DecodeInvoice(forgedEncoded)
+	require.NoError(t, err)
+
+	forgedSig, err := SignInvoice(forgedDecoded, alicePriv)
+	require.NoError(t, err)
+	forgedDecoded.Signature = tlv.SomeRecordT(
+		tlv.NewPrimitiveRecord[tlv.TlvType240, [64]byte](forgedSig),
+	)
+
+	// The reader accepts it, which is the half that makes the composite
+	// necessary rather than redundant. Asserting both halves on the same
+	// invoice is what shows the second step cannot be skipped.
+	require.NoError(t, ValidateInvoiceRead(
+		forgedDecoded, bitcoinMainnetGenesisHash,
+		InvoiceFeatureCatalogues{},
+	))
+
+	err = ValidateInvoiceForPayment(
+		forgedDecoded, blindedIRDecoded, validNow,
+		bitcoinMainnetGenesisHash, InvoiceFeatureCatalogues{}, bobPub,
+	)
+	require.ErrorIs(t, err, ErrUnexpectedInvoiceNodeID)
+
+	// Cleartext mode: offer_issuer_id present, so the expected signer is
+	// derived from the request and no hop pubkey is needed.
+	cleartextIR := &InvoiceRequest{
+		InvreqMetadata: tlv.SomeRecordT(
+			tlv.NewPrimitiveRecord[tlv.TlvType0](
+				tlv.Blob("metadata"),
+			),
+		),
+		OfferIssuerID: tlv.SomeRecordT(
+			tlv.NewPrimitiveRecord[tlv.TlvType22](bobPub),
+		),
+	}
+	cleartextIREncoded, err := encodeIRBypassValidate(cleartextIR)
+	require.NoError(t, err)
+	cleartextIRDecoded, err := DecodeInvoiceRequest(cleartextIREncoded)
+	require.NoError(t, err)
+
+	// The invoice mirrors offer_issuer_id (Bob) and is signed by Bob, so
+	// checkInvoiceNodeID inside the readers enforces the binding.
+	inv.InvreqMetadata = tlv.SomeRecordT(
+		tlv.NewPrimitiveRecord[tlv.TlvType0](
+			tlv.Blob("metadata"),
+		),
+	)
+	inv.OfferIssuerID = tlv.SomeRecordT(
+		tlv.NewPrimitiveRecord[tlv.TlvType22](bobPub),
+	)
+	invEncoded, err = encodeInvBypassValidate(inv)
+	require.NoError(t, err)
+	invDecoded, err = DecodeInvoice(invEncoded)
+	require.NoError(t, err)
+
+	sig, err = SignInvoice(invDecoded, bobPriv)
+	require.NoError(t, err)
+	invDecoded.Signature = tlv.SomeRecordT(
+		tlv.NewPrimitiveRecord[tlv.TlvType240, [64]byte](sig),
+	)
+
+	// The expectation is offer_issuer_id here, which the payer holds from
+	// the offer it built the request from.
+	require.NoError(t, ValidateInvoiceForPayment(
+		invDecoded, cleartextIRDecoded, validNow,
+		bitcoinMainnetGenesisHash, InvoiceFeatureCatalogues{}, bobPub,
+	))
+
+	// The check is unconditional, so a wrong expectation is caught even
+	// though offer_issuer_id is present and the readers already bound it.
+	err = ValidateInvoiceForPayment(
+		invDecoded, cleartextIRDecoded, validNow,
+		bitcoinMainnetGenesisHash, InvoiceFeatureCatalogues{}, alicePub,
+	)
+	require.ErrorIs(t, err, ErrUnexpectedInvoiceNodeID)
 }
 
 // TestValidateInvoiceRequestWrite pins the BOLT 12 writer-side MUSTs so a

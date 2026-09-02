@@ -193,6 +193,13 @@ var (
 		"invoice_node_id does not match offer_issuer_id",
 	)
 
+	// ErrUnexpectedInvoiceNodeID is returned by validateInvoiceNodeID when
+	// the invoice was signed by a node other than the one the payer
+	// expected to answer.
+	ErrUnexpectedInvoiceNodeID = errors.New(
+		"invoice_node_id does not match the node the payer expected",
+	)
+
 	// ErrZeroInvoiceAmount is returned when invoice_amount is present but
 	// set to zero. The spec permits a zero "minimum amount", but a
 	// zero-amount HTLC cannot settle past the channel-layer dust limit, so
@@ -1497,6 +1504,39 @@ func ValidateInvoiceExpiry(inv *Invoice, now time.Time) error {
 	return nil
 }
 
+// validateInvoiceNodeID rejects an invoice that was not signed by the node the
+// payer expected to answer. Which node that is comes from the payer's own
+// state: offer_issuer_id, the final blinded_node_id of the path it chose, or
+// the node it addressed an offerless request to. None of that is derivable
+// from the invoice, so ValidateInvoiceRead cannot make the comparison and
+// callers run this separately, as they already do for ValidateInvoiceExpiry.
+//
+// Skipping it is not cosmetic. Every node on the blinded path can answer with
+// its own correctly signed invoice, and the reader accepts it, because the
+// signature only has to agree with whatever invoice_node_id the invoice itself
+// carries.
+func validateInvoiceNodeID(inv *Invoice,
+	expectedNodeID *btcec.PublicKey) error {
+
+	if expectedNodeID == nil {
+		return fmt.Errorf("%w: expected invoice_node_id",
+			ErrNilPublicKey)
+	}
+
+	// A present-but-nil invoice_node_id is rejected as ErrNilPublicKey by
+	// the readers, so a nil here means the field is absent.
+	nodeID := inv.InvoiceNodeID.ValOpt().UnwrapOr(nil)
+	if nodeID == nil {
+		return ErrMissingNodeID
+	}
+
+	if !nodeID.IsEqual(expectedNodeID) {
+		return ErrUnexpectedInvoiceNodeID
+	}
+
+	return nil
+}
+
 // mirroredRecordBytes encodes the records in the invreq mirror range to their
 // canonical per-record bytes, keyed by TLV type. This is the view the
 // byte-for-byte invreq->invoice comparison operates on.
@@ -1831,4 +1871,32 @@ func ValidateInvoiceRead(inv *Invoice, activeChain [32]byte,
 	// - MUST reject the invoice if signature is not a valid signature using
 	//   invoice_node_id as described in Signature Calculation.
 	return VerifyInvoice(inv)
+}
+
+// ValidateInvoiceForPayment runs the full set of payer-side invoice checks in
+// one call against an invoice and its originating request.
+//
+// expectedNodeID is the node the payer expects to have signed the invoice,
+// and is always compared against invoice_node_id. It is offer_issuer_id for
+// an offer that carried one, the final blinded_node_id on the path the payer
+// chose for an offer that carried offer_paths, and the node it sent to for an
+// offerless request.
+func ValidateInvoiceForPayment(inv *Invoice, req *InvoiceRequest,
+	now time.Time, activeChain [32]byte,
+	features InvoiceFeatureCatalogues,
+	expectedNodeID *btcec.PublicKey) error {
+
+	if err := ValidateInvoiceRead(inv, activeChain, features); err != nil {
+		return err
+	}
+
+	if err := ValidateInvoiceExpiry(inv, now); err != nil {
+		return err
+	}
+
+	if err := ValidateInvoiceAgainstRequest(inv, req); err != nil {
+		return err
+	}
+
+	return validateInvoiceNodeID(inv, expectedNodeID)
 }

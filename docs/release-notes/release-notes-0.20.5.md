@@ -33,6 +33,11 @@
   keeping the invoice open so that other accepted sets on reusable static
   AMP invoices remain payable.
 
+* Peers now [answer every valid inbound
+  Ping](https://github.com/lightningnetwork/lnd/pull/11132) as required by
+  BOLT 1. The existing request flood limit remains the connection teardown
+  boundary instead of silently suppressing otherwise valid Pong replies.
+
 # New Features
 
 ## Functional Enhancements
@@ -81,3 +86,4 @@
 
 * elsirion
 * Gijs van Dam
+* Yong Yu

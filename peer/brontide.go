@@ -2392,16 +2392,9 @@ out:
 				continue
 			}
 
-			// BOLT 1 requires a Pong for every Ping below the size
-			// ceiling. We limit reply frequency to guard against
-			// floods; normal keepalives remain below this limit.
-			if !p.pingLimits.pongLimiter.Allow() {
-				p.log.Debugf("Pong reply rate limited")
-				continue
-			}
-
-			// Next, we'll send over the amount of specified pong
-			// bytes.
+			// BOLT 1 requires a Pong of the requested size for
+			// every Ping below the size ceiling. The request flood
+			// limiter above disconnects abusive peers first.
 			pong := lnwire.NewPong(p.cfg.PongBuf[0:msg.NumPongBytes])
 			p.queueMsg(pong, nil)
 

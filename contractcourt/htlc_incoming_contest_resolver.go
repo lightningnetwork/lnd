@@ -352,10 +352,21 @@ func (h *htlcIncomingContestResolver) Resolve() (ContractResolver, error) {
 		// neither accepted nor failed, so we cannot take action yet.
 		switch res := resolution.(type) {
 		case *invoices.HtlcFailResolution:
-			// In the case where the htlc failed, but the invoice
-			// was known to the registry, we can directly resolve
-			// the htlc.
-			if res.Outcome != invoices.ResultInvoiceNotFound {
+			switch res.Outcome {
+			// Processing failures are not terminal invoice
+			// decisions. Return an error to leave the resolver
+			// unresolved.
+			case invoices.ResultInvoiceLookupError,
+				invoices.ResultInvoiceInterceptorError:
+
+				return nil, fmt.Errorf("invoice processing "+
+					"failed: %v", res.Outcome)
+
+			case invoices.ResultInvoiceNotFound:
+				// Keep unknown invoices unresolved.
+
+			default:
+				// Resolve known failed invoices directly.
 				return processHtlcResolution(resolution)
 			}
 

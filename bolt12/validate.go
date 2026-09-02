@@ -193,6 +193,14 @@ var (
 		"invoice_node_id does not match offer_issuer_id",
 	)
 
+	// ErrInvoicePathNodeIDMismatch is returned by validateInvoiceNodeID
+	// when the invoice was signed by a node other than the one the payer
+	// sent its invoice_request to.
+	ErrInvoicePathNodeIDMismatch = errors.New(
+		"invoice_node_id does not match the offer path's final " +
+			"blinded_node_id",
+	)
+
 	// ErrZeroInvoiceAmount is returned when invoice_amount is present but
 	// set to zero. The spec permits a zero "minimum amount", but a
 	// zero-amount HTLC cannot settle past the channel-layer dust limit, so
@@ -1497,6 +1505,39 @@ func ValidateInvoiceExpiry(inv *Invoice, now time.Time) error {
 	return nil
 }
 
+// validateInvoiceNodeID rejects an invoice that was not signed by the node the
+// payer sent its invoice_request to. When an offer carries offer_paths rather
+// than offer_issuer_id, the spec binds invoice_node_id to the final
+// blinded_node_id of the path the payer chose. That choice is caller state, so
+// ValidateInvoiceRead cannot make the comparison and callers that paid via
+// offer_paths must run this separately, as they already do for
+// ValidateInvoiceExpiry.
+//
+// Skipping it is not cosmetic. Every node on the blinded path can answer with
+// its own correctly signed invoice, and the reader accepts it, because the
+// signature only has to agree with whatever invoice_node_id the invoice itself
+// carries.
+func validateInvoiceNodeID(inv *Invoice,
+	finalBlindedNodeID *btcec.PublicKey) error {
+
+	if finalBlindedNodeID == nil {
+		return fmt.Errorf("%w: final blinded_node_id", ErrNilPublicKey)
+	}
+
+	// A present-but-nil invoice_node_id is rejected as ErrNilPublicKey by
+	// the readers, so a nil here means the field is absent.
+	nodeID := inv.InvoiceNodeID.ValOpt().UnwrapOr(nil)
+	if nodeID == nil {
+		return ErrMissingNodeID
+	}
+
+	if !nodeID.IsEqual(finalBlindedNodeID) {
+		return ErrInvoicePathNodeIDMismatch
+	}
+
+	return nil
+}
+
 // mirroredRecordBytes encodes the records in the invreq mirror range to their
 // canonical per-record bytes, keyed by TLV type. This is the view the
 // byte-for-byte invreq->invoice comparison operates on.
@@ -1831,4 +1872,36 @@ func ValidateInvoiceRead(inv *Invoice, activeChain [32]byte,
 	// - MUST reject the invoice if signature is not a valid signature using
 	//   invoice_node_id as described in Signature Calculation.
 	return VerifyInvoice(inv)
+}
+
+// ValidateInvoiceForPayment runs the full set of payer-side invoice checks in
+// one call: structural read validation, mirror-match against the originating
+// request, and, for a blinded-path offer, the binding of invoice_node_id to
+// the final blinded node the payer used.
+//
+// finalBlindedNodeID is only consulted when offer_issuer_id is absent; when
+// present, the readers already enforce the offer_issuer_id binding, so nil is
+// correct. Passing nil for a pure blinded-path offer is an error, not a silent
+// skip, so an intermediate blinded node cannot answer with its own signed
+// invoice.
+func ValidateInvoiceForPayment(inv *Invoice, req *InvoiceRequest,
+	activeChain [32]byte, features InvoiceFeatureCatalogues,
+	finalBlindedNodeID *btcec.PublicKey) error {
+
+	if err := ValidateInvoiceRead(inv, activeChain, features); err != nil {
+		return err
+	}
+
+	if err := ValidateInvoiceAgainstRequest(inv, req); err != nil {
+		return err
+	}
+
+	// The offer_issuer_id case is already enforced by checkInvoiceNodeID in
+	// the readers above, so a blinded-path offer is the only case that
+	// needs the caller-supplied final node.
+	if req.OfferIssuerID.IsSome() {
+		return nil
+	}
+
+	return validateInvoiceNodeID(inv, finalBlindedNodeID)
 }

@@ -347,6 +347,8 @@ func (c *OpenChannel) ChannelStatusForStore() ChannelStatus {
 // SetChannelStatusForStore updates the in-memory channel status without taking
 // the channel mutex.
 //
+// TODO(chanstate): remove together with the other ForStore accessors.
+//
 // NOTE: This is a preliminary migration hook for KV-backed store code that
 // still lives in channeldb during this refactor. Callers are responsible for
 // synchronization. Normal callers should use ApplyChanStatus or
@@ -396,6 +398,8 @@ func (c *OpenChannel) hasChanStatus(status ChannelStatus) bool {
 // HasChanStatusForStore returns true if the internal bitfield channel status
 // has the specified status bit set, without taking the channel mutex.
 //
+// TODO(chanstate): remove together with the other ForStore accessors.
+//
 // NOTE: This is a preliminary migration hook for KV-backed store code that
 // still lives in channeldb during this refactor. Callers are responsible for
 // synchronization. Normal callers should use HasChanStatus.
@@ -406,6 +410,8 @@ func (c *OpenChannel) HasChanStatusForStore(status ChannelStatus) bool {
 // ConfirmedScidForStore returns the in-memory confirmed SCID without taking
 // the channel mutex.
 //
+// TODO(chanstate): remove together with the other ForStore accessors.
+//
 // NOTE: This is a preliminary migration hook for KV-backed store code that
 // still lives in channeldb during this refactor. Callers are responsible for
 // synchronization. Normal callers should use ZeroConfRealScid.
@@ -415,6 +421,8 @@ func (c *OpenChannel) ConfirmedScidForStore() lnwire.ShortChannelID {
 
 // SetConfirmedScidForStore updates the in-memory confirmed SCID without taking
 // the channel mutex.
+//
+// TODO(chanstate): remove together with the other ForStore accessors.
 //
 // NOTE: This is a preliminary migration hook for KV-backed store code that
 // still lives in channeldb during this refactor. Callers are responsible for
@@ -429,6 +437,20 @@ func (c *OpenChannel) BroadcastHeight() uint32 {
 	defer c.RUnlock()
 
 	return c.FundingBroadcastHeight
+}
+
+// fundingTxPresent returns true if we expect the funding transaction to be
+// found on disk or already populated within the channel.
+//
+// NOTE: this reads channel state without holding the lock, matching the
+// other ForStore accessors it calls. Callers are responsible for
+// synchronization.
+func (c *OpenChannel) fundingTxPresent() bool {
+	chanType := c.ChanType
+
+	return chanType.IsSingleFunder() && chanType.HasFundingTx() &&
+		c.IsInitiator &&
+		!c.HasChanStatusForStore(ChanStatusRestored)
 }
 
 // SetBroadcastHeight sets the FundingBroadcastHeight.
@@ -1066,7 +1088,7 @@ func (c *OpenChannel) FindPreviousState(
 // channel entails persisting a record of the close while either purging the
 // nested per-channel state inline (synchronous backends like bbolt and etcd)
 // or skipping the cascading delete on tombstone-enabled backends, where the
-// outpoint-index flip to outpointClosed is the authoritative marker. The
+// outpoint-index flip to OutpointClosed is the authoritative marker. The
 // compact summary written to closedChannelBucket and the historical record
 // under historicalChannelBucket are populated identically across both paths,
 // so historical reads remain uniform regardless of backend. The optional set

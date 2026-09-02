@@ -176,9 +176,9 @@ func TestHeldHtlcSetAddOffChainKeepsExisting(t *testing.T) {
 	second.AssertNotCalled(t, "Resume")
 }
 
-// TestInterceptableSwitchForwardOffChainAlreadyHeld verifies that normal
-// off-chain forwarding handles duplicates before adding them to the held set.
-func TestInterceptableSwitchForwardOffChainAlreadyHeld(t *testing.T) {
+// TestInterceptableSwitchAlreadyHeld verifies that interception handles held
+// duplicates before applying a new expiry decision.
+func TestInterceptableSwitchAlreadyHeld(t *testing.T) {
 	key := testCircuitKey()
 	fwd := newMockInterceptedForward(key, 100)
 	s := &InterceptableSwitch{
@@ -187,9 +187,11 @@ func TestInterceptableSwitchForwardOffChainAlreadyHeld(t *testing.T) {
 
 	require.NoError(t, s.heldHtlcSet.addOffChain(fwd))
 
-	handled, err := s.forwardOffChain(
-		newMockInterceptedForward(key, 100), true,
-	)
+	handled, err := s.interceptForward(&htlcPacket{
+		incomingChanID: key.ChanID,
+		incomingHTLCID: key.HtlcID,
+		htlc:           &lnwire.UpdateAddHTLC{},
+	}, true)
 	require.NoError(t, err)
 	require.True(t, handled)
 }

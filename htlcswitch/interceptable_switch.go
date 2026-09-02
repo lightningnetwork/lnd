@@ -572,6 +572,12 @@ func (s *InterceptableSwitch) interceptForward(packet *htlcPacket,
 			return false, nil
 		}
 
+		// A held replay retains the original expiry decision and resolution
+		// handle. Do not fail a duplicate as the chain height advances.
+		if s.heldHtlcSet.exists(packet.inKey()) {
+			return true, nil
+		}
+
 		intercepted := &interceptedForward{
 			htlc:       htlc,
 			packet:     packet,
@@ -612,13 +618,6 @@ func (s *InterceptableSwitch) interceptForward(packet *htlcPacket,
 // interceptor if needed.
 func (s *InterceptableSwitch) forwardOffChain(
 	fwd InterceptedForward, isReplay bool) (bool, error) {
-
-	inKey := fwd.Packet().IncomingCircuit
-
-	// Ignore already held htlcs.
-	if s.heldHtlcSet.exists(inKey) {
-		return true, nil
-	}
 
 	// If there is no interceptor currently registered, configuration and packet
 	// replay status determine how the packet is handled.

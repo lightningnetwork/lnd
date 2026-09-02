@@ -21,6 +21,11 @@
 
 # Bug Fixes
 
+* Peers now [answer every valid inbound
+  Ping](https://github.com/lightningnetwork/lnd/pull/11132) as required by
+  BOLT 1. The existing request flood limit remains the connection teardown
+  boundary instead of silently suppressing otherwise valid Pong replies.
+
 # New Features
 
 ## Functional Enhancements
@@ -60,3 +65,5 @@
 ## Tooling and Documentation
 
 # Contributors (Alphabetical Order)
+
+* Yong Yu

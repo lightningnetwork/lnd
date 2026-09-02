@@ -1813,6 +1813,15 @@ func (w *WalletKit) FundPsbt(_ context.Context,
 			maxFeeRatio = req.MaxFeeRatio
 		}
 
+		// A ratio above 1.0 means the caller explicitly allows fees
+		// exceeding the funded outputs' value (legitimate for sweeps
+		// of small asset-bearing outputs). Make that auditable.
+		if maxFeeRatio > 1.0 {
+			log.Warnf("FundPsbt: caller requested max fee ratio "+
+				"%.2f, allowing fees above the total output "+
+				"value", maxFeeRatio)
+		}
+
 		// Run the actual funding process now, using the channel funding
 		// coin selection algorithm.
 		return w.fundPsbtCoinSelect(

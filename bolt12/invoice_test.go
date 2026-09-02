@@ -185,8 +185,14 @@ func TestInvoiceRoundTripPreservesAllTypes(t *testing.T) {
 	t.Parallel()
 
 	inv := validInvoice(t)
+
+	// Sign with the fixture's node id (Bob) so the read path's signature
+	// check accepts the invoice.
+	priv, _ := bobKey()
+	sig, err := SignInvoice(inv, priv)
+	require.NoError(t, err)
 	inv.Signature = tlv.SomeRecordT(
-		tlv.NewPrimitiveRecord[tlv.TlvType240, [64]byte]([64]byte{}),
+		tlv.NewPrimitiveRecord[tlv.TlvType240](sig),
 	)
 
 	encoded, err := inv.Encode()

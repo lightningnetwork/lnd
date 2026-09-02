@@ -1396,64 +1396,112 @@ func TestPeerPingLimitsAllowHonestCadence(t *testing.T) {
 	}
 }
 
-// TestPeerPongReplyRateLimited verifies that exhausting the reply budget
-// suppresses Pongs without disconnecting the peer.
-func TestPeerPongReplyRateLimited(t *testing.T) {
+// TestPeerValidPingsReceivePongs verifies that every Ping admitted by the
+// flood limiter receives the Pong response mandated by BOLT 1.
+func TestPeerValidPingsReceivePongs(t *testing.T) {
 	t.Parallel()
 
-	// Arrange: Start a peer whose reply limiter has one token, so the
-	// first valid ping replies and the second exhausts the budget.
+	// Arrange: Start a peer with the production flood policy and prepare to
+	// retain one response for every token in its initial burst. Exercising
+	// the full burst crosses the former reply-only limit while remaining
+	// within the request limit that keeps the connection active.
 	params := createTestPeer(t)
 	peer := params.peer
-	peer.pingLimits.pongLimiter = rate.NewLimiter(0, 1)
-
 	startDone := startPeer(t, params.mockConn, peer)
 	_, err := fn.RecvOrTimeout(startDone, 2*timeout)
 	require.NoError(t, err)
+	responses := make([][]byte, 0, pingFloodBurst)
 
-	// writePing serializes a valid one-byte-reply ping with an observable
-	// payload and injects it through the mock connection's normal reader.
-	// Distinct payloads synchronize the assertion with each exact Ping.
-	writePing := func(payload []byte) {
+	// Act: Deliver exactly the admitted burst of valid Pings through the
+	// normal read path. Drain one wire response after each request to avoid
+	// mock backpressure while observing the protocol behavior.
+	for i := 0; i < pingFloodBurst; i++ {
 		var b bytes.Buffer
 		ping := lnwire.NewPing(1)
-		ping.PaddingBytes = payload
+		ping.PaddingBytes = []byte{byte(i)}
 		_, err := lnwire.WriteMessage(&b, ping, 0)
 		require.NoError(t, err)
+
 		select {
 		case params.mockConn.readMessages <- b.Bytes():
 		case <-peer.cg.Done():
 			t.Fatal("peer disconnected before Ping was delivered")
 		}
+
+		response, err := fn.RecvOrTimeout(
+			params.mockConn.writtenMessages, timeout,
+		)
+		require.NoError(t, err)
+		responses = append(responses, response)
 	}
 
-	// Act: Deliver two unique Pings and consume the first Pong. Then inject
-	// the Ping that exhausts the reply budget.
-	firstPayload := []byte{1}
-	secondPayload := []byte{2}
-	writePing(firstPayload)
-	_, err = fn.RecvOrTimeout(params.mockConn.writtenMessages, timeout)
+	// Assert: Every admitted request produced a one-byte Pong and the peer
+	// remained connected at the flood boundary. The response count and wire
+	// decoding prevent silent suppression from regressing.
+	require.Len(t, responses, pingFloodBurst)
+	for _, response := range responses {
+		msg, err := lnwire.ReadMessage(bytes.NewReader(response), 0)
+		require.NoError(t, err)
+
+		pong, ok := msg.(*lnwire.Pong)
+		require.True(t, ok)
+		require.Len(t, pong.PongBytes, 1)
+	}
+	require.Zero(t, atomic.LoadInt32(&peer.disconnect))
+}
+
+// TestPeerPongReplyUsesPriorityQueue verifies that the read path classifies a
+// generated Pong as high priority before the generic queue handler sees it.
+func TestPeerPongReplyUsesPriorityQueue(t *testing.T) {
+	t.Parallel()
+
+	// Arrange: Isolate readHandler with a buffered outgoing boundary. This
+	// preserves the response before queueHandler can consume it.
+	// Empty remote features avoid unrelated gossip initialization. The mock
+	// router rejects one message, letting the normal Ping switch handle it
+	// without starting the generic router's independent event loop.
+	params := createTestPeer(t)
+	peer := params.peer
+	peer.remoteFeatures = lnwire.EmptyFeatureVector()
+	peer.outgoingQueue = make(chan outgoingMsg, 1)
+	router := &mockMsgRouter{}
+	router.On("RouteMsg", mock.Anything).Return(
+		msgmux.ErrUnableToRouteMsg,
+	).Once()
+	peer.msgRouter = fn.Some[msgmux.Router](router)
+	peer.globalMsgRouter = true
+
+	const requestedPongBytes = 3
+	var pingBytes bytes.Buffer
+	_, err := lnwire.WriteMessage(
+		&pingBytes, lnwire.NewPing(requestedPongBytes), 0,
+	)
 	require.NoError(t, err)
 
-	writePing(secondPayload)
+	peer.cg.WgAdd(1)
+	go peer.readHandler()
 
-	// Assert: Observe the second payload before checking the write channel.
-	// This proves the read loop processed the rate-limited Ping.
-	require.Eventually(t, func() bool {
-		return bytes.Equal(
-			peer.LastRemotePingPayload(), secondPayload,
-		)
-	}, timeout, 10*time.Millisecond)
-
+	// Act: Deliver the valid Ping through wire decoding, then capture the
+	// envelope created by queueMsg. Closing the mock input after capture
+	// gives the focused reader a deterministic shutdown path.
 	select {
-	case msg := <-params.mockConn.writtenMessages:
-		t.Fatalf("unexpected Pong after reply budget: %x", msg)
-	case <-time.After(shortTimeout):
+	case params.mockConn.readMessages <- pingBytes.Bytes():
+	case <-peer.cg.Done():
+		t.Fatal("peer disconnected before Ping was delivered")
 	}
 
-	// Assert: The peer remains connected, proving reply exhaustion only
-	// suppresses amplification and does not trigger flood teardown.
-	require.Zero(t, atomic.LoadInt32(&peer.disconnect))
+	queuedMsg, err := fn.RecvOrTimeout(peer.outgoingQueue, timeout)
+	require.NoError(t, err)
+	close(params.mockConn.readMessages)
+	peer.cg.WgWait()
+
+	// Assert: Verify the requested Pong and queueMsg's priority marker. The
+	// marker proves the response cannot enter the lazy-message class.
+	require.True(t, queuedMsg.priority)
+	pong, ok := queuedMsg.msg.(*lnwire.Pong)
+	require.True(t, ok)
+	require.Len(t, pong.PongBytes, requestedPongBytes)
+	router.AssertExpectations(t)
 }
 
 // mockMsgRouter records message-router calls while letting a test choose

@@ -10411,6 +10411,85 @@ func TestCreateBreachRetributionLegacy(t *testing.T) {
 	require.Equal(t, theirOp.Value, theirAmt)
 }
 
+// TestCreateBreachRetributionLegacyDustHtlcs tests that
+// `createBreachRetributionLegacy` skips dust HTLCs without leaving blank
+// entries in the returned retributions. A blank entry carries a nil sign
+// descriptor output, which downstream consumers don't expect.
+func TestCreateBreachRetributionLegacyDustHtlcs(t *testing.T) {
+	t.Parallel()
+
+	// Create dummy values for the test.
+	dummyPrivate, _ := btcec.PrivKeyFromBytes([]byte{1})
+
+	// Create a test channel.
+	aliceChannel, _, err := CreateTestChannels(
+		t, channeldb.ZeroHtlcTxFeeBit,
+	)
+	require.NoError(t, err)
+
+	chanState := aliceChannel.channelState
+
+	// Prepare the params needed to call the function. Note that the values
+	// here are not necessary "cryptography-correct", we just use them to
+	// construct the retribution.
+	leaseExpiry, keyRing, _ := deriveDummyRetributionParams(chanState)
+
+	// Use the remote commitment as our revocation log.
+	revokedLog := chanState.RemoteCommitment
+
+	ourOp := revokedLog.CommitTx.TxOut[0]
+	theirOp := revokedLog.CommitTx.TxOut[1]
+
+	// Create the dummy scripts.
+	ourScript := &WitnessScriptDesc{
+		OutputScript: ourOp.PkScript,
+	}
+	theirScript := &WitnessScriptDesc{
+		OutputScript: theirOp.PkScript,
+	}
+
+	// Add three HTLCs to the revocation log: one dust HTLC marked as
+	// trimmed via its stored output index, one dust HTLC by amount with a
+	// non-negative output index, and one non-dust HTLC. The channel type
+	// has zero HTLC transaction fees, so an HTLC is dust iff its amount is
+	// below the remote party's dust limit.
+	dustLimit := chanState.RemoteChanCfg.DustLimit
+	nonDustAmt := dustLimit + 1000
+	revokedLog.Htlcs = []channeldb.HTLC{
+		{
+			Incoming:    true,
+			Amt:         lnwire.NewMSatFromSatoshis(dustLimit - 1),
+			OutputIndex: -1,
+		},
+		{
+			Incoming:    true,
+			Amt:         lnwire.NewMSatFromSatoshis(dustLimit - 1),
+			OutputIndex: 3,
+		},
+		{
+			Incoming:    true,
+			Amt:         lnwire.NewMSatFromSatoshis(nonDustAmt),
+			OutputIndex: 2,
+		},
+	}
+
+	// Create the breach retribution using the legacy format.
+	br, _, _, err := createBreachRetributionLegacy(
+		&revokedLog, chanState, keyRing, dummyPrivate, ourScript,
+		theirScript, leaseExpiry,
+	)
+	require.NoError(t, err)
+
+	// Both dust HTLCs must be skipped entirely, leaving a single, fully
+	// populated retribution behind.
+	require.Len(t, br.HtlcRetributions, 1)
+
+	hr := br.HtlcRetributions[0]
+	require.NotNil(t, hr.SignDesc.Output)
+	require.EqualValues(t, nonDustAmt, hr.SignDesc.Output.Value)
+	require.EqualValues(t, 2, hr.OutPoint.Index)
+}
+
 // TestNewBreachRetribution tests that the function `NewBreachRetribution`
 // behaves as expected.
 func TestNewBreachRetribution(t *testing.T) {

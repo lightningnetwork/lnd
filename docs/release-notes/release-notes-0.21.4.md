@@ -56,6 +56,13 @@
   [lightning/bolts#1357](https://github.com/lightning/bolts/pull/1357), and
   is an interop consideration for any wallet emitting such invoices.
 
+* Breach retributions built from [legacy revocation log entries now skip
+  dust HTLCs without leaving blank entries
+  behind](https://github.com/lightningnetwork/lnd/pull/11223). HTLCs marked
+  as trimmed via their stored output index are also skipped, matching the
+  modern revocation log format, and the breach arbiter now skips and logs
+  any HTLC retribution with a nil sign descriptor output.
+
 # New Features
 
 ## Functional Enhancements

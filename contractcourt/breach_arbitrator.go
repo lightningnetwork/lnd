@@ -1255,10 +1255,10 @@ func newRetributionInfo(chanPoint *wire.OutPoint,
 
 	// Initialize a slice to hold the outputs we will attempt to sweep. The
 	// maximum capacity of the slice is set to 2+nHtlcs to handle the case
-	// where the local, remote, and all HTLCs are not dust outputs.  All
-	// HTLC outputs provided by the wallet are guaranteed to be non-dust,
-	// though the commitment outputs are conditionally added depending on
-	// the nil-ness of their sign descriptors.
+	// where the local, remote, and all HTLCs are not dust outputs. HTLC
+	// outputs provided by the wallet are expected to be non-dust, though
+	// the commitment outputs are conditionally added depending on the
+	// nil-ness of their sign descriptors.
 	breachedOutputs := make([]breachedOutput, 0, nHtlcs+2)
 
 	isTaproot := func() bool {
@@ -1354,9 +1354,18 @@ func newRetributionInfo(chanPoint *wire.OutPoint,
 
 	// Lastly, for each of the breached HTLC outputs, record each as a
 	// breached output with the appropriate witness type based on its
-	// directionality. All HTLC outputs provided by the wallet are assumed
-	// to be non-dust.
+	// directionality.
 	for i, breachedHtlc := range breachInfo.HtlcRetributions {
+		// Defensively skip blank entries. A nil sign descriptor
+		// output is an invariant violation, so we log it loudly
+		// instead of silently continuing.
+		if breachedHtlc.SignDesc.Output == nil {
+			brarLog.Warnf("Skipping blank HTLC retribution for "+
+				"ChannelPoint(%v), index=%d", chanPoint, i)
+
+			continue
+		}
+
 		// Using the breachedHtlc's incoming flag, determine the
 		// appropriate witness type that needs to be generated in order
 		// to sweep the HTLC output.

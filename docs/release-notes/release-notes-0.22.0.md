@@ -47,6 +47,12 @@
   the reported network statistics such as total network capacity, channel
   count and max out degree.
 
+* The [HTLC forward
+  interceptor](https://github.com/lightningnetwork/lnd/pull/11163) now
+  reconciles incoming-link replays after a forward is resumed. This prevents
+  the replay from being handled as a second interception while the original
+  outgoing HTLC remains active.
+
 # New Features
 
 ## Functional Enhancements

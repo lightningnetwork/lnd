@@ -1049,8 +1049,10 @@ func (i *InvoiceRegistry) notifyExitHopHtlcLocked(
 		), nil, nil
 
 	case err != nil:
-		ctx.log(err.Error())
-		return nil, nil, err
+		log.Errorf("Unable to look up invoice %v for circuit %v: %v",
+			invoiceRef, ctx.circuitKey, err)
+
+		return ctx.failRes(ResultInvoiceLookupError), nil, nil
 	}
 
 	var cancelSet bool
@@ -1076,11 +1078,10 @@ func (i *InvoiceRegistry) notifyExitHopHtlcLocked(
 		cancelSet = resp.CancelSet
 	})
 	if err != nil {
-		err := fmt.Errorf("error during invoice HTLC interception: %w",
-			err)
-		ctx.log(err.Error())
+		log.Errorf("Invoice HTLC interceptor failed for invoice %v, "+
+			"circuit %v: %v", invoiceRef, ctx.circuitKey, err)
 
-		return nil, nil, err
+		return ctx.failRes(ResultInvoiceInterceptorError), nil, nil
 	}
 
 	// We'll attempt to settle an invoice matching this rHash on disk (if

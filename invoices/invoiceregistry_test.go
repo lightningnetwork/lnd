@@ -1,8 +1,10 @@
 package invoices_test
 
 import (
+	"context"
 	"crypto/rand"
 	"database/sql"
+	"errors"
 	"fmt"
 	"math"
 	"testing"
@@ -22,6 +24,135 @@ import (
 	"github.com/stretchr/testify/mock"
 	"github.com/stretchr/testify/require"
 )
+
+// invoiceDBFaultInjector wraps an InvoiceDB to inject lookup failures and
+// count attempted invoice updates.
+type invoiceDBFaultInjector struct {
+	invpkg.InvoiceDB
+
+	lookupErr   error
+	updateCalls int
+}
+
+// LookupInvoice returns the configured lookup error, if any, or delegates to
+// the wrapped invoice database.
+func (f *invoiceDBFaultInjector) LookupInvoice(ctx context.Context,
+	ref invpkg.InvoiceRef) (invpkg.Invoice, error) {
+
+	if f.lookupErr != nil {
+		return invpkg.Invoice{}, f.lookupErr
+	}
+
+	return f.InvoiceDB.LookupInvoice(ctx, ref)
+}
+
+// UpdateInvoice records the update attempt before delegating to the wrapped
+// invoice database.
+func (f *invoiceDBFaultInjector) UpdateInvoice(ctx context.Context,
+	ref invpkg.InvoiceRef, setIDHint *invpkg.SetID,
+	callback invpkg.InvoiceUpdateCallback) (*invpkg.Invoice, error) {
+
+	f.updateCalls++
+
+	return f.InvoiceDB.UpdateInvoice(ctx, ref, setIDHint, callback)
+}
+
+// TestInvoiceRegistryPreMutationErrors verifies that errors before the invoice
+// update fail only the incoming HTLC and don't mutate the invoice database.
+func TestInvoiceRegistryPreMutationErrors(t *testing.T) {
+	makeDB := func(t *testing.T) (invpkg.InvoiceDB, *clock.TestClock) {
+		t.Helper()
+
+		testClock := clock.NewTestClock(testTime)
+		db, err := channeldb.MakeTestInvoiceDB(
+			t, channeldb.OptionClock(testClock),
+		)
+		require.NoError(t, err)
+
+		return db, testClock
+	}
+
+	t.Run("lookup error", func(t *testing.T) {
+		lookupErr := errors.New("temporary database failure")
+		var faultDB *invoiceDBFaultInjector
+		ctx := newTestContext(
+			t, nil, func(t *testing.T) (invpkg.InvoiceDB,
+				*clock.TestClock) {
+
+				db, testClock := makeDB(t)
+				faultDB = &invoiceDBFaultInjector{
+					InvoiceDB: db,
+					lookupErr: lookupErr,
+				}
+
+				return faultDB, testClock
+			},
+		)
+
+		resolution, err := ctx.registry.NotifyExitHopHtlc(
+			testInvoicePaymentHash, testInvoiceAmount,
+			testHtlcExpiry, testCurrentHeight, getCircuitKey(0),
+			nil, nil, testPayload,
+		)
+		require.NoError(t, err)
+		checkFailResolution(
+			t, resolution, invpkg.ResultInvoiceLookupError,
+		)
+		require.Zero(t, faultDB.updateCalls)
+	})
+
+	t.Run("interceptor error", func(t *testing.T) {
+		interceptorErr := errors.New("temporary interceptor failure")
+		interceptor := &invpkg.MockHtlcModifier{}
+		interceptor.On("Intercept", mock.Anything, mock.Anything).
+			Return(interceptorErr, invpkg.HtlcModifyResponse{})
+
+		cfg := defaultRegistryConfig()
+		cfg.HtlcInterceptor = interceptor
+
+		var faultDB *invoiceDBFaultInjector
+		ctx := newTestContext(
+			t, &cfg, func(t *testing.T) (invpkg.InvoiceDB,
+				*clock.TestClock) {
+
+				db, testClock := makeDB(t)
+				faultDB = &invoiceDBFaultInjector{InvoiceDB: db}
+
+				return faultDB, testClock
+			},
+		)
+
+		ctxb := t.Context()
+		invoice := newInvoice(t, false, false)
+		_, err := ctx.registry.AddInvoice(
+			ctxb, invoice, testInvoicePaymentHash,
+		)
+		require.NoError(t, err)
+
+		before, err := ctx.registry.LookupInvoice(
+			ctxb, testInvoicePaymentHash,
+		)
+		require.NoError(t, err)
+
+		resolution, err := ctx.registry.NotifyExitHopHtlc(
+			testInvoicePaymentHash, testInvoiceAmount,
+			testHtlcExpiry, testCurrentHeight, getCircuitKey(0),
+			nil, nil, testPayload,
+		)
+		require.NoError(t, err)
+		checkFailResolution(
+			t, resolution, invpkg.ResultInvoiceInterceptorError,
+		)
+		require.Zero(t, faultDB.updateCalls)
+
+		after, err := ctx.registry.LookupInvoice(
+			ctxb, testInvoicePaymentHash,
+		)
+		require.NoError(t, err)
+		require.Equal(t, before, after)
+		interceptor.AssertExpectations(t)
+	})
+}
 
 // TestInvoiceRegistry is a master test which encompasses all tests using an
 // InvoiceDB instance. The purpose of this test is to be able to run all tests

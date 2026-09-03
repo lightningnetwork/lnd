@@ -21,6 +21,10 @@
 
 # Bug Fixes
 
+* Final-hop invoice processing [now handles unexpected invoice lookup and
+  interceptor errors](https://github.com/lightningnetwork/lnd/pull/11161) as
+  individual HTLC failures.
+
 # New Features
 
 ## Functional Enhancements
@@ -60,3 +64,5 @@
 ## Tooling and Documentation
 
 # Contributors (Alphabetical Order)
+
+* Ziggie

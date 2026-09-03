@@ -343,16 +343,33 @@ func testForwardInterceptorBasic(ht *lntest.HarnessTest) {
 	}
 }
 
-// testForwardInterceptorRestart tests that the interceptor can read any wire
-// custom records provided by the sender of a payment as part of the
-// update_add_htlc message and that those records are persisted correctly and
-// re-sent on node restart.
-func testForwardInterceptorRestart(ht *lntest.HarnessTest) {
+// testForwardInterceptorRestartBeforeResume verifies that an unresolved HTLC
+// is re-intercepted with its custom records after a restart.
+func testForwardInterceptorRestartBeforeResume(ht *lntest.HarnessTest) {
+	testForwardInterceptorRestart(ht, false)
+}
+
+// testForwardInterceptorRestartAfterResume verifies that a resumed HTLC is
+// reconciled without a second interception after a restart.
+func testForwardInterceptorRestartAfterResume(ht *lntest.HarnessTest) {
+	testForwardInterceptorRestart(ht, true)
+}
+
+// testForwardInterceptorRestart verifies restart behavior before and after an
+// intercepted forward is resumed.
+func testForwardInterceptorRestart(
+	ht *lntest.HarnessTest, resumeBeforeRestart bool) {
+
 	const chanAmt = btcutil.Amount(300000)
 	p := lntest.OpenChannelParams{Amt: chanAmt}
 
 	// Initialize the test context with 4 connected nodes.
 	cfgs := [][]string{nil, nil, nil, nil}
+	if !resumeBeforeRestart {
+		// Retain the unresolved forward when Bob's interceptor stream
+		// closes during restart.
+		cfgs[1] = []string{"--requireinterceptor"}
+	}
 
 	// Open and wait for channels.
 	chanPoints, nodes := ht.CreateSimpleNetwork(cfgs, p)
@@ -391,34 +408,55 @@ func testForwardInterceptorRestart(ht *lntest.HarnessTest) {
 		customRecords,
 	), packet.InWireCustomRecords)
 
-	// We accept the payment at Bob and resume it, so it gets to Carol.
-	// This means the HTLC should now be fully locked in on Alice's side and
-	// any restart of the node should cause the payment to be resumed and
-	// the data to be persisted across restarts.
-	err := bobInterceptor.Send(&routerrpc.ForwardHtlcInterceptResponse{
-		IncomingCircuitKey: packet.IncomingCircuitKey,
-		Action:             actionResume,
-	})
-	require.NoError(ht, err, "failed to send request")
+	var carolPacket *routerrpc.ForwardHtlcInterceptRequest
+	if resumeBeforeRestart {
+		// Resume at Bob and retain Carol's interception. This proves
+		// the outgoing HTLC is live before the incoming replay.
+		err := bobInterceptor.Send(
+			&routerrpc.ForwardHtlcInterceptResponse{
+				IncomingCircuitKey: packet.IncomingCircuitKey,
+				Action:             actionResume,
+			},
+		)
+		require.NoError(ht, err, "failed to send request")
 
-	// We don't resume the payment on Carol, so it should be held there.
+		carolPacket = ht.ReceiveHtlcInterceptor(carolInterceptor)
+	}
 
 	// The payment should now be in flight.
 	var preimage lntypes.Preimage
 	copy(preimage[:], invoice.RPreimage)
 	ht.AssertPaymentStatus(alice, preimage.Hash(), lnrpc.Payment_IN_FLIGHT)
 
-	// We don't resume the payment on Carol, so it should be held there.
-	// We now restart first Bob, then Alice, so we can make sure we've
-	// started the interceptor again on Bob before Alice resumes the
-	// payment.
-	cancelBobInterceptor()
+	// Restart first Bob, then Alice, so Bob's interceptor is registered
+	// before Alice replays the incoming add.
 	restartBob := ht.SuspendNode(bob)
+	cancelBobInterceptor()
 	restartAlice := ht.SuspendNode(alice)
 
 	require.NoError(ht, restartBob(), "failed to restart bob")
 	bobInterceptor, cancelBobInterceptor = bob.RPC.HtlcInterceptor()
 	defer cancelBobInterceptor()
+
+	var (
+		bobReplay  chan *routerrpc.ForwardHtlcInterceptRequest
+		bobRecvErr chan error
+	)
+	if resumeBeforeRestart {
+		bobReplay = make(
+			chan *routerrpc.ForwardHtlcInterceptRequest, 1,
+		)
+		bobRecvErr = make(chan error, 1)
+		go func() {
+			resp, err := bobInterceptor.Recv()
+			if err != nil {
+				bobRecvErr <- err
+				return
+			}
+
+			bobReplay <- resp
+		}()
+	}
 
 	require.NoError(ht, restartAlice(), "failed to restart alice")
 
@@ -429,24 +467,39 @@ func testForwardInterceptorRestart(ht *lntest.HarnessTest) {
 	ht.AssertChannelInGraph(carol, chanPoints[0])
 	ht.AssertChannelInGraph(carol, chanPoints[1])
 
-	// We should get another notification about the held HTLC.
-	packet = ht.ReceiveHtlcInterceptor(bobInterceptor)
+	if !resumeBeforeRestart {
+		// The unresolved HTLC should be offered to Bob again with its
+		// custom records intact.
+		packet = ht.ReceiveHtlcInterceptor(bobInterceptor)
+		require.Len(ht, packet.InWireCustomRecords, 2)
+		require.Equal(
+			ht,
+			lntest.CustomRecordsWithUnaccountable(customRecords),
+			packet.InWireCustomRecords,
+		)
 
-	require.Len(ht, packet.InWireCustomRecords, 2)
-	require.Equal(ht, lntest.CustomRecordsWithUnaccountable(customRecords),
-		packet.InWireCustomRecords)
+		err := bobInterceptor.Send(
+			&routerrpc.ForwardHtlcInterceptResponse{
+				IncomingCircuitKey: packet.IncomingCircuitKey,
+				Action:             actionResume,
+			},
+		)
+		require.NoError(ht, err, "failed to send request")
 
-	// And now we forward the payment at Carol, expecting only an
-	// accountability signal in our incoming custom records.
-	packet = ht.ReceiveHtlcInterceptor(carolInterceptor)
-	require.Len(ht, packet.InWireCustomRecords, 1)
-	err = carolInterceptor.Send(&routerrpc.ForwardHtlcInterceptResponse{
-		IncomingCircuitKey: packet.IncomingCircuitKey,
+		carolPacket = ht.ReceiveHtlcInterceptor(carolInterceptor)
+	}
+
+	// Forward the payment at Carol, expecting only an accountability signal
+	// in the incoming custom records.
+	require.Len(ht, carolPacket.InWireCustomRecords, 1)
+	err := carolInterceptor.Send(&routerrpc.ForwardHtlcInterceptResponse{
+		IncomingCircuitKey: carolPacket.IncomingCircuitKey,
 		Action:             actionResume,
 	})
 	require.NoError(ht, err, "failed to send request")
 
-	// Assert that the payment was successful.
+	// Assert that the payment was successful and fully removed from the
+	// forwarding path.
 	ht.AssertPaymentStatus(
 		alice, preimage.Hash(), lnrpc.Payment_SUCCEEDED,
 		func(p *lnrpc.Payment) error {
@@ -482,6 +535,43 @@ func testForwardInterceptorRestart(ht *lntest.HarnessTest) {
 			return nil
 		},
 	)
+	ht.AssertNumActiveHtlcs(alice, 0)
+	ht.AssertNumActiveHtlcs(bob, 0)
+
+	if !resumeBeforeRestart {
+		return
+	}
+
+	// Bob must not receive the replay after it resumed the original HTLC.
+	select {
+	case replay := <-bobReplay:
+		require.Failf(
+			ht, "unexpected interception",
+			"received replay for circuit %v",
+			replay.IncomingCircuitKey,
+		)
+
+	case recvErr := <-bobRecvErr:
+		require.NoError(ht, recvErr, "bob interceptor closed early")
+
+	default:
+	}
+
+	cancelBobInterceptor()
+	select {
+	case replay := <-bobReplay:
+		require.Failf(
+			ht, "unexpected interception",
+			"received replay for circuit %v",
+			replay.IncomingCircuitKey,
+		)
+
+	case recvErr := <-bobRecvErr:
+		require.Equal(ht, codes.Canceled, status.Code(recvErr))
+
+	case <-time.After(defaultTimeout):
+		require.Fail(ht, "timeout waiting for interceptor cancellation")
+	}
 }
 
 // testForwardInterceptorOnChainSettleAfterRestart tests that an HTLC offered

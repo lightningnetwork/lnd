@@ -363,13 +363,9 @@ func testForwardInterceptorRestart(
 	const chanAmt = btcutil.Amount(300000)
 	p := lntest.OpenChannelParams{Amt: chanAmt}
 
-	// Initialize the test context with 4 connected nodes.
-	cfgs := [][]string{nil, nil, nil, nil}
-	if !resumeBeforeRestart {
-		// Retain the unresolved forward when Bob's interceptor stream
-		// closes during restart.
-		cfgs[1] = []string{"--requireinterceptor"}
-	}
+	// Require Bob's interceptor so a replay cannot pass through before the
+	// replacement stream registers.
+	cfgs := [][]string{nil, {"--requireinterceptor"}, nil, nil}
 
 	// Open and wait for channels.
 	chanPoints, nodes := ht.CreateSimpleNetwork(cfgs, p)

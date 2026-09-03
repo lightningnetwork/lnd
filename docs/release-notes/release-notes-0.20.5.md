@@ -52,6 +52,10 @@
 ## Database
 
 ## Code Health
+* [Bump `lightning-onion` to
+  v1.3.0](https://github.com/lightningnetwork/lnd/pull/11165), bringing
+  the v0.20 branch in line with v0.21. This picks up the fix that bounds hop
+  payload parsing to the routing information length.
 
 ## Tooling and Documentation
 

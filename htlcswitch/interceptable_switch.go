@@ -309,34 +309,19 @@ func (s *InterceptableSwitch) run() error {
 		case packets := <-s.intercepted:
 			var notIntercepted []*htlcPacket
 			if packets.isReplay {
-				var remaining []*htlcPacket
-				for _, p := range packets.packets {
-					_, isAdd := p.htlc.(*lnwire.UpdateAddHTLC)
-					if !isAdd || p.incomingChanID == hop.Source ||
-						s.htlcSwitch.circuits.LookupCircuit(
-							p.inKey(),
-						) == nil {
+				notIntercepted, packets.packets =
+					s.partitionReplays(packets.packets)
 
-						remaining = append(remaining, p)
-						continue
-					}
-
-					notIntercepted = append(notIntercepted, p)
-				}
-
-				// Reconcile known replay circuits while the incoming
-				// link remains paused. This prevents that link from
-				// deleting the circuit between lookup and commit.
+				// Keep the owner link paused through commit.
 				err := s.htlcSwitch.ForwardPackets(
 					packets.linkQuit, notIntercepted...,
 				)
 				if err != nil {
-					log.Errorf("Cannot reconcile replayed packets: %v",
-						err)
+					log.Errorf("Cannot reconcile replayed "+
+						"packets: %v", err)
 				}
 
 				close(packets.replayProcessed)
-				packets.packets = remaining
 				notIntercepted = nil
 			}
 
@@ -395,6 +380,27 @@ func (s *InterceptableSwitch) run() error {
 			return nil
 		}
 	}
+}
+
+// partitionReplays separates adds with known incoming circuits from packets
+// that still require interceptor processing.
+func (s *InterceptableSwitch) partitionReplays(
+	packets []*htlcPacket) ([]*htlcPacket, []*htlcPacket) {
+
+	var known, remaining []*htlcPacket
+	for _, packet := range packets {
+		_, isAdd := packet.htlc.(*lnwire.UpdateAddHTLC)
+		isSource := packet.incomingChanID == hop.Source
+		circuit := s.htlcSwitch.circuits.LookupCircuit(packet.inKey())
+		if !isAdd || isSource || circuit == nil {
+			remaining = append(remaining, packet)
+			continue
+		}
+
+		known = append(known, packet)
+	}
+
+	return known, remaining
 }
 
 func (s *InterceptableSwitch) failExpiredHtlcs() {
@@ -482,7 +488,10 @@ func (s *InterceptableSwitch) Resolve(res *FwdResolution) error {
 // the switch has reconciled any circuits that already exist.
 func (s *InterceptableSwitch) ForwardPackets(linkQuit <-chan struct{},
 	isReplay bool, packets ...*htlcPacket) error {
-	replayProcessed := make(chan struct{})
+	var replayProcessed chan struct{}
+	if isReplay {
+		replayProcessed = make(chan struct{})
+	}
 
 	// Synchronize with the main event loop. This should be light in the
 	// case where there is no interceptor.
@@ -505,8 +514,8 @@ func (s *InterceptableSwitch) ForwardPackets(linkQuit <-chan struct{},
 		return nil
 	}
 
-	// Keep the incoming link paused until any existing replay circuits have
-	// been atomically reconciled by the switch.
+	// Keep the incoming link paused until the switch reconciles any
+	// existing replay circuits.
 	select {
 	case <-replayProcessed:
 
@@ -572,8 +581,9 @@ func (s *InterceptableSwitch) interceptForward(packet *htlcPacket,
 			return false, nil
 		}
 
-		// A held replay retains the original expiry decision and resolution
-		// handle. Do not fail a duplicate as the chain height advances.
+		// A held replay retains the original expiry decision and
+		// resolution handle. Do not fail a duplicate as the chain
+		// height advances.
 		if s.heldHtlcSet.exists(packet.inKey()) {
 			return true, nil
 		}

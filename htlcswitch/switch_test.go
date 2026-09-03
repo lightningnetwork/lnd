@@ -4367,10 +4367,12 @@ func TestInterceptableSwitchReplayAfterResume(t *testing.T) {
 	linkQuit := make(chan struct{})
 	packet := c.createTestPacket()
 
-	// Retain the packet as it was received from the incoming link so that it
-	// can be replayed after the outgoing link assigns its circuit key.
+	// Retain the incoming-link packet for replay after the outgoing link
+	// assigns its circuit key.
 	replay := *packet
-	htlc := *packet.htlc.(*lnwire.UpdateAddHTLC)
+	add, isAdd := packet.htlc.(*lnwire.UpdateAddHTLC)
+	require.True(t, isAdd)
+	htlc := *add
 	replay.htlc = &htlc
 
 	require.NoError(t, interceptSwitch.ForwardPackets(
@@ -4509,7 +4511,9 @@ func TestInterceptableSwitchHeldReplayNearExpiry(t *testing.T) {
 	// Retain the incoming-link form for replay after the block height moves
 	// inside the interception cutoff.
 	replay := *packet
-	htlc := *packet.htlc.(*lnwire.UpdateAddHTLC)
+	add, isAdd := packet.htlc.(*lnwire.UpdateAddHTLC)
+	require.True(t, isAdd)
+	htlc := *add
 	replay.htlc = &htlc
 
 	require.NoError(t, interceptSwitch.ForwardPackets(

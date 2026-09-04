@@ -741,6 +741,12 @@ message BuildRouteRequest {
     base64.
     */
     map<uint64, bytes> first_hop_custom_records = 6;
+
+    /*
+    An optional AMP record to be included within the last hop of the route.
+    If set, payment_addr must also be set. See AMPRecord for details.
+    */
+    lnrpc.AMPRecord amp_record = 7;
 }
 
 message BuildRouteResponse {

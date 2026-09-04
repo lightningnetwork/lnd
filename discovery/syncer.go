@@ -176,6 +176,10 @@ const (
 	// we'll process for a single QueryChannelRange request.
 	maxChanRangeReplySCIDs = 100_000
 
+	// historicalChanRangeQueryBlocks is the maximum number of blocks we'll
+	// request in one page of a historical channel range sync.
+	historicalChanRangeQueryBlocks = 50_000
+
 	// chanRangeQueryBuffer is the number of blocks back that we'll go when
 	// asking the remote peer for their any channels they know of beyond
 	// our highest known channel ID.
@@ -363,6 +367,12 @@ type GossipSyncer struct {
 	// historical sync. It can be unset if the syncer ever transitions from
 	// PassiveSync to ActiveSync.
 	genHistoricalChanRangeQuery bool
+
+	// historicalSyncNextStart is the first block to request in the next
+	// page of a historical channel range sync. historicalSyncEnd is the
+	// exclusive end height captured when the sync begins.
+	historicalSyncNextStart uint32
+	historicalSyncEnd       uint32
 
 	// gossipMsgs is a channel that all responses to our queries from the
 	// target peer will be sent over, these will be read by the
@@ -656,13 +666,8 @@ func (g *GossipSyncer) channelGraphSyncer(ctx context.Context) {
 			}
 
 			// If we're fully synchronized, then we can transition
-			// to our terminal state.
-			g.setSyncState(chansSynced)
-
-			// Ensure that the sync manager becomes aware that the
-			// historical sync completed so synced_to_graph is
-			// updated over rpc.
-			g.cfg.markGraphSynced()
+			// to the next historical page or our terminal state.
+			g.finishChanRangePage()
 
 		// In this state, we've just sent off a new query for channels
 		// that we don't yet know of. We'll remain in this state until
@@ -1161,6 +1166,10 @@ func (g *GossipSyncer) bufferChanRangeReply(_ context.Context,
 		return fmt.Errorf("unable to filter chan ids: %w", err)
 	}
 
+	// Record the next historical page before clearing the query which
+	// defines the page we just completed.
+	g.advanceHistoricalSync()
+
 	// As we've received the entirety of the reply, we no longer need to
 	// hold on to the set of buffered replies or the original query that
 	// prompted the replies, so we'll let that be garbage collected now.
@@ -1172,12 +1181,7 @@ func (g *GossipSyncer) bufferChanRangeReply(_ context.Context,
 		log.Infof("GossipSyncer(%x): remote peer has no new chans",
 			g.cfg.peerPub[:])
 
-		g.setSyncState(chansSynced)
-
-		// Ensure that the sync manager becomes aware that the
-		// historical sync completed so synced_to_graph is updated over
-		// rpc.
-		g.cfg.markGraphSynced()
+		g.finishChanRangePage()
 		return nil
 	}
 
@@ -1190,6 +1194,36 @@ func (g *GossipSyncer) bufferChanRangeReply(_ context.Context,
 		g.cfg.peerPub[:], len(newChans))
 
 	return nil
+}
+
+// advanceHistoricalSync records the first block of the next historical page.
+func (g *GossipSyncer) advanceHistoricalSync() {
+	if !g.genHistoricalChanRangeQuery || g.curQueryRangeMsg == nil {
+		return
+	}
+
+	query := g.curQueryRangeMsg
+	g.historicalSyncNextStart = query.FirstBlockHeight + query.NumBlocks
+}
+
+// finishChanRangePage advances a historical sync to its next page, or marks
+// the channel range sync complete when no pages remain.
+func (g *GossipSyncer) finishChanRangePage() {
+	if g.genHistoricalChanRangeQuery &&
+		g.historicalSyncNextStart < g.historicalSyncEnd {
+
+		g.setSyncState(syncingChans)
+		return
+	}
+
+	g.genHistoricalChanRangeQuery = false
+	g.historicalSyncNextStart = 0
+	g.historicalSyncEnd = 0
+	g.setSyncState(chansSynced)
+
+	// Ensure that the sync manager becomes aware that the historical sync
+	// completed so synced_to_graph is updated over rpc.
+	g.cfg.markGraphSynced()
 }
 
 // resetChanRangeReplyState releases all state accumulated while processing a
@@ -1218,15 +1252,31 @@ func (g *GossipSyncer) genChanRangeQuery(ctx context.Context,
 		return nil, err
 	}
 
+	bestHeight := g.cfg.bestHeight()
+
 	// Once we have the chan ID of the newest, we'll obtain the block height
 	// of the channel, then subtract our default horizon to ensure we don't
 	// miss any channels. By default, we go back 1 day from the newest
 	// channel, unless we're attempting a historical sync, where we'll
 	// actually start from the genesis block instead.
-	var startHeight uint32
+	var (
+		startHeight uint32
+		numBlocks   uint32
+	)
 	switch {
 	case historicalQuery:
-		fallthrough
+		if g.historicalSyncEnd == 0 {
+			g.historicalSyncEnd = bestHeight
+		}
+
+		startHeight = g.historicalSyncNextStart
+		if startHeight < g.historicalSyncEnd {
+			numBlocks = g.historicalSyncEnd - startHeight
+		}
+		if numBlocks > historicalChanRangeQueryBlocks {
+			numBlocks = historicalChanRangeQueryBlocks
+		}
+
 	case newestChan.BlockHeight <= chanRangeQueryBuffer:
 		startHeight = 0
 	default:
@@ -1236,8 +1286,9 @@ func (g *GossipSyncer) genChanRangeQuery(ctx context.Context,
 	// Determine the number of blocks to request based on our best height.
 	// We'll take into account any potential underflows and explicitly set
 	// numBlocks to its minimum value of 1 if so.
-	bestHeight := g.cfg.bestHeight()
-	numBlocks := bestHeight - startHeight
+	if !historicalQuery {
+		numBlocks = bestHeight - startHeight
+	}
 	if int64(numBlocks) < 1 {
 		numBlocks = 1
 	}
@@ -2004,6 +2055,8 @@ func (g *GossipSyncer) handleHistoricalSync(req *historicalSyncReq) {
 	// the remote peer to give us all of the channel IDs they know of
 	// starting from the genesis block.
 	g.genHistoricalChanRangeQuery = true
+	g.historicalSyncNextStart = 0
+	g.historicalSyncEnd = 0
 	g.setSyncState(syncingChans)
 	close(req.doneChan)
 }

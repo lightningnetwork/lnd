@@ -1,8 +1,10 @@
 package invoices_test
 
 import (
+	"context"
 	"crypto/rand"
 	"database/sql"
+	"errors"
 	"fmt"
 	"math"
 	"testing"
@@ -22,6 +24,316 @@ import (
 	"github.com/stretchr/testify/mock"
 	"github.com/stretchr/testify/require"
 )
+
+// invoiceDBFaultInjector wraps an InvoiceDB to inject lookup failures and
+// count attempted invoice updates.
+type invoiceDBFaultInjector struct {
+	invpkg.InvoiceDB
+
+	lookupErr   error
+	updateCalls int
+}
+
+// LookupInvoice returns the configured lookup error, if any, or delegates to
+// the wrapped invoice database.
+func (f *invoiceDBFaultInjector) LookupInvoice(ctx context.Context,
+	ref invpkg.InvoiceRef) (invpkg.Invoice, error) {
+
+	if f.lookupErr != nil {
+		return invpkg.Invoice{}, f.lookupErr
+	}
+
+	return f.InvoiceDB.LookupInvoice(ctx, ref)
+}
+
+// UpdateInvoice records the update attempt before delegating to the wrapped
+// invoice database.
+func (f *invoiceDBFaultInjector) UpdateInvoice(ctx context.Context,
+	ref invpkg.InvoiceRef, setIDHint *invpkg.SetID,
+	callback invpkg.InvoiceUpdateCallback) (*invpkg.Invoice, error) {
+
+	f.updateCalls++
+
+	return f.InvoiceDB.UpdateInvoice(ctx, ref, setIDHint, callback)
+}
+
+// invoiceInterceptorFaultInjector fails a configured interceptor call.
+type invoiceInterceptorFaultInjector struct {
+	err        error
+	failOnCall int
+	calls      int
+}
+
+// Intercept returns the configured error on the selected call.
+func (f *invoiceInterceptorFaultInjector) Intercept(_ invpkg.HtlcModifyRequest,
+	_ func(invpkg.HtlcModifyResponse)) error {
+
+	f.calls++
+	if f.calls == f.failOnCall {
+		return f.err
+	}
+
+	return nil
+}
+
+// newFaultTestContext creates a registry using a fault-injecting DB wrapper.
+func newFaultTestContext(t *testing.T, cfg *invpkg.RegistryConfig,
+	makeDB func(t *testing.T) (invpkg.InvoiceDB, *clock.TestClock)) (
+	*testContext, *invoiceDBFaultInjector) {
+
+	t.Helper()
+
+	var faultDB *invoiceDBFaultInjector
+	ctx := newTestContext(
+		t, cfg, func(t *testing.T) (invpkg.InvoiceDB,
+			*clock.TestClock) {
+
+			db, testClock := makeDB(t)
+			faultDB = &invoiceDBFaultInjector{InvoiceDB: db}
+
+			return faultDB, testClock
+		},
+	)
+
+	return ctx, faultDB
+}
+
+// testInvoiceRegistryProcessingErrors verifies that lookup errors remain
+// retryable and interceptor errors only fail HTLCs that are known to be new.
+func testInvoiceRegistryProcessingErrors(t *testing.T,
+	makeDB func(t *testing.T) (invpkg.InvoiceDB, *clock.TestClock)) {
+
+	t.Run("lookup error is retryable", func(t *testing.T) {
+		lookupErr := errors.New("temporary database failure")
+		ctx, faultDB := newFaultTestContext(t, nil, makeDB)
+		faultDB.lookupErr = lookupErr
+
+		resolution, err := ctx.registry.NotifyExitHopHtlc(
+			testInvoicePaymentHash, testInvoiceAmount,
+			testHtlcExpiry, testCurrentHeight, getCircuitKey(0),
+			nil, nil, testPayload,
+		)
+		require.ErrorIs(t, err, lookupErr)
+		require.Nil(t, resolution)
+		require.Zero(t, faultDB.updateCalls)
+	})
+
+	t.Run("settled replay survives lookup error", func(t *testing.T) {
+		ctx, faultDB := newFaultTestContext(t, nil, makeDB)
+		ctxb := t.Context()
+		invoice := newInvoice(t, false, false)
+		_, err := ctx.registry.AddInvoice(
+			ctxb, invoice, testInvoicePaymentHash,
+		)
+		require.NoError(t, err)
+
+		circuitKey := getCircuitKey(1)
+		resolution, err := ctx.registry.NotifyExitHopHtlc(
+			testInvoicePaymentHash, testInvoiceAmount,
+			testHtlcExpiry, testCurrentHeight, circuitKey,
+			nil, nil, testPayload,
+		)
+		require.NoError(t, err)
+		checkSettleResolution(t, resolution, testInvoicePreimage)
+
+		lookupErr := errors.New("temporary database failure")
+		faultDB.lookupErr = lookupErr
+		resolution, err = ctx.registry.NotifyExitHopHtlc(
+			testInvoicePaymentHash, testInvoiceAmount,
+			testHtlcExpiry, testCurrentHeight, circuitKey,
+			nil, nil, testPayload,
+		)
+		require.ErrorIs(t, err, lookupErr)
+		require.Nil(t, resolution)
+
+		faultDB.lookupErr = nil
+		resolution, err = ctx.registry.NotifyExitHopHtlc(
+			testInvoicePaymentHash, testInvoiceAmount,
+			testHtlcExpiry, testCurrentHeight, circuitKey,
+			nil, nil, testPayload,
+		)
+		require.NoError(t, err)
+		settleRes := checkSettleResolution(
+			t, resolution, testInvoicePreimage,
+		)
+		require.Equal(
+			t, invpkg.ResultReplayToSettled, settleRes.Outcome,
+		)
+	})
+
+	t.Run("accepted replay survives lookup error", func(t *testing.T) {
+		ctx, faultDB := newFaultTestContext(t, nil, makeDB)
+		ctxb := t.Context()
+		invoice := newInvoice(t, true, false)
+		_, err := ctx.registry.AddInvoice(
+			ctxb, invoice, testInvoicePaymentHash,
+		)
+		require.NoError(t, err)
+
+		circuitKey := getCircuitKey(2)
+		hodlChan := make(chan interface{}, 1)
+		resolution, err := ctx.registry.NotifyExitHopHtlc(
+			testInvoicePaymentHash, testInvoiceAmount,
+			testHtlcExpiry, testCurrentHeight, circuitKey,
+			hodlChan, nil, testPayload,
+		)
+		require.NoError(t, err)
+		require.Nil(t, resolution)
+
+		lookupErr := errors.New("temporary database failure")
+		faultDB.lookupErr = lookupErr
+		resolution, err = ctx.registry.NotifyExitHopHtlc(
+			testInvoicePaymentHash, testInvoiceAmount,
+			testHtlcExpiry, testCurrentHeight, circuitKey,
+			hodlChan, nil, testPayload,
+		)
+		require.ErrorIs(t, err, lookupErr)
+		require.Nil(t, resolution)
+
+		faultDB.lookupErr = nil
+		resolution, err = ctx.registry.NotifyExitHopHtlc(
+			testInvoicePaymentHash, testInvoiceAmount,
+			testHtlcExpiry, testCurrentHeight, circuitKey,
+			hodlChan, nil, testPayload,
+		)
+		require.NoError(t, err)
+		require.Nil(t, resolution)
+
+		require.NoError(
+			t, ctx.registry.SettleHodlInvoice(
+				ctxb, testInvoicePreimage,
+			),
+		)
+		hodlResolution, ok := (<-hodlChan).(invpkg.HtlcResolution)
+		require.True(t, ok)
+		checkSettleResolution(t, hodlResolution, testInvoicePreimage)
+	})
+
+	t.Run("new htlc interceptor error", func(t *testing.T) {
+		interceptorErr := errors.New("temporary interceptor failure")
+		interceptor := &invoiceInterceptorFaultInjector{
+			err: interceptorErr, failOnCall: 1,
+		}
+		cfg := defaultRegistryConfig()
+		cfg.HtlcInterceptor = interceptor
+		ctx, faultDB := newFaultTestContext(t, &cfg, makeDB)
+
+		ctxb := t.Context()
+		invoice := newInvoice(t, false, false)
+		_, err := ctx.registry.AddInvoice(
+			ctxb, invoice, testInvoicePaymentHash,
+		)
+		require.NoError(t, err)
+
+		before, err := ctx.registry.LookupInvoice(
+			ctxb, testInvoicePaymentHash,
+		)
+		require.NoError(t, err)
+
+		resolution, err := ctx.registry.NotifyExitHopHtlc(
+			testInvoicePaymentHash, testInvoiceAmount,
+			testHtlcExpiry, testCurrentHeight, getCircuitKey(3),
+			nil, nil, testPayload,
+		)
+		require.NoError(t, err)
+		checkFailResolution(
+			t, resolution, invpkg.ResultInvoiceInterceptorError,
+		)
+		require.Zero(t, faultDB.updateCalls)
+
+		after, err := ctx.registry.LookupInvoice(
+			ctxb, testInvoicePaymentHash,
+		)
+		require.NoError(t, err)
+		require.Equal(t, before, after)
+		require.Equal(t, 1, interceptor.calls)
+	})
+
+	t.Run("settled replay bypasses interceptor", func(t *testing.T) {
+		interceptor := &invoiceInterceptorFaultInjector{
+			err:        errors.New("temporary interceptor failure"),
+			failOnCall: 2,
+		}
+		cfg := defaultRegistryConfig()
+		cfg.HtlcInterceptor = interceptor
+		ctx, _ := newFaultTestContext(t, &cfg, makeDB)
+
+		ctxb := t.Context()
+		invoice := newInvoice(t, false, false)
+		_, err := ctx.registry.AddInvoice(
+			ctxb, invoice, testInvoicePaymentHash,
+		)
+		require.NoError(t, err)
+
+		circuitKey := getCircuitKey(4)
+		resolution, err := ctx.registry.NotifyExitHopHtlc(
+			testInvoicePaymentHash, testInvoiceAmount,
+			testHtlcExpiry, testCurrentHeight, circuitKey,
+			nil, nil, testPayload,
+		)
+		require.NoError(t, err)
+		checkSettleResolution(t, resolution, testInvoicePreimage)
+
+		resolution, err = ctx.registry.NotifyExitHopHtlc(
+			testInvoicePaymentHash, testInvoiceAmount,
+			testHtlcExpiry, testCurrentHeight, circuitKey,
+			nil, nil, testPayload,
+		)
+		require.NoError(t, err)
+		settleRes := checkSettleResolution(
+			t, resolution, testInvoicePreimage,
+		)
+		require.Equal(
+			t, invpkg.ResultReplayToSettled, settleRes.Outcome,
+		)
+		require.Equal(t, 1, interceptor.calls)
+	})
+
+	t.Run("accepted replay bypasses interceptor", func(t *testing.T) {
+		interceptor := &invoiceInterceptorFaultInjector{
+			err:        errors.New("temporary interceptor failure"),
+			failOnCall: 2,
+		}
+		cfg := defaultRegistryConfig()
+		cfg.HtlcInterceptor = interceptor
+		ctx, _ := newFaultTestContext(t, &cfg, makeDB)
+
+		ctxb := t.Context()
+		invoice := newInvoice(t, true, false)
+		_, err := ctx.registry.AddInvoice(
+			ctxb, invoice, testInvoicePaymentHash,
+		)
+		require.NoError(t, err)
+
+		circuitKey := getCircuitKey(5)
+		hodlChan := make(chan interface{}, 1)
+		resolution, err := ctx.registry.NotifyExitHopHtlc(
+			testInvoicePaymentHash, testInvoiceAmount,
+			testHtlcExpiry, testCurrentHeight, circuitKey,
+			hodlChan, nil, testPayload,
+		)
+		require.NoError(t, err)
+		require.Nil(t, resolution)
+
+		resolution, err = ctx.registry.NotifyExitHopHtlc(
+			testInvoicePaymentHash, testInvoiceAmount,
+			testHtlcExpiry, testCurrentHeight, circuitKey,
+			hodlChan, nil, testPayload,
+		)
+		require.NoError(t, err)
+		require.Nil(t, resolution)
+		require.Equal(t, 1, interceptor.calls)
+
+		require.NoError(
+			t, ctx.registry.SettleHodlInvoice(
+				ctxb, testInvoicePreimage,
+			),
+		)
+		hodlResolution, ok := (<-hodlChan).(invpkg.HtlcResolution)
+		require.True(t, ok)
+		checkSettleResolution(t, hodlResolution, testInvoicePreimage)
+	})
+}
 
 // TestInvoiceRegistry is a master test which encompasses all tests using an
 // InvoiceDB instance. The purpose of this test is to be able to run all tests
@@ -117,6 +429,10 @@ func TestInvoiceRegistry(t *testing.T) {
 		{
 			name: "CancelAMPInvoicePendingHTLCs",
 			test: testCancelAMPInvoicePendingHTLCs,
+		},
+		{
+			name: "ProcessingErrors",
+			test: testInvoiceRegistryProcessingErrors,
 		},
 	}
 

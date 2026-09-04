@@ -225,6 +225,9 @@ func rpcFailureResolution(invoiceFailure invoices.FailResolutionResult) (
 	case invoices.ExternalValidationFailed:
 		return FailureDetail_EXTERNAL_VALIDATION_FAILED, nil
 
+	case invoices.ResultInvoiceInterceptorError:
+		return FailureDetail_INVOICE_INTERCEPTOR_ERROR, nil
+
 	default:
 		return 0, fmt.Errorf("unknown fail resolution: %v",
 			invoiceFailure.FailureString())

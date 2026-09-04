@@ -896,6 +896,7 @@ enum FailureDetail {
     AMP_ERROR = 25;
     AMP_RECONSTRUCTION = 26;
     EXTERNAL_VALIDATION_FAILED = 27;
+    INVOICE_INTERCEPTOR_ERROR = 28;
 }
 
 message CircuitKey {

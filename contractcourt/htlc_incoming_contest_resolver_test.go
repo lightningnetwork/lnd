@@ -166,6 +166,52 @@ func TestHtlcIncomingResolverExitCancel(t *testing.T) {
 	ctx.waitForResult(false)
 }
 
+// TestHtlcIncomingResolverExitProcessingError tests that invoice processing
+// errors leave an exit hop resolver unresolved.
+func TestHtlcIncomingResolverExitProcessingError(t *testing.T) {
+	t.Parallel()
+
+	testCases := []struct {
+		name    string
+		outcome invoices.FailResolutionResult
+	}{
+		{
+			name:    "invoice interceptor",
+			outcome: invoices.ResultInvoiceInterceptorError,
+		},
+	}
+
+	for _, testCase := range testCases {
+		t.Run(testCase.name, func(t *testing.T) {
+			t.Parallel()
+			defer timeout()()
+
+			ctx := newIncomingResolverTestContext(t, true)
+			resolution := invoices.NewFailResolution(
+				testResCircuitKey, testAcceptHeight,
+				testCase.outcome,
+			)
+			ctx.registry.notifyResolution = resolution
+
+			ctx.resolve()
+			err := <-ctx.resolveErr
+			require.ErrorContains(
+				t, err, testCase.outcome.FailureString(),
+			)
+			require.Nil(t, ctx.nextResolver)
+			require.False(t, ctx.resolver.IsResolved())
+			require.False(t, ctx.finalHtlcOutcomeStored)
+
+			select {
+			case <-ctx.checkpointChan:
+				t.Fatal("unexpected resolver checkpoint")
+
+			default:
+			}
+		})
+	}
+}
+
 // TestHtlcIncomingResolverExitSettleHodl tests resolution of an exit hop htlc
 // for a hodl invoice that is settled after the resolver has started.
 func TestHtlcIncomingResolverExitSettleHodl(t *testing.T) {
@@ -420,6 +466,7 @@ type incomingResolverTestContext struct {
 	resolveErr             chan error
 	nextResolver           ContractResolver
 	finalHtlcOutcomeStored bool
+	checkpointChan         chan struct{}
 	t                      *testing.T
 }
 
@@ -443,6 +490,7 @@ func newIncomingResolverTestContext(t *testing.T, isExit bool) *incomingResolver
 		witnessBeacon:  witnessBeacon,
 		notifier:       notifier,
 		onionProcessor: onionProcessor,
+		checkpointChan: checkPointChan,
 		t:              t,
 	}
 

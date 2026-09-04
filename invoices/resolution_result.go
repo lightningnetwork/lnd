@@ -124,6 +124,10 @@ const (
 	// ExternalValidationFailed is returned when the external validation
 	// failed.
 	ExternalValidationFailed
+
+	// ResultInvoiceInterceptorError is returned when the invoice HTLC
+	// interceptor returns an error.
+	ResultInvoiceInterceptorError
 )
 
 // String returns a string representation of the result.
@@ -195,6 +199,9 @@ func (f FailResolutionResult) FailureString() string {
 
 	case ExternalValidationFailed:
 		return "external validation failed"
+
+	case ResultInvoiceInterceptorError:
+		return "invoice interceptor failed"
 
 	default:
 		return "unknown failure resolution result"

@@ -154,6 +154,14 @@
             "format": "byte"
           },
           {
+            "name": "scid",
+            "description": "Filters the response for a channel with a target short channel id.\nIf short channel_id and peer is empty, all channels will be returned.",
+            "in": "query",
+            "required": false,
+            "type": "string",
+            "format": "uint64"
+          },
+          {
             "name": "peer_alias_lookup",
             "description": "Informs the server if the peer alias lookup per channel should be\nenabled. It is turned off by default in order to avoid degradation of\nperformance for existing clients.",
             "in": "query",

@@ -94,6 +94,12 @@
 
 ## Performance Improvements
 
+* [Historical graph
+  synchronization](https://github.com/lightningnetwork/lnd/issues/11172) now
+  requests channel ranges in fixed-size block pages and releases each page
+  before continuing. This bounds temporary range state while processing long
+  chain histories.
+
 ## Deprecations
 
 # Technical and Architectural Updates

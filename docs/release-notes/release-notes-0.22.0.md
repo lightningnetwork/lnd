@@ -41,6 +41,12 @@
   exclude such inputs from sweeping even though their input set could
   comfortably pay its fees.
 
+* [Fixed a bug](https://github.com/lightningnetwork/lnd/pull/11157) where
+  `lncli help <command>` left out the subcommands of a command that has them,
+  so `lncli help wallet` showed nothing about `lncli wallet accounts` and its
+  siblings. `lncli help <command>` now prints the same help as
+  `lncli <command> --help`.
+
 * [Fixed a bug](https://github.com/lightningnetwork/lnd/pull/10963) in
   `GetNetworkInfo` where encountering an already-seen channel skipped the
   rest of that node's channels instead of just that channel, undercounting
@@ -164,6 +170,7 @@
 
 * bitromortac
 * Boris Nagaev
+* Chris Allott
 * Erick Cestari
 * Jared Tobin
 * Nishant Bansal

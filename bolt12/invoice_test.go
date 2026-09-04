@@ -3,6 +3,7 @@ package bolt12
 import (
 	"bytes"
 	"testing"
+	"time"
 
 	"github.com/lightningnetwork/lnd/lnwire"
 	"github.com/lightningnetwork/lnd/tlv"
@@ -11,7 +12,7 @@ import (
 
 // validInvoice returns an Invoice populated with the minimum set of fields
 // required to satisfy ValidateInvoiceWrite.
-func validInvoice(t *testing.T) *Invoice {
+func validInvoice(t testing.TB) *Invoice {
 	t.Helper()
 
 	_, pub := bobKey()
@@ -185,8 +186,14 @@ func TestInvoiceRoundTripPreservesAllTypes(t *testing.T) {
 	t.Parallel()
 
 	inv := validInvoice(t)
+
+	// Sign with the fixture's node id (Bob) so the read path's signature
+	// check accepts the invoice.
+	priv, _ := bobKey()
+	sig, err := SignInvoice(inv, priv)
+	require.NoError(t, err)
 	inv.Signature = tlv.SomeRecordT(
-		tlv.NewPrimitiveRecord[tlv.TlvType240, [64]byte]([64]byte{}),
+		tlv.NewPrimitiveRecord[tlv.TlvType240](sig),
 	)
 
 	encoded, err := inv.Encode()
@@ -356,4 +363,166 @@ func TestInvoiceEncodeValidationGate(t *testing.T) {
 
 	_, err := inv.Encode()
 	require.ErrorIs(t, err, ErrMissingCreatedAt)
+}
+
+// TestInvoiceStringRoundTrip pins the encode→decode identity of the lni
+// wrapper pair: the recovered invoice must re-encode to the original TLV
+// stream byte-for-byte. The invoice is signed first because the decode
+// wrapper runs the reader gates, which reject unsigned invoices.
+func TestInvoiceStringRoundTrip(t *testing.T) {
+	t.Parallel()
+
+	priv, _ := bobKey()
+	inv := validInvoice(t)
+
+	sig, err := SignInvoice(inv, priv)
+	require.NoError(t, err)
+	inv.Signature = tlv.SomeRecordT(
+		tlv.NewPrimitiveRecord[tlv.TlvType240, [64]byte](sig),
+	)
+
+	encoded, err := EncodeInvoiceString(inv)
+	require.NoError(t, err)
+	require.NotEmpty(t, encoded)
+
+	// validInvoice sets invoice_created_at to 1234567890, so a clock one
+	// second later sits inside the default 7200s expiry window.
+	decoded, err := DecodeInvoiceString(
+		encoded, time.Unix(1234567890+1, 0), bitcoinMainnetGenesisHash,
+	)
+	require.NoError(t, err)
+
+	originalBytes, err := inv.Encode()
+	require.NoError(t, err)
+	decodedBytes, err := decoded.Encode()
+	require.NoError(t, err)
+	require.Equal(t, originalBytes, decodedBytes)
+}
+
+// TestEncodeInvoiceStringInvalid asserts the wrapper refuses to emit an
+// invoice that fails writer validation.
+func TestEncodeInvoiceStringInvalid(t *testing.T) {
+	t.Parallel()
+
+	// A dummy signature passes the presence gate. Writer validation runs
+	// before signature verification, so the writer-validation branch is
+	// exercised.
+	inv := validInvoice(t)
+	inv.Signature = tlv.SomeRecordT(
+		tlv.NewPrimitiveRecord[tlv.TlvType240, [64]byte]([64]byte{}),
+	)
+	inv.InvoicePaymentHash = tlv.OptionalRecordT[
+		tlv.TlvType168, [32]byte,
+	]{}
+
+	encoded, err := EncodeInvoiceString(inv)
+	require.ErrorIs(t, err, ErrMissingPaymentHash)
+	require.Empty(t, encoded)
+}
+
+// TestEncodeInvoiceStringUnsigned asserts the wire-string layer refuses to
+// emit an unsigned invoice: the signature becomes mandatory at the bech32
+// boundary even though pre-sign Encode is permitted.
+func TestEncodeInvoiceStringUnsigned(t *testing.T) {
+	t.Parallel()
+
+	inv := validInvoice(t)
+	require.False(t, inv.Signature.IsSome())
+
+	encoded, err := EncodeInvoiceString(inv)
+	require.ErrorIs(t, err, ErrMissingSignature)
+	require.Empty(t, encoded)
+}
+
+// TestEncodeInvoiceStringInvalidSignature asserts the wire-string layer
+// refuses to emit an invoice whose signature does not verify against
+// invoice_node_id.
+func TestEncodeInvoiceStringInvalidSignature(t *testing.T) {
+	t.Parallel()
+
+	priv, _ := bobKey()
+	inv := validInvoice(t)
+
+	sig, err := SignInvoice(inv, priv)
+	require.NoError(t, err)
+	inv.Signature = tlv.SomeRecordT(
+		tlv.NewPrimitiveRecord[tlv.TlvType240, [64]byte](sig),
+	)
+
+	// The post-sign mutation leaves the signature stale: it covers a
+	// Merkle root this invoice no longer produces.
+	inv.InvoiceAmount = tlv.SomeRecordT(
+		tlv.NewRecordT[tlv.TlvType170, TUint64](TUint64(200_000)),
+	)
+
+	encoded, err := EncodeInvoiceString(inv)
+	require.ErrorIs(t, err, ErrInvalidSignature)
+	require.Empty(t, encoded)
+}
+
+// TestDecodeInvoiceStringExpiry asserts the wrapper folds the expiry gate
+// in: an invoice past invoice_created_at + relative expiry is rejected even
+// though the structural reader checks pass.
+func TestDecodeInvoiceStringExpiry(t *testing.T) {
+	t.Parallel()
+
+	priv, _ := bobKey()
+	inv := validInvoice(t)
+
+	sig, err := SignInvoice(inv, priv)
+	require.NoError(t, err)
+	inv.Signature = tlv.SomeRecordT(
+		tlv.NewPrimitiveRecord[tlv.TlvType240, [64]byte](sig),
+	)
+
+	encoded, err := EncodeInvoiceString(inv)
+	require.NoError(t, err)
+
+	// validInvoice's invoice_created_at is 1234567890 with the default
+	// 7200s expiry, so 8000s later is past the window.
+	expired := time.Unix(1234567890+8000, 0)
+	decoded, err := DecodeInvoiceString(
+		encoded, expired, bitcoinMainnetGenesisHash,
+	)
+	require.ErrorIs(t, err, ErrInvoiceExpired)
+	require.Nil(t, decoded)
+}
+
+// TestDecodeInvoiceStringInvalid asserts the lni wrapper rejects a string
+// that fails HRP discrimination or bech32 decoding.
+func TestDecodeInvoiceStringInvalid(t *testing.T) {
+	t.Parallel()
+
+	offerStr := findTestVector(t, "Minimal bolt12 offer").Bolt12
+
+	tests := []struct {
+		name        string
+		invoice     string
+		errContains string
+	}{
+		{
+			name:        "wrong HRP",
+			invoice:     offerStr,
+			errContains: "expected HRP",
+		},
+		{
+			name:        "malformed bech32",
+			invoice:     "not a bech32 string",
+			errContains: "bech32",
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+
+			inv, err := DecodeInvoiceString(
+				tc.invoice, farFutureNow(),
+				bitcoinMainnetGenesisHash,
+			)
+			require.Error(t, err)
+			require.Nil(t, inv)
+			require.Contains(t, err.Error(), tc.errContains)
+		})
+	}
 }

@@ -60,6 +60,58 @@ const (
 	maxFallbackAddrLen = math.MaxUint16
 )
 
+// strictFeaturesRecord returns a TLV record for a top-level features field,
+// whose decoder rejects non-minimal encodings with ErrNonMinimalFeatures.
+// RawFeatureVector re-encodes to minimal length, so accepting a padded encoding
+// would change the Merkle leaf bytes and invalidate an otherwise valid
+// signature. All three message types use it so the features fields decode
+// through one path. The payinfo features guard in decodeBlindedPayInfos is the
+// same check one subtype level down.
+func strictFeaturesRecord[T tlv.TlvType](
+	t *tlv.RecordT[T, lnwire.RawFeatureVector]) tlv.Record {
+
+	return tlv.MakeDynamicRecord(
+		t.TlvType(), &t.Val,
+		func() uint64 { return uint64(t.Val.SerializeSize()) },
+		strictFeaturesEncoder, strictFeaturesDecoder,
+	)
+}
+
+// strictFeaturesEncoder writes the minimal feature vector bytes, matching the
+// shared lnwire encoder.
+func strictFeaturesEncoder(w io.Writer, val any, _ *[8]byte) error {
+	fv, ok := val.(*lnwire.RawFeatureVector)
+	if !ok {
+		return tlv.NewTypeForEncodingErr(val, "lnwire.RawFeatureVector")
+	}
+
+	return fv.EncodeBase256(w)
+}
+
+// strictFeaturesDecoder decodes a feature vector and rejects a non-minimal
+// encoding, so every accepted message re-encodes to the bytes the signer
+// committed to.
+func strictFeaturesDecoder(r io.Reader, val any, _ *[8]byte,
+	l uint64) error {
+
+	fv, ok := val.(*lnwire.RawFeatureVector)
+	if !ok {
+		return tlv.NewTypeForEncodingErr(val, "lnwire.RawFeatureVector")
+	}
+
+	vec := lnwire.NewRawFeatureVector()
+	if err := vec.DecodeBase256(r, int(l)); err != nil {
+		return err
+	}
+	if vec.SerializeSize() != int(l) {
+		return ErrNonMinimalFeatures
+	}
+
+	*fv = *vec
+
+	return nil
+}
+
 // ChainsRecord holds one or more chain hashes for the offer_chains field.
 type ChainsRecord struct {
 	Chains [][chainHashLen]byte

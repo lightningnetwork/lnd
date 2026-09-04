@@ -137,11 +137,33 @@
   add checksumless bech32 encoding/decoding for BOLT 12 `lno`, `lnr`, and `lni`
   strings with continuation line handling.
 
+* [BOLT 12 Merkle tree and BIP-340
+  signatures](https://github.com/lightningnetwork/lnd/pull/11061): add Merkle
+  tree construction over TLV records and BIP-340 Schnorr message signatures for
+  invoice requests and invoices, and verify the signature on read so a decoded
+  message with an invalid signature is rejected.
+
+* [BOLT 12 string codecs and payment
+  validation](https://github.com/lightningnetwork/lnd/pull/11146): add
+  validated `Decode`/`Encode` string entry points for offers, invoice
+  requests, and invoices, and `ValidateInvoiceForPayment` to bundle the
+  payer-side invoice checks into one call.
+
 ## Testing
 
 * [BOLT 12 spec test vectors](https://github.com/lightningnetwork/lnd/pull/11001):
   add spec test vectors for offer decoding and format string parsing in
   `bolt12/test-vectors/`.
+
+* [BOLT 12 signature test
+  vectors](https://github.com/lightningnetwork/lnd/pull/11061): add spec test
+  vectors pinning Merkle tree construction and BIP-340 signature verification
+  in `bolt12/test-vectors/`.
+
+* [BOLT 12 fuzz
+  harnesses](https://github.com/lightningnetwork/lnd/pull/11146): fuzz the
+  `bolt12/` decoders for panics and encode/decode bijection, and pin Merkle
+  root determinism.
 
 ## Database
 

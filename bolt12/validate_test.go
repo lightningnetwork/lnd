@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"github.com/btcsuite/btcd/btcec/v2"
+	"github.com/lightningnetwork/lnd/fn/v2"
 	"github.com/lightningnetwork/lnd/lnwire"
 	"github.com/lightningnetwork/lnd/tlv"
 	"github.com/stretchr/testify/require"
@@ -705,34 +706,412 @@ func addAmountAndDescription(o *Offer) {
 }
 
 // validInvoiceRequest is the spec-minimal happy-path invoice request that
-// each table row mutates to isolate the rule under test.
-func validInvoiceRequest(t *testing.T) *InvoiceRequest {
+// each table row mutates to isolate the rule under test. The request is
+// encoded, decoded, and signed with Bob's key, so reader validation sees
+// the same wire form a peer would send.
+func validInvoiceRequest(t testing.TB) *InvoiceRequest {
 	t.Helper()
 
-	ir := &InvoiceRequest{}
+	priv, _ := bobKey()
 
-	privKey, err := btcec.NewPrivateKey()
+	return signedInvoiceRequest(t, priv)
+}
+
+// signedInvoiceRequest builds the spec-minimal invoice request, round-trips it
+// through the wire codec, and signs the decoded copy with signer.
+// invreq_payer_id always names Bob, so a signer other than Bob yields a
+// well-formed signature over the correct Merkle root under the wrong key.
+func signedInvoiceRequest(t testing.TB,
+	signer *btcec.PrivateKey) *InvoiceRequest {
+
+	t.Helper()
+
+	_, pub := bobKey()
+
+	ir := &InvoiceRequest{
+		OfferDescription: tlv.SomeRecordT(
+			tlv.NewPrimitiveRecord[tlv.TlvType10](
+				tlv.Blob("description"),
+			),
+		),
+		InvreqPayerID: tlv.SomeRecordT(
+			tlv.NewPrimitiveRecord[tlv.TlvType88](pub),
+		),
+		InvreqMetadata: tlv.SomeRecordT(
+			tlv.NewPrimitiveRecord[tlv.TlvType0](
+				tlv.Blob("metadata"),
+			),
+		),
+		InvreqAmount: tlv.SomeRecordT(
+			tlv.NewRecordT[tlv.TlvType82, TUint64](
+				TUint64(1000),
+			),
+		),
+	}
+
+	encoded, err := ir.Encode()
 	require.NoError(t, err)
 
-	ir.InvreqPayerID = tlv.SomeRecordT(
-		tlv.NewPrimitiveRecord[tlv.TlvType88](privKey.PubKey()),
+	decoded, err := DecodeInvoiceRequest(encoded)
+	require.NoError(t, err)
+
+	sig, err := SignInvoiceRequest(decoded, signer)
+	require.NoError(t, err)
+	decoded.Signature = tlv.SomeRecordT(
+		tlv.NewPrimitiveRecord[tlv.TlvType240](sig),
 	)
 
-	ir.InvreqMetadata = tlv.SomeRecordT(
+	return decoded
+}
+
+// signedInvoice signs the spec-minimal invoice with signer. invoice_node_id
+// always names Bob, so a signer other than Bob yields a well-formed signature
+// over the correct Merkle root under the wrong key.
+func signedInvoice(t *testing.T, signer *btcec.PrivateKey) *Invoice {
+	t.Helper()
+
+	inv := validInvoice(t)
+
+	sig, err := SignInvoice(inv, signer)
+	require.NoError(t, err)
+	inv.Signature = tlv.SomeRecordT(
+		tlv.NewPrimitiveRecord[tlv.TlvType240, [64]byte](sig),
+	)
+
+	return inv
+}
+
+// TestValidateInvoiceRequestRead verifies that a freshly signed, decoded
+// invoice request passes reader validation.
+func TestValidateInvoiceRequestRead(t *testing.T) {
+	t.Parallel()
+
+	ir := validInvoiceRequest(t)
+
+	err := ValidateInvoiceRequestRead(ir, bitcoinMainnetGenesisHash, nil)
+	require.NoError(t, err)
+
+	// A request without a signature must be rejected.
+	irNoSig := *ir
+	irNoSig.Signature = tlv.OptionalRecordT[tlv.TlvType240, [64]byte]{}
+	err = ValidateInvoiceRequestRead(
+		&irNoSig, bitcoinMainnetGenesisHash, nil,
+	)
+	require.ErrorIs(t, err, ErrMissingSignature)
+}
+
+// flipValueByte returns a copy of encoded with the first byte of needle
+// inverted. needle must be the value of a TLV inside the signed range, so the
+// mutation moves the Merkle root instead of a field the signature does not
+// commit to.
+//
+// The needle must occur exactly once. A second occurrence would mean the
+// caller cannot tell which field the flip lands on, and a flip that strayed
+// into the signature TLV would still produce ErrInvalidSignature while no
+// longer testing that a signed field is bound to the root.
+func flipValueByte(t *testing.T, encoded, needle []byte) []byte {
+	t.Helper()
+
+	require.Equal(
+		t, 1, bytes.Count(encoded, needle),
+		"needle must identify exactly one field",
+	)
+
+	out := bytes.Clone(encoded)
+	out[bytes.Index(encoded, needle)] ^= 0xff
+
+	return out
+}
+
+// TestValidateReadRejectsBadSignature pins the reader-side signature gate on
+// both message types. ValidateInvoiceRequestRead and ValidateInvoiceRead key
+// the check on different public keys, so covering one does not cover the
+// other.
+//
+// The mutated-bytes rows also guard the decision to derive the Merkle root
+// from re-encoded records: a decode-then-encode divergence on a signed field
+// would surface here as a rejection of the untouched message.
+func TestValidateReadRejectsBadSignature(t *testing.T) {
+	t.Parallel()
+
+	bobPriv, _ := bobKey()
+	alicePriv, _ := aliceKey()
+
+	tests := []struct {
+		name     string
+		validate func(*testing.T) error
+	}{
+		{
+			name: "invoice_request wrong key",
+			validate: func(t *testing.T) error {
+				ir := signedInvoiceRequest(t, alicePriv)
+
+				return ValidateInvoiceRequestRead(
+					ir, bitcoinMainnetGenesisHash, nil,
+				)
+			},
+		},
+		{
+			name: "invoice_request mutated after signing",
+			validate: func(t *testing.T) error {
+				encoded, err := signedInvoiceRequest(
+					t, bobPriv,
+				).Encode()
+				require.NoError(t, err)
+
+				// invreq_metadata is a signed opaque blob, so
+				// flipping a byte of its value moves the root
+				// and still decodes.
+				ir, err := DecodeInvoiceRequest(flipValueByte(
+					t, encoded, []byte("metadata"),
+				))
+				require.NoError(t, err)
+
+				return ValidateInvoiceRequestRead(
+					ir, bitcoinMainnetGenesisHash, nil,
+				)
+			},
+		},
+		{
+			name: "invoice wrong key",
+			validate: func(t *testing.T) error {
+				inv := signedInvoice(t, alicePriv)
+
+				return ValidateInvoiceRead(
+					inv, bitcoinMainnetGenesisHash,
+					InvoiceFeatureCatalogues{},
+				)
+			},
+		},
+		{
+			name: "invoice mutated after signing",
+			validate: func(t *testing.T) error {
+				signed := signedInvoice(t, bobPriv)
+
+				encoded, err := signed.Encode()
+				require.NoError(t, err)
+
+				// invoice_payment_hash is a signed fixed-width
+				// opaque field, so flipping a byte of its
+				// value moves the root and still decodes.
+				hash := signed.InvoicePaymentHash.ValOpt().
+					UnwrapOrFail(t)
+
+				inv, err := DecodeInvoice(flipValueByte(
+					t, encoded, hash[:],
+				))
+				require.NoError(t, err)
+
+				return ValidateInvoiceRead(
+					inv, bitcoinMainnetGenesisHash,
+					InvoiceFeatureCatalogues{},
+				)
+			},
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+
+			require.ErrorIs(t, tc.validate(t), ErrInvalidSignature)
+		})
+	}
+}
+
+// TestValidateInvoiceNodeID pins the offer_paths binding that the readers
+// cannot check for themselves: the invoice must be signed by the very node the
+// payer sent its invoice_request to. The impersonation row is the one that
+// matters, since the readers accept that invoice today.
+func TestValidateInvoiceNodeID(t *testing.T) {
+	t.Parallel()
+
+	alicePriv, alicePub := aliceKey()
+	_, bobPub := bobKey()
+
+	tests := []struct {
+		name     string
+		nodeID   fn.Option[*btcec.PublicKey]
+		expected *btcec.PublicKey
+		wantErr  error
+	}{
+		{
+			name:     "matches the path's final node",
+			nodeID:   fn.Some(bobPub),
+			expected: bobPub,
+		},
+		{
+			name:     "another node on the path impersonates",
+			nodeID:   fn.Some(alicePub),
+			expected: bobPub,
+			wantErr:  ErrInvoicePathNodeIDMismatch,
+		},
+		{
+			name:     "invoice_node_id absent",
+			nodeID:   fn.None[*btcec.PublicKey](),
+			expected: bobPub,
+			wantErr:  ErrMissingNodeID,
+		},
+		{
+			name:     "caller supplies no final node",
+			nodeID:   fn.Some(bobPub),
+			expected: nil,
+			wantErr:  ErrNilPublicKey,
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+
+			inv := validInvoice(t)
+			inv.InvoiceNodeID = tlv.OptionalRecordT[
+				tlv.TlvType176, *btcec.PublicKey,
+			]{}
+			tc.nodeID.WhenSome(func(pk *btcec.PublicKey) {
+				inv.InvoiceNodeID = tlv.SomeRecordT(
+					tlv.NewPrimitiveRecord[tlv.TlvType176](
+						pk,
+					),
+				)
+			})
+
+			err := validateInvoiceNodeID(inv, tc.expected)
+			if tc.wantErr == nil {
+				require.NoError(t, err)
+				return
+			}
+			require.ErrorIs(t, err, tc.wantErr)
+		})
+	}
+
+	// The gap this closes: a validly Alice-signed invoice passes the
+	// reader, so only validateInvoiceNodeID separates it from a genuine
+	// one.
+	inv := validInvoice(t)
+	inv.InvoiceNodeID = tlv.SomeRecordT(
+		tlv.NewPrimitiveRecord[tlv.TlvType176](alicePub),
+	)
+	sig, err := SignInvoice(inv, alicePriv)
+	require.NoError(t, err)
+	inv.Signature = tlv.SomeRecordT(
+		tlv.NewPrimitiveRecord[tlv.TlvType240](sig),
+	)
+
+	require.NoError(t, ValidateInvoiceRead(
+		inv, bitcoinMainnetGenesisHash, InvoiceFeatureCatalogues{},
+	))
+	require.ErrorIs(
+		t, validateInvoiceNodeID(inv, bobPub),
+		ErrInvoicePathNodeIDMismatch,
+	)
+}
+
+// TestValidateInvoiceForPayment pins the combined payer-side validator: it
+// runs the structural read, the mirror-match against the request, and the
+// blinded-path binding to the final node in one call, so a caller cannot
+// forget the path check. finalBlindedNodeID is only consulted when the offer
+// is a blinded-path offer (offer_issuer_id absent); otherwise the expected
+// signer is derived from the request.
+func TestValidateInvoiceForPayment(t *testing.T) {
+	t.Parallel()
+
+	_, bobPub := bobKey()
+	_, alicePub := aliceKey()
+
+	// A blinded-path request: no offer_issuer_id, so the caller must supply
+	// the final blinded node.
+	blindedIR := &InvoiceRequest{
+		InvreqMetadata: tlv.SomeRecordT(
+			tlv.NewPrimitiveRecord[tlv.TlvType0](
+				tlv.Blob("metadata"),
+			),
+		),
+	}
+	blindedIREncoded, err := encodeIRBypassValidate(blindedIR)
+	require.NoError(t, err)
+	blindedIRDecoded, err := DecodeInvoiceRequest(blindedIREncoded)
+	require.NoError(t, err)
+
+	// The matching invoice: mirrors the request's signed-range fields and
+	// carries the invoice-specific fields the reader requires, signed by
+	// Bob (invoice_node_id).
+	inv := validInvoice(t)
+	inv.InvreqMetadata = tlv.SomeRecordT(
 		tlv.NewPrimitiveRecord[tlv.TlvType0](
-			[]byte("metadata"),
+			tlv.Blob("metadata"),
 		),
 	)
+	invEncoded, err := encodeInvBypassValidate(inv)
+	require.NoError(t, err)
+	invDecoded, err := DecodeInvoice(invEncoded)
+	require.NoError(t, err)
 
-	ir.InvreqAmount = tlv.SomeRecordT(
-		tlv.NewRecordT[tlv.TlvType82, TUint64](1000),
+	bobPriv, _ := bobKey()
+	sig, err := SignInvoice(invDecoded, bobPriv)
+	require.NoError(t, err)
+	invDecoded.Signature = tlv.SomeRecordT(
+		tlv.NewPrimitiveRecord[tlv.TlvType240, [64]byte](sig),
 	)
 
-	ir.Signature = tlv.SomeRecordT(
-		tlv.NewPrimitiveRecord[tlv.TlvType240]([64]byte{0x01}),
+	// Blinded mode, happy path: the final node matches invoice_node_id.
+	require.NoError(t, ValidateInvoiceForPayment(
+		invDecoded, blindedIRDecoded, bitcoinMainnetGenesisHash,
+		InvoiceFeatureCatalogues{}, bobPub,
+	))
+
+	// Blinded mode: an intermediate blinded node (Alice) impersonating the
+	// final node is caught by the composite.
+	err = ValidateInvoiceForPayment(
+		invDecoded, blindedIRDecoded, bitcoinMainnetGenesisHash,
+		InvoiceFeatureCatalogues{}, alicePub,
+	)
+	require.ErrorIs(t, err, ErrInvoicePathNodeIDMismatch)
+
+	// Cleartext mode: offer_issuer_id present, so the expected signer is
+	// derived from the request and no hop pubkey is needed.
+	cleartextIR := &InvoiceRequest{
+		InvreqMetadata: tlv.SomeRecordT(
+			tlv.NewPrimitiveRecord[tlv.TlvType0](
+				tlv.Blob("metadata"),
+			),
+		),
+		OfferIssuerID: tlv.SomeRecordT(
+			tlv.NewPrimitiveRecord[tlv.TlvType22](bobPub),
+		),
+	}
+	cleartextIREncoded, err := encodeIRBypassValidate(cleartextIR)
+	require.NoError(t, err)
+	cleartextIRDecoded, err := DecodeInvoiceRequest(cleartextIREncoded)
+	require.NoError(t, err)
+
+	// The invoice mirrors offer_issuer_id (Bob) and is signed by Bob, so
+	// checkInvoiceNodeID inside the readers enforces the binding.
+	inv.InvreqMetadata = tlv.SomeRecordT(
+		tlv.NewPrimitiveRecord[tlv.TlvType0](
+			tlv.Blob("metadata"),
+		),
+	)
+	inv.OfferIssuerID = tlv.SomeRecordT(
+		tlv.NewPrimitiveRecord[tlv.TlvType22](bobPub),
+	)
+	invEncoded, err = encodeInvBypassValidate(inv)
+	require.NoError(t, err)
+	invDecoded, err = DecodeInvoice(invEncoded)
+	require.NoError(t, err)
+
+	sig, err = SignInvoice(invDecoded, bobPriv)
+	require.NoError(t, err)
+	invDecoded.Signature = tlv.SomeRecordT(
+		tlv.NewPrimitiveRecord[tlv.TlvType240, [64]byte](sig),
 	)
 
-	return ir
+	// nil hop pubkey is fine: the offer_issuer_id case is derived from the
+	// request.
+	require.NoError(t, ValidateInvoiceForPayment(
+		invDecoded, cleartextIRDecoded, bitcoinMainnetGenesisHash,
+		InvoiceFeatureCatalogues{}, nil,
+	))
 }
 
 // TestValidateInvoiceRequestWrite pins the BOLT 12 writer-side MUSTs so a
@@ -1234,6 +1613,11 @@ func TestValidateInvoiceRequestReadSentinels(t *testing.T) {
 		mutate  func(*InvoiceRequest)
 		known   map[lnwire.FeatureBit]string
 		wantErr error
+
+		// resign re-signs the mutated request before validation.
+		// Rows that mutate a signed field and still expect success
+		// need a fresh signature over the mutated records.
+		resign bool
 	}{
 		{
 			name: "missing payer id",
@@ -1461,6 +1845,7 @@ func TestValidateInvoiceRequestReadSentinels(t *testing.T) {
 				0: "test_feature",
 			},
 			wantErr: nil,
+			resign:  true,
 		},
 	}
 
@@ -1471,10 +1856,13 @@ func TestValidateInvoiceRequestReadSentinels(t *testing.T) {
 			ir := validInvoiceRequest(t)
 			tc.mutate(ir)
 
-			if tc.name == "known even feature bit accepted" {
+			if tc.resign {
+				priv, _ := bobKey()
+				sig, err := SignInvoiceRequest(ir, priv)
+				require.NoError(t, err)
 				ir.Signature = tlv.SomeRecordT(
 					tlv.NewPrimitiveRecord[tlv.TlvType240](
-						[64]byte{0x01},
+						sig,
 					),
 				)
 			}
@@ -1957,7 +2345,7 @@ func TestValidateInvoiceRead(t *testing.T) {
 func TestValidateInvoiceReadAcceptsSignatureRange(t *testing.T) {
 	t.Parallel()
 
-	_, pub := bobKey()
+	priv, pub := bobKey()
 
 	_, intro := aliceKey()
 	_, blinding := bobKey()
@@ -1998,16 +2386,21 @@ func TestValidateInvoiceReadAcceptsSignatureRange(t *testing.T) {
 				BlindedPayInfos{Infos: []BlindedPayInfo{{}}},
 			),
 		),
-		Signature: tlv.SomeRecordT(
-			tlv.NewPrimitiveRecord[tlv.TlvType240, [64]byte](
-				[64]byte{},
-			),
-		),
 	}
 
 	// An unknown odd type at 241 sits inside the signature range and must
-	// be ignored, not rejected as out-of-range or unknown-even.
+	// be ignored, not rejected as out-of-range or unknown-even. It is
+	// excluded from the signature's Merkle root, so signing is unaffected
+	// by it.
 	inv.decodedTLVs = tlv.TypeMap{241: nil}
+
+	// Sign with the fixture's node id (Bob) so the read path's signature
+	// check accepts the invoice.
+	sig, err := SignInvoice(inv, priv)
+	require.NoError(t, err)
+	inv.Signature = tlv.SomeRecordT(
+		tlv.NewPrimitiveRecord[tlv.TlvType240, [64]byte](sig),
+	)
 
 	err = ValidateInvoiceRead(
 		inv, bitcoinMainnetGenesisHash,
@@ -2587,11 +2980,6 @@ func TestValidateFeaturesWithCatalogue(t *testing.T) {
 		t.Parallel()
 
 		inv := validInvoice(t)
-		inv.Signature = tlv.SomeRecordT(
-			tlv.NewPrimitiveRecord[tlv.TlvType240](
-				[64]byte{},
-			),
-		)
 
 		// Set MPP required (bit 16, even/required)
 		fv := *lnwire.NewRawFeatureVector(lnwire.MPPRequired)
@@ -2599,8 +2987,17 @@ func TestValidateFeaturesWithCatalogue(t *testing.T) {
 			tlv.NewRecordT[tlv.TlvType174](fv),
 		)
 
+		// Sign with the fixture's node id (Bob) so the read
+		// path's signature check accepts the invoice.
+		priv, _ := bobKey()
+		sig, err := SignInvoice(inv, priv)
+		require.NoError(t, err)
+		inv.Signature = tlv.SomeRecordT(
+			tlv.NewPrimitiveRecord[tlv.TlvType240, [64]byte](sig),
+		)
+
 		// An unknown required bit must be rejected.
-		err := ValidateInvoiceRead(
+		err = ValidateInvoiceRead(
 			inv, bitcoinMainnetGenesisHash,
 			InvoiceFeatureCatalogues{},
 		)
@@ -2623,11 +3020,6 @@ func TestValidateFeaturesWithCatalogue(t *testing.T) {
 		t.Parallel()
 
 		inv := validInvoice(t)
-		inv.Signature = tlv.SomeRecordT(
-			tlv.NewPrimitiveRecord[tlv.TlvType240](
-				[64]byte{},
-			),
-		)
 
 		// Set an even required feature bit on the path's features (e.g.
 		// bit 16).
@@ -2640,9 +3032,18 @@ func TestValidateFeaturesWithCatalogue(t *testing.T) {
 			}),
 		)
 
+		// Sign with the fixture's node id (Bob) so the read
+		// path's signature check accepts the invoice.
+		priv, _ := bobKey()
+		sig, err := SignInvoice(inv, priv)
+		require.NoError(t, err)
+		inv.Signature = tlv.SomeRecordT(
+			tlv.NewPrimitiveRecord[tlv.TlvType240, [64]byte](sig),
+		)
+
 		// If there are no known features in the catalogue, there are
 		// zero usable paths and we expect ErrNoUsablePaths.
-		err := ValidateInvoiceRead(
+		err = ValidateInvoiceRead(
 			inv, bitcoinMainnetGenesisHash,
 			InvoiceFeatureCatalogues{},
 		)

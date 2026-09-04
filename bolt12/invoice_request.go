@@ -198,10 +198,11 @@ func DecodeInvoiceRequest(data []byte) (*InvoiceRequest, error) {
 	tm, err := decodeStream(
 		data, invreqMetadata.Record(), chains.Record(),
 		metadata.Record(), currency.Record(), amount.Record(),
-		desc.Record(), features.Record(), expiry.Record(),
+		desc.Record(), strictFeaturesRecord(&features), expiry.Record(),
 		paths.Record(), issuer.Record(), qtyMax.Record(),
 		issuerID.Record(), invreqChain.Record(), invreqAmount.Record(),
-		invreqFeatures.Record(), invreqQty.Record(), payerID.Record(),
+		strictFeaturesRecord(&invreqFeatures), invreqQty.Record(),
+		payerID.Record(),
 		payerNote.Record(), invreqPaths.Record(), bip353.Record(),
 		sig.Record(),
 	)
@@ -234,6 +235,59 @@ func DecodeInvoiceRequest(data []byte) (*InvoiceRequest, error) {
 	ir.decodedTLVs = tm
 
 	return &ir, nil
+}
+
+// DecodeInvoiceRequestString decodes a BOLT 12 invoice request from its bech32
+// string representation (lnr1...). The spec reader gates (chain, features,
+// signature) are folded in via ValidateInvoiceRequestRead, with activeChain
+// gating the invreq_chain rule.
+func DecodeInvoiceRequestString(s string,
+	activeChain [32]byte) (*InvoiceRequest, error) {
+
+	hrp, tlvBytes, err := Decode(s)
+	if err != nil {
+		return nil, fmt.Errorf("bech32: %w", err)
+	}
+
+	if hrp != HRPInvoiceRequest {
+		return nil, fmt.Errorf("expected HRP %q, got %q",
+			HRPInvoiceRequest, hrp)
+	}
+
+	ir, err := DecodeInvoiceRequest(tlvBytes)
+	if err != nil {
+		return nil, err
+	}
+
+	if err := ValidateInvoiceRequestRead(
+		ir, activeChain, Bolt12Features,
+	); err != nil {
+		return nil, fmt.Errorf("validate: %w", err)
+	}
+
+	return ir, nil
+}
+
+// EncodeInvoiceRequestString encodes a signed invoice request to its bech32
+// string representation (lnr1...). The string form exists only for
+// transmission, so a populated signature is required and verified against
+// invreq_payer_id. Writer-side validation is delegated to
+// (*InvoiceRequest).Encode.
+func EncodeInvoiceRequestString(ir *InvoiceRequest) (string, error) {
+	if !ir.Signature.IsSome() {
+		return "", ErrMissingSignature
+	}
+
+	tlvBytes, err := ir.Encode()
+	if err != nil {
+		return "", err
+	}
+
+	if err := VerifyInvoiceRequest(ir); err != nil {
+		return "", err
+	}
+
+	return Encode(HRPInvoiceRequest, tlvBytes)
 }
 
 // NewInvoiceRequestFromOffer constructs a new InvoiceRequest by copying

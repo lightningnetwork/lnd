@@ -17,6 +17,14 @@ import (
 	"golang.org/x/text/currency"
 )
 
+// Bolt12Features defines the set of BOLT 12 feature bits understood and
+// supported by our implementation: multi-path payments (MPP), both the
+// compulsory and optional variants.
+var Bolt12Features = map[lnwire.FeatureBit]string{
+	lnwire.MPPRequired: "mpp",
+	lnwire.MPPOptional: "mpp",
+}
+
 var (
 	// ErrOutOfRangeType is returned when a TLV type falls outside the
 	// allowed offer ranges (1-79 and 1000000000-1999999999).
@@ -132,11 +140,11 @@ var (
 	// structurally malformed or contains a non-alphabet byte.
 	ErrInvalidBip353Name = errors.New("invalid invreq_bip_353_name")
 
-	// ErrMissingSignature is returned when a wire-form invoice or
-	// invoice_request is emitted without a populated signature TLV.
-	// Pre-sign Encode (used to compute the Merkle root) is permitted to run
-	// without a signature; the bech32 string-codec layer is where the
-	// signature becomes mandatory.
+	// ErrMissingSignature is returned when an invoice or invoice_request
+	// is encoded to its wire string or verified without a populated
+	// signature TLV. Pre-sign Encode (used to compute the Merkle root)
+	// is permitted to run without a signature; the wire-string layer is
+	// where the signature becomes mandatory.
 	ErrMissingSignature = errors.New("missing signature")
 
 	// ErrOfferFieldsOnSpontaneous is returned when an invoice request
@@ -191,6 +199,14 @@ var (
 	// to be signed by the offer's issuer in this case.
 	ErrInvoiceNodeIDMismatch = errors.New(
 		"invoice_node_id does not match offer_issuer_id",
+	)
+
+	// ErrInvoicePathNodeIDMismatch is returned by validateInvoiceNodeID
+	// when the invoice was signed by a node other than the one the payer
+	// sent its invoice_request to.
+	ErrInvoicePathNodeIDMismatch = errors.New(
+		"invoice_node_id does not match the offer path's final " +
+			"blinded_node_id",
 	)
 
 	// ErrZeroInvoiceAmount is returned when invoice_amount is present but
@@ -401,8 +417,9 @@ func ValidateInvoiceRequestWrite(ir *InvoiceRequest) error {
 
 		// - MUST set signature.sig using the invreq_payer_id.
 		// NOT CHECKED HERE: signing happens after this validator runs;
-		// the string encoder rejects an unsigned request and the reader
-		// verifies signature correctness.
+		// pre-sign Encode is permitted, so an unsigned request passes
+		// this validator and Encode. The wire-string layer rejects an
+		// unsigned request, and the reader verifies correctness.
 
 		// - MUST set invreq_payer_id to a transient public key.
 		// NOT CHECKED HERE: only presence is checked below; the caller
@@ -615,11 +632,8 @@ func getInvreqChain(ir *InvoiceRequest) [32]byte {
 // Stateful or contextual checks (offer matching, path verification, unit-price
 // calculations) must be handled externally by the caller.
 //
-// Signature verification is NOT performed yet: the reader MUST also reject a
-// request whose Schnorr signature does not verify against invreq_payer_id, but
-// that check is deferred until the merkle/signing primitives land with the
-// Invoice message (see the TODO at the end of this function). Until then, a
-// caller wiring this into a handler MUST verify the signature itself.
+// The final check is cryptographic: the reader rejects a request whose
+// BIP-340 Schnorr signature does not verify against invreq_payer_id.
 func ValidateInvoiceRequestRead(ir *InvoiceRequest,
 	activeChain [32]byte,
 	knownFeatures map[lnwire.FeatureBit]string) error {
@@ -773,12 +787,7 @@ func ValidateInvoiceRequestRead(ir *InvoiceRequest,
 
 	// - MUST reject the invoice request if signature is not correct as
 	//   detailed in Signature Calculation using the invreq_payer_id.
-	// TODO(bolt12): implement signature verification.
-	if !ir.Signature.IsSome() {
-		return ErrMissingSignature
-	}
-
-	return nil
+	return VerifyInvoiceRequest(ir)
 }
 
 // getInvoiceRequestOfferChains returns the chains an invoice request's mirrored
@@ -1377,8 +1386,10 @@ func ValidateInvoiceWrite(inv *Invoice) error {
 	// - MUST specify exactly one signature TLV element: signature.
 	//   - MUST set sig to the signature using invoice_node_id as described
 	//     in Signature Calculation.
-	// NOT CHECKED HERE: signing happens after this validator runs. The
-	// string-codec layer rejects an unsigned invoice, mirroring
+	// NOT CHECKED HERE: signing happens after this validator runs;
+	// pre-sign Encode is permitted, so an unsigned invoice passes this
+	// validator and Encode. The wire-string layer rejects an unsigned
+	// invoice, and the reader verifies correctness, mirroring
 	// ValidateInvoiceRequestWrite.
 
 	// - if the expiry for accepting payment is not 7200 seconds after
@@ -1497,6 +1508,39 @@ func ValidateInvoiceExpiry(inv *Invoice, now time.Time) error {
 	expiry, carry := bits.Add64(uint64(createdAt), uint64(relExpiry), 0)
 	if carry == 0 && uint64(now.Unix()) > expiry {
 		return ErrInvoiceExpired
+	}
+
+	return nil
+}
+
+// validateInvoiceNodeID rejects an invoice that was not signed by the node the
+// payer sent its invoice_request to. When an offer carries offer_paths rather
+// than offer_issuer_id, the spec binds invoice_node_id to the final
+// blinded_node_id of the path the payer chose. That choice is caller state, so
+// ValidateInvoiceRead cannot make the comparison and callers that paid via
+// offer_paths must run this separately, as they already do for
+// ValidateInvoiceExpiry.
+//
+// Skipping it is not cosmetic. Every node on the blinded path can answer with
+// its own correctly signed invoice, and the reader accepts it, because the
+// signature only has to agree with whatever invoice_node_id the invoice itself
+// carries.
+func validateInvoiceNodeID(inv *Invoice,
+	finalBlindedNodeID *btcec.PublicKey) error {
+
+	if finalBlindedNodeID == nil {
+		return fmt.Errorf("%w: final blinded_node_id", ErrNilPublicKey)
+	}
+
+	// A present-but-nil invoice_node_id is rejected as ErrNilPublicKey by
+	// the readers, so a nil here means the field is absent.
+	nodeID := inv.InvoiceNodeID.ValOpt().UnwrapOr(nil)
+	if nodeID == nil {
+		return ErrMissingNodeID
+	}
+
+	if !nodeID.IsEqual(finalBlindedNodeID) {
+		return ErrInvoicePathNodeIDMismatch
 	}
 
 	return nil
@@ -1671,14 +1715,14 @@ type InvoiceFeatureCatalogues struct {
 
 // ValidateInvoiceRead validates an invoice against the BOLT 12 reader
 // requirements, running the stateless structural checks against activeChain
-// (the chain the reader supports).
+// (the chain the reader supports). The final check is cryptographic: the
+// reader rejects an invoice whose BIP-340 Schnorr signature does not verify
+// against invoice_node_id.
 //
-// Note: This only performs stateless structural checks. Cryptographic Schnorr
-// signature verification and identity-path binding are deferred to the caller
-// (see the TODO at the end of this function). Additionally, while it verifies
-// that at least one usable path is present, downstream callers must re-apply
-// the same features.Blinded filter at path selection time (via
-// Invoice.UsablePaths) to avoid selecting paths with unknown required features.
+// Note: while it verifies that at least one usable path is present,
+// downstream callers must re-apply the same features.Blinded filter at path
+// selection time (via Invoice.UsablePaths) to avoid selecting paths with
+// unknown required features.
 func ValidateInvoiceRead(inv *Invoice, activeChain [32]byte,
 	features InvoiceFeatureCatalogues) error {
 	// - MUST reject the invoice if invoice_amount is not present.
@@ -1815,14 +1859,6 @@ func ValidateInvoiceRead(inv *Invoice, activeChain [32]byte,
 		return err
 	}
 
-	// - MUST reject the invoice if signature is not a valid signature using
-	//   invoice_node_id as described in Signature Calculation.
-	// TODO(bolt12): implement signature verification. For now only
-	// presence is enforced, mirroring ValidateInvoiceRequestRead.
-	if !inv.Signature.IsSome() {
-		return ErrMissingSignature
-	}
-
 	// - SHOULD prefer to use earlier invoice_paths over later ones if it
 	//   has no other reason for preference.
 	// - if invoice_features contains the MPP/compulsory bit: MUST pay
@@ -1841,5 +1877,39 @@ func ValidateInvoiceRead(inv *Invoice, activeChain [32]byte,
 	// ValidateInvoiceAgainstRequest; the fallback ignore rules by
 	// UsableFallbackAddresses.
 
-	return nil
+	// - MUST reject the invoice if signature is not a valid signature using
+	//   invoice_node_id as described in Signature Calculation.
+	return VerifyInvoice(inv)
+}
+
+// ValidateInvoiceForPayment runs the full set of payer-side invoice checks in
+// one call: structural read validation, mirror-match against the originating
+// request, and, for a blinded-path offer, the binding of invoice_node_id to
+// the final blinded node the payer used.
+//
+// finalBlindedNodeID is only consulted when offer_issuer_id is absent; when
+// present, the readers already enforce the offer_issuer_id binding, so nil is
+// correct. Passing nil for a pure blinded-path offer is an error, not a silent
+// skip, so an intermediate blinded node cannot answer with its own signed
+// invoice.
+func ValidateInvoiceForPayment(inv *Invoice, req *InvoiceRequest,
+	activeChain [32]byte, features InvoiceFeatureCatalogues,
+	finalBlindedNodeID *btcec.PublicKey) error {
+
+	if err := ValidateInvoiceRead(inv, activeChain, features); err != nil {
+		return err
+	}
+
+	if err := ValidateInvoiceAgainstRequest(inv, req); err != nil {
+		return err
+	}
+
+	// The offer_issuer_id case is already enforced by checkInvoiceNodeID in
+	// the readers above, so a blinded-path offer is the only case that
+	// needs the caller-supplied final node.
+	if req.OfferIssuerID.IsSome() {
+		return nil
+	}
+
+	return validateInvoiceNodeID(inv, finalBlindedNodeID)
 }

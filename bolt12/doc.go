@@ -16,4 +16,9 @@
 // the writer requirements, invalid bytes are unrepresentable on the wire.
 // Low-level decoders stay permissive so diagnostic and fuzz harnesses can
 // inspect malformed input.
+//
+// DecodeOfferString, DecodeInvoiceRequestString, and DecodeInvoiceString
+// (with their Encode counterparts) are the consumer entry point. Each folds
+// bech32, the per-message TLV codec, and the spec reader gates into one
+// validated call.
 package bolt12

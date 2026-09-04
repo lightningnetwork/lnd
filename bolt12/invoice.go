@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"fmt"
 	"maps"
+	"time"
 
 	"github.com/btcsuite/btcd/btcec/v2"
 	"github.com/lightningnetwork/lnd/lnwire"
@@ -338,14 +339,16 @@ func DecodeInvoice(data []byte) (*Invoice, error) {
 		data,
 		invreqMetadata.Record(), chains.Record(), offerMeta.Record(),
 		currency.Record(), offerAmt.Record(), desc.Record(),
-		offerFeat.Record(), expiry.Record(), offerPaths.Record(),
+		strictFeaturesRecord(&offerFeat), expiry.Record(),
+		offerPaths.Record(),
 		issuer.Record(), qtyMax.Record(), issuerID.Record(),
-		invreqChain.Record(), invreqAmt.Record(), invreqFeat.Record(),
+		invreqChain.Record(), invreqAmt.Record(),
+		strictFeaturesRecord(&invreqFeat),
 		invreqQty.Record(), payerID.Record(), payerNote.Record(),
 		invreqPaths.Record(), bip353.Record(), invPaths.Record(),
 		blindedPay.Record(), createdAt.Record(), relExp.Record(),
 		payHash.Record(), invAmt.Record(), fallbacks.Record(),
-		invFeat.Record(), nodeID.Record(), sig.Record(),
+		strictFeaturesRecord(&invFeat), nodeID.Record(), sig.Record(),
 	)
 	if err != nil {
 		return nil, fmt.Errorf("decode invoice: %w", err)
@@ -385,6 +388,64 @@ func DecodeInvoice(data []byte) (*Invoice, error) {
 	inv.decodedTLVs = tm
 
 	return &inv, nil
+}
+
+// DecodeInvoiceString decodes a BOLT 12 invoice from its bech32 string
+// representation (lni1...). The spec reader gates (chain, features, signature)
+// are folded in via ValidateInvoiceRead, and the expiry gate is enforced via
+// ValidateInvoiceExpiry.
+func DecodeInvoiceString(s string, now time.Time,
+	activeChain [32]byte) (*Invoice, error) {
+
+	hrp, tlvBytes, err := Decode(s)
+	if err != nil {
+		return nil, fmt.Errorf("bech32: %w", err)
+	}
+
+	if hrp != HRPInvoice {
+		return nil, fmt.Errorf("expected HRP %q, got %q",
+			HRPInvoice, hrp)
+	}
+
+	inv, err := DecodeInvoice(tlvBytes)
+	if err != nil {
+		return nil, err
+	}
+
+	features := InvoiceFeatureCatalogues{
+		Invoice: Bolt12Features,
+		Blinded: Bolt12Features,
+	}
+	if err := ValidateInvoiceRead(inv, activeChain, features); err != nil {
+		return nil, fmt.Errorf("validate: %w", err)
+	}
+
+	if err := ValidateInvoiceExpiry(inv, now); err != nil {
+		return nil, fmt.Errorf("validate: %w", err)
+	}
+
+	return inv, nil
+}
+
+// EncodeInvoiceString encodes a signed invoice to its bech32 string
+// representation (lni1...). The string form exists only for transmission, so
+// a populated signature is required and verified against invoice_node_id.
+// Writer-side validation is delegated to (*Invoice).Encode.
+func EncodeInvoiceString(inv *Invoice) (string, error) {
+	if !inv.Signature.IsSome() {
+		return "", ErrMissingSignature
+	}
+
+	tlvBytes, err := inv.Encode()
+	if err != nil {
+		return "", err
+	}
+
+	if err := VerifyInvoice(inv); err != nil {
+		return "", err
+	}
+
+	return Encode(HRPInvoice, tlvBytes)
 }
 
 // NewInvoiceFromRequest constructs a new Invoice by copying (mirroring) all

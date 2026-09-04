@@ -2993,7 +2993,13 @@ func TestRbfCoopCloseAllowed(t *testing.T) {
 			name:     "both signal staging, plain channel",
 			peer:     newPeer(stagingBit, stagingBit),
 			chanType: chanstate.SingleFunderTweaklessBit,
-			allowed:  true,
+			allowed:  false,
+		},
+		{
+			name:     "local staging, remote final, plain channel",
+			peer:     newPeer(stagingBit, rbfBit),
+			chanType: chanstate.SingleFunderTweaklessBit,
+			allowed:  false,
 		},
 		{
 			name:     "both signal, simple taproot channel",
@@ -3004,12 +3010,6 @@ func TestRbfCoopCloseAllowed(t *testing.T) {
 		{
 			name:     "both signal, aux (overlay) channel",
 			peer:     newPeer(rbfBit, rbfBit),
-			chanType: overlayChan,
-			allowed:  false,
-		},
-		{
-			name:     "both signal staging, aux (overlay) channel",
-			peer:     newPeer(stagingBit, stagingBit),
 			chanType: overlayChan,
 			allowed:  false,
 		},

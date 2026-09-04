@@ -198,10 +198,11 @@ func DecodeInvoiceRequest(data []byte) (*InvoiceRequest, error) {
 	tm, err := decodeStream(
 		data, invreqMetadata.Record(), chains.Record(),
 		metadata.Record(), currency.Record(), amount.Record(),
-		desc.Record(), features.Record(), expiry.Record(),
+		desc.Record(), strictFeaturesRecord(&features), expiry.Record(),
 		paths.Record(), issuer.Record(), qtyMax.Record(),
 		issuerID.Record(), invreqChain.Record(), invreqAmount.Record(),
-		invreqFeatures.Record(), invreqQty.Record(), payerID.Record(),
+		strictFeaturesRecord(&invreqFeatures), invreqQty.Record(),
+		payerID.Record(),
 		payerNote.Record(), invreqPaths.Record(), bip353.Record(),
 		sig.Record(),
 	)

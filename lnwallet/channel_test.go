@@ -3244,9 +3244,21 @@ func restartChannel(channelOld *LightningChannel) (*LightningChannel, error) {
 		return nil, err
 	}
 
+	// The aux components are re-applied every time a channel is loaded in
+	// production, so a restart must not silently drop them here either.
+	// Otherwise the restarted side stops producing aux signatures while
+	// its peer still expects them.
+	var chanOpts []ChannelOpt
+	channelOld.leafStore.WhenSome(func(s AuxLeafStore) {
+		chanOpts = append(chanOpts, WithLeafStore(s))
+	})
+	channelOld.auxSigner.WhenSome(func(s AuxSigner) {
+		chanOpts = append(chanOpts, WithAuxSigner(s))
+	})
+
 	channelNew, err := NewLightningChannel(
 		channelOld.Signer, nodeChannels[0],
-		channelOld.sigPool,
+		channelOld.sigPool, chanOpts...,
 	)
 	if err != nil {
 		return nil, err
@@ -3490,10 +3502,16 @@ func testChanSyncOweCommitment(t *testing.T,
 	// At this point, we should be able to resume the prior state update
 	// without any issues, resulting in Alice settling the 3 htlc's, and
 	// adding one of her own.
+	// The link carries the aux signatures across from the wire message, so
+	// a faithful simulation of the restart has to do so as well.
+	aliceReAuxBlob, err := aliceReCommitSig.CustomRecords.Serialize()
+	require.NoError(t, err, "unable to serialize aux sig blob")
+
 	err = bobChannel.ReceiveNewCommitment(&CommitSigs{
 		CommitSig:  aliceReCommitSig.CommitSig,
 		HtlcSigs:   aliceReCommitSig.HtlcSigs,
 		PartialSig: aliceReCommitSig.PartialSig,
+		AuxSigBlob: aliceReAuxBlob,
 	})
 	require.NoError(t, err, "bob unable to process alice's commitment")
 	bobRevocation, _, _, err := bobChannel.RevokeCurrentCommitment()
@@ -4826,10 +4844,14 @@ func testChanSyncOweRevocationAndCommitForceTransition(t *testing.T,
 	// message to Bob.
 	_, _, err = aliceChannel.ReceiveRevocation(bobRevocation)
 	require.NoError(t, err, "alice unable to recv revocation")
+	bobAuxBlob, err := bobSigMsg.CustomRecords.Serialize()
+	require.NoError(t, err, "unable to serialize aux sig blob")
+
 	err = aliceChannel.ReceiveNewCommitment(&CommitSigs{
 		CommitSig:  bobSigMsg.CommitSig,
 		HtlcSigs:   bobSigMsg.HtlcSigs,
 		PartialSig: bobSigMsg.PartialSig,
+		AuxSigBlob: bobAuxBlob,
 	})
 	require.NoError(t, err, "alice unable to rev bob's commitment")
 	aliceRevocation, _, _, err = aliceChannel.RevokeCurrentCommitment()
@@ -11955,4 +11977,305 @@ func TestEvaluateNoOpHtlc(t *testing.T) {
 
 		require.Equal(t, tc.expectedDeltas, tc.balanceDeltas)
 	}
+}
+
+// taprootOverlayChanType is the channel type of a taproot overlay channel. The
+// tapscript root bit is what marks it as one, and therefore as a channel whose
+// peer owes us an aux signature for every HTLC.
+var taprootOverlayChanType = channeldb.SingleFunderTweaklessBit |
+	channeldb.AnchorOutputsBit | channeldb.SimpleTaprootFeatureBit |
+	channeldb.TapscriptRootBit
+
+// auxHtlcAmt is the amount of the HTLCs added by createAuxHtlcChannels. It is
+// well above both channels' dust limit, so each such HTLC gets its own
+// commitment output and therefore its own signature.
+const auxHtlcAmt = btcutil.Amount(20000)
+
+// auxDustHtlcAmt is an amount below Bob's dust limit, so an HTLC of this size
+// gets no output on the commitment Alice signs for Bob, and therefore no
+// signature of either kind.
+const auxDustHtlcAmt = btcutil.Amount(1000)
+
+// addAuxHtlc adds a single HTLC of the given amount, offered by Alice and
+// received by Bob. The index seeds the payment preimage, so callers must pass a
+// distinct index for each HTLC added to the same pair of channels.
+func addAuxHtlc(t *testing.T, aliceChannel, bobChannel *LightningChannel,
+	idx int, amt btcutil.Amount) {
+
+	var fakeOnionBlob [lnwire.OnionPacketSize]byte
+	copy(
+		fakeOnionBlob[:],
+		bytes.Repeat([]byte{0x05}, lnwire.OnionPacketSize),
+	)
+
+	var preimage [32]byte
+	copy(preimage[:], bytes.Repeat([]byte{byte(idx)}, 32))
+
+	htlc := &lnwire.UpdateAddHTLC{
+		PaymentHash: sha256.Sum256(preimage[:]),
+		Amount:      lnwire.NewMSatFromSatoshis(amt),
+		Expiry:      uint32(10),
+		OnionBlob:   fakeOnionBlob,
+	}
+
+	htlcIndex, err := aliceChannel.AddHTLC(htlc, nil)
+	require.NoError(t, err, "unable to add htlc")
+
+	htlc.ID = htlcIndex
+	_, err = bobChannel.ReceiveHTLC(htlc)
+	require.NoError(t, err, "unable to recv htlc")
+}
+
+// createAuxHtlcChannels creates a pair of channels of the given type, with the
+// given number of HTLCs offered by Alice and received by Bob. The HTLCs are
+// well above the dust limit, so each of them gets its own commitment output
+// and therefore its own signature.
+func createAuxHtlcChannels(t *testing.T, chanType channeldb.ChannelType,
+	numHtlcs int) (*LightningChannel, *LightningChannel) {
+
+	aliceChannel, bobChannel, err := CreateTestChannels(t, chanType)
+	require.NoError(t, err, "unable to create test channels")
+
+	for idx := range numHtlcs {
+		addAuxHtlc(t, aliceChannel, bobChannel, idx, auxHtlcAmt)
+	}
+
+	return aliceChannel, bobChannel
+}
+
+// mockAuxSignerWithSigs installs an aux signer on the given channel that
+// reports the given number of unpacked signature slots, regardless of what the
+// remote party actually sent. That stands in for a peer whose commit_sig
+// carried that many aux signatures.
+func mockAuxSignerWithSigs(channel *LightningChannel,
+	numSigs int) *MockAuxSigner {
+
+	auxSigner := NewAuxSignerMock(EmptyMockJobHandler)
+	channel.auxSigner = fn.Some[AuxSigner](auxSigner)
+
+	slots := make([]fn.Option[tlv.Blob], numSigs)
+	for idx := range slots {
+		slots[idx] = fn.Some(tlv.Blob{0x01})
+	}
+
+	auxSigner.On("UnpackSigs", mock.Anything).Return(fn.Ok(slots))
+	auxSigner.On(
+		"VerifySecondLevelSigs", mock.Anything, mock.Anything,
+		mock.Anything,
+	).Return(nil)
+
+	return auxSigner
+}
+
+// TestAuxSigCount tests that a taproot overlay commitment is accepted only
+// when the remote party supplied exactly one aux signature per HTLC.
+//
+// A peer can otherwise withhold the aux signature for an HTLC: no verification
+// job is produced for it, nothing reports the omission, and the commitment
+// becomes our state carrying a signature we never received. At force close the
+// resolver then reads an empty signature out of that HTLC's custom records and
+// the second level HTLC cannot be swept.
+func TestAuxSigCount(t *testing.T) {
+	t.Parallel()
+
+	testCases := []struct {
+		name         string
+		numHtlcs     int
+		numDustHtlcs int
+		numSigs      int
+		expectErr    bool
+	}{{
+		// The honest case: an aux signer emits one signature per
+		// non-dust HTLC, so the counts line up.
+		name:     "one signature per htlc",
+		numHtlcs: 2,
+		numSigs:  2,
+	}, {
+		name:      "all signatures withheld",
+		numHtlcs:  1,
+		numSigs:   0,
+		expectErr: true,
+	}, {
+		// The subtler withholding: enough signatures to look
+		// plausible, but one HTLC left unsigned.
+		name:      "one signature withheld",
+		numHtlcs:  2,
+		numSigs:   1,
+		expectErr: true,
+	}, {
+		name:      "more signatures than htlcs",
+		numHtlcs:  1,
+		numSigs:   2,
+		expectErr: true,
+	}, {
+		// A dust HTLC has no output on the commitment, so it gets
+		// neither a BTC level nor an aux signature. This pins the
+		// invariant the count check relies on: the aux signatures are
+		// emitted on the same non-dust basis as the BTC level ones.
+		name:         "dust htlc gets no signature",
+		numHtlcs:     1,
+		numDustHtlcs: 1,
+		numSigs:      1,
+	}, {
+		// Signing the dust HTLC as well is exactly the divergence that
+		// the count check is there to catch.
+		name:         "dust htlc signed anyway",
+		numHtlcs:     1,
+		numDustHtlcs: 1,
+		numSigs:      2,
+		expectErr:    true,
+	}}
+
+	for _, tc := range testCases {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+
+			aliceChannel, bobChannel := createAuxHtlcChannels(
+				t, taprootOverlayChanType, tc.numHtlcs,
+			)
+			for idx := range tc.numDustHtlcs {
+				addAuxHtlc(
+					t, aliceChannel, bobChannel,
+					tc.numHtlcs+idx, auxDustHtlcAmt,
+				)
+			}
+
+			mockAuxSignerWithSigs(bobChannel, tc.numSigs)
+
+			aliceNewCommit, err := aliceChannel.SignNextCommitment(
+				ctxb,
+			)
+			require.NoError(t, err, "unable to sign commitment")
+
+			err = bobChannel.ReceiveNewCommitment(
+				aliceNewCommit.CommitSigs,
+			)
+			if !tc.expectErr {
+				require.NoError(t, err)
+
+				return
+			}
+
+			require.ErrorContains(
+				t, err, "number of aux htlc sig mismatch",
+			)
+		})
+	}
+}
+
+// TestAuxSigBlobOmittedFailsCommitment tests the same rejection, but driven by
+// the field a remote party actually controls: a commit_sig that carries no aux
+// signature custom record at all. ReceiveNewCommitment turns a nil AuxSigBlob
+// into fn.None, and a real aux signer unpacks that into no signatures.
+func TestAuxSigBlobOmittedFailsCommitment(t *testing.T) {
+	t.Parallel()
+
+	aliceChannel, bobChannel := createAuxHtlcChannels(
+		t, taprootOverlayChanType, 1,
+	)
+
+	// Bob's aux signer mirrors the real one: an absent blob unpacks to no
+	// signatures at all. We record what it was handed, so the test can
+	// show it exercised the absent blob branch rather than assuming it.
+	auxSigner := NewAuxSignerMock(EmptyMockJobHandler)
+	bobChannel.auxSigner = fn.Some[AuxSigner](auxSigner)
+
+	var unpackedBlob fn.Option[tlv.Blob]
+	auxSigner.On("UnpackSigs", mock.Anything).Run(func(a mock.Arguments) {
+		blob, ok := a.Get(0).(fn.Option[tlv.Blob])
+		require.True(t, ok)
+		unpackedBlob = blob
+	}).Return(fn.Ok[[]fn.Option[tlv.Blob]](nil))
+
+	aliceNewCommit, err := aliceChannel.SignNextCommitment(ctxb)
+	require.NoError(t, err, "unable to sign commitment")
+
+	// Alice's commit_sig does carry an aux signature blob. Stripping it is
+	// precisely what a peer omitting the custom record looks like here.
+	require.NotNil(t, aliceNewCommit.AuxSigBlob)
+	aliceNewCommit.AuxSigBlob = nil
+
+	err = bobChannel.ReceiveNewCommitment(aliceNewCommit.CommitSigs)
+	require.ErrorContains(t, err, "number of aux htlc sig mismatch")
+
+	// The blob really was absent by the time lnd asked the aux signer to
+	// unpack it, so this was the wire level case.
+	require.True(t, unpackedBlob.IsNone())
+}
+
+// TestAuxSigNotRequiredOnPlainChannel tests that a channel without the
+// tapscript root bit still accepts commitments carrying no aux signatures. The
+// aux signer is configured node wide, so a node running one also attaches it to
+// its plain channels, whose peers correctly send none. Requiring them there
+// would force close those channels.
+func TestAuxSigNotRequiredOnPlainChannel(t *testing.T) {
+	t.Parallel()
+
+	// The same channel type as the overlay one, minus the tapscript root
+	// bit, which is the only thing that marks a channel as an overlay.
+	plainChanType := taprootOverlayChanType &^ channeldb.TapscriptRootBit
+	aliceChannel, bobChannel := createAuxHtlcChannels(t, plainChanType, 1)
+
+	mockAuxSignerWithSigs(bobChannel, 0)
+
+	aliceNewCommit, err := aliceChannel.SignNextCommitment(ctxb)
+	require.NoError(t, err, "unable to sign commitment")
+
+	require.NoError(t, bobChannel.ReceiveNewCommitment(
+		aliceNewCommit.CommitSigs,
+	))
+}
+
+// TestAuxSigNotRequiredWithoutAuxSigner tests that an overlay channel on a node
+// with no aux signer configured still accepts commitments carrying no aux
+// signatures. Without a signer there is nothing that could consume them, so
+// demanding them would only strand the channel.
+func TestAuxSigNotRequiredWithoutAuxSigner(t *testing.T) {
+	t.Parallel()
+
+	aliceChannel, bobChannel := createAuxHtlcChannels(
+		t, taprootOverlayChanType, 1,
+	)
+
+	bobChannel.auxSigner = fn.None[AuxSigner]()
+
+	aliceNewCommit, err := aliceChannel.SignNextCommitment(ctxb)
+	require.NoError(t, err, "unable to sign commitment")
+
+	require.NoError(t, bobChannel.ReceiveNewCommitment(
+		aliceNewCommit.CommitSigs,
+	))
+}
+
+// TestAuxSigRejectionFailsCommitment tests that when the aux signer rejects a
+// verification job, the new commitment is rejected as a whole. The count check
+// only establishes that a signature arrived for every HTLC; this is what makes
+// the aux signer's verdict on those signatures binding.
+func TestAuxSigRejectionFailsCommitment(t *testing.T) {
+	t.Parallel()
+
+	aliceChannel, bobChannel := createAuxHtlcChannels(
+		t, taprootOverlayChanType, 1,
+	)
+
+	auxSigner := NewAuxSignerMock(EmptyMockJobHandler)
+	bobChannel.auxSigner = fn.Some[AuxSigner](auxSigner)
+
+	// The peer sends a well formed blob with one entry for the single
+	// HTLC, so the count check passes and the aux signer gets to weigh in
+	// on the signature itself. It rejects.
+	auxSigner.On("UnpackSigs", mock.Anything).Return(
+		fn.Ok([]fn.Option[tlv.Blob]{fn.Some(tlv.Blob{0x01})}),
+	)
+	auxSigner.On(
+		"VerifySecondLevelSigs", mock.Anything, mock.Anything,
+		mock.Anything,
+	).Return(fmt.Errorf("second level sig verification failed"))
+
+	aliceNewCommit, err := aliceChannel.SignNextCommitment(ctxb)
+	require.NoError(t, err, "unable to sign commitment")
+
+	err = bobChannel.ReceiveNewCommitment(aliceNewCommit.CommitSigs)
+	require.ErrorContains(t, err, "unable to validate aux sigs")
+	require.ErrorContains(t, err, "second level sig verification failed")
 }

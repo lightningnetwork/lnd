@@ -53,6 +53,7 @@ const (
 	FailureDetail_AMP_ERROR                  FailureDetail = 25
 	FailureDetail_AMP_RECONSTRUCTION         FailureDetail = 26
 	FailureDetail_EXTERNAL_VALIDATION_FAILED FailureDetail = 27
+	FailureDetail_INVOICE_INTERCEPTOR_ERROR  FailureDetail = 28
 )
 
 // Enum value maps for FailureDetail.
@@ -86,6 +87,7 @@ var (
 		25: "AMP_ERROR",
 		26: "AMP_RECONSTRUCTION",
 		27: "EXTERNAL_VALIDATION_FAILED",
+		28: "INVOICE_INTERCEPTOR_ERROR",
 	}
 	FailureDetail_value = map[string]int32{
 		"UNKNOWN":                    0,
@@ -116,6 +118,7 @@ var (
 		"AMP_ERROR":                  25,
 		"AMP_RECONSTRUCTION":         26,
 		"EXTERNAL_VALIDATION_FAILED": 27,
+		"INVOICE_INTERCEPTOR_ERROR":  28,
 	}
 )
 
@@ -3988,7 +3991,7 @@ const file_routerrpc_router_proto_rawDesc = "" +
 	"\x14FindBaseAliasRequest\x12\x14\n" +
 	"\x05alias\x18\x01 \x01(\x04R\x05alias\"+\n" +
 	"\x15FindBaseAliasResponse\x12\x12\n" +
-	"\x04base\x18\x01 \x01(\x04R\x04base*\x85\x05\n" +
+	"\x04base\x18\x01 \x01(\x04R\x04base*\xa4\x05\n" +
 	"\rFailureDetail\x12\v\n" +
 	"\aUNKNOWN\x10\x00\x12\r\n" +
 	"\tNO_DETAIL\x10\x01\x12\x10\n" +
@@ -4018,7 +4021,8 @@ const file_routerrpc_router_proto_rawDesc = "" +
 	"\x1aHTLC_INVOICE_TYPE_MISMATCH\x10\x18\x12\r\n" +
 	"\tAMP_ERROR\x10\x19\x12\x16\n" +
 	"\x12AMP_RECONSTRUCTION\x10\x1a\x12\x1e\n" +
-	"\x1aEXTERNAL_VALIDATION_FAILED\x10\x1b*\xae\x01\n" +
+	"\x1aEXTERNAL_VALIDATION_FAILED\x10\x1b\x12\x1d\n" +
+	"\x19INVOICE_INTERCEPTOR_ERROR\x10\x1c*\xae\x01\n" +
 	"\fPaymentState\x12\r\n" +
 	"\tIN_FLIGHT\x10\x00\x12\r\n" +
 	"\tSUCCEEDED\x10\x01\x12\x12\n" +

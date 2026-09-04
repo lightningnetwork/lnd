@@ -1,6 +1,7 @@
 package netann
 
 import (
+	"maps"
 	"net"
 	"sync"
 
@@ -21,10 +22,25 @@ type HostAnnouncerConfig struct {
 	// addresses.
 	LookupHost func(string) (net.Addr, error)
 
-	// AdvertisedIPs is the set of IPs that we've already announced with
-	// our current NodeAnnouncement1. This set will be constructed to avoid
-	// unnecessary node NodeAnnouncement1 updates.
-	AdvertisedIPs map[string]struct{}
+	// InitialAddrs maps each host to the address it resolved to when the
+	// backing node started up, and which it therefore already advertises.
+	// Seeding the announcer with this lets it recognise a later IP change
+	// as a change rather than as a brand new address, so that the address
+	// the host used to point at is removed instead of accumulating
+	// alongside the new one. Hosts that failed to resolve at startup are
+	// absent.
+	//
+	// Two invariants must hold, or the affected host silently reverts to
+	// accumulating stale addresses across restarts with no error:
+	//
+	//   - Each key must be byte-identical to its Hosts entry, since the
+	//     watcher looks these up by the exact strings in Hosts.
+	//   - Each value must share the String() normalization that LookupHost
+	//     produces, since a change is detected by comparing the two.
+	//
+	// The simplest way to satisfy both is to derive the keys, values and
+	// Hosts from a single source resolved with the same LookupHost.
+	InitialAddrs map[string]net.Addr
 
 	// AnnounceNewIPs announces a new set of IP addresses for the backing
 	// Lightning node. The first set of addresses is the new set of
@@ -84,13 +100,18 @@ func (h *HostAnnouncer) Stop() error {
 func (h *HostAnnouncer) hostWatcher() {
 	defer h.wg.Done()
 
-	ipMapping := make(map[string]net.Addr)
+	// Start from the addresses our hosts resolved to when the node started
+	// up. Without this we'd treat the first resolution after a restart as a
+	// brand new address and simply append it, letting the IPs the host used
+	// to point at pile up in our node announcement across restarts.
+	ipMapping := make(map[string]net.Addr, len(h.cfg.InitialAddrs))
+	maps.Copy(ipMapping, h.cfg.InitialAddrs)
+
 	refreshHosts := func() {
 		// We'll now run through each of our hosts to check if they had
 		// their backing IPs changed. If so, we'll want to re-announce
 		// them.
-		var addrsToUpdate []net.Addr
-		addrsToRemove := make(map[string]struct{})
+		var addrsToUpdate, staleCandidates []net.Addr
 		for _, host := range h.cfg.Hosts {
 			newAddr, err := h.cfg.LookupHost(host)
 			if err != nil {
@@ -106,28 +127,19 @@ func (h *HostAnnouncer) hostWatcher() {
 				continue
 			}
 
-			// Update the IP mapping now, as if this is the first
-			// time then we don't need to send a new announcement.
 			ipMapping[host] = newAddr
 
-			// If this IP has already been announced, then we'll
-			// skip it to avoid triggering an unnecessary node
-			// announcement update.
-			_, ipAnnounced := h.cfg.AdvertisedIPs[newAddr.String()]
-			if ipAnnounced {
-				continue
-			}
-
-			// If we've reached this point, then the old address
-			// was found, and the new address we just looked up
-			// differs from the old one.
+			// If we've reached this point, then the address this
+			// host resolves to differs from the one we last saw.
 			log.Debugf("IP change detected! %v: %v -> %v", host,
 				oldAddr, newAddr)
 
 			// If we had already advertised an addr for this host,
-			// then we'll need to remove that old stale address.
+			// then the address may now be stale.
 			if oldAddr != nil {
-				addrsToRemove[oldAddr.String()] = struct{}{}
+				staleCandidates = append(
+					staleCandidates, oldAddr,
+				)
 			}
 
 			addrsToUpdate = append(addrsToUpdate, newAddr)
@@ -139,6 +151,27 @@ func (h *HostAnnouncer) hostWatcher() {
 			log.Debugf("No IP changes detected for hosts: %v",
 				h.cfg.Hosts)
 			return
+		}
+
+		// A host moving off an address doesn't make that address stale
+		// if another host still resolves to it, so we only remove the
+		// ones nothing points at any more. ipMapping is fully updated
+		// for this round by now, so it tells us what each host
+		// currently resolves to. A host we failed to resolve keeps its
+		// last known entry here, which means a transient DNS failure
+		// can't cost us an address either.
+		stillMapped := make(map[string]struct{}, len(ipMapping))
+		for _, addr := range ipMapping {
+			stillMapped[addr.String()] = struct{}{}
+		}
+
+		addrsToRemove := make(map[string]struct{}, len(staleCandidates))
+		for _, addr := range staleCandidates {
+			if _, ok := stillMapped[addr.String()]; ok {
+				continue
+			}
+
+			addrsToRemove[addr.String()] = struct{}{}
 		}
 
 		// Now that we know the set of IPs we need to update, we'll do

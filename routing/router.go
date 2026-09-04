@@ -1145,12 +1145,42 @@ func (r *ChannelRouter) sendToRoute(htlcHash lntypes.Hash, rt *route.Route,
 		FirstHopCustomRecords: firstHopCustomRecords,
 	}
 
-	err := r.cfg.Control.InitPayment(ctx, paymentIdentifier, info)
+	var dbPayment paymentsdb.DBMPPayment
+	err := r.cfg.Control.InitPayment(
+		ctx, paymentIdentifier, info,
+	)
 	switch {
+	case err == nil:
+		payment, err := r.cfg.Control.FetchPayment(
+			ctx, paymentIdentifier,
+		)
+		if err != nil {
+			return nil, err
+		}
+
+		dbPayment = payment
+
 	// If this is an MPP attempt and the hash is already registered with
 	// the database, we can go on to launch the shard.
 	case mpp != nil && errors.Is(err, paymentsdb.ErrPaymentInFlight):
+		payment, err := r.cfg.Control.FetchPayment(
+			ctx, paymentIdentifier,
+		)
+		if err != nil {
+			return nil, err
+		}
+
+		dbPayment = payment
+
 	case mpp != nil && errors.Is(err, paymentsdb.ErrPaymentExists):
+		payment, err := r.cfg.Control.FetchPayment(
+			ctx, paymentIdentifier,
+		)
+		if err != nil {
+			return nil, err
+		}
+
+		dbPayment = payment
 
 	// Any other error is not tolerated.
 	case err != nil:
@@ -1176,6 +1206,9 @@ func (r *ChannelRouter) sendToRoute(htlcHash lntypes.Hash, rt *route.Route,
 		r, 0, paymentIdentifier, nil, shardTracker, 0,
 		firstHopCustomRecords,
 	)
+	if err := p.checkPaymentSequenceNum(dbPayment); err != nil {
+		return nil, err
+	}
 
 	// Allow the traffic shaper to add custom records to the outgoing HTLC
 	// and also adjust the amount if needed.

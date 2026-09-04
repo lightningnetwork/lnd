@@ -13,9 +13,9 @@ utilize a workaround needed until `go1.13.2`.
 ### macOS
 
 The first requirement is to have [`docker`](https://www.docker.com/)
-installed locally and running. The second requirement is to have `make`
-installed. Everything else (including `golang`) is included in the release
-helper image.
+installed locally and running [with gRPC Fuse](https://docs.docker.com/desktop/settings/#:~:text=Mac%20only%20Choose%20file%20sharing%20implementation%20for%20your%20containers.%20Choose%20whether%20you%20want%20to%20share%20files%20using%20VirtioFS%2C%20gRPC%20FUSE).
+The second requirement is to have `make` installed. Everything else (including
+`golang`) is included in the release helper image.
 
 To build a release, run the following commands:
 
@@ -23,6 +23,7 @@ To build a release, run the following commands:
 $  git clone https://github.com/lightningnetwork/lnd.git
 $  cd lnd
 $  git checkout <TAG> # <TAG> is the name of the next release/tag
+$  jq -e .useGrpcfuse ~/Library/Group\ Containers/group.com.docker/settings.json || jq '.useGrpcfuse = true' ~/Library/Group\ Containers/group.com.docker/settings.json > temp.json && mv temp.json ~/Library/Group\ Containers/group.com.docker/settings.json
 $  make docker-release tag=<TAG>
 ```
 

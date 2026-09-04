@@ -170,7 +170,7 @@ func (h *htlcSuccessResolver) resolveRemoteCommitOutput() error {
 	sweepTxDetails, err := waitForSpend(
 		&h.htlcResolution.ClaimOutpoint,
 		h.htlcResolution.SweepSignDesc.Output.PkScript,
-		h.broadcastHeight, h.Notifier, h.quit,
+		h.broadcastHeight, h.SpendConfDepth, h.Notifier, h.quit,
 	)
 	if err != nil {
 		return err
@@ -746,6 +746,7 @@ func (h *htlcSuccessResolver) sweepRemoteCommitOutput() error {
 	_, err := h.Sweeper.SweepInput(
 		inp,
 		sweep.Params{
+			RequiredConfs:  h.SpendConfDepth,
 			Budget:         budget,
 			DeadlineHeight: deadline,
 		},
@@ -792,6 +793,7 @@ func (h *htlcSuccessResolver) sweepSuccessTx() error {
 	_, err := h.Sweeper.SweepInput(
 		&secondLevelInput,
 		sweep.Params{
+			RequiredConfs:  h.SpendConfDepth,
 			Budget:         budget,
 			DeadlineHeight: deadline,
 		},
@@ -807,13 +809,14 @@ func (h *htlcSuccessResolver) sweepSuccessTxOutput() error {
 	h.log.Debugf("sweeping output %v from 2nd-level HTLC success tx",
 		h.htlcResolution.ClaimOutpoint)
 
-	// This should be non-blocking as we will only attempt to sweep the
-	// output when the second level tx has already been confirmed. In other
-	// words, waitForSpend will return immediately.
+	// This preparatory lookup deliberately remains at one confirmation:
+	// Launch can call it synchronously after outputIncubating was
+	// checkpointed, and waiting for terminal depth would stall blockbeat
+	// while no final resolver outcome is being recorded.
 	commitSpend, err := waitForSpend(
 		&h.htlcResolution.SignedSuccessTx.TxIn[0].PreviousOutPoint,
 		h.htlcResolution.SignDetails.SignDesc.Output.PkScript,
-		h.broadcastHeight, h.Notifier, h.quit,
+		h.broadcastHeight, 1, h.Notifier, h.quit,
 	)
 	if err != nil {
 		return err
@@ -897,7 +900,8 @@ func (h *htlcSuccessResolver) sweepSuccessTxOutput() error {
 	_, err = h.Sweeper.SweepInput(
 		inp,
 		sweep.Params{
-			Budget: budget,
+			RequiredConfs: h.SpendConfDepth,
+			Budget:        budget,
 
 			// For second level success tx, there's no rush to get
 			// it confirmed, so we use a nil deadline.
@@ -936,12 +940,13 @@ func (h *htlcSuccessResolver) resolveLegacySuccessTx() error {
 
 	h.log.Infof("incubating incoming htlc output")
 
-	// Send the output to the incubator.
+	// Send the output and terminal policy to the incubator so its persisted
+	// claim survives the same shallow reorgs.
 	err = h.IncubateOutputs(
 		h.ChanPoint, fn.None[lnwallet.OutgoingHtlcResolution](),
 		fn.Some(h.htlcResolution),
 		h.broadcastHeight, fn.Some(int32(h.htlc.RefundTimeout)),
-		WithChanType(h.chanType),
+		WithChanType(h.chanType), WithSpendConfDepth(h.SpendConfDepth),
 	)
 	if err != nil {
 		return err
@@ -969,7 +974,8 @@ func (h *htlcSuccessResolver) resolveSuccessTx() error {
 
 	// Wait for the second level transaction to confirm.
 	commitSpend, err := waitForSpend(
-		&outpoint, pkScript, h.broadcastHeight, h.Notifier, h.quit,
+		&outpoint, pkScript, h.broadcastHeight, h.SpendConfDepth,
+		h.Notifier, h.quit,
 	)
 	if err != nil {
 		return err
@@ -1026,7 +1032,7 @@ func (h *htlcSuccessResolver) resolveSuccessTxOutput(op wire.OutPoint) error {
 
 	spend, err := waitForSpend(
 		&op, h.htlcResolution.SweepSignDesc.Output.PkScript,
-		h.broadcastHeight, h.Notifier, h.quit,
+		h.broadcastHeight, h.SpendConfDepth, h.Notifier, h.quit,
 	)
 	if err != nil {
 		return err

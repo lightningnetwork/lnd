@@ -8,6 +8,7 @@ import (
 
 	"github.com/btcsuite/btcd/btcutil/v2"
 	"github.com/btcsuite/btcd/chainhash/v2"
+	"github.com/btcsuite/btcd/txscript/v2"
 	"github.com/btcsuite/btcd/wire/v2"
 	"github.com/btcsuite/btcwallet/chain"
 	"github.com/lightningnetwork/lnd/chainntnfs"
@@ -1801,6 +1802,45 @@ func TestProcessRecordsSpent(t *testing.T) {
 		require.ErrorIs(t, result.Err, ErrUnknownSpent)
 		require.Equal(t, requestID, result.requestID)
 	}
+}
+
+// TestUnknownSpentRetryErrorPreservesEvidence verifies fee initialization
+// failure does not discard the outpoints already proven spent by another tx.
+func TestUnknownSpentRetryErrorPreservesEvidence(t *testing.T) {
+	t.Parallel()
+
+	// Arrange: Build a monitor record with one observed external spend and
+	// an invalid delivery script. The invalid script makes retry fee
+	// initialization fail after the publisher has collected spend evidence.
+	publisher, _ := createTestPublisher(t)
+	inp := createTestInput(1000, input.WitnessKeyHash)
+	outpoint := inp.OutPoint()
+	spendingTx := &wire.MsgTx{LockTime: 2}
+	spentInputs := map[wire.OutPoint]*wire.MsgTx{
+		outpoint: spendingTx,
+	}
+	record := &monitorRecord{
+		req: &BumpRequest{
+			DeliveryAddress: lnwallet.AddrWithKey{
+				DeliveryAddress: []byte{txscript.OP_TRUE},
+			},
+			Inputs: []input.Input{&inp},
+			Budget: btcutil.Amount(1000),
+		},
+		tx:          &wire.MsgTx{LockTime: 1},
+		spentInputs: spentInputs,
+	}
+
+	// Act: Create the result that partitions observed spends from inputs
+	// which would otherwise be eligible for a new fee-bump attempt.
+	result := publisher.createUnknownSpentBumpResult(record)
+
+	// Assert: The event remains per-outpoint unknown-spend evidence even
+	// though retry policy failed. The sweeper can depth-gate that member
+	// instead of terminalizing the whole request.
+	require.Equal(t, TxUnknownSpend, result.Event)
+	require.Error(t, result.Err)
+	require.Equal(t, spentInputs, result.SpentInputs)
 }
 
 // TestHandleInitialBroadcastSuccess checks `handleInitialBroadcast` method can

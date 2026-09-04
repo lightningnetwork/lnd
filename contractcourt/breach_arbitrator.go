@@ -43,6 +43,13 @@ const (
 	blocksPassedSplitPublish = 4
 )
 
+// breachSpendConfDepth derives the conservative maximum of the existing
+// channel-close policy. Recomputing this deterministic value after restart
+// keeps terminal breach cleanup safe without changing the persisted format.
+func breachSpendConfDepth() uint32 {
+	return lnwallet.CloseConfsForCapacity(btcutil.MaxSatoshi)
+}
+
 var (
 	// retributionBucket stores retribution state on disk between detecting
 	// a contract breach, broadcasting a justice transaction that sweeps the
@@ -408,16 +415,43 @@ func (b *BreachArbitrator) contractObserver() {
 // spend is used to wrap the index of the retributionInfo output that gets
 // spent together with the spend details.
 type spend struct {
-	index  int
-	detail *chainntnfs.SpendDetail
+	index       int
+	outpoint    wire.OutPoint
+	detail      *chainntnfs.SpendDetail
+	provisional bool
+	reorg       bool
+}
+
+// breachSpendSubscription keeps an optional shallow observer beside the
+// terminal cleanup observer so both events retain one recovery owner.
+type breachSpendSubscription struct {
+	early    *chainntnfs.SpendEvent
+	terminal *chainntnfs.SpendEvent
+}
+
+// needsEarlyBreachSpend reports whether a first-level HTLC spend changes the
+// justice target and therefore must be observed before terminal depth.
+func needsEarlyBreachSpend(witnessType input.StandardWitnessType) bool {
+	switch witnessType {
+	case input.TaprootHtlcAcceptedRevoke,
+		input.TaprootHtlcOfferedRevoke,
+		input.HtlcAcceptedRevoke,
+		input.HtlcOfferedRevoke:
+
+		return true
+	default:
+		return false
+	}
 }
 
 // waitForSpendEvent waits for any of the breached outputs to get spent, and
 // returns the spend details for those outputs. The spendNtfns map is a cache
 // used to store registered spend subscriptions, in case we must call this
 // method multiple times.
-func (b *BreachArbitrator) waitForSpendEvent(breachInfo *retributionInfo,
-	spendNtfns map[wire.OutPoint]*chainntnfs.SpendEvent) ([]spend, error) {
+func (b *BreachArbitrator) waitForSpendEvent(
+	breachInfo *retributionInfo,
+	spendNtfns map[wire.OutPoint]*breachSpendSubscription) ([]spend,
+	error) {
 
 	inputs := breachInfo.breachedOutputs
 
@@ -447,12 +481,34 @@ func (b *BreachArbitrator) waitForSpendEvent(breachInfo *retributionInfo,
 		// output, we'll reuse it.
 		spendNtfn, ok := spendNtfns[breachedOutput.outpoint]
 		if !ok {
-			var err error
-			spendNtfn, err = b.cfg.Notifier.RegisterSpendNtfn(
+			terminal, err := b.cfg.Notifier.RegisterSpendNtfn(
 				&breachedOutput.outpoint,
 				breachedOutput.signDesc.Output.PkScript,
 				breachInfo.breachHeight,
+				chainntnfs.WithSpendNumConfs(
+					breachSpendConfDepth(),
+				),
 			)
+			spendNtfn = &breachSpendSubscription{terminal: terminal}
+
+			// Only first-level HTLC spends need an early observer.
+			// They redirect justice before terminal depth.
+			witnessType := breachedOutput.witnessType
+			needsEarly := needsEarlyBreachSpend(witnessType)
+			depthEnabled := breachSpendConfDepth() > 1
+			if err == nil && depthEnabled && needsEarly {
+				register := b.cfg.Notifier.RegisterSpendNtfn
+				signDesc := breachedOutput.signDesc
+				spendNtfn.early, err = register(
+					&breachedOutput.outpoint,
+					signDesc.Output.PkScript,
+					breachInfo.breachHeight,
+					chainntnfs.WithSpendNumConfs(1),
+				)
+				if err != nil {
+					terminal.Cancel()
+				}
+			}
 			if err != nil {
 				brarLog.Errorf("Unable to check for spentness "+
 					"of outpoint=%v: %v",
@@ -474,38 +530,74 @@ func (b *BreachArbitrator) waitForSpendEvent(breachInfo *retributionInfo,
 		// Launch a goroutine waiting for a spend event.
 		b.wg.Add(1)
 		wg.Add(1)
-		go func(index int, spendEv *chainntnfs.SpendEvent) {
+		go func(index int, spendEv *breachSpendSubscription) {
 			defer b.wg.Done()
 			defer wg.Done()
 
+			var (
+				earlySpends <-chan *chainntnfs.SpendDetail
+				earlyReorg  <-chan struct{}
+			)
+			if spendEv.early != nil {
+				earlySpends = spendEv.early.Spend
+				earlyReorg = spendEv.early.Reorg
+			}
+
+			var (
+				sp          *chainntnfs.SpendDetail
+				provisional bool
+				reorg       bool
+			)
 			select {
-			// The output has been taken to the second level!
-			case sp, ok := <-spendEv.Spend:
+			case sp = <-earlySpends:
+				provisional = true
+			case _, ok := <-earlyReorg:
+				// Send reorgs to the provisional owner.
+				// This keeps reversal serialized.
 				if !ok {
 					return
 				}
-
-				brarLog.Infof("Detected spend on %s(%v) by "+
-					"txid(%v) for ChannelPoint(%v)",
-					inputs[index].witnessType,
-					inputs[index].outpoint,
-					sp.SpenderTxHash,
-					breachInfo.chanPoint)
-
-				// First we send the spend event on the
-				// allSpends channel, such that it can be
-				// handled after all go routines have exited.
-				allSpends <- spend{index, sp}
-
-				// Finally we'll signal the anySpend channel
-				// that a spend was detected, such that the
-				// other goroutines can be shut down.
-				anySpend <- struct{}{}
+				provisional = true
+				reorg = true
+			case sp = <-spendEv.terminal.Spend:
 			case <-exit:
 				return
 			case <-b.quit:
 				return
 			}
+
+			// Closed spend channels signal notifier shutdown. Reorg
+			// notifications intentionally carry no spend details.
+			if !reorg && sp == nil {
+				return
+			}
+
+			outpoint := inputs[index].outpoint
+			if reorg {
+				brarLog.Infof(
+					"Shallow spend reorg on %s(%v) for "+
+						"ChannelPoint(%v)",
+					inputs[index].witnessType, outpoint,
+					breachInfo.chanPoint,
+				)
+			} else {
+				brarLog.Infof("Detected spend on %s(%v) by "+
+					"txid(%v) for ChannelPoint(%v)",
+					inputs[index].witnessType, outpoint,
+					sp.SpenderTxHash, breachInfo.chanPoint)
+			}
+
+			// Preserve lifecycle metadata for the caller.
+			// It distinguishes reversible and terminal evidence.
+			allSpends <- spend{
+				index:       index,
+				outpoint:    outpoint,
+				detail:      sp,
+				provisional: provisional,
+				reorg:       reorg,
+			}
+
+			anySpend <- struct{}{}
 		}(i, spendNtfn)
 	}
 
@@ -526,9 +618,6 @@ func (b *BreachArbitrator) waitForSpendEvent(breachInfo *retributionInfo,
 		// Gather all detected spends and return them.
 		var spends []spend
 		for s := range allSpends {
-			breachedOutput := &inputs[s.index]
-			delete(spendNtfns, breachedOutput.outpoint)
-
 			spends = append(spends, s)
 		}
 
@@ -592,16 +681,29 @@ func convertToSecondLevelRevoke(bo *breachedOutput, breachInfo *retributionInfo,
 // updateBreachInfo mutates the passed breachInfo by removing or converting any
 // outputs among the spends. It also counts the total and revoked funds swept
 // by our justice spends.
-func updateBreachInfo(breachInfo *retributionInfo, spends []spend) (
-	btcutil.Amount, btcutil.Amount) {
+func updateBreachInfo(breachInfo *retributionInfo,
+	provisionalOutputs map[wire.OutPoint]breachedOutput,
+	spends []spend) (btcutil.Amount, btcutil.Amount) {
 
 	inputs := breachInfo.breachedOutputs
 	doneOutputs := make(map[int]struct{})
 
 	var totalFunds, revokedFunds btcutil.Amount
 	for _, s := range spends {
+		// Reorg evidence invalidates only the temporary justice target.
+		// The original output was intentionally retained in breachInfo.
+		if s.reorg {
+			delete(provisionalOutputs, s.outpoint)
+			continue
+		}
+
 		breachedOutput := &inputs[s.index]
 		txIn := s.detail.SpendingTx.TxIn[s.detail.SpenderInputIndex]
+		if !s.provisional {
+			// Terminal evidence owns the durable transition.
+			// It makes any in-memory candidate obsolete.
+			delete(provisionalOutputs, s.outpoint)
+		}
 
 		switch breachedOutput.witnessType {
 		case input.TaprootHtlcAcceptedRevoke:
@@ -635,12 +737,38 @@ func updateBreachInfo(breachInfo *retributionInfo, spends []spend) (
 				breachedOutput.witnessType,
 				breachedOutput.outpoint, breachInfo.chanPoint)
 
-			// In this case we'll morph our initial revoke
-			// spend to instead point to the second level
-			// output, and update the sign descriptor in the
-			// process.
+			// A shallow transition redirects the next attempt.
+			// Retain the first-level owner until terminal depth.
+			// Copy the descriptor output because
+			// conversion mutates the pointed-to transaction output.
+			if s.provisional {
+				candidate := *breachedOutput
+				output := *breachedOutput.signDesc.Output
+				candidate.signDesc.Output = &output
+				convertToSecondLevelRevoke(
+					&candidate, breachInfo, s.detail,
+				)
+				provisionalOutputs[s.outpoint] = candidate
+				continue
+			}
+
+			// Terminal depth makes the new target durable.
+			// Store it in the existing recovery record.
 			convertToSecondLevelRevoke(
 				breachedOutput, breachInfo, s.detail,
+			)
+
+			continue
+		}
+
+		// A shallow justice spend is reorgable, so keep its output
+		// persisted until the terminal observer delivers.
+		if s.provisional {
+			brarLog.Infof("Spend on %s(%v) remains "+
+				"provisional for %v",
+				breachedOutput.witnessType,
+				breachedOutput.outpoint,
+				breachInfo.chanPoint,
 			)
 
 			continue
@@ -723,17 +851,35 @@ func (b *BreachArbitrator) exactRetribution(
 	// We may have to wait for some of the HTLC outputs to be spent to the
 	// second level before broadcasting the justice tx. We'll store the
 	// SpendEvents between each attempt to not re-register unnecessarily.
-	spendNtfns := make(map[wire.OutPoint]*chainntnfs.SpendEvent)
+	spendNtfns := make(map[wire.OutPoint]*breachSpendSubscription)
 
 	// Compute both the total value of funds being swept and the
 	// amount of funds that were revoked from the counter party.
 	var totalFunds, revokedFunds btcutil.Amount
 
+	// Provisional outputs redirect justice after a one-confirmation HTLC
+	// transition without replacing the durable first-level recovery owner.
+	provisionalOutputs := make(map[wire.OutPoint]breachedOutput)
+
 justiceTxBroadcast:
 	// With the breach transaction confirmed, we now create the
 	// justice tx which will claim ALL the funds within the
 	// channel.
-	justiceTxs, err := b.createJusticeTx(breachInfo.breachedOutputs)
+	justiceOutputs := breachInfo.breachedOutputs
+	if len(provisionalOutputs) != 0 {
+		// Build a temporary signing view so shallow transitions can be
+		// discarded without mutating persisted recovery data.
+		justiceOutputs = append(
+			[]breachedOutput(nil), justiceOutputs...,
+		)
+		for i := range justiceOutputs {
+			outpoint := justiceOutputs[i].outpoint
+			if candidate, ok := provisionalOutputs[outpoint]; ok {
+				justiceOutputs[i] = candidate
+			}
+		}
+	}
+	justiceTxs, err := b.createJusticeTx(justiceOutputs)
 	if err != nil {
 		brarLog.Errorf("Unable to create justice tx: %v", err)
 		return
@@ -805,10 +951,28 @@ Loop:
 	for {
 		select {
 		case spends := <-spendChan:
-			// Update the breach info with the new spends.
-			t, r := updateBreachInfo(breachInfo, spends)
+			// Update durable recovery only at terminal depth.
+			// The overlay isolates shallow transitions.
+			t, r := updateBreachInfo(
+				breachInfo, provisionalOutputs, spends,
+			)
 			totalFunds += t
 			revokedFunds += r
+
+			// Terminal events release their subscription pair.
+			// Shallow events retain both observers.
+			for _, spend := range spends {
+				if spend.provisional {
+					continue
+				}
+
+				notify := spendNtfns[spend.outpoint]
+				notify.terminal.Cancel()
+				if notify.early != nil {
+					notify.early.Cancel()
+				}
+				delete(spendNtfns, spend.outpoint)
+			}
 
 			brarLog.Infof("%v spends from breach tx for "+
 				"ChannelPoint(%v) has been detected, %v "+

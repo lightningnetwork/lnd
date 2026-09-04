@@ -87,7 +87,7 @@ func TestNurseryStoreIncubate(t *testing.T) {
 		if test.commOutput != nil {
 			kids = append(kids, *test.commOutput)
 		}
-		err = ns.Incubate(kids, test.htlcOutputs)
+		_, err = ns.Incubate(kids, test.htlcOutputs)
 		if err != nil {
 			t.Fatalf("unable to incubate outputs"+
 				"on test #%d: %v", i, err)
@@ -203,7 +203,7 @@ func TestNurseryStoreIncubate(t *testing.T) {
 			for i, htlcOutput := range test.htlcOutputs {
 				// Begin by moving each htlc output from the
 				// crib to kindergarten state.
-				err = ns.CribToKinder(&htlcOutput)
+				err = ns.CribToKinder(&htlcOutput, 0)
 				if err != nil {
 					t.Fatalf("unable to move htlc output from "+
 						"crib to kndr: %v", err)
@@ -297,6 +297,77 @@ func TestNurseryStoreIncubate(t *testing.T) {
 	}
 }
 
+// TestNurseryStoreReincubatePromotedHtlc verifies that replaying incubation
+// after restart cannot recreate a crib for an HTLC already in kindergarten.
+func TestNurseryStoreReincubatePromotedHtlc(t *testing.T) {
+	// Arrange a persisted HTLC that has completed its crib transition.
+	// This reproduces the state Nursery reloads while its final sweep is
+	// pending.
+	cdb, err := channeldb.MakeTestDB(t)
+	require.NoError(t, err, "unable to open channel db")
+
+	ns, err := NewNurseryStore(&chainHash, cdb)
+	require.NoError(t, err, "unable to open nursery store")
+
+	htlcOutput := babyOutputs[0]
+	activeCribs, err := ns.Incubate(nil, []babyOutput{htlcOutput})
+	require.NoError(t, err, "unable to incubate HTLC output")
+	require.Contains(t, activeCribs, htlcOutput.OutPoint())
+	err = ns.CribToKinder(&htlcOutput, 0)
+	require.NoError(t, err, "unable to promote HTLC output")
+
+	// Act by replaying the original incubation request, as a restored
+	// legacy resolver does before it resumes watching the second-stage
+	// output.
+	activeCribs, err = ns.Incubate(nil, []babyOutput{htlcOutput})
+	require.NoError(t, err, "unable to replay HTLC incubation")
+	err = ns.CribToKinder(&htlcOutput, 0)
+
+	// Assert the replay reported no active Crib and its stale callback was
+	// rejected, retaining the sole Kindergarten record instead of
+	// recreating lifecycle state after the original promotion.
+	require.Empty(t, activeCribs)
+	require.ErrorIs(t, err, ErrContractNotFound)
+	assertNumChanOutputs(t, ns, htlcOutput.OriginChanPoint(), 1)
+	assertCribNotAtExpiryHeight(t, ns, &htlcOutput)
+	assertKndrAtMaturityHeight(t, ns, &htlcOutput.kidOutput)
+}
+
+// TestNurseryStoreLateCribPromotion verifies a depth-delayed timeout
+// confirmation cannot place its CSV output into an already-graduated class.
+func TestNurseryStoreLateCribPromotion(t *testing.T) {
+	// Arrange a persisted crib whose natural maturity is behind the
+	// Nursery height supplied at promotion time. The gap models a short CSV
+	// delay combined with a deeper channel confirmation policy.
+	cdb, err := channeldb.MakeTestDB(t)
+	require.NoError(t, err, "unable to open channel db")
+	ns, err := NewNurseryStore(&chainHash, cdb)
+	require.NoError(t, err, "unable to open nursery store")
+	htlcOutput := babyOutputs[0]
+	naturalMaturity := htlcOutput.ConfHeight() +
+		htlcOutput.BlocksToMaturity()
+	lastGradHeight := naturalMaturity + 2
+	_, err = ns.Incubate(nil, []babyOutput{htlcOutput})
+	require.NoError(t, err, "unable to incubate HTLC output")
+
+	// Act by promoting after Nursery has already processed the output's
+	// natural class, then load the next class that remains eligible for a
+	// future blockbeat.
+	err = ns.CribToKinder(&htlcOutput, lastGradHeight)
+	require.NoError(t, err, "unable to promote late HTLC output")
+	kids, _, err := ns.FetchClass(lastGradHeight + 1)
+	require.NoError(t, err, "unable to fetch clamped maturity class")
+
+	// Assert the output was indexed exactly once in the next unprocessed
+	// class instead of the stale natural class that Nursery would never
+	// revisit.
+	require.Len(t, kids, 1)
+	require.True(t, reflect.DeepEqual(&kids[0], &htlcOutput.kidOutput))
+	staleKids, _, err := ns.FetchClass(naturalMaturity)
+	require.NoError(t, err, "unable to fetch stale maturity class")
+	require.Empty(t, staleKids)
+}
+
 // TestNurseryStoreGraduate verifies that the nursery store properly removes
 // populated entries from the height index as it is purged, and that the last
 // purged height is set appropriately.
@@ -315,7 +386,7 @@ func TestNurseryStoreGraduate(t *testing.T) {
 
 	// First, add a commitment output to the nursery store, which is
 	// initially inserted in the preschool bucket.
-	err = ns.Incubate([]kidOutput{*kid}, nil)
+	_, err = ns.Incubate([]kidOutput{*kid}, nil)
 	require.NoError(t, err, "unable to incubate commitment output")
 
 	// Then, move the commitment output to the kindergarten bucket, such

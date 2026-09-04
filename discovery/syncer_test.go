@@ -2687,12 +2687,70 @@ func TestGossipSyncerMaxChannelRangeSCIDs(t *testing.T) {
 		lnwire.NewShortChanIDFromInt(uint64(len(scids))),
 	}
 	err = syncer.processChanRangeReply(ctx, reply)
+	require.ErrorIs(t, err, errChanRangeReplyTooLarge)
 	require.ErrorContains(
 		t, err, "exceeds maximum number of short channel IDs",
 	)
 	require.Empty(t, syncer.bufferedChanRangeReplies)
 	require.Zero(t, syncer.numChanRangeReplySCIDsRcvd)
 	require.Nil(t, syncer.curQueryRangeMsg)
+}
+
+// TestGossipSyncerDisconnectsOnMaxChannelRangeSCIDs ensures that exceeding the
+// aggregate channel range limit disconnects the peer. The peer teardown lets
+// the sync manager select another peer for the initial historical sync.
+func TestGossipSyncerDisconnectsOnMaxChannelRangeSCIDs(t *testing.T) {
+	t.Parallel()
+
+	msgChan, syncer, _ := newTestSyncer(
+		lnwire.ShortChannelID{BlockHeight: latestKnownHeight},
+		defaultEncoding, defaultChunkSize,
+	)
+	disconnectErr := make(chan error, 1)
+	syncer.cfg.disconnectPeer = func(err error) {
+		disconnectErr <- err
+	}
+
+	syncer.Start()
+	defer syncer.Stop()
+
+	var query *lnwire.QueryChannelRange
+	select {
+	case msgs := <-msgChan:
+		require.Len(t, msgs, 1)
+		var ok bool
+		query, ok = msgs[0].(*lnwire.QueryChannelRange)
+		require.True(t, ok)
+
+	case <-time.After(time.Second):
+		t.Fatal("expected channel range query")
+	}
+
+	require.Eventually(t, func() bool {
+		return syncer.syncState() == waitingQueryRangeReply
+	}, time.Second, 10*time.Millisecond)
+
+	// Leave room for no more SCIDs, then send one additional SCID through
+	// the public message path.
+	syncer.numChanRangeReplySCIDsRcvd = maxChanRangeReplySCIDs
+	err := syncer.ProcessQueryMsg(&lnwire.ReplyChannelRange{
+		ChainHash:        query.ChainHash,
+		FirstBlockHeight: query.FirstBlockHeight,
+		NumBlocks:        query.NumBlocks,
+		EncodingType:     lnwire.EncodingSortedPlain,
+		ShortChanIDs: []lnwire.ShortChannelID{{
+			BlockHeight: query.FirstBlockHeight,
+		}},
+	}, nil)
+	require.NoError(t, err)
+
+	select {
+	case err := <-disconnectErr:
+		require.ErrorIs(t, err, errChanRangeReplyTooLarge)
+
+	case <-time.After(time.Second):
+		t.Fatal("expected peer disconnect")
+	}
 }
 
 // TestGossipSyncerChanRangeReplyNoQuery ensures that a range reply which

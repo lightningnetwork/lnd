@@ -673,6 +673,7 @@ func (m *SyncManager) createGossipSyncer(peer lnpeer.Peer) *GossipSyncer {
 
 			return m.sendMessages(ctx, sync, peer, nodeID, msgs...)
 		},
+		disconnectPeer:           peer.Disconnect,
 		ignoreHistoricalFilters:  m.cfg.IgnoreHistoricalFilters,
 		bestHeight:               m.cfg.BestHeight,
 		markGraphSynced:          m.markGraphSynced,

@@ -180,6 +180,68 @@ func TestSyncManagerNewActiveSyncerAfterDisconnect(t *testing.T) {
 	assertPassiveSyncerTransition(t, newActiveSyncer, newActiveSyncPeer)
 }
 
+// TestSyncManagerReplacesOversizedHistoricalSyncer ensures that a peer which
+// exceeds the channel range limit is disconnected and replaced immediately.
+func TestSyncManagerReplacesOversizedHistoricalSyncer(t *testing.T) {
+	t.Parallel()
+
+	syncMgr := newTestSyncManager(2)
+	syncMgr.Start()
+	defer syncMgr.Stop()
+
+	oversizedPeer := randPeer(t, syncMgr.quit)
+	require.NoError(t, syncMgr.InitSyncState(oversizedPeer))
+	oversizedSyncer := assertSyncerExistence(t, syncMgr, oversizedPeer)
+
+	var query *lnwire.QueryChannelRange
+	select {
+	case msg := <-oversizedPeer.sentMsgs:
+		var ok bool
+		query, ok = msg.(*lnwire.QueryChannelRange)
+		require.True(t, ok)
+
+	case <-time.After(time.Second):
+		t.Fatal("expected initial channel range query")
+	}
+
+	require.Eventually(t, func() bool {
+		return oversizedSyncer.syncState() == waitingQueryRangeReply
+	}, time.Second, 10*time.Millisecond)
+
+	replacementPeer := randPeer(t, syncMgr.quit)
+	require.NoError(t, syncMgr.InitSyncState(replacementPeer))
+	assertNoMsgSent(t, replacementPeer)
+
+	// Leave room for no more SCIDs, then send one additional SCID through
+	// the public message path.
+	oversizedSyncer.numChanRangeReplySCIDsRcvd = maxChanRangeReplySCIDs
+	err := oversizedSyncer.ProcessQueryMsg(&lnwire.ReplyChannelRange{
+		ChainHash:        query.ChainHash,
+		FirstBlockHeight: query.FirstBlockHeight,
+		NumBlocks:        query.NumBlocks,
+		EncodingType:     lnwire.EncodingSortedPlain,
+		ShortChanIDs: []lnwire.ShortChannelID{{
+			BlockHeight: query.FirstBlockHeight,
+		}},
+	}, nil)
+	require.NoError(t, err)
+	require.Eventually(t, oversizedPeer.disconnected.Load, time.Second,
+		10*time.Millisecond)
+
+	// PruneSyncState runs after the peer exits. The manager then starts a
+	// historical sync with the remaining peer.
+	syncMgr.PruneSyncState(oversizedPeer.PubKey())
+
+	select {
+	case msg := <-replacementPeer.sentMsgs:
+		_, ok := msg.(*lnwire.QueryChannelRange)
+		require.True(t, ok)
+
+	case <-time.After(time.Second):
+		t.Fatal("expected replacement channel range query")
+	}
+}
+
 // TestSyncManagerRotateActiveSyncerCandidate tests that we can successfully
 // rotate our active syncers after a certain interval.
 func TestSyncManagerRotateActiveSyncerCandidate(t *testing.T) {

@@ -32,6 +32,11 @@
   with empty features. The migration now uses the regular graph reader's
   existing feature-format compatibility handling.
 
+* Final-hop invoice processing [now keeps unexpected invoice lookup errors
+  retryable and handles interceptor errors for new HTLCs as individual
+  failures](https://github.com/lightningnetwork/lnd/pull/11161), while
+  preserving the recorded outcome for replayed HTLCs.
+
 # New Features
 
 ## Functional Enhancements

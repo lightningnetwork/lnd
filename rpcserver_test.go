@@ -1,6 +1,7 @@
 package lnd
 
 import (
+	"context"
 	"fmt"
 	"testing"
 	"time"
@@ -8,9 +9,14 @@ import (
 	"github.com/lightningnetwork/lnd/channeldb"
 	"github.com/lightningnetwork/lnd/fn/v2"
 	"github.com/lightningnetwork/lnd/lnrpc"
+	"github.com/lightningnetwork/lnd/lnwire"
 	"github.com/lightningnetwork/lnd/signal"
+	"github.com/lightningnetwork/lnd/subscribe"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+	"google.golang.org/grpc"
+	"google.golang.org/grpc/codes"
+	"google.golang.org/grpc/status"
 	"google.golang.org/protobuf/proto"
 )
 
@@ -74,6 +80,138 @@ func TestAuxDataParser(t *testing.T) {
 	require.NoError(t, err)
 	require.NotNil(t, resp)
 	require.Equal(t, []byte{0x00, 0x00}, resp.CustomChannelData)
+}
+
+// TestSlowSubscriptionClientError verifies that an evicted subscription is
+// translated into an explicit gRPC slow-consumer error.
+func TestSlowSubscriptionClientError(t *testing.T) {
+	t.Parallel()
+
+	server := subscribe.NewServerWithQueueSize(1)
+	require.NoError(t, server.Start())
+	t.Cleanup(func() {
+		require.NoError(t, server.Stop())
+	})
+
+	client, err := server.Subscribe()
+	require.NoError(t, err)
+
+	// The first update fills the queue and the second evicts the client.
+	require.NoError(t, server.SendUpdate(1))
+	require.NoError(t, server.SendUpdate(2))
+
+	select {
+	case <-client.Quit():
+	case <-time.After(time.Second):
+		t.Fatal("slow client was not evicted")
+	}
+
+	err = subscriptionClientError(client)
+	require.Equal(t, codes.ResourceExhausted, status.Code(err))
+	require.ErrorContains(t, err, subscribe.ErrSlowConsumer.Error())
+}
+
+// blockingCustomMessageStream models a custom-message RPC whose transport is
+// unable to accept the first response.
+type blockingCustomMessageStream struct {
+	grpc.ServerStream
+
+	ctx         context.Context
+	sendStarted chan struct{}
+	sendRelease chan struct{}
+}
+
+// Context returns the lifetime of the test stream.
+func (s *blockingCustomMessageStream) Context() context.Context {
+	return s.ctx
+}
+
+// Send blocks until the test releases the simulated transport.
+func (s *blockingCustomMessageStream) Send(*lnrpc.CustomMessage) error {
+	close(s.sendStarted)
+
+	select {
+	case <-s.sendRelease:
+		return nil
+	case <-s.ctx.Done():
+		return s.ctx.Err()
+	}
+}
+
+// TestSubscribeCustomMessagesSlowClient verifies that the custom-message RPC
+// returns ResourceExhausted after its bounded subscription evicts it.
+func TestSubscribeCustomMessagesSlowClient(t *testing.T) {
+	t.Parallel()
+
+	const queueSize = 10
+
+	messageServer := subscribe.NewServerWithQueueSize(queueSize)
+	require.NoError(t, messageServer.Start())
+	t.Cleanup(func() {
+		require.NoError(t, messageServer.Stop())
+	})
+
+	rpc := &rpcServer{
+		server: &server{
+			customMessageServer: messageServer,
+		},
+	}
+
+	ctx, cancel := context.WithCancel(t.Context())
+	t.Cleanup(cancel)
+
+	stream := &blockingCustomMessageStream{
+		ctx:         ctx,
+		sendStarted: make(chan struct{}),
+		sendRelease: make(chan struct{}),
+	}
+	rpcResult := make(chan error, 1)
+	go func() {
+		rpcResult <- rpc.SubscribeCustomMessages(
+			&lnrpc.SubscribeCustomMessagesRequest{}, stream,
+		)
+	}()
+
+	update := &CustomMessage{
+		Msg: &lnwire.Custom{
+			Type: 32_769,
+			Data: []byte{1},
+		},
+	}
+
+	// Dispatch until the RPC subscription is active and its first Send is
+	// blocked in the simulated transport.
+	deadline := time.After(5 * time.Second)
+sendFirstUpdate:
+	for {
+		require.NoError(t, messageServer.SendUpdate(update))
+
+		select {
+		case <-stream.sendStarted:
+			break sendFirstUpdate
+		case <-deadline:
+			t.Fatal("custom-message RPC did not start sending")
+		case <-time.After(10 * time.Millisecond):
+		}
+	}
+
+	// One update fills the queue, the next evicts the client, and the last
+	// acts as a barrier proving that eviction has completed.
+	for i := 0; i < queueSize+2; i++ {
+		require.NoError(t, messageServer.SendUpdate(update))
+	}
+
+	close(stream.sendRelease)
+
+	select {
+	case err := <-rpcResult:
+		require.Equal(t, codes.ResourceExhausted, status.Code(err))
+		require.ErrorContains(
+			t, err, subscribe.ErrSlowConsumer.Error(),
+		)
+	case <-time.After(time.Second):
+		t.Fatal("custom-message RPC did not return after eviction")
+	}
 }
 
 // TestStopDaemonBeforeRPCStartup makes sure StopDaemon can be called during

@@ -47,6 +47,11 @@
   the reported network statistics such as total network capacity, channel
   count and max out degree.
 
+* Custom-message and onion-message RPC streams now [evict slow
+  subscribers](https://github.com/lightningnetwork/lnd/pull/11159) when their
+  per-client queue fills, preventing stalled clients from retaining unbounded
+  peer messages.
+
 # New Features
 
 ## Functional Enhancements
@@ -166,4 +171,5 @@
 * Boris Nagaev
 * Erick Cestari
 * Jared Tobin
+* moscowchill
 * Nishant Bansal

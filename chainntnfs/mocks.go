@@ -77,9 +77,18 @@ func (m *MockChainNotifier) RegisterConfirmationsNtfn(txid *chainhash.Hash,
 // RegisterSpendNtfn registers an intent to be notified once the target
 // outpoint is successfully spent within a transaction.
 func (m *MockChainNotifier) RegisterSpendNtfn(outpoint *wire.OutPoint,
-	pkScript []byte, heightHint uint32) (*SpendEvent, error) {
+	pkScript []byte, heightHint uint32,
+	opts ...SpendOption) (*SpendEvent, error) {
 
-	args := m.Called(outpoint, pkScript, heightHint)
+	// Preserve existing three-argument expectations, while exposing the
+	// option slice when a test needs to verify a requested spend depth.
+	callArgs := []interface{}{outpoint, pkScript, heightHint}
+	if len(opts) != 0 {
+		// Keep all options in one argument. This lets mock expectations
+		// compare the exact policy passed through an adapter.
+		callArgs = append(callArgs, opts)
+	}
+	args := m.Called(callArgs...)
 	if args.Get(0) == nil {
 		return nil, args.Error(1)
 	}

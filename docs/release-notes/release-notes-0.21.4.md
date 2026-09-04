@@ -21,6 +21,12 @@
 
 # Bug Fixes
 
+* [Fixed historical graph
+  synchronization](https://github.com/lightningnetwork/lnd/pull/11173) so a
+  peer whose channel range response cannot be used is rotated out of the
+  current historical sync. The sync manager selects another peer without
+  disconnecting the first one or waiting for the historical sync interval.
+
 * [Fixed native SQL graph migration](https://github.com/lightningnetwork/lnd/pull/11179)
   failing with `unable to decode features: EOF` for legacy channel records
   with empty features. The migration now uses the regular graph reader's

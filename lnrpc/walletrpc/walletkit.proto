@@ -74,8 +74,44 @@ service WalletKit {
     /*
     DeriveKey attempts to derive an arbitrary key specified by the passed
     KeyLocator.
+
+    NOTE: The derived key is not recorded in the wallet, so it will not show up
+    in ListAccounts or ListAddresses, and the wallet will not be able to map the
+    returned public key back to its KeyLocator later on. Since that mapping is
+    required to sign with a key, callers that intend to sign with the derived
+    key must use DeriveAndStoreKey instead.
     */
     rpc DeriveKey (signrpc.KeyLocator) returns (signrpc.KeyDescriptor);
+
+    /*
+    DeriveAndStoreKey attempts to derive an arbitrary key specified by the
+    passed KeyLocator, and also records that key in the wallet. This is the
+    variant of DeriveKey that must be used for a key the wallet is later
+    expected to sign with, since signing requires the wallet to be able to look
+    the key's KeyLocator back up.
+
+    Recording a key implies recording every key in the family that precedes it,
+    so on return the family's next index (as reported by the external key count
+    in ListAccounts) is guaranteed to be above the requested one, and any key at
+    or below it will not be handed out by DeriveNextKey again. This makes the
+    call usable to restore a key family's derivation index after the wallet was
+    recovered from seed, where the wallet has no record of the indexes an
+    external consumer of the key family already used.
+
+    The call is monotonic and idempotent: an index the family has already
+    advanced past leaves the wallet untouched, and the family's index is never
+    rewound. To bound the amount of work a single call can trigger, an error is
+    returned if reaching the requested index would require deriving more than
+    25,000 keys. Key families that lnd itself derives from are reserved and
+    cannot be advanced through this RPC.
+
+    NOTE: Keys in custom key families are not covered by lnd's on-chain
+    recovery scan guarantees. A consumer that uses them to control on-chain
+    outputs is expected to keep its own record of the indexes it consumed
+    (which this RPC exists to restore), since a large unused index gap within
+    a family can prevent a seed-only recovery from finding later keys.
+    */
+    rpc DeriveAndStoreKey (signrpc.KeyLocator) returns (signrpc.KeyDescriptor);
 
     /*
     NextAddr returns the next unused address within the wallet.

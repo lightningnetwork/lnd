@@ -6,6 +6,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/btcsuite/btcd/address/v2"
 	"github.com/btcsuite/btcd/btcec/v2"
 	"github.com/btcsuite/btcd/chaincfg/v2"
 	"github.com/btcsuite/btcd/chainhash/v2"
@@ -218,6 +219,139 @@ func TestKeyRingDerivation(t *testing.T) {
 			break
 		}
 	}
+}
+
+// nextFamilyIndex returns the index that the next key derived for the given
+// family will have, as recorded by the wallet.
+func nextFamilyIndex(t *testing.T, w *wallet.Wallet, coinType uint32,
+	keyFam KeyFamily) uint32 {
+
+	t.Helper()
+
+	props, err := w.AccountProperties(waddrmgr.KeyScope{
+		Purpose: BIP0043Purpose,
+		Coin:    coinType,
+	}, uint32(keyFam))
+	require.NoError(t, err)
+
+	return props.ExternalKeyCount
+}
+
+// assertKnownToWallet asserts whether the wallet is able to map the given key
+// back to the address it belongs to, which is a prerequisite for the wallet
+// being able to sign with that key.
+func assertKnownToWallet(t *testing.T, w *wallet.Wallet, desc KeyDescriptor,
+	known bool) {
+
+	t.Helper()
+
+	addr, err := address.NewAddressWitnessPubKeyHash(
+		address.Hash160(desc.PubKey.SerializeCompressed()),
+		&chaincfg.SimNetParams,
+	)
+	require.NoError(t, err)
+
+	managedAddr, err := w.AddressInfo(addr)
+	if !known {
+		require.Error(t, err)
+
+		return
+	}
+
+	require.NoError(t, err)
+
+	pubKeyAddr, ok := managedAddr.(waddrmgr.ManagedPubKeyAddress)
+	require.True(t, ok)
+
+	_, path, ok := pubKeyAddr.DerivationInfo()
+	require.True(t, ok)
+	require.Equal(t, uint32(desc.Family), path.InternalAccount)
+	require.Equal(t, desc.Index, path.Index)
+}
+
+// TestDeriveAndStoreKey tests that DeriveAndStoreKey records the derived key in
+// the wallet, advances the key family's derivation index past it, and bounds
+// the number of keys a single call derives.
+func TestDeriveAndStoreKey(t *testing.T) {
+	t.Parallel()
+
+	const (
+		coinType = CoinTypeBitcoin
+		keyFam   = KeyFamilyNodeKey
+	)
+
+	baseWallet, err := createTestBtcWallet(t, coinType)
+	require.NoError(t, err)
+
+	keyRing := NewBtcWalletKeyRing(baseWallet, coinType)
+
+	// Storing a key derives and records every key in the family up to and
+	// including the requested index, so the family's next index moves past
+	// it.
+	desc, err := keyRing.DeriveAndStoreKey(KeyLocator{
+		Family: keyFam,
+		Index:  5,
+	})
+	require.NoError(t, err)
+	assertEqualKeyLocator(t, KeyLocator{
+		Family: keyFam,
+		Index:  5,
+	}, desc.KeyLocator)
+	require.EqualValues(
+		t, 6, nextFamilyIndex(t, baseWallet, coinType, keyFam),
+	)
+
+	// Which means that the indexes we just consumed are not handed out
+	// again. This is the property that lets a caller restore a key family's
+	// index after the wallet was recovered from seed.
+	nextDesc, err := keyRing.DeriveNextKey(keyFam)
+	require.NoError(t, err)
+	require.EqualValues(t, 6, nextDesc.Index)
+
+	// The key itself must be the very same one that the plain DeriveKey
+	// method returns.
+	plainDesc, err := keyRing.DeriveKey(KeyLocator{
+		Family: keyFam,
+		Index:  5,
+	})
+	require.NoError(t, err)
+	require.True(t, plainDesc.PubKey.IsEqual(desc.PubKey))
+
+	// But unlike DeriveKey, the wallet is now able to map the key back to
+	// its address, and therefore to its key locator, which it needs in
+	// order to sign with the key.
+	assertKnownToWallet(t, baseWallet, desc, true)
+
+	unstoredDesc, err := keyRing.DeriveKey(KeyLocator{
+		Family: keyFam,
+		Index:  50,
+	})
+	require.NoError(t, err)
+	assertKnownToWallet(t, baseWallet, unstoredDesc, false)
+
+	// Storing a key at an index the family has already advanced past leaves
+	// the wallet untouched, the index is never rewound.
+	earlierDesc, err := keyRing.DeriveAndStoreKey(KeyLocator{
+		Family: keyFam,
+		Index:  2,
+	})
+	require.NoError(t, err)
+	require.EqualValues(t, 2, earlierDesc.Index)
+	require.EqualValues(
+		t, 7, nextFamilyIndex(t, baseWallet, coinType, keyFam),
+	)
+
+	// An index that is too far ahead of the family's next index is refused
+	// outright instead of deriving an unbounded number of keys, and the
+	// family is left untouched.
+	_, err = keyRing.DeriveAndStoreKey(KeyLocator{
+		Family: keyFam,
+		Index:  7 + MaxKeyIndexExtension,
+	})
+	require.ErrorIs(t, err, ErrKeyExtensionTooLarge)
+	require.EqualValues(
+		t, 7, nextFamilyIndex(t, baseWallet, coinType, keyFam),
+	)
 }
 
 // secretKeyRingConstructor is a function signature that's used as a generic

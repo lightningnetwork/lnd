@@ -4237,6 +4237,7 @@ func (r *rpcServer) fetchPendingForceCloseChannels() (pendingForceClose,
 		}
 
 		closeTXID := pendingClose.ClosingTXID.String()
+		closeChanID := pendingClose.ShortChanID.ToUint64()
 
 		switch pendingClose.CloseType {
 
@@ -4257,6 +4258,7 @@ func (r *rpcServer) fetchPendingForceCloseChannels() (pendingForceClose,
 			forceClose := &lnrpc.PendingChannelsResponse_ForceClosedChannel{
 				Channel:     channel,
 				ClosingTxid: closeTXID,
+				ChanId:      closeChanID,
 			}
 
 			// Fetch reports from both nursery and resolvers. At the
@@ -4513,6 +4515,7 @@ func (r *rpcServer) fetchWaitingCloseChannels(
 			ClosingTxid:             closingTxid,
 			ClosingTxHex:            closingTxHex,
 			BlocksTilCloseConfirmed: blocksTilCloseConfirmed,
+			ChanId:      waitingClose.ShortChannelID.ToUint64(),
 			CloseHeight: waitingClose.CloseConfirmationHeight.
 				UnwrapOr(0),
 		}

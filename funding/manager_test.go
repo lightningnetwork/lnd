@@ -25,7 +25,6 @@ import (
 	"github.com/btcsuite/btcd/psbt/v2"
 	"github.com/btcsuite/btcd/wire/v2"
 	"github.com/btcsuite/btcwallet/wallet"
-	"github.com/lightningnetwork/lnd/actor"
 	"github.com/lightningnetwork/lnd/aliasmgr"
 	"github.com/lightningnetwork/lnd/chainntnfs"
 	"github.com/lightningnetwork/lnd/chainreg"
@@ -537,16 +536,16 @@ func createTestFundingManager(t *testing.T, privKey *btcec.PrivateKey,
 			return testSig, nil
 		},
 		SendAnnouncement: func(msg lnwire.Message,
-			_ ...discovery.OptionalMsgField) actor.Future[error] {
+			_ ...discovery.OptionalMsgField) fn.Future[error] {
 
-			promise := actor.NewPromise[error]()
+			promise := fn.NewPromise[error]()
 			var sendErr error
 			select {
 			case sentAnnouncements <- msg:
 			case <-shutdownChan:
 				sendErr = fmt.Errorf("shutting down")
 			}
-			actor.CompleteWith(promise, sendErr)
+			fn.CompleteWith(promise, sendErr)
 
 			return promise.Future()
 		},
@@ -714,16 +713,16 @@ func recreateAliceFundingManager(t *testing.T, alice *testNode) {
 			return testSig, nil
 		},
 		SendAnnouncement: func(msg lnwire.Message,
-			_ ...discovery.OptionalMsgField) actor.Future[error] {
+			_ ...discovery.OptionalMsgField) fn.Future[error] {
 
-			promise := actor.NewPromise[error]()
+			promise := fn.NewPromise[error]()
 			var sendErr error
 			select {
 			case aliceAnnounceChan <- msg:
 			case <-shutdownChan:
 				sendErr = fmt.Errorf("shutting down")
 			}
-			actor.CompleteWith(promise, sendErr)
+			fn.CompleteWith(promise, sendErr)
 
 			return promise.Future()
 		},
@@ -2049,10 +2048,10 @@ func TestFundingManagerRestartBehavior(t *testing.T) {
 
 	// Intentionally make the channel announcements fail
 	alice.fundingMgr.cfg.SendAnnouncement = func(msg lnwire.Message,
-		_ ...discovery.OptionalMsgField) actor.Future[error] {
+		_ ...discovery.OptionalMsgField) fn.Future[error] {
 
-		promise := actor.NewPromise[error]()
-		actor.CompleteWith(
+		promise := fn.NewPromise[error]()
+		fn.CompleteWith(
 			promise,
 			fmt.Errorf("intentional error in SendAnnouncement"),
 		)

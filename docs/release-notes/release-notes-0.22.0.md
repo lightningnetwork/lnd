@@ -47,6 +47,10 @@
   the reported network statistics such as total network capacity, channel
   count and max out degree.
 
+* The future gossip cache now [accounts for decoded feature-map
+  memory](https://github.com/lightningnetwork/lnd/pull/11158), preserving its
+  ordinary message-count limit while bounding dense announcement retention.
+
 # New Features
 
 ## Functional Enhancements
@@ -166,4 +170,5 @@
 * Boris Nagaev
 * Erick Cestari
 * Jared Tobin
+* moscowchill
 * Nishant Bansal

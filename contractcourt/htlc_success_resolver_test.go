@@ -261,11 +261,6 @@ func TestHtlcSuccessSingleStage(t *testing.T) {
 // notified HTLC input.
 func TestHtlcSuccessValidatedSpendInput(t *testing.T) {
 	claim := wire.OutPoint{Index: 2}
-	resolver := &htlcSuccessResolver{
-		htlcResolution: lnwallet.IncomingHtlcResolution{
-			ClaimOutpoint: claim,
-		},
-	}
 	spendInput := &wire.TxIn{PreviousOutPoint: claim}
 	validSpend := &chainntnfs.SpendDetail{
 		SpendingTx: &wire.MsgTx{
@@ -274,7 +269,7 @@ func TestHtlcSuccessValidatedSpendInput(t *testing.T) {
 		SpenderInputIndex: 1,
 	}
 
-	input, err := resolver.validatedSpendInput(validSpend)
+	input, err := validatedSpendInput(validSpend, claim)
 	require.NoError(t, err)
 	require.Same(t, spendInput, input)
 
@@ -322,9 +317,160 @@ func TestHtlcSuccessValidatedSpendInput(t *testing.T) {
 
 	for _, testCase := range testCases {
 		t.Run(testCase.name, func(t *testing.T) {
-			_, err := resolver.validatedSpendInput(testCase.spend)
+			_, err := validatedSpendInput(testCase.spend, claim)
 			require.ErrorIs(t, err, errInvalidSpendDetails)
 			require.ErrorContains(t, err, testCase.errText)
+		})
+	}
+}
+
+// TestHtlcSuccessFinalSpendValidation tests that final success resolution
+// validates notifier spend data before mutating or checkpointing state.
+//
+//nolint:ll
+func TestHtlcSuccessFinalSpendValidation(t *testing.T) {
+	expectedOutpoint := wire.OutPoint{
+		Hash:  chainhash.Hash{1},
+		Index: 3,
+	}
+
+	testCases := []struct {
+		name   string
+		mutate func(*chainntnfs.SpendDetail) *chainntnfs.SpendDetail
+		valid  bool
+	}{
+		{
+			name: "missing spend detail",
+			mutate: func(
+				*chainntnfs.SpendDetail) *chainntnfs.SpendDetail {
+
+				return nil
+			},
+		},
+		{
+			name: "missing spending tx",
+			mutate: func(
+				spend *chainntnfs.SpendDetail) *chainntnfs.SpendDetail {
+
+				spend.SpendingTx = nil
+				return spend
+			},
+		},
+		{
+			name: "input index out of range",
+			mutate: func(
+				spend *chainntnfs.SpendDetail) *chainntnfs.SpendDetail {
+
+				spend.SpenderInputIndex = 1
+				return spend
+			},
+		},
+		{
+			name: "nil spender input",
+			mutate: func(
+				spend *chainntnfs.SpendDetail) *chainntnfs.SpendDetail {
+
+				spend.SpendingTx.TxIn[0] = nil
+				return spend
+			},
+		},
+		{
+			name: "unexpected input outpoint",
+			mutate: func(spend *chainntnfs.SpendDetail) *chainntnfs.SpendDetail {
+				spend.SpendingTx.TxIn[0].PreviousOutPoint.Index++
+				return spend
+			},
+		},
+		{
+			name: "missing notifier spend hash",
+			mutate: func(spend *chainntnfs.SpendDetail) *chainntnfs.SpendDetail {
+				spend.SpenderTxHash = nil
+				return spend
+			},
+			valid: true,
+		},
+		{
+			name: "inconsistent notifier spend hash",
+			mutate: func(spend *chainntnfs.SpendDetail) *chainntnfs.SpendDetail {
+				wrongHash := chainhash.Hash{0xff}
+				spend.SpenderTxHash = &wrongHash
+				return spend
+			},
+			valid: true,
+		},
+	}
+
+	for _, testCase := range testCases {
+		t.Run(testCase.name, func(t *testing.T) {
+			// Arrange a resolver with observable persistence and report
+			// state, then alter one notifier field.
+			commitOutpoint := wire.OutPoint{Index: 2}
+			resolution := newSuccessTestResolution(commitOutpoint)
+			ctx := newHtlcResolverTestContext(t, func(
+				htlc channeldb.HTLC,
+				cfg ResolverConfig) ContractResolver {
+
+				return newSuccessResolver(
+					resolution, 0, htlc, 0, cfg,
+				)
+			})
+			resolver := requireSuccessResolver(t, ctx.resolver)
+			resolver.currentReport.LimboBalance = 34
+			resolver.currentReport.RecoveredBalance = 21
+			originalReport := resolver.currentReport
+
+			checkpointCalls := 0
+			var reports []*channeldb.ResolverReport
+			ctx.checkpoint = func(_ ContractResolver,
+				gotReports ...*channeldb.ResolverReport) error {
+
+				checkpointCalls++
+				reports = gotReports
+				return nil
+			}
+
+			spendingTx := &wire.MsgTx{
+				TxIn: []*wire.TxIn{{
+					PreviousOutPoint: expectedOutpoint,
+				}},
+				TxOut: []*wire.TxOut{{Value: 1}},
+			}
+			spend := newSpendDetail(
+				expectedOutpoint, spendingTx, 0,
+			)
+			ctx.notifier.SpendChan <- testCase.mutate(spend)
+
+			// Act on the final second-level spend notification.
+			err := resolver.resolveSuccessTxOutput(expectedOutpoint)
+
+			// Assert malformed data has no durable or in-memory side
+			// effects, while valid data uses the transaction's hash.
+			if !testCase.valid {
+				require.ErrorIs(t, err, errInvalidSpendDetails)
+				require.Equal(t, originalReport,
+					resolver.currentReport)
+				require.Zero(t, checkpointCalls)
+				require.False(t, ctx.finalHtlcOutcomeStored)
+				require.Empty(t,
+					ctx.htlcNotifier.finalHtlcEvents)
+				require.False(t, resolver.IsResolved())
+
+				return
+			}
+
+			require.NoError(t, err)
+			require.Equal(t, originalReport.LimboBalance,
+				resolver.currentReport.RecoveredBalance)
+			require.Zero(t, resolver.currentReport.LimboBalance)
+			require.Equal(t, 1, checkpointCalls)
+			require.Len(t, reports, 2)
+			expectedSpendHash := spendingTx.TxHash()
+			require.Equal(t, &expectedSpendHash,
+				reports[0].SpendTxID)
+			require.True(t, ctx.finalHtlcOutcomeStored)
+			require.True(t, ctx.finalHtlcSettled)
+			require.Len(t, ctx.htlcNotifier.finalHtlcEvents, 1)
+			require.True(t, resolver.IsResolved())
 		})
 	}
 }
@@ -929,7 +1075,9 @@ func TestHtlcSuccessSecondStageResolution(t *testing.T) {
 	}
 
 	sweepTx := &wire.MsgTx{
-		TxIn:  []*wire.TxIn{{}},
+		TxIn: []*wire.TxIn{{
+			PreviousOutPoint: htlcOutpoint,
+		}},
 		TxOut: []*wire.TxOut{{}},
 	}
 	sweepHash := sweepTx.TxHash()

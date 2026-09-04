@@ -46,7 +46,9 @@
 
 * [Fixed an issue](https://github.com/lightningnetwork/lnd/pull/10869) where an
   incoming HTLC resolver could treat a foreign commitment spend as its own
-  success transaction and offer a phantom input to the sweeper.
+  success transaction and offer a phantom input to the sweeper. A
+  [follow-up](https://github.com/lightningnetwork/lnd/pull/11113) validates
+  final success-spend notifier data and authenticates Taproot preimage paths.
 
 * Native SQL invoice migration [now correctly associates legacy AMP invoice
   HTLCs](https://github.com/lightningnetwork/lnd/pull/11106) with their AMP

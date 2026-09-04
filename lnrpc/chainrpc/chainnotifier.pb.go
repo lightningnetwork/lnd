@@ -195,7 +195,12 @@ func (x *ConfDetails) GetRawBlock() []byte {
 }
 
 type Reorg struct {
-	state         protoimpl.MessageState `protogen:"open.v1"`
+	state protoimpl.MessageState `protogen:"open.v1"`
+	// The depth of the re-org, i.e. the number of blocks by which the
+	// transaction/spend was reorged out of the chain. Only populated for
+	// confirmation notifications; spend notifications do not currently track
+	// re-org depth and leave this field as 0.
+	Depth         uint32 `protobuf:"varint,1,opt,name=depth,proto3" json:"depth,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -230,12 +235,56 @@ func (*Reorg) Descriptor() ([]byte, []int) {
 	return file_chainrpc_chainnotifier_proto_rawDescGZIP(), []int{2}
 }
 
+func (x *Reorg) GetDepth() uint32 {
+	if x != nil {
+		return x.Depth
+	}
+	return 0
+}
+
+type Done struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *Done) Reset() {
+	*x = Done{}
+	mi := &file_chainrpc_chainnotifier_proto_msgTypes[3]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *Done) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*Done) ProtoMessage() {}
+
+func (x *Done) ProtoReflect() protoreflect.Message {
+	mi := &file_chainrpc_chainnotifier_proto_msgTypes[3]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use Done.ProtoReflect.Descriptor instead.
+func (*Done) Descriptor() ([]byte, []int) {
+	return file_chainrpc_chainnotifier_proto_rawDescGZIP(), []int{3}
+}
+
 type ConfEvent struct {
 	state protoimpl.MessageState `protogen:"open.v1"`
 	// Types that are valid to be assigned to Event:
 	//
 	//	*ConfEvent_Conf
 	//	*ConfEvent_Reorg
+	//	*ConfEvent_Done
 	Event         isConfEvent_Event `protobuf_oneof:"event"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
@@ -243,7 +292,7 @@ type ConfEvent struct {
 
 func (x *ConfEvent) Reset() {
 	*x = ConfEvent{}
-	mi := &file_chainrpc_chainnotifier_proto_msgTypes[3]
+	mi := &file_chainrpc_chainnotifier_proto_msgTypes[4]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -255,7 +304,7 @@ func (x *ConfEvent) String() string {
 func (*ConfEvent) ProtoMessage() {}
 
 func (x *ConfEvent) ProtoReflect() protoreflect.Message {
-	mi := &file_chainrpc_chainnotifier_proto_msgTypes[3]
+	mi := &file_chainrpc_chainnotifier_proto_msgTypes[4]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -268,7 +317,7 @@ func (x *ConfEvent) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ConfEvent.ProtoReflect.Descriptor instead.
 func (*ConfEvent) Descriptor() ([]byte, []int) {
-	return file_chainrpc_chainnotifier_proto_rawDescGZIP(), []int{3}
+	return file_chainrpc_chainnotifier_proto_rawDescGZIP(), []int{4}
 }
 
 func (x *ConfEvent) GetEvent() isConfEvent_Event {
@@ -296,6 +345,15 @@ func (x *ConfEvent) GetReorg() *Reorg {
 	return nil
 }
 
+func (x *ConfEvent) GetDone() *Done {
+	if x != nil {
+		if x, ok := x.Event.(*ConfEvent_Done); ok {
+			return x.Done
+		}
+	}
+	return nil
+}
+
 type isConfEvent_Event interface {
 	isConfEvent_Event()
 }
@@ -312,9 +370,18 @@ type ConfEvent_Reorg struct {
 	Reorg *Reorg `protobuf:"bytes,2,opt,name=reorg,proto3,oneof"`
 }
 
+type ConfEvent_Done struct {
+	// An event sent once the confirmation is no longer under the risk of
+	// being reorged out of the chain (the watch has reached re-org safety
+	// depth).
+	Done *Done `protobuf:"bytes,3,opt,name=done,proto3,oneof"`
+}
+
 func (*ConfEvent_Conf) isConfEvent_Event() {}
 
 func (*ConfEvent_Reorg) isConfEvent_Event() {}
+
+func (*ConfEvent_Done) isConfEvent_Event() {}
 
 type Outpoint struct {
 	state protoimpl.MessageState `protogen:"open.v1"`
@@ -328,7 +395,7 @@ type Outpoint struct {
 
 func (x *Outpoint) Reset() {
 	*x = Outpoint{}
-	mi := &file_chainrpc_chainnotifier_proto_msgTypes[4]
+	mi := &file_chainrpc_chainnotifier_proto_msgTypes[5]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -340,7 +407,7 @@ func (x *Outpoint) String() string {
 func (*Outpoint) ProtoMessage() {}
 
 func (x *Outpoint) ProtoReflect() protoreflect.Message {
-	mi := &file_chainrpc_chainnotifier_proto_msgTypes[4]
+	mi := &file_chainrpc_chainnotifier_proto_msgTypes[5]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -353,7 +420,7 @@ func (x *Outpoint) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use Outpoint.ProtoReflect.Descriptor instead.
 func (*Outpoint) Descriptor() ([]byte, []int) {
-	return file_chainrpc_chainnotifier_proto_rawDescGZIP(), []int{4}
+	return file_chainrpc_chainnotifier_proto_rawDescGZIP(), []int{5}
 }
 
 func (x *Outpoint) GetHash() []byte {
@@ -394,7 +461,7 @@ type SpendRequest struct {
 
 func (x *SpendRequest) Reset() {
 	*x = SpendRequest{}
-	mi := &file_chainrpc_chainnotifier_proto_msgTypes[5]
+	mi := &file_chainrpc_chainnotifier_proto_msgTypes[6]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -406,7 +473,7 @@ func (x *SpendRequest) String() string {
 func (*SpendRequest) ProtoMessage() {}
 
 func (x *SpendRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_chainrpc_chainnotifier_proto_msgTypes[5]
+	mi := &file_chainrpc_chainnotifier_proto_msgTypes[6]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -419,7 +486,7 @@ func (x *SpendRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use SpendRequest.ProtoReflect.Descriptor instead.
 func (*SpendRequest) Descriptor() ([]byte, []int) {
-	return file_chainrpc_chainnotifier_proto_rawDescGZIP(), []int{5}
+	return file_chainrpc_chainnotifier_proto_rawDescGZIP(), []int{6}
 }
 
 func (x *SpendRequest) GetOutpoint() *Outpoint {
@@ -461,7 +528,7 @@ type SpendDetails struct {
 
 func (x *SpendDetails) Reset() {
 	*x = SpendDetails{}
-	mi := &file_chainrpc_chainnotifier_proto_msgTypes[6]
+	mi := &file_chainrpc_chainnotifier_proto_msgTypes[7]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -473,7 +540,7 @@ func (x *SpendDetails) String() string {
 func (*SpendDetails) ProtoMessage() {}
 
 func (x *SpendDetails) ProtoReflect() protoreflect.Message {
-	mi := &file_chainrpc_chainnotifier_proto_msgTypes[6]
+	mi := &file_chainrpc_chainnotifier_proto_msgTypes[7]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -486,7 +553,7 @@ func (x *SpendDetails) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use SpendDetails.ProtoReflect.Descriptor instead.
 func (*SpendDetails) Descriptor() ([]byte, []int) {
-	return file_chainrpc_chainnotifier_proto_rawDescGZIP(), []int{6}
+	return file_chainrpc_chainnotifier_proto_rawDescGZIP(), []int{7}
 }
 
 func (x *SpendDetails) GetSpendingOutpoint() *Outpoint {
@@ -530,6 +597,7 @@ type SpendEvent struct {
 	//
 	//	*SpendEvent_Spend
 	//	*SpendEvent_Reorg
+	//	*SpendEvent_Done
 	Event         isSpendEvent_Event `protobuf_oneof:"event"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
@@ -537,7 +605,7 @@ type SpendEvent struct {
 
 func (x *SpendEvent) Reset() {
 	*x = SpendEvent{}
-	mi := &file_chainrpc_chainnotifier_proto_msgTypes[7]
+	mi := &file_chainrpc_chainnotifier_proto_msgTypes[8]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -549,7 +617,7 @@ func (x *SpendEvent) String() string {
 func (*SpendEvent) ProtoMessage() {}
 
 func (x *SpendEvent) ProtoReflect() protoreflect.Message {
-	mi := &file_chainrpc_chainnotifier_proto_msgTypes[7]
+	mi := &file_chainrpc_chainnotifier_proto_msgTypes[8]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -562,7 +630,7 @@ func (x *SpendEvent) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use SpendEvent.ProtoReflect.Descriptor instead.
 func (*SpendEvent) Descriptor() ([]byte, []int) {
-	return file_chainrpc_chainnotifier_proto_rawDescGZIP(), []int{7}
+	return file_chainrpc_chainnotifier_proto_rawDescGZIP(), []int{8}
 }
 
 func (x *SpendEvent) GetEvent() isSpendEvent_Event {
@@ -590,6 +658,15 @@ func (x *SpendEvent) GetReorg() *Reorg {
 	return nil
 }
 
+func (x *SpendEvent) GetDone() *Done {
+	if x != nil {
+		if x, ok := x.Event.(*SpendEvent_Done); ok {
+			return x.Done
+		}
+	}
+	return nil
+}
+
 type isSpendEvent_Event interface {
 	isSpendEvent_Event()
 }
@@ -606,9 +683,17 @@ type SpendEvent_Reorg struct {
 	Reorg *Reorg `protobuf:"bytes,2,opt,name=reorg,proto3,oneof"`
 }
 
+type SpendEvent_Done struct {
+	// An event sent once the spend is no longer under the risk of being
+	// reorged out of the chain (the watch has reached re-org safety depth).
+	Done *Done `protobuf:"bytes,3,opt,name=done,proto3,oneof"`
+}
+
 func (*SpendEvent_Spend) isSpendEvent_Event() {}
 
 func (*SpendEvent_Reorg) isSpendEvent_Event() {}
+
+func (*SpendEvent_Done) isSpendEvent_Event() {}
 
 type BlockEpoch struct {
 	state protoimpl.MessageState `protogen:"open.v1"`
@@ -622,7 +707,7 @@ type BlockEpoch struct {
 
 func (x *BlockEpoch) Reset() {
 	*x = BlockEpoch{}
-	mi := &file_chainrpc_chainnotifier_proto_msgTypes[8]
+	mi := &file_chainrpc_chainnotifier_proto_msgTypes[9]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -634,7 +719,7 @@ func (x *BlockEpoch) String() string {
 func (*BlockEpoch) ProtoMessage() {}
 
 func (x *BlockEpoch) ProtoReflect() protoreflect.Message {
-	mi := &file_chainrpc_chainnotifier_proto_msgTypes[8]
+	mi := &file_chainrpc_chainnotifier_proto_msgTypes[9]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -647,7 +732,7 @@ func (x *BlockEpoch) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use BlockEpoch.ProtoReflect.Descriptor instead.
 func (*BlockEpoch) Descriptor() ([]byte, []int) {
-	return file_chainrpc_chainnotifier_proto_rawDescGZIP(), []int{8}
+	return file_chainrpc_chainnotifier_proto_rawDescGZIP(), []int{9}
 }
 
 func (x *BlockEpoch) GetHash() []byte {
@@ -682,11 +767,14 @@ const file_chainrpc_chainnotifier_proto_rawDesc = "" +
 	"block_hash\x18\x02 \x01(\fR\tblockHash\x12!\n" +
 	"\fblock_height\x18\x03 \x01(\rR\vblockHeight\x12\x19\n" +
 	"\btx_index\x18\x04 \x01(\rR\atxIndex\x12\x1b\n" +
-	"\traw_block\x18\x05 \x01(\fR\brawBlock\"\a\n" +
-	"\x05Reorg\"j\n" +
+	"\traw_block\x18\x05 \x01(\fR\brawBlock\"\x1d\n" +
+	"\x05Reorg\x12\x14\n" +
+	"\x05depth\x18\x01 \x01(\rR\x05depth\"\x06\n" +
+	"\x04Done\"\x90\x01\n" +
 	"\tConfEvent\x12+\n" +
 	"\x04conf\x18\x01 \x01(\v2\x15.chainrpc.ConfDetailsH\x00R\x04conf\x12'\n" +
-	"\x05reorg\x18\x02 \x01(\v2\x0f.chainrpc.ReorgH\x00R\x05reorgB\a\n" +
+	"\x05reorg\x18\x02 \x01(\v2\x0f.chainrpc.ReorgH\x00R\x05reorg\x12$\n" +
+	"\x04done\x18\x03 \x01(\v2\x0e.chainrpc.DoneH\x00R\x04doneB\a\n" +
 	"\x05event\"4\n" +
 	"\bOutpoint\x12\x12\n" +
 	"\x04hash\x18\x01 \x01(\fR\x04hash\x12\x14\n" +
@@ -701,11 +789,12 @@ const file_chainrpc_chainnotifier_proto_rawDesc = "" +
 	"\x0fraw_spending_tx\x18\x02 \x01(\fR\rrawSpendingTx\x12(\n" +
 	"\x10spending_tx_hash\x18\x03 \x01(\fR\x0espendingTxHash\x120\n" +
 	"\x14spending_input_index\x18\x04 \x01(\rR\x12spendingInputIndex\x12'\n" +
-	"\x0fspending_height\x18\x05 \x01(\rR\x0espendingHeight\"n\n" +
+	"\x0fspending_height\x18\x05 \x01(\rR\x0espendingHeight\"\x94\x01\n" +
 	"\n" +
 	"SpendEvent\x12.\n" +
 	"\x05spend\x18\x01 \x01(\v2\x16.chainrpc.SpendDetailsH\x00R\x05spend\x12'\n" +
-	"\x05reorg\x18\x02 \x01(\v2\x0f.chainrpc.ReorgH\x00R\x05reorgB\a\n" +
+	"\x05reorg\x18\x02 \x01(\v2\x0f.chainrpc.ReorgH\x00R\x05reorg\x12$\n" +
+	"\x04done\x18\x03 \x01(\v2\x0e.chainrpc.DoneH\x00R\x04doneB\a\n" +
 	"\x05event\"8\n" +
 	"\n" +
 	"BlockEpoch\x12\x12\n" +
@@ -728,36 +817,39 @@ func file_chainrpc_chainnotifier_proto_rawDescGZIP() []byte {
 	return file_chainrpc_chainnotifier_proto_rawDescData
 }
 
-var file_chainrpc_chainnotifier_proto_msgTypes = make([]protoimpl.MessageInfo, 9)
+var file_chainrpc_chainnotifier_proto_msgTypes = make([]protoimpl.MessageInfo, 10)
 var file_chainrpc_chainnotifier_proto_goTypes = []any{
 	(*ConfRequest)(nil),  // 0: chainrpc.ConfRequest
 	(*ConfDetails)(nil),  // 1: chainrpc.ConfDetails
 	(*Reorg)(nil),        // 2: chainrpc.Reorg
-	(*ConfEvent)(nil),    // 3: chainrpc.ConfEvent
-	(*Outpoint)(nil),     // 4: chainrpc.Outpoint
-	(*SpendRequest)(nil), // 5: chainrpc.SpendRequest
-	(*SpendDetails)(nil), // 6: chainrpc.SpendDetails
-	(*SpendEvent)(nil),   // 7: chainrpc.SpendEvent
-	(*BlockEpoch)(nil),   // 8: chainrpc.BlockEpoch
+	(*Done)(nil),         // 3: chainrpc.Done
+	(*ConfEvent)(nil),    // 4: chainrpc.ConfEvent
+	(*Outpoint)(nil),     // 5: chainrpc.Outpoint
+	(*SpendRequest)(nil), // 6: chainrpc.SpendRequest
+	(*SpendDetails)(nil), // 7: chainrpc.SpendDetails
+	(*SpendEvent)(nil),   // 8: chainrpc.SpendEvent
+	(*BlockEpoch)(nil),   // 9: chainrpc.BlockEpoch
 }
 var file_chainrpc_chainnotifier_proto_depIdxs = []int32{
-	1, // 0: chainrpc.ConfEvent.conf:type_name -> chainrpc.ConfDetails
-	2, // 1: chainrpc.ConfEvent.reorg:type_name -> chainrpc.Reorg
-	4, // 2: chainrpc.SpendRequest.outpoint:type_name -> chainrpc.Outpoint
-	4, // 3: chainrpc.SpendDetails.spending_outpoint:type_name -> chainrpc.Outpoint
-	6, // 4: chainrpc.SpendEvent.spend:type_name -> chainrpc.SpendDetails
-	2, // 5: chainrpc.SpendEvent.reorg:type_name -> chainrpc.Reorg
-	0, // 6: chainrpc.ChainNotifier.RegisterConfirmationsNtfn:input_type -> chainrpc.ConfRequest
-	5, // 7: chainrpc.ChainNotifier.RegisterSpendNtfn:input_type -> chainrpc.SpendRequest
-	8, // 8: chainrpc.ChainNotifier.RegisterBlockEpochNtfn:input_type -> chainrpc.BlockEpoch
-	3, // 9: chainrpc.ChainNotifier.RegisterConfirmationsNtfn:output_type -> chainrpc.ConfEvent
-	7, // 10: chainrpc.ChainNotifier.RegisterSpendNtfn:output_type -> chainrpc.SpendEvent
-	8, // 11: chainrpc.ChainNotifier.RegisterBlockEpochNtfn:output_type -> chainrpc.BlockEpoch
-	9, // [9:12] is the sub-list for method output_type
-	6, // [6:9] is the sub-list for method input_type
-	6, // [6:6] is the sub-list for extension type_name
-	6, // [6:6] is the sub-list for extension extendee
-	0, // [0:6] is the sub-list for field type_name
+	1,  // 0: chainrpc.ConfEvent.conf:type_name -> chainrpc.ConfDetails
+	2,  // 1: chainrpc.ConfEvent.reorg:type_name -> chainrpc.Reorg
+	3,  // 2: chainrpc.ConfEvent.done:type_name -> chainrpc.Done
+	5,  // 3: chainrpc.SpendRequest.outpoint:type_name -> chainrpc.Outpoint
+	5,  // 4: chainrpc.SpendDetails.spending_outpoint:type_name -> chainrpc.Outpoint
+	7,  // 5: chainrpc.SpendEvent.spend:type_name -> chainrpc.SpendDetails
+	2,  // 6: chainrpc.SpendEvent.reorg:type_name -> chainrpc.Reorg
+	3,  // 7: chainrpc.SpendEvent.done:type_name -> chainrpc.Done
+	0,  // 8: chainrpc.ChainNotifier.RegisterConfirmationsNtfn:input_type -> chainrpc.ConfRequest
+	6,  // 9: chainrpc.ChainNotifier.RegisterSpendNtfn:input_type -> chainrpc.SpendRequest
+	9,  // 10: chainrpc.ChainNotifier.RegisterBlockEpochNtfn:input_type -> chainrpc.BlockEpoch
+	4,  // 11: chainrpc.ChainNotifier.RegisterConfirmationsNtfn:output_type -> chainrpc.ConfEvent
+	8,  // 12: chainrpc.ChainNotifier.RegisterSpendNtfn:output_type -> chainrpc.SpendEvent
+	9,  // 13: chainrpc.ChainNotifier.RegisterBlockEpochNtfn:output_type -> chainrpc.BlockEpoch
+	11, // [11:14] is the sub-list for method output_type
+	8,  // [8:11] is the sub-list for method input_type
+	8,  // [8:8] is the sub-list for extension type_name
+	8,  // [8:8] is the sub-list for extension extendee
+	0,  // [0:8] is the sub-list for field type_name
 }
 
 func init() { file_chainrpc_chainnotifier_proto_init() }
@@ -765,13 +857,15 @@ func file_chainrpc_chainnotifier_proto_init() {
 	if File_chainrpc_chainnotifier_proto != nil {
 		return
 	}
-	file_chainrpc_chainnotifier_proto_msgTypes[3].OneofWrappers = []any{
+	file_chainrpc_chainnotifier_proto_msgTypes[4].OneofWrappers = []any{
 		(*ConfEvent_Conf)(nil),
 		(*ConfEvent_Reorg)(nil),
+		(*ConfEvent_Done)(nil),
 	}
-	file_chainrpc_chainnotifier_proto_msgTypes[7].OneofWrappers = []any{
+	file_chainrpc_chainnotifier_proto_msgTypes[8].OneofWrappers = []any{
 		(*SpendEvent_Spend)(nil),
 		(*SpendEvent_Reorg)(nil),
+		(*SpendEvent_Done)(nil),
 	}
 	type x struct{}
 	out := protoimpl.TypeBuilder{
@@ -779,7 +873,7 @@ func file_chainrpc_chainnotifier_proto_init() {
 			GoPackagePath: reflect.TypeOf(x{}).PkgPath(),
 			RawDescriptor: unsafe.Slice(unsafe.StringData(file_chainrpc_chainnotifier_proto_rawDesc), len(file_chainrpc_chainnotifier_proto_rawDesc)),
 			NumEnums:      0,
-			NumMessages:   9,
+			NumMessages:   10,
 			NumExtensions: 0,
 			NumServices:   1,
 		},

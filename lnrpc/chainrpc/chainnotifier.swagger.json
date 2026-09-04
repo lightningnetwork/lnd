@@ -102,6 +102,50 @@
         ]
       }
     },
+    "/v2/chainnotifier/register/pkscript": {
+      "post": {
+        "summary": "RegisterPkScriptNtfn is a bidirectional streaming RPC that registers an\nintent for a client to receive spend and/or confirmation notifications for\noutputs paying to watched pkScripts.",
+        "description": "The first client message must be an empty registration request. After the\nstream is established, the client can dynamically add or remove pkScripts by\nsending mutation requests on the same stream. Notifications are delivered on\nthe response stream and reorg invalidations are surfaced by setting\ndisconnected=true on the notification.\n\nAdd acknowledgments only mean the scripts were accepted for future chain\nactivity. Confirmation notifications are only sent once the requested\nconfirmation depth is reached. Reorg invalidations are sent on the same\nstream with disconnected=true.",
+        "operationId": "ChainNotifier_RegisterPkScriptNtfn",
+        "responses": {
+          "200": {
+            "description": "A successful response.(streaming responses)",
+            "schema": {
+              "type": "object",
+              "properties": {
+                "result": {
+                  "$ref": "#/definitions/chainrpcPkScriptEvent"
+                },
+                "error": {
+                  "$ref": "#/definitions/rpcStatus"
+                }
+              },
+              "title": "Stream result of chainrpcPkScriptEvent"
+            }
+          },
+          "default": {
+            "description": "An unexpected error response.",
+            "schema": {
+              "$ref": "#/definitions/rpcStatus"
+            }
+          }
+        },
+        "parameters": [
+          {
+            "name": "body",
+            "description": " (streaming inputs)",
+            "in": "body",
+            "required": true,
+            "schema": {
+              "$ref": "#/definitions/chainrpcPkScriptRequest"
+            }
+          }
+        ],
+        "tags": [
+          "ChainNotifier"
+        ]
+      }
+    },
     "/v2/chainnotifier/register/spends": {
       "post": {
         "summary": "RegisterSpendNtfn is a synchronous response-streaming RPC that registers an\nintent for a client to be notification once a spend request has been spent\nby a transaction that has confirmed on-chain.",
@@ -147,6 +191,43 @@
     }
   },
   "definitions": {
+    "chainrpcAddPkScriptRequest": {
+      "type": "object",
+      "properties": {
+        "pk_scripts": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "format": "byte"
+          },
+          "description": "Additional pkScripts to watch on this stream. Scripts already watched by\nthis stream are ignored and keep their original options."
+        },
+        "events": {
+          "type": "array",
+          "items": {
+            "$ref": "#/definitions/chainrpcPkScriptEventType"
+          },
+          "description": "The event types to watch for the added pkScripts. If omitted, both\nconfirmations and spends are watched."
+        },
+        "num_confs": {
+          "type": "integer",
+          "format": "int64",
+          "description": "The number of confirmations matched outputs should reach before\nconfirmation notifications are dispatched. If unset, the default is 1."
+        },
+        "include_block": {
+          "type": "boolean",
+          "description": "If true, then the relevant block for each pkScript notification will be\nincluded in the event payload."
+        },
+        "include_tx": {
+          "type": "boolean",
+          "description": "If true, then the relevant transaction for each pkScript notification will\nbe included in the event payload."
+        },
+        "include_confirmation_updates": {
+          "type": "boolean",
+          "description": "If true, partial confirmation progress events will be sent before the final\nconfirmation notification reaches num_confs."
+        }
+      }
+    },
     "chainrpcBlockEpoch": {
       "type": "object",
       "properties": {
@@ -249,9 +330,179 @@
         }
       }
     },
-    "chainrpcReorg": {
+    "chainrpcPkScriptEvent": {
       "type": "object",
-      "description": "TODO(wilmer): need to know how the client will use this first."
+      "properties": {
+        "ack": {
+          "$ref": "#/definitions/chainrpcPkScriptMutationAck",
+          "description": "Acknowledges that a stream mutation was accepted."
+        },
+        "notification": {
+          "$ref": "#/definitions/chainrpcPkScriptNotification",
+          "description": "A notification for a watched output script."
+        }
+      }
+    },
+    "chainrpcPkScriptEventType": {
+      "type": "string",
+      "enum": [
+        "PK_SCRIPT_EVENT_TYPE_CONFIRM",
+        "PK_SCRIPT_EVENT_TYPE_SPEND",
+        "PK_SCRIPT_EVENT_TYPE_CONFIRMATION_UPDATE"
+      ],
+      "default": "PK_SCRIPT_EVENT_TYPE_CONFIRM"
+    },
+    "chainrpcPkScriptMutationAck": {
+      "type": "object",
+      "properties": {
+        "action": {
+          "$ref": "#/definitions/chainrpcPkScriptMutationAction",
+          "description": "The mutation that was accepted for this stream."
+        },
+        "num_added": {
+          "type": "integer",
+          "format": "int64",
+          "description": "The number of new scripts accepted by this mutation."
+        }
+      }
+    },
+    "chainrpcPkScriptMutationAction": {
+      "type": "string",
+      "enum": [
+        "PK_SCRIPT_MUTATION_ACTION_REGISTER",
+        "PK_SCRIPT_MUTATION_ACTION_ADD",
+        "PK_SCRIPT_MUTATION_ACTION_REMOVE"
+      ],
+      "default": "PK_SCRIPT_MUTATION_ACTION_REGISTER"
+    },
+    "chainrpcPkScriptNotification": {
+      "type": "object",
+      "properties": {
+        "event_type": {
+          "$ref": "#/definitions/chainrpcPkScriptEventType",
+          "description": "The kind of notification being delivered."
+        },
+        "height": {
+          "type": "integer",
+          "format": "int64",
+          "description": "The height relevant to this event."
+        },
+        "block_hash": {
+          "type": "string",
+          "format": "byte",
+          "description": "The hash of the relevant block for this event."
+        },
+        "tx_hash": {
+          "type": "string",
+          "format": "byte",
+          "description": "The hash of the relevant transaction for this event."
+        },
+        "tx_index": {
+          "type": "integer",
+          "format": "int64",
+          "description": "The index of the relevant transaction in the block that mined it. For\nconfirmation notifications this is the funding transaction's index in the\nUTXO block. For spend notifications this is the spending transaction's\nindex in block_hash."
+        },
+        "num_confirmations": {
+          "type": "integer",
+          "format": "int64",
+          "description": "The number of confirmations reached by the watched output."
+        },
+        "disconnected": {
+          "type": "boolean",
+          "description": "True if this notification invalidates a previously sent event."
+        },
+        "utxo": {
+          "$ref": "#/definitions/chainrpcPkScriptUtxo",
+          "description": "The watched output associated with this event."
+        },
+        "raw_tx": {
+          "type": "string",
+          "format": "byte",
+          "description": "The raw bytes of the relevant transaction, if include_tx was requested.\nFor confirmation notifications this is the funding transaction. For spend\nnotifications this is the spending transaction."
+        },
+        "raw_block": {
+          "type": "string",
+          "format": "byte",
+          "description": "The raw bytes of the relevant block, if include_block was requested. For\nconfirmation notifications this is the block at which the output reached\nthe requested confirmation depth. For spend notifications this is the\nblock containing the spend."
+        },
+        "input_index": {
+          "type": "integer",
+          "format": "int64",
+          "description": "The spending input index. This is only set for spend notifications."
+        },
+        "required_confirmations": {
+          "type": "integer",
+          "format": "int64",
+          "description": "The requested confirmation target. This is set for final confirmation and\npartial confirmation progress notifications."
+        }
+      }
+    },
+    "chainrpcPkScriptRegisterRequest": {
+      "type": "object"
+    },
+    "chainrpcPkScriptRequest": {
+      "type": "object",
+      "properties": {
+        "register": {
+          "$ref": "#/definitions/chainrpcPkScriptRegisterRequest"
+        },
+        "add": {
+          "$ref": "#/definitions/chainrpcAddPkScriptRequest"
+        },
+        "remove": {
+          "$ref": "#/definitions/chainrpcRemovePkScriptRequest"
+        }
+      }
+    },
+    "chainrpcPkScriptUtxo": {
+      "type": "object",
+      "properties": {
+        "outpoint": {
+          "$ref": "#/definitions/chainrpcOutpoint",
+          "description": "The outpoint paying to the watched script."
+        },
+        "value": {
+          "type": "string",
+          "format": "int64",
+          "description": "The value of the watched output in satoshis."
+        },
+        "pk_script": {
+          "type": "string",
+          "format": "byte",
+          "description": "The watched output script."
+        },
+        "block_height": {
+          "type": "integer",
+          "format": "int64",
+          "description": "The height at which the watched output was created."
+        },
+        "block_hash": {
+          "type": "string",
+          "format": "byte",
+          "description": "The hash of the block that created the watched output."
+        },
+        "tx_index": {
+          "type": "integer",
+          "format": "int64",
+          "description": "The transaction index of the funding transaction in block_hash."
+        }
+      }
+    },
+    "chainrpcRemovePkScriptRequest": {
+      "type": "object",
+      "properties": {
+        "pk_scripts": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "format": "byte"
+          },
+          "description": "PkScripts to stop watching on this stream."
+        }
+      }
+    },
+    "chainrpcReorg": {
+      "type": "object"
     },
     "chainrpcSpendDetails": {
       "type": "object",

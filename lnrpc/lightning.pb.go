@@ -14906,16 +14906,19 @@ type ChannelFeeReport struct {
 	ChannelPoint string `protobuf:"bytes,1,opt,name=channel_point,json=channelPoint,proto3" json:"channel_point,omitempty"`
 	// The base fee charged regardless of the number of milli-satoshis sent.
 	BaseFeeMsat int64 `protobuf:"varint,2,opt,name=base_fee_msat,json=baseFeeMsat,proto3" json:"base_fee_msat,omitempty"`
-	// The amount charged per milli-satoshis transferred expressed in
-	// millionths of a satoshi.
+	// The proportional fee charged on the amount forwarded, expressed in
+	// parts per million: a value of N charges N milli-satoshis for every
+	// 1,000,000 milli-satoshis forwarded.
 	FeePerMil int64 `protobuf:"varint,3,opt,name=fee_per_mil,json=feePerMil,proto3" json:"fee_per_mil,omitempty"`
-	// The effective fee rate in milli-satoshis. Computed by dividing the
+	// The same proportional fee expressed as a fraction of the amount
+	// forwarded rather than in parts per million. Computed by dividing the
 	// fee_per_mil value by 1 million.
 	FeeRate float64 `protobuf:"fixed64,4,opt,name=fee_rate,json=feeRate,proto3" json:"fee_rate,omitempty"`
 	// The base fee charged regardless of the number of milli-satoshis sent.
 	InboundBaseFeeMsat int32 `protobuf:"varint,6,opt,name=inbound_base_fee_msat,json=inboundBaseFeeMsat,proto3" json:"inbound_base_fee_msat,omitempty"`
-	// The amount charged per milli-satoshis transferred expressed in
-	// millionths of a satoshi.
+	// The proportional fee charged on the amount forwarded, expressed in
+	// parts per million: a value of N charges N milli-satoshis for every
+	// 1,000,000 milli-satoshis forwarded.
 	InboundFeePerMil int32 `protobuf:"varint,7,opt,name=inbound_fee_per_mil,json=inboundFeePerMil,proto3" json:"inbound_fee_per_mil,omitempty"`
 	unknownFields    protoimpl.UnknownFields
 	sizeCache        protoimpl.SizeCache

@@ -4637,19 +4637,22 @@ message ChannelFeeReport {
     // The base fee charged regardless of the number of milli-satoshis sent.
     int64 base_fee_msat = 2;
 
-    // The amount charged per milli-satoshis transferred expressed in
-    // millionths of a satoshi.
+    // The proportional fee charged on the amount forwarded, expressed in
+    // parts per million: a value of N charges N milli-satoshis for every
+    // 1,000,000 milli-satoshis forwarded.
     int64 fee_per_mil = 3;
 
-    // The effective fee rate in milli-satoshis. Computed by dividing the
+    // The same proportional fee expressed as a fraction of the amount
+    // forwarded rather than in parts per million. Computed by dividing the
     // fee_per_mil value by 1 million.
     double fee_rate = 4;
 
     // The base fee charged regardless of the number of milli-satoshis sent.
     int32 inbound_base_fee_msat = 6;
 
-    // The amount charged per milli-satoshis transferred expressed in
-    // millionths of a satoshi.
+    // The proportional fee charged on the amount forwarded, expressed in
+    // parts per million: a value of N charges N milli-satoshis for every
+    // 1,000,000 milli-satoshis forwarded.
     int32 inbound_fee_per_mil = 7;
 }
 

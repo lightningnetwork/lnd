@@ -59,7 +59,7 @@ type NodeAnnouncement2 struct {
 
 	// Signature is used to validate the announced data and prove the
 	// ownership of node id.
-	Signature tlv.RecordT[tlv.TlvType160, Sig]
+	Signature tlv.RecordT[tlv.TlvType240, Sig]
 
 	// Any extra fields in the signed range that we do not yet know about,
 	// but we need to keep them for signature validation and to produce a
@@ -151,6 +151,16 @@ func (n *NodeAnnouncement2) Decode(r io.Reader, _ uint32) error {
 
 	typeMap, err := stream.DecodeWithParsedTypesP2P(r)
 	if err != nil {
+		return err
+	}
+
+	if err := AssertRequiredPresent(
+		typeMap,
+		n.Features.TlvType(),
+		n.BlockHeight.TlvType(),
+		n.NodeID.TlvType(),
+		n.Signature.TlvType(),
+	); err != nil {
 		return err
 	}
 
@@ -536,6 +546,11 @@ func (a *TorV3Addrs) Record() tlv.Record {
 func torV3AddrsEncoder(w io.Writer, val interface{}, _ *[8]byte) error {
 	if v, ok := val.(*TorV3Addrs); ok {
 		for _, addr := range *v {
+			if addr.Port == 0 {
+				return fmt.Errorf("tor_v3_address port " +
+					"must not be 0")
+			}
+
 			encodedHostLen := tor.V3Len - tor.OnionSuffixLen
 			host, err := tor.Base32Encoding.DecodeString(
 				addr.OnionService[:encodedHostLen],
@@ -600,6 +615,10 @@ func torV3AddrsDecoder(r io.Reader, val interface{}, _ *[8]byte,
 			}
 
 			port := int(binary.BigEndian.Uint16(p[:]))
+			if port == 0 {
+				return fmt.Errorf("tor_v3_address port " +
+					"must not be 0")
+			}
 			addrs = append(addrs, &tor.OnionAddr{
 				OnionService: onionService,
 				Port:         port,

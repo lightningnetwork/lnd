@@ -43,6 +43,11 @@
   BOLT 1. The existing request flood limit remains the connection teardown
   boundary instead of silently suppressing otherwise valid Pong replies.
 
+* Final-hop invoice processing [now keeps unexpected invoice lookup errors
+  retryable and handles interceptor errors for new HTLCs as individual
+  failures](https://github.com/lightningnetwork/lnd/pull/11161), while
+  preserving the recorded outcome for replayed HTLCs.
+
 # New Features
 
 ## Functional Enhancements

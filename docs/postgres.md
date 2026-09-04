@@ -52,6 +52,28 @@ resource exhaustion in case LND experiencing high concurrent load:
 * `db.postgres.channeldb-with-global-lock=false` to run the channeldb_kv table
   with a single writer (default is false).
 
+## Transaction isolation
+
+`lnd` opens read-write transactions at the `SERIALIZABLE` isolation level.
+Read-only transactions are opened at `REPEATABLE READ`, which in Postgres is
+snapshot isolation: the transaction reads from a single consistent snapshot,
+taken when its first statement runs. Reads therefore acquire no `SIRead`
+predicate locks and take no part in Postgres' serializable snapshot isolation
+conflict graph, which substantially cuts the number of `40001` serialization
+failures that `lnd` and its concurrent writers have to retry through.
+
+Operators should be aware that some of `lnd`'s read transactions are long
+lived. Loading the graph cache at startup and each `GraphSession` used for
+pathfinding hold a read transaction open for their full duration, and each
+holds its snapshot for that whole time. Two consequences follow. First,
+Postgres cannot vacuum row versions that are still visible to an open snapshot,
+so a very slow or stuck read transaction delays cleanup and can bloat tables.
+Second, such a session sits in the `idle in transaction` state whenever `lnd`
+is computing between queries, so if `idle_in_transaction_session_timeout` is
+configured it must be generous enough to cover a full pathfinding pass or
+Postgres will terminate the transaction mid-flight. The same caution applies to
+`statement_timeout` for the individual queries these transactions run.
+
 ## Important note about replication
 
 In case a replication architecture is planned, streaming replication should be avoided, as the master does not verify the replica is indeed identical, but it will only forward the edits queue, and let the slave catch up autonomously; synchronous mode, albeit slower, is paramount for `lnd` data integrity across the copies, as it will finalize writes only after the slave confirmed successful replication.

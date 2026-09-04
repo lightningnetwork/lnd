@@ -303,6 +303,19 @@ func (h *HarnessRPC) ListAccounts(
 	return resp
 }
 
+// NextAddr makes a RPC call to the node's WalletKitClient and asserts.
+func (h *HarnessRPC) NextAddr(
+	req *walletrpc.AddrRequest) *walletrpc.AddrResponse {
+
+	ctxt, cancel := context.WithTimeout(h.runCtx, DefaultTimeout)
+	defer cancel()
+
+	resp, err := h.WalletKit.NextAddr(ctxt, req)
+	h.NoError(err, "NextAddr")
+
+	return resp
+}
+
 // XCreateAccount makes a RPC call to the node's WalletKitClient and asserts.
 func (h *HarnessRPC) XCreateAccount(req *walletrpc.XCreateAccountRequest,
 ) *walletrpc.XCreateAccountResponse {

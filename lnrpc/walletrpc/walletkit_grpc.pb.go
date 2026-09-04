@@ -111,12 +111,22 @@ type WalletKitClient interface {
 	// sequentially per key scope, shared with accounts created by ImportAccount.
 	//
 	// To keep an account recoverable, record its key scope, the account index
-	// (the account's derivation_path in the response), and how many addresses
-	// it has issued. To restore: re-create every account in that key scope in
-	// their original order so the index counter lands on the same value,
-	// re-derive at least as many addresses as were previously issued with
-	// NextAddr — a rescan only searches for addresses already present in the
-	// wallet database, and a freshly created account has none — and only then
+	// (the account's derivation_path in the response), and both
+	// external_key_count and internal_key_count. The two counters are
+	// independent: NextAddr's change field selects the branch, and it
+	// defaults to the external branch. Replaying a single aggregate address
+	// count, or calling NextAddr without change=true, leaves internal/change
+	// scripts unknown to the restored wallet even after a transaction
+	// rescan. Recording only the derivation path when the account is created
+	// is not enough, because both counters start at zero and increase as the
+	// account is used.
+	//
+	// To restore: re-create every account in that key scope in their
+	// original order so the index counter lands on the same value; call
+	// NextAddr with change=false at least external_key_count times and
+	// NextAddr with change=true at least internal_key_count times — a
+	// rescan only searches for addresses already present in the wallet
+	// database, and a freshly created account has none — and only then
 	// rescan with --reset-wallet-transactions.
 	XCreateAccount(ctx context.Context, in *XCreateAccountRequest, opts ...grpc.CallOption) (*XCreateAccountResponse, error)
 	// lncli: `wallet requiredreserve`
@@ -737,12 +747,22 @@ type WalletKitServer interface {
 	// sequentially per key scope, shared with accounts created by ImportAccount.
 	//
 	// To keep an account recoverable, record its key scope, the account index
-	// (the account's derivation_path in the response), and how many addresses
-	// it has issued. To restore: re-create every account in that key scope in
-	// their original order so the index counter lands on the same value,
-	// re-derive at least as many addresses as were previously issued with
-	// NextAddr — a rescan only searches for addresses already present in the
-	// wallet database, and a freshly created account has none — and only then
+	// (the account's derivation_path in the response), and both
+	// external_key_count and internal_key_count. The two counters are
+	// independent: NextAddr's change field selects the branch, and it
+	// defaults to the external branch. Replaying a single aggregate address
+	// count, or calling NextAddr without change=true, leaves internal/change
+	// scripts unknown to the restored wallet even after a transaction
+	// rescan. Recording only the derivation path when the account is created
+	// is not enough, because both counters start at zero and increase as the
+	// account is used.
+	//
+	// To restore: re-create every account in that key scope in their
+	// original order so the index counter lands on the same value; call
+	// NextAddr with change=false at least external_key_count times and
+	// NextAddr with change=true at least internal_key_count times — a
+	// rescan only searches for addresses already present in the wallet
+	// database, and a freshly created account has none — and only then
 	// rescan with --reset-wallet-transactions.
 	XCreateAccount(context.Context, *XCreateAccountRequest) (*XCreateAccountResponse, error)
 	// lncli: `wallet requiredreserve`

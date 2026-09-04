@@ -1732,6 +1732,22 @@ func (f *Manager) fundeeProcessOpenChannel(peer lnpeer.Peer,
 		return
 	}
 
+	// Until the reservation is added to activeReservations, the regular
+	// funding flow cleanup cannot find it. Cancel it directly if any of the
+	// remaining setup steps fail before ownership is transferred to the
+	// funding manager.
+	cancelReservation := true
+	defer func() {
+		if !cancelReservation {
+			return
+		}
+
+		if err := reservation.Cancel(); err != nil {
+			log.Errorf("Unable to cancel unregistered reservation: %v",
+				err)
+		}
+	}()
+
 	log.Debugf("Initialized channel reservation: zeroConf=%v, psbt=%v, "+
 		"cannedShim=%v", reservation.IsZeroConf(),
 		reservation.IsPsbt(), reservation.IsCannedShim())
@@ -1918,6 +1934,7 @@ func (f *Manager) fundeeProcessOpenChannel(peer lnpeer.Peer,
 		peer:              peer,
 	}
 	f.activeReservations[peerIDKey][msg.PendingChannelID] = resCtx
+	cancelReservation = false
 	f.resMtx.Unlock()
 
 	// Update the timestamp once the fundingOpenMsg has been handled.

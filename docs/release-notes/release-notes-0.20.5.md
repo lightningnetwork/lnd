@@ -58,6 +58,12 @@
   modern revocation log format, and the breach arbiter now skips and logs
   any HTLC retribution with a nil sign descriptor output.
 
+* [Fixed historical graph
+  synchronization](https://github.com/lightningnetwork/lnd/pull/11173) so a
+  peer whose channel range response cannot be used is rotated out of the
+  current historical sync. The sync manager selects another peer without
+  disconnecting the first one or waiting for the historical sync interval.
+
 # New Features
 
 ## Functional Enhancements

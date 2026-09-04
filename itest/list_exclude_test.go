@@ -46,7 +46,8 @@ var excludedTestsWindows = append(append([]string{
 
 	"coop close with htlcs",
 
-	"forward interceptor restart",
+	"forward interceptor restart before resume",
+	"forward interceptor restart after resume",
 	"forward interceptor dedup htlcs",
 	"invoice HTLC modifier basic",
 	"lookup htlc resolution",

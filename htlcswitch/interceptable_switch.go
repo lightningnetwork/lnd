@@ -99,9 +99,10 @@ type InterceptableSwitch struct {
 }
 
 type interceptedPackets struct {
-	packets  []*htlcPacket
-	linkQuit <-chan struct{}
-	isReplay bool
+	packets         []*htlcPacket
+	linkQuit        <-chan struct{}
+	isReplay        bool
+	replayProcessed chan struct{}
 }
 
 type onchainInterceptRequest struct {
@@ -307,6 +308,23 @@ func (s *InterceptableSwitch) run() error {
 
 		case packets := <-s.intercepted:
 			var notIntercepted []*htlcPacket
+			if packets.isReplay {
+				notIntercepted, packets.packets =
+					s.partitionReplays(packets.packets)
+
+				// Keep the owner link paused through commit.
+				err := s.htlcSwitch.ForwardPackets(
+					packets.linkQuit, notIntercepted...,
+				)
+				if err != nil {
+					log.Errorf("Cannot reconcile replayed "+
+						"packets: %v", err)
+				}
+
+				close(packets.replayProcessed)
+				notIntercepted = nil
+			}
+
 			for _, p := range packets.packets {
 				intercepted, err := s.interceptForward(
 					p, packets.isReplay,
@@ -362,6 +380,27 @@ func (s *InterceptableSwitch) run() error {
 			return nil
 		}
 	}
+}
+
+// partitionReplays separates adds with known incoming circuits from packets
+// that still require interceptor processing.
+func (s *InterceptableSwitch) partitionReplays(
+	packets []*htlcPacket) ([]*htlcPacket, []*htlcPacket) {
+
+	var known, remaining []*htlcPacket
+	for _, packet := range packets {
+		_, isAdd := packet.htlc.(*lnwire.UpdateAddHTLC)
+		isSource := packet.incomingChanID == hop.Source
+		circuit := s.htlcSwitch.circuits.LookupCircuit(packet.inKey())
+		if !isAdd || isSource || circuit == nil {
+			remaining = append(remaining, packet)
+			continue
+		}
+
+		known = append(known, packet)
+	}
+
+	return known, remaining
 }
 
 func (s *InterceptableSwitch) failExpiredHtlcs() {
@@ -445,21 +484,43 @@ func (s *InterceptableSwitch) Resolve(res *FwdResolution) error {
 // ForwardPackets attempts to forward the batch of htlcs to a connected
 // interceptor. If the interceptor signals the resume action, the htlcs are
 // forwarded to the switch. The link's quit signal should be provided to allow
-// cancellation of forwarding during link shutdown.
+// cancellation of forwarding during link shutdown. Replay calls return after
+// the switch has reconciled any circuits that already exist.
 func (s *InterceptableSwitch) ForwardPackets(linkQuit <-chan struct{},
 	isReplay bool, packets ...*htlcPacket) error {
+	var replayProcessed chan struct{}
+	if isReplay {
+		replayProcessed = make(chan struct{})
+	}
 
 	// Synchronize with the main event loop. This should be light in the
 	// case where there is no interceptor.
 	select {
 	case s.intercepted <- &interceptedPackets{
-		packets:  packets,
-		linkQuit: linkQuit,
-		isReplay: isReplay,
+		packets:         packets,
+		linkQuit:        linkQuit,
+		isReplay:        isReplay,
+		replayProcessed: replayProcessed,
 	}:
 
 	case <-linkQuit:
 		log.Debugf("Forward cancelled because link quit")
+
+	case <-s.quit:
+		return errors.New("interceptable switch quit")
+	}
+
+	if !isReplay {
+		return nil
+	}
+
+	// Keep the incoming link paused until the switch reconciles any
+	// existing replay circuits.
+	select {
+	case <-replayProcessed:
+
+	case <-linkQuit:
+		log.Debugf("Replay reconciliation cancelled because link quit")
 
 	case <-s.quit:
 		return errors.New("interceptable switch quit")
@@ -520,6 +581,13 @@ func (s *InterceptableSwitch) interceptForward(packet *htlcPacket,
 			return false, nil
 		}
 
+		// A held replay retains the original expiry decision and
+		// resolution handle. Do not fail a duplicate as the chain
+		// height advances.
+		if s.heldHtlcSet.exists(packet.inKey()) {
+			return true, nil
+		}
+
 		intercepted := &interceptedForward{
 			htlc:       htlc,
 			packet:     packet,
@@ -560,13 +628,6 @@ func (s *InterceptableSwitch) interceptForward(packet *htlcPacket,
 // interceptor if needed.
 func (s *InterceptableSwitch) forwardOffChain(
 	fwd InterceptedForward, isReplay bool) (bool, error) {
-
-	inKey := fwd.Packet().IncomingCircuit
-
-	// Ignore already held htlcs.
-	if s.heldHtlcSet.exists(inKey) {
-		return true, nil
-	}
 
 	// If there is no interceptor currently registered, configuration and packet
 	// replay status determine how the packet is handled.

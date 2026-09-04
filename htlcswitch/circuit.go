@@ -199,17 +199,18 @@ func (c *PaymentCircuit) Decode(r io.Reader) error {
 
 	case hop.EncrypterTypeSphinx:
 		// Sphinx encrypter was used as this is a forwarded HTLC.
-		c.ErrorEncrypter = hop.NewSphinxErrorEncrypter()
+		c.ErrorEncrypter = hop.NewSphinxErrorEncrypterUninitialized()
 
 	case hop.EncrypterTypeMock:
 		// Test encrypter.
 		c.ErrorEncrypter = NewMockObfuscator()
 
 	case hop.EncrypterTypeIntroduction:
-		c.ErrorEncrypter = hop.NewIntroductionErrorEncrypter()
+		c.ErrorEncrypter =
+			hop.NewIntroductionErrorEncrypterUninitialized()
 
 	case hop.EncrypterTypeRelaying:
-		c.ErrorEncrypter = hop.NewRelayingErrorEncrypter()
+		c.ErrorEncrypter = hop.NewRelayingErrorEncrypterUninitialized()
 
 	default:
 		return UnknownEncrypterType(encrypterType)

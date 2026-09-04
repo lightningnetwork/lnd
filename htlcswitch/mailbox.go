@@ -753,6 +753,7 @@ func (m *memoryMailBox) FailAdd(pkt *htlcPacket) {
 	var (
 		localFailure = false
 		reason       lnwire.OpaqueReason
+		attrData     []byte
 	)
 
 	var failure lnwire.FailureMessage
@@ -783,11 +784,22 @@ func (m *memoryMailBox) FailAdd(pkt *htlcPacket) {
 		// If the packet is part of a forward, (identified by a non-nil
 		// obfuscator) we need to encrypt the error back to the source.
 		var err error
-		reason, err = pkt.obfuscator.EncryptFirstHop(failure)
+		reason, attrData, err = pkt.obfuscator.EncryptFirstHop(failure)
 		if err != nil {
 			log.Errorf("Unable to obfuscate error: %v", err)
 			return
 		}
+	}
+
+	extraData, err := lnwire.AttrDataToExtraData(attrData)
+	if err != nil {
+		// Even if we cannot convert the attribution data, we must still
+		// fail the HTLC back rather than returning early and leaving it
+		// dangling until timeout (which would force an on-chain close).
+		// Fall back to failing without attribution data.
+		log.Errorf("Failed to convert attr data, failing back "+
+			"without attribution: %v", err)
+		extraData = nil
 	}
 
 	// Create a link error containing the temporary channel failure and a
@@ -808,7 +820,8 @@ func (m *memoryMailBox) FailAdd(pkt *htlcPacket) {
 		obfuscator:     pkt.obfuscator,
 		linkFailure:    linkError,
 		htlc: &lnwire.UpdateFailHTLC{
-			Reason: reason,
+			Reason:    reason,
+			ExtraData: extraData,
 		},
 	}
 

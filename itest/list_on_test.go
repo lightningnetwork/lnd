@@ -764,6 +764,10 @@ var allTestCases = []*lntest.TestCase{
 		TestFunc: testExperimentalAccountability,
 	},
 	{
+		Name:     "attributable failure hold times",
+		TestFunc: testAttributableFailureHoldTimes,
+	},
+	{
 		Name:     "quiescence",
 		TestFunc: testQuiescence,
 	},

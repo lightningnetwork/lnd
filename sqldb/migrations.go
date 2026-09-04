@@ -136,6 +136,11 @@ var (
 			Version:       18,
 			SchemaVersion: 15,
 		},
+		{
+			Name:          "000016_payment_hold_times",
+			Version:       19,
+			SchemaVersion: 16,
+		},
 	}, migrationAdditions...)
 
 	// ErrMigrationMismatch is returned when a migrated record does not

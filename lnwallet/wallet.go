@@ -634,6 +634,33 @@ func (l *LightningWallet) LockedOutpoints() []*wire.OutPoint {
 	return outPoints
 }
 
+// ResolveOutputLeaser returns the optional output lease capability implemented
+// by a wallet controller. It traverses wallet adapters so the result reflects
+// the concrete controller rather than a wrapper's method set.
+func ResolveOutputLeaser(wallet WalletController) (
+	OutputLeaserWithOptions, bool) {
+
+	for {
+		leaser, ok := wallet.(OutputLeaserWithOptions)
+		if ok {
+			return leaser, true
+		}
+
+		wrapper, ok := wallet.(WalletControllerWrapper)
+		if !ok {
+			return nil, false
+		}
+
+		wallet = wrapper.UnwrapWalletController()
+	}
+}
+
+// UnwrapWalletController returns the base wallet controller wrapped by the
+// Lightning-aware wallet.
+func (l *LightningWallet) UnwrapWalletController() WalletController {
+	return l.WalletController
+}
+
 // ResetReservations reset the volatile wallet state which tracks all currently
 // active reservations.
 func (l *LightningWallet) ResetReservations() {

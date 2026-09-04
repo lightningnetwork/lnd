@@ -5,9 +5,11 @@ package walletrpc
 
 import (
 	"bytes"
+	"errors"
 	"fmt"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/btcsuite/btcd/btcec/v2"
 	"github.com/btcsuite/btcd/btcec/v2/schnorr"
@@ -17,13 +19,49 @@ import (
 	"github.com/btcsuite/btcd/txscript/v2"
 	"github.com/btcsuite/btcd/wire/v2"
 	"github.com/btcsuite/btcwallet/wallet"
+	"github.com/btcsuite/btcwallet/wtxmgr"
 	"github.com/lightningnetwork/lnd/input"
+	"github.com/lightningnetwork/lnd/lnrpc"
 	"github.com/lightningnetwork/lnd/lntest/mock"
 	"github.com/lightningnetwork/lnd/lnwallet"
 	"github.com/lightningnetwork/lnd/lnwallet/chainfee"
 	"github.com/lightningnetwork/lnd/lnwallet/chanfunding"
 	"github.com/stretchr/testify/require"
 )
+
+// TestMarshallLeasesIncludesSpendProgress verifies that ListLeases exposes
+// each confirmation-controlled lease's persisted spend progress.
+func TestMarshallLeasesIncludesSpendProgress(t *testing.T) {
+	t.Parallel()
+
+	testCases := []int32{0, 123, -1}
+	for _, spendHeight := range testCases {
+		testName := fmt.Sprintf("height %d", spendHeight)
+		t.Run(testName, func(t *testing.T) {
+			t.Parallel()
+
+			lockedOutput := &wtxmgr.LockedOutput{
+				Outpoint:               wire.OutPoint{Index: 2},
+				LockID:                 wtxmgr.LockID{1},
+				Expiration:             time.Unix(123, 0),
+				ReleaseAfterSpendConfs: 6,
+				ConfirmedSpendHeight:   spendHeight,
+			}
+			locks := []*wallet.ListLeasedOutputResult{{
+				LockedOutput: lockedOutput,
+				Value:        1000,
+				PkScript:     []byte{0x51},
+			}}
+
+			rpcLocks := marshallLeases(locks)
+			require.Len(t, rpcLocks, 1)
+			require.Equal(
+				t, spendHeight,
+				rpcLocks[0].ConfirmedSpendHeight,
+			)
+		})
+	}
+}
 
 // TestWitnessTypeMapping tests that the two witness type enums in the `input`
 // package and the `walletrpc` package remain equal.
@@ -66,6 +104,23 @@ type mockCoinSelectionLocker struct {
 	fail bool
 }
 
+// renewalWallet returns a persisted lease after extending it through the
+// legacy lease method.
+type renewalWallet struct {
+	*leaseOptionsWallet
+
+	leases  []*wallet.ListLeasedOutputResult
+	listErr error
+}
+
+// ListLeasedOutputs returns the persisted leases visible after renewal.
+func (w *renewalWallet) ListLeasedOutputs() (
+	[]*wallet.ListLeasedOutputResult, error) {
+
+	return w.leases, w.listErr
+}
+
+// WithCoinSelectLock runs the callback and optionally returns a test error.
 func (m *mockCoinSelectionLocker) WithCoinSelectLock(f func() error) error {
 	if err := f(); err != nil {
 		return err
@@ -76,6 +131,148 @@ func (m *mockCoinSelectionLocker) WithCoinSelectLock(f func() error) error {
 	}
 
 	return nil
+}
+
+// TestLeaseOutputRejectsUnsupportedOptions verifies WalletKit does not
+// silently downgrade an option-bearing request to a time-only lease.
+func TestLeaseOutputRejectsUnsupportedOptions(t *testing.T) {
+	t.Parallel()
+
+	wallet := &legacyLeaseWallet{
+		WalletController: &mock.WalletController{},
+	}
+	rpcServer, _, err := New(&Config{
+		Wallet: &lnwallet.LightningWallet{
+			WalletController: wallet,
+		},
+		CoinSelectionLocker: &mockCoinSelectionLocker{},
+	})
+	require.NoError(t, err)
+
+	_, err = rpcServer.LeaseOutput(t.Context(), &LeaseOutputRequest{
+		Id: bytes.Repeat([]byte{1}, 32),
+		Outpoint: &lnrpc.OutPoint{
+			TxidBytes:   make([]byte, 32),
+			OutputIndex: 1,
+		},
+		ExpirationSeconds:      60,
+		ReleaseAfterSpendConfs: 6,
+	})
+	require.ErrorIs(t, err, errOutputLeaseOptionsUnsupported)
+	require.Zero(t, wallet.leaseCalls,
+		"unsupported options must not create a shorter legacy lease")
+}
+
+// TestLeaseOutputReturnsEffectiveRenewalDepth verifies that renewing an
+// existing confirmation-controlled lease through the legacy zero-depth path
+// reports the non-zero depth retained by the wallet.
+func TestLeaseOutputReturnsEffectiveRenewalDepth(t *testing.T) {
+	t.Parallel()
+
+	lockID := wtxmgr.LockID{1}
+	outpoint := wire.OutPoint{Index: 1}
+	controller := &renewalWallet{
+		leaseOptionsWallet: &leaseOptionsWallet{
+			WalletController: &mock.WalletController{},
+		},
+		leases: []*wallet.ListLeasedOutputResult{{
+			LockedOutput: &wtxmgr.LockedOutput{
+				Outpoint:               outpoint,
+				LockID:                 lockID,
+				ReleaseAfterSpendConfs: 6,
+			},
+		}},
+	}
+	rpcServer, _, err := New(&Config{
+		Wallet:              controller,
+		CoinSelectionLocker: &mockCoinSelectionLocker{},
+	})
+	require.NoError(t, err)
+
+	resp, err := rpcServer.LeaseOutput(t.Context(), &LeaseOutputRequest{
+		Id: lockID[:],
+		Outpoint: &lnrpc.OutPoint{
+			TxidBytes:   make([]byte, 32),
+			OutputIndex: outpoint.Index,
+		},
+		ExpirationSeconds: 60,
+	})
+	require.NoError(t, err)
+	require.Equal(t, uint32(6), resp.ReleaseAfterSpendConfs)
+	require.Equal(t, 1, controller.legacyCalls)
+}
+
+// TestLeaseOutputIgnoresRenewalDepthReadError verifies an informational depth
+// lookup cannot prevent a successful legacy lease.
+func TestLeaseOutputIgnoresRenewalDepthReadError(t *testing.T) {
+	t.Parallel()
+
+	lockID := wtxmgr.LockID{1}
+	controller := &renewalWallet{
+		leaseOptionsWallet: &leaseOptionsWallet{
+			WalletController: &mock.WalletController{},
+		},
+		listErr: errors.New("list leases failed"),
+	}
+	rpcServer, _, err := New(&Config{
+		Wallet:              controller,
+		CoinSelectionLocker: &mockCoinSelectionLocker{},
+	})
+	require.NoError(t, err)
+
+	resp, err := rpcServer.LeaseOutput(t.Context(), &LeaseOutputRequest{
+		Id: lockID[:],
+		Outpoint: &lnrpc.OutPoint{
+			TxidBytes: make([]byte, 32),
+		},
+		ExpirationSeconds: 60,
+	})
+	require.NoError(t, err)
+	require.Zero(t, resp.ReleaseAfterSpendConfs)
+	require.Equal(t, 1, controller.legacyCalls)
+}
+
+// TestFundPsbtRequiresCustomLockID verifies confirmation-controlled input
+// leases require an external, caller-specific owner ID.
+func TestFundPsbtRequiresCustomLockID(t *testing.T) {
+	t.Parallel()
+
+	testCases := []struct {
+		name     string
+		lockID   []byte
+		expected string
+	}{
+		{
+			name: "missing",
+			expected: "custom lock ID required for " +
+				"confirmation-controlled",
+		},
+		{
+			name:     "all zero",
+			lockID:   make([]byte, 32),
+			expected: "custom lock ID must not be all zeros",
+		},
+		{
+			name:     "reserved internal",
+			lockID:   chanfunding.LndInternalLockID[:],
+			expected: "reserved custom lock ID cannot be used",
+		},
+	}
+
+	for _, testCase := range testCases {
+		t.Run(testCase.name, func(t *testing.T) {
+			t.Parallel()
+
+			server := &WalletKit{cfg: &Config{}}
+			req := &FundPsbtRequest{
+				InputReleaseAfterSpendConfs: 6,
+			}
+			req.CustomLockId = testCase.lockID
+
+			_, err := server.FundPsbt(t.Context(), req)
+			require.ErrorContains(t, err, testCase.expected)
+		})
+	}
 }
 
 // TestFundPsbtCoinSelect tests that the coin selection for a PSBT template
@@ -657,7 +854,7 @@ func TestFundPsbtCoinSelect(t *testing.T) {
 				"", tc.changeIndex, copiedPacket, 0,
 				tc.changeType, tc.feeRate,
 				rpcServer.cfg.CoinSelectionStrategy,
-				tc.maxFeeRatio, nil, 0,
+				tc.maxFeeRatio, nil, 0, 0,
 			)
 
 			switch {

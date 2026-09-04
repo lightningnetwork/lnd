@@ -3,17 +3,53 @@ package btcwallet
 import (
 	"math"
 	"testing"
+	"time"
 
 	"github.com/btcsuite/btcd/btcjson"
 	"github.com/btcsuite/btcd/rpcclient"
 	"github.com/btcsuite/btcd/wire/v2"
 	"github.com/btcsuite/btcwallet/chain"
 	"github.com/btcsuite/btcwallet/wallet"
+	"github.com/btcsuite/btcwallet/wtxmgr"
 	"github.com/lightningnetwork/lnd/lnmock"
 	"github.com/lightningnetwork/lnd/lnwallet"
 	"github.com/stretchr/testify/mock"
 	"github.com/stretchr/testify/require"
 )
+
+// lockedOutpointWallet simulates an output held by btcwallet's memory locker.
+type lockedOutpointWallet struct {
+	wallet.Interface
+	leaseCalled bool
+}
+
+// LockedOutpoint reports that the test output is already locked in memory.
+func (w *lockedOutpointWallet) LockedOutpoint(wire.OutPoint) bool {
+	return true
+}
+
+// LeaseOutput records an unexpected attempt to lease the locked output.
+func (w *lockedOutpointWallet) LeaseOutput(wtxmgr.LockID, wire.OutPoint,
+	time.Duration) (time.Time, error) {
+
+	w.leaseCalled = true
+	return time.Time{}, nil
+}
+
+// TestLeaseOutputRejectsInMemoryLock verifies that the legacy lease path
+// preserves the in-memory double-lock guard.
+func TestLeaseOutputRejectsInMemoryLock(t *testing.T) {
+	t.Parallel()
+
+	backend := &lockedOutpointWallet{}
+	wallet := &BtcWallet{wallet: backend}
+
+	_, err := wallet.LeaseOutput(
+		wtxmgr.LockID{}, wire.OutPoint{}, time.Minute,
+	)
+	require.ErrorIs(t, err, wtxmgr.ErrOutputAlreadyLocked)
+	require.False(t, backend.leaseCalled)
+}
 
 type previousOutpointsTest struct {
 	name     string

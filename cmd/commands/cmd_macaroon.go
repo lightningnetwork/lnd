@@ -49,6 +49,20 @@ var (
 			"as a hex encoded string, turning the command into " +
 			"an offline operation",
 	}
+	macProtectorFlag = cli.StringSliceFlag{
+		Name: "protector",
+		Usage: "the name of a protector profile to add to the " +
+			"macaroon; a protector profile restricts which " +
+			"request fields may be set on the RPC methods it " +
+			"covers (for example 'channel-management-v1' " +
+			"denies the fields of the channel " +
+			"open/close/policy RPCs that could redirect " +
+			"channel funds to a third party); " +
+			"methods NOT covered by the profile are unaffected, " +
+			"so combine this with uri: scoped permissions that " +
+			"only grant the covered methods; can be specified " +
+			"multiple times",
+	}
 )
 
 var bakeMacaroonCommand = cli.Command{
@@ -58,8 +72,8 @@ var bakeMacaroonCommand = cli.Command{
 		"and restrictions.",
 	ArgsUsage: "[--save_to=] [--timeout=] [--ip_address=] " +
 		"[--custom_caveat_name= [--custom_caveat_condition=]] " +
-		"[--root_key_id=] [--allow_external_permissions] " +
-		"[--root_key=] permissions...",
+		"[--protector=] [--root_key_id=] " +
+		"[--allow_external_permissions] [--root_key=] permissions...",
 	Description: `
 	Bake a new macaroon that grants the provided permissions and
 	optionally adds restrictions (timeout, IP address) to it.
@@ -102,6 +116,7 @@ var bakeMacaroonCommand = cli.Command{
 		macIPAddressFlag,
 		macCustomCaveatNameFlag,
 		macCustomCaveatConditionFlag,
+		macProtectorFlag,
 		cli.Uint64Flag{
 			Name: "root_key_id",
 			Usage: "the numerical root key ID used to create the " +
@@ -465,8 +480,8 @@ var constrainMacaroonCommand = cli.Command{
 	Category: "Macaroons",
 	Usage:    "Adds one or more restriction(s) to an existing macaroon",
 	ArgsUsage: "[--timeout=] [--ip_address=] [--custom_caveat_name= " +
-		"[--custom_caveat_condition=]] input-macaroon-file " +
-		"constrained-macaroon-file",
+		"[--custom_caveat_condition=]] [--protector=] " +
+		"input-macaroon-file constrained-macaroon-file",
 	Description: `
 	Add one or more first-party caveat(s) (a.k.a. constraints/restrictions)
 	to an existing macaroon.
@@ -476,6 +491,7 @@ var constrainMacaroonCommand = cli.Command{
 		macIPAddressFlag,
 		macCustomCaveatNameFlag,
 		macCustomCaveatConditionFlag,
+		macProtectorFlag,
 	},
 	Action: actionDecorator(constrainMacaroon),
 }
@@ -608,6 +624,17 @@ func applyMacaroonConstraints(ctx *cli.Context,
 				customCaveatName, customCaveatCond,
 			),
 		)
+	}
+
+	if ctx.IsSet(macProtectorFlag.Name) {
+		// The profile name is validated by the constraint itself when
+		// it is applied below.
+		for _, profile := range ctx.StringSlice(macProtectorFlag.Name) {
+			macConstraints = append(
+				macConstraints,
+				macaroons.ProtectorConstraint(profile),
+			)
+		}
 	}
 
 	constrainedMac, err := macaroons.AddConstraints(mac, macConstraints...)

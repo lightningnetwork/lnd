@@ -224,6 +224,71 @@ Have a look at the [Java GRPC example](/docs/grpc/java.md) for programmatic usag
 The macaroon bakery is described in more detail in the
 [README in the macaroons package](../macaroons/README.md).
 
+## Protector caveats: restricting request fields
+
+Permissions decide *which* RPC methods a macaroon may call. Protector caveats
+add a second, finer layer: they restrict *which request fields* may be set on
+the methods covered by a named protector profile. A protector caveat is a
+first-party caveat of the form `protector <profile-name>`, added at bake time
+or appended to an existing macaroon:
+
+```shell
+# Bake a macaroon that can only call the channel management methods and
+# cannot redirect channel funds to a third party.
+lncli bakemacaroon --protector channel-management-v1 \
+    uri:/lnrpc.Lightning/OpenChannel \
+    uri:/lnrpc.Lightning/OpenChannelSync \
+    uri:/lnrpc.Lightning/CloseChannel \
+    uri:/lnrpc.Lightning/UpdateChannelPolicy \
+    uri:/lnrpc.Lightning/GetInfo
+
+# Or tighten an existing macaroon offline; caveats can only ever be added,
+# never removed.
+lncli constrainmacaroon --protector channel-management-v1 \
+    in.macaroon out.macaroon
+```
+
+Profile semantics are compiled into `lnd` and are versioned by name: the rules
+of an existing profile name may be tightened by a future release (existing
+macaroons then automatically benefit on upgrade), but never loosened; changed
+semantics require a new profile name. A macaroon referencing a profile name
+unknown to the validating `lnd` is rejected as a whole, so such macaroons fail
+closed on older versions.
+
+The first profile is `channel-management-v1`: channel management without the
+ability to redirect value to a third party. It covers `OpenChannel`,
+`OpenChannelSync`,
+`BatchOpenChannel`, `CloseChannel` and `UpdateChannelPolicy`, and denies
+setting `push_sat`, `close_address` and `funding_shim` on the open methods and
+`delivery_address` on `CloseChannel`.
+
+### Limitations
+
+A protector caveat is a targeted restriction, not a general spending policy.
+Understand these limits before delegating a macaroon that carries one:
+
+* **Only the covered methods are constrained.** Methods a profile does not
+  cover are completely unaffected by the caveat. Restricting the callable
+  method set remains the job of the macaroon's permissions, so a protector
+  caveat should be combined with `uri:`-scoped permissions granting only the
+  covered methods, as in the example above. With broad entity permissions such
+  as `onchain:write`, uncovered methods like `SendCoins` stay fully usable and
+  the profile has no opinion on them.
+
+* **Never combine a protector caveat with `macaroon:generate`** (or
+  `uri:/lnrpc.Lightning/BakeMacaroon`). A macaroon that is allowed to bake
+  macaroons can mint itself a fresh one without the caveat, which voids the
+  restriction entirely.
+
+* **The guarantee is about redirection, not value loss in general.** Within
+  the covered methods the caveat prevents choosing where funds go, but it does
+  not bound on-chain fees, so a holder can still burn value through the fee
+  rate fields, and force closes remain permitted.
+
+* **No restriction on counterparties.** A profile places no limits on which
+  peers channels may be opened with, only on the fields of the requests it
+  covers.
+
 ## Future improvements to the `lnd` macaroon implementation
 
 The existing macaroon implementation in `lnd` and `lncli` lays the groundwork

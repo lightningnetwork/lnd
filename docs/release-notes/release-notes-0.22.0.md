@@ -51,6 +51,44 @@
 
 ## Functional Enhancements
 
+* [Added a new first-party macaroon caveat
+  type](https://github.com/lightningnetwork/lnd/pull/11117),
+  `protector <profile-name>`, that restricts **which request fields** may be
+  set on the RPC methods covered by a named profile, so an operation can be
+  delegated without also delegating the dangerous parameters of that
+  operation. See the [macaroon documentation](../macaroons.md) for the full
+  description.
+
+  How it works: the caveat carries only a profile name, while the rules live in
+  lnd itself. That means a profile can be tightened by a future release and
+  macaroons already issued benefit on upgrade; a released profile name is never
+  loosened, and changed semantics require a new name. Enforcement runs in the
+  RPC interceptor chain against the request the handler will actually execute,
+  and applies regardless of which macaroon validator accepted the macaroon. A
+  macaroon naming a profile the validating node does not know is rejected as a
+  whole, so older versions fail closed rather than ignoring the restriction.
+
+  The first profile, `channel-management-v1`, covers `OpenChannel`,
+  `OpenChannelSync`, `BatchOpenChannel`, `CloseChannel` and
+  `UpdateChannelPolicy`, denying `push_sat`, `close_address` and
+  `funding_shim` on the open methods and `delivery_address` on `CloseChannel`.
+  Attach it with `lncli bakemacaroon --protector channel-management-v1 ...`, or
+  tighten an existing macaroon offline with `lncli constrainmacaroon
+  --protector channel-management-v1 in.macaroon out.macaroon`.
+
+  Limitations: a profile constrains only the methods it covers, so it must be
+  paired with `uri:`-scoped permissions granting just those methods. Broad
+  permissions such as `onchain:write` leave `SendCoins` reachable, and a
+  macaroon that also carries `macaroon:generate` can bake itself a replacement
+  without the caveat. Within the covered methods the caveat prevents choosing
+  a recipient rather than preventing value loss in general: fee rate fields
+  and force closes stay available.
+
+  Also part of this change, all non-whitelisted RPCs now require the `macaroon`
+  gRPC metadata value, when present, to contain exactly one hex encoded and
+  parseable macaroon, and protector denials carry the gRPC `PermissionDenied`
+  status code.
+
 ## RPC Additions
 
 * The `routerrpc.EstimateRouteFee` RPC now supports [restricting fee estimates
@@ -65,6 +103,12 @@
   parent to be accepted together with a fee-paying CPFP child.
 
 ## lncli Additions
+
+* The `bakemacaroon` and `constrainmacaroon` commands now [support the
+  `--protector <profile-name>`
+  flag](https://github.com/lightningnetwork/lnd/pull/11117) (repeatable) to
+  attach protector caveats to a macaroon, for example
+  `--protector channel-management-v1`.
 
 * The `estimateroutefee` command now supports [restricting fee estimates to
   specific first-hop outgoing

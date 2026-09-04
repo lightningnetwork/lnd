@@ -204,6 +204,11 @@ var (
 	// ErrGossipSyncerExiting signals that the syncer has been killed.
 	ErrGossipSyncerExiting = errors.New("gossip syncer exiting")
 
+	// errChanRangeReplyTooLarge is returned when a peer sends more channel
+	// IDs than we'll accept for a single channel range query.
+	errChanRangeReplyTooLarge = errors.New("channel range reply exceeds " +
+		"maximum number of short channel IDs")
+
 	// ErrSyncTransitionTimeout is an error returned when we've timed out
 	// attempting to perform a sync transition.
 	ErrSyncTransitionTimeout = errors.New("timed out attempting to " +
@@ -258,6 +263,10 @@ type gossipSyncerCfg struct {
 	// The boolean indicates whether this method should be blocked or not
 	// while waiting for sends to be written to the wire.
 	sendMsg func(context.Context, bool, ...lnwire.Message) error
+
+	// disconnectPeer disconnects the remote peer when it cannot complete a
+	// channel graph synchronization within our local limits.
+	disconnectPeer func(error)
 
 	// noSyncChannels will prevent the GossipSyncer from spawning a
 	// channelGraphSyncer, meaning we will not try to reconcile unknown
@@ -545,6 +554,19 @@ func (g *GossipSyncer) handleSyncingChans(ctx context.Context) error {
 	return nil
 }
 
+// handleChanRangeError logs a channel range error and disconnects a peer which
+// exceeds the aggregate SCID limit.
+func (g *GossipSyncer) handleChanRangeError(err error) {
+	log.Errorf("Unable to process chan range query: %v", err)
+
+	if !errors.Is(err, errChanRangeReplyTooLarge) {
+		return
+	}
+	if g.cfg.disconnectPeer != nil {
+		g.cfg.disconnectPeer(err)
+	}
+}
+
 // channelGraphSyncer is the main goroutine responsible for ensuring that we
 // properly channel graph state with the remote peer, and also that we only
 // send them messages which actually pass their defined update horizon.
@@ -595,9 +617,7 @@ func (g *GossipSyncer) channelGraphSyncer(ctx context.Context) {
 						ctx, queryReply,
 					)
 					if err != nil {
-						log.Errorf("Unable to "+
-							"process chan range "+
-							"query: %v", err)
+						g.handleChanRangeError(err)
 						return
 					}
 					continue
@@ -1038,8 +1058,7 @@ func (g *GossipSyncer) bufferChanRangeReply(_ context.Context,
 		numReplySCIDs > maxChanRangeReplySCIDs-
 			g.numChanRangeReplySCIDsRcvd {
 
-		return fmt.Errorf("channel range reply exceeds maximum "+
-			"number of short channel IDs: max=%v",
+		return fmt.Errorf("%w: max=%v", errChanRangeReplyTooLarge,
 			maxChanRangeReplySCIDs)
 	}
 

@@ -22,6 +22,12 @@
 
 # Bug Fixes
 
+* [Fixed historical graph
+  synchronization](https://github.com/lightningnetwork/lnd/issues/11172) so a
+  peer whose channel range exceeds the local reply limit is disconnected. The
+  sync manager can then select another peer without waiting for the historical
+  sync interval.
+
 * Bitcoind outbound peer health checks [now use](https://github.com/lightningnetwork/lnd/pull/10686)
   `getnetworkinfo.connections_out` instead of `getpeerinfo`. The same PR also
   [clarifies](https://github.com/lightningnetwork/lnd/issues/10568) the ZMQ

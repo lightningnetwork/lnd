@@ -2398,11 +2398,32 @@ func testFailPartialAMPPayment(t *testing.T,
 	require.Equal(t, invpkg.HtlcStateCanceled, ampState.State, "expected "+
 		"AMPState CANCELED")
 
-	// The following is a bug and should not be allowed because the sub
-	// AMP invoice is already marked as canceled. However LND will accept
-	// other HTLCs to the AMP sub-invoice.
-	//
-	// TODO(ziggie): Fix this bug.
+	// A new HTLC for the same canceled setID must still be rejected
+	// with ResultAddressMismatch if the payment address is wrong.
+	var badPayAddr [32]byte
+	htlcPayloadBadAddr := &mockPayload{
+		mpp: record.NewMPP(testInvoiceAmount, badPayAddr),
+		amp: record.NewAMP([32]byte{4}, setID, 4),
+	}
+
+	hodlChanBadAddr := make(chan interface{}, 1)
+	resolution, err = ctx.registry.NotifyExitHopHtlc(
+		lntypes.Hash{4}, shardAmt, expiry, testCurrentHeight,
+		getCircuitKey(4), hodlChanBadAddr, nil, htlcPayloadBadAddr,
+	)
+	require.NoError(t, err)
+	require.NotNil(t, resolution, "expected direct resolution")
+
+	failRes, ok := resolution.(*invpkg.HtlcFailResolution)
+	require.True(t, ok, "expected fail resolution, got: %T", resolution)
+	require.Equal(
+		t, invpkg.ResultAddressMismatch, failRes.Outcome,
+		"expected ResultAddressMismatch, got: %v",
+		failRes.Outcome,
+	)
+
+	// A new HTLC for the same canceled setID must be rejected
+	// immediately with ResultInvoiceAlreadyCanceled.
 	htlcPayload3 := &mockPayload{
 		mpp: record.NewMPP(testInvoiceAmount, payAddr),
 		// We are not interested in settling the AMP HTLC so we don't
@@ -2410,49 +2431,37 @@ func testFailPartialAMPPayment(t *testing.T,
 		amp: record.NewAMP([32]byte{3}, setID, 3),
 	}
 
-	// Send htlc 3 which should be added to the invoice as expected.
+	// Send htlc 3 which should be immediately rejected because the
+	// AMP sub-invoice for this setID is already canceled.
 	hodlChan3 := make(chan interface{}, 1)
 	resolution, err = ctx.registry.NotifyExitHopHtlc(
 		lntypes.Hash{3}, shardAmt, expiry, testCurrentHeight,
 		getCircuitKey(3), hodlChan3, nil, htlcPayload3,
 	)
 	require.NoError(t, err)
-	require.Nil(t, resolution, "did not expect direct resolution")
+	require.NotNil(t, resolution, "expected direct resolution")
 
-	// TODO(ziggie): This is a race condition between the invoice being
-	// cancelled and the htlc being added to the invoice. If we do not wait
-	// here until the HTLC is added to the invoice, the test might fail
-	// because the HTLC will not be resolved.
-	require.Eventuallyf(t, func() bool {
-		inv, err := ctx.registry.LookupInvoice(
-			ctxb, testInvoicePaymentHash,
-		)
-		require.NoError(t, err)
+	failRes2, ok := resolution.(*invpkg.HtlcFailResolution)
+	require.True(t, ok, "expected fail resolution, got: %T", resolution)
+	require.Equal(
+		t, invpkg.ResultInvoiceAlreadyCanceled, failRes2.Outcome,
+		"expected ResultInvoiceAlreadyCanceled, got: %v",
+		failRes2.Outcome,
+	)
 
-		return len(inv.Htlcs) == 3
-	}, testTimeout, time.Millisecond*100, "HTLC 3 not added to invoice")
+	// The invoice should still only have 2 HTLCs (the original ones).
+	// The rejected HTLC must not be added to the invoice.
+	inv, err = ctx.registry.LookupInvoice(
+		ctxb, testInvoicePaymentHash,
+	)
+	require.NoError(t, err)
+	require.Len(t, inv.Htlcs, 2, "rejected HTLC should not be added "+
+		"to invoice")
 
-	// Now also let the invoice expire the invoice expiry is 1 hour.
-	currentTime = ctx.clock.Now()
-	ctx.clock.SetTime(currentTime.Add(1 * time.Minute))
-
-	// Expect HLTC 3 to be canceled either via the cancelation of the
-	// invoice or because the MPP timeout kicks in.
-	select {
-	case resolution := <-hodlChan3:
-		htlcResolution, _ := resolution.(invpkg.HtlcResolution)
-		failRes, ok := htlcResolution.(*invpkg.HtlcFailResolution)
-		require.True(
-			t, ok, "expected fail resolution, got: %T", resolution,
-		)
-		require.Equal(
-			t, invpkg.ResultMppTimeout, failRes.Outcome,
-			"expected MPPTimeout, got: %v", failRes.Outcome,
-		)
-
-	case <-time.After(testTimeoutLong):
-		t.Fatal("timeout waiting for HTLC resolution")
-	}
+	// The AMP invoice should still be open (only the sub-invoice is
+	// canceled, the parent invoice remains open for other setIDs).
+	require.Equal(t, invpkg.ContractOpen, inv.State,
+		"expected OPEN invoice")
 
 	// expire the invoice here.
 	currentTime = ctx.clock.Now()
@@ -2473,8 +2482,9 @@ func testFailPartialAMPPayment(t *testing.T,
 	)
 	require.NoError(t, err)
 
-	// Make sure all HTLCs are in the cancelled state.
-	require.Len(t, inv.Htlcs, 3)
+	// Make sure all HTLCs are in the cancelled state. Only the original
+	// 2 HTLCs should be present.
+	require.Len(t, inv.Htlcs, 2)
 	for _, htlc := range inv.Htlcs {
 		require.Equal(t, invpkg.HtlcStateCanceled, htlc.State,
 			"expected HTLC to be canceled")

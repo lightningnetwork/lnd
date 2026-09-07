@@ -2463,6 +2463,75 @@ func testFailPartialAMPPayment(t *testing.T,
 	require.Equal(t, invpkg.ContractOpen, inv.State,
 		"expected OPEN invoice")
 
+	// Generate a new setID to test the settled state.
+	var setIDSettled [32]byte
+	_, err = rand.Read(setIDSettled[:])
+	require.NoError(t, err)
+
+	sharer, err := amp.NewSeedSharer()
+	require.NoError(t, err)
+
+	child := sharer.Child(0)
+
+	htlcPayloadSettled := &mockPayload{
+		mpp: record.NewMPP(testInvoiceAmount, payAddr),
+		amp: record.NewAMP(child.Share, setIDSettled, 0),
+	}
+
+	// Send a new HTLC that pays the full invoice amount.
+	hodlChanSettled := make(chan interface{}, 1)
+	resolution, err = ctx.registry.NotifyExitHopHtlc(
+		child.Hash, testInvoiceAmount, expiry, testCurrentHeight,
+		getCircuitKey(10), hodlChanSettled, nil, htlcPayloadSettled,
+	)
+	require.NoError(t, err)
+	require.Nil(t, resolution, "expected no direct resolution")
+
+	// Expect it to settle.
+	select {
+	case resolution := <-hodlChanSettled:
+		htlcResolution, _ := resolution.(invpkg.HtlcResolution)
+		_, ok := htlcResolution.(*invpkg.HtlcSettleResolution)
+		require.True(t, ok, "expected settle resolution")
+	case <-time.After(testTimeoutLong):
+		t.Fatal("timeout waiting for settle resolution")
+	}
+
+	// A new HTLC for the same settled setID must be rejected
+	// immediately with ResultInvoiceAlreadySettled.
+	htlcPayloadLate := &mockPayload{
+		mpp: record.NewMPP(testInvoiceAmount, payAddr),
+		amp: record.NewAMP(child.Share, setIDSettled, 0),
+	}
+
+	hodlChanLate := make(chan interface{}, 1)
+	resolution, err = ctx.registry.NotifyExitHopHtlc(
+		child.Hash, shardAmt, expiry, testCurrentHeight,
+		getCircuitKey(11), hodlChanLate, nil, htlcPayloadLate,
+	)
+	require.NoError(t, err)
+	require.NotNil(t, resolution, "expected direct resolution")
+
+	failResLate, ok := resolution.(*invpkg.HtlcFailResolution)
+	require.True(t, ok, "expected fail resolution, got: %T", resolution)
+	require.Equal(
+		t, invpkg.ResultInvoiceAlreadySettled, failResLate.Outcome,
+		"expected ResultInvoiceAlreadySettled, got: %v",
+		failResLate.Outcome,
+	)
+
+	// The rejected HTLC must not be added to the invoice.
+	inv, err = ctx.registry.LookupInvoice(
+		ctxb, testInvoicePaymentHash,
+	)
+	require.NoError(t, err)
+	require.Len(t, inv.Htlcs, 3, "rejected HTLC should not be added "+
+		"to invoice") // 2 from previous canceled set, 1 from settled set
+
+	// The AMP invoice should still be open.
+	require.Equal(t, invpkg.ContractOpen, inv.State,
+		"expected OPEN invoice")
+
 	// expire the invoice here.
 	currentTime = ctx.clock.Now()
 	ctx.clock.SetTime(currentTime.Add(61 * time.Minute))

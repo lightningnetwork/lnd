@@ -22,10 +22,6 @@
 
 # Bug Fixes
 
-* Fixed native SQL graph migration failing with `unable to decode features:
-  EOF` for legacy channel records with empty features. The migration now uses
-  the regular graph reader's existing feature-format compatibility handling.
-
 * Bitcoind outbound peer health checks [now use](https://github.com/lightningnetwork/lnd/pull/10686)
   `getnetworkinfo.connections_out` instead of `getpeerinfo`. The same PR also
   [clarifies](https://github.com/lightningnetwork/lnd/issues/10568) the ZMQ

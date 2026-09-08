@@ -1,6 +1,7 @@
 package contractcourt
 
 import (
+	"context"
 	"errors"
 	"fmt"
 	"sync"
@@ -21,6 +22,7 @@ import (
 	"github.com/lightningnetwork/lnd/input"
 	"github.com/lightningnetwork/lnd/kvdb"
 	"github.com/lightningnetwork/lnd/labels"
+	"github.com/lightningnetwork/lnd/lnutils"
 	"github.com/lightningnetwork/lnd/lnwallet"
 	"github.com/lightningnetwork/lnd/lnwallet/chainfee"
 	"github.com/lightningnetwork/lnd/lnwire"
@@ -255,6 +257,10 @@ type ChainArbitratorConfig struct {
 	// the normal capacity-based scaling. This is only available in
 	// dev/integration builds for testing purposes.
 	ChannelCloseConfs fn.Option[uint32]
+
+	// AuxChannelLifecycle is an optional external owner for channel funding
+	// and terminal lifecycle transitions.
+	AuxChannelLifecycle fn.Option[AuxChannelLifecycle]
 }
 
 // ChainArbitrator is a sub-system that oversees the on-chain resolution of all
@@ -783,20 +789,54 @@ func (c *ChainArbitrator) resolveContracts() {
 		// resolved, we now update chain arbitrator's internal state for
 		// this channel.
 		case cp := <-c.resolvedChan:
-			if c.cfg.NotifyFullyResolvedChannel != nil {
-				c.cfg.NotifyFullyResolvedChannel(cp)
+			// Preserve lnd's existing serial cleanup path unless an
+			// auxiliary lifecycle can block on external durability.
+			if c.cfg.AuxChannelLifecycle.IsNone() {
+				c.resolveContract(cp)
+				continue
 			}
 
-			err := c.ResolveContract(cp)
-			if err != nil {
-				log.Errorf("Failed to resolve contract for "+
-					"channel %v", cp)
-			}
+			c.wg.Add(1)
+			go func() {
+				defer c.wg.Done()
+				c.resolveContract(cp)
+			}()
 
 		// Exit if the chain arbitrator is shutting down.
 		case <-c.quit:
 			return
 		}
+	}
+}
+
+// resolveContract runs the optional auxiliary durability barrier before lnd
+// removes its channel resolution state.
+func (c *ChainArbitrator) resolveContract(cp wire.OutPoint) {
+	lifecycle, err := c.cfg.AuxChannelLifecycle.UnwrapOrErr(
+		errNoAuxChannelLifecycle,
+	)
+	if err == nil {
+		ctx, cancel := lnutils.ContextFromQuit(c.quit)
+		defer cancel()
+
+		err := lifecycle.WaitForChannelFinalization(ctx, cp)
+		if err != nil {
+			if !errors.Is(err, context.Canceled) {
+				log.Warnf("Unable to finalize auxiliary "+
+					"lifecycle for channel %v: %v", cp, err)
+			}
+
+			return
+		}
+	}
+
+	if c.cfg.NotifyFullyResolvedChannel != nil {
+		c.cfg.NotifyFullyResolvedChannel(cp)
+	}
+
+	err = c.ResolveContract(cp)
+	if err != nil {
+		log.Errorf("Failed to resolve contract for channel %v", cp)
 	}
 }
 
@@ -1105,6 +1145,10 @@ type forceCloseReq struct {
 	// closeTx is a channel that carries the transaction which ultimately
 	// closed out the channel.
 	closeTx chan *wire.MsgTx
+
+	// resume permits re-entering StateBroadcastCommit after a prior
+	// commitment publication attempt stopped at an external barrier.
+	resume bool
 }
 
 // ForceCloseContract attempts to force close the channel infield by the passed
@@ -1114,6 +1158,23 @@ type forceCloseReq struct {
 //
 // TODO(roasbeef): just return the summary itself?
 func (c *ChainArbitrator) ForceCloseContract(chanPoint wire.OutPoint) (*wire.MsgTx, error) {
+	return c.forceCloseContract(chanPoint, false)
+}
+
+// ResumeForceCloseContract retries a force close that stopped before
+// commitment publication. Unlike ForceCloseContract, this method may re-enter
+// StateBroadcastCommit and is idempotent once the arbitrator has advanced past
+// commitment publication.
+func (c *ChainArbitrator) ResumeForceCloseContract(
+	chanPoint wire.OutPoint) (*wire.MsgTx, error) {
+
+	return c.forceCloseContract(chanPoint, true)
+}
+
+// forceCloseContract dispatches a normal or resumable force-close request.
+func (c *ChainArbitrator) forceCloseContract(chanPoint wire.OutPoint,
+	resume bool) (*wire.MsgTx, error) {
+
 	c.Lock()
 	arbitrator, ok := c.activeChannels[chanPoint]
 	c.Unlock()
@@ -1123,12 +1184,14 @@ func (c *ChainArbitrator) ForceCloseContract(chanPoint wire.OutPoint) (*wire.Msg
 
 	log.Infof("Attempting to force close ChannelPoint(%v)", chanPoint)
 
-	// Before closing, we'll attempt to send a disable update for the
-	// channel. We do so before closing the channel as otherwise the current
-	// edge policy won't be retrievable from the graph.
-	if err := c.cfg.DisableChannel(chanPoint); err != nil {
-		log.Warnf("Unable to disable channel %v on "+
-			"close: %v", chanPoint, err)
+	// The initial request already disabled the channel before entering the
+	// durable commitment-publication state. A replay must not disable a
+	// healthy channel if there is no force close to resume.
+	if !resume {
+		if err := c.cfg.DisableChannel(chanPoint); err != nil {
+			log.Warnf("Unable to disable channel %v on "+
+				"close: %v", chanPoint, err)
+		}
 	}
 
 	errChan := make(chan error, 1)
@@ -1140,6 +1203,7 @@ func (c *ChainArbitrator) ForceCloseContract(chanPoint wire.OutPoint) (*wire.Msg
 	case arbitrator.forceCloseReqs <- &forceCloseReq{
 		errResp: errChan,
 		closeTx: respChan,
+		resume:  resume,
 	}:
 	case <-c.quit:
 		return nil, ErrChainArbExiting
@@ -1172,6 +1236,15 @@ func (c *ChainArbitrator) ForceCloseContract(chanPoint wire.OutPoint) (*wire.Msg
 // the ChainArbitrator so we can properly react to any on-chain events.
 func (c *ChainArbitrator) WatchNewChannel(
 	newChan *chanstate.OpenChannel) error {
+
+	watch, err := c.shouldWatchChannel(newChan)
+	if err != nil {
+		return err
+	}
+	if !watch {
+		return fmt.Errorf("channel %v is not admitted to the on-chain "+
+			"lifecycle", newChan.FundingOutpoint)
+	}
 
 	c.Lock()
 	defer c.Unlock()
@@ -1366,6 +1439,14 @@ func (c *ChainArbitrator) loadOpenChannels() error {
 	// For each open channel, we'll configure then launch a corresponding
 	// ChannelArbitrator.
 	for _, channel := range openChannels {
+		watch, err := c.shouldWatchChannel(channel)
+		if err != nil {
+			return err
+		}
+		if !watch {
+			continue
+		}
+
 		chanPoint := channel.FundingOutpoint
 
 		// First, we'll create an active chainWatcher for this channel
@@ -1413,6 +1494,39 @@ func (c *ChainArbitrator) loadOpenChannels() error {
 	}
 
 	return nil
+}
+
+// shouldWatchChannel applies the optional open-channel admission policy. The
+// default preserves lnd's normal behavior of watching every open channel.
+func (c *ChainArbitrator) shouldWatchChannel(
+	channel *chanstate.OpenChannel) (bool, error) {
+
+	lifecycle, err := c.cfg.AuxChannelLifecycle.UnwrapOrErr(
+		errNoAuxChannelLifecycle,
+	)
+	if err != nil {
+		return true, nil
+	}
+
+	ctx, cancel := lnutils.ContextFromQuit(c.quit)
+	defer cancel()
+
+	owner, err := lifecycle.ChainWatchOwner(ctx, channel)
+	if err != nil {
+		return false, err
+	}
+
+	switch owner {
+	case ChainWatchOwnerLnd:
+		return true, nil
+
+	case ChainWatchOwnerAux:
+		return false, nil
+
+	default:
+		return false, fmt.Errorf("unknown chain watch owner %d for "+
+			"channel %v", owner, channel.FundingOutpoint)
+	}
 }
 
 // loadPendingCloseChannels loads all channels that are currently pending

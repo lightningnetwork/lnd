@@ -1,8 +1,11 @@
 package contractcourt
 
 import (
+	"context"
 	"net"
+	"sync/atomic"
 	"testing"
+	"time"
 
 	"github.com/btcsuite/btcd/chainhash/v2"
 	"github.com/btcsuite/btcd/wire/v2"
@@ -10,12 +13,53 @@ import (
 	"github.com/lightningnetwork/lnd/channeldb"
 	"github.com/lightningnetwork/lnd/chanstate"
 	"github.com/lightningnetwork/lnd/clock"
+	"github.com/lightningnetwork/lnd/fn/v2"
 	"github.com/lightningnetwork/lnd/graph/db/models"
 	"github.com/lightningnetwork/lnd/lntest/mock"
 	"github.com/lightningnetwork/lnd/lntypes"
 	"github.com/lightningnetwork/lnd/lnwallet"
 	"github.com/stretchr/testify/require"
 )
+
+type mockAuxChannelLifecycle struct {
+	watchOwner func(context.Context, *chanstate.OpenChannel) (
+		ChainWatchOwner, error)
+	prepare  func(context.Context, wire.OutPoint) error
+	finalize func(context.Context, wire.OutPoint) error
+}
+
+// ChainWatchOwner returns the configured owner or lnd by default.
+func (m *mockAuxChannelLifecycle) ChainWatchOwner(ctx context.Context,
+	channel *chanstate.OpenChannel) (ChainWatchOwner, error) {
+
+	if m.watchOwner == nil {
+		return ChainWatchOwnerLnd, nil
+	}
+
+	return m.watchOwner(ctx, channel)
+}
+
+// PrepareCommitmentPublish runs the configured publication barrier.
+func (m *mockAuxChannelLifecycle) PrepareCommitmentPublish(
+	ctx context.Context, point wire.OutPoint) error {
+
+	if m.prepare == nil {
+		return nil
+	}
+
+	return m.prepare(ctx, point)
+}
+
+// WaitForChannelFinalization runs the configured terminal barrier.
+func (m *mockAuxChannelLifecycle) WaitForChannelFinalization(
+	ctx context.Context, point wire.OutPoint) error {
+
+	if m.finalize == nil {
+		return nil
+	}
+
+	return m.finalize(ctx, point)
+}
 
 // TestChainArbitratorRepulishCloses tests that the chain arbitrator will
 // republish closing transactions for channels marked CommitementBroadcast or
@@ -128,6 +172,87 @@ func TestChainArbitratorRepublishCloses(t *testing.T) {
 	}
 }
 
+// TestChainArbitratorFiltersOpenChannels verifies an embedding runtime can
+// keep selected open channels out of chain observation at startup and through
+// the explicit channel admission path.
+func TestChainArbitratorFiltersOpenChannels(t *testing.T) {
+	t.Parallel()
+
+	db := channeldb.OpenForTesting(t, t.TempDir())
+	channels := make([]*chanstate.OpenChannel, 0, 2)
+	for i := 0; i < 2; i++ {
+		lightningChannel, _, err := lnwallet.CreateTestChannels(
+			t, channeldb.SingleFunderTweaklessBit,
+		)
+		require.NoError(t, err)
+
+		channel := lightningChannel.State()
+		channel.Db = db.ChannelStateDB()
+		require.NoError(t, channel.SyncPending(&net.TCPAddr{
+			IP: net.ParseIP("127.0.0.1"), Port: 18556 + i,
+		}, 101))
+		channels = append(channels, channel)
+	}
+
+	admitted := channels[0].FundingOutpoint
+	chainArb := NewChainArbitrator(ChainArbitratorConfig{
+		ChainIO: &mock.ChainIO{},
+		Notifier: &mock.ChainNotifier{
+			SpendChan: make(chan *chainntnfs.SpendDetail),
+			ConfChan:  make(chan *chainntnfs.TxConfirmation),
+		},
+		PublishTx: func(*wire.MsgTx, string) error { return nil },
+		Clock:     clock.NewDefaultClock(),
+		Budget:    *DefaultBudgetConfig(),
+		AuxChannelLifecycle: fn.Some[AuxChannelLifecycle](
+			&mockAuxChannelLifecycle{
+				watchOwner: func(_ context.Context,
+					channel *chanstate.OpenChannel) (
+					ChainWatchOwner, error) {
+
+					if channel.FundingOutpoint == admitted {
+						return ChainWatchOwnerLnd, nil
+					}
+
+					return ChainWatchOwnerAux, nil
+				},
+			},
+		),
+	}, db)
+	require.NoError(t, chainArb.Start(newBeatFromHeight(0)))
+	t.Cleanup(func() {
+		require.NoError(t, chainArb.Stop())
+	})
+
+	require.Contains(t, chainArb.activeChannels, admitted)
+	require.NotContains(
+		t, chainArb.activeChannels, channels[1].FundingOutpoint,
+	)
+	require.Error(t, chainArb.WatchNewChannel(channels[1]))
+}
+
+// TestChainArbitratorRejectsUnknownWatchOwner verifies an auxiliary lifecycle
+// cannot accidentally disable lnd's watcher with an invalid owner value.
+func TestChainArbitratorRejectsUnknownWatchOwner(t *testing.T) {
+	t.Parallel()
+
+	chainArb := NewChainArbitrator(ChainArbitratorConfig{
+		AuxChannelLifecycle: fn.Some[AuxChannelLifecycle](
+			&mockAuxChannelLifecycle{
+				watchOwner: func(context.Context,
+					*chanstate.OpenChannel) (
+					ChainWatchOwner, error) {
+
+					return ChainWatchOwner(99), nil
+				},
+			},
+		),
+	}, nil)
+
+	_, err := chainArb.shouldWatchChannel(&chanstate.OpenChannel{})
+	require.ErrorContains(t, err, "unknown chain watch owner")
+}
+
 // TestResolveContract tests that if we have an active channel being watched by
 // the chain arb, then a call to ResolveContract will mark the channel as fully
 // closed in the database, and also clean up all arbitrator state.
@@ -219,6 +344,169 @@ func TestResolveContract(t *testing.T) {
 	// error, as there is no more state to be cleaned up.
 	err = chainArb.ResolveContract(channel.FundingOutpoint)
 	require.NoError(t, err, "second resolve call shouldn't fail")
+}
+
+// TestChainArbitratorFullyResolvedBarrier verifies an embedding runtime can
+// durably gate lnd's terminal cleanup without losing the resolution signal.
+func TestChainArbitratorFullyResolvedBarrier(t *testing.T) {
+	t.Parallel()
+
+	db := channeldb.OpenForTesting(t, t.TempDir())
+	lightningChannel, _, err := lnwallet.CreateTestChannels(
+		t, channeldb.SingleFunderTweaklessBit,
+	)
+	require.NoError(t, err)
+	channel := lightningChannel.State()
+	channel.Db = db.ChannelStateDB()
+	require.NoError(t, channel.SyncPending(&net.TCPAddr{
+		IP: net.ParseIP("127.0.0.1"), Port: 18556,
+	}, 101))
+
+	barrierEntered := make(chan struct{}, 1)
+	releaseBarrier := make(chan struct{})
+	var notified atomic.Bool
+	chainArb := NewChainArbitrator(ChainArbitratorConfig{
+		ChainIO: &mock.ChainIO{},
+		Notifier: &mock.ChainNotifier{
+			SpendChan: make(chan *chainntnfs.SpendDetail),
+			ConfChan:  make(chan *chainntnfs.TxConfirmation),
+		},
+		PublishTx: func(*wire.MsgTx, string) error { return nil },
+		Clock:     clock.NewDefaultClock(),
+		Budget:    *DefaultBudgetConfig(),
+		AuxChannelLifecycle: fn.Some[AuxChannelLifecycle](
+			&mockAuxChannelLifecycle{
+				finalize: func(ctx context.Context,
+					_ wire.OutPoint) error {
+
+					barrierEntered <- struct{}{}
+					select {
+					case <-releaseBarrier:
+						return nil
+
+					case <-ctx.Done():
+						return ctx.Err()
+					}
+				},
+			},
+		),
+		NotifyFullyResolvedChannel: func(wire.OutPoint) {
+			notified.Store(true)
+		},
+	}, db)
+	require.NoError(t, chainArb.Start(newBeatFromHeight(0)))
+	t.Cleanup(func() {
+		require.NoError(t, chainArb.Stop())
+	})
+
+	require.NoError(t, db.ChannelStateDB().AbandonChannel(
+		&channel.FundingOutpoint, 4,
+	))
+	chainArb.resolvedChan <- channel.FundingOutpoint
+
+	select {
+	case <-barrierEntered:
+	case <-time.After(time.Second):
+		t.Fatal("auxiliary lifecycle was not called")
+	}
+	require.False(t, notified.Load())
+	chainArb.Lock()
+	_, active := chainArb.activeChannels[channel.FundingOutpoint]
+	chainArb.Unlock()
+	require.True(t, active)
+
+	close(releaseBarrier)
+	require.Eventually(t, func() bool {
+		chainArb.Lock()
+		_, active := chainArb.activeChannels[channel.FundingOutpoint]
+		chainArb.Unlock()
+
+		return notified.Load() && !active
+	}, time.Second, 10*time.Millisecond)
+}
+
+// TestChainArbitratorFullyResolvedBarriersAreIndependent verifies a failed
+// durable callback for one channel does not stall unrelated channel cleanup.
+func TestChainArbitratorFullyResolvedBarriersAreIndependent(t *testing.T) {
+	t.Parallel()
+
+	db := channeldb.OpenForTesting(t, t.TempDir())
+	lightningChannel, _, err := lnwallet.CreateTestChannels(
+		t, channeldb.SingleFunderTweaklessBit,
+	)
+	require.NoError(t, err)
+	readyChannel := lightningChannel.State()
+	readyChannel.Db = db.ChannelStateDB()
+	require.NoError(t, readyChannel.SyncPending(&net.TCPAddr{
+		IP: net.ParseIP("127.0.0.1"), Port: 18557,
+	}, 102))
+	readyPoint := readyChannel.FundingOutpoint
+	require.NoError(t, db.ChannelStateDB().AbandonChannel(
+		&readyPoint, 4,
+	))
+	blockedPoint := readyPoint
+	blockedPoint.Index++
+	blocked := make(chan struct{}, 1)
+	notified := make(chan wire.OutPoint, 1)
+	chainArb := NewChainArbitrator(ChainArbitratorConfig{
+		AuxChannelLifecycle: fn.Some[AuxChannelLifecycle](
+			&mockAuxChannelLifecycle{
+				finalize: func(ctx context.Context,
+					point wire.OutPoint) error {
+
+					if point != blockedPoint {
+						return nil
+					}
+
+					select {
+					case blocked <- struct{}{}:
+					default:
+					}
+
+					<-ctx.Done()
+
+					return ctx.Err()
+				},
+			},
+		),
+		NotifyFullyResolvedChannel: func(point wire.OutPoint) {
+			notified <- point
+		},
+	}, db)
+	chainArb.wg.Add(1)
+	go func() {
+		defer chainArb.wg.Done()
+		chainArb.resolveContracts()
+	}()
+	t.Cleanup(func() {
+		require.NoError(t, chainArb.Stop())
+	})
+
+	chainArb.resolvedChan <- blockedPoint
+	require.Eventually(t, func() bool {
+		select {
+		case <-blocked:
+			return true
+		default:
+			return false
+		}
+	}, time.Second, 10*time.Millisecond)
+	chainArb.resolvedChan <- readyPoint
+
+	select {
+	case point := <-notified:
+		require.Equal(t, readyPoint, point)
+
+	case <-time.After(time.Second):
+		t.Fatal("independent channel resolution was blocked")
+	}
+	require.Eventually(t, func() bool {
+		closed, err := db.ChannelStateDB().FetchClosedChannel(
+			&readyPoint,
+		)
+
+		return err == nil && !closed.IsPending
+	}, time.Second, 10*time.Millisecond)
 }
 
 // TestShouldSuppressClosedChannelNotify pins down the gate that prevents

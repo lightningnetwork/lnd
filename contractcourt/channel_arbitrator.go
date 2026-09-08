@@ -36,6 +36,11 @@ var (
 	// close a channel that's already in the process of doing so.
 	errAlreadyForceClosed = errors.New("channel is already in the " +
 		"process of being force closed")
+
+	// ErrNoForceCloseToResume is returned when a resume request targets a
+	// channel that has not entered the commitment publication state.
+	ErrNoForceCloseToResume = errors.New("channel has no force close to " +
+		"resume")
 )
 
 const (
@@ -1101,6 +1106,24 @@ func (c *ChannelArbitrator) stateStep(
 
 		log.Infof("ChannelArbitrator(%v): force closing "+
 			"chan", c.cfg.ChanPoint)
+
+		// An auxiliary lifecycle may need to publish externally
+		// managed funding before lnd can safely spend it. Run this
+		// barrier before ForceCloseChan removes the link or marks the
+		// commitment broadcast.
+		lifecycle, lifecycleErr := c.cfg.AuxChannelLifecycle.
+			UnwrapOrErr(errNoAuxChannelLifecycle)
+		if lifecycleErr == nil {
+			ctx, cancel := lnutils.ContextFromQuit(c.quit)
+			defer cancel()
+
+			err := lifecycle.PrepareCommitmentPublish(
+				ctx, c.cfg.ChanPoint,
+			)
+			if err != nil {
+				return StateError, closeTx, err
+			}
+		}
 
 		// Now that we have all the actions decided for the set of
 		// HTLC's, we'll broadcast the commitment transaction, and
@@ -3023,14 +3046,30 @@ func (c *ChannelArbitrator) channelAttendant(bestHeight int32,
 			log.Infof("ChannelArbitrator(%v): received force "+
 				"close request", c.cfg.ChanPoint)
 
-			if c.state != StateDefault {
+			var closeErr error
+			resumeBroadcast := false
+			if closeReq.resume {
+				switch c.state {
+				case StateDefault:
+					closeErr = ErrNoForceCloseToResume
+
+				case StateBroadcastCommit:
+					resumeBroadcast = true
+				}
+			} else if c.state != StateDefault {
+				closeErr = errAlreadyForceClosed
+			}
+
+			if closeErr != nil ||
+				(c.state != StateDefault && !resumeBroadcast) {
+
 				select {
 				case closeReq.closeTx <- nil:
 				case <-c.quit:
 				}
 
 				select {
-				case closeReq.errResp <- errAlreadyForceClosed:
+				case closeReq.errResp <- closeErr:
 				case <-c.quit:
 				}
 

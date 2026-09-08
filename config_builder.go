@@ -35,6 +35,7 @@ import (
 	"github.com/lightningnetwork/lnd/chainreg"
 	"github.com/lightningnetwork/lnd/channeldb"
 	"github.com/lightningnetwork/lnd/clock"
+	"github.com/lightningnetwork/lnd/contractcourt"
 	"github.com/lightningnetwork/lnd/fn/v2"
 	"github.com/lightningnetwork/lnd/funding"
 	graphdb "github.com/lightningnetwork/lnd/graph/db"
@@ -240,6 +241,10 @@ type AuxComponents struct {
 	// AuxContractResolver is an optional interface that can be used to
 	// modify the way contracts are resolved.
 	AuxContractResolver fn.Option[lnwallet.AuxContractResolver]
+
+	// AuxChannelLifecycle is an optional interface that coordinates chain
+	// observation and close durability for externally funded channels.
+	AuxChannelLifecycle fn.Option[contractcourt.AuxChannelLifecycle]
 
 	// AuxChannelNegotiator is an optional interface that allows aux channel
 	// implementations to inject and process custom records over channel

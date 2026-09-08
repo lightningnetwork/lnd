@@ -22,6 +22,11 @@
 
 # Bug Fixes
 
+* [Validate aezeed creation dates](https://github.com/lightningnetwork/lnd/pull/11180)
+  before storing the birthday as an unsigned 16-bit day count. Dates before
+  Bitcoin's genesis or beyond the representable range are rejected instead
+  of wrapping into an incorrect birthday.
+
 * Bitcoind outbound peer health checks [now use](https://github.com/lightningnetwork/lnd/pull/10686)
   `getnetworkinfo.connections_out` instead of `getpeerinfo`. The same PR also
   [clarifies](https://github.com/lightningnetwork/lnd/issues/10568) the ZMQ

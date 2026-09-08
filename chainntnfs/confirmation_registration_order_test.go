@@ -129,7 +129,8 @@ func testConfirmationRegistrationOrder(t *testing.T, completeBeforeEarly,
 	// The earlier range must be durable as soon as it is accepted. If the
 	// notifier restarts before the prefix completes, the cache must cause the
 	// replacement subscription to scan that range again.
-	if restartBeforePrefix {
+	switch {
+	case restartBeforePrefix:
 		hint, err := cache.QueryConfirmHint(
 			early.HistoricalDispatch.ConfRequest,
 		)
@@ -155,10 +156,11 @@ func testConfirmationRegistrationOrder(t *testing.T, completeBeforeEarly,
 		require.NoError(t, err)
 		require.Nil(t, late.HistoricalDispatch)
 		scan(early)
-	} else if prefixFirst {
+	case prefixFirst:
 		scan(early)
 		scan(late)
-	} else {
+
+	default:
 		if !completeBeforeEarly {
 			scan(late)
 			hint, err := cache.QueryConfirmHint(

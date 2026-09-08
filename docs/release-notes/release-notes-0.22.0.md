@@ -47,6 +47,10 @@
   the reported network statistics such as total network capacity, channel
   count and max out degree.
 
+* [Fixed confirmation recovery](https://github.com/lightningnetwork/lnd/pull/11183)
+  when duplicate subscriptions supply different height hints. Earlier hints now
+  scan the uncovered prefix regardless of registration order.
+
 # New Features
 
 ## Functional Enhancements

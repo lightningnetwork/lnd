@@ -121,14 +121,14 @@ type confNtfnSet struct {
 	// subscriber hint does not invalidate that cached progress.
 	minHeightHint uint32
 
-	// rescanStartHeight is the earliest height covered by the historical
-	// scans dispatched for this set. If no scan was required, it is the first
-	// height covered by tip notifications.
+	// rescanStartHeight is the earliest height covered by the
+	// historical scans dispatched for this set. If no scan was required,
+	// it is the first height covered by tip notifications.
 	rescanStartHeight uint32
 
-	// pendingRescans is the number of historical scans whose results have not
-	// yet been reported. The set cannot safely advance its height hint until
-	// all of them complete without finding the transaction.
+	// pendingRescans is the number of historical scans whose results have
+	// not yet been reported. The set cannot safely advance its height hint
+	// until all of them complete without finding the transaction.
 	pendingRescans uint32
 
 	// details serves as a cache of the confirmation details of a
@@ -698,9 +698,9 @@ func (n *TxNotifier) RegisterConf(txid *chainhash.Hash, pkScript []byte,
 	// A prior rescan has already completed and we are actively watching at
 	// tip for this request.
 	case rescanComplete:
-		// A later subscriber can provide an earlier height hint than the
-		// scan which established this set. In that case, continue below and
-		// scan the previously uncovered prefix.
+		// A later subscriber can provide an earlier height hint than
+		// the scan which established this set. In that case, continue
+		// below and scan the previously uncovered prefix.
 		if confSet.details == nil && earlierHint &&
 			ntfn.HeightHint < confSet.rescanStartHeight {
 
@@ -766,8 +766,9 @@ func (n *TxNotifier) RegisterConf(txid *chainhash.Hash, pkScript []byte,
 
 	endHeight := n.currentHeight
 	if !initialRescan {
-		// A scan is already pending or complete, but it started after this
-		// subscriber's height hint. Scan only the uncovered prefix.
+		// A scan is already pending or complete, but it started
+		// after this subscriber's height hint. Scan only the
+		// uncovered prefix.
 		startHeight = ntfn.HeightHint
 		endHeight = confSet.rescanStartHeight - 1
 
@@ -775,17 +776,21 @@ func (n *TxNotifier) RegisterConf(txid *chainhash.Hash, pkScript []byte,
 			"to include range %d-%d", ntfn.ConfRequest,
 			startHeight, endHeight)
 
-		// Persist the expanded obligation before dispatching it. Otherwise,
-		// a restart before this prefix completes would retain the later
-		// cached hint and lose the earlier subscriber's range.
+		// Persist the expanded obligation before dispatching it.
+		// Otherwise, a restart before this prefix completes would
+		// retain the later cached hint and lose the earlier
+		// subscriber's range.
 		err := n.confirmHintCache.CommitConfirmHint(
 			startHeight, ntfn.ConfRequest,
 		)
 		if err != nil {
-			// The cache is an optimization, so a write failure does not
-			// prevent the live notifier from scanning the prefix.
-			Log.Debugf("Unable to lower confirm hint to %d for %v: %v",
-				startHeight, ntfn.ConfRequest, err)
+			// The cache is an optimization, so a write failure
+			// does not prevent the live notifier from scanning the
+			// prefix.
+			Log.Debugf(
+				"Unable to lower confirm hint to %d for %v: %v",
+				startHeight, ntfn.ConfRequest, err,
+			)
 		}
 	}
 
@@ -915,8 +920,8 @@ func (n *TxNotifier) UpdateConfDetails(confRequest ConfRequest,
 
 	// If the confirmation details were already found at tip, all existing
 	// notifications will have been dispatched or queued for dispatch. We
-	// can exit after accounting for this completed scan to avoid sending too
-	// many notifications on the buffered channels.
+	// can exit after accounting for this completed scan to avoid sending
+	// too many notifications on the buffered channels.
 	if confSet.details != nil {
 		return nil
 	}
@@ -925,8 +930,9 @@ func (n *TxNotifier) UpdateConfDetails(confRequest ConfRequest,
 	// transaction/output script was included in a block, so we should defer
 	// until handling it then within ConnectTip.
 	if details == nil {
-		// Another scan is still checking an earlier range. An empty result
-		// cannot advance the shared height hint until all scans finish.
+		// Another scan is still checking an earlier range. An empty
+		// result cannot advance the shared height hint until all scans
+		// finish.
 		if confSet.pendingRescans > 0 {
 			return nil
 		}

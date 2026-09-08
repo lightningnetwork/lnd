@@ -72,9 +72,10 @@
 
 * `lnrpc.GetTransactions` now has a
   [`reverse`](https://github.com/lightningnetwork/lnd/pull/11126) field that
-  returns transactions from oldest to newest (ascending block height) instead of
-  the default newest to oldest. This fixes a long-standing gap where the
-  response order could not be controlled.
+  orders the returned transactions oldest to newest, with unconfirmed last,
+  instead of the default newest to oldest. It reorders the returned page only
+  and does not change which transactions are returned. This fixes a
+  long-standing gap where the response order could not be controlled.
 
 ## lncli Additions
 
@@ -90,8 +91,8 @@
 
 * The `listchaintxns` command now has a
   [`--reverse`](https://github.com/lightningnetwork/lnd/pull/11126) flag that
-  lists transactions from oldest to newest (ascending block height) instead of
-  the default newest to oldest.
+  lists the returned transactions oldest to newest, with unconfirmed last,
+  instead of the default newest to oldest.
 
 # Improvements
 

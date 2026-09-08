@@ -2,12 +2,14 @@ package chainntnfs_test
 
 import (
 	"crypto/sha256"
+	"sort"
 	"testing"
 
 	"github.com/btcsuite/btcd/btcutil/v2"
 	"github.com/btcsuite/btcd/wire/v2"
 	"github.com/lightningnetwork/lnd/chainntnfs"
 	"github.com/stretchr/testify/require"
+	"pgregory.net/rapid"
 )
 
 // TestConfirmationRegistrationOrder ensures that all subscribers receive a
@@ -41,7 +43,8 @@ func TestConfirmationRegistrationOrder(t *testing.T) {
 		t.Run(testCase.name, func(t *testing.T) {
 			testConfirmationRegistrationOrder(
 				t, testCase.completeBeforeEarly,
-				testCase.prefixFirst, testCase.restartBeforePrefix,
+				testCase.prefixFirst,
+				testCase.restartBeforePrefix,
 			)
 		})
 	}
@@ -126,9 +129,9 @@ func testConfirmationRegistrationOrder(t *testing.T, completeBeforeEarly,
 	require.Equal(t, minedHeight, early.HistoricalDispatch.StartHeight)
 	require.Equal(t, restartHeight-1, early.HistoricalDispatch.EndHeight)
 
-	// The earlier range must be durable as soon as it is accepted. If the
-	// notifier restarts before the prefix completes, the cache must cause the
-	// replacement subscription to scan that range again.
+	// The earlier range must be durable as soon as it is accepted. If
+	// the notifier restarts before the prefix completes, the cache must
+	// cause the replacement subscription to scan that range again.
 	switch {
 	case restartBeforePrefix:
 		hint, err := cache.QueryConfirmHint(
@@ -139,7 +142,8 @@ func testConfirmationRegistrationOrder(t *testing.T, completeBeforeEarly,
 
 		n.TearDown()
 		n = chainntnfs.NewTxNotifier(
-			restartHeight, chainntnfs.ReorgSafetyLimit, cache, cache,
+			restartHeight, chainntnfs.ReorgSafetyLimit,
+			cache, cache,
 		)
 
 		early, err = n.RegisterConf(&txid, script, 3, minedHeight)
@@ -172,7 +176,9 @@ func testConfirmationRegistrationOrder(t *testing.T, completeBeforeEarly,
 		scan(early)
 	}
 
-	hint, err := cache.QueryConfirmHint(early.HistoricalDispatch.ConfRequest)
+	hint, err := cache.QueryConfirmHint(
+		early.HistoricalDispatch.ConfRequest,
+	)
 	require.NoError(t, err)
 	require.Equal(t, minedHeight, hint)
 
@@ -187,15 +193,153 @@ func testConfirmationRegistrationOrder(t *testing.T, completeBeforeEarly,
 	case details := <-early.Event.Confirmed:
 		require.Equal(t, minedHeight, details.BlockHeight)
 	default:
-		t.Fatal("early subscriber did not receive historical confirmation")
+		t.Fatal("early subscriber missed historical confirmation")
 	}
 
 	select {
 	case details := <-late.Event.Confirmed:
 		require.Equal(t, minedHeight, details.BlockHeight)
 	default:
-		t.Fatal("late subscriber did not receive historical confirmation")
+		t.Fatal("late subscriber missed historical confirmation")
 	}
+}
+
+// TestConfirmationRegistrationOrderProperty asserts that subscriber and scan
+// completion order cannot change the historical range covered for a request.
+func TestConfirmationRegistrationOrderProperty(t *testing.T) {
+	program := sha256.Sum256([]byte("confirmation-order-property"))
+	script := append([]byte{0x51, 0x20}, program[:]...)
+	tx := wire.NewMsgTx(2)
+	tx.AddTxOut(&wire.TxOut{Value: 1000, PkScript: script})
+	txid := tx.TxHash()
+	block := btcutil.NewBlock(&wire.MsgBlock{
+		Transactions: []*wire.MsgTx{tx},
+	})
+
+	rapid.Check(t, func(t *rapid.T) {
+		tipHeight := rapid.Uint32Range(3, 1000).Draw(
+			t, "tip_height",
+		)
+		minHint := rapid.Uint32Range(1, tipHeight-1).Draw(
+			t, "min_hint",
+		)
+		numSubscribers := rapid.IntRange(2, 6).Draw(
+			t, "num_subscribers",
+		)
+		minHintIndex := rapid.IntRange(1, numSubscribers-1).Draw(
+			t, "min_hint_index",
+		)
+
+		// Place the minimum after the first subscriber. Other hints can
+		// create additional descending prefixes or duplicates.
+		hints := make([]uint32, numSubscribers)
+		for i := range hints {
+			if i == minHintIndex {
+				hints[i] = minHint
+				continue
+			}
+
+			hints[i] = rapid.Uint32Range(minHint+1, tipHeight).Draw(
+				t, "height_hint_"+string(rune('a'+i)),
+			)
+		}
+
+		minedHeight := rapid.Uint32Range(minHint, tipHeight).Draw(
+			t, "mined_height",
+		)
+
+		cache := newMockHintCache()
+		n := chainntnfs.NewTxNotifier(
+			tipHeight, chainntnfs.ReorgSafetyLimit, cache, cache,
+		)
+		defer n.TearDown()
+
+		events := make([]*chainntnfs.ConfirmationEvent, 0, len(hints))
+		dispatches := make(
+			[]*chainntnfs.HistoricalConfDispatch, 0, len(hints),
+		)
+		for _, hint := range hints {
+			registration, err := n.RegisterConf(
+				&txid, script, 1, hint,
+			)
+			require.NoError(t, err)
+			events = append(events, registration.Event)
+
+			if registration.HistoricalDispatch != nil {
+				dispatches = append(
+					dispatches,
+					registration.HistoricalDispatch,
+				)
+			}
+		}
+
+		// The dispatched ranges must be a gapless, non-overlapping
+		// partition of every block promised by the earliest subscriber.
+		sort.Slice(dispatches, func(i, j int) bool {
+			return dispatches[i].StartHeight <
+				dispatches[j].StartHeight
+		})
+		require.NotEmpty(t, dispatches)
+		require.Equal(t, minHint, dispatches[0].StartHeight)
+		require.Equal(
+			t, tipHeight, dispatches[len(dispatches)-1].EndHeight,
+		)
+		for i := 1; i < len(dispatches); i++ {
+			require.Equal(
+				t, dispatches[i-1].EndHeight+1,
+				dispatches[i].StartHeight,
+			)
+		}
+
+		completionOrder := rapid.Permutation(dispatches).Draw(
+			t, "completion_order",
+		)
+		found := false
+		for _, dispatch := range completionOrder {
+			var details *chainntnfs.TxConfirmation
+			if dispatch.StartHeight <= minedHeight &&
+				minedHeight <= dispatch.EndHeight {
+
+				details = &chainntnfs.TxConfirmation{
+					BlockHash:   block.Hash(),
+					BlockHeight: minedHeight,
+					Tx:          tx,
+				}
+				found = true
+			}
+
+			require.NoError(t, n.UpdateConfDetails(
+				dispatch.ConfRequest, details,
+			))
+
+			// An empty partial result cannot discard a prefix whose
+			// completion is still outstanding.
+			if !found {
+				hint, err := cache.QueryConfirmHint(
+					dispatch.ConfRequest,
+				)
+				require.NoError(t, err)
+				require.Equal(t, minHint, hint)
+			}
+		}
+
+		for _, event := range events {
+			select {
+			case details := <-event.Confirmed:
+				require.Equal(
+					t, minedHeight, details.BlockHeight,
+				)
+			default:
+				t.Fatal("subscriber missed confirmation")
+			}
+
+			select {
+			case <-event.Confirmed:
+				t.Fatal("subscriber received duplicate")
+			default:
+			}
+		}
+	})
 }
 
 // TestConfirmationEqualHeightHintsShareScan ensures a cached hint can raise a

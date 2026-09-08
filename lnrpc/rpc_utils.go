@@ -131,15 +131,16 @@ func RPCTransactionDetails(txns []*lnwallet.TransactionDetail, firstIdx,
 	}
 
 	// Sort transactions by number of confirmations rather than height so
-	// that unconfirmed transactions (height =0; confirmations =-1) will
+	// that unconfirmed transactions (height 0, confirmations 0) will
 	// follow the most recently set of confirmed transactions. If we sort
 	// by height, unconfirmed transactions will follow our oldest
 	// transactions, because they have lower block heights.
 	//
 	// When reverse is set, we flip the comparison so that transactions are
-	// returned from oldest to newest (ascending block height), with
-	// unconfirmed transactions last.
-	sort.Slice(txDetails.Transactions, func(i, j int) bool {
+	// returned from oldest to newest, with unconfirmed transactions last.
+	// The sort is stable so transactions sharing a block keep their
+	// relative order and reverse is an exact mirror of the default.
+	sort.SliceStable(txDetails.Transactions, func(i, j int) bool {
 		if reverse {
 			return txDetails.Transactions[i].NumConfirmations >
 				txDetails.Transactions[j].NumConfirmations

@@ -42,3 +42,34 @@ func TestRPCTransactionDetailsReverse(t *testing.T) {
 	}
 	require.Equal(t, []int32{401, 402, 403, 0}, reverseHeights)
 }
+
+// TestRPCTransactionDetailsStableTie checks that transactions sharing a block
+// (equal confirmation counts) keep their input order in both directions, so
+// reverse is an exact mirror of the default ordering rather than an arbitrary
+// re-shuffle of the tied transactions.
+func TestRPCTransactionDetailsStableTie(t *testing.T) {
+	t.Parallel()
+
+	// Two transactions in the same block have equal confirmations. They
+	// are labelled so we can tell them apart in the output.
+	txns := []*lnwallet.TransactionDetail{
+		{BlockHeight: 500, NumConfirmations: 1, Label: "a"},
+		{BlockHeight: 500, NumConfirmations: 1, Label: "b"},
+	}
+
+	labels := func(d *TransactionDetails) []string {
+		got := make([]string, len(d.Transactions))
+		for i, tx := range d.Transactions {
+			got[i] = tx.Label
+		}
+		return got
+	}
+
+	// A stable sort keeps the tied transactions in their input order for
+	// both directions.
+	forward := RPCTransactionDetails(txns, 0, 0, false)
+	require.Equal(t, []string{"a", "b"}, labels(forward))
+
+	reverse := RPCTransactionDetails(txns, 0, 0, true)
+	require.Equal(t, []string{"a", "b"}, labels(reverse))
+}

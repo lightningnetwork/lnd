@@ -2289,9 +2289,11 @@ var listChainTxnsCommand = cli.Command{
 		},
 		cli.BoolFlag{
 			Name: "reverse",
-			Usage: "return transactions from oldest to newest " +
-				"(ascending block height) instead of the " +
-				"default newest to oldest",
+			Usage: "order the returned transactions oldest to " +
+				"newest, with unconfirmed last, instead of " +
+				"the default newest to oldest; this only " +
+				"reorders the returned page, it does not " +
+				"change which transactions are returned",
 		},
 	},
 	Description: `

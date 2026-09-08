@@ -342,6 +342,286 @@ func TestConfirmationRegistrationOrderProperty(t *testing.T) {
 	})
 }
 
+type confirmationLifecycleScenario struct {
+	tipHeight         uint32
+	hints             []uint32
+	numConfs          []uint32
+	cancelIndex       int
+	cancelAfterConf   bool
+	scanInterruptions int
+	preMineBlocks     uint32
+	reincludeDelay    uint32
+}
+
+func genLifecycleScenarios() *rapid.Generator[confirmationLifecycleScenario] {
+	return rapid.Custom(func(t *rapid.T) confirmationLifecycleScenario {
+		tipHeight := rapid.Uint32Range(3, 1000).Draw(t, "tip_height")
+		minHint := rapid.Uint32Range(1, tipHeight-1).Draw(t, "min_hint")
+		numSubscribers := rapid.IntRange(2, 6).Draw(
+			t, "num_subscribers",
+		)
+		minHintIndex := rapid.IntRange(1, numSubscribers-1).Draw(
+			t, "min_hint_index",
+		)
+
+		hints := make([]uint32, numSubscribers)
+		numConfs := make([]uint32, numSubscribers)
+		for i := range hints {
+			if i == minHintIndex {
+				hints[i] = minHint
+			} else {
+				hints[i] = rapid.Uint32Range(
+					minHint+1, tipHeight,
+				).Draw(t, "height_hint_"+string(rune('a'+i)))
+			}
+
+			numConfs[i] = rapid.Uint32Range(1, 4).Draw(
+				t, "num_confs_"+string(rune('a'+i)),
+			)
+		}
+
+		return confirmationLifecycleScenario{
+			tipHeight: tipHeight,
+			hints:     hints,
+			numConfs:  numConfs,
+			cancelIndex: rapid.IntRange(1, numSubscribers-1).Draw(
+				t, "cancel_index",
+			),
+			cancelAfterConf: rapid.Bool().Draw(
+				t, "cancel_after_confirmation",
+			),
+			scanInterruptions: rapid.IntRange(0, 2).Draw(
+				t, "scan_interruptions",
+			),
+			preMineBlocks: rapid.Uint32Range(0, 2).Draw(
+				t, "pre_mine_blocks",
+			),
+			reincludeDelay: rapid.Uint32Range(0, 2).Draw(
+				t, "reinclude_delay",
+			),
+		}
+	})
+}
+
+// TestConfirmationLifecycleProperty asserts that restart, cancellation, tip
+// movement, and reorgs preserve the confirmation contract for every active
+// subscriber. Historical scan errors are not passed to TxNotifier. At this
+// boundary, an interrupted scan is a dispatch that never calls
+// UpdateConfDetails, followed by a restart and re-registration.
+func TestConfirmationLifecycleProperty(t *testing.T) {
+	program := sha256.Sum256([]byte("confirmation-lifecycle-property"))
+	script := append([]byte{0x51, 0x20}, program[:]...)
+	tx := wire.NewMsgTx(2)
+	tx.AddTxOut(&wire.TxOut{Value: 1000, PkScript: script})
+	txid := tx.TxHash()
+	txBlock := btcutil.NewBlock(&wire.MsgBlock{
+		Transactions: []*wire.MsgTx{tx},
+	})
+	emptyBlock := btcutil.NewBlock(&wire.MsgBlock{})
+
+	rapid.Check(t, func(t *rapid.T) {
+		scenario := genLifecycleScenarios().Draw(t, "scenario")
+		cache := newMockHintCache()
+		active := make([]bool, len(scenario.hints))
+		for i := range active {
+			active[i] = true
+		}
+
+		var (
+			n      *chainntnfs.TxNotifier
+			events = make(
+				[]*chainntnfs.ConfirmationEvent, len(active),
+			)
+		)
+		numAttempts := scenario.scanInterruptions + 1
+		for attempt := range numAttempts {
+			n = chainntnfs.NewTxNotifier(
+				scenario.tipHeight, chainntnfs.ReorgSafetyLimit,
+				cache, cache,
+			)
+
+			var dispatches []*chainntnfs.HistoricalConfDispatch
+			for i := range active {
+				if !active[i] {
+					continue
+				}
+
+				registration, err := n.RegisterConf(
+					&txid, script, scenario.numConfs[i],
+					scenario.hints[i],
+				)
+				require.NoError(t, err)
+				events[i] = registration.Event
+				if registration.HistoricalDispatch != nil {
+					dispatches = append(
+						dispatches,
+						registration.HistoricalDispatch,
+					)
+				}
+			}
+
+			if attempt == 0 && !scenario.cancelAfterConf {
+				events[scenario.cancelIndex].Cancel()
+				active[scenario.cancelIndex] = false
+				assertConfirmationClosed(
+					t, events[scenario.cancelIndex],
+				)
+			}
+
+			require.NotEmpty(t, dispatches)
+			if attempt < scenario.scanInterruptions {
+				// Failed scans do not call back. The hint must
+				// preserve the obligation across restart.
+				n.TearDown()
+				for i := range active {
+					if active[i] {
+						assertConfirmationClosed(
+							t, events[i],
+						)
+					}
+				}
+
+				continue
+			}
+
+			completionOrder := rapid.Permutation(dispatches).Draw(
+				t, "completion_order",
+			)
+			for _, dispatch := range completionOrder {
+				require.NoError(t, n.UpdateConfDetails(
+					dispatch.ConfRequest, nil,
+				))
+			}
+		}
+		defer n.TearDown()
+
+		currentHeight := scenario.tipHeight
+		for range scenario.preMineBlocks {
+			currentHeight++
+			require.NoError(t, n.ConnectTip(
+				emptyBlock, currentHeight,
+			))
+			require.NoError(t, n.NotifyHeight(currentHeight))
+		}
+
+		txHeight := currentHeight + 1
+		require.NoError(t, n.ConnectTip(txBlock, txHeight))
+		require.NoError(t, n.NotifyHeight(txHeight))
+		currentHeight = txHeight
+
+		var maxNumConfs uint32
+		for i := range active {
+			if active[i] && scenario.numConfs[i] > maxNumConfs {
+				maxNumConfs = scenario.numConfs[i]
+			}
+		}
+		for currentHeight < txHeight+maxNumConfs-1 {
+			currentHeight++
+			require.NoError(t, n.ConnectTip(
+				emptyBlock, currentHeight,
+			))
+			require.NoError(t, n.NotifyHeight(currentHeight))
+		}
+
+		for i := range active {
+			if !active[i] {
+				continue
+			}
+
+			assertConfirmation(t, events[i], txHeight)
+			assertNoConfirmation(t, events[i])
+		}
+
+		if scenario.cancelAfterConf {
+			events[scenario.cancelIndex].Cancel()
+			active[scenario.cancelIndex] = false
+			assertConfirmationClosed(
+				t, events[scenario.cancelIndex],
+			)
+		}
+
+		for currentHeight >= txHeight {
+			require.NoError(t, n.DisconnectTip(currentHeight))
+			currentHeight--
+		}
+		for i := range active {
+			if !active[i] {
+				continue
+			}
+
+			select {
+			case depth := <-events[i].NegativeConf:
+				require.Greater(t, depth, int32(0))
+			default:
+				t.Fatal("subscriber missed reorg")
+			}
+			assertNoConfirmation(t, events[i])
+		}
+
+		for range scenario.reincludeDelay {
+			currentHeight++
+			require.NoError(t, n.ConnectTip(
+				emptyBlock, currentHeight,
+			))
+			require.NoError(t, n.NotifyHeight(currentHeight))
+		}
+
+		txHeight = currentHeight + 1
+		require.NoError(t, n.ConnectTip(txBlock, txHeight))
+		require.NoError(t, n.NotifyHeight(txHeight))
+		currentHeight = txHeight
+		for currentHeight < txHeight+maxNumConfs-1 {
+			currentHeight++
+			require.NoError(t, n.ConnectTip(
+				emptyBlock, currentHeight,
+			))
+			require.NoError(t, n.NotifyHeight(currentHeight))
+		}
+
+		for i := range active {
+			if !active[i] {
+				continue
+			}
+
+			assertConfirmation(t, events[i], txHeight)
+			assertNoConfirmation(t, events[i])
+		}
+	})
+}
+
+func assertConfirmation(t rapid.TB, event *chainntnfs.ConfirmationEvent,
+	height uint32) {
+
+	t.Helper()
+	select {
+	case details := <-event.Confirmed:
+		require.Equal(t, height, details.BlockHeight)
+	default:
+		t.Fatal("subscriber missed confirmation")
+	}
+}
+
+func assertNoConfirmation(t rapid.TB, event *chainntnfs.ConfirmationEvent) {
+	t.Helper()
+	select {
+	case <-event.Confirmed:
+		t.Fatal("subscriber received duplicate confirmation")
+	default:
+	}
+}
+
+func assertConfirmationClosed(t rapid.TB,
+	event *chainntnfs.ConfirmationEvent) {
+
+	t.Helper()
+	select {
+	case _, ok := <-event.Confirmed:
+		require.False(t, ok)
+	default:
+		t.Fatal("expected closed confirmation channel")
+	}
+}
+
 // TestConfirmationEqualHeightHintsShareScan ensures a cached hint can raise a
 // shared scan boundary without causing an identical subscriber hint to rescan
 // the range below the cache.

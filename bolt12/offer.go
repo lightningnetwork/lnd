@@ -138,7 +138,7 @@ func decodeOffer(data []byte) (*Offer, error) {
 		currency.Record(),
 		amount.Record(),
 		desc.Record(),
-		features.Record(),
+		strictFeaturesRecord(&features),
 		expiry.Record(),
 		paths.Record(),
 		issuer.Record(),

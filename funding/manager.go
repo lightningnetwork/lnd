@@ -309,8 +309,9 @@ type InitFundingMsg struct {
 // fundingMsg is sent by the ProcessFundingMsg function and packages a
 // funding-specific lnwire.Message along with the lnpeer.Peer that sent it.
 type fundingMsg struct {
-	msg  lnwire.Message
-	peer lnpeer.Peer
+	msg      lnwire.Message
+	peer     lnpeer.Peer
+	complete chan struct{}
 }
 
 // pendingChannels is a map instantiated per-peer which tracks all active
@@ -648,7 +649,9 @@ type Manager struct {
 
 	localDiscoverySignals *lnutils.SyncMap[lnwire.ChannelID, chan struct{}]
 
-	handleChannelReadyBarriers *lnutils.SyncMap[lnwire.ChannelID, struct{}]
+	handleChannelReadyBarriers *lnutils.SyncMap[
+		lnwire.ChannelID, chan struct{},
+	]
 
 	quit chan struct{}
 	wg   sync.WaitGroup
@@ -712,7 +715,7 @@ func NewFundingManager(cfg Config) (*Manager, error) {
 			lnwire.ChannelID, chan struct{},
 		]{},
 		handleChannelReadyBarriers: &lnutils.SyncMap[
-			lnwire.ChannelID, struct{},
+			lnwire.ChannelID, chan struct{},
 		]{},
 		pendingMusigNonces: make(
 			map[lnwire.ChannelID]*musig2.Nonces,
@@ -1048,28 +1051,7 @@ func (f *Manager) reservationCoordinator() {
 	for {
 		select {
 		case fmsg := <-f.fundingMsgs:
-			switch msg := fmsg.msg.(type) {
-			case *lnwire.OpenChannel:
-				f.fundeeProcessOpenChannel(fmsg.peer, msg)
-
-			case *lnwire.AcceptChannel:
-				f.funderProcessAcceptChannel(fmsg.peer, msg)
-
-			case *lnwire.FundingCreated:
-				f.fundeeProcessFundingCreated(fmsg.peer, msg)
-
-			case *lnwire.FundingSigned:
-				f.funderProcessFundingSigned(fmsg.peer, msg)
-
-			case *lnwire.ChannelReady:
-				f.handleChannelReady(fmsg.peer, msg)
-
-			case *lnwire.Warning:
-				f.handleWarningMsg(fmsg.peer, msg)
-
-			case *lnwire.Error:
-				f.handleErrorMsg(fmsg.peer, msg)
-			}
+			f.processFundingMsg(fmsg)
 		case req := <-f.fundingRequests:
 			f.handleInitFundingMsg(req)
 
@@ -1079,6 +1061,41 @@ func (f *Manager) reservationCoordinator() {
 		case <-f.quit:
 			return
 		}
+	}
+}
+
+// processFundingMsg handles one message on the funding coordinator goroutine
+// and signals synchronous callers only after the handler has returned. The
+// ChannelReady handler transfers completion to its asynchronous continuation.
+func (f *Manager) processFundingMsg(fmsg *fundingMsg) {
+	if msg, ok := fmsg.msg.(*lnwire.ChannelReady); ok {
+		f.handleChannelReady(fmsg.peer, msg, fmsg.complete)
+
+		return
+	}
+
+	if fmsg.complete != nil {
+		defer close(fmsg.complete)
+	}
+
+	switch msg := fmsg.msg.(type) {
+	case *lnwire.OpenChannel:
+		f.fundeeProcessOpenChannel(fmsg.peer, msg)
+
+	case *lnwire.AcceptChannel:
+		f.funderProcessAcceptChannel(fmsg.peer, msg)
+
+	case *lnwire.FundingCreated:
+		f.fundeeProcessFundingCreated(fmsg.peer, msg)
+
+	case *lnwire.FundingSigned:
+		f.funderProcessFundingSigned(fmsg.peer, msg)
+
+	case *lnwire.Warning:
+		f.handleWarningMsg(fmsg.peer, msg)
+
+	case *lnwire.Error:
+		f.handleErrorMsg(fmsg.peer, msg)
 	}
 }
 
@@ -1423,9 +1440,48 @@ func (f *Manager) advancePendingChannelState(channel *chanstate.OpenChannel,
 // allowing it to handle the lnwire.Message.
 func (f *Manager) ProcessFundingMsg(msg lnwire.Message, peer lnpeer.Peer) {
 	select {
-	case f.fundingMsgs <- &fundingMsg{msg, peer}:
+	case f.fundingMsgs <- &fundingMsg{msg: msg, peer: peer}:
 	case <-f.quit:
 		return
+	}
+}
+
+// ProcessFundingMsgAndWait sends a message to the funding coordinator and
+// waits until its existing handler has returned. A nil error confirms handler
+// completion, not protocol success; handlers report funding failures through
+// their existing peer messages and callbacks.
+//
+// The context controls admission to the coordinator. Once admitted, the call
+// waits for processing or manager shutdown so cancellation cannot create an
+// ambiguous partially handled delivery.
+func (f *Manager) ProcessFundingMsgAndWait(ctx context.Context,
+	msg lnwire.Message, peer lnpeer.Peer) error {
+
+	complete := make(chan struct{})
+	fmsg := &fundingMsg{
+		msg:      msg,
+		peer:     peer,
+		complete: complete,
+	}
+
+	select {
+	case f.fundingMsgs <- fmsg:
+	case <-ctx.Done():
+		return ctx.Err()
+	case <-f.quit:
+		return ErrFundingManagerShuttingDown
+	}
+
+	select {
+	case <-complete:
+		return nil
+	case <-f.quit:
+		select {
+		case <-complete:
+			return nil
+		default:
+			return ErrFundingManagerShuttingDown
+		}
 	}
 }
 
@@ -4049,7 +4105,7 @@ func genFirstStateMusigNonce(channel *chanstate.OpenChannel,
 // handleChannelReady finalizes the channel funding process and enables the
 // channel to enter normal operating mode.
 func (f *Manager) handleChannelReady(peer lnpeer.Peer,
-	msg *lnwire.ChannelReady) {
+	msg *lnwire.ChannelReady, complete chan struct{}) {
 
 	// Notify the aux hook that the specified peer just established a
 	// channel with us, identified by the given channel ID.
@@ -4066,13 +4122,34 @@ func (f *Manager) handleChannelReady(peer lnpeer.Peer,
 	// We now load or create a new channel barrier for this channel. If
 	// we are currently in the process of handling a channel_ready message
 	// for this channel, ignore the duplicate.
-	_, loaded := f.handleChannelReadyBarriers.LoadOrStore(
-		msg.ChanID, struct{}{},
+	barrier := make(chan struct{})
+	activeBarrier, loaded := f.handleChannelReadyBarriers.LoadOrStore(
+		msg.ChanID, barrier,
 	)
 	if loaded {
+		if complete != nil {
+			f.wg.Add(1)
+			go func() {
+				defer f.wg.Done()
+
+				select {
+				case <-activeBarrier:
+					close(complete)
+				case <-f.quit:
+				}
+			}()
+		}
+
 		log.Infof("Already handling channelReady for "+
 			"ChannelID(%v), ignoring.", msg.ChanID)
 		return
+	}
+	finish := func() {
+		close(barrier)
+		f.handleChannelReadyBarriers.Delete(msg.ChanID)
+		if complete != nil {
+			close(complete)
+		}
 	}
 
 	// Check whether we need to wait for the local funding confirmation flow
@@ -4085,9 +4162,6 @@ func (f *Manager) handleChannelReady(peer lnpeer.Peer,
 		f.wg.Add(1)
 		go func() {
 			defer f.wg.Done()
-			defer f.handleChannelReadyBarriers.Delete(
-				msg.ChanID,
-			)
 
 			// Wait for the local waitForFundingConfirmation
 			// goroutine to signal that it has the necessary state
@@ -4096,11 +4170,13 @@ func (f *Manager) handleChannelReady(peer lnpeer.Peer,
 			select {
 			case <-localDiscoverySignal:
 			case <-f.quit:
+				f.handleChannelReadyBarriers.Delete(msg.ChanID)
 				return
 			}
 
 			f.localDiscoverySignals.Delete(msg.ChanID)
 			f.processChannelReady(peer, msg)
+			finish()
 		}()
 
 		return
@@ -4112,7 +4188,7 @@ func (f *Manager) handleChannelReady(peer lnpeer.Peer,
 	chanID := msg.ChanID
 	channel, err := f.cfg.FindChannel(peer.IdentityKey(), chanID)
 	if err != nil {
-		f.handleChannelReadyBarriers.Delete(msg.ChanID)
+		finish()
 
 		log.Errorf("Unable to locate ChannelID(%v), cannot "+
 			"complete funding", chanID)
@@ -4143,7 +4219,7 @@ func (f *Manager) handleChannelReady(peer lnpeer.Peer,
 			}
 		}
 
-		f.handleChannelReadyBarriers.Delete(msg.ChanID)
+		finish()
 
 		log.Infof("Received duplicate channelReady for "+
 			"ChannelID(%v), ignoring.", chanID)
@@ -4158,9 +4234,9 @@ func (f *Manager) handleChannelReady(peer lnpeer.Peer,
 	f.wg.Add(1)
 	go func() {
 		defer f.wg.Done()
-		defer f.handleChannelReadyBarriers.Delete(msg.ChanID)
 
 		f.processChannelReady(peer, msg)
+		finish()
 	}()
 }
 

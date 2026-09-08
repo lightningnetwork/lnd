@@ -5745,3 +5745,248 @@ func TestChannelReadyUnknownChannelID(t *testing.T) {
 		t, alice, bob, 500000, 0, 1, updateChan, true, nil,
 	)
 }
+
+// TestProcessFundingMsgAndWait verifies synchronous delivery returns only
+// after the coordinator has run the existing funding-message handler.
+func TestProcessFundingMsgAndWait(t *testing.T) {
+	t.Parallel()
+
+	var findChannelCalls atomic.Uint64
+	alice, bob := setupFundingManagers(
+		t, func(cfg *Config) {
+			origFindChannel := cfg.FindChannel
+			cfg.FindChannel = func(
+				node *btcec.PublicKey,
+				chanID lnwire.ChannelID,
+			) (*chanstate.OpenChannel, error) {
+
+				findChannelCalls.Add(1)
+
+				return origFindChannel(node, chanID)
+			}
+		},
+	)
+	t.Cleanup(func() {
+		tearDownFundingManagers(t, alice, bob)
+	})
+
+	msg := &lnwire.ChannelReady{
+		ChanID:                 lnwire.ChannelID{1, 2, 3},
+		NextPerCommitmentPoint: bobAddr.IdentityKey,
+	}
+	err := alice.fundingMgr.ProcessFundingMsgAndWait(t.Context(), msg, bob)
+	require.NoError(t, err)
+	require.EqualValues(t, 1, findChannelCalls.Load())
+}
+
+// TestProcessFundingMsgAndWaitChannelReadyAsync proves the synchronous API
+// follows ChannelReady processing after the coordinator transfers it to the
+// ordinary asynchronous path.
+func TestProcessFundingMsgAndWaitChannelReadyAsync(t *testing.T) {
+	t.Parallel()
+
+	processing := make(chan struct{}, 1)
+	release := make(chan struct{})
+	var findChannelCalls atomic.Uint64
+	alice, bob := setupFundingManagers(
+		t, func(cfg *Config) {
+			cfg.FindChannel = func(*btcec.PublicKey,
+				lnwire.ChannelID) (*chanstate.OpenChannel,
+				error) {
+
+				if findChannelCalls.Add(1) == 1 {
+					return &chanstate.OpenChannel{}, nil
+				}
+
+				processing <- struct{}{}
+				<-release
+
+				return nil, errors.New("test lookup completed")
+			}
+		},
+	)
+	t.Cleanup(func() {
+		tearDownFundingManagers(t, alice, bob)
+	})
+
+	chanID := lnwire.ChannelID{1, 2, 3}
+	result := make(chan error, 1)
+	go func() {
+		result <- alice.fundingMgr.ProcessFundingMsgAndWait(
+			t.Context(), &lnwire.ChannelReady{
+				ChanID:                 chanID,
+				NextPerCommitmentPoint: bobAddr.IdentityKey,
+			}, bob,
+		)
+	}()
+
+	select {
+	case <-processing:
+	case <-time.After(time.Second):
+		t.Fatal("ChannelReady processing did not start")
+	}
+	assertFundingMessagePending(t, result)
+	close(release)
+	require.NoError(t, <-result)
+	require.EqualValues(t, 2, findChannelCalls.Load())
+}
+
+// TestProcessFundingMsgAndWaitChannelReadyDiscovery proves the synchronous
+// API waits through both the local discovery barrier and message processing.
+func TestProcessFundingMsgAndWaitChannelReadyDiscovery(t *testing.T) {
+	t.Parallel()
+
+	processing := make(chan struct{}, 1)
+	release := make(chan struct{})
+	alice, bob := setupFundingManagers(
+		t, func(cfg *Config) {
+			cfg.FindChannel = func(*btcec.PublicKey,
+				lnwire.ChannelID) (*chanstate.OpenChannel,
+				error) {
+
+				processing <- struct{}{}
+				<-release
+
+				return nil, errors.New("test lookup completed")
+			}
+		},
+	)
+	t.Cleanup(func() {
+		tearDownFundingManagers(t, alice, bob)
+	})
+
+	chanID := lnwire.ChannelID{2, 3, 4}
+	discovered := make(chan struct{})
+	alice.fundingMgr.localDiscoverySignals.Store(chanID, discovered)
+	result := make(chan error, 1)
+	go func() {
+		result <- alice.fundingMgr.ProcessFundingMsgAndWait(
+			t.Context(), &lnwire.ChannelReady{
+				ChanID:                 chanID,
+				NextPerCommitmentPoint: bobAddr.IdentityKey,
+			}, bob,
+		)
+	}()
+
+	require.Eventually(t, func() bool {
+		_, loaded := alice.fundingMgr.handleChannelReadyBarriers.Load(
+			chanID,
+		)
+
+		return loaded
+	}, time.Second, time.Millisecond)
+	assertFundingMessagePending(t, result)
+	close(discovered)
+	select {
+	case <-processing:
+	case <-time.After(time.Second):
+		t.Fatal("ChannelReady processing did not start")
+	}
+	assertFundingMessagePending(t, result)
+	close(release)
+	require.NoError(t, <-result)
+}
+
+// TestProcessFundingMsgAndWaitChannelReadyShutdown proves shutdown before the
+// local discovery barrier does not report a durable delivery boundary.
+func TestProcessFundingMsgAndWaitChannelReadyShutdown(t *testing.T) {
+	t.Parallel()
+
+	alice, bob := setupFundingManagers(t)
+	t.Cleanup(func() {
+		tearDownFundingManagers(t, alice, bob)
+	})
+
+	chanID := lnwire.ChannelID{3, 4, 5}
+	alice.fundingMgr.localDiscoverySignals.Store(
+		chanID, make(chan struct{}),
+	)
+	result := make(chan error, 1)
+	go func() {
+		result <- alice.fundingMgr.ProcessFundingMsgAndWait(
+			t.Context(), &lnwire.ChannelReady{
+				ChanID:                 chanID,
+				NextPerCommitmentPoint: bobAddr.IdentityKey,
+			}, bob,
+		)
+	}()
+
+	require.Eventually(t, func() bool {
+		_, loaded := alice.fundingMgr.handleChannelReadyBarriers.Load(
+			chanID,
+		)
+
+		return loaded
+	}, time.Second, time.Millisecond)
+	require.NoError(t, alice.fundingMgr.Stop())
+	require.ErrorIs(t, <-result, ErrFundingManagerShuttingDown)
+}
+
+// assertFundingMessagePending fails if a synchronous message has already
+// reported completion.
+func assertFundingMessagePending(t *testing.T, result <-chan error) {
+	t.Helper()
+
+	select {
+	case err := <-result:
+		t.Fatalf("message completed before processing: %v", err)
+	case <-time.After(10 * time.Millisecond):
+	}
+}
+
+// TestProcessFundingMsgAndWaitAdmission verifies cancellation and shutdown are
+// reported before a message enters the coordinator.
+func TestProcessFundingMsgAndWaitAdmission(t *testing.T) {
+	t.Parallel()
+
+	t.Run("context canceled", func(t *testing.T) {
+		manager := &Manager{
+			fundingMsgs: make(chan *fundingMsg),
+			quit:        make(chan struct{}),
+		}
+		ctx, cancel := context.WithCancel(t.Context())
+		cancel()
+
+		err := manager.ProcessFundingMsgAndWait(ctx, nil, nil)
+		require.ErrorIs(t, err, context.Canceled)
+	})
+
+	t.Run("manager stopped", func(t *testing.T) {
+		manager := &Manager{
+			fundingMsgs: make(chan *fundingMsg),
+			quit:        make(chan struct{}),
+		}
+		close(manager.quit)
+
+		err := manager.ProcessFundingMsgAndWait(t.Context(), nil, nil)
+		require.ErrorIs(t, err, ErrFundingManagerShuttingDown)
+	})
+}
+
+// TestProcessFundingMsgAndWaitAfterAdmission verifies request cancellation
+// cannot make delivery ambiguous after the coordinator accepts the message.
+func TestProcessFundingMsgAndWaitAfterAdmission(t *testing.T) {
+	t.Parallel()
+
+	manager := &Manager{
+		fundingMsgs: make(chan *fundingMsg),
+		quit:        make(chan struct{}),
+	}
+	ctx, cancel := context.WithCancel(t.Context())
+	result := make(chan error, 1)
+	go func() {
+		result <- manager.ProcessFundingMsgAndWait(ctx, nil, nil)
+	}()
+
+	message := <-manager.fundingMsgs
+	cancel()
+	select {
+	case err := <-result:
+		t.Fatalf("returned before processing completed: %v", err)
+
+	case <-time.After(10 * time.Millisecond):
+	}
+
+	close(message.complete)
+	require.NoError(t, <-result)
+}

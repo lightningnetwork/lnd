@@ -2704,7 +2704,7 @@
           },
           {
             "name": "reverse",
-            "description": "If set, transactions are returned from oldest to newest (ascending block\nheight) instead of the default newest to oldest. The ordering of\nstart_height and end_height does not affect the order of the returned\ntransactions; use this field to control it.",
+            "description": "If set, the returned transactions are ordered oldest to newest, with\nunconfirmed transactions last, instead of the default newest to oldest\n(unconfirmed first). This only reorders the returned page; it does not\nchange which transactions are returned. index_offset and max_transactions\nstill select the same page, and the order of start_height and end_height\ndoes not affect it.\n\nNote this is not the same as the reversed field on ListPayments and\nListInvoices, which paginates backwards from index_offset and leaves the\nreturned order unchanged; reverse controls output order only.",
             "in": "query",
             "required": false,
             "type": "boolean"
@@ -2917,7 +2917,7 @@
           },
           {
             "name": "reverse",
-            "description": "If set, transactions are returned from oldest to newest (ascending block\nheight) instead of the default newest to oldest. The ordering of\nstart_height and end_height does not affect the order of the returned\ntransactions; use this field to control it.",
+            "description": "If set, the returned transactions are ordered oldest to newest, with\nunconfirmed transactions last, instead of the default newest to oldest\n(unconfirmed first). This only reorders the returned page; it does not\nchange which transactions are returned. index_offset and max_transactions\nstill select the same page, and the order of start_height and end_height\ndoes not affect it.\n\nNote this is not the same as the reversed field on ListPayments and\nListInvoices, which paginates backwards from index_offset and leaves the\nreturned order unchanged; reverse controls output order only.",
             "in": "query",
             "required": false,
             "type": "boolean"

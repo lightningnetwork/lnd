@@ -2380,10 +2380,16 @@ type GetTransactionsRequest struct {
 	// The maximal number of transactions returned in the response to this query.
 	// This value should be set to 0 to return all transactions.
 	MaxTransactions uint32 `protobuf:"varint,5,opt,name=max_transactions,json=maxTransactions,proto3" json:"max_transactions,omitempty"`
-	// If set, transactions are returned from oldest to newest (ascending block
-	// height) instead of the default newest to oldest. The ordering of
-	// start_height and end_height does not affect the order of the returned
-	// transactions; use this field to control it.
+	// If set, the returned transactions are ordered oldest to newest, with
+	// unconfirmed transactions last, instead of the default newest to oldest
+	// (unconfirmed first). This only reorders the returned page; it does not
+	// change which transactions are returned. index_offset and max_transactions
+	// still select the same page, and the order of start_height and end_height
+	// does not affect it.
+	//
+	// Note this is not the same as the reversed field on ListPayments and
+	// ListInvoices, which paginates backwards from index_offset and leaves the
+	// returned order unchanged; reverse controls output order only.
 	Reverse       bool `protobuf:"varint,6,opt,name=reverse,proto3" json:"reverse,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache

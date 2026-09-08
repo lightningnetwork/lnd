@@ -994,7 +994,13 @@ func (n *NeutrinoNotifier) RegisterConfirmationsNtfn(txid *chainhash.Hash,
 	currentHeight := uint32(n.bestBlock.Height)
 	n.bestBlockMtx.RUnlock()
 
-	ntfn.HistoricalDispatch.EndHeight = currentHeight
+	// An initial scan ends at the txNotifier height observed during
+	// registration. Extend that scan through any blocks connected while the
+	// filter update was in flight. A supplemental scan ends below that height
+	// and must retain its non-overlapping prefix boundary.
+	if ntfn.HistoricalDispatch.EndHeight == ntfn.Height {
+		ntfn.HistoricalDispatch.EndHeight = currentHeight
+	}
 
 	// Finally, with the filter updated, we can dispatch the historical
 	// rescan to ensure we can detect if the event happened in the past.

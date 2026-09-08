@@ -103,11 +103,10 @@ const (
 )
 
 // confNtfnSet holds all known, registered confirmation notifications for a
-// txid/output script. If duplicates notifications are requested, only one
-// historical dispatch will be spawned to ensure redundant scans are not
-// permitted. A single conf detail will be constructed and dispatched to all
-// interested
-// clients.
+// txid/output script. Duplicate notifications share historical scan results.
+// If a later notification has an earlier height hint, only the previously
+// uncovered prefix is scanned. A single conf detail will be constructed and
+// dispatched to all interested clients.
 type confNtfnSet struct {
 	// ntfns keeps tracks of all the active client notification requests for
 	// a transaction/output script
@@ -116,6 +115,21 @@ type confNtfnSet struct {
 	// rescanStatus represents the current rescan state for the
 	// transaction/output script.
 	rescanStatus rescanState
+
+	// minHeightHint is the earliest height hint supplied by any subscriber.
+	// A cached hint can raise the initial scan boundary, but an identical
+	// subscriber hint does not invalidate that cached progress.
+	minHeightHint uint32
+
+	// rescanStartHeight is the earliest height covered by the historical
+	// scans dispatched for this set. If no scan was required, it is the first
+	// height covered by tip notifications.
+	rescanStartHeight uint32
+
+	// pendingRescans is the number of historical scans whose results have not
+	// yet been reported. The set cannot safely advance its height hint until
+	// all of them complete without finding the transaction.
+	pendingRescans uint32
 
 	// details serves as a cache of the confirmation details of a
 	// transaction that we'll use to determine if a transaction/output
@@ -668,15 +682,31 @@ func (n *TxNotifier) RegisterConf(txid *chainhash.Hash, pkScript []byte,
 		// If this is the first registration for this request, construct
 		// a confSet to coalesce all notifications for the same request.
 		confSet = newConfNtfnSet()
+		confSet.minHeightHint = ntfn.HeightHint
 		n.confNotifications[ntfn.ConfRequest] = confSet
 	}
 	confSet.ntfns[ntfn.ConfID] = ntfn
+
+	initialRescan := confSet.rescanStatus == rescanNotStarted
+	earlierHint := !initialRescan && ntfn.HeightHint < confSet.minHeightHint
+	if earlierHint {
+		confSet.minHeightHint = ntfn.HeightHint
+	}
 
 	switch confSet.rescanStatus {
 
 	// A prior rescan has already completed and we are actively watching at
 	// tip for this request.
 	case rescanComplete:
+		// A later subscriber can provide an earlier height hint than the
+		// scan which established this set. In that case, continue below and
+		// scan the previously uncovered prefix.
+		if confSet.details == nil && earlierHint &&
+			ntfn.HeightHint < confSet.rescanStartHeight {
+
+			break
+		}
+
 		// If the confirmation details for this set of notifications has
 		// already been found, we'll attempt to deliver them immediately
 		// to this client.
@@ -715,6 +745,12 @@ func (n *TxNotifier) RegisterConf(txid *chainhash.Hash, pkScript []byte,
 	// another. When the rescan returns, this notification's details will be
 	// updated as well.
 	case rescanPending:
+		// The pending scan covers this subscriber's complete historical
+		// range. Its result will be shared with this notification.
+		if earlierHint && ntfn.HeightHint < confSet.rescanStartHeight {
+			break
+		}
+
 		Log.Debugf("Waiting for pending rescan to finish before "+
 			"notifying %v at tip", ntfn.ConfRequest)
 
@@ -726,6 +762,31 @@ func (n *TxNotifier) RegisterConf(txid *chainhash.Hash, pkScript []byte,
 
 	// If no rescan has been dispatched, attempt to do so now.
 	case rescanNotStarted:
+	}
+
+	endHeight := n.currentHeight
+	if !initialRescan {
+		// A scan is already pending or complete, but it started after this
+		// subscriber's height hint. Scan only the uncovered prefix.
+		startHeight = ntfn.HeightHint
+		endHeight = confSet.rescanStartHeight - 1
+
+		Log.Debugf("Extending historical confirmation rescan for %v "+
+			"to include range %d-%d", ntfn.ConfRequest,
+			startHeight, endHeight)
+
+		// Persist the expanded obligation before dispatching it. Otherwise,
+		// a restart before this prefix completes would retain the later
+		// cached hint and lose the earlier subscriber's range.
+		err := n.confirmHintCache.CommitConfirmHint(
+			startHeight, ntfn.ConfRequest,
+		)
+		if err != nil {
+			// The cache is an optimization, so a write failure does not
+			// prevent the live notifier from scanning the prefix.
+			Log.Debugf("Unable to lower confirm hint to %d for %v: %v",
+				startHeight, ntfn.ConfRequest, err)
+		}
 	}
 
 	// If the provided or cached height hint indicates that the
@@ -741,6 +802,7 @@ func (n *TxNotifier) RegisterConf(txid *chainhash.Hash, pkScript []byte,
 		// notifier to start delivering messages for this set
 		// immediately.
 		confSet.rescanStatus = rescanComplete
+		confSet.rescanStartHeight = n.currentHeight + 1
 		return &ConfRegistration{
 			Event:              ntfn.Event,
 			HistoricalDispatch: nil,
@@ -758,12 +820,14 @@ func (n *TxNotifier) RegisterConf(txid *chainhash.Hash, pkScript []byte,
 	dispatch := &HistoricalConfDispatch{
 		ConfRequest: ntfn.ConfRequest,
 		StartHeight: startHeight,
-		EndHeight:   n.currentHeight,
+		EndHeight:   endHeight,
 	}
 
 	// Set this confSet's status to pending, ensuring subsequent
 	// registrations don't also attempt a dispatch.
 	confSet.rescanStatus = rescanPending
+	confSet.rescanStartHeight = startHeight
+	confSet.pendingRescans++
 
 	return &ConfRegistration{
 		Event:              ntfn.Event,
@@ -845,24 +909,30 @@ func (n *TxNotifier) UpdateConfDetails(confRequest ConfRequest,
 			confRequest)
 	}
 
+	if confSet.pendingRescans > 0 {
+		confSet.pendingRescans--
+	}
+
 	// If the confirmation details were already found at tip, all existing
 	// notifications will have been dispatched or queued for dispatch. We
-	// can exit early to avoid sending too many notifications on the
-	// buffered channels.
+	// can exit after accounting for this completed scan to avoid sending too
+	// many notifications on the buffered channels.
 	if confSet.details != nil {
 		return nil
 	}
-
-	// The historical dispatch has been completed for this confSet. We'll
-	// update the rescan status and cache any details that were found. If
-	// the details are nil, that implies we did not find them and will
-	// continue to watch for them at tip.
-	confSet.rescanStatus = rescanComplete
 
 	// The notifier has yet to reach the height at which the
 	// transaction/output script was included in a block, so we should defer
 	// until handling it then within ConnectTip.
 	if details == nil {
+		// Another scan is still checking an earlier range. An empty result
+		// cannot advance the shared height hint until all scans finish.
+		if confSet.pendingRescans > 0 {
+			return nil
+		}
+
+		confSet.rescanStatus = rescanComplete
+
 		Log.Debugf("Confirmation details for %v not found during "+
 			"historical dispatch, waiting to dispatch at tip",
 			confRequest)
@@ -884,6 +954,10 @@ func (n *TxNotifier) UpdateConfDetails(confRequest ConfRequest,
 	}
 
 	if details.BlockHeight > n.currentHeight {
+		if confSet.pendingRescans == 0 {
+			confSet.rescanStatus = rescanComplete
+		}
+
 		Log.Debugf("Confirmation details for %v found above current "+
 			"height, waiting to dispatch at tip", confRequest)
 
@@ -891,6 +965,8 @@ func (n *TxNotifier) UpdateConfDetails(confRequest ConfRequest,
 	}
 
 	Log.Debugf("Updating confirmation details for %v", confRequest)
+	confSet.rescanStatus = rescanComplete
+	confSet.pendingRescans = 0
 
 	err := n.confirmHintCache.CommitConfirmHint(
 		details.BlockHeight, confRequest,

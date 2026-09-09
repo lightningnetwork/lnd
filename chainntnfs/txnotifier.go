@@ -162,6 +162,12 @@ type spendNtfnSet struct {
 	// request (outpoint/output script).
 	rescanStatus rescanState
 
+	// pendingRescan records whether the single historical scan dispatched
+	// for this set has reported its result. Tip processing can complete the
+	// set's rescan state first, so rescanStatus alone cannot represent
+	// ownership of the in-flight callback.
+	pendingRescan bool
+
 	// details serves as a cache of the spend details for an outpoint/output
 	// script that we'll use to determine if it has already been spent at
 	// the time of registration.
@@ -652,6 +658,9 @@ func (n *TxNotifier) RegisterConf(txid *chainhash.Hash, pkScript []byte,
 		return nil, err
 	}
 
+	n.Lock()
+	defer n.Unlock()
+
 	// Before proceeding to register the notification, we'll query our
 	// height hint cache to determine whether a better one exists.
 	//
@@ -673,9 +682,6 @@ func (n *TxNotifier) RegisterConf(txid *chainhash.Hash, pkScript []byte,
 	Log.Infof("New confirmation subscription: conf_id=%d, %v, "+
 		"num_confs=%v height_hint=%d", ntfn.ConfID, ntfn.ConfRequest,
 		numConfs, startHeight)
-
-	n.Lock()
-	defer n.Unlock()
 
 	confSet, ok := n.confNotifications[ntfn.ConfRequest]
 	if !ok {
@@ -883,6 +889,46 @@ func (n *TxNotifier) CancelConf(confRequest ConfRequest, confID uint64) {
 			ntfn.NumConfirmations - 1
 		delete(n.ntfnsByConfirmHeight[confHeight], ntfn)
 	}
+
+	if len(confSet.ntfns) != 0 {
+		return
+	}
+
+	// Keep known details and pending scans alive for another subscriber.
+	// Their hint is still purged so a restart cannot trust progress that no
+	// active subscriber owns.
+	if confSet.details != nil || confSet.pendingRescans > 0 {
+		n.purgeConfirmHint(confRequest)
+		return
+	}
+
+	n.deleteConfSet(confRequest, confSet)
+}
+
+// deleteConfSet removes an empty confirmation set and all of its indexes.
+// The caller must hold the TxNotifier's lock.
+func (n *TxNotifier) deleteConfSet(confRequest ConfRequest,
+	confSet *confNtfnSet) {
+
+	n.purgeConfirmHint(confRequest)
+	if confSet.details != nil {
+		height := confSet.details.BlockHeight
+		delete(n.confsByInitialHeight[height], confRequest)
+		if len(n.confsByInitialHeight[height]) == 0 {
+			delete(n.confsByInitialHeight, height)
+		}
+	}
+	delete(n.confNotifications, confRequest)
+}
+
+// purgeConfirmHint removes a hint that no active subscriber owns. The caller
+// must hold the TxNotifier's lock.
+func (n *TxNotifier) purgeConfirmHint(confRequest ConfRequest) {
+	err := n.confirmHintCache.PurgeConfirmHint(confRequest)
+	if err != nil {
+		Log.Debugf("Unable to purge confirm hint for %v: %v",
+			confRequest, err)
+	}
 }
 
 // UpdateConfDetails attempts to update the confirmation details for an active
@@ -916,6 +962,12 @@ func (n *TxNotifier) UpdateConfDetails(confRequest ConfRequest,
 
 	if confSet.pendingRescans > 0 {
 		confSet.pendingRescans--
+	}
+	if len(confSet.ntfns) == 0 && confSet.pendingRescans == 0 &&
+		confSet.details == nil && details == nil {
+
+		n.deleteConfSet(confRequest, confSet)
+		return nil
 	}
 
 	// If the confirmation details were already found at tip, all existing
@@ -972,21 +1024,42 @@ func (n *TxNotifier) UpdateConfDetails(confRequest ConfRequest,
 
 	Log.Debugf("Updating confirmation details for %v", confRequest)
 	confSet.rescanStatus = rescanComplete
-	confSet.pendingRescans = 0
 
-	err := n.confirmHintCache.CommitConfirmHint(
-		details.BlockHeight, confRequest,
-	)
-	if err != nil {
-		// The error is not fatal, so we should not return an error to
-		// the caller.
-		Log.Errorf("Unable to update confirm hint to %d for %v: %v",
-			details.BlockHeight, confRequest, err)
+	if len(confSet.ntfns) > 0 {
+		err := n.confirmHintCache.CommitConfirmHint(
+			details.BlockHeight, confRequest,
+		)
+		if err != nil {
+			// The error is not fatal, so we should not return an
+			// error to the caller.
+			Log.Errorf(
+				"Unable to update confirm hint %d for %v: %v",
+				details.BlockHeight, confRequest, err,
+			)
+		}
 	}
 
 	// Cache the details found in the rescan and attempt to dispatch any
 	// notifications that have not yet been delivered.
 	confSet.details = details
+	if len(confSet.ntfns) == 0 {
+		// Retain these details for a later subscriber. Track them for
+		// reorgs. There is no subscriber whose dispatch would add this
+		// index.
+		height := details.BlockHeight
+		reorgSafeHeight := height + n.reorgSafetyLimit
+		if reorgSafeHeight > n.currentHeight {
+			txSet, exists := n.confsByInitialHeight[height]
+			if !exists {
+				txSet = make(map[ConfRequest]struct{})
+				n.confsByInitialHeight[height] = txSet
+			}
+			txSet[confRequest] = struct{}{}
+		}
+
+		return nil
+	}
+
 	for _, ntfn := range confSet.ntfns {
 		// The default notification we assigned above includes the
 		// block along with the rest of the details. However not all
@@ -997,7 +1070,7 @@ func (n *TxNotifier) UpdateConfDetails(confRequest ConfRequest,
 			confDetails.Block = nil
 		}
 
-		err = n.dispatchConfDetails(ntfn, &confDetails)
+		err := n.dispatchConfDetails(ntfn, &confDetails)
 		if err != nil {
 			return err
 		}
@@ -1154,6 +1227,9 @@ func (n *TxNotifier) RegisterSpend(outpoint *wire.OutPoint, pkScript []byte,
 		return nil, err
 	}
 
+	n.Lock()
+	defer n.Unlock()
+
 	// Before proceeding to register the notification, we'll query our spend
 	// hint cache to determine whether a better one exists.
 	startHeight := ntfn.HeightHint
@@ -1169,9 +1245,6 @@ func (n *TxNotifier) RegisterSpend(outpoint *wire.OutPoint, pkScript []byte,
 		Log.Errorf("Unable to query spend hint for %v: %v",
 			ntfn.SpendRequest, err)
 	}
-
-	n.Lock()
-	defer n.Unlock()
 
 	Log.Debugf("New spend subscription: spend_id=%d, %v, height_hint=%d",
 		ntfn.SpendID, ntfn.SpendRequest, startHeight)
@@ -1250,6 +1323,7 @@ func (n *TxNotifier) RegisterSpend(outpoint *wire.OutPoint, pkScript []byte,
 	// We'll set the rescan status to pending to ensure subsequent
 	// notifications don't also attempt a historical dispatch.
 	spendSet.rescanStatus = rescanPending
+	spendSet.pendingRescan = true
 
 	Log.Debugf("Dispatching historical spend rescan for %v, start=%d, "+
 		"end=%d", ntfn.SpendRequest, startHeight, n.currentHeight)
@@ -1295,6 +1369,46 @@ func (n *TxNotifier) CancelSpend(spendRequest SpendRequest, spendID uint64) {
 	close(ntfn.Event.Reorg)
 	close(ntfn.Event.Done)
 	delete(spendSet.ntfns, spendID)
+
+	if len(spendSet.ntfns) != 0 {
+		return
+	}
+
+	// Keep known details and a pending scan alive for another subscriber.
+	// Their hint is still purged so a restart cannot trust progress that no
+	// active subscriber owns.
+	if spendSet.details != nil || spendSet.pendingRescan {
+		n.purgeSpendHint(spendRequest)
+		return
+	}
+
+	n.deleteSpendSet(spendRequest, spendSet)
+}
+
+// deleteSpendSet removes an empty spend set and all of its indexes. The caller
+// must hold the TxNotifier's lock.
+func (n *TxNotifier) deleteSpendSet(spendRequest SpendRequest,
+	spendSet *spendNtfnSet) {
+
+	n.purgeSpendHint(spendRequest)
+	if spendSet.details != nil {
+		height := uint32(spendSet.details.SpendingHeight)
+		delete(n.spendsByHeight[height], spendRequest)
+		if len(n.spendsByHeight[height]) == 0 {
+			delete(n.spendsByHeight, height)
+		}
+	}
+	delete(n.spendNotifications, spendRequest)
+}
+
+// purgeSpendHint removes a hint that no active subscriber owns. The caller
+// must hold the TxNotifier's lock.
+func (n *TxNotifier) purgeSpendHint(spendRequest SpendRequest) {
+	err := n.spendHintCache.PurgeSpendHint(spendRequest)
+	if err != nil {
+		Log.Debugf("Unable to purge spend hint for %v: %v",
+			spendRequest, err)
+	}
 }
 
 // ProcessRelevantSpendTx processes a transaction provided externally. This will
@@ -1363,6 +1477,14 @@ func (n *TxNotifier) UpdateSpendDetails(spendRequest SpendRequest,
 	n.Lock()
 	defer n.Unlock()
 
+	// Only the historical callback completes ownership of the dispatched
+	// scan. Relevant transactions can arrive through updateSpendDetails
+	// while that callback is still outstanding.
+	spendSet, ok := n.spendNotifications[spendRequest]
+	if ok {
+		spendSet.pendingRescan = false
+	}
+
 	return n.updateSpendDetails(spendRequest, details)
 }
 
@@ -1375,12 +1497,18 @@ func (n *TxNotifier) UpdateSpendDetails(spendRequest SpendRequest,
 func (n *TxNotifier) updateSpendDetails(spendRequest SpendRequest,
 	details *SpendDetail) error {
 
-	// Mark the ongoing historical rescan for this request as finished. This
-	// will allow us to update the spend hints for it at tip.
+	// Find the shared set before applying details learned either at tip or
+	// from a historical scan.
 	spendSet, ok := n.spendNotifications[spendRequest]
 	if !ok {
 		return fmt.Errorf("spend notification for %v not found",
 			spendRequest)
+	}
+	if len(spendSet.ntfns) == 0 && !spendSet.pendingRescan &&
+		spendSet.details == nil && details == nil {
+
+		n.deleteSpendSet(spendRequest, spendSet)
+		return nil
 	}
 
 	// If the spend details have already been found either at tip, then the
@@ -1442,20 +1570,34 @@ func (n *TxNotifier) updateSpendDetails(spendRequest SpendRequest,
 	// Now that we've determined the request has been spent, we'll commit
 	// its spending height as its hint in the cache and dispatch
 	// notifications to all of its respective clients.
-	err := n.spendHintCache.CommitSpendHint(
-		uint32(details.SpendingHeight), spendRequest,
-	)
-	if err != nil {
-		// The error is not fatal as this is an optimistic optimization,
-		// so we'll avoid returning an error.
-		Log.Debugf("Unable to update spend hint to %d for %v: %v",
-			details.SpendingHeight, spendRequest, err)
+	if len(spendSet.ntfns) > 0 {
+		err := n.spendHintCache.CommitSpendHint(
+			uint32(details.SpendingHeight), spendRequest,
+		)
+		if err != nil {
+			// The error is not fatal as this is an optimistic
+			// optimization, so we'll avoid returning an error.
+			Log.Debugf("Unable to update spend hint %d for %v: %v",
+				details.SpendingHeight, spendRequest, err)
+		}
 	}
 
 	Log.Debugf("Updated spend hint to height=%v for confirmed spend "+
 		"request %v", details.SpendingHeight, spendRequest)
 
 	spendSet.details = details
+	if len(spendSet.ntfns) == 0 {
+		spendHeight := uint32(details.SpendingHeight)
+		txSet, exists := n.spendsByHeight[spendHeight]
+		if !exists {
+			txSet = make(map[SpendRequest]struct{})
+			n.spendsByHeight[spendHeight] = txSet
+		}
+		txSet[spendRequest] = struct{}{}
+
+		return nil
+	}
+
 	for _, ntfn := range spendSet.ntfns {
 		err := n.dispatchSpendDetails(ntfn, spendSet.details)
 		if err != nil {
@@ -1788,6 +1930,12 @@ func (n *TxNotifier) handleSpendDetailsAtTip(spendRequest SpendRequest,
 
 	// TODO(wilmer): cancel pending historical rescans if any?
 	spendSet := n.spendNotifications[spendRequest]
+	if spendSet.details != nil {
+		Log.Warnf("Ignoring repeated spend of %s at height %d.",
+			spendRequest, details.SpendingHeight)
+		return
+	}
+
 	spendSet.rescanStatus = rescanComplete
 	spendSet.details = details
 
@@ -1951,6 +2099,12 @@ func (n *TxNotifier) DisconnectTip(blockHeight uint32) error {
 			confSet := n.confNotifications[txHash]
 			if initialHeight == blockHeight {
 				confSet.details = nil
+				if len(confSet.ntfns) == 0 &&
+					confSet.pendingRescans == 0 {
+
+					n.deleteConfSet(txHash, confSet)
+					continue
+				}
 			}
 
 			for _, ntfn := range confSet.ntfns {
@@ -1995,6 +2149,10 @@ func (n *TxNotifier) DisconnectTip(blockHeight uint32) error {
 		// request.
 		spendSet := n.spendNotifications[op]
 		spendSet.details = nil
+		if len(spendSet.ntfns) == 0 && !spendSet.pendingRescan {
+			n.deleteSpendSet(op, spendSet)
+			continue
+		}
 
 		// For all requests which have had a spend notification
 		// dispatched, we'll attempt to drain it and send a reorg
@@ -2032,6 +2190,11 @@ func (n *TxNotifier) updateHints(height uint32) {
 	// connected/disconnected.
 	confRequests := n.unconfirmedRequests()
 	for confRequest := range n.confsByInitialHeight[height] {
+		confSet, ok := n.confNotifications[confRequest]
+		if !ok || len(confSet.ntfns) == 0 {
+			continue
+		}
+
 		confRequests = append(confRequests, confRequest)
 	}
 	err := n.confirmHintCache.CommitConfirmHint(
@@ -2050,6 +2213,11 @@ func (n *TxNotifier) updateHints(height uint32) {
 	// being connected/disconnected.
 	spendRequests := n.unspentRequests()
 	for spendRequest := range n.spendsByHeight[height] {
+		spendSet, ok := n.spendNotifications[spendRequest]
+		if !ok || len(spendSet.ntfns) == 0 {
+			continue
+		}
+
 		spendRequests = append(spendRequests, spendRequest)
 	}
 	err = n.spendHintCache.CommitSpendHint(n.currentHeight, spendRequests...)
@@ -2068,6 +2236,10 @@ func (n *TxNotifier) updateHints(height uint32) {
 func (n *TxNotifier) unconfirmedRequests() []ConfRequest {
 	var unconfirmed []ConfRequest
 	for confRequest, confNtfnSet := range n.confNotifications {
+		if len(confNtfnSet.ntfns) == 0 {
+			continue
+		}
+
 		// If the notification is already aware of its confirmation
 		// details, or it's in the process of learning them, we'll skip
 		// it as we can't yet determine if it's confirmed or not.
@@ -2089,6 +2261,10 @@ func (n *TxNotifier) unconfirmedRequests() []ConfRequest {
 func (n *TxNotifier) unspentRequests() []SpendRequest {
 	var unspent []SpendRequest
 	for spendRequest, spendNtfnSet := range n.spendNotifications {
+		if len(spendNtfnSet.ntfns) == 0 {
+			continue
+		}
+
 		// If the notification is already aware of its spend details, or
 		// it's in the process of learning them, we'll skip it as we
 		// can't yet determine if it's unspent or not.

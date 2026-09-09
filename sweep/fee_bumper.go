@@ -281,6 +281,11 @@ type BumpResult struct {
 	// current tx to be failed.
 	SpentInputs map[wire.OutPoint]*wire.MsgTx
 
+	// MissingInputs are inputs that a blocking UTXO lookup confirmed no
+	// longer exist. Unlike SpentInputs, the spending transaction may not be
+	// known.
+	MissingInputs map[wire.OutPoint]struct{}
+
 	// requestID is the ID of the request that created this record.
 	requestID uint64
 }
@@ -343,6 +348,12 @@ type TxPublisherConfig struct {
 
 	// Notifier is used to monitor the confirmation status of the tx.
 	Notifier chainntnfs.ChainNotifier
+
+	// IsInputUnspent performs a blocking chain lookup for an input. It is
+	// used only after the backend reports missing inputs, when an
+	// asynchronous spend notification may still be waiting on a historical
+	// rescan.
+	IsInputUnspent func(input.Input) (bool, error)
 
 	// AuxSweeper is an optional interface that can be used to modify the
 	// way sweep transaction are generated.
@@ -677,35 +688,90 @@ func (t *TxPublisher) createAndCheckTx(r *monitorRecord) (*sweepTxCtx, error) {
 		sweepCtx.tx.TxHash(), err)
 }
 
-// handleMissingInputs handles the case when the chain backend reports back a
-// missing inputs error, which could happen when one of the input has been spent
-// in another tx, or the input is referencing an orphan. When the input is
-// spent, it will be handled via the TxUnknownSpend flow by creating a
-// TxUnknownSpend bump result, otherwise, a TxFatal bump result is returned.
-func (t *TxPublisher) handleMissingInputs(r *monitorRecord) *BumpResult {
-	// Get the spending txns.
-	spends := t.getSpentInputs(r)
+// findMissingInputs uses a blocking chain lookup to identify which inputs no
+// longer exist. This is used only after testmempoolaccept has already returned
+// a missing-input error.
+func (t *TxPublisher) findMissingInputs(
+	inputs []input.Input) (map[wire.OutPoint]struct{}, error) {
 
-	// Attach the spending txns.
+	missing := make(map[wire.OutPoint]struct{})
+	for _, inp := range inputs {
+		unspent, err := t.cfg.IsInputUnspent(inp)
+		if err != nil {
+			return nil, err
+		}
+
+		if !unspent {
+			missing[inp.OutPoint()] = struct{}{}
+		}
+	}
+
+	return missing, nil
+}
+
+// createMissingInputRetryResult creates a retryable result for an ambiguous
+// missing-input error. This protects the full input set from being marked
+// fatal when the chain lookup cannot identify a specific missing input.
+func (t *TxPublisher) createMissingInputRetryResult(
+	r *monitorRecord, err error) *BumpResult {
+
+	result := &BumpResult{
+		Event:     TxFailed,
+		Tx:        r.tx,
+		requestID: r.requestID,
+		Err:       err,
+	}
+
+	feeRate, feeErr := t.calculateRetryFeeRate(r)
+	if feeErr != nil {
+		result.Event = TxFatal
+		result.Err = feeErr
+	}
+
+	result.FeeRate = feeRate
+
+	return result
+}
+
+// handleMissingInputs handles the case when the chain backend reports back a
+// missing inputs error. Spend notifications are checked first, then a blocking
+// UTXO lookup is used to distinguish specific missing inputs from a historical
+// notification race.
+func (t *TxPublisher) handleMissingInputs(r *monitorRecord) *BumpResult {
+	// Get any spending txns that have already reached the notifier.
+	spends := t.getSpentInputs(r)
 	r.spentInputs = spends
 
-	// If there are no spending txns found and the input is missing, the
-	// input is referencing an orphan tx that's no longer valid, e.g., the
-	// spending the anchor output from the remote commitment after the local
-	// commitment has confirmed. In this case we will mark it as fatal and
-	// exit.
 	if len(spends) == 0 {
-		log.Warnf("Failing record=%v: found orphan inputs: %v\n",
-			r.requestID, inputTypeSummary(r.req.Inputs))
-
-		// Create a result that will be sent to the resultChan which is
-		// listened by the caller.
-		result := &BumpResult{
-			Event:     TxFatal,
-			Tx:        r.tx,
-			requestID: r.requestID,
-			Err:       ErrInputMissing,
+		// Preserve the old behavior for callers that don't provide the
+		// blocking lookup callback. Production wiring always provides it.
+		if t.cfg.IsInputUnspent == nil {
+			return &BumpResult{
+				Event:     TxFatal,
+				Tx:        r.tx,
+				requestID: r.requestID,
+				Err:       ErrInputMissing,
+			}
 		}
+
+		missing, err := t.findMissingInputs(r.req.Inputs)
+		if err != nil {
+			return t.createMissingInputRetryResult(
+				r, fmt.Errorf("verify missing inputs: %w", err),
+			)
+		}
+
+		// If every input is still unspent, the backend and historical
+		// lookup disagree. Retry instead of permanently dropping the set.
+		if len(missing) == 0 {
+			return t.createMissingInputRetryResult(r, ErrInputMissing)
+		}
+
+		// Reuse the partial unknown-spend flow so only the confirmed
+		// missing inputs are removed and the remaining inputs are retried.
+		result := t.createUnknownSpentBumpResult(r)
+		result.Err = ErrInputMissing
+		result.MissingInputs = missing
 
 		return result
 	}

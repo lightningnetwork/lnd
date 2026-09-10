@@ -968,15 +968,12 @@ func isKnownOfferTLVType(typ tlv.Type) bool {
 func ValidateOfferRead(o *Offer, now time.Time, activeChain [32]byte,
 	knownFeatures map[lnwire.FeatureBit]string) error {
 
-	// A present-but-nil offer_issuer_id passes IsSome but would panic the
-	// codec on encode, so reject it here.
-	if err := checkPubKeyNotNil(
-		o.OfferIssuerID, "offer_issuer_id",
-	); err != nil {
-		return err
-	}
-	// Check TLV types are in allowed range and that unknown even types are
-	// rejected (even = must-understand).
+	// - if the offer contains any TLV fields outside the inclusive ranges:
+	//   1 to 79 and 1000000000 to 1999999999:
+	//   - MUST NOT respond to the offer.
+	//
+	// BOLT 1 adds that an unknown even type is must-understand. An offer
+	// carries no signature, so no range is exempt from either rule.
 	for _, t := range sortedTypes(o.decodedTLVs) {
 		if !offerAllowedRange(t) {
 			return fmt.Errorf("%w: type %d", ErrOutOfRangeType, t)
@@ -987,12 +984,28 @@ func ValidateOfferRead(o *Offer, now time.Time, activeChain [32]byte,
 		}
 	}
 
-	// Check for unknown even feature bits.
+	// - if offer_features contains unknown odd bits that are non-zero:
+	//   - MUST ignore the bit.
+	// - if offer_features contains unknown even bits that are non-zero:
+	//   - MUST NOT respond to the offer.
+	//   - SHOULD indicate the unknown bit to the user.
+	// NOT CHECKED HERE: surfacing the bit to a user is the caller's, and
+	// the error names the offending bit for it.
 	if err := checkFeatures(o.OfferFeatures, knownFeatures); err != nil {
 		return err
 	}
 
-	// offer_chains present but empty.
+	// - if offer_chains is not set:
+	//   - if the node does not accept bitcoin invoices:
+	//     - MUST NOT respond to the offer
+	// - otherwise (offer_chains is set):
+	//   - if the node does not accept invoices for at least one of the
+	//     chains:
+	//     - MUST NOT respond to the offer
+	//
+	// A present-but-empty offer_chains lists no chain the node could
+	// accept, so it is rejected before the comparison. getOfferChains
+	// normalises an absent field to Bitcoin mainnet.
 	var chainsEmpty bool
 	o.OfferChains.WhenSome(
 		func(r tlv.RecordT[tlv.TlvType2, ChainsRecord]) {
@@ -1005,44 +1018,63 @@ func ValidateOfferRead(o *Offer, now time.Time, activeChain [32]byte,
 		return ErrEmptyChains
 	}
 
-	// Validate the offer's chain against the active chain. An absent
-	// offer_chains TLV means "Bitcoin mainnet" per spec, normalised by
-	// getOfferChains.
-	offerChains := getOfferChains(o)
-	found := slices.Contains(offerChains, activeChain)
-	if !found {
+	if !slices.Contains(getOfferChains(o), activeChain) {
 		return ErrUnsupportedChain
 	}
 
-	// offer_amount set requires offer_description.
+	// - if offer_amount is set and offer_description is not set:
+	//   - MUST NOT respond to the offer.
+	// - if offer_amount is set and is not greater than zero:
+	//   - MUST NOT respond to the offer.
+	// - if offer_currency is set and offer_amount is not set:
+	//   - MUST NOT respond to the offer.
 	hasAmount := o.OfferAmount.IsSome()
 	if hasAmount && !o.OfferDescription.IsSome() {
 		return ErrMissingDescription
 	}
 
-	// offer_amount, if set, must be strictly greater than zero.
 	if err := checkAmountPositive(o.OfferAmount); err != nil {
 		return err
 	}
 
-	// offer_currency requires offer_amount.
 	if o.OfferCurrency.IsSome() && !hasAmount {
 		return ErrCurrencyWithoutAmount
 	}
 
-	// Must have either offer_issuer_id or offer_paths.
+	// - if neither offer_issuer_id nor offer_paths are set:
+	//   - MUST NOT respond to the offer.
+	//
+	// A present-but-nil key passes IsSome but would panic the codec when
+	// used, so reject it before the presence rule.
+	if err := checkPubKeyNotNil(
+		o.OfferIssuerID, "offer_issuer_id",
+	); err != nil {
+		return err
+	}
+
 	if !o.OfferIssuerID.IsSome() && !o.OfferPaths.IsSome() {
 		return ErrNoIssuerIdentity
 	}
 
-	// Check blinded paths have at least one hop.
+	// - if num_hops is 0 in any blinded_path in offer_paths:
+	//   - MUST NOT respond to the offer.
 	if err := checkBlindedPaths(o.OfferPaths); err != nil {
 		return err
 	}
 
-	// Expiry check. A present-but-zero offer_absolute_expiry is as a valid
-	// timestamp in the past, it doesn't have the special meaning of "no
-	// expiry".
+	// - if it uses offer_amount to provide the user with a cost estimate:
+	//   - MUST take into account the currency units for offer_amount.
+	//   - MUST warn the user if the received invoice_amount differs
+	//     significantly from that estimate.
+	// NOT CHECKED HERE: the estimate and the warning belong to the caller,
+	// and a non-bitcoin currency needs an exchange rate the codec has no
+	// source for.
+
+	// - if the current time is after offer_absolute_expiry:
+	//   - MUST NOT respond to the offer.
+	//
+	// A present-but-zero offer_absolute_expiry is a valid timestamp in the
+	// past. It has no special "never expires" meaning.
 	var (
 		expiry    uint64
 		hasExpiry bool
@@ -1057,7 +1089,14 @@ func ValidateOfferRead(o *Offer, now time.Time, activeChain [32]byte,
 		return ErrOfferExpired
 	}
 
-	// Validate UTF-8 fields.
+	// - if it chooses to send an invoice request, it sends an onion
+	//   message via offer_paths when set, otherwise to offer_issuer_id.
+	// NOT CHECKED HERE: sending is the caller's, and the path it used is
+	// the binding the payer later checks against invoice_node_id.
+
+	// The spec states no encoding rule for the text fields, but a field
+	// that is not valid UTF-8 cannot be shown to a user or compared, and
+	// offer_currency has to parse as an ISO 4217 code to mean anything.
 	if err := checkUTF8(o.OfferCurrency, "offer_currency"); err != nil {
 		return err
 	}
@@ -1099,22 +1138,15 @@ func getOfferChains(o *Offer) [][32]byte {
 }
 
 // ValidateOfferWrite validates an offer per the BOLT 12 offer writer
-// requirements.
+// requirements, in the order the spec states them.
 func ValidateOfferWrite(o *Offer) error {
-	// A present-but-nil offer_issuer_id passes IsSome but would panic the
-	// codec on encode, so reject it here.
-	if err := checkPubKeyNotNil(
-		o.OfferIssuerID, "offer_issuer_id",
-	); err != nil {
-		return err
-	}
-
-	// Writer MUST NOT set TLV fields outside allowed ranges, and BOLT 1
-	// makes an unknown even type must-understand. Both checks catch a
-	// decoded-then-mutated offer: a freshly-built struct has no
-	// decodedTLVs (Decode is the only writer of that field). The typed
-	// field set already excludes out-of-range types by construction, so a
-	// freshly-built offer cannot violate the range rule in the first place.
+	// - MUST NOT set any TLV fields outside the inclusive ranges: 1 to 79
+	//   and 1000000000 to 1999999999.
+	//
+	// BOLT 1 adds that an unknown even type is must-understand. Both
+	// checks catch a decoded-then-mutated offer: a freshly-built struct
+	// has no decodedTLVs (Decode is the only writer of that field), and
+	// the typed field set cannot express an out-of-range or unknown type.
 	// The reader applies the same two rules in this order.
 	for _, t := range sortedTypes(o.decodedTLVs) {
 		if !offerAllowedRange(t) {
@@ -1127,28 +1159,13 @@ func ValidateOfferWrite(o *Offer) error {
 		}
 	}
 
-	// offer_amount requires offer_description.
-	if o.OfferAmount.IsSome() && !o.OfferDescription.IsSome() {
-		return ErrMissingDescription
-	}
-
-	// offer_amount, if set, must be strictly greater than zero.
-	if err := checkAmountPositive(o.OfferAmount); err != nil {
-		return err
-	}
-
-	// offer_currency requires offer_amount.
-	if o.OfferCurrency.IsSome() && !o.OfferAmount.IsSome() {
-		return ErrCurrencyWithoutAmount
-	}
-
-	// Without offer_paths, MUST set offer_issuer_id.
-	if !o.OfferPaths.IsSome() && !o.OfferIssuerID.IsSome() {
-		return ErrNoIssuerIdentity
-	}
-
-	// Defense in depth: writer-side mirrors of reader rejections for
-	// present-but-empty offer_chains and offer_paths.
+	// - if the chain for the invoice is not solely bitcoin:
+	//   - MUST specify offer_chains the offer is valid for.
+	// - otherwise:
+	//   - SHOULD omit offer_chains, implying that bitcoin is only chain.
+	// NOT CHECKED HERE: which chain the writer settles on is caller
+	// context. A present-but-empty offer_chains says nothing, so mirror
+	// the reader and reject it.
 	var chainsEmpty bool
 	o.OfferChains.WhenSome(
 		func(r tlv.RecordT[tlv.TlvType2, ChainsRecord]) {
@@ -1161,12 +1178,96 @@ func ValidateOfferWrite(o *Offer) error {
 		return ErrEmptyChains
 	}
 
+	// - if a specific minimum offer_amount is required for successful
+	//   payment:
+	//   - MUST set offer_amount to the amount expected (per item).
+	//   - MUST set offer_amount greater than zero.
+	//   - if the currency for offer_amount is that of all entries in
+	//     chains:
+	//     - MUST specify offer_amount in multiples of the minimum
+	//       lightning-payable unit.
+	//   - otherwise:
+	//     - MUST specify offer_currency iso4217 as an ISO 4217
+	//       three-letter code.
+	//     - MUST specify offer_amount in the currency unit adjusted by the
+	//       ISO 4217 exponent.
+	//   - MUST set offer_description to a complete description of the
+	//     purpose of the payment.
+	// - otherwise:
+	//   - MUST NOT set offer_amount
+	//   - MUST NOT set offer_currency
+	//   - MAY set offer_description
+	// NOT CHECKED HERE: the unit of a bitcoin amount is trivially
+	// satisfied in msat, and the ISO 4217 exponent needs the currency's
+	// own scale.
+	if err := checkAmountPositive(o.OfferAmount); err != nil {
+		return err
+	}
+
+	if o.OfferAmount.IsSome() && !o.OfferDescription.IsSome() {
+		return ErrMissingDescription
+	}
+
+	if o.OfferCurrency.IsSome() && !o.OfferAmount.IsSome() {
+		return ErrCurrencyWithoutAmount
+	}
+
+	if err := checkISO4217(o.OfferCurrency); err != nil {
+		return err
+	}
+
+	// - MAY set offer_metadata for its own use.
+	// - if it supports bolt12 offer features:
+	//   - MUST set offer_features.features to the bitmap of bolt12
+	//     features.
+	// - if the offer expires:
+	//   - MUST set offer_absolute_expiry seconds_from_epoch.
+	// NOT CHECKED HERE: all three are the writer's own decisions, with no
+	// state the codec could contradict.
+
+	// - if it is connected only by private channels:
+	//   - MUST include offer_paths containing one or more paths to the
+	//     node from publicly reachable nodes.
+	// - otherwise:
+	//   - MAY include offer_paths.
+	// NOT CHECKED HERE: connectivity is caller context. A path with no
+	// hops cannot carry a message, so mirror the reader and reject it.
 	if err := checkBlindedPaths(o.OfferPaths); err != nil {
 		return err
 	}
 
-	// Defense in depth: writer-side mirrors of the reader UTF-8 checks
-	// for offer_currency, offer_description, and offer_issuer.
+	// - if it includes offer_paths:
+	//   - MAY set offer_issuer_id.
+	// - otherwise:
+	//   - MUST set offer_issuer_id to the node's public key to request the
+	//     invoice from.
+	//
+	// A present-but-nil key passes IsSome but would panic the codec on
+	// encode, so reject it before the presence rule.
+	if err := checkPubKeyNotNil(
+		o.OfferIssuerID, "offer_issuer_id",
+	); err != nil {
+		return err
+	}
+
+	if !o.OfferPaths.IsSome() && !o.OfferIssuerID.IsSome() {
+		return ErrNoIssuerIdentity
+	}
+
+	// - if it sets offer_issuer:
+	//   - SHOULD set it to identify the issuer of the invoice clearly.
+	// - if it can supply more than one item for a single invoice:
+	//   - MUST set offer_quantity_max, and MUST NOT set it to 0 when the
+	//     maximum is known.
+	// - otherwise:
+	//   - MUST NOT set offer_quantity_max.
+	// NOT CHECKED HERE: both describe the writer's own inventory and
+	// naming, which the codec cannot see. offer_quantity_max carries a
+	// three-state meaning (absent, zero for unlimited, a bound), so no
+	// value of it is invalid on its own.
+
+	// Defense in depth: the reader rejects a non-UTF-8 text field, so the
+	// writer does not emit one.
 	if err := checkUTF8(o.OfferCurrency, "offer_currency"); err != nil {
 		return err
 	}
@@ -1178,10 +1279,6 @@ func ValidateOfferWrite(o *Offer) error {
 	}
 
 	if err := checkUTF8(o.OfferIssuer, "offer_issuer"); err != nil {
-		return err
-	}
-
-	if err := checkISO4217(o.OfferCurrency); err != nil {
 		return err
 	}
 

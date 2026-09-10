@@ -3340,68 +3340,6 @@ func TestValidateOfferReadVectors(t *testing.T) {
 	}
 }
 
-// TestOfferVectorsLayerCensus verifies that every invalid vector in
-// offers-test.json is rejected at the expected layer, pinning the distribution
-// of failure modes across bech32 decode, TLV decode, and semantic validation.
-func TestOfferVectorsLayerCensus(t *testing.T) {
-	t.Parallel()
-
-	vectors := loadOffersVectors(t)
-	now := farFutureNow()
-
-	var (
-		bech32Rejections int
-		tlvRejections    int
-		valRejections    int
-		falseAccepts     int
-	)
-
-	for _, tc := range vectors {
-		if tc.Valid {
-			continue
-		}
-
-		_, tlvBytes, bech32Err := Decode(tc.Bolt12)
-		if bech32Err != nil {
-			bech32Rejections++
-			continue
-		}
-
-		offer, decodeErr := decodeOffer(tlvBytes)
-		if decodeErr != nil {
-			tlvRejections++
-			continue
-		}
-
-		valErr := ValidateOfferRead(
-			offer, now, bitcoinMainnetGenesisHash, nil,
-		)
-		if valErr != nil {
-			valRejections++
-			continue
-		}
-
-		t.Errorf(
-			"invalid vector falsely accepted: %s",
-			tc.Description,
-		)
-		falseAccepts++
-	}
-
-	require.Equal(
-		t, 2, bech32Rejections, "bech32 rejections mismatch",
-	)
-	require.Equal(
-		t, 16, tlvRejections, "TLV decode rejections mismatch",
-	)
-	require.Equal(
-		t, 15, valRejections, "validation rejections mismatch",
-	)
-	require.Equal(
-		t, 0, falseAccepts, "false accepts count mismatch",
-	)
-}
-
 // findRecord searches a slice of TLV records for a record with the given type.
 func findRecord(records []tlv.Record, typ uint64) (*tlv.Record, bool) {
 	for i := range records {

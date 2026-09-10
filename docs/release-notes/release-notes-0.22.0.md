@@ -145,9 +145,17 @@
 
 * [BOLT 12 string codecs and payment
   validation](https://github.com/lightningnetwork/lnd/pull/11146): add
-  validated `Decode`/`Encode` string entry points for offers, invoice
-  requests, and invoices, and `ValidateInvoiceForPayment` to bundle the
-  payer-side invoice checks into one call.
+  validated `Decode`/`Encode` string entry points for offers and invoices, and
+  `ValidateInvoiceForPayment` to bundle the payer-side invoice checks into one
+  call.
+
+* [BOLT 12 codec
+  finalization](https://github.com/lightningnetwork/lnd/pull/11146): reject an
+  unknown even TLV type in an invoice's signature range on read. Leave the
+  decoded string length limits to the caller while the string encoders keep
+  their payload bound. Add `OfferID` over the offer TLV ranges of any BOLT 12
+  message, and narrow the exported surface to what an onion-message caller
+  needs.
 
 ## Testing
 

@@ -61,7 +61,8 @@ type Offer struct {
 	// Handled types map to nil; unhandled types map to their value bytes.
 	// Encoding and validation both derive their view from this single field
 	// so they cannot drift apart, and so signed-range extras the decoder
-	// did not understand are re-emitted on encode and preserve offer_id.
+	// did not understand are re-emitted on encode and preserve the offer
+	// hash.
 	decodedTLVs tlv.TypeMap
 }
 
@@ -114,7 +115,7 @@ func (o *Offer) Encode() ([]byte, error) {
 // the spec writer requirements are not enforced here, so callers that need a
 // valid offer must run ValidateOfferRead. Unknown TLVs are preserved on the
 // returned offer so a later Encode can re-emit signed-range extras and keep
-// offer_id stable.
+// offer hash stable.
 func decodeOffer(data []byte) (*Offer, error) {
 	var o Offer
 

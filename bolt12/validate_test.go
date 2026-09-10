@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"encoding/hex"
 	"math"
+	"strings"
 	"testing"
 	"time"
 
@@ -3390,6 +3391,23 @@ func TestValidateOfferReadVectors(t *testing.T) {
 						expectedField.Type,
 					)
 				}
+
+				// Feed the vector back out through the
+				// writer. Nothing else runs Encode or the
+				// bech32 writer against spec data, so a
+				// record-ordering or writer bug would
+				// otherwise only show against fixtures we
+				// wrote ourselves.
+				restrung, encErr := EncodeOfferString(offer)
+				require.NoError(t, encErr)
+				require.True(
+					t,
+					strings.EqualFold(
+						tc.Bolt12, restrung,
+					),
+					"re-encode mismatch: want %s, got %s",
+					tc.Bolt12, restrung,
+				)
 
 				return
 			}

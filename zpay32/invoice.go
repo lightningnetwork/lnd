@@ -103,6 +103,12 @@ var (
 	// ErrBrokenTaggedField is returned when the last tagged field is
 	// incorrectly formatted and doesn't have enough bytes to be read.
 	ErrBrokenTaggedField = errors.New("last tagged field is broken")
+
+	// ErrDuplicatePaymentHash is returned when an invoice contains more
+	// than one payment hash field.
+	ErrDuplicatePaymentHash = errors.New(
+		"invoice contains multiple payment hashes",
+	)
 )
 
 // MessageSigner is passed to the Encode method to provide a signature

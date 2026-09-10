@@ -151,6 +151,18 @@ func TestValidateOfferWrite(t *testing.T) {
 			wantErr: ErrOutOfRangeType,
 		},
 		{
+			// Same path as above, but for the must-understand
+			// rule: type 24 is in range and unknown to the offer
+			// schema, so the writer refuses to re-emit it.
+			name: "unknown even TLV in decoded extras",
+			mutate: func(o *Offer) {
+				o.decodedTLVs = tlv.TypeMap{
+					24: nil,
+				}
+			},
+			wantErr: ErrUnknownEvenType,
+		},
+		{
 			name: "empty blinded paths list",
 			mutate: func(o *Offer) {
 				o.OfferPaths = tlv.SomeRecordT(

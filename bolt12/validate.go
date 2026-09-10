@@ -1109,15 +1109,21 @@ func ValidateOfferWrite(o *Offer) error {
 		return err
 	}
 
-	// Writer MUST NOT set TLV fields outside allowed ranges. This check
-	// catches a decoded-then-mutated offer: a freshly-built struct has no
+	// Writer MUST NOT set TLV fields outside allowed ranges, and BOLT 1
+	// makes an unknown even type must-understand. Both checks catch a
+	// decoded-then-mutated offer: a freshly-built struct has no
 	// decodedTLVs (Decode is the only writer of that field). The typed
 	// field set already excludes out-of-range types by construction, so a
 	// freshly-built offer cannot violate the range rule in the first place.
+	// The reader applies the same two rules in this order.
 	for _, t := range sortedTypes(o.decodedTLVs) {
 		if !offerAllowedRange(t) {
 			return fmt.Errorf("%w: type %d",
 				ErrOutOfRangeType, t)
+		}
+
+		if !isKnownOfferTLVType(t) && t%2 == 0 {
+			return fmt.Errorf("%w: type %d", ErrUnknownEvenType, t)
 		}
 	}
 

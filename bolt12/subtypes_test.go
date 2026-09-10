@@ -259,6 +259,7 @@ func TestDecodeBlindedPayInfosRejectsTruncated(t *testing.T) {
 		data      []byte
 		declLen   uint64
 		errSubstr string
+		wantErr   error
 	}{
 		{
 			name:      "missing fee_base",
@@ -277,10 +278,10 @@ func TestDecodeBlindedPayInfosRejectsTruncated(t *testing.T) {
 			errSubstr: "exceeds remaining",
 		},
 		{
-			name:      "exceeds cap",
-			data:      make([]byte, (maxBlindedPayInfos+1)*28),
-			declLen:   (maxBlindedPayInfos + 1) * 28,
-			errSubstr: "exceeds maxBlindedPayInfos",
+			name:    "exceeds cap",
+			data:    make([]byte, (maxBlindedPayInfos+1)*28),
+			declLen: (maxBlindedPayInfos + 1) * 28,
+			wantErr: ErrTooManyBlindedPayInfos,
 		},
 		{
 			name: "non-minimal features",
@@ -290,8 +291,8 @@ func TestDecodeBlindedPayInfosRejectsTruncated(t *testing.T) {
 			data: append(
 				make([]byte, 26), []byte{0x00, 0x01, 0x00}...,
 			),
-			declLen:   29,
-			errSubstr: "non-minimal",
+			declLen: 29,
+			wantErr: ErrNonMinimalFeatures,
 		},
 		{
 			name: "inverted htlc range",
@@ -305,8 +306,8 @@ func TestDecodeBlindedPayInfosRejectsTruncated(t *testing.T) {
 
 				return b
 			}(),
-			declLen:   26,
-			errSubstr: "htlc_minimum_msat exceeds",
+			declLen: 26,
+			wantErr: ErrInvalidHtlcRange,
 		},
 	}
 
@@ -320,6 +321,13 @@ func TestDecodeBlindedPayInfosRejectsTruncated(t *testing.T) {
 				tc.declLen,
 			)
 			require.Error(t, err)
+
+			if tc.wantErr != nil {
+				require.ErrorIs(t, err, tc.wantErr)
+
+				return
+			}
+
 			require.Contains(t, err.Error(), tc.errSubstr)
 		})
 	}
@@ -361,6 +369,7 @@ func TestDecodeFallbackAddrsRejectsTruncated(t *testing.T) {
 		data      []byte
 		declLen   uint64
 		errSubstr string
+		wantErr   error
 	}{
 		{
 			name:      "missing version byte",
@@ -392,10 +401,10 @@ func TestDecodeFallbackAddrsRejectsTruncated(t *testing.T) {
 			errSubstr: "exceeds remaining",
 		},
 		{
-			name:      "exceeds cap",
-			data:      make([]byte, (maxFallbackAddrs+1)*3),
-			declLen:   (maxFallbackAddrs + 1) * 3,
-			errSubstr: "exceeds maxFallbackAddrs",
+			name:    "exceeds cap",
+			data:    make([]byte, (maxFallbackAddrs+1)*3),
+			declLen: (maxFallbackAddrs + 1) * 3,
+			wantErr: ErrTooManyFallbackAddrs,
 		},
 	}
 
@@ -409,6 +418,13 @@ func TestDecodeFallbackAddrsRejectsTruncated(t *testing.T) {
 				tc.declLen,
 			)
 			require.Error(t, err)
+
+			if tc.wantErr != nil {
+				require.ErrorIs(t, err, tc.wantErr)
+
+				return
+			}
+
 			require.Contains(t, err.Error(), tc.errSubstr)
 		})
 	}

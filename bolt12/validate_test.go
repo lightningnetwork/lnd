@@ -2375,10 +2375,10 @@ func TestValidateInvoiceRead(t *testing.T) {
 	}
 }
 
-// TestValidateInvoiceReadAcceptsSignatureRange pins the rule that an unknown
-// odd TLV anywhere in the signature range (240-1000) is ignored rather than
-// rejected.
-func TestValidateInvoiceReadAcceptsSignatureRange(t *testing.T) {
+// TestValidateInvoiceReadSignatureRange pins both rules for the signature
+// range (240-1000): an unknown odd TLV there is ignored, an unknown even one
+// is rejected.
+func TestValidateInvoiceReadSignatureRange(t *testing.T) {
 	t.Parallel()
 
 	priv, pub := bobKey()
@@ -2443,6 +2443,16 @@ func TestValidateInvoiceReadAcceptsSignatureRange(t *testing.T) {
 		InvoiceKnownFeatures{},
 	)
 	require.NoError(t, err)
+
+	// An unknown even type in the signature range is must-understand:
+	// the range is exempt from the out-of-range rule only.
+	inv.decodedTLVs = tlv.TypeMap{242: nil}
+
+	err = ValidateInvoiceRead(
+		inv, bitcoinMainnetGenesisHash,
+		InvoiceKnownFeatures{},
+	)
+	require.ErrorIs(t, err, ErrUnknownEvenType)
 }
 
 // TestValidateInvoiceExpiry covers the relative-expiry default, an explicit

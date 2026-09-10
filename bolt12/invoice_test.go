@@ -157,7 +157,7 @@ func TestUsablePaths(t *testing.T) {
 		),
 	}
 
-	// Empty catalogue: the MPPRequired bit is unknown, so path 0 is
+	// No known bits: the MPPRequired bit is unknown, so path 0 is
 	// filtered out and only path 1 (fee_base 2) survives.
 	got := inv.UsablePaths(nil)
 	require.Len(t, got, 1)
@@ -204,7 +204,7 @@ func TestInvoiceRoundTripPreservesAllTypes(t *testing.T) {
 	require.NoError(t, err)
 
 	err = ValidateInvoiceRead(decoded, bitcoinMainnetGenesisHash,
-		InvoiceFeatureCatalogues{})
+		InvoiceKnownFeatures{})
 	require.NoError(t, err)
 
 	// Re-encode the decoded copy and confirm canonicality.

@@ -1,6 +1,12 @@
 // Package bolt12 implements encoding, decoding, and validation for BOLT 12
-// Offers, Invoice Requests, and Invoices. It provides a pure codec library
-// with no LND daemon dependencies.
+// Offers, Invoice Requests, and Invoices. It is a codec library: it does not
+// reach into the daemon, and it takes the chain, the clock and the known
+// feature bits from its caller.
+//
+// It does depend on lnwire, for the pure-TLV message framing, the blinded-path
+// wire types and the feature-bit vector. Sharing those keeps one on-wire
+// definition per structure, so a blinded path means the same bytes here as it
+// does on a peer connection.
 //
 // BOLT 12 messages use TLV streams encoded with a checksumless bech32 variant
 // and signed with BIP-340 Schnorr signatures over a Merkle tree of TLV fields.

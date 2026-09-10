@@ -86,7 +86,7 @@ func (o *Offer) allRecordProducers() []tlv.RecordProducer {
 	lnwire.AddOpt(&p, o.OfferCurrency)
 	lnwire.AddOpt(&p, o.OfferAmount)
 	lnwire.AddOpt(&p, o.OfferDescription)
-	lnwire.AddOpt(&p, o.OfferFeatures)
+	addStrictFeatures(&p, o.OfferFeatures)
 	lnwire.AddOpt(&p, o.OfferAbsoluteExpiry)
 	lnwire.AddOpt(&p, o.OfferPaths)
 	lnwire.AddOpt(&p, o.OfferIssuer)

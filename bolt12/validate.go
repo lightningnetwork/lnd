@@ -1284,10 +1284,10 @@ func checkPubKeyNotNil[T tlv.TlvType](
 // checkInvoiceNodeID enforces the spec rule that, when offer_issuer_id is
 // present, invoice_node_id MUST equal it. Both fields live on the invoice, so
 // this is verifiable without the originating offer. The offer_paths branch
-// (invoice_node_id equals the final blinded_node_id on the arrival path) needs
-// caller context and is not checked here. A present-but-nil offer_issuer_id or
-// invoice_node_id is rejected separately as ErrNilPublicKey, so a nil here is
-// treated as absent.
+// (invoice_node_id equals the final blinded_node_id the payer sent the invoice
+// request to) needs caller context and is not checked here. A present-but-nil
+// offer_issuer_id or invoice_node_id is rejected separately as
+// ErrNilPublicKey, so a nil here is treated as absent.
 func checkInvoiceNodeID(inv *Invoice) error {
 	// A present-but-nil offer_issuer_id is rejected separately as
 	// ErrNilPublicKey, so a nil here means absent and there is nothing to
@@ -1850,8 +1850,8 @@ func ValidateInvoiceRead(inv *Invoice, activeChain [32]byte,
 	// fields live on the invoice). NOT CHECKED HERE: the byte-for-byte
 	// field mirror and the invreq_amount == invoice_amount rule are
 	// enforced by ValidateInvoiceAgainstRequest once the invoice is paired
-	// with its request; the offer_paths blinded_node_id case needs the
-	// arrival path and stays with the caller.
+	// with its request; the offer_paths blinded_node_id case needs the path
+	// the payer sent the request to and stays with the caller.
 	if err := checkInvoiceNodeID(inv); err != nil {
 		return err
 	}

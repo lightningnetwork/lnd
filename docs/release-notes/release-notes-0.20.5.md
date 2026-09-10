@@ -49,10 +49,6 @@
 
 ## Deprecations
 
-### ⚠️ **Warning:** Deprecated fields in `lnrpc.Hop` will be removed in release version **0.22**
-
-### ⚠️ **Warning:** The deprecated fee rate option `--sat_per_byte` will be removed in release version **0.22**
-
 # Technical and Architectural Updates
 
 ## BOLT Spec Updates

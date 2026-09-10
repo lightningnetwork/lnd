@@ -1772,16 +1772,11 @@ func ValidateInvoiceRead(inv *Invoice, activeChain [32]byte,
 	//   - MUST reject the invoice.
 	// checkFeatures enforces those invoice_features bit rules below.
 	//
-	// Separately, BOLT 1 makes unknown even TLV types must-understand, so
-	// reject those here over the decoded type set. Unlike the
-	// invoice_request reader, the invoice reader defines no out-of-range
-	// type rejection, so unknown odd types are simply ignored ("it's ok to
-	// be odd"). The signature range (240-1000) is exempt for the same
-	// reason, matching the invoice_request reader and the Merkle path.
+	// Separately, BOLT 1 makes unknown even TLV types must-understand.
+	// The invoice reader defines no out-of-range rule, so an unknown odd
+	// type is ignored at any value and an unknown even type is rejected at
+	// any value, the signature range (240-1000) included.
 	for _, t := range sortedTypes(inv.decodedTLVs) {
-		if bolt12InUnsignedRange(t) {
-			continue
-		}
 		if !isKnownInvoiceTLVType(t) && t%2 == 0 {
 			return fmt.Errorf("%w: type %d", ErrUnknownEvenType, t)
 		}

@@ -879,7 +879,7 @@ func TestValidateReadRejectsBadSignature(t *testing.T) {
 
 				return ValidateInvoiceRead(
 					inv, bitcoinMainnetGenesisHash,
-					InvoiceFeatureCatalogues{},
+					InvoiceKnownFeatures{},
 				)
 			},
 		},
@@ -904,7 +904,7 @@ func TestValidateReadRejectsBadSignature(t *testing.T) {
 
 				return ValidateInvoiceRead(
 					inv, bitcoinMainnetGenesisHash,
-					InvoiceFeatureCatalogues{},
+					InvoiceKnownFeatures{},
 				)
 			},
 		},
@@ -1039,7 +1039,7 @@ func TestValidateInvoiceForPayment(t *testing.T) {
 	// Blinded mode, happy path: the final node matches invoice_node_id.
 	require.NoError(t, ValidateInvoiceForPayment(
 		invDecoded, blindedIRDecoded, validNow,
-		bitcoinMainnetGenesisHash, InvoiceFeatureCatalogues{}, bobPub,
+		bitcoinMainnetGenesisHash, InvoiceKnownFeatures{}, bobPub,
 	))
 
 	// The expiry gate is part of the composite, so a caller that only calls
@@ -1047,7 +1047,7 @@ func TestValidateInvoiceForPayment(t *testing.T) {
 	// window is long past 8000s after creation.
 	err = ValidateInvoiceForPayment(
 		invDecoded, blindedIRDecoded, time.Unix(1234567890+8000, 0),
-		bitcoinMainnetGenesisHash, InvoiceFeatureCatalogues{}, bobPub,
+		bitcoinMainnetGenesisHash, InvoiceKnownFeatures{}, bobPub,
 	)
 	require.ErrorIs(t, err, ErrInvoiceExpired)
 
@@ -1055,7 +1055,7 @@ func TestValidateInvoiceForPayment(t *testing.T) {
 	// Bob answered, but the payer believes it addressed Alice.
 	err = ValidateInvoiceForPayment(
 		invDecoded, blindedIRDecoded, validNow,
-		bitcoinMainnetGenesisHash, InvoiceFeatureCatalogues{},
+		bitcoinMainnetGenesisHash, InvoiceKnownFeatures{},
 		alicePub,
 	)
 	require.ErrorIs(t, err, ErrUnexpectedInvoiceNodeID)
@@ -1090,12 +1090,12 @@ func TestValidateInvoiceForPayment(t *testing.T) {
 	// invoice is what shows the second step cannot be skipped.
 	require.NoError(t, ValidateInvoiceRead(
 		forgedDecoded, bitcoinMainnetGenesisHash,
-		InvoiceFeatureCatalogues{},
+		InvoiceKnownFeatures{},
 	))
 
 	err = ValidateInvoiceForPayment(
 		forgedDecoded, blindedIRDecoded, validNow,
-		bitcoinMainnetGenesisHash, InvoiceFeatureCatalogues{}, bobPub,
+		bitcoinMainnetGenesisHash, InvoiceKnownFeatures{}, bobPub,
 	)
 	require.ErrorIs(t, err, ErrUnexpectedInvoiceNodeID)
 
@@ -1141,14 +1141,14 @@ func TestValidateInvoiceForPayment(t *testing.T) {
 	// the offer it built the request from.
 	require.NoError(t, ValidateInvoiceForPayment(
 		invDecoded, cleartextIRDecoded, validNow,
-		bitcoinMainnetGenesisHash, InvoiceFeatureCatalogues{}, bobPub,
+		bitcoinMainnetGenesisHash, InvoiceKnownFeatures{}, bobPub,
 	))
 
 	// The check is unconditional, so a wrong expectation is caught even
 	// though offer_issuer_id is present and the readers already bound it.
 	err = ValidateInvoiceForPayment(
 		invDecoded, cleartextIRDecoded, validNow,
-		bitcoinMainnetGenesisHash, InvoiceFeatureCatalogues{}, alicePub,
+		bitcoinMainnetGenesisHash, InvoiceKnownFeatures{}, alicePub,
 	)
 	require.ErrorIs(t, err, ErrUnexpectedInvoiceNodeID)
 }
@@ -2371,7 +2371,7 @@ func TestValidateInvoiceRead(t *testing.T) {
 
 			err := ValidateInvoiceRead(
 				inv, bitcoinMainnetGenesisHash,
-				InvoiceFeatureCatalogues{},
+				InvoiceKnownFeatures{},
 			)
 			require.ErrorIs(t, err, tc.wantErr)
 		})
@@ -2443,7 +2443,7 @@ func TestValidateInvoiceReadAcceptsSignatureRange(t *testing.T) {
 
 	err = ValidateInvoiceRead(
 		inv, bitcoinMainnetGenesisHash,
-		InvoiceFeatureCatalogues{},
+		InvoiceKnownFeatures{},
 	)
 	require.NoError(t, err)
 }
@@ -3008,10 +3008,10 @@ func TestValidateInvoiceWrite(t *testing.T) {
 	}
 }
 
-// TestValidateFeaturesWithCatalogue verifies that both Role 1 endpoint features
-// and Role 2 routing path features are correctly validated using injected
-// catalogues.
-func TestValidateFeaturesWithCatalogue(t *testing.T) {
+// TestValidateFeaturesKnownBits verifies that both Role 1 endpoint features
+// and Role 2 routing path features are correctly validated against the known
+// bits the caller injects.
+func TestValidateFeaturesKnownBits(t *testing.T) {
 	t.Parallel()
 
 	// Role 1 validation verifies endpoint features on ValidateInvoiceRead.
@@ -3038,7 +3038,7 @@ func TestValidateFeaturesWithCatalogue(t *testing.T) {
 		// An unknown required bit must be rejected.
 		err = ValidateInvoiceRead(
 			inv, bitcoinMainnetGenesisHash,
-			InvoiceFeatureCatalogues{},
+			InvoiceKnownFeatures{},
 		)
 		require.ErrorIs(t, err, ErrUnknownEvenFeature)
 
@@ -3048,7 +3048,7 @@ func TestValidateFeaturesWithCatalogue(t *testing.T) {
 		}
 		err = ValidateInvoiceRead(
 			inv, bitcoinMainnetGenesisHash,
-			InvoiceFeatureCatalogues{Invoice: known},
+			InvoiceKnownFeatures{Invoice: known},
 		)
 		require.NoError(t, err)
 	})
@@ -3080,22 +3080,22 @@ func TestValidateFeaturesWithCatalogue(t *testing.T) {
 			tlv.NewPrimitiveRecord[tlv.TlvType240, [64]byte](sig),
 		)
 
-		// If there are no known features in the catalogue, there are
-		// zero usable paths and we expect ErrNoUsablePaths.
+		// With no known feature bits there are zero usable paths, so
+		// we expect ErrNoUsablePaths.
 		err = ValidateInvoiceRead(
 			inv, bitcoinMainnetGenesisHash,
-			InvoiceFeatureCatalogues{},
+			InvoiceKnownFeatures{},
 		)
 		require.ErrorIs(t, err, ErrNoUsablePaths)
 
-		// A known features catalogue for blinded pay results in at
-		// least one usable path, which must pass.
+		// Known blinded-pay bits leave at least one usable path, which
+		// must pass.
 		knownBlinded := map[lnwire.FeatureBit]string{
 			lnwire.MPPRequired: "mpp",
 		}
 		err = ValidateInvoiceRead(
 			inv, bitcoinMainnetGenesisHash,
-			InvoiceFeatureCatalogues{Blinded: knownBlinded},
+			InvoiceKnownFeatures{Blinded: knownBlinded},
 		)
 		require.NoError(t, err)
 	})

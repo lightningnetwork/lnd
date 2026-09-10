@@ -417,7 +417,7 @@ func DecodeInvoiceString(s string, now time.Time,
 		return nil, err
 	}
 
-	features := InvoiceFeatureCatalogues{
+	features := InvoiceKnownFeatures{
 		Invoice: Bolt12Features,
 		Blinded: Bolt12Features,
 	}

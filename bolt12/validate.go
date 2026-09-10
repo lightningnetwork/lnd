@@ -1198,12 +1198,12 @@ func checkISO4217[T tlv.TlvType](opt tlv.OptionalRecordT[T, tlv.Blob]) error {
 // checkFeatures rejects any unknown even (must-understand) feature bit.
 func checkFeatures[T tlv.TlvType](
 	opt tlv.OptionalRecordT[T, lnwire.RawFeatureVector],
-	known map[lnwire.FeatureBit]string) error {
+	knownFeatures map[lnwire.FeatureBit]string) error {
 
 	return fn.MapOptionZ(
 		opt.ValOpt(),
 		func(fv lnwire.RawFeatureVector) error {
-			wrapped := lnwire.NewFeatureVector(&fv, known)
+			wrapped := lnwire.NewFeatureVector(&fv, knownFeatures)
 			unknown := wrapped.UnknownRequiredFeatures()
 			if len(unknown) == 0 {
 				return nil
@@ -1694,13 +1694,13 @@ func isKnownInvoiceTLVType(typ tlv.Type) bool {
 	}
 }
 
-// InvoiceFeatureCatalogues names the two feature-bit catalogues the invoice
+// InvoiceKnownFeatures names the two sets of known feature bits the invoice
 // reader validates against. They are grouped in a struct rather than passed as
 // two positional map[lnwire.FeatureBit]string arguments because the identical
 // types would otherwise let a caller transpose them silently: validating
-// invoice_features against the blinded-path catalogue and vice versa compiles
+// invoice_features against the blinded-path bits and vice versa compiles
 // cleanly but misvalidates. Named fields make the swap impossible.
-type InvoiceFeatureCatalogues struct {
+type InvoiceKnownFeatures struct {
 	// Invoice names the feature bits the reader understands for the
 	// top-level invoice_features field.
 	Invoice map[lnwire.FeatureBit]string
@@ -1721,7 +1721,7 @@ type InvoiceFeatureCatalogues struct {
 // selection time (via Invoice.UsablePaths) to avoid selecting paths with
 // unknown required features.
 func ValidateInvoiceRead(inv *Invoice, activeChain [32]byte,
-	features InvoiceFeatureCatalogues) error {
+	features InvoiceKnownFeatures) error {
 	// - MUST reject the invoice if invoice_amount is not present.
 	if !inv.InvoiceAmount.IsSome() {
 		return ErrMissingAmount
@@ -1889,7 +1889,7 @@ func ValidateInvoiceRead(inv *Invoice, activeChain [32]byte,
 // offerless request.
 func ValidateInvoiceForPayment(inv *Invoice, req *InvoiceRequest,
 	now time.Time, activeChain [32]byte,
-	features InvoiceFeatureCatalogues,
+	features InvoiceKnownFeatures,
 	expectedNodeID *btcec.PublicKey) error {
 
 	if err := ValidateInvoiceRead(inv, activeChain, features); err != nil {

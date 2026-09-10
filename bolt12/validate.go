@@ -535,10 +535,8 @@ func ValidateInvoiceRequestWrite(ir *InvoiceRequest) error {
 
 	// - if it supports bolt12 invoice request features:
 	//   - MUST set invreq_features.features to the bitmap of features.
-	// We rely on the writer to set feature bits correctly as those are
-	// mostly static and the reader will also verify the features. This is
-	// done to not having to pass in the known feature vector for writer
-	// validation, similar to other write validation in this file.
+	// NOT CHECKED HERE: the bits are the caller's own, and the reader
+	// rejects unknown even bits using the known bits passed to it.
 
 	// check UTF-8 constraints and BIP 353
 	err := checkUTF8(ir.InvreqPayerNote, "invreq_payer_note")

@@ -5,40 +5,135 @@ import (
 	"testing"
 
 	"github.com/btcsuite/btcd/btcec/v2"
+	"github.com/lightningnetwork/lnd/lnwire"
 	"github.com/lightningnetwork/lnd/tlv"
 	"github.com/stretchr/testify/require"
 )
 
-// TestInvoiceRequestRoundTrip pins encode→decode→re-encode for an
-// InvoiceRequest with a representative subset of optional fields.
+// TestInvoiceRequestRoundTrip pins encode, decode and re-encode for an
+// InvoiceRequest with every field set, plus an unknown odd TLV. Comparing the
+// decoded struct against the fixture catches a field that is wired into the
+// encode path but not into the decode path, which byte identity alone cannot
+// see.
 func TestInvoiceRequestRoundTrip(t *testing.T) {
 	t.Parallel()
 
-	_, bobPub := bobKey()
+	priv, bobPub := bobKey()
+	_, intro := aliceKey()
+	_, blinding := bobKey()
+	_, hopPub := aliceKey()
 
-	metadata := tlv.Blob("payer-metadata")
+	introNode, err := lnwire.NewPubkeyIntro(intro)
+	require.NoError(t, err)
+
+	paths := lnwire.BlindedPaths{
+		Paths: []lnwire.BlindedPath{
+			{
+				IntroductionNode: introNode,
+				BlindingPoint:    blinding,
+				Hops: []lnwire.BlindedHop{
+					{
+						BlindedNodeID: hopPub,
+						EncryptedData: []byte{1, 2},
+					},
+				},
+			},
+		},
+	}
+
+	// name_len, name, domain_len, domain.
+	bip353 := append(
+		[]byte{3, 'b', 'o', 'b', 6}, []byte("ex.com")...,
+	)
 
 	ir := &InvoiceRequest{
+		OfferChains: tlv.SomeRecordT(
+			tlv.NewRecordT[tlv.TlvType2](ChainsRecord{
+				Chains: [][32]byte{bitcoinMainnetGenesisHash},
+			}),
+		),
+		OfferMetadata: tlv.SomeRecordT(
+			tlv.NewPrimitiveRecord[tlv.TlvType4](
+				tlv.Blob("opaque"),
+			),
+		),
+		OfferCurrency: tlv.SomeRecordT(
+			tlv.NewPrimitiveRecord[tlv.TlvType6](tlv.Blob("USD")),
+		),
+		OfferAmount: tlv.SomeRecordT(
+			tlv.NewRecordT[tlv.TlvType8](TUint64(1500)),
+		),
 		OfferDescription: tlv.SomeRecordT(
 			tlv.NewPrimitiveRecord[tlv.TlvType10](
-				tlv.Blob("description"),
+				tlv.Blob("coffee"),
 			),
+		),
+		OfferFeatures: tlv.SomeRecordT(
+			tlv.NewRecordT[tlv.TlvType12](
+				*lnwire.NewRawFeatureVector(lnwire.MPPOptional),
+			),
+		),
+		OfferAbsoluteExpiry: tlv.SomeRecordT(
+			tlv.NewRecordT[tlv.TlvType14](TUint64(1 << 32)),
+		),
+		OfferPaths: tlv.SomeRecordT(
+			tlv.NewRecordT[tlv.TlvType16](paths),
+		),
+		OfferIssuer: tlv.SomeRecordT(
+			tlv.NewPrimitiveRecord[tlv.TlvType18](
+				tlv.Blob("alice"),
+			),
+		),
+		OfferQuantityMax: tlv.SomeRecordT(
+			tlv.NewRecordT[tlv.TlvType20](TUint64(5)),
+		),
+		OfferIssuerID: tlv.SomeRecordT(
+			tlv.NewPrimitiveRecord[tlv.TlvType22](bobPub),
+		),
+		InvreqMetadata: tlv.SomeRecordT(
+			tlv.NewPrimitiveRecord[tlv.TlvType0](
+				tlv.Blob("payer-metadata"),
+			),
+		),
+		InvreqChain: tlv.SomeRecordT(
+			tlv.NewPrimitiveRecord[tlv.TlvType80](
+				bitcoinMainnetGenesisHash,
+			),
+		),
+		InvreqAmount: tlv.SomeRecordT(
+			tlv.NewRecordT[tlv.TlvType82](TUint64(3000)),
+		),
+		InvreqFeatures: tlv.SomeRecordT(
+			tlv.NewRecordT[tlv.TlvType84](
+				*lnwire.NewRawFeatureVector(lnwire.MPPOptional),
+			),
+		),
+		InvreqQuantity: tlv.SomeRecordT(
+			tlv.NewRecordT[tlv.TlvType86](TUint64(2)),
 		),
 		InvreqPayerID: tlv.SomeRecordT(
 			tlv.NewPrimitiveRecord[tlv.TlvType88](bobPub),
 		),
-		InvreqMetadata: tlv.SomeRecordT(
-			tlv.NewPrimitiveRecord[tlv.TlvType0](metadata),
+		InvreqPayerNote: tlv.SomeRecordT(
+			tlv.NewPrimitiveRecord[tlv.TlvType89](tlv.Blob("tip")),
 		),
-		InvreqAmount: tlv.SomeRecordT(
-			tlv.NewRecordT[tlv.TlvType82, TUint64](1000),
+		InvreqPaths: tlv.SomeRecordT(
+			tlv.NewRecordT[tlv.TlvType90](paths),
 		),
-		Signature: tlv.SomeRecordT(
-			tlv.NewPrimitiveRecord[tlv.TlvType240](
-				[64]byte{0x01},
-			),
+		InvreqBip353Name: tlv.SomeRecordT(
+			tlv.NewPrimitiveRecord[tlv.TlvType91](bip353),
 		),
+
+		// An unknown odd type in the signed range must survive the
+		// round trip byte for byte.
+		decodedTLVs: tlv.TypeMap{93: []byte{0xde, 0xad}},
 	}
+
+	sig, err := SignInvoiceRequest(ir, priv)
+	require.NoError(t, err)
+	ir.Signature = tlv.SomeRecordT(
+		tlv.NewPrimitiveRecord[tlv.TlvType240](sig),
+	)
 
 	encoded, err := ir.Encode()
 	require.NoError(t, err)
@@ -47,14 +142,12 @@ func TestInvoiceRequestRoundTrip(t *testing.T) {
 	decoded, err := DecodeInvoiceRequest(encoded)
 	require.NoError(t, err)
 
-	require.Equal(
-		t, bobPub.SerializeCompressed(),
-		decoded.InvreqPayerID.UnwrapOrFailV(t).SerializeCompressed(),
-	)
-	require.Equal(t, metadata, decoded.InvreqMetadata.UnwrapOrFailV(t))
-	require.Equal(
-		t, TUint64(1000), decoded.InvreqAmount.UnwrapOrFailV(t),
-	)
+	// The sidecar names every type seen on the wire, whereas the fixture
+	// carries only the unknown one. Adopt the decoded view so the
+	// comparison below covers the typed fields.
+	require.Equal(t, []byte{0xde, 0xad}, decoded.decodedTLVs[93])
+	ir.decodedTLVs = decoded.decodedTLVs
+	require.Equal(t, ir, decoded)
 
 	reencoded, err := decoded.Encode()
 	require.NoError(t, err)

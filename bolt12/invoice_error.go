@@ -46,6 +46,11 @@ func (ie *InvoiceError) allRecordProducers() []tlv.RecordProducer {
 // signature to invalidate by dropping unrecognized TLVs (unlike signed
 // messages such as invoices, where unknown TLVs must be preserved to keep
 // signatures valid).
+//
+// One writer rule stays unchecked: a suggested_value is not verified against
+// the type of the field erroneous_field names. Emitting a value the peer
+// cannot decode is therefore possible, see the TODO in
+// ValidateInvoiceErrorWrite.
 func (ie *InvoiceError) Encode() ([]byte, error) {
 	if err := ValidateInvoiceErrorWrite(ie); err != nil {
 		return nil, fmt.Errorf("validate invoice error: %w", err)

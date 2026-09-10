@@ -313,10 +313,10 @@ func ValidateInvoiceErrorWrite(ie *InvoiceError) error {
 	//   - if it sets suggested_value:
 	//     - MUST set suggested_value to a valid field for that
 	//       tlv_fieldnum.
-	// NOT CHECKED HERE: verifying the replacement is a valid encoding for
-	// the erroneous field needs the schema of the rejected invoice or
-	// invoice_request, which is caller context this validator does not
-	// have.
+	// TODO(bitromortac): enforce this once we send invoice_error. It needs
+	// a field-number to type table for the invoice_request and invoice
+	// fields, so a tu64 field rejects a non-minimal value, type 80
+	// requires 32 bytes and type 88 a compressed point.
 
 	return nil
 }

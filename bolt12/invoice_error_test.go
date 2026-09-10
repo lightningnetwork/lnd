@@ -49,15 +49,19 @@ func TestInvoiceErrorRoundTrip(t *testing.T) {
 			name: "all fields",
 			ie: &InvoiceError{
 				ErroneousField: someErrField(82),
+				// Field 82 is invreq_amount, a tu64, so the
+				// suggested value has to be minimal: a
+				// leading zero byte would make it undecodable
+				// for the peer.
 				SuggestedValue: someSuggested(
-					[]byte{0x00, 0x01, 0x86, 0xa0},
+					[]byte{0x01, 0x86, 0xa0},
 				),
 				Error: someError("amount too low"),
 			},
 			wantMsg:      "amount too low",
 			wantHasField: true,
 			wantFieldNum: 82,
-			wantSuggest:  []byte{0x00, 0x01, 0x86, 0xa0},
+			wantSuggest:  []byte{0x01, 0x86, 0xa0},
 		},
 		{
 			name: "minimal error only",

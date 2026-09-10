@@ -141,10 +141,18 @@ func (b *BtcWallet) FundPsbt(packet *psbt.Packet, minConfs int32,
 
 	// Let the wallet handle coin selection and/or fee estimation based on
 	// the partial TX information in the packet.
-	return b.wallet.FundPsbt(
+	changeIndex, err := b.wallet.FundPsbt(
 		packet, keyScope, minConfs, accountNum, feeSatPerKB,
 		strategy, opts...,
 	)
+	if err != nil {
+		return 0, err
+	}
+	if err := b.recordNamedAccountBackup(accountName); err != nil {
+		return 0, err
+	}
+
+	return changeIndex, nil
 }
 
 // SignPsbt expects a partial transaction with all inputs and outputs fully

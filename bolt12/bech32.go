@@ -266,8 +266,8 @@ func stripContinuation(s string) (string, error) {
 		}
 		if j >= len(s) || !isContinuationNeighbour(s[j]) {
 			return "", fmt.Errorf(
-				"bolt12: %w: '+' must precede a "+
-					"non-whitespace character",
+				"bolt12: %w: '+' must join two "+
+					"characters",
 				ErrInvalidContinuation,
 			)
 		}

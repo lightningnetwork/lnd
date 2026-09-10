@@ -298,44 +298,46 @@ func TestDecodeUnprintableCharacter(t *testing.T) {
 	}
 }
 
-// TestDecodeOversizeInput asserts the input length cap fires before any
-// allocation.
-func TestDecodeOversizeInput(t *testing.T) {
+// maxEncodedLen is the length of the string Encode makes from the largest
+// payload it accepts: the prefix, the separator, and one character per group
+// of five payload bits.
+const maxEncodedLen = bolt12HRPLen + 1 + (maxBolt12DataLen*8+4)/5
+
+// TestDecodeAcceptsAboveWriterLimit asserts Decode enforces no length limit of
+// its own, so a string longer than anything Encode emits still decodes. The
+// bound belongs to the caller's medium, not to the codec.
+func TestDecodeAcceptsAboveWriterLimit(t *testing.T) {
 	t.Parallel()
 
-	// A raw string above the transport limit is rejected.
-	huge := strings.Repeat("a", maxBolt12RawStringLen+1)
-	_, _, err := Decode(huge)
-	require.ErrorIs(t, err, ErrStringTooLong)
+	payload := make([]byte, maxBolt12DataLen)
+	encoded, err := Encode(HRPOffer, payload)
+	require.NoError(t, err)
 
-	// A string under the raw limit but over the cleaned limit is
-	// rejected after stripping.
-	oversize := strings.Repeat("a", maxBolt12StringLen+1)
-	_, _, err = Decode(oversize)
-	require.ErrorIs(t, err, ErrStringTooLong)
+	// Eight more data characters carry five more payload bytes, so the
+	// string and its payload both exceed what Encode would emit.
+	oversize := encoded + strings.Repeat("q", 8)
+	require.Greater(t, len(oversize), maxEncodedLen)
 
-	// A string at the cleaned limit is accepted, but here leads to a
-	// parsing error.
-	oversize = strings.Repeat("a", maxBolt12StringLen)
-	_, _, err = Decode(oversize)
-	require.ErrorIs(t, err, ErrInvalidSeparator)
+	hrp, data, err := Decode(oversize)
+	require.NoError(t, err)
+	require.Equal(t, HRPOffer, hrp)
+	require.Greater(t, len(data), maxBolt12DataLen)
 }
 
 // TestDecodeWrappedMaxPayload asserts that a legal continuation wrapping of the
-// longest string Encode can make still decodes. The cleaned limit governs the
-// payload, and the raw limit leaves room for the wrapping.
+// longest string Encode can make still decodes.
 func TestDecodeWrappedMaxPayload(t *testing.T) {
 	t.Parallel()
 
 	payload := make([]byte, maxBolt12DataLen)
 	encoded, err := Encode(HRPOffer, payload)
 	require.NoError(t, err)
-	require.Len(t, encoded, maxBolt12StringLen)
+	require.Len(t, encoded, maxEncodedLen)
 
-	// Insert a marker and a whitespace run into the data part. The raw
-	// string grows past the cleaned limit but stays under the raw one.
+	// Insert a marker and a whitespace run into the data part, so the raw
+	// string grows past the string Encode made.
 	wrapped := encoded[:100] + "+ \n\t" + encoded[100:]
-	require.Greater(t, len(wrapped), maxBolt12StringLen)
+	require.Greater(t, len(wrapped), len(encoded))
 
 	hrp, data, err := Decode(wrapped)
 	require.NoError(t, err)
@@ -397,7 +399,7 @@ func TestEncodePayloadSize(t *testing.T) {
 		{
 			name:    "longest payload",
 			payload: make([]byte, maxBolt12DataLen),
-			wantLen: maxBolt12StringLen,
+			wantLen: maxEncodedLen,
 		},
 		{
 			name:    "one byte above the longest payload",

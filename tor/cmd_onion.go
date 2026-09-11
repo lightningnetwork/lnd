@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"io"
 	"os"
+	"strings"
 )
 
 var (
@@ -241,6 +242,14 @@ func (c *Controller) prepareAddOnion(cfg AddOnionConfig) (string, string,
 		return "", "", err
 	}
 
+	return c.prepareAddOnionWithKey(cfg, keyParam), keyParam, nil
+}
+
+// prepareAddOnionWithKey constructs an ADD_ONION command using a known private
+// key and the original port mapping.
+func (c *Controller) prepareAddOnionWithKey(cfg AddOnionConfig,
+	keyParam string) string {
+
 	// Now, we'll create a mapping from the virtual port to each target
 	// port. If no target ports were specified, we'll use the virtual port
 	// to provide a one-to-one mapping.
@@ -268,9 +277,7 @@ func (c *Controller) prepareAddOnion(cfg AddOnionConfig) (string, string,
 
 	// Send the command to create the onion service to the Tor server and
 	// await its response.
-	cmd := fmt.Sprintf("ADD_ONION %s %s", keyParam, portParam)
-
-	return cmd, keyParam, nil
+	return fmt.Sprintf("ADD_ONION %s %s", keyParam, portParam)
 }
 
 // AddOnion creates an ephemeral onion service and returns its onion address.
@@ -283,23 +290,58 @@ func (c *Controller) prepareAddOnion(cfg AddOnionConfig) (string, string,
 // to survive beyond current controller connection, use the "Detach" flag when
 // creating new service via `ADD_ONION`.
 func (c *Controller) AddOnion(cfg AddOnionConfig) (*OnionAddr, error) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+
 	// Before sending the request to create an onion service to the Tor
 	// server, we'll make sure that it supports V3 onion services.
 	if err := supportsV3(c.version); err != nil {
 		return nil, err
 	}
 
-	// Construct the cmd command.
-	cmd, keyParam, err := c.prepareAddOnion(cfg)
+	addr, keyParam, err := c.addOnionLocked(cfg, "", true)
 	if err != nil {
 		return nil, err
 	}
 
-	// Send the command to create the onion service to the Tor server and
-	// await its response.
-	_, reply, err := c.sendCommand(cmd)
+	serviceID := strings.TrimSuffix(addr.OnionService, OnionSuffix)
+	if c.activeServiceIDs == nil {
+		c.activeServiceIDs = make(map[string]struct{})
+	}
+	c.activeServiceIDs[serviceID] = struct{}{}
+
+	// Copy the target ports so callers cannot mutate the recorded mapping.
+	cfg.TargetPorts = append([]int(nil), cfg.TargetPorts...)
+	c.registrations = append(c.registrations, onionServiceRegistration{
+		serviceID: serviceID,
+		keyParam:  keyParam,
+		config:    cfg,
+	})
+	log.Debugf("serviceID:%s added to tor controller", serviceID)
+
+	return addr, nil
+}
+
+// addOnionLocked creates an onion service while the controller mutex is held.
+// If keyParam is empty, the configured store is consulted. If persistKey is
+// false, the store is not written during restoration.
+func (c *Controller) addOnionLocked(cfg AddOnionConfig, keyParam string,
+	persistKey bool) (*OnionAddr, string, error) {
+
+	var cmd string
+	if keyParam == "" {
+		var err error
+		cmd, keyParam, err = c.prepareAddOnion(cfg)
+		if err != nil {
+			return nil, "", err
+		}
+	} else {
+		cmd = c.prepareAddOnionWithKey(cfg, keyParam)
+	}
+
+	_, reply, err := c.sendCommandLocked(cmd)
 	if err != nil {
-		return nil, err
+		return nil, "", err
 	}
 
 	// If successful, the reply from the server should be of the following
@@ -319,7 +361,7 @@ func (c *Controller) AddOnion(cfg AddOnionConfig) (*OnionAddr, error) {
 	replyParams := parseTorReply(reply)
 	serviceID, ok := replyParams["ServiceID"]
 	if !ok {
-		return nil, errors.New("service id not found in reply")
+		return nil, "", errors.New("service id not found in reply")
 	}
 
 	// If a new onion service was created, use the new private key for
@@ -333,16 +375,16 @@ func (c *Controller) AddOnion(cfg AddOnionConfig) (*OnionAddr, error) {
 	// we'll store its private key to disk in the event that it needs to
 	// be recreated later on. We write the private key to disk every time
 	// in case the user toggles the --tor.encryptkey flag.
-	if cfg.Store != nil {
+	if persistKey && cfg.Store != nil {
 		err := cfg.Store.StorePrivateKey([]byte(keyParam))
 		if err != nil {
-			return nil, fmt.Errorf("unable to write private key "+
-				"to file: %v", err)
+			storeErr := fmt.Errorf("unable to write private key "+
+				"to file: %w", err)
+			deleteErr := c.delOnionLocked(serviceID)
+
+			return nil, "", errors.Join(storeErr, deleteErr)
 		}
 	}
-
-	c.activeServiceID = serviceID
-	log.Debugf("serviceID:%s added to tor controller", serviceID)
 
 	// Finally, we'll return the onion address composed of the service ID,
 	// along with the onion suffix, and the port this onion service can be
@@ -351,7 +393,55 @@ func (c *Controller) AddOnion(cfg AddOnionConfig) (*OnionAddr, error) {
 		OnionService: serviceID + ".onion",
 		Port:         cfg.VirtualPort,
 		PrivateKey:   keyParam,
-	}, nil
+	}, keyParam, nil
+}
+
+// RestoreOnionServices re-registers every recorded onion service using its
+// persisted key and original port mapping. The returned identities must match
+// the original registrations exactly.
+func (c *Controller) RestoreOnionServices() error {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+
+	if c.started != 1 {
+		return errTCNotStarted
+	}
+	if c.stopped != 0 {
+		return errTCStopped
+	}
+	if len(c.registrations) == 0 {
+		return ErrServiceNotCreated
+	}
+	if len(c.activeServiceIDs) != 0 {
+		return errors.New("onion services must be inactive before restore")
+	}
+	if c.activeServiceIDs == nil {
+		c.activeServiceIDs = make(map[string]struct{})
+	}
+
+	for _, registration := range c.registrations {
+		addr, _, err := c.addOnionLocked(
+			registration.config, registration.keyParam, false,
+		)
+		if err != nil {
+			return fmt.Errorf("restore onion service %s: %w",
+				registration.serviceID, err)
+		}
+
+		serviceID := strings.TrimSuffix(addr.OnionService, OnionSuffix)
+		if serviceID != registration.serviceID {
+			mismatchErr := fmt.Errorf("%w: expected %s, got %s",
+				ErrServiceIDMismatch, registration.serviceID,
+				serviceID)
+			deleteErr := c.delOnionLocked(serviceID)
+
+			return errors.Join(mismatchErr, deleteErr)
+		}
+
+		c.activeServiceIDs[serviceID] = struct{}{}
+	}
+
+	return nil
 }
 
 // DelOnion tells the Tor daemon to remove an onion service, which satisfies
@@ -360,13 +450,39 @@ func (c *Controller) AddOnion(cfg AddOnionConfig) (*OnionAddr, error) {
 //     "DEL_ONION" command.
 //   - the onion service was created using the "Detach" flag.
 func (c *Controller) DelOnion(serviceID string) error {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+
+	err := c.delOnionLocked(serviceID)
+	if err != nil {
+		return err
+	}
+
+	delete(c.activeServiceIDs, serviceID)
+	for i := range c.registrations {
+		if c.registrations[i].serviceID != serviceID {
+			continue
+		}
+
+		c.registrations = append(
+			c.registrations[:i], c.registrations[i+1:]...,
+		)
+
+		break
+	}
+
+	return nil
+}
+
+// delOnionLocked removes an onion service while the controller mutex is held.
+func (c *Controller) delOnionLocked(serviceID string) error {
 	log.Debugf("removing serviceID:%s from tor controller", serviceID)
 
 	cmd := fmt.Sprintf("DEL_ONION %s", serviceID)
 
 	// Send the command to create the onion service to the Tor server and
 	// await its response.
-	code, _, err := c.sendCommand(cmd)
+	code, _, err := c.sendCommandLocked(cmd)
 
 	// Tor replies with "250 OK" on success, or a 512 if there are an
 	// invalid number of arguments, or a 552 if it doesn't recognize the

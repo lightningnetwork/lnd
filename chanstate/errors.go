@@ -22,6 +22,11 @@ var (
 	// for a specific chain, but it is not found.
 	ErrChannelNotFound = fmt.Errorf("channel not found")
 
+	// ErrChanAlreadyExists is return when the caller attempts to create a
+	// channel with a channel point that is already present in the
+	// database.
+	ErrChanAlreadyExists = fmt.Errorf("channel already exists")
+
 	// ErrNoRevocationsFound is returned when revocation state for a
 	// particular channel cannot be found.
 	ErrNoRevocationsFound = fmt.Errorf("no revocations found")
@@ -35,6 +40,24 @@ var (
 	// ErrNoActiveChannels is returned when there is no active (open)
 	// channels within the database.
 	ErrNoActiveChannels = fmt.Errorf("no active channels exist")
+
+	// ErrNoHistoricalBucket is returned when the historical channel
+	// bucket not been created yet.
+	ErrNoHistoricalBucket = fmt.Errorf("historical channel bucket has " +
+		"not yet been created")
+
+	// ErrNoClosedChannels is returned when a node is queries for all the
+	// channels it has closed, but it hasn't yet closed any channels.
+	ErrNoClosedChannels = fmt.Errorf("no channel have been closed yet")
+
+	// ErrClosedChannelNotFound signals that a closed channel could not be
+	// found in the channel state store.
+	ErrClosedChannelNotFound = errors.New("unable to find closed " +
+		"channel summary")
+
+	// ErrNoPastDeltas is returned when the channel delta bucket hasn't
+	// been created.
+	ErrNoPastDeltas = fmt.Errorf("channel has no recorded deltas")
 
 	// ErrNoCommitPoint is returned when no data loss commit point is found
 	// in the database.

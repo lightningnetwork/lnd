@@ -333,8 +333,8 @@ mnemonicCheck:
 		}
 		extendedRootKey = strings.TrimSpace(extendedRootKey)
 
-		// An extended master key carries no birthday, so there's nothing
-		// to offer as a default here.
+		// An extended master key carries no birthday, so there is no
+		// default to offer here.
 		extendedRootKeyBirthday, err = askBirthdayTimestamp(0)
 		if err != nil {
 			return err
@@ -942,11 +942,11 @@ func createWatchOnly(ctx *cli.Context) error {
 		return err
 	}
 
-	// A wallet exported by a recent enough lnd tells us the birthday of the
-	// master key its accounts were derived from, which is more accurate than
-	// anything the operator is likely to type in, so we offer it as the
-	// default. An older export leaves this at zero and the prompt behaves as
-	// it always did.
+	// A wallet exported by a recent enough lnd tells us the birthday of
+	// the master key its accounts were derived from. This is more accurate
+	// than anything the operator is likely to type in, so we offer it as
+	// the default. An older export leaves this at zero, and the prompt
+	// behaves as it always did.
 	extendedRootKeyBirthday, err := askBirthdayTimestamp(
 		jsonAccts.MasterKeyBirthdayTimestamp,
 	)

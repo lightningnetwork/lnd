@@ -25,7 +25,7 @@ const (
 	tagFieldSignature = "signature"
 )
 
-// ErrInvalidSignature is returned by VerifyInvoice and VerifyInvoiceRequest
+// ErrInvalidSignature is returned by verifyInvoice and verifyInvoiceRequest
 // when the BIP-340 Schnorr signature does not validate against the message's
 // Merkle root and signing key.
 var ErrInvalidSignature = errors.New("BOLT 12 signature is invalid")
@@ -102,9 +102,9 @@ func SignInvoiceRequest(ir *InvoiceRequest, privKey *btcec.PrivateKey) (
 	)
 }
 
-// VerifyInvoiceRequest verifies the signature on an invoice request using its
+// verifyInvoiceRequest verifies the signature on an invoice request using its
 // invreq_payer_id public key.
-func VerifyInvoiceRequest(ir *InvoiceRequest) error {
+func verifyInvoiceRequest(ir *InvoiceRequest) error {
 	pubKey, err := ir.InvreqPayerID.UnwrapOrErrV(ErrMissingPayerID)
 	if err != nil {
 		return err
@@ -144,9 +144,9 @@ func SignInvoice(inv *Invoice, privKey *btcec.PrivateKey) ([64]byte, error) {
 	return signMessage(tagMsgInvoice, tagFieldSignature, root, privKey)
 }
 
-// VerifyInvoice verifies the signature on an invoice using its invoice_node_id
+// verifyInvoice verifies the signature on an invoice using its invoice_node_id
 // public key.
-func VerifyInvoice(inv *Invoice) error {
+func verifyInvoice(inv *Invoice) error {
 	pubKey, err := inv.InvoiceNodeID.UnwrapOrErrV(ErrMissingNodeID)
 	if err != nil {
 		return err

@@ -1445,3 +1445,55 @@ func TestHandleBumpEventTxUnknownSpendWithRetry(t *testing.T) {
 	// Assert the state of the input is updated.
 	require.Equal(t, PublishFailed, s.inputs[op2].state)
 }
+
+// TestHandleBumpEventTxUnknownSpendMissingInput checks that a specifically
+// identified missing input is failed without preventing the rest of the set
+// from being retried.
+func TestHandleBumpEventTxUnknownSpendMissingInput(t *testing.T) {
+	t.Parallel()
+
+	aggregator := &mockUtxoAggregator{}
+	defer aggregator.AssertExpectations(t)
+
+	s := New(&UtxoSweeperConfig{
+		Aggregator: aggregator,
+	})
+	set := &MockInputSet{}
+	defer set.AssertExpectations(t)
+
+	missingInput := createMockInput(t, s, Published)
+	validInput := createMockInput(t, s, Published)
+	inputs := []input.Input{missingInput, validInput}
+	set.On("Inputs").Return(inputs)
+
+	validInput.On("RequiredLockTime").Return(
+		uint32(s.currentHeight), false).Once()
+	validInput.On("BlocksToMaturity").Return(uint32(0)).Once()
+	validInput.On("HeightHint").Return(uint32(s.currentHeight)).Once()
+
+	aggregator.On("ClusterInputs", mock.Anything).Return([]InputSet{})
+
+	feeRate := chainfee.SatPerKWeight(1_000)
+	resp := &bumpResp{
+		set: set,
+		result: &BumpResult{
+			Event:   TxUnknownSpend,
+			FeeRate: feeRate,
+			Err:     ErrInputMissing,
+			MissingInputs: map[wire.OutPoint]struct{}{
+				missingInput.OutPoint(): {},
+			},
+		},
+	}
+
+	s.handleBumpEventTxUnknownSpend(resp)
+
+	require.NotContains(t, s.inputs, missingInput.OutPoint())
+
+	valid := s.inputs[validInput.OutPoint()]
+	require.Equal(t, PublishFailed, valid.state)
+	require.True(t, valid.params.Immediate)
+	require.Equal(
+		t, feeRate, valid.params.StartingFeeRate.UnsafeFromSome(),
+	)
+}

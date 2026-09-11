@@ -124,6 +124,36 @@ func testEncodeDecodeTlv(t *testing.T, testFailure FailureMessage) {
 	require.Equal(t, testFailure, failure)
 }
 
+// TestInvalidOnionPayloadOptionalFields tests that invalid_onion_payload can be
+// decoded without the optional type and offset fields.
+func TestInvalidOnionPayloadOptionalFields(t *testing.T) {
+	t.Parallel()
+
+	var b bytes.Buffer
+	require.NoError(t, WriteUint16(&b, uint16(CodeInvalidOnionPayload)))
+
+	failure, err := DecodeFailureMessage(&b, 0)
+	require.NoError(t, err)
+
+	invalidPayload, ok := failure.(*InvalidOnionPayload)
+	require.True(t, ok)
+	require.Zero(t, invalidPayload.Type)
+	require.Zero(t, invalidPayload.Offset)
+}
+
+// TestInvalidOnionPayloadIncompleteFields tests that a type without its
+// corresponding offset is still rejected as a malformed failure message.
+func TestInvalidOnionPayloadIncompleteFields(t *testing.T) {
+	t.Parallel()
+
+	var b bytes.Buffer
+	require.NoError(t, WriteUint16(&b, uint16(CodeInvalidOnionPayload)))
+	require.NoError(t, b.WriteByte(byte(testType)))
+
+	_, err := DecodeFailureMessage(&b, 0)
+	require.Error(t, err)
+}
+
 // TestChannelUpdateCompatibilityParsing tests that we're able to properly read
 // out channel update messages encoded in an onion error payload that was
 // written in the legacy (type prefixed) format.

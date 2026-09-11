@@ -47,6 +47,10 @@
   the reported network statistics such as total network capacity, channel
   count and max out degree.
 
+* `invalid_onion_payload` failures can now be
+  [decoded](https://github.com/lightningnetwork/lnd/issues/7664) when their
+  optional TLV type and offset are omitted, as allowed by BOLT 04.
+
 # New Features
 
 ## Functional Enhancements
@@ -178,3 +182,4 @@
 * Erick Cestari
 * Jared Tobin
 * Nishant Bansal
+* v ₿

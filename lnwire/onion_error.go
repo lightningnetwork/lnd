@@ -1200,7 +1200,11 @@ func (f *InvalidOnionPayload) Error() string {
 func (f *InvalidOnionPayload) Decode(r io.Reader, pver uint32) error {
 	var buf [8]byte
 	typ, err := tlv.ReadVarInt(r, &buf)
-	if err != nil {
+	switch {
+	case err == io.EOF:
+		return nil
+
+	case err != nil:
 		return err
 	}
 	f.Type = typ

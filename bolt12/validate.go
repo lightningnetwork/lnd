@@ -415,10 +415,14 @@ func validateInvoiceRequestWrite(ir *InvoiceRequest) error {
 		}
 
 		// - MUST set signature.sig using the invreq_payer_id.
-		// NOT CHECKED HERE: signing happens after this validator runs;
-		// pre-sign Encode is permitted, so an unsigned request passes
-		// this validator and Encode. The wire-string layer rejects an
-		// unsigned request, and the reader verifies correctness.
+		// NOT CHECKED HERE: a caller signs after building the struct.
+		// Encode is therefore permitted before signing, and an
+		// unsigned request passes this validator and Encode. No
+		// exported entry point enforces the MUST on write: the bech32
+		// wrapper that checks it is package-internal, and an
+		// invoice_request reaches a peer as raw TLV inside an onion
+		// message. The caller that emits the bytes owns the signing
+		// step. The reader verifies correctness either way.
 
 		// - MUST set invreq_payer_id to a transient public key.
 		// NOT CHECKED HERE: only presence is checked below; the caller
@@ -1486,11 +1490,13 @@ func validateInvoiceWrite(inv *Invoice) error {
 	// - MUST specify exactly one signature TLV element: signature.
 	//   - MUST set sig to the signature using invoice_node_id as described
 	//     in Signature Calculation.
-	// NOT CHECKED HERE: signing happens after this validator runs;
-	// pre-sign Encode is permitted, so an unsigned invoice passes this
-	// validator and Encode. The wire-string layer rejects an unsigned
-	// invoice, and the reader verifies correctness, mirroring
-	// validateInvoiceRequestWrite.
+	// NOT CHECKED HERE: a caller signs after building the struct. Encode
+	// is therefore permitted before signing, and an unsigned invoice
+	// passes this validator and Encode. EncodeInvoiceString does reject
+	// an unsigned invoice, but the raw TLV form an onion message carries
+	// never reaches that gate, so the caller that emits the bytes owns
+	// the signing step, mirroring validateInvoiceRequestWrite. The
+	// reader verifies correctness.
 
 	// - if the expiry for accepting payment is not 7200 seconds after
 	//   invoice_created_at: MUST set invoice_relative_expiry.
@@ -1509,7 +1515,7 @@ func validateInvoiceWrite(inv *Invoice) error {
 	//     program.
 	// NOT CHECKED HERE: the codec stays permissive so callers can inspect
 	// raw fallbacks. The spec's ignore semantics are applied on the read
-	// side by UsableFallbackAddresses.
+	// side by usableFallbackAddresses.
 
 	// - MUST include invoice_paths containing one or more paths to the
 	//   node.
@@ -1972,7 +1978,7 @@ func validateInvoiceRead(inv *Invoice, activeChain [32]byte,
 	// NOT CHECKED HERE: these are payment-time or transport concerns
 	// handled outside this codec. invreq_amount equality is enforced by
 	// validateInvoiceAgainstRequest; the fallback ignore rules by
-	// UsableFallbackAddresses.
+	// usableFallbackAddresses.
 
 	// - MUST reject the invoice if signature is not a valid signature using
 	//   invoice_node_id as described in Signature Calculation.

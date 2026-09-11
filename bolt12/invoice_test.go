@@ -94,7 +94,7 @@ func TestUsableFallbackAddresses(t *testing.T) {
 		),
 	}
 
-	got := inv.UsableFallbackAddresses()
+	got := inv.usableFallbackAddresses()
 	require.Len(t, got, 2)
 	require.Equal(t, byte(0), got[0].Version)
 	require.Equal(t, byte(16), got[1].Version)

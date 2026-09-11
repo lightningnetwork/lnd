@@ -31,11 +31,18 @@ type WalletKitClient interface {
 	// lock's expiration is returned. The expiration of the lock can be extended by
 	// successive invocations of this RPC. Outputs can be unlocked before their
 	// expiration through `ReleaseOutput`.
+	//
+	// A non-zero release_after_spend_confs selects a confirmation-controlled
+	// lifetime. Such a lease ignores its wall-clock expiration and releases at
+	// the requested spend depth or through ReleaseOutput. The RPC fails if the
+	// wallet cannot apply this option. Renewing the same lease with the same ID
+	// and a zero depth preserves an existing non-zero depth.
 	LeaseOutput(ctx context.Context, in *LeaseOutputRequest, opts ...grpc.CallOption) (*LeaseOutputResponse, error)
 	// lncli: `wallet releaseoutput`
 	// ReleaseOutput unlocks an output, allowing it to be available for coin
 	// selection if it remains unspent. The ID should match the one used to
-	// originally lock the output.
+	// originally lock the output. A retained release-after-spend lease can also be
+	// released after its spending transaction has been observed.
 	ReleaseOutput(ctx context.Context, in *ReleaseOutputRequest, opts ...grpc.CallOption) (*ReleaseOutputResponse, error)
 	// lncli: `wallet listleases`
 	// ListLeases lists all currently locked utxos.
@@ -315,6 +322,14 @@ type WalletKitClient interface {
 	//
 	// After either selecting or verifying the inputs, all input UTXOs are locked
 	// with an internal app ID.
+	//
+	// A non-zero input_release_after_spend_confs applies a
+	// confirmation-controlled lifetime to every input lease this RPC acquires.
+	// Those leases ignore wall-clock expiration and release at the requested
+	// spend depth or through ReleaseOutput. The RPC fails if the wallet cannot
+	// apply this option. Wallet capability is checked even when coin selection
+	// does not need to acquire an input lease. A custom_lock_id is required for a
+	// confirmation-controlled lease.
 	//
 	// NOTE: If this method returns without an error, it is the caller's
 	// responsibility to either spend the locked UTXOs (by finalizing and then
@@ -642,11 +657,18 @@ type WalletKitServer interface {
 	// lock's expiration is returned. The expiration of the lock can be extended by
 	// successive invocations of this RPC. Outputs can be unlocked before their
 	// expiration through `ReleaseOutput`.
+	//
+	// A non-zero release_after_spend_confs selects a confirmation-controlled
+	// lifetime. Such a lease ignores its wall-clock expiration and releases at
+	// the requested spend depth or through ReleaseOutput. The RPC fails if the
+	// wallet cannot apply this option. Renewing the same lease with the same ID
+	// and a zero depth preserves an existing non-zero depth.
 	LeaseOutput(context.Context, *LeaseOutputRequest) (*LeaseOutputResponse, error)
 	// lncli: `wallet releaseoutput`
 	// ReleaseOutput unlocks an output, allowing it to be available for coin
 	// selection if it remains unspent. The ID should match the one used to
-	// originally lock the output.
+	// originally lock the output. A retained release-after-spend lease can also be
+	// released after its spending transaction has been observed.
 	ReleaseOutput(context.Context, *ReleaseOutputRequest) (*ReleaseOutputResponse, error)
 	// lncli: `wallet listleases`
 	// ListLeases lists all currently locked utxos.
@@ -926,6 +948,14 @@ type WalletKitServer interface {
 	//
 	// After either selecting or verifying the inputs, all input UTXOs are locked
 	// with an internal app ID.
+	//
+	// A non-zero input_release_after_spend_confs applies a
+	// confirmation-controlled lifetime to every input lease this RPC acquires.
+	// Those leases ignore wall-clock expiration and release at the requested
+	// spend depth or through ReleaseOutput. The RPC fails if the wallet cannot
+	// apply this option. Wallet capability is checked even when coin selection
+	// does not need to acquire an input lease. A custom_lock_id is required for a
+	// confirmation-controlled lease.
 	//
 	// NOTE: If this method returns without an error, it is the caller's
 	// responsibility to either spend the locked UTXOs (by finalizing and then

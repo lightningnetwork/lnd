@@ -390,6 +390,25 @@ func DecodeInvoice(data []byte) (*Invoice, error) {
 	return &inv, nil
 }
 
+// DecodeInvoiceStringUnvalidated decodes a BOLT 12 invoice from its bech32
+// string representation (lni1...) without running the reader gates. It exists
+// for displaying an invoice that was already validated when it was stored,
+// such as one read back from a database column. Every other caller wants
+// DecodeInvoiceString.
+func DecodeInvoiceStringUnvalidated(s string) (*Invoice, error) {
+	hrp, tlvBytes, err := Decode(s)
+	if err != nil {
+		return nil, fmt.Errorf("bech32: %w", err)
+	}
+
+	if hrp != HRPInvoice {
+		return nil, fmt.Errorf("expected HRP %q, got %q",
+			HRPInvoice, hrp)
+	}
+
+	return DecodeInvoice(tlvBytes)
+}
+
 // DecodeInvoiceString decodes a BOLT 12 invoice from its bech32 string
 // representation (lni1...). The spec reader gates (chain, features, signature)
 // are folded in via ValidateInvoiceRead, and the expiry gate is enforced via
@@ -402,17 +421,7 @@ func DecodeInvoice(data []byte) (*Invoice, error) {
 func DecodeInvoiceString(s string, now time.Time,
 	activeChain [32]byte) (*Invoice, error) {
 
-	hrp, tlvBytes, err := Decode(s)
-	if err != nil {
-		return nil, fmt.Errorf("bech32: %w", err)
-	}
-
-	if hrp != HRPInvoice {
-		return nil, fmt.Errorf("expected HRP %q, got %q",
-			HRPInvoice, hrp)
-	}
-
-	inv, err := DecodeInvoice(tlvBytes)
+	inv, err := DecodeInvoiceStringUnvalidated(s)
 	if err != nil {
 		return nil, err
 	}

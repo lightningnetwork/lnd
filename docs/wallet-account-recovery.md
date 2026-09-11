@@ -33,6 +33,9 @@ The guarantee assumes:
 - The filesystem honors file and directory `fsync` and atomic rename. Only one
   LND process owns the stable `.lock` file. Keep that lock file in place for
   the lifetime of the backup; do not replace it while LND runs.
+  Native Windows is not supported by this mode: syncing the directory through
+  its read-only handle fails, so protected startup fails closed. The integration
+  test skips Windows instead of weakening the durability requirement.
 - Consumers fund addresses returned successfully by the protected methods.
   Unacknowledged keys observed through wallet inspection, and keys derived
   offline from an xpub, are outside this bound. No finite counter can cover
@@ -106,6 +109,12 @@ restrict file and backup access even though the file contains no private key.
    Match the saved path, xpub, address schema, and fingerprint when present.
    Stop on a mismatch. Imported accounts require their original external key
    source and import metadata; do not recreate them as locally derived keys.
+   For purpose 1017 records, the saved account index is an internal key family.
+   LND initializes families 0 through 255 automatically. Recreate any recorded
+   higher family through `WalletKit.DeriveKey` with `key_family` set to its
+   saved account index and `key_index=0`, while the backup flag is omitted.
+   This restores the deterministic raw account; normal startup does not
+   require replaying the branch counts of these internal key families.
 4. Re-derive both branches through `WalletKit.NextAddr`. Use `change=false`
    for branch 0 and `change=true` for branch 1. Reconstruct until the live
    counts reach the saved exclusive bounds. If a maintenance attempt already
@@ -128,6 +137,11 @@ storage and retry; the unused allocation may remain in the wallet, and the next
 successful write includes it. Retain the previous file on any failed attempt.
 The stable writer lock prevents two processes from sharing one backup.
 
+Account creation and import also commit before recording. If recording fails,
+retrying creation can report that the account already exists. Repair storage
+and verify its identity before retrying address issuance; successful issuance
+records it synchronously, and the periodic refresh also retries the snapshot.
+
 Rollback of the binary is format-safe for the wallet database, but an older
 binary does not enforce this recovery rule. Stop named-account activity before
 rollback, retain all metadata, and resume only after an equivalent protection
@@ -135,6 +149,15 @@ mechanism is active. Never reuse a partially restored wallet in parallel with
 the original.
 
 ## Validation
+
+The normal integration harness covers issuance failure, restart, wallet loss,
+the omitted-internal-branch negative control, reconstruction and a confirmed
+spend. Run it with either supported full-node backend:
+
+```sh
+make itest backend=bitcoind icase=wallet-account_backup_recovery
+make itest backend=btcd icase=wallet-account_backup_recovery
+```
 
 `go test -race ./lnwallet/accountbackup ./lnwallet/btcwallet` covers concurrent
 stale snapshots, identity changes, missing evidence, both branch counts, and

@@ -8,9 +8,15 @@ import (
 	"github.com/lightningnetwork/lnd/queue"
 )
 
-// ErrServerShuttingDown is an error returned in case the server is in the
-// process of shutting down.
-var ErrServerShuttingDown = errors.New("subscription server shutting down")
+var (
+	// ErrServerShuttingDown is an error returned in case the server is in
+	// the process of shutting down.
+	ErrServerShuttingDown = errors.New("subscription server shutting down")
+
+	// ErrSlowConsumer is recorded on a bounded subscription client when it
+	// cannot keep up with the updates sent by the server.
+	ErrSlowConsumer = errors.New("subscription client is too slow")
+)
 
 // Client is used to get notified about updates the caller has subscribed to,
 type Client struct {
@@ -18,13 +24,27 @@ type Client struct {
 	// subscribe for updates from the server.
 	cancel func()
 
+	// updates is used by servers created with NewServer and preserves the
+	// historical unbounded queue behavior.
 	updates *queue.ConcurrentQueue
-	quit    chan struct{}
+
+	// boundedUpdates is used by servers that opt into a fixed per-client
+	// queue size.
+	boundedUpdates *queue.BackpressureQueue[interface{}]
+
+	errMtx sync.RWMutex
+	err    error
+
+	quit chan struct{}
 }
 
 // Updates returns a read-only channel where the updates the client has
 // subscribed to will be delivered.
 func (c *Client) Updates() <-chan interface{} {
+	if c.boundedUpdates != nil {
+		return c.boundedUpdates.ReceiveChan()
+	}
+
 	return c.updates.ChanOut()
 }
 
@@ -40,6 +60,23 @@ func (c *Client) Cancel() {
 	c.cancel()
 }
 
+// Err returns the reason the server stopped the subscription. A nil error
+// means that the client canceled the subscription or the server shut down.
+func (c *Client) Err() error {
+	c.errMtx.RLock()
+	defer c.errMtx.RUnlock()
+
+	return c.err
+}
+
+// setErr records the reason the server stopped the subscription.
+func (c *Client) setErr(err error) {
+	c.errMtx.Lock()
+	defer c.errMtx.Unlock()
+
+	c.err = err
+}
+
 // Server is a struct that manages a set of subscriptions and their
 // corresponding clients. Any update will be delivered to all active clients.
 type Server struct {
@@ -52,6 +89,10 @@ type Server struct {
 	clientUpdates chan *clientUpdate
 
 	updates chan interface{}
+
+	// clientQueueSize is the maximum number of pending updates retained for
+	// each client. A zero value preserves the historical unbounded queue.
+	clientQueueSize int
 
 	quit chan struct{}
 	wg   sync.WaitGroup
@@ -78,11 +119,29 @@ type clientUpdate struct {
 
 // NewServer returns a new Server.
 func NewServer() *Server {
+	return newServer(0)
+}
+
+// NewServerWithQueueSize returns a Server with a fixed pending-update limit
+// for each client. A client is evicted with ErrSlowConsumer when a new update
+// would exceed queueSize. The queue size must be positive.
+func NewServerWithQueueSize(queueSize int) *Server {
+	if queueSize <= 0 {
+		panic("subscribe: queue size must be positive")
+	}
+
+	return newServer(queueSize)
+}
+
+// newServer creates a subscription server with the requested client queue
+// size. A queue size of zero selects the historical unbounded queue.
+func newServer(queueSize int) *Server {
 	return &Server{
-		clients:       make(map[uint64]*Client),
-		clientUpdates: make(chan *clientUpdate),
-		updates:       make(chan interface{}),
-		quit:          make(chan struct{}),
+		clients:         make(map[uint64]*Client),
+		clientUpdates:   make(chan *clientUpdate),
+		updates:         make(chan interface{}),
+		clientQueueSize: queueSize,
+		quit:            make(chan struct{}),
 	}
 }
 
@@ -122,8 +181,7 @@ func (s *Server) Subscribe() (*Client, error) {
 	// populated to send the cancellation intent to the
 	// subscriptionHandler.
 	client := &Client{
-		updates: queue.NewConcurrentQueue(20),
-		quit:    make(chan struct{}),
+		quit: make(chan struct{}),
 		cancel: func() {
 			select {
 			case s.clientUpdates <- &clientUpdate{
@@ -134,6 +192,17 @@ func (s *Server) Subscribe() (*Client, error) {
 				return
 			}
 		},
+	}
+
+	if s.clientQueueSize == 0 {
+		client.updates = queue.NewConcurrentQueue(20)
+	} else {
+		client.boundedUpdates = queue.NewBackpressureQueue(
+			s.clientQueueSize,
+			func(_ int, _ interface{}) bool {
+				return false
+			},
+		)
 	}
 
 	select {
@@ -147,6 +216,37 @@ func (s *Server) Subscribe() (*Client, error) {
 	}
 
 	return client, nil
+}
+
+// removeClient stops and removes a client. The reason is recorded before Quit
+// is closed so callers observing Quit can retrieve it through Err.
+func (s *Server) removeClient(clientID uint64, reason error) {
+	client, ok := s.clients[clientID]
+	if !ok {
+		return
+	}
+
+	if client.updates != nil {
+		client.updates.Stop()
+	}
+
+	// A bounded client's RPC sender can still be blocked in transport flow
+	// control after eviction. Drain pending items now so the blocked handler
+	// cannot retain the entire queue until the transport becomes writable.
+	if client.boundedUpdates != nil {
+	drainLoop:
+		for {
+			select {
+			case <-client.boundedUpdates.ReceiveChan():
+			default:
+				break drainLoop
+			}
+		}
+	}
+
+	client.setErr(reason)
+	close(client.quit)
+	delete(s.clients, clientID)
 }
 
 // SendUpdate is called to send the passed update to all currently active
@@ -181,12 +281,7 @@ func (s *Server) subscriptionHandler() {
 			// underlying queue, and remove the client from the set
 			// of active subscription clients.
 			if update.cancel {
-				client, ok := s.clients[update.clientID]
-				if ok {
-					client.updates.Stop()
-					close(client.quit)
-					delete(s.clients, clientID)
-				}
+				s.removeClient(clientID, nil)
 
 				continue
 			}
@@ -195,12 +290,24 @@ func (s *Server) subscriptionHandler() {
 			// queue and add the client to our set of subscription
 			// clients. It will be notified about any new updates
 			// the server receives.
-			update.client.updates.Start()
+			if update.client.updates != nil {
+				update.client.updates.Start()
+			}
 			s.clients[update.clientID] = update.client
 
 		// A new update was received, forward it to all active clients.
 		case upd := <-s.updates:
-			for _, client := range s.clients {
+			for clientID, client := range s.clients {
+				if client.boundedUpdates != nil {
+					if !client.boundedUpdates.TryEnqueue(upd) {
+						s.removeClient(
+							clientID, ErrSlowConsumer,
+						)
+					}
+
+					continue
+				}
+
 				select {
 				case client.updates.ChanIn() <- upd:
 				case <-client.quit:
@@ -212,9 +319,8 @@ func (s *Server) subscriptionHandler() {
 		// In case the server is shutting down, stop the clients and
 		// close the quit channels to notify them.
 		case <-s.quit:
-			for _, client := range s.clients {
-				client.updates.Stop()
-				close(client.quit)
+			for clientID := range s.clients {
+				s.removeClient(clientID, nil)
 			}
 			return
 		}

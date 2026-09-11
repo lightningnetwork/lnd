@@ -115,6 +115,12 @@ const (
 	// multiAddrConnectionStagger is the number of seconds to wait between
 	// attempting to a peer with each of its advertised addresses.
 	multiAddrConnectionStagger = 10 * time.Second
+
+	// rpcMessageSubscriptionQueueSize is the maximum number of pending peer
+	// messages retained for each custom-message or onion-message RPC client.
+	// At the maximum Lightning message size, this limits one active client to
+	// less than 6.3 MiB of queued message payloads.
+	rpcMessageSubscriptionQueueSize = 100
 )
 
 var (
@@ -846,9 +852,13 @@ func newServer(ctx context.Context, cfg *Config, listenAddrs []net.Addr,
 
 		invoiceHtlcModifier: invoiceHtlcModifier,
 
-		customMessageServer: subscribe.NewServer(),
+		customMessageServer: subscribe.NewServerWithQueueSize(
+			rpcMessageSubscriptionQueueSize,
+		),
 
-		onionMessageServer: subscribe.NewServer(),
+		onionMessageServer: subscribe.NewServerWithQueueSize(
+			rpcMessageSubscriptionQueueSize,
+		),
 
 		actorSystem: actor.NewActorSystem(),
 

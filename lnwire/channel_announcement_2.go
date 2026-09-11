@@ -61,7 +61,7 @@ type ChannelAnnouncement2 struct {
 
 	// Signature is a Schnorr signature over serialised signed-range TLV
 	// stream of the message.
-	Signature tlv.RecordT[tlv.TlvType160, Sig]
+	Signature tlv.RecordT[tlv.TlvType240, Sig]
 
 	// Any extra fields in the signed range that we do not yet know about,
 	// but we need to keep them for signature validation and to produce a
@@ -163,6 +163,18 @@ func (c *ChannelAnnouncement2) Decode(r io.Reader, _ uint32) error {
 
 	typeMap, err := stream.DecodeWithParsedTypesP2P(r)
 	if err != nil {
+		return err
+	}
+
+	if err := AssertRequiredPresent(
+		typeMap,
+		c.ShortChannelID.TlvType(),
+		c.Outpoint.TlvType(),
+		c.Capacity.TlvType(),
+		c.NodeID1.TlvType(),
+		c.NodeID2.TlvType(),
+		c.Signature.TlvType(),
+	); err != nil {
 		return err
 	}
 

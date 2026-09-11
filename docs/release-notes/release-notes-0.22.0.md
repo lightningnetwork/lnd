@@ -94,6 +94,11 @@
 
 ## BOLT Spec Updates
 
+* Re-send the [AnnouncementSignature max
+  once](https://github.com/lightningnetwork/lnd/pull/9957) per
+  (re)connection when we already have the full proof and our peer sends us
+  their signature announcement.
+
 * The fundee now [enforces the BOLT-02 bound on
   `push_msat`](https://github.com/lightningnetwork/lnd/pull/10765),
   rejecting incoming `open_channel` messages where `push_msat` exceeds

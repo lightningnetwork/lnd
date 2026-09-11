@@ -1717,12 +1717,26 @@ func (c *ClientDB) DeleteSession(id SessionID) error {
 // sessions that are now considered closable due to the close of this channel.
 // The details for this channel will be deleted from the DB if there are no more
 // sessions in the DB that contain updates for this channel.
+//
+// This method, together with AckUpdate, maintains the following invariant:
+// every session that has acked updates for a channel is evaluated for
+// closability at least once after that channel has been marked closed. Without
+// it a session may hold on to the tower's storage forever, since a session is
+// only ever deleted once it has been found closable. The two halves of the
+// invariant are:
+//
+//  1. This method evaluates every session that had acked an update for the
+//     channel by the time it runs.
+//
+//  2. AckUpdate evaluates its own session whenever it acks an update for a
+//     channel that is already closed, which covers the sessions that this
+//     method could not have known about.
 func (c *ClientDB) MarkChannelClosed(chanID lnwire.ChannelID,
 	blockHeight uint32) ([]SessionID, error) {
 
 	var closableSessions []SessionID
 	err := kvdb.Update(c.db, func(tx kvdb.RwTx) error {
-		sessionsBkt := tx.ReadBucket(cSessionBkt)
+		sessionsBkt := tx.ReadWriteBucket(cSessionBkt)
 		if sessionsBkt == nil {
 			return ErrUninitializedDB
 		}
@@ -1768,6 +1782,21 @@ func (c *ClientDB) MarkChannelClosed(chanID lnwire.ChannelID,
 			return err
 		}
 
+		// The set of sessions we're about to iterate over is only read
+		// here, while AckUpdate adds to it the first time a session
+		// acks an update for this channel. Under snapshot isolation
+		// that's write skew: a concurrent AckUpdate wouldn't see the
+		// closed height we just wrote, we wouldn't see the session it
+		// added, and both of us would commit having each assumed that
+		// the other would evaluate that session. We therefore write the
+		// channel's db-ID row, which AckUpdate writes as well whenever
+		// it adds a session here, so that one of the two transactions
+		// is instead aborted with a retryable serialization error.
+		err = touchKey(chanDetails, cChanDBID)
+		if err != nil {
+			return err
+		}
+
 		// Now iterate through all the sessions of the channel to check
 		// if any of them are closeable.
 		return chanSessIDsBkt.ForEach(func(sessDBID, _ []byte) error {
@@ -1780,6 +1809,27 @@ func (c *ClientDB) MarkChannelClosed(chanID lnwire.ChannelID,
 			sID, err := getRealSessionID(
 				sessIDIndexBkt, sessDBIDInt,
 			)
+			if err != nil {
+				return err
+			}
+
+			// The closability of a session is decided from the
+			// session's own state, which CommitUpdate and AckUpdate
+			// both change, and both of them write the session's
+			// body row when they do. So for the same reason as
+			// above, we write that row here to make this evaluation
+			// collide with any concurrent change of the session it
+			// is evaluating. Otherwise a session could be marked
+			// closable off a view of it that a concurrent
+			// transaction has already invalidated, and a session
+			// that still has updates to make good on could end up
+			// being deleted.
+			sessBkt := sessionsBkt.NestedReadWriteBucket(sID[:])
+			if sessBkt == nil {
+				return ErrSessionNotFound
+			}
+
+			err = touchKey(sessBkt, cSessionBody)
 			if err != nil {
 				return err
 			}
@@ -2054,10 +2104,34 @@ func (c *ClientDB) CommitUpdate(id *SessionID,
 // AckUpdate persists an acknowledgment for a given (session, seqnum) pair. This
 // removes the update from the set of committed updates, and validates the
 // lastApplied value returned from the tower.
+//
+// If the channel that the acked update belongs to has already been closed, then
+// the session is evaluated for closability here, since MarkChannelClosed has
+// already made its pass over that channel's sessions. See the comment on
+// MarkChannelClosed for the invariant that the two of them maintain together.
 func (c *ClientDB) AckUpdate(id *SessionID, seqNum uint16,
 	lastApplied uint16) error {
 
-	return kvdb.Update(c.db, func(tx kvdb.RwTx) error {
+	// RangeIndex.Add mutates the in-memory range index as part of the
+	// transaction below, but that mutation is not rolled back along with
+	// the transaction. Were we to retry on top of a range index that a
+	// rolled back attempt had already mutated, the retry would find the
+	// height to be covered already, compute no changes to apply, and the
+	// ack would never make it to disk even though everything else in the
+	// transaction did. So we keep track of the range index that the
+	// transaction dirtied and drop it before each retry, which forces it to
+	// be read back from the database.
+	var dirtyChan *lnwire.ChannelID
+	evictDirty := func() {
+		if dirtyChan == nil {
+			return
+		}
+
+		c.evictRangeIndex(*id, *dirtyChan)
+		dirtyChan = nil
+	}
+
+	err := kvdb.Update(c.db, func(tx kvdb.RwTx) error {
 		sessions := tx.ReadWriteBucket(cSessionBkt)
 		if sessions == nil {
 			return ErrUninitializedDB
@@ -2181,37 +2255,39 @@ func (c *ClientDB) AckUpdate(id *SessionID, seqNum uint16,
 			}
 
 			// In the rare chance that this session only has rogue
-			// updates, we check here if the count is equal to the
-			// MaxUpdate of the session. If it is, then we mark the
-			// session as closable.
-			if rogueCount != uint64(session.Policy.MaxUpdates) {
-				return nil
+			// updates, the count reaching the MaxUpdates of the
+			// session is what exhausts it. Before we go on to
+			// consider such a session closable, we do a sanity
+			// check to ensure that it has no acked-update index.
+			if rogueCount == uint64(session.Policy.MaxUpdates) {
+				sessionAckRanges := sessionBkt.NestedReadBucket(
+					cSessionAckRangeIndex,
+				)
+				if sessionAckRanges != nil {
+					return fmt.Errorf("session(%s) has an "+
+						"acked ranges index but has a "+
+						"rogue count indicating "+
+						"saturation", session.ID)
+				}
 			}
 
-			// Before we mark the session as closable, we do a
-			// sanity check to ensure that this session has no
-			// acked-update index.
-			sessionAckRanges := sessionBkt.NestedReadBucket(
-				cSessionAckRangeIndex,
-			)
-			if sessionAckRanges != nil {
-				return fmt.Errorf("session(%s) has an "+
-					"acked ranges index but has a rogue "+
-					"count indicating saturation",
-					session.ID)
-			}
-
-			closableSessBkt := tx.ReadWriteBucket(
-				cClosableSessionsBkt,
-			)
-			if closableSessBkt == nil {
-				return ErrUninitializedDB
-			}
-
+			// This ack may well have been the one that made the
+			// session closable, either because the rogue count just
+			// saturated it or because it was the last un-acked
+			// update of a session whose channels have all been
+			// closed already. The channel this update was for is
+			// gone from the DB, so there is no close height to
+			// attribute the session to and we use a zero height,
+			// which is what this branch has always done.
 			var height [4]byte
 			byteOrder.PutUint32(height[:], 0)
 
-			return closableSessBkt.Put(dbSessIDBytes, height[:])
+			c.maybeMarkSessionClosable(
+				tx, sessions, chanDetailsBkt, id,
+				dbSessIDBytes, height[:],
+			)
+
+			return nil
 		} else if err != nil {
 			return err
 		}
@@ -2233,9 +2309,32 @@ func (c *ClientDB) AckUpdate(id *SessionID, seqNum uint16,
 			return ErrChannelNotRegistered
 		}
 
-		err = putChannelToSessionMapping(chanDetails, dbSessionID)
+		isNewSession, err := putChannelToSessionMapping(
+			chanDetails, dbSessionID,
+		)
 		if err != nil {
 			return err
+		}
+
+		// Adding this session to the channel's set of sessions means
+		// that MarkChannelClosed now has one more session to evaluate
+		// for closability when this channel is closed. That set is only
+		// ever read there, so under snapshot isolation a close of this
+		// channel that runs concurrently with us would not see the row
+		// we just wrote, and we would not see the closed height that it
+		// wrote. Both transactions would commit and this session would
+		// never be evaluated for this channel, which is how a session
+		// ends up leaking: if this was the last open channel of the
+		// session, then nothing else will ever mark it closable.
+		//
+		// To rule that out, we write a row that MarkChannelClosed
+		// writes as well, which makes the two transactions collide and
+		// one of them retry.
+		if isNewSession {
+			err = touchKey(chanDetails, cChanDBID)
+			if err != nil {
+				return err
+			}
 		}
 
 		// Get the range index for the given session-channel pair.
@@ -2244,8 +2343,51 @@ func (c *ClientDB) AckUpdate(id *SessionID, seqNum uint16,
 			return err
 		}
 
-		return index.Add(height, rangesBkt)
-	}, func() {})
+		// From here on the in-memory copy of this range index no longer
+		// matches what is on disk unless this transaction commits, so
+		// it has to be dropped if we end up retrying.
+		dirtyChan = &chanID
+
+		err = index.Add(height, rangesBkt)
+		if err != nil {
+			return err
+		}
+
+		// The channel may already have been closed by the time this ack
+		// reaches us, either because the ack genuinely came in late or
+		// because we lost the race described above and are now running
+		// for a second time. Either way MarkChannelClosed has already
+		// made its pass over the channel's sessions without this
+		// session being part of it, so we have to evaluate this session
+		// ourselves to uphold the invariant that every session with
+		// acked updates for a closed channel is checked for closability
+		// at least once after that channel was closed.
+		closedHeight := chanDetails.Get(cChanClosedHeight)
+		if len(closedHeight) == 0 {
+			return nil
+		}
+
+		// The height is written to another bucket, so it must not alias
+		// the database's memory.
+		heightCopy := make([]byte, len(closedHeight))
+		copy(heightCopy, closedHeight)
+
+		c.maybeMarkSessionClosable(
+			tx, sessions, chanDetailsBkt, id, dbSessIDBytes,
+			heightCopy,
+		)
+
+		return nil
+	}, evictDirty)
+	if err != nil {
+		// The transaction gave up for good, so whatever it left behind
+		// in the in-memory range index has to go as well.
+		evictDirty()
+
+		return err
+	}
+
+	return nil
 }
 
 // GetDBQueue returns a BackupID Queue instance under the given namespace.
@@ -2374,23 +2516,121 @@ func (c *ClientDB) DeleteCommittedUpdates(id *SessionID) error {
 }
 
 // putChannelToSessionMapping adds the given session ID to a channel's
-// cChanSessions bucket.
+// cChanSessions bucket. The returned boolean indicates whether the session was
+// newly added to the channel's set of sessions.
 func putChannelToSessionMapping(chanDetails kvdb.RwBucket,
-	dbSessID uint64) error {
+	dbSessID uint64) (bool, error) {
 
 	chanSessIDsBkt, err := chanDetails.CreateBucketIfNotExists(
 		cChanSessions,
 	)
 	if err != nil {
-		return err
+		return false, err
 	}
 
 	b, err := writeBigSize(dbSessID)
 	if err != nil {
+		return false, err
+	}
+
+	isNew := chanSessIDsBkt.Get(b) == nil
+
+	return isNew, chanSessIDsBkt.Put(b, []byte{1})
+}
+
+// touchKey re-writes the value stored under the given key with the very same
+// value.
+//
+// A write like this is a no-op as far as the contents of the database are
+// concerned, but it is not a no-op as far as the database's concurrency control
+// is concerned: it turns a row that a transaction would otherwise only read
+// into part of that transaction's write set. Two transactions that touch the
+// same row then collide, and the loser is aborted with a retryable
+// serialization error, instead of both of them committing on top of a view of
+// the world that the other one has already invalidated.
+//
+// This is only needed for the SQL backends running at snapshot isolation.
+// Bolt has a single writer, so there is nothing to collide with there.
+func touchKey(bkt kvdb.RwBucket, key []byte) error {
+	value := bkt.Get(key)
+	if value == nil {
+		return fmt.Errorf("no value found for key %x", key)
+	}
+
+	// The slice handed back by Get may point straight into the database's
+	// own memory, so we copy it before writing it back.
+	valueCopy := make([]byte, len(value))
+	copy(valueCopy, value)
+
+	return bkt.Put(key, valueCopy)
+}
+
+// maybeMarkSessionClosable evaluates whether the given session has become
+// closable and, if it has, records it in the closable sessions bucket under the
+// given height. A failure to do so is logged rather than returned.
+//
+// The evaluation is deliberately best effort. It runs in the same transaction
+// as an update acknowledgment, and that acknowledgment must be persisted no
+// matter what: the tower has the update either way, and the session queue
+// treats a failed AckUpdate as fatal, so a session that can't be evaluated for
+// closability would take its queue down with it and stay down across the retry.
+// Failing to evaluate a session only means it isn't reclaimed as early as it
+// could have been, which is the behaviour we had before it was evaluated here
+// at all.
+func (c *ClientDB) maybeMarkSessionClosable(tx kvdb.RwTx, sessionsBkt,
+	chanDetailsBkt kvdb.RBucket, id *SessionID, dbSessIDBytes,
+	height []byte) {
+
+	err := markSessionClosable(
+		tx, sessionsBkt, chanDetailsBkt, id, dbSessIDBytes, height,
+	)
+	if err != nil {
+		log.Errorf("Could not determine if session %s has become "+
+			"closable: %v", id, err)
+	}
+}
+
+// evictRangeIndex drops the in-memory range index of the given session-channel
+// pair, so that the next caller that needs it reads it back from the database.
+func (c *ClientDB) evictRangeIndex(sID SessionID, chanID lnwire.ChannelID) {
+	c.ackedRangeIndexMu.Lock()
+	defer c.ackedRangeIndexMu.Unlock()
+
+	delete(c.ackedRangeIndex[sID], chanID)
+}
+
+// markSessionClosable evaluates whether the given session has become closable
+// and, if it has, records it in the closable sessions bucket under the given
+// height.
+//
+// NOTE: unlike MarkChannelClosed, this doesn't hand the session back to the
+// caller, so the session is only picked up by the closable session handler on
+// the next startup.
+func markSessionClosable(tx kvdb.RwTx, sessionsBkt, chanDetailsBkt kvdb.RBucket,
+	id *SessionID, dbSessIDBytes, height []byte) error {
+
+	chanIDIndexBkt := tx.ReadBucket(cChanIDIndexBkt)
+	if chanIDIndexBkt == nil {
+		return ErrUninitializedDB
+	}
+
+	isClosable, err := isSessionClosable(
+		sessionsBkt, chanDetailsBkt, chanIDIndexBkt, id,
+	)
+	if err != nil {
 		return err
 	}
 
-	return chanSessIDsBkt.Put(b, []byte{1})
+	if !isClosable {
+		return nil
+	}
+
+	closableSessBkt := tx.ReadWriteBucket(cClosableSessionsBkt)
+	if closableSessBkt == nil {
+		return ErrUninitializedDB
+	}
+
+	return closableSessBkt.Put(dbSessIDBytes, height)
 }
 
 // getClientSessionBody loads the body of a ClientSession from the sessions

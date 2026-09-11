@@ -4550,12 +4550,12 @@
         "fee_per_mil": {
           "type": "string",
           "format": "int64",
-          "description": "The amount charged per milli-satoshis transferred expressed in\nmillionths of a satoshi."
+          "description": "The proportional fee charged on the amount forwarded, expressed in\nparts per million: a value of N charges N milli-satoshis for every\n1,000,000 milli-satoshis forwarded."
         },
         "fee_rate": {
           "type": "number",
           "format": "double",
-          "description": "The effective fee rate in milli-satoshis. Computed by dividing the\nfee_per_mil value by 1 million."
+          "description": "The same proportional fee expressed as a fraction of the amount\nforwarded rather than in parts per million. Computed by dividing the\nfee_per_mil value by 1 million."
         },
         "inbound_base_fee_msat": {
           "type": "integer",
@@ -4565,7 +4565,7 @@
         "inbound_fee_per_mil": {
           "type": "integer",
           "format": "int32",
-          "description": "The amount charged per milli-satoshis transferred expressed in\nmillionths of a satoshi."
+          "description": "The proportional fee charged on the amount forwarded, expressed in\nparts per million: a value of N charges N milli-satoshis for every\n1,000,000 milli-satoshis forwarded."
         }
       }
     },

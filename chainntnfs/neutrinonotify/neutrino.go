@@ -828,6 +828,20 @@ func (n *NeutrinoNotifier) RegisterSpendNtfn(outpoint *wire.OutPoint,
 		return ntfn.Event, nil
 	}
 
+	// Mark the historical scan as canceled before removing its subscriber
+	// from the TxNotifier. This lets progress writes observe the same
+	// ownership boundary as the hint purge performed by cancellation.
+	var scanMtx sync.Mutex
+	var scanCanceled bool
+	originalCancel := ntfn.Event.Cancel
+	ntfn.Event.Cancel = func() {
+		scanMtx.Lock()
+		defer scanMtx.Unlock()
+
+		scanCanceled = true
+		originalCancel()
+	}
+
 	// Grab the current best height as the height may have been updated
 	// while we were draining the chainUpdates queue.
 	n.bestBlockMtx.RLock()
@@ -873,9 +887,12 @@ func (n *NeutrinoNotifier) RegisterSpendNtfn(outpoint *wire.OutPoint,
 				// We persist the rescan progress to achieve incremental
 				// behavior across restarts, otherwise long rescans may
 				// start from the beginning with every restart.
-				err := n.spendHintCache.CommitSpendHint(
+				err := commitSpendHintIfActive(
+					n.spendHintCache, &scanMtx,
+					&scanCanceled,
 					processedHeight,
-					ntfn.HistoricalDispatch.SpendRequest)
+					ntfn.HistoricalDispatch.SpendRequest,
+				)
 				if err != nil {
 					chainntnfs.Log.Errorf("Failed to update rescan "+
 						"progress: %v", err)
@@ -916,6 +933,23 @@ func (n *NeutrinoNotifier) RegisterSpendNtfn(outpoint *wire.OutPoint,
 	}()
 
 	return ntfn.Event, nil
+}
+
+// commitSpendHintIfActive persists historical scan progress while its
+// subscriber still owns the hint. The scan mutex orders progress writes with
+// the cancellation wrapper's hint purge.
+func commitSpendHintIfActive(cache chainntnfs.SpendHintCache,
+	scanMtx *sync.Mutex, canceled *bool, height uint32,
+	request chainntnfs.SpendRequest) error {
+
+	scanMtx.Lock()
+	defer scanMtx.Unlock()
+
+	if *canceled {
+		return nil
+	}
+
+	return cache.CommitSpendHint(height, request)
 }
 
 // RegisterConfirmationsNtfn registers an intent to be notified once the target
@@ -994,7 +1028,13 @@ func (n *NeutrinoNotifier) RegisterConfirmationsNtfn(txid *chainhash.Hash,
 	currentHeight := uint32(n.bestBlock.Height)
 	n.bestBlockMtx.RUnlock()
 
-	ntfn.HistoricalDispatch.EndHeight = currentHeight
+	// An initial scan ends at the txNotifier height observed during
+	// registration. Extend that scan through any blocks connected while the
+	// filter update was in flight. A supplemental scan ends below that
+	// height and must retain its non-overlapping prefix boundary.
+	if ntfn.HistoricalDispatch.EndHeight == ntfn.Height {
+		ntfn.HistoricalDispatch.EndHeight = currentHeight
+	}
 
 	// Finally, with the filter updated, we can dispatch the historical
 	// rescan to ensure we can detect if the event happened in the past.

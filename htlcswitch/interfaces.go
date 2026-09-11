@@ -279,6 +279,13 @@ type ChannelLink interface {
 	// policy to govern if it an incoming HTLC should be forwarded or not.
 	UpdateForwardingPolicy(models.ForwardingPolicy)
 
+	// AdvertisedFee returns the fee this link's current forwarding policy
+	// charges to forward the given outgoing amount (base fee plus the
+	// proportional fee). It is the fee the node advertised for this link,
+	// as distinct from the (possibly larger) fee actually offered by the
+	// incoming HTLC.
+	AdvertisedFee(amtToForward lnwire.MilliSatoshi) lnwire.MilliSatoshi
+
 	// CheckHtlcForward should return a nil error if the passed HTLC details
 	// satisfy the current forwarding policy fo the target link. Otherwise,
 	// a LinkError with a valid protocol failure message should be returned
@@ -529,6 +536,43 @@ type htlcNotifier interface {
 	// for an htlc has been determined.
 	NotifyFinalHtlcEvent(key models.CircuitKey,
 		info channeldb.FinalHtlcInfo)
+}
+
+// ReputationManager is the read-only seam through which the switch feeds HTLC
+// forwarding lifecycle events to the (optional) local reputation subsystem.
+// It is a black box that only observes events to update internal reputation
+// state; it never affects forwarding decisions or the wire (log-only). When no
+// reputation manager is configured this is nil and the hooks are skipped.
+type ReputationManager interface {
+	// OnForward observes a forwarded HTLC at the point the switch
+	// commits to forwarding it to the outgoing channel. advertisedFee is
+	// the total fee the node advertised for this forward (the outgoing
+	// link's outbound fee plus the incoming link's inbound fee, clamped
+	// at zero; not the fee offered by the incoming HTLC), height is the
+	// switch's current best block height, and accountable is the outgoing
+	// accountable bit as this node would forward it.
+	//
+	// Only the outgoing channel is identified, not the outgoing HTLC: at
+	// this point the switch has not yet handed the packet to the outgoing
+	// link, so no outgoing HTLC ID has been assigned. HTLCs are therefore
+	// tracked by their incoming circuit key, which is stable for the whole
+	// lifecycle.
+	OnForward(incoming CircuitKey, outgoing lnwire.ShortChannelID,
+		incomingAmt, outgoingAmt, advertisedFee lnwire.MilliSatoshi,
+		incomingCltv, height uint32, accountable bool)
+
+	// OnSettle observes the successful resolution of a forwarded HTLC.
+	//
+	// Resolutions identify the HTLC by its incoming circuit key alone:
+	// not every resolution path knows the outgoing channel (an add failed
+	// back through the outgoing link's mailbox, for example, never had a
+	// keystone set), so the manager matches resolutions to the forwards
+	// it recorded by circuit key.
+	OnSettle(incoming CircuitKey)
+
+	// OnFail observes the failed resolution of a forwarded HTLC. See
+	// OnSettle for how the HTLC is identified.
+	OnFail(incoming CircuitKey)
 }
 
 // AuxHtlcModifier is an interface that allows the sender to modify the outgoing

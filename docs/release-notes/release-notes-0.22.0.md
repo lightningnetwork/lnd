@@ -51,6 +51,15 @@
 
 ## Functional Enhancements
 
+* A new experimental [local reputation
+  subsystem](https://github.com/lightningnetwork/lnd/pull/10919) tracks the
+  historical forwarding behaviour of peers, following the scoring recommended in
+  BOLT [#1280](https://github.com/lightning/bolts/pull/1280). It is enabled by
+  default but is purely observational: it watches forwarded HTLCs to compute and
+  log a per-HTLC reputation decision (whether the HTLC could stand on the
+  outgoing channel's reputation if forwarded in isolation) and does not currently
+  affect routing in any way. It can be disabled with `routing.no-reputation`.
+
 ## RPC Additions
 
 * The `routerrpc.EstimateRouteFee` RPC now supports [restricting fee estimates

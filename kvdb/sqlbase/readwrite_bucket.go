@@ -1,5 +1,3 @@
-//go:build kvdb_postgres || (kvdb_sqlite && !(windows && (arm || 386)) && !(linux && (ppc64 || mips || mipsle || mips64)))
-
 package sqlbase
 
 import (
@@ -89,16 +87,7 @@ func (b *readWriteBucket) Get(key []byte) []byte {
 		panic(err)
 	}
 
-	// When an empty byte array is stored as the value, Sqlite will decode
-	// that into nil whereas postgres will decode that as an empty byte
-	// array. Since returning nil is taken to mean that no value has ever
-	// been written, we ensure here that we at least return an empty array
-	// so that nil checks will fail.
-	if len(*value) == 0 {
-		return []byte{}
-	}
-
-	return *value
+	return sqlValue(value)
 }
 
 // ReadCursor returns a new read-only cursor for this bucket.
@@ -453,18 +442,32 @@ func (b *readWriteBucket) ForAll(cb func(k, v []byte) error) error {
 	defer cancel()
 
 	for rows.Next() {
-		var key, value []byte
+		var key []byte
+		var value *[]byte
 
 		err := rows.Scan(&key, &value)
 		if err != nil {
 			return err
 		}
 
-		err = cb(key, value)
+		err = cb(key, sqlValue(value))
 		if err != nil {
 			return err
 		}
 	}
 
 	return nil
+}
+
+// sqlValue preserves walletdb\'s distinction between a nested bucket (NULL)
+// and an empty value (a non-NULL zero-length blob) across SQL drivers.
+func sqlValue(value *[]byte) []byte {
+	if value == nil {
+		return nil
+	}
+	if len(*value) == 0 {
+		return []byte{}
+	}
+
+	return *value
 }

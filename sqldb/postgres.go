@@ -136,8 +136,9 @@ func NewPostgresStore(cfg *PostgresConfig) (*PostgresStore, error) {
 	return &PostgresStore{
 		cfg: cfg,
 		BaseDB: &BaseDB{
-			DB:      db,
-			Queries: queries,
+			DB:          db,
+			Queries:     queries,
+			BackendType: BackendTypePostgres,
 		},
 	}, nil
 }

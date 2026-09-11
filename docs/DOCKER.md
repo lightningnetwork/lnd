@@ -10,11 +10,45 @@ There are two flavors of Dockerfiles available:
 
 ## Development/testing
 
-To build a standalone development image from the local source directory, use the
-following command:
+To build a standalone development image from the local source directory:
 
 ```shell
-$  docker build --tag=myrepository/lnd-dev -f dev.Dockerfile .
+$  make docker-dev-build
+```
+
+The image is tagged `lnd-dev:<short-hash>` by default (with a `-dirty`
+suffix if the working tree has uncommitted changes); override with
+`make docker-dev-build DOCKER_DEV_IMAGE=myrepository/lnd-dev:mytag`.
+
+To additionally build an `lndinit` image layered on top of the dev image
+(pulling `lndinit`'s `dev.Dockerfile` from upstream main):
+
+```shell
+$  make docker-dev-lndinit-build
+```
+
+The image is tagged `<LNDINIT_REPO>:lnd-dev-<short-hash>` (e.g.
+`lndinit:lnd-dev-f5a093c1f`) so the tag makes it obvious which
+`docker-dev-build` image it was layered on. `LNDINIT_REPO` defaults to
+`lndinit`; override to push to a registry, e.g. `myrepository/lndinit`.
+`LNDINIT_CONTEXT` is the build context that `docker buildx` pulls
+`lndinit`'s `dev.Dockerfile` from — defaults to
+`https://github.com/lightninglabs/lndinit.git#main`, but can be a local path
+(e.g. `../lndinit`) or any other git URL with an optional `#<ref>` suffix
+(branch, tag, or commit SHA). For example, to build lndinit from a local
+checkout under the `myrepository/lndinit` repo name:
+
+```shell
+$  make docker-dev-lndinit-build \
+     LNDINIT_REPO=myrepository/lndinit \
+     LNDINIT_CONTEXT=../lndinit
+```
+
+To build the `lndinit` image and push it to a registry you're already logged
+into in one step:
+
+```shell
+$  make docker-dev-lndinit-build-push
 ```
 
 There is also a `docker-compose` setup available for development or testing that

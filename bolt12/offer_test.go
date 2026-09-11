@@ -140,7 +140,7 @@ func TestDecodeMinimalOfferString(t *testing.T) {
 	offerStr := "lno1zcss9mk8y3wkklfvevcrszlmu23kfrxh49p" +
 		"x20665dqwmn4p72pksese"
 
-	_, tlvBytes, err := Decode(offerStr)
+	_, tlvBytes, err := decodeBech32(offerStr)
 	require.NoError(t, err)
 
 	offer, err := decodeOffer(tlvBytes)

@@ -73,15 +73,15 @@ const (
 	// three prefixes have it.
 	bolt12HRPLen = 3
 
-	// maxBolt12DataLen is the largest TLV stream Encode emits. It is a
-	// writer policy, not a protocol rule: the spec limits neither a field
-	// nor the stream, and no other implementation caps either. The P2P
-	// decoder rejects a record above tlv.MaxRecordSize, eleven offer
-	// fields at that size give 704 kibibytes, and one mebibyte leaves room
-	// for unknown odd fields. Decode enforces no length limit, because a
-	// decode allocates on the order of its input and the input already
-	// exists in the caller's memory, so a limit there would reject a
-	// spec-valid message without protecting anything.
+	// maxBolt12DataLen is the largest TLV stream encodeBech32 emits. It
+	// is a writer policy, not a protocol rule: the spec limits neither a
+	// field nor the stream, and no other implementation caps either. The
+	// P2P decoder rejects a record above tlv.MaxRecordSize, eleven offer
+	// fields at that size give 704 kibibytes, and one mebibyte leaves
+	// room for unknown odd fields. decodeBech32 enforces no length limit,
+	// because a decode allocates on the order of its input and the input
+	// already exists in the caller's memory, so a limit there would
+	// reject a spec-valid message without protecting anything.
 	maxBolt12DataLen = 1 << 20
 )
 
@@ -103,13 +103,13 @@ func unsupportedHRPError(hrp string) error {
 	)
 }
 
-// Decode reads a BOLT 12 bech32 string. It returns the human-readable prefix
-// and the data bytes. A BOLT 12 string has no checksum. A '+' character can
-// join two parts of the string, and whitespace can follow it. Decode enforces
+// decodeBech32 reads a BOLT 12 bech32 string. It returns the human-readable
+// prefix and the data bytes. A BOLT 12 string has no checksum. A '+' character
+// can join two parts of the string, and whitespace can follow it. It enforces
 // the BOLT 12 encoding rules and no length limit, so the caller bounds its own
 // medium: the onion-message envelope bounds an invoice_request and an invoice,
 // and the RPC or CLI bounds a pasted or scanned offer string.
-func Decode(s string) (string, []byte, error) {
+func decodeBech32(s string) (string, []byte, error) {
 	cleaned, err := stripContinuation(s)
 	if err != nil {
 		return "", nil, err
@@ -156,11 +156,11 @@ func Decode(s string) (string, []byte, error) {
 	return hrp, data8bit, nil
 }
 
-// Encode makes a BOLT 12 bech32 string from the data bytes and the given
+// encodeBech32 makes a BOLT 12 bech32 string from the data bytes and the given
 // human-readable prefix. It adds no checksum. It changes the prefix to
-// lowercase and takes only lno, lnr, and lni. The payload size must be a size
-// that Decode also takes, so a caller can make only strings that Decode reads.
-func Encode(hrp string, data []byte) (string, error) {
+// lowercase and takes only lno, lnr, and lni. It refuses a payload above
+// maxBolt12DataLen, a writer policy the reader does not mirror.
+func encodeBech32(hrp string, data []byte) (string, error) {
 	hrp = strings.ToLower(hrp)
 	if !isValidHRP(hrp) {
 		return "", unsupportedHRPError(hrp)
@@ -168,7 +168,7 @@ func Encode(hrp string, data []byte) (string, error) {
 
 	// A BOLT 12 string holds a TLV stream, and the stream must hold at
 	// least one record. An empty payload gives a string with only the
-	// prefix and the separator, which Decode rejects.
+	// prefix and the separator, which decodeBech32 rejects.
 	if len(data) == 0 {
 		return "", fmt.Errorf(
 			"bolt12: %w: nothing to encode", ErrEmptyString,

@@ -3310,7 +3310,7 @@ func TestValidateOfferReadVectors(t *testing.T) {
 		t.Run(tc.Description, func(t *testing.T) {
 			t.Parallel()
 
-			_, tlvBytes, bech32Err := Decode(tc.Bolt12)
+			_, tlvBytes, bech32Err := decodeBech32(tc.Bolt12)
 			if bech32Err != nil {
 				if tc.Valid {
 					require.NoError(

@@ -26,7 +26,8 @@
 // DecodeOfferString, DecodeInvoiceRequestString, and DecodeInvoiceString
 // (with their Encode counterparts) are the consumer entry point. Each folds
 // bech32, the per-message TLV codec, and the spec reader gates into one
-// validated call.
+// validated call. DecodeInvoiceStringUnvalidated skips the gates, for
+// displaying an invoice that was validated when it was stored.
 //
 // An invoice that arrives as the response to an invoice request needs two
 // further bindings that the message alone cannot supply, the mirror match

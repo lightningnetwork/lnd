@@ -1424,6 +1424,35 @@
               "format": "uint64"
             },
             "collectionFormat": "multi"
+          },
+          {
+            "name": "payment_addr",
+            "description": "An optional payment address included in the invoice (also called payment\nsecret). If set, an MPP record containing this value will be included in\nthe final hop of the returned route.",
+            "in": "query",
+            "required": false,
+            "type": "string",
+            "format": "byte"
+          },
+          {
+            "name": "amp_record.root_share",
+            "in": "query",
+            "required": false,
+            "type": "string",
+            "format": "byte"
+          },
+          {
+            "name": "amp_record.set_id",
+            "in": "query",
+            "required": false,
+            "type": "string",
+            "format": "byte"
+          },
+          {
+            "name": "amp_record.child_index",
+            "in": "query",
+            "required": false,
+            "type": "integer",
+            "format": "int64"
           }
         ],
         "tags": [
@@ -1570,6 +1599,15 @@
                     "format": "uint64"
                   },
                   "description": "The channel ids of the channels allowed for the first hop. If empty, any\nchannel may be used."
+                },
+                "payment_addr": {
+                  "type": "string",
+                  "format": "byte",
+                  "description": "An optional payment address included in the invoice (also called payment\nsecret). If set, an MPP record containing this value will be included in\nthe final hop of the returned route."
+                },
+                "amp_record": {
+                  "$ref": "#/definitions/lnrpcAMPRecord",
+                  "description": "An optional AMP record to be included within the last hop of the route.\nIf set, payment_addr must also be set. See AMPRecord for details."
                 }
               }
             }

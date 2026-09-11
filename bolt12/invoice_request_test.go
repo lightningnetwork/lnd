@@ -279,7 +279,7 @@ func TestDecodeInvoiceRequestString(t *testing.T) {
 		"k95tzeswywffxlkeyhml0hh46kndmwf4m6xma3tkq2lu0" +
 		"4qz3slje2rfthc89vss"
 
-	ir, err := DecodeInvoiceRequestString(lnrStr, bitcoinMainnetGenesisHash)
+	ir, err := decodeInvoiceRequestString(lnrStr, bitcoinMainnetGenesisHash)
 	require.NoError(t, err)
 
 	// Verify invreq_metadata is set (8 zero bytes).
@@ -327,11 +327,11 @@ func TestInvoiceRequestStringRoundTrip(t *testing.T) {
 
 	ir := validInvoiceRequest(t)
 
-	encoded, err := EncodeInvoiceRequestString(ir)
+	encoded, err := encodeInvoiceRequestString(ir)
 	require.NoError(t, err)
 	require.NotEmpty(t, encoded)
 
-	decoded, err := DecodeInvoiceRequestString(
+	decoded, err := decodeInvoiceRequestString(
 		encoded, bitcoinMainnetGenesisHash,
 	)
 	require.NoError(t, err)
@@ -353,7 +353,7 @@ func TestEncodeInvoiceRequestStringInvalid(t *testing.T) {
 		tlv.TlvType88, *btcec.PublicKey,
 	]{}
 
-	encoded, err := EncodeInvoiceRequestString(ir)
+	encoded, err := encodeInvoiceRequestString(ir)
 	require.ErrorIs(t, err, ErrMissingPayerID)
 	require.Empty(t, encoded)
 }
@@ -367,7 +367,7 @@ func TestEncodeInvoiceRequestStringUnsigned(t *testing.T) {
 	ir := validInvoiceRequest(t)
 	ir.Signature = tlv.OptionalRecordT[tlv.TlvType240, [64]byte]{}
 
-	encoded, err := EncodeInvoiceRequestString(ir)
+	encoded, err := encodeInvoiceRequestString(ir)
 	require.ErrorIs(t, err, ErrMissingSignature)
 	require.Empty(t, encoded)
 }
@@ -386,7 +386,7 @@ func TestEncodeInvoiceRequestStringInvalidSignature(t *testing.T) {
 		tlv.NewRecordT[tlv.TlvType82, TUint64](TUint64(2000)),
 	)
 
-	encoded, err := EncodeInvoiceRequestString(ir)
+	encoded, err := encodeInvoiceRequestString(ir)
 	require.ErrorIs(t, err, ErrInvalidSignature)
 	require.Empty(t, encoded)
 }

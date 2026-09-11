@@ -159,9 +159,9 @@ const (
 	maxWitnessProgramLen = 40
 )
 
-// UsableFallbackAddresses returns the invoice_fallbacks entries a payer may use
+// usableFallbackAddresses returns the invoice_fallbacks entries a payer may use
 // after applying the BOLT 12 reader's MUST-ignore rules for the bitcoin chain.
-func (inv *Invoice) UsableFallbackAddresses() []FallbackAddress {
+func (inv *Invoice) usableFallbackAddresses() []FallbackAddress {
 	// Unwrap the optional up front so the filtering loop stays flat; a nil
 	// Addrs slice ranges as empty.
 	fallbacks := inv.InvoiceFallbacks.ValOpt().UnwrapOr(FallbackAddresses{})

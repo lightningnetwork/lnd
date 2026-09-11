@@ -1509,7 +1509,7 @@ func validateInvoiceWrite(inv *Invoice) error {
 	//     program.
 	// NOT CHECKED HERE: the codec stays permissive so callers can inspect
 	// raw fallbacks. The spec's ignore semantics are applied on the read
-	// side by UsableFallbackAddresses.
+	// side by usableFallbackAddresses.
 
 	// - MUST include invoice_paths containing one or more paths to the
 	//   node.
@@ -1970,7 +1970,7 @@ func validateInvoiceRead(inv *Invoice, activeChain [32]byte,
 	// NOT CHECKED HERE: these are payment-time or transport concerns
 	// handled outside this codec. invreq_amount equality is enforced by
 	// validateInvoiceAgainstRequest; the fallback ignore rules by
-	// UsableFallbackAddresses.
+	// usableFallbackAddresses.
 
 	// - MUST reject the invoice if signature is not a valid signature using
 	//   invoice_node_id as described in Signature Calculation.

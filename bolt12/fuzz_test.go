@@ -186,7 +186,7 @@ func FuzzDecodeOfferString(f *testing.F) {
 // reader gates included.
 func FuzzDecodeInvoiceRequestString(f *testing.F) {
 	fuzzStringCodec(f, func(s string) {
-		_, _ = DecodeInvoiceRequestString(
+		_, _ = decodeInvoiceRequestString(
 			s, bitcoinMainnetGenesisHash,
 		)
 	}, invreqStringSeeds(f)...)

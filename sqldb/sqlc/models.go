@@ -274,6 +274,7 @@ type PaymentHtlcAttemptResolution struct {
 	FailureSourceIndex sql.NullInt32
 	HtlcFailReason     sql.NullInt32
 	FailureMsg         []byte
+	HoldTimes          []byte
 }
 
 type PaymentIntent struct {

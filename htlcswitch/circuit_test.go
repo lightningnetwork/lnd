@@ -65,16 +65,17 @@ func initTestExtracter() {
 	onionProcessor := newOnionProcessor(nil)
 	defer onionProcessor.Stop()
 
-	obfuscator, _ := onionProcessor.ExtractErrorEncrypter(
+	sharedSecret, failCode := onionProcessor.ExtractSharedSecret(
 		testEphemeralKey,
 	)
 
-	sphinxExtracter, ok := obfuscator.(*hop.SphinxErrorEncrypter)
-	if !ok {
-		panic("did not extract sphinx error encrypter")
+	if failCode != lnwire.CodeNone {
+		panic("did not extract shared secret")
 	}
 
-	testExtracter = sphinxExtracter
+	testExtracter = hop.NewSphinxErrorEncrypter(
+		testEphemeralKey, sharedSecret,
+	)
 
 	// We also set this error extracter on startup, otherwise it will be nil
 	// at compile-time.
@@ -106,10 +107,10 @@ func newCircuitMap(t *testing.T, resMsg bool) (*htlcswitch.CircuitMapConfig,
 
 	db := makeCircuitDB(t, "")
 	circuitMapCfg := &htlcswitch.CircuitMapConfig{
-		DB:                    db,
-		FetchAllOpenChannels:  db.ChannelStateDB().FetchAllOpenChannels,
-		FetchClosedChannels:   db.ChannelStateDB().FetchClosedChannels,
-		ExtractErrorEncrypter: onionProcessor.ExtractErrorEncrypter,
+		DB:                   db,
+		FetchAllOpenChannels: db.ChannelStateDB().FetchAllOpenChannels,
+		FetchClosedChannels:  db.ChannelStateDB().FetchClosedChannels,
+		ExtractSharedSecret:  onionProcessor.ExtractSharedSecret,
 	}
 
 	if resMsg {
@@ -216,7 +217,7 @@ func TestHalfCircuitSerialization(t *testing.T) {
 		// encrypters, this will be a NOP.
 		if circuit2.ErrorEncrypter != nil {
 			err := circuit2.ErrorEncrypter.Reextract(
-				onionProcessor.ExtractErrorEncrypter,
+				onionProcessor.ExtractSharedSecret,
 			)
 			if err != nil {
 				t.Fatalf("unable to reextract sphinx error "+
@@ -643,11 +644,11 @@ func restartCircuitMap(t *testing.T, cfg *htlcswitch.CircuitMapConfig) (
 	// Reinitialize circuit map with same db path.
 	db := makeCircuitDB(t, dbPath)
 	cfg2 := &htlcswitch.CircuitMapConfig{
-		DB:                    db,
-		FetchAllOpenChannels:  db.ChannelStateDB().FetchAllOpenChannels,
-		FetchClosedChannels:   db.ChannelStateDB().FetchClosedChannels,
-		ExtractErrorEncrypter: cfg.ExtractErrorEncrypter,
-		CheckResolutionMsg:    cfg.CheckResolutionMsg,
+		DB:                   db,
+		FetchAllOpenChannels: db.ChannelStateDB().FetchAllOpenChannels,
+		FetchClosedChannels:  db.ChannelStateDB().FetchClosedChannels,
+		ExtractSharedSecret:  cfg.ExtractSharedSecret,
+		CheckResolutionMsg:   cfg.CheckResolutionMsg,
 	}
 	cm2, err := htlcswitch.NewCircuitMap(cfg2)
 	require.NoError(t, err, "unable to recreate persistent circuit map")

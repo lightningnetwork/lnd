@@ -320,7 +320,7 @@ func TestSendPaymentRouteFailureFallback(t *testing.T) {
 					// TODO(roasbeef): temp node failure
 					//  should be?
 					&lnwire.FailTemporaryChannelFailure{},
-					1,
+					1, nil,
 				)
 			}
 
@@ -391,7 +391,7 @@ func TestSendPaymentRouteInfiniteLoopWithBadHopHint(t *testing.T) {
 	// the bad channel is the first hop.
 	badShortChanID := lnwire.NewShortChanIDFromInt(badChannelID)
 	newFwdError := htlcswitch.NewForwardingError(
-		&lnwire.FailUnknownNextPeer{}, 0,
+		&lnwire.FailUnknownNextPeer{}, 0, nil,
 	)
 
 	payer, ok := ctx.router.cfg.Payer.(*mockPaymentAttemptDispatcherOld)
@@ -512,7 +512,7 @@ func TestChannelUpdateValidation(t *testing.T) {
 				&lnwire.FailFeeInsufficient{
 					Update: errChanUpdate,
 				},
-				1,
+				1, nil,
 			)
 		})
 
@@ -634,7 +634,7 @@ func TestSendPaymentErrorRepeatedFeeInsufficient(t *testing.T) {
 				// node/channel.
 				&lnwire.FailFeeInsufficient{
 					Update: errChanUpdate,
-				}, 1,
+				}, 1, nil,
 			)
 		}
 
@@ -745,7 +745,7 @@ func TestSendPaymentErrorFeeInsufficientPrivateEdge(t *testing.T) {
 				// node/channel.
 				&lnwire.FailFeeInsufficient{
 					Update: errChanUpdate,
-				}, 1,
+				}, 1, nil,
 			)
 		},
 	)
@@ -873,7 +873,7 @@ func TestSendPaymentPrivateEdgeUpdateFeeExceedsLimit(t *testing.T) {
 				// node/channel.
 				&lnwire.FailFeeInsufficient{
 					Update: errChanUpdate,
-				}, 1,
+				}, 1, nil,
 			)
 		},
 	)
@@ -974,7 +974,7 @@ func TestSendPaymentErrorNonFinalTimeLockErrors(t *testing.T) {
 				return [32]byte{}, htlcswitch.NewForwardingError(
 					&lnwire.FailExpiryTooSoon{
 						Update: errChanUpdate,
-					}, 1,
+					}, 1, nil,
 				)
 			}
 
@@ -1024,7 +1024,7 @@ func TestSendPaymentErrorNonFinalTimeLockErrors(t *testing.T) {
 				return [32]byte{}, htlcswitch.NewForwardingError(
 					&lnwire.FailIncorrectCltvExpiry{
 						Update: errChanUpdate,
-					}, 1,
+					}, 1, nil,
 				)
 			}
 
@@ -1082,7 +1082,7 @@ func TestSendPaymentErrorPathPruning(t *testing.T) {
 				// sophon not having enough capacity.
 				return [32]byte{}, htlcswitch.NewForwardingError(
 					&lnwire.FailTemporaryChannelFailure{},
-					1,
+					1, nil,
 				)
 			}
 
@@ -1091,7 +1091,7 @@ func TestSendPaymentErrorPathPruning(t *testing.T) {
 			// which should prune out the rest of the routes.
 			if firstHop == roasbeefPhanNuwen {
 				return [32]byte{}, htlcswitch.NewForwardingError(
-					&lnwire.FailUnknownNextPeer{}, 1,
+					&lnwire.FailUnknownNextPeer{}, 1, nil,
 				)
 			}
 
@@ -1140,7 +1140,7 @@ func TestSendPaymentErrorPathPruning(t *testing.T) {
 
 			if firstHop == roasbeefSongoku {
 				failure := htlcswitch.NewForwardingError(
-					&lnwire.FailUnknownNextPeer{}, 1,
+					&lnwire.FailUnknownNextPeer{}, 1, nil,
 				)
 				return [32]byte{}, failure
 			}
@@ -1185,7 +1185,7 @@ func TestSendPaymentErrorPathPruning(t *testing.T) {
 				// roasbeef not having enough capacity.
 				return [32]byte{}, htlcswitch.NewForwardingError(
 					&lnwire.FailTemporaryChannelFailure{},
-					1,
+					1, nil,
 				)
 			}
 			return preImage, nil
@@ -1432,7 +1432,7 @@ func TestSendToRouteStructuredError(t *testing.T) {
 			ctx.router.cfg.Payer.(*mockPaymentAttemptDispatcherOld).setPaymentResult(
 				func(firstHop lnwire.ShortChannelID) ([32]byte, error) {
 					return [32]byte{}, htlcswitch.NewForwardingError(
-						errorType, failIndex,
+						errorType, failIndex, nil,
 					)
 				},
 			)
@@ -2359,7 +2359,7 @@ func TestSendToRouteSkipTempErrTempFailure(t *testing.T) {
 
 	// Create the error to be returned.
 	tempErr := htlcswitch.NewForwardingError(
-		&lnwire.FailTemporaryChannelFailure{}, 1,
+		&lnwire.FailTemporaryChannelFailure{}, 1, nil,
 	)
 
 	// Register mockers with the expected method calls.
@@ -2439,7 +2439,7 @@ func TestSendToRouteSkipTempErrPermanentFailure(t *testing.T) {
 
 	// Create the error to be returned.
 	permErr := htlcswitch.NewForwardingError(
-		&lnwire.FailIncorrectDetails{}, 1,
+		&lnwire.FailIncorrectDetails{}, 1, nil,
 	)
 
 	// Register mockers with the expected method calls.
@@ -2525,7 +2525,7 @@ func TestSendToRouteTempFailure(t *testing.T) {
 
 	// Create the error to be returned.
 	tempErr := htlcswitch.NewForwardingError(
-		&lnwire.FailTemporaryChannelFailure{}, 1,
+		&lnwire.FailTemporaryChannelFailure{}, 1, nil,
 	)
 
 	// Register mockers with the expected method calls.

@@ -985,12 +985,9 @@ func TestValidateInvoiceNodeID(t *testing.T) {
 	}
 }
 
-// TestValidateInvoiceForPayment pins the combined payer-side validator: it
-// runs the structural read, the expiry gate, the mirror-match against the
-// request, and the binding to the expected signer in one call, so a caller
-// cannot forget any of them. expectedNodeID is only consulted when
-// offer_issuer_id is absent. Otherwise the expected signer is derived from
-// the request.
+// TestValidateInvoiceForPayment pins the composite payer-side validator: one
+// call must reject an invoice that fails any constituent check and accept one
+// that passes all of them.
 func TestValidateInvoiceForPayment(t *testing.T) {
 	t.Parallel()
 

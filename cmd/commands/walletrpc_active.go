@@ -53,6 +53,7 @@ var (
 			createAccountCommand,
 			importAccountCommand,
 			importPubKeyCommand,
+			removeAccountCommand,
 		},
 	}
 
@@ -2452,6 +2453,82 @@ func importPubKey(ctx *cli.Context) error {
 		AddressType: addrType,
 	}
 	resp, err := walletClient.ImportPublicKey(ctxc, req)
+	if err != nil {
+		return err
+	}
+
+	printRespJSON(resp)
+	return nil
+}
+
+var removeAccountCommand = cli.Command{
+	Name:      "remove",
+	Usage:     "Remove a watch-only account imported via 'accounts import'.",
+	ArgsUsage: "name",
+	Description: `
+	Removes a watch-only account that was previously imported via
+	'accounts import', along with all addresses derived from it.
+
+	Only imported accounts can be removed; the wallet's reserved "default"
+	and "imported" accounts, and accounts owned by the wallet itself, are
+	refused.
+
+	Removal is allowed even if the account still holds a balance. The
+	wallet simply stops tracking the account's addresses: its balance and
+	UTXOs disappear from the wallet's view and later deposits to its
+	addresses are not detected. The funds themselves are not moved or
+	lost — whoever holds the account's keys retains full control, and
+	re-importing the same extended public key restores tracking.
+	`,
+	Flags: []cli.Flag{
+		cli.StringFlag{
+			Name: "address_type",
+			Usage: "(optional) only needed if the same name " +
+				"exists under more than one key scope, one " +
+				"of: p2wkh, np2wkh, np2wkh-p2wkh, p2tr",
+		},
+		cli.BoolFlag{
+			Name:  "yes",
+			Usage: "skip the confirmation prompt",
+		},
+	},
+	Action: actionDecorator(removeAccount),
+}
+
+func removeAccount(ctx *cli.Context) error {
+	ctxc := getContext()
+
+	// Display the command's help message if we do not have the expected
+	// number of arguments/flags.
+	if ctx.NArg() != 1 || ctx.NumFlags() > 2 {
+		return cli.ShowCommandHelp(ctx, "remove")
+	}
+	name := ctx.Args().First()
+
+	addrType, err := parseAddrType(ctx.String("address_type"))
+	if err != nil {
+		return err
+	}
+
+	if !ctx.Bool("yes") {
+		confirmed := promptForConfirmation(fmt.Sprintf("WARNING: "+
+			"removing account %q stops lnd from tracking its "+
+			"addresses and any balance they hold. The funds are "+
+			"not moved; re-importing the extended public key "+
+			"restores tracking. Proceed? (yes/no): ", name))
+		if !confirmed {
+			return errors.New("removal cancelled")
+		}
+	}
+
+	walletClient, cleanUp := getWalletClient(ctx)
+	defer cleanUp()
+
+	req := &walletrpc.RemoveAccountRequest{
+		Name:        name,
+		AddressType: addrType,
+	}
+	resp, err := walletClient.RemoveAccount(ctxc, req)
 	if err != nil {
 		return err
 	}

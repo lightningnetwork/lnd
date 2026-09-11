@@ -5,7 +5,6 @@ package walletrpc
 
 import (
 	"bytes"
-	"context"
 	"errors"
 	"fmt"
 	"strings"
@@ -961,7 +960,7 @@ func TestListAccountsBirthday(t *testing.T) {
 			require.NoError(tt, err)
 
 			resp, err := rpcServer.ListAccounts(
-				context.Background(), &ListAccountsRequest{},
+				tt.Context(), &ListAccountsRequest{},
 			)
 			require.NoError(tt, err)
 			require.Equal(

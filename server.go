@@ -364,6 +364,10 @@ type server struct {
 	missionController *routing.MissionController
 	defaultMC         *routing.MissionControl
 
+	// intervalStore holds the liquidity beliefs of the interval router. It
+	// is nil unless that router is the one selected.
+	intervalStore *routing.IntervalStore
+
 	graphBuilder *graph.Builder
 
 	chanRouter *routing.ChannelRouter
@@ -1115,12 +1119,54 @@ func newServer(ctx context.Context, cfg *Config, listenAddrs []net.Addr,
 	if err != nil {
 		return nil, fmt.Errorf("error getting source node: %w", err)
 	}
-	paymentSessionSource := &routing.SessionSource{
+	stockSessionSource := &routing.SessionSource{
 		GraphSessionFactory: s.v1Graph,
 		SourceNode:          sourceNode,
 		MissionControl:      s.defaultMC,
 		GetLink:             s.htlcSwitch.GetLinkByShortID,
 		PathFindingConfig:   pathFindingConfig,
+	}
+
+	// Select the routing algorithm used to send payments. The default is
+	// the production stack the session source above implements; the
+	// interval router is an alternative paradigm that replaces mission
+	// control with per directed channel liquidity intervals and plans MPP
+	// shard amounts together with the routes that carry them.
+	var paymentSessionSource routing.PaymentSessionSource = stockSessionSource
+	switch routingConfig.PaymentRouter {
+	case routing.DefaultPaymentRouter:
+
+	case routing.IntervalPaymentRouter:
+		srvrLog.Infof("Using the experimental interval router for " +
+			"payments")
+
+		s.intervalStore = routing.NewIntervalStore(
+			routingConfig.MaxMcHistory,
+		)
+
+		// The beliefs are worth keeping across a restart, but only a
+		// node running the native SQL backend has anywhere to keep
+		// them. Everywhere else the router starts cold, which costs it
+		// the attempts it takes to relearn the network.
+		if cfg.DB.UseNativeSQL && dbs.NativeSQLStore != nil {
+			srvrLog.Infof("Persisting liquidity interval beliefs " +
+				"to the native SQL store")
+
+			s.intervalStore.UsePersistence(
+				routing.NewSQLIntervalStore(
+					dbs.NativeSQLStore.GetBaseDB(),
+				), routingConfig.IntervalFlushInterval,
+			)
+		}
+
+		paymentSessionSource = routing.NewIntervalSessionSource(
+			stockSessionSource, s.intervalStore,
+			routing.DefaultIntervalConfig(),
+		)
+
+	default:
+		return nil, fmt.Errorf("unknown router type %v",
+			routingConfig.PaymentRouter)
 	}
 
 	s.controlTower = routing.NewControlTower(dbs.PaymentsDB)
@@ -2580,6 +2626,14 @@ func (s *server) Start(ctx context.Context) error {
 		})
 		s.missionController.RunStoreTickers()
 
+		if s.intervalStore != nil {
+			cleanup = cleanup.add(s.intervalStore.Stop)
+			if err := s.intervalStore.Start(ctx); err != nil {
+				startErr = err
+				return
+			}
+		}
+
 		// Before we start the connMgr, we'll check to see if we have
 		// any backups to recover. We do this now as we want to ensure
 		// that have all the information we need to handle channel
@@ -2929,6 +2983,13 @@ func (s *server) Stop() error {
 				err)
 		}
 		s.missionController.StopStoreTickers()
+
+		if s.intervalStore != nil {
+			if err := s.intervalStore.Stop(); err != nil {
+				srvrLog.Warnf("Unable to stop interval "+
+					"store: %v", err)
+			}
+		}
 
 		// Disconnect from each active peers to ensure that
 		// peerTerminationWatchers signal completion to each peer.

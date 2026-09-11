@@ -734,6 +734,7 @@ func DefaultConfig() Config {
 		Fee: &lncfg.Fee{
 			MinUpdateTimeout: lncfg.DefaultMinUpdateTimeout,
 			MaxUpdateTimeout: lncfg.DefaultMaxUpdateTimeout,
+			MinRelayFeeRate:  lncfg.DefaultMinRelayFeeRate,
 		},
 
 		SubRPCServers: &subRPCServerConfigs{

@@ -1,0 +1,12 @@
+# first, ignore everything
+*
+
+# allowlist for dev.Dockerfile
+!Makefile
+!**/*.mk
+!**/*.go
+!**/*.sql
+!**/go.mod
+!**/go.sum
+!scripts/*.sh
+!docker/lnd/start-lnd.sh

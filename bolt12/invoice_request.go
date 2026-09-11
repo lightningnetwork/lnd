@@ -153,7 +153,7 @@ func (ir *InvoiceRequest) allRecordProducers() []tlv.RecordProducer {
 // Encode validates the invoice request per writer requirements and serialises
 // it via the PureTLVMessage shape.
 func (ir *InvoiceRequest) Encode() ([]byte, error) {
-	if err := ValidateInvoiceRequestWrite(ir); err != nil {
+	if err := validateInvoiceRequestWrite(ir); err != nil {
 		return nil, fmt.Errorf("validate invoice request: %w", err)
 	}
 
@@ -283,7 +283,7 @@ func EncodeInvoiceRequestString(ir *InvoiceRequest) (string, error) {
 		return "", err
 	}
 
-	if err := VerifyInvoiceRequest(ir); err != nil {
+	if err := verifyInvoiceRequest(ir); err != nil {
 		return "", err
 	}
 
@@ -297,7 +297,7 @@ func EncodeInvoiceRequestString(ir *InvoiceRequest) (string, error) {
 // Per "MUST copy all fields from the offer (including unknown fields)", the
 // offer's unknown TLVs are carried via the decodedTLVs sidecar so they are
 // signed and mirrored into the invoice. Note that because unknown even TLV
-// types in the offer would have already been rejected by ValidateOfferRead, any
+// types in the offer would have already been rejected by validateOfferRead, any
 // unknown TLVs mirrored here are guaranteed to be unknown odd TLVs ("it's ok to
 // be odd") which are safe to ignore and carry forward.
 //

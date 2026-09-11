@@ -11,7 +11,7 @@ import (
 )
 
 // validInvoice returns an Invoice populated with the minimum set of fields
-// required to satisfy ValidateInvoiceWrite.
+// required to satisfy validateInvoiceWrite.
 func validInvoice(t testing.TB) *Invoice {
 	t.Helper()
 
@@ -172,7 +172,7 @@ func TestUsablePaths(t *testing.T) {
 	require.Equal(t, uint32(2), got[1].PayInfo.FeeBaseMsat)
 
 	// A length mismatch between paths and payinfos yields no usable paths
-	// (rejected upstream by ValidateInvoiceRead).
+	// (rejected upstream by validateInvoiceRead).
 	inv.InvoiceBlindedPay = payRecord(BlindedPayInfo{})
 	require.Empty(t, inv.UsablePaths(known))
 }
@@ -334,7 +334,7 @@ func TestInvoiceRoundTripPreservesAllTypes(t *testing.T) {
 	decoded, err := DecodeInvoice(encoded)
 	require.NoError(t, err)
 
-	err = ValidateInvoiceRead(
+	err = validateInvoiceRead(
 		decoded, bitcoinMainnetGenesisHash,
 		InvoiceKnownFeatures{
 			Invoice: Bolt12Features,
@@ -494,7 +494,7 @@ func TestNewInvoiceFromRequestMirrorsUnknownFields(t *testing.T) {
 }
 
 // TestInvoiceEncodeValidationGate verifies that Encode runs
-// ValidateInvoiceWrite and rejects invalid invoices.
+// validateInvoiceWrite and rejects invalid invoices.
 func TestInvoiceEncodeValidationGate(t *testing.T) {
 	t.Parallel()
 

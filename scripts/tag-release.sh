@@ -36,8 +36,16 @@ UPSTREAM_BRANCH=""
 while [[ $# -gt 0 ]]; do
   case "$1" in
     -h|--help)   usage ;;
-    --branch)    [[ $# -ge 2 ]] || usage; UPSTREAM_BRANCH="$2"; shift 2 ;;
-    --branch=*)  UPSTREAM_BRANCH="${1#--branch=}"; shift ;;
+    --branch)
+      [[ $# -ge 2 && -n "$2" ]] || usage
+      UPSTREAM_BRANCH="$2"
+      shift 2
+      ;;
+    --branch=*)
+      UPSTREAM_BRANCH="${1#--branch=}"
+      [[ -n "${UPSTREAM_BRANCH}" ]] || usage
+      shift
+      ;;
     -*)          echo "Unknown flag: $1" >&2; usage ;;
     *)           [[ -z "${TAG}" ]] || usage; TAG="$1"; shift ;;
   esac
@@ -78,8 +86,15 @@ esac
 # Fetch first so every later check runs against confirmed-current upstream
 # state. Without this, a stale local HEAD could pass the version-match check
 # while still being out of sync with what's on the release branch.
+#
+# The refspec is fully qualified because `git fetch <remote> <name>` resolves
+# a tag named <name> ahead of a branch of the same name, which would leave
+# FETCH_HEAD on unrelated history. `--no-tags` stops a
+# remote.<name>.tagOpt=--tags setting from dragging remote tags into the local
+# repo as a side effect of what should be a read-only verification step.
 echo "Fetching ${UPSTREAM_REMOTE} ${UPSTREAM_BRANCH}..."
-git fetch --quiet "${UPSTREAM_REMOTE}" "${UPSTREAM_BRANCH}"
+git fetch --quiet --no-tags "${UPSTREAM_REMOTE}" \
+  "refs/heads/${UPSTREAM_BRANCH}"
 
 # Catch the race where another maintainer has already published this tag.
 if git ls-remote --exit-code --tags "${UPSTREAM_REMOTE}" \
@@ -90,9 +105,12 @@ fi
 
 # Compare against FETCH_HEAD rather than refs/remotes/<remote>/<branch>:
 # FETCH_HEAD is always written by `git fetch <remote> <branch>`, while the
-# remote-tracking ref depends on the user's refspec configuration.
+# remote-tracking ref depends on the user's refspec configuration. Peel to a
+# commit so the comparison is against a commit id on both sides; the
+# fully-qualified refspec above is what guarantees this peels the branch tip
+# rather than a tag that shadows the branch name.
 HEAD_SHA="$(git rev-parse HEAD)"
-UP_SHA="$(git rev-parse FETCH_HEAD)"
+UP_SHA="$(git rev-parse 'FETCH_HEAD^{commit}')"
 if [[ "${HEAD_SHA}" != "${UP_SHA}" ]]; then
   AHEAD="$(git rev-list --count FETCH_HEAD..HEAD)"
   BEHIND="$(git rev-list --count HEAD..FETCH_HEAD)"

@@ -2687,12 +2687,114 @@ func TestGossipSyncerMaxChannelRangeSCIDs(t *testing.T) {
 		lnwire.NewShortChanIDFromInt(uint64(len(scids))),
 	}
 	err = syncer.processChanRangeReply(ctx, reply)
+	require.ErrorIs(t, err, errChanRangeReplyTooLarge)
 	require.ErrorContains(
 		t, err, "exceeds maximum number of short channel IDs",
 	)
 	require.Empty(t, syncer.bufferedChanRangeReplies)
 	require.Zero(t, syncer.numChanRangeReplySCIDsRcvd)
 	require.Nil(t, syncer.curQueryRangeMsg)
+}
+
+// TestGossipSyncerRotatesOnRejectedChannelRange ensures that a rejected range
+// response requests another historical syncer without stopping this one.
+func TestGossipSyncerRotatesOnRejectedChannelRange(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name        string
+		mutate      func(*GossipSyncer, *lnwire.ReplyChannelRange)
+		expectedErr error
+	}{
+		{
+			name: "SCID limit",
+			mutate: func(syncer *GossipSyncer,
+				reply *lnwire.ReplyChannelRange) {
+
+				syncer.numChanRangeReplySCIDsRcvd =
+					maxChanRangeReplySCIDs
+				reply.ShortChanIDs = []lnwire.ShortChannelID{{
+					BlockHeight: reply.FirstBlockHeight,
+				}}
+			},
+			expectedErr: errChanRangeReplyTooLarge,
+		},
+		{
+			name: "range before query",
+			mutate: func(_ *GossipSyncer,
+				reply *lnwire.ReplyChannelRange) {
+
+				reply.FirstBlockHeight--
+			},
+			expectedErr: errInvalidChanRangeReply,
+		},
+	}
+
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			t.Parallel()
+
+			msgChan, syncer, _ := newTestSyncer(
+				lnwire.ShortChannelID{
+					BlockHeight: latestKnownHeight,
+				}, defaultEncoding, defaultChunkSize,
+			)
+			failureErr := make(chan error, 1)
+			syncer.cfg.historicalSyncFailed = func(_ *GossipSyncer,
+				err error) {
+
+				failureErr <- err
+			}
+
+			syncer.Start()
+			defer syncer.Stop()
+
+			var query *lnwire.QueryChannelRange
+			select {
+			case msgs := <-msgChan:
+				require.Len(t, msgs, 1)
+				var ok bool
+				query, ok = msgs[0].(*lnwire.QueryChannelRange)
+				require.True(t, ok)
+
+			case <-time.After(time.Second):
+				t.Fatal("expected channel range query")
+			}
+
+			require.Eventually(t, func() bool {
+				state := syncer.syncState()
+
+				return state == waitingQueryRangeReply
+			}, time.Second, 10*time.Millisecond)
+
+			reply := &lnwire.ReplyChannelRange{
+				ChainHash:        query.ChainHash,
+				FirstBlockHeight: query.FirstBlockHeight,
+				NumBlocks:        query.NumBlocks,
+				EncodingType:     lnwire.EncodingSortedPlain,
+			}
+			test.mutate(syncer, reply)
+			require.NoError(
+				t, syncer.ProcessQueryMsg(reply, nil),
+			)
+
+			select {
+			case err := <-failureErr:
+				require.ErrorIs(t, err, test.expectedErr)
+
+			case <-time.After(time.Second):
+				t.Fatal("expected historical sync failure")
+			}
+
+			require.Eventually(t, func() bool {
+				return syncer.syncState() == chansSynced
+			}, time.Second, 10*time.Millisecond)
+			syncType := syncer.SyncType()
+			require.NoError(
+				t, syncer.ProcessSyncTransition(syncType),
+			)
+		})
+	}
 }
 
 // TestGossipSyncerChanRangeReplyNoQuery ensures that a range reply which
@@ -2900,12 +3002,10 @@ func TestGossipSyncerStateHandlerErrors(t *testing.T) {
 				// racing the syncer's own goroutine.
 				assertRangeSyncAborted(t, s)
 
-				// NOTE: the syncer is left in
-				// waitingQueryRangeReply with no live handler.
-				// That matches how every other terminal error
-				// in this state machine behaves today.
+				// The peer remains connected and the syncer
+				// returns to its terminal state.
 				require.Equal(
-					t, waitingQueryRangeReply,
+					t, chansSynced,
 					s.syncState(),
 				)
 			},

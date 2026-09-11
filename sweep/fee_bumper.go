@@ -1285,9 +1285,9 @@ func (t *TxPublisher) createUnknownSpentBumpResult(
 	// Calculate the next fee rate for the retry.
 	feeRate, err := t.calculateRetryFeeRate(r)
 	if err != nil {
-		// Overwrite the event and error so the sweeper will
-		// remove this input.
-		result.Event = TxFatal
+		// Preserve the unknown-spend event because its per-outpoint
+		// evidence remains authoritative even when the viable siblings
+		// cannot obtain a retry fee rate.
 		result.Err = err
 	}
 

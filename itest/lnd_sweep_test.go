@@ -1222,6 +1222,152 @@ func testSweepHTLCs(ht *lntest.HarnessTest) {
 	ht.MineBlocksAndAssertNumTxes(1, 2)
 }
 
+// testSweepLegacyHTLCReorgRestart verifies a shallow final sweep cannot retire
+// a legacy HTLC claim before its channel confirmation policy is satisfied.
+func testSweepLegacyHTLCReorgRestart(ht *lntest.HarnessTest) {
+	// Neutrino cannot invalidate blocks, so use a full-node backend.
+	if ht.IsNeutrinoBackend() {
+		ht.Skipf("skipping reorg test for neutrino backend")
+	}
+
+	// Arrange a legacy channel whose held HTLC routes through Nursery under
+	// a fixed three-block resolution policy.
+	const (
+		requiredConfs = 3
+
+		// htlcAmt keeps the timeout output above dust.
+		htlcAmt = 100_000
+	)
+
+	// Derive both node flags from the depth asserted by mined blocks.
+	confArg := fmt.Sprintf(
+		"--dev.force-channel-close-confs=%d", requiredConfs,
+	)
+	aliceArgs := []string{
+		"--protocol.legacy.committweak",
+		confArg,
+	}
+	bobArgs := []string{
+		"--protocol.legacy.committweak",
+		confArg,
+		"--hodl.exit-settle",
+	}
+	openParams := lntest.OpenChannelParams{
+		Amt:            chanAmt,
+		CommitmentType: lnrpc.CommitmentType_LEGACY,
+	}
+
+	chanPoints, nodes := ht.CreateSimpleNetwork(
+		[][]string{aliceArgs, bobArgs}, openParams,
+	)
+	alice, bob := nodes[0], nodes[1]
+	chanPoint := chanPoints[0]
+
+	// Arrange one held payment and derive its padded expiry height.
+	paymentHash := ht.Random32Bytes()
+	paymentReq := &routerrpc.SendPaymentRequest{
+		Dest:           bob.PubKey[:],
+		Amt:            htlcAmt,
+		PaymentHash:    paymentHash,
+		FinalCltvDelta: finalCltvDelta,
+		FeeLimitMsat:   noFeeLimitMsat,
+	}
+	ht.SendPaymentAssertInflight(alice, paymentReq)
+	ht.AssertNumActiveHtlcs(alice, 1)
+	ht.AssertNumActiveHtlcs(bob, 1)
+	htlcExpiryHeight := padCLTV(ht.CurrentHeight() + finalCltvDelta)
+
+	// Act by closing and clearing Alice's unrelated CSV-delayed output so
+	// later mempool assertions isolate the HTLC lifecycle.
+	ht.CloseChannelAssertPending(alice, chanPoint, true)
+
+	// Confirm the commitment so its configured close depth starts.
+	ht.MineClosingTx(chanPoint)
+	// Advance the remaining blocks required by the channel-close policy.
+	ht.MineEmptyBlocks(requiredConfs - 1)
+
+	forceClose := ht.AssertChannelPendingForceClose(alice, chanPoint)
+	ht.AssertNumHTLCsAndStage(alice, chanPoint, 1, 1)
+	ht.AssertNumPendingSweeps(alice, 1)
+	require.Positive(ht, forceClose.BlocksTilMaturity)
+
+	// Advance to the last block before Alice's ordinary output matures.
+	ht.MineEmptyBlocks(int(forceClose.BlocksTilMaturity) - 1)
+	// Confirm the ordinary sweep so later mempool checks isolate the HTLC.
+	ht.MineBlocksAndAssertNumTxes(1, 1)
+
+	// Act through the HTLC expiry and Nursery timeout depth, then use the
+	// RPC maturity countdown instead of duplicating Nursery arithmetic.
+	// Advance until the HTLC timeout transaction becomes valid.
+	ht.MineEmptyBlocks(int(htlcExpiryHeight - ht.CurrentHeight()))
+
+	timeoutTx := ht.GetNumTxsFromMempool(1)[0]
+	timeoutTxID := timeoutTx.TxHash()
+
+	// Confirm Nursery's presigned timeout transaction at its first depth.
+	ht.MineBlocksAndAssertNumTxes(1, 1)
+	// Advance the timeout transaction to the channel's terminal depth.
+	ht.MineEmptyBlocks(requiredConfs - 1)
+
+	ht.AssertNumHTLCsAndStage(alice, chanPoint, 1, 2)
+	forceClose = ht.AssertChannelPendingForceClose(alice, chanPoint)
+	require.Len(ht, forceClose.PendingHtlcs, 1)
+	require.Positive(ht, forceClose.PendingHtlcs[0].BlocksTilMaturity)
+
+	// Advance until Nursery can offer the second-level output.
+	ht.MineEmptyBlocks(int(forceClose.PendingHtlcs[0].BlocksTilMaturity))
+
+	// Assert the remaining sweep targets Nursery's persisted output.
+	pendingSweep := ht.AssertNumPendingSweeps(alice, 1)[0]
+	require.Equal(ht, timeoutTxID.String(), pendingSweep.Outpoint.TxidStr)
+	txid := pendingSweep.Outpoint.TxidStr
+	parentHash, err := chainhash.NewHashFromStr(txid)
+	require.NoError(ht, err)
+	htlcOutpoint := wire.OutPoint{
+		Hash:  *parentHash,
+		Index: pendingSweep.Outpoint.OutputIndex,
+	}
+
+	// Mine once more because Nursery offers the output after the same
+	// blockbeat, making the next beat publish its sweep batch.
+	ht.MineEmptyBlocks(1)
+	finalSweep := ht.AssertOutpointInMempool(htlcOutpoint)
+
+	// Confirm the final sweep once, below its three-block terminal depth.
+	shallowBlock := ht.MineBlockWithTx(finalSweep)
+
+	// Wait for Alice so invalidation cannot race shallow-spend processing.
+	ht.WaitForNodeBlockHeight(alice, int32(ht.CurrentHeight()))
+
+	// Assert both lifecycle owners retain the shallow claim.
+	ht.AssertNumHTLCsAndStage(alice, chanPoint, 1, 2)
+	ht.AssertNumPendingSweeps(alice, 1)
+
+	// Act by invalidating the shallow block and extending its replacement.
+	shallowHash := shallowBlock.Header.BlockHash()
+	require.NoError(ht, ht.Miner().InvalidateBlock(&shallowHash))
+	// Extend the replacement chain to keep the old branch detached.
+	ht.MineEmptyBlocks(2)
+
+	// Assert the live sweeper republishes before restart without recovery.
+	ht.AssertOutpointInMempool(htlcOutpoint)
+	ht.RestartNode(alice)
+
+	// Assert restart restores and republishes the reorged Nursery claim.
+	ht.AssertNumHTLCsAndStage(alice, chanPoint, 1, 2)
+	ht.AssertNumPendingSweeps(alice, 1)
+	replacementSweep := ht.AssertOutpointInMempool(htlcOutpoint)
+
+	// Reconfirm the replacement before advancing it to terminal depth.
+	ht.MineBlockWithTx(replacementSweep)
+	// Advance the replacement sweep to its configured terminal depth.
+	ht.MineEmptyBlocks(requiredConfs - 1)
+
+	// Assert maturity permits terminal cleanup without stranding funds.
+	ht.AssertNumPendingForceClose(alice, 0)
+	ht.CleanShutDown()
+}
+
 // testSweepCommitOutputAndAnchor checks when a channel is force closed without
 // any time-sensitive HTLCs, the anchor output is swept without any CPFP
 // attempts. In addition, the to_local output should be swept using the

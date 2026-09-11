@@ -4,6 +4,7 @@ import (
 	"io"
 
 	"github.com/btcsuite/btcd/btcutil/v2"
+	"github.com/lightningnetwork/lnd/chainntnfs"
 	"github.com/lightningnetwork/lnd/channeldb"
 	"github.com/lightningnetwork/lnd/fn/v2"
 	"github.com/lightningnetwork/lnd/lnwallet"
@@ -100,14 +101,17 @@ func (h *htlcOutgoingContestResolver) Resolve() (ContractResolver, error) {
 		return nil, err
 	}
 
-	// First, we'll register for a spend notification for this output. If
-	// the remote party sweeps with the pre-image, we'll be notified.
+	// A revealed preimage remains actionable even if its transaction is
+	// reorged. Observe it at the first confirmation so a near-expiry claim
+	// wins the race with the transition to the timeout resolver.
 	spendNtfn, err := h.Notifier.RegisterSpendNtfn(
 		outPointToWatch, scriptToWatch, h.broadcastHeight,
+		chainntnfs.WithSpendNumConfs(1),
 	)
 	if err != nil {
 		return nil, err
 	}
+	defer spendNtfn.Cancel()
 
 	// We'll quickly check to see if the output has already been spent.
 	select {

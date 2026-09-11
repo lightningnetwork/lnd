@@ -68,7 +68,8 @@ type UtxoSweeper interface {
 	// in the UtxoSweeper. This function can be used to provide an updated
 	// fee preference that will be used for a new sweep transaction of the
 	// input that will act as a replacement transaction (RBF) of the
-	// original sweeping transaction, if any.
+	// original sweeping transaction, if any. RequiredConfs remains fixed
+	// because the active spend notification owns the admitted depth.
 	UpdateParams(input wire.OutPoint, params sweep.Params) (
 		chan sweep.Result, error)
 }

@@ -282,83 +282,300 @@ func TestMarkInputsPublishFailed(t *testing.T) {
 	mockStore.AssertExpectations(t)
 }
 
-// TestMarkInputsSwept checks that given a list of inputs with different
-// states, only the non-terminal state will be marked as `Swept`.
-func TestMarkInputsSwept(t *testing.T) {
+// TestMarkNotifiedInputSwept checks that a mature notification terminalizes
+// only its independently registered outpoint.
+func TestMarkNotifiedInputSwept(t *testing.T) {
 	t.Parallel()
 
 	require := require.New(t)
 
-	// Create a mock input.
+	// Arrange one notified input and one batch sibling around a transaction
+	// that spends both. The mock expectation proves listener delivery uses
+	// only the notified input's identity.
 	mockInput := &input.MockInput{}
-	defer mockInput.AssertExpectations(t)
-
-	// Mock the `OutPoint` to return a dummy outpoint.
-	mockInput.On("OutPoint").Return(wire.OutPoint{Hash: chainhash.Hash{1}})
-
-	// Create a test sweeper.
+	notified := wire.OutPoint{Hash: chainhash.Hash{1}, Index: 2}
+	sibling := wire.OutPoint{Hash: chainhash.Hash{1}, Index: 3}
+	mockInput.On("OutPoint").Return(notified).Once()
+	notifiedResult := make(chan Result, 1)
 	s := New(&UtxoSweeperConfig{})
-
-	// Create three testing inputs.
-	//
-	// inputNotExist specifies an input that's not found in the sweeper's
-	// `inputs` map.
-	inputNotExist := &wire.TxIn{
-		PreviousOutPoint: wire.OutPoint{Index: 1},
-	}
-
-	// inputInit specifies a newly created input.
-	inputInit := &wire.TxIn{
-		PreviousOutPoint: wire.OutPoint{Index: 2},
-	}
-	s.inputs[inputInit.PreviousOutPoint] = &SweeperInput{
+	s.inputs[notified] = &SweeperInput{
 		state: Init,
 		Input: mockInput,
+		listeners: []chan Result{
+			notifiedResult,
+		},
 	}
-
-	// inputPendingPublish specifies an input that's about to be published.
-	inputPendingPublish := &wire.TxIn{
-		PreviousOutPoint: wire.OutPoint{Index: 3},
-	}
-	s.inputs[inputPendingPublish.PreviousOutPoint] = &SweeperInput{
+	s.inputs[sibling] = &SweeperInput{
 		state: PendingPublish,
-		Input: mockInput,
-	}
-
-	// inputTerminated specifies an input that's terminated.
-	inputTerminated := &wire.TxIn{
-		PreviousOutPoint: wire.OutPoint{Index: 4},
-	}
-	s.inputs[inputTerminated.PreviousOutPoint] = &SweeperInput{
-		state: Excluded,
-		Input: mockInput,
 	}
 
 	tx := &wire.MsgTx{
 		TxIn: []*wire.TxIn{
-			inputNotExist, inputInit,
-			inputPendingPublish, inputTerminated,
+			{PreviousOutPoint: notified},
+			{PreviousOutPoint: sibling},
 		},
 	}
 
-	// Mark the test inputs. We expect the inputTerminated to be skipped,
-	// and the rest to be marked as swept.
-	s.markInputsSwept(tx, true)
+	// Act on the single mature outpoint notification even though its
+	// spending transaction also contains the shallower sibling.
+	s.markNotifiedInputSwept(notified, tx, true)
 
-	// We expect unchanged number of pending inputs.
-	require.Len(s.inputs, 3)
+	// Assert the notified input alone is terminal and reports success. The
+	// sibling remains publishable until its own depth-gated event arrives.
+	require.Equal(Swept, s.inputs[notified].state)
+	require.Equal(PendingPublish, s.inputs[sibling].state)
+	result := <-notifiedResult
+	require.Same(tx, result.Tx)
+	require.NoError(result.Err)
+	mockInput.AssertExpectations(t)
+}
 
-	// We expect the init input's state to become swept.
-	require.Equal(Swept,
-		s.inputs[inputInit.PreviousOutPoint].state)
+// TestHandleInputSpentCleansMatureOutpoint verifies an external transaction
+// cannot authorize conflict cleanup for a deeper-policy sibling input.
+func TestHandleInputSpentCleansMatureOutpoint(t *testing.T) {
+	t.Parallel()
 
-	// We expect the pending-publish becomes swept.
-	require.Equal(Swept,
-		s.inputs[inputPendingPublish.PreviousOutPoint].state)
+	// Arrange a mature input, a tracked publishable sibling, and an
+	// untracked input spent by one external transaction. Separate stored
+	// sweeps prove cleanup preserves the tracked sibling while canceling
+	// the conflict whose input has no pending lifecycle owner.
+	store := &MockSweeperStore{}
+	wallet := &MockWallet{}
+	notifiedInput := &input.MockInput{}
+	notified := wire.OutPoint{Hash: chainhash.Hash{3}, Index: 1}
+	sibling := wire.OutPoint{Hash: chainhash.Hash{4}, Index: 2}
+	untracked := wire.OutPoint{Hash: chainhash.Hash{5}, Index: 3}
+	notifiedInput.On("OutPoint").Return(notified).Once()
+	notifiedResult := make(chan Result, 1)
+	externalTx := &wire.MsgTx{
+		TxIn: []*wire.TxIn{
+			{PreviousOutPoint: notified},
+			{PreviousOutPoint: sibling},
+			{PreviousOutPoint: untracked},
+		},
+	}
+	externalHash := externalTx.TxHash()
+	siblingSweep := &wire.MsgTx{
+		TxIn: []*wire.TxIn{{PreviousOutPoint: sibling}},
+	}
+	siblingSweepHash := siblingSweep.TxHash()
+	untrackedSweep := &wire.MsgTx{
+		TxIn: []*wire.TxIn{{PreviousOutPoint: untracked}},
+	}
+	untrackedSweepHash := untrackedSweep.TxHash()
+	store.On("IsOurTx", externalHash).Return(false).Once()
+	store.On("ListSweeps").Return(
+		[]chainhash.Hash{siblingSweepHash, untrackedSweepHash}, nil,
+	).Once()
+	wallet.On("FetchTx", siblingSweepHash).Return(
+		siblingSweep, nil,
+	).Once()
+	wallet.On("FetchTx", untrackedSweepHash).Return(
+		untrackedSweep, nil,
+	).Once()
+	wallet.On("RemoveDescendants", untrackedSweep).Return(nil).Once()
+	wallet.On("CancelRebroadcast", untrackedSweepHash).Return().Once()
+	s := New(&UtxoSweeperConfig{
+		Store:  store,
+		Wallet: wallet,
+	})
+	s.inputs[notified] = &SweeperInput{
+		state:     Init,
+		Input:     notifiedInput,
+		listeners: []chan Result{notifiedResult},
+	}
+	s.inputs[sibling] = &SweeperInput{state: PendingPublish}
+	spend := &chainntnfs.SpendDetail{
+		SpentOutPoint:  &notified,
+		SpenderTxHash:  &externalHash,
+		SpendingTx:     externalTx,
+		SpendingHeight: 100,
+	}
 
-	// We expect the terminated to stay unchanged.
-	require.Equal(Excluded,
-		s.inputs[inputTerminated.PreviousOutPoint].state)
+	// Act by handling only the mature input's depth-gated notification. The
+	// cleanup scan must retain the tracked sibling's sweep and cancel the
+	// untracked conflict in the same pass.
+	s.handleInputSpent(spend)
+	result := <-notifiedResult
+
+	// Assert the mature input reports the remote spend while its sibling
+	// and conflicting sweep remain viable while the exact wallet
+	// expectations prove the untracked conflict was removed and canceled.
+	require.Equal(t, Swept, s.inputs[notified].state)
+	require.Equal(t, PendingPublish, s.inputs[sibling].state)
+	require.Same(t, externalTx, result.Tx)
+	require.ErrorIs(t, result.Err, ErrRemoteSpend)
+	store.AssertExpectations(t)
+	wallet.AssertExpectations(t)
+	notifiedInput.AssertExpectations(t)
+}
+
+// TestUnknownSpendCleansMatureOutpoint verifies a TxUnknownSpend result cannot
+// use one mature input to cancel a deeper sibling's conflicting sweep.
+func TestUnknownSpendCleansMatureOutpoint(t *testing.T) {
+	t.Parallel()
+
+	// Arrange a mature lifecycle input, a tracked publishable sibling, and
+	// an untracked input in one external transaction. Separate stored
+	// sweeps prove TxUnknownSpend retains the deeper tracked policy while
+	// retiring the unowned conflict.
+	store := &MockSweeperStore{}
+	wallet := &MockWallet{}
+	matureInput := createTestInput(1000, input.WitnessKeyHash)
+	matureOutpoint := matureInput.OutPoint()
+	siblingOutpoint := wire.OutPoint{
+		Hash:  chainhash.Hash{6},
+		Index: 2,
+	}
+	untrackedOutpoint := wire.OutPoint{
+		Hash:  chainhash.Hash{7},
+		Index: 3,
+	}
+	externalTx := &wire.MsgTx{
+		TxIn: []*wire.TxIn{
+			{PreviousOutPoint: matureOutpoint},
+			{PreviousOutPoint: siblingOutpoint},
+			{PreviousOutPoint: untrackedOutpoint},
+		},
+	}
+	externalHash := externalTx.TxHash()
+	siblingSweep := &wire.MsgTx{
+		TxIn: []*wire.TxIn{{PreviousOutPoint: siblingOutpoint}},
+	}
+	siblingSweepHash := siblingSweep.TxHash()
+	untrackedSweep := &wire.MsgTx{
+		TxIn: []*wire.TxIn{{PreviousOutPoint: untrackedOutpoint}},
+	}
+	untrackedSweepHash := untrackedSweep.TxHash()
+	store.On("IsOurTx", externalHash).Return(false).Once()
+	store.On("ListSweeps").Return(
+		[]chainhash.Hash{siblingSweepHash, untrackedSweepHash}, nil,
+	).Once()
+	wallet.On("FetchTx", siblingSweepHash).Return(
+		siblingSweep, nil,
+	).Once()
+	wallet.On("FetchTx", untrackedSweepHash).Return(
+		untrackedSweep, nil,
+	).Once()
+	wallet.On("RemoveDescendants", untrackedSweep).Return(nil).Once()
+	wallet.On("CancelRebroadcast", untrackedSweepHash).Return().Once()
+	s := New(&UtxoSweeperConfig{
+		Store:  store,
+		Wallet: wallet,
+	})
+	matureResult := make(chan Result, 1)
+	s.inputs[matureOutpoint] = &SweeperInput{
+		state:     PendingPublish,
+		Input:     &matureInput,
+		listeners: []chan Result{matureResult},
+	}
+	s.inputs[siblingOutpoint] = &SweeperInput{state: PendingPublish}
+
+	// Act on the fee bumper's mature evidence for only the first input.
+	// handleUnknownSpendTx must preserve the tracked sibling boundary while
+	// still cleaning the transaction's untracked conflict.
+	s.handleUnknownSpendTx(s.inputs[matureOutpoint], externalTx)
+	result := <-matureResult
+
+	// Assert the mature input reports the remote spend while the sibling
+	// and its stored sweep remain publishable. Exact wallet expectations
+	// prove cleanup removed only the untracked conflict.
+	require.Equal(t, Fatal, s.inputs[matureOutpoint].state)
+	require.Equal(t, PendingPublish, s.inputs[siblingOutpoint].state)
+	require.Same(t, externalTx, result.Tx)
+	require.ErrorIs(t, result.Err, ErrRemoteSpend)
+	store.AssertExpectations(t)
+	wallet.AssertExpectations(t)
+}
+
+// TestMonitorSpendDepth checks that a deep input uses separate provisional and
+// terminal observers without exposing the provisional spend as final.
+func TestMonitorSpendDepth(t *testing.T) {
+	t.Parallel()
+
+	// Arrange a mock.Mock notifier with one terminal depth-three event and
+	// one shallow event. Exact option matchers prove each registration owns
+	// its intended role, and buffered channels make event order explicit.
+	notifier := &chainntnfs.MockChainNotifier{}
+	outpoint := wire.OutPoint{Hash: chainhash.Hash{2}, Index: 4}
+	script := []byte{0x51}
+	heightHint := uint32(90)
+	requiredConfs := uint32(3)
+	terminalSpend := make(chan *chainntnfs.SpendDetail, 1)
+	terminalEvent := &chainntnfs.SpendEvent{
+		Spend: terminalSpend,
+		Cancel: func() {
+			close(terminalSpend)
+		},
+	}
+	shallowSpend := make(chan *chainntnfs.SpendDetail, 1)
+	shallowReorg := make(chan struct{}, 1)
+	shallowEvent := &chainntnfs.SpendEvent{
+		Spend: shallowSpend,
+		Reorg: shallowReorg,
+		Cancel: func() {
+			close(shallowSpend)
+			close(shallowReorg)
+		},
+	}
+	terminalDepth := mock.MatchedBy(
+		func(opts []chainntnfs.SpendOption) bool {
+			parsed, err := chainntnfs.ParseSpendOptions(opts...)
+
+			return err == nil && parsed.NumConfs == requiredConfs
+		},
+	)
+	shallowDepth := mock.MatchedBy(
+		func(opts []chainntnfs.SpendOption) bool {
+			parsed, err := chainntnfs.ParseSpendOptions(opts...)
+
+			return err == nil &&
+				parsed.NumConfs == DefaultRequiredConfs
+		},
+	)
+	notifier.On(
+		"RegisterSpendNtfn", &outpoint, script, heightHint,
+		terminalDepth,
+	).Return(terminalEvent, nil).Once()
+	notifier.On(
+		"RegisterSpendNtfn", &outpoint, script, heightHint,
+		shallowDepth,
+	).Return(shallowEvent, nil).Once()
+	s := New(&UtxoSweeperConfig{Notifier: notifier})
+	provisional := &chainntnfs.SpendDetail{SpentOutPoint: &outpoint}
+	terminal := &chainntnfs.SpendDetail{SpentOutPoint: &outpoint}
+
+	// Act by installing both observers, delivering a provisional spend and
+	// its reorg, then delivering the mature result through the terminal
+	// observer. Read each forwarded event so the monitor can make progress.
+	cancel, err := s.monitorSpend(
+		outpoint, script, heightHint, requiredConfs,
+	)
+	require.NoError(t, err)
+	shallowSpend <- provisional
+	shallowReorg <- struct{}{}
+	var reorgedOutpoint wire.OutPoint
+	select {
+	case reorgedOutpoint = <-s.spendReorgChan:
+	case <-time.After(5 * time.Second):
+		t.Fatal("shallow reorg was not forwarded")
+	}
+	terminalSpend <- terminal
+	var deliveredSpend *chainntnfs.SpendDetail
+	select {
+	case deliveredSpend = <-s.spendChan:
+	case <-time.After(5 * time.Second):
+		t.Fatal("terminal spend was not forwarded")
+	}
+	cancel()
+	s.wg.Wait()
+
+	// Assert the reorg identifies only this input while final delivery is
+	// exactly the mature event. Both notifier expectations must be consumed
+	// directly, proving cancellation did not substitute for registration.
+	require.Equal(t, outpoint, reorgedOutpoint)
+	require.Same(t, terminal, deliveredSpend)
+	notifier.AssertExpectations(t)
 }
 
 // TestMempoolLookup checks that the method `mempoolLookup` works as expected.
@@ -684,6 +901,253 @@ func TestSweepPendingInputs(t *testing.T) {
 
 	// Call the method under test.
 	s.sweepPendingInputs(pis)
+}
+
+// TestRequiredConfsImmutable verifies update and duplicate-offer paths inherit
+// an admitted spend depth while explicit attempts to replace it are rejected.
+func TestRequiredConfsImmutable(t *testing.T) {
+	t.Parallel()
+
+	// Arrange one admitted depth-three input plus duplicate and update
+	// requests that either omit policy or explicitly conflict with it. The
+	// result channels are buffered so rejection remains synchronous here.
+	op := wire.OutPoint{Index: 8}
+	s := New(&UtxoSweeperConfig{})
+	admitted := &SweeperInput{params: Params{RequiredConfs: 3}}
+	s.inputs[op] = admitted
+	inherited := &sweepInputMessage{
+		params:     Params{Budget: 1},
+		resultChan: make(chan Result, 1),
+	}
+	rejected := &sweepInputMessage{
+		params:     Params{RequiredConfs: 4},
+		resultChan: make(chan Result, 1),
+	}
+
+	// Act by applying both duplicate forms, then repeat the omitted and
+	// conflicting policies through the synchronous fee-update path.
+	s.handleExistingInput(inherited, admitted)
+	s.handleExistingInput(rejected, admitted)
+	_, updateErr := s.handleUpdateReq(&updateReq{
+		input: op, params: Params{Budget: 2},
+	})
+	_, mismatchErr := s.handleUpdateReq(&updateReq{
+		input: op, params: Params{RequiredConfs: 4},
+	})
+
+	// Assert omitted policy preserved the admitted value in both paths and
+	// each explicit mismatch returned the dedicated rejection sentinel.
+	require.NoError(t, updateErr)
+	require.Equal(t, uint32(3), admitted.params.RequiredConfs)
+	require.ErrorIs(
+		t, (<-rejected.resultChan).Err, ErrRequiredConfsMismatch,
+	)
+	require.ErrorIs(t, mismatchErr, ErrRequiredConfsMismatch)
+}
+
+// TestSweeperKeepsPublisherConfirmation verifies a shallow publisher result
+// does not create continuous retries while its transaction remains confirmed.
+func TestSweeperKeepsPublisherConfirmation(t *testing.T) {
+	t.Parallel()
+
+	// Arrange one published depth-three input and a provisional publisher
+	// confirmation. The response omits an input set because this event must
+	// not touch batch state before a concrete shallow reorg is observed.
+	op := wire.OutPoint{Index: 11}
+	s := New(&UtxoSweeperConfig{})
+	s.inputs[op] = &SweeperInput{
+		state:  Published,
+		params: Params{RequiredConfs: 3},
+	}
+	response := &bumpResp{
+		result: &BumpResult{
+			Event:   TxConfirmed,
+			FeeRate: 1000,
+		},
+		deferTerminal: true,
+	}
+
+	// Act by delivering the provisional publisher confirmation through the
+	// collector's event handler without a corresponding reorg notification.
+	err := s.handleBumpEvent(response)
+
+	// Assert the input remains Published, retaining ownership without
+	// repeatedly offering an already-confirmed outpoint to the publisher.
+	require.NoError(t, err)
+	require.Equal(t, Published, s.inputs[op].state)
+}
+
+// TestSweeperBoundsMissingInputRetry verifies delayed spend discovery has a
+// finite grace period before a genuine orphan becomes terminal.
+func TestSweeperBoundsMissingInputRetry(t *testing.T) {
+	t.Parallel()
+
+	// Arrange one concrete depth-three input and a mock.Mock input set that
+	// returns it for the provisional update and eventual fatal transition.
+	const startHeight = int32(100)
+	outpoint := wire.OutPoint{Index: 31}
+	inp := input.NewBaseInput(
+		&outpoint, input.CommitmentTimeLock, &input.SignDescriptor{}, 0,
+	)
+	set := &MockInputSet{}
+	set.On("Inputs").Return([]input.Input{inp}).Times(4)
+	s := New(&UtxoSweeperConfig{})
+	s.currentHeight = startHeight
+	s.inputs[outpoint] = &SweeperInput{
+		Input: inp,
+		state: Published,
+		params: Params{
+			RequiredConfs: 3,
+		},
+	}
+	response := &bumpResp{
+		result: &BumpResult{
+			Event:   TxFatal,
+			Err:     ErrInputMissing,
+			FeeRate: 1000,
+		},
+		set:           set,
+		deferTerminal: true,
+	}
+
+	// Act once at first detection, then simulate a retry after the complete
+	// depth window. The second fatal result cannot be a shallow discovery
+	// race and must fall through to normal terminal handling.
+	firstErr := s.handleBumpEventTxFatal(response)
+	firstState := s.inputs[outpoint].state
+	s.inputs[outpoint].state = Published
+	s.currentHeight = startHeight + 3
+	finalErr := s.handleBumpEventTxFatal(response)
+
+	// Assert the first result remained retryable, the same missing-input
+	// window later terminated the orphan, and every mock call was consumed.
+	require.NoError(t, firstErr)
+	require.Equal(t, PublishFailed, firstState)
+	require.NoError(t, finalErr)
+	require.Equal(t, Fatal, s.inputs[outpoint].state)
+	set.AssertExpectations(t)
+}
+
+// TestMonitorFeeBumpResultExitsOnFatal verifies a removed publisher record
+// cannot leave its per-attempt monitor blocked forever.
+func TestMonitorFeeBumpResultExitsOnFatal(t *testing.T) {
+	t.Parallel()
+
+	// Arrange a mock.Mock set and one buffered fatal publisher result.
+	// A nil transaction exercises the record-removal path without unrelated
+	// wallet rebroadcast expectations.
+	set := &MockInputSet{}
+	resultChan := make(chan *BumpResult, 1)
+	resultChan <- &BumpResult{
+		Event: TxFatal,
+		Err:   ErrInputMissing,
+	}
+	s := New(&UtxoSweeperConfig{})
+	done := make(chan struct{})
+
+	// Act by starting the real monitor and receiving the response it must
+	// forward to the serialized collector before terminating its goroutine.
+	s.wg.Add(1)
+	go func() {
+		s.monitorFeeBumpResult(set, resultChan, true)
+		close(done)
+	}()
+	response := <-s.bumpRespChan
+	select {
+	case <-done:
+		// Capture synchronous termination for the Assert phase below.
+
+	case <-time.After(time.Second):
+		require.Fail(t, "fatal publisher monitor did not exit")
+	}
+
+	// Assert the exact fatal result reached the collector and the monitor
+	// exited without waiting for a channel the publisher no longer owns.
+	require.Equal(t, TxFatal, response.result.Event)
+	require.ErrorIs(t, response.result.Err, ErrInputMissing)
+	set.AssertExpectations(t)
+}
+
+// TestSweeperReorgCollectorScoping verifies the collector requeues only the
+// published outpoint named by provisional reorg evidence.
+func TestSweeperReorgCollectorScoping(t *testing.T) {
+	t.Parallel()
+
+	// Arrange one mock.Mock-backed quarantined deep input, an untouched
+	// published sibling, and inputs whose non-published or terminal states
+	// must reject reorg transitions. The target's maturity methods are each
+	// required once when the collector queues it for retry after the event.
+	reorgedOutpoint := wire.OutPoint{Index: 12}
+	siblingOutpoint := wire.OutPoint{Index: 13}
+	pendingOutpoint := wire.OutPoint{Index: 14}
+	terminalOutpoint := wire.OutPoint{Index: 15}
+	reorgedInput := &input.MockInput{}
+	reorgedInput.On("RequiredLockTime").Return(uint32(0), false).Once()
+	reorgedInput.On("BlocksToMaturity").Return(uint32(0)).Once()
+	reorgedInput.On("HeightHint").Return(uint32(0)).Once()
+	s := New(&UtxoSweeperConfig{})
+	s.inputs[reorgedOutpoint] = &SweeperInput{
+		Input: reorgedInput,
+		state: Published,
+		params: Params{
+			RequiredConfs: 3,
+		},
+	}
+	s.inputs[siblingOutpoint] = &SweeperInput{state: Published}
+	s.inputs[pendingOutpoint] = &SweeperInput{state: PendingPublish}
+	s.inputs[terminalOutpoint] = &SweeperInput{state: Fatal}
+	// Running the collector directly avoids unrelated startup dependencies
+	// while preserving its serialized event-loop behavior.
+	s.wg.Add(1)
+	go s.collector()
+
+	// Act by delivering guarded-state events first and the published target
+	// last. Each unbuffered send serializes the preceding case; Stop then
+	// joins the collector after it queues the final target for retry.
+	s.spendReorgChan <- pendingOutpoint
+	s.spendReorgChan <- terminalOutpoint
+	s.spendReorgChan <- reorgedOutpoint
+	stopErr := s.Stop()
+
+	// Assert only the named Published input becomes retryable. The sibling,
+	// and pending input keep separate states. The terminal input
+	// follows normal collector cleanup rather than reopening.
+	require.NoError(t, stopErr)
+	require.Equal(t, PublishFailed, s.inputs[reorgedOutpoint].state)
+	require.Equal(t, Published, s.inputs[siblingOutpoint].state)
+	require.Equal(t, PendingPublish, s.inputs[pendingOutpoint].state)
+	require.NotContains(t, s.inputs, terminalOutpoint)
+	reorgedInput.AssertExpectations(t)
+}
+
+// TestSweeperRejectsInvalidSpendDepth verifies one malformed request cannot
+// reach and terminate the shared collector through notifier registration.
+func TestSweeperRejectsInvalidSpendDepth(t *testing.T) {
+	t.Parallel()
+
+	// Arrange one mock.Mock-backed input with the minimum structural
+	// fields needed by SweepInput and a depth just above the notifier's
+	// public limit. Each accessor is expected once because validation
+	// precedes admission.
+	op := wire.OutPoint{Index: 12}
+	inp := &input.MockInput{}
+	inp.On("OutPoint").Return(op).Once()
+	inp.On("SignDesc").Return(&input.SignDescriptor{}).Once()
+	s := New(&UtxoSweeperConfig{})
+
+	// Act by submitting the invalid policy through the public admission
+	// boundary without starting the collector; correct validation therefore
+	// returns synchronously instead of attempting channel delivery.
+	resultChan, err := s.SweepInput(inp, Params{
+		RequiredConfs: chainntnfs.MaxNumConfs + 1,
+	})
+
+	// Assert only this request failed with the stable notifier range
+	// sentinel, no result channel was admitted, and both exact mock calls
+	// were consumed.
+	require.ErrorIs(t, err, chainntnfs.ErrNumConfsOutOfRange)
+	require.Nil(t, resultChan)
+	inp.AssertExpectations(t)
 }
 
 // TestHandleBumpEventTxFailed checks that the sweeper correctly handles the
@@ -1054,7 +1518,7 @@ func TestMonitorFeeBumpResult(t *testing.T) {
 
 			s.wg.Add(1)
 			go func() {
-				s.monitorFeeBumpResult(set, resultChan)
+				s.monitorFeeBumpResult(set, resultChan, false)
 				close(done)
 			}()
 
@@ -1353,95 +1817,200 @@ func TestHandleBumpEventTxUnknownSpendNoRetry(t *testing.T) {
 	require.Equal(t, Swept, s.inputs[op].state)
 }
 
-// TestHandleBumpEventTxUnknownSpendWithRetry checks the case when some the
-// inputs are retried after the bad inputs are filtered out.
+// TestHandleBumpEventTxUnknownSpendWithRetry checks that mature evidence
+// quarantines a deep spent input while an unspent sibling retries immediately.
 func TestHandleBumpEventTxUnknownSpendWithRetry(t *testing.T) {
 	t.Parallel()
 
-	// Create a mock store.
-	store := &MockSweeperStore{}
-	defer store.AssertExpectations(t)
-
-	// Create a mock wallet and aggregator.
-	wallet := &MockWallet{}
-	defer wallet.AssertExpectations(t)
-
+	// Arrange mock.Mock inputs for one known-spent depth-three outpoint and
+	// one viable sibling. Exact call counts cover the initial batch update,
+	// per-input partition, and retry summary without loose expectations.
 	aggregator := &mockUtxoAggregator{}
-	defer aggregator.AssertExpectations(t)
-
-	publisher := &MockBumper{}
-	defer publisher.AssertExpectations(t)
-
-	// Create a test sweeper.
 	s := New(&UtxoSweeperConfig{
-		Wallet:     wallet,
 		Aggregator: aggregator,
-		Publisher:  publisher,
-		GenSweepScript: func() fn.Result[lnwallet.AddrWithKey] {
-			//nolint:ll
-			return fn.Ok(lnwallet.AddrWithKey{
-				DeliveryAddress: testPubKey.SerializeCompressed(),
-			})
-		},
-		NoDeadlineConfTarget: uint32(DefaultDeadlineDelta),
-		Store:                store,
 	})
-
-	// Create a mock input set.
 	set := &MockInputSet{}
-	defer set.AssertExpectations(t)
+	deepInput := &input.MockInput{}
+	siblingInput := &input.MockInput{}
+	deepOutpoint := wire.OutPoint{Index: 21}
+	siblingOutpoint := wire.OutPoint{Index: 22}
+	deepInput.On("OutPoint").Return(deepOutpoint).Twice()
+	deepInput.On("RequiredLockTime").Return(uint32(0), false).Once()
+	deepInput.On("BlocksToMaturity").Return(uint32(0)).Once()
+	deepInput.On("HeightHint").Return(uint32(0)).Once()
+	siblingInput.On("OutPoint").Return(siblingOutpoint).Times(3)
+	siblingInput.On("WitnessType").Return(
+		input.CommitmentTimeLock,
+	).Once()
+	siblingInput.On("RequiredLockTime").Return(uint32(0), false).Once()
+	siblingInput.On("BlocksToMaturity").Return(uint32(0)).Once()
+	siblingInput.On("HeightHint").Return(uint32(0)).Once()
+	set.On("Inputs").Return(
+		[]input.Input{deepInput, siblingInput},
+	).Times(3)
+	aggregator.On(
+		"ClusterInputs", mock.MatchedBy(func(inputs InputsMap) bool {
+			_, hasDeep := inputs[deepOutpoint]
+			_, hasSibling := inputs[siblingOutpoint]
 
-	// Create mock inputs - inp1 will be the bad input, and inp2 will be
-	// retried.
-	inp1 := createMockInput(t, s, PendingPublish)
-	inp2 := createMockInput(t, s, PendingPublish)
-	set.On("Inputs").Return([]input.Input{inp1, inp2})
-
-	op1 := inp1.OutPoint()
-	op2 := inp2.OutPoint()
-
-	inp2.On("RequiredLockTime").Return(
-		uint32(s.currentHeight), false).Once()
-	inp2.On("BlocksToMaturity").Return(uint32(0)).Once()
-	inp2.On("HeightHint").Return(uint32(s.currentHeight)).Once()
-
-	// Create a testing tx that spends inp1.
+			return len(inputs) == 2 && hasDeep && hasSibling
+		}),
+	).Return([]InputSet{}).Once()
+	s.inputs[deepOutpoint] = &SweeperInput{
+		Input: deepInput,
+		state: PublishFailed,
+		params: Params{
+			RequiredConfs: 3,
+		},
+	}
+	s.inputs[siblingOutpoint] = &SweeperInput{
+		Input: siblingInput,
+		state: Published,
+		params: Params{
+			RequiredConfs: DefaultRequiredConfs,
+		},
+	}
 	tx := &wire.MsgTx{
 		LockTime: 1,
 		TxIn: []*wire.TxIn{
-			{PreviousOutPoint: op1},
+			{PreviousOutPoint: deepOutpoint},
 		},
 	}
-	txid := tx.TxHash()
-
-	// Create a testing bump result.
-	br := &BumpResult{
-		Tx:    tx,
-		Event: TxUnknownSpend,
-		SpentInputs: map[wire.OutPoint]*wire.MsgTx{
-			op1: tx,
-		},
-	}
-
-	// Create a testing bump response.
 	resp := &bumpResp{
-		result: br,
-		set:    set,
+		result: &BumpResult{
+			Tx:    tx,
+			Event: TxUnknownSpend,
+			SpentInputs: map[wire.OutPoint]*wire.MsgTx{
+				deepOutpoint: tx,
+			},
+		},
+		set:           set,
+		deferTerminal: true,
 	}
 
-	// Mock the store to return true when calling IsOurTx.
-	store.On("IsOurTx", txid).Return(true).Once()
-
-	// Mock the aggregator to return an empty slice as we are not testing
-	// the actual sweeping behavior.
-	aggregator.On("ClusterInputs", mock.Anything).Return([]InputSet{})
-
-	// Call the method under test.
+	// Act after a shallow reorg has already requeued the deep input. The
+	// stale mixed result must not overwrite that newer lifecycle state.
 	s.handleBumpEventTxUnknownSpend(resp)
 
-	// Assert the first input is removed.
-	require.NotContains(t, s.inputs, op1)
+	// Assert the deep input remains retryable and the viable sibling also
+	// enters the immediate retry path without reviving stale quarantine.
+	require.Equal(t, PublishFailed, s.inputs[deepOutpoint].state)
+	require.Equal(t, PublishFailed, s.inputs[siblingOutpoint].state)
+	require.True(t, s.inputs[siblingOutpoint].params.Immediate)
+	deepInput.AssertExpectations(t)
+	siblingInput.AssertExpectations(t)
+	set.AssertExpectations(t)
+	aggregator.AssertExpectations(t)
+}
 
-	// Assert the state of the input is updated.
-	require.Equal(t, PublishFailed, s.inputs[op2].state)
+// TestUnknownSpendRetryErrorPartitionsInputs verifies a retry-policy failure
+// terminalizes only an unspent sibling while preserving depth-owned evidence.
+func TestUnknownSpendRetryErrorPartitionsInputs(t *testing.T) {
+	t.Parallel()
+
+	// Arrange: Place one depth-three spent input and one viable sibling
+	// in a mock.Mock input set. Exact Inputs cardinality covers the state
+	// update, retry allocation, and per-outpoint partition pass.
+	s := New(&UtxoSweeperConfig{})
+	set := &MockInputSet{}
+	deepInput := createTestInput(1000, input.WitnessKeyHash)
+	siblingInput := createTestInput(1000, input.WitnessKeyHash)
+	deepOutpoint := deepInput.OutPoint()
+	siblingOutpoint := siblingInput.OutPoint()
+	set.On("Inputs").Return([]input.Input{
+		&deepInput, &siblingInput,
+	}).Times(3)
+	s.inputs[deepOutpoint] = &SweeperInput{
+		Input: &deepInput,
+		state: Published,
+		params: Params{
+			RequiredConfs: 3,
+		},
+	}
+	s.inputs[siblingOutpoint] = &SweeperInput{
+		Input: &siblingInput,
+		state: Published,
+	}
+	spendingTx := &wire.MsgTx{TxIn: []*wire.TxIn{{
+		PreviousOutPoint: deepOutpoint,
+	}}}
+	resp := &bumpResp{
+		result: &BumpResult{
+			Event: TxUnknownSpend,
+			Err:   errDummy,
+			SpentInputs: map[wire.OutPoint]*wire.MsgTx{
+				deepOutpoint: spendingTx,
+			},
+		},
+		set: set,
+	}
+
+	// Act: Apply the mixed result whose retry fee calculation failed after
+	// the publisher had already observed the deep member's external spend.
+	s.handleBumpEventTxUnknownSpend(resp)
+
+	// Assert: The deep input remains published under its maturity monitor,
+	// while only the retryable sibling receives the fee error as a terminal
+	// result. The mock set is consumed with exact cardinality.
+	require.Equal(t, Published, s.inputs[deepOutpoint].state)
+	require.Equal(t, Fatal, s.inputs[siblingOutpoint].state)
+	set.AssertExpectations(t)
+}
+
+// TestUnknownSpendPreservesTerminalInputs verifies a delayed batch response
+// cannot move inputs backward after a newer observer terminalized them.
+func TestUnknownSpendPreservesTerminalInputs(t *testing.T) {
+	t.Parallel()
+
+	// Arrange: Store independently swept and fatal inputs behind a
+	// mock.Mock input set. Both have stale shallow-spend evidence, with
+	// exact input-set cardinality covering every handler traversal.
+	s := New(&UtxoSweeperConfig{})
+	set := &MockInputSet{}
+	sweptInput := createTestInput(1000, input.WitnessKeyHash)
+	fatalInput := createTestInput(1000, input.WitnessKeyHash)
+	sweptOutpoint := sweptInput.OutPoint()
+	fatalOutpoint := fatalInput.OutPoint()
+	set.On("Inputs").Return([]input.Input{
+		&sweptInput, &fatalInput,
+	}).Times(3)
+	s.inputs[sweptOutpoint] = &SweeperInput{
+		Input: &sweptInput,
+		state: Swept,
+		params: Params{
+			RequiredConfs: 3,
+		},
+	}
+	s.inputs[fatalOutpoint] = &SweeperInput{
+		Input: &fatalInput,
+		state: Fatal,
+		params: Params{
+			RequiredConfs: 3,
+		},
+	}
+	spendingTx := &wire.MsgTx{TxIn: []*wire.TxIn{{
+		PreviousOutPoint: sweptOutpoint,
+	}}}
+	resp := &bumpResp{
+		result: &BumpResult{
+			Event: TxUnknownSpend,
+			Err:   ErrUnknownSpent,
+			SpentInputs: map[wire.OutPoint]*wire.MsgTx{
+				sweptOutpoint: spendingTx,
+				fatalOutpoint: spendingTx,
+			},
+		},
+		set: set,
+	}
+
+	// Act: Deliver the stale mixed-batch response after both inputs reached
+	// terminal states through their authoritative lifecycle observers.
+	s.handleBumpEventTxUnknownSpend(resp)
+
+	// Assert: Neither terminal input regresses to Published, and the exact
+	// mock input-set traversals prove the response was processed instead
+	// of bypassed entirely.
+	require.Equal(t, Swept, s.inputs[sweptOutpoint].state)
+	require.Equal(t, Fatal, s.inputs[fatalOutpoint].state)
+	set.AssertExpectations(t)
 }

@@ -34,6 +34,7 @@ import (
 	"github.com/lightningnetwork/lnd/lnwire"
 	"github.com/lightningnetwork/lnd/shachain"
 	"github.com/lightningnetwork/lnd/tlv"
+	testifymock "github.com/stretchr/testify/mock"
 	"github.com/stretchr/testify/require"
 )
 
@@ -1775,6 +1776,10 @@ func testBreachSpends(t *testing.T, test breachTest) {
 // "split" the justice tx in case the first justice tx doesn't confirm within
 // a reasonable time.
 func TestBreachDelayedJusticeConfirmation(t *testing.T) {
+	// Arrange: Start a breached channel and give the publisher room for the
+	// one intermediate rebroadcast that can follow shallow HTLC evidence.
+	// This lets the queued terminal-depth event drive cleanup instead of
+	// blocking the arbiter on a publication the test no longer consumes.
 	brar, alice, _, bobClose, contractBreaches := initBreachedState(t)
 
 	var (
@@ -1782,7 +1787,7 @@ func TestBreachDelayedJusticeConfirmation(t *testing.T) {
 		blockHeight  = int32(10)
 		forceCloseTx = bobClose.CloseTx
 		chanPoint    = alice.ChannelPoint()
-		publTx       = make(chan *wire.MsgTx)
+		publTx       = make(chan *wire.MsgTx, 1)
 	)
 
 	// Make PublishTransaction always return succeed.
@@ -1795,7 +1800,9 @@ func TestBreachDelayedJusticeConfirmation(t *testing.T) {
 		return nil
 	}
 
-	// Notify the breach arbiter about the breach.
+	// Act: Hand the persisted breach to the arbiter, advance its block
+	// observer until it splits the stalled justice transaction, and deliver
+	// spend evidence for both split transactions below.
 	retribution, err := lnwallet.NewBreachRetribution(
 		alice.State(), height, uint32(blockHeight), forceCloseTx,
 		fn.Some[lnwallet.AuxLeafStore](&lnwallet.MockAuxLeafStore{}),
@@ -1972,7 +1979,8 @@ func TestBreachDelayedJusticeConfirmation(t *testing.T) {
 		notifier.Spend(op, blockHeight+6, splits[1])
 	}
 
-	// Assert that the channel is fully resolved.
+	// Assert: Wait for terminal-depth evidence to remove every recovery
+	// output and mark the breached channel fully resolved in both stores.
 	assertBrarCleanup(
 		t, brar, &chanPoint, testChannelStateDB(t, alice.State()),
 	)
@@ -2618,7 +2626,7 @@ func TestUpdateBreachInfoCountsFinalTaprootRevokedFunds(t *testing.T) {
 	}
 
 	// Act: Process a spend for that revoked output.
-	total, revoked := updateBreachInfo(breachInfo, []spend{{
+	total, revoked := updateBreachInfo(breachInfo, nil, []spend{{
 		index: 0,
 		detail: &chainntnfs.SpendDetail{
 			SpendingTx:        &wire.MsgTx{TxIn: []*wire.TxIn{{}}},
@@ -2631,4 +2639,164 @@ func TestUpdateBreachInfoCountsFinalTaprootRevokedFunds(t *testing.T) {
 	require.Equal(t, revokedAmt, total)
 	require.Equal(t, revokedAmt, revoked)
 	require.Empty(t, breachInfo.breachedOutputs)
+}
+
+// TestUpdateBreachInfoSpendDepth verifies terminal mutation depends on the
+// observer that supplied an otherwise identical justice spend.
+func TestUpdateBreachInfoSpendDepth(t *testing.T) {
+	t.Parallel()
+
+	// Arrange: Build independent recovery records for the same revoked
+	// output and one justice spend. Keeping the records separate exposes
+	// only the provisional marker as the behavior-changing input.
+	outpoint := wire.OutPoint{Hash: chainhash.Hash{1}, Index: 2}
+	newBreachInfo := func() *retributionInfo {
+		return &retributionInfo{breachedOutputs: []breachedOutput{{
+			amt:         1000,
+			outpoint:    outpoint,
+			witnessType: input.CommitmentRevoke,
+		}}}
+	}
+	spendDetail := &chainntnfs.SpendDetail{
+		SpendingTx:        &wire.MsgTx{TxIn: []*wire.TxIn{{}}},
+		SpenderInputIndex: 0,
+	}
+	shallowInfo := newBreachInfo()
+	terminalInfo := newBreachInfo()
+
+	// Act: Apply the same spend first as provisional evidence and then as
+	// terminal-depth evidence to the independent recovery records.
+	shallowTotal, shallowRevoked := updateBreachInfo(
+		shallowInfo, nil, []spend{{
+			index: 0, detail: spendDetail, provisional: true,
+		}},
+	)
+	terminalTotal, terminalRevoked := updateBreachInfo(
+		terminalInfo, nil,
+		[]spend{{index: 0, detail: spendDetail}},
+	)
+
+	// Assert: One-confirmation evidence retains recovery ownership and no
+	// accounting, while terminal evidence removes and accounts for the
+	// exact revoked output.
+	require.Zero(t, shallowTotal)
+	require.Zero(t, shallowRevoked)
+	require.Len(t, shallowInfo.breachedOutputs, 1)
+	require.Equal(t, outpoint, shallowInfo.breachedOutputs[0].outpoint)
+	require.Equal(t, btcutil.Amount(1000), terminalTotal)
+	require.Equal(t, btcutil.Amount(1000), terminalRevoked)
+	require.Empty(t, terminalInfo.breachedOutputs)
+}
+
+// TestBreachEarlyHTLCSpendDepth verifies a first-level HTLC transition can
+// redirect justice at one confirmation and return to its original target when
+// that shallow spend is reorged.
+func TestBreachEarlyHTLCSpendDepth(t *testing.T) {
+	t.Parallel()
+
+	// Arrange: Register terminal and one-confirmation observers. A
+	// two-element taproot witness makes the early spend a second-level
+	// transition instead of a justice-key spend.
+	const breachHeight = uint32(50)
+	outpoint := wire.OutPoint{Hash: chainhash.Hash{2}, Index: 3}
+	pkScript := append(
+		[]byte{txscript.OP_1, 0x20}, bytes.Repeat([]byte{3}, 32)...,
+	)
+	terminalEvent := chainntnfs.NewSpendEvent(func() {})
+	earlyEvent := chainntnfs.NewSpendEvent(func() {})
+	notifier := &chainntnfs.MockChainNotifier{}
+	notifier.On(
+		"RegisterSpendNtfn", &outpoint, pkScript, breachHeight,
+		testifymock.MatchedBy(func(opts []chainntnfs.SpendOption) bool {
+			// Parse the option here so the terminal policy remains
+			// visible in the Arrange phase.
+			parsed, err := chainntnfs.ParseSpendOptions(opts...)
+			return err == nil &&
+				parsed.NumConfs == breachSpendConfDepth()
+		}),
+	).Return(terminalEvent, nil).Once()
+	notifier.On(
+		"RegisterSpendNtfn", &outpoint, pkScript, breachHeight,
+		testifymock.MatchedBy(func(opts []chainntnfs.SpendOption) bool {
+			// Parse options to assert the urgent depth
+			// independently of terminal cleanup.
+			parsed, err := chainntnfs.ParseSpendOptions(opts...)
+			return err == nil && parsed.NumConfs == 1
+		}),
+	).Return(earlyEvent, nil).Once()
+	spendingTx := &wire.MsgTx{
+		TxIn: []*wire.TxIn{{
+			PreviousOutPoint: outpoint,
+			Witness:          wire.TxWitness{{1}, {2}},
+		}},
+		TxOut: []*wire.TxOut{{Value: 900, PkScript: pkScript}},
+	}
+	spendingHash := spendingTx.TxHash()
+	earlyEvent.Spend <- &chainntnfs.SpendDetail{
+		SpentOutPoint:     &outpoint,
+		SpenderTxHash:     &spendingHash,
+		SpendingTx:        spendingTx,
+		SpenderInputIndex: 0,
+	}
+	breachInfo := &retributionInfo{
+		breachHeight: breachHeight,
+		breachedOutputs: []breachedOutput{{
+			amt:         1000,
+			outpoint:    outpoint,
+			witnessType: input.TaprootHtlcOfferedRevoke,
+			signDesc: input.SignDescriptor{
+				Output: &wire.TxOut{
+					Value: 1000, PkScript: pkScript,
+				},
+			},
+			secondLevelWitnessScript: []byte{txscript.OP_TRUE},
+		}},
+	}
+	arbitrator := &BreachArbitrator{
+		cfg:  &BreachConfig{Notifier: notifier},
+		quit: make(chan struct{}),
+	}
+	subscriptions := make(
+		map[wire.OutPoint]*breachSpendSubscription,
+	)
+	provisionalOutputs := make(map[wire.OutPoint]breachedOutput)
+
+	// Act: Consume the ready one-confirmation event into the reversible
+	// overlay, then deliver its reorg through the same subscription and
+	// apply that lifecycle reversal before terminal depth.
+	spends, err := arbitrator.waitForSpendEvent(
+		breachInfo, subscriptions,
+	)
+	require.NoError(t, err)
+	require.Len(t, spends, 1)
+	updateBreachInfo(breachInfo, provisionalOutputs, spends)
+	shallowOutput := provisionalOutputs[outpoint]
+	earlyEvent.Reorg <- struct{}{}
+	reorgs, err := arbitrator.waitForSpendEvent(
+		breachInfo, subscriptions,
+	)
+	require.NoError(t, err)
+	require.Len(t, reorgs, 1)
+	updateBreachInfo(breachInfo, provisionalOutputs, reorgs)
+	subscriptions[outpoint].terminal.Cancel()
+	subscriptions[outpoint].early.Cancel()
+
+	// Assert: Shallow evidence produced a second-level candidate without
+	// mutating durable recovery, while the reorg removed that candidate and
+	// left the original first-level output ready for a new justice attempt.
+	require.True(t, spends[0].provisional)
+	require.False(t, spends[0].reorg)
+	require.Equal(t, spendingHash, shallowOutput.outpoint.Hash)
+	require.Equal(
+		t, input.TaprootHtlcSecondLevelRevoke,
+		shallowOutput.witnessType,
+	)
+	require.True(t, reorgs[0].provisional)
+	require.True(t, reorgs[0].reorg)
+	require.Empty(t, provisionalOutputs)
+	require.Len(t, breachInfo.breachedOutputs, 1)
+	require.Equal(t, outpoint, breachInfo.breachedOutputs[0].outpoint)
+	require.Equal(t, input.TaprootHtlcOfferedRevoke,
+		breachInfo.breachedOutputs[0].witnessType)
+	notifier.AssertExpectations(t)
 }

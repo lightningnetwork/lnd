@@ -98,18 +98,22 @@ func (c *commitSweepResolver) ResolverKey() []byte {
 	return key[:]
 }
 
-// waitForSpend waits for the given outpoint to be spent, and returns the
-// details of the spending tx.
+// waitForSpend waits for the given outpoint to reach spendConfDepth and returns
+// the canonical spending transaction. Every exit releases the notifier client
+// so resolver restarts do not accumulate stale registrations.
 func waitForSpend(op *wire.OutPoint, pkScript []byte, heightHint uint32,
-	notifier chainntnfs.ChainNotifier, quit <-chan struct{}) (
+	spendConfDepth uint32, notifier chainntnfs.ChainNotifier,
+	quit <-chan struct{}) (
 	*chainntnfs.SpendDetail, error) {
 
 	spendNtfn, err := notifier.RegisterSpendNtfn(
 		op, pkScript, heightHint,
+		chainntnfs.WithSpendNumConfs(spendConfDepth),
 	)
 	if err != nil {
 		return nil, err
 	}
+	defer spendNtfn.Cancel()
 
 	select {
 	case spendDetail, ok := <-spendNtfn.Spend:
@@ -407,7 +411,8 @@ func (c *commitSweepResolver) Launch() error {
 	// With our input constructed, we'll now offer it to the sweeper.
 	resultChan, err := c.Sweeper.SweepInput(
 		inp, sweep.Params{
-			Budget: budget,
+			RequiredConfs: c.SpendConfDepth,
+			Budget:        budget,
 
 			// Specify a nil deadline here as there's no time
 			// pressure.

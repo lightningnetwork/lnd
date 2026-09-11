@@ -88,7 +88,8 @@ type mockConfirmationEvent struct {
 
 // RegisterSpendNtfn creates a new mock spend event.
 func (m *mockChainNotifier) RegisterSpendNtfn(outpoint *wire.OutPoint,
-	pkScript []byte, heightHint uint32) (*chainntnfs.SpendEvent, error) {
+	pkScript []byte, heightHint uint32,
+	_ ...chainntnfs.SpendOption) (*chainntnfs.SpendEvent, error) {
 
 	// The base mock already has SpendChan, use that.
 	spendEvent := &chainntnfs.SpendEvent{
@@ -241,13 +242,24 @@ func newChainWatcherTestHarnessFromReporter(t *testing.T,
 		}
 	}
 
+	// Resolve the harness override against channel capacity exactly as the
+	// production constructor does, keeping every test watcher concrete.
+	spendConfDepth, err := resolveSpendConfDepth(
+		aliceChannel.State().Capacity, cfg.requiredConfs,
+	)
+	if err != nil {
+		// Invalid setup prevents a watcher launch, so later lifecycle
+		// assertions would be misleading.
+		reporter.Fatalf("unable to resolve spend depth: %v", err)
+	}
+
 	// Create chain watcher.
 	chainWatcher, err := newChainWatcher(chainWatcherConfig{
 		chanState:            aliceChannel.State(),
 		notifier:             notifier,
 		signer:               aliceChannel.Signer,
 		extractStateNumHint:  lnwallet.GetStateNumHint,
-		chanCloseConfs:       cfg.requiredConfs,
+		spendConfDepth:       spendConfDepth,
 		notifyEarlyCoopClose: notifyEarlyCoopClose,
 		contractBreach: func(
 			retInfo *lnwallet.BreachRetribution,

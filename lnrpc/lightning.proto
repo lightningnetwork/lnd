@@ -794,8 +794,7 @@ message Transaction {
 
 message GetTransactionsRequest {
     /*
-    The height from which to list transactions, inclusive. If this value is
-    greater than end_height, transactions will be read in reverse.
+    The height from which to list transactions, inclusive.
     */
     int32 start_height = 1;
 
@@ -822,6 +821,20 @@ message GetTransactionsRequest {
     This value should be set to 0 to return all transactions.
     */
     uint32 max_transactions = 5;
+
+    /*
+    If set, the returned transactions are ordered oldest to newest, with
+    unconfirmed transactions last, instead of the default newest to oldest
+    (unconfirmed first). This only reorders the returned page; it does not
+    change which transactions are returned. index_offset and max_transactions
+    still select the same page, and the order of start_height and end_height
+    does not affect it.
+
+    Note this is not the same as the reversed field on ListPayments and
+    ListInvoices, which paginates backwards from index_offset and leaves the
+    returned order unchanged; reverse controls output order only.
+    */
+    bool reverse = 6;
 }
 
 message TransactionDetails {

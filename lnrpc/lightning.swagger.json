@@ -2665,7 +2665,7 @@
         "parameters": [
           {
             "name": "start_height",
-            "description": "The height from which to list transactions, inclusive. If this value is\ngreater than end_height, transactions will be read in reverse.",
+            "description": "The height from which to list transactions, inclusive.",
             "in": "query",
             "required": false,
             "type": "integer",
@@ -2701,6 +2701,13 @@
             "required": false,
             "type": "integer",
             "format": "int64"
+          },
+          {
+            "name": "reverse",
+            "description": "If set, the returned transactions are ordered oldest to newest, with\nunconfirmed transactions last, instead of the default newest to oldest\n(unconfirmed first). This only reorders the returned page; it does not\nchange which transactions are returned. index_offset and max_transactions\nstill select the same page, and the order of start_height and end_height\ndoes not affect it.\n\nNote this is not the same as the reversed field on ListPayments and\nListInvoices, which paginates backwards from index_offset and leaves the\nreturned order unchanged; reverse controls output order only.",
+            "in": "query",
+            "required": false,
+            "type": "boolean"
           }
         ],
         "tags": [
@@ -2871,7 +2878,7 @@
         "parameters": [
           {
             "name": "start_height",
-            "description": "The height from which to list transactions, inclusive. If this value is\ngreater than end_height, transactions will be read in reverse.",
+            "description": "The height from which to list transactions, inclusive.",
             "in": "query",
             "required": false,
             "type": "integer",
@@ -2907,6 +2914,13 @@
             "required": false,
             "type": "integer",
             "format": "int64"
+          },
+          {
+            "name": "reverse",
+            "description": "If set, the returned transactions are ordered oldest to newest, with\nunconfirmed transactions last, instead of the default newest to oldest\n(unconfirmed first). This only reorders the returned page; it does not\nchange which transactions are returned. index_offset and max_transactions\nstill select the same page, and the order of start_height and end_height\ndoes not affect it.\n\nNote this is not the same as the reversed field on ListPayments and\nListInvoices, which paginates backwards from index_offset and leaves the\nreturned order unchanged; reverse controls output order only.",
+            "in": "query",
+            "required": false,
+            "type": "boolean"
           }
         ],
         "tags": [

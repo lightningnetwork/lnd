@@ -2287,6 +2287,14 @@ var listChainTxnsCommand = cli.Command{
 				"all transactions",
 			Value: 0,
 		},
+		cli.BoolFlag{
+			Name: "reverse",
+			Usage: "order the returned transactions oldest to " +
+				"newest, with unconfirmed last, instead of " +
+				"the default newest to oldest; this only " +
+				"reorders the returned page, it does not " +
+				"change which transactions are returned",
+		},
 	},
 	Description: `
 	List all transactions an address of the wallet was involved in.
@@ -2337,6 +2345,7 @@ func listChainTxns(ctx *cli.Context) error {
 		MaxTransactions: uint32(ctx.Uint64("max_transactions")),
 		StartHeight:     startHeight,
 		EndHeight:       endHeight,
+		Reverse:         ctx.Bool("reverse"),
 	}
 
 	resp, err := client.GetTransactions(ctxc, req)

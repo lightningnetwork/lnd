@@ -449,12 +449,11 @@ type WalletController interface {
 		accountFilter string) ([]*Utxo, error)
 
 	// ListTransactionDetails returns a list of all transactions which are
-	// relevant to the wallet over [startHeight;endHeight]. If start height
-	// is greater than end height, the transactions will be retrieved in
-	// reverse order. To include unconfirmed transactions, endHeight should
-	// be set to the special value -1. This will return transactions from
-	// the tip of the chain until the start height (inclusive) and
-	// unconfirmed transactions. The account parameter serves as a filter to
+	// relevant to the wallet over [startHeight;endHeight]. To include
+	// unconfirmed transactions, endHeight should be set to the special
+	// value -1. This will return transactions from the tip of the chain
+	// until the start height (inclusive) and unconfirmed transactions. The
+	// account parameter serves as a filter to
 	// retrieve the transactions relevant to a specific account. When
 	// empty, transactions of all wallet accounts are returned.
 	ListTransactionDetails(startHeight, endHeight int32,

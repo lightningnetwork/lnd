@@ -22,6 +22,12 @@
 
 # Bug Fixes
 
+* The `XCreateAccount` recovery procedure now [records and
+  replays](https://github.com/lightningnetwork/lnd/issues/11087) the external
+  and internal address branches separately. `NextAddr` defaults to the external
+  branch, so following the previous procedure after a `FundPsbt` spend could
+  leave change outputs invisible after restore.
+
 * Bitcoind outbound peer health checks [now use](https://github.com/lightningnetwork/lnd/pull/10686)
   `getnetworkinfo.connections_out` instead of `getpeerinfo`. The same PR also
   [clarifies](https://github.com/lightningnetwork/lnd/issues/10568) the ZMQ

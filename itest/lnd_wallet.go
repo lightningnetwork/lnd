@@ -21,6 +21,10 @@ var walletTestCases = []*lntest.TestCase{
 		TestFunc: testXCreateAccountRejections,
 	},
 	{
+		Name:     "xcreate account branch recovery",
+		TestFunc: testXCreateAccountBranchRecovery,
+	},
+	{
 		Name: "listunspent P2WPKH",
 		TestFunc: func(ht *lntest.HarnessTest) {
 			runTestListUnspent(ht, ht.FundCoins)

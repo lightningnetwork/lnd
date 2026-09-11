@@ -14,6 +14,11 @@ const (
 	// createAccountName is the account these tests create and spend from.
 	createAccountName = "custom"
 
+	// precedingAccountName is created first so the account under test is
+	// not the first custom account in its key scope. Recovery has to
+	// recreate accounts in the original order.
+	precedingAccountName = "preceding"
+
 	// defaultCreateAccountFeeRate is the sat/vB rate the miner uses when
 	// funding the account under test.
 	defaultCreateAccountFeeRate = btcutil.Amount(10)
@@ -187,4 +192,251 @@ func testXCreateAccountRejections(ht *lntest.HarnessTest) {
 		},
 	)
 	require.ErrorContains(ht, err, "cannot be created")
+}
+
+// testXCreateAccountBranchRecovery asserts the manual recovery procedure for
+// a wallet-derived account: both address branches must be replayed, because
+// NextAddr defaults to the external branch and FundPsbt change lives on the
+// internal one. It first proves the documented failure — replaying only the
+// external branch leaves the internal change output unknown after a rescan —
+// and then proves that replaying the internal branch recovers it.
+func testXCreateAccountBranchRecovery(ht *lntest.HarnessTest) {
+	password := []byte("The Magic Words are Squeamish Ossifrage")
+	alice, mnemonic, _ := ht.NewNodeWithSeed(
+		"Alice", nil, password, false,
+	)
+
+	// A preceding account so the target is not index 1 of the BIP-0086
+	// scope. Recovery has to recreate every account in that scope in
+	// order for the index counter to land on the same value.
+	alice.RPC.XCreateAccount(&walletrpc.XCreateAccountRequest{
+		Name:        precedingAccountName,
+		AddressType: walletrpc.AddressType_TAPROOT_PUBKEY,
+	})
+
+	account := alice.RPC.XCreateAccount(&walletrpc.XCreateAccountRequest{
+		Name:        createAccountName,
+		AddressType: walletrpc.AddressType_TAPROOT_PUBKEY,
+	}).GetAccount()
+
+	// Fund an external address belonging to the target account.
+	extAddr := alice.RPC.NewAddress(&lnrpc.NewAddressRequest{
+		Type:    lnrpc.AddressType_TAPROOT_PUBKEY,
+		Account: createAccountName,
+	}).GetAddress()
+
+	const (
+		fundAmt = btcutil.Amount(500_000)
+		destAmt = fundAmt / 2
+	)
+	ht.SendOutputsWithoutChange(
+		[]*wire.TxOut{{
+			Value:    int64(fundAmt),
+			PkScript: ht.PayToAddrScript(ht.DecodeAddress(extAddr)),
+		}}, defaultCreateAccountFeeRate,
+	)
+	ht.MineBlocksAndAssertNumTxes(1, 1)
+
+	// Spend with FundPsbt so leftover value sits on an internal change
+	// address, while the destination stays on the external branch.
+	dest := alice.RPC.NewAddress(&lnrpc.NewAddressRequest{
+		Type:    lnrpc.AddressType_TAPROOT_PUBKEY,
+		Account: createAccountName,
+	}).GetAddress()
+
+	funded := alice.RPC.FundPsbt(&walletrpc.FundPsbtRequest{
+		Template: &walletrpc.FundPsbtRequest_Raw{
+			Raw: &walletrpc.TxTemplate{
+				Outputs: map[string]uint64{
+					dest: uint64(destAmt),
+				},
+			},
+		},
+		Fees: &walletrpc.FundPsbtRequest_SatPerVbyte{
+			SatPerVbyte: 5,
+		},
+		Account: createAccountName,
+	})
+
+	finalized := alice.RPC.FinalizePsbt(&walletrpc.FinalizePsbtRequest{
+		FundedPsbt: funded.GetFundedPsbt(),
+		Account:    createAccountName,
+	})
+	alice.RPC.PublishTransaction(&walletrpc.Transaction{
+		TxHex: finalized.GetRawFinalTx(),
+	})
+	ht.MineBlocksAndAssertNumTxes(1, 1)
+
+	listed := alice.RPC.ListAccounts(&walletrpc.ListAccountsRequest{
+		Name:        createAccountName,
+		AddressType: walletrpc.AddressType_TAPROOT_PUBKEY,
+	}).GetAccounts()
+	require.Len(ht, listed, 1)
+
+	// Both counters must have moved. If the internal count is still
+	// zero, FundPsbt did not produce a change output and this test
+	// would not catch the recovery bug.
+	extCount := listed[0].GetExternalKeyCount()
+	intCount := listed[0].GetInternalKeyCount()
+	require.Greater(ht, extCount, uint32(0),
+		"external branch should have issued addresses")
+	require.Greater(ht, intCount, uint32(0),
+		"internal branch should have issued a change address")
+
+	after := alice.RPC.WalletBalance().GetAccountBalance()
+	wantBal := after[createAccountName].GetConfirmedBalance()
+	require.Greater(ht, wantBal, int64(destAmt),
+		"change should have stayed in the account")
+
+	xpub := account.GetExtendedPublicKey()
+	path := account.GetDerivationPath()
+
+	// Restore the seed into a fresh wallet. RecoveryWindow is 0
+	// because a non-zero window would not help here: the recovery
+	// scan only rederives the default account, and the custom
+	// account does not exist until we recreate it below.
+	restored := ht.RestoreNodeWithSeed(
+		"AliceRestore", nil, password, mnemonic, "", 0, nil,
+	)
+
+	restored.RPC.XCreateAccount(&walletrpc.XCreateAccountRequest{
+		Name:        precedingAccountName,
+		AddressType: walletrpc.AddressType_TAPROOT_PUBKEY,
+	})
+	restoredAcct := restored.RPC.XCreateAccount(
+		&walletrpc.XCreateAccountRequest{
+			Name:        createAccountName,
+			AddressType: walletrpc.AddressType_TAPROOT_PUBKEY,
+		},
+	).GetAccount()
+
+	require.Equal(ht, xpub, restoredAcct.GetExtendedPublicKey())
+	require.Equal(ht, path, restoredAcct.GetDerivationPath())
+
+	// Replay only the external branch first. NextAddr defaults to
+	// change=false, so this is the procedure an operator following
+	// the old single-count instruction would run.
+	for i := uint32(0); i < extCount; i++ {
+		restored.RPC.NextAddr(&walletrpc.AddrRequest{
+			Account: createAccountName,
+			Type:    walletrpc.AddressType_TAPROOT_PUBKEY,
+			Change:  false,
+		})
+	}
+
+	// A rescan only searches for addresses already in the wallet DB.
+	ht.RestartNodeWithExtraArgs(
+		restored, []string{"--reset-wallet-transactions"},
+	)
+
+	// RestoreNodeWithSeed leaves SkipUnlock set, so RestartNode does
+	// not wait for SyncedToChain. That flag includes wallet.IsSynced():
+	// after --reset-wallet-transactions the wallet height is the
+	// birthday until the rescan reaches tip. Wait here so destAmt
+	// and sawInt are checked against a finished rescan, not a
+	// dest-only intermediate.
+	ht.WaitForBlockchainSync(restored)
+
+	// External funds should be visible; the internal change output
+	// should not. If this assertion fails, the rescan found the
+	// change without a change=true NextAddr replay, and the
+	// documented recovery procedure is wrong.
+	ht.AssertWalletAccountBalance(
+		restored, createAccountName, int64(destAmt), 0,
+	)
+	sawExt, sawInt := accountBranchFunds(
+		restored.RPC.ListAddresses(&walletrpc.ListAddressesRequest{
+			AccountName: createAccountName,
+		}),
+	)
+	require.True(ht, sawExt, "external branch funds should be recovered")
+	require.False(ht, sawInt, "internal change should still be unknown")
+
+	// Now replay the internal branch and rescan again.
+	for i := uint32(0); i < intCount; i++ {
+		restored.RPC.NextAddr(&walletrpc.AddrRequest{
+			Account: createAccountName,
+			Type:    walletrpc.AddressType_TAPROOT_PUBKEY,
+			Change:  true,
+		})
+	}
+
+	ht.RestartNodeWithExtraArgs(
+		restored, []string{"--reset-wallet-transactions"},
+	)
+	ht.WaitForBlockchainSync(restored)
+
+	ht.AssertWalletAccountBalance(restored, createAccountName, wantBal, 0)
+
+	sawExt, sawInt = accountBranchFunds(
+		restored.RPC.ListAddresses(&walletrpc.ListAddressesRequest{
+			AccountName: createAccountName,
+		}),
+	)
+	require.True(ht, sawExt, "external branch funds should be recovered")
+	require.True(ht, sawInt, "internal branch funds should be recovered")
+
+	// The reconstructed account must also be spendable.
+	spendDest := restored.RPC.NewAddress(&lnrpc.NewAddressRequest{
+		Type:    lnrpc.AddressType_TAPROOT_PUBKEY,
+		Account: createAccountName,
+	}).GetAddress()
+	spendAmt := uint64(wantBal / 4)
+	require.Greater(ht, spendAmt, uint64(0))
+
+	fundedAgain := restored.RPC.FundPsbt(&walletrpc.FundPsbtRequest{
+		Template: &walletrpc.FundPsbtRequest_Raw{
+			Raw: &walletrpc.TxTemplate{
+				Outputs: map[string]uint64{
+					spendDest: spendAmt,
+				},
+			},
+		},
+		Fees: &walletrpc.FundPsbtRequest_SatPerVbyte{
+			SatPerVbyte: 5,
+		},
+		Account: createAccountName,
+	})
+	finalAgain := restored.RPC.FinalizePsbt(&walletrpc.FinalizePsbtRequest{
+		FundedPsbt: fundedAgain.GetFundedPsbt(),
+		Account:    createAccountName,
+	})
+	require.NotEmpty(ht, finalAgain.GetRawFinalTx(),
+		"restored account must be able to sign")
+
+	restored.RPC.PublishTransaction(&walletrpc.Transaction{
+		TxHex: finalAgain.GetRawFinalTx(),
+	})
+	ht.MineBlocksAndAssertNumTxes(1, 1)
+
+	afterSpend := restored.RPC.WalletBalance().GetAccountBalance()
+	got := afterSpend[createAccountName].GetConfirmedBalance()
+	require.Less(ht, got, wantBal, "the spend should have paid a fee")
+	require.Greater(ht, got, wantBal-int64(maxCreateAccountSpendFee),
+		"the account should still hold its funds minus fees")
+}
+
+// accountBranchFunds reports whether the named account currently holds a
+// non-zero confirmed balance on the external and internal address
+// branches. Addresses the wallet has not issued yet do not appear, so a
+// missing internal branch after an external-only NextAddr replay is the
+// recovery failure this test documents.
+func accountBranchFunds(
+	resp *walletrpc.ListAddressesResponse,
+) (sawExt, sawInt bool) {
+
+	for _, acct := range resp.GetAccountWithAddresses() {
+		for _, addr := range acct.GetAddresses() {
+			if addr.GetBalance() == 0 {
+				continue
+			}
+			if addr.GetIsInternal() {
+				sawInt = true
+			} else {
+				sawExt = true
+			}
+		}
+	}
+
+	return
 }

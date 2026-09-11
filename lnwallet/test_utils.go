@@ -606,14 +606,67 @@ func NewDefaultAuxSignerMock(t *testing.T) *MockAuxSigner {
 		"SubmitSecondLevelSigBatch", mock.Anything, mock.Anything,
 		mock.Anything,
 	).Return(nil)
-	auxSigner.On(
-		"PackSigs", mock.Anything,
-	).Return(fn.Ok(fn.Some(sigBlobBuf.Bytes())))
-	auxSigner.On(
-		"UnpackSigs", mock.Anything,
-	).Return(fn.Ok([]fn.Option[tlv.Blob]{
-		fn.Some(sigBlobBuf.Bytes()),
-	}))
+	// A real aux signer emits exactly one slot per HTLC and recovers the
+	// same number of slots when unpacking. Code that pairs the unpacked
+	// slots with HTLCs by index relies on that, so the default mock has to
+	// honour it rather than always reporting a single slot regardless of
+	// how many HTLCs there are.
+	//
+	// The packed blob has to stay a canonical TLV stream, since it is
+	// parsed into custom records on the way out, so the slot count is
+	// carried in the dummy record's value rather than by repeating it.
+	packSlotCount := func(numSlots uint16) fn.Result[fn.Option[tlv.Blob]] {
+		rec := tlv.NewPrimitiveRecord[tlv.TlvType65634](numSlots)
+		stream, err := tlv.NewStream(rec.Record())
+		if err != nil {
+			return fn.Err[fn.Option[tlv.Blob]](err)
+		}
+
+		var buf bytes.Buffer
+		if err := stream.Encode(&buf); err != nil {
+			return fn.Err[fn.Option[tlv.Blob]](err)
+		}
+
+		return fn.Ok(fn.Some(buf.Bytes()))
+	}
+
+	auxSigner.On("PackSigs", mock.Anything).Return(
+		PackSigsFunc(func(
+			sigs []fn.Option[tlv.Blob],
+		) fn.Result[fn.Option[tlv.Blob]] {
+
+			return packSlotCount(uint16(len(sigs)))
+		}),
+	)
+	auxSigner.On("UnpackSigs", mock.Anything).Return(
+		UnpackSigsFunc(func(
+			packed fn.Option[tlv.Blob],
+		) fn.Result[[]fn.Option[tlv.Blob]] {
+
+			blob := packed.UnwrapOr(nil)
+			if len(blob) == 0 {
+				return fn.Ok[[]fn.Option[tlv.Blob]](nil)
+			}
+
+			rec := tlv.ZeroRecordT[tlv.TlvType65634, uint16]()
+			stream, err := tlv.NewStream(rec.Record())
+			if err != nil {
+				return fn.Err[[]fn.Option[tlv.Blob]](err)
+			}
+			if err := stream.Decode(
+				bytes.NewReader(blob),
+			); err != nil {
+				return fn.Err[[]fn.Option[tlv.Blob]](err)
+			}
+
+			slots := make([]fn.Option[tlv.Blob], rec.Val)
+			for idx := range slots {
+				slots[idx] = fn.Some(sigBlobBuf.Bytes())
+			}
+
+			return fn.Ok(slots)
+		}),
+	)
 	auxSigner.On(
 		"VerifySecondLevelSigs", mock.Anything, mock.Anything,
 		mock.Anything,

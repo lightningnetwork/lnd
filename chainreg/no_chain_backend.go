@@ -44,6 +44,7 @@ var (
 // NoChainBackend is a mock implementation of the following interfaces:
 //   - chainview.FilteredChainView
 //   - chainntnfs.ChainNotifier
+//   - chainntnfs.PkScriptNotifier
 //   - chainfee.Estimator
 type NoChainBackend struct {
 }
@@ -67,6 +68,14 @@ func (n *NoChainBackend) RegisterConfirmationsNtfn(*chainhash.Hash, []byte,
 
 func (n *NoChainBackend) RegisterSpendNtfn(*wire.OutPoint, []byte,
 	uint32) (*chainntnfs.SpendEvent, error) {
+
+	return nil, errNotImplemented
+}
+
+// RegisterPkScriptNotifier returns an error because the no-chain backend cannot
+// deliver pkScript notifications.
+func (n *NoChainBackend) RegisterPkScriptNotifier() (
+	*chainntnfs.PkScriptNotificationRegistration, error) {
 
 	return nil, errNotImplemented
 }
@@ -115,6 +124,7 @@ func (n *NoChainBackend) Stop() error {
 
 var _ chainview.FilteredChainView = (*NoChainBackend)(nil)
 var _ chainntnfs.ChainNotifier = (*NoChainBackend)(nil)
+var _ chainntnfs.PkScriptNotifier = (*NoChainBackend)(nil)
 var _ chainfee.Estimator = (*NoChainBackend)(nil)
 
 // NoChainSource is a mock implementation of chain.Interface.

@@ -3,6 +3,7 @@ package bolt12
 import (
 	"bytes"
 	"fmt"
+	"time"
 
 	"github.com/btcsuite/btcd/btcec/v2"
 	"github.com/lightningnetwork/lnd/lnwire"
@@ -164,4 +165,45 @@ func decodeOffer(data []byte) (*Offer, error) {
 	o.decodedTLVs = tm
 
 	return &o, nil
+}
+
+// DecodeOfferString decodes a BOLT 12 offer from its bech32 string
+// representation (lno1...). The spec reader gates (chain, expiry, features) are
+// folded in via ValidateOfferRead.
+func DecodeOfferString(s string, now time.Time,
+	activeChain [32]byte) (*Offer, error) {
+
+	hrp, tlvBytes, err := Decode(s)
+	if err != nil {
+		return nil, fmt.Errorf("bech32: %w", err)
+	}
+
+	if hrp != HRPOffer {
+		return nil, fmt.Errorf("expected HRP %q, got %q",
+			HRPOffer, hrp)
+	}
+
+	offer, err := decodeOffer(tlvBytes)
+	if err != nil {
+		return nil, err
+	}
+
+	if err := ValidateOfferRead(
+		offer, now, activeChain, Bolt12Features,
+	); err != nil {
+		return nil, fmt.Errorf("validate: %w", err)
+	}
+
+	return offer, nil
+}
+
+// EncodeOfferString encodes an offer to its bech32 string representation
+// (lno1...). Writer-side validation is delegated to (*Offer).Encode.
+func EncodeOfferString(o *Offer) (string, error) {
+	tlvBytes, err := o.Encode()
+	if err != nil {
+		return "", err
+	}
+
+	return Encode(HRPOffer, tlvBytes)
 }

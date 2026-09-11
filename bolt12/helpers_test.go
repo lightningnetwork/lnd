@@ -110,13 +110,29 @@ var loadOffersVectorsOnce = sync.OnceValues(
 
 // loadOffersVectors returns the parsed offers-test.json vectors, failing the
 // test if the file is unreadable or malformed.
-func loadOffersVectors(t *testing.T) []offersTestVector {
+func loadOffersVectors(t testing.TB) []offersTestVector {
 	t.Helper()
 
 	vectors, err := loadOffersVectorsOnce()
 	require.NoError(t, err)
 
 	return vectors
+}
+
+// findTestVector returns the offers-test.json vector matching desc, failing
+// the test if no match is found.
+func findTestVector(t *testing.T, desc string) offersTestVector {
+	t.Helper()
+
+	for _, v := range loadOffersVectors(t) {
+		if v.Description == desc {
+			return v
+		}
+	}
+
+	t.Fatalf("test vector not found: %s", desc)
+
+	return offersTestVector{}
 }
 
 // streamToRecords parses an arbitrary TLV byte stream into tlv.Record values
@@ -222,7 +238,7 @@ var loadSignatureVectorsOnce = sync.OnceValues(
 
 // loadSignatureVectors returns the parsed sigTestVector slice, failing the
 // test if signature-test.json is unreadable or malformed.
-func loadSignatureVectors(t *testing.T) []sigTestVector {
+func loadSignatureVectors(t testing.TB) []sigTestVector {
 	t.Helper()
 
 	vectors, err := loadSignatureVectorsOnce()

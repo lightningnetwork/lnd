@@ -401,6 +401,17 @@ func (r *RPCKeyRing) DeriveKey(
 	return r.watchOnlyKeyRing.DeriveKey(keyLoc)
 }
 
+// DeriveAndStoreKey attempts to derive an arbitrary key specified by the passed
+// KeyLocator, and also records that key in the watch-only wallet. Since only
+// public derivation is involved, this does not require the remote signer.
+//
+// NOTE: This method is part of the keychain.KeyRing interface.
+func (r *RPCKeyRing) DeriveAndStoreKey(
+	keyLoc keychain.KeyLocator) (keychain.KeyDescriptor, error) {
+
+	return r.watchOnlyKeyRing.DeriveAndStoreKey(keyLoc)
+}
+
 // ECDH performs a scalar multiplication (ECDH-like operation) between the
 // target key descriptor and remote public key. The output returned will be the
 // sha256 of the resulting shared point serialized in compressed format. If k is

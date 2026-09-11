@@ -374,6 +374,7 @@
     "/v2/wallet/key": {
       "post": {
         "summary": "DeriveKey attempts to derive an arbitrary key specified by the passed\nKeyLocator.",
+        "description": "NOTE: The derived key is not recorded in the wallet, so it will not show up\nin ListAccounts or ListAddresses, and the wallet will not be able to map the\nreturned public key back to its KeyLocator later on. Since that mapping is\nrequired to sign with a key, callers that intend to sign with the derived\nkey must use DeriveAndStoreKey instead.",
         "operationId": "WalletKit_DeriveKey",
         "responses": {
           "200": {
@@ -463,6 +464,40 @@
             "required": true,
             "schema": {
               "$ref": "#/definitions/walletrpcKeyReq"
+            }
+          }
+        ],
+        "tags": [
+          "WalletKit"
+        ]
+      }
+    },
+    "/v2/wallet/key/store": {
+      "post": {
+        "summary": "DeriveAndStoreKey attempts to derive an arbitrary key specified by the\npassed KeyLocator, and also records that key in the wallet. This is the\nvariant of DeriveKey that must be used for a key the wallet is later\nexpected to sign with, since signing requires the wallet to be able to look\nthe key's KeyLocator back up.",
+        "description": "Recording a key implies recording every key in the family that precedes it,\nso on return the family's next index (as reported by the external key count\nin ListAccounts) is guaranteed to be above the requested one, and any key at\nor below it will not be handed out by DeriveNextKey again. This makes the\ncall usable to restore a key family's derivation index after the wallet was\nrecovered from seed, where the wallet has no record of the indexes an\nexternal consumer of the key family already used.\n\nThe call is monotonic and idempotent: an index the family has already\nadvanced past leaves the wallet untouched, and the family's index is never\nrewound. To bound the amount of work a single call can trigger, an error is\nreturned if reaching the requested index would require deriving more than\n25,000 keys. Key families that lnd itself derives from are reserved and\ncannot be advanced through this RPC.\n\nNOTE: Keys in custom key families are not covered by lnd's on-chain\nrecovery scan guarantees. A consumer that uses them to control on-chain\noutputs is expected to keep its own record of the indexes it consumed\n(which this RPC exists to restore), since a large unused index gap within\na family can prevent a seed-only recovery from finding later keys.",
+        "operationId": "WalletKit_DeriveAndStoreKey",
+        "responses": {
+          "200": {
+            "description": "A successful response.",
+            "schema": {
+              "$ref": "#/definitions/signrpcKeyDescriptor"
+            }
+          },
+          "default": {
+            "description": "An unexpected error response.",
+            "schema": {
+              "$ref": "#/definitions/rpcStatus"
+            }
+          }
+        },
+        "parameters": [
+          {
+            "name": "body",
+            "in": "body",
+            "required": true,
+            "schema": {
+              "$ref": "#/definitions/signrpcKeyLocator"
             }
           }
         ],

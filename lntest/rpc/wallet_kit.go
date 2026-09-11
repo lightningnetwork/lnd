@@ -42,6 +42,31 @@ func (h *HarnessRPC) DeriveKey(kl *signrpc.KeyLocator) *signrpc.KeyDescriptor {
 	return key
 }
 
+// DeriveAndStoreKey makes a RPC call to the node's WalletKitClient and asserts.
+func (h *HarnessRPC) DeriveAndStoreKey(
+	kl *signrpc.KeyLocator) *signrpc.KeyDescriptor {
+
+	ctxt, cancel := context.WithTimeout(h.runCtx, DefaultTimeout)
+	defer cancel()
+
+	key, err := h.WalletKit.DeriveAndStoreKey(ctxt, kl)
+	h.NoError(err, "DeriveAndStoreKey")
+
+	return key
+}
+
+// DeriveAndStoreKeyErr makes a RPC call to the node's WalletKitClient and
+// asserts that an error is returned.
+func (h *HarnessRPC) DeriveAndStoreKeyErr(kl *signrpc.KeyLocator) error {
+	ctxt, cancel := context.WithTimeout(h.runCtx, DefaultTimeout)
+	defer cancel()
+
+	_, err := h.WalletKit.DeriveAndStoreKey(ctxt, kl)
+	require.Error(h, err)
+
+	return err
+}
+
 // SendOutputs makes a RPC call to the node's WalletKitClient and asserts.
 func (h *HarnessRPC) SendOutputs(
 	req *walletrpc.SendOutputsRequest) *walletrpc.SendOutputsResponse {

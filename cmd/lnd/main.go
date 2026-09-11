@@ -41,4 +41,13 @@ func main() {
 		_, _ = fmt.Fprintln(os.Stderr, err)
 		os.Exit(1)
 	}
+
+	// If the shutdown was requested programmatically (e.g. a health check
+	// detected that the chain backend is unavailable) rather than via an
+	// OS signal, exit with a non-zero status code. This allows process
+	// managers such as systemd with Restart=on-failure to automatically
+	// restart lnd rather than treating the exit as intentional.
+	if shutdownInterceptor.RequestedShutdown() {
+		os.Exit(1)
+	}
 }

@@ -766,11 +766,33 @@ func TestTxPublisherBroadcast(t *testing.T) {
 			},
 			expectedErr: nil,
 			expectedResult: &BumpResult{
+				Event:               TxFailed,
+				Tx:                  tx,
+				Fee:                 fee,
+				FeeRate:             feerate,
+				NextStartingFeeRate: fn.Some(feerate),
+				Err:                 errDummy,
+				requestID:           requestID,
+			},
+		},
+		{
+			// When the publish fails with a spend conflict, no
+			// next starting fee rate is carried: the conflict
+			// gives no fee signal, so the input's existing
+			// starting rate must be preserved.
+			name: "fail to publish with double spend",
+			setupMock: func() {
+				m.wallet.On("PublishTransaction",
+					tx, mock.Anything).Return(
+					lnwallet.ErrDoubleSpend).Once()
+			},
+			expectedErr: nil,
+			expectedResult: &BumpResult{
 				Event:     TxFailed,
 				Tx:        tx,
 				Fee:       fee,
 				FeeRate:   feerate,
-				Err:       errDummy,
+				Err:       lnwallet.ErrDoubleSpend,
 				requestID: requestID,
 			},
 		},
@@ -1130,7 +1152,13 @@ func TestCreateAndPublishFail(t *testing.T) {
 	// Create a test feerate and return it from the mock fee function.
 	feerate := chainfee.SatPerKWeight(1000)
 	m.feeFunc.On("FeeRate").Return(feerate)
-	m.feeFunc.On("Increment").Return(true, nil).Once()
+
+	// Note: we deliberately do not expect Increment() to be called for
+	// ErrNotEnoughBudget. Ratcheting the starting fee rate on a non-fee
+	// failure mode would only strand inputs whose intrinsic budget can't
+	// accommodate a higher rate; classifyRetryError maps it to
+	// policyPreserve, so handleReplacementTxError (and the matching path
+	// in handleInitialTxError) skips the fee-function increment.
 
 	// Create a testing monitor record.
 	req := createTestBumpRequest()
@@ -1162,6 +1190,11 @@ func TestCreateAndPublishFail(t *testing.T) {
 	require.Equal(t, TxFailed, result.Event)
 	require.ErrorIs(t, result.Err, ErrNotEnoughBudget)
 	require.Equal(t, requestID, result.requestID)
+
+	// The result must NOT carry a next starting fee rate;
+	// ErrNotEnoughBudget is not a fee-related failure and ratcheting
+	// would be wrong.
+	require.True(t, result.NextStartingFeeRate.IsNone())
 
 	// Increase the budget and call it again. This time we will mock an
 	// error to be returned from CheckMempoolAcceptance.
@@ -1794,8 +1827,9 @@ func TestProcessRecordsSpent(t *testing.T) {
 		require.Equal(t, TxUnknownSpend, result.Event)
 		require.Equal(t, tx, result.Tx)
 
-		// We expect the fee rate to be updated.
-		require.Equal(t, feerate, result.FeeRate)
+		// We expect the next starting fee rate to be carried for the
+		// sweeper's retry.
+		require.Equal(t, fn.Some(feerate), result.NextStartingFeeRate)
 
 		// No error should be set.
 		require.ErrorIs(t, result.Err, ErrUnknownSpent)
@@ -1981,6 +2015,306 @@ func TestHandleInitialBroadcastFail(t *testing.T) {
 	// Validate the record was removed.
 	require.Equal(t, 0, tp.records.Len())
 	require.Equal(t, 0, tp.subscriberChans.Len())
+}
+
+// TestHandleInitialTxErrorNoRatchetOnNonFeeFailure asserts that
+// handleInitialTxError does not call the fee function's Increment method
+// when the failure carries no fee-rate signal - the resource failures
+// (ErrNotEnoughInputs, ErrNotEnoughBudget) as well as the structural ones
+// (ErrTxNoOutput, ErrZeroFeeRateDelta). Ratcheting the rate on each such
+// retry would only strand inputs whose intrinsic budget cannot accommodate
+// the increased starting rate.
+func TestHandleInitialTxErrorNoRatchetOnNonFeeFailure(t *testing.T) {
+	t.Parallel()
+
+	cases := []struct {
+		name string
+		err  error
+	}{
+		{"ErrNotEnoughInputs", ErrNotEnoughInputs},
+		{"ErrNotEnoughBudget", ErrNotEnoughBudget},
+		{"ErrTxNoOutput", ErrTxNoOutput},
+		{"ErrZeroFeeRateDelta", ErrZeroFeeRateDelta},
+	}
+
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+
+			tp, _ := createTestPublisher(t)
+
+			// We intentionally do not stub Increment() on the
+			// mock fee function: if the code under test calls
+			// it on a resource failure, testify will panic and
+			// the test will fail loudly.
+
+			inp := createTestInput(1000, input.WitnessKeyHash)
+			req := &BumpRequest{
+				DeliveryAddress: changePkScript,
+				Inputs:          []input.Input{&inp},
+				Budget:          btcutil.Amount(1000),
+				MaxFeeRate:      chainfee.SatPerKWeight(10000),
+				DeadlineHeight:  10,
+			}
+
+			rec := &monitorRecord{
+				requestID: 1,
+				req:       req,
+			}
+
+			// Subscribe so we can observe the bump result.
+			subChan := make(chan *BumpResult, 1)
+			tp.subscriberChans.Store(uint64(1), subChan)
+
+			tp.handleInitialTxError(rec, tc.err)
+
+			select {
+			case result := <-subChan:
+				require.Equal(t, TxFailed, result.Event)
+				require.ErrorIs(t, result.Err, tc.err)
+				require.True(
+					t,
+					result.NextStartingFeeRate.IsNone(),
+					"NextStartingFeeRate must be None "+
+						"for non-fee failures",
+				)
+			case <-time.After(time.Second):
+				t.Fatal("timeout waiting for result")
+			}
+		})
+	}
+}
+
+// TestHandleInitialTxErrorRatchetsOnErrMaxPosition asserts that an
+// ErrMaxPosition failure carries a Some next starting fee rate for the
+// sweeper. It uses a real LinearFeeFunction walked to its max position,
+// which pins the actual invariant: once the fee function is exhausted, its
+// internal Increment keeps returning ErrMaxPosition, calculateRetryFeeRate
+// swallows that error rather than escalating to TxFatal, and the retry
+// resumes pinned at the ending (max) fee rate.
+func TestHandleInitialTxErrorRatchetsOnErrMaxPosition(t *testing.T) {
+	t.Parallel()
+
+	tp, _ := createTestPublisher(t)
+
+	// Build a real linear fee function. The explicit starting fee rate
+	// means the estimator is never consulted.
+	startRate := chainfee.SatPerKWeight(1000)
+	maxRate := chainfee.SatPerKWeight(10000)
+	estimator := &chainfee.MockEstimator{}
+	defer estimator.AssertExpectations(t)
+
+	f, err := NewLinearFeeFunction(
+		maxRate, 3, estimator, fn.Some(startRate),
+	)
+	require.NoError(t, err)
+
+	// Walk the fee function to its max position: with a conf target of
+	// 3 the width is 2, so two increments reach the ending rate and any
+	// further increment returns ErrMaxPosition.
+	for {
+		_, err := f.Increment()
+		if err != nil {
+			require.ErrorIs(t, err, ErrMaxPosition)
+			break
+		}
+	}
+	require.Equal(t, maxRate, f.FeeRate())
+
+	inp := createTestInput(1000, input.WitnessKeyHash)
+	req := &BumpRequest{
+		DeliveryAddress: changePkScript,
+		Inputs:          []input.Input{&inp},
+		Budget:          btcutil.Amount(1000),
+		MaxFeeRate:      maxRate,
+		DeadlineHeight:  10,
+	}
+
+	rec := &monitorRecord{
+		requestID:   1,
+		req:         req,
+		feeFunction: f,
+	}
+
+	// Subscribe so we can observe the bump result.
+	subChan := make(chan *BumpResult, 1)
+	tp.subscriberChans.Store(uint64(1), subChan)
+
+	tp.handleInitialTxError(rec, ErrMaxPosition)
+
+	select {
+	case result := <-subChan:
+		require.Equal(t, TxFailed, result.Event)
+		require.ErrorIs(t, result.Err, ErrMaxPosition)
+		require.Equal(
+			t, fn.Some(maxRate), result.NextStartingFeeRate,
+			"ErrMaxPosition must carry the max fee rate as the "+
+				"next starting rate",
+		)
+	case <-time.After(time.Second):
+		t.Fatal("timeout waiting for result")
+	}
+}
+
+// TestClassifyRetryError asserts the explicit mapping from named errors to
+// retry policies. The mapping is a positive allowlist: only errors that
+// carry a fee signal may ratchet the starting fee rate, and any error not
+// named in the classifier must fall through to policyPreserve.
+func TestClassifyRetryError(t *testing.T) {
+	t.Parallel()
+
+	cases := []struct {
+		name   string
+		err    error
+		policy retryPolicy
+	}{
+		// Fee-related failures ratchet.
+		{
+			name:   "ErrMaxPosition",
+			err:    ErrMaxPosition,
+			policy: policyRatchet,
+		},
+		{
+			name:   "ErrInsufficientFee",
+			err:    chain.ErrInsufficientFee,
+			policy: policyRatchet,
+		},
+		{
+			name:   "ErrMempoolFee",
+			err:    lnwallet.ErrMempoolFee,
+			policy: policyRatchet,
+		},
+		{
+			name:   "ErrMinRelayFeeNotMet",
+			err:    chain.ErrMinRelayFeeNotMet,
+			policy: policyRatchet,
+		},
+		{
+			name:   "ErrMempoolMinFeeNotMet",
+			err:    chain.ErrMempoolMinFeeNotMet,
+			policy: policyRatchet,
+		},
+
+		// Resource failures preserve.
+		{
+			name:   "ErrNotEnoughInputs",
+			err:    ErrNotEnoughInputs,
+			policy: policyPreserve,
+		},
+		{
+			name:   "ErrNotEnoughBudget",
+			err:    ErrNotEnoughBudget,
+			policy: policyPreserve,
+		},
+
+		// Structural failures preserve.
+		{
+			name:   "ErrTxNoOutput",
+			err:    ErrTxNoOutput,
+			policy: policyPreserve,
+		},
+		{
+			name:   "ErrZeroFeeRateDelta",
+			err:    ErrZeroFeeRateDelta,
+			policy: policyPreserve,
+		},
+
+		// A spend conflict carries no fee signal - the conflicting
+		// spend is handled via spend detection instead.
+		{
+			name:   "ErrDoubleSpend",
+			err:    lnwallet.ErrDoubleSpend,
+			policy: policyPreserve,
+		},
+
+		// Unclassified errors must never become a fee signal.
+		{
+			name:   "unknown error",
+			err:    errDummy,
+			policy: policyPreserve,
+		},
+
+		// Wrapped errors classify by their sentinel.
+		{
+			name:   "wrapped ErrMaxPosition",
+			err:    fmt.Errorf("create tx: %w", ErrMaxPosition),
+			policy: policyRatchet,
+		},
+	}
+
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+
+			require.Equal(t, tc.policy, classifyRetryError(tc.err))
+		})
+	}
+}
+
+// TestHandleReplacementTxErrorRetryPolicy asserts that
+// handleReplacementTxError applies the retry policy: an error with no fee
+// signal produces a TxFailed result with no next starting fee rate, while
+// a fee-related error ratchets the fee function and carries the new rate.
+func TestHandleReplacementTxErrorRetryPolicy(t *testing.T) {
+	t.Parallel()
+
+	oldTx := &wire.MsgTx{LockTime: 1}
+
+	t.Run("unknown error preserves rate", func(t *testing.T) {
+		t.Parallel()
+
+		tp, m := createTestPublisher(t)
+
+		// We intentionally do not stub Increment: if the code under
+		// test ratchets on an unclassified error, testify will panic
+		// and the test will fail loudly.
+		rec := &monitorRecord{
+			requestID:   1,
+			req:         createTestBumpRequest(),
+			feeFunction: m.feeFunc,
+			tx:          oldTx,
+		}
+
+		resultOpt := tp.handleReplacementTxError(rec, oldTx, errDummy)
+		require.True(t, resultOpt.IsSome())
+
+		result := resultOpt.UnsafeFromSome()
+		require.Equal(t, TxFailed, result.Event)
+		require.ErrorIs(t, result.Err, errDummy)
+		require.True(
+			t, result.NextStartingFeeRate.IsNone(),
+			"an unclassified error must not become a fee signal",
+		)
+	})
+
+	t.Run("fee error ratchets rate", func(t *testing.T) {
+		t.Parallel()
+
+		tp, m := createTestPublisher(t)
+
+		retryRate := chainfee.SatPerKWeight(5000)
+		m.feeFunc.On("Increment").Return(true, nil).Once()
+		m.feeFunc.On("FeeRate").Return(retryRate)
+
+		rec := &monitorRecord{
+			requestID:   1,
+			req:         createTestBumpRequest(),
+			feeFunction: m.feeFunc,
+			tx:          oldTx,
+		}
+
+		resultOpt := tp.handleReplacementTxError(
+			rec, oldTx, chain.ErrMinRelayFeeNotMet,
+		)
+		require.True(t, resultOpt.IsSome())
+
+		result := resultOpt.UnsafeFromSome()
+		require.Equal(t, TxFailed, result.Event)
+		require.ErrorIs(t, result.Err, chain.ErrMinRelayFeeNotMet)
+		require.Equal(
+			t, fn.Some(retryRate), result.NextStartingFeeRate,
+		)
+	})
 }
 
 // TestHasInputsSpent checks the expected outpoint:tx map is returned.

@@ -2,6 +2,7 @@ package aezeed
 
 import (
 	"bytes"
+	"math"
 	"math/rand"
 	"testing"
 	"testing/quick"
@@ -100,6 +101,62 @@ func TestAezeedVersion0TestVectors(t *testing.T) {
 		// expected value.
 		require.Equal(t, v.expectedMnemonic[:], mnemonic[:])
 		require.Equal(t, v.expectedBirthday, cipherSeed.Birthday)
+	}
+}
+
+// TestCipherSeedBirthdayRange checks that dates cannot wrap the encoded scan
+// boundary while the final representable birthday remains usable.
+func TestCipherSeedBirthdayRange(t *testing.T) {
+	t.Parallel()
+
+	// Arrange: exercise both negative offsets and the upper boundary with
+	// fixed entropy, so only the caller's creation time varies.
+	lastDay := BitcoinGenesisDate.Add(math.MaxUint16 * 24 * time.Hour)
+	testCases := []struct {
+		name         string
+		birthday     time.Time
+		wantErr      bool
+		wantBirthday uint16
+	}{
+		{
+			name:     "beforeGenesis",
+			birthday: BitcoinGenesisDate.Add(-24 * time.Hour),
+			wantErr:  true,
+		},
+		{
+			name:     "justBeforeGenesis",
+			birthday: BitcoinGenesisDate.Add(-time.Nanosecond),
+			wantErr:  true,
+		},
+		{
+			name:         "lastRepresentableDay",
+			birthday:     lastDay,
+			wantBirthday: math.MaxUint16,
+		},
+		{
+			name:     "afterLastDay",
+			birthday: lastDay.Add(24 * time.Hour),
+			wantErr:  true,
+		},
+	}
+
+	for _, testCase := range testCases {
+		t.Run(testCase.name, func(t *testing.T) {
+			// Act: call the public constructor to exercise date
+			// validation before conversion to an unsigned day.
+			seed, err := New(0, &testEntropy, testCase.birthday)
+
+			// Assert: invalid dates must not produce a seed; the
+			// last valid day must retain its exact encoded value.
+			if testCase.wantErr {
+				require.Error(t, err)
+				require.Nil(t, seed)
+				return
+			}
+
+			require.NoError(t, err)
+			require.Equal(t, testCase.wantBirthday, seed.Birthday)
+		})
 	}
 }
 
@@ -370,15 +427,14 @@ func TestMnemonicEncoding(t *testing.T) {
 func TestEncipherDecipher(t *testing.T) {
 	t.Parallel()
 
-	// mainScenario is the main driver of our property based test. We'll
-	// ensure that given a random seed tuple (internal version, entropy,
-	// and birthday) we're able to convert that to a valid cipher seed.
-	// Additionally, we should be able to decipher the final mnemonic, and
-	// recover the original cipher seed.
+	// Arrange: generate representable birthday offsets so this round-trip
+	// property exercises valid seed tuples rather than invalid Unix times.
 	mainScenario := func(version uint8, entropy [EntropySize]byte,
-		nowInt int64, pass [20]byte) bool {
+		birthday uint16, pass [20]byte) bool {
 
-		now := time.Unix(nowInt, 0)
+		now := BitcoinGenesisDate.Add(
+			time.Duration(birthday) * 24 * time.Hour,
+		)
 
 		cipherSeed, err := New(version, &entropy, now)
 		if err != nil {
@@ -386,6 +442,8 @@ func TestEncipherDecipher(t *testing.T) {
 			return false
 		}
 
+		// Act: encode and recover using the same password, exercising
+		// the public mnemonic path for each generated valid seed.
 		mnemonic, err := cipherSeed.ToMnemonic(pass[:])
 		if err != nil {
 			t.Fatalf("unable to generate mnemonic: %v", err)
@@ -398,6 +456,8 @@ func TestEncipherDecipher(t *testing.T) {
 			return false
 		}
 
+		// Assert: all seed fields must survive recovery, including the
+		// birthday that determines where the wallet starts scanning.
 		if cipherSeed.InternalVersion != cipherSeed2.InternalVersion {
 			t.Fatalf("mismatched versions: expected %v, got %v",
 				cipherSeed.InternalVersion, cipherSeed2.InternalVersion)

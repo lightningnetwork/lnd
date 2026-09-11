@@ -4,8 +4,10 @@ import (
 	"bytes"
 	"crypto/rand"
 	"encoding/binary"
+	"fmt"
 	"hash/crc32"
 	"io"
+	"math"
 	"time"
 
 	"github.com/Yawning/aez"
@@ -202,9 +204,18 @@ type CipherSeed struct {
 // New generates a new CipherSeed instance from an optional source of entropy.
 // If the entropy isn't provided, then a set of random bytes will be used in
 // place. The final fixed argument should be the time at which the seed was
-// created, followed by optional seed option modifiers.
+// created, followed by optional seed option modifiers. Creation times before
+// Bitcoin's genesis block or beyond the unsigned 16-bit day range are rejected.
 func New(internalVersion uint8, entropy *[EntropySize]byte,
 	now time.Time, modifiers ...SeedOptionModifier) (*CipherSeed, error) {
+
+	// Validate before narrowing or generating randomness: a wrapped day
+	// count could silently move the wallet's recovery scan past its funds.
+	birthday := now.Sub(BitcoinGenesisDate) / (24 * time.Hour)
+	if now.Before(BitcoinGenesisDate) || birthday > math.MaxUint16 {
+		return nil, fmt.Errorf("seed creation time %v is outside "+
+			"the representable birthday range", now)
+	}
 
 	opts := DefaultOptions()
 	for _, modifier := range modifiers {
@@ -224,14 +235,9 @@ func New(internalVersion uint8, entropy *[EntropySize]byte,
 		copy(seed[:], entropy[:])
 	}
 
-	// To compute our "birthday", we'll first use the current time, then
-	// subtract that from the Bitcoin Genesis Date. We'll then convert that
-	// value to days.
-	birthday := uint16(now.Sub(BitcoinGenesisDate) / (time.Hour * 24))
-
 	c := &CipherSeed{
 		InternalVersion: internalVersion,
-		Birthday:        birthday,
+		Birthday:        uint16(birthday),
 		Entropy:         seed,
 	}
 

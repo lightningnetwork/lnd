@@ -98,7 +98,7 @@ func (o *Offer) allRecordProducers() []tlv.RecordProducer {
 
 // Encode serialises the offer into a canonical TLV byte stream.
 func (o *Offer) Encode() ([]byte, error) {
-	if err := ValidateOfferWrite(o); err != nil {
+	if err := validateOfferWrite(o); err != nil {
 		return nil, fmt.Errorf("validate offer: %w", err)
 	}
 
@@ -112,7 +112,7 @@ func (o *Offer) Encode() ([]byte, error) {
 
 // decodeOffer parses a TLV byte stream into an Offer. Decoding is permissive —
 // the spec writer requirements are not enforced here, so callers that need a
-// valid offer must run ValidateOfferRead. Unknown TLVs are preserved on the
+// valid offer must run validateOfferRead. Unknown TLVs are preserved on the
 // returned offer so a later Encode can re-emit signed-range extras and keep
 // offer_id stable.
 func decodeOffer(data []byte) (*Offer, error) {
@@ -169,7 +169,7 @@ func decodeOffer(data []byte) (*Offer, error) {
 
 // DecodeOfferString decodes a BOLT 12 offer from its bech32 string
 // representation (lno1...). The spec reader gates (chain, expiry, features) are
-// folded in via ValidateOfferRead.
+// folded in via validateOfferRead.
 func DecodeOfferString(s string, now time.Time,
 	activeChain [32]byte) (*Offer, error) {
 
@@ -188,7 +188,7 @@ func DecodeOfferString(s string, now time.Time,
 		return nil, err
 	}
 
-	if err := ValidateOfferRead(
+	if err := validateOfferRead(
 		offer, now, activeChain, Bolt12Features,
 	); err != nil {
 		return nil, fmt.Errorf("validate: %w", err)

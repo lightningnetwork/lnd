@@ -145,7 +145,7 @@ func TestVerifyInvoiceRequestVector(t *testing.T) {
 		tlv.NewPrimitiveRecord[tlv.TlvType240](sig),
 	)
 
-	require.NoError(t, VerifyInvoiceRequest(ir))
+	require.NoError(t, verifyInvoiceRequest(ir))
 }
 
 // TestSignatureVerifyRejectsTampering asserts that every way a malicious
@@ -311,7 +311,7 @@ func TestNilKeyGuards(t *testing.T) {
 	}
 }
 
-// TestVerifyInvoiceDirect drives VerifyInvoice end to end using a minimal valid
+// TestVerifyInvoiceDirect drives verifyInvoice end to end using a minimal valid
 // Invoice constructed via validInvoice.
 func TestVerifyInvoiceDirect(t *testing.T) {
 	t.Parallel()
@@ -389,7 +389,7 @@ func TestVerifyInvoiceDirect(t *testing.T) {
 			)
 			tc.mutate(t, inv)
 
-			err := VerifyInvoice(inv)
+			err := verifyInvoice(inv)
 			require.ErrorIs(t, err, tc.wantErr)
 			if tc.wantContains != "" {
 				require.Contains(
@@ -400,7 +400,7 @@ func TestVerifyInvoiceDirect(t *testing.T) {
 	}
 }
 
-// TestVerifyInvoiceRequestDirect drives VerifyInvoiceRequest end to end using a
+// TestVerifyInvoiceRequestDirect drives verifyInvoiceRequest end to end using a
 // minimal valid InvoiceRequest constructed via validInvoiceRequest.
 func TestVerifyInvoiceRequestDirect(t *testing.T) {
 	t.Parallel()
@@ -476,7 +476,7 @@ func TestVerifyInvoiceRequestDirect(t *testing.T) {
 			)
 			tc.mutate(t, ir)
 
-			err := VerifyInvoiceRequest(ir)
+			err := verifyInvoiceRequest(ir)
 			require.ErrorIs(t, err, tc.wantErr)
 			if tc.wantContains != "" {
 				require.Contains(

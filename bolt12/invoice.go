@@ -21,7 +21,7 @@ import (
 type Invoice struct {
 	// Fields in the 0-91 range are mirrored verbatim from the
 	// invoice_request (which carries the offer's fields); the byte-for-byte
-	// match is enforced by ValidateInvoiceAgainstRequest.
+	// match is enforced by validateInvoiceAgainstRequest.
 
 	// InvreqMetadata is the payer metadata.
 	InvreqMetadata tlv.OptionalRecordT[tlv.TlvType0, tlv.Blob]
@@ -209,7 +209,7 @@ type UsablePath struct {
 // set. knownBlindedFeatures names the feature bits the reader understands.
 //
 // The result is empty when invoice_paths or invoice_blindedpay is absent, or
-// when the two lists differ in length; ValidateInvoiceRead rejects those cases
+// when the two lists differ in length; validateInvoiceRead rejects those cases
 // separately, so a caller that validates first can treat an empty result as
 // "no usable paths".
 func (inv *Invoice) UsablePaths(
@@ -219,7 +219,7 @@ func (inv *Invoice) UsablePaths(
 	bp := inv.InvoiceBlindedPay.ValOpt().UnwrapOr(BlindedPayInfos{})
 
 	// Entries pair by index; a length mismatch is rejected upstream by
-	// ValidateInvoiceRead, so guard here to stay in bounds.
+	// validateInvoiceRead, so guard here to stay in bounds.
 	if len(paths.Paths) != len(bp.Infos) {
 		return nil
 	}
@@ -287,7 +287,7 @@ func (inv *Invoice) allRecordProducers() []tlv.RecordProducer {
 // Encode validates the invoice per writer requirements and serialises it via
 // the PureTLVMessage shape.
 func (inv *Invoice) Encode() ([]byte, error) {
-	if err := ValidateInvoiceWrite(inv); err != nil {
+	if err := validateInvoiceWrite(inv); err != nil {
 		return nil, fmt.Errorf("validate invoice: %w", err)
 	}
 
@@ -300,7 +300,7 @@ func (inv *Invoice) Encode() ([]byte, error) {
 }
 
 // DecodeInvoice deserializes an invoice from a TLV byte stream. Decoding is
-// permissive: callers that need spec compliance must run ValidateInvoiceRead.
+// permissive: callers that need spec compliance must run validateInvoiceRead.
 func DecodeInvoice(data []byte) (*Invoice, error) {
 	var inv Invoice
 
@@ -411,7 +411,7 @@ func DecodeInvoiceStringUnvalidated(s string) (*Invoice, error) {
 
 // DecodeInvoiceString decodes a BOLT 12 invoice from its bech32 string
 // representation (lni1...). The spec reader gates (chain, features, signature)
-// are folded in via ValidateInvoiceRead, and the expiry gate is enforced via
+// are folded in via validateInvoiceRead, and the expiry gate is enforced via
 // ValidateInvoiceExpiry.
 //
 // These gates check the invoice against itself. An invoice that answers an
@@ -430,7 +430,7 @@ func DecodeInvoiceString(s string, now time.Time,
 		Invoice: Bolt12Features,
 		Blinded: Bolt12Features,
 	}
-	if err := ValidateInvoiceRead(inv, activeChain, features); err != nil {
+	if err := validateInvoiceRead(inv, activeChain, features); err != nil {
 		return nil, fmt.Errorf("validate: %w", err)
 	}
 
@@ -455,7 +455,7 @@ func EncodeInvoiceString(inv *Invoice) (string, error) {
 		return "", err
 	}
 
-	if err := VerifyInvoice(inv); err != nil {
+	if err := verifyInvoice(inv); err != nil {
 		return "", err
 	}
 

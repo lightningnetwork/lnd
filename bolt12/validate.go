@@ -176,7 +176,7 @@ var (
 	// ErrMissingPaths is returned when invoice_paths is absent.
 	ErrMissingPaths = errors.New("missing invoice_paths")
 
-	// ErrNoUsablePaths is returned by ValidateInvoiceRead when every
+	// ErrNoUsablePaths is returned by validateInvoiceRead when every
 	// blinded path in invoice_paths carries unknown required features in
 	// payinfo.
 	ErrNoUsablePaths = errors.New(
@@ -276,11 +276,11 @@ const (
 	invoiceErrorErrorType          tlv.Type = 5
 )
 
-// ValidateInvoiceErrorWrite validates an invoice_error per the BOLT 12 writer
+// validateInvoiceErrorWrite validates an invoice_error per the BOLT 12 writer
 // requirements. The checks follow the spec's writer section in order. The
 // caller must check that the suggested value, if present, contains a valid
 // type.
-func ValidateInvoiceErrorWrite(ie *InvoiceError) error {
+func validateInvoiceErrorWrite(ie *InvoiceError) error {
 	// - MUST set error to an explanatory string.
 	if !ie.Error.IsSome() {
 		return ErrMissingError
@@ -371,14 +371,14 @@ func isKnownInvreqTLVType(typ tlv.Type) bool {
 	}
 }
 
-// ValidateInvoiceRequestWrite ensures an invoice request adheres to the BOLT 12
+// validateInvoiceRequestWrite ensures an invoice request adheres to the BOLT 12
 // writer requirements.
 //
 // Note: This writer validation assumes that for requests responding to an
 // offer, the caller/constructor has already mirrored the offer's fields exactly
 // by using the NewInvoiceRequestFromOffer constructor, as an invoice request
 // can also be created without an offer.
-func ValidateInvoiceRequestWrite(ir *InvoiceRequest) error {
+func validateInvoiceRequestWrite(ir *InvoiceRequest) error {
 	// A present-but-nil pubkey passes IsSome but would panic the codec on
 	// encode, so reject both pubkey fields.
 	if err := checkPubKeyNotNil(
@@ -784,7 +784,7 @@ func ValidateInvoiceRequestRead(ir *InvoiceRequest,
 
 	// - MUST reject the invoice request if signature is not correct as
 	//   detailed in Signature Calculation using the invreq_payer_id.
-	return VerifyInvoiceRequest(ir)
+	return verifyInvoiceRequest(ir)
 }
 
 // getInvoiceRequestOfferChains returns the chains an invoice request's mirrored
@@ -959,13 +959,13 @@ func isKnownOfferTLVType(typ tlv.Type) bool {
 	}
 }
 
-// ValidateOfferRead validates an offer per the BOLT 12 offer reader
+// validateOfferRead validates an offer per the BOLT 12 offer reader
 // requirements. The now parameter is used for expiry checks and can be
 // overridden in tests. activeChain is required: per spec, absent offer_chains
 // defaults to Bitcoin mainnet, and the reader must reject offers that do not
 // list a chain it operates on. Pass the genesis hash of the chain the receiver
 // is willing to settle on.
-func ValidateOfferRead(o *Offer, now time.Time, activeChain [32]byte,
+func validateOfferRead(o *Offer, now time.Time, activeChain [32]byte,
 	knownFeatures map[lnwire.FeatureBit]string) error {
 
 	// - if the offer contains any TLV fields outside the inclusive ranges:
@@ -1137,9 +1137,9 @@ func getOfferChains(o *Offer) [][32]byte {
 	return chains
 }
 
-// ValidateOfferWrite validates an offer per the BOLT 12 offer writer
+// validateOfferWrite validates an offer per the BOLT 12 offer writer
 // requirements, in the order the spec states them.
-func ValidateOfferWrite(o *Offer) error {
+func validateOfferWrite(o *Offer) error {
 	// - MUST NOT set any TLV fields outside the inclusive ranges: 1 to 79
 	//   and 1000000000 to 1999999999.
 	//
@@ -1411,12 +1411,12 @@ func checkInvoiceNodeID(inv *Invoice) error {
 	return nil
 }
 
-// ValidateInvoiceWrite validates an invoice per the BOLT 12 invoice writer
+// validateInvoiceWrite validates an invoice per the BOLT 12 invoice writer
 // requirements. The checks follow the spec's writer section in order.
 // Requirements that depend on context this codec layer does not have
 // (signing, the payment preimage, the offer or path the request arrived on)
 // are noted inline as deferred to the caller or to a paired validator.
-func ValidateInvoiceWrite(inv *Invoice) error {
+func validateInvoiceWrite(inv *Invoice) error {
 	// - MUST set invoice_created_at to the number of seconds since Midnight
 	//   1 January 1970, UTC when the invoice was created.
 	if !inv.InvoiceCreatedAt.IsSome() {
@@ -1434,7 +1434,7 @@ func ValidateInvoiceWrite(inv *Invoice) error {
 	// ("minimum amount it will accept"), but a zero-amount HTLC cannot
 	// settle past the channel-layer dust limit. The typed
 	// ErrZeroInvoiceAmount lets a spec-strict caller distinguish this from
-	// a missing-field violation. Symmetric with ValidateInvoiceRead.
+	// a missing-field violation. Symmetric with validateInvoiceRead.
 	if inv.InvoiceAmount.ValOpt().UnwrapOr(0) == 0 {
 		return ErrZeroInvoiceAmount
 	}
@@ -1449,7 +1449,7 @@ func ValidateInvoiceWrite(inv *Invoice) error {
 	// this validator runs on the assembled struct. The invoice_amount ==
 	// invreq_amount equality and the byte-for-byte field mirror are
 	// enforced when the invoice is paired with its request in
-	// ValidateInvoiceAgainstRequest. The offer_currency "expected amount"
+	// validateInvoiceAgainstRequest. The offer_currency "expected amount"
 	// needs a live exchange rate the codec cannot compute.
 
 	// - MUST set invoice_payment_hash to the SHA256 hash of the
@@ -1490,7 +1490,7 @@ func ValidateInvoiceWrite(inv *Invoice) error {
 	// pre-sign Encode is permitted, so an unsigned invoice passes this
 	// validator and Encode. The wire-string layer rejects an unsigned
 	// invoice, and the reader verifies correctness, mirroring
-	// ValidateInvoiceRequestWrite.
+	// validateInvoiceRequestWrite.
 
 	// - if the expiry for accepting payment is not 7200 seconds after
 	//   invoice_created_at: MUST set invoice_relative_expiry.
@@ -1549,7 +1549,7 @@ func ValidateInvoiceWrite(inv *Invoice) error {
 
 	// A present-but-nil pubkey passes IsSome but would panic the codec on
 	// encode, so reject the mirrored pubkey fields. Symmetric with
-	// ValidateInvoiceRequestWrite.
+	// validateInvoiceRequestWrite.
 	if err := fn.MapOptionZ(inv.InvreqPayerID.ValOpt(),
 		func(pk *btcec.PublicKey) error {
 			if pk == nil {
@@ -1585,9 +1585,9 @@ const defaultInvoiceRelativeExpiry uint32 = 7200
 // invoice_relative_expiry, falling back to a 7200-second default per spec when
 // relative expiry is absent. Per the BOLT 12 reader the invoice is rejected
 // only when the current time is greater than the expiry, so the boundary second
-// itself is still valid; this matches the strict comparison ValidateOfferRead
+// itself is still valid; this matches the strict comparison validateOfferRead
 // uses for offer_absolute_expiry. Callers must invoke this separately after
-// decoding. ValidateInvoiceRead covers the structural reader requirements, but
+// decoding. validateInvoiceRead covers the structural reader requirements, but
 // the time check needs a clock the codec library doesn't supply.
 func ValidateInvoiceExpiry(inv *Invoice, now time.Time) error {
 	createdAt, err := inv.InvoiceCreatedAt.ValOpt().UnwrapOrErr(
@@ -1617,7 +1617,7 @@ func ValidateInvoiceExpiry(inv *Invoice, now time.Time) error {
 // payer expected to answer. Which node that is comes from the payer's own
 // state: offer_issuer_id, the final blinded_node_id of the path it chose, or
 // the node it addressed an offerless request to. None of that is derivable
-// from the invoice, so ValidateInvoiceRead cannot make the comparison and
+// from the invoice, so validateInvoiceRead cannot make the comparison and
 // callers run this separately, as they already do for ValidateInvoiceExpiry.
 //
 // Skipping it is not cosmetic. Every node on the blinded path can answer with
@@ -1668,7 +1668,7 @@ func mirroredRecordBytes(records []tlv.Record) (map[tlv.Type][]byte, error) {
 	return out, nil
 }
 
-// ValidateInvoiceAgainstRequest performs a byte-for-byte comparison of the
+// validateInvoiceAgainstRequest performs a byte-for-byte comparison of the
 // fields in ranges 0-159 and 1000000000-2999999999 between an invoice and its
 // original request, as required by the BOLT 12 invoice reader specification.
 // Callers must invoke this after pairing the invoice with its originating
@@ -1685,7 +1685,7 @@ func mirroredRecordBytes(records []tlv.Record) (map[tlv.Type][]byte, error) {
 // offer_amount * invreq_quantity for the native (bitcoin) case. The
 // offer_currency case needs a caller-supplied exchange rate and is delegated to
 // the caller.
-func ValidateInvoiceAgainstRequest(inv *Invoice, req *InvoiceRequest) error {
+func validateInvoiceAgainstRequest(inv *Invoice, req *InvoiceRequest) error {
 	reqFields, err := mirroredRecordBytes(req.AllRecords())
 	if err != nil {
 		return fmt.Errorf("encode request fields: %w", err)
@@ -1813,7 +1813,7 @@ type InvoiceKnownFeatures struct {
 	Blinded map[lnwire.FeatureBit]string
 }
 
-// ValidateInvoiceRead validates an invoice against the BOLT 12 reader
+// validateInvoiceRead validates an invoice against the BOLT 12 reader
 // requirements, running the stateless structural checks against activeChain
 // (the chain the reader supports). The final check is cryptographic: the
 // reader rejects an invoice whose BIP-340 Schnorr signature does not verify
@@ -1823,14 +1823,14 @@ type InvoiceKnownFeatures struct {
 // downstream callers must re-apply the same features.Blinded filter at path
 // selection time (via Invoice.UsablePaths) to avoid selecting paths with
 // unknown required features.
-func ValidateInvoiceRead(inv *Invoice, activeChain [32]byte,
+func validateInvoiceRead(inv *Invoice, activeChain [32]byte,
 	features InvoiceKnownFeatures) error {
 	// - MUST reject the invoice if invoice_amount is not present.
 	if !inv.InvoiceAmount.IsSome() {
 		return ErrMissingAmount
 	}
 
-	// Policy extension. See ValidateInvoiceWrite.
+	// Policy extension. See validateInvoiceWrite.
 	if inv.InvoiceAmount.ValOpt().UnwrapOr(0) == 0 {
 		return ErrZeroInvoiceAmount
 	}
@@ -1947,7 +1947,7 @@ func ValidateInvoiceRead(inv *Invoice, activeChain [32]byte,
 	// The offer_issuer_id case is checked here by checkInvoiceNodeID (both
 	// fields live on the invoice). NOT CHECKED HERE: the byte-for-byte
 	// field mirror and the invreq_amount == invoice_amount rule are
-	// enforced by ValidateInvoiceAgainstRequest once the invoice is paired
+	// enforced by validateInvoiceAgainstRequest once the invoice is paired
 	// with its request; the offer_paths blinded_node_id case needs the path
 	// the payer sent the request to and stays with the caller.
 	if err := checkInvoiceNodeID(inv); err != nil {
@@ -1969,12 +1969,12 @@ func ValidateInvoiceRead(inv *Invoice, activeChain [32]byte,
 	// - the invreq_paths / blinded-path / reply_path arrival rules.
 	// NOT CHECKED HERE: these are payment-time or transport concerns
 	// handled outside this codec. invreq_amount equality is enforced by
-	// ValidateInvoiceAgainstRequest; the fallback ignore rules by
+	// validateInvoiceAgainstRequest; the fallback ignore rules by
 	// UsableFallbackAddresses.
 
 	// - MUST reject the invoice if signature is not a valid signature using
 	//   invoice_node_id as described in Signature Calculation.
-	return VerifyInvoice(inv)
+	return verifyInvoice(inv)
 }
 
 // ValidateInvoiceForPayment runs the full set of payer-side invoice checks in
@@ -1990,7 +1990,7 @@ func ValidateInvoiceForPayment(inv *Invoice, req *InvoiceRequest,
 	features InvoiceKnownFeatures,
 	expectedNodeID *btcec.PublicKey) error {
 
-	if err := ValidateInvoiceRead(inv, activeChain, features); err != nil {
+	if err := validateInvoiceRead(inv, activeChain, features); err != nil {
 		return err
 	}
 
@@ -1998,7 +1998,7 @@ func ValidateInvoiceForPayment(inv *Invoice, req *InvoiceRequest,
 		return err
 	}
 
-	if err := ValidateInvoiceAgainstRequest(inv, req); err != nil {
+	if err := validateInvoiceAgainstRequest(inv, req); err != nil {
 		return err
 	}
 

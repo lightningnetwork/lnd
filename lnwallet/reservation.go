@@ -863,6 +863,52 @@ func (r *ChannelReservation) FundingOutpoint() *wire.OutPoint {
 	return &r.partialState.FundingOutpoint
 }
 
+// fundingOutput returns the output negotiated by this reservation once both
+// channel contributions are known.
+func (r *ChannelReservation) fundingOutput() (*wire.TxOut, error) {
+	r.RLock()
+	defer r.RUnlock()
+
+	if r.ourContribution == nil || r.ourContribution.ChannelConfig == nil {
+		return nil, fmt.Errorf("local channel contribution is " +
+			"unavailable")
+	}
+	if r.theirContribution == nil ||
+		r.theirContribution.ChannelConfig == nil {
+
+		return nil, fmt.Errorf("remote channel contribution is " +
+			"unavailable")
+	}
+
+	localKey := r.ourContribution.MultiSigKey.PubKey
+	remoteKey := r.theirContribution.MultiSigKey.PubKey
+	if localKey == nil || remoteKey == nil {
+		return nil, fmt.Errorf("channel multisig keys are unavailable")
+	}
+
+	var (
+		output *wire.TxOut
+		err    error
+	)
+	if r.partialState.ChanType.IsTaproot() {
+		_, output, err = input.GenTaprootFundingScript(
+			localKey, remoteKey, int64(r.partialState.Capacity),
+			r.partialState.TapscriptRoot,
+		)
+	} else {
+		_, output, err = input.GenFundingPkScript(
+			localKey.SerializeCompressed(),
+			remoteKey.SerializeCompressed(),
+			int64(r.partialState.Capacity),
+		)
+	}
+	if err != nil {
+		return nil, fmt.Errorf("derive channel funding output: %w", err)
+	}
+
+	return output, nil
+}
+
 // SetOurUpfrontShutdown sets the upfront shutdown address on our contribution.
 func (r *ChannelReservation) SetOurUpfrontShutdown(shutdown lnwire.DeliveryAddress) {
 	r.Lock()

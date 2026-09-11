@@ -1502,9 +1502,10 @@ func newServer(ctx context.Context, cfg *Config, listenAddrs []net.Addr,
 
 			return &pc.Incoming
 		},
-		AuxLeafStore: implCfg.AuxLeafStore,
-		AuxSigner:    implCfg.AuxSigner,
-		AuxResolver:  implCfg.AuxContractResolver,
+		AuxLeafStore:        implCfg.AuxLeafStore,
+		AuxSigner:           implCfg.AuxSigner,
+		AuxResolver:         implCfg.AuxContractResolver,
+		AuxChannelLifecycle: implCfg.AuxChannelLifecycle,
 		AuxCloser: fn.MapOption(
 			func(c chcl.AuxChanCloser) contractcourt.AuxChanCloser {
 				return c

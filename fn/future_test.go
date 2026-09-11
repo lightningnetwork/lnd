@@ -1,4 +1,4 @@
-package actor
+package fn
 
 import (
 	"context"
@@ -8,7 +8,6 @@ import (
 	"testing"
 	"time"
 
-	"github.com/lightningnetwork/lnd/fn/v2"
 	"github.com/stretchr/testify/require"
 	"pgregory.net/rapid"
 )
@@ -20,8 +19,8 @@ func TestFutureAwaitContextCancellation(t *testing.T) {
 
 	rapid.Check(t, func(t *rapid.T) {
 		// Test cancellation when the Await context is cancelled via
-		// context.Cancel. The underlying future will not be completed, allowing
-		// us to test the cancellation path of Await.
+		// context.Cancel. The underlying future will not be completed,
+		// allowing us to test the cancellation path of Await.
 		prom1 := NewPromise[int]()
 		fut1 := prom1.Future()
 		ctx1, cancel1 := context.WithCancel(context.Background())
@@ -86,9 +85,9 @@ func TestFutureAwaitFutureCompletes(t *testing.T) {
 		// asynchronous operation.
 		go func() {
 			if errToSet != nil {
-				promise.Complete(fn.Err[int](errToSet))
+				promise.Complete(Err[int](errToSet))
 			} else {
-				promise.Complete(fn.Ok(valToSet))
+				promise.Complete(Ok(valToSet))
 			}
 		}()
 
@@ -204,10 +203,10 @@ func TestFutureThenApplyOriginalFutureCompletes(t *testing.T) {
 		go func() {
 			if originalErr != nil {
 				originalPromise.Complete(
-					fn.Err[int](originalErr),
+					Err[int](originalErr),
 				)
 			} else {
-				originalPromise.Complete(fn.Ok(initialVal))
+				originalPromise.Complete(Ok(initialVal))
 			}
 		}()
 
@@ -275,7 +274,7 @@ func TestFutureOnCompleteContextCancellation(t *testing.T) {
 		wg.Add(1)
 		var (
 			callbackInvoked     atomic.Bool
-			callbackResultValue fn.Result[int]
+			callbackResultValue Result[int]
 
 			// mu is a mutex to protect callbackResultValue as it's
 			// written by the callback goroutine and read by the
@@ -285,7 +284,7 @@ func TestFutureOnCompleteContextCancellation(t *testing.T) {
 
 		// Register an OnComplete callback. The callback itself runs in
 		// a new goroutine started by OnComplete.
-		originalFut.OnComplete(ctxComplete, func(res fn.Result[int]) {
+		originalFut.OnComplete(ctxComplete, func(res Result[int]) {
 			mu.Lock()
 			callbackResultValue = res
 			mu.Unlock()
@@ -357,13 +356,13 @@ func TestFutureOnCompleteFutureCompletes(t *testing.T) {
 
 		var (
 			callbackInvoked     atomic.Bool
-			callbackResultValue fn.Result[int]
+			callbackResultValue Result[int]
 			mu                  sync.Mutex
 		)
 
 		// Register an OnComplete callback. This callback will execute
 		// once the originalFut completes.
-		originalFut.OnComplete(ctxComplete, func(res fn.Result[int]) {
+		originalFut.OnComplete(ctxComplete, func(res Result[int]) {
 			mu.Lock()
 			callbackResultValue = res
 			mu.Unlock()
@@ -378,10 +377,10 @@ func TestFutureOnCompleteFutureCompletes(t *testing.T) {
 		go func() {
 			if originalErr != nil {
 				originalPromise.Complete(
-					fn.Err[int](originalErr),
+					Err[int](originalErr),
 				)
 			} else {
-				originalPromise.Complete(fn.Ok(valToSet))
+				originalPromise.Complete(Ok(valToSet))
 			}
 		}()
 
@@ -476,7 +475,7 @@ func TestAwaitFuture(t *testing.T) {
 	// second return value with the zero string value.
 	sentinel := fmt.Errorf("result-level error")
 	errPromise := NewPromise[string]()
-	errPromise.Complete(fn.Err[string](sentinel))
+	errPromise.Complete(Err[string](sentinel))
 
 	val3, err3 := AwaitFuture(context.Background(), errPromise.Future())
 	require.ErrorIs(t, err3, sentinel)
@@ -492,6 +491,9 @@ func TestAwaitFuture(t *testing.T) {
 	require.Equal(t, "", val2, "zero value expected on cancellation")
 }
 
+// TestPromiseCompleteIdempotency verifies that calling Complete on a Promise
+// multiple times is safe and only the first completion takes effect. Subsequent
+// calls should return false and not alter the future's result.
 func TestPromiseCompleteIdempotency(t *testing.T) {
 	t.Parallel()
 
@@ -499,17 +501,17 @@ func TestPromiseCompleteIdempotency(t *testing.T) {
 	future := promise.Future()
 
 	// First completion should succeed.
-	firstResult := fn.Ok("first-value")
+	firstResult := Ok("first-value")
 	ok := promise.Complete(firstResult)
 	require.True(t, ok, "first Complete should return true")
 
 	// Second completion with a different value should be ignored.
-	secondResult := fn.Ok("second-value")
+	secondResult := Ok("second-value")
 	ok = promise.Complete(secondResult)
 	require.False(t, ok, "second Complete should return false")
 
 	// Third completion with an error should also be ignored.
-	thirdResult := fn.Err[string](fmt.Errorf("should be ignored"))
+	thirdResult := Err[string](fmt.Errorf("should be ignored"))
 	ok = promise.Complete(thirdResult)
 	require.False(t, ok, "third Complete should return false")
 

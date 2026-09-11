@@ -5,7 +5,7 @@ import (
 	"errors"
 	"testing"
 
-	"github.com/lightningnetwork/lnd/actor"
+	"github.com/lightningnetwork/lnd/fn/v2"
 	"github.com/stretchr/testify/require"
 )
 
@@ -14,8 +14,8 @@ import (
 func TestAwaitGossipResultSuccess(t *testing.T) {
 	t.Parallel()
 
-	promise := actor.NewPromise[error]()
-	actor.CompleteWith(promise, (error)(nil))
+	promise := fn.NewPromise[error]()
+	fn.CompleteWith(promise, (error)(nil))
 
 	err := AwaitGossipResult(t.Context(), promise.Future())
 	require.NoError(t, err)
@@ -27,8 +27,8 @@ func TestAwaitGossipResultError(t *testing.T) {
 	t.Parallel()
 
 	sentinel := errors.New("gossip validation failed")
-	promise := actor.NewPromise[error]()
-	actor.CompleteWith(promise, sentinel)
+	promise := fn.NewPromise[error]()
+	fn.CompleteWith(promise, sentinel)
 
 	err := AwaitGossipResult(t.Context(), promise.Future())
 	require.ErrorIs(t, err, sentinel)
@@ -42,7 +42,7 @@ func TestAwaitGossipResultContextCancelled(t *testing.T) {
 
 	// A promise that is never completed simulates a gossiper that has
 	// shut down before producing a result.
-	promise := actor.NewPromise[error]()
+	promise := fn.NewPromise[error]()
 
 	ctx, cancel := context.WithCancel(t.Context())
 	cancel() // Cancel immediately.
@@ -57,7 +57,7 @@ func TestCompleteGossipResultIdempotent(t *testing.T) {
 	t.Parallel()
 
 	sentinel := errors.New("processing error")
-	promise := actor.NewPromise[error]()
+	promise := fn.NewPromise[error]()
 
 	// First completion sets the result.
 	completeGossipResult(promise, sentinel)

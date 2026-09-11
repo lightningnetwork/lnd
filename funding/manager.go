@@ -19,7 +19,6 @@ import (
 	"github.com/btcsuite/btcd/chainhash/v2"
 	"github.com/btcsuite/btcd/txscript/v2"
 	"github.com/btcsuite/btcd/wire/v2"
-	"github.com/lightningnetwork/lnd/actor"
 	"github.com/lightningnetwork/lnd/chainntnfs"
 	"github.com/lightningnetwork/lnd/chanacceptor"
 	"github.com/lightningnetwork/lnd/channeldb"
@@ -411,7 +410,7 @@ type Config struct {
 	// message.
 	SendAnnouncement func(msg lnwire.Message,
 		optionalFields ...discovery.OptionalMsgField,
-	) actor.Future[error]
+	) fn.Future[error]
 
 	// NotifyWhenOnline allows the FundingManager to register with a
 	// subsystem that will notify it when the peer comes online. This is

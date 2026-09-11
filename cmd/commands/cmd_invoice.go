@@ -124,6 +124,7 @@ var AddInvoiceCommand = cli.Command{
 				"id (separated by commas), starting from a " +
 				"channel which points to the self node.",
 		},
+		invoiceQRFlag,
 	},
 	Action: actionDecorator(addInvoice),
 }
@@ -201,6 +202,7 @@ func addInvoice(ctx *cli.Context) error {
 	}
 
 	printRespJSON(resp)
+	maybePrintInvoiceQR(ctx, resp.PaymentRequest)
 
 	return nil
 }

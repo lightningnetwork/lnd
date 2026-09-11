@@ -297,6 +297,13 @@
 * The `encryptdebugpackage` command now supports an `--include_log` flag. When
   set, the log file content is included in the encrypted debug package.
 
+* The `addinvoice` and `addholdinvoice` commands now support a
+  [`--qr` flag](https://github.com/lightningnetwork/lnd/pull/10638) that renders
+  the payment request as a QR code directly in the terminal, making it easy to
+  scan from a mobile wallet. The implementation uses `rsc.io/qr` with a small
+  local renderer, fixed black-on-white colors, and a terminal-width guard to
+  keep the output reliably scannable.
+
 ## Breaking Changes
 
 * [Increased MinCLTVDelta from 18 to

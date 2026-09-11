@@ -6,6 +6,7 @@ import (
 	"testing"
 
 	"github.com/btcsuite/btcd/btcutil/v2"
+	"github.com/btcsuite/btcd/txscript/v2"
 	"github.com/btcsuite/btcd/wire/v2"
 	"github.com/btcsuite/btcwallet/wallet"
 	"github.com/lightningnetwork/lnd/input"
@@ -435,9 +436,48 @@ func TestCalculateChangeAmount(t *testing.T) {
 		feeNoChange:   10,
 		feeWithChange: 45,
 		dustLimit:     5,
-		maxFeeRatio:   3.14,
+		maxFeeRatio:   -0.1,
 
-		expectErr: "maxFeeRatio must be between 0.00 and 1.00",
+		expectErr: "maxFeeRatio must be between 0.00 and 5.00",
+	}, {
+		// A ratio above the hard ceiling is rejected even as an
+		// explicit opt-in: the ceiling tracks the highest presently
+		// demonstrated requirement (see maxAllowedFeeRatio).
+		name:          "max fee ratio above hard ceiling",
+		totalInputAmt: 100,
+		requiredAmt:   50,
+		feeNoChange:   10,
+		feeWithChange: 45,
+		dustLimit:     5,
+		maxFeeRatio:   5.01,
+
+		expectErr: "maxFeeRatio must be between 0.00 and 5.00",
+	}, {
+		// A ratio above 1.0 is a valid opt-in: sweeps of small
+		// asset-bearing outputs (whose value is mostly carried
+		// off-chain) legitimately pay more in fees than the total
+		// output value.
+		name:          "fee ratio above one",
+		totalInputAmt: 500,
+		requiredAmt:   100,
+		feeNoChange:   150,
+		feeWithChange: 350,
+		dustLimit:     5,
+		maxFeeRatio:   5.0,
+
+		expectChangeAmt: 50,
+	}, {
+		// The same fee profile must be rejected under the default
+		// ratio, proving the opt-in is what allows it.
+		name:          "fee ratio above one requires opt-in",
+		totalInputAmt: 500,
+		requiredAmt:   100,
+		feeNoChange:   150,
+		feeWithChange: 350,
+		dustLimit:     5,
+		maxFeeRatio:   DefaultMaxFeeRatio,
+
+		expectErr: "exceeds max fee",
 	}, {
 		name:          "invalid usage of function",
 		feeNoChange:   5,
@@ -465,6 +505,53 @@ func TestCalculateChangeAmount(t *testing.T) {
 			require.EqualValues(tt, tc.expectNeedMore, needMore)
 		})
 	}
+}
+
+// TestNearDustReAnchorFeeRatio pins down the concrete use case that requires
+// a maxFeeRatio above 1.0: re-anchoring a small asset-bearing output. Asset
+// carrier outputs hold a fixed ~1000 sats of BTC while their real value lives
+// off-chain, so the fee of the transaction that re-creates such an output
+// exceeds the total BTC output value already at moderate fee rates. The test
+// derives the fee from a realistic transaction shape and asserts that the
+// flow is rejected under both the default ratio and a ratio of exactly 1.0,
+// but accepted under the 5.0 ceiling.
+func TestNearDustReAnchorFeeRatio(t *testing.T) {
+	t.Parallel()
+
+	// The BTC value of an asset carrier output (tapd's
+	// tapsend.DummyAmtSats): this is the total output value of the
+	// re-anchor transaction template before the wallet attaches a fee
+	// input.
+	const anchorOutputValue = btcutil.Amount(1_000)
+
+	// The re-anchor transaction spends the asset carrier input plus one
+	// wallet input for fees, and re-creates the carrier output. Both
+	// inputs and the output are P2TR.
+	var est input.TxWeightEstimator
+	est.AddTaprootKeySpendInput(txscript.SigHashDefault)
+	est.AddTaprootKeySpendInput(txscript.SigHashDefault)
+	est.AddP2TROutput()
+
+	// 15 sat/vB is a moderate fee rate, nowhere near a fee spike.
+	feeRate := chainfee.SatPerKVByte(15_000).FeePerKWeight()
+	fee := feeRate.FeeForWeight(est.Weight())
+
+	// The fee alone already exceeds the total output value, so both the
+	// default ratio and a full 1.0 ratio must reject the transaction.
+	require.Greater(t, fee, anchorOutputValue)
+	require.ErrorContains(
+		t, sanityCheckFee(anchorOutputValue, fee, DefaultMaxFeeRatio),
+		"exceeds max fee",
+	)
+	require.ErrorContains(
+		t, sanityCheckFee(anchorOutputValue, fee, 1.0),
+		"exceeds max fee",
+	)
+
+	// The opt-in ceiling of 5.0 covers the flow.
+	require.NoError(t, sanityCheckFee(
+		anchorOutputValue, fee, maxAllowedFeeRatio,
+	))
 }
 
 // TestCoinSelectSubtractFees tests that we pick coins adding up to the

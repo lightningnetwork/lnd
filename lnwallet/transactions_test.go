@@ -1075,3 +1075,75 @@ func createTestChannelsForVectors(tc *testContext, chanType channeldb.ChannelTyp
 
 	return channelRemote, channelLocal
 }
+
+// TestCreateHtlcTxAnchorOutput asserts that the pre-signed second-level HTLC
+// transactions gain a CPFP anchor output (keyed to the broadcaster's delay
+// key) when addAnchor is set, with the anchor's value carved out of the HTLC
+// output, and that the transaction shape is unchanged when addAnchor is not
+// set.
+func TestCreateHtlcTxAnchorOutput(t *testing.T) {
+	t.Parallel()
+
+	chanType := channeldb.SimpleTaprootFeatureBit |
+		channeldb.AnchorOutputsBit |
+		channeldb.ZeroHtlcTxFeeBit |
+		channeldb.SingleFunderTweaklessBit |
+		channeldb.TapscriptRootBit
+
+	revPriv, err := btcec.NewPrivateKey()
+	require.NoError(t, err)
+	delayPriv, err := btcec.NewPrivateKey()
+	require.NoError(t, err)
+	revKey := revPriv.PubKey()
+	delayKey := delayPriv.PubKey()
+
+	op := wire.OutPoint{Index: 1}
+	htlcAmt := btcutil.Amount(100_000)
+	noLeaf := input.NoneTapLeaf()
+
+	assertTxShape := func(tx *wire.MsgTx, withAnchor bool) {
+		t.Helper()
+
+		if !withAnchor {
+			require.Len(t, tx.TxOut, 1)
+			require.EqualValues(t, htlcAmt, tx.TxOut[0].Value)
+
+			return
+		}
+
+		require.Len(t, tx.TxOut, 2)
+
+		// The HTLC output absorbs the anchor's amount.
+		require.EqualValues(
+			t, htlcAmt-AnchorSize, tx.TxOut[0].Value,
+		)
+
+		// The anchor output carries AnchorSize and pays to the
+		// anchor script tree keyed to the broadcaster's delay key.
+		require.EqualValues(t, AnchorSize, tx.TxOut[1].Value)
+
+		anchorTree, err := input.NewAnchorScriptTree(delayKey)
+		require.NoError(t, err)
+		expectedPkScript, err := input.PayToTaprootScript(
+			anchorTree.TaprootKey,
+		)
+		require.NoError(t, err)
+		require.Equal(t, expectedPkScript, tx.TxOut[1].PkScript)
+	}
+
+	for _, withAnchor := range []bool{false, true} {
+		timeoutTx, err := CreateHtlcTimeoutTx(
+			chanType, false, op, htlcAmt, 100, 5, 0, revKey,
+			delayKey, noLeaf, withAnchor,
+		)
+		require.NoError(t, err)
+		assertTxShape(timeoutTx, withAnchor)
+
+		successTx, err := CreateHtlcSuccessTx(
+			chanType, false, op, htlcAmt, 5, 0, revKey, delayKey,
+			noLeaf, withAnchor,
+		)
+		require.NoError(t, err)
+		assertTxShape(successTx, withAnchor)
+	}
+}

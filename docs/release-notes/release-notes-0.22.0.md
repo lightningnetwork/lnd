@@ -51,6 +51,13 @@
 
 ## Functional Enhancements
 
+* Added [opt-in durable recovery metadata](https://github.com/lightningnetwork/lnd/pull/11189)
+  for named local wallet accounts. With
+  `--wallet-account-backup`, address and PSBT funding calls persist both receive
+  and change derivation bounds before returning success. See the
+  [recovery guide](../wallet-account-recovery.md) for enrollment, independent
+  storage requirements and seed restoration.
+
 ## RPC Additions
 
 * The `routerrpc.EstimateRouteFee` RPC now supports [restricting fee estimates

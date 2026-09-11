@@ -127,7 +127,7 @@ func TestRemoteCloseStartTaprootIntegration(t *testing.T) {
 			aliceChan.ChannelPoint(),
 		),
 		ChanType:           chanType,
-		DefaultFeeRate:     chainfee.SatPerVByte(10),
+		DefaultFeeRate:     chainfee.SatPerKWeight(10 * 250),
 		FeeEstimator:       feeEstimator,
 		ChanObserver:       chanObserver,
 		CloseSigner:        closeSigner,

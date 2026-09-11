@@ -110,6 +110,9 @@ type PaymentControl interface {
 // DBMPPayment is an interface that represents the payment state during a
 // payment lifecycle.
 type DBMPPayment interface {
+	// GetSequenceNum returns the payment's unique sequence number.
+	GetSequenceNum() uint64
+
 	// GetState returns the current state of the payment.
 	GetState() *MPPaymentState
 

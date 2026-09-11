@@ -122,7 +122,11 @@ func DefaultDB() *DB {
 			// behavior until the wallet subsystem is upgraded to
 			// a native sql schema.
 			WalletDBWithGlobalLock: true,
-			QueryConfig:            *sqldb.DefaultPostgresConfig(),
+			// Read-write transactions stay at SERIALIZABLE until
+			// the relaxed level has had enough soak time on real
+			// nodes.
+			TxIsolation: sqldb.TxIsolationSerializable,
+			QueryConfig: *sqldb.DefaultPostgresConfig(),
 		},
 		Sqlite: &sqldb.SqliteConfig{
 			MaxConnections: sqldb.DefaultSqliteMaxConns,
@@ -267,9 +271,10 @@ type DatabaseBackends struct {
 // postgres.Config.
 func GetPostgresConfigKVDB(cfg *sqldb.PostgresConfig) *postgres.Config {
 	return &postgres.Config{
-		Dsn:            cfg.Dsn,
-		Timeout:        cfg.Timeout,
-		MaxConnections: cfg.MaxConnections,
+		Dsn:                   cfg.Dsn,
+		Timeout:               cfg.Timeout,
+		MaxConnections:        cfg.MaxConnections,
+		WriteTxRepeatableRead: cfg.WriteTxRepeatableRead(),
 	}
 }
 

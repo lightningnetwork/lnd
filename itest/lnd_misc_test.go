@@ -1651,3 +1651,20 @@ func testEstimateFee(ht *lntest.HarnessTest) {
 		})
 	}
 }
+
+// testMaxNewNodes reproduces the issue where the maximum number of nodes that
+// can be created is limited to 6. Attempting to create a 7th node should result
+// in a hang.
+func testMaxNewNodes(ht *lntest.HarnessTest) {
+	// Create three new nodes.
+	ht.Log("Creating 6 new nodes")
+	ht.NewNode("node-1", nil)
+	ht.NewNode("node-2", nil)
+	ht.NewNode("node-3", nil)
+	ht.NewNode("node-4", nil)
+	ht.NewNode("node-5", nil)
+	ht.NewNode("node-6", nil)
+
+	ht.Log("Attempting to create a 7th node")
+	ht.NewNode("node-7", nil)
+}

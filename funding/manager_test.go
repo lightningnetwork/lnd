@@ -5324,6 +5324,58 @@ func TestFundingManagerRejectMissingChanType(t *testing.T) {
 	assertNumPendingReservations(t, bob, alicePubKey, 0)
 }
 
+// TestFundingManagerRejectInvalidConstraintsClearsReservation verifies that
+// rejecting an OpenChannel after wallet reservation initialization removes the
+// reservation from both the funding manager and wallet.
+func TestFundingManagerRejectInvalidConstraintsClearsReservation(t *testing.T) {
+	t.Parallel()
+
+	alice, bob := setupFundingManagers(t)
+	t.Cleanup(func() {
+		tearDownFundingManagers(t, alice, bob)
+	})
+
+	legacyType := lnwire.ChannelType(*lnwire.NewRawFeatureVector())
+	attempts := lncfg.DefaultMaxPendingChannels + 1
+	var openChannelReq *lnwire.OpenChannel
+	for i := 0; i < attempts; i++ {
+		openChannelReq = &lnwire.OpenChannel{
+			ChainHash:            *fundingNetParams.GenesisHash,
+			PendingChannelID:     [32]byte{byte(i + 1)},
+			FundingAmount:        btcutil.Amount(10_000_000),
+			DustLimit:            btcutil.Amount(1),
+			MaxValueInFlight:     lnwire.MilliSatoshi(100_000_000),
+			ChannelReserve:       btcutil.Amount(10_000),
+			HtlcMinimum:          lnwire.MilliSatoshi(1_000),
+			FeePerKiloWeight:     15_000,
+			CsvDelay:             144,
+			MaxAcceptedHTLCs:     483,
+			FundingKey:           alice.privKey.PubKey(),
+			RevocationPoint:      alice.privKey.PubKey(),
+			PaymentPoint:         alice.privKey.PubKey(),
+			DelayedPaymentPoint:  alice.privKey.PubKey(),
+			HtlcPoint:            alice.privKey.PubKey(),
+			FirstCommitmentPoint: alice.privKey.PubKey(),
+			ChannelType:          &legacyType,
+		}
+
+		bob.fundingMgr.ProcessFundingMsg(openChannelReq, alice)
+		assertFundingMsgSent(t, bob.msgChan, "Error")
+	}
+
+	// Process one final request that fails before wallet initialization. The
+	// funding manager handles messages serially, so receiving this error also
+	// confirms that cancellation for the preceding request has completed.
+	barrierReq := *openChannelReq
+	barrierReq.PendingChannelID = [32]byte{byte(attempts + 1)}
+	barrierReq.ChannelType = nil
+	bob.fundingMgr.ProcessFundingMsg(&barrierReq, alice)
+	assertFundingMsgSent(t, bob.msgChan, "Error")
+
+	assertNumPendingReservations(t, bob, alicePubKey, 0)
+	require.Empty(t, bob.fundingMgr.cfg.Wallet.ActiveReservations())
+}
+
 // TestFundingManagerAcceptChanType verifies that the fundee accepts an
 // OpenChannel message that includes the ChannelType field and echoes it back
 // in AcceptChannel, even when neither peer advertises the explicit channel

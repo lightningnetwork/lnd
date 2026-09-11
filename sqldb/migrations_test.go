@@ -6,6 +6,7 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/golang-migrate/migrate/v4"
 	"github.com/golang-migrate/migrate/v4/database"
@@ -722,4 +723,53 @@ func TestMigrationConfigConsistency(t *testing.T) {
 			m.Name, m.Version, i+1)
 	}
 
+}
+
+// TestPostgresMigrationSmallConnPool is a regression test for
+// https://github.com/lightningnetwork/lnd/issues/11007. Applying all migrations
+// to a fresh Postgres database with a connection pool smaller than the number
+// of migrations must not deadlock. Previously each migration created its own
+// migrate driver, and every driver reserved a dedicated pool connection that
+// was never released, so a small pool was exhausted mid-startup and the
+// migration-tracker transaction blocked forever with no timeout or error.
+func TestPostgresMigrationSmallConnPool(t *testing.T) {
+	t.Parallel()
+
+	ctxb := t.Context()
+
+	fixture := NewTestPgFixture(t, DefaultPostgresFixtureLifetime)
+	t.Cleanup(func() {
+		fixture.TearDown(t)
+	})
+
+	dbName := randomDBName(t)
+	_, err := fixture.db.ExecContext(ctxb, "CREATE DATABASE "+dbName)
+	require.NoError(t, err)
+
+	// Cap the client pool well below the number of migrations so the old
+	// per-migration driver leak would exhaust it before the run completes.
+	cfg := fixture.GetConfig(dbName)
+	cfg.MaxConnections = 2
+
+	store, err := NewPostgresStore(cfg)
+	require.NoError(t, err)
+	t.Cleanup(func() {
+		require.NoError(t, store.DB.Close())
+	})
+
+	// ApplyAllMigrations blocks forever when the pool is exhausted, so run
+	// it under a deadline instead of hanging the whole test binary.
+	done := make(chan error, 1)
+	go func() {
+		done <- store.ApplyAllMigrations(ctxb, GetMigrations())
+	}()
+
+	select {
+	case err := <-done:
+		require.NoError(t, err)
+
+	case <-time.After(time.Minute):
+		t.Fatal("migrations deadlocked with a small connection pool " +
+			"(issue #11007)")
+	}
 }

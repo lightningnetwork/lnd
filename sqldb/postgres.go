@@ -9,6 +9,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/golang-migrate/migrate/v4/database"
 	pgx_migrate "github.com/golang-migrate/migrate/v4/database/pgx/v5"
 	_ "github.com/golang-migrate/migrate/v4/source/file" // Read migrations from files. // nolint:ll
 	_ "github.com/jackc/pgx/v5"
@@ -158,15 +159,93 @@ func (s *PostgresStore) ApplyAllMigrations(ctx context.Context,
 		return nil
 	}
 
-	return ApplyMigrations(ctx, s.BaseDB, s, migrations)
+	dbName, err := getDatabaseNameFromDSN(s.cfg.Dsn)
+	if err != nil {
+		return err
+	}
+
+	// Reuse a single migrate driver for every migration step. Creating
+	// one per step (as the per-call methods below do) reserves a pool
+	// connection each, so a small pool is exhausted and the
+	// migration-tracker transaction deadlocks with no timeout or error.
+	// See https://github.com/lightningnetwork/lnd/issues/11007.
+	//
+	// The driver runs on its own database handle, not the store's pool, and
+	// is closed once migrations finish. Its Close closes both the reserved
+	// connection and this handle, so nothing stays reserved on the store's
+	// pool afterwards, not even when there is nothing to migrate.
+	migrateDB, err := sql.Open("pgx", s.cfg.Dsn)
+	if err != nil {
+		return err
+	}
+
+	driver, err := pgx_migrate.WithInstance(
+		migrateDB, &pgx_migrate.Config{},
+	)
+	if err != nil {
+		if cerr := migrateDB.Close(); cerr != nil {
+			log.Errorf("Error closing migration db: %v", cerr)
+		}
+
+		return errPostgresMigration(err)
+	}
+	defer func() {
+		if cerr := driver.Close(); cerr != nil {
+			log.Errorf("Error closing migration driver: %v", cerr)
+		}
+	}()
+
+	executor := &postgresMigrationExecutor{
+		driver: driver,
+		dbName: dbName,
+	}
+
+	return ApplyMigrations(ctx, s.BaseDB, executor, migrations)
 }
 
 func errPostgresMigration(err error) error {
 	return fmt.Errorf("error creating postgres migration: %w", err)
 }
 
+// postgresMigrationExecutor implements MigrationExecutor with a single reusable
+// migrate driver, so all migration steps share one pool connection instead of
+// each reserving (and leaking) its own.
+type postgresMigrationExecutor struct {
+	driver database.Driver
+	dbName string
+}
+
+var _ MigrationExecutor = (*postgresMigrationExecutor)(nil)
+
+// ExecuteMigrations runs the migrations up to the given target using the shared
+// driver.
+func (p *postgresMigrationExecutor) ExecuteMigrations(
+	target MigrationTarget) error {
+
+	postgresFS := newReplacerFS(sqlSchemas, postgresSchemaReplacements)
+	return applyMigrations(
+		postgresFS, p.driver, "sqlc/migrations", p.dbName, target,
+	)
+}
+
+// GetSchemaVersion returns the current schema version using the shared driver.
+func (p *postgresMigrationExecutor) GetSchemaVersion() (int, bool, error) {
+	return p.driver.Version()
+}
+
+// SetSchemaVersion sets the schema version using the shared driver.
+func (p *postgresMigrationExecutor) SetSchemaVersion(version int,
+	dirty bool) error {
+
+	return p.driver.SetVersion(version, dirty)
+}
+
 // ExecuteMigrations runs migrations for the Postgres database, depending on the
 // target given, either all migrations or up to a given version.
+//
+// NOTE: This builds a fresh driver that holds a pool connection until the store
+// is closed. Do not call it in a loop across many schema versions, or the pool
+// is exhausted; ApplyAllMigrations reuses a single driver for that. See #11007.
 func (s *PostgresStore) ExecuteMigrations(target MigrationTarget) error {
 	dbName, err := getDatabaseNameFromDSN(s.cfg.Dsn)
 	if err != nil {

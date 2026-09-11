@@ -30,7 +30,7 @@ func TestMerkleRootVectors(t *testing.T) {
 				// Decode the bech32 string to get TLV bytes,
 				// then convert into the record view merkleRoot
 				// consumes.
-				_, tlvBytes, err := Decode(tc.Bolt12)
+				_, tlvBytes, err := decodeBech32(tc.Bolt12)
 				require.NoError(t, err)
 
 				records = streamToRecords(t, tlvBytes)

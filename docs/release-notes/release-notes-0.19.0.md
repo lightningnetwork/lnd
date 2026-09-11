@@ -131,6 +131,9 @@ when running LND with an aux component injected (custom channels).
 * [Fix a bug](https://github.com/lightningnetwork/lnd/pull/9798) that could
   result in a new topology client missing a channel-close notifications. 
 
+* [Fixed a possible crash of htlcswitch upon shutdown](https://github.com/lightningnetwork/lnd/pull/9140)
+    caused by a race condition in goroutines tracking mechanism.
+
 # New Features
 
 * Add support for [archiving channel backup](https://github.com/lightningnetwork/lnd/pull/9232)

@@ -594,6 +594,20 @@ type AuxDataParser interface {
 	InlineParseCustomData(msg proto.Message) error
 }
 
+type describeGraphCacheKey struct {
+	includeUnannounced bool
+	includeAuthProof   bool
+}
+
+func newDescribeGraphCacheKey(
+	req *lnrpc.ChannelGraphRequest) describeGraphCacheKey {
+
+	return describeGraphCacheKey{
+		includeUnannounced: req.IncludeUnannounced,
+		includeAuthProof:   req.IncludeAuthProof,
+	}
+}
+
 // rpcServer is a gRPC, RPC front end to the lnd daemon.
 // TODO(roasbeef): pagination support for the list-style calls
 type rpcServer struct {
@@ -644,9 +658,9 @@ type rpcServer struct {
 	// interceptor is used to be able to request a shutdown
 	interceptor signal.Interceptor
 
-	graphCache        sync.RWMutex
-	describeGraphResp *lnrpc.ChannelGraph
-	graphCacheEvictor *time.Timer
+	graphCache             sync.RWMutex
+	describeGraphRespCache map[describeGraphCacheKey]*lnrpc.ChannelGraph
+	graphCacheEvictor      *time.Timer
 }
 
 // A compile time check to ensure that rpcServer fully implements the
@@ -890,7 +904,7 @@ func (r *rpcServer) addDeps(ctx context.Context, s *server,
 				// cache.
 				case <-r.graphCacheEvictor.C:
 					r.graphCache.Lock()
-					r.describeGraphResp = nil
+					r.describeGraphRespCache = nil
 					r.graphCache.Unlock()
 
 					// Reset the timer so we'll fire
@@ -6213,6 +6227,7 @@ func (r *rpcServer) DescribeGraph(ctx context.Context,
 
 	resp := &lnrpc.ChannelGraph{}
 	includeUnannounced := req.IncludeUnannounced
+	cacheKey := newDescribeGraphCacheKey(req)
 
 	// Check to see if the cache is already populated, if so then we can
 	// just return it directly.
@@ -6223,8 +6238,8 @@ func (r *rpcServer) DescribeGraph(ctx context.Context,
 		r.graphCache.Lock()
 		defer r.graphCache.Unlock()
 
-		if r.describeGraphResp != nil {
-			return r.describeGraphResp, nil
+		if cachedResp := r.describeGraphRespCache[cacheKey]; cachedResp != nil {
+			return cachedResp, nil
 		}
 	}
 
@@ -6279,7 +6294,13 @@ func (r *rpcServer) DescribeGraph(ctx context.Context,
 	// now to save on GC churn for this query, but only if the cache isn't
 	// disabled.
 	if graphCacheActive {
-		r.describeGraphResp = resp
+		if r.describeGraphRespCache == nil {
+			r.describeGraphRespCache = make(
+				map[describeGraphCacheKey]*lnrpc.ChannelGraph,
+			)
+		}
+
+		r.describeGraphRespCache[cacheKey] = resp
 	}
 
 	return resp, nil

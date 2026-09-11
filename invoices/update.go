@@ -263,6 +263,21 @@ func updateMpp(ctx *invoiceUpdateCtx, inv *Invoice) (*InvoiceUpdateDesc,
 		return nil, ctx.failRes(ResultAddressMismatch), nil
 	}
 
+	// For AMP invoices, even if the parent invoice is still open, the
+	// specific sub-invoice identified by setID may already be in a
+	// terminal state. Reject new HTLCs for a terminal AMP sub-invoice
+	// immediately.
+	if setID != nil {
+		if ampState, ok := inv.AMPState[SetID(*setID)]; ok {
+			switch ampState.State {
+			case HtlcStateCanceled:
+				return nil, ctx.failRes(ResultInvoiceAlreadyCanceled), nil
+			case HtlcStateSettled:
+				return nil, ctx.failRes(ResultInvoiceAlreadySettled), nil
+			}
+		}
+	}
+
 	// Don't accept zero-valued sets.
 	if totalAmt == 0 {
 		return nil, ctx.failRes(ResultHtlcSetTotalTooLow), nil

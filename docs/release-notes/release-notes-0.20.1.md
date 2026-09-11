@@ -115,10 +115,19 @@
    for conservative budgeting and includes griefing protection by limiting the
    number of probed LSPs. It enhances the previous LSP design by being more
    generic and more flexible.
+ 
+ * The `listchannels` RPC now [exposes the actual 
+   spendable balance](https://github.com/lightningnetwork/lnd/pull/10624)
+    by adding `local_spendable_msat` and `remote_spendable_msat` fields. 
+    This provides users with a precise view of their actionable liquidity by 
+    correctly accounting for channel reserves and funds currently tied up in 
+    in-flight HTLCs.
 
 ## lncli Updates
 
 ## Breaking Changes
+
+* The `RemoteBandwidth` method has been added to the `ChannelUpdateHandler` and `ChannelLink` interfaces in the `htlcswitch` package.
 
 ## Performance Improvements
 

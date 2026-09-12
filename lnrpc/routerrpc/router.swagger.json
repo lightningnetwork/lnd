@@ -1557,7 +1557,7 @@
         "incoming_amount_msat": {
           "type": "string",
           "format": "uint64",
-          "description": "The incoming htlc amount."
+          "description": "The incoming htlc amount. This is the amount the incoming peer actually\ncommitted to on the channel and is the only amount that can be trusted\nwhen deciding how to resolve the HTLC."
         },
         "incoming_expiry": {
           "type": "integer",
@@ -1577,7 +1577,7 @@
         "outgoing_amount_msat": {
           "type": "string",
           "format": "uint64",
-          "description": "The outgoing htlc amount."
+          "description": "The outgoing htlc amount. NOTE: this is the amount the sender requested\nin the onion payload (amt_to_forward). It has NOT been validated against\nincoming_amount_msat or the forwarding policy of the outgoing channel\nyet. That validation only happens if the HTLC is resumed; a SETTLE\nresponse skips it entirely. An interceptor that settles or otherwise\naccounts for the HTLC must treat this value as untrusted sender input and\nrely on incoming_amount_msat instead."
         },
         "outgoing_expiry": {
           "type": "integer",
@@ -1645,7 +1645,7 @@
         "in_amount_msat": {
           "type": "string",
           "format": "uint64",
-          "description": "The amount that was set on the p2p wire message of the incoming HTLC.\nThis field is ignored if the action is not RESUME_MODIFIED or the amount\nis zero."
+          "description": "The amount that was set on the p2p wire message of the incoming HTLC.\nThis field is ignored if the action is not RESUME_MODIFIED or the amount\nis zero. If set, this value replaces the real incoming amount in the\nforwarding policy check (incoming >= outgoing + fee) but does not change\nthe amount the incoming peer committed to. Setting it higher than\nincoming_amount_msat allows forwarding more than is received, so the\ninterceptor is responsible for the resulting accounting."
         },
         "out_amount_msat": {
           "type": "string",

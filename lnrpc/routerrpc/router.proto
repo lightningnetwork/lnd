@@ -917,7 +917,9 @@ message ForwardHtlcInterceptRequest {
     */
     CircuitKey incoming_circuit_key = 1;
 
-    // The incoming htlc amount.
+    // The incoming htlc amount. This is the amount the incoming peer actually
+    // committed to on the channel and is the only amount that can be trusted
+    // when deciding how to resolve the HTLC.
     uint64 incoming_amount_msat = 5;
 
     // The incoming htlc expiry.
@@ -936,7 +938,13 @@ message ForwardHtlcInterceptRequest {
     // if the outgoing_requested_node_id is specified for blinded routes.
     uint64 outgoing_requested_chan_id = 7;
 
-    // The outgoing htlc amount.
+    // The outgoing htlc amount. NOTE: this is the amount the sender requested
+    // in the onion payload (amt_to_forward). It has NOT been validated against
+    // incoming_amount_msat or the forwarding policy of the outgoing channel
+    // yet. That validation only happens if the HTLC is resumed; a SETTLE
+    // response skips it entirely. An interceptor that settles or otherwise
+    // accounts for the HTLC must treat this value as untrusted sender input and
+    // rely on incoming_amount_msat instead.
     uint64 outgoing_amount_msat = 3;
 
     // The outgoing htlc expiry.
@@ -1017,7 +1025,11 @@ message ForwardHtlcInterceptResponse {
 
     // The amount that was set on the p2p wire message of the incoming HTLC.
     // This field is ignored if the action is not RESUME_MODIFIED or the amount
-    // is zero.
+    // is zero. If set, this value replaces the real incoming amount in the
+    // forwarding policy check (incoming >= outgoing + fee) but does not change
+    // the amount the incoming peer committed to. Setting it higher than
+    // incoming_amount_msat allows forwarding more than is received, so the
+    // interceptor is responsible for the resulting accounting.
     uint64 in_amount_msat = 6;
 
     // The amount to set on the p2p wire message of the resumed HTLC. This field

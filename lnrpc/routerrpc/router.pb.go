@@ -2817,7 +2817,9 @@ type ForwardHtlcInterceptRequest struct {
 	// idempotently. Requests may be replayed after reconnect, and an htlc that was
 	// previously offered off-chain may be offered again after it moves on-chain.
 	IncomingCircuitKey *CircuitKey `protobuf:"bytes,1,opt,name=incoming_circuit_key,json=incomingCircuitKey,proto3" json:"incoming_circuit_key,omitempty"`
-	// The incoming htlc amount.
+	// The incoming htlc amount. This is the amount the incoming peer actually
+	// committed to on the channel and is the only amount that can be trusted
+	// when deciding how to resolve the HTLC.
 	IncomingAmountMsat uint64 `protobuf:"varint,5,opt,name=incoming_amount_msat,json=incomingAmountMsat,proto3" json:"incoming_amount_msat,omitempty"`
 	// The incoming htlc expiry.
 	IncomingExpiry uint32 `protobuf:"varint,6,opt,name=incoming_expiry,json=incomingExpiry,proto3" json:"incoming_expiry,omitempty"`
@@ -2830,7 +2832,13 @@ type ForwardHtlcInterceptRequest struct {
 	// may be selected as well. This is set to a sentinel value (all bits set)
 	// if the outgoing_requested_node_id is specified for blinded routes.
 	OutgoingRequestedChanId uint64 `protobuf:"varint,7,opt,name=outgoing_requested_chan_id,json=outgoingRequestedChanId,proto3" json:"outgoing_requested_chan_id,omitempty"`
-	// The outgoing htlc amount.
+	// The outgoing htlc amount. NOTE: this is the amount the sender requested
+	// in the onion payload (amt_to_forward). It has NOT been validated against
+	// incoming_amount_msat or the forwarding policy of the outgoing channel
+	// yet. That validation only happens if the HTLC is resumed; a SETTLE
+	// response skips it entirely. An interceptor that settles or otherwise
+	// accounts for the HTLC must treat this value as untrusted sender input and
+	// rely on incoming_amount_msat instead.
 	OutgoingAmountMsat uint64 `protobuf:"varint,3,opt,name=outgoing_amount_msat,json=outgoingAmountMsat,proto3" json:"outgoing_amount_msat,omitempty"`
 	// The outgoing htlc expiry.
 	OutgoingExpiry uint32 `protobuf:"varint,4,opt,name=outgoing_expiry,json=outgoingExpiry,proto3" json:"outgoing_expiry,omitempty"`
@@ -3016,7 +3024,11 @@ type ForwardHtlcInterceptResponse struct {
 	FailureCode lnrpc.Failure_FailureCode `protobuf:"varint,5,opt,name=failure_code,json=failureCode,proto3,enum=lnrpc.Failure_FailureCode" json:"failure_code,omitempty"`
 	// The amount that was set on the p2p wire message of the incoming HTLC.
 	// This field is ignored if the action is not RESUME_MODIFIED or the amount
-	// is zero.
+	// is zero. If set, this value replaces the real incoming amount in the
+	// forwarding policy check (incoming >= outgoing + fee) but does not change
+	// the amount the incoming peer committed to. Setting it higher than
+	// incoming_amount_msat allows forwarding more than is received, so the
+	// interceptor is responsible for the resulting accounting.
 	InAmountMsat uint64 `protobuf:"varint,6,opt,name=in_amount_msat,json=inAmountMsat,proto3" json:"in_amount_msat,omitempty"`
 	// The amount to set on the p2p wire message of the resumed HTLC. This field
 	// is ignored if the action is not RESUME_MODIFIED or the amount is zero.

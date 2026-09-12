@@ -1486,7 +1486,7 @@
         "incoming_amount_msat": {
           "type": "string",
           "format": "uint64",
-          "description": "The incoming htlc amount."
+          "description": "The incoming htlc amount. This is the amount the incoming peer actually\ncommitted to on the channel and is the only amount that can be trusted\nwhen deciding how to resolve the HTLC."
         },
         "incoming_expiry": {
           "type": "integer",
@@ -1506,7 +1506,7 @@
         "outgoing_amount_msat": {
           "type": "string",
           "format": "uint64",
-          "description": "The outgoing htlc amount."
+          "description": "The outgoing htlc amount. NOTE: this is the amount the sender requested\nin the onion payload (amt_to_forward). It has NOT been validated against\nincoming_amount_msat or the forwarding policy of the outgoing channel\nyet. That validation only happens if the HTLC is resumed; a SETTLE\nresponse skips it entirely. An interceptor that settles or otherwise\naccounts for the HTLC must treat this value as untrusted sender input and\nrely on incoming_amount_msat instead."
         },
         "outgoing_expiry": {
           "type": "integer",
@@ -1574,7 +1574,7 @@
         "in_amount_msat": {
           "type": "string",
           "format": "uint64",
-          "description": "The amount that was set on the p2p wire message of the incoming HTLC.\nThis field is ignored if the action is not RESUME_MODIFIED or the amount\nis zero."
+          "description": "The amount to use in place of the actual incoming HTLC amount when\nresuming with RESUME_MODIFIED. This does not change the amount committed\nby the incoming peer. The override is used for forwarding validation\n(effective incoming - outgoing \u003e= outbound fee + inbound fee), incoming\ndust exposure, and forwarding-history accounting. A value of zero leaves\nthe actual incoming amount unchanged."
         },
         "out_amount_msat": {
           "type": "string",

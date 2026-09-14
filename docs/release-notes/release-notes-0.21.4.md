@@ -21,6 +21,11 @@
 
 # Bug Fixes
 
+* [Fixed native SQL graph migration](https://github.com/lightningnetwork/lnd/pull/11179)
+  failing with `unable to decode features: EOF` for legacy channel records
+  with empty features. The migration now uses the regular graph reader's
+  existing feature-format compatibility handling.
+
 # New Features
 
 ## Functional Enhancements
@@ -60,3 +65,6 @@
 ## Tooling and Documentation
 
 # Contributors (Alphabetical Order)
+
+* Olaoluwa Osuntokun
+* Ziggie

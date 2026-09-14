@@ -65,11 +65,12 @@ type ChannelUpdate2 struct {
 
 	// FeeBaseMsat is the base fee that must be used for incoming HTLC's to
 	// this particular channel. This value will be tacked onto the required
-	// for a payment independent of the size of the payment.
+	// for a payment independent of the size of the payment. The wire value
+	// uses truncated uint32 encoding.
 	FeeBaseMsat tlv.RecordT[tlv.TlvType16, uint32]
 
 	// FeeProportionalMillionths is the fee rate that will be charged per
-	// millionth of a satoshi.
+	// millionth of a satoshi, encoded as a truncated uint32.
 	FeeProportionalMillionths tlv.RecordT[tlv.TlvType18, uint32]
 
 	// InboundFeeBaseMsat is the base fee (in millisatoshis) added by this
@@ -125,8 +126,8 @@ func (c *ChannelUpdate2) Decode(r io.Reader, _ uint32) error {
 	typeMap, err := tlvRecords.ExtractRecords(
 		&chainHash, &c.ShortChannelID, &c.BlockHeight, &c.DisabledFlags,
 		&c.CLTVExpiryDelta, &c.HTLCMinimumMsat,
-		&c.HTLCMaximumMsat, &c.FeeBaseMsat,
-		&c.FeeProportionalMillionths,
+		&c.HTLCMaximumMsat, truncatedUint32Record(&c.FeeBaseMsat),
+		truncatedUint32Record(&c.FeeProportionalMillionths),
 		truncatedUint32Record(&c.InboundFeeBaseMsat),
 		truncatedUint32Record(&c.InboundFeeProportionalMillionths),
 		&c.Signature,
@@ -228,12 +229,15 @@ func (c *ChannelUpdate2) AllRecords() []tlv.Record {
 	recordProducers = append(recordProducers, &c.HTLCMaximumMsat)
 
 	if c.FeeBaseMsat.Val != defaultFeeBaseMsat {
-		recordProducers = append(recordProducers, &c.FeeBaseMsat)
+		recordProducers = append(
+			recordProducers, truncatedUint32Record(&c.FeeBaseMsat),
+		)
 	}
 
 	if c.FeeProportionalMillionths.Val != defaultFeeProportionalMillionths {
 		recordProducers = append(
-			recordProducers, &c.FeeProportionalMillionths,
+			recordProducers,
+			truncatedUint32Record(&c.FeeProportionalMillionths),
 		)
 	}
 

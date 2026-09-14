@@ -113,7 +113,8 @@ type RouterClient interface {
 	// peer via any message.
 	XDeleteLocalChanAliases(ctx context.Context, in *DeleteAliasesRequest, opts ...grpc.CallOption) (*DeleteAliasesResponse, error)
 	// XFindBaseLocalChanAlias is an experimental API that looks up the base scid
-	// for a local chan alias that was registered during the current runtime.
+	// for a local chan alias. This includes persistent aliases that were added in
+	// previous runtimes.
 	XFindBaseLocalChanAlias(ctx context.Context, in *FindBaseAliasRequest, opts ...grpc.CallOption) (*FindBaseAliasResponse, error)
 	// lncli: `deletefwdhistory`
 	// DeleteForwardingHistory allows the caller to delete forwarding history
@@ -517,7 +518,8 @@ type RouterServer interface {
 	// peer via any message.
 	XDeleteLocalChanAliases(context.Context, *DeleteAliasesRequest) (*DeleteAliasesResponse, error)
 	// XFindBaseLocalChanAlias is an experimental API that looks up the base scid
-	// for a local chan alias that was registered during the current runtime.
+	// for a local chan alias. This includes persistent aliases that were added in
+	// previous runtimes.
 	XFindBaseLocalChanAlias(context.Context, *FindBaseAliasRequest) (*FindBaseAliasResponse, error)
 	// lncli: `deletefwdhistory`
 	// DeleteForwardingHistory allows the caller to delete forwarding history

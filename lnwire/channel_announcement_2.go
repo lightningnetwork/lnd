@@ -116,8 +116,8 @@ func (c *ChannelAnnouncement2) nonSignatureRecordProducers() []tlv.RecordProduce
 	)
 
 	recordProducers = append(recordProducers,
-		&c.ShortChannelID, &c.Capacity, &c.NodeID1,
-		&c.NodeID2,
+		&c.ShortChannelID, truncatedUint64Record(&c.Capacity),
+		&c.NodeID1, &c.NodeID2,
 	)
 
 	c.BitcoinKey1.WhenSome(func(key tlv.RecordT[tlv.TlvType12, [33]byte]) {
@@ -158,7 +158,7 @@ func (c *ChannelAnnouncement2) Decode(r io.Reader, _ uint32) error {
 		&chainHash,
 		&features,
 		&c.ShortChannelID,
-		&c.Capacity,
+		truncatedUint64Record(&c.Capacity),
 		&c.NodeID1,
 		&c.NodeID2,
 		&btcKey1,
@@ -229,7 +229,7 @@ func (c *ChannelAnnouncement2) DecodeNonSigTLVRecords(r io.Reader) error {
 		&chainHash,
 		&features,
 		&c.ShortChannelID,
-		&c.Capacity,
+		truncatedUint64Record(&c.Capacity),
 		&c.NodeID1,
 		&c.NodeID2,
 		&btcKey1,

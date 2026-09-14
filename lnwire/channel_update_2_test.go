@@ -47,7 +47,7 @@ func TestChanUpdate2FeeEncoding(t *testing.T) {
 			wantErr: true,
 		},
 	}
-	for _, typ := range []uint64{20, 22} {
+	for _, typ := range []uint64{16, 18, 20, 22} {
 		for _, test := range tests {
 			name := fmt.Sprintf("%d/%s", typ, test.name)
 			t.Run(name, func(t *testing.T) {
@@ -160,24 +160,24 @@ func TestChanUpdate2EncodeDecode(t *testing.T) {
 		0x0, 0x10, // value.
 
 		// HTLCMinimumMsat record.
-		0xc,                        // type.
-		0x5,                        // length.
-		0xfe, 0x0, 0xf, 0x42, 0x40, // value (BigSize: 1_000_000).
+		0xc,             // type.
+		0x3,             // length.
+		0xf, 0x42, 0x40, // value (tu64: 1_000_000).
 
 		// HTLCMaximumMsat record.
-		0xe,                        // type.
-		0x5,                        // length.
-		0xfe, 0x0, 0xf, 0x42, 0x40, // value (BigSize: 1_000_000).
+		0xe,             // type.
+		0x3,             // length.
+		0xf, 0x42, 0x40, // value (tu64: 1_000_000).
 
 		// FeeBaseMsat record.
-		0x10,               // type.
-		0x4,                // length.
-		0x0, 0x0, 0x1, 0x0, // value.
+		0x10,     // type.
+		0x2,      // length.
+		0x1, 0x0, // value.
 
 		// FeeProportionalMillionths record.
-		0x12,               // type.
-		0x4,                // length.
-		0x0, 0x0, 0x1, 0x0, // value.
+		0x12,     // type.
+		0x2,      // length.
+		0x1, 0x0, // value.
 
 		// InboundFeeBaseMsat record.
 		0x14, // type.

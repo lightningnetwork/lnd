@@ -305,6 +305,49 @@ func truncatedUint32Record[T tlv.TlvType](
 	return &record
 }
 
+// truncatedUint64Record preserves a typed record's value and type while using
+// BOLT's tu64 encoding, which omits leading zero bytes. It accepts any type
+// whose underlying type is uint64, such as MilliSatoshi, because the tlv
+// codecs only take a plain *uint64.
+func truncatedUint64Record[T tlv.TlvType, V ~uint64](
+	value *tlv.RecordT[T, V]) *tlv.Record {
+
+	record := tlv.MakeDynamicRecord(
+		value.TlvType(), &value.Val,
+		func() uint64 {
+			return tlv.SizeTUint64(uint64(value.Val))
+		},
+		func(w io.Writer, val interface{}, buf *[8]byte) error {
+			v, ok := val.(*V)
+			if !ok {
+				return tlv.NewTypeForEncodingErr(val, "tu64")
+			}
+
+			return tlv.ETUint64T(w, uint64(*v), buf)
+		},
+		func(r io.Reader, val interface{}, buf *[8]byte,
+			l uint64) error {
+
+			v, ok := val.(*V)
+			if !ok {
+				return tlv.NewTypeForDecodingErr(
+					val, "tu64", l, 8,
+				)
+			}
+
+			var x uint64
+			if err := tlv.DTUint64(r, &x, buf, l); err != nil {
+				return err
+			}
+			*v = V(x)
+
+			return nil
+		},
+	)
+
+	return &record
+}
+
 // AssertUniqueTypes asserts that the given records have unique types.
 func AssertUniqueTypes(r []tlv.Record) error {
 	seen := make(fn.Set[tlv.Type], len(r))

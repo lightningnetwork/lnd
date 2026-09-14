@@ -40,9 +40,9 @@ func TestChanAnn2EncodeDecode(t *testing.T) {
 		0xab, 0xcd, // value.
 
 		// Capacity record.
-		0x06,                                     // type.
-		0x08,                                     // length.
-		0x0, 0x0, 0x0, 0x0, 0x0, 0x1, 0x86, 0xa0, // value: 100000.
+		0x06,            // type.
+		0x03,            // length.
+		0x1, 0x86, 0xa0, // value (tu64: 100000).
 
 		// NodeID1 record.
 		0x08, // type.

@@ -28,6 +28,11 @@
   current historical sync. The sync manager selects another peer without
   disconnecting the first one or waiting for the historical sync interval.
 
+* The [`XFindBaseLocalChanAlias`
+  RPC](https://github.com/lightningnetwork/lnd/pull/10411) was missing from the
+  router macaroon permission map and was rejected by the rpc interceptor. It
+  now requires the `offchain:read` permission.
+
 * Bitcoind outbound peer health checks [now use](https://github.com/lightningnetwork/lnd/pull/10686)
   `getnetworkinfo.connections_out` instead of `getpeerinfo`. The same PR also
   [clarifies](https://github.com/lightningnetwork/lnd/issues/10568) the ZMQ
@@ -56,6 +61,16 @@
 # New Features
 
 ## Functional Enhancements
+
+* Aliases that are added via the `XAddLocalChanAliases` RPC will now be
+  [persisted on restart](https://github.com/lightningnetwork/lnd/pull/10411)
+  and will be reloaded even for confirmed channels. The only way to delete an
+  alias added via the RPC is by calling the `XDeleteLocalChanAliases` RPC
+  endpoint. Channel closure does not remove these mappings, callers must
+  delete them explicitly. Aliases stored before this change remain
+  non-persistent, including ones added via the RPC. Since re-adding an
+  existing alias is rejected, such an alias has to be deleted and added again
+  to become persistent.
 
 ## RPC Additions
 
@@ -186,4 +201,5 @@
 * bitromortac
 * Boris Nagaev
 * Erick Cestari
+* George Tsagkarelis
 * Jared Tobin

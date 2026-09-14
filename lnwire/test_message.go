@@ -576,17 +576,23 @@ func (c *ChannelUpdate2) RandTestMessage(t *rapid.T) Message {
 	var chainHashObj chainhash.Hash
 	copy(chainHashObj[:], chainHash[:])
 
-	isSecondPeer := rapid.Bool().Draw(t, "isSecondPeer")
-	sciddir := NewSciddir(shortChanID, isSecondPeer)
+	var direction byte
+	if rapid.Bool().Draw(t, "isSecondPeer") {
+		direction = 1
+	}
+	sciddir, err := NewSciddirIntroFromSCID(direction, shortChanID)
+	if err != nil {
+		t.Fatalf("unable to build sciddir: %v", err)
+	}
+	scidRecord := tlv.ZeroRecordT[tlv.TlvType2, SciddirIntro]()
+	scidRecord.Val = sciddir
 
 	//nolint:ll
 	msg := &ChannelUpdate2{
 		ChainHash: tlv.NewPrimitiveRecord[tlv.TlvType0, chainhash.Hash](
 			chainHashObj,
 		),
-		ShortChannelID: tlv.NewRecordT[tlv.TlvType2, Sciddir](
-			sciddir,
-		),
+		ShortChannelID: scidRecord,
 		BlockHeight: tlv.NewPrimitiveRecord[tlv.TlvType4, uint32](
 			blockHeight,
 		),

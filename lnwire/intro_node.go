@@ -2,10 +2,12 @@ package lnwire
 
 import (
 	"bytes"
+	"encoding/binary"
 	"fmt"
 	"io"
 
 	"github.com/btcsuite/btcd/btcec/v2"
+	"github.com/lightningnetwork/lnd/tlv"
 )
 
 // IntroductionNode is the sealed sum-type for a blinded path's introduction
@@ -178,4 +180,89 @@ func (s SciddirIntro) Bytes() []byte {
 	_ = s.encode(&buf)
 
 	return buf.Bytes()
+}
+
+// NewSciddirIntroFromSCID builds the sciddir variant from a ShortChannelID.
+// The direction must be 0 for node_id_1 or 1 for node_id_2.
+func NewSciddirIntroFromSCID(direction byte,
+	scid ShortChannelID) (SciddirIntro, error) {
+
+	var b [scidLen]byte
+	binary.BigEndian.PutUint64(b[:], scid.ToUint64())
+
+	return NewSciddirIntro(direction, b)
+}
+
+// ShortChannelID returns the short channel ID that the sciddir refers to.
+func (s SciddirIntro) ShortChannelID() ShortChannelID {
+	return NewShortChanIDFromInt(binary.BigEndian.Uint64(s.SCID[:]))
+}
+
+// sciddirRecord returns a TLV record for a field that the spec types as
+// sciddir_or_pubkey but constrains to the sciddir form, such as the
+// short_channel_id of channel_update_2. It keeps the typed record's type
+// number and rejects the pubkey form. It is a function rather than a method,
+// because the methods of SciddirIntro use value receivers.
+func sciddirRecord[T tlv.TlvType](
+	r *tlv.RecordT[T, SciddirIntro]) *tlv.Record {
+
+	record := tlv.MakeStaticRecord(
+		r.TlvType(), &r.Val, sciddirLen, sciddirIntroEncoder,
+		sciddirIntroDecoder,
+	)
+
+	return &record
+}
+
+// sciddirIntroEncoder encodes the 9-byte sciddir form.
+func sciddirIntroEncoder(w io.Writer, val interface{}, _ *[8]byte) error {
+	v, ok := val.(*SciddirIntro)
+	if !ok {
+		return tlv.NewTypeForEncodingErr(val, "lnwire.SciddirIntro")
+	}
+
+	if v.Direction > 1 {
+		return fmt.Errorf("sciddir direction byte must be 0 or 1, "+
+			"got %d", v.Direction)
+	}
+
+	return v.encode(w)
+}
+
+// sciddirIntroDecoder decodes the sciddir form and rejects the pubkey form of
+// sciddir_or_pubkey.
+func sciddirIntroDecoder(r io.Reader, val interface{}, _ *[8]byte,
+	l uint64) error {
+
+	v, ok := val.(*SciddirIntro)
+	if !ok {
+		return tlv.NewTypeForDecodingErr(
+			val, "lnwire.SciddirIntro", l, sciddirLen,
+		)
+	}
+
+	if l == pubKeyLen {
+		return fmt.Errorf("the pubkey form of sciddir_or_pubkey is " +
+			"not allowed here")
+	}
+	if l != sciddirLen {
+		return tlv.NewTypeForDecodingErr(
+			val, "lnwire.SciddirIntro", l, sciddirLen,
+		)
+	}
+
+	var b [sciddirLen]byte
+	if _, err := io.ReadFull(r, b[:]); err != nil {
+		return err
+	}
+
+	if b[0] > 1 {
+		return fmt.Errorf("expected the sciddir form of "+
+			"sciddir_or_pubkey (first byte 0 or 1), got %d", b[0])
+	}
+
+	v.Direction = b[0]
+	copy(v.SCID[:], b[1:])
+
+	return nil
 }

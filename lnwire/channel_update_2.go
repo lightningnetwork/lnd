@@ -2,6 +2,7 @@ package lnwire
 
 import (
 	"bytes"
+	"encoding/binary"
 	"fmt"
 	"io"
 
@@ -35,7 +36,7 @@ type ChannelUpdate2 struct {
 	// the `sciddir` form: 9 wire bytes of `<dirbyte><scid>`, where the
 	// direction byte is `0` for `node_id_1` and `1` for `node_id_2`. It is
 	// the only field that says which side sent the update.
-	ShortChannelID tlv.RecordT[tlv.TlvType2, Sciddir]
+	ShortChannelID tlv.RecordT[tlv.TlvType2, SciddirIntro]
 
 	// BlockHeight allows ordering in the case of multiple announcements. We
 	// should ignore the message if block height is not greater than the
@@ -120,7 +121,8 @@ func (c *ChannelUpdate2) Decode(r io.Reader, _ uint32) error {
 
 	chainHash := tlv.ZeroRecordT[tlv.TlvType0, [32]byte]()
 	typeMap, err := tlvRecords.ExtractRecords(
-		&chainHash, &c.ShortChannelID, &c.BlockHeight, &c.DisabledFlags,
+		&chainHash, sciddirRecord(&c.ShortChannelID), &c.BlockHeight,
+		&c.DisabledFlags,
 		&c.CLTVExpiryDelta, &c.HTLCMinimumMsat,
 		&c.HTLCMaximumMsat, &c.FeeBaseMsat,
 		&c.FeeProportionalMillionths,
@@ -204,7 +206,7 @@ func (c *ChannelUpdate2) AllRecords() []tlv.Record {
 	}
 
 	recordProducers = append(recordProducers,
-		&c.ShortChannelID, &c.BlockHeight, &c.Signature,
+		sciddirRecord(&c.ShortChannelID), &c.BlockHeight, &c.Signature,
 	)
 
 	// Only include the disable flags if any bit is set.
@@ -285,7 +287,7 @@ var _ PureTLVMessage = (*ChannelUpdate2)(nil)
 //
 // NOTE: this is part of the ChannelUpdate interface.
 func (c *ChannelUpdate2) SCID() ShortChannelID {
-	return c.ShortChannelID.Val.ID
+	return c.ShortChannelID.Val.ShortChannelID()
 }
 
 // IsNode1 is true if the update was produced by node 1 of the channel peers.
@@ -294,7 +296,7 @@ func (c *ChannelUpdate2) SCID() ShortChannelID {
 //
 // NOTE: this is part of the ChannelUpdate interface.
 func (c *ChannelUpdate2) IsNode1() bool {
-	return c.ShortChannelID.Val.IsNode1()
+	return c.ShortChannelID.Val.Direction == 0
 }
 
 // IsDisabled is true if the update is announcing that the channel should be
@@ -366,7 +368,9 @@ func (c *ChannelUpdate2) SetDisabledFlag(disabled bool) {
 //
 // NOTE: this is part of the ChannelUpdate interface.
 func (c *ChannelUpdate2) SetSCID(scid ShortChannelID) {
-	c.ShortChannelID.Val.ID = scid
+	binary.BigEndian.PutUint64(
+		c.ShortChannelID.Val.SCID[:], scid.ToUint64(),
+	)
 }
 
 // A compile time check to ensure ChannelUpdate2 implements the

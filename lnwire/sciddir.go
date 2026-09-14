@@ -1,6 +1,7 @@
 package lnwire
 
 import (
+	"encoding/binary"
 	"fmt"
 	"io"
 
@@ -9,7 +10,7 @@ import (
 
 // SciddirLen is the wire length of a Sciddir: one direction byte followed by
 // the 8-byte short_channel_id.
-const SciddirLen = 9
+const SciddirLen = sciddirLen
 
 // Sciddir is the `sciddir` form of BOLT 1's `sciddir_or_pubkey` type: a
 // channel-with-direction identifier carried on the wire as
@@ -56,24 +57,24 @@ func (s *Sciddir) Record() tlv.Record {
 	)
 }
 
-func sciddirEncoder(w io.Writer, val interface{}, buf *[8]byte) error {
+// sciddirEncoder reuses the introduction-node codec for the shared wire form.
+func sciddirEncoder(w io.Writer, val interface{}, _ *[8]byte) error {
 	v, ok := val.(*Sciddir)
 	if !ok {
 		return tlv.NewTypeForEncodingErr(val, "lnwire.Sciddir")
 	}
 
-	if v.Direction != 0 && v.Direction != 1 {
-		return fmt.Errorf("sciddir direction byte must be 0 or 1, "+
-			"got %d", v.Direction)
-	}
-
-	if _, err := w.Write([]byte{v.Direction}); err != nil {
+	var scid [scidLen]byte
+	binary.BigEndian.PutUint64(scid[:], v.ID.ToUint64())
+	intro, err := NewSciddirIntro(v.Direction, scid)
+	if err != nil {
 		return err
 	}
 
-	return EShortChannelID(w, &v.ID, buf)
+	return intro.encode(w)
 }
 
+// sciddirDecoder accepts only the SCID variant of the introduction-node codec.
 func sciddirDecoder(r io.Reader, val interface{}, buf *[8]byte,
 	l uint64) error {
 
@@ -83,19 +84,18 @@ func sciddirDecoder(r io.Reader, val interface{}, buf *[8]byte,
 			SciddirLen)
 	}
 
-	var dir [1]byte
-	if _, err := io.ReadFull(r, dir[:]); err != nil {
+	intro, err := decodeIntroductionNode(io.LimitReader(r, int64(l)), buf)
+	if err != nil {
 		return err
 	}
 
-	// Constrain to the sciddir form. A first byte of anything other than
-	// 0 or 1 would indicate the pubkey form of sciddir_or_pubkey, which is
-	// not permitted in this context.
-	if dir[0] != 0 && dir[0] != 1 {
-		return fmt.Errorf("expected sciddir form of sciddir_or_pubkey "+
-			"(direction byte 0 or 1), got %d", dir[0])
+	sciddir, ok := intro.(SciddirIntro)
+	if !ok {
+		return fmt.Errorf("expected sciddir introduction node, got %T",
+			intro)
 	}
-	v.Direction = dir[0]
+	v.Direction = sciddir.Direction
+	v.ID = NewShortChanIDFromInt(binary.BigEndian.Uint64(sciddir.SCID[:]))
 
-	return DShortChannelID(r, &v.ID, buf, 8)
+	return nil
 }

@@ -508,7 +508,7 @@
     "/v2/wallet/psbt/fund": {
       "post": {
         "summary": "lncli: `wallet psbt fund`\nFundPsbt creates a fully populated PSBT that contains enough inputs to fund\nthe outputs specified in the template. There are three ways a user can\nspecify what we call the template (a list of inputs and outputs to use in\nthe PSBT): Either as a PSBT packet directly with no coin selection (using\nthe legacy \"psbt\" field), a PSBT with advanced coin selection support (using\nthe new \"coin_select\" field) or as a raw RPC message (using the \"raw\"\nfield).\nThe legacy \"psbt\" and \"raw\" modes, the following restrictions apply:\n1. If there are no inputs specified in the template, coin selection is\nperformed automatically.\n2. If the template does contain any inputs, it is assumed that full\ncoin selection happened externally and no additional inputs are added. If\nthe specified inputs aren't enough to fund the outputs with the given fee\nrate, an error is returned.",
-        "description": "The new \"coin_select\" mode does not have these restrictions and allows the\nuser to specify a PSBT with inputs and outputs and still perform coin\nselection on top of that.\nFor all modes this RPC requires any inputs that are specified to be locked\nby the user (if they belong to this node in the first place).\n\nAfter either selecting or verifying the inputs, all input UTXOs are locked\nwith an internal app ID.\n\nNOTE: If this method returns without an error, it is the caller's\nresponsibility to either spend the locked UTXOs (by finalizing and then\npublishing the transaction) or to unlock/release the locked UTXOs in case of\nan error on the caller's side.",
+        "description": "The new \"coin_select\" mode does not have these restrictions and allows the\nuser to specify a PSBT with inputs and outputs and still perform coin\nselection on top of that.\nFor all modes this RPC requires any inputs that are specified to be locked\nby the user (if they belong to this node in the first place).\n\nAfter either selecting or verifying the inputs, all input UTXOs are locked\nwith an internal app ID.\n\nA non-zero input_release_after_spend_confs applies a\nconfirmation-controlled lifetime to every input lease this RPC acquires.\nThose leases ignore wall-clock expiration and release at the requested\nspend depth or through ReleaseOutput. The RPC fails if the wallet cannot\napply this option. Wallet capability is checked even when coin selection\ndoes not need to acquire an input lease. A custom_lock_id is required for a\nconfirmation-controlled lease.\n\nNOTE: If this method returns without an error, it is the caller's\nresponsibility to either spend the locked UTXOs (by finalizing and then\npublishing the transaction) or to unlock/release the locked UTXOs in case of\nan error on the caller's side.",
         "operationId": "WalletKit_FundPsbt",
         "responses": {
           "200": {
@@ -935,6 +935,7 @@
     "/v2/wallet/utxos/lease": {
       "post": {
         "summary": "lncli: `wallet leaseoutput`\nLeaseOutput locks an output to the given ID, preventing it from being\navailable for any future coin selection attempts. The absolute time of the\nlock's expiration is returned. The expiration of the lock can be extended by\nsuccessive invocations of this RPC. Outputs can be unlocked before their\nexpiration through `ReleaseOutput`.",
+        "description": "A non-zero release_after_spend_confs selects a confirmation-controlled\nlifetime. Such a lease ignores its wall-clock expiration and releases at\nthe requested spend depth or through ReleaseOutput. The RPC fails if the\nwallet cannot apply this option. Renewing the same lease with the same ID\nand a zero depth preserves an existing non-zero depth.",
         "operationId": "WalletKit_LeaseOutput",
         "responses": {
           "200": {
@@ -990,7 +991,7 @@
     },
     "/v2/wallet/utxos/release": {
       "post": {
-        "summary": "lncli: `wallet releaseoutput`\nReleaseOutput unlocks an output, allowing it to be available for coin\nselection if it remains unspent. The ID should match the one used to\noriginally lock the output.",
+        "summary": "lncli: `wallet releaseoutput`\nReleaseOutput unlocks an output, allowing it to be available for coin\nselection if it remains unspent. The ID should match the one used to\noriginally lock the output. A retained release-after-spend lease can also be\nreleased after its spending transaction has been observed.",
         "operationId": "WalletKit_ReleaseOutput",
         "responses": {
           "200": {
@@ -1687,12 +1688,17 @@
         "custom_lock_id": {
           "type": "string",
           "format": "byte",
-          "description": "The custom lock ID to use for the inputs in the funded PSBT. The value\nif set must be exactly 32 bytes long. If empty, the default lock ID will\nbe used."
+          "description": "The custom lock ID to use for the inputs in the funded PSBT. The value\nif set must be exactly 32 bytes long. If empty, the default lock ID will\nbe used. This field is required when input_release_after_spend_confs is\nnon-zero. In that mode it must not be all zero or LND's reserved\ninternal lock ID. The caller must persist this ID before funding and use\nReleaseOutput to unlock an abandoned PSBT whose spend never confirms."
         },
         "lock_expiration_seconds": {
           "type": "string",
           "format": "uint64",
-          "description": "If set, then the inputs in the funded PSBT will be locked for the\nspecified duration. The lock duration is specified in seconds. If not\nset, the default lock duration will be used."
+          "description": "If set, then time-controlled input leases in the funded PSBT will be\nlocked for the specified duration in seconds. If not set, the default\nlock duration is used. A non-zero input_release_after_spend_confs makes\nthis deadline informational only."
+        },
+        "input_release_after_spend_confs": {
+          "type": "integer",
+          "format": "int64",
+          "description": "Keep each acquired input lease until its spending transaction reaches\nthis confirmation count or the owner explicitly releases it. A\nreorganization resets maturity progress. A non-zero value ignores\nlock_expiration_seconds; zero preserves time-controlled lease behavior."
         }
       }
     },
@@ -1893,7 +1899,12 @@
         "expiration_seconds": {
           "type": "string",
           "format": "uint64",
-          "description": "The time in seconds before the lock expires. If set to zero, the default\nlock duration is used."
+          "description": "The time in seconds before a time-controlled lock expires. If set to\nzero, the default lock duration is used. A non-zero\nrelease_after_spend_confs makes this deadline informational only."
+        },
+        "release_after_spend_confs": {
+          "type": "integer",
+          "format": "int64",
+          "description": "Keep the lease until the transaction spending the output reaches this\nconfirmation count or the owner explicitly releases it. A reorganization\nthat disconnects the spending block resets maturity progress. A non-zero\nvalue ignores expiration_seconds; zero preserves the time-controlled\nlease behavior."
         }
       }
     },
@@ -1903,7 +1914,12 @@
         "expiration": {
           "type": "string",
           "format": "uint64",
-          "description": "The absolute expiration of the output lease represented as a unix timestamp."
+          "description": "The absolute expiration of a time-controlled output lease represented as a\nunix timestamp. Confirmation-controlled leases return the stored value for\ncompatibility but do not apply it."
+        },
+        "release_after_spend_confs": {
+          "type": "integer",
+          "format": "int64",
+          "description": "The effective persisted spend maturity depth. A zero-depth renewal\nreturns the retained non-zero depth of an existing\nconfirmation-controlled lease. If that informational lookup fails after\nthe lease succeeds, this field is zero and ListLeases can refresh it."
         }
       }
     },
@@ -2397,7 +2413,7 @@
         "expiration": {
           "type": "string",
           "format": "uint64",
-          "description": "The absolute expiration of the output lease represented as a unix timestamp."
+          "description": "The absolute expiration of a time-controlled output lease represented as a\nunix timestamp. Confirmation-controlled leases retain this value for\ncompatibility but do not apply it."
         },
         "pk_script": {
           "type": "string",
@@ -2408,6 +2424,16 @@
           "type": "string",
           "format": "uint64",
           "description": "The value of the leased output in satoshis."
+        },
+        "release_after_spend_confs": {
+          "type": "integer",
+          "format": "int64",
+          "description": "The spend maturity depth recorded for this lease. FundPsbt returns it\nonly after the wallet successfully applies the requested option."
+        },
+        "confirmed_spend_height": {
+          "type": "integer",
+          "format": "int32",
+          "description": "The block height where the spending transaction first confirmed. Zero\nmeans no confirmed spend was observed. A negative value means a\npreviously observed spend was disconnected and is awaiting\nreconfirmation. The only negative value emitted is -1; its magnitude\ncarries no additional information."
         }
       }
     },

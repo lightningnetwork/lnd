@@ -42,13 +42,20 @@ service WalletKit {
     lock's expiration is returned. The expiration of the lock can be extended by
     successive invocations of this RPC. Outputs can be unlocked before their
     expiration through `ReleaseOutput`.
+
+    A non-zero release_after_spend_confs selects a confirmation-controlled
+    lifetime. Such a lease ignores its wall-clock expiration and releases at
+    the requested spend depth or through ReleaseOutput. The RPC fails if the
+    wallet cannot apply this option. Renewing the same lease with the same ID
+    and a zero depth preserves an existing non-zero depth.
     */
     rpc LeaseOutput (LeaseOutputRequest) returns (LeaseOutputResponse);
 
     /* lncli: `wallet releaseoutput`
     ReleaseOutput unlocks an output, allowing it to be available for coin
     selection if it remains unspent. The ID should match the one used to
-    originally lock the output.
+    originally lock the output. A retained release-after-spend lease can also be
+    released after its spending transaction has been observed.
     */
     rpc ReleaseOutput (ReleaseOutputRequest) returns (ReleaseOutputResponse);
 
@@ -392,6 +399,14 @@ service WalletKit {
     After either selecting or verifying the inputs, all input UTXOs are locked
     with an internal app ID.
 
+    A non-zero input_release_after_spend_confs applies a
+    confirmation-controlled lifetime to every input lease this RPC acquires.
+    Those leases ignore wall-clock expiration and release at the requested
+    spend depth or through ReleaseOutput. The RPC fails if the wallet cannot
+    apply this option. Wallet capability is checked even when coin selection
+    does not need to acquire an input lease. A custom_lock_id is required for a
+    confirmation-controlled lease.
+
     NOTE: If this method returns without an error, it is the caller's
     responsibility to either spend the locked UTXOs (by finalizing and then
     publishing the transaction) or to unlock/release the locked UTXOs in case of
@@ -464,16 +479,32 @@ message LeaseOutputRequest {
     // The identifying outpoint of the output being leased.
     lnrpc.OutPoint outpoint = 2;
 
-    // The time in seconds before the lock expires. If set to zero, the default
-    // lock duration is used.
+    // The time in seconds before a time-controlled lock expires. If set to
+    // zero, the default lock duration is used. A non-zero
+    // release_after_spend_confs makes this deadline informational only.
     uint64 expiration_seconds = 3;
+
+    // Keep the lease until the transaction spending the output reaches this
+    // confirmation count or the owner explicitly releases it. A reorganization
+    // that disconnects the spending block resets maturity progress. A non-zero
+    // value ignores expiration_seconds; zero preserves the time-controlled
+    // lease behavior.
+    uint32 release_after_spend_confs = 4;
 }
 
 message LeaseOutputResponse {
     /*
-    The absolute expiration of the output lease represented as a unix timestamp.
+    The absolute expiration of a time-controlled output lease represented as a
+    unix timestamp. Confirmation-controlled leases return the stored value for
+    compatibility but do not apply it.
     */
     uint64 expiration = 1;
+
+    // The effective persisted spend maturity depth. A zero-depth renewal
+    // returns the retained non-zero depth of an existing
+    // confirmation-controlled lease. If that informational lookup fails after
+    // the lease succeeds, this field is zero and ListLeases can refresh it.
+    uint32 release_after_spend_confs = 2;
 }
 
 message ReleaseOutputRequest {
@@ -1642,13 +1673,23 @@ message FundPsbtRequest {
 
     // The custom lock ID to use for the inputs in the funded PSBT. The value
     // if set must be exactly 32 bytes long. If empty, the default lock ID will
-    // be used.
+    // be used. This field is required when input_release_after_spend_confs is
+    // non-zero. In that mode it must not be all zero or LND's reserved
+    // internal lock ID. The caller must persist this ID before funding and use
+    // ReleaseOutput to unlock an abandoned PSBT whose spend never confirms.
     bytes custom_lock_id = 13;
 
-    // If set, then the inputs in the funded PSBT will be locked for the
-    // specified duration. The lock duration is specified in seconds. If not
-    // set, the default lock duration will be used.
+    // If set, then time-controlled input leases in the funded PSBT will be
+    // locked for the specified duration in seconds. If not set, the default
+    // lock duration is used. A non-zero input_release_after_spend_confs makes
+    // this deadline informational only.
     uint64 lock_expiration_seconds = 14;
+
+    // Keep each acquired input lease until its spending transaction reaches
+    // this confirmation count or the owner explicitly releases it. A
+    // reorganization resets maturity progress. A non-zero value ignores
+    // lock_expiration_seconds; zero preserves time-controlled lease behavior.
+    uint32 input_release_after_spend_confs = 15;
 }
 message FundPsbtResponse {
     /*
@@ -1729,7 +1770,9 @@ message UtxoLease {
     lnrpc.OutPoint outpoint = 2;
 
     /*
-    The absolute expiration of the output lease represented as a unix timestamp.
+    The absolute expiration of a time-controlled output lease represented as a
+    unix timestamp. Confirmation-controlled leases retain this value for
+    compatibility but do not apply it.
     */
     uint64 expiration = 3;
 
@@ -1742,6 +1785,17 @@ message UtxoLease {
     The value of the leased output in satoshis.
     */
     uint64 value = 5;
+
+    // The spend maturity depth recorded for this lease. FundPsbt returns it
+    // only after the wallet successfully applies the requested option.
+    uint32 release_after_spend_confs = 6;
+
+    // The block height where the spending transaction first confirmed. Zero
+    // means no confirmed spend was observed. A negative value means a
+    // previously observed spend was disconnected and is awaiting
+    // reconfirmation. The only negative value emitted is -1; its magnitude
+    // carries no additional information.
+    int32 confirmed_spend_height = 7;
 }
 
 message SignPsbtRequest {

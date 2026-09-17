@@ -990,6 +990,13 @@ type OpenChannelParams struct {
 	// activates the default configured fee rate.
 	UseFeeRate bool
 
+	// RemoteChanReserveSat is the channel reserve, in satoshis, that the
+	// initiator requires the remote peer to maintain. It is the value that
+	// rides in open_channel as channel_reserve_satoshis, and so the value
+	// BOLT-02 compares both initial commitment outputs against. Zero leaves
+	// the node's own default in place.
+	RemoteChanReserveSat uint64
+
 	// FundMax is a boolean indicating whether the channel should be funded
 	// with the maximum possible amount from the wallet.
 	FundMax bool
@@ -1041,28 +1048,29 @@ func (h *HarnessTest) prepareOpenChannel(srcNode, destNode *node.HarnessNode,
 
 	// Prepare the request.
 	return &lnrpc.OpenChannelRequest{
-		NodePubkey:         destNode.PubKey[:],
-		LocalFundingAmount: int64(p.Amt),
-		PushSat:            int64(p.PushAmt),
-		Private:            p.Private,
-		TargetConf:         confTarget,
-		MinConfs:           minConfs,
-		SpendUnconfirmed:   p.SpendUnconfirmed,
-		MinHtlcMsat:        int64(p.MinHtlc),
-		RemoteMaxHtlcs:     uint32(p.RemoteMaxHtlcs),
-		FundingShim:        p.FundingShim,
-		SatPerVbyte:        uint64(p.SatPerVByte),
-		CommitmentType:     p.CommitmentType,
-		ZeroConf:           p.ZeroConf,
-		ScidAlias:          p.ScidAlias,
-		BaseFee:            p.BaseFee,
-		FeeRate:            p.FeeRate,
-		UseBaseFee:         p.UseBaseFee,
-		UseFeeRate:         p.UseFeeRate,
-		FundMax:            p.FundMax,
-		Memo:               p.Memo,
-		Outpoints:          p.Outpoints,
-		CloseAddress:       p.CloseAddress,
+		NodePubkey:           destNode.PubKey[:],
+		LocalFundingAmount:   int64(p.Amt),
+		PushSat:              int64(p.PushAmt),
+		Private:              p.Private,
+		TargetConf:           confTarget,
+		MinConfs:             minConfs,
+		SpendUnconfirmed:     p.SpendUnconfirmed,
+		MinHtlcMsat:          int64(p.MinHtlc),
+		RemoteMaxHtlcs:       uint32(p.RemoteMaxHtlcs),
+		FundingShim:          p.FundingShim,
+		SatPerVbyte:          uint64(p.SatPerVByte),
+		RemoteChanReserveSat: p.RemoteChanReserveSat,
+		CommitmentType:       p.CommitmentType,
+		ZeroConf:             p.ZeroConf,
+		ScidAlias:            p.ScidAlias,
+		BaseFee:              p.BaseFee,
+		FeeRate:              p.FeeRate,
+		UseBaseFee:           p.UseBaseFee,
+		UseFeeRate:           p.UseFeeRate,
+		FundMax:              p.FundMax,
+		Memo:                 p.Memo,
+		Outpoints:            p.Outpoints,
+		CloseAddress:         p.CloseAddress,
 	}
 }
 

@@ -259,6 +259,10 @@ var allTestCases = []*lntest.TestCase{
 		TestFunc: testMaxChannelSize,
 	},
 	{
+		Name:     "reject absurd commit feerate",
+		TestFunc: testRejectAbsurdCommitFeerate,
+	},
+	{
 		Name:     "wumbo channels",
 		TestFunc: testWumboChannels,
 	},

@@ -1058,73 +1058,58 @@ func testSignVerifyMessageWithAddr(ht *lntest.HarnessTest) {
 	alice := ht.NewNode("Alice,", nil)
 	bob := ht.NewNode("Bob,", nil)
 
-	// Test an lnd wallet created P2WKH address.
-	respAddr := alice.RPC.NewAddress(&lnrpc.NewAddressRequest{
-		Type: lnrpc.AddressType_WITNESS_PUBKEY_HASH,
-	})
-
 	aliceMsg := []byte("alice msg")
+	addrTypes := []lnrpc.AddressType{
+		lnrpc.AddressType_WITNESS_PUBKEY_HASH,
+		lnrpc.AddressType_NESTED_PUBKEY_HASH,
+		lnrpc.AddressType_TAPROOT_PUBKEY,
+	}
 
-	respSig := alice.RPC.SignMessageWithAddr(
-		&walletrpc.SignMessageWithAddrRequest{
-			Msg:  aliceMsg,
-			Addr: respAddr.Address,
-		},
-	)
+	for _, bip322 := range []bool{true, false} {
+		for _, addrType := range addrTypes {
+			respAddr := alice.RPC.NewAddress(
+				&lnrpc.NewAddressRequest{
+					Type: addrType,
+				},
+			)
 
-	respValid := bob.RPC.VerifyMessageWithAddr(
-		&walletrpc.VerifyMessageWithAddrRequest{
-			Msg:       aliceMsg,
-			Signature: respSig.Signature,
-			Addr:      respAddr.Address,
-		},
-	)
+			respSig := alice.RPC.SignMessageWithAddr(
+				&walletrpc.SignMessageWithAddrRequest{
+					Msg:    aliceMsg,
+					Addr:   respAddr.Address,
+					Bip322: bip322,
+				},
+			)
+			respValid := bob.RPC.VerifyMessageWithAddr(
+				&walletrpc.VerifyMessageWithAddrRequest{
+					Msg:       aliceMsg,
+					Signature: respSig.Signature,
+					Addr:      respAddr.Address,
+				},
+			)
+			require.True(
+				ht, respValid.Valid, "alice's signature did "+
+					"not validate, bip322=%v, addrType=%v",
+				bip322, addrType,
+			)
 
-	require.True(ht, respValid.Valid, "alice's signature didn't validate")
-
-	// Test an lnd wallet created NP2WKH address.
-	respAddr = alice.RPC.NewAddress(&lnrpc.NewAddressRequest{
-		Type: lnrpc.AddressType_NESTED_PUBKEY_HASH,
-	})
-
-	respSig = alice.RPC.SignMessageWithAddr(
-		&walletrpc.SignMessageWithAddrRequest{
-			Msg:  aliceMsg,
-			Addr: respAddr.Address,
-		},
-	)
-
-	respValid = bob.RPC.VerifyMessageWithAddr(
-		&walletrpc.VerifyMessageWithAddrRequest{
-			Msg:       aliceMsg,
-			Signature: respSig.Signature,
-			Addr:      respAddr.Address,
-		},
-	)
-
-	require.True(ht, respValid.Valid, "alice's signature didn't validate")
-
-	// Test an lnd wallet created P2TR address.
-	respAddr = alice.RPC.NewAddress(&lnrpc.NewAddressRequest{
-		Type: lnrpc.AddressType_TAPROOT_PUBKEY,
-	})
-
-	respSig = alice.RPC.SignMessageWithAddr(
-		&walletrpc.SignMessageWithAddrRequest{
-			Msg:  aliceMsg,
-			Addr: respAddr.Address,
-		},
-	)
-
-	respValid = bob.RPC.VerifyMessageWithAddr(
-		&walletrpc.VerifyMessageWithAddrRequest{
-			Msg:       aliceMsg,
-			Signature: respSig.Signature,
-			Addr:      respAddr.Address,
-		},
-	)
-
-	require.True(ht, respValid.Valid, "alice's signature didn't validate")
+			respSigOtherMsg := alice.RPC.SignMessageWithAddr(
+				&walletrpc.SignMessageWithAddrRequest{
+					Msg:    []byte("another message"),
+					Addr:   respAddr.Address,
+					Bip322: bip322,
+				},
+			)
+			respInvalid := bob.RPC.VerifyMessageWithAddr(
+				&walletrpc.VerifyMessageWithAddrRequest{
+					Msg:       aliceMsg,
+					Signature: respSigOtherMsg.Signature,
+					Addr:      respAddr.Address,
+				},
+			)
+			require.False(ht, respInvalid.Valid)
+		}
+	}
 
 	// Test verifying a signature with an external P2PKH address.
 	// P2PKH address type is not supported by the lnd wallet therefore
@@ -1137,7 +1122,7 @@ func testSignVerifyMessageWithAddr(ht *lntest.HarnessTest) {
 	externalSig := "H5DqqM7Cc8xZnYBr7j3gD4XD+AuQsim9Un/IxBrrhBA7I9//" +
 		"3exuQRg+u7HpwG65yobPsew6RMUteyuxyNkLF5E="
 
-	respValid = alice.RPC.VerifyMessageWithAddr(
+	respValid := alice.RPC.VerifyMessageWithAddr(
 		&walletrpc.VerifyMessageWithAddrRequest{
 			Msg:       externalMsg,
 			Signature: externalSig,

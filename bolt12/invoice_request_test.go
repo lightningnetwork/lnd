@@ -152,7 +152,7 @@ func TestNewInvoiceRequestFromOfferMirrorsUnknownFields(t *testing.T) {
 	// sorted.
 	spliced := append(append([]byte{}, encoded...), extra.Bytes()...)
 
-	decodedOffer, err := decodeOffer(spliced)
+	decodedOffer, err := DecodeOffer(spliced)
 	require.NoError(t, err)
 
 	ir, err := NewInvoiceRequestFromOffer(

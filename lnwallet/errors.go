@@ -21,6 +21,14 @@ type ReservationError struct {
 // interface.
 var _ error = (*ReservationError)(nil)
 
+// Unwrap returns the wrapped error, so that the sentinels a constructor wraps
+// with %w can be matched by callers with errors.Is. Callers inside the daemon
+// use it to decide whether to fail a funding flow; the remote peer only ever
+// sees Error().
+func (e ReservationError) Unwrap() error {
+	return e.error
+}
+
 // ErrZeroCapacity returns an error indicating the funder attempted to put zero
 // funds into the channel.
 func ErrZeroCapacity() ReservationError {
@@ -94,6 +102,29 @@ func ErrPushAmountTooLarge(pushAmt lnwire.MilliSatoshi,
 	return ReservationError{
 		fmt.Errorf("push amount %v exceeds funding amount %v",
 			pushAmt, lnwire.NewMSatFromSatoshis(fundingAmt)),
+	}
+}
+
+// ErrBalancesBelowReserveBase is the sentinel wrapped by
+// ErrBalancesBelowReserve, so that callers can identify the rejection without
+// matching on its message text.
+var ErrBalancesBelowReserveBase = errors.New("both initial balances are " +
+	"below their channel reserve")
+
+// ErrBalancesBelowReserve returns an error indicating that neither party would
+// hold more than its channel reserve on the initial commitment transaction,
+// leaving the channel unusable. BOLT-02 requires that we fail such a channel.
+// Both balances are compared against the reserve the initiator set in
+// open_channel, and ourReserve is reported alongside so that a stricter local
+// reserve policy is visible in the message.
+func ErrBalancesBelowReserve(localBalance, theirBalance,
+	ourReserve btcutil.Amount) ReservationError {
+
+	return ReservationError{
+		fmt.Errorf("%w: to_local %v sat, to_remote %v sat, "+
+			"reserve %v sat", ErrBalancesBelowReserveBase,
+			int64(localBalance), int64(theirBalance),
+			int64(ourReserve)),
 	}
 }
 

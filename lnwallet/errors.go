@@ -6,6 +6,7 @@ import (
 
 	"github.com/btcsuite/btcd/btcutil/v2"
 	"github.com/btcsuite/btcd/chainhash/v2"
+	"github.com/lightningnetwork/lnd/lnwallet/chainfee"
 	"github.com/lightningnetwork/lnd/lnwire"
 )
 
@@ -102,6 +103,25 @@ func ErrPushAmountTooLarge(pushAmt lnwire.MilliSatoshi,
 	return ReservationError{
 		fmt.Errorf("push amount %v exceeds funding amount %v",
 			pushAmt, lnwire.NewMSatFromSatoshis(fundingAmt)),
+	}
+}
+
+// ErrCommitFeeRateTooLargeBase is the sentinel wrapped by
+// ErrCommitFeeRateTooLarge, so that a caller inside the daemon can identify
+// the rejection with errors.Is instead of matching on the wording of the
+// message that goes out to the remote peer.
+var ErrCommitFeeRateTooLargeBase = errors.New("commitment fee rate " +
+	"unreasonably large")
+
+// ErrCommitFeeRateTooLarge returns an error indicating that the commitment fee
+// rate proposed by the channel initiator is unreasonably large, as described by
+// BOLT-02.
+func ErrCommitFeeRateTooLarge(feeRate,
+	maxFeeRate chainfee.SatPerKWeight) ReservationError {
+
+	return ReservationError{
+		fmt.Errorf("%w: %v, max is %v",
+			ErrCommitFeeRateTooLargeBase, feeRate, maxFeeRate),
 	}
 }
 

@@ -22,7 +22,6 @@ import (
 	"github.com/btcsuite/btcd/btcutil/v2"
 	"github.com/btcsuite/btcd/chaincfg/v2"
 	"github.com/btcsuite/btcd/chainhash/v2"
-	"github.com/btcsuite/btcd/psbt/v2"
 	"github.com/btcsuite/btcd/wire/v2"
 	"github.com/btcsuite/btcwallet/wallet"
 	"github.com/lightningnetwork/lnd/actor"
@@ -44,13 +43,11 @@ import (
 	"github.com/lightningnetwork/lnd/lnrpc"
 	"github.com/lightningnetwork/lnd/lntest/mock"
 	"github.com/lightningnetwork/lnd/lntest/wait"
-	"github.com/lightningnetwork/lnd/lntypes"
 	"github.com/lightningnetwork/lnd/lnutils"
 	"github.com/lightningnetwork/lnd/lnwallet"
 	"github.com/lightningnetwork/lnd/lnwallet/chainfee"
 	"github.com/lightningnetwork/lnd/lnwallet/chanfunding"
 	"github.com/lightningnetwork/lnd/lnwire"
-	"github.com/lightningnetwork/lnd/msgmux"
 	"github.com/stretchr/testify/require"
 )
 
@@ -278,60 +275,6 @@ func (m *mockZeroConfAcceptor) Accept(
 	return &acpt.ChannelAcceptResponse{
 		ZeroConf: true,
 	}
-}
-
-// mockAuxFundingController records the aux channel state passed by the funding
-// manager.
-type mockAuxFundingController struct {
-	auxChanStates chan lnwallet.AuxChanState
-}
-
-// Name returns the name of the mock endpoint.
-func (m *mockAuxFundingController) Name() msgmux.EndpointName {
-	return "mock-aux-funding"
-}
-
-// CanHandle returns false as the mock does not handle any peer messages.
-func (m *mockAuxFundingController) CanHandle(msg msgmux.PeerMsg) bool {
-	return false
-}
-
-// SendMessage is a no-op that reports the message as not handled.
-func (m *mockAuxFundingController) SendMessage(_ context.Context,
-	msg msgmux.PeerMsg) bool {
-
-	return false
-}
-
-// DescFromPendingChanID records the aux channel state it was called with
-// and returns an empty funding descriptor.
-func (m *mockAuxFundingController) DescFromPendingChanID(pid PendingChanID,
-	openChan lnwallet.AuxChanState,
-	keyRing lntypes.Dual[lnwallet.CommitmentKeyRing],
-	initiator bool) AuxFundingDescResult {
-
-	m.auxChanStates <- openChan
-
-	return fn.Ok(fn.None[lnwallet.AuxFundingDesc]())
-}
-
-// DeriveTapscriptRoot returns no tapscript root.
-func (m *mockAuxFundingController) DeriveTapscriptRoot(
-	PendingChanID) AuxTapscriptResult {
-
-	return fn.Ok(fn.None[chainhash.Hash]())
-}
-
-// ChannelReady is a no-op.
-func (m *mockAuxFundingController) ChannelReady(
-	lnwallet.AuxChanState) error {
-
-	return nil
-}
-
-// ChannelFinalized is a no-op.
-func (m *mockAuxFundingController) ChannelFinalized(PendingChanID) error {
-	return nil
 }
 
 type newChannelMsg struct {
@@ -3205,122 +3148,12 @@ func TestFundingManagerPrivateRestart(t *testing.T) {
 	assertNoFwdingPolicy(t, alice, bob, channelReadyAlice.ChanID)
 }
 
-// TestFundingManagerAuxChanStatePsbt checks that the PSBT initiator path passes
-// the fully negotiated channel configs to the aux funding controller.
-func TestFundingManagerAuxChanStatePsbt(t *testing.T) {
-	t.Parallel()
-
-	auxController := &mockAuxFundingController{
-		auxChanStates: make(chan lnwallet.AuxChanState, 1),
-	}
-	alice, bob := setupFundingManagers(t, func(cfg *Config) {
-		cfg.AuxFundingController = fn.Some[AuxFundingController](
-			auxController,
-		)
-	})
-	t.Cleanup(func() {
-		tearDownFundingManagers(t, alice, bob)
-	})
-
-	const fundingAmt = btcutil.Amount(5_000_000)
-	updateChan := make(chan *lnrpc.OpenStatusUpdate, 1)
-	errChan := make(chan error, 1)
-	assembler := chanfunding.NewPsbtAssembler(
-		fundingAmt, nil, fundingNetParams.Params, false,
-	)
-	initReq := &InitFundingMsg{
-		Peer:            bob,
-		TargetPubkey:    bob.privKey.PubKey(),
-		ChainHash:       *fundingNetParams.GenesisHash,
-		LocalFundingAmt: fundingAmt,
-		ChanFunder:      assembler,
-		Updates:         updateChan,
-		Err:             errChan,
-	}
-
-	alice.fundingMgr.InitFundingWorkflow(initReq)
-	openChannel, ok := assertFundingMsgSent(
-		t, alice.msgChan, "OpenChannel",
-	).(*lnwire.OpenChannel)
-	require.True(t, ok)
-	bob.fundingMgr.ProcessFundingMsg(openChannel, alice)
-	acceptChannel, ok := assertFundingMsgSent(
-		t, bob.msgChan, "AcceptChannel",
-	).(*lnwire.AcceptChannel)
-	require.True(t, ok)
-	alice.fundingMgr.ProcessFundingMsg(acceptChannel, bob)
-
-	var psbtUpdate *lnrpc.ReadyForPsbtFunding
-	select {
-	case update := <-updateChan:
-		psbtFund, ok := update.Update.(*lnrpc.OpenStatusUpdate_PsbtFund)
-		require.True(t, ok)
-		psbtUpdate = psbtFund.PsbtFund
-
-	case err := <-errChan:
-		require.NoError(t, err)
-
-	case <-time.After(5 * time.Second):
-		t.Fatal("PSBT funding update not received")
-	}
-
-	packet, err := psbt.NewFromRawBytes(
-		bytes.NewReader(psbtUpdate.Psbt), false,
-	)
-	require.NoError(t, err)
-	packet.UnsignedTx.TxIn = []*wire.TxIn{{
-		PreviousOutPoint: wire.OutPoint{Index: 0},
-	}}
-	packet.Inputs = []psbt.PInput{{
-		WitnessUtxo: &wire.TxOut{
-			Value:    int64(fundingAmt + 1),
-			PkScript: append([]byte{0, 20}, make([]byte, 20)...),
-		},
-	}}
-
-	resCtx, err := alice.fundingMgr.getReservationCtx(
-		bobPubKey, openChannel.PendingChannelID,
-	)
-	require.NoError(t, err)
-	localCfg := *resCtx.reservation.OurContribution().ChannelConfig
-	remoteCfg := *resCtx.reservation.TheirContribution().ChannelConfig
-
-	err = alice.fundingMgr.cfg.Wallet.PsbtFundingVerify(
-		openChannel.PendingChannelID, packet, false,
-	)
-	require.NoError(t, err)
-
-	// Finalizing separately ensures verification, including the reserved
-	// value check, completes before the funding manager resumes.
-	packet.UnsignedTx.TxIn[0].Witness = wire.TxWitness{[]byte{1}}
-	err = alice.fundingMgr.cfg.Wallet.PsbtFundingFinalize(
-		openChannel.PendingChannelID, nil, packet.UnsignedTx,
-	)
-	require.NoError(t, err)
-
-	select {
-	case auxState := <-auxController.auxChanStates:
-		require.Equal(t, localCfg, auxState.LocalChanCfg)
-		require.Equal(t, remoteCfg, auxState.RemoteChanCfg)
-
-	case <-time.After(5 * time.Second):
-		t.Fatal("aux funding controller was not called")
-	}
-}
-
 // TestFundingManagerCustomChannelParameters checks that custom requirements we
 // specify during the channel funding flow is preserved correctly on both sides.
 func TestFundingManagerCustomChannelParameters(t *testing.T) {
 	t.Parallel()
 
-	auxController := &mockAuxFundingController{
-		auxChanStates: make(chan lnwallet.AuxChanState, 2),
-	}
-	alice, bob := setupFundingManagers(t, func(cfg *Config) {
-		cfg.AuxFundingController = fn.Some[AuxFundingController](
-			auxController,
-		)
-	})
+	alice, bob := setupFundingManagers(t)
 	t.Cleanup(func() {
 		tearDownFundingManagers(t, alice, bob)
 	})
@@ -3455,23 +3288,6 @@ func TestFundingManagerCustomChannelParameters(t *testing.T) {
 		t, alice.msgChan, "FundingCreated",
 	).(*lnwire.FundingCreated)
 
-	// Helper method for checking that the aux funding controller received
-	// the negotiated channel configs of both parties.
-	assertAuxChanState := func(localCfg,
-		remoteCfg channeldb.ChannelConfig) {
-
-		t.Helper()
-
-		select {
-		case auxState := <-auxController.auxChanStates:
-			require.Equal(t, localCfg, auxState.LocalChanCfg)
-			require.Equal(t, remoteCfg, auxState.RemoteChanCfg)
-
-		case <-time.After(time.Second * 5):
-			t.Fatalf("aux funding controller was not called")
-		}
-	}
-
 	// Helper method for checking the CSV delay stored for a reservation.
 	assertDelay := func(resCtx *reservationWithCtx,
 		ourDelay, theirDelay uint16) error {
@@ -3601,18 +3417,8 @@ func TestFundingManagerCustomChannelParameters(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	// Snapshot the negotiated configs before resuming the funding flow.
-	// The aux controller must receive exactly these values even though
-	// they have not yet been copied into the pending channel state.
-	localCfg := *resCtx.reservation.OurContribution().ChannelConfig
-	remoteCfg := *resCtx.reservation.TheirContribution().ChannelConfig
-
 	// Give the message to Bob.
 	bob.fundingMgr.ProcessFundingMsg(fundingCreated, alice)
-
-	// Bob's aux funding controller must have been handed the negotiated
-	// configs as part of the aux channel state.
-	assertAuxChanState(localCfg, remoteCfg)
 
 	// Finally, Bob should send the FundingSigned message.
 	fundingSigned := assertFundingMsgSent(
@@ -4162,6 +3968,353 @@ func TestFundingManagerPushAmountAtCapacity(t *testing.T) {
 				"1000 * funding_satoshis")
 	case <-time.After(time.Second):
 	}
+}
+
+// feeEstimatorStub is a chainfee.Estimator whose single fee estimate is set
+// per test, including the error case a real estimator reports when it has no
+// data. The embedding keeps the two methods the funding manager never calls
+// from having to be defined here.
+type feeEstimatorStub struct {
+	chainfee.Estimator
+
+	feeRate chainfee.SatPerKWeight
+	err     error
+}
+
+// EstimateFeePerKW returns the rate configured on the stub, or its error.
+func (f feeEstimatorStub) EstimateFeePerKW(uint32) (chainfee.SatPerKWeight, error) {
+	return f.feeRate, f.err
+}
+
+// TestFundingManagerCommitFeeRateTooLarge asserts that the bound we place on
+// the feerate_per_kw an inbound initiator may propose is the one we intend, and
+// that the fundee enforces it: a rate above the bound is rejected, and a rate
+// exactly at it is accepted.
+//
+// The bound is derived from a stub estimator, and the expected bounds are
+// written out in the table rather than read back from the funding manager, so
+// that a wrong multiplier, a missing floor, or a changed fallback fails the
+// test instead of redefining what is expected.
+func TestFundingManagerCommitFeeRateTooLarge(t *testing.T) {
+	t.Parallel()
+
+	// The bounds are written as literals rather than derived from
+	// maxCommitFeeRateMultiplier and minCommitFeeRateCap, because a test
+	// that computes its expectation from the constant under test passes for
+	// any value that constant happens to hold.
+	const (
+		// The floor is 100 sat/vbyte, which is 25000 sat/kw, and is
+		// what the bound falls back to on a low estimate or an
+		// estimator error.
+		floorBound = chainfee.SatPerKWeight(25000)
+
+		// The estimate the 10x case scales from, chosen so that the
+		// bound lands well above the floor: 62500 * 10 is 625000
+		// sat/kw.
+		highEstimate     = chainfee.SatPerKWeight(62500)
+		tenTimesEstimate = chainfee.SatPerKWeight(625000)
+	)
+
+	// The floor is 100 sat/vbyte, as the table below assumes.
+	require.Equal(t, floorBound, minCommitFeeRateCap,
+		"minCommitFeeRateCap must be 100 sat/vbyte")
+	require.Equal(t, tenTimesEstimate, highEstimate*10,
+		"62500 sat/kw scaled by ten is 625000 sat/kw")
+
+	tests := []struct {
+		name string
+
+		// estimator describes what our own fee estimator reports.
+		feeRate chainfee.SatPerKWeight
+		err     error
+
+		// expectedBound is the highest rate the fundee must accept.
+		expectedBound chainfee.SatPerKWeight
+	}{
+		{
+			// The bound scales with our own estimate, which is
+			// what keeps it tracking the current chain.
+			name:          "ten times our estimate",
+			feeRate:       highEstimate,
+			expectedBound: tenTimesEstimate,
+		},
+		{
+			// A quiet chain can leave the estimate very low, and
+			// 10x of a very small number is still a very small
+			// number. The floor keeps us from turning away a
+			// channel that is sane in absolute terms.
+			name:          "low estimate falls back to the floor",
+			feeRate:       1000,
+			expectedBound: floorBound,
+		},
+		{
+			// A transient estimator failure must not fail an
+			// otherwise valid channel, so the floor stands in.
+			name:          "estimator error falls back to the floor",
+			err:           errors.New("estimator unavailable"),
+			expectedBound: floorBound,
+		},
+	}
+
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			t.Parallel()
+
+			alice, bob := setupFundingManagers(t, func(cfg *Config) {
+				cfg.FeeEstimator = feeEstimatorStub{
+					feeRate: test.feeRate,
+					err:     test.err,
+				}
+			})
+			t.Cleanup(func() {
+				tearDownFundingManagers(t, alice, bob)
+			})
+
+			// Both peers advertise anchors with zero-fee HTLCs and
+			// static remote keys, which settles the channel type
+			// without taproot or scid-alias bits interfering.
+			featureBits := []lnwire.FeatureBit{
+				lnwire.AnchorsZeroFeeHtlcTxOptional,
+				lnwire.StaticRemoteKeyOptional,
+				lnwire.ExplicitChannelTypeOptional,
+			}
+			alice.localFeatures = featureBits
+			alice.remoteFeatures = featureBits
+			bob.localFeatures = featureBits
+			bob.remoteFeatures = featureBits
+
+			// The initiator proposes the anchor channel type
+			// explicitly.
+			channelType := lnwire.ChannelType(
+				*lnwire.NewRawFeatureVector(
+					lnwire.StaticRemoteKeyRequired,
+					lnwire.AnchorsZeroFeeHtlcTxRequired,
+				),
+			)
+
+			// The channel has to afford the rate at the bound: the
+			// initiator pays the commitment fee out of its own
+			// balance, and a channel that cannot pay it is rejected
+			// for that reason before any feerate is considered. At
+			// 625000 sat/kw the 1124-weight anchor commitment costs
+			// 702500 sat, and its two anchor outputs add 660 sat, so
+			// the channel is sized to leave the initiator well clear
+			// of the two-times-dust guard and of the reserve it
+			// names, even at the highest bound in the table.
+			const fundingAmt = btcutil.Amount(10000000)
+
+			// The reserve the initiator names, near the 1% BOLT-02
+			// suggests.
+			const initiatorReserve = fundingAmt / 100
+
+			// newOpenChanMsg builds the OpenChannel the initiator
+			// sends, with feerate_per_kw overridden. Every other
+			// field is a complete, valid open, so the positive case
+			// below cannot pass on a later failure.
+			newOpenChanMsg := func(
+				feeRate chainfee.SatPerKWeight,
+			) *lnwire.OpenChannel {
+
+				return &lnwire.OpenChannel{
+					ChainHash:        *fundingNetParams.GenesisHash,
+					PendingChannelID: [32]byte{0x01},
+					FundingAmount:    fundingAmt,
+					DustLimit:        573,
+					MaxValueInFlight: lnwire.NewMSatFromSatoshis(
+						fundingAmt,
+					),
+					ChannelReserve: initiatorReserve,
+					CsvDelay:       4,
+					// The BOLT-02 limit on accepted
+					// HTLCs.
+					MaxAcceptedHTLCs:     483,
+					FundingKey:           alicePrivKey.PubKey(),
+					RevocationPoint:      alicePrivKey.PubKey(),
+					PaymentPoint:         alicePrivKey.PubKey(),
+					DelayedPaymentPoint:  alicePrivKey.PubKey(),
+					HtlcPoint:            alicePrivKey.PubKey(),
+					FirstCommitmentPoint: alicePrivKey.PubKey(),
+					ChannelType:          &channelType,
+					FeePerKiloWeight:     uint32(feeRate),
+				}
+			}
+
+			// One satoshi per kw above the expected bound must be
+			// rejected with the spec-aligned error.
+			tooLarge := test.expectedBound + 1
+			bob.fundingMgr.ProcessFundingMsg(
+				newOpenChanMsg(tooLarge), alice,
+			)
+			msg := assertFundingMsgSent(t, bob.msgChan, "Error")
+			errMsg, ok := msg.(*lnwire.Error)
+			require.True(t, ok, "expected *lnwire.Error, got %T", msg)
+
+			// The message carries the exact bound we expect, and its
+			// text is derived from the same constructor the daemon
+			// uses, so this pins the rate and the bound reported as
+			// well as the wording the remote peer sees.
+			expected := lnwallet.ErrCommitFeeRateTooLarge(
+				tooLarge, test.expectedBound,
+			)
+			require.Equal(t, expected.Error(), string(errMsg.Data))
+
+			// The error the daemon builds is the one this test
+			// claims to be pinning: it must be identifiable by
+			// the sentinel rather than only by its text.
+			require.ErrorIs(t, expected, lnwallet.ErrCommitFeeRateTooLargeBase)
+
+			// The bound itself is acceptable: Bob must answer with
+			// an AcceptChannel, which proves the channel is not
+			// refused over its feerate. An unrelated error, or no
+			// answer at all, fails here rather than passing.
+			bob.fundingMgr.ProcessFundingMsg(
+				newOpenChanMsg(test.expectedBound), alice,
+			)
+
+			accept := assertFundingMsgSent(
+				t, bob.msgChan, "AcceptChannel",
+			)
+			_, ok = accept.(*lnwire.AcceptChannel)
+			require.True(t, ok,
+				"expected *lnwire.AcceptChannel, got %T", accept)
+		})
+	}
+}
+
+// TestFundingManagerBalancesBelowReserve asserts that the fundee rejects an
+// incoming OpenChannel when neither party would hold more than the reserve the
+// initiator named in open_channel. That is the BOLT-02 condition that makes a
+// channel unusable: neither side could add an HTLC without dipping below its
+// reserve.
+//
+// The check compares both balances against the reserve from open_channel, not
+// against the reserve we name in accept_channel. The two are made to differ
+// here, ours the lower of the two, so a regression to comparing each balance
+// against its own reserve would accept a channel the spec requires us to
+// reject.
+//
+// Reaching that band at all takes a small channel carrying a large commitment
+// fee: the initiator's reserve must be within a fifth of capacity, since
+// VerifyConstraints caps it there, so the initiator's balance has to fall below
+// a fifth of capacity while staying above the two-times-dust guard. A high
+// feerate on a small channel is exactly that case, and it is the case the
+// feerate cap must not be allowed to mask.
+func TestFundingManagerBalancesBelowReserve(t *testing.T) {
+	t.Parallel()
+
+	// A static estimator makes the commitment fee, and so the initiator's
+	// initial balance, a fixed number this test can reason about. The fee
+	// is computed from the weight of the anchor commitment rather than
+	// hardcoded, so a change to the commitment format fails an assertion
+	// here instead of silently moving the balances.
+	const commitFeeRate = chainfee.SatPerKWeight(45000)
+
+	// The commitment fee is rounded down, as BOLT#03 specifies.
+	commitFee := commitFeeRate.FeeForWeight(input.AnchorCommitWeight)
+
+	alice, bob := setupFundingManagers(t, func(cfg *Config) {
+		cfg.FeeEstimator = chainfee.NewStaticEstimator(commitFeeRate, 0)
+
+		// An anchor channel's own commitment feerate is capped at this
+		// value, and the message carries whatever survives the cap. It
+		// has to be at least the rate we want to open at, or the
+		// initiator opens at a lower rate than this test computes.
+		cfg.MaxAnchorsCommitFeeRate = commitFeeRate
+	})
+	t.Cleanup(func() {
+		tearDownFundingManagers(t, alice, bob)
+	})
+
+	// The channel type is negotiated from the peers' feature bits alone,
+	// so both sides have to advertise anchors with zero-fee HTLCs. That is
+	// also the smallest commitment for a given feerate, which keeps the
+	// commitment fee below the initiator's balance.
+	featureBits := []lnwire.FeatureBit{
+		lnwire.StaticRemoteKeyOptional,
+		lnwire.AnchorsZeroFeeHtlcTxOptional,
+	}
+	alice.localFeatures = featureBits
+	alice.remoteFeatures = featureBits
+	bob.localFeatures = featureBits
+	bob.remoteFeatures = featureBits
+
+	const capacity = btcutil.Amount(60000)
+
+	// The initiator pushes a small amount to the fundee, so that neither
+	// balance clears its reserve.
+	const pushAmt = btcutil.Amount(900)
+
+	// The two anchor outputs are paid out of the initiator's balance on top
+	// of the commitment fee, and the push comes out of it as well.
+	initiatorBalance := capacity - btcutil.Amount(commitFee) -
+		lnwallet.AnchorSize*2 - pushAmt
+	fundeeBalance := pushAmt
+
+	// The reserve the initiator names in open_channel, which must clear
+	// both balances without exceeding the fifth of capacity that
+	// VerifyConstraints allows.
+	initiatorReserve := btcutil.Amount(9000)
+
+	// The reserve we name in accept_channel, below the initiator's, so
+	// that comparing each balance against its own reserve would accept
+	// this channel. Bob's default reserve for a 60000 sat channel is his
+	// dust limit, well below this.
+	const acceptReserve = btcutil.Amount(600)
+
+	// Both balances must sit at or below the initiator's reserve for the
+	// check to fire, above the two-times-dust guard so that the earlier
+	// funder-balance-dust check in NewChannelReservation cannot fire
+	// first, and below the cap VerifyConstraints places on the reserve.
+	require.LessOrEqual(t, int64(initiatorBalance), int64(initiatorReserve))
+	require.LessOrEqual(t, int64(fundeeBalance), int64(initiatorReserve))
+	require.Greater(t, int64(fundeeBalance),
+		2*int64(lnwallet.DustLimitUnknownWitness()))
+	require.Less(t, int64(initiatorReserve), int64(capacity/5)+1)
+
+	updateChan := make(chan *lnrpc.OpenStatusUpdate)
+	errChan := make(chan error, 1)
+	initReq := &InitFundingMsg{
+		Peer:              bob,
+		TargetPubkey:      bob.privKey.PubKey(),
+		ChainHash:         *fundingNetParams.GenesisHash,
+		LocalFundingAmt:   capacity,
+		PushAmt:           lnwire.NewMSatFromSatoshis(pushAmt),
+		RemoteChanReserve: initiatorReserve,
+		Private:           true,
+		Updates:           updateChan,
+		Err:               errChan,
+	}
+	alice.fundingMgr.InitFundingWorkflow(initReq)
+
+	// The open_channel must carry the reserve we asked for, so that the
+	// comparison this test is about is the one being made.
+	aliceMsg := assertFundingMsgSent(t, alice.msgChan, "OpenChannel")
+	openChanMsg, ok := aliceMsg.(*lnwire.OpenChannel)
+	require.True(t, ok, "expected *lnwire.OpenChannel, got %T", aliceMsg)
+	require.EqualValues(t, initiatorReserve, openChanMsg.ChannelReserve)
+
+	// The feerate cap must not be what rejects this channel, or the
+	// reserve check would be masked. Bob's estimator is the static one his
+	// funding manager was built with, so the bound is exactly ten times
+	// that rate.
+	require.Less(t, uint64(openChanMsg.FeePerKiloWeight), uint64(
+		commitFeeRate*10,
+	))
+
+	bob.fundingMgr.ProcessFundingMsg(openChanMsg, alice)
+
+	// Bob must refuse the channel rather than answer with an
+	// AcceptChannel, and he must do so for the balance reason. The message
+	// is built from the same constructor the daemon uses, so it pins the
+	// balances reported as well as the wording.
+	bobMsg := assertFundingMsgSent(t, bob.msgChan, "Error")
+	errMsg, ok := bobMsg.(*lnwire.Error)
+	require.True(t, ok, "expected *lnwire.Error, got %T", bobMsg)
+
+	expected := lnwallet.ErrBalancesBelowReserve(
+		fundeeBalance, initiatorBalance, initiatorReserve,
+	)
+	require.Equal(t, expected.Error(), string(errMsg.Data))
 }
 
 // TestFundingManagerRejectPublicTaprootInitiator checks that a public taproot

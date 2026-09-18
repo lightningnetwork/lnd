@@ -32,16 +32,12 @@ type GossipTimestampRange struct {
 	// Unix timestamps.
 	TimestampRange uint32
 
-	// FirstBlockHeight is the height of earliest announcement message that
-	// should be sent by the receiver. This is used only for querying
-	// announcement messages that use block heights as a timestamp.
-	FirstBlockHeight tlv.OptionalRecordT[tlv.TlvType2, uint32]
-
-	// BlockRange is the horizon beyond FirstBlockHeight that any
-	// announcement messages should be sent for. The receiving node MUST NOT
-	// send any announcements that have a timestamp greater than
-	// FirstBlockHeight + BlockRange.
-	BlockRange tlv.OptionalRecordT[tlv.TlvType4, uint32]
+	// BlockHeightRange is the block-height equivalent of (FirstTimestamp,
+	// TimestampRange) used for gossip messages timestamped by block
+	// height. The receiving node MUST NOT send any announcements that have
+	// a block height greater than BlockHeightRange.FirstBlockHeight +
+	// BlockHeightRange.NumBlocks.
+	BlockHeightRange tlv.OptionalRecordT[tlv.TlvType2, BlockHeightRange]
 
 	// ExtraData is the set of data that was appended to this message to
 	// fill out the full maximum transport message size. These fields can
@@ -52,6 +48,65 @@ type GossipTimestampRange struct {
 // NewGossipTimestampRange creates a new empty GossipTimestampRange message.
 func NewGossipTimestampRange() *GossipTimestampRange {
 	return &GossipTimestampRange{}
+}
+
+// BlockHeightRange describes a window of blocks that an announcement may have
+// been timestamped within. It is serialised as a u32 first_block_height
+// followed by a tu32 num_blocks; the tu32 (truncated uint32) drops any
+// leading zero bytes from num_blocks to save space on the wire.
+type BlockHeightRange struct {
+	// FirstBlockHeight is the height of the earliest announcement message
+	// that should be sent by the receiver.
+	FirstBlockHeight uint32
+
+	// NumBlocks is the size of the window beyond FirstBlockHeight that
+	// announcements should be sent for.
+	NumBlocks uint32
+}
+
+// Record returns the TLV record used to encode/decode a BlockHeightRange. The
+// type number is supplied by the wrapping RecordT.
+func (b *BlockHeightRange) Record() tlv.Record {
+	sizeFunc := func() uint64 {
+		return 4 + tlv.SizeTUint32(b.NumBlocks)
+	}
+
+	return tlv.MakeDynamicRecord(
+		0, b, sizeFunc, blockHeightRangeEncoder,
+		blockHeightRangeDecoder,
+	)
+}
+
+func blockHeightRangeEncoder(w io.Writer, val interface{},
+	buf *[8]byte) error {
+
+	v, ok := val.(*BlockHeightRange)
+	if !ok {
+		return tlv.NewTypeForEncodingErr(val, "lnwire.BlockHeightRange")
+	}
+
+	if err := tlv.EUint32T(w, v.FirstBlockHeight, buf); err != nil {
+		return err
+	}
+
+	return tlv.ETUint32T(w, v.NumBlocks, buf)
+}
+
+func blockHeightRangeDecoder(r io.Reader, val interface{}, buf *[8]byte,
+	l uint64) error {
+
+	v, ok := val.(*BlockHeightRange)
+	if !ok || l < 4 {
+		return tlv.NewTypeForDecodingErr(
+			val, "lnwire.BlockHeightRange", l, 4,
+		)
+	}
+
+	if err := tlv.DUint32(r, &v.FirstBlockHeight, buf, 4); err != nil {
+		return err
+	}
+
+	return tlv.DTUint32(r, &v.NumBlocks, buf, l-4)
 }
 
 // A compile time check to ensure GossipTimestampRange implements the
@@ -81,20 +136,14 @@ func (g *GossipTimestampRange) Decode(r io.Reader, _ uint32) error {
 		return err
 	}
 
-	var (
-		firstBlock = tlv.ZeroRecordT[tlv.TlvType2, uint32]()
-		blockRange = tlv.ZeroRecordT[tlv.TlvType4, uint32]()
-	)
-	typeMap, err := tlvRecords.ExtractRecords(&firstBlock, &blockRange)
+	bhRange := tlv.ZeroRecordT[tlv.TlvType2, BlockHeightRange]()
+	typeMap, err := tlvRecords.ExtractRecords(&bhRange)
 	if err != nil {
 		return err
 	}
 
-	if val, ok := typeMap[g.FirstBlockHeight.TlvType()]; ok && val == nil {
-		g.FirstBlockHeight = tlv.SomeRecordT(firstBlock)
-	}
-	if val, ok := typeMap[g.BlockRange.TlvType()]; ok && val == nil {
-		g.BlockRange = tlv.SomeRecordT(blockRange)
+	if val, ok := typeMap[g.BlockHeightRange.TlvType()]; ok && val == nil {
+		g.BlockHeightRange = tlv.SomeRecordT(bhRange)
 	}
 
 	if len(tlvRecords) != 0 {
@@ -121,15 +170,10 @@ func (g *GossipTimestampRange) Encode(w *bytes.Buffer, pver uint32) error {
 		return err
 	}
 
-	recordProducers := make([]tlv.RecordProducer, 0, 2)
-	g.FirstBlockHeight.WhenSome(
-		func(height tlv.RecordT[tlv.TlvType2, uint32]) {
-			recordProducers = append(recordProducers, &height)
-		},
-	)
-	g.BlockRange.WhenSome(
-		func(blockRange tlv.RecordT[tlv.TlvType4, uint32]) {
-			recordProducers = append(recordProducers, &blockRange)
+	recordProducers := make([]tlv.RecordProducer, 0, 1)
+	g.BlockHeightRange.WhenSome(
+		func(bhr tlv.RecordT[tlv.TlvType2, BlockHeightRange]) {
+			recordProducers = append(recordProducers, &bhr)
 		},
 	)
 	err := EncodeMessageExtraData(&g.ExtraData, recordProducers...)

@@ -113,7 +113,7 @@ type MsgV1 struct {
 	Capacity tlv.OptionalRecordT[tlv.TlvType1, MilliSatoshi]
 
 	// Signature in the unsigned range.
-	Signature tlv.RecordT[tlv.TlvType160, Sig]
+	Signature tlv.RecordT[tlv.TlvType240, Sig]
 
 	// Any extra fields in the signed range that we do not yet know about,
 	// but we need to keep them for signature validation and to produce a
@@ -130,7 +130,7 @@ func newMsgV1(nodeKey *btcec.PublicKey, capacity *MilliSatoshi) *MsgV1 {
 		NodeKey: tlv.NewPrimitiveRecord[tlv.TlvType0](
 			nodeKey,
 		),
-		Signature: tlv.NewRecordT[tlv.TlvType160](
+		Signature: tlv.NewRecordT[tlv.TlvType240](
 			testSchnorrSig,
 		),
 		ExtraSignedFields: make(ExtraSignedFields),
@@ -230,11 +230,11 @@ type MsgV2 struct {
 	SecondPeer tlv.OptionalRecordT[tlv.TlvType5, TrueBoolean]
 
 	// Signature in the unsigned range.
-	Signature tlv.RecordT[tlv.TlvType160, Sig]
+	Signature tlv.RecordT[tlv.TlvType240, Sig]
 
 	// Another field in the unsigned range. An older node can throw this
 	// away.
-	SPVProof tlv.RecordT[tlv.TlvType161, []byte]
+	SPVProof tlv.RecordT[tlv.TlvType241, []byte]
 
 	// A new field in the second signed range. An older node should keep
 	// this since it is part of the serialised message that is signed.
@@ -258,10 +258,10 @@ func newMsgV2(nodeKey *btcec.PublicKey, capacity *MilliSatoshi,
 
 	newMsg := &MsgV2{
 		NodeKey:  tlv.NewPrimitiveRecord[tlv.TlvType0](nodeKey),
-		SPVProof: tlv.NewPrimitiveRecord[tlv.TlvType161](spvProof),
+		SPVProof: tlv.NewPrimitiveRecord[tlv.TlvType241](spvProof),
 		Num:      tlv.NewPrimitiveRecord[tlv.TlvType1000000000](num),
 		Other:    tlv.NewPrimitiveRecord[tlv.TlvType3000000000](num),
-		Signature: tlv.NewRecordT[tlv.TlvType160](
+		Signature: tlv.NewRecordT[tlv.TlvType240](
 			testSchnorrSig,
 		),
 		ExtraSignedFields: make(ExtraSignedFields),

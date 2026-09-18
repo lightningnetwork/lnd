@@ -2,6 +2,7 @@ package models
 
 import (
 	"fmt"
+	"math"
 	"time"
 
 	"github.com/lightningnetwork/lnd/fn/v2"
@@ -124,12 +125,37 @@ func ChanEdgePolicyFromWire(scid uint64,
 		}, nil
 
 	case *lnwire.ChannelUpdate2:
+		// Inbound fees in gossip v2 are two uint32 TLVs that are
+		// suppressed on the wire when they take their default value
+		// of 0 (i.e. no inbound surcharge). Treat the both-zero case
+		// as "no inbound fee" so the downstream Option semantics
+		// still hold.
+		var inboundFee fn.Option[lnwire.Fee]
+		baseFee := upd.InboundFeeBaseMsat.Val
+		propFee := upd.InboundFeeProportionalMillionths.Val
+
+		// The graph's fee model uses signed values to support v1
+		// discounts. Reject v2 surcharges that would wrap into
+		// discounts.
+		if baseFee > math.MaxInt32 || propFee > math.MaxInt32 {
+			return nil, fmt.Errorf("inbound fees exceed signed "+
+				"32-bit range: base=%d, rate=%d",
+				baseFee, propFee)
+		}
+
+		if baseFee != 0 || propFee != 0 {
+			inboundFee = fn.Some(lnwire.Fee{
+				BaseFee: int32(baseFee),
+				FeeRate: int32(propFee),
+			})
+		}
+
 		return &ChannelEdgePolicy{
 			Version:         lnwire.GossipVersion2,
 			SigBytes:        upd.Signature.Val.ToSignatureBytes(),
 			ChannelID:       scid,
 			LastBlockHeight: upd.BlockHeight.Val,
-			SecondPeer:      upd.SecondPeer.IsSome(),
+			SecondPeer:      !upd.IsNode1(),
 			DisableFlags:    upd.DisabledFlags.Val,
 			TimeLockDelta:   upd.CLTVExpiryDelta.Val,
 			MinHTLC:         upd.HTLCMinimumMsat.Val,
@@ -140,7 +166,7 @@ func ChanEdgePolicyFromWire(scid uint64,
 			FeeProportionalMillionths: lnwire.MilliSatoshi(
 				upd.FeeProportionalMillionths.Val,
 			),
-			InboundFee:        upd.InboundFee.ValOpt(),
+			InboundFee:        inboundFee,
 			ExtraSignedFields: upd.ExtraSignedFields,
 		}, nil
 	}

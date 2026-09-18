@@ -1615,6 +1615,19 @@ func (f *Manager) fundeeProcessOpenChannel(peer lnpeer.Peer,
 		return
 	}
 
+	// BOLT-02 requires the receiver of open_channel to reject a feerate
+	// below the minimum it considers acceptable.
+	commitFeeRate := chainfee.SatPerKWeight(msg.FeePerKiloWeight)
+	if commitFeeRate < chainfee.FeePerKwFloor {
+		f.failFundingFlow(
+			peer, cid, lnwallet.ErrCommitFeeRateTooSmall(
+				commitFeeRate, chainfee.FeePerKwFloor,
+			),
+		)
+
+		return
+	}
+
 	var scidFeatureVal bool
 	if hasFeatures(
 		peer.LocalFeatures(), peer.RemoteFeatures(),

@@ -153,6 +153,10 @@ linters:
 
     # Allow using default empty values.
     - exhaustruct
+    - exhaustruct_v5
+
+    # Use the v2 replacement instead of the deprecated implementation.
+    - gomodguard
 
     # Allow exiting case select faster by putting everything in default.
     - exhaustive

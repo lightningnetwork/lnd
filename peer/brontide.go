@@ -2336,10 +2336,13 @@ out:
 			}
 		}
 
-		// Count before routing; consuming endpoints skip the switch.
-		// All Pings, including oversized ones, use the flood budget.
-		if _, ok := nextMsg.(*lnwire.Ping); ok &&
-			!p.pingLimiter.Allow() {
+		// Count before routing because endpoints may consume Pings.
+		// Valid requests pay proportionally for their Pong bytes, while
+		// oversized no-reply requests still consume one flood token.
+		ping, ok := nextMsg.(*lnwire.Ping)
+		if ok && !p.pingLimiter.AllowN(
+			time.Now(), calcPingCost(ping),
+		) {
 
 			p.storeError(errPingFlood)
 			p.log.Warnf("%v", errPingFlood)

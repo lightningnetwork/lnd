@@ -1522,29 +1522,29 @@ func (m *mockMsgRouter) Stop() {
 // production router interface used by Brontide.
 var _ msgmux.Router = (*mockMsgRouter)(nil)
 
-// TestPeerPingFloodDisconnects verifies flood accounting precedes a generic
-// router that would consume an oversized Ping.
+// TestPeerPingFloodDisconnects verifies one-token oversized Ping accounting
+// precedes a generic router that would otherwise consume the message.
 func TestPeerPingFloodDisconnects(t *testing.T) {
 	t.Parallel()
 
-	// Arrange: Empty the flood budget and retain errors through an active
-	// channel. Install a mock router prepared to consume any message;
-	// marking it global avoids unrelated lifecycle calls.
+	// Arrange: Give the peer exactly one non-refilling token and retain
+	// errors through an active channel. The mock router consumes the first
+	// oversized Ping, proving that only the second reaches flood teardown.
 	params := createTestPeer(t)
 	peer := params.peer
-	peer.pingLimiter = rate.NewLimiter(0, 0)
+	peer.pingLimiter = rate.NewLimiter(0, 1)
 	peer.remoteFeatures = lnwire.EmptyFeatureVector()
 	peer.activeChannels.Store(
 		lnwire.ChannelID{1}, &lnwallet.LightningChannel{},
 	)
 
 	router := &mockMsgRouter{}
-	router.On("RouteMsg", mock.Anything).Return(nil).Maybe()
+	router.On("RouteMsg", mock.Anything).Return(nil).Once()
 	peer.msgRouter = fn.Some[msgmux.Router](router)
 	peer.globalMsgRouter = true
 
-	// Arrange: Encode the first oversized Pong request and register the
-	// focused reader with the control group so shutdown remains joinable.
+	// Arrange: Encode one BOLT 1 no-reply request, then register
+	// the read loop with the control group for joinable teardown.
 	var b bytes.Buffer
 	_, err := lnwire.WriteMessage(&b, &lnwire.Ping{
 		NumPongBytes: lnwire.MaxPongBytes + 1,
@@ -1554,23 +1554,107 @@ func TestPeerPingFloodDisconnects(t *testing.T) {
 	peer.cg.WgAdd(1)
 	go peer.readHandler()
 
-	// Act: Send the oversized Ping through normal decoding, then wait for
-	// the empty flood budget to cancel and fully stop the focused reader.
-	select {
-	case params.mockConn.readMessages <- b.Bytes():
-	case <-peer.cg.Done():
-		t.Fatal("peer disconnected before Ping was delivered")
+	// Act: Send two oversized Pings. The first spends the sole token and
+	// reaches the router; the second finds no budget and disconnects before
+	// routing.
+	for i := 0; i < 2; i++ {
+		select {
+		case params.mockConn.readMessages <- b.Bytes():
+		case <-peer.cg.Done():
+			t.Fatal("peer disconnected before both Pings arrived")
+		}
 	}
 
 	_, err = fn.RecvOrTimeout(peer.cg.Done(), timeout)
 	require.NoError(t, err)
 	peer.cg.WgWait()
 
-	// Assert: Teardown precedes generic routing, and the retained error
-	// matches the stable sentinel without depending on its display text.
+	// Assert: One oversized Ping reached routing before teardown blocked
+	// the second from doing so, and the retained error matches the stable
+	// sentinel without depending on its display text.
 	require.EqualValues(t, 1, atomic.LoadInt32(&peer.disconnect))
-	router.AssertNotCalled(t, "RouteMsg", mock.Anything)
+	router.AssertExpectations(t)
 
+	storedErrors := peer.ErrorBuffer().List()
+	require.NotEmpty(t, storedErrors)
+	storedErr, ok := storedErrors[0].(*TimestampedError)
+	require.True(t, ok)
+	require.ErrorIs(t, storedErr.Error, errPingFlood)
+}
+
+// TestPeerMaxPongBurstDisconnects verifies maximum-size replies retain the
+// former outbound burst bound without silently suppressing an admitted Pong.
+func TestPeerMaxPongBurstDisconnects(t *testing.T) {
+	t.Parallel()
+
+	// Arrange: Isolate the reader with a non-refilling production 200-token
+	// burst so wall time cannot move the boundary. An active-channel marker
+	// retains errors; the mock router rejects Pings into normal handling.
+	params := createTestPeer(t)
+	peer := params.peer
+	peer.pingLimiter = rate.NewLimiter(0, pingFloodBurst)
+	peer.remoteFeatures = lnwire.EmptyFeatureVector()
+	peer.outgoingQueue = make(chan outgoingMsg, 1)
+	peer.activeChannels.Store(
+		lnwire.ChannelID{1}, &lnwallet.LightningChannel{},
+	)
+
+	const admittedMaxPongs = 20
+	router := &mockMsgRouter{}
+	router.On("RouteMsg", mock.Anything).Return(
+		msgmux.ErrUnableToRouteMsg,
+	).Times(admittedMaxPongs)
+	peer.msgRouter = fn.Some[msgmux.Router](router)
+	peer.globalMsgRouter = true
+
+	var b bytes.Buffer
+	_, err := lnwire.WriteMessage(
+		&b, lnwire.NewPing(lnwire.MaxPongBytes), 0,
+	)
+	require.NoError(t, err)
+
+	peer.cg.WgAdd(1)
+	go peer.readHandler()
+	responses := make([]outgoingMsg, 0, admittedMaxPongs)
+
+	// Act: Deliver and drain 20 maximum-size requests so the queue cannot
+	// back up, then send the 21st and wait for its insufficient weighted
+	// budget to disconnect.
+	for i := 0; i < admittedMaxPongs; i++ {
+		select {
+		case params.mockConn.readMessages <- b.Bytes():
+		case <-peer.cg.Done():
+			t.Fatal("peer disconnected before admitted Ping")
+		}
+
+		response, err := fn.RecvOrTimeout(
+			peer.outgoingQueue, timeout,
+		)
+		require.NoError(t, err)
+		responses = append(responses, response)
+	}
+
+	select {
+	case params.mockConn.readMessages <- b.Bytes():
+	case <-peer.cg.Done():
+		t.Fatal("peer disconnected before excess Ping was delivered")
+	}
+
+	_, err = fn.RecvOrTimeout(peer.cg.Done(), timeout)
+	require.NoError(t, err)
+	peer.cg.WgWait()
+
+	// Assert: Each admitted request produced a priority Pong; the first
+	// excess request disconnected with errPingFlood rather than silence.
+	for _, response := range responses {
+		require.True(t, response.priority)
+		pong, ok := response.msg.(*lnwire.Pong)
+		require.True(t, ok)
+		require.Len(t, pong.PongBytes, int(lnwire.MaxPongBytes))
+	}
+
+	require.EqualValues(t, 1, atomic.LoadInt32(&peer.disconnect))
+	router.AssertExpectations(t)
 	storedErrors := peer.ErrorBuffer().List()
 	require.NotEmpty(t, storedErrors)
 	storedErr, ok := storedErrors[0].(*TimestampedError)

@@ -426,13 +426,21 @@ full-node which is capable of serving this new light client mode. `lnd` uses
 mode.  A public instance of such a node can be found at
 `faucet.lightning.community`.
 
-By default, Neutrino does not validate every advertised channel against its
-funding transaction. This makes graph sync much faster and reduces bandwidth,
-but channels learned this way may not have funding outpoints or capacities
-available in graph RPC responses. Set `--neutrino.validatechannels=true` when
-your application requires those channels to be validated against the chain.
-This makes graph sync slower because the blocks containing the channel funding
-transactions must be downloaded.
+By default, Neutrino does not validate announced channels against their
+funding transactions. This makes graph sync much faster and reduces bandwidth,
+but channels learned this way have no funding outpoint or capacity: graph RPCs
+such as `DescribeGraph`, `GetChanInfo` and `SubscribeChannelGraph` report a
+zero `chan_point` and a `capacity` of 0 for them. Start `lnd` with
+`--neutrino.validatechannels` (or set `neutrino.validatechannels=true` in
+`lnd.conf`) when your application requires channels to be validated against
+the chain. This makes graph sync slower because the blocks containing the
+channel funding transactions must be downloaded.
+
+Enabling channel validation later does not retroactively revalidate channel
+announcements that are already in the graph, because known edges skip
+announcement validation. It only affects channels learned after validation is
+enabled; existing zero outpoints and capacities can therefore remain until the
+graph entry is relearned.
 
 To run lnd in neutrino mode, run `lnd` with the following arguments, (swapping
 in `--bitcoin.simnet` if needed), and also your own `btcd` node if available:

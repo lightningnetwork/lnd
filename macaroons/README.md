@@ -43,11 +43,33 @@ With the root key set up, `lnd` continues with creating three macaroon files:
 * `admin.macaroon`: Grants full read and write access to all gRPC commands.
   This is used by the `lncli` client.
 
-These three macaroons all have the location field set to `lnd` and have no
-conditions/first party caveats or third party caveats set.
+In addition to those three, every sub server that is compiled into the binary
+bakes a macaroon of its own on first startup, scoped to the permissions that
+sub server needs:
+
+* `router.macaroon` (`routerrpc`, always compiled in): `offchain:read`,
+  `offchain:write`.
+* `signer.macaroon` (`signrpc` build tag): `signer:generate`, `signer:read`.
+* `walletkit.macaroon` (`walletrpc` build tag): `address:read`,
+  `address:write`, `onchain:read`, `onchain:write`.
+* `chainnotifier.macaroon` (`chainrpc` build tag): `onchain:read`.
+* `invoices.macaroon` (`invoicesrpc` build tag): `invoices:read`,
+  `invoices:write`.
+
+The release builds enable all of those build tags, so an official `lnd` binary
+creates all of these files. The location of each one can be overridden with
+its own command line option (`--routermacaroonpath`, `--signermacaroonpath`
+and so on).
+
+None of these files are written to disk if `--stateless_init` is used. The
+macaroons are then only returned in the response of the `InitWallet` or
+`UnlockWallet` call.
+
+All macaroons that `lnd` bakes on startup have the location field set to `lnd`
+and have no conditions/first party caveats or third party caveats set.
 
 The access restrictions are implemented with a list of entity/action pairs that
-is mapped to the gRPC functions by the `rpcserver.go`. 
+is mapped to the gRPC functions by the `rpcserver.go`.
 For example, the permissions for the `invoice.macaroon` looks like this:
 
 ```go
@@ -71,22 +93,56 @@ For example, the permissions for the `invoice.macaroon` looks like this:
 			Entity: "address",
 			Action: "write",
 		},
+		{
+			Entity: "onchain",
+			Action: "read",
+		},
 	}
 ```
 
 ## Constraints / First party caveats
 
-There are currently two constraints implemented that can be used by `lncli` to
-restrict the macaroon it uses to communicate with the gRPC interface. These can
-be found in `constraints.go`:
+A constraint is a first party caveat that further restricts an existing
+macaroon. Appending a caveat only requires the macaroon itself and not the root
+key, so constraints can be added offline by anyone holding the macaroon, and
+they can only ever narrow what a macaroon allows, never widen it.
 
-* `TimeoutConstraint`: Set a timeout in seconds after which the macaroon is no
-  longer valid.
-  This constraint can be set by adding the parameter `--macaroontimeout xy` to
-  the `lncli` command.
-* `IPLockConstraint`: Locks the macaroon to a specific IP address.
-  This constraint can be set by adding the parameter `--macaroonip a.b.c.d` to
-  the `lncli` command.
+The following constraints are implemented in `constraints.go`:
+
+* `TimeoutConstraint`: Sets a timeout in seconds after which the macaroon is no
+  longer valid. Encoded as the standard `time-before` caveat.
+* `IPLockConstraint`: Locks the macaroon to a single IP address, encoded as an
+  `ipaddr` caveat.
+* `IPRangeLockConstraint`: Locks the macaroon to an IP range in CIDR notation,
+  encoded as an `iprange` caveat.
+* `CustomConstraint`: Adds an `lnd-custom <name> <condition>` caveat. `lnd`
+  does not interpret the condition itself. A component such as a registered
+  RPC middleware has to declare that it handles that caveat name, otherwise
+  the macaroon is rejected as a whole.
+The `time-before` caveat is validated by the macaroon bakery's own standard
+checker. The checker functions for the lnd specific conditions (`ipaddr`,
+`iprange` and `lnd-custom`) are registered on the macaroon service
+in `config_builder.go`.
+
+Constraints can be added while baking a macaroon, or appended to an existing
+macaroon file:
+
+```shell
+$  lncli bakemacaroon --timeout 3600 --ip_address 10.0.0.5 info:read
+$  lncli constrainmacaroon --timeout 3600 admin.macaroon limited.macaroon
+```
+
+Two of them can also be applied by `lncli` on the fly, without changing the
+macaroon file at all:
+
+* `--macaroontimeout xy` sets the timeout. Note that this one is applied to
+  **every** call with a default of 60 seconds, as a basic anti-replay measure:
+  every macaroon that `lncli` sends already carries a short lived `time-before`
+  caveat.
+* `--macaroonip a.b.c.d` locks the macaroon to an IP address.
+
+`IPRangeLockConstraint` is currently only reachable from Go code, neither
+`bakemacaroon` nor `constrainmacaroon` registers a command line flag for it.
 
 ## Bakery
 
@@ -134,23 +190,10 @@ $  lncli bakemacaroon --save_to lnbits.macaroon \
 A full list of available entity/action pairs and RPC method URIs can be queried
 by using the `lncli listpermissions` command.
 
-### Upgrading from v0.8.0-beta or earlier
-
-Users upgrading from a version prior to `v0.9.0-beta` might get a `permission
-denied ` error when trying to use the `lncli bakemacaroon` command.
-This is because the bakery requires a new permission (`macaroon/generate`) to
-access.
-Users can obtain a new `admin.macaroon` that contains this permission by
-removing all three default macaroons (`admin.macaroon`, `invoice.macaroon` and
-`readonly.macaroon`, **NOT** the `macaroons.db`!) from their
-`data/chain/<chain>/<network>/` directory inside the lnd data directory and
-restarting lnd.
-
-
 ## Root key rotation
 
 To manage the root keys used by macaroons, there are `listmacaroonids` and
-`deletemacaroonid` available through gPRC and command line.
+`deletemacaroonid` available through gRPC and command line.
 Users can view a list of all macaroon root key IDs that are in use using:
 
 ```shell

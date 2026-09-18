@@ -27,6 +27,12 @@
   the replay from being handled as a second interception while the original
   outgoing HTLC remains active.
 
+* [Fixed AMP reconstruction failure canceling the entire
+  invoice](https://github.com/lightningnetwork/lnd/pull/11198). An AMP set
+  that fails preimage reconstruction now only cancels the HTLCs of that set,
+  keeping the invoice open so that other accepted sets on reusable static
+  AMP invoices remain payable.
+
 # New Features
 
 ## Functional Enhancements
@@ -74,3 +80,4 @@
 # Contributors (Alphabetical Order)
 
 * elsirion
+* Gijs van Dam

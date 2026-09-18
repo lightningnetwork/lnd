@@ -32,6 +32,12 @@
   with empty features. The migration now uses the regular graph reader's
   existing feature-format compatibility handling.
 
+* [Fixed AMP reconstruction failure canceling the entire
+  invoice](https://github.com/lightningnetwork/lnd/pull/11198). An AMP set
+  that fails preimage reconstruction now only cancels the HTLCs of that set,
+  keeping the invoice open so that other accepted sets on reusable static
+  AMP invoices remain payable.
+
 # New Features
 
 ## Functional Enhancements
@@ -91,5 +97,6 @@
 
 * Andras Banki-Horvath
 * elsirion
+* Gijs van Dam
 * Olaoluwa Osuntokun
 * Ziggie

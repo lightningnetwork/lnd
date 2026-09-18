@@ -2142,10 +2142,13 @@ out:
 		}
 
 		// Count valid Pings before routing because consuming endpoints
-		// skip the switch. Oversized requests never reach this point
-		// because this release rejects them during wire decoding.
-		if _, ok := nextMsg.(*lnwire.Ping); ok &&
-			!p.pingLimiter.Allow() {
+		// skip the switch. Valid requests pay proportionally for their
+		// Pong bytes. Oversized requests never reach this point because
+		// this release rejects them during wire decoding.
+		ping, ok := nextMsg.(*lnwire.Ping)
+		if ok && !p.pingLimiter.AllowN(
+			time.Now(), calcPingCost(ping),
+		) {
 
 			p.storeError(errPingFlood)
 			p.log.Warnf("%v", errPingFlood)

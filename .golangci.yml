@@ -69,6 +69,12 @@ linters:
     # have no context to thread through, so it adds little value for now.
     - noctx
 
+    # canonicalheader prefers registered initialism spellings such as
+    # Sec-WebSocket-Protocol, which can differ from the keys produced by
+    # net/http.CanonicalHeaderKey. Using those spellings as direct http.Header
+    # map keys can therefore break lookups.
+    - canonicalheader
+
     # Disable whitespace linters as it has conflict rules against our
     # contribution guidelines.
     - wsl
@@ -126,7 +132,8 @@ linters:
     # unit tests become our CI bottleneck.
     - paralleltest
 
-    # New linters that we haven't had time to address yet.
+    # New linters and expanded checks that we haven't had time to address yet.
+    - modernize
     - testifylint
     - perfsprint
     - inamedparam

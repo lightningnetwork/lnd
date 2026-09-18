@@ -474,7 +474,7 @@ func (t *TxPublisher) updateRecord(r *monitorRecord,
 	return r
 }
 
-// NOTE: part of the `chainio.Consumer` interface.
+// Name returns the name of the transaction publisher consumer.
 func (t *TxPublisher) Name() string {
 	return "TxPublisher"
 }

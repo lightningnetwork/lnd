@@ -32,8 +32,8 @@ var (
 	// not valid UTF-8.
 	ErrInvalidUTF8Description = errors.New("description is not valid UTF-8")
 
-	// ErrLengthNotMultipleOfHopHintLength is returned if the length of the
-	// route hint data is not a multiple of the hop hint length.
+	// ErrLengthNotMultipleOfHopHint is returned if the length of the route
+	// hint data is not a multiple of the hop hint length.
 	ErrLengthNotMultipleOfHopHint = errors.New("length is not a multiple " +
 		"of hop hint length")
 

@@ -52,8 +52,8 @@ func FetchChannelDataLossCommitPoint(
 }
 
 const (
-	// A tlv type definition used to serialize an outpoint's IndexStatus
-	// for use in the outpoint index.
+	// IndexStatusType is a TLV type definition used to serialize an
+	// outpoint's IndexStatus for use in the outpoint index.
 	IndexStatusType tlv.Type = 0
 )
 

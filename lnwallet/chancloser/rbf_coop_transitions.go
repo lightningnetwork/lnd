@@ -25,7 +25,7 @@ import (
 )
 
 var (
-	// ErrInvalidStateTransition is returned if the remote party tries to
+	// ErrThawHeightNotReached is returned if the remote party tries to
 	// close, but the thaw height hasn't been matched yet.
 	ErrThawHeightNotReached = fmt.Errorf("thaw height not reached")
 )

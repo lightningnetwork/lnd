@@ -25,13 +25,15 @@ const (
 
 type SignCoordinatorRequest struct {
 	state protoimpl.MessageState `protogen:"open.v1"`
-	// A unique request ID of a SignCoordinator gRPC request. Useful for mapping
-	// requests to responses.
-	// Note that request_id 1 is reserved for the handshake with between
-	// watch-only node and the remote signer.
+	//
+	//A unique request ID of a SignCoordinator gRPC request. Useful for mapping
+	//requests to responses.
+	//Note that request_id 1 is reserved for the handshake with between
+	//watch-only node and the remote signer.
 	RequestId uint64 `protobuf:"varint,1,opt,name=request_id,json=requestId,proto3" json:"request_id,omitempty"`
-	// Messages between the watch-only node and the remote signer can only be of
-	// certain types.
+	//
+	//Messages between the watch-only node and the remote signer can only be of
+	//certain types.
 	//
 	// Types that are valid to be assigned to SignRequestType:
 	//
@@ -209,71 +211,83 @@ type isSignCoordinatorRequest_SignRequestType interface {
 }
 
 type SignCoordinatorRequest_RegistrationResponse struct {
-	// The Registration Response message is returned by the watch-only lnd as
-	// a response to SignerRegistration message.
+	//
+	//The Registration Response message is returned by the watch-only lnd as
+	//a response to SignerRegistration message.
 	RegistrationResponse *RegistrationResponse `protobuf:"bytes,2,opt,name=registration_response,json=registrationResponse,proto3,oneof"`
 }
 
 type SignCoordinatorRequest_Ping struct {
-	// To ensure that the remote signer is still active and alive, the
-	// watch-only lnd can send a Ping message to the remote signer, which
-	// should then respond with the respective Pong message.
+	//
+	//To ensure that the remote signer is still active and alive, the
+	//watch-only lnd can send a Ping message to the remote signer, which
+	//should then respond with the respective Pong message.
 	Ping bool `protobuf:"varint,3,opt,name=ping,proto3,oneof"`
 }
 
 type SignCoordinatorRequest_SharedKeyRequest struct {
-	// Requests a shared public key from the remote signer.
+	//
+	//Requests a shared public key from the remote signer.
 	SharedKeyRequest *signrpc.SharedKeyRequest `protobuf:"bytes,4,opt,name=shared_key_request,json=sharedKeyRequest,proto3,oneof"`
 }
 
 type SignCoordinatorRequest_SignMessageReq struct {
-	// Requests that the remote signer signs the passed message.
+	//
+	//Requests that the remote signer signs the passed message.
 	SignMessageReq *signrpc.SignMessageReq `protobuf:"bytes,5,opt,name=sign_message_req,json=signMessageReq,proto3,oneof"`
 }
 
 type SignCoordinatorRequest_MuSig2SessionRequest struct {
-	// Requests a MuSig2 Session of the remote signer.
+	//
+	//Requests a MuSig2 Session of the remote signer.
 	MuSig2SessionRequest *signrpc.MuSig2SessionRequest `protobuf:"bytes,6,opt,name=mu_sig2_session_request,json=muSig2SessionRequest,proto3,oneof"`
 }
 
 type SignCoordinatorRequest_MuSig2RegisterNoncesRequest struct {
-	// Requests that the remote signer registers a nonce with the referenced
-	// MuSig2 Session.
+	//
+	//Requests that the remote signer registers a nonce with the referenced
+	//MuSig2 Session.
 	MuSig2RegisterNoncesRequest *signrpc.MuSig2RegisterNoncesRequest `protobuf:"bytes,7,opt,name=mu_sig2_register_nonces_request,json=muSig2RegisterNoncesRequest,proto3,oneof"`
 }
 
 type SignCoordinatorRequest_MuSig2CombinedNoncesReq struct {
-	// Requests that the remote signer registers a combined nonce with the
-	// referenced MuSig2 Session.
+	//
+	//Requests that the remote signer registers a combined nonce with the
+	//referenced MuSig2 Session.
 	MuSig2CombinedNoncesReq *signrpc.MuSig2RegisterCombinedNonceRequest `protobuf:"bytes,8,opt,name=mu_sig2_combined_nonces_req,json=muSig2CombinedNoncesReq,proto3,oneof"`
 }
 
 type SignCoordinatorRequest_MuSig2GetCombinedNoncesReq struct {
-	// Requests that the remote signer gets a combined nonce with the
-	// referenced MuSig2 Session.
+	//
+	//Requests that the remote signer gets a combined nonce with the
+	//referenced MuSig2 Session.
 	MuSig2GetCombinedNoncesReq *signrpc.MuSig2GetCombinedNonceRequest `protobuf:"bytes,9,opt,name=mu_sig2_get_combined_nonces_req,json=muSig2GetCombinedNoncesReq,proto3,oneof"`
 }
 
 type SignCoordinatorRequest_MuSig2SignRequest struct {
-	// Requests that the remote signer signs the passed message digest with
-	// the referenced MuSig2 Session.
+	//
+	//Requests that the remote signer signs the passed message digest with
+	//the referenced MuSig2 Session.
 	MuSig2SignRequest *signrpc.MuSig2SignRequest `protobuf:"bytes,10,opt,name=mu_sig2_sign_request,json=muSig2SignRequest,proto3,oneof"`
 }
 
 type SignCoordinatorRequest_MuSig2CombineSigRequest struct {
-	// Requests that the remote signer combines and adds the passed partial
-	// signatures for the referenced MuSig2 Session.
+	//
+	//Requests that the remote signer combines and adds the passed partial
+	//signatures for the referenced MuSig2 Session.
 	MuSig2CombineSigRequest *signrpc.MuSig2CombineSigRequest `protobuf:"bytes,11,opt,name=mu_sig2_combine_sig_request,json=muSig2CombineSigRequest,proto3,oneof"`
 }
 
 type SignCoordinatorRequest_MuSig2CleanupRequest struct {
-	// Requests that the remote signer removes/cleans up the referenced
-	// MuSig2 session.
+	//
+	//Requests that the remote signer removes/cleans up the referenced
+	//MuSig2 session.
 	MuSig2CleanupRequest *signrpc.MuSig2CleanupRequest `protobuf:"bytes,12,opt,name=mu_sig2_cleanup_request,json=muSig2CleanupRequest,proto3,oneof"`
 }
 
 type SignCoordinatorRequest_SignPsbtRequest struct {
-	// Requests that the remote signer signs the passed PSBT.
+	//
+	//Requests that the remote signer signs the passed PSBT.
 	SignPsbtRequest *walletrpc.SignPsbtRequest `protobuf:"bytes,13,opt,name=sign_psbt_request,json=signPsbtRequest,proto3,oneof"`
 }
 
@@ -305,9 +319,11 @@ func (*SignCoordinatorRequest_SignPsbtRequest) isSignCoordinatorRequest_SignRequ
 
 type SignCoordinatorResponse struct {
 	state protoimpl.MessageState `protogen:"open.v1"`
-	// The request ID this response refers to.
+	//
+	//The request ID this response refers to.
 	RefRequestId uint64 `protobuf:"varint,1,opt,name=ref_request_id,json=refRequestId,proto3" json:"ref_request_id,omitempty"`
-	// The remote signer responses can only be of certain types.
+	//
+	//The remote signer responses can only be of certain types.
 	//
 	// Types that are valid to be assigned to SignResponseType:
 	//
@@ -495,79 +511,92 @@ type isSignCoordinatorResponse_SignResponseType interface {
 }
 
 type SignCoordinatorResponse_SignerRegistration struct {
-	// The Signer Registration message is sent by the remote signer when it
-	// connects to the watch-only lnd node, to initialize a handshake between
-	// the nodes.
+	//
+	//The Signer Registration message is sent by the remote signer when it
+	//connects to the watch-only lnd node, to initialize a handshake between
+	//the nodes.
 	SignerRegistration *SignerRegistration `protobuf:"bytes,2,opt,name=signer_registration,json=signerRegistration,proto3,oneof"`
 }
 
 type SignCoordinatorResponse_Pong struct {
-	// To ensure that the remote signer is still active and alive, the
-	// watch-only node can send a Ping message to remote signer. This Pong
-	// message should then be sent by the remote signer to respond to the Ping
-	// message.
+	//
+	//To ensure that the remote signer is still active and alive, the
+	//watch-only node can send a Ping message to remote signer. This Pong
+	//message should then be sent by the remote signer to respond to the Ping
+	//message.
 	Pong bool `protobuf:"varint,3,opt,name=pong,proto3,oneof"`
 }
 
 type SignCoordinatorResponse_SharedKeyResponse struct {
-	// The remote signer's corresponding response to a Shared Key request.
+	//
+	//The remote signer's corresponding response to a Shared Key request.
 	SharedKeyResponse *signrpc.SharedKeyResponse `protobuf:"bytes,4,opt,name=shared_key_response,json=sharedKeyResponse,proto3,oneof"`
 }
 
 type SignCoordinatorResponse_SignMessageResp struct {
-	// The remote signer's corresponding response to a Sign Message request.
+	//
+	//The remote signer's corresponding response to a Sign Message request.
 	SignMessageResp *signrpc.SignMessageResp `protobuf:"bytes,5,opt,name=sign_message_resp,json=signMessageResp,proto3,oneof"`
 }
 
 type SignCoordinatorResponse_MuSig2SessionResponse struct {
-	// The remote signer's corresponding response to a Mu Sig2 Session
-	// request.
+	//
+	//The remote signer's corresponding response to a Mu Sig2 Session
+	//request.
 	MuSig2SessionResponse *signrpc.MuSig2SessionResponse `protobuf:"bytes,6,opt,name=mu_sig2_session_response,json=muSig2SessionResponse,proto3,oneof"`
 }
 
 type SignCoordinatorResponse_MuSig2RegisterNoncesResponse struct {
-	// The remote signer's corresponding response to a Mu Sig2 Register Nonces
-	// request.
+	//
+	//The remote signer's corresponding response to a Mu Sig2 Register Nonces
+	//request.
 	MuSig2RegisterNoncesResponse *signrpc.MuSig2RegisterNoncesResponse `protobuf:"bytes,7,opt,name=mu_sig2_register_nonces_response,json=muSig2RegisterNoncesResponse,proto3,oneof"`
 }
 
 type SignCoordinatorResponse_MuSig2CombNoncesResp struct {
-	// The remote signer's corresponding response to a Mu Sig2 Register
-	// Combined Nonces request.
+	//
+	//The remote signer's corresponding response to a Mu Sig2 Register
+	//Combined Nonces request.
 	MuSig2CombNoncesResp *signrpc.MuSig2RegisterCombinedNonceResponse `protobuf:"bytes,8,opt,name=mu_sig2_comb_nonces_resp,json=muSig2CombNoncesResp,proto3,oneof"`
 }
 
 type SignCoordinatorResponse_MuSig2GetCombNoncesResp struct {
-	// The remote signer's corresponding response to a Mu Sig2 Get Combined
-	// Nonces request.
+	//
+	//The remote signer's corresponding response to a Mu Sig2 Get Combined
+	//Nonces request.
 	MuSig2GetCombNoncesResp *signrpc.MuSig2GetCombinedNonceResponse `protobuf:"bytes,9,opt,name=mu_sig2_get_comb_nonces_resp,json=muSig2GetCombNoncesResp,proto3,oneof"`
 }
 
 type SignCoordinatorResponse_MuSig2SignResponse struct {
-	// The remote signer's corresponding response to a Mu Sig2 Sign request.
+	//
+	//The remote signer's corresponding response to a Mu Sig2 Sign request.
 	MuSig2SignResponse *signrpc.MuSig2SignResponse `protobuf:"bytes,10,opt,name=mu_sig2_sign_response,json=muSig2SignResponse,proto3,oneof"`
 }
 
 type SignCoordinatorResponse_MuSig2CombineSigResponse struct {
-	// The remote signer's corresponding response to a Mu Sig2 Combine Sig
-	// request.
+	//
+	//The remote signer's corresponding response to a Mu Sig2 Combine Sig
+	//request.
 	MuSig2CombineSigResponse *signrpc.MuSig2CombineSigResponse `protobuf:"bytes,11,opt,name=mu_sig2_combine_sig_response,json=muSig2CombineSigResponse,proto3,oneof"`
 }
 
 type SignCoordinatorResponse_MuSig2CleanupResponse struct {
-	// The remote signer's corresponding response to a Mu Sig2 Cleanup
-	// request.
+	//
+	//The remote signer's corresponding response to a Mu Sig2 Cleanup
+	//request.
 	MuSig2CleanupResponse *signrpc.MuSig2CleanupResponse `protobuf:"bytes,12,opt,name=mu_sig2_cleanup_response,json=muSig2CleanupResponse,proto3,oneof"`
 }
 
 type SignCoordinatorResponse_SignPsbtResponse struct {
-	// The remote signer's corresponding response to a Sign Psbt request.
+	//
+	//The remote signer's corresponding response to a Sign Psbt request.
 	SignPsbtResponse *walletrpc.SignPsbtResponse `protobuf:"bytes,13,opt,name=sign_psbt_response,json=signPsbtResponse,proto3,oneof"`
 }
 
 type SignCoordinatorResponse_SignerError struct {
-	// If the remote signer encounters an error while processing a request, it
-	// will respond with a SignerError message that details the error.
+	//
+	//If the remote signer encounters an error while processing a request, it
+	//will respond with a SignerError message that details the error.
 	SignerError *SignerError `protobuf:"bytes,14,opt,name=signer_error,json=signerError,proto3,oneof"`
 }
 
@@ -647,12 +676,14 @@ func (x *SignerError) GetError() string {
 
 type SignerRegistration struct {
 	state protoimpl.MessageState `protogen:"open.v1"`
-	// The registration challenge allows the remote signer to pass data that will
-	// be signed by the watch-only lnd. The resulting signature will be returned in
-	// the RegistrationResponse message.
+	//
+	//The registration challenge allows the remote signer to pass data that will
+	//be signed by the watch-only lnd. The resulting signature will be returned in
+	//the RegistrationResponse message.
 	RegistrationChallenge []byte `protobuf:"bytes,1,opt,name=registration_challenge,json=registrationChallenge,proto3" json:"registration_challenge,omitempty"`
-	// The registration info contains details about the remote signer that may be
-	// useful for the watch-only lnd.
+	//
+	//The registration info contains details about the remote signer that may be
+	//useful for the watch-only lnd.
 	RegistrationInfo string `protobuf:"bytes,2,opt,name=registration_info,json=registrationInfo,proto3" json:"registration_info,omitempty"`
 	unknownFields    protoimpl.UnknownFields
 	sizeCache        protoimpl.SizeCache
@@ -704,8 +735,9 @@ func (x *SignerRegistration) GetRegistrationInfo() string {
 
 type RegistrationResponse struct {
 	state protoimpl.MessageState `protogen:"open.v1"`
-	// The registration response indicates either a successful registration or an
-	// error.
+	//
+	//The registration response indicates either a successful registration or an
+	//error.
 	//
 	// Types that are valid to be assigned to RegistrationResponseType:
 	//
@@ -776,14 +808,16 @@ type isRegistrationResponse_RegistrationResponseType interface {
 }
 
 type RegistrationResponse_RegistrationComplete struct {
-	// Sent by the watch-only lnd when the remote signer registration is
-	// successful.
+	//
+	//Sent by the watch-only lnd when the remote signer registration is
+	//successful.
 	RegistrationComplete *RegistrationComplete `protobuf:"bytes,1,opt,name=registration_complete,json=registrationComplete,proto3,oneof"`
 }
 
 type RegistrationResponse_RegistrationError struct {
-	// Contains details about any errors that occurred during remote signer
-	// registration.
+	//
+	//Contains details about any errors that occurred during remote signer
+	//registration.
 	RegistrationError string `protobuf:"bytes,2,opt,name=registration_error,json=registrationError,proto3,oneof"`
 }
 
@@ -793,11 +827,13 @@ func (*RegistrationResponse_RegistrationError) isRegistrationResponse_Registrati
 
 type RegistrationComplete struct {
 	state protoimpl.MessageState `protogen:"open.v1"`
-	// Holds the signature generated by the watch-only node when signing the
-	// registration_challenge provided by the remote signer in SignerRegistration.
+	//
+	//Holds the signature generated by the watch-only node when signing the
+	//registration_challenge provided by the remote signer in SignerRegistration.
 	Signature string `protobuf:"bytes,1,opt,name=signature,proto3" json:"signature,omitempty"`
-	// Contains information about the watch-only lnd that may be useful for the
-	// remote signer.
+	//
+	//Contains information about the watch-only lnd that may be useful for the
+	//remote signer.
 	RegistrationInfo string `protobuf:"bytes,2,opt,name=registration_info,json=registrationInfo,proto3" json:"registration_info,omitempty"`
 	unknownFields    protoimpl.UnknownFields
 	sizeCache        protoimpl.SizeCache

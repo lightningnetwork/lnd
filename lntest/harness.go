@@ -781,8 +781,8 @@ func (h *HarnessTest) NewNodeWatchOnly(name string, extraArgs []string,
 	return hn
 }
 
-// CreateNodeWatchOnly creates a new node and asserts its creation. The function
-// will only create the node and will not start it.
+// CreateNewNode creates a new node and asserts its creation. The function will
+// only create the node and will not start it.
 func (h *HarnessTest) CreateNewNode(name string, extraArgs []string,
 	password []byte, noAuth bool) *node.HarnessNode {
 
@@ -2370,7 +2370,8 @@ func (h *HarnessTest) SendCoins(a, b *node.HarnessNode,
 	return tx
 }
 
-// SendCoins sends all coins from node A to node B, returns the sending tx.
+// SendAllCoins sends all coins from node A to node B and returns the sending
+// transaction.
 func (h *HarnessTest) SendAllCoins(a, b *node.HarnessNode) *wire.MsgTx {
 	// Create an address for Bob receive the coins.
 	req := &lnrpc.NewAddressRequest{

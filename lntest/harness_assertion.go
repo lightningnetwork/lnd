@@ -2011,8 +2011,8 @@ func (h *HarnessTest) AssertChannelInGraphCache(hn *node.HarnessNode,
 	return edge
 }
 
-// AssertChannelInGraphDB asserts that a given channel is found both in the
-// graph db (GetChanInfo) and the graph cache (DescribeGraph).
+// AssertChannelInGraph asserts that a given channel is found both in the graph
+// db (GetChanInfo) and the graph cache (DescribeGraph).
 func (h *HarnessTest) AssertChannelInGraph(hn *node.HarnessNode,
 	chanPoint *lnrpc.ChannelPoint) *lnrpc.ChannelEdge {
 
@@ -2947,8 +2947,8 @@ func (h *HarnessTest) AssertForceCloseAndAnchorTxnsInMempool() (*wire.MsgTx,
 	}
 }
 
-// ReceiveSendToRouteUpdate waits until a message is received on the
-// PeerEventsClient stream or the timeout is reached.
+// ReceivePeerEvent waits until a message is received on the PeerEventsClient
+// stream or the timeout is reached.
 func (h *HarnessTest) ReceivePeerEvent(
 	stream rpc.PeerEventsClient) (*lnrpc.PeerEvent, error) {
 

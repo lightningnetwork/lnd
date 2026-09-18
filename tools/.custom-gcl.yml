@@ -9,7 +9,7 @@
 # 
 # NOTE: We cannot use untagged versions here. Always update the linter in the
 # tools `go.mod` file and here as well.
-version: v2.4.0
+version: v2.13.2
 plugins:
   - module: 'github.com/lightningnetwork/lnd/tools/linters'
     path: ./linters

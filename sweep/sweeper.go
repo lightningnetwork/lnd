@@ -506,7 +506,7 @@ func (s *UtxoSweeper) Stop() error {
 	return nil
 }
 
-// NOTE: part of the `chainio.Consumer` interface.
+// Name returns the name of the UTXO sweeper consumer.
 func (s *UtxoSweeper) Name() string {
 	return "UtxoSweeper"
 }

@@ -19,18 +19,18 @@ const _ = grpc.SupportPackageIsVersion7
 // For semantics around ctx use and closing/ending streaming RPCs, please refer to https://pkg.go.dev/google.golang.org/grpc/?tab=doc#ClientConn.NewStream.
 type ChainKitClient interface {
 	// lncli: `chain getblock`
-	// GetBlock returns a block given the corresponding block hash.
+	//GetBlock returns a block given the corresponding block hash.
 	GetBlock(ctx context.Context, in *GetBlockRequest, opts ...grpc.CallOption) (*GetBlockResponse, error)
 	// lncli: `chain getblockheader`
-	// GetBlockHeader returns a block header with a particular block hash.
+	//GetBlockHeader returns a block header with a particular block hash.
 	GetBlockHeader(ctx context.Context, in *GetBlockHeaderRequest, opts ...grpc.CallOption) (*GetBlockHeaderResponse, error)
 	// lncli: `chain getbestblock`
-	// GetBestBlock returns the block hash and current height from the valid
-	// most-work chain.
+	//GetBestBlock returns the block hash and current height from the valid
+	//most-work chain.
 	GetBestBlock(ctx context.Context, in *GetBestBlockRequest, opts ...grpc.CallOption) (*GetBestBlockResponse, error)
 	// lncli: `chain getblockhash`
-	// GetBlockHash returns the hash of the block in the best blockchain
-	// at the given height.
+	//GetBlockHash returns the hash of the block in the best blockchain
+	//at the given height.
 	GetBlockHash(ctx context.Context, in *GetBlockHashRequest, opts ...grpc.CallOption) (*GetBlockHashResponse, error)
 }
 
@@ -83,18 +83,18 @@ func (c *chainKitClient) GetBlockHash(ctx context.Context, in *GetBlockHashReque
 // for forward compatibility
 type ChainKitServer interface {
 	// lncli: `chain getblock`
-	// GetBlock returns a block given the corresponding block hash.
+	//GetBlock returns a block given the corresponding block hash.
 	GetBlock(context.Context, *GetBlockRequest) (*GetBlockResponse, error)
 	// lncli: `chain getblockheader`
-	// GetBlockHeader returns a block header with a particular block hash.
+	//GetBlockHeader returns a block header with a particular block hash.
 	GetBlockHeader(context.Context, *GetBlockHeaderRequest) (*GetBlockHeaderResponse, error)
 	// lncli: `chain getbestblock`
-	// GetBestBlock returns the block hash and current height from the valid
-	// most-work chain.
+	//GetBestBlock returns the block hash and current height from the valid
+	//most-work chain.
 	GetBestBlock(context.Context, *GetBestBlockRequest) (*GetBestBlockResponse, error)
 	// lncli: `chain getblockhash`
-	// GetBlockHash returns the hash of the block in the best blockchain
-	// at the given height.
+	//GetBlockHash returns the hash of the block in the best blockchain
+	//at the given height.
 	GetBlockHash(context.Context, *GetBlockHashRequest) (*GetBlockHashResponse, error)
 	mustEmbedUnimplementedChainKitServer()
 }

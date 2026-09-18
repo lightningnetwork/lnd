@@ -20,109 +20,114 @@ const _ = grpc.SupportPackageIsVersion7
 // For semantics around ctx use and closing/ending streaming RPCs, please refer to https://pkg.go.dev/google.golang.org/grpc/?tab=doc#ClientConn.NewStream.
 type RouterClient interface {
 	// lncli: `sendpayment`
-	// SendPaymentV2 attempts to route a payment described by the passed
-	// PaymentRequest to the final destination. The call returns a stream of
-	// payment updates. When using this RPC, make sure to set a fee limit, as the
-	// default routing fee limit is 0 sats. Without a non-zero fee limit only
-	// routes without fees will be attempted which often fails with
-	// FAILURE_REASON_NO_ROUTE.
+	//SendPaymentV2 attempts to route a payment described by the passed
+	//PaymentRequest to the final destination. The call returns a stream of
+	//payment updates. When using this RPC, make sure to set a fee limit, as the
+	//default routing fee limit is 0 sats. Without a non-zero fee limit only
+	//routes without fees will be attempted which often fails with
+	//FAILURE_REASON_NO_ROUTE.
 	SendPaymentV2(ctx context.Context, in *SendPaymentRequest, opts ...grpc.CallOption) (Router_SendPaymentV2Client, error)
 	// lncli: `trackpayment`
-	// TrackPaymentV2 returns an update stream for the payment identified by the
-	// payment hash.
+	//TrackPaymentV2 returns an update stream for the payment identified by the
+	//payment hash.
 	TrackPaymentV2(ctx context.Context, in *TrackPaymentRequest, opts ...grpc.CallOption) (Router_TrackPaymentV2Client, error)
-	// TrackPayments returns an update stream for every payment that is not in a
-	// terminal state. Note that if payments are in-flight while starting a new
-	// subscription, the start of the payment stream could produce out-of-order
-	// and/or duplicate events. In order to get updates for every in-flight
-	// payment attempt make sure to subscribe to this method before initiating any
-	// payments.
+	//
+	//TrackPayments returns an update stream for every payment that is not in a
+	//terminal state. Note that if payments are in-flight while starting a new
+	//subscription, the start of the payment stream could produce out-of-order
+	//and/or duplicate events. In order to get updates for every in-flight
+	//payment attempt make sure to subscribe to this method before initiating any
+	//payments.
 	TrackPayments(ctx context.Context, in *TrackPaymentsRequest, opts ...grpc.CallOption) (Router_TrackPaymentsClient, error)
 	// lncli: `estimateroutefee`
-	// EstimateRouteFee allows callers to obtain a lower bound w.r.t how much it
-	// may cost to send an HTLC to the target end destination.
+	//EstimateRouteFee allows callers to obtain a lower bound w.r.t how much it
+	//may cost to send an HTLC to the target end destination.
 	EstimateRouteFee(ctx context.Context, in *RouteFeeRequest, opts ...grpc.CallOption) (*RouteFeeResponse, error)
 	// lncli: `sendtoroute`
-	// SendToRouteV2 attempts to make a payment via the specified route. This
-	// method differs from SendPayment in that it allows users to specify a full
-	// route manually. This can be used for things like rebalancing, and atomic
-	// swaps.
+	//SendToRouteV2 attempts to make a payment via the specified route. This
+	//method differs from SendPayment in that it allows users to specify a full
+	//route manually. This can be used for things like rebalancing, and atomic
+	//swaps.
 	SendToRouteV2(ctx context.Context, in *SendToRouteRequest, opts ...grpc.CallOption) (*lnrpc.HTLCAttempt, error)
 	// lncli: `resetmc`
-	// ResetMissionControl clears all mission control state and starts with a clean
-	// slate.
+	//ResetMissionControl clears all mission control state and starts with a clean
+	//slate.
 	ResetMissionControl(ctx context.Context, in *ResetMissionControlRequest, opts ...grpc.CallOption) (*ResetMissionControlResponse, error)
 	// lncli: `querymc`
-	// QueryMissionControl exposes the internal mission control state to callers.
-	// It is a development feature.
+	//QueryMissionControl exposes the internal mission control state to callers.
+	//It is a development feature.
 	QueryMissionControl(ctx context.Context, in *QueryMissionControlRequest, opts ...grpc.CallOption) (*QueryMissionControlResponse, error)
 	// lncli: `importmc`
-	// XImportMissionControl is an experimental API that imports the state provided
-	// to the internal mission control's state, using all results which are more
-	// recent than our existing values. These values will only be imported
-	// in-memory, and will not be persisted across restarts.
+	//XImportMissionControl is an experimental API that imports the state provided
+	//to the internal mission control's state, using all results which are more
+	//recent than our existing values. These values will only be imported
+	//in-memory, and will not be persisted across restarts.
 	XImportMissionControl(ctx context.Context, in *XImportMissionControlRequest, opts ...grpc.CallOption) (*XImportMissionControlResponse, error)
 	// lncli: `getmccfg`
-	// GetMissionControlConfig returns mission control's current config.
+	//GetMissionControlConfig returns mission control's current config.
 	GetMissionControlConfig(ctx context.Context, in *GetMissionControlConfigRequest, opts ...grpc.CallOption) (*GetMissionControlConfigResponse, error)
 	// lncli: `setmccfg`
-	// SetMissionControlConfig will set mission control's config, if the config
-	// provided is valid.
+	//SetMissionControlConfig will set mission control's config, if the config
+	//provided is valid.
 	SetMissionControlConfig(ctx context.Context, in *SetMissionControlConfigRequest, opts ...grpc.CallOption) (*SetMissionControlConfigResponse, error)
 	// lncli: `queryprob`
-	// Deprecated. QueryProbability returns the current success probability
-	// estimate for a given node pair and amount. The call returns a zero success
-	// probability if no channel is available or if the amount violates min/max
-	// HTLC constraints.
+	//Deprecated. QueryProbability returns the current success probability
+	//estimate for a given node pair and amount. The call returns a zero success
+	//probability if no channel is available or if the amount violates min/max
+	//HTLC constraints.
 	QueryProbability(ctx context.Context, in *QueryProbabilityRequest, opts ...grpc.CallOption) (*QueryProbabilityResponse, error)
 	// lncli: `buildroute`
-	// BuildRoute builds a fully specified route based on a list of hop public
-	// keys. It retrieves the relevant channel policies from the graph in order to
-	// calculate the correct fees and time locks.
-	// Note that LND will use its default final_cltv_delta if no value is supplied.
-	// Make sure to add the correct final_cltv_delta depending on the invoice
-	// restriction. Moreover the caller has to make sure to provide the
-	// payment_addr if the route is paying an invoice which signaled it.
+	//BuildRoute builds a fully specified route based on a list of hop public
+	//keys. It retrieves the relevant channel policies from the graph in order to
+	//calculate the correct fees and time locks.
+	//Note that LND will use its default final_cltv_delta if no value is supplied.
+	//Make sure to add the correct final_cltv_delta depending on the invoice
+	//restriction. Moreover the caller has to make sure to provide the
+	//payment_addr if the route is paying an invoice which signaled it.
 	BuildRoute(ctx context.Context, in *BuildRouteRequest, opts ...grpc.CallOption) (*BuildRouteResponse, error)
-	// SubscribeHtlcEvents creates a uni-directional stream from the server to
-	// the client which delivers a stream of htlc events.
+	//
+	//SubscribeHtlcEvents creates a uni-directional stream from the server to
+	//the client which delivers a stream of htlc events.
 	SubscribeHtlcEvents(ctx context.Context, in *SubscribeHtlcEventsRequest, opts ...grpc.CallOption) (Router_SubscribeHtlcEventsClient, error)
-	// *
-	// HtlcInterceptor dispatches a bi-directional streaming RPC in which
-	// Forwarded HTLC requests are sent to the client and the client responds with
-	// a boolean that tells LND if this htlc should be intercepted.
-	// In case of interception, the htlc can be either settled, cancelled or
-	// resumed later by using the ResolveHoldForward endpoint.
+	//*
+	//HtlcInterceptor dispatches a bi-directional streaming RPC in which
+	//Forwarded HTLC requests are sent to the client and the client responds with
+	//a boolean that tells LND if this htlc should be intercepted.
+	//In case of interception, the htlc can be either settled, cancelled or
+	//resumed later by using the ResolveHoldForward endpoint.
 	HtlcInterceptor(ctx context.Context, opts ...grpc.CallOption) (Router_HtlcInterceptorClient, error)
 	// lncli: `updatechanstatus`
-	// UpdateChanStatus attempts to manually set the state of a channel
-	// (enabled, disabled, or auto). A manual "disable" request will cause the
-	// channel to stay disabled until a subsequent manual request of either
-	// "enable" or "auto".
+	//UpdateChanStatus attempts to manually set the state of a channel
+	//(enabled, disabled, or auto). A manual "disable" request will cause the
+	//channel to stay disabled until a subsequent manual request of either
+	//"enable" or "auto".
 	UpdateChanStatus(ctx context.Context, in *UpdateChanStatusRequest, opts ...grpc.CallOption) (*UpdateChanStatusResponse, error)
-	// XAddLocalChanAliases is an experimental API that creates a set of new
-	// channel SCID alias mappings. The final total set of aliases in the manager
-	// after the add operation is returned. This is only a locally stored alias,
-	// and will not be communicated to the channel peer via any message. Therefore,
-	// routing over such an alias will only work if the peer also calls this same
-	// RPC on their end. If an alias already exists, an error is returned
+	//
+	//XAddLocalChanAliases is an experimental API that creates a set of new
+	//channel SCID alias mappings. The final total set of aliases in the manager
+	//after the add operation is returned. This is only a locally stored alias,
+	//and will not be communicated to the channel peer via any message. Therefore,
+	//routing over such an alias will only work if the peer also calls this same
+	//RPC on their end. If an alias already exists, an error is returned
 	XAddLocalChanAliases(ctx context.Context, in *AddAliasesRequest, opts ...grpc.CallOption) (*AddAliasesResponse, error)
-	// XDeleteLocalChanAliases is an experimental API that deletes a set of alias
-	// mappings. The final total set of aliases in the manager after the delete
-	// operation is returned. The deletion will not be communicated to the channel
-	// peer via any message.
+	//
+	//XDeleteLocalChanAliases is an experimental API that deletes a set of alias
+	//mappings. The final total set of aliases in the manager after the delete
+	//operation is returned. The deletion will not be communicated to the channel
+	//peer via any message.
 	XDeleteLocalChanAliases(ctx context.Context, in *DeleteAliasesRequest, opts ...grpc.CallOption) (*DeleteAliasesResponse, error)
-	// XFindBaseLocalChanAlias is an experimental API that looks up the base scid
-	// for a local chan alias that was registered during the current runtime.
+	//
+	//XFindBaseLocalChanAlias is an experimental API that looks up the base scid
+	//for a local chan alias that was registered during the current runtime.
 	XFindBaseLocalChanAlias(ctx context.Context, in *FindBaseAliasRequest, opts ...grpc.CallOption) (*FindBaseAliasResponse, error)
 	// lncli: `deletefwdhistory`
-	// DeleteForwardingHistory allows the caller to delete forwarding history
-	// events with a timestamp at or before a specified time. This is useful
-	// for implementing data retention policies for privacy purposes. The call
-	// deletes events in batches and returns statistics including the total number
-	// of events deleted and the aggregate fees earned from those events. The
-	// deletion is performed in a transaction-safe manner with configurable batch
-	// sizes to avoid holding large database locks.
+	//DeleteForwardingHistory allows the caller to delete forwarding history
+	//events with a timestamp at or before a specified time. This is useful
+	//for implementing data retention policies for privacy purposes. The call
+	//deletes events in batches and returns statistics including the total number
+	//of events deleted and the aggregate fees earned from those events. The
+	//deletion is performed in a transaction-safe manner with configurable batch
+	//sizes to avoid holding large database locks.
 	DeleteForwardingHistory(ctx context.Context, in *DeleteForwardingHistoryRequest, opts ...grpc.CallOption) (*DeleteForwardingHistoryResponse, error)
 }
 
@@ -424,109 +429,114 @@ func (c *routerClient) DeleteForwardingHistory(ctx context.Context, in *DeleteFo
 // for forward compatibility
 type RouterServer interface {
 	// lncli: `sendpayment`
-	// SendPaymentV2 attempts to route a payment described by the passed
-	// PaymentRequest to the final destination. The call returns a stream of
-	// payment updates. When using this RPC, make sure to set a fee limit, as the
-	// default routing fee limit is 0 sats. Without a non-zero fee limit only
-	// routes without fees will be attempted which often fails with
-	// FAILURE_REASON_NO_ROUTE.
+	//SendPaymentV2 attempts to route a payment described by the passed
+	//PaymentRequest to the final destination. The call returns a stream of
+	//payment updates. When using this RPC, make sure to set a fee limit, as the
+	//default routing fee limit is 0 sats. Without a non-zero fee limit only
+	//routes without fees will be attempted which often fails with
+	//FAILURE_REASON_NO_ROUTE.
 	SendPaymentV2(*SendPaymentRequest, Router_SendPaymentV2Server) error
 	// lncli: `trackpayment`
-	// TrackPaymentV2 returns an update stream for the payment identified by the
-	// payment hash.
+	//TrackPaymentV2 returns an update stream for the payment identified by the
+	//payment hash.
 	TrackPaymentV2(*TrackPaymentRequest, Router_TrackPaymentV2Server) error
-	// TrackPayments returns an update stream for every payment that is not in a
-	// terminal state. Note that if payments are in-flight while starting a new
-	// subscription, the start of the payment stream could produce out-of-order
-	// and/or duplicate events. In order to get updates for every in-flight
-	// payment attempt make sure to subscribe to this method before initiating any
-	// payments.
+	//
+	//TrackPayments returns an update stream for every payment that is not in a
+	//terminal state. Note that if payments are in-flight while starting a new
+	//subscription, the start of the payment stream could produce out-of-order
+	//and/or duplicate events. In order to get updates for every in-flight
+	//payment attempt make sure to subscribe to this method before initiating any
+	//payments.
 	TrackPayments(*TrackPaymentsRequest, Router_TrackPaymentsServer) error
 	// lncli: `estimateroutefee`
-	// EstimateRouteFee allows callers to obtain a lower bound w.r.t how much it
-	// may cost to send an HTLC to the target end destination.
+	//EstimateRouteFee allows callers to obtain a lower bound w.r.t how much it
+	//may cost to send an HTLC to the target end destination.
 	EstimateRouteFee(context.Context, *RouteFeeRequest) (*RouteFeeResponse, error)
 	// lncli: `sendtoroute`
-	// SendToRouteV2 attempts to make a payment via the specified route. This
-	// method differs from SendPayment in that it allows users to specify a full
-	// route manually. This can be used for things like rebalancing, and atomic
-	// swaps.
+	//SendToRouteV2 attempts to make a payment via the specified route. This
+	//method differs from SendPayment in that it allows users to specify a full
+	//route manually. This can be used for things like rebalancing, and atomic
+	//swaps.
 	SendToRouteV2(context.Context, *SendToRouteRequest) (*lnrpc.HTLCAttempt, error)
 	// lncli: `resetmc`
-	// ResetMissionControl clears all mission control state and starts with a clean
-	// slate.
+	//ResetMissionControl clears all mission control state and starts with a clean
+	//slate.
 	ResetMissionControl(context.Context, *ResetMissionControlRequest) (*ResetMissionControlResponse, error)
 	// lncli: `querymc`
-	// QueryMissionControl exposes the internal mission control state to callers.
-	// It is a development feature.
+	//QueryMissionControl exposes the internal mission control state to callers.
+	//It is a development feature.
 	QueryMissionControl(context.Context, *QueryMissionControlRequest) (*QueryMissionControlResponse, error)
 	// lncli: `importmc`
-	// XImportMissionControl is an experimental API that imports the state provided
-	// to the internal mission control's state, using all results which are more
-	// recent than our existing values. These values will only be imported
-	// in-memory, and will not be persisted across restarts.
+	//XImportMissionControl is an experimental API that imports the state provided
+	//to the internal mission control's state, using all results which are more
+	//recent than our existing values. These values will only be imported
+	//in-memory, and will not be persisted across restarts.
 	XImportMissionControl(context.Context, *XImportMissionControlRequest) (*XImportMissionControlResponse, error)
 	// lncli: `getmccfg`
-	// GetMissionControlConfig returns mission control's current config.
+	//GetMissionControlConfig returns mission control's current config.
 	GetMissionControlConfig(context.Context, *GetMissionControlConfigRequest) (*GetMissionControlConfigResponse, error)
 	// lncli: `setmccfg`
-	// SetMissionControlConfig will set mission control's config, if the config
-	// provided is valid.
+	//SetMissionControlConfig will set mission control's config, if the config
+	//provided is valid.
 	SetMissionControlConfig(context.Context, *SetMissionControlConfigRequest) (*SetMissionControlConfigResponse, error)
 	// lncli: `queryprob`
-	// Deprecated. QueryProbability returns the current success probability
-	// estimate for a given node pair and amount. The call returns a zero success
-	// probability if no channel is available or if the amount violates min/max
-	// HTLC constraints.
+	//Deprecated. QueryProbability returns the current success probability
+	//estimate for a given node pair and amount. The call returns a zero success
+	//probability if no channel is available or if the amount violates min/max
+	//HTLC constraints.
 	QueryProbability(context.Context, *QueryProbabilityRequest) (*QueryProbabilityResponse, error)
 	// lncli: `buildroute`
-	// BuildRoute builds a fully specified route based on a list of hop public
-	// keys. It retrieves the relevant channel policies from the graph in order to
-	// calculate the correct fees and time locks.
-	// Note that LND will use its default final_cltv_delta if no value is supplied.
-	// Make sure to add the correct final_cltv_delta depending on the invoice
-	// restriction. Moreover the caller has to make sure to provide the
-	// payment_addr if the route is paying an invoice which signaled it.
+	//BuildRoute builds a fully specified route based on a list of hop public
+	//keys. It retrieves the relevant channel policies from the graph in order to
+	//calculate the correct fees and time locks.
+	//Note that LND will use its default final_cltv_delta if no value is supplied.
+	//Make sure to add the correct final_cltv_delta depending on the invoice
+	//restriction. Moreover the caller has to make sure to provide the
+	//payment_addr if the route is paying an invoice which signaled it.
 	BuildRoute(context.Context, *BuildRouteRequest) (*BuildRouteResponse, error)
-	// SubscribeHtlcEvents creates a uni-directional stream from the server to
-	// the client which delivers a stream of htlc events.
+	//
+	//SubscribeHtlcEvents creates a uni-directional stream from the server to
+	//the client which delivers a stream of htlc events.
 	SubscribeHtlcEvents(*SubscribeHtlcEventsRequest, Router_SubscribeHtlcEventsServer) error
-	// *
-	// HtlcInterceptor dispatches a bi-directional streaming RPC in which
-	// Forwarded HTLC requests are sent to the client and the client responds with
-	// a boolean that tells LND if this htlc should be intercepted.
-	// In case of interception, the htlc can be either settled, cancelled or
-	// resumed later by using the ResolveHoldForward endpoint.
+	//*
+	//HtlcInterceptor dispatches a bi-directional streaming RPC in which
+	//Forwarded HTLC requests are sent to the client and the client responds with
+	//a boolean that tells LND if this htlc should be intercepted.
+	//In case of interception, the htlc can be either settled, cancelled or
+	//resumed later by using the ResolveHoldForward endpoint.
 	HtlcInterceptor(Router_HtlcInterceptorServer) error
 	// lncli: `updatechanstatus`
-	// UpdateChanStatus attempts to manually set the state of a channel
-	// (enabled, disabled, or auto). A manual "disable" request will cause the
-	// channel to stay disabled until a subsequent manual request of either
-	// "enable" or "auto".
+	//UpdateChanStatus attempts to manually set the state of a channel
+	//(enabled, disabled, or auto). A manual "disable" request will cause the
+	//channel to stay disabled until a subsequent manual request of either
+	//"enable" or "auto".
 	UpdateChanStatus(context.Context, *UpdateChanStatusRequest) (*UpdateChanStatusResponse, error)
-	// XAddLocalChanAliases is an experimental API that creates a set of new
-	// channel SCID alias mappings. The final total set of aliases in the manager
-	// after the add operation is returned. This is only a locally stored alias,
-	// and will not be communicated to the channel peer via any message. Therefore,
-	// routing over such an alias will only work if the peer also calls this same
-	// RPC on their end. If an alias already exists, an error is returned
+	//
+	//XAddLocalChanAliases is an experimental API that creates a set of new
+	//channel SCID alias mappings. The final total set of aliases in the manager
+	//after the add operation is returned. This is only a locally stored alias,
+	//and will not be communicated to the channel peer via any message. Therefore,
+	//routing over such an alias will only work if the peer also calls this same
+	//RPC on their end. If an alias already exists, an error is returned
 	XAddLocalChanAliases(context.Context, *AddAliasesRequest) (*AddAliasesResponse, error)
-	// XDeleteLocalChanAliases is an experimental API that deletes a set of alias
-	// mappings. The final total set of aliases in the manager after the delete
-	// operation is returned. The deletion will not be communicated to the channel
-	// peer via any message.
+	//
+	//XDeleteLocalChanAliases is an experimental API that deletes a set of alias
+	//mappings. The final total set of aliases in the manager after the delete
+	//operation is returned. The deletion will not be communicated to the channel
+	//peer via any message.
 	XDeleteLocalChanAliases(context.Context, *DeleteAliasesRequest) (*DeleteAliasesResponse, error)
-	// XFindBaseLocalChanAlias is an experimental API that looks up the base scid
-	// for a local chan alias that was registered during the current runtime.
+	//
+	//XFindBaseLocalChanAlias is an experimental API that looks up the base scid
+	//for a local chan alias that was registered during the current runtime.
 	XFindBaseLocalChanAlias(context.Context, *FindBaseAliasRequest) (*FindBaseAliasResponse, error)
 	// lncli: `deletefwdhistory`
-	// DeleteForwardingHistory allows the caller to delete forwarding history
-	// events with a timestamp at or before a specified time. This is useful
-	// for implementing data retention policies for privacy purposes. The call
-	// deletes events in batches and returns statistics including the total number
-	// of events deleted and the aggregate fees earned from those events. The
-	// deletion is performed in a transaction-safe manner with configurable batch
-	// sizes to avoid holding large database locks.
+	//DeleteForwardingHistory allows the caller to delete forwarding history
+	//events with a timestamp at or before a specified time. This is useful
+	//for implementing data retention policies for privacy purposes. The call
+	//deletes events in batches and returns statistics including the total number
+	//of events deleted and the aggregate fees earned from those events. The
+	//deletion is performed in a transaction-safe manner with configurable batch
+	//sizes to avoid holding large database locks.
 	DeleteForwardingHistory(context.Context, *DeleteForwardingHistoryRequest) (*DeleteForwardingHistoryResponse, error)
 	mustEmbedUnimplementedRouterServer()
 }

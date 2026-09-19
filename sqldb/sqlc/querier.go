@@ -15,6 +15,7 @@ type Querier interface {
 	AddV1ChannelProof(ctx context.Context, arg AddV1ChannelProofParams) (sql.Result, error)
 	AddV2ChannelProof(ctx context.Context, arg AddV2ChannelProofParams) (sql.Result, error)
 	ClearKVInvoiceHashIndex(ctx context.Context) error
+	CountLiquidityIntervals(ctx context.Context) (int64, error)
 	CountPayments(ctx context.Context) (int64, error)
 	CountZombieChannels(ctx context.Context, version int16) (int64, error)
 	CreateChannel(ctx context.Context, arg CreateChannelParams) (int64, error)
@@ -28,6 +29,7 @@ type Querier interface {
 	// resolutions across all payments.
 	DeleteFailedAttempts(ctx context.Context, paymentID int64) error
 	DeleteInvoice(ctx context.Context, arg DeleteInvoiceParams) (sql.Result, error)
+	DeleteLiquidityIntervals(ctx context.Context) error
 	DeleteNode(ctx context.Context, id int64) error
 	DeleteNodeAddresses(ctx context.Context, nodeID int64) error
 	DeleteNodeByPubKey(ctx context.Context, arg DeleteNodeByPubKeyParams) (sql.Result, error)
@@ -229,6 +231,7 @@ type Querier interface {
 	ListChannelsPaginatedV2(ctx context.Context, arg ListChannelsPaginatedV2Params) ([]ListChannelsPaginatedV2Row, error)
 	ListChannelsWithPoliciesForCachePaginated(ctx context.Context, arg ListChannelsWithPoliciesForCachePaginatedParams) ([]ListChannelsWithPoliciesForCachePaginatedRow, error)
 	ListChannelsWithPoliciesPaginated(ctx context.Context, arg ListChannelsWithPoliciesPaginatedParams) ([]ListChannelsWithPoliciesPaginatedRow, error)
+	ListLiquidityIntervals(ctx context.Context, limit int32) ([]LiquidityInterval, error)
 	ListNodeIDsAndPubKeys(ctx context.Context, arg ListNodeIDsAndPubKeysParams) ([]ListNodeIDsAndPubKeysRow, error)
 	ListNodesPaginated(ctx context.Context, arg ListNodesPaginatedParams) ([]GraphNode, error)
 	NextInvoiceSettleIndex(ctx context.Context) (int64, error)
@@ -239,6 +242,7 @@ type Querier interface {
 	OnInvoiceCanceled(ctx context.Context, arg OnInvoiceCanceledParams) error
 	OnInvoiceCreated(ctx context.Context, arg OnInvoiceCreatedParams) error
 	OnInvoiceSettled(ctx context.Context, arg OnInvoiceSettledParams) error
+	PruneLiquidityIntervals(ctx context.Context, limit int32) error
 	SetKVInvoicePaymentHash(ctx context.Context, arg SetKVInvoicePaymentHashParams) error
 	SetMigration(ctx context.Context, arg SetMigrationParams) error
 	SettleAttempt(ctx context.Context, arg SettleAttemptParams) error
@@ -252,6 +256,7 @@ type Querier interface {
 	UpsertChanPolicyExtraType(ctx context.Context, arg UpsertChanPolicyExtraTypeParams) error
 	UpsertChannelExtraType(ctx context.Context, arg UpsertChannelExtraTypeParams) error
 	UpsertEdgePolicy(ctx context.Context, arg UpsertEdgePolicyParams) (int64, error)
+	UpsertLiquidityInterval(ctx context.Context, arg UpsertLiquidityIntervalParams) error
 	UpsertNode(ctx context.Context, arg UpsertNodeParams) (int64, error)
 	UpsertNodeAddress(ctx context.Context, arg UpsertNodeAddressParams) error
 	UpsertNodeExtraType(ctx context.Context, arg UpsertNodeExtraTypeParams) error

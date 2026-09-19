@@ -109,12 +109,12 @@ func (o *Offer) Encode() ([]byte, error) {
 	return buf.Bytes(), nil
 }
 
-// decodeOffer parses a TLV byte stream into an Offer. Decoding is permissive —
+// DecodeOffer parses a TLV byte stream into an Offer. Decoding is permissive —
 // the spec writer requirements are not enforced here, so callers that need a
 // valid offer must run ValidateOfferRead. Unknown TLVs are preserved on the
 // returned offer so a later Encode can re-emit signed-range extras and keep
 // offer_id stable.
-func decodeOffer(data []byte) (*Offer, error) {
+func DecodeOffer(data []byte) (*Offer, error) {
 	var o Offer
 
 	// Prepare zero-valued records for all optional fields so the TLV

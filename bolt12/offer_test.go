@@ -39,7 +39,7 @@ func TestOfferRoundTrip(t *testing.T) {
 	require.NoError(t, err)
 	require.NotEmpty(t, encoded)
 
-	decoded, err := decodeOffer(encoded)
+	decoded, err := DecodeOffer(encoded)
 	require.NoError(t, err)
 
 	require.Equal(t, TUint64(1500), decoded.OfferAmount.UnwrapOrFailV(t))

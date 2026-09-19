@@ -594,11 +594,14 @@ type AuxDataParser interface {
 	InlineParseCustomData(msg proto.Message) error
 }
 
+// describeGraphCacheKey identifies a cached DescribeGraph response by every
+// request field that can affect the response.
 type describeGraphCacheKey struct {
 	includeUnannounced bool
 	includeAuthProof   bool
 }
 
+// newDescribeGraphCacheKey returns the cache key for a DescribeGraph request.
 func newDescribeGraphCacheKey(
 	req *lnrpc.ChannelGraphRequest) describeGraphCacheKey {
 
@@ -6238,7 +6241,8 @@ func (r *rpcServer) DescribeGraph(ctx context.Context,
 		r.graphCache.Lock()
 		defer r.graphCache.Unlock()
 
-		if cachedResp := r.describeGraphRespCache[cacheKey]; cachedResp != nil {
+		cachedResp := r.describeGraphRespCache[cacheKey]
+		if cachedResp != nil {
 			return cachedResp, nil
 		}
 	}

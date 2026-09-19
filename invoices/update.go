@@ -335,11 +335,25 @@ func updateMpp(ctx *invoiceUpdateCtx, inv *Invoice) (*InvoiceUpdateDesc,
 		var failRes *HtlcFailResolution
 		htlcPreimages, failRes = reconstructAMPPreimages(ctx, htlcSet)
 		if failRes != nil {
-			update.UpdateType = CancelInvoiceUpdate
-			update.State = &InvoiceStateUpdateDesc{
-				NewState: ContractCanceled,
-				SetID:    setID,
+			// Reconstruction failure is a set-local condition: only
+			// the HTLCs of this set can never settle. Cancel just
+			// this set and keep the invoice open, since reusable
+			// static AMP invoices may carry other accepted sets
+			// that are unaffected by the failure. The current HTLC
+			// is failed directly via failRes and was never added
+			// to the invoice, so it is not part of the cancel set.
+			cancelHtlcs := make(
+				map[CircuitKey]struct{}, len(htlcSet),
+			)
+			for key := range htlcSet {
+				cancelHtlcs[key] = struct{}{}
 			}
+
+			update.UpdateType = CancelHTLCsUpdate
+			update.CancelHtlcs = cancelHtlcs
+			update.AddHtlcs = nil
+			update.SetID = (*SetID)(setID)
+
 			return &update, failRes, nil
 		}
 

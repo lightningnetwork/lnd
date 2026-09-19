@@ -79,6 +79,14 @@ type NeutrinoNotifier struct {
 	// blockCache is an LRU block cache.
 	blockCache *blockcache.BlockCache
 
+	// backendPkScripts tracks scripts that have been installed in the
+	// rescan's append-only filter. Entries are retained for the lifetime of
+	// the notifier so removing and re-adding a local watch doesn't grow the
+	// backend filter with duplicates.
+	backendPkScriptsMtx   sync.Mutex
+	backendPkScripts      map[string]struct{}
+	backendPkScriptsBytes uint64
+
 	wg   sync.WaitGroup
 	quit chan struct{}
 }
@@ -114,6 +122,8 @@ func New(node *neutrino.ChainService, spendHintCache chainntnfs.SpendHintCache,
 		confirmHintCache: confirmHintCache,
 
 		blockCache: blockCache,
+
+		backendPkScripts: make(map[string]struct{}),
 
 		quit: make(chan struct{}),
 	}
@@ -525,9 +535,7 @@ func (n *NeutrinoNotifier) notificationDispatcher() {
 				// Drain the chainUpdates chan so the caller
 				// listening on errChan can be sure that
 				// updates after receiving the error will have
-				// the filter applied. This allows the caller
-				// to update their EndHeight if they're
-				// performing a historical scan.
+				// the filter applied.
 				n.drainChainUpdates()
 
 				// After draining, send the error to the
@@ -918,6 +926,164 @@ func (n *NeutrinoNotifier) RegisterSpendNtfn(outpoint *wire.OutPoint,
 	return ntfn.Event, nil
 }
 
+// pkScriptsToInputs converts scripts into exact neutrino filter entries.
+// AddInputs places each PkScript verbatim in the filter watch list, avoiding
+// lossy conversions through standard address types. The zero outpoint also
+// lets neutrino identify future spends by script.
+func pkScriptsToInputs(pkScripts [][]byte) ([]neutrino.InputWithScript, error) {
+	dedup := make(map[string]struct{}, len(pkScripts))
+	inputs := make([]neutrino.InputWithScript, 0, len(pkScripts))
+
+	for _, pkScript := range pkScripts {
+		if len(pkScript) == 0 {
+			return nil, chainntnfs.ErrNoScript
+		}
+
+		// Basic compact filters deliberately omit OP_RETURN outputs,
+		// so they cannot provide a reliable notification for these
+		// scripts.
+		if pkScript[0] == txscript.OP_RETURN {
+			return nil, fmt.Errorf("%w: OP_RETURN scripts are not "+
+				"included in neutrino compact filters",
+				chainntnfs.ErrUnsupportedPkScript)
+		}
+
+		key := string(pkScript)
+		if _, ok := dedup[key]; ok {
+			continue
+		}
+		dedup[key] = struct{}{}
+
+		inputs = append(inputs, neutrino.InputWithScript{
+			OutPoint: chainntnfs.ZeroOutPoint,
+			PkScript: pkScript,
+		})
+	}
+
+	return inputs, nil
+}
+
+// updatePkScriptFilter updates neutrino's rescan filter to watch for the given
+// pkScripts.
+func (n *NeutrinoNotifier) updatePkScriptFilter(pkScripts [][]byte,
+	rewindHeight uint32) error {
+
+	inputs, err := pkScriptsToInputs(pkScripts)
+	if err != nil {
+		return err
+	}
+
+	// Neutrino's rescan filter is append-only. Serialize updates and retain
+	// successful entries so concurrent registrations and later remove/add
+	// cycles don't install the same script more than once.
+	n.backendPkScriptsMtx.Lock()
+	defer n.backendPkScriptsMtx.Unlock()
+
+	if n.backendPkScripts == nil {
+		n.backendPkScripts = make(map[string]struct{})
+	}
+
+	newInputs := make([]neutrino.InputWithScript, 0, len(inputs))
+	var newBytes uint64
+	for _, input := range inputs {
+		key := string(input.PkScript)
+		if _, ok := n.backendPkScripts[key]; ok {
+			continue
+		}
+
+		newInputs = append(newInputs, input)
+		newBytes += uint64(len(input.PkScript))
+	}
+
+	if len(newInputs) == 0 {
+		return nil
+	}
+
+	newCount := len(n.backendPkScripts) + len(newInputs)
+	if newCount > chainntnfs.MaxPkScriptWatches {
+		return fmt.Errorf("%w: neutrino backend would watch %d "+
+			"scripts, limit is %d", chainntnfs.ErrTooManyPkScripts,
+			newCount, chainntnfs.MaxPkScriptWatches)
+	}
+
+	totalBytes := n.backendPkScriptsBytes + newBytes
+	if totalBytes > chainntnfs.MaxPkScriptWatchBytes {
+		return fmt.Errorf("%w: neutrino backend would watch %d "+
+			"script bytes, limit is %d",
+			chainntnfs.ErrTooManyPkScripts, totalBytes,
+			chainntnfs.MaxPkScriptWatchBytes)
+	}
+
+	errChan := make(chan error, 1)
+	select {
+	case n.notificationRegistry <- &rescanFilterUpdate{
+		updateOptions: []neutrino.UpdateOption{
+			neutrino.AddInputs(newInputs...),
+			neutrino.Rewind(rewindHeight),
+			neutrino.DisableDisconnectedNtfns(true),
+		},
+		errChan: errChan,
+	}:
+	case <-n.quit:
+		return chainntnfs.ErrChainNotifierShuttingDown
+	}
+
+	select {
+	case err = <-errChan:
+	case <-n.quit:
+		return chainntnfs.ErrChainNotifierShuttingDown
+	}
+	if err != nil {
+		return fmt.Errorf("unable to update filter: %w", err)
+	}
+
+	for _, input := range newInputs {
+		n.backendPkScripts[string(input.PkScript)] = struct{}{}
+	}
+	n.backendPkScriptsBytes = totalBytes
+
+	return nil
+}
+
+// validatePkScriptFilterUpdate validates that scripts can be added to the
+// compact filter watch set.
+func (n *NeutrinoNotifier) validatePkScriptFilterUpdate(
+	pkScripts [][]byte) error {
+
+	if len(pkScripts) == 0 {
+		return chainntnfs.ErrNoScript
+	}
+	if len(pkScripts) > chainntnfs.MaxPkScriptsPerBatch {
+		return fmt.Errorf("%w: batch size %d exceeds limit %d",
+			chainntnfs.ErrTooManyPkScripts, len(pkScripts),
+			chainntnfs.MaxPkScriptsPerBatch)
+	}
+
+	var batchBytes uint64
+	for _, pkScript := range pkScripts {
+		if len(pkScript) == 0 {
+			return chainntnfs.ErrNoScript
+		}
+		if len(pkScript) > txscript.MaxScriptSize {
+			return fmt.Errorf("%w: script size %d exceeds limit %d",
+				chainntnfs.ErrPkScriptTooLarge, len(pkScript),
+				txscript.MaxScriptSize)
+		}
+		batchBytes += uint64(len(pkScript))
+		if batchBytes > chainntnfs.MaxPkScriptBatchBytes {
+			return fmt.Errorf(
+				"%w: batch byte size %d exceeds limit %d",
+				chainntnfs.ErrTooManyPkScripts, batchBytes,
+				chainntnfs.MaxPkScriptBatchBytes,
+			)
+		}
+	}
+
+	_, err := pkScriptsToInputs(pkScripts)
+
+	return err
+}
+
 // RegisterConfirmationsNtfn registers an intent to be notified once the target
 // txid/output script has reached numConfs confirmations on-chain. When
 // intending to be notified of the confirmation of an output script, a nil txid
@@ -1005,6 +1171,74 @@ func (n *NeutrinoNotifier) RegisterConfirmationsNtfn(txid *chainhash.Hash,
 	}
 
 	return ntfn.Event, nil
+}
+
+// pkScriptRollbackErr reports a mutation failure where undoing the partial
+// registration also failed.
+func pkScriptRollbackErr(action string, err, rollbackErr error) error {
+	return fmt.Errorf(
+		"unable to %s: %w, rollback failed: %w",
+		action, err, rollbackErr,
+	)
+}
+
+// RegisterPkScriptNotifier creates a new pkScript notification stream.
+func (n *NeutrinoNotifier) RegisterPkScriptNotifier() (
+	*chainntnfs.PkScriptNotificationRegistration, error) {
+
+	reg, err := n.txNotifier.RegisterPkScriptNotifier()
+	if err != nil {
+		return nil, err
+	}
+
+	var mutationMtx sync.Mutex
+	reg.Event.AddPkScripts = func(
+		pkScripts [][]byte, opts ...chainntnfs.NotifierOption,
+	) (*chainntnfs.PkScriptAddResult, error) {
+
+		mutationMtx.Lock()
+		defer mutationMtx.Unlock()
+
+		err := n.validatePkScriptFilterUpdate(pkScripts)
+		if err != nil {
+			return nil, err
+		}
+
+		addHeight, addedScripts, err := reg.AddPkScripts(
+			pkScripts, opts...,
+		)
+		if err != nil {
+			return nil, err
+		}
+
+		result := chainntnfs.NewPkScriptAddResult(addedScripts)
+
+		if len(addedScripts) > 0 {
+			err := n.updatePkScriptFilter(addedScripts, addHeight)
+			if err != nil {
+				removeErr := reg.RemovePkScripts(addedScripts)
+				if removeErr != nil {
+					return nil, pkScriptRollbackErr(
+						"update filter",
+						err, removeErr,
+					)
+				}
+
+				return nil, err
+			}
+		}
+
+		return result, nil
+	}
+
+	reg.Event.RemovePkScripts = func(pkScripts [][]byte) error {
+		mutationMtx.Lock()
+		defer mutationMtx.Unlock()
+
+		return reg.RemovePkScripts(pkScripts)
+	}
+
+	return reg.Event, nil
 }
 
 // GetBlock is used to retrieve the block with the given hash. Since the block

@@ -42,3 +42,14 @@ func (h *HarnessRPC) RegisterSpendNtfn(req *chainrpc.SpendRequest) SpendClient {
 
 	return client
 }
+
+type PkScriptClient chainrpc.ChainNotifier_RegisterPkScriptNtfnClient
+
+// RegisterPkScriptNtfn creates a bidirectional notification stream to watch a
+// set of pkScripts for spends and/or confirmations.
+func (h *HarnessRPC) RegisterPkScriptNtfn() PkScriptClient {
+	client, err := h.ChainClient.RegisterPkScriptNtfn(h.runCtx)
+	h.NoError(err, "RegisterPkScriptNtfn")
+
+	return client
+}

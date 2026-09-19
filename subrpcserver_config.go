@@ -232,6 +232,9 @@ func (s *subRPCServerConfigs) PopulateDependencies(cfg *Config,
 			subCfgValue.FieldByName("ChainNotifier").Set(
 				reflect.ValueOf(cc.ChainNotifier),
 			)
+			subCfgValue.FieldByName("PkScriptNotifier").Set(
+				reflect.ValueOf(cc.ChainNotifier),
+			)
 			subCfgValue.FieldByName("Chain").Set(
 				reflect.ValueOf(cc.ChainIO),
 			)

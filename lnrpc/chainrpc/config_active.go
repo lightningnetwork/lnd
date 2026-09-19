@@ -34,6 +34,10 @@ type Config struct {
 	// simply to proxy valid requests to the active chain notifier instance.
 	ChainNotifier chainntnfs.ChainNotifier
 
+	// PkScriptNotifier is the pkScript notifier instance that backs the
+	// pkScript notification RPC stream.
+	PkScriptNotifier chainntnfs.PkScriptNotifier
+
 	// Chain provides access to the most up-to-date blockchain data.
 	Chain lnwallet.BlockChainIO
 }

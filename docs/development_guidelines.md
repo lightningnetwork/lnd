@@ -3,6 +3,7 @@
 1. [Code Spacing and Formatting](#code-spacing-and-formatting)
 1. [Additional Style Constraints](#additional-style-constraints)
 1. [Recommended settings for your editor](#recommended-settings-for-your-editor)
+1. [RPC Deprecation Policy](#rpc-deprecation-policy)
 1. [Testing](#testing)
 1. [Model Git Commit Messages](#model-git-commit-messages)
 1. [Ideal Git Commit Structure](#ideal-git-commit-structure)
@@ -536,6 +537,13 @@ a plugin to understand the rules in the `.editorconfig` file.
 
 In Vim, you might want to use `set colorcolumn=80`.
 
+## RPC Deprecation Policy
+
+Changes that deprecate, reject, or remove public RPC fields or methods should
+follow the [RPC deprecation policy](rpc_deprecation_policy.md). In particular,
+behavior-affecting request fields should not be removed directly after
+deprecation, because old protobuf clients may still send the field and newer
+servers would otherwise decode it as unknown data and silently ignore it.
 
 ## Testing
 

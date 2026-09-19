@@ -28,6 +28,8 @@ type MessageType uint16
 const (
 	MsgWarning                 MessageType = 1
 	MsgStfu                                = 2
+	MsgPeerStorage                         = 7
+	MsgPeerStorageRetrieval                = 9
 	MsgInit                                = 16
 	MsgError                               = 17
 	MsgPing                                = 18
@@ -121,6 +123,10 @@ func (t MessageType) String() string {
 		return "Warning"
 	case MsgStfu:
 		return "Stfu"
+	case MsgPeerStorage:
+		return "PeerStorage"
+	case MsgPeerStorageRetrieval:
+		return "PeerStorageRetrieval"
 	case MsgInit:
 		return "Init"
 	case MsgOpenChannel:
@@ -287,6 +293,10 @@ func makeEmptyMessage(msgType MessageType) (Message, error) {
 		msg = &Warning{}
 	case MsgStfu:
 		msg = &Stfu{}
+	case MsgPeerStorage:
+		msg = &PeerStorage{}
+	case MsgPeerStorageRetrieval:
+		msg = &PeerStorageRetrieval{}
 	case MsgInit:
 		msg = &Init{}
 	case MsgOpenChannel:

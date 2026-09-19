@@ -147,6 +147,10 @@ type BtcdEstimator struct {
 	// produce fee estimates.
 	fallbackFeePerKW SatPerKWeight
 
+	// feeFloor is the minimum fee rate the minFeeManager will enforce.
+	// When zero, FeePerKwFloor is used as the default.
+	feeFloor SatPerKWeight
+
 	// minFeeManager is used to query the current minimum fee, in sat/kw,
 	// that we should enforce. This will be used to determine fee rate for
 	// a transaction when the estimated fee rate is too low to allow the
@@ -167,7 +171,8 @@ type BtcdEstimator struct {
 // the occasion that the estimator has insufficient data, or returns zero for a
 // fee estimate.
 func NewBtcdEstimator(rpcConfig rpcclient.ConnConfig,
-	fallBackFeeRate SatPerKWeight) (*BtcdEstimator, error) {
+	fallBackFeeRate SatPerKWeight,
+	feeFloor SatPerKWeight) (*BtcdEstimator, error) {
 
 	rpcConfig.DisableConnectOnNew = true
 	rpcConfig.DisableAutoReconnect = false
@@ -182,6 +187,7 @@ func NewBtcdEstimator(rpcConfig rpcclient.ConnConfig,
 
 	return &BtcdEstimator{
 		fallbackFeePerKW: fallBackFeeRate,
+		feeFloor:         feeFloor,
 		btcdConn:         chainConn,
 		filterManager:    newFilterManager(fetchCb),
 	}, nil
@@ -200,7 +206,7 @@ func (b *BtcdEstimator) Start() error {
 	// can initialise the minimum relay fee manager which queries the
 	// chain backend for the minimum relay fee on construction.
 	minRelayFeeManager, err := newMinFeeManager(
-		defaultUpdateInterval, b.fetchMinRelayFee,
+		defaultUpdateInterval, b.fetchMinRelayFee, b.feeFloor,
 	)
 	if err != nil {
 		return err
@@ -341,6 +347,10 @@ type BitcoindEstimator struct {
 	// produce fee estimates.
 	fallbackFeePerKW SatPerKWeight
 
+	// feeFloor is the minimum fee rate the minFeeManager will enforce.
+	// When zero, FeePerKwFloor is used as the default.
+	feeFloor SatPerKWeight
+
 	// minFeeManager is used to keep track of the minimum fee, in sat/kw,
 	// that we should enforce. This will be used as the default fee rate
 	// for a transaction when the estimated fee rate is too low to allow
@@ -368,7 +378,8 @@ type BitcoindEstimator struct {
 // in the occasion that the estimator has insufficient data, or returns zero
 // for a fee estimate.
 func NewBitcoindEstimator(rpcConfig rpcclient.ConnConfig, feeMode string,
-	fallBackFeeRate SatPerKWeight) (*BitcoindEstimator, error) {
+	fallBackFeeRate SatPerKWeight,
+	feeFloor SatPerKWeight) (*BitcoindEstimator, error) {
 
 	rpcConfig.DisableConnectOnNew = true
 	rpcConfig.DisableAutoReconnect = false
@@ -385,6 +396,7 @@ func NewBitcoindEstimator(rpcConfig rpcclient.ConnConfig, feeMode string,
 
 	return &BitcoindEstimator{
 		fallbackFeePerKW: fallBackFeeRate,
+		feeFloor:         feeFloor,
 		bitcoindConn:     chainConn,
 		feeMode:          feeMode,
 		filterManager:    newFilterManager(fetchCb),
@@ -402,6 +414,7 @@ func (b *BitcoindEstimator) Start() error {
 	relayFeeManager, err := newMinFeeManager(
 		defaultUpdateInterval,
 		b.fetchMinMempoolFee,
+		b.feeFloor,
 	)
 	if err != nil {
 		return err
@@ -670,12 +683,6 @@ func (s SparseConfFeeSource) parseResponse(r io.Reader) (
 		return WebAPIResponse{}, err
 	}
 
-	if resp.MinRelayFeerate == 0 {
-		log.Errorf("No min relay fee rate available, using default %v",
-			FeePerKwFloor)
-		resp.MinRelayFeerate = FeePerKwFloor.FeePerKVByte()
-	}
-
 	return resp, nil
 }
 
@@ -745,6 +752,11 @@ type WebAPIEstimator struct {
 	feeByBlockTarget map[uint32]uint32
 	minRelayFeerate  SatPerKVByte
 
+	// feeFloor is the minimum fee floor in sat/kvb. When the API reports a
+	// relay fee rate below this value (or reports none at all), feeFloor is
+	// used instead. Defaults to FeePerKwFloor.FeePerKVByte() when zero.
+	feeFloor SatPerKVByte
+
 	// noCache determines whether the web estimator should cache fee
 	// estimates.
 	noCache bool
@@ -765,7 +777,8 @@ type WebAPIEstimator struct {
 // fallback default fee. The fees are updated whenever a new block is mined.
 func NewWebAPIEstimator(api WebAPIFeeSource, noCache bool,
 	minFeeUpdateTimeout time.Duration,
-	maxFeeUpdateTimeout time.Duration) (*WebAPIEstimator, error) {
+	maxFeeUpdateTimeout time.Duration,
+	feeFloor SatPerKVByte) (*WebAPIEstimator, error) {
 
 	if minFeeUpdateTimeout == 0 || maxFeeUpdateTimeout == 0 {
 		return nil, fmt.Errorf("minFeeUpdateTimeout and " +
@@ -781,6 +794,7 @@ func NewWebAPIEstimator(api WebAPIFeeSource, noCache bool,
 	return &WebAPIEstimator{
 		apiSource:           api,
 		feeByBlockTarget:    make(map[uint32]uint32),
+		feeFloor:            feeFloor,
 		noCache:             noCache,
 		quit:                make(chan struct{}),
 		minFeeUpdateTimeout: minFeeUpdateTimeout,
@@ -825,8 +839,8 @@ func (w *WebAPIEstimator) EstimateFeePerKW(numBlocks uint32) (
 	// If the result is too low, then we'll clamp it to our current fee
 	// floor.
 	satPerKw := SatPerKVByte(feePerKb).FeePerKWeight()
-	if satPerKw < FeePerKwFloor {
-		satPerKw = FeePerKwFloor
+	if satPerKw < w.feeFloor.FeePerKWeight() {
+		satPerKw = w.feeFloor.FeePerKWeight()
 	}
 
 	log.Debugf("Web API returning %v sat/kw for conf target of %v",
@@ -1014,9 +1028,16 @@ func (w *WebAPIEstimator) updateFeeEstimates() {
 			return string(resp)
 		}))
 
+	minRelayFeerate := resp.MinRelayFeerate
+	if minRelayFeerate == 0 || minRelayFeerate < w.feeFloor {
+		log.Debugf("API relay fee rate %v below configured floor %v, "+
+			"using floor", minRelayFeerate, w.feeFloor)
+		minRelayFeerate = w.feeFloor
+	}
+
 	w.feesMtx.Lock()
 	w.feeByBlockTarget = resp.FeeByBlockTarget
-	w.minRelayFeerate = resp.MinRelayFeerate
+	w.minRelayFeerate = minRelayFeerate
 	w.feesMtx.Unlock()
 }
 

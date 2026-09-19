@@ -185,7 +185,15 @@ func (p *BimodalEstimator) LocalPairProbability(now time.Time,
 			timeAgo = 0
 		}
 		exponent := -float64(timeAgo) / float64(p.BimodalDecayTime)
-		directProbability -= math.Exp(exponent)
+		penalty := math.Exp(exponent)
+
+		// A half-penalty failure expresses a softer "second chance"
+		// style penalty, so we apply half the usual reduction.
+		if result.HalfPenalty {
+			penalty *= 0.5
+		}
+
+		directProbability -= penalty
 	}
 
 	return directProbability
@@ -212,7 +220,7 @@ func (p *BimodalEstimator) directProbability(now time.Time,
 		if !result.FailTime.IsZero() {
 			failAmount = cannotSend(
 				result.FailAmt, capacity, now, result.FailTime,
-				p.BimodalDecayTime,
+				p.BimodalDecayTime, result.HalfPenalty,
 			)
 		}
 
@@ -362,7 +370,10 @@ func (p *BimodalEstimator) calculateProbability(directProbability float64,
 			totalProbabilities += w * weight
 			totalWeights += w * weight
 		}
-		if result.FailAmt > 0 {
+
+		// A half-penalty failure is a soft, pair-specific second-chance
+		// penalty and isn't applied to sibling channels of the node.
+		if result.FailAmt > 0 && !result.HalfPenalty {
 			exponent := -float64(now.Sub(result.FailTime)) / dt
 			weight = math.Exp(exponent)
 
@@ -393,9 +404,11 @@ func canSend(successAmount lnwire.MilliSatoshi, now, successTime time.Time,
 
 // cannotSend returns the not sendable amount over the channel, respecting time
 // decay. cannotSend approaches the capacity, if we wait for a much longer time
-// than the decay time.
+// than the decay time. When halfPenalty is true, the failure is treated as a
+// softer second-chance penalty and its effect is halved.
 func cannotSend(failAmount, capacity lnwire.MilliSatoshi, now,
-	failTime time.Time, decayConstant time.Duration) lnwire.MilliSatoshi {
+	failTime time.Time, decayConstant time.Duration,
+	halfPenalty bool) lnwire.MilliSatoshi {
 
 	if failAmount > capacity {
 		failAmount = capacity
@@ -406,6 +419,10 @@ func cannotSend(failAmount, capacity lnwire.MilliSatoshi, now,
 	factor := math.Exp(
 		-float64(now.Sub(failTime)) / float64(decayConstant),
 	)
+
+	if halfPenalty {
+		factor *= 0.5
+	}
 
 	cannotSend := capacity - lnwire.MilliSatoshi(
 		factor*float64(capacity-failAmount),

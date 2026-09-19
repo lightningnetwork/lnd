@@ -13,6 +13,10 @@ import (
 // provided by the wallerpc.
 var walletTestCases = []*lntest.TestCase{
 	{
+		Name:     "account backup recovery",
+		TestFunc: testWalletAccountBackupRecovery,
+	},
+	{
 		Name:     "xcreate account",
 		TestFunc: testXCreateAccount,
 	},

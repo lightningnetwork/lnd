@@ -423,10 +423,12 @@ type Config struct {
 
 	Pprof *lncfg.Pprof `group:"Pprof" namespace:"pprof"`
 
-	UnsafeDisconnect   bool   `long:"unsafe-disconnect" description:"DEPRECATED: Allows the rpcserver to intentionally disconnect from peers with open channels. THIS FLAG WILL BE REMOVED IN 0.10.0" hidden:"true"`
-	UnsafeReplay       bool   `long:"unsafe-replay" description:"Causes a link to replay the adds on its commitment txn after starting up, this enables testing of the sphinx replay logic."`
-	MaxPendingChannels int    `long:"maxpendingchannels" description:"The maximum number of incoming pending channels permitted per peer."`
-	BackupFilePath     string `long:"backupfilepath" description:"The target location of the channel backup file"`
+	UnsafeDisconnect          bool   `long:"unsafe-disconnect" description:"DEPRECATED: Allows the rpcserver to intentionally disconnect from peers with open channels. THIS FLAG WILL BE REMOVED IN 0.10.0" hidden:"true"`
+	UnsafeReplay              bool   `long:"unsafe-replay" description:"Causes a link to replay the adds on its commitment txn after starting up, this enables testing of the sphinx replay logic."`
+	MaxPendingChannels        int    `long:"maxpendingchannels" description:"The maximum number of incoming pending channels permitted per peer."`
+	WalletAccountBackup       string `long:"wallet-account-backup" description:"Public account recovery file on independent durable storage; missing or regressed evidence prevents startup"`
+	WalletAccountBackupCreate bool   `long:"wallet-account-backup-create" description:"One-time creation of wallet-account-backup; refuses an existing file; remove after enrollment"`
+	BackupFilePath            string `long:"backupfilepath" description:"The target location of the channel backup file"`
 
 	NoBackupArchive bool `long:"no-backup-archive" description:"If set to true, channel backups will be deleted or replaced rather than being archived to a separate location."`
 
@@ -1132,6 +1134,11 @@ func ValidateConfig(cfg Config, interceptor signal.Interceptor, fileParser,
 	cfg.Tor.WatchtowerKeyPath = CleanAndExpandPath(cfg.Tor.WatchtowerKeyPath)
 	cfg.Watchtower.TowerDir = CleanAndExpandPath(cfg.Watchtower.TowerDir)
 	cfg.BackupFilePath = CleanAndExpandPath(cfg.BackupFilePath)
+	cfg.WalletAccountBackup = CleanAndExpandPath(cfg.WalletAccountBackup)
+	if cfg.WalletAccountBackupCreate && cfg.WalletAccountBackup == "" {
+		return nil, fmt.Errorf("wallet-account-backup-create " +
+			"requires wallet-account-backup")
+	}
 	cfg.WalletUnlockPasswordFile = CleanAndExpandPath(
 		cfg.WalletUnlockPasswordFile,
 	)

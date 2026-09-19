@@ -3234,6 +3234,16 @@ func (s *SQLStore) forEachChanInSCIDList(ctx context.Context, db SQLQueries,
 func (s *SQLStore) PruneGraphNodes(ctx context.Context) (
 	[]route.Vertex, error) {
 
+	// Like every other mutator of the graph, we take the cache mutex before
+	// opening the write transaction. See the comment on the KV store's
+	// implementation of this method for why a node prune in particular must
+	// not be allowed to interleave with a channel edge being added.
+	//
+	// NOTE: The lock ordering here is cacheMu -> DB, which all other
+	// callers respect.
+	s.cacheMu.Lock()
+	defer s.cacheMu.Unlock()
+
 	var prunedNodes []route.Vertex
 	err := s.db.ExecTx(ctx, sqldb.WriteTxOpt(), func(db SQLQueries) error {
 		var err error

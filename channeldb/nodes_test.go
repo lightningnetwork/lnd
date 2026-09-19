@@ -372,3 +372,140 @@ func TestCreateLinkNodes(t *testing.T) {
 	require.Equal(t, wire.MainNet, fetchedNode4.Network,
 		"node4 should have correct network")
 }
+
+// linkNodeWriteCounterTx wraps a kvdb.RwTx so that all writes to the top-level
+// link node bucket are counted.
+type linkNodeWriteCounterTx struct {
+	kvdb.RwTx
+
+	writes *int
+}
+
+// CreateTopLevelBucket returns a write counting bucket if the requested bucket
+// is the link node bucket, and otherwise defers to the wrapped transaction.
+func (t *linkNodeWriteCounterTx) CreateTopLevelBucket(
+	key []byte) (kvdb.RwBucket, error) {
+
+	bucket, err := t.RwTx.CreateTopLevelBucket(key)
+	if err != nil || !bytes.Equal(key, nodeInfoBucket) {
+		return bucket, err
+	}
+
+	return &linkNodeWriteCounterBucket{
+		RwBucket: bucket,
+		writes:   t.writes,
+	}, nil
+}
+
+// linkNodeWriteCounterBucket wraps a kvdb.RwBucket and counts the number of
+// values written to it.
+type linkNodeWriteCounterBucket struct {
+	kvdb.RwBucket
+
+	writes *int
+}
+
+// Put counts the write before deferring to the wrapped bucket.
+func (b *linkNodeWriteCounterBucket) Put(key, value []byte) error {
+	*b.writes++
+
+	return b.RwBucket.Put(key, value)
+}
+
+// TestSyncNewChannelWritesLinkNode tests that syncNewChannel always writes the
+// peer's link node row, even when a link node for that peer already exists. The
+// unconditional write is what causes a channel open to conflict with a
+// concurrent link node prune under snapshot isolation. The write must however
+// be a verbatim re-write, so that any state that has accumulated for the link
+// node (such as extra addresses) is left untouched.
+func TestSyncNewChannelWritesLinkNode(t *testing.T) {
+	t.Parallel()
+
+	fullDB, err := MakeTestDB(t)
+	require.NoError(t, err, "unable to make test database")
+
+	cdb := fullDB.ChannelStateDB()
+
+	channel := createTestChannelState(t, cdb)
+	pub := channel.IdentityPub
+
+	addr1, err := net.ResolveTCPAddr("tcp", "10.0.0.1:9000")
+	require.NoError(t, err, "unable to create test addr")
+	addr2, err := net.ResolveTCPAddr("tcp", "10.0.0.2:9000")
+	require.NoError(t, err, "unable to create test addr")
+
+	syncChannel := func(addrs ...net.Addr) int {
+		var writes int
+		err := kvdb.Update(cdb.backend, func(tx kvdb.RwTx) error {
+			countTx := &linkNodeWriteCounterTx{
+				RwTx:   tx,
+				writes: &writes,
+			}
+
+			return syncNewChannel(
+				countTx, channel, addrs, cdb.backend,
+			)
+		}, func() {
+			writes = 0
+		})
+		require.NoError(t, err, "unable to sync channel")
+
+		return writes
+	}
+
+	// rawLinkNode returns the bytes that are stored for the peer's link
+	// node, so that the record can be compared byte for byte.
+	rawLinkNode := func() []byte {
+		var raw []byte
+		err := kvdb.View(cdb.backend, func(tx kvdb.RTx) error {
+			bucket := tx.ReadBucket(nodeInfoBucket)
+			require.NotNil(t, bucket)
+
+			value := bucket.Get(pub.SerializeCompressed())
+			raw = make([]byte, len(value))
+			copy(raw, value)
+
+			return nil
+		}, func() {
+			raw = nil
+		})
+		require.NoError(t, err, "unable to read link node")
+
+		return raw
+	}
+
+	// The first sync creates the link node from scratch, which obviously
+	// writes the link node row.
+	require.Equal(t, 1, syncChannel(addr1))
+
+	linkNode, err := cdb.linkNodeDB.FetchLinkNode(pub)
+	require.NoError(t, err, "unable to fetch link node")
+	require.Len(t, linkNode.Addresses, 1)
+
+	// Accumulate some extra state for the link node that a naive re-write
+	// of the link node would clobber.
+	updated := NewLinkNode(
+		cdb.linkNodeDB, linkNode.Network, pub, addr1, addr2,
+	)
+	require.NoError(t, updated.Sync())
+
+	before := rawLinkNode()
+	require.NotEmpty(t, before)
+
+	// A second sync (of another channel with the same peer) must still
+	// write the link node row, but it must leave the existing record
+	// exactly as it was.
+	channel.FundingOutpoint.Index++
+	require.Equal(t, 1, syncChannel(addr1))
+
+	// The stored record must be byte for byte what it was before the sync.
+	// Nothing about the link node may be re-derived or re-serialized here,
+	// since the only reason for the write is the row conflict it creates.
+	require.Equal(t, before, rawLinkNode())
+
+	linkNode, err = cdb.linkNodeDB.FetchLinkNode(pub)
+	require.NoError(t, err, "unable to fetch link node")
+	require.Len(t, linkNode.Addresses, 2)
+	require.Equal(t, addr1.String(), linkNode.Addresses[0].String())
+	require.Equal(t, addr2.String(), linkNode.Addresses[1].String())
+}

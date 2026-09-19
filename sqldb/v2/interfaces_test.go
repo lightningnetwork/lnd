@@ -46,3 +46,91 @@ func TestTransactionExecutorBackend(t *testing.T) {
 
 	require.Equal(t, BackendTypePostgres, executor.Backend())
 }
+
+// TestTxIsolationLevel tests that the isolation level of a transaction is only
+// relaxed for read-only transactions on Postgres, and for read-write
+// transactions on Postgres once the opt-in knob is set. Every other combination
+// must remain fully serializable.
+func TestTxIsolationLevel(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name     string
+		backend  BackendType
+		readOnly bool
+		rrWrites bool
+		expected sql.IsolationLevel
+	}{
+		{
+			name:     "postgres read-only",
+			backend:  BackendTypePostgres,
+			readOnly: true,
+			expected: sql.LevelRepeatableRead,
+		},
+		{
+			name:     "postgres read-write",
+			backend:  BackendTypePostgres,
+			readOnly: false,
+			expected: sql.LevelSerializable,
+		},
+		{
+			name:     "postgres read-only, rr writes",
+			backend:  BackendTypePostgres,
+			readOnly: true,
+			rrWrites: true,
+			expected: sql.LevelRepeatableRead,
+		},
+		{
+			name:     "postgres read-write, rr writes",
+			backend:  BackendTypePostgres,
+			readOnly: false,
+			rrWrites: true,
+			expected: sql.LevelRepeatableRead,
+		},
+		{
+			name:     "sqlite read-only",
+			backend:  BackendTypeSqlite,
+			readOnly: true,
+			expected: sql.LevelSerializable,
+		},
+		{
+			name:     "sqlite read-write",
+			backend:  BackendTypeSqlite,
+			readOnly: false,
+			expected: sql.LevelSerializable,
+		},
+		{
+			name:     "sqlite read-write, rr writes",
+			backend:  BackendTypeSqlite,
+			readOnly: false,
+			rrWrites: true,
+			expected: sql.LevelSerializable,
+		},
+		{
+			name:     "unknown read-only",
+			backend:  BackendTypeUnknown,
+			readOnly: true,
+			expected: sql.LevelSerializable,
+		},
+		{
+			name:     "unknown read-write, rr writes",
+			backend:  BackendTypeUnknown,
+			readOnly: false,
+			rrWrites: true,
+			expected: sql.LevelSerializable,
+		},
+	}
+
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			t.Parallel()
+
+			require.Equal(
+				t, test.expected, txIsolationLevel(
+					test.backend, test.readOnly,
+					test.rrWrites,
+				),
+			)
+		})
+	}
+}

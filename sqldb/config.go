@@ -74,6 +74,22 @@ func (p *SqliteConfig) Validate() error {
 	return nil
 }
 
+// TxIsolation is the isolation level that read-write transactions against a
+// Postgres backend are opened with. Read-only transactions are always opened at
+// REPEATABLE READ and are not affected by this setting.
+type TxIsolation string
+
+const (
+	// TxIsolationSerializable opens read-write transactions at
+	// SERIALIZABLE. This is the level lnd has always used and remains the
+	// default.
+	TxIsolationSerializable TxIsolation = "serializable"
+
+	// TxIsolationRepeatableRead opens read-write transactions at REPEATABLE
+	// READ. This is an experimental, opt-in setting.
+	TxIsolationRepeatableRead TxIsolation = "repeatable-read"
+)
+
 // PostgresConfig holds the postgres database configuration.
 //
 //nolint:ll
@@ -84,6 +100,7 @@ type PostgresConfig struct {
 	SkipMigrations          bool          `long:"skipmigrations" description:"Skip applying migrations on startup."`
 	ChannelDBWithGlobalLock bool          `long:"channeldb-with-global-lock" description:"Use a global lock for channeldb access. This ensures only a single writer at a time but reduces concurrency. This is a temporary workaround until the revocation log is migrated to a native sql schema."`
 	WalletDBWithGlobalLock  bool          `long:"walletdb-with-global-lock" description:"Use a global lock for wallet database access. This ensures only a single writer at a time but reduces concurrency. This is a temporary workaround until the wallet subsystem is upgraded to a native sql schema."`
+	TxIsolation             TxIsolation   `long:"tx-isolation" description:"The isolation level that read-write database transactions are opened with. Read-only transactions always run at repeatable read and are not affected by this setting. EXPERIMENTAL: 'repeatable-read' lowers the abort rate under concurrency, but permits write skew, which only the write paths that were explicitly hardened against it are known to be safe from. See docs/postgres.md before enabling it." choice:"serializable" choice:"repeatable-read"`
 	QueryConfig             `group:"query" namespace:"query"`
 }
 
@@ -99,9 +116,26 @@ func (p *PostgresConfig) Validate() error {
 		return fmt.Errorf("invalid DSN: %w", err)
 	}
 
+	// An empty value is allowed here and means that the default,
+	// SERIALIZABLE, is used.
+	switch p.TxIsolation {
+	case "", TxIsolationSerializable, TxIsolationRepeatableRead:
+
+	default:
+		return fmt.Errorf("invalid tx isolation level '%s': must be "+
+			"either '%s' or '%s'", p.TxIsolation,
+			TxIsolationSerializable, TxIsolationRepeatableRead)
+	}
+
 	if err := p.QueryConfig.Validate(false); err != nil {
 		return fmt.Errorf("invalid query config: %w", err)
 	}
 
 	return nil
+}
+
+// WriteTxRepeatableRead returns true if read-write transactions should be
+// opened at REPEATABLE READ instead of SERIALIZABLE.
+func (p *PostgresConfig) WriteTxRepeatableRead() bool {
+	return p.TxIsolation == TxIsolationRepeatableRead
 }

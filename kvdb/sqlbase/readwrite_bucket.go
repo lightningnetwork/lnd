@@ -134,6 +134,88 @@ func (b *readWriteBucket) NestedReadWriteBucket(
 	return newReadWriteBucket(b.tx, &id)
 }
 
+// createBucket returns the id of the bucket with the given key, creating the
+// bucket first if it doesn't exist yet. The first returned boolean signals
+// whether the row was already there before this call, and the second signals
+// whether that row holds a value instead of a bucket.
+func (b *readWriteBucket) createBucket(key []byte) (int64, bool, bool, error) {
+	// Check to see if the key is already taken.
+	var (
+		value *[]byte
+		id    int64
+	)
+	row, cancel := b.tx.QueryRow(
+		"SELECT id,value FROM "+b.table+" WHERE "+parentSelector(b.id)+
+			" AND key=$1", key,
+	)
+	defer cancel()
+
+	err := row.Scan(&id, &value)
+	switch {
+	case err == nil:
+		return id, true, value != nil, nil
+
+	case !errors.Is(err, sql.ErrNoRows):
+		return 0, false, false, err
+	}
+
+	// The key isn't taken as far as this transaction can see, so we go
+	// ahead and create the bucket. The database generates the id of the new
+	// bucket for us.
+	//
+	// Note that we deliberately don't use a bare insert here. Another
+	// transaction may be creating the very same bucket concurrently, and if
+	// it commits first then a bare insert leaves us with a unique
+	// constraint violation. That error maps to
+	// ErrSQLUniqueConstraintViolation, which the transaction retry loop
+	// does not consider retryable, so it would surface as a hard failure to
+	// the caller. Phrasing the insert as an upsert instead means the
+	// database reports the conflict as a serialization failure, which is
+	// retryable: on the retry the select above finds the winner's row.
+	//
+	// The conflict target has to match the partial unique index that
+	// applies to the row being inserted. There is one index for top level
+	// rows (<table>_unp, on key where parent_id IS NULL) and one for nested
+	// rows (<table>_up, on (parent_id, key) where parent_id IS NOT NULL).
+	if b.id == nil {
+		row, cancel = b.tx.QueryRow(
+			"INSERT INTO "+b.table+" (key) VALUES($1) "+
+				"ON CONFLICT (key) WHERE parent_id IS NULL "+
+				"DO UPDATE SET key=$1 "+
+				"RETURNING id, value", key,
+		)
+	} else {
+		row, cancel = b.tx.QueryRow(
+			"INSERT INTO "+b.table+" (key, parent_id) "+
+				"VALUES($1, $2) "+
+				"ON CONFLICT (key, parent_id) "+
+				"WHERE parent_id IS NOT NULL "+
+				"DO UPDATE SET key=$1 "+
+				"RETURNING id, value", key, b.id,
+		)
+	}
+	defer cancel()
+
+	err = row.Scan(&id, &value)
+	if err != nil {
+		return 0, false, false, err
+	}
+
+	// If the row we got back holds a value, then we collided with a value
+	// that was written concurrently, and the key can't be used for a
+	// bucket.
+	if value != nil {
+		return id, true, true, nil
+	}
+
+	// At this point the row is ours: the select above proved that no such
+	// row was visible to this transaction, and any row inserted
+	// concurrently would have made the upsert fail with a serialization
+	// error under both of the isolation levels we run write transactions at
+	// (serializable and repeatable read).
+	return id, false, false, nil
+}
+
 // CreateBucket creates and returns a new nested bucket with the given key.
 // Returns ErrBucketExists if the bucket already exists, ErrBucketNameRequired
 // if the key is empty, or ErrIncompatibleValue if the key value is otherwise
@@ -146,41 +228,16 @@ func (b *readWriteBucket) CreateBucket(key []byte) (
 		return nil, walletdb.ErrBucketNameRequired
 	}
 
-	// Check to see if the bucket already exists.
-	var (
-		value *[]byte
-		id    int64
-	)
-	row, cancel := b.tx.QueryRow(
-		"SELECT id,value FROM "+b.table+" WHERE "+parentSelector(b.id)+
-			" AND key=$1", key,
-	)
-	defer cancel()
-	err := row.Scan(&id, &value)
-
+	id, existed, isValue, err := b.createBucket(key)
 	switch {
-	case err == sql.ErrNoRows:
-
-	case err == nil && value == nil:
-		return nil, walletdb.ErrBucketExists
-
-	case err == nil && value != nil:
-		return nil, walletdb.ErrIncompatibleValue
-
 	case err != nil:
 		return nil, err
-	}
 
-	// Bucket does not yet exist, so create it. Postgres will generate a
-	// bucket id for the new bucket.
-	row, cancel = b.tx.QueryRow(
-		"INSERT INTO "+b.table+" (parent_id, key) "+
-			"VALUES($1, $2) RETURNING id", b.id, key,
-	)
-	defer cancel()
-	err = row.Scan(&id)
-	if err != nil {
-		return nil, err
+	case isValue:
+		return nil, walletdb.ErrIncompatibleValue
+
+	case existed:
+		return nil, walletdb.ErrBucketExists
 	}
 
 	return newReadWriteBucket(b.tx, &id), nil
@@ -198,37 +255,13 @@ func (b *readWriteBucket) CreateBucketIfNotExists(key []byte) (
 		return nil, walletdb.ErrBucketNameRequired
 	}
 
-	// Check to see if the bucket already exists.
-	var (
-		value *[]byte
-		id    int64
-	)
-	row, cancel := b.tx.QueryRow(
-		"SELECT id,value FROM "+b.table+" WHERE "+parentSelector(b.id)+
-			" AND key=$1", key,
-	)
-	defer cancel()
-	err := row.Scan(&id, &value)
-
+	id, _, isValue, err := b.createBucket(key)
 	switch {
-	// Bucket does not yet exist, so create it now. Postgres will generate a
-	// bucket id for the new bucket.
-	case err == sql.ErrNoRows:
-		row, cancel := b.tx.QueryRow(
-			"INSERT INTO "+b.table+" (parent_id, key) "+
-				"VALUES($1, $2) RETURNING id", b.id, key,
-		)
-		defer cancel()
-		err := row.Scan(&id)
-		if err != nil {
-			return nil, err
-		}
-
-	case err == nil && value != nil:
-		return nil, walletdb.ErrIncompatibleValue
-
 	case err != nil:
 		return nil, err
+
+	case isValue:
+		return nil, walletdb.ErrIncompatibleValue
 	}
 
 	return newReadWriteBucket(b.tx, &id), nil

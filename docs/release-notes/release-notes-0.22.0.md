@@ -22,6 +22,13 @@
 
 # Bug Fixes
 
+* [Fixed a bug](https://github.com/lightningnetwork/lnd/pull/10944) where
+  lnd exited with status code `0` after a health check triggered a
+  programmatic shutdown (e.g. the chain backend becoming unreachable). lnd
+  now exits with code `1` in that case, so process managers such as systemd
+  with `Restart=on-failure` automatically restart the daemon instead of
+  treating the exit as intentional.
+
 * Bitcoind outbound peer health checks [now use](https://github.com/lightningnetwork/lnd/pull/10686)
   `getnetworkinfo.connections_out` instead of `getpeerinfo`. The same PR also
   [clarifies](https://github.com/lightningnetwork/lnd/issues/10568) the ZMQ

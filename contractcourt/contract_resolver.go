@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"io"
 	"sync/atomic"
+	"time"
 
 	"github.com/btcsuite/btcd/wire/v2"
 	"github.com/btcsuite/btclog/v2"
@@ -183,4 +184,24 @@ var (
 	// errResolverShuttingDown is returned when the resolver stops
 	// progressing because it received the quit signal.
 	errResolverShuttingDown = errors.New("resolver shutting down")
+
+	// resolverRetryInitBackoff is the initial backoff duration before
+	// retrying a failed Resolve() call.
+	resolverRetryInitBackoff = 5 * time.Second
+
+	// resolverRetryMaxBackoff is the maximum backoff duration for
+	// resolver retry. Capped to avoid excessive delays on persistent
+	// failures that require operator intervention.
+	resolverRetryMaxBackoff = 5 * time.Minute
 )
+
+// resolverRetryBackoff returns the backoff duration for the given retry
+// attempt. The backoff doubles each attempt, starting from
+// resolverRetryInitBackoff and capping at resolverRetryMaxBackoff.
+func resolverRetryBackoff(attempt int) time.Duration {
+	backoff := resolverRetryInitBackoff << uint(attempt)
+	if backoff > resolverRetryMaxBackoff {
+		return resolverRetryMaxBackoff
+	}
+	return backoff
+}

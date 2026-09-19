@@ -77,6 +77,29 @@ func strictFeaturesRecord[T tlv.TlvType](
 	)
 }
 
+// strictFeaturesProducer yields the strict features record for a feature
+// field, so the encode path and the decode path share one record definition.
+type strictFeaturesProducer[T tlv.TlvType] struct {
+	rec *tlv.RecordT[T, lnwire.RawFeatureVector]
+}
+
+// Record returns the strict features record for the wrapped field.
+func (p strictFeaturesProducer[T]) Record() tlv.Record {
+	return strictFeaturesRecord(p.rec)
+}
+
+// addStrictFeatures appends the strict features producer for opt when the
+// field is set, mirroring lnwire.AddOpt for every other optional field.
+func addStrictFeatures[T tlv.TlvType](producers *[]tlv.RecordProducer,
+	opt tlv.OptionalRecordT[T, lnwire.RawFeatureVector]) {
+
+	opt.WhenSome(func(r tlv.RecordT[T, lnwire.RawFeatureVector]) {
+		*producers = append(
+			*producers, strictFeaturesProducer[T]{rec: &r},
+		)
+	})
+}
+
 // strictFeaturesEncoder writes the minimal feature vector bytes, matching the
 // shared lnwire encoder.
 func strictFeaturesEncoder(w io.Writer, val any, _ *[8]byte) error {

@@ -143,6 +143,20 @@
   invoice requests and invoices, and verify the signature on read so a decoded
   message with an invalid signature is rejected.
 
+* [BOLT 12 string codecs and payment
+  validation](https://github.com/lightningnetwork/lnd/pull/11146): add
+  validated `Decode`/`Encode` string entry points for offers and invoices, and
+  `ValidateInvoiceForPayment` to bundle the payer-side invoice checks into one
+  call.
+
+* [BOLT 12 codec
+  finalization](https://github.com/lightningnetwork/lnd/pull/11146): reject an
+  unknown even TLV type in an invoice's signature range on read. Leave the
+  decoded string length limits to the caller while the string encoders keep
+  their payload bound. Add `OfferID` over the offer TLV ranges of any BOLT 12
+  message, and narrow the exported surface to what an onion-message caller
+  needs.
+
 ## Testing
 
 * [BOLT 12 spec test vectors](https://github.com/lightningnetwork/lnd/pull/11001):
@@ -153,6 +167,11 @@
   vectors](https://github.com/lightningnetwork/lnd/pull/11061): add spec test
   vectors pinning Merkle tree construction and BIP-340 signature verification
   in `bolt12/test-vectors/`.
+
+* [BOLT 12 fuzz
+  harnesses](https://github.com/lightningnetwork/lnd/pull/11146): fuzz the
+  `bolt12/` decoders for panics and encode/decode bijection, and pin Merkle
+  root determinism.
 
 ## Database
 

@@ -10,10 +10,8 @@ import (
 )
 
 var (
-	// ErrStringTooLong is returned when a raw string is longer than
-	// maxBolt12RawStringLen or a cleaned string is longer than
-	// maxBolt12StringLen. It is also returned when a payload is larger
-	// than maxBolt12DataLen.
+	// ErrStringTooLong is returned when a payload is larger than
+	// maxBolt12DataLen.
 	ErrStringTooLong = errors.New("input length exceeds limit")
 
 	// ErrEmptyString is returned when a string has no characters. It is
@@ -72,30 +70,19 @@ const (
 	maxPrintableASCII = 126
 
 	// bolt12HRPLen is the length of a BOLT 12 human-readable prefix. All
-	// three prefixes have it, so the limit below counts it as a fixed cost.
+	// three prefixes have it.
 	bolt12HRPLen = 3
 
-	// maxBolt12DataLen is the largest TLV stream that one BOLT 12 string
-	// can hold. The spec limits neither a field nor the stream, so the
-	// limit comes from this package: the P2P decoder rejects a record above
-	// tlv.MaxRecordSize. Eleven offer fields at that size give 704
-	// kibibytes, and one mebibyte leaves room for unknown odd fields. Only
-	// an offer needs the room, because an invoice travels in a smaller
-	// onion message.
+	// maxBolt12DataLen is the largest TLV stream encodeBech32 emits. It
+	// is a writer policy, not a protocol rule: the spec limits neither a
+	// field nor the stream, and no other implementation caps either. The
+	// P2P decoder rejects a record above tlv.MaxRecordSize, eleven offer
+	// fields at that size give 704 kibibytes, and one mebibyte leaves
+	// room for unknown odd fields. decodeBech32 enforces no length limit,
+	// because a decode allocates on the order of its input and the input
+	// already exists in the caller's memory, so a limit there would
+	// reject a spec-valid message without protecting anything.
 	maxBolt12DataLen = 1 << 20
-
-	// maxBolt12StringLen is the largest cleaned BOLT 12 bech32 string the
-	// codec accepts, once continuation markers and their whitespace are
-	// stripped. Each character of the data part holds 5 of the 8 bits of
-	// a payload byte. The limit therefore comes from maxBolt12DataLen. It
-	// counts the prefix, the separator, and one character for each group
-	// of 5 bits. Encode and Decode use the same limit, so every string
-	// that Encode makes is a string that Decode accepts.
-	maxBolt12StringLen = bolt12HRPLen + 1 + (maxBolt12DataLen*8+4)/5
-
-	// maxBolt12RawStringLen is the largest raw BOLT 12 string the codec
-	// accepts, continuation markers and whitespace included.
-	maxBolt12RawStringLen = 2 * maxBolt12StringLen
 )
 
 // validHRPs holds the prefixes the BOLT 12 codec accepts, in the order the
@@ -116,30 +103,16 @@ func unsupportedHRPError(hrp string) error {
 	)
 }
 
-// Decode reads a BOLT 12 bech32 string. It returns the human-readable prefix
-// and the data bytes. A BOLT 12 string has no checksum. A '+' character can
-// join two parts of the string, and whitespace can follow it. Decode rejects
-// a raw string above maxBolt12RawStringLen and a cleaned string above
-// maxBolt12StringLen, but the caller must set a smaller limit for its own
-// medium. See the caller obligations in the package documentation.
-func Decode(s string) (string, []byte, error) {
-	if len(s) > maxBolt12RawStringLen {
-		return "", nil, fmt.Errorf(
-			"bolt12: %w: input length %d exceeds limit %d",
-			ErrStringTooLong, len(s), maxBolt12RawStringLen,
-		)
-	}
-
+// decodeBech32 reads a BOLT 12 bech32 string. It returns the human-readable
+// prefix and the data bytes. A BOLT 12 string has no checksum. A '+' character
+// can join two parts of the string, and whitespace can follow it. It enforces
+// the BOLT 12 encoding rules and no length limit, so the caller bounds its own
+// medium: the onion-message envelope bounds an invoice_request and an invoice,
+// and the RPC or CLI bounds a pasted or scanned offer string.
+func decodeBech32(s string) (string, []byte, error) {
 	cleaned, err := stripContinuation(s)
 	if err != nil {
 		return "", nil, err
-	}
-
-	if len(cleaned) > maxBolt12StringLen {
-		return "", nil, fmt.Errorf(
-			"bolt12: %w: cleaned length %d exceeds limit %d",
-			ErrStringTooLong, len(cleaned), maxBolt12StringLen,
-		)
 	}
 
 	if len(cleaned) == 0 {
@@ -183,11 +156,11 @@ func Decode(s string) (string, []byte, error) {
 	return hrp, data8bit, nil
 }
 
-// Encode makes a BOLT 12 bech32 string from the data bytes and the given
+// encodeBech32 makes a BOLT 12 bech32 string from the data bytes and the given
 // human-readable prefix. It adds no checksum. It changes the prefix to
-// lowercase and takes only lno, lnr, and lni. The payload size must be a size
-// that Decode also takes, so a caller can make only strings that Decode reads.
-func Encode(hrp string, data []byte) (string, error) {
+// lowercase and takes only lno, lnr, and lni. It refuses a payload above
+// maxBolt12DataLen, a writer policy the reader does not mirror.
+func encodeBech32(hrp string, data []byte) (string, error) {
 	hrp = strings.ToLower(hrp)
 	if !isValidHRP(hrp) {
 		return "", unsupportedHRPError(hrp)
@@ -195,7 +168,7 @@ func Encode(hrp string, data []byte) (string, error) {
 
 	// A BOLT 12 string holds a TLV stream, and the stream must hold at
 	// least one record. An empty payload gives a string with only the
-	// prefix and the separator, which Decode rejects.
+	// prefix and the separator, which decodeBech32 rejects.
 	if len(data) == 0 {
 		return "", fmt.Errorf(
 			"bolt12: %w: nothing to encode", ErrEmptyString,
@@ -266,8 +239,8 @@ func stripContinuation(s string) (string, error) {
 		}
 		if j >= len(s) || !isContinuationNeighbour(s[j]) {
 			return "", fmt.Errorf(
-				"bolt12: %w: '+' must precede a "+
-					"non-whitespace character",
+				"bolt12: %w: '+' must join two "+
+					"characters",
 				ErrInvalidContinuation,
 			)
 		}

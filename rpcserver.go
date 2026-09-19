@@ -82,6 +82,7 @@ import (
 	"github.com/lightningnetwork/lnd/routing/route"
 	"github.com/lightningnetwork/lnd/rpcperms"
 	"github.com/lightningnetwork/lnd/signal"
+	"github.com/lightningnetwork/lnd/subscribe"
 	"github.com/lightningnetwork/lnd/sweep"
 	"github.com/lightningnetwork/lnd/tlv"
 	"github.com/lightningnetwork/lnd/watchtower"
@@ -8714,6 +8715,20 @@ func (r *rpcServer) SendCustomMessage(ctx context.Context,
 	}, nil
 }
 
+// subscriptionClientError maps a server-initiated subscription shutdown to
+// the error returned by its RPC stream.
+func subscriptionClientError(client *subscribe.Client) error {
+	err := client.Err()
+	if errors.Is(err, subscribe.ErrSlowConsumer) {
+		return status.Error(codes.ResourceExhausted, err.Error())
+	}
+	if err != nil {
+		return err
+	}
+
+	return errors.New("shutdown")
+}
+
 // SubscribeCustomMessages subscribes to a stream of incoming custom peer
 // messages.
 func (r *rpcServer) SubscribeCustomMessages(
@@ -8727,9 +8742,17 @@ func (r *rpcServer) SubscribeCustomMessages(
 	defer client.Cancel()
 
 	for {
+		// Prefer a server-side eviction over another queued update once the
+		// client has been removed for falling behind.
 		select {
 		case <-client.Quit():
-			return errors.New("shutdown")
+			return subscriptionClientError(client)
+		default:
+		}
+
+		select {
+		case <-client.Quit():
+			return subscriptionClientError(client)
 
 		case <-server.Context().Done():
 			return server.Context().Err()
@@ -8793,9 +8816,17 @@ func (r *rpcServer) SubscribeOnionMessages(
 	defer client.Cancel()
 
 	for {
+		// Prefer a server-side eviction over another queued update once the
+		// client has been removed for falling behind.
 		select {
 		case <-client.Quit():
-			return errors.New("shutdown")
+			return subscriptionClientError(client)
+		default:
+		}
+
+		select {
+		case <-client.Quit():
+			return subscriptionClientError(client)
 
 		case <-server.Context().Done():
 			return server.Context().Err()

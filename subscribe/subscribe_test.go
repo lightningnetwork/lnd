@@ -1,6 +1,7 @@
 package subscribe_test
 
 import (
+	"errors"
 	"testing"
 	"time"
 
@@ -107,4 +108,83 @@ func TestSubscribe(t *testing.T) {
 
 	}
 
+}
+
+// TestBoundedServerEvictsSlowClient verifies that a bounded server evicts a
+// stalled client without delaying or reordering updates for a healthy client.
+func TestBoundedServerEvictsSlowClient(t *testing.T) {
+	t.Parallel()
+
+	const (
+		queueSize  = 3
+		numUpdates = 10
+	)
+
+	server := subscribe.NewServerWithQueueSize(queueSize)
+	if err := server.Start(); err != nil {
+		t.Fatalf("unable to start server: %v", err)
+	}
+	defer func() {
+		if err := server.Stop(); err != nil {
+			t.Errorf("unable to stop server: %v", err)
+		}
+	}()
+
+	slowClient, err := server.Subscribe()
+	if err != nil {
+		t.Fatalf("unable to subscribe slow client: %v", err)
+	}
+
+	fastClient, err := server.Subscribe()
+	if err != nil {
+		t.Fatalf("unable to subscribe fast client: %v", err)
+	}
+
+	for i := 0; i < numUpdates; i++ {
+		if err := server.SendUpdate(i); err != nil {
+			t.Fatalf("unable to send update %v: %v", i, err)
+		}
+
+		select {
+		case update := <-fastClient.Updates():
+			value, ok := update.(int)
+			if !ok {
+				t.Fatalf("unexpected update type %T", update)
+			}
+			if value != i {
+				t.Fatalf("expected fast client update %v, got %v",
+					i, value)
+			}
+
+		case <-time.After(time.Second):
+			t.Fatalf("fast client did not receive update %v", i)
+		}
+	}
+
+	select {
+	case <-slowClient.Quit():
+	case <-time.After(time.Second):
+		t.Fatal("slow client was not evicted")
+	}
+
+	if !errors.Is(slowClient.Err(), subscribe.ErrSlowConsumer) {
+		t.Fatalf("expected slow-consumer error, got %v", slowClient.Err())
+	}
+	if queued := len(slowClient.Updates()); queued != 0 {
+		t.Fatalf("evicted client retained %v queued updates", queued)
+	}
+
+	select {
+	case <-fastClient.Quit():
+		t.Fatalf("fast client was unexpectedly evicted: %v",
+			fastClient.Err())
+	default:
+	}
+
+	fastClient.Cancel()
+	select {
+	case <-fastClient.Quit():
+	case <-time.After(time.Second):
+		t.Fatal("fast client did not stop after cancellation")
+	}
 }

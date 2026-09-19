@@ -73,6 +73,9 @@ http:
     - selector: walletrpc.WalletKit.ImportAccount
       post: "/v2/wallet/accounts/import"
       body: "*"
+    - selector: walletrpc.WalletKit.RemoveAccount
+      post: "/v2/wallet/accounts/remove"
+      body: "*"
     - selector: walletrpc.WalletKit.SignMessageWithAddr
       post: "/v2/wallet/address/signmessage"
       body: "*"

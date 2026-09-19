@@ -899,6 +899,10 @@ func init() {
 		walletImportAccountTestCases,
 	)
 	allTestCases = appendPrefixed(
+		"wallet remove account", allTestCases,
+		walletRemoveAccountTestCases,
+	)
+	allTestCases = appendPrefixed(
 		"funding", allTestCases, basicFundingTestCases,
 	)
 	allTestCases = appendPrefixed(

@@ -99,15 +99,15 @@ type BtcWallet struct {
 
 	chainKeyScope waddrmgr.KeyScope
 
-	// accountMtx serialises the calls that add a named account, meaning
-	// CreateAccount and ImportAccount. Both do the same check-then-act
-	// against the same invariant — a name must exist in at most one key
-	// scope — and both need two database transactions to do it, since
-	// btcwallet exposes no way to check and create in one. Without a lock
-	// covering both, two concurrent calls (in either combination) can pass
-	// their duplicate checks and then each create the name under a
-	// different scope, which is precisely the ambiguity the checks exist
-	// to prevent.
+	// accountMtx serialises the calls that add or remove a named account,
+	// meaning CreateAccount, ImportAccount and RemoveAccount. All do a
+	// check-then-act against the same invariant — a name must exist in at
+	// most one key scope — and all need two database transactions to do
+	// it, since btcwallet exposes no way to check and mutate in one.
+	// Without a lock covering them, two concurrent calls (in any
+	// combination) can pass their checks and then each mutate the
+	// namespace, which is precisely the ambiguity the checks exist to
+	// prevent.
 	accountMtx sync.Mutex
 
 	blockCache *blockcache.BlockCache
@@ -831,6 +831,15 @@ type accountCreator interface {
 	NextAccount(scope waddrmgr.KeyScope, name string) (uint32, error)
 }
 
+// accountRemover is the subset of btcwallet's wallet API needed to remove a
+// watch-only imported account. It is declared here because btcwallet's
+// base.Interface does not include RemoveAccount yet.
+type accountRemover interface {
+	// RemoveAccount removes the account with the given name from the given
+	// key scope, along with all addresses derived from it.
+	RemoveAccount(scope waddrmgr.KeyScope, name string) error
+}
+
 // CreateAccount creates a new account within the given key scope, deriving the
 // account's keys from the wallet's master key.
 //
@@ -1000,6 +1009,94 @@ func (b *BtcWallet) ImportAccount(name string, accountPubKey *hdkeychain.Extende
 	}
 
 	return accountProps, externalAddrs, internalAddrs, nil
+}
+
+// RemoveAccount removes a watch-only account that was previously registered
+// via ImportAccount, along with all addresses derived from it. A nil key scope
+// resolves the name across all default key scopes; if the same name exists in
+// more than one scope, a scope must be provided to disambiguate.
+//
+// The wallet stops tracking the account's addresses: any balance held on them
+// disappears from the wallet's view and future deposits to them are not
+// detected. The funds themselves are unaffected — the holder of the account's
+// extended keys retains full control, and re-importing the same extended
+// public key (plus a rescan) restores tracking.
+//
+// In a remote-signing setup this only affects the watch-only node the account
+// was imported into; the signer never learned about the account.
+//
+// This is a part of the WalletController interface.
+func (b *BtcWallet) RemoveAccount(name string,
+	keyScope *waddrmgr.KeyScope) (*waddrmgr.AccountProperties, error) {
+
+	if name == "" {
+		return nil, errors.New("account name is required")
+	}
+
+	// The wallet creates both of these accounts itself, in every key
+	// scope, and relies on them being present.
+	if name == lnwallet.DefaultAccountName ||
+		name == waddrmgr.ImportedAddrAccountName {
+
+		return nil, fmt.Errorf("account name %v is reserved by the "+
+			"wallet", name)
+	}
+
+	// This reads and then mutates the account namespace, and btcwallet
+	// cannot do that in one database transaction, so hold the same lock
+	// CreateAccount and ImportAccount take; see the field's documentation.
+	b.accountMtx.Lock()
+	defer b.accountMtx.Unlock()
+
+	// Resolve the name to the account's properties, either within the
+	// requested scope or across all default scopes. A missing account
+	// surfaces here as ErrAccountNotFound.
+	accounts, err := b.ListAccounts(name, keyScope)
+	if err != nil {
+		return nil, err
+	}
+
+	// A name can only resolve in several scopes on wallets that predate
+	// the cross-scope uniqueness check in CreateAccount/ImportAccount. We
+	// never guess which one was meant.
+	if len(accounts) > 1 {
+		return nil, fmt.Errorf("account %v exists in multiple key "+
+			"scopes; specify an address type to disambiguate",
+			name)
+	}
+	props := accounts[0]
+
+	// The scope lnd derives its own keys from is never removable, and an
+	// account the wallet can sign for was created by CreateAccount rather
+	// than imported, so removing it would orphan keys derived from the
+	// wallet's own master key.
+	if props.KeyScope == b.chainKeyScope {
+		return nil, fmt.Errorf("account %v is part of lnd's internal "+
+			"key scope and cannot be removed", name)
+	}
+	if !props.IsWatchOnly {
+		return nil, fmt.Errorf("account %v is not a watch-only "+
+			"imported account; only accounts imported via "+
+			"ImportAccount can be removed", name)
+	}
+
+	// btcwallet's base.Interface does not expose RemoveAccount yet. Assert
+	// for the capability instead of widening the interface, so lnd doesn't
+	// need to carry a forked btcwallet; see CreateAccount for the full
+	// rationale. This assertion can be dropped once RemoveAccount is part
+	// of base.Interface upstream.
+	remover, ok := b.wallet.(accountRemover)
+	if !ok {
+		return nil, fmt.Errorf("wallet of type %T does not support "+
+			"removing accounts", b.wallet)
+	}
+
+	if err := remover.RemoveAccount(props.KeyScope, name); err != nil {
+		return nil, fmt.Errorf("unable to remove account %v: %w",
+			name, err)
+	}
+
+	return props, nil
 }
 
 // ImportPublicKey imports a single derived public key into the wallet. The

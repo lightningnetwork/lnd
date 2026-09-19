@@ -149,6 +149,13 @@ func (w *mockWalletController) ImportAccount(string, *hdkeychain.ExtendedKey,
 	return nil, nil, nil, nil
 }
 
+// RemoveAccount currently returns a dummy value.
+func (w *mockWalletController) RemoveAccount(string,
+	*waddrmgr.KeyScope) (*waddrmgr.AccountProperties, error) {
+
+	return nil, nil
+}
+
 // ImportPublicKey currently returns a dummy value.
 func (w *mockWalletController) ImportPublicKey(*btcec.PublicKey,
 	waddrmgr.AddressType) error {

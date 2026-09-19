@@ -445,6 +445,12 @@ func Main() {
 				"authentication",
 			Hidden: true,
 		},
+
+		// The cli library only registers the help flag by itself if the
+		// application doesn't declare a command called "help". Because
+		// we declare our own (see cmd_help.go), we have to add the flag
+		// here.
+		cli.HelpFlag,
 	}
 	app.Commands = []cli.Command{
 		createCommand,
@@ -531,6 +537,10 @@ func Main() {
 	app.Commands = append(app.Commands, devCommands()...)
 	app.Commands = append(app.Commands, peersCommands()...)
 	app.Commands = append(app.Commands, chainCommands()...)
+
+	// The help command goes last, which is where the cli library would put
+	// its own version of it as well.
+	app.Commands = append(app.Commands, helpCommand)
 
 	if err := app.Run(os.Args); err != nil {
 		fatal(err)

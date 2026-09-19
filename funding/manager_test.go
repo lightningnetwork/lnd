@@ -531,6 +531,9 @@ func createTestFundingManager(t *testing.T, privKey *btcec.PrivateKey,
 		Notifier:     chainNotifier,
 		ChannelDB:    cdb,
 		FeeEstimator: estimator,
+		MaxAnchorsCommitFeeRate: chainfee.SatPerVByte(
+			lnwallet.DefaultAnchorsCommitMaxFeeRateSatPerVByte,
+		).FeePerKWeight(),
 		SignMessage: func(_ keychain.KeyLocator,
 			_ []byte, _ bool) (*ecdsa.Signature, error) {
 
@@ -4161,6 +4164,123 @@ func TestFundingManagerPushAmountAtCapacity(t *testing.T) {
 			"fundee rejected spec-legal boundary push_msat == "+
 				"1000 * funding_satoshis")
 	case <-time.After(time.Second):
+	}
+}
+
+// TestFundingManagerMinAnchorCommitFeeRate asserts that the lowest configured
+// anchor commitment fee rate remains acceptable to another lnd node.
+func TestFundingManagerMinAnchorCommitFeeRate(t *testing.T) {
+	t.Parallel()
+
+	alice, bob := setupFundingManagers(t)
+	t.Cleanup(func() {
+		tearDownFundingManagers(t, alice, bob)
+	})
+
+	minAnchorFeeRate := chainfee.SatPerVByte(1).FeePerKWeight()
+	alice.fundingMgr.cfg.MaxAnchorsCommitFeeRate = minAnchorFeeRate
+
+	featureBits := []lnwire.FeatureBit{
+		lnwire.ExplicitChannelTypeOptional,
+		lnwire.StaticRemoteKeyOptional,
+		lnwire.AnchorsZeroFeeHtlcTxOptional,
+	}
+	alice.localFeatures = featureBits
+	alice.remoteFeatures = featureBits
+	bob.localFeatures = featureBits
+	bob.remoteFeatures = featureBits
+
+	updateChan := make(chan *lnrpc.OpenStatusUpdate, 10)
+	chanType := (*lnwire.ChannelType)(lnwire.NewRawFeatureVector(
+		lnwire.StaticRemoteKeyRequired,
+		lnwire.AnchorsZeroFeeHtlcTxRequired,
+	))
+
+	openChannel(
+		t, alice, bob, 500000, 0, 1, updateChan, false, chanType,
+	)
+}
+
+// TestFundingManagerRejectLowCommitFeeRate asserts that the fundee rejects an
+// incoming OpenChannel below the relayable commitment fee floor, while accepting
+// the floor itself.
+func TestFundingManagerRejectLowCommitFeeRate(t *testing.T) {
+	t.Parallel()
+
+	testCases := []struct {
+		name        string
+		feeRate     chainfee.SatPerKWeight
+		expectError bool
+	}{
+		{
+			name:        "below floor",
+			feeRate:     chainfee.AbsoluteFeePerKwFloor - 1,
+			expectError: true,
+		},
+		{
+			name:    "at floor",
+			feeRate: chainfee.AbsoluteFeePerKwFloor,
+		},
+	}
+
+	for _, testCase := range testCases {
+		t.Run(testCase.name, func(t *testing.T) {
+			alice, bob := setupFundingManagers(t)
+			t.Cleanup(func() {
+				tearDownFundingManagers(t, alice, bob)
+			})
+
+			featureBits := []lnwire.FeatureBit{
+				lnwire.StaticRemoteKeyOptional,
+				lnwire.AnchorsZeroFeeHtlcTxOptional,
+			}
+			alice.localFeatures = featureBits
+			alice.remoteFeatures = featureBits
+			bob.localFeatures = featureBits
+			bob.remoteFeatures = featureBits
+
+			chanType := (*lnwire.ChannelType)(lnwire.NewRawFeatureVector(
+				lnwire.StaticRemoteKeyRequired,
+				lnwire.AnchorsZeroFeeHtlcTxRequired,
+			))
+
+			openChannelReq := &lnwire.OpenChannel{
+				ChainHash:            *fundingNetParams.GenesisHash,
+				PendingChannelID:     [32]byte{0x01},
+				FundingAmount:        btcutil.Amount(10000000),
+				PushAmount:           0,
+				DustLimit:            btcutil.Amount(546),
+				MaxValueInFlight:     lnwire.MilliSatoshi(100000000),
+				ChannelReserve:       btcutil.Amount(10000),
+				HtlcMinimum:          lnwire.MilliSatoshi(1000),
+				FeePerKiloWeight:     uint32(testCase.feeRate),
+				CsvDelay:             144,
+				MaxAcceptedHTLCs:     483,
+				FundingKey:           alice.privKey.PubKey(),
+				RevocationPoint:      alice.privKey.PubKey(),
+				PaymentPoint:         alice.privKey.PubKey(),
+				DelayedPaymentPoint:  alice.privKey.PubKey(),
+				HtlcPoint:            alice.privKey.PubKey(),
+				FirstCommitmentPoint: alice.privKey.PubKey(),
+				ChannelType:          chanType,
+			}
+
+			bob.fundingMgr.ProcessFundingMsg(openChannelReq, alice)
+
+			if testCase.expectError {
+				msg := assertFundingMsgSent(t, bob.msgChan, "Error")
+				errMsg, ok := msg.(*lnwire.Error)
+				require.True(t, ok)
+				require.ErrorContains(
+					t, errMsg, "min is 250 sat/kw",
+				)
+				assertNumPendingReservations(t, bob, alicePubKey, 0)
+				return
+			}
+
+			assertFundingMsgSent(t, bob.msgChan, "AcceptChannel")
+			assertNumPendingReservations(t, bob, alicePubKey, 1)
+		})
 	}
 }
 

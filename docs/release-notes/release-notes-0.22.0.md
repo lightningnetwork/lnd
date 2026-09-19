@@ -108,6 +108,10 @@
   is removed; if the RPC caller doesn't request a type, a default is derived
   from both peers' features and signaled explicitly.
 
+* The fundee now [rejects inbound channel opens whose commitment fee rate is
+  below the relayable floor](https://github.com/lightningnetwork/lnd/issues/11201),
+  preventing channels that cannot make progress after opening.
+
 ## BOLT 12 (Offers)
 
 * [Initial BOLT 12 Offer codec](https://github.com/lightningnetwork/lnd/pull/10789):
@@ -178,3 +182,4 @@
 * Erick Cestari
 * Jared Tobin
 * Nishant Bansal
+* TayfurYldz

@@ -6,6 +6,7 @@ import (
 
 	"github.com/btcsuite/btcd/btcutil/v2"
 	"github.com/btcsuite/btcd/chainhash/v2"
+	"github.com/lightningnetwork/lnd/lnwallet/chainfee"
 	"github.com/lightningnetwork/lnd/lnwire"
 )
 
@@ -94,6 +95,17 @@ func ErrPushAmountTooLarge(pushAmt lnwire.MilliSatoshi,
 	return ReservationError{
 		fmt.Errorf("push amount %v exceeds funding amount %v",
 			pushAmt, lnwire.NewMSatFromSatoshis(fundingAmt)),
+	}
+}
+
+// ErrCommitFeeRateTooSmall is returned when the initial commitment fee rate
+// proposed by the channel funder is below the minimum relayable fee rate.
+func ErrCommitFeeRateTooSmall(
+	feeRate, minFeeRate chainfee.SatPerKWeight) ReservationError {
+
+	return ReservationError{
+		fmt.Errorf("commitment fee rate %v is too small, min is %v",
+			feeRate, minFeeRate),
 	}
 }
 

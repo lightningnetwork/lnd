@@ -73,9 +73,18 @@ func (d *dummyAdapters) RegisterConfirmationsNtfn(txid *chainhash.Hash,
 }
 
 func (d *dummyAdapters) RegisterSpendNtfn(outpoint *wire.OutPoint,
-	pkScript []byte, heightHint uint32) (*chainntnfs.SpendEvent, error) {
+	pkScript []byte, heightHint uint32,
+	opts ...chainntnfs.SpendOption) (*chainntnfs.SpendEvent, error) {
 
-	args := d.Called(outpoint, pkScript, heightHint)
+	// Preserve existing three-argument expectations, while exposing the
+	// option slice when a focused test verifies the requested spend depth.
+	callArgs := []interface{}{outpoint, pkScript, heightHint}
+	if len(opts) != 0 {
+		// Keep options grouped so the mock can compare the same
+		// variadic boundary used by the production interface.
+		callArgs = append(callArgs, opts)
+	}
+	args := d.Called(callArgs...)
 
 	err := args.Error(0)
 

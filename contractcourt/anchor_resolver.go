@@ -231,6 +231,8 @@ func (c *anchorResolver) Launch() error {
 	resultChan, err := c.Sweeper.SweepInput(
 		&anchorInput,
 		sweep.Params{
+			RequiredConfs: c.SpendConfDepth,
+
 			// For normal anchor sweeping, the budget is 330 sats.
 			Budget: btcutil.Amount(
 				anchorInput.SignDesc().Output.Value,

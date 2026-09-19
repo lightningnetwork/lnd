@@ -19,13 +19,15 @@ import (
 	"github.com/btcsuite/btcd/txscript/v2"
 	"github.com/btcsuite/btcd/wire/v2"
 	"github.com/davecgh/go-spew/spew"
+	"github.com/lightningnetwork/lnd/chainntnfs"
 	"github.com/lightningnetwork/lnd/channeldb"
 	"github.com/lightningnetwork/lnd/fn/v2"
 	"github.com/lightningnetwork/lnd/input"
-	"github.com/lightningnetwork/lnd/lntest/mock"
+	lntestmock "github.com/lightningnetwork/lnd/lntest/mock"
 	"github.com/lightningnetwork/lnd/lnwallet"
 	"github.com/lightningnetwork/lnd/lnwire"
 	"github.com/lightningnetwork/lnd/sweep"
+	"github.com/stretchr/testify/mock"
 	"github.com/stretchr/testify/require"
 )
 
@@ -403,7 +405,7 @@ func TestBabyOutputSerialization(t *testing.T) {
 type nurseryTestContext struct {
 	nursery     *UtxoNursery
 	notifier    *sweep.MockNotifier
-	chainIO     *mock.ChainIO
+	chainIO     *lntestmock.ChainIO
 	publishChan chan wire.MsgTx
 	store       *nurseryStoreInterceptor
 	restart     func() bool
@@ -443,7 +445,7 @@ func createNurseryTestContext(t *testing.T,
 
 	timeoutChan := make(chan chan time.Time)
 
-	chainIO := &mock.ChainIO{
+	chainIO := &lntestmock.ChainIO{
 		BestHeight: 0,
 	}
 
@@ -887,6 +889,243 @@ func TestNurseryOutgoingHtlcSuccessOnRemote(t *testing.T) {
 	testRestartLoop(t, testNurseryOutgoingHtlcSuccessOnRemote)
 }
 
+// nurserySweepMock captures the final sweep parameters through mock.Mock so
+// the regression can verify the Nursery-to-sweeper policy boundary directly.
+type nurserySweepMock struct {
+	mock.Mock
+
+	called chan struct{}
+}
+
+// SweepInput records the offered input and parameters, then signals the test
+// after mock.Mock has matched the configured confirmation-depth expectation.
+func (m *nurserySweepMock) SweepInput(inp input.Input,
+	params sweep.Params) (chan sweep.Result, error) {
+
+	args := m.Called(inp, params)
+	m.called <- struct{}{}
+
+	resultChan, ok := args.Get(0).(chan sweep.Result)
+	// Fail loudly if Arrange supplied the wrong mock result type, because
+	// silently returning a nil channel would hide the handoff under test.
+	if !ok {
+		panic("nursery sweep mock returned a non-result channel")
+	}
+
+	return resultChan, args.Error(1)
+}
+
+// TestNurseryPreschoolPromotionRequiredConfs verifies the Nursery retains its
+// Preschool claim until the parent transaction reaches the channel policy.
+func TestNurseryPreschoolPromotionRequiredConfs(t *testing.T) {
+	// Arrange a live legacy output carrying a three-block resolver policy.
+	// A mock.Mock notifier expects that depth before returning an event.
+	// Its undelivered channel keeps the promotion goroutine pending.
+	const (
+		requiredConfs uint32 = 3
+		heightHint    uint32 = 21
+	)
+	pkScript := []byte{0x51}
+	outpoint := wire.OutPoint{Hash: chainhash.Hash{1}, Index: 2}
+	kid := &kidOutput{
+		breachedOutput: breachedOutput{
+			outpoint: outpoint,
+			signDesc: input.SignDescriptor{
+				Output: &wire.TxOut{PkScript: pkScript},
+			},
+		},
+		spendConfDepth: requiredConfs,
+	}
+	event := &chainntnfs.ConfirmationEvent{
+		Confirmed: make(chan *chainntnfs.TxConfirmation),
+	}
+	notifier := &chainntnfs.MockChainNotifier{}
+	notifier.On(
+		"RegisterConfirmationsNtfn", &outpoint.Hash, pkScript,
+		requiredConfs, heightHint,
+	).Return(event, nil).Once()
+	nursery := NewUtxoNursery(&NurseryConfig{Notifier: notifier})
+
+	// Act by registering the parent confirmation, then stop the pending
+	// waiter through the Nursery shutdown channel so no goroutine survives
+	// beyond the assertion boundary.
+	err := nursery.registerPreschoolConf(kid, heightHint)
+	close(nursery.quit)
+	nursery.wg.Wait()
+
+	// Assert registration succeeded and the notifier observed the one exact
+	// depth-bearing call; no independent call-count assertion is necessary.
+	require.NoError(t, err)
+	notifier.AssertExpectations(t)
+}
+
+// TestNurseryReloadPreschoolClampsHeightHint verifies restart registration
+// cannot underflow when a persisted close height is below the spend depth.
+func TestNurseryReloadPreschoolClampsHeightHint(t *testing.T) {
+	// Arrange a serialized Preschool output whose synthetic close height is
+	// below its three-confirmation policy. A mock.Mock-backed notifier
+	// expects the earliest valid height exactly once, proving restart scans
+	// from genesis instead of wrapping the unsigned subtraction.
+	const (
+		spendConfDepth = uint32(3)
+		closeHeight    = uint32(2)
+		heightHint     = uint32(1)
+	)
+	kid := kidOutputs[0]
+	db, err := channeldb.MakeTestDB(t)
+	require.NoError(t, err)
+	store, err := NewNurseryStore(&chainhash.Hash{}, db)
+	require.NoError(t, err)
+	_, err = store.Incubate([]kidOutput{kid}, nil)
+	require.NoError(t, err)
+
+	pkScript := kid.SignDesc().Output.PkScript
+	txID := kid.OutPoint().Hash
+	confEvent := &chainntnfs.ConfirmationEvent{
+		Confirmed: make(chan *chainntnfs.TxConfirmation, 1),
+	}
+	notifier := &chainntnfs.MockChainNotifier{}
+	notifier.On(
+		"RegisterConfirmationsNtfn", &txID, pkScript,
+		spendConfDepth, heightHint,
+	).Return(confEvent, nil).Once()
+	nursery := NewUtxoNursery(&NurseryConfig{
+		Notifier:          notifier,
+		Store:             store,
+		ChannelCloseConfs: fn.Some(spendConfDepth),
+		FetchClosedChannel: func(*wire.OutPoint) (
+			*channeldb.ChannelCloseSummary, error) {
+
+			// Return the low height that previously wrapped around
+			// to MaxUint32 and caused the notifier to skip the
+			// output.
+			return &channeldb.ChannelCloseSummary{
+				CloseHeight: closeHeight,
+			}, nil
+		},
+	})
+
+	// Act by reloading the persisted Preschool record, then stop the
+	// pending confirmation waiter through Nursery shutdown so the test
+	// leaves no goroutine behind.
+	err = nursery.reloadPreschool()
+	close(nursery.quit)
+	nursery.wg.Wait()
+
+	// Assert restart completed and registered from height one. Direct mock
+	// expectation verification covers both the arguments and cardinality
+	// without a redundant call-count assertion.
+	require.NoError(t, err)
+	notifier.AssertExpectations(t)
+}
+
+// TestNurseryCribPromotionRequiredConfs verifies the Nursery retains its Crib
+// claim until the presigned timeout transaction reaches the channel policy.
+func TestNurseryCribPromotionRequiredConfs(t *testing.T) {
+	// Arrange a live legacy timeout output carrying a six-block resolver
+	// policy. The mock requires that depth for the timeout transaction,
+	// then returns a pending event to the promotion code.
+	const (
+		requiredConfs uint32 = 6
+		heightHint    uint32 = 31
+	)
+	pkScript := []byte{0x51}
+	timeoutTx := &wire.MsgTx{TxOut: []*wire.TxOut{{PkScript: pkScript}}}
+	timeoutTxID := timeoutTx.TxHash()
+	baby := &babyOutput{
+		timeoutTx: timeoutTx,
+		kidOutput: kidOutput{
+			spendConfDepth: requiredConfs,
+		},
+	}
+	event := &chainntnfs.ConfirmationEvent{
+		Confirmed: make(chan *chainntnfs.TxConfirmation),
+	}
+	notifier := &chainntnfs.MockChainNotifier{}
+	notifier.On(
+		"RegisterConfirmationsNtfn", &timeoutTxID, pkScript,
+		requiredConfs, heightHint,
+	).Return(event, nil).Once()
+	nursery := NewUtxoNursery(&NurseryConfig{Notifier: notifier})
+
+	// Act by registering the timeout confirmation, then terminate its
+	// waiter through Nursery shutdown. This keeps the goroutine lifecycle
+	// controlled without manufacturing a confirmation.
+	err := nursery.registerTimeoutConf(baby, heightHint)
+	close(nursery.quit)
+	nursery.wg.Wait()
+
+	// Assert registration succeeded and mock.Mock matched the exact depth.
+	// Direct expectation verification proves the required cardinality.
+	require.NoError(t, err)
+	notifier.AssertExpectations(t)
+}
+
+// TestNurseryFinalSweepRequiredConfsAfterRestart verifies a persisted legacy
+// HTLC reconstructs its channel policy and does not request a one-conf result
+// after the resolver has already marked the output as incubating.
+func TestNurseryFinalSweepRequiredConfsAfterRestart(t *testing.T) {
+	// Arrange a remote-commit legacy HTLC whose close summary has a real
+	// capacity. Promote it into the persisted Kindergarten bucket,
+	// then restart so only that durable summary can reconstruct the policy.
+	const channelCapacity btcutil.Amount = 100_000_000
+	requiredConfs := lnwallet.CloseConfsForCapacity(channelCapacity)
+	ctx := createNurseryTestContext(t, func(callback func()) bool {
+		callback()
+
+		return true
+	})
+	t.Cleanup(func() {
+		require.NoError(t, ctx.nursery.Stop())
+	})
+	ctx.nursery.cfg.FetchClosedChannel = func(*wire.OutPoint) (
+		*channeldb.ChannelCloseSummary, error) {
+
+		// Capacity is the durable input that recovers the resolver's
+		// policy after outputIncubating is stored.
+		return &channeldb.ChannelCloseSummary{
+			Capacity: channelCapacity,
+		}, nil
+	}
+
+	outgoingRes := incubateTestOutput(t, ctx.nursery, false)
+	err := ctx.notifier.ConfirmTx(&outgoingRes.ClaimOutpoint.Hash, 124)
+	require.NoError(t, err)
+	select {
+	case <-ctx.store.preschoolToKinderChan:
+	case <-time.After(defaultTestTimeout):
+		t.Fatal("output not promoted to KNDR")
+	}
+	require.True(t, ctx.restart())
+
+	resultChan := make(chan sweep.Result)
+	sweeper := &nurserySweepMock{called: make(chan struct{}, 1)}
+	sweeper.On(
+		"SweepInput", mock.Anything,
+		mock.MatchedBy(func(params sweep.Params) bool {
+			// Matching the whole request proves the restored depth
+			// reaches the component that owns terminality.
+			return params.RequiredConfs == requiredConfs
+		}),
+	).Return(resultChan, nil).Once()
+	ctx.nursery.cfg.SweepInput = sweeper.SweepInput
+
+	// Act by advancing to the output's maturity height. Wait for the mock
+	// signal so the asynchronous incubator has completed the sweep offer
+	// before assertions inspect its expectation state.
+	ctx.notifyEpoch(125)
+	select {
+	case <-sweeper.called:
+	case <-time.After(defaultTestTimeout):
+		t.Fatal("final Nursery sweep not offered")
+	}
+
+	// Assert the one permitted sweep call carried the reconstructed depth.
+	// Leaving resultChan unresolved models the pre-terminal interval.
+	// A shallow spend or reorg must not graduate the persisted output.
+	sweeper.AssertExpectations(t)
+}
+
 func testNurseryOutgoingHtlcSuccessOnRemote(t *testing.T,
 	checkStartStop func(func()) bool) {
 
@@ -983,13 +1222,17 @@ func newNurseryStoreInterceptor(ns NurseryStorer) *nurseryStoreInterceptor {
 }
 
 func (i *nurseryStoreInterceptor) Incubate(kidOutputs []kidOutput,
-	babyOutputs []babyOutput) error {
+	babyOutputs []babyOutput) (map[wire.OutPoint]struct{}, error) {
 
 	return i.ns.Incubate(kidOutputs, babyOutputs)
 }
 
-func (i *nurseryStoreInterceptor) CribToKinder(babyOutput *babyOutput) error {
-	err := i.ns.CribToKinder(babyOutput)
+// CribToKinder delegates the state transition to the real store and signals
+// the test only after persistence completes, so assertions cannot race it.
+func (i *nurseryStoreInterceptor) CribToKinder(babyOutput *babyOutput,
+	lastGradHeight uint32) error {
+
+	err := i.ns.CribToKinder(babyOutput, lastGradHeight)
 
 	i.cribToKinderChan <- struct{}{}
 
@@ -1412,7 +1655,7 @@ func TestPatchZeroHeightHint(t *testing.T) {
 			}
 
 			cfg := &NurseryConfig{
-				ConfDepth: tc.confDepth,
+				ChannelCloseConfs: fn.Some(tc.confDepth),
 				FetchClosedChannel: func(
 					chanID *wire.OutPoint) (
 					*channeldb.ChannelCloseSummary,

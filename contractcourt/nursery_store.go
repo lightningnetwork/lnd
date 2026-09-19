@@ -86,14 +86,19 @@ type NurseryStorer interface {
 	// outgoing htlc outputs to be swept back into the user's wallet. The
 	// event is persisted to disk, such that the nursery can resume the
 	// incubation process after a potential crash.
-	Incubate([]kidOutput, []babyOutput) error
+	Incubate([]kidOutput, []babyOutput) (
+		map[wire.OutPoint]struct{}, error)
 
 	// CribToKinder atomically moves a babyOutput in the crib bucket to the
 	// kindergarten bucket. Baby outputs are outgoing HTLC's which require
 	// us to go to the second-layer to claim. The now mature kidOutput
 	// contained in the babyOutput will be stored as it waits out the
 	// kidOutput's CSV delay.
-	CribToKinder(*babyOutput) error
+	//
+	// An additional parameter specifies the last graduated height. A
+	// depth-delayed transition can otherwise insert the output into a class
+	// that Nursery already processed and never visits again.
+	CribToKinder(baby *babyOutput, lastGradHeight uint32) error
 
 	// PreschoolToKinder atomically moves a kidOutput from the preschool
 	// bucket to the kindergarten bucket. This transition should be executed
@@ -263,8 +268,14 @@ func NewNurseryStore(chainHash *chainhash.Hash,
 // Incubate persists the beginning of the incubation process for the
 // CSV-delayed outputs (commitment and incoming HTLC's), commitment output and
 // a list of outgoing two-stage htlc outputs.
-func (ns *NurseryStore) Incubate(kids []kidOutput, babies []babyOutput) error {
-	return kvdb.Update(ns.db, func(tx kvdb.RwTx) error {
+func (ns *NurseryStore) Incubate(kids []kidOutput,
+	babies []babyOutput) (map[wire.OutPoint]struct{}, error) {
+
+	// Report only Crib outputs which remain active after the atomic update.
+	// Callers use this to avoid re-registering a stale promotion after the
+	// same logical output has already advanced to Kindergarten.
+	activeCribs := make(map[wire.OutPoint]struct{}, len(babies))
+	err := kvdb.Update(ns.db, func(tx kvdb.RwTx) error {
 		// If we have any kid outputs to incubate, then we'll attempt
 		// to add each of them to the nursery store. Any duplicate
 		// outputs will be ignored.
@@ -278,19 +289,27 @@ func (ns *NurseryStore) Incubate(kids []kidOutput, babies []babyOutput) error {
 		// Similarly, we'll ignore any outputs that have already been
 		// inserted.
 		for _, baby := range babies {
-			if err := ns.enterCrib(tx, &baby); err != nil {
+			active, err := ns.enterCrib(tx, &baby)
+			if err != nil {
 				return err
+			}
+			if active {
+				activeCribs[baby.OutPoint()] = struct{}{}
 			}
 		}
 
 		return nil
 	}, func() {})
+
+	return activeCribs, err
 }
 
 // CribToKinder atomically moves a babyOutput in the crib bucket to the
 // kindergarten bucket. The now mature kidOutput contained in the babyOutput
 // will be stored as it waits out the kidOutput's CSV delay.
-func (ns *NurseryStore) CribToKinder(bby *babyOutput) error {
+func (ns *NurseryStore) CribToKinder(
+	bby *babyOutput, lastGradHeight uint32) error {
+
 	return kvdb.Update(ns.db, func(tx kvdb.RwTx) error {
 		// First, retrieve or create the channel bucket corresponding to
 		// the baby output's origin channel point.
@@ -307,6 +326,12 @@ func (ns *NurseryStore) CribToKinder(bby *babyOutput) error {
 		pfxOutputKey, err := prefixOutputKey(cribPrefix, bby.OutPoint())
 		if err != nil {
 			return err
+		}
+		if chanBucket.Get(pfxOutputKey) == nil {
+			// A stale confirmation callback must not recreate a
+			// Kindergarten entry after its Crib owner advanced or
+			// another lifecycle attempt graduated it.
+			return ErrContractNotFound
 		}
 
 		// Since the babyOutput is being moved to the kindergarten
@@ -347,6 +372,18 @@ func (ns *NurseryStore) CribToKinder(bby *babyOutput) error {
 		// will expire.  This is done by adding the required delay to
 		// the block height at which the output was confirmed.
 		maturityHeight := bby.ConfHeight() + bby.BlocksToMaturity()
+
+		// A depth-aware confirmation arrives after the inclusion
+		// height. Schedule a past-due CSV output in the next
+		// unprocessed class so Nursery cannot strand it in an index it
+		// already graduated.
+		if maturityHeight <= lastGradHeight {
+			utxnLog.Debugf("Late crib registration for output=%v: "+
+				"maturity_height=%v, last_graduated_height=%v",
+				bby.OutPoint(), maturityHeight, lastGradHeight)
+
+			maturityHeight = lastGradHeight + 1
+		}
 
 		// Retrieve or create a height-channel bucket corresponding to
 		// the kidOutput's maturity height.
@@ -854,27 +891,37 @@ func (ns *NurseryStore) RemoveChannel(chanPoint *wire.OutPoint) error {
 // its two-stage process of sweeping funds back to the user's wallet. These
 // outputs are persisted in the nursery store in the crib state, and will be
 // revisited after the first-stage output's CLTV has expired.
-func (ns *NurseryStore) enterCrib(tx kvdb.RwTx, baby *babyOutput) error {
+func (ns *NurseryStore) enterCrib(tx kvdb.RwTx,
+	baby *babyOutput) (bool, error) {
 	// First, retrieve or create the channel bucket corresponding to the
 	// baby output's origin channel point.
 	chanPoint := baby.OriginChanPoint()
 	chanBucket, err := ns.createChannelBucket(tx, chanPoint)
 	if err != nil {
-		return err
+		return false, err
 	}
 
 	// Since we are inserting this output into the crib bucket, we create a
 	// key that prefixes the baby output's outpoint with the crib prefix.
 	pfxOutputKey, err := prefixOutputKey(cribPrefix, baby.OutPoint())
 	if err != nil {
-		return err
+		return false, err
 	}
 
 	// We'll first check that we don't already have an entry for this
 	// output. If we do, then we can exit early.
 	if rawBytes := chanBucket.Get(pfxOutputKey); rawBytes != nil {
-		return nil
+		return true, nil
 	}
+
+	// A restart can replay incubation after this HTLC has already advanced
+	// to kindergarten. Treat that later state as the same logical output so
+	// the replay cannot resurrect a stale crib beside the live claim.
+	copy(pfxOutputKey, kndrPrefix)
+	if rawBytes := chanBucket.Get(pfxOutputKey); rawBytes != nil {
+		return false, nil
+	}
+	copy(pfxOutputKey, cribPrefix)
 
 	// Next, retrieve or create the height-channel bucket located in the
 	// height bucket corresponding to the baby output's CLTV expiry height.
@@ -883,28 +930,32 @@ func (ns *NurseryStore) enterCrib(tx kvdb.RwTx, baby *babyOutput) error {
 	hghtChanBucket, err := ns.createHeightChanBucket(tx,
 		baby.expiry, chanPoint)
 	if err != nil {
-		return err
+		return false, err
 	}
 
 	// Serialize the baby output so that it can be written to the
 	// underlying key-value store.
 	var babyBuffer bytes.Buffer
 	if err := baby.Encode(&babyBuffer); err != nil {
-		return err
+		return false, err
 	}
 	babyBytes := babyBuffer.Bytes()
 
 	// Now, insert the serialized output into its channel bucket under the
 	// prefixed key created above.
 	if err := chanBucket.Put(pfxOutputKey, babyBytes); err != nil {
-		return err
+		return false, err
 	}
 
 	// Finally, create a corresponding bucket in the height-channel bucket
 	// for this crib output. The existence of this bucket indicates that
 	// the serialized output can be retrieved from the channel bucket using
 	// the same prefix key.
-	return hghtChanBucket.Put(pfxOutputKey, []byte{})
+	if err := hghtChanBucket.Put(pfxOutputKey, []byte{}); err != nil {
+		return false, err
+	}
+
+	return true, nil
 }
 
 // enterPreschool accepts a new commitment output that the nursery will incubate

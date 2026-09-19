@@ -141,6 +141,11 @@ var (
 	ErrNoDuplicateSequenceNumber = errors.New("duplicate payment " +
 		"sequence number not found")
 
+	// ErrDuplicateCreationInfo is returned when a duplicate payment
+	// sub-bucket does not contain the creation info key.
+	ErrDuplicateCreationInfo = errors.New("duplicate payment creation " +
+		"info not found")
+
 	// ErrNoSequenceNrIndex is returned when an attempt to lookup a payment
 	// index is made for a sequence number that is not indexed.
 	//

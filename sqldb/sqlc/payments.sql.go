@@ -12,6 +12,59 @@ import (
 	"time"
 )
 
+const countFilteredPayments = `-- name: CountFilteredPayments :one
+SELECT COUNT(*)
+FROM payments p
+LEFT JOIN payment_intents i ON i.payment_id = p.id
+WHERE p.created_at >= $1
+  AND p.created_at <= $2
+  AND (
+      i.intent_type = $3 OR
+      $3 IS NULL OR i.intent_type IS NULL
+  )
+  AND (
+      CAST($4 AS BOOLEAN) OR (
+          EXISTS (
+              SELECT 1
+              FROM payment_htlc_attempts ha
+              JOIN payment_htlc_attempt_resolutions hr
+                ON hr.attempt_index = ha.attempt_index
+              WHERE ha.payment_id = p.id
+                AND hr.resolution_type = 1
+          )
+          AND NOT EXISTS (
+              SELECT 1
+              FROM payment_htlc_attempts ha
+              WHERE ha.payment_id = p.id
+                AND NOT EXISTS (
+                    SELECT 1
+                    FROM payment_htlc_attempt_resolutions hr
+                    WHERE hr.attempt_index = ha.attempt_index
+                )
+          )
+      )
+  )
+`
+
+type CountFilteredPaymentsParams struct {
+	CreatedAfter      time.Time
+	CreatedBefore     time.Time
+	IntentType        sql.NullInt16
+	IncludeIncomplete bool
+}
+
+func (q *Queries) CountFilteredPayments(ctx context.Context, arg CountFilteredPaymentsParams) (int64, error) {
+	row := q.db.QueryRowContext(ctx, countFilteredPayments,
+		arg.CreatedAfter,
+		arg.CreatedBefore,
+		arg.IntentType,
+		arg.IncludeIncomplete,
+	)
+	var count int64
+	err := row.Scan(&count)
+	return count, err
+}
+
 const countPayments = `-- name: CountPayments :one
 SELECT COUNT(*) FROM payments
 `

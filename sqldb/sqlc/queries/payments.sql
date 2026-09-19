@@ -47,6 +47,39 @@ WHERE p.id > COALESCE(sqlc.narg('index_offset_get'), -1)
 ORDER BY p.id DESC
 LIMIT @num_limit;
 
+-- name: CountFilteredPayments :one
+SELECT COUNT(*)
+FROM payments p
+LEFT JOIN payment_intents i ON i.payment_id = p.id
+WHERE p.created_at >= @created_after
+  AND p.created_at <= @created_before
+  AND (
+      i.intent_type = sqlc.narg('intent_type') OR
+      sqlc.narg('intent_type') IS NULL OR i.intent_type IS NULL
+  )
+  AND (
+      CAST(sqlc.arg('include_incomplete') AS BOOLEAN) OR (
+          EXISTS (
+              SELECT 1
+              FROM payment_htlc_attempts ha
+              JOIN payment_htlc_attempt_resolutions hr
+                ON hr.attempt_index = ha.attempt_index
+              WHERE ha.payment_id = p.id
+                AND hr.resolution_type = 1
+          )
+          AND NOT EXISTS (
+              SELECT 1
+              FROM payment_htlc_attempts ha
+              WHERE ha.payment_id = p.id
+                AND NOT EXISTS (
+                    SELECT 1
+                    FROM payment_htlc_attempt_resolutions hr
+                    WHERE hr.attempt_index = ha.attempt_index
+                )
+          )
+      )
+  );
+
 -- name: FetchPayment :one
 SELECT
     sqlc.embed(p),

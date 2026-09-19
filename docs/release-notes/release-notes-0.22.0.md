@@ -47,6 +47,10 @@
   the reported network statistics such as total network capacity, channel
   count and max out degree.
 
+* [Fixed `ListPayments`](https://github.com/lightningnetwork/lnd/pull/10874)
+  so `count_total_payments` respects the `creation_date_start` and
+  `creation_date_end` filters.
+
 # New Features
 
 ## Functional Enhancements

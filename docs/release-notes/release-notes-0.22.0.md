@@ -47,6 +47,10 @@
   the reported network statistics such as total network capacity, channel
   count and max out degree.
 
+* Fixed a bug in the invoice registry where AMP sub-invoices that were
+  already canceled (e.g. via MPP timeout) incorrectly accepted new HTLCs.
+  These HTLCs are now immediately rejected.
+
 # New Features
 
 ## Functional Enhancements

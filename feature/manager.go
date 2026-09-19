@@ -239,9 +239,15 @@ func newManager(cfg Config, desc setDesc) (*Manager, error) {
 					set, set.Maximum())
 			}
 
+			// If the feature bit is already advertised in lnd's
+			// default feature vector, configuring it as a custom
+			// feature produces an identical vector. Treat this as a
+			// no-op rather than failing startup (see #10883).
+			// Genuine conflicts between the optional and required
+			// variants of a feature are still caught by SafeSet
+			// below.
 			if raw.IsSet(custom) {
-				return nil, fmt.Errorf("feature bit: %v "+
-					"already set", custom)
+				continue
 			}
 
 			if err := raw.SafeSet(custom); err != nil {

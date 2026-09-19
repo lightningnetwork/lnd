@@ -92,6 +92,15 @@
 
 # Technical and Architectural Updates
 
+* Custom channel implementations can now [compose lnd's funding and on-chain
+  subsystems around externally managed
+  funding](https://github.com/lightningnetwork/lnd/pull/11178). The new
+  auxiliary channel lifecycle makes chain-watch ownership explicit, gates
+  commitment publication and terminal cleanup, and supports cancelable
+  shutdown. Funding coordinators can also inspect a pending reservation's
+  negotiated output and wait for inbound funding-message processing without
+  taking ownership of lnd's state machines.
+
 ## BOLT Spec Updates
 
 * The fundee now [enforces the BOLT-02 bound on

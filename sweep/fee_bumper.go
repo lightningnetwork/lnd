@@ -681,7 +681,8 @@ func (t *TxPublisher) createAndCheckTx(r *monitorRecord) (*sweepTxCtx, error) {
 // missing inputs error, which could happen when one of the input has been spent
 // in another tx, or the input is referencing an orphan. When the input is
 // spent, it will be handled via the TxUnknownSpend flow by creating a
-// TxUnknownSpend bump result, otherwise, a TxFatal bump result is returned.
+// TxUnknownSpend bump result. Without a spend notification, return TxFailed so
+// the sweeper retains its spend watch and can retry on the next block.
 func (t *TxPublisher) handleMissingInputs(r *monitorRecord) *BumpResult {
 	// Get the spending txns.
 	spends := t.getSpentInputs(r)
@@ -689,19 +690,21 @@ func (t *TxPublisher) handleMissingInputs(r *monitorRecord) *BumpResult {
 	// Attach the spending txns.
 	r.spentInputs = spends
 
-	// If there are no spending txns found and the input is missing, the
-	// input is referencing an orphan tx that's no longer valid, e.g., the
-	// spending the anchor output from the remote commitment after the local
-	// commitment has confirmed. In this case we will mark it as fatal and
-	// exit.
+	// The mempool backend may know an input was spent before the notifier's
+	// historical lookup has caught up. An empty non-blocking read therefore
+	// cannot distinguish an orphan from a confirmed sweep. A fatal result
+	// would cancel the sweeper's spend watch and strand its resolver even
+	// after that sweep confirms. Keep the input eligible for reconciliation
+	// instead.
 	if len(spends) == 0 {
-		log.Warnf("Failing record=%v: found orphan inputs: %v\n",
+		log.Debugf("Retrying record=%v: missing inputs without a "+
+			"spend notification: %v",
 			r.requestID, inputTypeSummary(r.req.Inputs))
 
 		// Create a result that will be sent to the resultChan which is
 		// listened by the caller.
 		result := &BumpResult{
-			Event:     TxFatal,
+			Event:     TxFailed,
 			Tx:        r.tx,
 			requestID: r.requestID,
 			Err:       ErrInputMissing,

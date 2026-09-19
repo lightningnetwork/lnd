@@ -93,8 +93,8 @@ func NewNonFinalBlindedRouteData(chanID lnwire.ShortChannelID,
 	return info
 }
 
-// NewNonFinalBlindedRouteData creates the data that's provided for hops within
-// a blinded route.
+// NewNonFinalBlindedRouteDataOnionMessage creates the data that's provided for
+// hops within a blinded route.
 func NewNonFinalBlindedRouteDataOnionMessage(
 	nextNode fn.Either[*btcec.PublicKey, lnwire.ShortChannelID],
 	blindingOverride *btcec.PublicKey,

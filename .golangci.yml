@@ -3,7 +3,7 @@ version: "2"
 run:
   # If you change this please also update GO_VERSION in Makefile (then run
   # `make lint` to see where else it needs to be updated as well).
-  go: "1.26.6"
+  go: "1.27.1"
 
   # Abort after 10 minutes.
   timeout: 10m
@@ -57,6 +57,12 @@ linters:
     - unparam
     - wastedassign
 
+    # canonicalheader prefers registered initialism spellings such as
+    # Sec-WebSocket-Protocol, which can differ from the keys produced by
+    # net/http.CanonicalHeaderKey. Using those spellings as direct http.Header
+    # map keys can therefore break lookups.
+    - canonicalheader
+
     # Disable whitespace linters as it has conflict rules against our
     # contribution guidelines.
     - wsl
@@ -64,6 +70,10 @@ linters:
 
     # Allow using default empty values.
     - exhaustruct
+    - exhaustruct_v5
+
+    # Use the v2 replacement instead of the deprecated implementation.
+    - gomodguard
 
     # Allow exiting case select faster by putting everything in default.
     - exhaustive
@@ -110,7 +120,8 @@ linters:
     # unit tests become our CI bottleneck.
     - paralleltest
 
-    # New linters that we haven't had time to address yet.
+    # New linters and expanded checks that we haven't had time to address yet.
+    - modernize
     - testifylint
     - perfsprint
     - inamedparam

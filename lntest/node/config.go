@@ -73,7 +73,7 @@ var (
 		"--protocol.simple-taproot-chans",
 	}
 
-	// CfgRbfCoopClose specifies the config used to create a node that
+	// CfgRbfClose specifies the config used to create a node that
 	// supports the new RBF close protocol.
 	CfgRbfClose = []string{
 		"--protocol.rbf-coop-close",

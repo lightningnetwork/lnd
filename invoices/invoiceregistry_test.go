@@ -118,6 +118,10 @@ func TestInvoiceRegistry(t *testing.T) {
 			name: "CancelAMPInvoicePendingHTLCs",
 			test: testCancelAMPInvoicePendingHTLCs,
 		},
+		{
+			name: "AmpReconstructionFailCancelsSetOnly",
+			test: testAmpReconstructionFailCancelsSetOnly,
+		},
 	}
 
 	makeKeyValueDB := func(t *testing.T) (invpkg.InvoiceDB,
@@ -2606,4 +2610,123 @@ func testCancelAMPInvoicePendingHTLCs(t *testing.T,
 		require.Equal(t, invpkg.HtlcStateCanceled, htlc.State,
 			"expected HTLC to be canceled")
 	}
+}
+
+// testAmpReconstructionFailCancelsSetOnly tests that an AMP set which fails
+// reconstruction only cancels that set: the invoice stays open and
+// concurrently accepted sets from other payers remain intact and settleable.
+func testAmpReconstructionFailCancelsSetOnly(t *testing.T,
+	makeDB func(t *testing.T) (invpkg.InvoiceDB, *clock.TestClock)) {
+
+	t.Parallel()
+	defer timeout()()
+
+	ctx := newTestContext(t, nil, makeDB)
+	ctxb := t.Context()
+
+	const expiry = uint32(testCurrentHeight + 20)
+
+	var payAddr [32]byte
+	_, err := rand.Read(payAddr[:])
+	require.NoError(t, err)
+
+	// Create a reusable static AMP invoice.
+	ampInvoice := newInvoice(t, false, true)
+	ampInvoice.Terms.PaymentAddr = payAddr
+
+	_, err = ctx.registry.AddInvoice(
+		ctxb, ampInvoice, testInvoicePaymentHash,
+	)
+	require.NoError(t, err)
+
+	// Payer A starts a two-shard payment under setID A with valid AMP
+	// shares.
+	var sharer amp.Sharer
+	sharer, err = amp.NewSeedSharer()
+	require.NoError(t, err)
+
+	left, sharer, err := sharer.Split()
+	require.NoError(t, err)
+
+	var setIDA [32]byte
+	_, err = rand.Read(setIDA[:])
+	require.NoError(t, err)
+
+	childA0 := left.Child(0)
+	childA1 := sharer.Child(1)
+
+	hodlChanA0 := make(chan interface{}, 1)
+	payloadA0 := &mockPayload{
+		mpp: record.NewMPP(testInvoiceAmount, payAddr),
+		amp: record.NewAMP(childA0.Share, setIDA, 0),
+	}
+
+	// The first shard is incomplete, so it is accepted and hodl'd without
+	// any reconstruction attempt.
+	res, err := ctx.registry.NotifyExitHopHtlc(
+		childA0.Hash, testInvoiceAmount/2, expiry, testCurrentHeight,
+		getCircuitKey(1), hodlChanA0, nil, payloadA0,
+	)
+	require.NoError(t, err)
+	require.Nil(t, res, "payer A partial HTLC should be hodl'd")
+
+	// Payer B sends a complete-value set under a different setID with a
+	// blank root share, which fails reconstruction. This must only fail
+	// that set, not cancel the invoice.
+	var setIDB [32]byte
+	_, err = rand.Read(setIDB[:])
+	require.NoError(t, err)
+
+	payloadB := &mockPayload{
+		mpp: record.NewMPP(testInvoiceAmount, payAddr),
+		amp: record.NewAMP([32]byte{}, setIDB, 0),
+	}
+
+	res, err = ctx.registry.NotifyExitHopHtlc(
+		lntypes.Hash{2}, testInvoiceAmount, expiry, testCurrentHeight,
+		getCircuitKey(2), nil, nil, payloadB,
+	)
+	require.NoError(t, err)
+	require.NotNil(t, res, "invalid HTLC should fail directly")
+	checkFailResolution(t, res, invpkg.ResultAmpReconstruction)
+
+	// The invoice must remain open, and payer A's accepted HTLC must be
+	// untouched.
+	inv, err := ctx.registry.LookupInvoice(ctxb, testInvoicePaymentHash)
+	require.NoError(t, err)
+	require.Equal(t, invpkg.ContractOpen, inv.State,
+		"invoice must stay open on set-local reconstruction failure")
+
+	htlcA0, ok := inv.Htlcs[getCircuitKey(1)]
+	require.True(t, ok)
+	require.Equal(t, invpkg.HtlcStateAccepted, htlcA0.State,
+		"concurrent set's HTLC must remain accepted")
+
+	// Payer A's set can still complete and settle.
+	payloadA1 := &mockPayload{
+		mpp: record.NewMPP(testInvoiceAmount, payAddr),
+		amp: record.NewAMP(childA1.Share, setIDA, 1),
+	}
+
+	res, err = ctx.registry.NotifyExitHopHtlc(
+		childA1.Hash, testInvoiceAmount/2, expiry, testCurrentHeight,
+		getCircuitKey(3), nil, nil, payloadA1,
+	)
+	require.NoError(t, err)
+	require.NotNil(t, res)
+	checkSettleResolution(t, res, childA1.Preimage)
+
+	// The first shard of payer A's set is settled as well.
+	resolution, ok := (<-hodlChanA0).(invpkg.HtlcResolution)
+	require.True(t, ok)
+	require.NotNil(t, resolution)
+	checkSettleResolution(t, resolution, childA0.Preimage)
+
+	inv, err = ctx.registry.LookupInvoice(ctxb, testInvoicePaymentHash)
+	require.NoError(t, err)
+	require.Equal(t, invpkg.ContractOpen, inv.State,
+		"AMP invoice remains open after settling a set")
+	require.Equal(
+		t, invpkg.HtlcStateSettled, inv.AMPState[setIDA].State,
+	)
 }

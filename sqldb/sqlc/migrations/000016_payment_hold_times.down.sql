@@ -1,0 +1,1 @@
+ALTER TABLE payment_htlc_attempt_resolutions DROP COLUMN hold_times;

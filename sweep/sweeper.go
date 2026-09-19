@@ -1994,6 +1994,17 @@ func (s *UtxoSweeper) handleBumpEventTxUnknownSpend(r *bumpResp) {
 			continue
 		}
 
+		// A missing input may not have a known spending transaction if
+		// it references an orphaned output. Fail only that input and
+		// leave the rest of the set retryable.
+		if _, missing := r.result.MissingInputs[op]; missing {
+			if !input.terminated() {
+				s.markInputFatal(input, nil, ErrInputMissing)
+			}
+
+			continue
+		}
+
 		// Check whether this input has been spent, if so we mark it as
 		// fatal or swept based on whether this is one of our previous
 		// sweeping txns, then move to the next.

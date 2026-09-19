@@ -2302,3 +2302,54 @@ func createTestInputWithLocktime(value int64, witnessType input.WitnessType,
 
 	return inp
 }
+
+// TestHandleMissingInputsHistoricalLookup checks that a delayed historical
+// spend notification cannot cause a mixed input set to be marked fatal.
+func TestHandleMissingInputsHistoricalLookup(t *testing.T) {
+	t.Parallel()
+
+	missingInput := createTestInput(10_000, input.WitnessKeyHash)
+	validInput := createTestInput(10_000, input.WitnessKeyHash)
+	missingOp := missingInput.OutPoint()
+	validOp := validInput.OutPoint()
+
+	notifier := &chainntnfs.MockChainNotifier{}
+	defer notifier.AssertExpectations(t)
+
+	// Simulate historical spend registrations whose asynchronous result has
+	// not arrived yet. This is the race from #10225.
+	notifier.On(
+		"RegisterSpendNtfn", mock.Anything, mock.Anything, uint32(1),
+	).Return(chainntnfs.NewSpendEvent(func() {}), nil).Twice()
+
+	feeRate := chainfee.SatPerKWeight(1_000)
+	feeFunc := &MockFeeFunction{}
+	defer feeFunc.AssertExpectations(t)
+	feeFunc.On("FeeRate").Return(feeRate).Once()
+	feeFunc.On("Increment").Return(true, nil).Once()
+
+	tp := NewTxPublisher(TxPublisherConfig{
+		Notifier: notifier,
+		IsInputUnspent: func(inp input.Input) (bool, error) {
+			return inp.OutPoint() != missingOp, nil
+		},
+	})
+
+	record := &monitorRecord{
+		requestID: 1,
+		tx:        &wire.MsgTx{},
+		req: &BumpRequest{
+			Inputs: []input.Input{&missingInput, &validInput},
+		},
+		feeFunction: feeFunc,
+	}
+
+	result := tp.handleMissingInputs(record)
+
+	require.Equal(t, TxUnknownSpend, result.Event)
+	require.ErrorIs(t, result.Err, ErrInputMissing)
+	require.Equal(t, feeRate, result.FeeRate)
+	require.Contains(t, result.MissingInputs, missingOp)
+	require.NotContains(t, result.MissingInputs, validOp)
+	require.Len(t, result.MissingInputs, 1)
+}

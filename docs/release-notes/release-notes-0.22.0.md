@@ -22,6 +22,8 @@
 
 # Bug Fixes
 
+* Fixed a [sweeper missing-input race](https://github.com/lightningnetwork/lnd/issues/10225) where a delayed historical spend lookup could cause valid inputs batched with a missing input to be marked fatal instead of retried.
+
 * Bitcoind outbound peer health checks [now use](https://github.com/lightningnetwork/lnd/pull/10686)
   `getnetworkinfo.connections_out` instead of `getpeerinfo`. The same PR also
   [clarifies](https://github.com/lightningnetwork/lnd/issues/10568) the ZMQ

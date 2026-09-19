@@ -62,6 +62,7 @@ import (
 	"github.com/lightningnetwork/lnd/lnrpc/routerrpc"
 	"github.com/lightningnetwork/lnd/lnutils"
 	"github.com/lightningnetwork/lnd/lnwallet"
+	"github.com/lightningnetwork/lnd/lnwallet/btcwallet"
 	"github.com/lightningnetwork/lnd/lnwallet/chainfee"
 	chcl "github.com/lightningnetwork/lnd/lnwallet/chancloser"
 	"github.com/lightningnetwork/lnd/lnwallet/chanfunding"
@@ -661,6 +662,23 @@ func noiseDial(idKey keychain.SingleKeyECDH,
 // newServer creates a new instance of the server which is to listen using the
 // passed listener address.
 //
+// classifyInputUtxoLookup maps the blocking UTXO lookup result into the
+// missing-input classifier used by the transaction publisher.
+func classifyInputUtxoLookup(err error) (bool, error) {
+	switch {
+	case err == nil:
+		return true, nil
+
+	case errors.Is(err, btcwallet.ErrOutputSpent),
+		errors.Is(err, btcwallet.ErrOutputNotFound):
+
+		return false, nil
+
+	default:
+		return false, err
+	}
+}
+
 //nolint:funlen
 func newServer(ctx context.Context, cfg *Config, listenAddrs []net.Addr,
 	dbs *DatabaseInstances, cc *chainreg.ChainControl,
@@ -1301,10 +1319,20 @@ func newServer(ctx context.Context, cfg *Config, listenAddrs []net.Addr,
 	)
 
 	s.txPublisher = sweep.NewTxPublisher(sweep.TxPublisherConfig{
-		Signer:     cc.Wallet.Cfg.Signer,
-		Wallet:     cc.Wallet,
-		Estimator:  cc.FeeEstimator,
-		Notifier:   cc.ChainNotifier,
+		Signer:    cc.Wallet.Cfg.Signer,
+		Wallet:    cc.Wallet,
+		Estimator: cc.FeeEstimator,
+		Notifier:  cc.ChainNotifier,
+		Mempool:   cc.MempoolNotifier,
+		IsInputUnspent: func(inp input.Input) (bool, error) {
+			op := inp.OutPoint()
+			_, err := cc.ChainIO.GetUtxo(
+				&op, inp.SignDesc().Output.PkScript,
+				inp.HeightHint(), s.quit,
+			)
+
+			return classifyInputUtxoLookup(err)
+		},
 		AuxSweeper: s.implCfg.AuxSweeper,
 	})
 

@@ -408,13 +408,10 @@ func (c *KVStore) AddrsForNode(ctx context.Context, v lnwire.GossipVersion,
 // NOTE: If an edge can't be found, or wasn't advertised, then a nil pointer
 // for that particular channel edge routing policy will be passed into the
 // callback.
-func (c *KVStore) ForEachChannel(_ context.Context, v lnwire.GossipVersion,
+func (c *KVStore) ForEachChannel(_ context.Context,
 	cb func(*models.ChannelEdgeInfo, *models.ChannelEdgePolicy,
-		*models.ChannelEdgePolicy) error, reset func()) error {
-
-	if v != lnwire.GossipVersion1 {
-		return ErrVersionNotSupportedForKVDB
-	}
+		*models.ChannelEdgePolicy) error,
+	reset func()) error {
 
 	return forEachChannel(c.db, cb, reset)
 }
@@ -837,12 +834,8 @@ func (c *KVStore) DisabledChannelIDs(
 // early.
 //
 // NOTE: this is part of the Store interface.
-func (c *KVStore) ForEachNode(_ context.Context, v lnwire.GossipVersion,
+func (c *KVStore) ForEachNode(_ context.Context,
 	cb func(*models.Node) error, reset func()) error {
-
-	if v != lnwire.GossipVersion1 {
-		return ErrVersionNotSupportedForKVDB
-	}
 
 	return forEachNode(c.db, func(tx kvdb.RTx,
 		node *models.Node) error {
@@ -4147,7 +4140,7 @@ func (c *KVStore) FetchChannelEdgesByID(_ context.Context,
 			// party as this is the only information we have about
 			// it and return an error signaling so.
 			zombieEdge, err := models.NewV1Channel(
-				0, chainhash.Hash{}, pubKey1, pubKey2,
+				chanID, chainhash.Hash{}, pubKey1, pubKey2,
 				&models.ChannelV1Fields{},
 			)
 			if err != nil {
@@ -4191,6 +4184,33 @@ func (c *KVStore) FetchChannelEdgesByID(_ context.Context,
 	}
 
 	return edgeInfo, policy1, policy2, nil
+}
+
+// FetchChannelEdgesByIDPreferred looks up the channel by ID. The KV store
+// only supports gossip v1, so this simply delegates to the versioned fetch.
+//
+// NOTE: part of the Store interface.
+func (c *KVStore) FetchChannelEdgesByIDPreferred(ctx context.Context,
+	chanID uint64) (
+	*models.ChannelEdgeInfo, *models.ChannelEdgePolicy,
+	*models.ChannelEdgePolicy, error) {
+
+	return c.FetchChannelEdgesByID(ctx, lnwire.GossipVersion1, chanID)
+}
+
+// FetchChannelEdgesByOutpointPreferred looks up the channel by funding
+// outpoint. The KV store only supports gossip v1, so this simply delegates to
+// the versioned fetch.
+//
+// NOTE: part of the Store interface.
+func (c *KVStore) FetchChannelEdgesByOutpointPreferred(
+	ctx context.Context, op *wire.OutPoint) (
+	*models.ChannelEdgeInfo, *models.ChannelEdgePolicy,
+	*models.ChannelEdgePolicy, error) {
+
+	return c.FetchChannelEdgesByOutpoint(
+		ctx, lnwire.GossipVersion1, op,
+	)
 }
 
 // IsPublicNode is a helper method that determines whether the node with the

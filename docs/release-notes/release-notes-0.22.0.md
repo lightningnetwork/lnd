@@ -156,6 +156,13 @@
 
 ## Database
 
+* Make the [graph `Store` interface
+  cross-version](https://github.com/lightningnetwork/lnd/pull/11175) so that
+  `ForEachNode`, `ForEachChannel`, and `ForEachNodeDirectedChannel` work across
+  gossip v1 and v2. Add `Preferred` fetch helpers and `GetVersions` queries
+  so callers can retrieve channels without knowing which gossip version
+  announced them.
+
 ## Code Health
 
 ## Tooling and Documentation
@@ -176,5 +183,7 @@
 * bitromortac
 * Boris Nagaev
 * Erick Cestari
+* Elle Mouton
 * Jared Tobin
 * Nishant Bansal
+* ViktorT-11

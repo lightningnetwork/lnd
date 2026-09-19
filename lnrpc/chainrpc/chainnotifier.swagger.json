@@ -202,6 +202,10 @@
         "reorg": {
           "$ref": "#/definitions/chainrpcReorg",
           "description": "An event send when the transaction of the request is reorged out of the\nchain."
+        },
+        "done": {
+          "$ref": "#/definitions/chainrpcDone",
+          "description": "An event sent once the confirmation is no longer under the risk of\nbeing reorged out of the chain (the watch has reached re-org safety\ndepth)."
         }
       }
     },
@@ -234,6 +238,10 @@
         }
       }
     },
+    "chainrpcDone": {
+      "type": "object",
+      "description": "Done is sent once the confirmation/spend notification is no longer under\nthe risk of being reorged out of the chain, i.e. it has reached the\nbackend's re-org safety depth. It carries no payload: receiving it means\nthe notification stream is complete and no further events will be sent."
+    },
     "chainrpcOutpoint": {
       "type": "object",
       "properties": {
@@ -251,7 +259,13 @@
     },
     "chainrpcReorg": {
       "type": "object",
-      "description": "TODO(wilmer): need to know how the client will use this first."
+      "properties": {
+        "depth": {
+          "type": "integer",
+          "format": "int64",
+          "description": "The depth of the re-org, i.e. the number of blocks by which the\ntransaction/spend was reorged out of the chain. Only populated for\nconfirmation notifications; spend notifications do not currently track\nre-org depth and leave this field as 0."
+        }
+      }
     },
     "chainrpcSpendDetails": {
       "type": "object",
@@ -292,6 +306,10 @@
         "reorg": {
           "$ref": "#/definitions/chainrpcReorg",
           "description": "An event sent when the spending transaction of the request was\nreorged out of the chain."
+        },
+        "done": {
+          "$ref": "#/definitions/chainrpcDone",
+          "description": "An event sent once the spend is no longer under the risk of being\nreorged out of the chain (the watch has reached re-org safety depth)."
         }
       }
     },

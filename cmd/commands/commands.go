@@ -536,6 +536,12 @@ var sendCoinsCommand = cli.Command{
 				"the amt flag",
 		},
 		txLabelFlag,
+		cli.StringFlag{
+			Name: "change_addr",
+			Usage: "(optional) an address to send the change to; if " +
+				"unset, the change will be returned to the wallet's " +
+				"change output",
+		},
 	},
 	Action: actionDecorator(sendCoins),
 }
@@ -682,6 +688,7 @@ func sendCoins(ctx *cli.Context) error {
 		SpendUnconfirmed:      minConfs == 0,
 		CoinSelectionStrategy: coinSelectionStrategy,
 		Outpoints:             outpoints,
+		ChangeAddr:            ctx.String("change_addr"),
 	}
 	txid, err := client.SendCoins(ctxc, req)
 	if err != nil {

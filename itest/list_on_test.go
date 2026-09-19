@@ -231,6 +231,10 @@ var allTestCases = []*lntest.TestCase{
 		TestFunc: testChainKit,
 	},
 	{
+		Name:     "send coins with change address",
+		TestFunc: testSendCoinsWithChangeAddr,
+	},
+	{
 		Name:     "neutrino kit",
 		TestFunc: testNeutrino,
 	},

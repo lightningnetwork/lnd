@@ -281,9 +281,9 @@ type BumpResult struct {
 	// current tx to be failed.
 	SpentInputs map[wire.OutPoint]*wire.MsgTx
 
-	// MissingInputs are inputs that a blocking UTXO lookup confirmed no
-	// longer exist. Unlike SpentInputs, the spending transaction may not be
-	// known.
+	// MissingInputs are inputs that the blocking fallback could not locate
+	// as current UTXOs or as outputs of wallet-known unconfirmed parents.
+	// Unlike SpentInputs, the spending transaction may not be known.
 	MissingInputs map[wire.OutPoint]struct{}
 
 	// requestID is the ID of the request that created this record.
@@ -348,6 +348,10 @@ type TxPublisherConfig struct {
 
 	// Notifier is used to monitor the confirmation status of the tx.
 	Notifier chainntnfs.ChainNotifier
+
+	// Mempool is used as a synchronous fallback when a spend notification
+	// has not reached the notifier yet.
+	Mempool chainntnfs.MempoolWatcher
 
 	// IsInputUnspent performs a blocking chain lookup for an input. It is
 	// used only after the backend reports missing inputs, when an
@@ -688,9 +692,10 @@ func (t *TxPublisher) createAndCheckTx(r *monitorRecord) (*sweepTxCtx, error) {
 		sweepCtx.tx.TxHash(), err)
 }
 
-// findMissingInputs uses a blocking chain lookup to identify which inputs no
-// longer exist. This is used only after testmempoolaccept has already returned
-// a missing-input error.
+// findMissingInputs uses blocking fallbacks to identify inputs that can no
+// longer be located. This only runs after testmempoolaccept reports missing
+// inputs and the asynchronous spend subscriptions have not identified a
+// spender, so the synchronous lookups are kept off the normal publish path.
 func (t *TxPublisher) findMissingInputs(
 	inputs []input.Input) (map[wire.OutPoint]struct{}, error) {
 
@@ -700,10 +705,38 @@ func (t *TxPublisher) findMissingInputs(
 		if err != nil {
 			return nil, err
 		}
-
-		if !unspent {
-			missing[inp.OutPoint()] = struct{}{}
+		if unspent {
+			continue
 		}
+
+		op := inp.OutPoint()
+
+		// A chain lookup can report an output as absent while its
+		// parent is still unconfirmed because the backend excludes
+		// mempool outputs. If the wallet knows the parent, verify that
+		// it is still unconfirmed before keeping the input retryable.
+		if t.cfg.Wallet != nil {
+			parent, err := t.cfg.Wallet.FetchTx(op.Hash)
+			if err != nil {
+				return nil, err
+			}
+			if parent != nil && int(op.Index) < len(parent.TxOut) {
+				wallet := t.cfg.Wallet
+				details, err := wallet.GetTransactionDetails(
+					&op.Hash,
+				)
+				if err != nil {
+					return nil, err
+				}
+				if details != nil &&
+					details.NumConfirmations == 0 {
+
+					continue
+				}
+			}
+		}
+
+		missing[op] = struct{}{}
 	}
 
 	return missing, nil
@@ -744,7 +777,8 @@ func (t *TxPublisher) handleMissingInputs(r *monitorRecord) *BumpResult {
 
 	if len(spends) == 0 {
 		// Preserve the old behavior for callers that don't provide the
-		// blocking lookup callback. Production wiring always provides it.
+		// blocking lookup callback. Production wiring always
+		// provides it.
 		if t.cfg.IsInputUnspent == nil {
 			return &BumpResult{
 				Event:     TxFatal,
@@ -762,13 +796,17 @@ func (t *TxPublisher) handleMissingInputs(r *monitorRecord) *BumpResult {
 		}
 
 		// If every input is still unspent, the backend and historical
-		// lookup disagree. Retry instead of permanently dropping the set.
+		// lookup disagree. Retry instead of permanently dropping
+		// the set.
 		if len(missing) == 0 {
-			return t.createMissingInputRetryResult(r, ErrInputMissing)
+			return t.createMissingInputRetryResult(
+				r, ErrInputMissing,
+			)
 		}
 
 		// Reuse the partial unknown-spend flow so only the confirmed
-		// missing inputs are removed and the remaining inputs are retried.
+		// missing inputs are removed and the remaining inputs are
+		// retried.
 		result := t.createUnknownSpentBumpResult(r)
 		result.Err = ErrInputMissing
 		result.MissingInputs = missing
@@ -1518,6 +1556,31 @@ func (t *TxPublisher) getSpentInputs(
 
 		// Move to the next input.
 		default:
+			// The historical notifier can lag behind the mempool.
+			// Query the watcher before falling back to UTXO
+			// classification so
+			// an in-mempool spender is handled as an unknown spend.
+			if t.cfg.Mempool == nil {
+				log.Tracef("Input %v not spent yet", op)
+				continue
+			}
+
+			t.cfg.Mempool.LookupInputMempoolSpend(op).WhenSome(
+				func(spendingTx wire.MsgTx) {
+					tx := spendingTx
+					spentInputs[op] = &tx
+				},
+			)
+			if spendingTx, ok := spentInputs[op]; ok {
+				spendingTxID := spendingTx.TxHash()
+				log.Debugf(
+					"Detected mempool spend of input=%v "+
+						"in tx=%v", op, spendingTxID,
+				)
+
+				continue
+			}
+
 			log.Tracef("Input %v not spent yet", op)
 		}
 	}

@@ -662,6 +662,23 @@ func noiseDial(idKey keychain.SingleKeyECDH,
 // newServer creates a new instance of the server which is to listen using the
 // passed listener address.
 //
+// classifyInputUtxoLookup maps the blocking UTXO lookup result into the
+// missing-input classifier used by the transaction publisher.
+func classifyInputUtxoLookup(err error) (bool, error) {
+	switch {
+	case err == nil:
+		return true, nil
+
+	case errors.Is(err, btcwallet.ErrOutputSpent),
+		errors.Is(err, btcwallet.ErrOutputNotFound):
+
+		return false, nil
+
+	default:
+		return false, err
+	}
+}
+
 //nolint:funlen
 func newServer(ctx context.Context, cfg *Config, listenAddrs []net.Addr,
 	dbs *DatabaseInstances, cc *chainreg.ChainControl,
@@ -1306,6 +1323,7 @@ func newServer(ctx context.Context, cfg *Config, listenAddrs []net.Addr,
 		Wallet:    cc.Wallet,
 		Estimator: cc.FeeEstimator,
 		Notifier:  cc.ChainNotifier,
+		Mempool:   cc.MempoolNotifier,
 		IsInputUnspent: func(inp input.Input) (bool, error) {
 			op := inp.OutPoint()
 			_, err := cc.ChainIO.GetUtxo(
@@ -1313,18 +1331,7 @@ func newServer(ctx context.Context, cfg *Config, listenAddrs []net.Addr,
 				inp.HeightHint(), s.quit,
 			)
 
-			switch {
-			case err == nil:
-				return true, nil
-
-			case errors.Is(err, btcwallet.ErrOutputSpent),
-				errors.Is(err, btcwallet.ErrOutputNotFound):
-
-				return false, nil
-
-			default:
-				return false, err
-			}
+			return classifyInputUtxoLookup(err)
 		},
 		AuxSweeper: s.implCfg.AuxSweeper,
 	})

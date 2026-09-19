@@ -39,6 +39,12 @@
   `maxchansize`. The `maxchansize` config option is intended only for limiting
   incoming channel requests from peers, not outgoing ones.
 
+* [Fixed a data race](https://github.com/lightningnetwork/lnd/pull/10866)
+  in the signal package logger that occurred during shutdown when lnd was
+  built with the `-race` flag. The race happened because the
+  `mainInterruptHandler` goroutine could read the logger while the main
+  goroutine was replacing it during startup.
+
 - Chain notifier RPCs now [return the gRPC `Unavailable`
   status](https://github.com/lightningnetwork/lnd/pull/10352) while the
   sub-server is still starting. This allows clients to reliably detect the

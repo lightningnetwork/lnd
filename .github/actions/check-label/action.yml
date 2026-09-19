@@ -20,11 +20,14 @@ runs:
     - name: Check for label
       id: check
       shell: bash
+      env:
+        HAS_LABEL: ${{ contains(github.event.pull_request.labels.*.name, inputs.label) }}
+        SKIP_MESSAGE: ${{ inputs.skip-message }}
       run: |
-        if [[ "${{ contains(github.event.pull_request.labels.*.name, inputs.label) }}" == "true" ]]; then
-          echo "::notice::${{ inputs.skip-message }}"
-          echo "${{ inputs.skip-message }}" >> $GITHUB_STEP_SUMMARY
-          echo "skip=true" >> $GITHUB_OUTPUT
+        if [[ "$HAS_LABEL" == "true" ]]; then
+          echo "::notice::$SKIP_MESSAGE"
+          echo "$SKIP_MESSAGE" >> "$GITHUB_STEP_SUMMARY"
+          echo "skip=true" >> "$GITHUB_OUTPUT"
         else
-          echo "skip=false" >> $GITHUB_OUTPUT
+          echo "skip=false" >> "$GITHUB_OUTPUT"
         fi

@@ -208,7 +208,7 @@ func TestQueryShortChanIDsZlibCompatibility(t *testing.T) {
 		// saturate the same message under the zlib encoding. Runs of
 		// consecutive SCIDs are the best case for the compressor, so
 		// this is an upper bound rather than a figure real peers hit.
-		maxZlibReplySCIDs = 30_794
+		maxZlibReplySCIDs = 30_792
 	)
 
 	// A reply full of consecutive SCIDs is what we'll size both encodings

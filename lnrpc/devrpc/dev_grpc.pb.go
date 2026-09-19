@@ -20,12 +20,13 @@ const _ = grpc.SupportPackageIsVersion7
 // For semantics around ctx use and closing/ending streaming RPCs, please refer to https://pkg.go.dev/google.golang.org/grpc/?tab=doc#ClientConn.NewStream.
 type DevClient interface {
 	// lncli: `importgraph`
-	// ImportGraph imports a ChannelGraph into the graph database. Should only be
-	// used for development.
+	//ImportGraph imports a ChannelGraph into the graph database. Should only be
+	//used for development.
 	ImportGraph(ctx context.Context, in *lnrpc.ChannelGraph, opts ...grpc.CallOption) (*ImportGraphResponse, error)
-	// Quiesce instructs a channel to initiate the quiescence (stfu) protocol. This
-	// RPC is for testing purposes only. The commit that adds it will be removed
-	// once interop is confirmed.
+	//
+	//Quiesce instructs a channel to initiate the quiescence (stfu) protocol. This
+	//RPC is for testing purposes only. The commit that adds it will be removed
+	//once interop is confirmed.
 	Quiesce(ctx context.Context, in *QuiescenceRequest, opts ...grpc.CallOption) (*QuiescenceResponse, error)
 }
 
@@ -60,12 +61,13 @@ func (c *devClient) Quiesce(ctx context.Context, in *QuiescenceRequest, opts ...
 // for forward compatibility
 type DevServer interface {
 	// lncli: `importgraph`
-	// ImportGraph imports a ChannelGraph into the graph database. Should only be
-	// used for development.
+	//ImportGraph imports a ChannelGraph into the graph database. Should only be
+	//used for development.
 	ImportGraph(context.Context, *lnrpc.ChannelGraph) (*ImportGraphResponse, error)
-	// Quiesce instructs a channel to initiate the quiescence (stfu) protocol. This
-	// RPC is for testing purposes only. The commit that adds it will be removed
-	// once interop is confirmed.
+	//
+	//Quiesce instructs a channel to initiate the quiescence (stfu) protocol. This
+	//RPC is for testing purposes only. The commit that adds it will be removed
+	//once interop is confirmed.
 	Quiesce(context.Context, *QuiescenceRequest) (*QuiescenceResponse, error)
 	mustEmbedUnimplementedDevServer()
 }

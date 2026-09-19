@@ -1,6 +1,7 @@
 package zpay32
 
 import (
+	"bytes"
 	"encoding/binary"
 	"math"
 	"reflect"
@@ -13,6 +14,7 @@ import (
 	"github.com/btcsuite/btcd/chaincfg/v2"
 	"github.com/lightningnetwork/lnd/lnwire"
 	"github.com/stretchr/testify/require"
+	"pgregory.net/rapid"
 )
 
 // TestDecodeAmount ensures that the amount string in the hrp of the Invoice
@@ -781,6 +783,14 @@ func TestParseTaggedFields(t *testing.T) {
 
 	netParams := &chaincfg.SimNetParams
 
+	var malformedThenValid bytes.Buffer
+	require.NoError(t, writeTaggedField(
+		&malformedThenValid, fieldTypeP, []byte{0},
+	))
+	require.NoError(t, writeBytes32(
+		&malformedThenValid, fieldTypeP, [32]byte{},
+	))
+
 	tests := []struct {
 		name    string
 		data    []byte
@@ -806,6 +816,11 @@ func TestParseTaggedFields(t *testing.T) {
 		{
 			name: "unknown field valid data",
 			data: []byte{0xff, 0x00, 0x01, 0xab},
+		},
+		{
+			name:    "malformed then valid payment hash",
+			data:    malformedThenValid.Bytes(),
+			wantErr: ErrDuplicatePaymentHash,
 		},
 		{
 			name:    "only type specified",
@@ -843,4 +858,46 @@ func TestParseTaggedFields(t *testing.T) {
 			}
 		})
 	}
+}
+
+// TestDuplicatePaymentHashProperties checks that every pair of valid payment
+// hash fields is rejected, whether the two hashes are identical or distinct.
+func TestDuplicatePaymentHashProperties(t *testing.T) {
+	t.Parallel()
+
+	rapid.Check(t, func(t *rapid.T) {
+		firstBytes := rapid.SliceOfN(
+			rapid.Byte(), 32, 32,
+		).Draw(t, "first payment hash")
+		secondBytes := rapid.SliceOfN(
+			rapid.Byte(), 32, 32,
+		).Draw(t, "second payment hash")
+
+		var firstHash, secondHash [32]byte
+		copy(firstHash[:], firstBytes)
+		copy(secondHash[:], secondBytes)
+		if secondHash == firstHash {
+			secondHash[0] ^= 1
+		}
+
+		assertDuplicate := func(first, second [32]byte) {
+			var fields bytes.Buffer
+			require.NoError(
+				t, writeBytes32(&fields, fieldTypeP, first),
+			)
+			require.NoError(
+				t, writeBytes32(&fields, fieldTypeP, second),
+			)
+
+			var invoice Invoice
+			err := parseTaggedFields(
+				&invoice, fields.Bytes(),
+				&chaincfg.SimNetParams,
+			)
+			require.ErrorIs(t, err, ErrDuplicatePaymentHash)
+		}
+
+		assertDuplicate(firstHash, firstHash)
+		assertDuplicate(firstHash, secondHash)
+	})
 }

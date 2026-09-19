@@ -265,7 +265,11 @@ func parseTimestamp(data []byte) (uint64, error) {
 // parseTaggedFields takes the base32 encoded tagged fields of the invoice, and
 // fills the Invoice struct accordingly.
 func parseTaggedFields(invoice *Invoice, fields []byte, net *chaincfg.Params) error {
-	index := 0
+	var (
+		index           int
+		paymentHashSeen bool
+	)
+
 	for len(fields)-index > 0 {
 		// If there are less than 3 groups to read, there cannot be more
 		// interesting information, as we need the type (1 group) and
@@ -294,11 +298,10 @@ func parseTaggedFields(invoice *Invoice, fields []byte, net *chaincfg.Params) er
 
 		switch typ {
 		case fieldTypeP:
-			if invoice.PaymentHash != nil {
-				// We skip the field if we have already seen a
-				// supported one.
-				continue
+			if paymentHashSeen {
+				return ErrDuplicatePaymentHash
 			}
+			paymentHashSeen = true
 
 			invoice.PaymentHash, err = parse32Bytes(base32Data)
 

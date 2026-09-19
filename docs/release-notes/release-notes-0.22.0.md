@@ -108,6 +108,11 @@
   is removed; if the RPC caller doesn't request a type, a default is derived
   from both peers' features and signaled explicitly.
 
+* BOLT 11 invoice decoding [now
+  rejects](https://github.com/lightningnetwork/lnd/pull/11190) invoices that
+  contain more than one payment hash (`p`) field, including duplicate fields
+  with unsupported lengths.
+
 ## BOLT 12 (Offers)
 
 * [Initial BOLT 12 Offer codec](https://github.com/lightningnetwork/lnd/pull/10789):

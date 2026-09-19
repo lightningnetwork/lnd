@@ -14,7 +14,6 @@ import (
 	"time"
 
 	"github.com/btcsuite/btcd/chainhash/v2"
-	"github.com/lightningnetwork/lnd/actor"
 	"github.com/lightningnetwork/lnd/fn/v2"
 	"github.com/lightningnetwork/lnd/graph"
 	graphdb "github.com/lightningnetwork/lnd/graph/db"
@@ -217,7 +216,7 @@ var (
 // syncTransitionReq encapsulates a request for a gossip syncer sync transition.
 type syncTransitionReq struct {
 	newSyncType SyncerType
-	errPromise  actor.Promise[error]
+	errPromise  fn.Promise[error]
 }
 
 // historicalSyncReq encapsulates a request for a gossip syncer to perform a
@@ -1856,7 +1855,7 @@ func (g *GossipSyncer) ResetSyncedSignal() chan struct{} {
 // NOTE: This can only be done once the gossip syncer has reached its final
 // chansSynced state.
 func (g *GossipSyncer) ProcessSyncTransition(newSyncType SyncerType) error {
-	promise := actor.NewPromise[error]()
+	promise := fn.NewPromise[error]()
 
 	select {
 	case g.syncTransitionReqs <- &syncTransitionReq{

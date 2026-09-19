@@ -360,8 +360,13 @@ func TestStopClosesConnectionOnDelOnionError(t *testing.T) {
 
 	const serviceID = "fakeID"
 	c := &Controller{
-		conn:            proxy.clientConn,
-		activeServiceID: serviceID,
+		conn: proxy.clientConn,
+		registrations: []onionServiceRegistration{
+			{serviceID: serviceID},
+		},
+		activeServiceIDs: map[string]struct{}{
+			serviceID: {},
+		},
 	}
 
 	serverErr := make(chan error, 1)
@@ -394,7 +399,7 @@ func TestStopClosesConnectionOnDelOnionError(t *testing.T) {
 	require.Error(t, err)
 	require.Contains(t, err.Error(), "invalid arguments")
 	require.NoError(t, <-serverErr)
-	require.Empty(t, c.activeServiceID)
+	require.Empty(t, c.activeServiceIDs)
 
 	assertControlConnClosed(t, proxy.serverConn)
 }
@@ -410,15 +415,20 @@ func TestStopReturnsDelOnionAndCloseErrors(t *testing.T) {
 		closeErr:  closeErr,
 	}
 	c := &Controller{
-		conn:            textproto.NewConn(conn),
-		activeServiceID: serviceID,
+		conn: textproto.NewConn(conn),
+		registrations: []onionServiceRegistration{
+			{serviceID: serviceID},
+		},
+		activeServiceIDs: map[string]struct{}{
+			serviceID: {},
+		},
 	}
 
 	err := c.Stop()
 	require.Error(t, err)
 	require.Contains(t, err.Error(), "invalid arguments")
 	require.ErrorIs(t, err, closeErr)
-	require.Equal(t, serviceID, c.activeServiceID)
+	require.Contains(t, c.activeServiceIDs, serviceID)
 	require.Equal(t, "DEL_ONION fakeID\r\n", conn.commands.String())
 }
 

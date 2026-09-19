@@ -1509,10 +1509,17 @@ func (c *ChannelStateDB) MarkChanFullyClosed(chanPoint *wire.OutPoint) error {
 			return nil
 		}
 
-		// If there are no open channels with this peer, prune the
-		// link node. We do this within the same transaction to avoid
-		// a race condition where a new channel could be opened
-		// between this check and the deletion.
+		// If there are no open channels with this peer, prune the link
+		// node. We do this within the same transaction as the read
+		// above so that a channel that is opened concurrently cannot
+		// slip in between the check and the deletion.
+		//
+		// NOTE: This is only safe because syncNewChannel always writes
+		// the peer's link node row, even when that row already exists.
+		// The write turns what would otherwise be a pair of
+		// transactions with disjoint write sets (write skew) into a
+		// same-row conflict, which the database reports as a retryable
+		// serialization failure.
 		log.Infof("Pruning link node %x with zero open "+
 			"channels from database",
 			remotePub.SerializeCompressed())
@@ -1534,13 +1541,17 @@ func (c *ChannelStateDB) MarkChanFullyClosed(chanPoint *wire.OutPoint) error {
 // channels exist. It will double-check within a write transaction to avoid a
 // race condition where a channel could be opened between the initial check
 // and the deletion.
+//
+// NOTE: The double-check below only rules out a concurrent channel open
+// because syncNewChannel always writes the peer's link node row, even when
+// that row already exists. Without that write the two transactions would have
+// disjoint write sets and could both commit under snapshot isolation
+// (REPEATABLE READ), leaving an open channel with no link node. See the
+// comment in syncNewChannel for the full argument.
 func (c *ChannelStateDB) pruneLinkNode(remotePub *btcec.PublicKey) error {
 	return kvdb.Update(c.backend, func(tx kvdb.RwTx) error {
 		// Double-check for open channels to avoid deleting a link node
 		// if a channel was opened since the caller's initial check.
-		//
-		// NOTE: This avoids a race condition where a channel could be
-		// opened between the initial check and the deletion.
 		openChannels, err := c.fetchOpenChannels(tx, remotePub)
 		if err != nil {
 			return err

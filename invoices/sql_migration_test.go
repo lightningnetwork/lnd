@@ -543,44 +543,70 @@ func TestReconstructLegacyAMPStateMixedHTLCStates(t *testing.T) {
 // NOTE: This test may need to be changed if the Invoice or any of the related
 // types are modified.
 func TestMigrateSingleInvoiceRapid(t *testing.T) {
-	// Create a shared Postgres instance for efficient testing.
-	pgFixture := sqldb.NewTestPgFixture(
-		t, sqldb.DefaultPostgresFixtureLifetime,
-	)
-	t.Cleanup(func() {
-		pgFixture.TearDown(t)
-	})
-
-	makeSQLDB := func(t *testing.T, sqlite bool) *SQLStore {
-		var db *sqldb.BaseDB
-		if sqlite {
-			db = sqldb.NewTestSqliteDB(t).BaseDB
-		} else {
-			db = sqldb.NewTestPostgresDB(t, pgFixture).BaseDB
-		}
-
-		executor := sqldb.NewTransactionExecutor(
-			db, func(tx *sql.Tx) SQLInvoiceQueries {
-				return db.WithTx(tx)
-			},
-		)
-
-		testClock := clock.NewTestClock(time.Unix(1, 0))
-
-		return NewSQLStore(executor, testClock)
+	tests := []struct {
+		name   string
+		sqlite bool
+	}{
+		{
+			name:   "SQLite",
+			sqlite: true,
+		},
+		{
+			name: "Postgres",
+		},
 	}
 
-	// Define property-based test using rapid.
-	rapid.Check(t, func(rt *rapid.T) {
-		// Randomized feature flags for MPP and AMP.
-		mpp := rapid.Bool().Draw(rt, "mpp")
-		amp := rapid.Bool().Draw(rt, "amp")
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			var pgFixture *sqldb.TestPgFixture
+			if !test.sqlite {
+				pgFixture = sqldb.NewTestPgFixture(
+					t, sqldb.DefaultPostgresFixtureLifetime,
+				)
+				t.Cleanup(func() {
+					pgFixture.TearDown(t)
+				})
+			}
 
-		for _, sqlite := range []bool{true, false} {
-			store := makeSQLDB(t, sqlite)
-			testMigrateSingleInvoiceRapid(rt, store, mpp, amp)
-		}
-	})
+			// Each property check uses a clean database. This keeps
+			// failures reproducible and isolated during shrinking.
+			rapid.Check(t, func(rt *rapid.T) {
+				var db *sqldb.BaseDB
+				if test.sqlite {
+					db = sqldb.NewTestSqliteDB(t).BaseDB
+				} else {
+					db = sqldb.NewTestPostgresDB(
+						t, pgFixture,
+					).BaseDB
+				}
+
+				// Helpers also clean up at the outer level.
+				// Close this handle after each check to avoid
+				// retaining database resources.
+				rt.Cleanup(func() {
+					require.NoError(rt, db.Close())
+				})
+
+				executor := sqldb.NewTransactionExecutor(
+					db, func(tx *sql.Tx) SQLInvoiceQueries {
+						return db.WithTx(tx)
+					},
+				)
+				store := NewSQLStore(
+					executor,
+					clock.NewTestClock(time.Unix(1, 0)),
+				)
+
+				// Randomized feature flags for MPP and AMP.
+				mpp := rapid.Bool().Draw(rt, "mpp")
+				amp := rapid.Bool().Draw(rt, "amp")
+
+				testMigrateSingleInvoiceRapid(
+					rt, store, mpp, amp,
+				)
+			})
+		})
+	}
 }
 
 // testMigrateSingleInvoiceRapid is the primary function for the migration of a
@@ -588,43 +614,55 @@ func TestMigrateSingleInvoiceRapid(t *testing.T) {
 func testMigrateSingleInvoiceRapid(t *rapid.T, store *SQLStore, mpp bool,
 	amp bool) {
 
-	ctxb := t.Context()
-	invoices := make(map[lntypes.Hash]*Invoice)
+	const invoicesPerCheck = 10
 
-	for i := 0; i < 100; i++ {
+	type testInvoice struct {
+		hash    lntypes.Hash
+		invoice *Invoice
+	}
+
+	ctxb := t.Context()
+	invoices := make([]testInvoice, 0, invoicesPerCheck)
+	for range invoicesPerCheck {
 		invoice := generateTestInvoiceRapid(t, mpp, amp)
 		var hash lntypes.Hash
 		_, err := crand.Read(hash[:])
 		require.NoError(t, err)
 
-		invoices[hash] = invoice
+		invoices = append(invoices, testInvoice{
+			hash:    hash,
+			invoice: invoice,
+		})
 	}
 
 	ops := sqldb.WriteTxOpt()
 	err := store.db.ExecTx(ctxb, ops, func(tx SQLInvoiceQueries) error {
-		for hash, invoice := range invoices {
-			err := MigrateSingleInvoice(ctxb, tx, invoice, hash)
-			require.NoError(t, err)
+		for _, test := range invoices {
+			err := MigrateSingleInvoice(
+				ctxb, tx, test.invoice, test.hash,
+			)
+			if err != nil {
+				return err
+			}
 		}
 
 		return nil
 	}, sqldb.NoOpReset)
 	require.NoError(t, err)
 
-	// Fetch and compare each migrated invoice from the store with the
-	// original.
-	for hash, invoice := range invoices {
+	// Fetch and compare each migrated invoice with the original.
+	for _, test := range invoices {
 		sqlInvoice, err := store.LookupInvoice(
-			ctxb, InvoiceRefByHash(hash),
+			ctxb, InvoiceRefByHash(test.hash),
 		)
 		require.NoError(t, err)
 
-		invoice.AddIndex = sqlInvoice.AddIndex
+		test.invoice.AddIndex = sqlInvoice.AddIndex
 
-		OverrideInvoiceTimeZone(invoice)
+		OverrideInvoiceTimeZone(test.invoice)
 		OverrideInvoiceTimeZone(&sqlInvoice)
 
-		require.Equal(t, *invoice, sqlInvoice)
+		require.Equal(t, *test.invoice, sqlInvoice)
 	}
 }
 

@@ -542,8 +542,12 @@ func (b *Builder) isZombieChannel(e1,
 // considered a zombie. For v1 channels, freshness is a unix timestamp; for v2+
 // channels it is a block height.
 func (b *Builder) IsZombieChannel(info graphdb.ChannelUpdateInfo) bool {
-	e1Zombie := b.isTimestampStale(info.Version, info.Node1Freshness)
-	e2Zombie := b.isTimestampStale(info.Version, info.Node2Freshness)
+	e1Zombie := b.isTimestampStale(
+		info.Version, info.Node1FreshnessTimestamp(),
+	)
+	e2Zombie := b.isTimestampStale(
+		info.Version, info.Node2FreshnessTimestamp(),
+	)
 
 	if b.cfg.StrictZombiePruning {
 		return e1Zombie || e2Zombie

@@ -3649,15 +3649,9 @@ func testFilterKnownChanIDsZombieRevival(t *testing.T,
 	require.True(t, isZombie(scid2))
 	require.False(t, isZombie(scid3))
 
-	// Build a freshness marker appropriate for the gossip version. V1
-	// uses unix timestamps, v2 uses block heights.
-	var revivalFreshness lnwire.Timestamp
-	switch v {
-	case lnwire.GossipVersion1:
-		revivalFreshness = lnwire.UnixTimestamp(1000)
-	case lnwire.GossipVersion2:
-		revivalFreshness = lnwire.BlockHeightTimestamp(1000)
-	}
+	// Build a freshness marker. Version determines whether this value is
+	// interpreted as a unix timestamp or block height.
+	const revivalFreshness uint64 = 1000
 
 	// Call FilterKnownChanIDs with an isStillZombie call-back that would
 	// result in the current zombies still be considered as zombies.

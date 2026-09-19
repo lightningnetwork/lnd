@@ -6,6 +6,7 @@ import (
 
 	"github.com/btcsuite/btcd/btcutil/v2"
 	"github.com/btcsuite/btcd/chainhash/v2"
+	"github.com/lightningnetwork/lnd/lnwallet/chainfee"
 	"github.com/lightningnetwork/lnd/lnwire"
 )
 
@@ -20,6 +21,14 @@ type ReservationError struct {
 // A compile time check to ensure ReservationError implements the error
 // interface.
 var _ error = (*ReservationError)(nil)
+
+// Unwrap returns the wrapped error, so that the sentinels a constructor wraps
+// with %w can be matched by callers with errors.Is. Callers inside the daemon
+// use it to decide whether to fail a funding flow; the remote peer only ever
+// sees Error().
+func (e ReservationError) Unwrap() error {
+	return e.error
+}
 
 // ErrZeroCapacity returns an error indicating the funder attempted to put zero
 // funds into the channel.
@@ -94,6 +103,53 @@ func ErrPushAmountTooLarge(pushAmt lnwire.MilliSatoshi,
 	return ReservationError{
 		fmt.Errorf("push amount %v exceeds funding amount %v",
 			pushAmt, lnwire.NewMSatFromSatoshis(fundingAmt)),
+	}
+}
+
+// ErrCommitFeeRateTooLargeBase is the sentinel wrapped by
+// ErrCommitFeeRateTooLarge, so that a caller inside the daemon can identify
+// the rejection with errors.Is instead of matching on the wording of the
+// message that goes out to the remote peer.
+var ErrCommitFeeRateTooLargeBase = errors.New("commitment fee rate " +
+	"unreasonably large")
+
+// ErrCommitFeeRateTooLarge returns an error indicating that the commitment fee
+// rate proposed by the channel initiator is unreasonably large, as described by
+// BOLT-02.
+func ErrCommitFeeRateTooLarge(feeRate,
+	maxFeeRate chainfee.SatPerKWeight) ReservationError {
+
+	return ReservationError{
+		fmt.Errorf("%w: %v, max is %v",
+			ErrCommitFeeRateTooLargeBase, feeRate, maxFeeRate),
+	}
+}
+
+// ErrBalancesBelowReserveBase is the sentinel wrapped by
+// ErrBalancesBelowReserve, so that callers can identify the rejection without
+// matching on its message text.
+var ErrBalancesBelowReserveBase = errors.New("both initial balances are " +
+	"below their channel reserve")
+
+// ErrBalancesBelowReserve returns an error indicating that a channel could
+// never be used, because neither party would hold more than the reserve it is
+// required to maintain on the initial commitment transaction. BOLT-02 requires
+// that we fail a channel whose initial outputs are both at or below the
+// reserve the initiator named in open_channel, and a channel where neither
+// side can spend is rejected for the same reason.
+//
+// Both reserves are reported so the message distinguishes the two: ourReserve
+// is the reserve the initiator requires of us, and theirReserve is the reserve
+// we require of them in accept_channel.
+func ErrBalancesBelowReserve(localBalance, theirBalance, ourReserve,
+	theirReserve btcutil.Amount) ReservationError {
+
+	return ReservationError{
+		fmt.Errorf("%w: to_local %v sat against our reserve %v sat, "+
+			"to_remote %v sat against their reserve %v sat",
+			ErrBalancesBelowReserveBase, int64(localBalance),
+			int64(ourReserve), int64(theirBalance),
+			int64(theirReserve)),
 	}
 }
 

@@ -511,12 +511,26 @@ func (a *MockAuxSigner) SubmitSecondLevelSigBatch(chanState AuxChanState,
 	return args.Error(0)
 }
 
+// PackSigsFunc packs aux signatures into a blob. A test can register one of
+// these with the mock instead of a fixed value, so that the packed blob can
+// depend on the signatures handed in. That matters because a real aux signer
+// emits exactly one slot per HTLC.
+type PackSigsFunc func([]fn.Option[tlv.Blob]) fn.Result[fn.Option[tlv.Blob]]
+
+// UnpackSigsFunc is the counterpart of PackSigsFunc, recovering the per-HTLC
+// slots from a packed blob.
+type UnpackSigsFunc func(fn.Option[tlv.Blob]) fn.Result[[]fn.Option[tlv.Blob]]
+
 // PackSigs takes a series of aux signatures and packs them into a
 // single blob that can be sent alongside the CommitSig messages.
 func (a *MockAuxSigner) PackSigs(
 	sigs []fn.Option[tlv.Blob]) fn.Result[fn.Option[tlv.Blob]] {
 
 	args := a.Called(sigs)
+
+	if f, ok := args.Get(0).(PackSigsFunc); ok {
+		return f(sigs)
+	}
 
 	return args.Get(0).(fn.Result[fn.Option[tlv.Blob]])
 }
@@ -527,6 +541,10 @@ func (a *MockAuxSigner) UnpackSigs(
 	sigs fn.Option[tlv.Blob]) fn.Result[[]fn.Option[tlv.Blob]] {
 
 	args := a.Called(sigs)
+
+	if f, ok := args.Get(0).(UnpackSigsFunc); ok {
+		return f(sigs)
+	}
 
 	return args.Get(0).(fn.Result[[]fn.Option[tlv.Blob]])
 }

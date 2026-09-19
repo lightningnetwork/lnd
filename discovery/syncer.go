@@ -204,6 +204,15 @@ var (
 	// ErrGossipSyncerExiting signals that the syncer has been killed.
 	ErrGossipSyncerExiting = errors.New("gossip syncer exiting")
 
+	// errChanRangeReplyTooLarge is returned when a peer sends more channel
+	// IDs than we'll accept for a single channel range query.
+	errChanRangeReplyTooLarge = errors.New("channel range reply exceeds " +
+		"maximum number of short channel IDs")
+
+	// errInvalidChanRangeReply is returned when a peer's channel range
+	// response does not match the query which prompted it.
+	errInvalidChanRangeReply = errors.New("invalid channel range reply")
+
 	// ErrSyncTransitionTimeout is an error returned when we've timed out
 	// attempting to perform a sync transition.
 	ErrSyncTransitionTimeout = errors.New("timed out attempting to " +
@@ -226,6 +235,19 @@ type historicalSyncReq struct {
 	// doneChan is a channel that serves as a signal and is closed to ensure
 	// the historical sync is attempted by the time we return to the caller.
 	doneChan chan struct{}
+}
+
+// replyEnvelope wraps a reply to one of our queries with the generation of
+// the QueryChannelRange exchange it was accepted for. A reply left queued
+// when an attempt fails is discarded by a later attempt rather than
+// consumed as a response to its own query.
+type replyEnvelope struct {
+	// gen is the chanRangeQueryGen value observed when the reply was
+	// accepted from the peer.
+	gen uint64
+
+	// msg is the wrapped reply message.
+	msg lnwire.Message
 }
 
 // gossipSyncerCfg is a struct that packages all the information a GossipSyncer
@@ -258,6 +280,10 @@ type gossipSyncerCfg struct {
 	// The boolean indicates whether this method should be blocked or not
 	// while waiting for sends to be written to the wire.
 	sendMsg func(context.Context, bool, ...lnwire.Message) error
+
+	// historicalSyncFailed requests another peer for the initial historical
+	// sync when this peer's response cannot be used.
+	historicalSyncFailed func(*GossipSyncer, error)
 
 	// noSyncChannels will prevent the GossipSyncer from spawning a
 	// channelGraphSyncer, meaning we will not try to reconcile unknown
@@ -357,8 +383,22 @@ type GossipSyncer struct {
 
 	// gossipMsgs is a channel that all responses to our queries from the
 	// target peer will be sent over, these will be read by the
-	// channelGraphSyncer.
-	gossipMsgs chan lnwire.Message
+	// channelGraphSyncer. Each reply is wrapped in a replyEnvelope carrying
+	// the generation of the query it was accepted for, so replies left
+	// queued by a failed attempt cannot be consumed by a later one.
+	gossipMsgs chan replyEnvelope
+
+	// chanRangeQueryGen is the current generation of the QueryChannelRange
+	// exchange with the remote peer. It is incremented each time a new
+	// query is sent, and is used to discard replies that were accepted
+	// for an earlier, already-abandoned query attempt.
+	//
+	// NOTE: While the value itself is always safe to read with Load, the
+	// write in handleSyncingChans and the read in ProcessQueryMsg are both
+	// performed while holding the syncer's mutex, so that a reply is
+	// tagged with the generation of the attempt that actually accepts
+	// it.
+	chanRangeQueryGen atomic.Uint64
 
 	// queryMsgs is a channel that all queries from the remote peer will be
 	// received over, these will be read by the replyHandler.
@@ -449,7 +489,7 @@ func newGossipSyncer(cfg gossipSyncerCfg, sema chan struct{}) *GossipSyncer {
 		cfg:                cfg,
 		syncTransitionReqs: make(chan *syncTransitionReq),
 		historicalSyncReqs: make(chan *historicalSyncReq),
-		gossipMsgs:         make(chan lnwire.Message, syncerBufferSize),
+		gossipMsgs:         make(chan replyEnvelope, syncerBufferSize),
 		queryMsgs:          make(chan lnwire.Message, syncerBufferSize),
 		timestampRangeQueue: make(
 			chan *lnwire.GossipTimestampRange, queueSize,
@@ -524,6 +564,10 @@ func (g *GossipSyncer) handleSyncingChans(ctx context.Context) error {
 	// The response is handled in ProcessQueryMsg, which requires the
 	// current state to be waitingQueryRangeReply.
 	g.Lock()
+	// A new query attempt begins, so advance the reply generation. Any
+	// replies still queued from the previous attempt carry the old
+	// generation and are discarded once read.
+	g.chanRangeQueryGen.Add(1)
 	defer g.Unlock()
 
 	// Send the msg to the remote peer, which is non-blocking as
@@ -543,6 +587,30 @@ func (g *GossipSyncer) handleSyncingChans(ctx context.Context) error {
 	g.setSyncState(waitingQueryRangeReply)
 
 	return nil
+}
+
+// handleChanRangeError recovers from a peer response which cannot be used and
+// returns true when the syncer can continue serving the peer.
+func (g *GossipSyncer) handleChanRangeError(err error) bool {
+	log.Errorf("Unable to process chan range query: %v", err)
+
+	if !errors.Is(err, errChanRangeReplyTooLarge) &&
+		!errors.Is(err, errInvalidChanRangeReply) {
+
+		return false
+	}
+
+	// The idle state keeps this syncer out of replacement selection and
+	// does not signal that its historical sync completed.
+	g.genHistoricalChanRangeQuery = false
+	g.setSyncState(syncerIdle)
+	if g.cfg.historicalSyncFailed != nil {
+		g.cfg.historicalSyncFailed(g, err)
+	}
+
+	g.setSyncState(chansSynced)
+
+	return true
 }
 
 // channelGraphSyncer is the main goroutine responsible for ensuring that we
@@ -583,28 +651,39 @@ func (g *GossipSyncer) channelGraphSyncer(ctx context.Context) {
 			// remote party, or exit due to the gossiper exiting,
 			// or us being signalled to do so.
 			select {
-			case msg := <-g.gossipMsgs:
+			case envelope := <-g.gossipMsgs:
+				// Discard replies that were accepted for an earlier,
+				// already-abandoned query attempt, as they cannot
+				// be interpreted in the context of the current one.
+				if envelope.gen != g.chanRangeQueryGen.Load() {
+					log.Debugf("GossipSyncer(%x): discarding stale "+
+						"chan range reply from gen=%v",
+						g.cfg.peerPub[:], envelope.gen)
+					continue
+				}
+
 				// The remote peer is sending a response to our
 				// initial query, we'll collate this response,
 				// and see if it's the final one in the series.
 				// If so, we can then transition to querying
 				// for the new channels.
-				queryReply, ok := msg.(*lnwire.ReplyChannelRange)
+				queryReply, ok := envelope.msg.(*lnwire.ReplyChannelRange)
 				if ok {
 					err := g.processChanRangeReply(
 						ctx, queryReply,
 					)
 					if err != nil {
-						log.Errorf("Unable to "+
-							"process chan range "+
-							"query: %v", err)
+						if g.handleChanRangeError(err) {
+							continue
+						}
+
 						return
 					}
 					continue
 				}
 
 				log.Warnf("Unexpected message: %T in state=%v",
-					msg, state)
+					envelope.msg, state)
 
 			case <-g.cg.Done():
 				return
@@ -653,18 +732,28 @@ func (g *GossipSyncer) channelGraphSyncer(ctx context.Context) {
 			// an ending reply, or just another query from the
 			// remote peer.
 			select {
-			case msg := <-g.gossipMsgs:
+			case envelope := <-g.gossipMsgs:
+				// Discard replies accepted for an earlier query
+				// attempt, as they cannot be interpreted in the
+				// context of the current one.
+				if envelope.gen != g.chanRangeQueryGen.Load() {
+					log.Debugf("GossipSyncer(%x): discarding stale "+
+						"reply from gen=%v",
+						g.cfg.peerPub[:], envelope.gen)
+					continue
+				}
+
 				// If this is the final reply to one of our
 				// queries, then we'll loop back into our query
 				// state to send of the remaining query chunks.
-				_, ok := msg.(*lnwire.ReplyShortChanIDsEnd)
+				_, ok := envelope.msg.(*lnwire.ReplyShortChanIDsEnd)
 				if ok {
 					g.setSyncState(queryNewChannels)
 					continue
 				}
 
 				log.Warnf("Unexpected message: %T in state=%v",
-					msg, state)
+					envelope.msg, state)
 
 			case <-g.cg.Done():
 				return
@@ -932,11 +1021,10 @@ func isLegacyReplyChannelRange(query *lnwire.QueryChannelRange,
 func (g *GossipSyncer) processChanRangeReply(ctx context.Context,
 	msg *lnwire.ReplyChannelRange) error {
 
-	// Any error here terminates the range sync, so we release whatever we
-	// accumulated to stop the peer from pinning it by deliberately forcing
-	// an error. Our caller exits the state machine on any error we return,
-	// and nothing prunes a syncer until its peer disconnects, so otherwise
-	// the buffer stays reachable from a syncer that will never run again.
+	// Any error abandons the current reply stream, so release everything we
+	// accumulated before returning it. Peer response errors may recover the
+	// syncer. Local errors terminate it. Neither path should retain an
+	// abandoned buffer.
 	err := g.bufferChanRangeReply(ctx, msg)
 	if err != nil {
 		g.resetChanRangeReplyState()
@@ -953,12 +1041,10 @@ func (g *GossipSyncer) bufferChanRangeReply(_ context.Context,
 
 	// A reply only means anything in the context of the query that
 	// prompted it, and every check below reads that query. Today this is
-	// unreachable, as we only accept a reply in waitingQueryRangeReply and
-	// we always set the query before entering that state. It is worth
-	// guarding anyway: an error leaves the syncer sitting in
-	// waitingQueryRangeReply with the query cleared, so any future change
-	// that recovers the handler instead of tearing it down would turn this
-	// into a remote panic.
+	// unreachable because we only accept a reply in waitingQueryRangeReply,
+	// and we always set the query before entering that state. Guard it so a
+	// future state transition cannot turn an unexpected response into a
+	// remote panic.
 	if g.curQueryRangeMsg == nil {
 		return fmt.Errorf("received channel range reply without an " +
 			"active query")
@@ -979,9 +1065,12 @@ func (g *GossipSyncer) bufferChanRangeReply(_ context.Context,
 	if !isLegacyReplyChannelRange(g.curQueryRangeMsg, msg) {
 		// The first block should be within our original request.
 		if msg.FirstBlockHeight < g.curQueryRangeMsg.FirstBlockHeight {
-			return fmt.Errorf("reply includes channels for height "+
-				"%v prior to query %v", msg.FirstBlockHeight,
-				g.curQueryRangeMsg.FirstBlockHeight)
+			return fmt.Errorf("%w: reply includes channels for "+
+				"height %v prior to query %v",
+				errInvalidChanRangeReply,
+				msg.FirstBlockHeight,
+				g.curQueryRangeMsg.FirstBlockHeight,
+			)
 		}
 
 		// The last block should also be. We don't need to check the
@@ -990,9 +1079,12 @@ func (g *GossipSyncer) bufferChanRangeReply(_ context.Context,
 		replyLastHeight := msg.LastBlockHeight()
 		queryLastHeight := g.curQueryRangeMsg.LastBlockHeight()
 		if replyLastHeight > queryLastHeight {
-			return fmt.Errorf("reply includes channels for height "+
-				"%v after query %v", replyLastHeight,
-				queryLastHeight)
+			return fmt.Errorf(
+				"%w: reply includes channels for height %v "+
+					"after query %v",
+				errInvalidChanRangeReply,
+				replyLastHeight, queryLastHeight,
+			)
 		}
 
 		// If we've previously received a reply for this query, look at
@@ -1008,10 +1100,13 @@ func (g *GossipSyncer) bufferChanRangeReply(_ context.Context,
 			if msg.FirstBlockHeight != prevReplyLastHeight &&
 				msg.FirstBlockHeight != prevReplyLastHeight+1 {
 
-				return fmt.Errorf("first block of reply %v "+
-					"does not continue from last block of "+
-					"previous %v", msg.FirstBlockHeight,
-					prevReplyLastHeight)
+				return fmt.Errorf("%w: first block of reply "+
+					"%v does not continue from last "+
+					"block of previous %v",
+					errInvalidChanRangeReply,
+					msg.FirstBlockHeight,
+					prevReplyLastHeight,
+				)
 			}
 		}
 	}
@@ -1029,7 +1124,8 @@ func (g *GossipSyncer) bufferChanRangeReply(_ context.Context,
 
 	default:
 		return fmt.Errorf(
-			"unhandled encoding type %v", msg.EncodingType,
+			"%w: unhandled encoding type %v",
+			errInvalidChanRangeReply, msg.EncodingType,
 		)
 	}
 
@@ -1038,8 +1134,7 @@ func (g *GossipSyncer) bufferChanRangeReply(_ context.Context,
 		numReplySCIDs > maxChanRangeReplySCIDs-
 			g.numChanRangeReplySCIDsRcvd {
 
-		return fmt.Errorf("channel range reply exceeds maximum "+
-			"number of short channel IDs: max=%v",
+		return fmt.Errorf("%w: max=%v", errChanRangeReplyTooLarge,
 			maxChanRangeReplySCIDs)
 	}
 
@@ -1789,34 +1884,53 @@ func (g *GossipSyncer) FilterGossipMsgs(ctx context.Context,
 // ProcessQueryMsg is used by outside callers to pass new channel time series
 // queries to the internal processing goroutine.
 func (g *GossipSyncer) ProcessQueryMsg(msg lnwire.Message, peerQuit <-chan struct{}) error {
-	var msgChan chan lnwire.Message
-	switch msg.(type) {
+	switch m := msg.(type) {
 	case *lnwire.QueryChannelRange, *lnwire.QueryShortChanIDs:
-		msgChan = g.queryMsgs
+		// Queries from the remote peer are answered by the replyHandler
+		// and are not scoped to one of our own query attempts, so they
+		// are dispatched unwrapped.
+		select {
+		case g.queryMsgs <- m:
+		case <-peerQuit:
+		case <-g.cg.Done():
+		}
 
-	// Reply messages should only be expected in states where we're waiting
-	// for a reply.
+		return nil
+
+	// Reply messages should only be expected in states where we're
+	// waiting for a reply.
 	case *lnwire.ReplyChannelRange, *lnwire.ReplyShortChanIDsEnd:
 		g.Lock()
+		// Snapshot both the state and the current query generation while
+		// holding the lock, so that the reply is tagged with the attempt
+		// that actually accepted it. A reply accepted for an earlier
+		// generation and left queued when that attempt failed is later
+		// discarded by the consumer instead of being consumed as a
+		// response to a new query.
 		syncState := g.syncState()
+		gen := g.chanRangeQueryGen.Load()
 		g.Unlock()
 
 		if syncState != waitingQueryRangeReply &&
 			syncState != waitingQueryChanReply {
-
 			return fmt.Errorf("unexpected msg %T received in "+
 				"state %v", msg, syncState)
 		}
-		msgChan = g.gossipMsgs
+
+		select {
+		case g.gossipMsgs <- replyEnvelope{gen: gen, msg: m}:
+		case <-peerQuit:
+		case <-g.cg.Done():
+		}
+
+		return nil
 
 	default:
-		msgChan = g.gossipMsgs
-	}
-
-	select {
-	case msgChan <- msg:
-	case <-peerQuit:
-	case <-g.cg.Done():
+		select {
+		case g.gossipMsgs <- replyEnvelope{msg: m}:
+		case <-peerQuit:
+		case <-g.cg.Done():
+		}
 	}
 
 	return nil

@@ -22,6 +22,11 @@
 
 # Bug Fixes
 
+* [Fixed `DescribeGraph` response caching](https://github.com/lightningnetwork/lnd/pull/11185)
+  so responses are keyed by both `include_unannounced` and
+  `include_auth_proof`, preventing one request shape from receiving a cached
+  response generated for another.
+
 * Bitcoind outbound peer health checks [now use](https://github.com/lightningnetwork/lnd/pull/10686)
   `getnetworkinfo.connections_out` instead of `getpeerinfo`. The same PR also
   [clarifies](https://github.com/lightningnetwork/lnd/issues/10568) the ZMQ

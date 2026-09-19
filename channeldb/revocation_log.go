@@ -1,7 +1,6 @@
 package channeldb
 
 import (
-	"bytes"
 	"io"
 
 	cstate "github.com/lightningnetwork/lnd/chanstate"
@@ -56,7 +55,8 @@ var (
 	//
 	// Deprecated: This bucket is kept for read-only in case the user
 	// choose not to migrate the old data.
-	revocationLogBucketDeprecated = []byte("revocation-log-key")
+	//nolint:ll
+	revocationLogBucketDeprecated = cstate.RevocationLogBucketDeprecatedKey()
 
 	// revocationLogBucket is a sub-bucket under openChannelBucket. This
 	// sub-bucket is dedicated for storing the minimal info required to
@@ -133,14 +133,7 @@ func readTlvStream(r io.Reader, s *tlv.Stream) (tlv.TypeMap, error) {
 func fetchOldRevocationLog(log kvdb.RBucket,
 	updateNum uint64) (ChannelCommitment, error) {
 
-	logEntrykey := makeLogKey(updateNum)
-	commitBytes := log.Get(logEntrykey[:])
-	if commitBytes == nil {
-		return ChannelCommitment{}, ErrLogEntryNotFound
-	}
-
-	commitReader := bytes.NewReader(commitBytes)
-	return deserializeChanCommit(commitReader)
+	return cstate.FetchOldRevocationLog(log, updateNum)
 }
 
 // fetchRevocationLogCompatible finds the revocation log from both the
@@ -154,86 +147,16 @@ func fetchOldRevocationLog(log kvdb.RBucket,
 func fetchRevocationLogCompatible(chanBucket kvdb.RBucket,
 	updateNum uint64) (*RevocationLog, *ChannelCommitment, error) {
 
-	// Look into the new bucket first.
-	logBucket := chanBucket.NestedReadBucket(revocationLogBucket)
-	if logBucket != nil {
-		rl, err := fetchRevocationLog(logBucket, updateNum)
-		// We've found the record, no need to visit the old bucket.
-		if err == nil {
-			return &rl, nil, nil
-		}
-
-		// Return the error if it doesn't say the log cannot be found.
-		if err != ErrLogEntryNotFound {
-			return nil, nil, err
-		}
-	}
-
-	// Otherwise, look into the old bucket and try to find the log there.
-	oldBucket := chanBucket.NestedReadBucket(revocationLogBucketDeprecated)
-	if oldBucket != nil {
-		c, err := fetchOldRevocationLog(oldBucket, updateNum)
-		if err != nil {
-			return nil, nil, err
-		}
-
-		// Found an old record and return it.
-		return nil, &c, nil
-	}
-
-	// If both the buckets are nil, then the sub-buckets haven't been
-	// created yet.
-	if logBucket == nil && oldBucket == nil {
-		return nil, nil, ErrNoPastDeltas
-	}
-
-	// Otherwise, we've tried to query the new bucket but the log cannot be
-	// found.
-	return nil, nil, ErrLogEntryNotFound
+	return cstate.FetchRevocationLogCompatible(chanBucket, updateNum)
 }
 
 // fetchLogBucket returns a read bucket by visiting both the new and the old
 // bucket.
 func fetchLogBucket(chanBucket kvdb.RBucket) (kvdb.RBucket, error) {
-	logBucket := chanBucket.NestedReadBucket(revocationLogBucket)
-	if logBucket == nil {
-		logBucket = chanBucket.NestedReadBucket(
-			revocationLogBucketDeprecated,
-		)
-		if logBucket == nil {
-			return nil, ErrNoPastDeltas
-		}
-	}
-
-	return logBucket, nil
+	return cstate.FetchLogBucket(chanBucket)
 }
 
 // deleteLogBucket deletes the both the new and old revocation log buckets.
 func deleteLogBucket(chanBucket kvdb.RwBucket) error {
-	// Check if the bucket exists and delete it.
-	logBucket := chanBucket.NestedReadWriteBucket(
-		revocationLogBucket,
-	)
-	if logBucket != nil {
-		err := chanBucket.DeleteNestedBucket(revocationLogBucket)
-		if err != nil {
-			return err
-		}
-	}
-
-	// We also check whether the old revocation log bucket exists
-	// and delete it if so.
-	oldLogBucket := chanBucket.NestedReadWriteBucket(
-		revocationLogBucketDeprecated,
-	)
-	if oldLogBucket != nil {
-		err := chanBucket.DeleteNestedBucket(
-			revocationLogBucketDeprecated,
-		)
-		if err != nil {
-			return err
-		}
-	}
-
-	return nil
+	return cstate.DeleteLogBucket(chanBucket)
 }

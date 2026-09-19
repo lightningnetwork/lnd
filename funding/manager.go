@@ -1492,6 +1492,19 @@ func (f *Manager) fundeeProcessOpenChannel(peer lnpeer.Peer,
 		return
 	}
 
+	// BOLT-02 requires the receiver of open_channel to reject a feerate
+	// below the minimum it considers acceptable.
+	commitFeeRate := chainfee.SatPerKWeight(msg.FeePerKiloWeight)
+	if commitFeeRate < chainfee.AbsoluteFeePerKwFloor {
+		f.failFundingFlow(
+			peer, cid, lnwallet.ErrCommitFeeRateTooSmall(
+				commitFeeRate, chainfee.AbsoluteFeePerKwFloor,
+			),
+		)
+
+		return
+	}
+
 	// Check number of pending channels to be smaller than maximum allowed
 	// number and send ErrorGeneric to remote peer if condition is
 	// violated.
@@ -1612,19 +1625,6 @@ func (f *Manager) fundeeProcessOpenChannel(peer lnpeer.Peer,
 		// TODO(roasbeef): should be using soft errors
 		log.Errorf("channel type negotiation failed: %v", err)
 		f.failFundingFlow(peer, cid, err)
-		return
-	}
-
-	// BOLT-02 requires the receiver of open_channel to reject a feerate
-	// below the minimum it considers acceptable.
-	commitFeeRate := chainfee.SatPerKWeight(msg.FeePerKiloWeight)
-	if commitFeeRate < chainfee.FeePerKwFloor {
-		f.failFundingFlow(
-			peer, cid, lnwallet.ErrCommitFeeRateTooSmall(
-				commitFeeRate, chainfee.FeePerKwFloor,
-			),
-		)
-
 		return
 	}
 

@@ -4167,6 +4167,40 @@ func TestFundingManagerPushAmountAtCapacity(t *testing.T) {
 	}
 }
 
+// TestFundingManagerMinAnchorCommitFeeRate asserts that the lowest configured
+// anchor commitment fee rate remains acceptable to another lnd node.
+func TestFundingManagerMinAnchorCommitFeeRate(t *testing.T) {
+	t.Parallel()
+
+	alice, bob := setupFundingManagers(t)
+	t.Cleanup(func() {
+		tearDownFundingManagers(t, alice, bob)
+	})
+
+	minAnchorFeeRate := chainfee.SatPerVByte(1).FeePerKWeight()
+	alice.fundingMgr.cfg.MaxAnchorsCommitFeeRate = minAnchorFeeRate
+
+	featureBits := []lnwire.FeatureBit{
+		lnwire.ExplicitChannelTypeOptional,
+		lnwire.StaticRemoteKeyOptional,
+		lnwire.AnchorsZeroFeeHtlcTxOptional,
+	}
+	alice.localFeatures = featureBits
+	alice.remoteFeatures = featureBits
+	bob.localFeatures = featureBits
+	bob.remoteFeatures = featureBits
+
+	updateChan := make(chan *lnrpc.OpenStatusUpdate, 10)
+	chanType := (*lnwire.ChannelType)(lnwire.NewRawFeatureVector(
+		lnwire.StaticRemoteKeyRequired,
+		lnwire.AnchorsZeroFeeHtlcTxRequired,
+	))
+
+	openChannel(
+		t, alice, bob, 500000, 0, 1, updateChan, false, chanType,
+	)
+}
+
 // TestFundingManagerRejectLowCommitFeeRate asserts that the fundee rejects an
 // incoming OpenChannel below the relayable commitment fee floor, while accepting
 // the floor itself.
@@ -4180,12 +4214,12 @@ func TestFundingManagerRejectLowCommitFeeRate(t *testing.T) {
 	}{
 		{
 			name:        "below floor",
-			feeRate:     chainfee.FeePerKwFloor - 1,
+			feeRate:     chainfee.AbsoluteFeePerKwFloor - 1,
 			expectError: true,
 		},
 		{
 			name:    "at floor",
-			feeRate: chainfee.FeePerKwFloor,
+			feeRate: chainfee.AbsoluteFeePerKwFloor,
 		},
 	}
 
@@ -4237,7 +4271,9 @@ func TestFundingManagerRejectLowCommitFeeRate(t *testing.T) {
 				msg := assertFundingMsgSent(t, bob.msgChan, "Error")
 				errMsg, ok := msg.(*lnwire.Error)
 				require.True(t, ok)
-				require.ErrorContains(t, errMsg, "commitment fee rate")
+				require.ErrorContains(
+					t, errMsg, "min is 250 sat/kw",
+				)
 				assertNumPendingReservations(t, bob, alicePubKey, 0)
 				return
 			}

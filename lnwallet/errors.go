@@ -100,7 +100,8 @@ func ErrPushAmountTooLarge(pushAmt lnwire.MilliSatoshi,
 
 // ErrCommitFeeRateTooSmall is returned when the initial commitment fee rate
 // proposed by the channel funder is below the minimum relayable fee rate.
-func ErrCommitFeeRateTooSmall(feeRate, minFeeRate chainfee.SatPerKWeight) ReservationError {
+func ErrCommitFeeRateTooSmall(
+	feeRate, minFeeRate chainfee.SatPerKWeight) ReservationError {
 
 	return ReservationError{
 		fmt.Errorf("commitment fee rate %v is too small, min is %v",

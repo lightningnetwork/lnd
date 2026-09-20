@@ -4202,8 +4202,8 @@ func TestFundingManagerMinAnchorCommitFeeRate(t *testing.T) {
 }
 
 // TestFundingManagerRejectLowCommitFeeRate asserts that the fundee rejects an
-// incoming OpenChannel below the relayable commitment fee floor, while accepting
-// the floor itself.
+// incoming OpenChannel below the relayable commitment fee floor,
+// while accepting the floor itself.
 func TestFundingManagerRejectLowCommitFeeRate(t *testing.T) {
 	t.Parallel()
 

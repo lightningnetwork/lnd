@@ -217,3 +217,5 @@ replace google.golang.org/protobuf => github.com/lightninglabs/protobuf-go-hex-d
 go 1.25.13
 
 retract v0.0.2
+
+replace github.com/lightningnetwork/lnd/fn/v2 => ./fn

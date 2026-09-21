@@ -82,170 +82,212 @@ type WitnessType int32
 
 const (
 	WitnessType_UNKNOWN_WITNESS WitnessType = 0
-	// A witness that allows us to spend the output of a commitment transaction
-	// after a relative lock-time lockout.
+	//
+	//A witness that allows us to spend the output of a commitment transaction
+	//after a relative lock-time lockout.
 	WitnessType_COMMITMENT_TIME_LOCK WitnessType = 1
-	// A witness that allows us to spend a settled no-delay output immediately on a
-	// counterparty's commitment transaction.
+	//
+	//A witness that allows us to spend a settled no-delay output immediately on a
+	//counterparty's commitment transaction.
 	WitnessType_COMMITMENT_NO_DELAY WitnessType = 2
-	// A witness that allows us to sweep the settled output of a malicious
-	// counterparty's who broadcasts a revoked commitment transaction.
+	//
+	//A witness that allows us to sweep the settled output of a malicious
+	//counterparty's who broadcasts a revoked commitment transaction.
 	WitnessType_COMMITMENT_REVOKE WitnessType = 3
-	// A witness that allows us to sweep an HTLC which we offered to the remote
-	// party in the case that they broadcast a revoked commitment state.
+	//
+	//A witness that allows us to sweep an HTLC which we offered to the remote
+	//party in the case that they broadcast a revoked commitment state.
 	WitnessType_HTLC_OFFERED_REVOKE WitnessType = 4
-	// A witness that allows us to sweep an HTLC output sent to us in the case that
-	// the remote party broadcasts a revoked commitment state.
+	//
+	//A witness that allows us to sweep an HTLC output sent to us in the case that
+	//the remote party broadcasts a revoked commitment state.
 	WitnessType_HTLC_ACCEPTED_REVOKE WitnessType = 5
-	// A witness that allows us to sweep an HTLC output that we extended to a
-	// party, but was never fulfilled.  This HTLC output isn't directly on the
-	// commitment transaction, but is the result of a confirmed second-level HTLC
-	// transaction. As a result, we can only spend this after a CSV delay.
+	//
+	//A witness that allows us to sweep an HTLC output that we extended to a
+	//party, but was never fulfilled.  This HTLC output isn't directly on the
+	//commitment transaction, but is the result of a confirmed second-level HTLC
+	//transaction. As a result, we can only spend this after a CSV delay.
 	WitnessType_HTLC_OFFERED_TIMEOUT_SECOND_LEVEL WitnessType = 6
-	// A witness that allows us to sweep an HTLC output that was offered to us, and
-	// for which we have a payment preimage. This HTLC output isn't directly on our
-	// commitment transaction, but is the result of confirmed second-level HTLC
-	// transaction. As a result, we can only spend this after a CSV delay.
+	//
+	//A witness that allows us to sweep an HTLC output that was offered to us, and
+	//for which we have a payment preimage. This HTLC output isn't directly on our
+	//commitment transaction, but is the result of confirmed second-level HTLC
+	//transaction. As a result, we can only spend this after a CSV delay.
 	WitnessType_HTLC_ACCEPTED_SUCCESS_SECOND_LEVEL WitnessType = 7
-	// A witness that allows us to sweep an HTLC that we offered to the remote
-	// party which lies in the commitment transaction of the remote party. We can
-	// spend this output after the absolute CLTV timeout of the HTLC as passed.
+	//
+	//A witness that allows us to sweep an HTLC that we offered to the remote
+	//party which lies in the commitment transaction of the remote party. We can
+	//spend this output after the absolute CLTV timeout of the HTLC as passed.
 	WitnessType_HTLC_OFFERED_REMOTE_TIMEOUT WitnessType = 8
-	// A witness that allows us to sweep an HTLC that was offered to us by the
-	// remote party. We use this witness in the case that the remote party goes to
-	// chain, and we know the pre-image to the HTLC. We can sweep this without any
-	// additional timeout.
+	//
+	//A witness that allows us to sweep an HTLC that was offered to us by the
+	//remote party. We use this witness in the case that the remote party goes to
+	//chain, and we know the pre-image to the HTLC. We can sweep this without any
+	//additional timeout.
 	WitnessType_HTLC_ACCEPTED_REMOTE_SUCCESS WitnessType = 9
-	// A witness that allows us to sweep an HTLC from the remote party's commitment
-	// transaction in the case that the broadcast a revoked commitment, but then
-	// also immediately attempt to go to the second level to claim the HTLC.
+	//
+	//A witness that allows us to sweep an HTLC from the remote party's commitment
+	//transaction in the case that the broadcast a revoked commitment, but then
+	//also immediately attempt to go to the second level to claim the HTLC.
 	WitnessType_HTLC_SECOND_LEVEL_REVOKE WitnessType = 10
-	// A witness type that allows us to spend a regular p2wkh output that's sent to
-	// an output which is under complete control of the backing wallet.
+	//
+	//A witness type that allows us to spend a regular p2wkh output that's sent to
+	//an output which is under complete control of the backing wallet.
 	WitnessType_WITNESS_KEY_HASH WitnessType = 11
-	// A witness type that allows us to sweep an output that sends to a nested P2SH
-	// script that pays to a key solely under our control.
+	//
+	//A witness type that allows us to sweep an output that sends to a nested P2SH
+	//script that pays to a key solely under our control.
 	WitnessType_NESTED_WITNESS_KEY_HASH WitnessType = 12
-	// A witness type that allows us to spend our anchor on the commitment
-	// transaction.
+	//
+	//A witness type that allows us to spend our anchor on the commitment
+	//transaction.
 	WitnessType_COMMITMENT_ANCHOR WitnessType = 13
-	// A witness type that is similar to the COMMITMENT_NO_DELAY type,
-	// but it omits the tweak that randomizes the key we need to
-	// spend with a channel peer supplied set of randomness.
+	//
+	//A witness type that is similar to the COMMITMENT_NO_DELAY type,
+	//but it omits the tweak that randomizes the key we need to
+	//spend with a channel peer supplied set of randomness.
 	WitnessType_COMMITMENT_NO_DELAY_TWEAKLESS WitnessType = 14
-	// A witness type that allows us to spend our output on the counterparty's
-	// commitment transaction after a confirmation.
+	//
+	//A witness type that allows us to spend our output on the counterparty's
+	//commitment transaction after a confirmation.
 	WitnessType_COMMITMENT_TO_REMOTE_CONFIRMED WitnessType = 15
-	// A witness type that allows us to sweep an HTLC output that we extended
-	// to a party, but was never fulfilled. This _is_ the HTLC output directly
-	// on our commitment transaction, and the input to the second-level HTLC
-	// timeout transaction. It can only be spent after CLTV expiry, and
-	// commitment confirmation.
+	//
+	//A witness type that allows us to sweep an HTLC output that we extended
+	//to a party, but was never fulfilled. This _is_ the HTLC output directly
+	//on our commitment transaction, and the input to the second-level HTLC
+	//timeout transaction. It can only be spent after CLTV expiry, and
+	//commitment confirmation.
 	WitnessType_HTLC_OFFERED_TIMEOUT_SECOND_LEVEL_INPUT_CONFIRMED WitnessType = 16
-	// A witness type that allows us to sweep an HTLC output that was offered
-	// to us, and for which we have a payment preimage. This _is_ the HTLC
-	// output directly on our commitment transaction, and the input to the
-	// second-level HTLC success transaction. It can only be spent after the
-	// commitment has confirmed.
+	//
+	//A witness type that allows us to sweep an HTLC output that was offered
+	//to us, and for which we have a payment preimage. This _is_ the HTLC
+	//output directly on our commitment transaction, and the input to the
+	//second-level HTLC success transaction. It can only be spent after the
+	//commitment has confirmed.
 	WitnessType_HTLC_ACCEPTED_SUCCESS_SECOND_LEVEL_INPUT_CONFIRMED WitnessType = 17
-	// A witness type that allows us to spend our output on our local
-	// commitment transaction after a relative and absolute lock-time lockout as
-	// part of the script enforced lease commitment type.
+	//
+	//A witness type that allows us to spend our output on our local
+	//commitment transaction after a relative and absolute lock-time lockout as
+	//part of the script enforced lease commitment type.
 	WitnessType_LEASE_COMMITMENT_TIME_LOCK WitnessType = 18
-	// A witness type that allows us to spend our output on the counterparty's
-	// commitment transaction after a confirmation and absolute locktime as part
-	// of the script enforced lease commitment type.
+	//
+	//A witness type that allows us to spend our output on the counterparty's
+	//commitment transaction after a confirmation and absolute locktime as part
+	//of the script enforced lease commitment type.
 	WitnessType_LEASE_COMMITMENT_TO_REMOTE_CONFIRMED WitnessType = 19
-	// A witness type that allows us to sweep an HTLC output that we extended
-	// to a party, but was never fulfilled. This HTLC output isn't directly on
-	// the commitment transaction, but is the result of a confirmed second-level
-	// HTLC transaction. As a result, we can only spend this after a CSV delay
-	// and CLTV locktime as part of the script enforced lease commitment type.
+	//
+	//A witness type that allows us to sweep an HTLC output that we extended
+	//to a party, but was never fulfilled. This HTLC output isn't directly on
+	//the commitment transaction, but is the result of a confirmed second-level
+	//HTLC transaction. As a result, we can only spend this after a CSV delay
+	//and CLTV locktime as part of the script enforced lease commitment type.
 	WitnessType_LEASE_HTLC_OFFERED_TIMEOUT_SECOND_LEVEL WitnessType = 20
-	// A witness type that allows us to sweep an HTLC output that was offered
-	// to us, and for which we have a payment preimage. This HTLC output isn't
-	// directly on our commitment transaction, but is the result of confirmed
-	// second-level HTLC transaction. As a result, we can only spend this after
-	// a CSV delay and CLTV locktime as part of the script enforced lease
-	// commitment type.
+	//
+	//A witness type that allows us to sweep an HTLC output that was offered
+	//to us, and for which we have a payment preimage. This HTLC output isn't
+	//directly on our commitment transaction, but is the result of confirmed
+	//second-level HTLC transaction. As a result, we can only spend this after
+	//a CSV delay and CLTV locktime as part of the script enforced lease
+	//commitment type.
 	WitnessType_LEASE_HTLC_ACCEPTED_SUCCESS_SECOND_LEVEL WitnessType = 21
-	// A witness type that allows us to spend a regular p2tr output that's sent
-	// to an output which is under complete control of the backing wallet.
+	//
+	//A witness type that allows us to spend a regular p2tr output that's sent
+	//to an output which is under complete control of the backing wallet.
 	WitnessType_TAPROOT_PUB_KEY_SPEND WitnessType = 22
-	// A witness type that allows us to spend our settled local commitment after a
-	// CSV delay when we force close the channel.
+	//
+	//A witness type that allows us to spend our settled local commitment after a
+	//CSV delay when we force close the channel.
 	WitnessType_TAPROOT_LOCAL_COMMIT_SPEND WitnessType = 23
-	// A witness type that allows us to spend our settled local commitment after
-	// a CSV delay when the remote party has force closed the channel.
+	//
+	//A witness type that allows us to spend our settled local commitment after
+	//a CSV delay when the remote party has force closed the channel.
 	WitnessType_TAPROOT_REMOTE_COMMIT_SPEND WitnessType = 24
-	// A witness type that we'll use for spending our own anchor output.
+	//
+	//A witness type that we'll use for spending our own anchor output.
 	WitnessType_TAPROOT_ANCHOR_SWEEP_SPEND WitnessType = 25
-	// A witness that allows us to timeout an HTLC we offered to the remote party
-	// on our commitment transaction. We use this when we need to go on chain to
-	// time out an HTLC.
+	//
+	//A witness that allows us to timeout an HTLC we offered to the remote party
+	//on our commitment transaction. We use this when we need to go on chain to
+	//time out an HTLC.
 	WitnessType_TAPROOT_HTLC_OFFERED_TIMEOUT_SECOND_LEVEL WitnessType = 26
-	// A witness type that allows us to sweep an HTLC we accepted on our commitment
-	// transaction after we go to the second level on chain.
+	//
+	//A witness type that allows us to sweep an HTLC we accepted on our commitment
+	//transaction after we go to the second level on chain.
 	WitnessType_TAPROOT_HTLC_ACCEPTED_SUCCESS_SECOND_LEVEL WitnessType = 27
-	// A witness that allows us to sweep an HTLC on the revoked transaction of the
-	// remote party that goes to the second level.
+	//
+	//A witness that allows us to sweep an HTLC on the revoked transaction of the
+	//remote party that goes to the second level.
 	WitnessType_TAPROOT_HTLC_SECOND_LEVEL_REVOKE WitnessType = 28
-	// A witness that allows us to sweep an HTLC sent to us by the remote party
-	// in the event that they broadcast a revoked state.
+	//
+	//A witness that allows us to sweep an HTLC sent to us by the remote party
+	//in the event that they broadcast a revoked state.
 	WitnessType_TAPROOT_HTLC_ACCEPTED_REVOKE WitnessType = 29
-	// A witness that allows us to sweep an HTLC we offered to the remote party if
-	// they broadcast a revoked commitment.
+	//
+	//A witness that allows us to sweep an HTLC we offered to the remote party if
+	//they broadcast a revoked commitment.
 	WitnessType_TAPROOT_HTLC_OFFERED_REVOKE WitnessType = 30
-	// A witness that allows us to sweep an HTLC we offered to the remote party
-	// that lies on the commitment transaction for the remote party. We can spend
-	// this output after the absolute CLTV timeout of the HTLC as passed.
+	//
+	//A witness that allows us to sweep an HTLC we offered to the remote party
+	//that lies on the commitment transaction for the remote party. We can spend
+	//this output after the absolute CLTV timeout of the HTLC as passed.
 	WitnessType_TAPROOT_HTLC_OFFERED_REMOTE_TIMEOUT WitnessType = 31
-	// A witness type that allows us to sign the second level HTLC timeout
-	// transaction when spending from an HTLC residing on our local commitment
-	// transaction.
-	// This is used by the sweeper to re-sign inputs if it needs to aggregate
-	// several second level HTLCs.
+	//
+	//A witness type that allows us to sign the second level HTLC timeout
+	//transaction when spending from an HTLC residing on our local commitment
+	//transaction.
+	//This is used by the sweeper to re-sign inputs if it needs to aggregate
+	//several second level HTLCs.
 	WitnessType_TAPROOT_HTLC_LOCAL_OFFERED_TIMEOUT WitnessType = 32
-	// A witness that allows us to sweep an HTLC that was offered to us by the
-	// remote party for a taproot channels. We use this witness in the case that
-	// the remote party goes to chain, and we know the pre-image to the HTLC. We
-	// can sweep this without any additional timeout.
+	//
+	//A witness that allows us to sweep an HTLC that was offered to us by the
+	//remote party for a taproot channels. We use this witness in the case that
+	//the remote party goes to chain, and we know the pre-image to the HTLC. We
+	//can sweep this without any additional timeout.
 	WitnessType_TAPROOT_HTLC_ACCEPTED_REMOTE_SUCCESS WitnessType = 33
-	// A witness type that allows us to sweep the HTLC offered to us on our local
-	// commitment transaction. We'll use this when we need to go on chain to sweep
-	// the HTLC. In this case, this is the second level HTLC success transaction.
+	//
+	//A witness type that allows us to sweep the HTLC offered to us on our local
+	//commitment transaction. We'll use this when we need to go on chain to sweep
+	//the HTLC. In this case, this is the second level HTLC success transaction.
 	WitnessType_TAPROOT_HTLC_ACCEPTED_LOCAL_SUCCESS WitnessType = 34
-	// A witness that allows us to sweep the settled output of a malicious
-	// counterparty's who broadcasts a revoked taproot commitment transaction.
+	//
+	//A witness that allows us to sweep the settled output of a malicious
+	//counterparty's who broadcasts a revoked taproot commitment transaction.
 	WitnessType_TAPROOT_COMMITMENT_REVOKE WitnessType = 35
-	// A witness type that allows us to spend our settled local commitment after a
-	// CSV delay when we force close a production taproot channel.
+	//
+	//A witness type that allows us to spend our settled local commitment after a
+	//CSV delay when we force close a production taproot channel.
 	WitnessType_TAPROOT_LOCAL_COMMIT_SPEND_FINAL WitnessType = 36
-	// A witness type that allows us to spend our settled local commitment after
-	// a CSV delay when the remote party has force closed a production taproot
-	// channel.
+	//
+	//A witness type that allows us to spend our settled local commitment after
+	//a CSV delay when the remote party has force closed a production taproot
+	//channel.
 	WitnessType_TAPROOT_REMOTE_COMMIT_SPEND_FINAL WitnessType = 37
-	// A witness that allows us to timeout an HTLC we offered to the remote party
-	// on our production taproot commitment transaction. We use this when we need
-	// to go on chain to time out an HTLC.
+	//
+	//A witness that allows us to timeout an HTLC we offered to the remote party
+	//on our production taproot commitment transaction. We use this when we need
+	//to go on chain to time out an HTLC.
 	WitnessType_TAPROOT_HTLC_OFFERED_TIMEOUT_SECOND_LEVEL_FINAL WitnessType = 38
-	// A witness type that allows us to sweep an HTLC we accepted on our
-	// production taproot commitment transaction after we go to the second level
-	// on chain.
+	//
+	//A witness type that allows us to sweep an HTLC we accepted on our
+	//production taproot commitment transaction after we go to the second level
+	//on chain.
 	WitnessType_TAPROOT_HTLC_ACCEPTED_SUCCESS_SECOND_LEVEL_FINAL WitnessType = 39
-	// A witness that allows us to sweep an HTLC we offered to the remote party
-	// that lies on the production taproot commitment transaction for the remote
-	// party. We can spend this output after the absolute CLTV timeout of the
-	// HTLC as passed.
+	//
+	//A witness that allows us to sweep an HTLC we offered to the remote party
+	//that lies on the production taproot commitment transaction for the remote
+	//party. We can spend this output after the absolute CLTV timeout of the
+	//HTLC as passed.
 	WitnessType_TAPROOT_HTLC_OFFERED_REMOTE_TIMEOUT_FINAL WitnessType = 40
-	// A witness that allows us to sweep an HTLC that was offered to us by the
-	// remote party for a production taproot channel. We use this witness in the
-	// case that the remote party goes to chain, and we know the pre-image to the
-	// HTLC. We can sweep this without any additional timeout.
+	//
+	//A witness that allows us to sweep an HTLC that was offered to us by the
+	//remote party for a production taproot channel. We use this witness in the
+	//case that the remote party goes to chain, and we know the pre-image to the
+	//HTLC. We can sweep this without any additional timeout.
 	WitnessType_TAPROOT_HTLC_ACCEPTED_REMOTE_SUCCESS_FINAL WitnessType = 41
-	// A witness type that allows us to sweep the settled output of a malicious
-	// counterparty's who broadcasts a revoked production taproot commitment
-	// transaction.
+	//
+	//A witness type that allows us to sweep the settled output of a malicious
+	//counterparty's who broadcasts a revoked production taproot commitment
+	//transaction.
 	WitnessType_TAPROOT_COMMITMENT_REVOKE_FINAL WitnessType = 42
 )
 
@@ -435,10 +477,11 @@ type ListUnspentRequest struct {
 	MaxConfs int32 `protobuf:"varint,2,opt,name=max_confs,json=maxConfs,proto3" json:"max_confs,omitempty"`
 	// An optional filter to only include outputs belonging to an account.
 	Account string `protobuf:"bytes,3,opt,name=account,proto3" json:"account,omitempty"`
-	// When min_confs and max_confs are zero, setting false implicitly
-	// overrides max_confs to be MaxInt32, otherwise max_confs remains
-	// zero. An error is returned if the value is true and both min_confs
-	// and max_confs are non-zero. (default: false)
+	//
+	//When min_confs and max_confs are zero, setting false implicitly
+	//overrides max_confs to be MaxInt32, otherwise max_confs remains
+	//zero. An error is returned if the value is true and both min_confs
+	//and max_confs are non-zero. (default: false)
 	UnconfirmedOnly bool `protobuf:"varint,4,opt,name=unconfirmed_only,json=unconfirmedOnly,proto3" json:"unconfirmed_only,omitempty"`
 	unknownFields   protoimpl.UnknownFields
 	sizeCache       protoimpl.SizeCache
@@ -549,8 +592,9 @@ func (x *ListUnspentResponse) GetUtxos() []*lnrpc.Utxo {
 
 type LeaseOutputRequest struct {
 	state protoimpl.MessageState `protogen:"open.v1"`
-	// An ID of 32 random bytes that must be unique for each distinct application
-	// using this RPC which will be used to bound the output lease to.
+	//
+	//An ID of 32 random bytes that must be unique for each distinct application
+	//using this RPC which will be used to bound the output lease to.
 	Id []byte `protobuf:"bytes,1,opt,name=id,proto3" json:"id,omitempty"`
 	// The identifying outpoint of the output being leased.
 	Outpoint *lnrpc.OutPoint `protobuf:"bytes,2,opt,name=outpoint,proto3" json:"outpoint,omitempty"`
@@ -628,9 +672,10 @@ func (x *LeaseOutputRequest) GetReleaseAfterSpendConfs() uint32 {
 
 type LeaseOutputResponse struct {
 	state protoimpl.MessageState `protogen:"open.v1"`
-	// The absolute expiration of a time-controlled output lease represented as a
-	// unix timestamp. Confirmation-controlled leases return the stored value for
-	// compatibility but do not apply it.
+	//
+	//The absolute expiration of a time-controlled output lease represented as a
+	//unix timestamp. Confirmation-controlled leases return the stored value for
+	//compatibility but do not apply it.
 	Expiration uint64 `protobuf:"varint,1,opt,name=expiration,proto3" json:"expiration,omitempty"`
 	// The effective persisted spend maturity depth. A zero-depth renewal
 	// returns the retained non-zero depth of an existing
@@ -786,12 +831,14 @@ func (x *ReleaseOutputResponse) GetStatus() string {
 
 type KeyReq struct {
 	state protoimpl.MessageState `protogen:"open.v1"`
-	// Is the key finger print of the root pubkey that this request is targeting.
-	// This allows the WalletKit to possibly serve out keys for multiple HD chains
-	// via public derivation.
+	//
+	//Is the key finger print of the root pubkey that this request is targeting.
+	//This allows the WalletKit to possibly serve out keys for multiple HD chains
+	//via public derivation.
 	KeyFingerPrint int32 `protobuf:"varint,1,opt,name=key_finger_print,json=keyFingerPrint,proto3" json:"key_finger_print,omitempty"`
-	// The target key family to derive a key from. In other contexts, this is
-	// known as the "account".
+	//
+	//The target key family to derive a key from. In other contexts, this is
+	//known as the "account".
 	KeyFamily     int32 `protobuf:"varint,2,opt,name=key_family,json=keyFamily,proto3" json:"key_family,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
@@ -843,12 +890,15 @@ func (x *KeyReq) GetKeyFamily() int32 {
 
 type AddrRequest struct {
 	state protoimpl.MessageState `protogen:"open.v1"`
-	// The name of the account to retrieve the next address of. If empty, the
-	// default wallet account is used.
+	//
+	//The name of the account to retrieve the next address of. If empty, the
+	//default wallet account is used.
 	Account string `protobuf:"bytes,1,opt,name=account,proto3" json:"account,omitempty"`
-	// The type of address to derive.
+	//
+	//The type of address to derive.
 	Type AddressType `protobuf:"varint,2,opt,name=type,proto3,enum=walletrpc.AddressType" json:"type,omitempty"`
-	// Whether a change address should be derived.
+	//
+	//Whether a change address should be derived.
 	Change        bool `protobuf:"varint,3,opt,name=change,proto3" json:"change,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
@@ -907,7 +957,8 @@ func (x *AddrRequest) GetChange() bool {
 
 type AddrResponse struct {
 	state protoimpl.MessageState `protogen:"open.v1"`
-	// The address encoded using a bech32 format.
+	//
+	//The address encoded using a bech32 format.
 	Addr          string `protobuf:"bytes,1,opt,name=addr,proto3" json:"addr,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
@@ -956,26 +1007,31 @@ type Account struct {
 	Name string `protobuf:"bytes,1,opt,name=name,proto3" json:"name,omitempty"`
 	// The type of addresses the account supports.
 	AddressType AddressType `protobuf:"varint,2,opt,name=address_type,json=addressType,proto3,enum=walletrpc.AddressType" json:"address_type,omitempty"`
-	// The public key backing the account that all keys are derived from
-	// represented as an extended key. This will always be empty for the default
-	// imported account in which single public keys are imported into.
+	//
+	//The public key backing the account that all keys are derived from
+	//represented as an extended key. This will always be empty for the default
+	//imported account in which single public keys are imported into.
 	ExtendedPublicKey string `protobuf:"bytes,3,opt,name=extended_public_key,json=extendedPublicKey,proto3" json:"extended_public_key,omitempty"`
-	// The fingerprint of the root key from which the account public key was
-	// derived from. This will always be zero for the default imported account in
-	// which single public keys are imported into. The bytes are in big-endian
-	// order.
+	//
+	//The fingerprint of the root key from which the account public key was
+	//derived from. This will always be zero for the default imported account in
+	//which single public keys are imported into. The bytes are in big-endian
+	//order.
 	MasterKeyFingerprint []byte `protobuf:"bytes,4,opt,name=master_key_fingerprint,json=masterKeyFingerprint,proto3" json:"master_key_fingerprint,omitempty"`
-	// The derivation path corresponding to the account public key. This will
-	// always be empty for the default imported account in which single public keys
-	// are imported into.
+	//
+	//The derivation path corresponding to the account public key. This will
+	//always be empty for the default imported account in which single public keys
+	//are imported into.
 	DerivationPath string `protobuf:"bytes,5,opt,name=derivation_path,json=derivationPath,proto3" json:"derivation_path,omitempty"`
-	// The number of keys derived from the external branch of the account public
-	// key. This will always be zero for the default imported account in which
-	// single public keys are imported into.
+	//
+	//The number of keys derived from the external branch of the account public
+	//key. This will always be zero for the default imported account in which
+	//single public keys are imported into.
 	ExternalKeyCount uint32 `protobuf:"varint,6,opt,name=external_key_count,json=externalKeyCount,proto3" json:"external_key_count,omitempty"`
-	// The number of keys derived from the internal branch of the account public
-	// key. This will always be zero for the default imported account in which
-	// single public keys are imported into.
+	//
+	//The number of keys derived from the internal branch of the account public
+	//key. This will always be zero for the default imported account in which
+	//single public keys are imported into.
 	InternalKeyCount uint32 `protobuf:"varint,7,opt,name=internal_key_count,json=internalKeyCount,proto3" json:"internal_key_count,omitempty"`
 	// Whether the wallet stores private keys for the account.
 	WatchOnly     bool `protobuf:"varint,8,opt,name=watch_only,json=watchOnly,proto3" json:"watch_only,omitempty"`
@@ -1071,14 +1127,15 @@ func (x *Account) GetWatchOnly() bool {
 
 type AddressProperty struct {
 	state protoimpl.MessageState `protogen:"open.v1"`
-	// The address encoded using the appropriate format depending on the
-	// address type (base58, bech32, bech32m).
 	//
-	// Note that lnd's internal/custom keys for channels and other
-	// functionality are derived from the same scope. Since they
-	// aren't really used as addresses and will never have an
-	// on-chain balance, we'll show the public key instead (only if
-	// the show_custom_accounts flag is provided).
+	//The address encoded using the appropriate format depending on the
+	//address type (base58, bech32, bech32m).
+	//
+	//Note that lnd's internal/custom keys for channels and other
+	//functionality are derived from the same scope. Since they
+	//aren't really used as addresses and will never have an
+	//on-chain balance, we'll show the public key instead (only if
+	//the show_custom_accounts flag is provided).
 	Address string `protobuf:"bytes,1,opt,name=address,proto3" json:"address,omitempty"`
 	// Denotes if the address is a change address.
 	IsInternal bool `protobuf:"varint,2,opt,name=is_internal,json=isInternal,proto3" json:"is_internal,omitempty"`
@@ -1164,14 +1221,16 @@ type AccountWithAddresses struct {
 	Name string `protobuf:"bytes,1,opt,name=name,proto3" json:"name,omitempty"`
 	// The type of addresses the account supports.
 	AddressType AddressType `protobuf:"varint,2,opt,name=address_type,json=addressType,proto3,enum=walletrpc.AddressType" json:"address_type,omitempty"`
-	// The derivation path corresponding to the account public key. This will
-	// always be empty for the default imported account in which single public keys
-	// are imported into.
+	//
+	//The derivation path corresponding to the account public key. This will
+	//always be empty for the default imported account in which single public keys
+	//are imported into.
 	DerivationPath string `protobuf:"bytes,3,opt,name=derivation_path,json=derivationPath,proto3" json:"derivation_path,omitempty"`
-	// List of address, its type internal/external & balance.
-	// Note that the order of addresses will be random and not according to the
-	// derivation index, since that information is not stored by the underlying
-	// wallet.
+	//
+	//List of address, its type internal/external & balance.
+	//Note that the order of addresses will be random and not according to the
+	//derivation index, since that information is not stored by the underlying
+	//wallet.
 	Addresses     []*AddressProperty `protobuf:"bytes,4,rep,name=addresses,proto3" json:"addresses,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
@@ -1351,11 +1410,12 @@ type XCreateAccountRequest struct {
 	// HYBRID_NESTED_WITNESS_PUBKEY_HASH. Ask for that type explicitly if it
 	// is what you want.
 	AddressType AddressType `protobuf:"varint,2,opt,name=address_type,json=addressType,proto3,enum=walletrpc.AddressType" json:"address_type,omitempty"`
-	// Override the requirement for being in dev mode by setting this to true and
-	// confirming the user knows what they are doing: funds held in an account
-	// created here are not rediscovered by a seed-only restore, so recovering
-	// them requires having recorded the account's key scope and index and the
-	// number of addresses it issued.
+	//
+	//Override the requirement for being in dev mode by setting this to true and
+	//confirming the user knows what they are doing: funds held in an account
+	//created here are not rediscovered by a seed-only restore, so recovering
+	//them requires having recorded the account's key scope and index and the
+	//number of addresses it issued.
 	IKnowWhatIAmDoing bool `protobuf:"varint,3,opt,name=i_know_what_i_am_doing,json=iKnowWhatIAmDoing,proto3" json:"i_know_what_i_am_doing,omitempty"`
 	unknownFields     protoimpl.UnknownFields
 	sizeCache         protoimpl.SizeCache
@@ -1917,24 +1977,28 @@ type ImportAccountRequest struct {
 	state protoimpl.MessageState `protogen:"open.v1"`
 	// A name to identify the account with.
 	Name string `protobuf:"bytes,1,opt,name=name,proto3" json:"name,omitempty"`
-	// A public key that corresponds to a wallet account represented as an extended
-	// key. It must conform to a derivation path of the form
-	// m/purpose'/coin_type'/account'.
+	//
+	//A public key that corresponds to a wallet account represented as an extended
+	//key. It must conform to a derivation path of the form
+	//m/purpose'/coin_type'/account'.
 	ExtendedPublicKey string `protobuf:"bytes,2,opt,name=extended_public_key,json=extendedPublicKey,proto3" json:"extended_public_key,omitempty"`
-	// The fingerprint of the root key (also known as the key with derivation path
-	// m/) from which the account public key was derived from. This may be required
-	// by some hardware wallets for proper identification and signing. The bytes
-	// must be in big-endian order.
+	//
+	//The fingerprint of the root key (also known as the key with derivation path
+	//m/) from which the account public key was derived from. This may be required
+	//by some hardware wallets for proper identification and signing. The bytes
+	//must be in big-endian order.
 	MasterKeyFingerprint []byte `protobuf:"bytes,3,opt,name=master_key_fingerprint,json=masterKeyFingerprint,proto3" json:"master_key_fingerprint,omitempty"`
-	// An address type is only required when the extended account public key has a
-	// legacy version (xpub, tpub, etc.), such that the wallet cannot detect what
-	// address scheme it belongs to.
+	//
+	//An address type is only required when the extended account public key has a
+	//legacy version (xpub, tpub, etc.), such that the wallet cannot detect what
+	//address scheme it belongs to.
 	AddressType AddressType `protobuf:"varint,4,opt,name=address_type,json=addressType,proto3,enum=walletrpc.AddressType" json:"address_type,omitempty"`
-	// Whether a dry run should be attempted when importing the account. This
-	// serves as a way to confirm whether the account is being imported correctly
-	// by returning the first N addresses for the external and internal branches of
-	// the account. If these addresses match as expected, then it should be safe to
-	// import the account as is.
+	//
+	//Whether a dry run should be attempted when importing the account. This
+	//serves as a way to confirm whether the account is being imported correctly
+	//by returning the first N addresses for the external and internal branches of
+	//the account. If these addresses match as expected, then it should be safe to
+	//import the account as is.
 	DryRun        bool `protobuf:"varint,5,opt,name=dry_run,json=dryRun,proto3" json:"dry_run,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
@@ -2009,13 +2073,15 @@ type ImportAccountResponse struct {
 	state protoimpl.MessageState `protogen:"open.v1"`
 	// The details of the imported account.
 	Account *Account `protobuf:"bytes,1,opt,name=account,proto3" json:"account,omitempty"`
-	// The first N addresses that belong to the external branch of the account.
-	// The external branch is typically used for external non-change addresses.
-	// These are only returned if a dry run was specified within the request.
+	//
+	//The first N addresses that belong to the external branch of the account.
+	//The external branch is typically used for external non-change addresses.
+	//These are only returned if a dry run was specified within the request.
 	DryRunExternalAddrs []string `protobuf:"bytes,2,rep,name=dry_run_external_addrs,json=dryRunExternalAddrs,proto3" json:"dry_run_external_addrs,omitempty"`
-	// The first N addresses that belong to the internal branch of the account.
-	// The internal branch is typically used for change addresses. These are only
-	// returned if a dry run was specified within the request.
+	//
+	//The first N addresses that belong to the internal branch of the account.
+	//The internal branch is typically used for change addresses. These are only
+	//returned if a dry run was specified within the request.
 	DryRunInternalAddrs []string `protobuf:"bytes,3,rep,name=dry_run_internal_addrs,json=dryRunInternalAddrs,proto3" json:"dry_run_internal_addrs,omitempty"`
 	unknownFields       protoimpl.UnknownFields
 	sizeCache           protoimpl.SizeCache
@@ -2173,7 +2239,8 @@ func (x *ImportPublicKeyResponse) GetStatus() string {
 
 type ImportTapscriptRequest struct {
 	state protoimpl.MessageState `protogen:"open.v1"`
-	// The internal public key, serialized as 32-byte x-only public key.
+	//
+	//The internal public key, serialized as 32-byte x-only public key.
 	InternalPublicKey []byte `protobuf:"bytes,1,opt,name=internal_public_key,json=internalPublicKey,proto3" json:"internal_public_key,omitempty"`
 	// Types that are valid to be assigned to Script:
 	//
@@ -2271,30 +2338,34 @@ type isImportTapscriptRequest_Script interface {
 }
 
 type ImportTapscriptRequest_FullTree struct {
-	// The full script tree with all individual leaves is known and the root
-	// hash can be constructed from the full tree directly.
+	//
+	//The full script tree with all individual leaves is known and the root
+	//hash can be constructed from the full tree directly.
 	FullTree *TapscriptFullTree `protobuf:"bytes,2,opt,name=full_tree,json=fullTree,proto3,oneof"`
 }
 
 type ImportTapscriptRequest_PartialReveal struct {
-	// Only a single script leaf is known. To construct the root hash, the full
-	// inclusion proof must also be provided.
+	//
+	//Only a single script leaf is known. To construct the root hash, the full
+	//inclusion proof must also be provided.
 	PartialReveal *TapscriptPartialReveal `protobuf:"bytes,3,opt,name=partial_reveal,json=partialReveal,proto3,oneof"`
 }
 
 type ImportTapscriptRequest_RootHashOnly struct {
-	// Only the root hash of the Taproot script tree (or other form of Taproot
-	// commitment) is known.
+	//
+	//Only the root hash of the Taproot script tree (or other form of Taproot
+	//commitment) is known.
 	RootHashOnly []byte `protobuf:"bytes,4,opt,name=root_hash_only,json=rootHashOnly,proto3,oneof"`
 }
 
 type ImportTapscriptRequest_FullKeyOnly struct {
-	// Only the final, tweaked Taproot key is known and no additional
-	// information about the internal key or type of tweak that was used to
-	// derive it. When this is set, the wallet treats the key in
-	// internal_public_key as the Taproot key directly. This can be useful for
-	// tracking arbitrary Taproot outputs without the goal of ever being able
-	// to spend from them through the internal wallet.
+	//
+	//Only the final, tweaked Taproot key is known and no additional
+	//information about the internal key or type of tweak that was used to
+	//derive it. When this is set, the wallet treats the key in
+	//internal_public_key as the Taproot key directly. This can be useful for
+	//tracking arbitrary Taproot outputs without the goal of ever being able
+	//to spend from them through the internal wallet.
 	FullKeyOnly bool `protobuf:"varint,5,opt,name=full_key_only,json=fullKeyOnly,proto3,oneof"`
 }
 
@@ -2308,7 +2379,8 @@ func (*ImportTapscriptRequest_FullKeyOnly) isImportTapscriptRequest_Script() {}
 
 type TapscriptFullTree struct {
 	state protoimpl.MessageState `protogen:"open.v1"`
-	// The complete, ordered list of all tap leaves of the tree.
+	//
+	//The complete, ordered list of all tap leaves of the tree.
 	AllLeaves     []*TapLeaf `protobuf:"bytes,1,rep,name=all_leaves,json=allLeaves,proto3" json:"all_leaves,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
@@ -2464,8 +2536,9 @@ func (x *TapscriptPartialReveal) GetFullInclusionProof() []byte {
 
 type ImportTapscriptResponse struct {
 	state protoimpl.MessageState `protogen:"open.v1"`
-	// The resulting pay-to-Taproot address that represents the imported internal
-	// key with the script committed to it.
+	//
+	//The resulting pay-to-Taproot address that represents the imported internal
+	//key with the script committed to it.
 	P2TrAddress   string `protobuf:"bytes,1,opt,name=p2tr_address,json=p2trAddress,proto3" json:"p2tr_address,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
@@ -2510,11 +2583,13 @@ func (x *ImportTapscriptResponse) GetP2TrAddress() string {
 
 type Transaction struct {
 	state protoimpl.MessageState `protogen:"open.v1"`
-	// The raw serialized transaction. Despite the field name, this does need to be
-	// specified in raw bytes (or base64 encoded when using REST) and not in hex.
-	// To not break existing software, the field can't simply be renamed.
+	//
+	//The raw serialized transaction. Despite the field name, this does need to be
+	//specified in raw bytes (or base64 encoded when using REST) and not in hex.
+	//To not break existing software, the field can't simply be renamed.
 	TxHex []byte `protobuf:"bytes,1,opt,name=tx_hex,json=txHex,proto3" json:"tx_hex,omitempty"`
-	// An optional label to save with the transaction. Limited to 500 characters.
+	//
+	//An optional label to save with the transaction. Limited to 500 characters.
 	Label         string `protobuf:"bytes,2,opt,name=label,proto3" json:"label,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
@@ -2566,11 +2641,12 @@ func (x *Transaction) GetLabel() string {
 
 type PublishResponse struct {
 	state protoimpl.MessageState `protogen:"open.v1"`
-	// If blank, then no error occurred and the transaction was successfully
-	// published. If not the empty string, then a string representation of the
-	// broadcast error.
 	//
-	// TODO(roasbeef): map to a proper enum type
+	//If blank, then no error occurred and the transaction was successfully
+	//published. If not the empty string, then a string representation of the
+	//broadcast error.
+	//
+	//TODO(roasbeef): map to a proper enum type
 	PublishError  string `protobuf:"bytes,1,opt,name=publish_error,json=publishError,proto3" json:"publish_error,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
@@ -2615,13 +2691,15 @@ func (x *PublishResponse) GetPublishError() string {
 
 type SubmitPackageRequest struct {
 	state protoimpl.MessageState `protogen:"open.v1"`
-	// The raw serialized transactions forming the package, topologically sorted
-	// with unconfirmed parents first and the child last.
+	//
+	//The raw serialized transactions forming the package, topologically sorted
+	//with unconfirmed parents first and the child last.
 	RawTxs [][]byte `protobuf:"bytes,1,rep,name=raw_txs,json=rawTxs,proto3" json:"raw_txs,omitempty"`
-	// Optional per-transaction fee-rate ceiling in sat/vByte (mapped onto the
-	// submitpackage maxfeerate). When unset the node's default is used; an
-	// explicit 0 means no limit, which is required for a CPFP child whose
-	// standalone feerate is high.
+	//
+	//Optional per-transaction fee-rate ceiling in sat/vByte (mapped onto the
+	//submitpackage maxfeerate). When unset the node's default is used; an
+	//explicit 0 means no limit, which is required for a CPFP child whose
+	//standalone feerate is high.
 	SatPerVbyte   *uint64 `protobuf:"varint,2,opt,name=sat_per_vbyte,json=satPerVbyte,proto3,oneof" json:"sat_per_vbyte,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
@@ -2677,9 +2755,10 @@ type SubmitPackageTxResult struct {
 	Txid string `protobuf:"bytes,1,opt,name=txid,proto3" json:"txid,omitempty"`
 	// If non-empty, the reason this transaction was rejected.
 	Error string `protobuf:"bytes,2,opt,name=error,proto3" json:"error,omitempty"`
-	// If non-empty, the wtxid (in hex) of a transaction with the same txid but a
-	// different witness that was already in the mempool; the submitted
-	// transaction was ignored as a duplicate (witness replacement).
+	//
+	//If non-empty, the wtxid (in hex) of a transaction with the same txid but a
+	//different witness that was already in the mempool; the submitted
+	//transaction was ignored as a duplicate (witness replacement).
 	OtherWtxid    string `protobuf:"bytes,3,opt,name=other_wtxid,json=otherWtxid,proto3" json:"other_wtxid,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
@@ -2846,10 +2925,12 @@ func (x *RemoveTransactionResponse) GetStatus() string {
 
 type SendOutputsRequest struct {
 	state protoimpl.MessageState `protogen:"open.v1"`
-	// The number of satoshis per kilo weight that should be used when crafting
-	// this transaction.
+	//
+	//The number of satoshis per kilo weight that should be used when crafting
+	//this transaction.
 	SatPerKw int64 `protobuf:"varint,1,opt,name=sat_per_kw,json=satPerKw,proto3" json:"sat_per_kw,omitempty"`
-	// A slice of the outputs that should be created in the transaction produced.
+	//
+	//A slice of the outputs that should be created in the transaction produced.
 	Outputs []*signrpc.TxOut `protobuf:"bytes,2,rep,name=outputs,proto3" json:"outputs,omitempty"`
 	// An optional label for the transaction, limited to 500 characters.
 	Label string `protobuf:"bytes,3,opt,name=label,proto3" json:"label,omitempty"`
@@ -2938,7 +3019,8 @@ func (x *SendOutputsRequest) GetCoinSelectionStrategy() lnrpc.CoinSelectionStrat
 
 type SendOutputsResponse struct {
 	state protoimpl.MessageState `protogen:"open.v1"`
-	// The serialized transaction sent out on the network.
+	//
+	//The serialized transaction sent out on the network.
 	RawTx         []byte `protobuf:"bytes,1,opt,name=raw_tx,json=rawTx,proto3" json:"raw_tx,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
@@ -2983,7 +3065,8 @@ func (x *SendOutputsResponse) GetRawTx() []byte {
 
 type EstimateFeeRequest struct {
 	state protoimpl.MessageState `protogen:"open.v1"`
-	// The number of confirmations to shoot for when estimating the fee.
+	//
+	//The number of confirmations to shoot for when estimating the fee.
 	ConfTarget    int32 `protobuf:"varint,1,opt,name=conf_target,json=confTarget,proto3" json:"conf_target,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
@@ -3028,8 +3111,9 @@ func (x *EstimateFeeRequest) GetConfTarget() int32 {
 
 type EstimateFeeResponse struct {
 	state protoimpl.MessageState `protogen:"open.v1"`
-	// The amount of satoshis per kw that should be used in order to reach the
-	// confirmation target in the request.
+	//
+	//The amount of satoshis per kw that should be used in order to reach the
+	//confirmation target in the request.
 	SatPerKw int64 `protobuf:"varint,1,opt,name=sat_per_kw,json=satPerKw,proto3" json:"sat_per_kw,omitempty"`
 	// The current minimum relay fee based on our chain backend in sat/kw.
 	MinRelayFeeSatPerKw int64 `protobuf:"varint,2,opt,name=min_relay_fee_sat_per_kw,json=minRelayFeeSatPerKw,proto3" json:"min_relay_fee_sat_per_kw,omitempty"`
@@ -3089,30 +3173,34 @@ type PendingSweep struct {
 	WitnessType WitnessType `protobuf:"varint,2,opt,name=witness_type,json=witnessType,proto3,enum=walletrpc.WitnessType" json:"witness_type,omitempty"`
 	// The value of the output we're attempting to sweep.
 	AmountSat uint32 `protobuf:"varint,3,opt,name=amount_sat,json=amountSat,proto3" json:"amount_sat,omitempty"`
-	// Deprecated, use sat_per_vbyte.
-	// The fee rate we'll use to sweep the output, expressed in sat/vbyte. The fee
-	// rate is only determined once a sweeping transaction for the output is
-	// created, so it's possible for this to be 0 before this.
+	//
+	//Deprecated, use sat_per_vbyte.
+	//The fee rate we'll use to sweep the output, expressed in sat/vbyte. The fee
+	//rate is only determined once a sweeping transaction for the output is
+	//created, so it's possible for this to be 0 before this.
 	//
 	// Deprecated: Marked as deprecated in walletrpc/walletkit.proto.
 	SatPerByte uint32 `protobuf:"varint,4,opt,name=sat_per_byte,json=satPerByte,proto3" json:"sat_per_byte,omitempty"`
 	// The number of broadcast attempts we've made to sweep the output.
 	BroadcastAttempts uint32 `protobuf:"varint,5,opt,name=broadcast_attempts,json=broadcastAttempts,proto3" json:"broadcast_attempts,omitempty"`
-	// Deprecated.
-	// The next height of the chain at which we'll attempt to broadcast the
-	// sweep transaction of the output.
+	//
+	//Deprecated.
+	//The next height of the chain at which we'll attempt to broadcast the
+	//sweep transaction of the output.
 	//
 	// Deprecated: Marked as deprecated in walletrpc/walletkit.proto.
 	NextBroadcastHeight uint32 `protobuf:"varint,6,opt,name=next_broadcast_height,json=nextBroadcastHeight,proto3" json:"next_broadcast_height,omitempty"`
-	// Deprecated, use immediate.
-	// Whether this input must be force-swept. This means that it is swept
-	// immediately.
+	//
+	//Deprecated, use immediate.
+	//Whether this input must be force-swept. This means that it is swept
+	//immediately.
 	//
 	// Deprecated: Marked as deprecated in walletrpc/walletkit.proto.
 	Force bool `protobuf:"varint,7,opt,name=force,proto3" json:"force,omitempty"`
-	// Deprecated, use deadline.
-	// The requested confirmation target for this output, which is the deadline
-	// used by the sweeper.
+	//
+	//Deprecated, use deadline.
+	//The requested confirmation target for this output, which is the deadline
+	//used by the sweeper.
 	//
 	// Deprecated: Marked as deprecated in walletrpc/walletkit.proto.
 	RequestedConfTarget uint32 `protobuf:"varint,8,opt,name=requested_conf_target,json=requestedConfTarget,proto3" json:"requested_conf_target,omitempty"`
@@ -3121,22 +3209,27 @@ type PendingSweep struct {
 	//
 	// Deprecated: Marked as deprecated in walletrpc/walletkit.proto.
 	RequestedSatPerByte uint32 `protobuf:"varint,9,opt,name=requested_sat_per_byte,json=requestedSatPerByte,proto3" json:"requested_sat_per_byte,omitempty"`
-	// The current fee rate we'll use to sweep the output, expressed in sat/vbyte.
-	// The fee rate is only determined once a sweeping transaction for the output
-	// is created, so it's possible for this to be 0 before this.
+	//
+	//The current fee rate we'll use to sweep the output, expressed in sat/vbyte.
+	//The fee rate is only determined once a sweeping transaction for the output
+	//is created, so it's possible for this to be 0 before this.
 	SatPerVbyte uint64 `protobuf:"varint,10,opt,name=sat_per_vbyte,json=satPerVbyte,proto3" json:"sat_per_vbyte,omitempty"`
 	// The requested starting fee rate, expressed in sat/vbyte, for this
 	// output. When not requested, this field will be 0.
 	RequestedSatPerVbyte uint64 `protobuf:"varint,11,opt,name=requested_sat_per_vbyte,json=requestedSatPerVbyte,proto3" json:"requested_sat_per_vbyte,omitempty"`
-	// Whether this input will be swept immediately.
+	//
+	//Whether this input will be swept immediately.
 	Immediate bool `protobuf:"varint,12,opt,name=immediate,proto3" json:"immediate,omitempty"`
-	// The budget for this sweep, expressed in satoshis. This is the maximum amount
-	// that can be spent as fees to sweep this output.
+	//
+	//The budget for this sweep, expressed in satoshis. This is the maximum amount
+	//that can be spent as fees to sweep this output.
 	Budget uint64 `protobuf:"varint,13,opt,name=budget,proto3" json:"budget,omitempty"`
-	// The deadline height used for this output when perform fee bumping.
+	//
+	//The deadline height used for this output when perform fee bumping.
 	DeadlineHeight uint32 `protobuf:"varint,14,opt,name=deadline_height,json=deadlineHeight,proto3" json:"deadline_height,omitempty"`
-	// The block height which the input's locktime will expire at. Zero if the
-	// input has no locktime.
+	//
+	//The block height which the input's locktime will expire at. Zero if the
+	//input has no locktime.
 	MaturityHeight uint32 `protobuf:"varint,15,opt,name=maturity_height,json=maturityHeight,proto3" json:"maturity_height,omitempty"`
 	unknownFields  protoimpl.UnknownFields
 	sizeCache      protoimpl.SizeCache
@@ -3320,7 +3413,8 @@ func (*PendingSweepsRequest) Descriptor() ([]byte, []int) {
 
 type PendingSweepsResponse struct {
 	state protoimpl.MessageState `protogen:"open.v1"`
-	// The set of outputs currently being swept by lnd's central batching engine.
+	//
+	//The set of outputs currently being swept by lnd's central batching engine.
 	PendingSweeps []*PendingSweep `protobuf:"bytes,1,rep,name=pending_sweeps,json=pendingSweeps,proto3" json:"pending_sweeps,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
@@ -3370,32 +3464,37 @@ type BumpFeeRequest struct {
 	// Optional. The conf target the underlying fee estimator will use to
 	// estimate the starting fee rate for the fee function.
 	TargetConf uint32 `protobuf:"varint,2,opt,name=target_conf,json=targetConf,proto3" json:"target_conf,omitempty"`
-	// Deprecated, use sat_per_vbyte.
-	// The fee rate, expressed in sat/vbyte, that should be used to spend the input
-	// with.
+	//
+	//Deprecated, use sat_per_vbyte.
+	//The fee rate, expressed in sat/vbyte, that should be used to spend the input
+	//with.
 	//
 	// Deprecated: Marked as deprecated in walletrpc/walletkit.proto.
 	SatPerByte uint32 `protobuf:"varint,3,opt,name=sat_per_byte,json=satPerByte,proto3" json:"sat_per_byte,omitempty"`
-	// Deprecated, use immediate.
-	// Whether this input must be force-swept. This means that it is swept
-	// immediately.
+	//
+	//Deprecated, use immediate.
+	//Whether this input must be force-swept. This means that it is swept
+	//immediately.
 	//
 	// Deprecated: Marked as deprecated in walletrpc/walletkit.proto.
 	Force bool `protobuf:"varint,4,opt,name=force,proto3" json:"force,omitempty"`
-	// Optional. The starting fee rate, expressed in sat/vbyte, that will be used
-	// to spend the input with initially. This value will be used by the sweeper's
-	// fee function as its starting fee rate. When not set, the sweeper will use
-	// the estimated fee rate using the `target_conf` as the starting fee rate.
+	//
+	//Optional. The starting fee rate, expressed in sat/vbyte, that will be used
+	//to spend the input with initially. This value will be used by the sweeper's
+	//fee function as its starting fee rate. When not set, the sweeper will use
+	//the estimated fee rate using the `target_conf` as the starting fee rate.
 	SatPerVbyte uint64 `protobuf:"varint,5,opt,name=sat_per_vbyte,json=satPerVbyte,proto3" json:"sat_per_vbyte,omitempty"`
-	// Optional. Whether this input will be swept immediately. When set to true,
-	// the sweeper will sweep this input without waiting for the next block.
+	//
+	//Optional. Whether this input will be swept immediately. When set to true,
+	//the sweeper will sweep this input without waiting for the next block.
 	Immediate bool `protobuf:"varint,6,opt,name=immediate,proto3" json:"immediate,omitempty"`
-	// Optional. The max amount in sats that can be used as the fees. Setting this
-	// value greater than the input's value may result in CPFP - one or more wallet
-	// utxos will be used to pay the fees specified by the budget. If not set, for
-	// new inputs, by default 50% of the input's value will be treated as the
-	// budget for fee bumping; for existing inputs, their current budgets will be
-	// retained.
+	//
+	//Optional. The max amount in sats that can be used as the fees. Setting this
+	//value greater than the input's value may result in CPFP - one or more wallet
+	//utxos will be used to pay the fees specified by the budget. If not set, for
+	//new inputs, by default 50% of the input's value will be treated as the
+	//budget for fee bumping; for existing inputs, their current budgets will be
+	//retained.
 	Budget uint64 `protobuf:"varint,7,opt,name=budget,proto3" json:"budget,omitempty"`
 	// Optional. The deadline delta in number of blocks that the output
 	// should be spent within. This translates internally to the width of the
@@ -3548,21 +3647,24 @@ type BumpForceCloseFeeRequest struct {
 	// should be spent within to bump the closing transaction. When the
 	// deadline is reached, ALL the budget will be spent as fees
 	DeadlineDelta uint32 `protobuf:"varint,2,opt,name=deadline_delta,json=deadlineDelta,proto3" json:"deadline_delta,omitempty"`
-	// Optional. The starting fee rate, expressed in sat/vbyte. This value will be
-	// used by the sweeper's fee function as its starting fee rate. When not set,
-	// the sweeper will use the estimated fee rate using the target_conf as the
-	// starting fee rate.
+	//
+	//Optional. The starting fee rate, expressed in sat/vbyte. This value will be
+	//used by the sweeper's fee function as its starting fee rate. When not set,
+	//the sweeper will use the estimated fee rate using the target_conf as the
+	//starting fee rate.
 	StartingFeerate uint64 `protobuf:"varint,3,opt,name=starting_feerate,json=startingFeerate,proto3" json:"starting_feerate,omitempty"`
-	// Optional. Whether this cpfp transaction will be triggered immediately. When
-	// set to true, the sweeper will consider all currently registered sweeps and
-	// trigger new batch transactions including the sweeping of the anchor output
-	// related to the selected force close transaction.
+	//
+	//Optional. Whether this cpfp transaction will be triggered immediately. When
+	//set to true, the sweeper will consider all currently registered sweeps and
+	//trigger new batch transactions including the sweeping of the anchor output
+	//related to the selected force close transaction.
 	Immediate bool `protobuf:"varint,4,opt,name=immediate,proto3" json:"immediate,omitempty"`
-	// Optional. The max amount in sats that can be used as the fees. For already
-	// registered anchor outputs if not set explicitly the old value will be used.
-	// For channel force closes which have no HTLCs in their commitment transaction
-	// this value has to be set to an appropriate amount to pay for the cpfp
-	// transaction of the force closed channel otherwise the fee bumping will fail.
+	//
+	//Optional. The max amount in sats that can be used as the fees. For already
+	//registered anchor outputs if not set explicitly the old value will be used.
+	//For channel force closes which have no HTLCs in their commitment transaction
+	//this value has to be set to an appropriate amount to pay for the cpfp
+	//transaction of the force closed channel otherwise the fee bumping will fail.
 	Budget uint64 `protobuf:"varint,5,opt,name=budget,proto3" json:"budget,omitempty"`
 	// Optional. The conf target the underlying fee estimator will use to
 	// estimate the starting fee rate for the fee function.
@@ -3690,13 +3792,15 @@ func (x *BumpForceCloseFeeResponse) GetStatus() string {
 
 type ListSweepsRequest struct {
 	state protoimpl.MessageState `protogen:"open.v1"`
-	// Retrieve the full sweep transaction details. If false, only the sweep txids
-	// will be returned. Note that some sweeps that LND publishes will have been
-	// replaced-by-fee, so will not be included in this output.
+	//
+	//Retrieve the full sweep transaction details. If false, only the sweep txids
+	//will be returned. Note that some sweeps that LND publishes will have been
+	//replaced-by-fee, so will not be included in this output.
 	Verbose bool `protobuf:"varint,1,opt,name=verbose,proto3" json:"verbose,omitempty"`
-	// The start height to use when fetching sweeps. If not specified (0), the
-	// result will start from the earliest sweep. If set to -1 the result will
-	// only include unconfirmed sweeps (at the time of the call).
+	//
+	//The start height to use when fetching sweeps. If not specified (0), the
+	//result will start from the earliest sweep. If set to -1 the result will
+	//only include unconfirmed sweeps (at the time of the call).
 	StartHeight   int32 `protobuf:"varint,2,opt,name=start_height,json=startHeight,proto3" json:"start_height,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
@@ -3951,8 +4055,9 @@ type FundPsbtRequest struct {
 	//	*FundPsbtRequest_SatPerVbyte
 	//	*FundPsbtRequest_SatPerKw
 	Fees isFundPsbtRequest_Fees `protobuf_oneof:"fees"`
-	// The name of the account to fund the PSBT with. If empty, the default wallet
-	// account is used.
+	//
+	//The name of the account to fund the PSBT with. If empty, the default wallet
+	//account is used.
 	Account string `protobuf:"bytes,5,opt,name=account,proto3" json:"account,omitempty"`
 	// The minimum number of confirmations each one of your outputs used for
 	// the transaction must satisfy.
@@ -4155,39 +4260,42 @@ type isFundPsbtRequest_Template interface {
 }
 
 type FundPsbtRequest_Psbt struct {
-	// Use an existing PSBT packet as the template for the funded PSBT.
 	//
-	// The packet must contain at least one non-dust output. If one or more
-	// inputs are specified, no coin selection is performed. In that case every
-	// input must be an UTXO known to the wallet that has not been locked
-	// before. The sum of all inputs must be sufficiently greater than the sum
-	// of all outputs to pay a miner fee with the specified fee rate. A change
-	// output is added to the PSBT if necessary.
+	//Use an existing PSBT packet as the template for the funded PSBT.
+	//
+	//The packet must contain at least one non-dust output. If one or more
+	//inputs are specified, no coin selection is performed. In that case every
+	//input must be an UTXO known to the wallet that has not been locked
+	//before. The sum of all inputs must be sufficiently greater than the sum
+	//of all outputs to pay a miner fee with the specified fee rate. A change
+	//output is added to the PSBT if necessary.
 	Psbt []byte `protobuf:"bytes,1,opt,name=psbt,proto3,oneof"`
 }
 
 type FundPsbtRequest_Raw struct {
-	// Use the outputs and optional inputs from this raw template.
+	//
+	//Use the outputs and optional inputs from this raw template.
 	Raw *TxTemplate `protobuf:"bytes,2,opt,name=raw,proto3,oneof"`
 }
 
 type FundPsbtRequest_CoinSelect struct {
-	// Use an existing PSBT packet as the template for the funded PSBT.
 	//
-	// The difference to the pure PSBT template above is that coin selection is
-	// performed even if inputs are specified. The output amounts are summed up
-	// and used as the target amount for coin selection. A change output must
-	// either already exist in the PSBT and be marked as such, otherwise a new
-	// change output of the specified output type will be added. Any inputs
-	// already specified in the PSBT must already be locked (if they belong to
-	// this node), only newly added inputs will be locked by this RPC.
+	//Use an existing PSBT packet as the template for the funded PSBT.
 	//
-	// In case the sum of the already provided inputs exceeds the required
-	// output amount, no new coins are selected. Instead only the fee and
-	// change amount calculation is performed (e.g. a change output is added if
-	// requested or the change is added to the specified existing change
-	// output, given there is any non-dust change). This can be identified by
-	// the returned locked UTXOs being empty.
+	//The difference to the pure PSBT template above is that coin selection is
+	//performed even if inputs are specified. The output amounts are summed up
+	//and used as the target amount for coin selection. A change output must
+	//either already exist in the PSBT and be marked as such, otherwise a new
+	//change output of the specified output type will be added. Any inputs
+	//already specified in the PSBT must already be locked (if they belong to
+	//this node), only newly added inputs will be locked by this RPC.
+	//
+	//In case the sum of the already provided inputs exceeds the required
+	//output amount, no new coins are selected. Instead only the fee and
+	//change amount calculation is performed (e.g. a change output is added if
+	//requested or the change is added to the specified existing change
+	//output, given there is any non-dust change). This can be identified by
+	//the returned locked UTXOs being empty.
 	CoinSelect *PsbtCoinSelect `protobuf:"bytes,9,opt,name=coin_select,json=coinSelect,proto3,oneof"`
 }
 
@@ -4202,19 +4310,22 @@ type isFundPsbtRequest_Fees interface {
 }
 
 type FundPsbtRequest_TargetConf struct {
-	// The target number of blocks that the transaction should be confirmed in.
+	//
+	//The target number of blocks that the transaction should be confirmed in.
 	TargetConf uint32 `protobuf:"varint,3,opt,name=target_conf,json=targetConf,proto3,oneof"`
 }
 
 type FundPsbtRequest_SatPerVbyte struct {
-	// The fee rate, expressed in sat/vbyte, that should be used to spend the
-	// input with.
+	//
+	//The fee rate, expressed in sat/vbyte, that should be used to spend the
+	//input with.
 	SatPerVbyte uint64 `protobuf:"varint,4,opt,name=sat_per_vbyte,json=satPerVbyte,proto3,oneof"`
 }
 
 type FundPsbtRequest_SatPerKw struct {
-	// The fee rate, expressed in sat/kWU, that should be used to spend the
-	// input with.
+	//
+	//The fee rate, expressed in sat/kWU, that should be used to spend the
+	//input with.
 	SatPerKw uint64 `protobuf:"varint,11,opt,name=sat_per_kw,json=satPerKw,proto3,oneof"`
 }
 
@@ -4226,13 +4337,16 @@ func (*FundPsbtRequest_SatPerKw) isFundPsbtRequest_Fees() {}
 
 type FundPsbtResponse struct {
 	state protoimpl.MessageState `protogen:"open.v1"`
-	// The funded but not yet signed PSBT packet.
+	//
+	//The funded but not yet signed PSBT packet.
 	FundedPsbt []byte `protobuf:"bytes,1,opt,name=funded_psbt,json=fundedPsbt,proto3" json:"funded_psbt,omitempty"`
-	// The index of the added change output or -1 if no change was left over.
+	//
+	//The index of the added change output or -1 if no change was left over.
 	ChangeOutputIndex int32 `protobuf:"varint,2,opt,name=change_output_index,json=changeOutputIndex,proto3" json:"change_output_index,omitempty"`
-	// The list of lock leases that were acquired for the inputs in the funded PSBT
-	// packet. Only inputs added to the PSBT by this RPC are locked, inputs that
-	// were already present in the PSBT are not locked.
+	//
+	//The list of lock leases that were acquired for the inputs in the funded PSBT
+	//packet. Only inputs added to the PSBT by this RPC are locked, inputs that
+	//were already present in the PSBT are not locked.
 	LockedUtxos   []*UtxoLease `protobuf:"bytes,3,rep,name=locked_utxos,json=lockedUtxos,proto3" json:"locked_utxos,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
@@ -4291,15 +4405,17 @@ func (x *FundPsbtResponse) GetLockedUtxos() []*UtxoLease {
 
 type TxTemplate struct {
 	state protoimpl.MessageState `protogen:"open.v1"`
-	// An optional list of inputs to use. Every input must be an UTXO known to the
-	// wallet that has not been locked before. The sum of all inputs must be
-	// sufficiently greater than the sum of all outputs to pay a miner fee with the
-	// fee rate specified in the parent message.
 	//
-	// If no inputs are specified, coin selection will be performed instead and
-	// inputs of sufficient value will be added to the resulting PSBT.
+	//An optional list of inputs to use. Every input must be an UTXO known to the
+	//wallet that has not been locked before. The sum of all inputs must be
+	//sufficiently greater than the sum of all outputs to pay a miner fee with the
+	//fee rate specified in the parent message.
+	//
+	//If no inputs are specified, coin selection will be performed instead and
+	//inputs of sufficient value will be added to the resulting PSBT.
 	Inputs []*lnrpc.OutPoint `protobuf:"bytes,1,rep,name=inputs,proto3" json:"inputs,omitempty"`
-	// A map of all addresses and the amounts to send to in the funded PSBT.
+	//
+	//A map of all addresses and the amounts to send to in the funded PSBT.
 	Outputs       map[string]uint64 `protobuf:"bytes,2,rep,name=outputs,proto3" json:"outputs,omitempty" protobuf_key:"bytes,1,opt,name=key" protobuf_val:"varint,2,opt,name=value"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
@@ -4351,15 +4467,16 @@ func (x *TxTemplate) GetOutputs() map[string]uint64 {
 
 type PsbtCoinSelect struct {
 	state protoimpl.MessageState `protogen:"open.v1"`
-	// The template to use for the funded PSBT. The template must contain at least
-	// one non-dust output. The amount to be funded is calculated by summing up the
-	// amounts of all outputs in the template, subtracting all the input values of
-	// the already specified inputs. The change value is added to the output that
-	// is marked as such (or a new change output is added if none is marked). For
-	// the input amount calculation to be correct, the template must have the
-	// WitnessUtxo field set for all inputs. Any inputs already specified in the
-	// PSBT must already be locked (if they belong to this node), only newly added
-	// inputs will be locked by this RPC.
+	//
+	//The template to use for the funded PSBT. The template must contain at least
+	//one non-dust output. The amount to be funded is calculated by summing up the
+	//amounts of all outputs in the template, subtracting all the input values of
+	//the already specified inputs. The change value is added to the output that
+	//is marked as such (or a new change output is added if none is marked). For
+	//the input amount calculation to be correct, the template must have the
+	//WitnessUtxo field set for all inputs. Any inputs already specified in the
+	//PSBT must already be locked (if they belong to this node), only newly added
+	//inputs will be locked by this RPC.
 	Psbt []byte `protobuf:"bytes,1,opt,name=psbt,proto3" json:"psbt,omitempty"`
 	// Types that are valid to be assigned to ChangeOutput:
 	//
@@ -4437,17 +4554,19 @@ type isPsbtCoinSelect_ChangeOutput interface {
 }
 
 type PsbtCoinSelect_ExistingOutputIndex struct {
-	// Use the existing output within the template PSBT with the specified
-	// index as the change output. Any leftover change will be added to the
-	// already specified amount of that output. To add a new change output to
-	// the PSBT, set the "add" field below instead. The type of change output
-	// added is defined by change_type in the parent message.
+	//
+	//Use the existing output within the template PSBT with the specified
+	//index as the change output. Any leftover change will be added to the
+	//already specified amount of that output. To add a new change output to
+	//the PSBT, set the "add" field below instead. The type of change output
+	//added is defined by change_type in the parent message.
 	ExistingOutputIndex int32 `protobuf:"varint,2,opt,name=existing_output_index,json=existingOutputIndex,proto3,oneof"`
 }
 
 type PsbtCoinSelect_Add struct {
-	// Add a new change output to the PSBT using the change_type specified in
-	// the parent message.
+	//
+	//Add a new change output to the PSBT using the change_type specified in
+	//the parent message.
 	Add bool `protobuf:"varint,3,opt,name=add,proto3,oneof"`
 }
 
@@ -4457,17 +4576,21 @@ func (*PsbtCoinSelect_Add) isPsbtCoinSelect_ChangeOutput() {}
 
 type UtxoLease struct {
 	state protoimpl.MessageState `protogen:"open.v1"`
-	// A 32 byte random ID that identifies the lease.
+	//
+	//A 32 byte random ID that identifies the lease.
 	Id []byte `protobuf:"bytes,1,opt,name=id,proto3" json:"id,omitempty"`
 	// The identifying outpoint of the output being leased.
 	Outpoint *lnrpc.OutPoint `protobuf:"bytes,2,opt,name=outpoint,proto3" json:"outpoint,omitempty"`
-	// The absolute expiration of a time-controlled output lease represented as a
-	// unix timestamp. Confirmation-controlled leases retain this value for
-	// compatibility but do not apply it.
+	//
+	//The absolute expiration of a time-controlled output lease represented as a
+	//unix timestamp. Confirmation-controlled leases retain this value for
+	//compatibility but do not apply it.
 	Expiration uint64 `protobuf:"varint,3,opt,name=expiration,proto3" json:"expiration,omitempty"`
-	// The public key script of the leased output.
+	//
+	//The public key script of the leased output.
 	PkScript []byte `protobuf:"bytes,4,opt,name=pk_script,json=pkScript,proto3" json:"pk_script,omitempty"`
-	// The value of the leased output in satoshis.
+	//
+	//The value of the leased output in satoshis.
 	Value uint64 `protobuf:"varint,5,opt,name=value,proto3" json:"value,omitempty"`
 	// The spend maturity depth recorded for this lease. FundPsbt returns it
 	// only after the wallet successfully applies the requested option.
@@ -4563,8 +4686,9 @@ func (x *UtxoLease) GetConfirmedSpendHeight() int32 {
 
 type SignPsbtRequest struct {
 	state protoimpl.MessageState `protogen:"open.v1"`
-	// The PSBT that should be signed. The PSBT must contain all required inputs,
-	// outputs, UTXO data and custom fields required to identify the signing key.
+	//
+	//The PSBT that should be signed. The PSBT must contain all required inputs,
+	//outputs, UTXO data and custom fields required to identify the signing key.
 	FundedPsbt    []byte `protobuf:"bytes,1,opt,name=funded_psbt,json=fundedPsbt,proto3" json:"funded_psbt,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
@@ -4663,12 +4787,14 @@ func (x *SignPsbtResponse) GetSignedInputs() []uint32 {
 
 type FinalizePsbtRequest struct {
 	state protoimpl.MessageState `protogen:"open.v1"`
-	// A PSBT that should be signed and finalized. The PSBT must contain all
-	// required inputs, outputs, UTXO data and partial signatures of all other
-	// signers.
+	//
+	//A PSBT that should be signed and finalized. The PSBT must contain all
+	//required inputs, outputs, UTXO data and partial signatures of all other
+	//signers.
 	FundedPsbt []byte `protobuf:"bytes,1,opt,name=funded_psbt,json=fundedPsbt,proto3" json:"funded_psbt,omitempty"`
-	// The name of the account to finalize the PSBT with. If empty, the default
-	// wallet account is used.
+	//
+	//The name of the account to finalize the PSBT with. If empty, the default
+	//wallet account is used.
 	Account       string `protobuf:"bytes,5,opt,name=account,proto3" json:"account,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
@@ -4855,9 +4981,10 @@ func (x *ListLeasesResponse) GetLockedUtxos() []*UtxoLease {
 
 type ListSweepsResponse_TransactionIDs struct {
 	state protoimpl.MessageState `protogen:"open.v1"`
-	// Reversed, hex-encoded string representing the transaction ids of the
-	// sweeps that our node has broadcast. Note that these transactions may
-	// not have confirmed yet, we record sweeps on broadcast, not confirmation.
+	//
+	//Reversed, hex-encoded string representing the transaction ids of the
+	//sweeps that our node has broadcast. Note that these transactions may
+	//not have confirmed yet, we record sweeps on broadcast, not confirmation.
 	TransactionIds []string `protobuf:"bytes,1,rep,name=transaction_ids,json=transactionIds,proto3" json:"transaction_ids,omitempty"`
 	unknownFields  protoimpl.UnknownFields
 	sizeCache      protoimpl.SizeCache

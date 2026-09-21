@@ -26,6 +26,20 @@ const (
 	// FundingOpen request for a channel that is above their current
 	// soft-limit.
 	ErrChanTooLarge FundingError = 2
+
+	// ErrChanTypeDeprecated is returned by a remote peer that receives a
+	// FundingOpen request for the legacy commitment type, which it no
+	// longer opens. It is kept terse on purpose: which type the peer
+	// should use instead is our local policy, not something the remote can
+	// act on.
+	//
+	// NOTE: The value 3 is intentionally skipped. It is taken by
+	// ErrChanTypeRequired on newer versions, which mandate an explicit
+	// channel type in every negotiation. That requirement is not part of
+	// this release series. Only the error text is ever sent to the peer,
+	// so the number is a local detail, and matching newer versions keeps
+	// the constants identical across branches.
+	ErrChanTypeDeprecated FundingError = 4
 )
 
 // String returns a human readable version of the target FundingError.
@@ -35,6 +49,8 @@ func (e FundingError) String() string {
 		return "Number of pending channels exceed maximum"
 	case ErrChanTooLarge:
 		return "channel too large"
+	case ErrChanTypeDeprecated:
+		return "channel type deprecated"
 	default:
 		return "unknown error"
 	}

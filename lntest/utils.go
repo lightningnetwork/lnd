@@ -158,8 +158,6 @@ func CommitTypeHasAnchors(commitType lnrpc.CommitmentType) bool {
 // commitment type.
 func NodeArgsForCommitType(commitType lnrpc.CommitmentType) []string {
 	switch commitType {
-	case lnrpc.CommitmentType_LEGACY:
-		return []string{"--protocol.legacy.committweak"}
 	case lnrpc.CommitmentType_STATIC_REMOTE_KEY:
 		return []string{}
 	case lnrpc.CommitmentType_ANCHORS:

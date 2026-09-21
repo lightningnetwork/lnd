@@ -339,7 +339,7 @@ func testRemoteSignerPSBT(ht *lntest.HarnessTest) {
 		fn: func(tt *lntest.HarnessTest, wo, carol *node.HarnessNode) {
 			runPsbtChanFundingWithNodes(
 				tt, carol, wo, false,
-				lnrpc.CommitmentType_LEGACY,
+				lnrpc.CommitmentType_STATIC_REMOTE_KEY,
 			)
 			runSignPsbtSegWitV0P2WKH(tt, wo)
 			runSignPsbtSegWitV1KeySpendBip86(tt, wo)

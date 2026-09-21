@@ -335,7 +335,7 @@ func testTowerClientSessionDeletion(ht *lntest.HarnessTest) {
 // Carol's behalf sweeping her funds without a reward.
 func testRevokedCloseRetributionAltruistWatchtower(ht *lntest.HarnessTest) {
 	for _, commitType := range []lnrpc.CommitmentType{
-		lnrpc.CommitmentType_LEGACY,
+		lnrpc.CommitmentType_STATIC_REMOTE_KEY,
 		lnrpc.CommitmentType_ANCHORS,
 		lnrpc.CommitmentType_SIMPLE_TAPROOT,
 	} {

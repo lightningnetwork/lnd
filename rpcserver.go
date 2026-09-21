@@ -2312,9 +2312,11 @@ func (r *rpcServer) parseOpenChannelReq(in *lnrpc.OpenChannelRequest,
 			return nil, fmt.Errorf("use anchors for zero-conf")
 		}
 
+	// The legacy commitment type is no longer opened at all. Reject it here
+	// so the caller gets a clear error before we touch the wallet or the
+	// peer, rather than one from deep inside the funding flow.
 	case lnrpc.CommitmentType_LEGACY:
-		channelType = new(lnwire.ChannelType)
-		*channelType = lnwire.ChannelType(*lnwire.NewRawFeatureVector())
+		return nil, funding.ErrDeprecatedChanType
 
 	case lnrpc.CommitmentType_STATIC_REMOTE_KEY:
 		channelType = new(lnwire.ChannelType)

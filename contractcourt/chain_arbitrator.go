@@ -1340,7 +1340,7 @@ func (c *ChainArbitrator) FindOutgoingHTLCDeadline(scid lnwire.ShortChannelID,
 // TODO(roasbeef): arbitration reports
 //  * types: contested, waiting for success conf, etc
 
-// NOTE: part of the `chainio.Consumer` interface.
+// Name returns the name of the chain arbitrator consumer.
 func (c *ChainArbitrator) Name() string {
 	return "ChainArbitrator"
 }

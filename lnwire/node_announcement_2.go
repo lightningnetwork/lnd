@@ -395,6 +395,18 @@ func ipv4AddrsEncoder(w io.Writer, val interface{}, _ *[8]byte) error {
 	return tlv.NewTypeForEncodingErr(val, "lnwire.IPV4Addrs")
 }
 
+// readAddrField fills b from an address list record. The TLV length declares
+// every byte of the list, so an io.EOF at an address boundary is a truncation
+// and returns io.ErrUnexpectedEOF.
+func readAddrField(r io.Reader, b []byte) error {
+	_, err := io.ReadFull(r, b)
+	if errors.Is(err, io.EOF) {
+		return io.ErrUnexpectedEOF
+	}
+
+	return err
+}
+
 // ipv4AddrsDecoder decodes TLV bytes into IPv4 addresses.
 func ipv4AddrsDecoder(r io.Reader, val interface{}, _ *[8]byte,
 	l uint64) error {
@@ -410,11 +422,11 @@ func ipv4AddrsDecoder(r io.Reader, val interface{}, _ *[8]byte,
 			port     [2]byte
 		)
 		for len(addrs) < numAddrs {
-			_, err := r.Read(ip[:])
+			err := readAddrField(r, ip[:])
 			if err != nil {
 				return err
 			}
-			_, err = r.Read(port[:])
+			err = readAddrField(r, port[:])
 			if err != nil {
 				return err
 			}
@@ -490,11 +502,11 @@ func ipv6AddrsDecoder(r io.Reader, val interface{}, _ *[8]byte,
 			port     [2]byte
 		)
 		for len(addrs) < numAddrs {
-			_, err := r.Read(ip[:])
+			err := readAddrField(r, ip[:])
 			if err != nil {
 				return err
 			}
-			_, err = r.Read(port[:])
+			err = readAddrField(r, port[:])
 			if err != nil {
 				return err
 			}
@@ -582,11 +594,11 @@ func torV3AddrsDecoder(r io.Reader, val interface{}, _ *[8]byte,
 			p        [2]byte
 		)
 		for len(addrs) < numAddrs {
-			_, err := r.Read(ip[:])
+			err := readAddrField(r, ip[:])
 			if err != nil {
 				return err
 			}
-			_, err = r.Read(p[:])
+			err = readAddrField(r, p[:])
 			if err != nil {
 				return err
 			}

@@ -238,7 +238,10 @@ func TestCommitmentTypeNegotiation(t *testing.T) {
 			expectsErr: nil,
 		},
 		{
-			name:            "explicit legacy",
+			// An empty channel type asks for the legacy commitment
+			// type, which we no longer open. Note that this used to
+			// be accepted with no feature check at all.
+			name:            "explicit legacy rejected",
 			channelFeatures: lnwire.NewRawFeatureVector(),
 			localFeatures: lnwire.NewRawFeatureVector(
 				lnwire.StaticRemoteKeyRequired,
@@ -250,11 +253,7 @@ func TestCommitmentTypeNegotiation(t *testing.T) {
 				lnwire.AnchorsZeroFeeHtlcTxOptional,
 				lnwire.ExplicitChannelTypeOptional,
 			),
-			expectsCommitType: lnwallet.CommitmentTypeLegacy,
-			expectsChanType: (*lnwire.ChannelType)(
-				lnwire.NewRawFeatureVector(),
-			),
-			expectsErr: nil,
+			expectsErr: lnwire.ErrChanTypeDeprecated,
 		},
 		// Both sides signal the explicit chan type bit, so we expect
 		// that we return the corresponding chan type feature bits,
@@ -296,16 +295,18 @@ func TestCommitmentTypeNegotiation(t *testing.T) {
 			expectsErr:        nil,
 		},
 		{
-			name:            "implicit legacy",
+			// Without mutual support for static remote key there is
+			// nothing left to fall back on but the legacy type.
+			// Note that the test runs both peer orderings, so it
+			// covers either side being the one that lacks it.
+			name:            "implicit legacy rejected",
 			channelFeatures: nil,
 			localFeatures:   lnwire.NewRawFeatureVector(),
 			remoteFeatures: lnwire.NewRawFeatureVector(
 				lnwire.StaticRemoteKeyOptional,
 				lnwire.AnchorsZeroFeeHtlcTxOptional,
 			),
-			expectsCommitType: lnwallet.CommitmentTypeLegacy,
-			expectsChanType:   nil,
-			expectsErr:        nil,
+			expectsErr: ErrDeprecatedChanType,
 		},
 	}
 

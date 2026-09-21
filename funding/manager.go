@@ -1575,6 +1575,16 @@ func (f *Manager) fundeeProcessOpenChannel(peer lnpeer.Peer,
 	if err != nil {
 		// TODO(roasbeef): should be using soft errors
 		log.Errorf("channel type negotiation failed: %v", err)
+
+		// With implicit negotiation, falling back to the legacy type is
+		// the only thing left when the remote lacks static remote key.
+		// Translate that into the wire error so the remote learns why
+		// we refused, instead of the generic internal error that
+		// failFundingFlow sends for non-whitelisted errors.
+		if errors.Is(err, ErrDeprecatedChanType) {
+			err = lnwire.ErrChanTypeDeprecated
+		}
+
 		f.failFundingFlow(peer, cid, err)
 		return
 	}
@@ -2065,9 +2075,13 @@ func (f *Manager) funderProcessAcceptChannel(peer lnpeer.Peer,
 		// explicitly set it in the open_channel message. For now, we
 		// check that it's the same type we'd have arrived through
 		// implicit negotiation. If it's another type, we fail the flow.
-		_, implicitCommitType := implicitNegotiateCommitmentType(
+		_, implicitCommitType, err := implicitNegotiateCommitmentType(
 			peer.LocalFeatures(), peer.RemoteFeatures(),
 		)
+		if err != nil {
+			f.failFundingFlow(peer, cid, err)
+			return
+		}
 
 		_, negotiatedCommitType, err := negotiateCommitmentType(
 			msg.ChannelType, peer.LocalFeatures(),

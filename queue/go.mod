@@ -13,4 +13,4 @@ require (
 
 replace github.com/lightningnetwork/lnd/ticker v1.0.0 => ../ticker
 
-go 1.25.13
+go 1.26.8

@@ -37,6 +37,10 @@ var basicFundingTestCases = []*lntest.TestCase{
 		Name:     "basic flow simple taproot final",
 		TestFunc: testBasicChannelFundingSimpleTaprootFinal,
 	},
+	{
+		Name:     "legacy chan type rejected",
+		TestFunc: testLegacyChanTypeRejected,
+	},
 }
 
 // allFundingTypes defines the channel types to test for the basic funding
@@ -46,6 +50,24 @@ var allFundingTypes = []lnrpc.CommitmentType{
 	lnrpc.CommitmentType_ANCHORS,
 	lnrpc.CommitmentType_SIMPLE_TAPROOT,
 	lnrpc.CommitmentType_SIMPLE_TAPROOT_FINAL,
+}
+
+// testLegacyChanTypeRejected asserts that lnd refuses to open a channel using
+// the legacy commitment type, which was removed from the spec in 2024.
+func testLegacyChanTypeRejected(ht *lntest.HarnessTest) {
+	carol := ht.NewNodeWithCoins("Carol", nil)
+	dave := ht.NewNodeWithCoins("Dave", nil)
+	ht.EnsureConnected(carol, dave)
+
+	// The RPC server turns the request down before the funding flow even
+	// starts, so no channel type ever reaches Dave.
+	ht.OpenChannelAssertErr(
+		carol, dave, lntest.OpenChannelParams{
+			Amt:            funding.MaxBtcFundingAmount,
+			CommitmentType: lnrpc.CommitmentType_LEGACY,
+		},
+		funding.ErrDeprecatedChanType,
+	)
 }
 
 // testBasicChannelFundingStaticRemote performs a test exercising expected

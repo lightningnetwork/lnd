@@ -410,11 +410,11 @@ func ipv4AddrsDecoder(r io.Reader, val interface{}, _ *[8]byte,
 			port     [2]byte
 		)
 		for len(addrs) < numAddrs {
-			_, err := r.Read(ip[:])
+			_, err := io.ReadFull(r, ip[:])
 			if err != nil {
 				return err
 			}
-			_, err = r.Read(port[:])
+			_, err = io.ReadFull(r, port[:])
 			if err != nil {
 				return err
 			}
@@ -490,11 +490,11 @@ func ipv6AddrsDecoder(r io.Reader, val interface{}, _ *[8]byte,
 			port     [2]byte
 		)
 		for len(addrs) < numAddrs {
-			_, err := r.Read(ip[:])
+			_, err := io.ReadFull(r, ip[:])
 			if err != nil {
 				return err
 			}
-			_, err = r.Read(port[:])
+			_, err = io.ReadFull(r, port[:])
 			if err != nil {
 				return err
 			}
@@ -582,11 +582,11 @@ func torV3AddrsDecoder(r io.Reader, val interface{}, _ *[8]byte,
 			p        [2]byte
 		)
 		for len(addrs) < numAddrs {
-			_, err := r.Read(ip[:])
+			_, err := io.ReadFull(r, ip[:])
 			if err != nil {
 				return err
 			}
-			_, err = r.Read(p[:])
+			_, err = io.ReadFull(r, p[:])
 			if err != nil {
 				return err
 			}

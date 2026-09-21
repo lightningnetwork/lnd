@@ -3024,7 +3024,7 @@ func TestValidateOfferReadVectors(t *testing.T) {
 				return
 			}
 
-			offer, decodeErr := decodeOffer(tlvBytes)
+			offer, decodeErr := DecodeOffer(tlvBytes)
 			if decodeErr != nil {
 				if tc.Valid {
 					require.NoError(
@@ -3132,7 +3132,7 @@ func TestOfferVectorsLayerCensus(t *testing.T) {
 			continue
 		}
 
-		offer, decodeErr := decodeOffer(tlvBytes)
+		offer, decodeErr := DecodeOffer(tlvBytes)
 		if decodeErr != nil {
 			tlvRejections++
 			continue

@@ -68,7 +68,7 @@ func TestDecodeOversizedRecord(t *testing.T) {
 	require.NoError(t, tlv.WriteVarInt(&w, oversize, &buf))
 	w.Write(make([]byte, oversize))
 
-	_, err := decodeOffer(w.Bytes())
+	_, err := DecodeOffer(w.Bytes())
 	require.ErrorIs(
 		t, err, tlv.ErrRecordTooLarge,
 		"expected an oversize-record rejection, got %v", err,
@@ -87,7 +87,7 @@ func TestDecodeOfferString(t *testing.T) {
 	_, tlvBytes, err := Decode(offerStr)
 	require.NoError(t, err)
 
-	offer, err := decodeOffer(tlvBytes)
+	offer, err := DecodeOffer(tlvBytes)
 	require.NoError(t, err)
 
 	// Verify issuer ID is present and correctly typed.

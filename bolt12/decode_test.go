@@ -41,7 +41,7 @@ func TestDecodeRejectsNonMinimalFeatures(t *testing.T) {
 			name: "offer_features",
 			typ:  12,
 			decode: func(b []byte) error {
-				_, err := decodeOffer(b)
+				_, err := DecodeOffer(b)
 				return err
 			},
 		},

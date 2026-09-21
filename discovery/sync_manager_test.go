@@ -306,6 +306,47 @@ func TestSyncManagerAcksFailureBeforeReplacement(t *testing.T) {
 	require.True(t, acknowledged, "failure report awaited replacement")
 }
 
+// TestSyncManagerCompletesInitialSyncBeforeReusingPeer ensures that a
+// scheduled historical sync doesn't reuse the initial syncer before its
+// ready completion has been handled. The manager must consume the
+// completion first, which activates the peer as an active gossip syncer,
+// rather than sending it a second channel range query.
+func TestSyncManagerCompletesInitialSyncBeforeReusingPeer(t *testing.T) {
+	t.Parallel()
+
+	syncMgr := newTestSyncManager(1)
+	syncMgr.Start()
+	defer syncMgr.Stop()
+
+	// The only connected peer becomes the initial historical syncer.
+	peer := randPeer(t, syncMgr.quit)
+	require.NoError(t, syncMgr.InitSyncState(peer))
+	s := assertSyncerExistence(t, syncMgr, peer)
+	assertSyncerStatus(t, s, waitingQueryRangeReply, PassiveSync)
+
+	// Hold the lock guarding candidate selection, so the manager blocks
+	// inside forceHistoricalSync after the ticker is received. The
+	// initial historical sync then completes, and the graph is marked
+	// as synced, all while the completion signal remains unconsumed.
+	syncMgr.syncersMu.Lock()
+
+	historicalTicker, isForce :=
+		syncMgr.cfg.HistoricalSyncTicker.(*ticker.Force)
+	require.True(t, isForce)
+	historicalTicker.Force <- time.Time{}
+
+	assertTransitionToChansSynced(t, s, peer)
+	require.True(t, syncMgr.IsGraphSynced())
+	syncMgr.syncersMu.Unlock()
+
+	// The peer must not receive a second channel range query. Instead,
+	// the completion is handled first, activating the syncer so we
+	// receive new graph updates at tip.
+	assertActiveGossipTimestampRange(t, peer)
+	assertNoMsgSent(t, peer)
+	assertSyncerStatus(t, s, chansSynced, ActiveSync)
+}
+
 // TestSyncManagerRetainsFailureAcrossReconnect ensures that reconnecting does
 // not bypass the failed peer's bounded exclusion.
 func TestSyncManagerRetainsFailureAcrossReconnect(t *testing.T) {

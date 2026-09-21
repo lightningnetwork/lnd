@@ -566,34 +566,8 @@ func (m *SyncManager) syncerHandler() {
 			log.Debug("Initial historical sync completed")
 
 			// With the initial historical sync complete, we can
-			// begin receiving new graph updates at tip. We'll
-			// determine whether we can have any more active
-			// GossipSyncers. If we do, we'll randomly select some
-			// that are currently passive to transition.
-			m.syncersMu.Lock()
-			numActiveLeft := m.cfg.NumActiveSyncers - len(m.activeSyncers)
-			if numActiveLeft <= 0 {
-				m.syncersMu.Unlock()
-				continue
-			}
-
-			// We may not even have enough inactive syncers to be
-			// transitted. In that case, we will transit all the
-			// inactive syncers.
-			if len(m.inactiveSyncers) < numActiveLeft {
-				numActiveLeft = len(m.inactiveSyncers)
-			}
-
-			log.Debugf("Attempting to transition %v passive "+
-				"GossipSyncers to active", numActiveLeft)
-
-			for i := 0; i < numActiveLeft; i++ {
-				chooseRandomSyncer(
-					m.inactiveSyncers, m.transitionPassiveSyncer,
-				)
-			}
-
-			m.syncersMu.Unlock()
+			// begin receiving new graph updates at tip.
+			m.promoteSyncers()
 
 		// Our RotateTicker has ticked, so we'll attempt to rotate a
 		// single active syncer with a passive one.
@@ -603,6 +577,36 @@ func (m *SyncManager) syncerHandler() {
 		// Our HistoricalSyncTicker has ticked, so we'll randomly select
 		// a peer and force a historical sync with them.
 		case <-m.cfg.HistoricalSyncTicker.Ticks():
+			// The initial syncer may have reached its chansSynced
+			// state without our loop noticing, as its completion
+			// signal is ready but hasn't been consumed yet. Handle
+			// it now so the scheduled pick doesn't reuse the same
+			// peer for a second historical sync before its first
+			// success is processed.
+			if initialHistoricalSyncSignal != nil {
+				select {
+				case <-initialHistoricalSyncSignal:
+					initialHistoricalSyncer = nil
+					initialHistoricalSyncSignal = nil
+
+					log.Debug("Initial historical sync " +
+						"completed")
+
+					// With the initial historical sync
+					// complete, we can begin receiving new
+					// graph updates at tip.
+					m.promoteSyncers()
+
+					// We've consumed this tick to handle
+					// the ready completion. A new
+					// historical sync shouldn't be
+					// started in the same iteration.
+
+					continue
+				default:
+				}
+			}
+
 			// To be extra cautious, gate the forceHistoricalSync
 			// call such that it can only execute if we are
 			// configured to have a non-zero number of sync peers.
@@ -613,14 +617,28 @@ func (m *SyncManager) syncerHandler() {
 				continue
 			}
 
+			// The tracked initial syncer may complete and become
+			// eligible while our pick is blocked on the syncers
+			// lock, after the check above. Exclude it so the
+			// scheduled pick can't reuse the same peer before
+			// its completion has been consumed. Its success will
+			// be handled by the signal's case on the next
+			// iteration.
+			excluded := failedHistoricalSyncers
+			if initialHistoricalSyncer != nil {
+				excluded[initialHistoricalSyncer.cfg.peerPub] =
+					struct{}{}
+			}
+
 			// If we don't have a syncer available we have nothing
 			// to do.
-			s := m.forceHistoricalSync(failedHistoricalSyncers)
+			s := m.forceHistoricalSync(excluded)
 
 			// Failed peers remain excluded from immediate
 			// replacements and one scheduled pick. Clear the set
 			// to keep this a bounded retry delay, not a ban.
 			clear(failedHistoricalSyncers)
+
 			if s == nil {
 				continue
 			}
@@ -641,6 +659,35 @@ func (m *SyncManager) syncerHandler() {
 		case <-m.quit:
 			return
 		}
+	}
+}
+
+// promoteSyncers transitions any passive syncers needed to fill our
+// quota of active syncers, now that the initial historical sync has
+// completed and we can begin receiving new graph updates at tip.
+func (m *SyncManager) promoteSyncers() {
+	m.syncersMu.Lock()
+	defer m.syncersMu.Unlock()
+
+	numActiveLeft := m.cfg.NumActiveSyncers - len(m.activeSyncers)
+	if numActiveLeft <= 0 {
+		return
+	}
+
+	// We may not even have enough inactive syncers to be
+	// transitioned. In that case, we will transition all the
+	// inactive syncers.
+	if len(m.inactiveSyncers) < numActiveLeft {
+		numActiveLeft = len(m.inactiveSyncers)
+	}
+
+	log.Debugf("Attempting to transition %v passive "+
+		"GossipSyncers to active", numActiveLeft)
+
+	for i := 0; i < numActiveLeft; i++ {
+		chooseRandomSyncer(
+			m.inactiveSyncers, m.transitionPassiveSyncer,
+		)
 	}
 }
 

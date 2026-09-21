@@ -406,10 +406,14 @@ func ipv4AddrsDecoder(r io.Reader, val interface{}, _ *[8]byte,
 		var (
 			numAddrs = int(l / ipv4AddrEncodedSize)
 			addrs    = make([]*net.TCPAddr, 0, numAddrs)
-			ip       [4]byte
-			port     [2]byte
 		)
 		for len(addrs) < numAddrs {
+			// Each address owns its arrays, so no two share bytes.
+			var (
+				ip   [4]byte
+				port [2]byte
+			)
+
 			_, err := io.ReadFull(r, ip[:])
 			if err != nil {
 				return err
@@ -486,10 +490,14 @@ func ipv6AddrsDecoder(r io.Reader, val interface{}, _ *[8]byte,
 		var (
 			numAddrs = int(l / ipv6AddrEncodedSize)
 			addrs    = make([]*net.TCPAddr, 0, numAddrs)
-			ip       [16]byte
-			port     [2]byte
 		)
 		for len(addrs) < numAddrs {
+			// Each address owns its arrays, so no two share bytes.
+			var (
+				ip   [16]byte
+				port [2]byte
+			)
+
 			_, err := io.ReadFull(r, ip[:])
 			if err != nil {
 				return err
@@ -578,19 +586,25 @@ func torV3AddrsDecoder(r io.Reader, val interface{}, _ *[8]byte,
 		var (
 			numAddrs = int(l / torV3AddrEncodedSize)
 			addrs    = make([]*tor.OnionAddr, 0, numAddrs)
-			ip       [tor.V3DecodedLen]byte
-			p        [2]byte
 		)
 		for len(addrs) < numAddrs {
-			_, err := io.ReadFull(r, ip[:])
+			// Each address owns its arrays, so no two share bytes.
+			var (
+				host [tor.V3DecodedLen]byte
+				port [2]byte
+			)
+
+			_, err := io.ReadFull(r, host[:])
 			if err != nil {
 				return err
 			}
-			_, err = io.ReadFull(r, p[:])
+			_, err = io.ReadFull(r, port[:])
 			if err != nil {
 				return err
 			}
-			onionService := tor.Base32Encoding.EncodeToString(ip[:])
+			onionService := tor.Base32Encoding.EncodeToString(
+				host[:],
+			)
 			onionService += tor.OnionSuffix
 
 			if len(onionService) != tor.V3Len {
@@ -599,10 +613,10 @@ func torV3AddrsDecoder(r io.Reader, val interface{}, _ *[8]byte,
 					tor.V3Len, len(onionService))
 			}
 
-			port := int(binary.BigEndian.Uint16(p[:]))
+			portNum := int(binary.BigEndian.Uint16(port[:]))
 			addrs = append(addrs, &tor.OnionAddr{
 				OnionService: onionService,
-				Port:         port,
+				Port:         portNum,
 			})
 		}
 		*v = addrs

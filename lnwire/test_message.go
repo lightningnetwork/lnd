@@ -1441,16 +1441,29 @@ func (n *NodeAnnouncement2) RandTestMessage(t *rapid.T) Message {
 	}
 
 	if rapid.Bool().Draw(t, "includeIPV4Addrs") {
-		ipv4Addrs := make(IPV4Addrs, 1)
-		ip := make(net.IP, 4)
-		ip[0] = uint8(rapid.IntRange(1, 223).Draw(t, "ip4_0"))
-		ip[1] = uint8(rapid.IntRange(0, 255).Draw(t, "ip4_1"))
-		ip[2] = uint8(rapid.IntRange(0, 255).Draw(t, "ip4_2"))
-		ip[3] = uint8(rapid.IntRange(1, 254).Draw(t, "ip4_3"))
+		numIPV4 := rapid.IntRange(1, 3).Draw(t, "numIPV4Addrs")
+		ipv4Addrs := make(IPV4Addrs, numIPV4)
+		for i := 0; i < numIPV4; i++ {
+			ip := make(net.IP, 4)
+			ip[0] = uint8(rapid.IntRange(1, 223).Draw(
+				t, fmt.Sprintf("ip4_%d_0", i),
+			))
+			ip[1] = uint8(rapid.IntRange(0, 255).Draw(
+				t, fmt.Sprintf("ip4_%d_1", i),
+			))
+			ip[2] = uint8(rapid.IntRange(0, 255).Draw(
+				t, fmt.Sprintf("ip4_%d_2", i),
+			))
+			ip[3] = uint8(rapid.IntRange(1, 254).Draw(
+				t, fmt.Sprintf("ip4_%d_3", i),
+			))
 
-		ipv4Addrs[0] = &net.TCPAddr{
-			IP:   ip,
-			Port: rapid.IntRange(1, 65535).Draw(t, "port4"),
+			ipv4Addrs[i] = &net.TCPAddr{
+				IP: ip,
+				Port: rapid.IntRange(1, 65535).Draw(
+					t, fmt.Sprintf("port4_%d", i),
+				),
+			}
 		}
 
 		ipv4Record := tlv.ZeroRecordT[tlv.TlvType5, IPV4Addrs]()
@@ -1459,18 +1472,22 @@ func (n *NodeAnnouncement2) RandTestMessage(t *rapid.T) Message {
 	}
 
 	if rapid.Bool().Draw(t, "includeIPV6Addrs") {
-		ipv6Addrs := make(IPV6Addrs, 1)
-		ip := make(net.IP, 16)
-		// Generate random IPv6 address.
-		for j := 0; j < 16; j++ {
-			ip[j] = uint8(rapid.IntRange(0, 255).Draw(
-				t, fmt.Sprintf("ip6_%d", j)),
-			)
-		}
+		numIPV6 := rapid.IntRange(1, 3).Draw(t, "numIPV6Addrs")
+		ipv6Addrs := make(IPV6Addrs, numIPV6)
+		for i := 0; i < numIPV6; i++ {
+			ip := make(net.IP, 16)
+			for j := 0; j < 16; j++ {
+				ip[j] = uint8(rapid.IntRange(0, 255).Draw(
+					t, fmt.Sprintf("ip6_%d_%d", i, j),
+				))
+			}
 
-		ipv6Addrs[0] = &net.TCPAddr{
-			IP:   ip,
-			Port: rapid.IntRange(1, 65535).Draw(t, "port6"),
+			ipv6Addrs[i] = &net.TCPAddr{
+				IP: ip,
+				Port: rapid.IntRange(1, 65535).Draw(
+					t, fmt.Sprintf("port6_%d", i),
+				),
+			}
 		}
 
 		ipv6Record := tlv.ZeroRecordT[tlv.TlvType7, IPV6Addrs]()
@@ -1479,18 +1496,22 @@ func (n *NodeAnnouncement2) RandTestMessage(t *rapid.T) Message {
 	}
 
 	if rapid.Bool().Draw(t, "includeTorV3Addrs") {
-		torV3Addrs := make(TorV3Addrs, 1)
-		onionBytes := rapid.SliceOfN(rapid.Byte(), 35, 35).Draw(
-			t, "onion",
-		)
-		onionService := tor.Base32Encoding.EncodeToString(onionBytes) +
-			tor.OnionSuffix
+		numTorV3 := rapid.IntRange(1, 3).Draw(t, "numTorV3Addrs")
+		torV3Addrs := make(TorV3Addrs, numTorV3)
+		for i := 0; i < numTorV3; i++ {
+			onionBytes := rapid.SliceOfN(rapid.Byte(), 35, 35).Draw(
+				t, fmt.Sprintf("onion_%d", i),
+			)
+			onionService := tor.Base32Encoding.EncodeToString(
+				onionBytes,
+			) + tor.OnionSuffix
 
-		torV3Addrs[0] = &tor.OnionAddr{
-			OnionService: onionService,
-			Port: rapid.IntRange(1, 65535).Draw(
-				t, "torPort",
-			),
+			torV3Addrs[i] = &tor.OnionAddr{
+				OnionService: onionService,
+				Port: rapid.IntRange(1, 65535).Draw(
+					t, fmt.Sprintf("torPort_%d", i),
+				),
+			}
 		}
 
 		torV3Record := tlv.ZeroRecordT[tlv.TlvType9, TorV3Addrs]()

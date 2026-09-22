@@ -167,6 +167,16 @@ type Config struct {
 	// forwarding packages, and ack settles and fails contained within them.
 	SwitchPackager channeldb.FwdOperator
 
+	// FetchFwdResponses returns every off-chain response rescued from a
+	// closed channel that has not been reaped yet.
+	FetchFwdResponses func() ([]*channeldb.FwdResponse, error)
+
+	// DeleteFwdResponse removes a rescued response from the store. Its only
+	// caller is startup replay, which reaps records whose circuit is already
+	// gone. Delivery itself does not delete the record, so a delivered record
+	// is collected on the next startup, after its circuit has been torn down.
+	DeleteFwdResponse func(outKey *CircuitKey) error
+
 	// ExtractErrorEncrypter is an interface allowing switch to reextract
 	// error encrypters stored in the circuit map on restarts, since they
 	// are not stored directly within the database.
@@ -359,6 +369,16 @@ type Switch struct {
 
 // New creates the new instance of htlc switch.
 func New(cfg Config, currentHeight uint32) (*Switch, error) {
+	// These are dereferenced unconditionally during startup, so a missing
+	// one must fail here rather than panic mid-recovery.
+	switch {
+	case cfg.FetchFwdResponses == nil:
+		return nil, errors.New("forwarding response fetcher is nil")
+
+	case cfg.DeleteFwdResponse == nil:
+		return nil, errors.New("forwarding response deleter is nil")
+	}
+
 	resStore := newResolutionStore(cfg.DB)
 
 	circuitMap, err := NewCircuitMap(&CircuitMapConfig{
@@ -1788,6 +1808,18 @@ func (s *Switch) Start() error {
 		return err
 	}
 
+	// Replay the exact off-chain responses before contract-court
+	// resolutions. If both stores hold an entry for one circuit, the
+	// rescued wire response closes it first and the later generic
+	// resolution becomes a no-op.
+	if err := s.reforwardFwdResponses(); err != nil {
+		// We are already stopping so we can ignore the error.
+		_ = s.Stop()
+		log.Errorf("unable to reforward rescued responses: %v", err)
+
+		return err
+	}
+
 	if err := s.reforwardResolutions(); err != nil {
 		// We are already stopping so we can ignore the error.
 		_ = s.Stop()
@@ -1796,6 +1828,60 @@ func (s *Switch) Start() error {
 	}
 
 	return nil
+}
+
+// fwdResponsePacket converts a rescued response into the packet shape consumed
+// by ForwardPackets. The originating channel's forwarding packages are gone,
+// so the packet carries no destRef: there is no settle/fail entry left to
+// acknowledge, and the incoming link stops replaying the Add once its own
+// AddRef is acked.
+func fwdResponsePacket(response *channeldb.FwdResponse) *htlcPacket {
+	return &htlcPacket{
+		outgoingChanID: response.OutKey.ChanID,
+		outgoingHTLCID: response.OutKey.HtlcID,
+		htlc:           response.Message,
+	}
+}
+
+// reforwardFwdResponses replays the off-chain responses rescued when their
+// outgoing channel closed. A response whose circuit is gone can no longer
+// reach an incoming link, so it is reaped, exactly as startup reaps orphaned
+// resolution messages.
+func (s *Switch) reforwardFwdResponses() error {
+	responses, err := s.cfg.FetchFwdResponses()
+
+	// A decode or index error leaves recovery state uncertain. Abort
+	// startup rather than mistaking corruption for an empty response set.
+	if err != nil {
+		return fmt.Errorf("fetch rescued responses: %w", err)
+	}
+
+	switchPackets := make([]*htlcPacket, 0, len(responses))
+	for _, response := range responses {
+		outKey := response.OutKey
+
+		if s.circuits.LookupOpenCircuit(outKey) == nil {
+			log.Debugf("Reaping rescued response with no open "+
+				"circuit: %v", outKey)
+
+			err := s.cfg.DeleteFwdResponse(&outKey)
+			if err != nil {
+				return fmt.Errorf("reap response %v: %w",
+					outKey, err)
+			}
+
+			continue
+		}
+
+		switchPackets = append(
+			switchPackets, fwdResponsePacket(response),
+		)
+	}
+
+	log.Debugf("Reforwarding %d rescued closed-channel responses",
+		len(switchPackets))
+
+	return s.ForwardPackets(nil, switchPackets...)
 }
 
 // reforwardResolutions fetches the set of resolution messages stored on-disk
@@ -3180,6 +3266,15 @@ func (s *Switch) handlePacketFail(packet *htlcPacket,
 	// If the source of this packet has not been set, use the circuit map
 	// to lookup the origin.
 	circuit, err := s.closeCircuit(packet)
+
+	// A competing response already closed the circuit but has not finished
+	// tearing it down. Treat this duplicate as the same benign no-op as the
+	// settle path does.
+	if errors.Is(err, ErrCircuitClosing) {
+		log.Debugf("Circuit is closing for packet=%v", packet)
+		return nil
+	}
+
 	if err != nil {
 		return err
 	}

@@ -92,6 +92,15 @@ func SignInvoiceRequest(ir *InvoiceRequest, privKey *btcec.PrivateKey) (
 		return [64]byte{}, ErrNilPrivateKey
 	}
 
+	// A signature over a message that breaks the writer requirements is
+	// worthless: the peer rejects it on read. Refusing here keeps a key
+	// from signing bytes no correct reader accepts.
+	if err := validateInvoiceRequestWrite(ir); err != nil {
+		return [64]byte{}, fmt.Errorf(
+			"validate invoice request: %w", err,
+		)
+	}
+
 	root, err := merkleRoot(signableTLVs(ir.AllRecords()))
 	if err != nil {
 		return [64]byte{}, err
@@ -134,6 +143,13 @@ func verifyInvoiceRequest(ir *InvoiceRequest) error {
 func SignInvoice(inv *Invoice, privKey *btcec.PrivateKey) ([64]byte, error) {
 	if privKey == nil {
 		return [64]byte{}, ErrNilPrivateKey
+	}
+
+	// A signature over a message that breaks the writer requirements is
+	// worthless: the peer rejects it on read. Refusing here keeps a key
+	// from signing bytes no correct reader accepts.
+	if err := validateInvoiceWrite(inv); err != nil {
+		return [64]byte{}, fmt.Errorf("validate invoice: %w", err)
 	}
 
 	root, err := merkleRoot(signableTLVs(inv.AllRecords()))

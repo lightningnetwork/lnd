@@ -5273,6 +5273,28 @@ func genHtlcSigValidationJobs(chanState *chanstate.OpenChannel,
 			"Expected %v sigs, got %v", i, len(htlcSigs))
 	}
 
+	// The same has to hold for the aux signatures on a custom channel. An
+	// aux signer emits one entry per non-dust HTLC, in lockstep with the
+	// BTC level signatures, so a peer sending fewer has withheld a
+	// signature we need to resolve that HTLC on chain later. The blob
+	// carries no count of its own, and a missing entry produces no
+	// verification job, so this is the only place the omission is visible.
+	//
+	// This is gated on the channel being a taproot overlay one, and not
+	// merely on an aux signer being present: the signer is configured node
+	// wide, so it is also attached to plain channels, whose peers
+	// correctly send no aux signatures at all. The tapscript root bit is
+	// set at funding time if and only if the commitment type is a taproot
+	// overlay, so it identifies precisely the channels whose peers owe us
+	// aux signatures. It is still also gated on the aux signer, since
+	// without one there is nothing that could consume those signatures.
+	if auxSigner.IsSome() && chanType.HasTapscriptRoot() &&
+		len(auxHtlcSigs) != i {
+
+		return nil, nil, fmt.Errorf("number of aux htlc sig mismatch. "+
+			"Expected %v sigs, got %v", i, len(auxHtlcSigs))
+	}
+
 	return verifyJobs, auxVerifyJobs, nil
 }
 

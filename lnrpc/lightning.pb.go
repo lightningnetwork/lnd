@@ -216,6 +216,10 @@ const (
 	//
 	//A channel using the legacy commitment format having tweaked to_remote
 	//keys.
+	//
+	//This value is only reported for channels that already exist. It is
+	//rejected as an input when opening a channel, since lnd no longer opens
+	//or accepts channels of this type.
 	CommitmentType_LEGACY CommitmentType = 1
 	//
 	//A channel that uses the modern commitment format where the key in the
@@ -7416,6 +7420,10 @@ type BatchOpenChannel struct {
 	//
 	//The explicit commitment type to use. Note this field will only be used if
 	//the remote peer supports explicit channel negotiation.
+	//
+	//LEGACY is rejected: lnd no longer opens or accepts channels of that
+	//type. Note that an empty channel type on the wire requests it too, so
+	//there is no way to ask for it at all.
 	CommitmentType CommitmentType `protobuf:"varint,9,opt,name=commitment_type,json=commitmentType,proto3,enum=lnrpc.CommitmentType" json:"commitment_type,omitempty"`
 	//
 	//The maximum amount of coins in millisatoshi that can be pending within
@@ -7759,6 +7767,10 @@ type OpenChannelRequest struct {
 	//
 	//The explicit commitment type to use. Note this field will only be used if
 	//the remote peer supports explicit channel negotiation.
+	//
+	//LEGACY is rejected: lnd no longer opens or accepts channels of that
+	//type. Note that an empty channel type on the wire requests it too, so
+	//there is no way to ask for it at all.
 	CommitmentType CommitmentType `protobuf:"varint,18,opt,name=commitment_type,json=commitmentType,proto3,enum=lnrpc.CommitmentType" json:"commitment_type,omitempty"`
 	//
 	//If this is true, then a zero-conf channel open will be attempted.

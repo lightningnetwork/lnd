@@ -296,21 +296,10 @@ func DecodeInvoiceRequestString(s string,
 }
 
 // EncodeInvoiceRequestString encodes a signed invoice request to its bech32
-// string representation (lnr1...). The string form exists only for
-// transmission, so a populated signature is required and verified against
-// invreq_payer_id. Writer-side validation is delegated to
-// (*InvoiceRequest).Encode.
+// string representation (lnr1...).
 func EncodeInvoiceRequestString(ir *InvoiceRequest) (string, error) {
-	if !ir.Signature.IsSome() {
-		return "", ErrMissingSignature
-	}
-
-	tlvBytes, err := ir.encode()
+	tlvBytes, err := ir.EncodeSigned()
 	if err != nil {
-		return "", err
-	}
-
-	if err := verifyInvoiceRequest(ir); err != nil {
 		return "", err
 	}
 

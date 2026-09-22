@@ -284,9 +284,9 @@ func (inv *Invoice) allRecordProducers() []tlv.RecordProducer {
 	return p
 }
 
-// Encode validates the invoice per writer requirements and serialises it via
+// encode validates the invoice per writer requirements and serialises it via
 // the PureTLVMessage shape.
-func (inv *Invoice) Encode() ([]byte, error) {
+func (inv *Invoice) encode() ([]byte, error) {
 	if err := validateInvoiceWrite(inv); err != nil {
 		return nil, fmt.Errorf("validate invoice: %w", err)
 	}
@@ -303,17 +303,18 @@ func (inv *Invoice) Encode() ([]byte, error) {
 // requires the signature the writer requirements make mandatory and verifies
 // it against invoice_node_id.
 //
-// Encode stays permissive about the signature because a caller must encode
-// before it can sign: the Merkle root it signs is derived from the records.
-// EncodeSigned is the entry point for bytes that reach a peer, so it is where
-// the writer-side MUST is enforced. An invoice travels as raw TLV inside an
-// onion message, so that boundary is not the bech32 string form.
+// encode stays permissive about the signature because signing does not need
+// it: SignInvoice derives the Merkle root from the records, so a caller never
+// has to encode first. EncodeSigned is the entry point for bytes that reach a
+// peer, so it is where the writer-side MUST is enforced. An invoice travels as
+// raw TLV inside an onion message, so that boundary is not the bech32 string
+// form.
 func (inv *Invoice) EncodeSigned() ([]byte, error) {
 	if !inv.Signature.IsSome() {
 		return nil, ErrMissingSignature
 	}
 
-	tlvBytes, err := inv.Encode()
+	tlvBytes, err := inv.encode()
 	if err != nil {
 		return nil, err
 	}

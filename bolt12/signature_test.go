@@ -333,7 +333,7 @@ func TestVerifyInvoiceDirect(t *testing.T) {
 		{
 			name: "valid round-trip verifies",
 			mutate: func(t *testing.T, inv *Invoice) {
-				_, err := inv.Encode()
+				_, err := inv.encode()
 				require.NoError(t, err)
 
 				sig, err := SignInvoice(inv, priv)

@@ -75,21 +75,12 @@ func invreqTLVSeeds(t testing.TB) [][]byte {
 	return tlvStreams(t, invreqStringSeeds(t))
 }
 
-// byteCodec constrains PM to *M with an Encode method, the shape every message
-// decoder returns. The pointer core type makes PM nilable, so the harness can
-// compare a decoded message against nil. A method-only constraint would admit
-// non-pointer types and the check would not compile.
-type byteCodec[M any] interface {
-	*M
-	Encode() ([]byte, error)
-}
-
 // fuzzByteCodec registers a byte-level decode harness on f. Decode must never
 // panic, and a nil message with nil error is fatal. A decoded message that
 // passes writer validation must round-trip encode→decode→encode
 // byte-identically.
-func fuzzByteCodec[M any, PM byteCodec[M]](f *testing.F,
-	decode func([]byte) (PM, error), seeds ...[]byte) {
+func fuzzByteCodec[M any](f *testing.F, decode func([]byte) (*M, error),
+	encode func(*M) ([]byte, error), seeds ...[]byte) {
 
 	for _, seed := range seeds {
 		f.Add(seed)
@@ -104,7 +95,7 @@ func fuzzByteCodec[M any, PM byteCodec[M]](f *testing.F,
 			t.Fatal("nil message with nil error")
 		}
 
-		encoded, err := msg.Encode()
+		encoded, err := encode(msg)
 		if err != nil {
 			// Read accepts constraints write rejects, so a decoded
 			// message may fail writer validation. Skip the
@@ -116,7 +107,7 @@ func fuzzByteCodec[M any, PM byteCodec[M]](f *testing.F,
 		if err != nil {
 			t.Fatalf("round-trip decode failed: %v", err)
 		}
-		encoded2, err := again.Encode()
+		encoded2, err := encode(again)
 		if err != nil {
 			t.Fatalf("second encode failed: %v", err)
 		}
@@ -141,20 +132,23 @@ func fuzzStringCodec(f *testing.F, decode func(string), seeds ...string) {
 // FuzzDecodeOffer fuzzes decodeOffer with offers-test.json corpus seeds. Decode
 // must never panic and valid decodes round-trip byte-identically.
 func FuzzDecodeOffer(f *testing.F) {
-	fuzzByteCodec(f, decodeOffer, offerTLVSeeds(f)...)
+	fuzzByteCodec(f, decodeOffer, (*Offer).encode, offerTLVSeeds(f)...)
 }
 
 // FuzzDecodeInvoiceRequest fuzzes DecodeInvoiceRequest with signature-test.json
 // corpus seeds. Decode must never panic and valid decodes round-trip
 // byte-identically.
 func FuzzDecodeInvoiceRequest(f *testing.F) {
-	fuzzByteCodec(f, DecodeInvoiceRequest, invreqTLVSeeds(f)...)
+	fuzzByteCodec(
+		f, DecodeInvoiceRequest, (*InvoiceRequest).encode,
+		invreqTLVSeeds(f)...,
+	)
 }
 
 // FuzzDecodeInvoice fuzzes DecodeInvoice with a minimal type-168 seed. Decode
 // must never panic and valid decodes round-trip byte-identically.
 func FuzzDecodeInvoice(f *testing.F) {
-	fuzzByteCodec(f, DecodeInvoice, []byte{
+	fuzzByteCodec(f, DecodeInvoice, (*Invoice).encode, []byte{
 		0xa8, 0x20, // type=168, length=32
 		0x01, 0x02, 0x03, 0x04, 0x05, 0x06, 0x07, 0x08,
 		0x09, 0x0a, 0x0b, 0x0c, 0x0d, 0x0e, 0x0f, 0x10,
@@ -166,7 +160,7 @@ func FuzzDecodeInvoice(f *testing.F) {
 // FuzzDecodeInvoiceError fuzzes DecodeInvoiceError with a type-5 error seed.
 // Decode must never panic and valid decodes round-trip byte-identically.
 func FuzzDecodeInvoiceError(f *testing.F) {
-	fuzzByteCodec(f, DecodeInvoiceError, []byte{
+	fuzzByteCodec(f, DecodeInvoiceError, (*InvoiceError).Encode, []byte{
 		0x05, 0x05, // type=5 error, length=5
 		'h', 'e', 'l', 'l', 'o',
 	})

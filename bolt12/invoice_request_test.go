@@ -319,33 +319,9 @@ func TestDecodeInvoiceRequestString(t *testing.T) {
 	require.Equal(t, "A Mathematical Treatise", string(desc))
 }
 
-// TestInvoiceRequestStringRoundTrip pins the encode→decode identity of the
-// lnr wrapper pair: the recovered request must re-encode to the original TLV
-// stream byte-for-byte.
-func TestInvoiceRequestStringRoundTrip(t *testing.T) {
-	t.Parallel()
-
-	ir := validInvoiceRequest(t)
-
-	encoded, err := encodeInvoiceRequestString(ir)
-	require.NoError(t, err)
-	require.NotEmpty(t, encoded)
-
-	decoded, err := decodeInvoiceRequestString(
-		encoded, bitcoinMainnetGenesisHash,
-	)
-	require.NoError(t, err)
-
-	originalBytes, err := ir.encode()
-	require.NoError(t, err)
-	decodedBytes, err := decoded.encode()
-	require.NoError(t, err)
-	require.Equal(t, originalBytes, decodedBytes)
-}
-
-// TestEncodeInvoiceRequestStringInvalid asserts the wrapper refuses to emit
-// a request that fails writer validation.
-func TestEncodeInvoiceRequestStringInvalid(t *testing.T) {
+// TestEncodeSignedInvalid asserts EncodeSigned refuses to emit a request
+// that fails writer validation.
+func TestEncodeSignedInvalid(t *testing.T) {
 	t.Parallel()
 
 	ir := validInvoiceRequest(t)
@@ -353,29 +329,28 @@ func TestEncodeInvoiceRequestStringInvalid(t *testing.T) {
 		tlv.TlvType88, *btcec.PublicKey,
 	]{}
 
-	encoded, err := encodeInvoiceRequestString(ir)
+	encoded, err := ir.EncodeSigned()
 	require.ErrorIs(t, err, ErrMissingPayerID)
 	require.Empty(t, encoded)
 }
 
-// TestEncodeInvoiceRequestStringUnsigned asserts the wire-string layer
-// refuses to emit an unsigned invoice request: the signature becomes
-// mandatory at the bech32 boundary even though pre-sign Encode is permitted.
-func TestEncodeInvoiceRequestStringUnsigned(t *testing.T) {
+// TestEncodeSignedUnsigned asserts EncodeSigned refuses to emit an unsigned
+// invoice request. An invoice request reaches a peer as raw TLV, so this is
+// the boundary that makes the writer-side signature MUST unavoidable.
+func TestEncodeSignedUnsigned(t *testing.T) {
 	t.Parallel()
 
 	ir := validInvoiceRequest(t)
 	ir.Signature = tlv.OptionalRecordT[tlv.TlvType240, [64]byte]{}
 
-	encoded, err := encodeInvoiceRequestString(ir)
+	encoded, err := ir.EncodeSigned()
 	require.ErrorIs(t, err, ErrMissingSignature)
 	require.Empty(t, encoded)
 }
 
-// TestEncodeInvoiceRequestStringInvalidSignature asserts the wire-string
-// layer refuses to emit a request whose signature does not verify against
-// invreq_payer_id.
-func TestEncodeInvoiceRequestStringInvalidSignature(t *testing.T) {
+// TestEncodeSignedInvalidSignature asserts EncodeSigned refuses to emit a
+// request whose signature does not verify against invreq_payer_id.
+func TestEncodeSignedInvalidSignature(t *testing.T) {
 	t.Parallel()
 
 	ir := validInvoiceRequest(t)
@@ -386,7 +361,7 @@ func TestEncodeInvoiceRequestStringInvalidSignature(t *testing.T) {
 		tlv.NewRecordT[tlv.TlvType82, TUint64](TUint64(2000)),
 	)
 
-	encoded, err := encodeInvoiceRequestString(ir)
+	encoded, err := ir.EncodeSigned()
 	require.ErrorIs(t, err, ErrInvalidSignature)
 	require.Empty(t, encoded)
 }

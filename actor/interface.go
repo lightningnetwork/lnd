@@ -135,3 +135,15 @@ type ActorBehavior[M Message, R any] interface {
 	// detect actor shutdown requests.
 	Receive(actorCtx context.Context, msg M) fn.Result[R]
 }
+
+// Stoppable is an optional interface that ActorBehavior implementations can
+// satisfy to release resources when the actor stops. It lets a behavior own
+// things that outlive a single message, such as an open iterator or a token
+// from a shared pool, without leaking them when the actor is stopped.
+type Stoppable interface {
+	// OnStop is called once, on the actor's own goroutine, after the
+	// message processing loop has exited and before any remaining
+	// messages are drained. The context is cancelled after
+	// DefaultCleanupTimeout, and a returned error is logged.
+	OnStop(ctx context.Context) error
+}

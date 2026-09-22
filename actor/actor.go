@@ -3,9 +3,14 @@ package actor
 import (
 	"context"
 	"sync"
+	"time"
 
 	"github.com/lightningnetwork/lnd/fn/v2"
 )
+
+// DefaultCleanupTimeout bounds how long a Stoppable behavior's OnStop hook may
+// run.
+const DefaultCleanupTimeout = 5 * time.Second
 
 // MailboxFactory is a function type that creates a Mailbox implementation.
 // It receives the actor's context and the desired capacity, allowing custom
@@ -152,6 +157,20 @@ func (a *Actor[M, R]) process() {
 		if env.promise != nil {
 			env.promise.Complete(result)
 		}
+	}
+
+	// Give the behavior a chance to release anything it holds across
+	// messages. This runs on the actor's goroutine, so it never races
+	// Receive.
+	if stoppable, ok := a.behavior.(Stoppable); ok {
+		cleanupCtx, cancel := context.WithTimeout(
+			context.Background(), DefaultCleanupTimeout,
+		)
+		if err := stoppable.OnStop(cleanupCtx); err != nil {
+			log.Warnf("Actor %s: cleanup error during shutdown: "+
+				"%v", a.id, err)
+		}
+		cancel()
 	}
 
 	// Context was cancelled or mailbox closed, drain remaining messages.

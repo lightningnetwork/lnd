@@ -170,3 +170,53 @@ func TestRouterTryTellNoActors(t *testing.T) {
 		require.ErrorIs(t, err, ErrNoActorsAvailable)
 	})
 }
+
+// stopHookBehavior records whether OnStop ran.
+type stopHookBehavior struct {
+	gatedBehavior
+	stopped chan struct{}
+}
+
+// OnStop records the call.
+func (b *stopHookBehavior) OnStop(context.Context) error {
+	close(b.stopped)
+	return nil
+}
+
+// TestStoppableHook asserts that a Stoppable behavior's OnStop runs once the
+// actor is stopped.
+func TestStoppableHook(t *testing.T) {
+	t.Parallel()
+
+	synctest.Test(t, func(t *testing.T) {
+		b := &stopHookBehavior{
+			gatedBehavior: *newGatedBehavior(true),
+			stopped:       make(chan struct{}),
+		}
+		a, err := NewActor(ActorConfig[*testMsg, string]{
+			ID:          "stop-hook",
+			Behavior:    b,
+			MailboxSize: 1,
+		})
+		require.NoError(t, err)
+		a.Start()
+
+		require.NoError(t, a.Ref().TryTell(t.Context(), newTestMsg("x")))
+		synctest.Wait()
+
+		select {
+		case <-b.stopped:
+			t.Fatal("OnStop ran before Stop")
+		default:
+		}
+
+		a.Stop()
+		synctest.Wait()
+
+		select {
+		case <-b.stopped:
+		default:
+			t.Fatal("OnStop did not run")
+		}
+	})
+}

@@ -141,10 +141,10 @@ var (
 	ErrInvalidBip353Name = errors.New("invalid invreq_bip_353_name")
 
 	// ErrMissingSignature is returned when an invoice or invoice_request
-	// is encoded to its wire string or verified without a populated
-	// signature TLV. Pre-sign Encode (used to compute the Merkle root)
-	// is permitted to run without a signature; the wire-string layer is
-	// where the signature becomes mandatory.
+	// is emitted or verified without a populated signature TLV. Signing
+	// reads the struct directly, so encode never needs to run first and
+	// is free to serialise an unsigned message. EncodeSigned and the
+	// string encoders are where the signature becomes mandatory.
 	ErrMissingSignature = errors.New("missing signature")
 
 	// ErrOfferFieldsOnSpontaneous is returned when an invoice request
@@ -415,14 +415,11 @@ func validateInvoiceRequestWrite(ir *InvoiceRequest) error {
 		}
 
 		// - MUST set signature.sig using the invreq_payer_id.
-		// NOT CHECKED HERE: a caller signs after building the struct.
-		// Encode is therefore permitted before signing, and an
-		// unsigned request passes this validator and Encode. No
-		// exported entry point enforces the MUST on write: the bech32
-		// wrapper that checks it is package-internal, and an
-		// invoice_request reaches a peer as raw TLV inside an onion
-		// message. The caller that emits the bytes owns the signing
-		// step. The reader verifies correctness either way.
+		// NOT CHECKED HERE: signing reads the struct, not the encoded
+		// bytes, so encode does not require a signature and an
+		// unsigned request passes it and this validator. EncodeSigned
+		// is the exported gate: it requires the signature and
+		// verifies it. The reader verifies correctness too.
 
 		// - MUST set invreq_payer_id to a transient public key.
 		// NOT CHECKED HERE: only presence is checked below; the caller
@@ -1490,13 +1487,11 @@ func validateInvoiceWrite(inv *Invoice) error {
 	// - MUST specify exactly one signature TLV element: signature.
 	//   - MUST set sig to the signature using invoice_node_id as described
 	//     in Signature Calculation.
-	// NOT CHECKED HERE: a caller signs after building the struct. Encode
-	// is therefore permitted before signing, and an unsigned invoice
-	// passes this validator and Encode. EncodeInvoiceString does reject
-	// an unsigned invoice, but the raw TLV form an onion message carries
-	// never reaches that gate, so the caller that emits the bytes owns
-	// the signing step, mirroring validateInvoiceRequestWrite. The
-	// reader verifies correctness.
+	// NOT CHECKED HERE: signing reads the struct, not the encoded bytes,
+	// so encode does not require a signature and an unsigned invoice
+	// passes it and this validator. EncodeSigned is the exported gate:
+	// it requires the signature and verifies it, mirroring
+	// validateInvoiceRequestWrite. The reader verifies correctness too.
 
 	// - if the expiry for accepting payment is not 7200 seconds after
 	//   invoice_created_at: MUST set invoice_relative_expiry.

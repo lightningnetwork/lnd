@@ -299,6 +299,32 @@ func (inv *Invoice) Encode() ([]byte, error) {
 	return buf.Bytes(), nil
 }
 
+// EncodeSigned serialises an invoice that is ready to leave the node. It
+// requires the signature the writer requirements make mandatory and verifies
+// it against invoice_node_id.
+//
+// Encode stays permissive about the signature because a caller must encode
+// before it can sign: the Merkle root it signs is derived from the records.
+// EncodeSigned is the entry point for bytes that reach a peer, so it is where
+// the writer-side MUST is enforced. An invoice travels as raw TLV inside an
+// onion message, so that boundary is not the bech32 string form.
+func (inv *Invoice) EncodeSigned() ([]byte, error) {
+	if !inv.Signature.IsSome() {
+		return nil, ErrMissingSignature
+	}
+
+	tlvBytes, err := inv.Encode()
+	if err != nil {
+		return nil, err
+	}
+
+	if err := verifyInvoice(inv); err != nil {
+		return nil, err
+	}
+
+	return tlvBytes, nil
+}
+
 // DecodeInvoice deserializes an invoice from a TLV byte stream. Decoding is
 // permissive: callers that need spec compliance must run validateInvoiceRead.
 func DecodeInvoice(data []byte) (*Invoice, error) {
@@ -443,19 +469,11 @@ func DecodeInvoiceString(s string, now time.Time,
 
 // EncodeInvoiceString encodes a signed invoice to its bech32 string
 // representation (lni1...). The string form exists only for transmission, so
-// a populated signature is required and verified against invoice_node_id.
-// Writer-side validation is delegated to (*Invoice).Encode.
+// it carries the same signature requirement as the raw TLV form and adds the
+// human-readable prefix.
 func EncodeInvoiceString(inv *Invoice) (string, error) {
-	if !inv.Signature.IsSome() {
-		return "", ErrMissingSignature
-	}
-
-	tlvBytes, err := inv.Encode()
+	tlvBytes, err := inv.EncodeSigned()
 	if err != nil {
-		return "", err
-	}
-
-	if err := verifyInvoice(inv); err != nil {
 		return "", err
 	}
 

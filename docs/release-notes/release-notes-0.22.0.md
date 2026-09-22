@@ -145,9 +145,9 @@
 
 * [BOLT 12 string codecs and payment
   validation](https://github.com/lightningnetwork/lnd/pull/11146): add
-  validated `Decode`/`Encode` string entry points for offers, invoice
-  requests, and invoices, and `ValidateInvoiceForPayment` to bundle the
-  payer-side invoice checks into one call.
+  validated `Decode`/`Encode` string entry points for offers and invoices,
+  and `ValidateInvoiceForPayment` to bundle the payer-side invoice checks
+  into one call.
 
 ## Testing
 

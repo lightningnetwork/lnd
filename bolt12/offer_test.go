@@ -86,7 +86,7 @@ func TestOfferRoundTrip(t *testing.T) {
 		decodedTLVs: tlv.TypeMap{13: []byte{0xde, 0xad}},
 	}
 
-	encoded, err := o.Encode()
+	encoded, err := o.encode()
 	require.NoError(t, err)
 	require.NotEmpty(t, encoded)
 
@@ -100,7 +100,7 @@ func TestOfferRoundTrip(t *testing.T) {
 	o.decodedTLVs = decoded.decodedTLVs
 	require.Equal(t, o, decoded)
 
-	reencoded, err := decoded.Encode()
+	reencoded, err := decoded.encode()
 	require.NoError(t, err)
 	require.Equal(t, encoded, reencoded)
 }
@@ -165,7 +165,7 @@ func TestDecodeMinimalOfferString(t *testing.T) {
 		hex.EncodeToString(issuerKey.SerializeCompressed()))
 
 	// Re-encode and verify bytes match.
-	reencoded, err := offer.Encode()
+	reencoded, err := offer.encode()
 	require.NoError(t, err)
 	require.Equal(t, tlvBytes, reencoded)
 }

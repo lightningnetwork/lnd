@@ -96,8 +96,8 @@ func (o *Offer) allRecordProducers() []tlv.RecordProducer {
 	return p
 }
 
-// Encode serialises the offer into a canonical TLV byte stream.
-func (o *Offer) Encode() ([]byte, error) {
+// encode serialises the offer into a canonical TLV byte stream.
+func (o *Offer) encode() ([]byte, error) {
 	if err := validateOfferWrite(o); err != nil {
 		return nil, fmt.Errorf("validate offer: %w", err)
 	}
@@ -198,9 +198,9 @@ func DecodeOfferString(s string, now time.Time,
 }
 
 // EncodeOfferString encodes an offer to its bech32 string representation
-// (lno1...). Writer-side validation is delegated to (*Offer).Encode.
+// (lno1...). Writer-side validation is delegated to (*Offer).encode.
 func EncodeOfferString(o *Offer) (string, error) {
-	tlvBytes, err := o.Encode()
+	tlvBytes, err := o.encode()
 	if err != nil {
 		return "", err
 	}

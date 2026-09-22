@@ -81,7 +81,7 @@ func invreqTLVSeeds(t testing.TB) [][]byte {
 // non-pointer types and the check would not compile.
 type byteCodec[M any] interface {
 	*M
-	Encode() ([]byte, error)
+	encode() ([]byte, error)
 }
 
 // fuzzByteCodec registers a byte-level decode harness on f. Decode must never
@@ -104,7 +104,7 @@ func fuzzByteCodec[M any, PM byteCodec[M]](f *testing.F,
 			t.Fatal("nil message with nil error")
 		}
 
-		encoded, err := msg.Encode()
+		encoded, err := msg.encode()
 		if err != nil {
 			// Read accepts constraints write rejects, so a decoded
 			// message may fail writer validation. Skip the
@@ -116,7 +116,7 @@ func fuzzByteCodec[M any, PM byteCodec[M]](f *testing.F,
 		if err != nil {
 			t.Fatalf("round-trip decode failed: %v", err)
 		}
-		encoded2, err := again.Encode()
+		encoded2, err := again.encode()
 		if err != nil {
 			t.Fatalf("second encode failed: %v", err)
 		}

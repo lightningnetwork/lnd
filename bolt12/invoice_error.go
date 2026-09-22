@@ -39,9 +39,9 @@ func (ie *InvoiceError) allRecordProducers() []tlv.RecordProducer {
 	return p
 }
 
-// Encode validates the invoice error per writer requirements and serialises it
+// encode validates the invoice error per writer requirements and serialises it
 // into a TLV byte stream suitable for embedding in an onion message payload at
-// type 68. Note that Encode intentionally drops any unknown TLVs. Since
+// type 68. Note that encode intentionally drops any unknown TLVs. Since
 // invoice_error does not carry a cryptographic signature, there is no
 // signature to invalidate by dropping unrecognized TLVs (unlike signed
 // messages such as invoices, where unknown TLVs must be preserved to keep
@@ -51,7 +51,7 @@ func (ie *InvoiceError) allRecordProducers() []tlv.RecordProducer {
 // against the type of the field erroneous_field names. Emitting a value the
 // peer cannot decode is therefore possible, see the TODO in
 // validateInvoiceErrorWrite.
-func (ie *InvoiceError) Encode() ([]byte, error) {
+func (ie *InvoiceError) encode() ([]byte, error) {
 	if err := validateInvoiceErrorWrite(ie); err != nil {
 		return nil, fmt.Errorf("validate invoice error: %w", err)
 	}

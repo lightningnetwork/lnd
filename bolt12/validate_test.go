@@ -762,7 +762,7 @@ func signedInvoiceRequest(t testing.TB,
 		),
 	}
 
-	encoded, err := ir.Encode()
+	encoded, err := ir.encode()
 	require.NoError(t, err)
 
 	decoded, err := DecodeInvoiceRequest(encoded)
@@ -869,7 +869,7 @@ func TestValidateReadRejectsBadSignature(t *testing.T) {
 			validate: func(t *testing.T) error {
 				encoded, err := signedInvoiceRequest(
 					t, bobPriv,
-				).Encode()
+				).encode()
 				require.NoError(t, err)
 
 				// invreq_metadata is a signed opaque blob, so
@@ -901,7 +901,7 @@ func TestValidateReadRejectsBadSignature(t *testing.T) {
 			validate: func(t *testing.T) error {
 				signed := signedInvoice(t, bobPriv)
 
-				encoded, err := signed.Encode()
+				encoded, err := signed.encode()
 				require.NoError(t, err)
 
 				// invoice_payment_hash is a signed fixed-width

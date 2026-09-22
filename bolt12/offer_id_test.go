@@ -23,7 +23,7 @@ func TestOfferIDMatchesOfferEncoding(t *testing.T) {
 	offer, err := decodeOffer(tlvBytes)
 	require.NoError(t, err)
 
-	encoded, err := offer.Encode()
+	encoded, err := offer.encode()
 	require.NoError(t, err)
 
 	id, err := OfferID(offer)

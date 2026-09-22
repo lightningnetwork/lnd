@@ -135,7 +135,7 @@ func TestInvoiceRequestRoundTrip(t *testing.T) {
 		tlv.NewPrimitiveRecord[tlv.TlvType240](sig),
 	)
 
-	encoded, err := ir.Encode()
+	encoded, err := ir.encode()
 	require.NoError(t, err)
 	require.NotEmpty(t, encoded)
 
@@ -149,7 +149,7 @@ func TestInvoiceRequestRoundTrip(t *testing.T) {
 	ir.decodedTLVs = decoded.decodedTLVs
 	require.Equal(t, ir, decoded)
 
-	reencoded, err := decoded.Encode()
+	reencoded, err := decoded.encode()
 	require.NoError(t, err)
 	require.Equal(t, encoded, reencoded)
 }
@@ -227,7 +227,7 @@ func TestNewInvoiceRequestFromOfferMirrorsUnknownFields(t *testing.T) {
 			tlv.NewPrimitiveRecord[tlv.TlvType22](pub),
 		),
 	}
-	encoded, err := offer.Encode()
+	encoded, err := offer.encode()
 	require.NoError(t, err)
 
 	const unknownType = 33
@@ -336,9 +336,9 @@ func TestInvoiceRequestStringRoundTrip(t *testing.T) {
 	)
 	require.NoError(t, err)
 
-	originalBytes, err := ir.Encode()
+	originalBytes, err := ir.encode()
 	require.NoError(t, err)
-	decodedBytes, err := decoded.Encode()
+	decodedBytes, err := decoded.encode()
 	require.NoError(t, err)
 	require.Equal(t, originalBytes, decodedBytes)
 }

@@ -507,7 +507,9 @@ func TestPeerChannelClosureAcceptFeeInitiator(t *testing.T) {
 	// Alice should be waiting on a single confirmation for the coop close tx.
 	select {
 	case registered := <-registeredAtRemoval:
-		require.True(t, registered, "channel removed before watcher started")
+		require.True(
+			t, registered, "channel removed before watcher started",
+		)
 	case <-time.After(timeout):
 		t.Fatal("channel was not removed")
 	}
@@ -947,6 +949,21 @@ func TestPeerChannelClosurePanicRecovery(t *testing.T) {
 		msg: &lnwire.Warning{ChanID: chanID},
 	}
 
+	// Queue another close message while the first is being contained. The
+	// manager must retire without accepting another event for this channel.
+	secondDelivered := make(chan bool, 1)
+	go func() {
+		select {
+		case alicePeer.chanCloseMsgs <- &closeMsg{
+			cid: chanID,
+			msg: &lnwire.Warning{ChanID: chanID},
+		}:
+			secondDelivered <- true
+		case <-alicePeer.cg.Done():
+			secondDelivered <- false
+		}
+	}()
+
 	// The local close request should receive the recovered error.
 	select {
 	case err := <-errChan:
@@ -969,6 +986,12 @@ func TestPeerChannelClosurePanicRecovery(t *testing.T) {
 	require.False(t, found, "chan closer was not removed")
 
 	requirePeerGoroutinesExit(t, alicePeer)
+	select {
+	case delivered := <-secondDelivered:
+		require.False(t, delivered, "manager accepted another close")
+	case <-time.After(timeout):
+		t.Fatal("second close sender did not exit")
+	}
 
 	// The failure path resets this channel while holding its mutex. Make
 	// sure recovery did not leave the mutex held after the peer exited.
@@ -1089,6 +1112,32 @@ func TestFinalizeChanClosureUnfinished(t *testing.T) {
 	require.True(t, found, "unfinished close removed active closer")
 }
 
+// TestSendLegacyCloseUpdateFullChannel verifies that a full Updates channel
+// cannot hold the channel manager or confirmation watcher.
+func TestSendLegacyCloseUpdateFullChannel(t *testing.T) {
+	t.Parallel()
+
+	peer := createTestPeer(t).peer
+	request := &htlcswitch.ChanClose{
+		Ctx:     t.Context(),
+		Updates: make(chan interface{}, 1),
+	}
+	request.Updates <- &PendingUpdate{}
+
+	done := make(chan struct{})
+	go func() {
+		peer.sendLegacyCloseUpdate(request, &ChannelCloseUpdate{})
+		close(done)
+	}()
+
+	select {
+	case <-done:
+	case <-time.After(timeout):
+		t.Fatal("full Updates channel blocked close cleanup")
+	}
+	require.Len(t, request.Updates, 1)
+}
+
 // TestPeerClosePanicFailureReportingIsFatal verifies that a second panic in
 // close failure handling propagates instead of resuming channelManager.
 func TestPeerClosePanicFailureReportingIsFatal(t *testing.T) {
@@ -1113,7 +1162,7 @@ func TestPeerClosePanicFailureReportingIsFatal(t *testing.T) {
 	// An ordinary error path can also panic after it has marked failure
 	// handling as started. Recovery must not treat that flag as proof that
 	// cleanup completed.
-	state.closeFailed.Store(true)
+	state.closeFailed = true
 	require.PanicsWithValue(t, "cleanup interrupted", func() {
 		func() {
 			defer fn.RecoverPanic(peer.legacyClosePanicHandler(

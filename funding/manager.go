@@ -7,7 +7,6 @@ import (
 	"errors"
 	"fmt"
 	"io"
-	"log/slog"
 	"sync"
 	"sync/atomic"
 	"time"
@@ -5361,38 +5360,20 @@ func (f *Manager) findZombieReservations() pendingChannels {
 
 	for _, pendingReservations := range f.activeReservations {
 		for pendingChanID, resCtx := range pendingReservations {
-			// We don't want to expire PSBT funding reservations.
-			// These reservations are always initiated by us and the
-			// remote peer is likely going to cancel them after some
-			// idle time anyway. So no need for us to also prune
-			// them.
-			if f.isZombieReservation(pendingChanID, resCtx) {
+			// PSBT reservations are intentionally left for the peer
+			// to cancel. A zero timestamp locks a reservation while
+			// its funding transaction is pending.
+			if resCtx.reservation.IsPsbt() ||
+				!resCtx.isExpired(f.cfg.ReservationTimeout) {
 
-				zombieReservations[pendingChanID] = resCtx
+				continue
 			}
+
+			zombieReservations[pendingChanID] = resCtx
 		}
 	}
 
 	return zombieReservations
-}
-
-// isZombieReservation contains only read-only inspection. A malformed entry
-// cannot prevent the sweep from inspecting other reservations. Cancellation
-// stays outside recovery because it can have partial wallet and peer effects.
-func (f *Manager) isZombieReservation(pendingChanID PendingChanID,
-	resCtx *reservationWithCtx) (expired bool) {
-
-	defer fn.RecoverPanic(func(pnc fn.Panic) {
-		fn.LogRecoveredPanic(
-			context.Background(), log, pnc,
-			slog.String("operation", "inspect_zombie_reservation"),
-			slog.String("pending_chan_id", fmt.Sprintf("%x", pendingChanID)),
-		)
-	})
-
-	return !resCtx.reservation.IsPsbt() && resCtx.isExpired(
-		f.cfg.ReservationTimeout,
-	)
 }
 
 // cancelReservationCtx does all needed work in order to securely cancel the

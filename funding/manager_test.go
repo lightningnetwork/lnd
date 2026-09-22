@@ -5746,10 +5746,9 @@ func TestChannelReadyUnknownChannelID(t *testing.T) {
 	)
 }
 
-// TestPruneZombieReservationsPanicRecovery verifies that a malformed
-// reservation cannot stop inspection of another expired reservation or leave
-// the reservation mutex read-locked.
-func TestPruneZombieReservationsPanicRecovery(t *testing.T) {
+// TestFindZombieReservations verifies that expired entries are selected while
+// locked and recently updated reservations are left alone.
+func TestFindZombieReservations(t *testing.T) {
 	t.Parallel()
 
 	healthyID := PendingChanID{2}
@@ -5757,14 +5756,22 @@ func TestPruneZombieReservationsPanicRecovery(t *testing.T) {
 		reservation: &lnwallet.ChannelReservation{},
 		lastUpdated: time.Now().Add(-time.Hour),
 	}
+	locked := &reservationWithCtx{
+		reservation: &lnwallet.ChannelReservation{},
+	}
+	recent := &reservationWithCtx{
+		reservation: &lnwallet.ChannelReservation{},
+		lastUpdated: time.Now(),
+	}
 	manager := &Manager{
 		cfg: &Config{
 			ReservationTimeout: time.Second,
 		},
 		activeReservations: map[serializedPubKey]pendingChannels{
 			{1}: {
-				PendingChanID{1}: nil,
+				PendingChanID{1}: locked,
 				healthyID:        healthy,
+				PendingChanID{3}: recent,
 			},
 		},
 	}

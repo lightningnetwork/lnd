@@ -148,9 +148,10 @@ func logRecoveredPanic(ctx context.Context, logger PanicLogger, p Panic,
 // not resume at the panic site. Place the defer in a per-item wrapper only when
 // its caller can safely continue with the next item.
 //
-// A nil onPanic callback is allowed. If the callback panics, its failure is
-// reported best-effort to stderr and then propagated. Continuing after panic
-// cleanup failed would leave the owner in an unknown state.
+// A nil onPanic callback propagates the original panic. If the callback
+// panics, its failure is reported best-effort to stderr and then propagated.
+// Continuing after panic cleanup failed would leave the owner in an unknown
+// state.
 func RecoverPanic(onPanic func(Panic)) {
 	recoverPanic(recover(), onPanic, os.Stderr)
 }
@@ -164,7 +165,7 @@ func recoverPanic(r any, onPanic func(Panic), fallbackWriter io.Writer) {
 	}
 
 	if onPanic == nil {
-		return
+		panic(r)
 	}
 
 	panicDetails := Panic{

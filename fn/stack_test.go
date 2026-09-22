@@ -184,10 +184,10 @@ func TestRecoverPanic(t *testing.T) {
 		require.LessOrEqual(t, len(got.Stack), maxPanicStackSize)
 	})
 
-	t.Run("nil callback is contained", func(t *testing.T) {
+	t.Run("nil callback propagates", func(t *testing.T) {
 		t.Parallel()
 
-		require.NotPanics(t, func() {
+		require.PanicsWithValue(t, "boom", func() {
 			func() {
 				defer RecoverPanic(nil)
 

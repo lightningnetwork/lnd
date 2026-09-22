@@ -294,7 +294,9 @@ func (w *Worker) runTask(req *request, state WorkerState) (panicked bool) {
 	defer fn.RecoverPanic(func(p fn.Panic) {
 		panicked = true
 
-		fn.LogRecoveredPanic(context.Background(), log, p)
+		fn.LogRecoveredPanicWithDebugStack(
+			context.Background(), log, p,
+		)
 
 		// Formatting the original value could call the same broken
 		// String or Error method that caused the panic. The structured

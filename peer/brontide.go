@@ -166,11 +166,11 @@ type closeMsg struct {
 
 // legacyClosePanicState holds the error handler used to tear down a legacy
 // cooperative close after a recovered panic. The handler becomes available
-// only after the active closer has been fetched. closeFailed prevents recovery
-// from running that handler twice if it was itself the source of the panic.
+// only after the active closer has been fetched. channelManager owns this
+// state; closeFailed prevents a second cleanup attempt after a cleanup panic.
 type legacyClosePanicState struct {
 	handleErr   func(error)
-	closeFailed atomic.Bool
+	closeFailed bool
 }
 
 // PendingUpdate describes the pending state of a closing channel.
@@ -1781,7 +1781,12 @@ func (p *Brontide) Disconnect(reason error) {
 	// Even if a teardown dependency panics, release the peer's waiters.
 	// Recovery callbacks propagate cleanup panics so an incomplete teardown
 	// cannot be mistaken for a successful disconnect.
-	defer p.cg.Quit()
+	quitSignaled := false
+	defer func() {
+		if !quitSignaled {
+			p.cg.Quit()
+		}
+	}()
 
 	// Make sure initialization has completed before we try to tear things
 	// down.
@@ -1829,6 +1834,7 @@ func (p *Brontide) Disconnect(reason error) {
 	p.cfg.Conn.Close()
 
 	p.cg.Quit()
+	quitSignaled = true
 
 	// If our msg router isn't global (local to this instance), then we'll
 	// stop it. Otherwise, we'll leave it running.
@@ -1976,11 +1982,15 @@ func (p *Brontide) readNextMessage() (lnwire.Message, error) {
 // caller treats the resulting error as fatal to this peer. Message dispatch
 // must stay outside this boundary because its handlers can change shared
 // protocol state before panicking.
+//
+//nolint:nonamedreturns // Recovery turns a wire panic into a read error.
 func (p *Brontide) readNextMessageWithRecovery() (msg lnwire.Message,
 	err error) {
 
 	defer fn.RecoverPanic(func(pnc fn.Panic) {
-		fn.LogRecoveredPanic(context.Background(), p.log, pnc)
+		fn.LogRecoveredPanicWithDebugStack(
+			context.Background(), p.log, pnc,
+		)
 		msg = nil
 		err = fmt.Errorf("panic while reading peer message: %T",
 			pnc.Value)
@@ -2335,8 +2345,8 @@ func (p *Brontide) runReadHandler(idleTimer *time.Timer,
 	discStream.Start()
 	defer discStream.Stop()
 	// A dispatch panic remains fatal, but it still has to release discovery
-	// consumers before Stop waits for them. On ordinary exit this closes the
-	// peer as before.
+	// consumers before Stop waits for them. Ordinary exit also closes
+	// the peer.
 	defer p.Disconnect(errors.New("read handler closed"))
 
 	p.readHandlerLoop(idleTimer, discStream)
@@ -3416,12 +3426,16 @@ out:
 		// message from the remote peer, we'll use this message to
 		// advance the chan closer state machine.
 		case closeMsg := <-p.chanCloseMsgs:
-			p.handleCloseMsg(closeMsg)
+			if p.handleCloseMsg(closeMsg) {
+				break out
+			}
 
 		// A link has finished draining the HTLCs from a channel we're
 		// cooperatively closing, so we can now start fee negotiation.
 		case cid := <-p.chanCloseFlushed:
-			p.handleChanFlushed(cid)
+			if p.handleChanFlushed(cid) {
+				break out
+			}
 
 		// The channel reannounce delay has elapsed, broadcast the
 		// reenabled channel updates to the network. This should only
@@ -3452,25 +3466,21 @@ out:
 			}
 
 		case <-p.cg.Done():
-			// As, we've been signalled to exit, we'll reset all
-			// our active channel back to their default state.
-			p.activeChannels.ForEach(func(_ lnwire.ChannelID,
-				lc *lnwallet.LightningChannel) error {
-
-				// Exit if the channel is nil as it's a pending
-				// channel.
-				if lc == nil {
-					return nil
-				}
-
-				lc.ResetState()
-
-				return nil
-			})
-
 			break out
 		}
 	}
+
+	// Shutdown and failed close handling both retire this manager.
+	// Reset active channels before releasing its wait-group entry.
+	p.activeChannels.ForEach(func(_ lnwire.ChannelID,
+		lc *lnwallet.LightningChannel) error {
+
+		if lc != nil {
+			lc.ResetState()
+		}
+
+		return nil
+	})
 }
 
 // reenableActiveChannels searches the index of channels maintained with this
@@ -4057,13 +4067,17 @@ func sendFinalCloseUpdate(closeReq *htlcswitch.ChanClose,
 
 // observeRbfCloseUpdates observes the channel for any updates that may
 // indicate that a new txid has been broadcasted, or the channel fully closed
-// on chain.
+// on chain. Only an RPC shutdown request starts this observer.
 func (p *Brontide) observeRbfCloseUpdates(chanCloser *chancloser.RbfChanCloser,
 	closeReq *htlcswitch.ChanClose,
 	coopCloseStates chancloser.RbfStateSub) {
 
 	newStateChan := coopCloseStates.NewItemCreated.ChanOut()
 	defer chanCloser.RemoveStateSub(coopCloseStates)
+	if closeReq == nil {
+		p.log.Error("RBF close observer started without an RPC request")
+		return
+	}
 
 	var (
 		lastTxids    lntypes.Dual[chainhash.Hash]
@@ -4123,7 +4137,7 @@ func (p *Brontide) observeRbfCloseUpdates(chanCloser *chancloser.RbfChanCloser,
 		// RBF, then we'll send a redundant update.
 		closingTxid := closePending.CloseTx.TxHash()
 		lastTxid := lastTxids.GetForParty(party)
-		if closeReq != nil && closingTxid != lastTxid {
+		if closingTxid != lastTxid {
 			select {
 			case closeReq.Updates <- &PendingUpdate{
 				Txid:        closingTxid[:],
@@ -4178,16 +4192,10 @@ func (p *Brontide) observeRbfCloseUpdates(chanCloser *chancloser.RbfChanCloser,
 				// from the active map, and send the final
 				// update to the client.
 				closingTxid := closeState.ConfirmedTx.TxHash()
-				if closeReq != nil {
-					// Updates is bounded. The caller may no
-					// longer be reading. Stop waiting when
-					// the request or peer shuts down, so
-					// cleanup can proceed.
-					sendFinalCloseUpdate(
-						closeReq, closingTxid,
-						p.cg.Done(),
-					)
-				}
+				// Stop if the caller or peer shuts down.
+				sendFinalCloseUpdate(
+					closeReq, closingTxid, p.cg.Done(),
+				)
 				chanID := lnwire.NewChanIDFromOutPoint(
 					*closeReq.ChanPoint,
 				)
@@ -4924,6 +4932,28 @@ func (p *Brontide) fetchLinkFromKeyAndCid(
 	return chanLink
 }
 
+// sendLegacyCloseUpdate sends a notification without blocking. The caller may
+// stop reading Updates before it is delivered. If its buffer is full, drop the
+// notification so channelManager and the confirmation watcher can finish.
+func (p *Brontide) sendLegacyCloseUpdate(closeReq *htlcswitch.ChanClose,
+	update interface{}) {
+
+	var requestDone <-chan struct{}
+	if closeReq.Ctx != nil {
+		requestDone = closeReq.Ctx.Done()
+	}
+
+	select {
+	case closeReq.Updates <- update:
+	case <-requestDone:
+	case <-p.cg.Done():
+	default:
+		p.log.Warnf("Legacy close update dropped for "+
+			"ChannelPoint(%v): Updates channel is full",
+			closeReq.ChanPoint)
+	}
+}
+
 // finalizeChanClosure performs the final clean up steps once the cooperative
 // closure transaction has been fully broadcast. The finalized closing state
 // machine should be passed in. Once the transaction has been sufficiently
@@ -4934,9 +4964,19 @@ func (p *Brontide) finalizeChanClosure(chanCloser *chancloser.ChanCloser) {
 
 	closingTx, err := chanCloser.ClosingTx()
 	if err != nil {
+		// The caller checks this immediately before calling us. A
+		// direct call with an unfinished closer keeps its indexes
+		// intact so negotiation can continue.
 		if closeReq != nil {
 			p.log.Error(err)
-			closeReq.Err <- err
+			select {
+			case closeReq.Err <- err:
+			default:
+				p.log.Warnf(
+					"Close notification dropped: %v",
+					err,
+				)
+			}
 		}
 
 		return
@@ -4962,12 +5002,9 @@ func (p *Brontide) finalizeChanClosure(chanCloser *chancloser.ChanCloser) {
 	// If this is a locally requested shutdown, update the caller with a
 	// new event detailing the current pending state of this request.
 	if closeReq != nil {
-		// TODO: This direct send relies on Updates having capacity for
-		// exactly two legacy close notifications. Make it cancellable
-		// before changing that producer or buffer invariant.
-		closeReq.Updates <- &PendingUpdate{
+		p.sendLegacyCloseUpdate(closeReq, &PendingUpdate{
 			Txid: closingTxid[:],
-		}
+		})
 	}
 
 	localOut := chanCloser.LocalCloseOutput()
@@ -4992,21 +5029,22 @@ func (p *Brontide) finalizeChanClosure(chanCloser *chancloser.ChanCloser) {
 			// Respond to the local subsystem which requested the
 			// channel closure.
 			if closeReq != nil {
-				closeReq.Updates <- &ChannelCloseUpdate{
+				update := &ChannelCloseUpdate{
 					ClosingTxid:       closingTxid[:],
 					Success:           true,
 					LocalCloseOutput:  localOut,
 					RemoteCloseOutput: remoteOut,
 					AuxOutputs:        auxOut,
 				}
+				p.sendLegacyCloseUpdate(closeReq, update)
 			}
 		},
 	)
 
-	// Keep the peer indexes intact until the confirmation watcher has been
-	// launched. If preparation or caller notification panics, close recovery
-	// still has an indexed channel; if index cleanup panics, the watcher is
-	// already running.
+	// The disabled, flushed link stays registered during caller
+	// notification and watcher setup. Keep peer indexes intact until
+	// the watcher starts. A preparation panic leaves an indexed channel;
+	// an index cleanup panic leaves a running watcher.
 	p.WipeChannel(&chanPoint)
 	cid := lnwire.NewChanIDFromOutPoint(chanPoint)
 	p.deleteActiveChanCloser(cid, chanPoint)
@@ -5456,17 +5494,19 @@ func (p *Brontide) StartTime() time.Time {
 	return p.startTime
 }
 
-// handleCloseMsg is called when a new cooperative channel closure related
-// message is received from the remote peer. We'll use this message to advance
-// the chan closer state machine.
-func (p *Brontide) handleCloseMsg(msg *closeMsg) {
+// handleCloseMsg advances a legacy close. It reports whether failure retired
+// channelManager, which must stop before it can receive another close event.
+//
+//nolint:nonamedreturns // Recovery sets the manager's fail-stop signal.
+func (p *Brontide) handleCloseMsg(msg *closeMsg) (retired bool) {
 	// Install recovery around legacy close handling. Once the ordinary
 	// error handler is available, use it for recovered failures. The
 	// closeFailed flag prevents the handler from running twice.
 	panicState := &legacyClosePanicState{}
-	defer fn.RecoverPanic(p.legacyClosePanicHandler(
-		msg.cid, panicState,
-	))
+	defer fn.RecoverPanic(func(pnc fn.Panic) {
+		retired = true
+		p.legacyClosePanicHandler(msg.cid, panicState)(pnc)
+	})
 
 	link := p.fetchLinkFromKeyAndCid(msg.cid)
 
@@ -5506,7 +5546,8 @@ func (p *Brontide) handleCloseMsg(msg *closeMsg) {
 
 	closeErrHandler := p.negotiateCloseErrHandler(msg.cid, chanCloser)
 	panicState.handleErr = func(err error) {
-		panicState.closeFailed.Store(true)
+		retired = true
+		panicState.closeFailed = true
 		closeErrHandler(err)
 	}
 	handleErr := panicState.handleErr
@@ -5600,6 +5641,8 @@ func (p *Brontide) handleCloseMsg(msg *closeMsg) {
 	}
 
 	p.maybeFinalizeChanClosure(chanCloser)
+
+	return retired
 }
 
 // legacyClosePanicHandler returns the callback used by a directly deferred
@@ -5611,7 +5654,7 @@ func (p *Brontide) legacyClosePanicHandler(cid lnwire.ChannelID,
 	state *legacyClosePanicState) func(fn.Panic) {
 
 	return func(pnc fn.Panic) {
-		fn.LogRecoveredPanic(
+		fn.LogRecoveredPanicWithDebugStack(
 			context.Background(), p.log, pnc,
 			slog.String("channel_id", cid.String()),
 		)
@@ -5624,7 +5667,7 @@ func (p *Brontide) legacyClosePanicHandler(cid lnwire.ChannelID,
 		// A panic inside the close failure handler leaves its cleanup
 		// incomplete. The flag prevents a second attempt, but we cannot
 		// safely resume channelManager, so let this panic remain fatal.
-		if state.closeFailed.Load() {
+		if state.closeFailed {
 			panic(pnc.Value)
 		}
 
@@ -5636,7 +5679,7 @@ func (p *Brontide) legacyClosePanicHandler(cid lnwire.ChannelID,
 		}
 
 		// A second panic means close failure handling did not complete.
-		// RecoverPanic propagates it rather than resuming channelManager
+		// RecoverPanic propagates it. channelManager cannot resume
 		// with unknown channel or peer state.
 		state.handleErr(err)
 	}
@@ -5648,11 +5691,14 @@ func (p *Brontide) legacyClosePanicHandler(cid lnwire.ChannelID,
 // over chanCloseFlushed, so that the closer only ever advances here.
 //
 // NOTE: MUST be called from the channelManager goroutine.
-func (p *Brontide) handleChanFlushed(cid lnwire.ChannelID) {
+//
+//nolint:nonamedreturns // Recovery sets the manager's fail-stop signal.
+func (p *Brontide) handleChanFlushed(cid lnwire.ChannelID) (retired bool) {
 	panicState := &legacyClosePanicState{}
-	defer fn.RecoverPanic(p.legacyClosePanicHandler(
-		cid, panicState,
-	))
+	defer fn.RecoverPanic(func(pnc fn.Panic) {
+		retired = true
+		p.legacyClosePanicHandler(cid, panicState)(pnc)
+	})
 
 	// We deliberately don't go through fetchActiveChanCloser here, as that
 	// would build a fresh closer if the negotiation has already been torn
@@ -5678,11 +5724,14 @@ func (p *Brontide) handleChanFlushed(cid lnwire.ChannelID) {
 
 	closeErrHandler := p.negotiateCloseErrHandler(cid, chanCloser)
 	panicState.handleErr = func(err error) {
-		panicState.closeFailed.Store(true)
+		retired = true
+		panicState.closeFailed = true
 		closeErrHandler(err)
 	}
 
 	p.beginNegotiation(chanCloser, panicState.handleErr)
+
+	return retired
 }
 
 // beginNegotiation starts the fee negotiation phase of a legacy cooperative

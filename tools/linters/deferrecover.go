@@ -41,8 +41,9 @@ func (d *DeferRecoverPlugin) GetLoadMode() string {
 func newDeferRecoverAnalyzer() *analysis.Analyzer {
 	return &analysis.Analyzer{
 		Name: deferRecoverLinterName,
-		Doc:  "Reports fn.RecoverPanic calls that are not deferred directly",
-		Run:  runDeferRecover,
+		Doc: "Reports fn.RecoverPanic calls that are not " +
+			"deferred directly",
+		Run: runDeferRecover,
 	}
 }
 

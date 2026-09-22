@@ -563,8 +563,8 @@ func TestEncodeInvoiceStringInvalid(t *testing.T) {
 }
 
 // TestEncodeInvoiceStringUnsigned asserts the wire-string layer refuses to
-// emit an unsigned invoice: the signature becomes mandatory at the bech32
-// boundary even though pre-sign Encode is permitted.
+// emit an unsigned invoice: the signature is mandatory at every exported
+// way out, while encode itself does not require one.
 func TestEncodeInvoiceStringUnsigned(t *testing.T) {
 	t.Parallel()
 

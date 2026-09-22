@@ -22,6 +22,12 @@
 
 # Bug Fixes
 
+* [Fixed historical graph
+  synchronization](https://github.com/lightningnetwork/lnd/pull/11173) so a
+  peer whose channel range response cannot be used is rotated out of the
+  current historical sync. The sync manager selects another peer without
+  disconnecting the first one or waiting for the historical sync interval.
+
 * Bitcoind outbound peer health checks [now use](https://github.com/lightningnetwork/lnd/pull/10686)
   `getnetworkinfo.connections_out` instead of `getpeerinfo`. The same PR also
   [clarifies](https://github.com/lightningnetwork/lnd/issues/10568) the ZMQ
@@ -87,6 +93,12 @@
 ## Breaking Changes
 
 ## Performance Improvements
+
+* [Historical graph
+  synchronization](https://github.com/lightningnetwork/lnd/pull/11174) now
+  requests channel ranges in fixed-size block pages and releases each page
+  before continuing. This bounds temporary range state while processing long
+  chain histories.
 
 ## Deprecations
 

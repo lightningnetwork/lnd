@@ -4174,10 +4174,11 @@ func archiveClosedChannel(tx kvdb.RwTx, chanKey []byte,
 }
 
 // closeChannelSync performs the historical synchronous close path: in a
-// single write transaction it wipes the forwarding-package state, deletes
-// the channel bucket and its nested revocation log entries, updates the
-// outpoint index, and archives the close summary. It is used by backends
-// where nested-bucket deletion is cheap (bbolt, etcd).
+// single write transaction it persists forwarding responses, wipes the
+// forwarding-package state, deletes the channel bucket and its nested
+// revocation log entries, updates the outpoint index, and archives the close
+// summary. It is used by backends where nested-bucket deletion is cheap
+// (bbolt, etcd).
 func (c *ChannelStateDB) closeChannelSync(channel *OpenChannel,
 	summary *ChannelCloseSummary, statuses ...ChannelStatus) error {
 
@@ -4192,6 +4193,14 @@ func (c *ChannelStateDB) closeChannelSync(channel *OpenChannel,
 		chanState, err := fetchOpenChannel(
 			chanBucket, &channel.FundingOutpoint,
 		)
+		if err != nil {
+			return err
+		}
+
+		// Persist eligible responses before cleaning up the channel's
+		// packages. Both updates share a transaction so their state
+		// transition is atomic.
+		err = extractFwdResponses(tx, chanState.ShortChannelID)
 		if err != nil {
 			return err
 		}
@@ -4249,6 +4258,14 @@ func (c *ChannelStateDB) closeChannelTombstone(channel *OpenChannel,
 		chanState, err := fetchOpenChannel(
 			chanBucket, &channel.FundingOutpoint,
 		)
+		if err != nil {
+			return err
+		}
+
+		// Apply the same response-persistence step for the tombstone
+		// path so response state is independent of the backend's close
+		// strategy.
+		err = extractFwdResponses(tx, chanState.ShortChannelID)
 		if err != nil {
 			return err
 		}

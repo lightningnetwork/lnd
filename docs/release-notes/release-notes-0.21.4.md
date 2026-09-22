@@ -21,6 +21,10 @@
 
 # Bug Fixes
 
+* [Fixed an issue](https://github.com/lightningnetwork/lnd/pull/11258) that could
+  leave HTLCs pending during channel lifecycle transitions, potentially causing
+  unnecessary force closes and on-chain fees.
+
 * [Fixed historical graph
   synchronization](https://github.com/lightningnetwork/lnd/pull/11173) so a
   peer whose channel range response cannot be used is rotated out of the

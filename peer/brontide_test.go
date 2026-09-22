@@ -1112,30 +1112,68 @@ func TestFinalizeChanClosureUnfinished(t *testing.T) {
 	require.True(t, found, "unfinished close removed active closer")
 }
 
-// TestSendLegacyCloseUpdateFullChannel verifies that a full Updates channel
-// cannot hold the channel manager or confirmation watcher.
-func TestSendLegacyCloseUpdateFullChannel(t *testing.T) {
+// TestSendLegacyCloseUpdate verifies that a legacy close notification is
+// delivered whenever the caller's buffer has room, and is dropped rather than
+// parking channelManager or the confirmation watcher when it does not.
+func TestSendLegacyCloseUpdate(t *testing.T) {
 	t.Parallel()
 
-	peer := createTestPeer(t).peer
-	request := &htlcswitch.ChanClose{
-		Ctx:     t.Context(),
-		Updates: make(chan interface{}, 1),
-	}
-	request.Updates <- &PendingUpdate{}
+	// sendUnblocked runs the send on its own goroutine so a regression that
+	// reintroduces blocking fails the test instead of hanging the package.
+	sendUnblocked := func(t *testing.T, peer *Brontide,
+		request *htlcswitch.ChanClose) {
 
-	done := make(chan struct{})
-	go func() {
-		peer.sendLegacyCloseUpdate(request, &ChannelCloseUpdate{})
-		close(done)
-	}()
+		t.Helper()
 
-	select {
-	case <-done:
-	case <-time.After(timeout):
-		t.Fatal("full Updates channel blocked close cleanup")
+		done := make(chan struct{})
+		go func() {
+			peer.sendLegacyCloseUpdate(
+				request, &ChannelCloseUpdate{},
+			)
+			close(done)
+		}()
+
+		select {
+		case <-done:
+		case <-time.After(timeout):
+			t.Fatal("send blocked close cleanup")
+		}
 	}
-	require.Len(t, request.Updates, 1)
+
+	// A full buffer means the caller stopped reading, so the
+	// notification is dropped and cleanup continues.
+	t.Run("full buffer drops", func(t *testing.T) {
+		t.Parallel()
+
+		peer := createTestPeer(t).peer
+		request := &htlcswitch.ChanClose{
+			Ctx:     t.Context(),
+			Updates: make(chan interface{}, 1),
+		}
+		request.Updates <- &PendingUpdate{}
+
+		sendUnblocked(t, peer, request)
+		require.Len(t, request.Updates, 1)
+	})
+
+	// Cancellation must not cost the caller a notification it still has
+	// room to receive. Selecting on a cancellation signal alongside a
+	// ready send would drop this one at random.
+	t.Run("cancelled request still delivers", func(t *testing.T) {
+		t.Parallel()
+
+		peer := createTestPeer(t).peer
+		ctx, cancel := context.WithCancel(t.Context())
+		cancel()
+
+		request := &htlcswitch.ChanClose{
+			Ctx:     ctx,
+			Updates: make(chan interface{}, 1),
+		}
+
+		sendUnblocked(t, peer, request)
+		require.Len(t, request.Updates, 1)
+	})
 }
 
 // TestPeerClosePanicFailureReportingIsFatal verifies that a second panic in
@@ -1199,6 +1237,7 @@ func TestChooseDeliveryScript(t *testing.T) {
 	// generate non-zero scripts for testing.
 	script1 := genScript(t, p2SHAddress)
 	script2 := genScript(t, p2wshAddress)
+	scriptMismatchErr := chancloser.ErrUpfrontShutdownScriptMismatch
 
 	tests := []struct {
 		name           string
@@ -1220,7 +1259,7 @@ func TestChooseDeliveryScript(t *testing.T) {
 			userScript:     script1,
 			shutdownScript: script2,
 			expectedScript: nil,
-			expectedError:  chancloser.ErrUpfrontShutdownScriptMismatch,
+			expectedError:  scriptMismatchErr,
 		},
 		{
 			name:           "Only upfront script",
@@ -1249,16 +1288,12 @@ func TestChooseDeliveryScript(t *testing.T) {
 	}
 
 	for _, test := range tests {
-
 		t.Run(test.name, func(t *testing.T) {
 			script, err := chooseDeliveryScript(
 				test.shutdownScript, test.userScript,
 				test.newAddr,
 			)
-			if err != test.expectedError {
-				t.Fatalf("Expected: %v, got: %v",
-					test.expectedError, err)
-			}
+			require.ErrorIs(t, err, test.expectedError)
 
 			if !bytes.Equal(script, test.expectedScript) {
 				t.Fatalf("Expected: %x, got: %x",
@@ -1284,14 +1319,14 @@ func TestCustomShutdownScript(t *testing.T) {
 	tests := []struct {
 		name string
 
-		// update is a function used to set values on the channel set up for the
-		// test. It is used to set values for upfront shutdown addresses.
+		// update sets values on the channel used by the test, including
+		// upfront shutdown addresses.
 		update func(a, b *chanstate.OpenChannel)
 
 		// userCloseScript is the address specified by the user.
 		userCloseScript lnwire.DeliveryAddress
 
-		// expectedScript is the address we expect to be set on the shutdown
+		// expectedScript is the address expected on the shutdown
 		// message.
 		expectedScript lnwire.DeliveryAddress
 
@@ -1328,7 +1363,6 @@ func TestCustomShutdownScript(t *testing.T) {
 	}
 
 	for _, test := range tests {
-
 		t.Run(test.name, func(t *testing.T) {
 			// Open a channel.
 			harness, err := createTestPeerWithChannel(
@@ -1495,7 +1529,6 @@ func TestStaticRemoteDowngrade(t *testing.T) {
 	}
 
 	for _, test := range tests {
-
 		t.Run(test.name, func(t *testing.T) {
 			params := createTestPeer(t)
 

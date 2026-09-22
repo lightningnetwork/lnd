@@ -1780,13 +1780,10 @@ func (p *Brontide) Disconnect(reason error) {
 	}
 	// Even if a teardown dependency panics, release the peer's waiters.
 	// Recovery callbacks propagate cleanup panics so an incomplete teardown
-	// cannot be mistaken for a successful disconnect.
-	quitSignaled := false
-	defer func() {
-		if !quitSignaled {
-			p.cg.Quit()
-		}
-	}()
+	// cannot be mistaken for a successful disconnect. Quit is guarded by a
+	// sync.Once, so this backstop is a no-op once the ordinary teardown
+	// below has signalled it.
+	defer p.cg.Quit()
 
 	// Make sure initialization has completed before we try to tear things
 	// down.
@@ -1834,7 +1831,6 @@ func (p *Brontide) Disconnect(reason error) {
 	p.cfg.Conn.Close()
 
 	p.cg.Quit()
-	quitSignaled = true
 
 	// If our msg router isn't global (local to this instance), then we'll
 	// stop it. Otherwise, we'll leave it running.
@@ -4932,21 +4928,17 @@ func (p *Brontide) fetchLinkFromKeyAndCid(
 	return chanLink
 }
 
-// sendLegacyCloseUpdate sends a notification without blocking. The caller may
-// stop reading Updates before it is delivered. If its buffer is full, drop the
-// notification so channelManager and the confirmation watcher can finish.
+// sendLegacyCloseUpdate hands a close notification to the caller without ever
+// blocking. One of the two senders is channelManager, which must not park on a
+// client that stopped reading, so this never waits on a cancellation signal
+// that a wedged caller may never produce. Updates is sized to hold both legacy
+// notifications, so a drop here means the caller already abandoned the stream.
 func (p *Brontide) sendLegacyCloseUpdate(closeReq *htlcswitch.ChanClose,
 	update interface{}) {
 
-	var requestDone <-chan struct{}
-	if closeReq.Ctx != nil {
-		requestDone = closeReq.Ctx.Done()
-	}
-
 	select {
 	case closeReq.Updates <- update:
-	case <-requestDone:
-	case <-p.cg.Done():
+
 	default:
 		p.log.Warnf("Legacy close update dropped for "+
 			"ChannelPoint(%v): Updates channel is full",
@@ -5517,7 +5509,7 @@ func (p *Brontide) handleCloseMsg(msg *closeMsg) (retired bool) {
 		// If the channel is not known to us, we'll simply ignore this
 		// message.
 		if err == ErrChannelNotFound {
-			return
+			return retired
 		}
 
 		p.log.Errorf("Unable to respond to remote close msg: %v", err)
@@ -5527,12 +5519,13 @@ func (p *Brontide) handleCloseMsg(msg *closeMsg) (retired bool) {
 			Data:   lnwire.ErrorData(err.Error()),
 		}
 		p.queueMsg(errMsg, nil)
-		return
+
+		return retired
 	}
 
 	if chanCloserE.IsRight() {
 		// TODO(roasbeef): assert?
-		return
+		return retired
 	}
 
 	// At this point, we'll only enter this call path if a negotiate chan
@@ -5565,7 +5558,7 @@ func (p *Brontide) handleCloseMsg(msg *closeMsg) (retired bool) {
 		oShutdown, err := chanCloser.ReceiveShutdown(*typed)
 		if err != nil {
 			handleErr(err)
-			return
+			return retired
 		}
 
 		oShutdown.WhenSome(func(msg lnwire.Shutdown) {
@@ -5597,7 +5590,7 @@ func (p *Brontide) handleCloseMsg(msg *closeMsg) (retired bool) {
 		if link == nil {
 			p.beginNegotiation(chanCloser, handleErr)
 
-			return
+			return retired
 		}
 
 		// Otherwise, we register a flush hook so we hear about it once
@@ -5625,7 +5618,7 @@ func (p *Brontide) handleCloseMsg(msg *closeMsg) (retired bool) {
 		oClosingSigned, err := chanCloser.ReceiveClosingSigned(*typed)
 		if err != nil {
 			handleErr(err)
-			return
+			return retired
 		}
 
 		oClosingSigned.WhenSome(func(msg lnwire.ClosingSigned) {
@@ -5708,13 +5701,13 @@ func (p *Brontide) handleChanFlushed(cid lnwire.ChannelID) (retired bool) {
 		p.log.Debugf("ChannelID(%v) flushed, but no chan closer is "+
 			"active", cid)
 
-		return
+		return retired
 	}
 
 	// The RBF closer drives its own flush handling, so there's nothing for
 	// us to do if that's the one closing this channel.
 	if chanCloserE.IsRight() {
-		return
+		return retired
 	}
 
 	var chanCloser *chancloser.ChanCloser

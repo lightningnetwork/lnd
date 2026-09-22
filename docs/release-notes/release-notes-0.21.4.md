@@ -91,6 +91,16 @@
 
 ## Code Health
 
+* Selected asynchronous boundaries [now contain unexpected
+  panics](https://github.com/lightningnetwork/lnd/pull/11097) when the affected
+  execution unit can be retired safely. Wire-read failures disconnect the
+  affected peer, buffer-pool tasks retire their worker state, and legacy
+  cooperative-close failures tear down their negotiation and stop the peer's
+  channel manager. Funding reservation expiry uses synchronized timestamp
+  reads. Panics during stateful message dispatch, funding cancellation, or
+  recovery cleanup remain fatal. Recovered failures use structured reporting
+  with bounded stack traces at debug level on peer-facing paths.
+
 ## Tooling and Documentation
 
 * [Documented](https://github.com/lightningnetwork/lnd/pull/11194) that the

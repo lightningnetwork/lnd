@@ -8,8 +8,10 @@ import (
 	"time"
 
 	"github.com/btcsuite/btcd/chainhash/v2"
+	"github.com/lightningnetwork/lnd/actor"
 	graphdb "github.com/lightningnetwork/lnd/graph/db"
 	"github.com/lightningnetwork/lnd/lnpeer"
+	"github.com/lightningnetwork/lnd/lnutils"
 	"github.com/lightningnetwork/lnd/lnwire"
 	"github.com/lightningnetwork/lnd/routing/route"
 	"github.com/lightningnetwork/lnd/ticker"
@@ -80,6 +82,20 @@ type staleSyncer struct {
 	// needed to ensure we always create a new syncer for a flappy peer
 	// after they disconnect if they happened to be an active syncer.
 	doneChan chan struct{}
+}
+
+// failedHistoricalSync is an internal message used to replace a peer that
+// could not complete the initial historical sync.
+type failedHistoricalSync struct {
+	// syncer is the syncer whose historical sync failed. We retain the
+	// instance so a delayed failure cannot match a new connection from the
+	// same peer.
+	syncer *GossipSyncer
+
+	// accepted is completed once the SyncManager has detached the failed
+	// attempt from its completion signal. Replacement selection happens
+	// after this acknowledgement so it cannot delay the failed syncer.
+	accepted actor.Promise[error]
 }
 
 // SyncManagerCfg contains all of the dependencies required for the SyncManager
@@ -186,6 +202,10 @@ type SyncManager struct {
 	// GossipSyncers for disconnected peers.
 	staleSyncers chan *staleSyncer
 
+	// failedHistoricalSyncs receives peers which could not complete a
+	// historical sync using the response they received.
+	failedHistoricalSyncs chan *failedHistoricalSync
+
 	// syncersMu guards the read and write access to the activeSyncers and
 	// inactiveSyncers maps below.
 	syncersMu sync.Mutex
@@ -248,10 +268,11 @@ func newSyncManager(cfg *SyncManagerCfg) *SyncManager {
 	)
 
 	return &SyncManager{
-		cfg:          *cfg,
-		rateLimiter:  rateLimiter,
-		newSyncers:   make(chan *newSyncer),
-		staleSyncers: make(chan *staleSyncer),
+		cfg:                   *cfg,
+		rateLimiter:           rateLimiter,
+		newSyncers:            make(chan *newSyncer),
+		staleSyncers:          make(chan *staleSyncer),
+		failedHistoricalSyncs: make(chan *failedHistoricalSync),
 		activeSyncers: make(
 			map[route.Vertex]*GossipSyncer, cfg.NumActiveSyncers,
 		),
@@ -320,6 +341,13 @@ func (m *SyncManager) syncerHandler() {
 		// attempted just because the initialHistoricalSyncer was
 		// disconnected.
 		initialHistoricalSyncSignal chan struct{}
+
+		// failedHistoricalSyncers contains peers which rejected a
+		// channel range reply since the previous scheduled historical
+		// sync. Keeping them out of immediate replacements and the next
+		// scheduled pick prevents a small set of bad peers from cycling
+		// indefinitely.
+		failedHistoricalSyncers = make(map[route.Vertex]struct{})
 	)
 
 	setInitialHistoricalSyncer := func(s *GossipSyncer) {
@@ -378,6 +406,18 @@ func (m *SyncManager) syncerHandler() {
 					m.cfg.NumActiveSyncers > 0
 				fallthrough
 
+			// The graph isn't synced and no initial historical
+			// sync is in flight, e.g. the prior attempt failed
+			// and no eligible replacement was found at the
+			// time. This new peer is a healthy candidate, so
+			// attempt a historical sync with it rather than
+			// waiting for the next hourly ticker to pick one.
+			case !m.IsGraphSynced() &&
+				initialHistoricalSyncer == nil:
+				attemptHistoricalSync =
+					m.cfg.NumActiveSyncers > 0
+				fallthrough
+
 			// If we've exceeded our total number of active syncers,
 			// we'll initialize this GossipSyncer as passive.
 			case len(m.activeSyncers) >= m.cfg.NumActiveSyncers:
@@ -409,7 +449,11 @@ func (m *SyncManager) syncerHandler() {
 			// We'll force a historical sync with the first peer we
 			// connect to, to ensure we get as much of the graph as
 			// possible.
-			if !attemptHistoricalSync {
+			_, failedHistoricalSync :=
+				failedHistoricalSyncers[s.cfg.peerPub]
+			if !attemptHistoricalSync ||
+				(!isPinnedSyncer && failedHistoricalSync) {
+
 				continue
 			}
 
@@ -460,7 +504,7 @@ func (m *SyncManager) syncerHandler() {
 			log.Debug("Finding replacement for initial " +
 				"historical sync")
 
-			s := m.forceHistoricalSync()
+			s := m.forceHistoricalSync(failedHistoricalSyncers)
 			if s == nil {
 				log.Debug("No eligible replacement found " +
 					"for initial historical sync")
@@ -473,6 +517,46 @@ func (m *SyncManager) syncerHandler() {
 
 			setInitialHistoricalSyncer(s)
 
+		// The current historical syncer rejected its peer's response.
+		// Select another peer without tearing down the connection.
+		case failedSync := <-m.failedHistoricalSyncs:
+			failedHistoricalSyncers[failedSync.syncer.cfg.peerPub] =
+				struct{}{}
+
+			isInitialSyncer := initialHistoricalSyncer != nil &&
+				failedSync.syncer == initialHistoricalSyncer
+
+			// Detach the failed attempt before acknowledgement. The
+			// syncer can then return to chansSynced without its old
+			// signal being mistaken for a successful initial sync.
+			if isInitialSyncer {
+				initialHistoricalSyncer = nil
+				initialHistoricalSyncSignal = nil
+			}
+			completeGossipResult(failedSync.accepted, nil)
+
+			if isInitialSyncer && m.cfg.NumActiveSyncers > 0 {
+				log.Debug("Finding replacement for failed " +
+					"historical sync")
+
+				s := m.forceHistoricalSync(
+					failedHistoricalSyncers,
+				)
+				if s == nil {
+					msg := "No eligible " +
+						"replacement found for " +
+						"failed historical sync"
+					log.Debug(msg)
+				} else {
+					log.Debugf("Replaced failed "+
+						"historical GossipSyncer(%v) "+
+						"with GossipSyncer(%x)",
+						failedSync.syncer.cfg.peerPub,
+						s.cfg.peerPub)
+
+					setInitialHistoricalSyncer(s)
+				}
+			}
 		// Our initial historical sync signal has completed, so we'll
 		// nil all of the relevant fields as they're no longer needed.
 		case <-initialHistoricalSyncSignal:
@@ -482,34 +566,8 @@ func (m *SyncManager) syncerHandler() {
 			log.Debug("Initial historical sync completed")
 
 			// With the initial historical sync complete, we can
-			// begin receiving new graph updates at tip. We'll
-			// determine whether we can have any more active
-			// GossipSyncers. If we do, we'll randomly select some
-			// that are currently passive to transition.
-			m.syncersMu.Lock()
-			numActiveLeft := m.cfg.NumActiveSyncers - len(m.activeSyncers)
-			if numActiveLeft <= 0 {
-				m.syncersMu.Unlock()
-				continue
-			}
-
-			// We may not even have enough inactive syncers to be
-			// transitted. In that case, we will transit all the
-			// inactive syncers.
-			if len(m.inactiveSyncers) < numActiveLeft {
-				numActiveLeft = len(m.inactiveSyncers)
-			}
-
-			log.Debugf("Attempting to transition %v passive "+
-				"GossipSyncers to active", numActiveLeft)
-
-			for i := 0; i < numActiveLeft; i++ {
-				chooseRandomSyncer(
-					m.inactiveSyncers, m.transitionPassiveSyncer,
-				)
-			}
-
-			m.syncersMu.Unlock()
+			// begin receiving new graph updates at tip.
+			m.promoteSyncers()
 
 		// Our RotateTicker has ticked, so we'll attempt to rotate a
 		// single active syncer with a passive one.
@@ -519,6 +577,36 @@ func (m *SyncManager) syncerHandler() {
 		// Our HistoricalSyncTicker has ticked, so we'll randomly select
 		// a peer and force a historical sync with them.
 		case <-m.cfg.HistoricalSyncTicker.Ticks():
+			// The initial syncer may have reached its chansSynced
+			// state without our loop noticing, as its completion
+			// signal is ready but hasn't been consumed yet. Handle
+			// it now so the scheduled pick doesn't reuse the same
+			// peer for a second historical sync before its first
+			// success is processed.
+			if initialHistoricalSyncSignal != nil {
+				select {
+				case <-initialHistoricalSyncSignal:
+					initialHistoricalSyncer = nil
+					initialHistoricalSyncSignal = nil
+
+					log.Debug("Initial historical sync " +
+						"completed")
+
+					// With the initial historical sync
+					// complete, we can begin receiving new
+					// graph updates at tip.
+					m.promoteSyncers()
+
+					// We've consumed this tick to handle
+					// the ready completion. A new
+					// historical sync shouldn't be
+					// started in the same iteration.
+
+					continue
+				default:
+				}
+			}
+
 			// To be extra cautious, gate the forceHistoricalSync
 			// call such that it can only execute if we are
 			// configured to have a non-zero number of sync peers.
@@ -529,9 +617,28 @@ func (m *SyncManager) syncerHandler() {
 				continue
 			}
 
+			// The tracked initial syncer may complete and become
+			// eligible while our pick is blocked on the syncers
+			// lock, after the check above. Exclude it so the
+			// scheduled pick can't reuse the same peer before
+			// its completion has been consumed. Its success will
+			// be handled by the signal's case on the next
+			// iteration.
+			excluded := failedHistoricalSyncers
+			if initialHistoricalSyncer != nil {
+				excluded[initialHistoricalSyncer.cfg.peerPub] =
+					struct{}{}
+			}
+
 			// If we don't have a syncer available we have nothing
 			// to do.
-			s := m.forceHistoricalSync()
+			s := m.forceHistoricalSync(excluded)
+
+			// Failed peers remain excluded from immediate
+			// replacements and one scheduled pick. Clear the set
+			// to keep this a bounded retry delay, not a ban.
+			clear(failedHistoricalSyncers)
+
 			if s == nil {
 				continue
 			}
@@ -552,6 +659,35 @@ func (m *SyncManager) syncerHandler() {
 		case <-m.quit:
 			return
 		}
+	}
+}
+
+// promoteSyncers transitions any passive syncers needed to fill our
+// quota of active syncers, now that the initial historical sync has
+// completed and we can begin receiving new graph updates at tip.
+func (m *SyncManager) promoteSyncers() {
+	m.syncersMu.Lock()
+	defer m.syncersMu.Unlock()
+
+	numActiveLeft := m.cfg.NumActiveSyncers - len(m.activeSyncers)
+	if numActiveLeft <= 0 {
+		return
+	}
+
+	// We may not even have enough inactive syncers to be
+	// transitioned. In that case, we will transition all the
+	// inactive syncers.
+	if len(m.inactiveSyncers) < numActiveLeft {
+		numActiveLeft = len(m.inactiveSyncers)
+	}
+
+	log.Debugf("Attempting to transition %v passive "+
+		"GossipSyncers to active", numActiveLeft)
+
+	for i := 0; i < numActiveLeft; i++ {
+		chooseRandomSyncer(
+			m.inactiveSyncers, m.transitionPassiveSyncer,
+		)
 	}
 }
 
@@ -673,6 +809,9 @@ func (m *SyncManager) createGossipSyncer(peer lnpeer.Peer) *GossipSyncer {
 
 			return m.sendMessages(ctx, sync, peer, nodeID, msgs...)
 		},
+		historicalSyncFailed: func(s *GossipSyncer, err error) {
+			m.reportHistoricalSyncFailure(s, err)
+		},
 		ignoreHistoricalFilters:  m.cfg.IgnoreHistoricalFilters,
 		bestHeight:               m.cfg.BestHeight,
 		markGraphSynced:          m.markGraphSynced,
@@ -692,6 +831,30 @@ func (m *SyncManager) createGossipSyncer(peer lnpeer.Peer) *GossipSyncer {
 		s.syncState(), s.SyncType(), peer.PubKey())
 
 	return s
+}
+
+// reportHistoricalSyncFailure asks the SyncManager to select another peer for
+// the initial historical sync.
+func (m *SyncManager) reportHistoricalSyncFailure(syncer *GossipSyncer,
+	err error) {
+
+	log.Debugf("GossipSyncer(%x) rejected historical sync response: %v",
+		syncer.cfg.peerPub, err)
+
+	accepted := actor.NewPromise[error]()
+	select {
+	case m.failedHistoricalSyncs <- &failedHistoricalSync{
+		syncer:   syncer,
+		accepted: accepted,
+	}:
+	case <-m.quit:
+		return
+	}
+
+	ctx, cancel := lnutils.ContextFromQuit(m.quit)
+	defer cancel()
+
+	_ = AwaitGossipResult(ctx, accepted.Future())
 }
 
 // removeGossipSyncer removes all internal references to the disconnected peer's
@@ -814,14 +977,21 @@ func (m *SyncManager) transitionPassiveSyncer(s *GossipSyncer) error {
 }
 
 // forceHistoricalSync chooses a syncer with a remote peer at random and forces
-// a historical sync with it.
-func (m *SyncManager) forceHistoricalSync() *GossipSyncer {
+// a historical sync with it. Peers in the excluded set are not considered.
+func (m *SyncManager) forceHistoricalSync(
+	excluded map[route.Vertex]struct{}) *GossipSyncer {
+
 	m.syncersMu.Lock()
 	defer m.syncersMu.Unlock()
 
 	// We'll sample from both sets of active and inactive syncers in the
 	// event that we don't have any inactive syncers.
-	return chooseRandomSyncer(m.gossipSyncers(), func(s *GossipSyncer) error {
+	syncers := m.gossipSyncers()
+	for peer := range excluded {
+		delete(syncers, peer)
+	}
+
+	return chooseRandomSyncer(syncers, func(s *GossipSyncer) error {
 		return s.historicalSync()
 	})
 }

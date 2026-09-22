@@ -327,7 +327,7 @@ func TestInvoiceRoundTripPreservesAllTypes(t *testing.T) {
 		tlv.NewPrimitiveRecord[tlv.TlvType240](sig),
 	)
 
-	encoded, err := inv.Encode()
+	encoded, err := inv.encode()
 	require.NoError(t, err)
 	require.NotEmpty(t, encoded)
 
@@ -351,7 +351,7 @@ func TestInvoiceRoundTripPreservesAllTypes(t *testing.T) {
 	require.Equal(t, inv, decoded)
 
 	// Re-encode the decoded copy and confirm canonicality.
-	reencoded, err := decoded.Encode()
+	reencoded, err := decoded.encode()
 	require.NoError(t, err)
 	require.Equal(t, encoded, reencoded)
 }
@@ -364,7 +364,7 @@ func TestDecodeInvoiceRejectsTruncated(t *testing.T) {
 	t.Parallel()
 
 	inv := validInvoice(t)
-	encoded, err := inv.Encode()
+	encoded, err := inv.encode()
 	require.NoError(t, err)
 
 	// Chop off the last byte. The truncation lands in the middle of the
@@ -450,7 +450,7 @@ func TestNewInvoiceFromRequestMirrorsUnknownFields(t *testing.T) {
 			tlv.NewRecordT[tlv.TlvType82, TUint64](1000),
 		),
 	}
-	encoded, err := req.Encode()
+	encoded, err := req.encode()
 	require.NoError(t, err)
 
 	// Fill in an unknown odd TLV (type 93, within the invreq signed range
@@ -503,7 +503,7 @@ func TestInvoiceEncodeValidationGate(t *testing.T) {
 		tlv.TlvType164, TUint64,
 	]{}
 
-	_, err := inv.Encode()
+	_, err := inv.encode()
 	require.ErrorIs(t, err, ErrMissingCreatedAt)
 }
 
@@ -534,9 +534,9 @@ func TestInvoiceStringRoundTrip(t *testing.T) {
 	)
 	require.NoError(t, err)
 
-	originalBytes, err := inv.Encode()
+	originalBytes, err := inv.encode()
 	require.NoError(t, err)
-	decodedBytes, err := decoded.Encode()
+	decodedBytes, err := decoded.encode()
 	require.NoError(t, err)
 	require.Equal(t, originalBytes, decodedBytes)
 }

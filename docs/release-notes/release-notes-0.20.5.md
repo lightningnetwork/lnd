@@ -21,6 +21,10 @@
 
 # Bug Fixes
 
+* [Fixed an issue](https://github.com/lightningnetwork/lnd/pull/11258) that could
+  leave HTLCs pending during channel lifecycle transitions, potentially causing
+  unnecessary force closes and on-chain fees.
+
 * The [HTLC forward
   interceptor](https://github.com/lightningnetwork/lnd/pull/11163) now
   reconciles incoming-link replays after a forward is resumed. This prevents

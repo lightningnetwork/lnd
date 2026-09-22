@@ -215,8 +215,46 @@ type CircuitMapConfig struct {
 	ExtractErrorEncrypter hop.ErrorEncrypterExtracter
 
 	// CheckResolutionMsg checks whether a given resolution message exists
-	// for the passed CircuitKey.
+	// for the passed CircuitKey. It returns nil when found,
+	// ErrResMsgNotFound when absent, and any storage error unchanged.
 	CheckResolutionMsg func(outKey *CircuitKey) error
+
+	// CheckFwdResponse checks whether a persisted off-chain response exists
+	// for the passed CircuitKey. It returns nil when found,
+	// channeldb.ErrFwdResponseNotFound when absent, and any storage error
+	// unchanged.
+	CheckFwdResponse func(outKey *CircuitKey) error
+}
+
+// responsePending reports whether a durable response is associated with the
+// given outgoing circuit key. Circuits with associated response state remain
+// active during closed-channel cleanup.
+//
+// Lookup errors are never reported as absence, so an uncertain lookup
+// preserves the current circuit state rather than reaping a response that may
+// still need to be delivered.
+func (cm *circuitMap) responsePending(outKey *CircuitKey) (bool, error) {
+	err := cm.cfg.CheckResolutionMsg(outKey)
+	switch {
+	case err == nil:
+		return true, nil
+
+	case !errors.Is(err, ErrResMsgNotFound):
+		return false, fmt.Errorf("check resolution message for "+
+			"%v: %w", outKey, err)
+	}
+
+	err = cm.cfg.CheckFwdResponse(outKey)
+	switch {
+	case err == nil:
+		return true, nil
+
+	case !errors.Is(err, channeldb.ErrFwdResponseNotFound):
+		return false, fmt.Errorf("check forwarding response for "+
+			"%v: %w", outKey, err)
+	}
+
+	return false, nil
 }
 
 // NewCircuitMap creates a new instance of the circuitMap.
@@ -405,15 +443,17 @@ func (cm *circuitMap) cleanClosedChannels() error {
 			// closed channel ID map. Notice that we need to store
 			// the outgoing key because it's used for db query.
 			//
-			// NOTE: We skip this if a resolution message can be
-			// found under the outKey. This means that there is an
-			// existing resolution message(s) that need to get to
-			// the incoming links.
+			// NOTE: We skip this if response state can still be
+			// found under the outKey, whether an on-chain
+			// resolution or a persisted off-chain response. Both
+			// use the circuit for routing.
 			if isClosedChannel(outKey.ChanID) {
-				// Check the resolution message store. A return
-				// value of nil means we need to skip deleting
-				// these circuits.
-				if cm.cfg.CheckResolutionMsg(&outKey) == nil {
+				pending, err := cm.responsePending(&outKey)
+				if err != nil {
+					return err
+				}
+
+				if pending {
 					return nil
 				}
 

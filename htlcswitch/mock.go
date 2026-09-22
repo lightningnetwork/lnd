@@ -179,6 +179,7 @@ func initSwitchWithDB(startingHeight uint32, db *channeldb.DB) (*Switch, error) 
 		FetchAllOpenChannels: db.ChannelStateDB().FetchAllOpenChannels,
 		FetchAllChannels:     db.ChannelStateDB().FetchAllChannels,
 		FetchClosedChannels:  db.ChannelStateDB().FetchClosedChannels,
+		CheckFwdResponse:     db.ChannelStateDB().CheckFwdResponse,
 		FetchFwdResponses:    db.ChannelStateDB().FetchFwdResponses,
 		DeleteFwdResponse:    db.ChannelStateDB().DeleteFwdResponse,
 		SwitchPackager:       channeldb.NewSwitchPackager(),

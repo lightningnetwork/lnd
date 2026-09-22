@@ -166,14 +166,18 @@ type Config struct {
 	// forwarding packages, and ack settles and fails contained within them.
 	SwitchPackager channeldb.FwdOperator
 
-	// FetchFwdResponses returns every off-chain response rescued from a
-	// closed channel that has not been reaped yet.
+	// CheckFwdResponse reports whether a persisted off-chain response
+	// exists for the given outgoing circuit key.
+	CheckFwdResponse func(outKey *CircuitKey) error
+
+	// FetchFwdResponses returns all persisted off-chain responses.
 	FetchFwdResponses func() ([]*channeldb.FwdResponse, error)
 
-	// DeleteFwdResponse removes a rescued response from the store. Its only
-	// caller is startup replay, which reaps records whose circuit is already
-	// gone. Delivery itself does not delete the record, so a delivered record
-	// is collected on the next startup, after its circuit has been torn down.
+	// DeleteFwdResponse removes a persisted response from the store.
+	// Startup replay is its only caller; it reaps records whose circuit is
+	// already gone. Delivery itself does not delete the record. A delivered
+	// record is collected on the next startup, after its circuit has been
+	// torn down.
 	DeleteFwdResponse func(outKey *CircuitKey) error
 
 	// ExtractErrorEncrypter is an interface allowing switch to reextract
@@ -371,6 +375,9 @@ func New(cfg Config, currentHeight uint32) (*Switch, error) {
 	// These are dereferenced unconditionally during startup, so a missing
 	// one must fail here rather than panic mid-recovery.
 	switch {
+	case cfg.CheckFwdResponse == nil:
+		return nil, errors.New("forwarding response checker is nil")
+
 	case cfg.FetchFwdResponses == nil:
 		return nil, errors.New("forwarding response fetcher is nil")
 
@@ -386,6 +393,7 @@ func New(cfg Config, currentHeight uint32) (*Switch, error) {
 		FetchClosedChannels:   cfg.FetchClosedChannels,
 		ExtractErrorEncrypter: cfg.ExtractErrorEncrypter,
 		CheckResolutionMsg:    resStore.checkResolutionMsg,
+		CheckFwdResponse:      cfg.CheckFwdResponse,
 	})
 	if err != nil {
 		return nil, err
@@ -1807,14 +1815,13 @@ func (s *Switch) Start() error {
 		return err
 	}
 
-	// Replay the exact off-chain responses before contract-court
-	// resolutions. If both stores hold an entry for one circuit, the
-	// rescued wire response closes it first and the later generic
-	// resolution becomes a no-op.
+	// Process persisted off-chain responses before contract-court
+	// resolutions so the original wire message takes precedence when both
+	// stores contain an entry for the same circuit.
 	if err := s.reforwardFwdResponses(); err != nil {
 		// We are already stopping so we can ignore the error.
 		_ = s.Stop()
-		log.Errorf("unable to reforward rescued responses: %v", err)
+		log.Errorf("unable to reforward persisted responses: %v", err)
 
 		return err
 	}
@@ -1829,11 +1836,9 @@ func (s *Switch) Start() error {
 	return nil
 }
 
-// fwdResponsePacket converts a rescued response into the packet shape consumed
-// by ForwardPackets. The originating channel's forwarding packages are gone,
-// so the packet carries no destRef: there is no settle/fail entry left to
-// acknowledge, and the incoming link stops replaying the Add once its own
-// AddRef is acked.
+// fwdResponsePacket converts a persisted response into the packet shape
+// consumed by ForwardPackets. The packet has no destination reference because
+// package acknowledgement is handled by the persistence transition.
 func fwdResponsePacket(response *channeldb.FwdResponse) *htlcPacket {
 	return &htlcPacket{
 		outgoingChanID: response.OutKey.ChanID,
@@ -1842,9 +1847,8 @@ func fwdResponsePacket(response *channeldb.FwdResponse) *htlcPacket {
 	}
 }
 
-// reforwardFwdResponses replays the off-chain responses rescued when their
-// outgoing channel closed. A response whose circuit is gone can no longer
-// reach an incoming link, so it is reaped, exactly as startup reaps orphaned
+// reforwardFwdResponses loads persisted off-chain responses during startup.
+// Entries without an open circuit are reaped in the same way as orphaned
 // resolution messages.
 func (s *Switch) reforwardFwdResponses() error {
 	responses, err := s.cfg.FetchFwdResponses()
@@ -1852,7 +1856,7 @@ func (s *Switch) reforwardFwdResponses() error {
 	// A decode or index error leaves recovery state uncertain. Abort
 	// startup rather than mistaking corruption for an empty response set.
 	if err != nil {
-		return fmt.Errorf("fetch rescued responses: %w", err)
+		return fmt.Errorf("fetch persisted responses: %w", err)
 	}
 
 	switchPackets := make([]*htlcPacket, 0, len(responses))
@@ -1860,7 +1864,7 @@ func (s *Switch) reforwardFwdResponses() error {
 		outKey := response.OutKey
 
 		if s.circuits.LookupOpenCircuit(outKey) == nil {
-			log.Debugf("Reaping rescued response with no open "+
+			log.Debugf("Reaping persisted response with no open "+
 				"circuit: %v", outKey)
 
 			err := s.cfg.DeleteFwdResponse(&outKey)
@@ -1877,7 +1881,7 @@ func (s *Switch) reforwardFwdResponses() error {
 		)
 	}
 
-	log.Debugf("Reforwarding %d rescued closed-channel responses",
+	log.Debugf("Reforwarding %d persisted responses",
 		len(switchPackets))
 
 	return s.ForwardPackets(nil, switchPackets...)

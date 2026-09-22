@@ -260,3 +260,67 @@ func TestFetchFwdResponsesRejectsInvalidKey(t *testing.T) {
 	_, err = cdb.FetchFwdResponses()
 	require.ErrorIs(t, err, models.ErrInvalidCircuitKeyLen)
 }
+
+// writeTestChannelResponse writes a forwarding package for the given channel
+// holding a single unacknowledged settle, and returns it.
+func writeTestChannelResponse(t *testing.T, cdb *ChannelStateDB,
+	ch *OpenChannel) *lnwire.UpdateFulfillHTLC {
+
+	t.Helper()
+
+	settle := &lnwire.UpdateFulfillHTLC{
+		ID:              3,
+		PaymentPreimage: [32]byte{9},
+	}
+
+	packager := NewChannelPackager(ch.ShortChanID())
+	err := kvdb.Update(cdb.backend, func(tx kvdb.RwTx) error {
+		pkg := NewFwdPkg(ch.ShortChanID(), 0, nil, []LogUpdate{
+			{LogIndex: 0, UpdateMsg: settle},
+		})
+
+		return packager.AddFwdPkg(tx, pkg)
+	}, func() {})
+	require.NoError(t, err)
+
+	return settle
+}
+
+// TestCloseChannelPersistsResponses asserts that closing a channel retains
+// eligible responses and removes the forwarding package in the same
+// transaction.
+func TestCloseChannelPersistsResponses(t *testing.T) {
+	t.Parallel()
+
+	fullDB, err := MakeTestDB(t)
+	require.NoError(t, err)
+
+	cdb := fullDB.ChannelStateDB()
+	ch := createTestChannel(t, cdb, openChannelOption())
+	settle := writeTestChannelResponse(t, cdb, ch)
+
+	summary := &ChannelCloseSummary{
+		ChanPoint:   ch.FundingOutpoint,
+		RemotePub:   ch.IdentityPub,
+		ChainHash:   ch.ChainHash,
+		ShortChanID: ch.ShortChannelID,
+		CloseType:   CooperativeClose,
+	}
+	require.NoError(t, ch.CloseChannel(summary))
+
+	packager := NewChannelPackager(ch.ShortChanID())
+	fwdPkgs := loadFwdPkgs(t, cdb.backend, packager)
+	require.Empty(t, fwdPkgs)
+
+	responses, err := cdb.FetchFwdResponses()
+	require.NoError(t, err)
+	require.Len(t, responses, 1)
+	response := responses[0]
+	require.Equal(t, ch.ShortChanID(), response.OutKey.ChanID)
+	require.Equal(t, settle.ID, response.OutKey.HtlcID)
+
+	msg := response.Message
+	persisted, ok := msg.(*lnwire.UpdateFulfillHTLC)
+	require.True(t, ok)
+	require.Equal(t, settle.PaymentPreimage, persisted.PaymentPreimage)
+}

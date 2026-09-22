@@ -3893,6 +3893,14 @@ func (c *OpenChannel) CloseChannel(summary *ChannelCloseSummary,
 			return err
 		}
 
+		// Persist eligible responses before cleaning up the channel's
+		// packages. Both updates share a transaction so their state
+		// transition is atomic.
+		scid := chanState.ShortChannelID
+		if err := extractFwdResponses(tx, scid); err != nil {
+			return err
+		}
+
 		// Delete all the forwarding packages stored for this particular
 		// channel.
 		if err = chanState.Packager.Wipe(tx); err != nil {

@@ -58,6 +58,10 @@
   no longer hangs on a fresh database when `db.postgres.maxconnections` is
   set to a low value.
 
+* [Fixed a bug](https://github.com/lightningnetwork/lnd/pull/11219) in the
+  `NodeAnnouncement2` address decoders, where all decoded addresses aliased
+  one scratch array and truncated records decoded without an error.
+
 # New Features
 
 ## Functional Enhancements
@@ -201,3 +205,4 @@
 * Jared Tobin
 * Kevin Cai
 * Vandit Singh
+* s1ns3nz0

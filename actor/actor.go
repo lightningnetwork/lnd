@@ -216,6 +216,31 @@ func (ref *actorRefImpl[M, R]) Tell(ctx context.Context, msg M) {
 	}
 }
 
+// TryTell attempts to enqueue a message without blocking. See
+// TellOnlyRef.TryTell for the error contract.
+func (ref *actorRefImpl[M, R]) TryTell(ctx context.Context, msg M) error {
+	if ref.actor.ctx.Err() != nil {
+		return ErrActorTerminated
+	}
+
+	if err := ctx.Err(); err != nil {
+		return err
+	}
+
+	env := envelope[M, R]{message: msg, promise: nil}
+	if ref.actor.mailbox.TrySend(env) {
+		return nil
+	}
+
+	// TrySend reports a closed mailbox and a full one the same way, so we
+	// tell them apart by checking whether the actor is still alive.
+	if ref.actor.ctx.Err() != nil || ref.actor.mailbox.IsClosed() {
+		return ErrActorTerminated
+	}
+
+	return ErrMailboxFull
+}
+
 // Ask sends a message and returns a Future for the response. The Future will be
 // completed with the actor's reply or an error if the operation fails (e.g.,
 // context cancellation before send).

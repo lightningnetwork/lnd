@@ -16,6 +16,11 @@ var ErrActorTerminated = fmt.Errorf("actor terminated")
 // backpressure mechanism (e.g., RED-style load shedding).
 var ErrMessageDropped = errors.New("message dropped by backpressure")
 
+// ErrMailboxFull is returned by TryTell when the target actor's mailbox has no
+// room for the message, or its backpressure policy chose to shed it. The
+// message was not enqueued, and the caller may retry later.
+var ErrMailboxFull = errors.New("actor mailbox full")
+
 // ErrEmptyActorID is returned when an actor is created with an empty ID.
 var ErrEmptyActorID = fmt.Errorf("actor ID must not be empty")
 
@@ -96,6 +101,14 @@ type TellOnlyRef[M Message] interface {
 	// context is cancelled before the message can be sent to the actor's
 	// mailbox, the message may be dropped.
 	Tell(ctx context.Context, msg M)
+
+	// TryTell attempts to enqueue a message without blocking. It returns
+	// nil if the message was enqueued, ErrMailboxFull if the mailbox has
+	// no room (or its backpressure policy shed the message), and
+	// ErrActorTerminated if the actor has stopped. Unlike Tell, a failed
+	// TryTell is never routed to the dead letter office, since the caller
+	// is told about the failure and owns the retry decision.
+	TryTell(ctx context.Context, msg M) error
 
 	// ID returns the unique identifier for this actor.
 	ID() string

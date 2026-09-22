@@ -4373,8 +4373,14 @@ func (p *Brontide) initRbfChanCloser(
 		ChainNotifier: p.cfg.ChainNotifier,
 	})
 
+	daemonExecutor := protofsm.NewDaemonExecutor[chancloser.ProtocolEvent](
+		daemonAdapters,
+	)
+
 	protoCfg := chancloser.RbfChanCloserCfg{
-		Daemon:        daemonAdapters,
+		OutboxHandler: fn.Some[chancloser.RbfOutboxHandler](
+			daemonExecutor,
+		),
 		InitialState:  &initialState,
 		Env:           &env,
 		InitEvent:     fn.Some[protofsm.DaemonEvent](&spendEvent),

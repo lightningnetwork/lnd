@@ -127,6 +127,8 @@ func (c *ChannelGraph) Start() error {
 				log.Criticalf("Could not populate the "+
 					"graph cache: %v", err)
 			}
+
+			c.checkPreferredMappings(ctx)
 		}()
 	} else {
 		if err := c.populateCache(ctx); err != nil {
@@ -138,7 +140,35 @@ func (c *ChannelGraph) Start() error {
 	c.wg.Add(1)
 	go c.handleTopologySubscriptions(ctx)
 
+	// The synchronous cache path has finished its full graph read. Run the
+	// detection-only integrity check in the background so it doesn't delay
+	// startup. The asynchronous path runs it after cache population above.
+	if !c.opts.asyncGraphCachePopulation {
+		c.wg.Add(1)
+		go func() {
+			defer c.wg.Done()
+
+			c.checkPreferredMappings(ctx)
+		}()
+	}
+
 	return nil
+}
+
+// checkPreferredMappings asks stores with cross-version preferred mappings to
+// verify their derived indexes. The check only logs failures and divergence.
+func (c *ChannelGraph) checkPreferredMappings(ctx context.Context) {
+	checker, ok := c.db.(interface {
+		checkPreferredMappings(context.Context) error
+	})
+	if !ok {
+		return
+	}
+
+	err := checker.checkPreferredMappings(ctx)
+	if err != nil && !errors.Is(err, context.Canceled) {
+		log.ErrorS(ctx, "Unable to check preferred graph mappings", err)
+	}
 }
 
 // Stop signals any active goroutines for a graceful closure.

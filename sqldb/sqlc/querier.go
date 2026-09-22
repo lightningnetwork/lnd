@@ -16,6 +16,10 @@ type Querier interface {
 	AddV2ChannelProof(ctx context.Context, arg AddV2ChannelProofParams) (sql.Result, error)
 	ClearKVInvoiceHashIndex(ctx context.Context) error
 	CountPayments(ctx context.Context) (int64, error)
+	// Detect missing and extra keys directly. For an existing mapping, detect an
+	// incorrect target by looking for a better candidate under the same key. This
+	// preserves the preferred-table ranking without globally sorting graph rows.
+	CountPreferredMappingDivergence(ctx context.Context) (CountPreferredMappingDivergenceRow, error)
 	CountZombieChannels(ctx context.Context, version int16) (int64, error)
 	CreateChannel(ctx context.Context, arg CreateChannelParams) (int64, error)
 	DeleteCanceledInvoices(ctx context.Context) (sql.Result, error)

@@ -71,6 +71,142 @@ func (q *Queries) AddV2ChannelProof(ctx context.Context, arg AddV2ChannelProofPa
 	return q.db.ExecContext(ctx, addV2ChannelProof, arg.Scid, arg.Signature)
 }
 
+const countPreferredMappingDivergence = `-- name: CountPreferredMappingDivergence :one
+SELECT
+    (
+        SELECT COUNT(DISTINCT n.pub_key)
+        FROM graph_nodes n
+        LEFT JOIN graph_preferred_nodes pn ON pn.pub_key = n.pub_key
+        WHERE pn.pub_key IS NULL
+    ) AS missing_nodes,
+    (
+        SELECT COUNT(*)
+        FROM graph_preferred_nodes pn
+        WHERE NOT EXISTS (
+            SELECT 1
+            FROM graph_nodes n
+            WHERE n.pub_key = pn.pub_key
+        )
+    ) AS extra_nodes,
+    (
+        SELECT COUNT(*)
+        FROM graph_preferred_nodes pn
+        JOIN graph_nodes selected ON selected.id = pn.node_id
+        WHERE EXISTS (
+            SELECT 1
+            FROM graph_nodes candidate
+            WHERE candidate.pub_key = pn.pub_key
+        ) AND (
+            selected.pub_key <> pn.pub_key
+            OR EXISTS (
+                SELECT 1
+                FROM graph_nodes better
+                WHERE better.pub_key = pn.pub_key
+                  AND (
+                    CASE WHEN COALESCE(length(better.signature), 0) > 0
+                        THEN 1 ELSE 0 END >
+                    CASE WHEN COALESCE(length(selected.signature), 0) > 0
+                        THEN 1 ELSE 0 END
+                    OR (
+                        CASE WHEN COALESCE(length(better.signature), 0) > 0
+                            THEN 1 ELSE 0 END =
+                        CASE WHEN COALESCE(length(selected.signature), 0) > 0
+                            THEN 1 ELSE 0 END
+                        AND better.version > selected.version
+                    )
+                  )
+            )
+        )
+    ) AS incorrect_nodes,
+    (
+        SELECT COUNT(DISTINCT c.scid)
+        FROM graph_channels c
+        LEFT JOIN graph_preferred_channels pc ON pc.scid = c.scid
+        WHERE pc.scid IS NULL
+    ) AS missing_channels,
+    (
+        SELECT COUNT(*)
+        FROM graph_preferred_channels pc
+        WHERE NOT EXISTS (
+            SELECT 1
+            FROM graph_channels c
+            WHERE c.scid = pc.scid
+        )
+    ) AS extra_channels,
+    (
+        SELECT COUNT(*)
+        FROM graph_preferred_channels pc
+        JOIN graph_channels selected ON selected.id = pc.channel_id
+        WHERE EXISTS (
+            SELECT 1
+            FROM graph_channels candidate
+            WHERE candidate.scid = pc.scid
+        ) AND (
+            selected.scid <> pc.scid
+            OR EXISTS (
+                SELECT 1
+                FROM graph_channels better
+                WHERE better.scid = pc.scid
+                  AND (
+                    CASE WHEN EXISTS (
+                        SELECT 1
+                        FROM graph_channel_policies p
+                        WHERE p.channel_id = better.id
+                          AND p.version = better.version
+                    ) THEN 1 ELSE 0 END >
+                    CASE WHEN EXISTS (
+                        SELECT 1
+                        FROM graph_channel_policies p
+                        WHERE p.channel_id = selected.id
+                          AND p.version = selected.version
+                    ) THEN 1 ELSE 0 END
+                    OR (
+                        CASE WHEN EXISTS (
+                            SELECT 1
+                            FROM graph_channel_policies p
+                            WHERE p.channel_id = better.id
+                              AND p.version = better.version
+                        ) THEN 1 ELSE 0 END =
+                        CASE WHEN EXISTS (
+                            SELECT 1
+                            FROM graph_channel_policies p
+                            WHERE p.channel_id = selected.id
+                              AND p.version = selected.version
+                        ) THEN 1 ELSE 0 END
+                        AND better.version > selected.version
+                    )
+                  )
+            )
+        )
+    ) AS incorrect_channels
+`
+
+type CountPreferredMappingDivergenceRow struct {
+	MissingNodes      int64
+	ExtraNodes        int64
+	IncorrectNodes    int64
+	MissingChannels   int64
+	ExtraChannels     int64
+	IncorrectChannels int64
+}
+
+// Detect missing and extra keys directly. For an existing mapping, detect an
+// incorrect target by looking for a better candidate under the same key. This
+// preserves the preferred-table ranking without globally sorting graph rows.
+func (q *Queries) CountPreferredMappingDivergence(ctx context.Context) (CountPreferredMappingDivergenceRow, error) {
+	row := q.db.QueryRowContext(ctx, countPreferredMappingDivergence)
+	var i CountPreferredMappingDivergenceRow
+	err := row.Scan(
+		&i.MissingNodes,
+		&i.ExtraNodes,
+		&i.IncorrectNodes,
+		&i.MissingChannels,
+		&i.ExtraChannels,
+		&i.IncorrectChannels,
+	)
+	return i, err
+}
+
 const countZombieChannels = `-- name: CountZombieChannels :one
 SELECT COUNT(*)
 FROM graph_zombie_channels

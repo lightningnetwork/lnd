@@ -24,6 +24,11 @@ CREATE TABLE IF NOT EXISTS graph_preferred_channels (
 CREATE INDEX IF NOT EXISTS graph_preferred_channels_channel_id_idx
     ON graph_preferred_channels (channel_id);
 
+-- Support preferred-mapping integrity checks that find every gossip version
+-- of a channel by SCID without scanning the full channel table.
+CREATE INDEX IF NOT EXISTS graph_channels_scid_version_idx
+    ON graph_channels (scid, version);
+
 -- Populate graph_preferred_nodes from the graph_nodes rows that already
 -- existed before this migration. The inner query ranks every node row within
 -- each pub_key group. Announced nodes, identified by a non-empty signature,

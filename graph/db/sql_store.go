@@ -9,6 +9,7 @@ import (
 	"fmt"
 	color "image/color"
 	"iter"
+	"log/slog"
 	"maps"
 	"math"
 	"net"
@@ -49,6 +50,7 @@ type SQLQueries interface {
 	UpsertNode(ctx context.Context, arg sqlc.UpsertNodeParams) (int64, error)
 	UpsertSourceNode(ctx context.Context, arg sqlc.UpsertSourceNodeParams) (int64, error)
 	GetNodeByPubKey(ctx context.Context, arg sqlc.GetNodeByPubKeyParams) (sqlc.GraphNode, error)
+	CountPreferredMappingDivergence(ctx context.Context) (sqlc.CountPreferredMappingDivergenceRow, error)
 	GetNodesByIDs(ctx context.Context, ids []int64) ([]sqlc.GraphNode, error)
 	GetNodeIDByPubKey(ctx context.Context, arg sqlc.GetNodeIDByPubKeyParams) (int64, error)
 	GetNodesByLastUpdateRange(ctx context.Context, arg sqlc.GetNodesByLastUpdateRangeParams) ([]sqlc.GraphNode, error)
@@ -245,6 +247,56 @@ func NewSQLStore(cfg *SQLStoreConfig, db BatchedSQLQueries,
 	)
 
 	return s, nil
+}
+
+// preferredMappingDivergence counts inconsistencies between the preferred
+// mapping tables and an independent ranking of the underlying graph rows.
+func (s *SQLStore) preferredMappingDivergence(ctx context.Context) (
+	sqlc.CountPreferredMappingDivergenceRow, error) {
+
+	var divergence sqlc.CountPreferredMappingDivergenceRow
+	err := s.db.ExecTx(ctx, sqldb.ReadTxOpt(), func(db SQLQueries) error {
+		var err error
+		divergence, err = db.CountPreferredMappingDivergence(ctx)
+
+		return err
+	}, func() {
+		divergence = sqlc.CountPreferredMappingDivergenceRow{}
+	})
+	if err != nil {
+		return divergence, fmt.Errorf("count preferred mapping "+
+			"divergence: %w", err)
+	}
+
+	return divergence, nil
+}
+
+// checkPreferredMappings detects divergence between the preferred mapping
+// tables and the graph rows from which they are derived. The check only
+// reports divergence because repairing persistent graph state during startup
+// would hide the write path that failed to maintain the mappings.
+func (s *SQLStore) checkPreferredMappings(ctx context.Context) error {
+	divergence, err := s.preferredMappingDivergence(ctx)
+	if err != nil {
+		return err
+	}
+
+	total := divergence.MissingNodes + divergence.ExtraNodes +
+		divergence.IncorrectNodes + divergence.MissingChannels +
+		divergence.ExtraChannels + divergence.IncorrectChannels
+	if total == 0 {
+		return nil
+	}
+
+	log.ErrorS(ctx, "Preferred graph mappings diverge from graph data", nil,
+		slog.Int64("missing_nodes", divergence.MissingNodes),
+		slog.Int64("extra_nodes", divergence.ExtraNodes),
+		slog.Int64("incorrect_nodes", divergence.IncorrectNodes),
+		slog.Int64("missing_channels", divergence.MissingChannels),
+		slog.Int64("extra_channels", divergence.ExtraChannels),
+		slog.Int64("incorrect_channels", divergence.IncorrectChannels))
+
+	return nil
 }
 
 // AddNode adds a vertex/node to the graph database. If the node is not

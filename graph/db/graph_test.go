@@ -6150,6 +6150,72 @@ func (s *failingCacheLoadStore) ForEachChannelCacheable(ctx context.Context,
 	return s.populateErr
 }
 
+type blockingPreferredMappingCheckStore struct {
+	Store
+
+	checkStarted chan struct{}
+	allowCheck   chan struct{}
+}
+
+// checkPreferredMappings blocks until the test allows the background startup
+// check to complete.
+func (s *blockingPreferredMappingCheckStore) checkPreferredMappings(
+	ctx context.Context) error {
+
+	close(s.checkStarted)
+
+	select {
+	case <-s.allowCheck:
+		return nil
+
+	case <-ctx.Done():
+		return ctx.Err()
+	}
+}
+
+// TestPreferredMappingCheckDoesNotBlockStart verifies that the detection-only
+// preferred mapping check runs in the background after synchronous cache
+// population.
+func TestPreferredMappingCheckDoesNotBlockStart(t *testing.T) {
+	t.Parallel()
+
+	store := &blockingPreferredMappingCheckStore{
+		Store:        NewTestDB(t),
+		checkStarted: make(chan struct{}),
+		allowCheck:   make(chan struct{}),
+	}
+	graph, err := NewChannelGraph(store, WithSyncGraphCachePopulation())
+	require.NoError(t, err)
+	t.Cleanup(func() {
+		require.NoError(t, graph.Stop())
+	})
+
+	startResult := make(chan error, 1)
+	go func() {
+		startResult <- graph.Start()
+	}()
+
+	select {
+	case err := <-startResult:
+		require.NoError(t, err)
+
+	case <-time.After(wait.DefaultTimeout):
+		close(store.allowCheck)
+		t.Fatal("preferred mapping check blocked graph startup")
+	}
+
+	select {
+	case <-store.checkStarted:
+
+	case <-time.After(wait.DefaultTimeout):
+		close(store.allowCheck)
+		t.Fatal("preferred mapping check did not start")
+	}
+
+	close(store.allowCheck)
+	require.NoError(t, graph.Stop())
+}
+
 // TestAsyncGraphCacheReplaysConcurrentWrites asserts that graph mutations that
 // happen while the async cache population is running are replayed onto the
 // cache before it becomes readable.

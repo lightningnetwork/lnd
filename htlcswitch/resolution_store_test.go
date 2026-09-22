@@ -112,9 +112,9 @@ func TestInsertAndDelete(t *testing.T) {
 	err = resStore.deleteResolutionMsg(failKey)
 	require.NoError(t, err)
 
-	// Assert that checkResolutionMsg returns errResMsgNotFound.
+	// Assert that checkResolutionMsg returns ErrResMsgNotFound.
 	err = resStore.checkResolutionMsg(failKey)
-	require.ErrorIs(t, err, errResMsgNotFound)
+	require.ErrorIs(t, err, ErrResMsgNotFound)
 
 	resMsgs, err = resStore.fetchAllResolutionMsg()
 	require.NoError(t, err)
@@ -136,10 +136,10 @@ func TestInsertAndDelete(t *testing.T) {
 	err = resStore.deleteResolutionMsg(settleKey)
 	require.NoError(t, err)
 
-	// Assert that checkResolutionMsg returns errResMsgNotFound for the
+	// Assert that checkResolutionMsg returns ErrResMsgNotFound for the
 	// settle key.
 	err = resStore.checkResolutionMsg(settleKey)
-	require.ErrorIs(t, err, errResMsgNotFound)
+	require.ErrorIs(t, err, ErrResMsgNotFound)
 
 	resMsgs, err = resStore.fetchAllResolutionMsg()
 	require.NoError(t, err)

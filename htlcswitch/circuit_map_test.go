@@ -295,6 +295,71 @@ func TestCircuitMapCleanClosedChannels(t *testing.T) {
 	}
 }
 
+// TestCircuitMapRetainsFwdResponseCircuits verifies that a circuit remains
+// active while persisted response state references it, and that an uncertain
+// forwarding-response lookup is never read as an absence.
+func TestCircuitMapRetainsFwdResponseCircuits(t *testing.T) {
+	closedChan := lnwire.NewShortChanIDFromInt(70)
+	keystone := htlcswitch.Keystone{
+		InKey: htlcswitch.CircuitKey{
+			ChanID: lnwire.NewShortChanIDFromInt(80),
+			HtlcID: 1,
+		},
+		OutKey: htlcswitch.CircuitKey{
+			ChanID: closedChan,
+			HtlcID: 2,
+		},
+	}
+
+	cfg, circuitMap := newCircuitMap(t, false)
+	require.NoError(t, createTestCircuit(keystone, circuitMap))
+	err := kvdb.Update(cfg.DB, func(tx kvdb.RwTx) error {
+		return createTestCloseChannelSummery(tx, false, closedChan)
+	}, func() {})
+	require.NoError(t, err)
+
+	// A retained response keeps the circuit alive even though no
+	// resolution message exists for it.
+	cfg.CheckFwdResponse = func(*htlcswitch.CircuitKey) error {
+		return nil
+	}
+	circuitMap, err = htlcswitch.NewCircuitMap(cfg)
+	require.NoError(t, err)
+	assertKeystoneNotDeleted(t, circuitMap, keystone)
+
+	// A forwarding-response storage error preserves the circuit because it
+	// is not proof that no persisted response exists.
+	responseErr := fmt.Errorf("injected response DB error")
+	cfg.CheckFwdResponse = func(*htlcswitch.CircuitKey) error {
+		return responseErr
+	}
+	_, err = htlcswitch.NewCircuitMap(cfg)
+	require.ErrorIs(t, err, responseErr)
+	assertKeystoneNotDeleted(t, circuitMap, keystone)
+
+	// The same holds for a resolution-store storage error: it must not be
+	// mistaken for a missing resolution, otherwise a valid settlement
+	// could be reaped before it is delivered.
+	resolutionErr := fmt.Errorf("injected resolution DB error")
+	cfg.CheckResolutionMsg = func(*htlcswitch.CircuitKey) error {
+		return resolutionErr
+	}
+	cfg.CheckFwdResponse = func(*htlcswitch.CircuitKey) error {
+		return channeldb.ErrFwdResponseNotFound
+	}
+	_, err = htlcswitch.NewCircuitMap(cfg)
+	require.ErrorIs(t, err, resolutionErr)
+	assertKeystoneNotDeleted(t, circuitMap, keystone)
+
+	// Once both stores report a clean miss, the stale circuit is reaped.
+	cfg.CheckResolutionMsg = func(*htlcswitch.CircuitKey) error {
+		return htlcswitch.ErrResMsgNotFound
+	}
+	circuitMap, err = htlcswitch.NewCircuitMap(cfg)
+	require.NoError(t, err)
+	assertKeystoneDeleted(t, circuitMap, keystone)
+}
+
 // createTestCircuit creates a circuit for testing with its incoming key being
 // the keystone's InKey. If the keystone has an OutKey, the circuit will be
 // opened, which causes a Keystone to be created in DB.

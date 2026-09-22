@@ -22,7 +22,7 @@ type testFwdResponseSource struct {
 	// mu guards responses while the switch is running.
 	mu sync.Mutex
 
-	// responses holds the rescued records by outgoing circuit key.
+	// responses holds persisted records by outgoing circuit key.
 	responses map[CircuitKey]*channeldb.FwdResponse
 
 	// fetchErr is returned instead of the stored response set.
@@ -84,9 +84,8 @@ func (s *testFwdResponseSource) attach(sw *Switch) {
 	sw.cfg.DeleteFwdResponse = s.remove
 }
 
-// TestSwitchReforwardFwdResponses asserts that a response rescued from a
-// closed channel is replayed to its incoming link on start-up as the exact wire
-// message rather than a reconstruction.
+// TestSwitchReforwardFwdResponses asserts that a persisted response is replayed
+// on startup as the exact wire message rather than a reconstruction.
 func TestSwitchReforwardFwdResponses(t *testing.T) {
 	t.Parallel()
 
@@ -141,9 +140,8 @@ func TestSwitchReforwardFwdResponses(t *testing.T) {
 	require.Equal(t, preimage, settle.PaymentPreimage)
 }
 
-// TestSwitchReapsOrphanedFwdResponses asserts that a rescued response with no
-// open circuit is removed rather than retained forever. Without a circuit
-// there is no incoming link to answer, so the record can never be delivered.
+// TestSwitchReapsOrphanedFwdResponses asserts that a persisted response with no
+// open circuit is removed rather than retained indefinitely.
 func TestSwitchReapsOrphanedFwdResponses(t *testing.T) {
 	t.Parallel()
 
@@ -190,10 +188,9 @@ func TestSwitchFwdResponseFetchFails(t *testing.T) {
 	require.ErrorIs(t, s.Start(), errFwdResponseStore)
 }
 
-// TestSwitchReforwardFwdResponseLocalPayment asserts that a rescued response
+// TestSwitchReforwardFwdResponseLocalPayment asserts that a persisted response
 // for a locally initiated payment reaches the payment result store rather than
-// a link. The outgoing channel is gone, so the attempt would otherwise never
-// learn its own outcome.
+// a link.
 func TestSwitchReforwardFwdResponseLocalPayment(t *testing.T) {
 	t.Parallel()
 
@@ -286,8 +283,8 @@ func TestSwitchDuplicateFwdResponseFail(t *testing.T) {
 	require.NoError(t, s.handlePacketFail(packet, fail))
 }
 
-// commitFwdResponseTestCircuit persists and opens a circuit that a restarted
-// switch can use to route a rescued response.
+// commitFwdResponseTestCircuit persists and opens a circuit used by response
+// replay tests.
 func commitFwdResponseTestCircuit(t *testing.T, s *Switch, inKey,
 	outKey CircuitKey) *PaymentCircuit {
 

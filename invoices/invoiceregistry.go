@@ -1027,12 +1027,8 @@ func (i *InvoiceRegistry) notifyExitHopHtlcLocked(
 
 	invoiceRef := ctx.invoiceRef()
 
-	// This setID is only set for AMP HTLCs, so it can be nil and it is
-	// also expected to be nil for non-AMP HTLCs.
-	setID := (*SetID)(ctx.setID())
-
-	// We need to look up the current state of the invoice in order to send
-	// the previously accepted/settled HTLCs to the interceptor.
+	// Look up the current invoice state to detect replays and provide
+	// existing HTLCs to the interceptor.
 	existingInvoice, err := i.idb.LookupInvoice(
 		context.Background(), invoiceRef,
 	)
@@ -1052,159 +1048,155 @@ func (i *InvoiceRegistry) notifyExitHopHtlcLocked(
 		), nil, nil
 
 	case err != nil:
-		ctx.log(err.Error())
+		ctx.log(fmt.Sprintf("unable to look up invoice: %v", err))
 		return nil, nil, err
 	}
 
-	var cancelSet bool
-
-	// Provide the invoice to the settlement interceptor to allow
-	// the interceptor's client an opportunity to manipulate the
-	// settlement process.
-	err = i.cfg.HtlcInterceptor.Intercept(HtlcModifyRequest{
-		WireCustomRecords:  ctx.wireCustomRecords,
-		ExitHtlcCircuitKey: ctx.circuitKey,
-		ExitHtlcAmt:        ctx.amtPaid,
-		ExitHtlcExpiry:     ctx.expiry,
-		CurrentHeight:      uint32(ctx.currentHeight),
-		Invoice:            existingInvoice,
-	}, func(resp HtlcModifyResponse) {
-		log.Debugf("Received invoice HTLC interceptor response: %v",
-			resp)
-
-		if resp.AmountPaid != 0 {
-			ctx.amtPaid = resp.AmountPaid
-		}
-
-		cancelSet = resp.CancelSet
-	})
-	if err != nil {
-		err := fmt.Errorf("error during invoice HTLC interception: %w",
-			err)
-		ctx.log(err.Error())
-
-		return nil, nil, err
-	}
-
-	// We'll attempt to settle an invoice matching this rHash on disk (if
-	// one exists). The callback will update the invoice state and/or htlcs.
-	var (
-		resolution        HtlcResolution
-		updateSubscribers bool
+	// Resolve known replays before invoking the interceptor. An interceptor
+	// failure must not change an HTLC's recorded outcome.
+	isReplayed, replayResolution, err := resolveReplayedHtlc(
+		ctx, &existingInvoice,
 	)
-	callback := func(inv *Invoice) (*InvoiceUpdateDesc, error) {
-		// First check if this is a replayed htlc and resolve it
-		// according to its current state. We cannot decide differently
-		// once the HTLC has already been processed before.
-		isReplayed, res, err := resolveReplayedHtlc(ctx, inv)
+	if err != nil {
+		return nil, nil, err
+	}
+
+	resolution := replayResolution
+	invoice := &existingInvoice
+	var updateSubscribers bool
+	if !isReplayed {
+		setID := (*SetID)(ctx.setID())
+		var cancelSet bool
+
+		// Let the settlement interceptor's client manipulate the
+		// settlement process.
+		err = i.cfg.HtlcInterceptor.Intercept(HtlcModifyRequest{
+			WireCustomRecords:  ctx.wireCustomRecords,
+			ExitHtlcCircuitKey: ctx.circuitKey,
+			ExitHtlcAmt:        ctx.amtPaid,
+			ExitHtlcExpiry:     ctx.expiry,
+			CurrentHeight:      uint32(ctx.currentHeight),
+			Invoice:            existingInvoice,
+		}, func(resp HtlcModifyResponse) {
+			log.Debugf("Received invoice HTLC interceptor "+
+				"response: %v", resp)
+
+			if resp.AmountPaid != 0 {
+				ctx.amtPaid = resp.AmountPaid
+			}
+
+			cancelSet = resp.CancelSet
+		})
 		if err != nil {
-			return nil, err
+			log.Errorf("Invoice HTLC interceptor failed for "+
+				"invoice %v, circuit %v: %v", invoiceRef,
+				ctx.circuitKey, err)
+
+			return ctx.failRes(
+				ResultInvoiceInterceptorError,
+			), nil, nil
 		}
-		if isReplayed {
-			resolution = res
-			return nil, nil
-		}
 
-		// In case the HTLC interceptor cancels the HTLC set, we do NOT
-		// cancel the invoice however we cancel the complete HTLC set.
-		if cancelSet {
-			// If the invoice is not open, something is wrong, we
-			// fail just the HTLC with the specific error.
-			if inv.State != ContractOpen {
-				log.Errorf("Invoice state (%v) is not OPEN, "+
-					"cancelling HTLC set not allowed by "+
-					"external source", inv.State)
-
-				resolution = NewFailResolution(
-					ctx.circuitKey, ctx.currentHeight,
-					ResultInvoiceNotOpen,
-				)
-
+		callback := func(inv *Invoice) (*InvoiceUpdateDesc, error) {
+			// Recheck for a replay inside the atomic update. We
+			// cannot change an already-processed HTLC's outcome.
+			isReplayed, res, err := resolveReplayedHtlc(ctx, inv)
+			if err != nil {
+				return nil, err
+			}
+			if isReplayed {
+				resolution = res
 				return nil, nil
 			}
 
-			// The error `ExternalValidationFailed` error
-			// information will be packed in the
-			// `FailIncorrectDetails` msg when sending the msg to
-			// the peer. Error codes are defined by the BOLT 04
-			// specification. The error text can be arbitrary
-			// therefore we return a custom error msg.
-			resolution = NewFailResolution(
-				ctx.circuitKey, ctx.currentHeight,
-				ExternalValidationFailed,
-			)
+			// The interceptor can cancel the HTLC set while leaving
+			// the invoice open.
+			if cancelSet {
+				// If the invoice is not open, fail this HTLC.
+				if inv.State != ContractOpen {
+					log.Errorf("Invoice state (%v) is not "+
+						"OPEN, cancelling HTLC set "+
+						"not allowed by external "+
+						"source", inv.State)
 
-			// We cancel all HTLCs which are in the accepted state.
-			//
-			// NOTE: The current HTLC is not included because it
-			// was never accepted in the first place.
-			htlcs := inv.HTLCSet(ctx.setID(), HtlcStateAccepted)
-			htlcKeys := fn.KeySet[CircuitKey](htlcs)
+					resolution = NewFailResolution(
+						ctx.circuitKey,
+						ctx.currentHeight,
+						ResultInvoiceNotOpen,
+					)
 
-			// The external source did cancel the htlc set, so we
-			// cancel all HTLCs in the set. We however keep the
-			// invoice in the open state.
-			//
-			// NOTE: The invoice event loop will still call the
-			// `cancelSingleHTLC` method for MPP payments, however
-			// because the HTLCs are already cancled back it will be
-			// a NOOP.
-			update := &InvoiceUpdateDesc{
-				UpdateType:  CancelHTLCsUpdate,
-				CancelHtlcs: htlcKeys,
-				SetID:       setID,
+					return nil, nil
+				}
+
+				// Pack `ExternalValidationFailed` in
+				// `FailIncorrectDetails`. BOLT 04 defines the
+				// codes but allows arbitrary text. Return a
+				// custom message.
+				resolution = NewFailResolution(
+					ctx.circuitKey, ctx.currentHeight,
+					ExternalValidationFailed,
+				)
+
+				// Cancel all accepted HTLCs.
+				//
+				// NOTE: The current HTLC is excluded because it
+				// was never accepted.
+				htlcs := inv.HTLCSet(
+					ctx.setID(), HtlcStateAccepted,
+				)
+				htlcKeys := fn.KeySet[CircuitKey](htlcs)
+
+				// Cancel the set, but keep the invoice open.
+				//
+				// NOTE: The invoice event loop will still call
+				// `cancelSingleHTLC` for MPP payments. They are
+				// already canceled, so it will be a NOOP.
+				update := &InvoiceUpdateDesc{
+					UpdateType:  CancelHTLCsUpdate,
+					CancelHtlcs: htlcKeys,
+					SetID:       setID,
+				}
+
+				return update, nil
 			}
 
-			return update, nil
+			updateDesc, res, err := updateInvoice(ctx, inv)
+			if err != nil {
+				return nil, err
+			}
+
+			// Set the outer resolution after a successful update.
+			resolution = res
+
+			// Only send an update if the invoice state was changed.
+			updateSubscribers = updateDesc != nil &&
+				updateDesc.State != nil
+
+			return updateDesc, nil
 		}
 
-		updateDesc, res, err := updateInvoice(ctx, inv)
-		if err != nil {
-			return nil, err
+		invoice, err = i.idb.UpdateInvoice(
+			context.Background(), invoiceRef, setID, callback,
+		)
+
+		var duplicateSetIDErr ErrDuplicateSetID
+		if errors.As(err, &duplicateSetIDErr) {
+			return ctx.failRes(ResultInvoiceNotFound), nil, nil
 		}
 
-		// Set resolution in outer scope only after successful update.
-		resolution = res
+		switch {
+		case errors.Is(err, ErrInvoiceNotFound):
+			return ctx.failRes(ResultInvoiceNotFound), nil, nil
 
-		// Only send an update if the invoice state was changed.
-		updateSubscribers = updateDesc != nil &&
-			updateDesc.State != nil
+		case errors.Is(err, ErrInvRefEquivocation):
+			return ctx.failRes(ResultInvoiceNotFound), nil, nil
 
-		return updateDesc, nil
-	}
+		case err == nil:
 
-	invoice, err := i.idb.UpdateInvoice(
-		context.Background(), invoiceRef, setID, callback,
-	)
-
-	var duplicateSetIDErr ErrDuplicateSetID
-	if errors.As(err, &duplicateSetIDErr) {
-		return NewFailResolution(
-			ctx.circuitKey, ctx.currentHeight,
-			ResultInvoiceNotFound,
-		), nil, nil
-	}
-
-	switch {
-	case errors.Is(err, ErrInvoiceNotFound):
-		// If the invoice was not found, return a failure resolution
-		// with an invoice not found result.
-		return NewFailResolution(
-			ctx.circuitKey, ctx.currentHeight,
-			ResultInvoiceNotFound,
-		), nil, nil
-
-	case errors.Is(err, ErrInvRefEquivocation):
-		return NewFailResolution(
-			ctx.circuitKey, ctx.currentHeight,
-			ResultInvoiceNotFound,
-		), nil, nil
-
-	case err == nil:
-
-	default:
-		ctx.log(err.Error())
-		return nil, nil, err
+		default:
+			ctx.log(err.Error())
+			return nil, nil, err
+		}
 	}
 
 	var invoiceToExpire invoiceExpiry

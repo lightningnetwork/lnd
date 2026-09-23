@@ -180,6 +180,343 @@ func TestSyncManagerNewActiveSyncerAfterDisconnect(t *testing.T) {
 	assertPassiveSyncerTransition(t, newActiveSyncer, newActiveSyncPeer)
 }
 
+// TestSyncManagerReplacesOversizedHistoricalSyncer ensures that a peer which
+// exceeds the channel range limit is kept connected while another peer takes
+// over the initial historical sync.
+func TestSyncManagerReplacesOversizedHistoricalSyncer(t *testing.T) {
+	t.Parallel()
+
+	syncMgr := newTestSyncManager(2)
+	syncMgr.Start()
+	defer syncMgr.Stop()
+
+	oversizedPeer := randPeer(t, syncMgr.quit)
+	require.NoError(t, syncMgr.InitSyncState(oversizedPeer))
+	oversizedSyncer := assertSyncerExistence(t, syncMgr, oversizedPeer)
+
+	var query *lnwire.QueryChannelRange
+	select {
+	case msg := <-oversizedPeer.sentMsgs:
+		var ok bool
+		query, ok = msg.(*lnwire.QueryChannelRange)
+		require.True(t, ok)
+
+	case <-time.After(time.Second):
+		t.Fatal("expected initial channel range query")
+	}
+
+	require.Eventually(t, func() bool {
+		return oversizedSyncer.syncState() == waitingQueryRangeReply
+	}, time.Second, 10*time.Millisecond)
+
+	replacementPeer := randPeer(t, syncMgr.quit)
+	require.NoError(t, syncMgr.InitSyncState(replacementPeer))
+	assertNoMsgSent(t, replacementPeer)
+
+	// Leave room for no more SCIDs, then send one additional SCID through
+	// the public message path.
+	oversizedSyncer.numChanRangeReplySCIDsRcvd = maxChanRangeReplySCIDs
+	err := oversizedSyncer.ProcessQueryMsg(&lnwire.ReplyChannelRange{
+		ChainHash:        query.ChainHash,
+		FirstBlockHeight: query.FirstBlockHeight,
+		NumBlocks:        query.NumBlocks,
+		EncodingType:     lnwire.EncodingSortedPlain,
+		ShortChanIDs: []lnwire.ShortChannelID{{
+			BlockHeight: query.FirstBlockHeight,
+		}},
+	}, nil)
+	require.NoError(t, err)
+
+	select {
+	case msg := <-replacementPeer.sentMsgs:
+		_, ok := msg.(*lnwire.QueryChannelRange)
+		require.True(t, ok)
+
+	case <-time.After(time.Second):
+		t.Fatal("expected replacement channel range query")
+	}
+
+	require.False(t, oversizedPeer.disconnected.Load())
+	require.Eventually(t, func() bool {
+		return oversizedSyncer.syncState() == chansSynced
+	}, time.Second, 10*time.Millisecond)
+
+	// The failed peer remains ineligible for the next scheduled pick. The
+	// replacement is still waiting for its reply, so the failed peer would
+	// otherwise be the only eligible candidate.
+	historicalTicker, isForce :=
+		syncMgr.cfg.HistoricalSyncTicker.(*ticker.Force)
+	require.True(t, isForce)
+	historicalTicker.Force <- time.Time{}
+	assertNoMsgSent(t, oversizedPeer)
+
+	_, ok := syncMgr.GossipSyncer(oversizedPeer.PubKey())
+	require.True(t, ok)
+	require.NoError(
+		t, oversizedSyncer.ProcessSyncTransition(
+			oversizedSyncer.SyncType(),
+		),
+	)
+}
+
+// TestSyncManagerAcksFailureBeforeReplacement ensures that a failed syncer
+// only waits for the manager to detach its completion signal, not for
+// replacement selection.
+func TestSyncManagerAcksFailureBeforeReplacement(t *testing.T) {
+	t.Parallel()
+
+	syncMgr := newTestSyncManager(2)
+	syncMgr.Start()
+	defer syncMgr.Stop()
+
+	failedPeer := randPeer(t, syncMgr.quit)
+	require.NoError(t, syncMgr.InitSyncState(failedPeer))
+	failedSyncer := assertSyncerExistence(t, syncMgr, failedPeer)
+
+	select {
+	case <-failedPeer.sentMsgs:
+	case <-time.After(time.Second):
+		t.Fatal("expected initial channel range query")
+	}
+
+	replacementPeer := randPeer(t, syncMgr.quit)
+	require.NoError(t, syncMgr.InitSyncState(replacementPeer))
+	assertNoMsgSent(t, replacementPeer)
+
+	// Hold the lock used by replacement selection. The failure report must
+	// still return because the manager acknowledges it before taking this
+	// lock to choose another peer.
+	syncMgr.syncersMu.Lock()
+	reported := make(chan struct{})
+	go func() {
+		syncMgr.reportHistoricalSyncFailure(
+			failedSyncer, errInvalidChanRangeReply,
+		)
+		close(reported)
+	}()
+
+	var acknowledged bool
+	select {
+	case <-reported:
+		acknowledged = true
+	case <-time.After(time.Second):
+	}
+	syncMgr.syncersMu.Unlock()
+
+	require.True(t, acknowledged, "failure report awaited replacement")
+}
+
+// TestSyncManagerCompletesInitialSyncBeforeReusingPeer ensures that a
+// scheduled historical sync doesn't reuse the initial syncer before its
+// ready completion has been handled. The manager must consume the
+// completion first, which activates the peer as an active gossip syncer,
+// rather than sending it a second channel range query.
+func TestSyncManagerCompletesInitialSyncBeforeReusingPeer(t *testing.T) {
+	t.Parallel()
+
+	syncMgr := newTestSyncManager(1)
+	syncMgr.Start()
+	defer syncMgr.Stop()
+
+	// The only connected peer becomes the initial historical syncer.
+	peer := randPeer(t, syncMgr.quit)
+	require.NoError(t, syncMgr.InitSyncState(peer))
+	s := assertSyncerExistence(t, syncMgr, peer)
+	assertSyncerStatus(t, s, waitingQueryRangeReply, PassiveSync)
+
+	// Hold the lock guarding candidate selection, so the manager blocks
+	// inside forceHistoricalSync after the ticker is received. The
+	// initial historical sync then completes, and the graph is marked
+	// as synced, all while the completion signal remains unconsumed.
+	syncMgr.syncersMu.Lock()
+
+	historicalTicker, isForce :=
+		syncMgr.cfg.HistoricalSyncTicker.(*ticker.Force)
+	require.True(t, isForce)
+	historicalTicker.Force <- time.Time{}
+
+	assertTransitionToChansSynced(t, s, peer)
+	require.True(t, syncMgr.IsGraphSynced())
+	syncMgr.syncersMu.Unlock()
+
+	// The peer must not receive a second channel range query. Instead,
+	// the completion is handled first, activating the syncer so we
+	// receive new graph updates at tip.
+	assertActiveGossipTimestampRange(t, peer)
+	assertNoMsgSent(t, peer)
+	assertSyncerStatus(t, s, chansSynced, ActiveSync)
+}
+
+// TestSyncManagerRetainsFailureAcrossReconnect ensures that reconnecting does
+// not bypass the failed peer's bounded exclusion.
+func TestSyncManagerRetainsFailureAcrossReconnect(t *testing.T) {
+	t.Parallel()
+
+	syncMgr := newTestSyncManager(1)
+	syncMgr.Start()
+	defer syncMgr.Stop()
+
+	pubKey := randPubKey(t)
+	failedPeer := peerWithPubkey(pubKey, syncMgr.quit)
+	require.NoError(t, syncMgr.InitSyncState(failedPeer))
+	failedSyncer := assertSyncerExistence(t, syncMgr, failedPeer)
+
+	select {
+	case <-failedPeer.sentMsgs:
+	case <-time.After(time.Second):
+		t.Fatal("expected initial channel range query")
+	}
+
+	syncMgr.reportHistoricalSyncFailure(
+		failedSyncer, errInvalidChanRangeReply,
+	)
+	syncMgr.PruneSyncState(failedPeer.PubKey())
+
+	reconnectedPeer := peerWithPubkey(pubKey, syncMgr.quit)
+	require.NoError(t, syncMgr.InitSyncState(reconnectedPeer))
+	assertNoMsgSent(t, reconnectedPeer)
+
+	historicalTicker, isForce :=
+		syncMgr.cfg.HistoricalSyncTicker.(*ticker.Force)
+	require.True(t, isForce)
+
+	// The next scheduled attempt consumes the exclusion. A later attempt
+	// can retry the peer, so the exclusion does not become a ban.
+	historicalTicker.Force <- time.Time{}
+	assertNoMsgSent(t, reconnectedPeer)
+	historicalTicker.Force <- time.Time{}
+	assertMsgSent(t, reconnectedPeer, &lnwire.QueryChannelRange{
+		FirstBlockHeight: 0,
+		NumBlocks:        latestKnownHeight,
+		QueryOptions:     lnwire.NewTimestampQueryOption(),
+	})
+}
+
+// TestSyncManagerStartsLateHistoricalReplacement ensures that a healthy
+// peer connecting after a replacement-less historical sync failure is
+// used for a new attempt right away, rather than waiting for the next
+// scheduled tick.
+func TestSyncManagerStartsLateHistoricalReplacement(t *testing.T) {
+	t.Parallel()
+
+	syncMgr := newTestSyncManager(1)
+	syncMgr.Start()
+	defer syncMgr.Stop()
+
+	// Peer A is the only connected peer, so it becomes the initial
+	// historical syncer.
+	failedPubKey := randPubKey(t)
+	peerA := peerWithPubkey(failedPubKey, syncMgr.quit)
+	require.NoError(t, syncMgr.InitSyncState(peerA))
+	syncerA := assertSyncerExistence(t, syncMgr, peerA)
+
+	var query *lnwire.QueryChannelRange
+	select {
+	case msg := <-peerA.sentMsgs:
+		var ok bool
+		query, ok = msg.(*lnwire.QueryChannelRange)
+		require.True(t, ok)
+
+	case <-time.After(time.Second):
+		t.Fatal("expected initial channel range query")
+	}
+
+	require.Eventually(t, func() bool {
+		return syncerA.syncState() == waitingQueryRangeReply
+	}, time.Second, 10*time.Millisecond)
+
+	// Deliver a reply that starts below the queried range, which
+	// fails the attempt through the recovery path while keeping the
+	// connection.
+	err := syncerA.ProcessQueryMsg(&lnwire.ReplyChannelRange{
+		ChainHash:        query.ChainHash,
+		FirstBlockHeight: query.FirstBlockHeight - 1,
+		NumBlocks:        query.NumBlocks,
+		EncodingType:     lnwire.EncodingSortedPlain,
+	}, nil)
+	require.NoError(t, err)
+
+	require.Eventually(t, func() bool {
+		return syncerA.syncState() == chansSynced
+	}, time.Second, 10*time.Millisecond)
+	require.False(t, syncMgr.IsGraphSynced())
+
+	// A healthy peer connecting now must receive the historical sync
+	// query immediately, even though the failed peer remains
+	// registered and no replacement could be found at failure time.
+	peerB := randPeer(t, syncMgr.quit)
+	require.NoError(t, syncMgr.InitSyncState(peerB))
+	select {
+	case msg := <-peerB.sentMsgs:
+		_, ok := msg.(*lnwire.QueryChannelRange)
+		require.True(t, ok)
+
+	case <-time.After(time.Second):
+		t.Fatal("expected late replacement to start historical sync")
+	}
+
+	// The failed peer's key remains excluded from immediate retries, so
+	// a reconnect of the same peer must not restart a historical sync
+	// before the exclusion is consumed.
+	syncMgr.PruneSyncState(peerA.PubKey())
+	reconnectedPeer := peerWithPubkey(failedPubKey, syncMgr.quit)
+	require.NoError(t, syncMgr.InitSyncState(reconnectedPeer))
+	assertNoMsgSent(t, reconnectedPeer)
+}
+
+// TestSyncManagerIgnoresStaleHistoricalSyncFailure ensures that a delayed
+// failure from an old connection cannot be applied to a new syncer for the
+// same peer.
+func TestSyncManagerIgnoresStaleHistoricalSyncFailure(t *testing.T) {
+	t.Parallel()
+
+	syncMgr := newTestSyncManager(2)
+	syncMgr.Start()
+	defer syncMgr.Stop()
+
+	pubKey := randPubKey(t)
+	oldPeer := peerWithPubkey(pubKey, syncMgr.quit)
+	require.NoError(t, syncMgr.InitSyncState(oldPeer))
+	oldSyncer := assertSyncerExistence(t, syncMgr, oldPeer)
+
+	select {
+	case <-oldPeer.sentMsgs:
+	case <-time.After(time.Second):
+		t.Fatal("expected initial channel range query")
+	}
+
+	syncMgr.PruneSyncState(oldPeer.PubKey())
+
+	newPeer := peerWithPubkey(pubKey, syncMgr.quit)
+	require.NoError(t, syncMgr.InitSyncState(newPeer))
+	newSyncer := assertSyncerExistence(t, syncMgr, newPeer)
+
+	select {
+	case <-newPeer.sentMsgs:
+	case <-time.After(time.Second):
+		t.Fatal("expected reconnected channel range query")
+	}
+
+	// Deliver an old instance's failure after a replacement with the same
+	// peer key becomes the tracked historical syncer.
+	syncMgr.reportHistoricalSyncFailure(oldSyncer, errInvalidChanRangeReply)
+
+	replacementPeer := randPeer(t, syncMgr.quit)
+	require.NoError(t, syncMgr.InitSyncState(replacementPeer))
+	syncMgr.PruneSyncState(newPeer.PubKey())
+
+	select {
+	case msg := <-replacementPeer.sentMsgs:
+		_, ok := msg.(*lnwire.QueryChannelRange)
+		require.True(t, ok)
+
+	case <-time.After(time.Second):
+		t.Fatal("expected replacement channel range query")
+	}
+
+	require.NotSame(t, oldSyncer, newSyncer)
+}
+
 // TestSyncManagerRotateActiveSyncerCandidate tests that we can successfully
 // rotate our active syncers after a certain interval.
 func TestSyncManagerRotateActiveSyncerCandidate(t *testing.T) {

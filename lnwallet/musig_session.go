@@ -2,6 +2,7 @@ package lnwallet
 
 import (
 	"bytes"
+	"errors"
 	"fmt"
 	"io"
 
@@ -336,6 +337,28 @@ func (m *MusigSession) FinalizeSession(signingNonce musig2.Nonces) error {
 	return nil
 }
 
+// cleanup releases the backing signer session once it is no longer needed.
+func (m *MusigSession) cleanup() error {
+	if m.session == nil {
+		return nil
+	}
+
+	err := m.signer.MuSig2Cleanup(m.session.SessionID)
+	if err != nil {
+		return fmt.Errorf("unable to clean up musig2 session: %w", err)
+	}
+
+	m.session = nil
+
+	return nil
+}
+
+// cleanupOnReturn releases the backing signer session and joins any cleanup
+// error with the operation's original error.
+func (m *MusigSession) cleanupOnReturn(retErr *error) {
+	*retErr = errors.Join(*retErr, m.cleanup())
+}
+
 // taprootKeyspendSighash generates the sighash for a taproot key spend. As
 // this is a musig2 channel output, the keyspend is the only path we can take.
 func taprootKeyspendSighash(tx *wire.MsgTx, pkScript []byte,
@@ -356,6 +379,31 @@ func taprootKeyspendSighash(tx *wire.MsgTx, pkScript []byte,
 // remote) nonce. Given nonces should only ever be used once, once the method
 // returns a new nonce is returned, w/ the existing nonce blanked out.
 func (m *MusigSession) SignCommit(tx *wire.MsgTx) (*MusigPartialSig, error) {
+	return m.signCommit(tx, false)
+}
+
+// signCommitAndCleanup signs a commitment and releases the backing signer
+// session before returning. This is used when the partial signature is sent to
+// the remote party, which is responsible for combining it.
+func (m *MusigSession) signCommitAndCleanup(
+	tx *wire.MsgTx) (*MusigPartialSig, error) {
+
+	return m.signCommit(tx, true)
+}
+
+// signCommit signs the passed commitment and optionally releases the backing
+// signer session before returning.
+func (m *MusigSession) signCommit(tx *wire.MsgTx,
+	cleanUp bool) (_ *MusigPartialSig, retErr error) {
+
+	if cleanUp {
+		defer func() {
+			if retErr != nil {
+				m.cleanupOnReturn(&retErr)
+			}
+		}()
+	}
+
 	switch {
 	// If we already have a session, then we don't need to finalize as this
 	// was done up front (symmetric nonce case, like for co-op close).
@@ -414,18 +462,22 @@ func (m *MusigSession) SignCommit(tx *wire.MsgTx) (*MusigPartialSig, error) {
 		m.session.SessionID[:], m.nonces.String())
 
 	sig, err := m.signer.MuSig2Sign(
-		m.session.SessionID, sigHashMsg, false,
+		m.session.SessionID, sigHashMsg, cleanUp,
 	)
 	if err != nil {
 		return nil, err
 	}
 
 	tapscriptRoot := fn.MapOption(muSig2TweakToRoot)(m.tapscriptTweak)
-
-	return NewMusigPartialSig(
+	partialSig := NewMusigPartialSig(
 		sig, m.session.PublicNonce, m.combinedNonce, m.signerKeys,
 		tapscriptRoot,
-	), nil
+	)
+	if cleanUp {
+		m.session = nil
+	}
+
+	return partialSig, nil
 }
 
 // Refresh is called once we receive a new verification nonce from the remote
@@ -512,7 +564,7 @@ func (i invalidPartialSigError) Error() string {
 // them to generate another signature.
 func (m *MusigSession) VerifyCommitSig(commitTx *wire.MsgTx,
 	sig *lnwire.PartialSigWithNonce,
-	musigOpts ...MusigSessionOpt) (*musig2.Nonces, error) {
+	musigOpts ...MusigSessionOpt) (_ *musig2.Nonces, retErr error) {
 
 	opts := defaultMusigSessionOpts()
 	for _, optFunc := range musigOpts {
@@ -522,6 +574,8 @@ func (m *MusigSession) VerifyCommitSig(commitTx *wire.MsgTx,
 	if sig == nil {
 		return nil, fmt.Errorf("sig not provided")
 	}
+
+	defer m.cleanupOnReturn(&retErr)
 
 	// Before we can verify the signature, we'll need to finalize the
 	// session by binding the remote party's provided signing nonce.

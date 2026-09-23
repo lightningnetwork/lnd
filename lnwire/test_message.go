@@ -1503,19 +1503,21 @@ func (n *NodeAnnouncement2) RandTestMessage(t *rapid.T) Message {
 		msg.TorV3Addrs = tlv.SomeRecordT(torV3Record)
 	}
 
-	if rapid.Bool().Draw(t, "includeDNSHostName") {
-		// Generate a valid DNS hostname.
-		hostname := genValidHostname(t)
-		port := rapid.Uint16Range(1, 65535).Draw(t, "dnsPort")
-
-		dnsAddr := DNSAddress{
-			Hostname: hostname,
-			Port:     port,
+	if rapid.Bool().Draw(t, "includeDNSHostNames") {
+		numAddrs := rapid.IntRange(1, 3).Draw(t, "numDNSAddrs")
+		dnsAddrs := make(DNSAddrs, 0, numAddrs)
+		for i := 0; i < numAddrs; i++ {
+			dnsAddrs = append(dnsAddrs, &DNSAddress{
+				Hostname: genValidHostname(t),
+				Port: rapid.Uint16Range(1, 65535).Draw(
+					t, "dnsPort",
+				),
+			})
 		}
 
-		dnsRecord := tlv.ZeroRecordT[tlv.TlvType11, DNSAddress]()
-		dnsRecord.Val = dnsAddr
-		msg.DNSHostName = tlv.SomeRecordT(dnsRecord)
+		dnsRecord := tlv.ZeroRecordT[tlv.TlvType11, DNSAddrs]()
+		dnsRecord.Val = dnsAddrs
+		msg.DNSHostNames = tlv.SomeRecordT(dnsRecord)
 	}
 
 	randRecs, _ := RandSignedRangeRecords(t)

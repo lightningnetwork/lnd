@@ -53,9 +53,9 @@ type NodeAnnouncement2 struct {
 	// reachable at.
 	TorV3Addrs tlv.OptionalRecordT[tlv.TlvType9, TorV3Addrs]
 
-	// DNSHostName is an optional DNS hostname that the node is reachable
-	// at.
-	DNSHostName tlv.OptionalRecordT[tlv.TlvType11, DNSAddress]
+	// DNSHostNames is an optional list of DNS hostnames that the node is
+	// reachable at.
+	DNSHostNames tlv.OptionalRecordT[tlv.TlvType11, DNSAddrs]
 
 	// Signature is used to validate the announced data and prove the
 	// ownership of node id.
@@ -107,7 +107,7 @@ func (n *NodeAnnouncement2) AllRecords() []tlv.Record {
 		recordProducers = append(recordProducers, &r)
 	})
 
-	n.DNSHostName.WhenSome(func(r tlv.RecordT[tlv.TlvType11, DNSAddress]) {
+	n.DNSHostNames.WhenSome(func(r tlv.RecordT[tlv.TlvType11, DNSAddrs]) {
 		recordProducers = append(recordProducers, &r)
 	})
 
@@ -129,7 +129,7 @@ func (n *NodeAnnouncement2) Decode(r io.Reader, _ uint32) error {
 		ipv4  = tlv.ZeroRecordT[tlv.TlvType5, IPV4Addrs]()
 		ipv6  = tlv.ZeroRecordT[tlv.TlvType7, IPV6Addrs]()
 		torV3 = tlv.ZeroRecordT[tlv.TlvType9, TorV3Addrs]()
-		dns   = tlv.ZeroRecordT[tlv.TlvType11, DNSAddress]()
+		dns   = tlv.ZeroRecordT[tlv.TlvType11, DNSAddrs]()
 	)
 
 	stream, err := tlv.NewStream(ProduceRecordsSorted(
@@ -184,8 +184,8 @@ func (n *NodeAnnouncement2) Decode(r io.Reader, _ uint32) error {
 		n.TorV3Addrs = tlv.SomeRecordT(torV3)
 	}
 
-	if _, ok := typeMap[n.DNSHostName.TlvType()]; ok {
-		n.DNSHostName = tlv.SomeRecordT(dns)
+	if _, ok := typeMap[n.DNSHostNames.TlvType()]; ok {
+		n.DNSHostNames = tlv.SomeRecordT(dns)
 	}
 
 	n.ExtraSignedFields = ExtraSignedFieldsFromTypeMap(typeMap)

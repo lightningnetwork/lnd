@@ -5,6 +5,8 @@ import (
 	"errors"
 	"io"
 
+	"github.com/btcsuite/btcd/btcec/v2"
+	"github.com/lightningnetwork/lnd/fn/v2"
 	"github.com/lightningnetwork/lnd/kvdb"
 	"github.com/lightningnetwork/lnd/lnwire"
 )
@@ -67,15 +69,19 @@ func SerializeChannelCloseSummary(w io.Writer,
 	// channel to be closed before we learn of the next unrevoked
 	// revocation point for the remote party. Write a boolean indicating
 	// whether this field is present or not.
-	if err := WriteElements(w, cs.RemoteNextRevocation != nil); err != nil {
+	err = WriteElements(w, cs.RemoteNextRevocation.IsSome())
+	if err != nil {
 		return err
 	}
 
 	// Write the field, if present.
-	if cs.RemoteNextRevocation != nil {
-		if err = WriteElements(w, cs.RemoteNextRevocation); err != nil {
-			return err
-		}
+	err = fn.MapOptionZ(
+		cs.RemoteNextRevocation, func(key btcec.PublicKey) error {
+			return WriteElements(w, &key)
+		},
+	)
+	if err != nil {
+		return err
 	}
 
 	// Write whether the channel sync message is present.
@@ -140,10 +146,12 @@ func DeserializeCloseChannelSummary(r io.Reader) (*ChannelCloseSummary, error) {
 
 	// If this field was written, read it.
 	if hasRemoteNextRevocation {
-		err = ReadElements(r, &c.RemoteNextRevocation)
+		var nextRevocation *btcec.PublicKey
+		err = ReadElements(r, &nextRevocation)
 		if err != nil {
 			return nil, err
 		}
+		c.RemoteNextRevocation = fn.Some(*nextRevocation)
 	}
 
 	// Check if we have a channel sync message to read.

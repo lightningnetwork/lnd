@@ -6096,7 +6096,8 @@ func TestSignCommitmentFailNotLockedIn(t *testing.T) {
 
 	// Next, we'll modify Alice's internal state to omit knowledge of Bob's
 	// next revocation point.
-	aliceChannel.channelState.RemoteNextRevocation = nil
+	aliceState := aliceChannel.channelState
+	aliceState.RemoteNextRevocation = fn.None[btcec.PublicKey]()
 
 	// If we now try to initiate a state update, then it should fail as
 	// Alice is unable to actually create a new state.
@@ -6110,6 +6111,8 @@ func TestSignCommitmentFailNotLockedIn(t *testing.T) {
 // channel state unchanged and don't prevent a later valid transition.
 func TestReceiveRevocationInvalidState(t *testing.T) {
 	t.Parallel()
+
+	noNextPoint := fn.None[btcec.PublicKey]()
 
 	testCases := []struct {
 		name     string
@@ -6153,7 +6156,7 @@ func TestReceiveRevocationInvalidState(t *testing.T) {
 
 			aliceState := aliceChannel.channelState
 			if tc.dropNextPoint {
-				aliceState.RemoteNextRevocation = nil
+				aliceState.RemoteNextRevocation = noNextPoint
 			}
 
 			// Generate a revocation message for the
@@ -6889,11 +6892,13 @@ func TestChannelUnilateralClosePendingCommit(t *testing.T) {
 	// properly populated.
 	aliceRemoteChainTip, err := aliceChannel.channelState.RemoteCommitChainTip()
 	require.NoError(t, err, "unable to fetch remote chain tip")
+	bobNextPoint := aliceChannel.channelState.RemoteNextRevocation.
+		UnwrapOrFail(t)
 	aliceCloseSummary, err := NewUnilateralCloseSummary(
 		aliceChannel.channelState, aliceChannel.Signer,
 		spendDetail,
 		aliceRemoteChainTip.Commitment,
-		aliceChannel.channelState.RemoteNextRevocation,
+		&bobNextPoint,
 		fn.Some[AuxLeafStore](&MockAuxLeafStore{}),
 		fn.Some[AuxContractResolver](&MockAuxContractResolver{}),
 	)

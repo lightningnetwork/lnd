@@ -385,7 +385,7 @@ func createTestChannel(t *testing.T, alicePrivKey, bobPrivKey []byte,
 	if err != nil {
 		return nil, nil, err
 	}
-	if err := channelBob.InitNextRevocation(aliceNextRevoke); err != nil {
+	if err := channelBob.InitNextRevocation(*aliceNextRevoke); err != nil {
 		return nil, nil, err
 	}
 
@@ -393,7 +393,7 @@ func createTestChannel(t *testing.T, alicePrivKey, bobPrivKey []byte,
 	if err != nil {
 		return nil, nil, err
 	}
-	if err := channelAlice.InitNextRevocation(bobNextRevoke); err != nil {
+	if err := channelAlice.InitNextRevocation(*bobNextRevoke); err != nil {
 		return nil, nil, err
 	}
 

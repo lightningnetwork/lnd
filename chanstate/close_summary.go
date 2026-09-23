@@ -5,6 +5,7 @@ import (
 	"github.com/btcsuite/btcd/btcutil/v2"
 	"github.com/btcsuite/btcd/chainhash/v2"
 	"github.com/btcsuite/btcd/wire/v2"
+	"github.com/lightningnetwork/lnd/fn/v2"
 	"github.com/lightningnetwork/lnd/lnwire"
 )
 
@@ -114,8 +115,9 @@ type ChannelCloseSummary struct {
 	// RemoteNextRevocation is the revocation key to be used for the *next*
 	// commitment transaction we create for the local node. Within the
 	// specification, this value is referred to as the
-	// per-commitment-point.
-	RemoteNextRevocation *btcec.PublicKey
+	// per-commitment-point. It's None if the channel was closed before the
+	// remote party sent channel_ready.
+	RemoteNextRevocation fn.Option[btcec.PublicKey]
 
 	// LocalChanConfig is the channel configuration for the local node.
 	LocalChanConfig ChannelConfig

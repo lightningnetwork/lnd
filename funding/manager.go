@@ -3645,7 +3645,7 @@ func (f *Manager) receivedChannelReady(node *btcec.PublicKey,
 
 	// If we haven't insert the next revocation point, we haven't finished
 	// processing the channel ready message.
-	if channel.RemoteNextRevocation == nil {
+	if channel.RemoteNextRevocation.IsNone() {
 		return false, nil
 	}
 
@@ -4120,14 +4120,14 @@ func (f *Manager) handleChannelReady(peer lnpeer.Peer,
 		return
 	}
 
-	// If the RemoteNextRevocation is non-nil, then the channel has
+	// If the RemoteNextRevocation is set, then the channel has
 	// already been fully established and we've processed channel_ready
 	// for it at least once. We short-circuit inline to avoid redoing the
 	// heavy work in processChannelReady (DB writes, nonce generation,
 	// AddNewChannel) on every duplicate channel_ready the peer sends.
 	// Note that the happy path where the channel is actively being
 	// funded goes through the localDiscoverySignal branch above.
-	if channel.RemoteNextRevocation != nil {
+	if channel.RemoteNextRevocation.IsSome() {
 		// Even though we're ignoring the rest of the message, we
 		// still need to refresh the peer's alias if they negotiated
 		// the option_scid_alias feature and sent a (possibly updated)
@@ -4289,7 +4289,7 @@ func (f *Manager) processChannelReady(peer lnpeer.Peer,
 		}
 	}
 
-	// If the RemoteNextRevocation is non-nil, it means that we have
+	// If the RemoteNextRevocation is set, it means that we have
 	// already processed channelReady for this channel, so ignore. This
 	// check is after the alias logic so we store the peer's most recent
 	// alias. The spec requires us to validate that subsequent
@@ -4298,7 +4298,7 @@ func (f *Manager) processChannelReady(peer lnpeer.Peer,
 	// ignoring it. We are, however, required to *send* the same per
 	// commitment point, since another pedantic implementation might
 	// verify it.
-	if channel.RemoteNextRevocation != nil {
+	if channel.RemoteNextRevocation.IsSome() {
 		log.Infof("Received duplicate channelReady for "+
 			"ChannelID(%v), ignoring.", chanID)
 		return
@@ -4365,7 +4365,7 @@ func (f *Manager) processChannelReady(peer lnpeer.Peer,
 	// need to create the next commitment state for the remote party. So
 	// we'll insert that into the channel now before passing it along to
 	// other sub-systems.
-	err = channel.InsertNextRevocation(msg.NextPerCommitmentPoint)
+	err = channel.InsertNextRevocation(*msg.NextPerCommitmentPoint)
 	if err != nil {
 		log.Errorf("unable to insert next commitment point: %v", err)
 		return

@@ -63,6 +63,15 @@
   modern revocation log format, and the breach arbiter now skips and logs
   any HTLC retribution with a nil sign descriptor output.
 
+* [Fixed missed historical confirmations and
+  spends](https://github.com/lightningnetwork/lnd/pull/11247) when several
+  subscriptions for the same transaction or outpoint supply different height
+  hints. A later subscription with an earlier hint now scans the range the
+  existing scan skipped, regardless of registration order. Cached height hints
+  also record the height their scans started from, so a hint left by a
+  subscription with a later hint can no longer hide an earlier confirmation or
+  spend after a restart.
+
 # New Features
 
 ## Functional Enhancements

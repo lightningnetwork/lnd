@@ -90,6 +90,7 @@ func TestTxNotifierHintOriginGuardsEarlierHint(t *testing.T) {
 			t, earlyHint, early.HistoricalDispatch.StartHeight,
 		)
 	})
+
 	// Progress persisted by a backend while the late scan is outstanding
 	// carries the scan's origin too.
 	t.Run("spend progress", func(t *testing.T) {
@@ -118,6 +119,151 @@ func TestTxNotifierHintOriginGuardsEarlierHint(t *testing.T) {
 			t, earlyHint, early.HistoricalDispatch.StartHeight,
 		)
 	})
+}
+
+// TestTxNotifierHintOriginPrefixScans asserts how prefix scans use hint
+// origins. A cached hint is resumed from by a subscriber at or above its
+// origin, and a later subscriber whose hint is inside the range it covers
+// shares the existing scan, while one below the origin scans only the prefix
+// below it. A legacy hint only covers down to its first subscriber's hint,
+// and a known confirmation is delivered without any prefix scan. A set whose
+// only subscriber had a late hint and canceled still extends its coverage for
+// an earlier subscriber.
+func TestTxNotifierHintOriginPrefixScans(t *testing.T) {
+	const (
+		tipHeight = uint32(200)
+		origin    = uint32(100)
+		cached    = uint32(180)
+	)
+
+	cache := newMockHintCache()
+	n := chainntnfs.NewTxNotifier(
+		tipHeight, chainntnfs.ReorgSafetyLimit, cache, cache,
+	)
+	t.Cleanup(n.TearDown)
+
+	script, tx := staleHintTx("hint-origin-prefix")
+	txid := tx.TxHash()
+	confRequest, err := chainntnfs.NewConfRequest(&txid, script)
+	require.NoError(t, err)
+	require.NoError(t, cache.CommitConfirmHints(
+		chainntnfs.ConfirmHints{
+			confRequest: {Height: cached, Origin: origin},
+		},
+	))
+
+	// The first subscriber resumes from the cached hint.
+	first, err := n.RegisterConf(&txid, script, 1, origin+50)
+	require.NoError(t, err)
+	require.NotNil(t, first.HistoricalDispatch)
+	require.Equal(t, cached, first.HistoricalDispatch.StartHeight)
+
+	// A subscriber inside the cached range shares that scan.
+	second, err := n.RegisterConf(&txid, script, 1, origin)
+	require.NoError(t, err)
+	require.Nil(t, second.HistoricalDispatch)
+
+	// A subscriber below the origin scans only the prefix below it.
+	third, err := n.RegisterConf(&txid, script, 1, origin-10)
+	require.NoError(t, err)
+	prefix := third.HistoricalDispatch
+	require.NotNil(t, prefix)
+	require.True(t, prefix.Supplemental)
+	require.Equal(t, origin-10, prefix.StartHeight)
+	require.Equal(t, origin-1, prefix.EndHeight)
+
+	// A legacy hint without an origin is trusted by the first subscriber,
+	// and only as far down as that subscriber's own hint, so an earlier
+	// subscriber still scans the prefix below it.
+	legacyScript, legacyTx := staleHintTx("hint-origin-legacy")
+	legacyTxid := legacyTx.TxHash()
+	legacyRequest, err := chainntnfs.NewConfRequest(
+		&legacyTxid, legacyScript,
+	)
+	require.NoError(t, err)
+	require.NoError(t, cache.commitConfirmHeight(cached, legacyRequest))
+	legacy, err := n.RegisterConf(&legacyTxid, legacyScript, 1, origin)
+	require.NoError(t, err)
+	require.NotNil(t, legacy.HistoricalDispatch)
+	require.Equal(t, cached, legacy.HistoricalDispatch.StartHeight)
+	legacyEarly, err := n.RegisterConf(
+		&legacyTxid, legacyScript, 1, origin-10,
+	)
+	require.NoError(t, err)
+	require.NotNil(t, legacyEarly.HistoricalDispatch)
+	require.Equal(t, origin-1, legacyEarly.HistoricalDispatch.EndHeight)
+
+	// Once the confirmation is known, a subscriber with an earlier hint
+	// is notified right away instead of waiting on a prefix scan.
+	knownScript, knownTx := staleHintTx("hint-origin-known")
+	knownTxid := knownTx.TxHash()
+	known, err := n.RegisterConf(&knownTxid, knownScript, 1, cached)
+	require.NoError(t, err)
+	require.NotNil(t, known.HistoricalDispatch)
+	require.NoError(t, n.UpdateConfDetails(
+		known.HistoricalDispatch.ConfRequest,
+		&chainntnfs.TxConfirmation{
+			BlockHeight: cached + 5,
+			Tx:          knownTx,
+		},
+	))
+	knownEarly, err := n.RegisterConf(&knownTxid, knownScript, 1, origin)
+	require.NoError(t, err)
+	require.Nil(t, knownEarly.HistoricalDispatch)
+	select {
+	case details := <-knownEarly.Event.Confirmed:
+		require.Equal(t, cached+5, details.BlockHeight)
+	default:
+		t.Fatal("earlier subscriber missed known confirmation")
+	}
+
+	// A subscriber whose hint is above the tip needs no scan. A later,
+	// earlier subscriber's prefix then ends at the tip, since a backend
+	// can't scan blocks it doesn't have yet, and later blocks are seen at
+	// tip anyway.
+	aboveScript, aboveTx := staleHintTx("hint-origin-above-tip")
+	aboveTxid := aboveTx.TxHash()
+	above, err := n.RegisterConf(&aboveTxid, aboveScript, 1, tipHeight+5)
+	require.NoError(t, err)
+	require.Nil(t, above.HistoricalDispatch)
+	belowConf, err := n.RegisterConf(&aboveTxid, aboveScript, 1, origin)
+	require.NoError(t, err)
+	require.NotNil(t, belowConf.HistoricalDispatch)
+	require.Equal(t, tipHeight, belowConf.HistoricalDispatch.EndHeight)
+
+	aboveOutpoint, aboveSpendScript, _ := staleHintSpend(
+		"hint-origin-above-tip",
+	)
+	aboveSpend, err := n.RegisterSpend(
+		&aboveOutpoint, aboveSpendScript, tipHeight+5,
+	)
+	require.NoError(t, err)
+	require.Nil(t, aboveSpend.HistoricalDispatch)
+	belowSpend, err := n.RegisterSpend(
+		&aboveOutpoint, aboveSpendScript, origin,
+	)
+	require.NoError(t, err)
+	require.NotNil(t, belowSpend.HistoricalDispatch)
+	require.Equal(t, tipHeight, belowSpend.HistoricalDispatch.EndHeight)
+
+	// A late subscriber cancels before an earlier one arrives. The set
+	// still records the late coverage, so the earlier subscriber scans the
+	// prefix below it.
+	lateScript, lateTx := staleHintTx("hint-origin-canceled")
+	lateTxid := lateTx.TxHash()
+	late, err := n.RegisterConf(&lateTxid, lateScript, 1, 190)
+	require.NoError(t, err)
+	require.NotNil(t, late.HistoricalDispatch)
+	require.NoError(t, n.UpdateConfDetails(
+		late.HistoricalDispatch.ConfRequest, nil,
+	))
+	late.Event.Cancel()
+
+	early, err := n.RegisterConf(&lateTxid, lateScript, 1, 150)
+	require.NoError(t, err)
+	require.NotNil(t, early.HistoricalDispatch)
+	require.Equal(t, uint32(150), early.HistoricalDispatch.StartHeight)
+	require.Equal(t, uint32(189), early.HistoricalDispatch.EndHeight)
 }
 
 // staleHintTx returns a transaction with a single output to a script unique to

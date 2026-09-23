@@ -195,6 +195,7 @@ func TestDecodeEncode(t *testing.T) {
 		decodeOpts     []DecodeOption
 		skipEncoding   bool
 		beforeEncoding func(*Invoice)
+		wantErr        error
 	}{
 		{
 			encodedInvoice: "asdsaddnasdnas", // no hrp
@@ -324,9 +325,18 @@ func TestDecodeEncode(t *testing.T) {
 			skipEncoding: true, // Skip encoding since we don't have the unknown fields to encode.
 		},
 		{
-			// Ignore fields with unknown lengths.
-			encodedInvoice: "lnbc241pveeq09pp5qqqsyqcyq5rqwzqfqqqsyqcyq5rqwzqfqqqsyqcyq5rqwzqfqypqpp3qqqsyqcyq5rqwzqfqqqsyqcyq5rqwzqfqqqsyqcyq5rqwzqfqhp58yjmdan79s6qqdhdzgynm4zwqd5d7xmw5fk98klysy043l2ahrqshp38yjmdan79s6qqdhdzgynm4zwqd5d7xmw5fk98klysy043l2ahnp4q0n326hr8v9zprg8gsvezcch06gfaqqhde2aj730yg0durunfhv66np3q0n326hr8v9zprg8gsvezcch06gfaqqhde2aj730yg0durunfy8huflvs2zwkymx47cszugvzn5v64ahemzzlmm62rpn9l9rm05h35aceq00tkt296289wepws9jh4499wq2l0vk6xcxffd90dpuqchqqztyayq",
-			valid:          true,
+			// Ignore fields with unknown lengths. The wrong-length
+			// duplicates of the h and n fields are skipped, while
+			// the valid p, h, and n fields are used.
+			encodedInvoice: "lnbc241pveeq09pp5qqqsyqcyq5rqwzqf" +
+				"qqqsyqcyq5rqwzqfqqqsyqcyq5rqwzqfqypqhp58yjmdan" +
+				"79s6qqdhdzgynm4zwqd5d7xmw5fk98klysy043l2ahrqshp38yjmd" +
+				"an79s6qqdhdzgynm4zwqd5d7xmw5fk98klysy043l2ahnp4q0n326hr8v" +
+				"9zprg8gsvezcch06gfaqqhde2aj730yg0durunfhv66np3q0n326hr8v" +
+				"9zprg8gsvezcch06gfaqqhde2aj730yg0durunfp3ngd7vju6eywrly" +
+				"v9vu7l797m4x5yxvvhqd4rm8guqw5389vna986py0hkxen8kmtmte4d" +
+				"gv439wksk2rh4smnm5w43a0e43lecjvqptnpz74",
+			valid: true,
 			decodedInvoice: func() *Invoice {
 				return &Invoice{
 					Net:             &chaincfg.MainNetParams,
@@ -339,6 +349,21 @@ func TestDecodeEncode(t *testing.T) {
 				}
 			},
 			skipEncoding: true, // Skip encoding since we don't have the unknown fields to encode.
+		},
+		{
+			// Reject a duplicate payment hash even if it has an
+			// unknown length.
+			encodedInvoice: "lnbc241pveeq09pp5qqqsyqcyq5rqwzqf" +
+				"qqqsyqcyq5rqwzqfqqqsyqcyq5rqwzqfqypqpp3qqqsyqcyq5rq" +
+				"wzqfqqqsyqcyq5rqwzqfqqqsyqcyq5rqwzqfqhp58yjmdan79s6" +
+				"qqdhdzgynm4zwqd5d7xmw5fk98klysy043l2ahrqshp38yjmdan79" +
+				"s6qqdhdzgynm4zwqd5d7xmw5fk98klysy043l2ahnp4q0n326hr8v" +
+				"9zprg8gsvezcch06gfaqqhde2aj730yg0durunfhv66np3q0n326h" +
+				"r8v9zprg8gsvezcch06gfaqqhde2aj730yg0durunfy8huflvs2z" +
+				"wkymx47cszugvzn5v64ahemzzlmm62rpn9l9rm05h35aceq00tkt2" +
+				"96289wepws9jh4499wq2l0vk6xcxffd90dpuqchqqztyayq",
+			valid:   false,
+			wantErr: ErrDuplicatePaymentHash,
 		},
 		{
 			// Invoice with no amount.
@@ -918,6 +943,9 @@ func TestDecodeEncode(t *testing.T) {
 			)
 			if !test.valid {
 				require.Error(t, err)
+				if test.wantErr != nil {
+					require.ErrorIs(t, err, test.wantErr)
+				}
 			} else {
 				require.NoError(t, err)
 				require.Equal(t, decodedInvoice, invoice)
@@ -944,6 +972,42 @@ func TestDecodeEncode(t *testing.T) {
 			}
 			require.NoError(t, err)
 			require.Equal(t, test.encodedInvoice, reencoded)
+		})
+	}
+}
+
+// TestDecodeDuplicatePaymentHashes checks that Decode rejects invoices with
+// either distinct or identical duplicate payment hash fields.
+func TestDecodeDuplicatePaymentHashes(t *testing.T) {
+	t.Parallel()
+
+	tests := map[string]string{
+		"distinct payment hashes": "lnbc1pvjluezpp5qqqsyqcyq5rqwzqf" +
+			"qqqsyqcyq5rqwzqfqqqsyqcyq5rqwzqfqypqpp5llllll" +
+			"lllllllllllllllllllllllllllllllllllllllllllllsdpy" +
+			"v36hqmrfvdshgefqwpshjmt9de6zq6rpwd5qsp5zyg3zyg3" +
+			"zyg3zyg3zyg3zyg3zyg3zyg3zyg3zyg3zyg3zyg3zygs9g3" +
+			"f93cqturay6zk2fyfcmeflphlzew9wfq0n5nf9hqnlwxtht" +
+			"zqcljcuurljyd2vngkya5hndakf33ghly97qm5nc3umj7j" +
+			"ep22nfsq3nr0w8",
+		"identical payment hashes": "lnbc1pvjluezpp5qqqsyqcyq5rqwzqf" +
+			"qqqsyqcyq5rqwzqfqqqsyqcyq5rqwzqfqypqpp5qqqsyq" +
+			"cyq5rqwzqfqqqsyqcyq5rqwzqfqqqsyqcyq5rqwzqfqyp" +
+			"qdpyv36hqmrfvdshgefqwpshjmt9de6zq6rpwd5qsp5zyg" +
+			"3zyg3zyg3zyg3zyg3zyg3zyg3zyg3zyg3zyg3zyg3zyg3z" +
+			"ygs29wywgsx0wpv9t045f683nj97nnjk55wt0exe3eassl6" +
+			"smx60nk9hlaae8vhe0hwv25s6fthcwqkxsw2hpjeptxz7x" +
+			"ujtexa3l8jrkcqyn037r",
+	}
+
+	for name, encodedInvoice := range tests {
+		t.Run(name, func(t *testing.T) {
+			t.Parallel()
+
+			_, err := Decode(
+				encodedInvoice, &chaincfg.MainNetParams,
+			)
+			require.ErrorIs(t, err, ErrDuplicatePaymentHash)
 		})
 	}
 }

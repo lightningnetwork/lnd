@@ -265,7 +265,11 @@ func parseTimestamp(data []byte) (uint64, error) {
 // parseTaggedFields takes the base32 encoded tagged fields of the invoice, and
 // fills the Invoice struct accordingly.
 func parseTaggedFields(invoice *Invoice, fields []byte, net *chaincfg.Params) error {
-	index := 0
+	var (
+		index           int
+		paymentHashSeen bool
+	)
+
 	for len(fields)-index > 0 {
 		// If there are less than 3 groups to read, there cannot be more
 		// interesting information, as we need the type (1 group) and
@@ -294,11 +298,10 @@ func parseTaggedFields(invoice *Invoice, fields []byte, net *chaincfg.Params) er
 
 		switch typ {
 		case fieldTypeP:
-			if invoice.PaymentHash != nil {
-				// We skip the field if we have already seen a
-				// supported one.
-				continue
+			if paymentHashSeen {
+				return ErrDuplicatePaymentHash
 			}
+			paymentHashSeen = true
 
 			invoice.PaymentHash, err = parse32Bytes(base32Data)
 
@@ -446,8 +449,14 @@ func parseFieldDataLength(data []byte) (uint16, error) {
 func parse32Bytes(data []byte) (*[32]byte, error) {
 	var paymentHash [32]byte
 
-	// As BOLT-11 states, a reader must skip over the 32-byte fields if
-	// it does not have a length of 52, so avoid returning an error.
+	// A field with an unexpected length is reported as absent rather
+	// than as an error, leaving it to the caller to decide whether a
+	// missing field is fatal. Note that BOLT 11 is stricter, and
+	// requires a reader to fail on a fixed-length field (p, h, s, n)
+	// with the wrong length. For the payment hash the end result is the
+	// same: a lone wrong-length field leaves PaymentHash nil and
+	// validateInvoice rejects the invoice, and a wrong-length field
+	// paired with a valid one is rejected as a duplicate.
 	if len(data) != hashBase32Len {
 		return nil, nil
 	}

@@ -1,7 +1,11 @@
 package channeldb
 
 import (
+	"errors"
 	"io"
+
+	"github.com/btcsuite/btcd/btcec/v2"
+	"github.com/lightningnetwork/lnd/fn/v2"
 )
 
 // deserializeCloseChannelSummaryV6 reads the v6 database format for
@@ -43,11 +47,16 @@ func deserializeCloseChannelSummaryV6(r io.Reader) (*ChannelCloseSummary, error)
 	// channel_ready message, then this can be nil. As a result, we'll use
 	// the same technique to read the field, only if there's still data
 	// left in the buffer.
-	err = ReadElements(r, &c.RemoteNextRevocation)
-	if err != nil && err != io.EOF {
-		// If we got a non-eof error, then we know there's an actually
-		// issue. Otherwise, it may have been the case that this
-		// summary didn't have the set of optional fields.
+	var nextRevocation *btcec.PublicKey
+	err = ReadElements(r, &nextRevocation)
+	switch {
+	case err == nil:
+		c.RemoteNextRevocation = fn.Some(*nextRevocation)
+
+	// If we got a non-eof error, then we know there's an actually issue.
+	// Otherwise, it may have been the case that this summary didn't have
+	// the set of optional fields.
+	case !errors.Is(err, io.EOF):
 		return nil, err
 	}
 

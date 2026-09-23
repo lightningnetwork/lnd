@@ -181,8 +181,10 @@ type spendNtfnSet struct {
 	coverageStart uint32
 
 	// pendingRescans is the number of historical scans whose results have
-	// not yet been reported. The set cannot safely advance its height hint
-	// until all of them complete without finding a spend.
+	// not yet been reported. Tip processing can complete the set's rescan
+	// state first, so rescanStatus alone cannot represent ownership of
+	// the in-flight callbacks. The set cannot safely advance its height
+	// hint until all of them complete without finding a spend.
 	//
 	// A backend that fails a scan never reports its result, so the count
 	// stays above zero. The set then remains in rescanPending, which keeps
@@ -190,6 +192,11 @@ type spendNtfnSet struct {
 	// unverified range, so a restart will scan that range again. Details
 	// found by any other scan, or at tip, are still dispatched.
 	pendingRescans uint32
+
+	// progress is the progress of the most recently dispatched scan, which
+	// covers the lowest range and so shares the set's coverageStart as its
+	// origin. Progress reported by any earlier scan is ignored.
+	progress *SpendProgress
 
 	// details serves as a cache of the spend details for an outpoint/output
 	// script that we'll use to determine if it has already been spent at
@@ -512,9 +519,9 @@ type HistoricalSpendDispatch struct {
 	// Its EndHeight is a fixed boundary rather than the current tip.
 	Supplemental bool
 
-	// origin is the earliest height covered once this scan completes,
-	// including any cached progress it resumes from.
-	origin uint32
+	// Progress persists the progress of a scan that reports it
+	// incrementally.
+	Progress *SpendProgress
 
 	// spendSet is the set that dispatched this scan. A result reported
 	// after that set was removed, or replaced by a new registration for
@@ -522,16 +529,19 @@ type HistoricalSpendDispatch struct {
 	spendSet *spendNtfnSet
 }
 
-// ProgressHints returns the spend hints a backend persists once this scan has
-// processed every block up to the given height without finding a spend. They
-// carry the scan's origin, so they only apply to later registrations whose
-// own hint is covered by it.
-func (d *HistoricalSpendDispatch) ProgressHints(
-	height uint32) SpendHints {
+// SpendProgress records the progress of a historical spend scan that reports
+// it incrementally. The scan only records the last height it processed. The
+// TxNotifier persists that height with its own hint updates, under its lock,
+// so progress can never be written after the notifier has learned of a spend,
+// lost the request's subscribers, or dispatched a scan of a lower range.
+type SpendProgress struct {
+	processed atomic.Uint32
+}
 
-	return SpendHints{
-		d.SpendRequest: {Height: height, Origin: d.origin},
-	}
+// Update records the last height the scan has processed without finding a
+// spend. It never blocks.
+func (p *SpendProgress) Update(height uint32) {
+	p.processed.Store(height)
 }
 
 // SpendRegistration encompasses all of the information required for callers to
@@ -961,6 +971,135 @@ func (n *TxNotifier) CancelConf(confRequest ConfRequest, confID uint64) {
 			ntfn.NumConfirmations - 1
 		delete(n.ntfnsByConfirmHeight[confHeight], ntfn)
 	}
+
+	if len(confSet.ntfns) != 0 {
+		return
+	}
+
+	// Keep pending scans and details indexed for reorgs alive for another
+	// subscriber. Their hint is still released to a reorg-safe height so a
+	// restart cannot trust progress that no active subscriber owns.
+	if confSet.pendingRescans > 0 ||
+		n.confDetailsIndexed(confRequest, confSet) {
+
+		n.releaseConfirmHint(confRequest)
+		return
+	}
+
+	n.deleteConfSet(confRequest, confSet)
+}
+
+// confDetailsTracked returns true if the details are within the reorg safety
+// limit, and so would be added to confsByInitialHeight if recorded now. The
+// caller must hold the TxNotifier's lock.
+func (n *TxNotifier) confDetailsTracked(details *TxConfirmation) bool {
+	return details != nil &&
+		details.BlockHeight+n.reorgSafetyLimit > n.currentHeight
+}
+
+// confDetailsIndexed returns true if the set's details are in
+// confsByInitialHeight, which is how ConnectTip eventually removes a
+// subscriberless set that retains them. Details recorded while deeper than the
+// reorg safety limit are never indexed, even if a later reorg brings them back
+// within it. The caller must hold the TxNotifier's lock.
+func (n *TxNotifier) confDetailsIndexed(confRequest ConfRequest,
+	confSet *confNtfnSet) bool {
+
+	if confSet.details == nil {
+		return false
+	}
+	height := confSet.details.BlockHeight
+	_, ok := n.confsByInitialHeight[height][confRequest]
+
+	return ok
+}
+
+// deleteConfSet removes an empty confirmation set and all of its indexes.
+// The caller must hold the TxNotifier's lock.
+func (n *TxNotifier) deleteConfSet(confRequest ConfRequest,
+	confSet *confNtfnSet) {
+
+	n.releaseConfirmHint(confRequest)
+	if confSet.details != nil {
+		height := confSet.details.BlockHeight
+		delete(n.confsByInitialHeight[height], confRequest)
+		if len(n.confsByInitialHeight[height]) == 0 {
+			delete(n.confsByInitialHeight, height)
+		}
+	}
+	delete(n.confNotifications, confRequest)
+}
+
+// releaseConfirmHint lowers a hint that no active subscriber owns to a height
+// that stays valid without reorg tracking. If no such height exists, the hint
+// is purged. The caller must hold the TxNotifier's lock.
+func (n *TxNotifier) releaseConfirmHint(confRequest ConfRequest) {
+	hint, err := n.confirmHintCache.QueryConfirmHint(confRequest)
+	if errors.Is(err, ErrConfirmHintNotFound) {
+		return
+	}
+
+	// A hint that would cover nothing, or whose origin is unknown, is
+	// purged instead.
+	safeHint, ok := n.reorgSafeHint(hint.Height)
+	switch {
+	case err != nil || !ok || hint.Origin == 0 || safeHint <= hint.Origin:
+		err = n.confirmHintCache.PurgeConfirmHint(confRequest)
+
+	case safeHint < hint.Height:
+		err = n.confirmHintCache.CommitConfirmHints(
+			ConfirmHints{
+				confRequest: {
+					Height: safeHint,
+					Origin: hint.Origin,
+				},
+			},
+		)
+	}
+	if err != nil {
+		Log.Warnf("Unable to release confirm hint for %v: %v",
+			confRequest, err)
+	}
+}
+
+// commitConfirmHint persists the height from which a new scan for the request
+// must begin, with the set's coverage as its origin. The caller must hold the
+// TxNotifier's lock.
+func (n *TxNotifier) commitConfirmHint(confRequest ConfRequest,
+	confSet *confNtfnSet, height uint32) error {
+
+	return n.confirmHintCache.CommitConfirmHints(
+		ConfirmHints{
+			confRequest: {
+				Height: height,
+				Origin: confSet.coverageStart,
+			},
+		},
+	)
+}
+
+// commitSpendHint persists the height from which a new scan for the request
+// must begin, with the set's coverage as its origin. The caller must hold the
+// TxNotifier's lock.
+func (n *TxNotifier) commitSpendHint(spendRequest SpendRequest,
+	spendSet *spendNtfnSet, height uint32) error {
+
+	return n.spendHintCache.CommitSpendHints(SpendHints{
+		spendRequest: {Height: height, Origin: spendSet.coverageStart},
+	})
+}
+
+// reorgSafeHint returns the highest height hint, no greater than the given one,
+// that no future reorg can invalidate. The TxNotifier assumes that no reorg is
+// deeper than reorgSafetyLimit, so blocks at or below currentHeight minus that
+// limit cannot be replaced. False is returned if the chain is not yet that
+// deep. The caller must hold the TxNotifier's lock.
+func (n *TxNotifier) reorgSafeHint(hint uint32) (uint32, bool) {
+	if n.currentHeight <= n.reorgSafetyLimit {
+		return 0, false
+	}
+
+	return min(hint, n.currentHeight-n.reorgSafetyLimit), true
 }
 
 // UpdateConfDetails attempts to update the confirmation details for an active
@@ -996,6 +1135,21 @@ func (n *TxNotifier) UpdateConfDetails(dispatch *HistoricalConfDispatch,
 
 	if confSet.pendingRescans > 0 {
 		confSet.pendingRescans--
+	}
+
+	// Without a subscriber or an in-flight scan, the set only outlives this
+	// callback to retain details that are indexed for reorgs, or new ones
+	// that will be indexed below. Details outside the index, including
+	// ones above the notifier's tip that are not recorded yet, would never
+	// be removed.
+	retained := n.confDetailsIndexed(confRequest, confSet) ||
+		(confSet.details == nil && n.confDetailsTracked(details) &&
+			details.BlockHeight <= n.currentHeight)
+	if len(confSet.ntfns) == 0 && confSet.pendingRescans == 0 &&
+		!retained {
+
+		n.deleteConfSet(confRequest, confSet)
+		return nil
 	}
 
 	// If the confirmation details were already found at tip, all existing
@@ -1055,17 +1209,40 @@ func (n *TxNotifier) UpdateConfDetails(dispatch *HistoricalConfDispatch,
 	Log.Debugf("Updating confirmation details for %v", confRequest)
 	confSet.rescanStatus = rescanComplete
 
-	err := n.commitConfirmHint(confRequest, confSet, details.BlockHeight)
-	if err != nil {
-		// The error is not fatal, so we should not return an error to
-		// the caller.
-		Log.Errorf("Unable to update confirm hint to %d for %v: %v",
-			details.BlockHeight, confRequest, err)
+	if len(confSet.ntfns) > 0 {
+		err := n.commitConfirmHint(
+			confRequest, confSet, details.BlockHeight,
+		)
+		if err != nil {
+			// The error is not fatal, so we should not return an
+			// error to the caller.
+			Log.Errorf(
+				"Unable to update confirm hint %d for %v: %v",
+				details.BlockHeight, confRequest, err,
+			)
+		}
 	}
 
 	// Cache the details found in the rescan and attempt to dispatch any
 	// notifications that have not yet been delivered.
 	confSet.details = details
+	if len(confSet.ntfns) == 0 {
+		// Retain these details for a later subscriber. Track them for
+		// reorgs. There is no subscriber whose dispatch would add this
+		// index.
+		if n.confDetailsTracked(details) {
+			height := details.BlockHeight
+			txSet, exists := n.confsByInitialHeight[height]
+			if !exists {
+				txSet = make(map[ConfRequest]struct{})
+				n.confsByInitialHeight[height] = txSet
+			}
+			txSet[confRequest] = struct{}{}
+		}
+
+		return nil
+	}
+
 	for _, ntfn := range confSet.ntfns {
 		// The default notification we assigned above includes the
 		// block along with the rest of the details. However not all
@@ -1076,29 +1253,13 @@ func (n *TxNotifier) UpdateConfDetails(dispatch *HistoricalConfDispatch,
 			confDetails.Block = nil
 		}
 
-		err = n.dispatchConfDetails(ntfn, &confDetails)
+		err := n.dispatchConfDetails(ntfn, &confDetails)
 		if err != nil {
 			return err
 		}
 	}
 
 	return nil
-}
-
-// commitConfirmHint persists the height from which a new scan for the request
-// must begin, with the set's coverage as its origin. The caller must hold the
-// TxNotifier's lock.
-func (n *TxNotifier) commitConfirmHint(confRequest ConfRequest,
-	confSet *confNtfnSet, height uint32) error {
-
-	return n.confirmHintCache.CommitConfirmHints(
-		ConfirmHints{
-			confRequest: {
-				Height: height,
-				Origin: confSet.coverageStart,
-			},
-		},
-	)
 }
 
 // dispatchConfDetails attempts to cache and dispatch details to a particular
@@ -1387,6 +1548,7 @@ func (n *TxNotifier) RegisterSpend(outpoint *wire.OutPoint, pkScript []byte,
 	// notifications don't also attempt a historical dispatch.
 	spendSet.rescanStatus = rescanPending
 	spendSet.pendingRescans++
+	spendSet.progress = &SpendProgress{}
 
 	Log.Debugf("Dispatching historical spend rescan for %v, start=%d, "+
 		"end=%d", ntfn.SpendRequest, startHeight, endHeight)
@@ -1398,7 +1560,7 @@ func (n *TxNotifier) RegisterSpend(outpoint *wire.OutPoint, pkScript []byte,
 			StartHeight:  startHeight,
 			EndHeight:    endHeight,
 			Supplemental: scanPrefix,
-			origin:       spendSet.coverageStart,
+			Progress:     spendSet.progress,
 			spendSet:     spendSet,
 		},
 		Height: n.currentHeight,
@@ -1435,6 +1597,96 @@ func (n *TxNotifier) CancelSpend(spendRequest SpendRequest, spendID uint64) {
 	close(ntfn.Event.Reorg)
 	close(ntfn.Event.Done)
 	delete(spendSet.ntfns, spendID)
+
+	if len(spendSet.ntfns) != 0 {
+		return
+	}
+
+	// Keep a pending scan and details indexed for reorgs alive for another
+	// subscriber. Their hint is still released to a reorg-safe height so a
+	// restart cannot trust progress that no active subscriber owns.
+	if spendSet.pendingRescans > 0 ||
+		n.spendDetailsIndexed(spendRequest, spendSet) {
+
+		n.releaseSpendHint(spendRequest)
+		return
+	}
+
+	n.deleteSpendSet(spendRequest, spendSet)
+}
+
+// spendDetailsTracked returns true if the details are within the reorg safety
+// limit, and so would be added to spendsByHeight if recorded now. The caller
+// must hold the TxNotifier's lock.
+func (n *TxNotifier) spendDetailsTracked(details *SpendDetail) bool {
+	return details != nil &&
+		uint32(details.SpendingHeight)+n.reorgSafetyLimit >
+			n.currentHeight
+}
+
+// spendDetailsIndexed returns true if the set's details are in spendsByHeight,
+// which is how ConnectTip eventually removes a subscriberless set that retains
+// them. Details recorded while deeper than the reorg safety limit are never
+// indexed, even if a later reorg brings them back within it. The caller must
+// hold the TxNotifier's lock.
+func (n *TxNotifier) spendDetailsIndexed(spendRequest SpendRequest,
+	spendSet *spendNtfnSet) bool {
+
+	if spendSet.details == nil {
+		return false
+	}
+	height := uint32(spendSet.details.SpendingHeight)
+	_, ok := n.spendsByHeight[height][spendRequest]
+
+	return ok
+}
+
+// deleteSpendSet removes an empty spend set and all of its indexes. The caller
+// must hold the TxNotifier's lock.
+func (n *TxNotifier) deleteSpendSet(spendRequest SpendRequest,
+	spendSet *spendNtfnSet) {
+
+	n.releaseSpendHint(spendRequest)
+	if spendSet.details != nil {
+		height := uint32(spendSet.details.SpendingHeight)
+		delete(n.spendsByHeight[height], spendRequest)
+		if len(n.spendsByHeight[height]) == 0 {
+			delete(n.spendsByHeight, height)
+		}
+	}
+	delete(n.spendNotifications, spendRequest)
+}
+
+// releaseSpendHint lowers a hint that no active subscriber owns to a height
+// that stays valid without reorg tracking. If no such height exists, the hint
+// is purged. The caller must hold the TxNotifier's lock.
+func (n *TxNotifier) releaseSpendHint(spendRequest SpendRequest) {
+	hint, err := n.spendHintCache.QuerySpendHint(spendRequest)
+	if errors.Is(err, ErrSpendHintNotFound) {
+		return
+	}
+
+	// A hint that would cover nothing, or whose origin is unknown, is
+	// purged instead.
+	safeHint, ok := n.reorgSafeHint(hint.Height)
+	switch {
+	case err != nil || !ok || hint.Origin == 0 || safeHint <= hint.Origin:
+		err = n.spendHintCache.PurgeSpendHint(spendRequest)
+
+	case safeHint < hint.Height:
+		err = n.spendHintCache.CommitSpendHints(
+			SpendHints{
+				spendRequest: {
+					Height: safeHint,
+					Origin: hint.Origin,
+				},
+			},
+		)
+	}
+	if err != nil {
+		Log.Warnf("Unable to release spend hint for %v: %v",
+			spendRequest, err)
+	}
 }
 
 // ProcessRelevantSpendTx processes a transaction provided externally. This will
@@ -1529,12 +1781,27 @@ func (n *TxNotifier) UpdateSpendDetails(dispatch *HistoricalSpendDispatch,
 func (n *TxNotifier) updateSpendDetails(spendRequest SpendRequest,
 	details *SpendDetail) error {
 
-	// Mark the ongoing historical rescan for this request as finished. This
-	// will allow us to update the spend hints for it at tip.
+	// Find the shared set before applying details learned either at tip or
+	// from a historical scan.
 	spendSet, ok := n.spendNotifications[spendRequest]
 	if !ok {
 		return fmt.Errorf("spend notification for %v not found",
 			spendRequest)
+	}
+
+	// Without a subscriber or an in-flight scan, the set only outlives this
+	// update to retain details that are indexed for reorgs, or new ones
+	// that will be indexed below. Details outside the index, including
+	// ones above the notifier's tip that are not recorded yet, would never
+	// be removed.
+	retained := n.spendDetailsIndexed(spendRequest, spendSet) ||
+		(spendSet.details == nil && n.spendDetailsTracked(details) &&
+			uint32(details.SpendingHeight) <= n.currentHeight)
+	if len(spendSet.ntfns) == 0 && spendSet.pendingRescans == 0 &&
+		!retained {
+
+		n.deleteSpendSet(spendRequest, spendSet)
+		return nil
 	}
 
 	// If the spend details have already been found either at tip, then the
@@ -1608,20 +1875,39 @@ func (n *TxNotifier) updateSpendDetails(spendRequest SpendRequest,
 	// Now that we've determined the request has been spent, we'll commit
 	// its spending height as its hint in the cache and dispatch
 	// notifications to all of its respective clients.
-	err := n.commitSpendHint(
-		spendRequest, spendSet, uint32(details.SpendingHeight),
-	)
-	if err != nil {
-		// The error is not fatal as this is an optimistic optimization,
-		// so we'll avoid returning an error.
-		Log.Debugf("Unable to update spend hint to %d for %v: %v",
-			details.SpendingHeight, spendRequest, err)
+	if len(spendSet.ntfns) > 0 {
+		err := n.commitSpendHint(
+			spendRequest, spendSet, uint32(details.SpendingHeight),
+		)
+		if err != nil {
+			// The error is not fatal as this is an optimistic
+			// optimization, so we'll avoid returning an error.
+			Log.Debugf("Unable to update spend hint %d for %v: %v",
+				details.SpendingHeight, spendRequest, err)
+		}
 	}
 
 	Log.Debugf("Updated spend hint to height=%v for confirmed spend "+
 		"request %v", details.SpendingHeight, spendRequest)
 
 	spendSet.details = details
+	if len(spendSet.ntfns) == 0 {
+		// Retain these details for a later subscriber. Track them for
+		// reorgs. There is no subscriber whose dispatch would add this
+		// index.
+		if n.spendDetailsTracked(details) {
+			spendHeight := uint32(details.SpendingHeight)
+			txSet, exists := n.spendsByHeight[spendHeight]
+			if !exists {
+				txSet = make(map[SpendRequest]struct{})
+				n.spendsByHeight[spendHeight] = txSet
+			}
+			txSet[spendRequest] = struct{}{}
+		}
+
+		return nil
+	}
+
 	for _, ntfn := range spendSet.ntfns {
 		err := n.dispatchSpendDetails(ntfn, spendSet.details)
 		if err != nil {
@@ -1630,17 +1916,6 @@ func (n *TxNotifier) updateSpendDetails(spendRequest SpendRequest,
 	}
 
 	return nil
-}
-
-// commitSpendHint persists the height from which a new scan for the request
-// must begin, with the set's coverage as its origin. The caller must hold the
-// TxNotifier's lock.
-func (n *TxNotifier) commitSpendHint(spendRequest SpendRequest,
-	spendSet *spendNtfnSet, height uint32) error {
-
-	return n.spendHintCache.CommitSpendHints(SpendHints{
-		spendRequest: {Height: height, Origin: spendSet.coverageStart},
-	})
 }
 
 // dispatchSpendDetails dispatches a spend notification to the client.
@@ -1965,6 +2240,12 @@ func (n *TxNotifier) handleSpendDetailsAtTip(spendRequest SpendRequest,
 
 	// TODO(wilmer): cancel pending historical rescans if any?
 	spendSet := n.spendNotifications[spendRequest]
+	if spendSet.details != nil {
+		Log.Warnf("Ignoring repeated spend of %s at height %d.",
+			spendRequest, details.SpendingHeight)
+		return
+	}
+
 	spendSet.rescanStatus = rescanComplete
 	spendSet.details = details
 
@@ -2128,6 +2409,12 @@ func (n *TxNotifier) DisconnectTip(blockHeight uint32) error {
 			confSet := n.confNotifications[txHash]
 			if initialHeight == blockHeight {
 				confSet.details = nil
+				if len(confSet.ntfns) == 0 &&
+					confSet.pendingRescans == 0 {
+
+					n.deleteConfSet(txHash, confSet)
+					continue
+				}
 			}
 
 			for _, ntfn := range confSet.ntfns {
@@ -2172,6 +2459,10 @@ func (n *TxNotifier) DisconnectTip(blockHeight uint32) error {
 		// request.
 		spendSet := n.spendNotifications[op]
 		spendSet.details = nil
+		if len(spendSet.ntfns) == 0 && spendSet.pendingRescans == 0 {
+			n.deleteSpendSet(op, spendSet)
+			continue
+		}
 
 		// For all requests which have had a spend notification
 		// dispatched, we'll attempt to drain it and send a reorg
@@ -2204,9 +2495,15 @@ func (n *TxNotifier) updateHints(height uint32) {
 	// To update the height hint for all the required confirmation requests
 	// under one database transaction, we'll gather the set of unconfirmed
 	// requests along with the ones that confirmed at the height being
-	// connected/disconnected.
+	// connected/disconnected. Each hint keeps its set's coverage as its
+	// origin.
 	confRequests := n.unconfirmedRequests()
 	for confRequest := range n.confsByInitialHeight[height] {
+		confSet, ok := n.confNotifications[confRequest]
+		if !ok || len(confSet.ntfns) == 0 {
+			continue
+		}
+
 		confRequests = append(confRequests, confRequest)
 	}
 	confHints := make(ConfirmHints, len(confRequests))
@@ -2230,6 +2527,11 @@ func (n *TxNotifier) updateHints(height uint32) {
 	// being connected/disconnected.
 	spendRequests := n.unspentRequests()
 	for spendRequest := range n.spendsByHeight[height] {
+		spendSet, ok := n.spendNotifications[spendRequest]
+		if !ok || len(spendSet.ntfns) == 0 {
+			continue
+		}
+
 		spendRequests = append(spendRequests, spendRequest)
 	}
 	spendHints := make(SpendHints, len(spendRequests))
@@ -2240,6 +2542,7 @@ func (n *TxNotifier) updateHints(height uint32) {
 			Origin: spendSet.coverageStart,
 		}
 	}
+	n.addScanProgress(spendHints)
 	err = n.spendHintCache.CommitSpendHints(spendHints)
 	if err != nil {
 		// The error is not fatal as this is an optimistic optimization,
@@ -2256,6 +2559,10 @@ func (n *TxNotifier) updateHints(height uint32) {
 func (n *TxNotifier) unconfirmedRequests() []ConfRequest {
 	var unconfirmed []ConfRequest
 	for confRequest, confNtfnSet := range n.confNotifications {
+		if len(confNtfnSet.ntfns) == 0 {
+			continue
+		}
+
 		// If the notification is already aware of its confirmation
 		// details, or it's in the process of learning them, we'll skip
 		// it as we can't yet determine if it's confirmed or not.
@@ -2270,6 +2577,33 @@ func (n *TxNotifier) unconfirmedRequests() []ConfRequest {
 	return unconfirmed
 }
 
+// addScanProgress adds the progress of pending spend scans to the given hints.
+// A pending set with subscribers still processes every block connected at
+// tip, so a spend in a block that replaces one the scan saw is found there,
+// after which the set persists no more progress. A set without subscribers
+// has no one to own the hint, and persists nothing.
+//
+// NOTE: This method must be called with the TxNotifier's lock held.
+func (n *TxNotifier) addScanProgress(hints SpendHints) {
+	for spendRequest, spendSet := range n.spendNotifications {
+		if spendSet.pendingRescans == 0 || spendSet.details != nil ||
+			len(spendSet.ntfns) == 0 {
+
+			continue
+		}
+
+		height := spendSet.progress.processed.Load()
+		if height <= spendSet.coverageStart {
+			continue
+		}
+
+		hints[spendRequest] = HeightHint{
+			Height: height,
+			Origin: spendSet.coverageStart,
+		}
+	}
+}
+
 // unspentRequests returns the set of spend requests that are still seen as
 // unspent by the TxNotifier.
 //
@@ -2277,6 +2611,10 @@ func (n *TxNotifier) unconfirmedRequests() []ConfRequest {
 func (n *TxNotifier) unspentRequests() []SpendRequest {
 	var unspent []SpendRequest
 	for spendRequest, spendNtfnSet := range n.spendNotifications {
+		if len(spendNtfnSet.ntfns) == 0 {
+			continue
+		}
+
 		// If the notification is already aware of its spend details, or
 		// it's in the process of learning them, we'll skip it as we
 		// can't yet determine if it's unspent or not.

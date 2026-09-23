@@ -95,8 +95,9 @@ func TestTxNotifierHintOriginGuardsEarlierHint(t *testing.T) {
 		)
 	})
 
-	// Progress persisted by a backend while the late scan is outstanding
-	// carries the scan's origin too.
+	// Progress recorded by a backend while the late scan is outstanding,
+	// and persisted by the notifier with the next block, carries the scan's
+	// origin too.
 	t.Run("spend progress", func(t *testing.T) {
 		outpoint, script, _ := staleHintSpend("hint-origin-progress")
 		cache := newMockHintCache()
@@ -107,13 +108,20 @@ func TestTxNotifierHintOriginGuardsEarlierHint(t *testing.T) {
 		late, err := n.RegisterSpend(&outpoint, script, lateHint)
 		require.NoError(t, err)
 		require.NotNil(t, late.HistoricalDispatch)
-		require.NoError(t, cache.CommitSpendHints(
-			late.HistoricalDispatch.ProgressHints(startHeight),
-		))
+		late.HistoricalDispatch.Progress.Update(startHeight)
+		advanceEmptyChain(t, n, startHeight+1, startHeight+1)
+		hint, err := cache.QuerySpendHint(
+			late.HistoricalDispatch.SpendRequest,
+		)
+		require.NoError(t, err)
+		require.Equal(t, chainntnfs.HeightHint{
+			Height: startHeight, Origin: lateHint,
+		}, hint)
 
 		n.TearDown()
 		n = chainntnfs.NewTxNotifier(
-			startHeight, chainntnfs.ReorgSafetyLimit, cache, cache,
+			startHeight+1, chainntnfs.ReorgSafetyLimit, cache,
+			cache,
 		)
 		t.Cleanup(n.TearDown)
 		early, err := n.RegisterSpend(&outpoint, script, earlyHint)
@@ -130,9 +138,8 @@ func TestTxNotifierHintOriginGuardsEarlierHint(t *testing.T) {
 // origin, and a later subscriber whose hint is inside the range it covers
 // shares the existing scan, while one below the origin scans only the prefix
 // below it. A legacy hint only covers down to its first subscriber's hint,
-// and a known confirmation is delivered without any prefix scan. A set whose
-// only subscriber had a late hint and canceled still extends its coverage for
-// an earlier subscriber.
+// and a known confirmation is delivered without any prefix scan. Once a late
+// subscriber's set is gone, an earlier subscriber scans from its own hint.
 func TestTxNotifierHintOriginPrefixScans(t *testing.T) {
 	const (
 		tipHeight = uint32(200)
@@ -250,9 +257,9 @@ func TestTxNotifierHintOriginPrefixScans(t *testing.T) {
 	require.NotNil(t, belowSpend.HistoricalDispatch)
 	require.Equal(t, tipHeight, belowSpend.HistoricalDispatch.EndHeight)
 
-	// A late subscriber cancels before an earlier one arrives. The set
-	// still records the late coverage, so the earlier subscriber scans the
-	// prefix below it.
+	// A late subscriber cancels before an earlier one arrives. Its set is
+	// removed and its hint released, so the earlier subscriber scans from
+	// its own hint.
 	lateScript, lateTx := staleHintTx("hint-origin-canceled")
 	lateTxid := lateTx.TxHash()
 	late, err := n.RegisterConf(&lateTxid, lateScript, 1, 190)
@@ -267,7 +274,8 @@ func TestTxNotifierHintOriginPrefixScans(t *testing.T) {
 	require.NoError(t, err)
 	require.NotNil(t, early.HistoricalDispatch)
 	require.Equal(t, uint32(150), early.HistoricalDispatch.StartHeight)
-	require.Equal(t, uint32(189), early.HistoricalDispatch.EndHeight)
+	require.Equal(t, tipHeight, early.HistoricalDispatch.EndHeight)
+	require.False(t, early.HistoricalDispatch.Supplemental)
 }
 
 // staleHintTx returns a transaction with a single output to a script unique to

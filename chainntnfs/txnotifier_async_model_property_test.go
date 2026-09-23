@@ -424,9 +424,7 @@ func (m *asyncModel) ScanProgress(t *rapid.T) {
 	}
 
 	height := rapid.Uint32Range(start, limit).Draw(t, "progress")
-	require.NoError(t, m.cache.CommitSpendHints(
-		scan.spend.ProgressHints(height),
-	))
+	scan.spend.Progress.Update(height)
 }
 
 // Connect connects a block that is empty or carries one unmined target.

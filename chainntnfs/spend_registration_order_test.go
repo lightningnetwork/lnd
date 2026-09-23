@@ -4,6 +4,8 @@ import (
 	"sort"
 	"testing"
 
+	"github.com/btcsuite/btcd/btcutil/v2"
+	"github.com/btcsuite/btcd/wire/v2"
 	"github.com/lightningnetwork/lnd/chainntnfs"
 	"github.com/stretchr/testify/require"
 	"pgregory.net/rapid"
@@ -205,6 +207,111 @@ func TestSpendRegistrationOrderProperty(t *testing.T) {
 			}
 		}
 	})
+}
+
+// TestSpendProgressPersistence asserts that a historical scan's progress is
+// persisted by the notifier with its next hint update, tagged with the set's
+// coverage as its origin. Progress is dropped once the set learns of a spend
+// or loses its subscribers, and progress from a scan that no longer covers
+// the lowest range is ignored. Writing it from the scan itself instead could
+// claim blocks past a spend the notifier had already found at tip, recreate a
+// hint no subscriber owns, or credit one scan's origin to another.
+func TestSpendProgressPersistence(t *testing.T) {
+	const (
+		tipHeight = uint32(200)
+		lateHint  = uint32(100)
+		earlyHint = uint32(50)
+	)
+
+	outpoint, script, tx := staleHintSpend("spend-progress-persistence")
+	cache := newMockHintCache()
+	n := chainntnfs.NewTxNotifier(
+		tipHeight, chainntnfs.ReorgSafetyLimit, cache, cache,
+	)
+	t.Cleanup(n.TearDown)
+
+	late, err := n.RegisterSpend(&outpoint, script, lateHint)
+	require.NoError(t, err)
+	initial := late.HistoricalDispatch
+	require.NotNil(t, initial)
+	request := initial.SpendRequest
+	height := tipHeight
+
+	// connect advances the chain by one empty block and returns the
+	// cached hint, which is where recorded progress is persisted.
+	connect := func() chainntnfs.HeightHint {
+		t.Helper()
+		height++
+		advanceEmptyChain(t, n, height, height)
+		hint, err := cache.QuerySpendHint(request)
+		require.NoError(t, err)
+
+		return hint
+	}
+
+	// Recorded progress is persisted with the next block.
+	initial.Progress.Update(150)
+	require.Equal(t, chainntnfs.HeightHint{
+		Height: 150, Origin: lateHint,
+	}, connect())
+
+	// A supplemental scan lowers the set's coverage. Only its progress,
+	// under the lower origin, is persisted from then on.
+	early, err := n.RegisterSpend(&outpoint, script, earlyHint)
+	require.NoError(t, err)
+	prefix := early.HistoricalDispatch
+	require.NotNil(t, prefix)
+	initial.Progress.Update(190)
+	connect()
+	assertSpendRestart(t, cache, request, earlyHint)
+	prefix.Progress.Update(60)
+	require.Equal(t, chainntnfs.HeightHint{
+		Height: 60, Origin: earlyHint,
+	}, connect())
+
+	// Once the set learns of a spend at tip, its hint follows the spend and
+	// later progress is ignored.
+	height++
+	require.NoError(t, n.ConnectTip(btcutil.NewBlock(&wire.MsgBlock{
+		Transactions: []*wire.MsgTx{tx},
+	}), height))
+	require.NoError(t, n.NotifyHeight(height))
+	spendHeight := height
+	prefix.Progress.Update(80)
+	require.Equal(t, spendHeight, connect().Height)
+
+	// After every subscriber cancels, nothing more is persisted.
+	late.Event.Cancel()
+	early.Event.Cancel()
+	released, err := cache.QuerySpendHint(request)
+	require.NoError(t, err)
+	prefix.Progress.Update(height)
+	require.Equal(t, released, connect())
+}
+
+// TestSpendProgressAfterCancel asserts that progress recorded by a scan that
+// is still outstanding after its only subscriber canceled is never persisted.
+// No subscriber owns the hint anymore, and nothing tracks reorgs for it.
+func TestSpendProgressAfterCancel(t *testing.T) {
+	const tipHeight = uint32(200)
+
+	outpoint, script, _ := staleHintSpend("spend-progress-after-cancel")
+	cache := newMockHintCache()
+	n := chainntnfs.NewTxNotifier(
+		tipHeight, chainntnfs.ReorgSafetyLimit, cache, cache,
+	)
+	t.Cleanup(n.TearDown)
+
+	registration, err := n.RegisterSpend(&outpoint, script, 100)
+	require.NoError(t, err)
+	dispatch := registration.HistoricalDispatch
+	require.NotNil(t, dispatch)
+	registration.Event.Cancel()
+
+	dispatch.Progress.Update(150)
+	advanceEmptyChain(t, n, tipHeight+1, tipHeight+1)
+	_, err = cache.QuerySpendHint(dispatch.SpendRequest)
+	require.ErrorIs(t, err, chainntnfs.ErrSpendHintNotFound)
 }
 
 // assertSpendRestart asserts that the first spend registration after a

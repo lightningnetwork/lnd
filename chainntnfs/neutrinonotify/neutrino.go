@@ -876,18 +876,14 @@ func (n *NeutrinoNotifier) RegisterSpendNtfn(outpoint *wire.OutPoint,
 				Height: int32(ntfn.HistoricalDispatch.EndHeight),
 			}),
 			neutrino.ProgressHandler(func(processedHeight uint32) {
-				// We persist the rescan progress to achieve incremental
-				// behavior across restarts, otherwise long rescans may
-				// start from the beginning with every restart.
-				err := n.spendHintCache.CommitSpendHints(
-					ntfn.HistoricalDispatch.ProgressHints(
-						processedHeight,
-					),
+				// We record the rescan progress to achieve
+				// incremental behavior across restarts,
+				// otherwise long rescans may start from the
+				// beginning with every restart. The TxNotifier
+				// persists it with its next hint update.
+				ntfn.HistoricalDispatch.Progress.Update(
+					processedHeight,
 				)
-				if err != nil {
-					chainntnfs.Log.Errorf("Failed to update rescan "+
-						"progress: %v", err)
-				}
 			}),
 			neutrino.QuitChan(n.quit),
 		)

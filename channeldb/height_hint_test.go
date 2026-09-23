@@ -44,7 +44,7 @@ func TestHeightHintCacheConfirms(t *testing.T) {
 	var unknownHash chainhash.Hash
 	copy(unknownHash[:], bytes.Repeat([]byte{0x01}, 32))
 	unknownConfRequest := chainntnfs.ConfRequest{TxID: unknownHash}
-	_, err := hintCache.QueryConfirmHint(unknownConfRequest)
+	_, err := hintCache.QueryConfirmHintWithOrigin(unknownConfRequest)
 	require.ErrorIs(t, err, chainntnfs.ErrConfirmHintNotFound)
 
 	// Now, we'll create some transaction hashes and commit them to the
@@ -69,7 +69,9 @@ func TestHeightHintCacheConfirms(t *testing.T) {
 	// With the hashes committed, we'll now query the cache to ensure that
 	// we're able to properly retrieve the confirm hints.
 	for _, confRequest := range confRequests {
-		confirmHint, err := hintCache.QueryConfirmHint(confRequest)
+		confirmHint, err := hintCache.QueryConfirmHintWithOrigin(
+			confRequest,
+		)
 		require.NoError(t, err)
 		require.Equal(t, hints[confRequest], confirmHint)
 	}
@@ -82,7 +84,7 @@ func TestHeightHintCacheConfirms(t *testing.T) {
 	// Finally, we'll attempt to query for each hash. We should expect not
 	// to find a hint for any of them.
 	for _, confRequest := range confRequests {
-		_, err := hintCache.QueryConfirmHint(confRequest)
+		_, err := hintCache.QueryConfirmHintWithOrigin(confRequest)
 		require.ErrorIs(t, err, chainntnfs.ErrConfirmHintNotFound)
 	}
 }
@@ -107,19 +109,16 @@ func TestHeightHintCacheConfirmsPerScript(t *testing.T) {
 	unknown, err := chainntnfs.NewConfRequest(&txid, script(4))
 	require.NoError(t, err)
 
-	err = hintCache.CommitConfirmHints(chainntnfs.ConfirmHints{
-		confirmed:   {Height: 100},
-		unconfirmed: {Height: 105},
-	})
-	require.NoError(t, err)
+	require.NoError(t, hintCache.CommitConfirmHint(100, confirmed))
+	require.NoError(t, hintCache.CommitConfirmHint(105, unconfirmed))
 
 	hint, err := hintCache.QueryConfirmHint(confirmed)
 	require.NoError(t, err)
-	require.EqualValues(t, 100, hint.Height)
+	require.EqualValues(t, 100, hint)
 
 	hint, err = hintCache.QueryConfirmHint(unconfirmed)
 	require.NoError(t, err)
-	require.EqualValues(t, 105, hint.Height)
+	require.EqualValues(t, 105, hint)
 
 	_, err = hintCache.QueryConfirmHint(unknown)
 	require.ErrorIs(t, err, chainntnfs.ErrConfirmHintNotFound)
@@ -127,7 +126,7 @@ func TestHeightHintCacheConfirmsPerScript(t *testing.T) {
 	require.NoError(t, hintCache.PurgeConfirmHint(unconfirmed))
 	hint, err = hintCache.QueryConfirmHint(confirmed)
 	require.NoError(t, err)
-	require.EqualValues(t, 100, hint.Height)
+	require.EqualValues(t, 100, hint)
 }
 
 // TestHeightHintCacheSpends ensures that the height hint cache properly caches
@@ -143,7 +142,7 @@ func TestHeightHintCacheSpends(t *testing.T) {
 	unknownSpendRequest := chainntnfs.SpendRequest{
 		OutPoint: unknownOutPoint,
 	}
-	_, err := hintCache.QuerySpendHint(unknownSpendRequest)
+	_, err := hintCache.QuerySpendHintWithOrigin(unknownSpendRequest)
 	require.ErrorIs(t, err, chainntnfs.ErrSpendHintNotFound)
 
 	// Now, we'll create some outpoints and commit them to the cache in one
@@ -168,7 +167,9 @@ func TestHeightHintCacheSpends(t *testing.T) {
 	// With the outpoints committed, we'll now query the cache to ensure
 	// that we're able to properly retrieve the spend hints.
 	for _, spendRequest := range spendRequests {
-		spendHint, err := hintCache.QuerySpendHint(spendRequest)
+		spendHint, err := hintCache.QuerySpendHintWithOrigin(
+			spendRequest,
+		)
 		require.NoError(t, err)
 		require.Equal(t, hints[spendRequest], spendHint)
 	}
@@ -181,7 +182,7 @@ func TestHeightHintCacheSpends(t *testing.T) {
 	// Finally, we'll attempt to query for each outpoint. We should expect
 	// not to find a hint for any of them.
 	for _, spendRequest := range spendRequests {
-		_, err = hintCache.QuerySpendHint(spendRequest)
+		_, err = hintCache.QuerySpendHintWithOrigin(spendRequest)
 		require.ErrorIs(t, err, chainntnfs.ErrSpendHintNotFound)
 	}
 }
@@ -208,7 +209,7 @@ func TestQueryDisable(t *testing.T) {
 	require.Nil(t, err)
 
 	// Query for the confirmation hint, which should return zero.
-	cachedConfHint, err := hintCache.QueryConfirmHint(confRequest)
+	cachedConfHint, err := hintCache.QueryConfirmHintWithOrigin(confRequest)
 	require.Nil(t, err)
 	require.Equal(t, chainntnfs.HeightHint{}, cachedConfHint)
 
@@ -228,7 +229,7 @@ func TestQueryDisable(t *testing.T) {
 	require.Nil(t, err)
 
 	// Query for the spend hint, which should return zero.
-	cachedSpendHint, err := hintCache.QuerySpendHint(spendRequest)
+	cachedSpendHint, err := hintCache.QuerySpendHintWithOrigin(spendRequest)
 	require.Nil(t, err)
 	require.Equal(t, chainntnfs.HeightHint{}, cachedSpendHint)
 }
@@ -257,9 +258,19 @@ func TestHeightHintEncoding(t *testing.T) {
 	}, func() {})
 	require.NoError(t, err)
 
-	hint, err := hintCache.QueryConfirmHint(confRequest)
+	hint, err := hintCache.QueryConfirmHintWithOrigin(confRequest)
 	require.NoError(t, err)
 	require.Equal(t, chainntnfs.HeightHint{Height: 123}, hint)
+	legacyHeight, err := hintCache.QueryConfirmHint(confRequest)
+	require.NoError(t, err)
+	require.Equal(t, uint32(123), legacyHeight)
+
+	// The original height-only write method remains available to callers
+	// implementing the legacy interface and records an unknown origin.
+	require.NoError(t, hintCache.CommitConfirmHint(234, confRequest))
+	hint, err = hintCache.QueryConfirmHintWithOrigin(confRequest)
+	require.NoError(t, err)
+	require.Equal(t, chainntnfs.HeightHint{Height: 234}, hint)
 
 	// A new value is the height followed by the origin.
 	value, err := encodeHeightHint(chainntnfs.HeightHint{

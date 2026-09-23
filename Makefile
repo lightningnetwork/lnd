@@ -342,6 +342,11 @@ flakehunter-itest-parallel:
 # FUZZING
 # =============
 
+#? dst-gossipsync: Soak the gossip syncer's deterministic simulation
+dst-gossipsync:
+	@$(call print, "Soaking the gossip syncer simulation.")
+	$(GOTEST) -run 'TestDSTWorkload$$' ./discovery/gossipsync/ -rapid.checks=$(or $(checks),5000)
+
 #? fuzz: Run the fuzzing tests
 fuzz:
 	@$(call print, "Fuzzing packages '$(FUZZPKG)'.")

@@ -364,3 +364,10 @@ manager and the peer syncer in P, and the P checker explores thousands of
 interleavings of every test case. The bridge tests replay the models' recorded
 executions against the Go state machines on every `go test`, and
 [`SPEC.md`](SPEC.md) is the requirements spec derived from the models.
+
+**TLA+ specs** in [`tla/`](tla/README.md) restate both contracts in TLA+,
+and TLC checks every reachable state at a small scope rather than sampling
+schedules. They check the manager's liveness under an explicit fairness
+condition, and each rule of the syncer's pairing under every timing, with a
+must-fail case for each rule and each fairness assumption. They are not
+bridged to the Go code. Run them with `bash discovery/gossipsync/tla/check.sh`.

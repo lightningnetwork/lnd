@@ -12,6 +12,9 @@ explored schedules, not a proof of the Go code.
   that last changed this file, including the pinned retry (formerly Q3) and
   the drain inactivity timer (formerly Q4).
 - Checker: P 3.0.4, `p check` with the random strategy.
+- TLA+ specs: `tla/SyncerPairing.tla` and `tla/ManagerLiveness.tla`, checked
+  exhaustively at small scope by TLC 2.19 (tla2tools 1.7.4). Section 12.4
+  lists what they add.
 
 ## 1. Abstract and scope
 
@@ -317,7 +320,9 @@ with no ticks at all.
   hot state at `src/manager.p:879`; ticker at `test/manager_test.p:142`.
 - Code: `manager_state.go:352`, `manager_state.go:479`.
 - Evidence: green `tcManagerLiveness`, `tcManagerNoTickLiveness`;
-  counterexample `tcManagerNoSettleStarvesCounterexample`.
+  counterexample `tcManagerNoSettleStarvesCounterexample`; TLA+ green
+  `ManagerFair`, `ManagerNoTickLiveness`, `ManagerNoSettleTicks`, and the
+  fairness counterexamples of section 12.4.
 
 Under the same assumptions, and whatever the quota, a graph that is unsynced
 with a pinned peer connected MUST eventually become synced.
@@ -328,7 +333,8 @@ with a pinned peer connected MUST eventually become synced.
   `test/manager_test.p:288`.
 - Code: `manager_state.go:522`.
 - Evidence: green `tcManagerPinnedOnly`, `tcManagerLiveness`;
-  counterexample `tcManagerNoPinnedRetryCounterexample`.
+  counterexample `tcManagerNoPinnedRetryCounterexample`; TLA+ green
+  `ManagerFair`, counterexample `ManagerNoPinnedRetry`.
 
 ### 6.6 Local rules
 
@@ -496,7 +502,8 @@ an attempt other than the one whose query it answers.
   `tcSyncerNoDrainingCounterexample`, `tcSyncerLegacyDrainCounterexample`,
   `tcSyncerFixedDrainDeadlineCounterexample`; finding
   `tcSyncerCrossCreditBeyondDrainFinding` shows the assumption is needed;
-  `TestSyncerProperties`.
+  `TestSyncerProperties`; TLA+ green `SyncerADrain`, `SyncerLegacyADrain`,
+  finding `SyncerTwoPausesFinding`.
 
 With an honest peer, and whatever the timing, a range phase MUST only
 complete on one whole stream: replies of a single query, from its first
@@ -506,7 +513,9 @@ reply on, in order.
 - Model: monitor `WholeStreamCredit` at `src/syncer.p:898`.
 - Code: `range_reply.go:213`.
 - Evidence: `tcSyncerVerySlowPeer`; counterexample
-  `tcSyncerNoFirstReplyCheckCounterexample`.
+  `tcSyncerNoFirstReplyCheckCounterexample`; TLA+ green `SyncerVerySlow`
+  (lnd-format peers only), finding `SyncerLegacyVerySlowFinding`, which
+  shows a legacy-format peer beyond A-DRAIN breaking it (Q10).
 
 ### 7.6 Roles
 
@@ -565,7 +574,10 @@ Assumptions, each stated as an environment rule of the model:
 
 - **A-FAIR (manager).** Every syncer eventually reports, and, for GSM-016,
   fails at most once per session, while ticks keep coming whenever the graph
-  is unsynced and nothing is in flight (`test/manager_test.p:142`).
+  is unsynced and nothing is in flight (`test/manager_test.p:142`). The
+  TLA+ spec states a weaker form as the formula `Fairness` in
+  `tla/ManagerLiveness.tla`, under which a syncer may fail any number of
+  times but not forever (section 12.4).
 - **A-ORDER (syncer).** The peer answers queries in order, and a stream's
   messages arrive in order or not at all. BOLT 7 lets a peer close the
   connection if we query again before it has finished answering.
@@ -585,7 +597,9 @@ The threat model is in `README.md`. The model adds two observations. First,
 the first-reply check is what bounds the damage when A-DRAIN fails, for a
 peer that pauses past the timeout twice in one stream: an attempt can then
 be credited a whole earlier stream, but never a partial one (GSS-013,
-`tcSyncerCrossCreditBeyondDrainFinding`). Second, a byzantine peer
+`tcSyncerCrossCreditBeyondDrainFinding`). That bound holds for lnd-format
+peers only: a legacy-format peer's replies skip the range checks, so the
+tail of its stream can complete an attempt on its own (Q10). Second, a byzantine peer
 that duplicates or corrupts replies can pair a reply with the wrong attempt,
 as `README.md` states, but every attempt still ends with exactly one outcome
 and the syncer returns to `Idle` (GSS-002, `tcSyncerByzantine`).
@@ -677,10 +691,10 @@ not re-arm, busy outcomes not backed off).
 | GSM-013 | `OnOutcome`, `Eligible` | `ManagerContract` (h) | `onOutcome`, `failedThisEpoch` | `TestManagerBacksOffLocalFault`, `tcManagerNoLocalBackoffCounterexample`, both manager bridges | verified |
 | GSM-014 | `StartAttempt` | bridge snapshot | `startAttempt` | both manager bridges | verified |
 | GSM-015 | `OnHistTick` | bridge candidate sets | `onHistoricalTick` | both manager bridges, `tcManagerLegacyTick` | verified |
-| GSM-016 | `Settle`, `OnHistTick` | `GraphEventuallySynced` | `settle`, `onHistoricalTick` | `tcManagerLiveness`, `tcManagerNoTickLiveness`, `tcManagerNoSettleStarvesCounterexample`, `TestDSTWorkload` | partially verified: model liveness only under A-FAIR; the Go code is checked by the bridge on the same executions and by the simulation, not by a liveness checker |
+| GSM-016 | `Settle`, `OnHistTick` | `GraphEventuallySynced` | `settle`, `onHistoricalTick` | `tcManagerLiveness`, `tcManagerNoTickLiveness`, `tcManagerNoSettleStarvesCounterexample`, `TestDSTWorkload`, TLA+ `ManagerFair` | partially verified: model liveness verified exhaustively at small scope under the explicit fairness formula `Fairness` (TLA+), with each conjunct shown necessary; the Go code is checked by the bridge on P executions and by the simulation, not by a liveness checker |
 | GSM-017 | none | none | `candidates`, `pick` | none | unmodeled: an implementation rule for reproducibility |
 | GSM-018 | `RetryPinned`, `OnOutcome` | `GraphEventuallySyncedWithPinned`, forced action records | `retryPinned`, `onOutcome` | `TestManagerRetriesPinnedPeer`, `tcManagerNoPinnedRetryCounterexample`, both manager bridges | verified |
-| GSM-019 | `RetryPinned` | `GraphEventuallySyncedWithPinned` | `retryPinned` | `tcManagerPinnedOnly`, `tcManagerLiveness`, `tcManagerNoPinnedRetryCounterexample` | partially verified: model liveness only under A-FAIR; the Go code follows the same executions through the bridge |
+| GSM-019 | `RetryPinned` | `GraphEventuallySyncedWithPinned` | `retryPinned` | `tcManagerPinnedOnly`, `tcManagerLiveness`, `tcManagerNoPinnedRetryCounterexample`, TLA+ `ManagerFair`, `ManagerNoPinnedRetry` | partially verified: model liveness verified exhaustively at small scope under `Fairness` (TLA+); the Go code follows the P executions through the bridge |
 | GSS-001 | `Idle`, `Refuse` | `OutcomeExactlyOnce` | `Idle`, `busy` | `TestSyncerProperties`, `TestPModelSyncerBridge` | verified |
 | GSS-002 | all states | `OutcomeExactlyOnce` | all states | `TestSyncerProperties`, `TestPModelSyncerBridge`, `tcSyncerByzantine` | verified |
 | GSS-003 | `OnReply` | `WholeStreamCredit` | `checkRange` | `TestRangeReplyRejectsOutOfQuery`, `tcSyncerNoFirstReplyCheckCounterexample`, `TestPModelSyncerBridge` | partially verified: same-block continuation is unmodeled |
@@ -692,11 +706,34 @@ not re-arm, busy outcomes not backed off).
 | GSS-009 | all states | `PromptPeerNeverFaulted` | all states | `tcSyncerHonestPrompt`, `tcSyncerLegacyPrompt` | verified |
 | GSS-010 | `AbandonRange`, `QueryingSCIDs` | `NoCrossAttemptCredit` | `abandon`, `QueryingSCIDs` | `tcSyncerNoDrainingCounterexample`, `TestPModelSyncerBridge` | verified |
 | GSS-011 | `Draining` | `NoCrossAttemptCredit` | `Draining` | `TestDrainingLegacyPeer`, `tcSyncerLegacyDrainCounterexample`, `TestPModelSyncerBridge` | verified |
-| GSS-012 | `Draining`, `OnReply` | `OneOutstandingQuery`, `NoCrossAttemptCredit` | `Draining`, `checkRange` | `TestSyncerProperties`, `tcSyncerHonestLossy`, `tcSyncerFixedDrainDeadlineCounterexample`, `tcSyncerCrossCreditBeyondDrainFinding` | partially verified: holds under A-DRAIN, one long pause per stream; a peer with two long pauses in one stream still beats the drain (Q9) |
-| GSS-013 | `OnReply` | `WholeStreamCredit` | `checkRange` | `tcSyncerVerySlowPeer`, `tcSyncerNoFirstReplyCheckCounterexample` | verified |
+| GSS-012 | `Draining`, `OnReply` | `OneOutstandingQuery`, `NoCrossAttemptCredit` | `Draining`, `checkRange` | `TestSyncerProperties`, `tcSyncerHonestLossy`, `tcSyncerFixedDrainDeadlineCounterexample`, `tcSyncerCrossCreditBeyondDrainFinding`, TLA+ `SyncerADrain`, `SyncerTwoPausesFinding`, `SyncerCompleteFlagFinding` | partially verified: holds in every reachable state under A-DRAIN at small scope (TLA+), for streams that fit in the reply budget (`SyncerOverBudgetFinding`); a peer with two long pauses in one stream still beats the drain (Q9), and a peer that sets complete on every reply ends it early (Q8) |
+| GSS-013 | `OnReply` | `WholeStreamCredit` | `checkRange` | `tcSyncerVerySlowPeer`, `tcSyncerNoFirstReplyCheckCounterexample`, TLA+ `SyncerVerySlow`, `SyncerLegacyVerySlowFinding` | partially verified: holds for lnd-format peers under any timing, for streams that fit in the reply budget; fails for a legacy-format peer beyond A-DRAIN or beyond the budget (Q10) |
 | GSS-014 | `SetType` | bridge outbox | `setSyncType` | `TestSyncerProperties`, `TestPModelSyncerBridge` | verified |
 | GSS-015 | none | none | `add` | `TestRangeReplyBudgets` | unmodeled: the model has plain replies only |
 | GSS-016 | none | none | `bothOutOfBounds` | `TestRangeReplyFreshness` | unmodeled: the model has no timestamps |
+
+### 12.4 TLA+ specs
+
+`tla/` restates both contracts in TLA+ and checks them with TLC, which
+visits every reachable state at a small scope instead of sampling schedules:
+four blocks and three attempts for the syncer, two peers and three sessions
+for the manager, with every quota up to two and every choice of pinned
+peers. `tla/README.md` has the cases, the results and the scope limits. The
+results that change this document:
+
+| Result | TLA+ case | Effect here |
+|---|---|---|
+| Both manager liveness properties hold under `Fairness`, a formula that lets a syncer fail any number of times but not forever | `ManagerFair` | GSM-016 and GSM-019 no longer rest on the informal A-FAIR |
+| Dropping any one of the five fairness conjuncts, or using weak fairness on completion, breaks liveness | `ManagerNoTickFairness`, `ManagerWeakCompletion`, `ManagerNoTakeFairness`, `ManagerNoDrainFairness`, `ManagerNoDeliveryFairness` | every part of `Fairness` is needed |
+| With fair ticks, liveness holds even without settle; settle is needed for goal (a), and for liveness without ticks | `ManagerNoSettleTicks`, `ManagerNoSettleStarves` | sharpens GSM-001 and GSM-016 |
+| Every pairing property holds in every reachable state under A-DRAIN, in both reply formats, for streams that fit in the reply budget | `SyncerADrain`, `SyncerLegacyADrain` | GSS-012 evidence |
+| A stream longer than the reply budget breaks the one-outstanding-query rule even with a prompt peer, since the budget ends the range phase with the tail still in flight | `SyncerOverBudgetFinding` | GSS-009, GSS-012 and GSS-013 hold only for streams that fit in the budget, as GSS-007 already assumes |
+| Two long pauses beat the drain | `SyncerTwoPausesFinding` | Q9 confirmed |
+| A peer that sets complete on every reply breaks the one-outstanding-query rule under A-DRAIN | `SyncerCompleteFlagFinding` | Q8 confirmed |
+| A legacy-format peer beyond A-DRAIN completes an attempt on part of a stream | `SyncerLegacyVerySlowFinding` | GSS-013 downgraded, new Q10 |
+
+The TLA+ specs are not bridged to the Go code, so their evidence is about
+the contract only.
 
 No requirement has integration test (itest) evidence: the package has no
 itest yet, which the matrix records by omission from every row. The
@@ -736,7 +773,12 @@ simulation tests (`TestSimInitialSync`, `TestDSTWorkload`,
    (GSM-018, GSS-008), the former findings became
    `tcManagerPinnedOnly` (green) and `tcSyncerFixedDrainDeadlineCounterexample`,
    and the bridges and the reference model agree with the fixed code.
-3. No other disagreement was found. Every recorded execution replays with
+3. **Legacy-format tails beyond A-DRAIN (open, Q10).** The TLA+ syncer
+   spec found that GSS-013 as stated, "whatever the timing", does not hold
+   for legacy-format peers. The P model has the same behavior but never
+   runs a legacy peer under `VERYSLOW`, and the Go code agrees with both,
+   so this is a gap in the requirement, not in the code.
+4. No other disagreement was found. Every recorded execution replays with
    equal candidate sets and equal snapshots, and the reference model agrees
    with the Go manager on every rapid workload tried.
 
@@ -802,6 +844,24 @@ simulation tests (`TestSimInitialSync`, `TestDSTWorkload`,
   as the no-IDs limit in `README.md` is, or worth closing, for example by
   refusing the next attempt on the peer until a reply covering the
   abandoned query's last block has been seen?
+
+- **Q10. A legacy peer's tail can complete an attempt beyond A-DRAIN.**
+  Scenario: attempt 1 accepts the first reply of a two-reply legacy
+  stream; the peer then pauses past the timeout twice, so the reply timer
+  fails the attempt and the drain timer ends the drain; attempt 2 starts,
+  and the old stream's last reply arrives. It echoes the whole query and
+  sets complete, so it skips `checkRange` and ends the stream, and attempt
+  2 completes having seen one reply's channels. `SyncerLegacyVerySlowFinding`
+  in `tla/` shows it. The damage is a completed attempt with a subset of the
+  peer's channels, which later ticks repair, and it needs an old peer with
+  two long pauses in one stream, or a stream longer than the reply budget
+  (the budget ends attempt 1's phase with the tail in flight, and no pause
+  is needed at all). With the default budget of 500 replies, the second
+  needs a far larger graph than any real one. A legacy reply carries no position, so
+  the syncer can't tell a tail from a whole stream; closing this would need
+  the remedy proposed for Q9, refusing a new attempt on the peer until the
+  abandoned stream's complete reply has been seen. Should GSS-013 be
+  restated for lnd-format peers only, or is this worth closing?
 
 ### 13.4 Resolved questions
 

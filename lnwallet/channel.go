@@ -130,6 +130,11 @@ var (
 	ErrForceCloseLocalDataLoss = errors.New("cannot force close " +
 		"channel with local data loss")
 
+	// ErrUnexpectedRevocation is returned when a revocation cannot be
+	// applied in the current commitment state.
+	ErrUnexpectedRevocation = errors.New("received revocation in " +
+		"invalid commitment state")
+
 	// errNoNonce is returned when a nonce is required, but none is found.
 	errNoNonce = errors.New("no nonce found")
 
@@ -5762,10 +5767,8 @@ func (lc *LightningChannel) RevokeCurrentCommitment() (*lnwire.RevokeAndAck,
 }
 
 // ReceiveRevocation processes a revocation sent by the remote party for the
-// lowest unrevoked commitment within their commitment chain. We receive a
-// revocation either during the initial session negotiation wherein revocation
-// windows are extended, or in response to a state update that we initiate. If
-// successful, then the remote commitment chain is advanced by a single
+// lowest unrevoked commitment within their commitment chain. If validation
+// succeeds, then the remote commitment chain is advanced by a single
 // commitment, and a log compaction is attempted.
 //
 // The returned values correspond to:
@@ -5779,6 +5782,23 @@ func (lc *LightningChannel) ReceiveRevocation(revMsg *lnwire.RevokeAndAck) (
 	lc.Lock()
 	defer lc.Unlock()
 
+	// Ensure the remote commitment chain can advance before updating any
+	// revocation state.
+	if !lc.commitChains.Remote.hasUnackedCommitment() {
+		return nil, nil, ErrUnexpectedRevocation
+	}
+
+	// Verify that if we use the commitment point computed based off of the
+	// revealed secret to derive a revocation key with our revocation base
+	// point, then it matches the current revocation of the remote party.
+	// We check this before adding the secret to the store, so a revocation
+	// for the wrong point leaves our state untouched.
+	currentCommitPoint := lc.channelState.RemoteCurrentRevocation
+	derivedCommitPoint := input.ComputeCommitmentPoint(revMsg.Revocation[:])
+	if !derivedCommitPoint.IsEqual(currentCommitPoint) {
+		return nil, nil, fmt.Errorf("revocation key mismatch")
+	}
+
 	// Ensure that the new pre-image can be placed in preimage store.
 	store := lc.channelState.RevocationStore
 	revocation, err := chainhash.NewHash(revMsg.Revocation[:])
@@ -5787,15 +5807,6 @@ func (lc *LightningChannel) ReceiveRevocation(revMsg *lnwire.RevokeAndAck) (
 	}
 	if err := store.AddNextEntry(revocation); err != nil {
 		return nil, nil, err
-	}
-
-	// Verify that if we use the commitment point computed based off of the
-	// revealed secret to derive a revocation key with our revocation base
-	// point, then it matches the current revocation of the remote party.
-	currentCommitPoint := lc.channelState.RemoteCurrentRevocation
-	derivedCommitPoint := input.ComputeCommitmentPoint(revMsg.Revocation[:])
-	if !derivedCommitPoint.IsEqual(currentCommitPoint) {
-		return nil, nil, fmt.Errorf("revocation key mismatch")
 	}
 
 	// Now that we've verified that the prior commitment has been properly

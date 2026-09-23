@@ -5921,8 +5921,10 @@ func TestChannelLinkFail(t *testing.T) {
 				"CommitSig, not containing enough HTLC sigs",
 			func(c *channelLink) {
 			},
-			func(_ *testing.T, s *Switch, c *channelLink,
+			func(t *testing.T, s *Switch, c *channelLink,
 				remoteChannel *lnwallet.LightningChannel) {
+
+				t.Helper()
 
 				// Generate an HTLC and send to the link.
 				htlc1 := generateHtlc(t, c, 0)
@@ -6041,66 +6043,74 @@ func TestChannelLinkFail(t *testing.T) {
 
 	// Execute each test case.
 	for _, test := range testCases {
-		harness, err :=
-			newSingleLinkTestHarness(t, chanAmt, 0)
-		require.NoError(t, err, test.name)
+		t.Run(test.name, func(t *testing.T) {
+			harness, err :=
+				newSingleLinkTestHarness(t, chanAmt, 0)
+			require.NoError(t, err, test.name)
 
-		//nolint:forcetypeassert
-		coreLink := harness.aliceLink.(*channelLink)
+			//nolint:forcetypeassert
+			coreLink := harness.aliceLink.(*channelLink)
 
-		// Set up a channel used to check whether the link error
-		// force closed the channel.
-		linkErrors := make(chan LinkFailureError, 1)
-		coreLink.cfg.OnChannelFailure = func(_ lnwire.ChannelID,
-			_ lnwire.ShortChannelID, linkErr LinkFailureError) {
+			// Set up a channel used to check whether the link
+			// error force closed the channel.
+			linkErrors := make(chan LinkFailureError, 1)
+			coreLink.cfg.OnChannelFailure = func(_ lnwire.ChannelID,
+				_ lnwire.ShortChannelID,
+				linkErr LinkFailureError) {
 
-			linkErrors <- linkErr
-		}
+				linkErrors <- linkErr
+			}
 
-		// Set up the link before starting it.
-		test.options(coreLink)
-		err = harness.start()
-		require.NoError(t, err, test.name)
+			// Set up the link before starting it.
+			test.options(coreLink)
+			err = harness.start()
+			require.NoError(t, err, test.name)
 
-		// Execute the test case.
-		test.linkTest(
-			t, harness.aliceSwitch, coreLink, harness.bobChannel,
-		)
+			// Execute the test case.
+			test.linkTest(
+				t, harness.aliceSwitch, coreLink,
+				harness.bobChannel,
+			)
 
-		// Currently we expect all test cases to lead to link error.
-		var linkErr LinkFailureError
-		errReceived := false
-		select {
-		case linkErr = <-linkErrors:
-			errReceived = true
+			// Wait to see whether the test case led to a link
+			// error.
+			var linkErr LinkFailureError
+			errReceived := false
+			select {
+			case linkErr = <-linkErrors:
+				errReceived = true
 
-		case <-time.After(10 * time.Second):
-			// If we do not receive a link error in 10s we assume
-			// that we won't receive any.
-		}
+			case <-time.After(10 * time.Second):
+				// If we do not receive a link error in 10s we
+				// assume that we won't receive any.
+			}
 
-		require.Equal(t, test.shouldFail, errReceived, test.name)
+			require.Equal(
+				t, test.shouldFail, errReceived, test.name,
+			)
 
-		// Check that the link is up and return.
-		if !test.shouldFail {
-			require.False(t, coreLink.failed)
-			return
-		}
+			// Check that the link is up and return.
+			if !test.shouldFail {
+				require.False(t, coreLink.failed)
+				return
+			}
 
-		require.True(t, coreLink.failed)
+			require.True(t, coreLink.failed)
 
-		// If we expect the link to force close the channel in this
-		// case, check that it happens. If not, make sure it does not
-		// happen.
-		isForceCloseErr := (linkErr.FailureAction ==
-			LinkFailureForceClose)
-		require.True(
-			t, test.shouldForceClose == isForceCloseErr, test.name,
-		)
-		require.Equal(
-			t, test.permanentFailure, linkErr.PermanentFailure,
-			test.name,
-		)
+			// If we expect the link to force close the channel in
+			// this case, check that it happens. If not, make sure
+			// it does not happen.
+			isForceCloseErr := (linkErr.FailureAction ==
+				LinkFailureForceClose)
+			require.True(
+				t, test.shouldForceClose == isForceCloseErr,
+				test.name,
+			)
+			require.Equal(
+				t, test.permanentFailure,
+				linkErr.PermanentFailure, test.name,
+			)
+		})
 	}
 }
 

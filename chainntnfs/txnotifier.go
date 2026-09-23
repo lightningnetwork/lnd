@@ -741,8 +741,8 @@ func (n *TxNotifier) RegisterConf(txid *chainhash.Hash, pkScript []byte,
 	startHeight := ntfn.HeightHint
 	initialRescan := confSet.rescanStatus == rescanNotStarted
 	if initialRescan {
-		hint, err := n.confirmHintCache.QueryConfirmHint(
-			ntfn.ConfRequest,
+		hint, err := QueryConfirmHintWithOrigin(
+			n.confirmHintCache, ntfn.ConfRequest,
 		)
 		if err != nil && !errors.Is(err, ErrConfirmHintNotFound) {
 			Log.Errorf("Unable to query confirm hint for %v: %v",
@@ -863,10 +863,11 @@ func (n *TxNotifier) RegisterConf(txid *chainhash.Hash, pkScript []byte,
 			"dispatching historical confirmation rescan for %v",
 			ntfn.ConfRequest)
 
-		// Set the rescan status to complete, which will allow the
-		// notifier to start delivering messages for this set
-		// immediately.
-		confSet.rescanStatus = rescanComplete
+		// If no other scan is pending, mark the set complete so the
+		// notifier can start delivering messages for it immediately.
+		if confSet.pendingRescans == 0 {
+			confSet.rescanStatus = rescanComplete
+		}
 		return &ConfRegistration{
 			Event:              ntfn.Event,
 			HistoricalDispatch: nil,
@@ -1070,7 +1071,8 @@ func (n *TxNotifier) UpdateConfDetails(confRequest ConfRequest,
 func (n *TxNotifier) commitConfirmHint(confRequest ConfRequest,
 	confSet *confNtfnSet, height uint32) error {
 
-	return n.confirmHintCache.CommitConfirmHints(
+	return CommitConfirmHints(
+		n.confirmHintCache,
 		ConfirmHints{
 			confRequest: {
 				Height: height,
@@ -1248,7 +1250,9 @@ func (n *TxNotifier) RegisterSpend(outpoint *wire.OutPoint, pkScript []byte,
 	startHeight := ntfn.HeightHint
 	initialRescan := spendSet.rescanStatus == rescanNotStarted
 	if initialRescan {
-		hint, err := n.spendHintCache.QuerySpendHint(ntfn.SpendRequest)
+		hint, err := QuerySpendHintWithOrigin(
+			n.spendHintCache, ntfn.SpendRequest,
+		)
 		if err != nil && !errors.Is(err, ErrSpendHintNotFound) {
 			Log.Errorf("Unable to query spend hint for %v: %v",
 				ntfn.SpendRequest, err)
@@ -1351,10 +1355,11 @@ func (n *TxNotifier) RegisterSpend(outpoint *wire.OutPoint, pkScript []byte,
 		Log.Debugf("Spend hint of %d for %v is above current height %d",
 			startHeight, ntfn.SpendRequest, n.currentHeight)
 
-		// We'll also set the rescan status as complete to ensure that
-		// spend hints for this request get updated upon
-		// connected/disconnected blocks.
-		spendSet.rescanStatus = rescanComplete
+		// If no other scan is pending, mark the set complete so spend
+		// hints for it are updated upon connected/disconnected blocks.
+		if spendSet.pendingRescans == 0 {
+			spendSet.rescanStatus = rescanComplete
+		}
 		return &SpendRegistration{
 			Event:              ntfn.Event,
 			HistoricalDispatch: nil,
@@ -1607,7 +1612,7 @@ func (n *TxNotifier) updateSpendDetails(spendRequest SpendRequest,
 func (n *TxNotifier) commitSpendHint(spendRequest SpendRequest,
 	spendSet *spendNtfnSet, height uint32) error {
 
-	return n.spendHintCache.CommitSpendHints(SpendHints{
+	return CommitSpendHints(n.spendHintCache, SpendHints{
 		spendRequest: {Height: height, Origin: spendSet.coverageStart},
 	})
 }
@@ -2185,7 +2190,7 @@ func (n *TxNotifier) updateHints(height uint32) {
 			Origin: n.confNotifications[confRequest].coverageStart,
 		}
 	}
-	err := n.confirmHintCache.CommitConfirmHints(confHints)
+	err := CommitConfirmHints(n.confirmHintCache, confHints)
 	if err != nil {
 		// The error is not fatal as this is an optimistic optimization,
 		// so we'll avoid returning an error.
@@ -2209,7 +2214,7 @@ func (n *TxNotifier) updateHints(height uint32) {
 			Origin: spendSet.coverageStart,
 		}
 	}
-	err = n.spendHintCache.CommitSpendHints(spendHints)
+	err = CommitSpendHints(n.spendHintCache, spendHints)
 	if err != nil {
 		// The error is not fatal as this is an optimistic optimization,
 		// so we'll avoid returning an error.

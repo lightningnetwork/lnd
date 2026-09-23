@@ -195,12 +195,14 @@ func TestSpendRegistrationOrderProperty(t *testing.T) {
 					details.SpendingHeight,
 				)
 			default:
-				t.Fatal("subscriber missed spend")
+				require.FailNow(t, "subscriber missed spend")
 			}
 
 			select {
 			case <-event.Spend:
-				t.Fatal("subscriber received duplicate")
+				require.FailNow(
+					t, "subscriber received duplicate",
+				)
 			default:
 			}
 		}
@@ -222,7 +224,7 @@ func assertSpendRestart(t require.TestingT, cache *mockHintCache,
 func assertSpendHint(t require.TestingT, cache chainntnfs.SpendHintCache,
 	request chainntnfs.SpendRequest, expected uint32) {
 
-	hint, err := cache.QuerySpendHint(request)
+	hint, err := chainntnfs.QuerySpendHintWithOrigin(cache, request)
 	require.NoError(t, err)
 	require.Equal(t, expected, hint.Height)
 }

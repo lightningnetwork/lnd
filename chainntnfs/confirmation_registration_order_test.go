@@ -277,14 +277,18 @@ func testConfirmationRegistrationOrder(t *testing.T, completeBeforeEarly,
 	case details := <-early.Event.Confirmed:
 		require.Equal(t, minedHeight, details.BlockHeight)
 	default:
-		t.Fatal("early subscriber missed historical confirmation")
+		require.FailNow(
+			t, "early subscriber missed historical confirmation",
+		)
 	}
 
 	select {
 	case details := <-late.Event.Confirmed:
 		require.Equal(t, minedHeight, details.BlockHeight)
 	default:
-		t.Fatal("late subscriber missed historical confirmation")
+		require.FailNow(
+			t, "late subscriber missed historical confirmation",
+		)
 	}
 }
 
@@ -448,12 +452,16 @@ func TestConfirmationRegistrationOrderProperty(t *testing.T) {
 					t, minedHeight, details.BlockHeight,
 				)
 			default:
-				t.Fatal("subscriber missed confirmation")
+				require.FailNow(
+					t, "subscriber missed confirmation",
+				)
 			}
 
 			select {
 			case <-event.Confirmed:
-				t.Fatal("subscriber received duplicate")
+				require.FailNow(
+					t, "subscriber received duplicate",
+				)
 			default:
 			}
 		}

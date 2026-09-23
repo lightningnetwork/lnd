@@ -57,6 +57,7 @@ import (
 	"github.com/lightningnetwork/lnd/ticker"
 	"github.com/lightningnetwork/lnd/tlv"
 	"github.com/lightningnetwork/lnd/watchtower/wtclient"
+	"golang.org/x/time/rate"
 )
 
 const (
@@ -597,8 +598,9 @@ type Brontide struct {
 
 	pingManager *PingManager
 
-	// pingLimits owns the two per-connection inbound Ping policies.
-	pingLimits pingLimits
+	// pingLimiter bounds inbound Ping work before message routing. Keeping
+	// the limiter on the peer gives each connection an independent budget.
+	pingLimiter *rate.Limiter
 
 	// queueLimits supplies one accounting policy to the producer and queue.
 	queueLimits queueLimits
@@ -764,7 +766,7 @@ func NewBrontide(cfg Config) *Brontide {
 		activeSignal:  make(chan struct{}),
 		sendQueue:     make(chan outgoingMsg),
 		outgoingQueue: make(chan outgoingMsg),
-		pingLimits:    defaultPingLimits(),
+		pingLimiter:   defaultPingLimiter(),
 		queueLimits:   defaultQueueLimits(),
 		addedChannels: &lnutils.SyncMap[lnwire.ChannelID, struct{}]{},
 		activeChannels: &lnutils.SyncMap[
@@ -2334,10 +2336,13 @@ out:
 			}
 		}
 
-		// Count before routing; consuming endpoints skip the switch.
-		// All Pings, including oversized ones, use the flood budget.
-		if _, ok := nextMsg.(*lnwire.Ping); ok &&
-			!p.pingLimits.pingLimiter.Allow() {
+		// Count before routing because endpoints may consume Pings.
+		// Valid requests pay proportionally for their Pong bytes, while
+		// oversized no-reply requests still consume one flood token.
+		ping, ok := nextMsg.(*lnwire.Ping)
+		if ok && !p.pingLimiter.AllowN(
+			time.Now(), calcPingCost(ping),
+		) {
 
 			p.storeError(errPingFlood)
 			p.log.Warnf("%v", errPingFlood)
@@ -2389,16 +2394,9 @@ out:
 				continue
 			}
 
-			// BOLT 1 requires a Pong for every Ping below the size
-			// ceiling. We limit reply frequency to guard against
-			// floods; normal keepalives remain below this limit.
-			if !p.pingLimits.pongLimiter.Allow() {
-				p.log.Debugf("Pong reply rate limited")
-				continue
-			}
-
-			// Next, we'll send over the amount of specified pong
-			// bytes.
+			// BOLT 1 requires a Pong of the requested size for
+			// every Ping below the size ceiling. The request flood
+			// limiter above disconnects abusive peers first.
 			pong := lnwire.NewPong(p.cfg.PongBuf[0:msg.NumPongBytes])
 			p.queueMsg(pong, nil)
 

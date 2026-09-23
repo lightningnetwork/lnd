@@ -10,7 +10,8 @@
 #      script;
 #   4. record seeded executions of the production cases as traces;
 #   5. replay the fresh traces, and the checked-in ones, into the Go manager
-#      and syncer with the bridge tests, and run the reference model test.
+#      and syncer with the bridge tests, and run the reference model test;
+#   6. check that ../SPEC.md cites the current model, with valid citations.
 #
 # Environment:
 #   SCHEDULES      schedules per green test case (default 2000)
@@ -152,3 +153,8 @@ TESTS='TestPModelManagerBridge|TestPModelSyncerBridge|TestRefModelManager'
 GOSSIPSYNC_PMODEL_TRACES="$OUT_DIR" go test -count=1 -v -run "$TESTS" . |
 	grep -E "replayed|^(ok|FAIL|--- )"
 
+echo "=== spec: validating ../SPEC.md against the model"
+python3 "${MODEL_DIR}/scripts/extract_p_model.py" "$MODEL_DIR" \
+	--output "${OUT_DIR}/inventory.json"
+python3 "${MODEL_DIR}/scripts/validate_spec.py" --model-dir "$MODEL_DIR" \
+	--inventory "${OUT_DIR}/inventory.json" --spec "${PKG_DIR}/SPEC.md"

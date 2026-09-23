@@ -9,6 +9,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/btcsuite/btcd/btcec/v2"
 	"github.com/btcsuite/btcd/btcutil"
 	"github.com/btcsuite/btcd/chaincfg"
 	"github.com/btcsuite/btcd/txscript"
@@ -2263,11 +2264,27 @@ func TestUpdateNextRevocation(t *testing.T) {
 
 	// testChannel is used to test the updateNextRevocation function.
 	testChannel := bobChan.State()
+	chanID := lnwire.NewChanIDFromOutPoint(testChannel.FundingOutpoint)
 
-	// Update the next revocation for a known channel should give us no
-	// error.
+	// The test channels start out without a next revocation point, so
+	// there's nothing to insert yet.
+	err = alicePeer.updateNextRevocation(testChannel)
+	require.ErrorIs(err, lnwallet.ErrNoNextRevocation)
+
+	// Once the channel carries the point, updating a known channel should
+	// give us no error, and insert the point into our copy of it.
+	nextPriv, err := btcec.NewPrivateKey()
+	require.NoError(err)
+	testChannel.RemoteNextRevocation = fn.Some(*nextPriv.PubKey())
+
 	err = alicePeer.updateNextRevocation(testChannel)
 	require.NoError(err, "expected no error")
+
+	aliceChan, ok := alicePeer.activeChannels.Load(chanID)
+	require.True(ok)
+	require.Equal(
+		fn.Some(*nextPriv.PubKey()), aliceChan.RemoteNextRevocation(),
+	)
 
 	// Test an error is returned when the chanID cannot be found in
 	// `activeChannels` map.
@@ -2278,7 +2295,7 @@ func TestUpdateNextRevocation(t *testing.T) {
 	// Test an error is returned when the chanID's corresponding channel is
 	// nil.
 	testChannel.FundingOutpoint = wire.OutPoint{Index: 1}
-	chanID := lnwire.NewChanIDFromOutPoint(testChannel.FundingOutpoint)
+	chanID = lnwire.NewChanIDFromOutPoint(testChannel.FundingOutpoint)
 	alicePeer.activeChannels.Store(chanID, nil)
 
 	err = alicePeer.updateNextRevocation(testChannel)

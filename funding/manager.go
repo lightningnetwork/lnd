@@ -3629,7 +3629,7 @@ func (f *Manager) receivedChannelReady(node *btcec.PublicKey,
 
 	// If we haven't insert the next revocation point, we haven't finished
 	// processing the channel ready message.
-	if channel.RemoteNextRevocation == nil {
+	if channel.RemoteNextRevocation.IsNone() {
 		return false, nil
 	}
 
@@ -4191,7 +4191,7 @@ func (f *Manager) handleChannelReady(peer lnpeer.Peer, //nolint:funlen
 		}
 	}
 
-	// If the RemoteNextRevocation is non-nil, it means that we have
+	// If the RemoteNextRevocation is set, it means that we have
 	// already processed channelReady for this channel, so ignore. This
 	// check is after the alias logic so we store the peer's most recent
 	// alias. The spec requires us to validate that subsequent
@@ -4200,7 +4200,7 @@ func (f *Manager) handleChannelReady(peer lnpeer.Peer, //nolint:funlen
 	// ignoring it. We are, however, required to *send* the same per
 	// commitment point, since another pedantic implementation might
 	// verify it.
-	if channel.RemoteNextRevocation != nil {
+	if channel.RemoteNextRevocation.IsSome() {
 		log.Infof("Received duplicate channelReady for "+
 			"ChannelID(%v), ignoring.", chanID)
 		return
@@ -4267,7 +4267,7 @@ func (f *Manager) handleChannelReady(peer lnpeer.Peer, //nolint:funlen
 	// need to create the next commitment state for the remote party. So
 	// we'll insert that into the channel now before passing it along to
 	// other sub-systems.
-	err = channel.InsertNextRevocation(msg.NextPerCommitmentPoint)
+	err = channel.InsertNextRevocation(*msg.NextPerCommitmentPoint)
 	if err != nil {
 		log.Errorf("unable to insert next commitment point: %v", err)
 		return

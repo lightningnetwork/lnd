@@ -475,7 +475,7 @@ func initRevocationWindows(chanA, chanB *LightningChannel) error {
 	if err != nil {
 		return err
 	}
-	if err := chanB.InitNextRevocation(aliceNextRevoke); err != nil {
+	if err := chanB.InitNextRevocation(*aliceNextRevoke); err != nil {
 		return err
 	}
 
@@ -483,7 +483,7 @@ func initRevocationWindows(chanA, chanB *LightningChannel) error {
 	if err != nil {
 		return err
 	}
-	if err := chanA.InitNextRevocation(bobNextRevoke); err != nil {
+	if err := chanA.InitNextRevocation(*bobNextRevoke); err != nil {
 		return err
 	}
 

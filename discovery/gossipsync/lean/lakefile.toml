@@ -1,0 +1,14 @@
+name = "gossipsync"
+version = "0.1.0"
+defaultTargets = ["GossipSync", "gsync-lean"]
+
+# The library holds the model and every theorem about it. Building it is what
+# checks the proofs.
+[[lean_lib]]
+name = "GossipSync"
+
+# The executable runs the model on line-oriented input, for the Go
+# differential test in lean_diff_test.go.
+[[lean_exe]]
+name = "gsync-lean"
+root = "Main"

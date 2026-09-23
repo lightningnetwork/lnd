@@ -1,0 +1,1626 @@
+begin chans=1,3 known=- batch=2 max_replies=6 lookup_err=1
+in role role=2
+out filter wants=1
+in role role=0
+out filter wants=0
+in role role=2
+out filter wants=1
+in start attempt=1
+out send_range
+out arm seq=1 drain=0
+in range first=0 last=1 chans=1 complete=0 bad=0
+out arm seq=2 drain=0
+in role role=0
+out filter wants=0
+in role role=0
+in start attempt=2
+out outcome attempt=2 kind=3
+in range first=2 last=3 chans=3 complete=1 bad=0
+out disarm
+out outcome attempt=1 kind=2
+in start attempt=3
+out send_range
+out arm seq=3 drain=0
+in role role=0
+in timer seq=2
+in range first=0 last=1 chans=1 complete=0 bad=0
+out arm seq=4 drain=0
+in role role=1
+out filter wants=1
+in role role=0
+out filter wants=0
+in range first=2 last=3 chans=3 complete=1 bad=0
+out disarm
+out outcome attempt=3 kind=2
+in timer seq=3
+in role role=0
+in role role=2
+out filter wants=1
+in role role=1
+in role role=0
+out filter wants=0
+in timer seq=3
+in role role=1
+out filter wants=1
+in role role=0
+out filter wants=0
+begin chans=1,4 known=- batch=1 max_replies=6 lookup_err=1
+in role role=0
+in start attempt=1
+out send_range
+out arm seq=1 drain=0
+in timer seq=1
+out outcome attempt=1 kind=1
+out arm seq=2 drain=1
+in range first=0 last=2 chans=1 complete=0 bad=0
+out arm seq=3 drain=1
+in start attempt=2
+out outcome attempt=2 kind=3
+in start attempt=3
+out outcome attempt=3 kind=3
+in range first=3 last=3 chans=4 complete=1 bad=0
+out disarm
+in role role=2
+out filter wants=1
+in role role=0
+out filter wants=0
+in role role=2
+out filter wants=1
+in timer seq=2
+in timer seq=2
+in role role=0
+out filter wants=0
+in role role=2
+out filter wants=1
+in timer seq=2
+in role role=0
+out filter wants=0
+in role role=1
+out filter wants=1
+in role role=1
+in role role=1
+in timer seq=2
+in role role=0
+out filter wants=0
+in role role=2
+out filter wants=1
+in timer seq=2
+in role role=0
+out filter wants=0
+begin chans=1 known=1 batch=1 max_replies=6 lookup_err=0
+in start attempt=1
+out send_range
+out arm seq=1 drain=0
+in timer seq=1
+out outcome attempt=1 kind=1
+out arm seq=2 drain=1
+in range first=0 last=3 chans=1 complete=1 bad=0
+out disarm
+in timer seq=1
+in timer seq=1
+in timer seq=1
+in timer seq=1
+in role role=0
+in role role=0
+in role role=0
+in timer seq=1
+in timer seq=1
+in role role=2
+out filter wants=1
+in start attempt=2
+out send_range
+out arm seq=3 drain=0
+in start attempt=3
+out outcome attempt=3 kind=3
+in range first=0 last=3 chans=1 complete=1 bad=0
+out disarm
+out outcome attempt=2 kind=0
+in role role=0
+out filter wants=0
+in timer seq=2
+in timer seq=2
+in timer seq=2
+in role role=1
+out filter wants=1
+in role role=2
+in timer seq=2
+in role role=0
+out filter wants=0
+begin chans=1,2 known=1 batch=1 max_replies=6 lookup_err=0
+in role role=0
+in role role=0
+in role role=0
+in role role=0
+in start attempt=1
+out send_range
+out arm seq=1 drain=0
+in range first=0 last=3 chans=1,2 complete=1 bad=0
+out send_scids scids=2
+out arm seq=2 drain=0
+in timer seq=2
+out outcome attempt=1 kind=1
+out arm seq=3 drain=1
+in timer seq=2
+in end
+out disarm
+in start attempt=2
+out send_range
+out arm seq=4 drain=0
+in range first=0 last=3 chans=1,2 complete=1 bad=0
+out send_scids scids=2
+out arm seq=5 drain=0
+in role role=0
+in end
+out disarm
+out outcome attempt=2 kind=0
+in timer seq=4
+in role role=0
+in start attempt=3
+out send_range
+out arm seq=6 drain=0
+in timer seq=6
+out outcome attempt=3 kind=1
+out arm seq=7 drain=1
+in role role=0
+in range first=0 last=3 chans=1,2 complete=1 bad=0
+out disarm
+in timer seq=6
+in role role=0
+in timer seq=6
+in role role=0
+in role role=2
+out filter wants=1
+begin chans=1,2 known=- batch=2 max_replies=6 lookup_err=0
+in role role=0
+in start attempt=1
+out send_range
+out arm seq=1 drain=0
+in range first=0 last=3 chans=1,2 complete=1 bad=0
+out send_scids scids=1,2
+out arm seq=2 drain=0
+in end
+out disarm
+out outcome attempt=1 kind=0
+in timer seq=1
+in role role=1
+out filter wants=1
+in timer seq=1
+in role role=1
+in timer seq=1
+in start attempt=2
+out send_range
+out arm seq=3 drain=0
+in role role=1
+in start attempt=3
+out outcome attempt=3 kind=3
+in timer seq=3
+out outcome attempt=2 kind=1
+out arm seq=4 drain=1
+in timer seq=3
+in role role=0
+out filter wants=0
+in role role=0
+in timer seq=4
+out disarm
+in timer seq=3
+in timer seq=3
+in role role=2
+out filter wants=1
+in role role=0
+out filter wants=0
+in timer seq=3
+in role role=0
+begin chans=1,2,3,4 known=- batch=2 max_replies=6 lookup_err=0
+in start attempt=1
+out send_range
+out arm seq=1 drain=0
+in range first=0 last=0 chans=1 complete=0 bad=0
+out arm seq=2 drain=0
+in range first=1 last=1 chans=2 complete=0 bad=0
+out arm seq=3 drain=0
+in timer seq=3
+out outcome attempt=1 kind=1
+out arm seq=4 drain=1
+in start attempt=2
+out outcome attempt=2 kind=3
+in range first=2 last=2 chans=3 complete=0 bad=0
+out arm seq=5 drain=1
+in start attempt=3
+out outcome attempt=3 kind=3
+in role role=0
+in range first=3 last=3 chans=4 complete=1 bad=0
+out disarm
+in timer seq=4
+in role role=0
+in role role=0
+in timer seq=4
+in role role=1
+out filter wants=1
+in timer seq=4
+in role role=0
+out filter wants=0
+in timer seq=4
+in timer seq=4
+in role role=2
+out filter wants=1
+in role role=0
+out filter wants=0
+in role role=0
+in timer seq=4
+in timer seq=4
+in role role=0
+begin chans=2 known=- batch=1 max_replies=6 lookup_err=0
+in role role=2
+out filter wants=1
+in role role=0
+out filter wants=0
+in role role=0
+in role role=2
+out filter wants=1
+in role role=0
+out filter wants=0
+in role role=0
+in role role=0
+in role role=2
+out filter wants=1
+in role role=1
+in start attempt=1
+out send_range
+out arm seq=1 drain=0
+in timer seq=1
+out outcome attempt=1 kind=1
+out arm seq=2 drain=1
+in timer seq=2
+out disarm
+in role role=0
+out filter wants=0
+in start attempt=2
+out send_range
+out arm seq=3 drain=0
+in start attempt=3
+out outcome attempt=3 kind=3
+in timer seq=3
+out outcome attempt=2 kind=1
+out arm seq=4 drain=1
+in timer seq=3
+in timer seq=4
+out disarm
+in timer seq=3
+in role role=1
+out filter wants=1
+in timer seq=3
+in timer seq=3
+begin chans=1,2 known=2 batch=1 max_replies=6 lookup_err=0
+in start attempt=1
+out send_range
+out arm seq=1 drain=0
+in range first=0 last=0 chans=1 complete=0 bad=0
+out arm seq=2 drain=0
+in range first=1 last=3 chans=2 complete=1 bad=0
+out send_scids scids=1
+out arm seq=3 drain=0
+in end
+out disarm
+out outcome attempt=1 kind=0
+in timer seq=2
+in timer seq=2
+in timer seq=2
+in start attempt=2
+out send_range
+out arm seq=4 drain=0
+in timer seq=4
+out outcome attempt=2 kind=1
+out arm seq=5 drain=1
+in start attempt=3
+out outcome attempt=3 kind=3
+in role role=1
+out filter wants=1
+in timer seq=4
+in timer seq=4
+in timer seq=4
+in timer seq=4
+in timer seq=5
+out disarm
+in role role=2
+in role role=0
+out filter wants=0
+in timer seq=4
+in timer seq=4
+in role role=1
+out filter wants=1
+in role role=0
+out filter wants=0
+in role role=1
+out filter wants=1
+begin chans=2,3 known=3 batch=1 max_replies=6 lookup_err=0
+in start attempt=1
+out send_range
+out arm seq=1 drain=0
+in range first=0 last=3 chans=2,3 complete=1 bad=0
+out send_scids scids=2
+out arm seq=2 drain=0
+in role role=1
+out filter wants=1
+in timer seq=2
+out outcome attempt=1 kind=1
+out arm seq=3 drain=1
+in end
+out disarm
+in timer seq=2
+in start attempt=2
+out send_range
+out arm seq=4 drain=0
+in range first=0 last=3 chans=2,3 complete=1 bad=0
+out send_scids scids=2
+out arm seq=5 drain=0
+in role role=0
+out filter wants=0
+in end
+out disarm
+out outcome attempt=2 kind=0
+in start attempt=3
+out send_range
+out arm seq=6 drain=0
+in timer seq=6
+out outcome attempt=3 kind=1
+out arm seq=7 drain=1
+in range first=0 last=3 chans=2,3 complete=1 bad=0
+out disarm
+in timer seq=6
+in role role=1
+out filter wants=1
+in timer seq=6
+in role role=2
+in timer seq=6
+in role role=1
+in timer seq=6
+in timer seq=6
+in role role=0
+out filter wants=0
+in role role=0
+in timer seq=6
+begin chans=3 known=- batch=2 max_replies=6 lookup_err=0
+in start attempt=1
+out send_range
+out arm seq=1 drain=0
+in range first=0 last=3 chans=3 complete=1 bad=0
+out send_scids scids=3
+out arm seq=2 drain=0
+in timer seq=1
+in timer seq=2
+out outcome attempt=1 kind=1
+out arm seq=3 drain=1
+in end
+out disarm
+in timer seq=2
+in timer seq=2
+in start attempt=2
+out send_range
+out arm seq=4 drain=0
+in range first=0 last=3 chans=3 complete=1 bad=0
+out send_scids scids=3
+out arm seq=5 drain=0
+in timer seq=4
+in timer seq=4
+in timer seq=4
+in timer seq=5
+out outcome attempt=2 kind=1
+out arm seq=6 drain=1
+in timer seq=5
+in timer seq=5
+in timer seq=5
+in role role=0
+in timer seq=5
+in start attempt=3
+out outcome attempt=3 kind=3
+in timer seq=5
+in timer seq=5
+in timer seq=5
+in timer seq=6
+out disarm
+begin chans=3 known=3 batch=1 max_replies=6 lookup_err=0
+in role role=2
+out filter wants=1
+in start attempt=1
+out send_range
+out arm seq=1 drain=0
+in role role=1
+in start attempt=2
+out outcome attempt=2 kind=3
+in timer seq=1
+out outcome attempt=1 kind=1
+out arm seq=2 drain=1
+in timer seq=2
+out disarm
+in timer seq=1
+in start attempt=3
+out send_range
+out arm seq=3 drain=0
+in role role=0
+out filter wants=0
+in timer seq=2
+in role role=1
+out filter wants=1
+in range first=0 last=3 chans=3 complete=1 bad=0
+out disarm
+out outcome attempt=3 kind=0
+in role role=1
+in role role=0
+out filter wants=0
+in role role=2
+out filter wants=1
+in role role=2
+in role role=0
+out filter wants=0
+in role role=0
+in role role=1
+out filter wants=1
+in role role=1
+in timer seq=2
+in role role=0
+out filter wants=0
+in role role=0
+begin chans=1,2 known=- batch=1 max_replies=6 lookup_err=0
+in role role=0
+in start attempt=1
+out send_range
+out arm seq=1 drain=0
+in range first=0 last=3 chans=1,2 complete=1 bad=0
+out send_scids scids=1
+out arm seq=2 drain=0
+in timer seq=1
+in end
+out send_scids scids=2
+out arm seq=3 drain=0
+in timer seq=2
+in role role=0
+in end
+out disarm
+out outcome attempt=1 kind=0
+in timer seq=2
+in timer seq=2
+in start attempt=2
+out send_range
+out arm seq=4 drain=0
+in timer seq=3
+in role role=2
+out filter wants=1
+in timer seq=4
+out outcome attempt=2 kind=1
+out arm seq=5 drain=1
+in timer seq=4
+in range first=0 last=3 chans=1,2 complete=1 bad=0
+out disarm
+in timer seq=4
+in timer seq=4
+in timer seq=4
+in start attempt=3
+out send_range
+out arm seq=6 drain=0
+in timer seq=6
+out outcome attempt=3 kind=1
+out arm seq=7 drain=1
+in range first=0 last=3 chans=1,2 complete=1 bad=0
+out disarm
+in role role=2
+in role role=2
+begin chans=1,2,3 known=1 batch=1 max_replies=6 lookup_err=0
+in role role=2
+out filter wants=1
+in role role=2
+in role role=1
+in start attempt=1
+out send_range
+out arm seq=1 drain=0
+in range first=0 last=1 chans=1,2 complete=0 bad=0
+out arm seq=2 drain=0
+in role role=0
+out filter wants=0
+in timer seq=2
+out outcome attempt=1 kind=1
+out arm seq=3 drain=1
+in role role=2
+out filter wants=1
+in role role=2
+in timer seq=2
+in timer seq=3
+out disarm
+in timer seq=2
+in timer seq=2
+in timer seq=2
+in start attempt=2
+out send_range
+out arm seq=4 drain=0
+in timer seq=4
+out outcome attempt=2 kind=1
+out arm seq=5 drain=1
+in timer seq=4
+in start attempt=3
+out outcome attempt=3 kind=3
+in timer seq=4
+in timer seq=5
+out disarm
+in role role=0
+out filter wants=0
+in timer seq=4
+begin chans=1 known=- batch=2 max_replies=6 lookup_err=1
+in start attempt=1
+out send_range
+out arm seq=1 drain=0
+in timer seq=1
+out outcome attempt=1 kind=1
+out arm seq=2 drain=1
+in start attempt=2
+out outcome attempt=2 kind=3
+in role role=0
+in timer seq=1
+in timer seq=1
+in start attempt=3
+out outcome attempt=3 kind=3
+in timer seq=2
+out disarm
+in role role=2
+out filter wants=1
+in timer seq=1
+in role role=1
+in timer seq=1
+in role role=2
+in role role=1
+in timer seq=1
+in role role=0
+out filter wants=0
+in role role=1
+out filter wants=1
+in role role=0
+out filter wants=0
+in timer seq=1
+in timer seq=1
+in role role=0
+in role role=1
+out filter wants=1
+in timer seq=1
+begin chans=3,4 known=- batch=2 max_replies=6 lookup_err=0
+in role role=2
+out filter wants=1
+in role role=1
+in role role=2
+in role role=0
+out filter wants=0
+in start attempt=1
+out send_range
+out arm seq=1 drain=0
+in range first=0 last=2 chans=3 complete=0 bad=0
+out arm seq=2 drain=0
+in range first=3 last=3 chans=4 complete=1 bad=0
+out send_scids scids=3,4
+out arm seq=3 drain=0
+in timer seq=3
+out outcome attempt=1 kind=1
+out arm seq=4 drain=1
+in end
+out disarm
+in timer seq=3
+in start attempt=2
+out send_range
+out arm seq=5 drain=0
+in timer seq=4
+in timer seq=5
+out outcome attempt=2 kind=1
+out arm seq=6 drain=1
+in timer seq=6
+out disarm
+in role role=1
+out filter wants=1
+in role role=0
+out filter wants=0
+in start attempt=3
+out send_range
+out arm seq=7 drain=0
+in timer seq=7
+out outcome attempt=3 kind=1
+out arm seq=8 drain=1
+in range first=0 last=2 chans=3 complete=0 bad=0
+out arm seq=9 drain=1
+in timer seq=8
+in timer seq=8
+in timer seq=9
+out disarm
+begin chans=1 known=1 batch=1 max_replies=6 lookup_err=1
+in role role=0
+in role role=0
+in role role=0
+in start attempt=1
+out send_range
+out arm seq=1 drain=0
+in range first=0 last=3 chans=1 complete=1 bad=0
+out disarm
+out outcome attempt=1 kind=2
+in role role=1
+out filter wants=1
+in role role=0
+out filter wants=0
+in role role=0
+in role role=1
+out filter wants=1
+in start attempt=2
+out send_range
+out arm seq=2 drain=0
+in role role=0
+out filter wants=0
+in timer seq=1
+in timer seq=2
+out outcome attempt=2 kind=1
+out arm seq=3 drain=1
+in timer seq=2
+in start attempt=3
+out outcome attempt=3 kind=3
+in timer seq=3
+out disarm
+in timer seq=2
+in role role=2
+out filter wants=1
+in role role=2
+in timer seq=2
+in timer seq=2
+in timer seq=2
+in timer seq=2
+begin chans=1,4 known=- batch=1 max_replies=6 lookup_err=0
+in start attempt=1
+out send_range
+out arm seq=1 drain=0
+in timer seq=1
+out outcome attempt=1 kind=1
+out arm seq=2 drain=1
+in range first=0 last=3 chans=1,4 complete=1 bad=0
+out disarm
+in start attempt=2
+out send_range
+out arm seq=3 drain=0
+in start attempt=3
+out outcome attempt=3 kind=3
+in range first=0 last=3 chans=1,4 complete=1 bad=0
+out send_scids scids=1
+out arm seq=4 drain=0
+in role role=0
+in end
+out send_scids scids=4
+out arm seq=5 drain=0
+in timer seq=4
+in timer seq=5
+out outcome attempt=2 kind=1
+out arm seq=6 drain=1
+in timer seq=6
+out disarm
+in role role=0
+in role role=2
+out filter wants=1
+in role role=0
+out filter wants=0
+in timer seq=5
+in timer seq=5
+in timer seq=5
+in role role=0
+in timer seq=5
+in timer seq=5
+in timer seq=5
+in role role=1
+out filter wants=1
+in timer seq=5
+begin chans=2,3,4 known=2 batch=2 max_replies=6 lookup_err=0
+in role role=1
+out filter wants=1
+in start attempt=1
+out send_range
+out arm seq=1 drain=0
+in range first=0 last=1 chans=2 complete=0 bad=0
+out arm seq=2 drain=0
+in role role=2
+in range first=2 last=2 chans=3 complete=0 bad=0
+out arm seq=3 drain=0
+in start attempt=2
+out outcome attempt=2 kind=3
+in range first=3 last=3 chans=4 complete=1 bad=0
+out send_scids scids=3,4
+out arm seq=4 drain=0
+in end
+out disarm
+out outcome attempt=1 kind=0
+in role role=2
+in timer seq=3
+in start attempt=3
+out send_range
+out arm seq=5 drain=0
+in range first=0 last=1 chans=2 complete=0 bad=0
+out arm seq=6 drain=0
+in role role=0
+out filter wants=0
+in timer seq=6
+out outcome attempt=3 kind=1
+out arm seq=7 drain=1
+in range first=2 last=2 chans=3 complete=0 bad=0
+out arm seq=8 drain=1
+in role role=0
+in range first=3 last=3 chans=4 complete=1 bad=0
+out disarm
+in role role=0
+in timer seq=7
+in role role=2
+out filter wants=1
+in timer seq=7
+in timer seq=7
+in role role=0
+out filter wants=0
+in timer seq=7
+begin chans=1,3,4 known=1,3 batch=1 max_replies=6 lookup_err=1
+in start attempt=1
+out send_range
+out arm seq=1 drain=0
+in start attempt=2
+out outcome attempt=2 kind=3
+in timer seq=1
+out outcome attempt=1 kind=1
+out arm seq=2 drain=1
+in range first=0 last=1 chans=1 complete=0 bad=0
+out arm seq=3 drain=1
+in range first=2 last=2 chans=3 complete=0 bad=0
+out arm seq=4 drain=1
+in range first=3 last=3 chans=4 complete=1 bad=0
+out disarm
+in role role=0
+in role role=0
+in timer seq=3
+in start attempt=3
+out send_range
+out arm seq=5 drain=0
+in range first=0 last=1 chans=1 complete=0 bad=0
+out arm seq=6 drain=0
+in timer seq=5
+in range first=2 last=2 chans=3 complete=0 bad=0
+out arm seq=7 drain=0
+in range first=3 last=3 chans=4 complete=1 bad=0
+out disarm
+out outcome attempt=3 kind=2
+in timer seq=6
+in timer seq=6
+in role role=2
+out filter wants=1
+in timer seq=6
+in role role=0
+out filter wants=0
+in role role=0
+in role role=1
+out filter wants=1
+in timer seq=6
+in role role=2
+in timer seq=6
+begin chans=1,2,4 known=2 batch=2 max_replies=6 lookup_err=0
+in start attempt=1
+out send_range
+out arm seq=1 drain=0
+in role role=2
+out filter wants=1
+in role role=0
+out filter wants=0
+in start attempt=2
+out outcome attempt=2 kind=3
+in role role=2
+out filter wants=1
+in start attempt=3
+out outcome attempt=3 kind=3
+in range first=0 last=0 chans=1 complete=0 bad=0
+out arm seq=2 drain=0
+in range first=1 last=2 chans=2 complete=0 bad=0
+out arm seq=3 drain=0
+in range first=3 last=3 chans=4 complete=1 bad=0
+out send_scids scids=1,4
+out arm seq=4 drain=0
+in role role=2
+in timer seq=3
+in role role=2
+in role role=2
+in timer seq=3
+in timer seq=4
+out outcome attempt=1 kind=1
+out arm seq=5 drain=1
+in role role=0
+out filter wants=0
+in role role=1
+out filter wants=1
+in timer seq=5
+out disarm
+in role role=2
+in timer seq=4
+in role role=0
+out filter wants=0
+in role role=0
+in role role=0
+begin chans=2,3 known=2,3 batch=2 max_replies=6 lookup_err=0
+in start attempt=1
+out send_range
+out arm seq=1 drain=0
+in range first=0 last=3 chans=2,3 complete=1 bad=0
+out disarm
+out outcome attempt=1 kind=0
+in role role=0
+in start attempt=2
+out send_range
+out arm seq=2 drain=0
+in start attempt=3
+out outcome attempt=3 kind=3
+in range first=0 last=3 chans=2,3 complete=1 bad=0
+out disarm
+out outcome attempt=2 kind=0
+in timer seq=1
+in role role=2
+out filter wants=1
+in role role=0
+out filter wants=0
+in timer seq=1
+in timer seq=1
+in timer seq=1
+in role role=2
+out filter wants=1
+in timer seq=1
+in role role=0
+out filter wants=0
+in timer seq=1
+in role role=1
+out filter wants=1
+in role role=1
+in role role=1
+in timer seq=1
+in role role=2
+in timer seq=1
+in timer seq=1
+in role role=1
+begin chans=1,2 known=2 batch=2 max_replies=6 lookup_err=0
+in start attempt=1
+out send_range
+out arm seq=1 drain=0
+in role role=1
+out filter wants=1
+in start attempt=2
+out outcome attempt=2 kind=3
+in start attempt=3
+out outcome attempt=3 kind=3
+in role role=0
+out filter wants=0
+in role role=1
+out filter wants=1
+in timer seq=1
+out outcome attempt=1 kind=1
+out arm seq=2 drain=1
+in role role=0
+out filter wants=0
+in timer seq=2
+out disarm
+in role role=1
+out filter wants=1
+in role role=0
+out filter wants=0
+in timer seq=1
+in timer seq=1
+in role role=2
+out filter wants=1
+in timer seq=1
+in timer seq=1
+in timer seq=1
+in role role=0
+out filter wants=0
+in timer seq=1
+in role role=2
+out filter wants=1
+in role role=2
+in role role=1
+in timer seq=1
+begin chans=1,4 known=1 batch=1 max_replies=6 lookup_err=0
+in start attempt=1
+out send_range
+out arm seq=1 drain=0
+in range first=0 last=3 chans=1,4 complete=1 bad=0
+out send_scids scids=4
+out arm seq=2 drain=0
+in end
+out disarm
+out outcome attempt=1 kind=0
+in timer seq=1
+in role role=1
+out filter wants=1
+in role role=0
+out filter wants=0
+in timer seq=1
+in timer seq=1
+in start attempt=2
+out send_range
+out arm seq=3 drain=0
+in start attempt=3
+out outcome attempt=3 kind=3
+in timer seq=2
+in role role=0
+in role role=0
+in timer seq=2
+in timer seq=3
+out outcome attempt=2 kind=1
+out arm seq=4 drain=1
+in timer seq=4
+out disarm
+in role role=1
+out filter wants=1
+in timer seq=3
+in role role=1
+in role role=0
+out filter wants=0
+in timer seq=3
+in role role=0
+in role role=0
+begin chans=1,3 known=- batch=1 max_replies=6 lookup_err=0
+in role role=1
+out filter wants=1
+in role role=1
+in start attempt=1
+out send_range
+out arm seq=1 drain=0
+in timer seq=1
+out outcome attempt=1 kind=1
+out arm seq=2 drain=1
+in timer seq=1
+in role role=0
+out filter wants=0
+in range first=0 last=3 chans=1,3 complete=1 bad=0
+out disarm
+in start attempt=2
+out send_range
+out arm seq=3 drain=0
+in range first=0 last=3 chans=1,3 complete=1 bad=0
+out send_scids scids=1
+out arm seq=4 drain=0
+in start attempt=3
+out outcome attempt=3 kind=3
+in timer seq=3
+in timer seq=4
+out outcome attempt=2 kind=1
+out arm seq=5 drain=1
+in timer seq=5
+out disarm
+in timer seq=4
+in role role=0
+in timer seq=4
+in role role=2
+out filter wants=1
+in role role=2
+in role role=2
+in role role=1
+in role role=2
+in role role=0
+out filter wants=0
+in timer seq=4
+begin chans=1,2,3 known=1,3 batch=2 max_replies=6 lookup_err=0
+in role role=0
+in role role=1
+out filter wants=1
+in start attempt=1
+out send_range
+out arm seq=1 drain=0
+in range first=0 last=0 chans=1 complete=0 bad=0
+out arm seq=2 drain=0
+in range first=1 last=1 chans=2 complete=0 bad=0
+out arm seq=3 drain=0
+in timer seq=3
+out outcome attempt=1 kind=1
+out arm seq=4 drain=1
+in start attempt=2
+out outcome attempt=2 kind=3
+in start attempt=3
+out outcome attempt=3 kind=3
+in timer seq=3
+in timer seq=3
+in timer seq=4
+out disarm
+in role role=0
+out filter wants=0
+in role role=0
+in role role=0
+in timer seq=3
+in role role=1
+out filter wants=1
+in role role=2
+in timer seq=3
+in timer seq=3
+in role role=0
+out filter wants=0
+in role role=0
+in timer seq=3
+in timer seq=3
+begin chans=1,3 known=3 batch=2 max_replies=6 lookup_err=0
+in role role=1
+out filter wants=1
+in role role=1
+in start attempt=1
+out send_range
+out arm seq=1 drain=0
+in start attempt=2
+out outcome attempt=2 kind=3
+in start attempt=3
+out outcome attempt=3 kind=3
+in timer seq=1
+out outcome attempt=1 kind=1
+out arm seq=2 drain=1
+in timer seq=1
+in timer seq=1
+in timer seq=1
+in timer seq=1
+in timer seq=1
+in timer seq=2
+out disarm
+in timer seq=1
+in timer seq=1
+in timer seq=1
+in role role=0
+out filter wants=0
+in role role=0
+in timer seq=1
+in role role=2
+out filter wants=1
+in role role=0
+out filter wants=0
+in role role=1
+out filter wants=1
+in role role=1
+in role role=2
+begin chans=1,4 known=1 batch=1 max_replies=6 lookup_err=0
+in role role=1
+out filter wants=1
+in role role=1
+in start attempt=1
+out send_range
+out arm seq=1 drain=0
+in range first=0 last=2 chans=1 complete=0 bad=0
+out arm seq=2 drain=0
+in range first=3 last=3 chans=4 complete=1 bad=0
+out send_scids scids=4
+out arm seq=3 drain=0
+in timer seq=3
+out outcome attempt=1 kind=1
+out arm seq=4 drain=1
+in end
+out disarm
+in start attempt=2
+out send_range
+out arm seq=5 drain=0
+in timer seq=5
+out outcome attempt=2 kind=1
+out arm seq=6 drain=1
+in range first=0 last=2 chans=1 complete=0 bad=0
+out arm seq=7 drain=1
+in timer seq=6
+in range first=3 last=3 chans=4 complete=1 bad=0
+out disarm
+in timer seq=6
+in timer seq=6
+in timer seq=6
+in role role=1
+in timer seq=6
+in start attempt=3
+out send_range
+out arm seq=8 drain=0
+in role role=0
+out filter wants=0
+in range first=0 last=2 chans=1 complete=0 bad=0
+out arm seq=9 drain=0
+in timer seq=8
+in role role=2
+out filter wants=1
+in role role=2
+in timer seq=9
+out outcome attempt=3 kind=1
+out arm seq=10 drain=1
+in timer seq=10
+out disarm
+begin chans=2,3 known=- batch=1 max_replies=6 lookup_err=0
+in role role=0
+in role role=1
+out filter wants=1
+in role role=2
+in role role=0
+out filter wants=0
+in role role=0
+in start attempt=1
+out send_range
+out arm seq=1 drain=0
+in timer seq=1
+out outcome attempt=1 kind=1
+out arm seq=2 drain=1
+in start attempt=2
+out outcome attempt=2 kind=3
+in role role=0
+in start attempt=3
+out outcome attempt=3 kind=3
+in role role=1
+out filter wants=1
+in timer seq=2
+out disarm
+in role role=0
+out filter wants=0
+in timer seq=1
+in role role=0
+in timer seq=1
+in role role=0
+in timer seq=1
+in timer seq=1
+in role role=0
+in role role=0
+in timer seq=1
+in timer seq=1
+begin chans=2,4 known=4 batch=1 max_replies=6 lookup_err=0
+in start attempt=1
+out send_range
+out arm seq=1 drain=0
+in range first=0 last=3 chans=2,4 complete=1 bad=0
+out send_scids scids=2
+out arm seq=2 drain=0
+in start attempt=2
+out outcome attempt=2 kind=3
+in end
+out disarm
+out outcome attempt=1 kind=0
+in timer seq=1
+in timer seq=1
+in role role=0
+in start attempt=3
+out send_range
+out arm seq=3 drain=0
+in range first=0 last=3 chans=2,4 complete=1 bad=0
+out send_scids scids=2
+out arm seq=4 drain=0
+in end
+out disarm
+out outcome attempt=3 kind=0
+in timer seq=3
+in role role=2
+out filter wants=1
+in timer seq=3
+in role role=0
+out filter wants=0
+in timer seq=3
+in timer seq=3
+in timer seq=3
+in role role=0
+in role role=2
+out filter wants=1
+in timer seq=3
+in role role=0
+out filter wants=0
+in timer seq=3
+in role role=0
+in role role=0
+begin chans=2 known=- batch=2 max_replies=6 lookup_err=0
+in start attempt=1
+out send_range
+out arm seq=1 drain=0
+in range first=0 last=3 chans=2 complete=1 bad=0
+out send_scids scids=2
+out arm seq=2 drain=0
+in end
+out disarm
+out outcome attempt=1 kind=0
+in role role=0
+in timer seq=1
+in role role=0
+in timer seq=1
+in role role=0
+in role role=0
+in role role=1
+out filter wants=1
+in role role=0
+out filter wants=0
+in start attempt=2
+out send_range
+out arm seq=3 drain=0
+in timer seq=2
+in role role=1
+out filter wants=1
+in role role=1
+in timer seq=3
+out outcome attempt=2 kind=1
+out arm seq=4 drain=1
+in range first=0 last=3 chans=2 complete=1 bad=0
+out disarm
+in role role=0
+out filter wants=0
+in start attempt=3
+out send_range
+out arm seq=5 drain=0
+in range first=0 last=3 chans=2 complete=1 bad=0
+out send_scids scids=2
+out arm seq=6 drain=0
+in end
+out disarm
+out outcome attempt=3 kind=0
+in role role=0
+in role role=0
+in timer seq=5
+begin chans=2,3,4 known=- batch=1 max_replies=6 lookup_err=0
+in role role=1
+out filter wants=1
+in role role=1
+in role role=1
+in start attempt=1
+out send_range
+out arm seq=1 drain=0
+in range first=0 last=1 chans=2 complete=0 bad=0
+out arm seq=2 drain=0
+in range first=2 last=2 chans=3 complete=0 bad=0
+out arm seq=3 drain=0
+in start attempt=2
+out outcome attempt=2 kind=3
+in timer seq=3
+out outcome attempt=1 kind=1
+out arm seq=4 drain=1
+in timer seq=3
+in timer seq=4
+out disarm
+in timer seq=3
+in start attempt=3
+out send_range
+out arm seq=5 drain=0
+in timer seq=4
+in range first=0 last=1 chans=2 complete=0 bad=0
+out arm seq=6 drain=0
+in range first=2 last=2 chans=3 complete=0 bad=0
+out arm seq=7 drain=0
+in timer seq=7
+out outcome attempt=3 kind=1
+out arm seq=8 drain=1
+in range first=3 last=3 chans=4 complete=1 bad=0
+out disarm
+in role role=1
+in timer seq=7
+in timer seq=7
+in role role=2
+in role role=0
+out filter wants=0
+in timer seq=7
+begin chans=3 known=- batch=1 max_replies=6 lookup_err=0
+in role role=2
+out filter wants=1
+in role role=0
+out filter wants=0
+in start attempt=1
+out send_range
+out arm seq=1 drain=0
+in start attempt=2
+out outcome attempt=2 kind=3
+in range first=0 last=3 chans=3 complete=1 bad=0
+out send_scids scids=3
+out arm seq=2 drain=0
+in role role=0
+in role role=2
+out filter wants=1
+in end
+out disarm
+out outcome attempt=1 kind=0
+in role role=1
+in role role=1
+in timer seq=1
+in role role=0
+out filter wants=0
+in timer seq=1
+in start attempt=3
+out send_range
+out arm seq=3 drain=0
+in timer seq=2
+in role role=0
+in role role=0
+in range first=0 last=3 chans=3 complete=1 bad=0
+out send_scids scids=3
+out arm seq=4 drain=0
+in role role=0
+in role role=1
+out filter wants=1
+in end
+out disarm
+out outcome attempt=3 kind=0
+in role role=1
+in timer seq=3
+in role role=1
+begin chans=1,2 known=1 batch=1 max_replies=6 lookup_err=0
+in role role=2
+out filter wants=1
+in start attempt=1
+out send_range
+out arm seq=1 drain=0
+in start attempt=2
+out outcome attempt=2 kind=3
+in start attempt=3
+out outcome attempt=3 kind=3
+in timer seq=1
+out outcome attempt=1 kind=1
+out arm seq=2 drain=1
+in timer seq=2
+out disarm
+in timer seq=1
+in role role=2
+in timer seq=1
+in timer seq=1
+in timer seq=1
+in role role=0
+out filter wants=0
+in timer seq=1
+in timer seq=1
+in timer seq=1
+in role role=2
+out filter wants=1
+in timer seq=1
+in role role=1
+in timer seq=1
+in timer seq=1
+in role role=1
+in role role=0
+out filter wants=0
+in timer seq=1
+begin chans=2,4 known=- batch=2 max_replies=6 lookup_err=0
+in start attempt=1
+out send_range
+out arm seq=1 drain=0
+in role role=0
+in start attempt=2
+out outcome attempt=2 kind=3
+in timer seq=1
+out outcome attempt=1 kind=1
+out arm seq=2 drain=1
+in timer seq=2
+out disarm
+in role role=1
+out filter wants=1
+in start attempt=3
+out send_range
+out arm seq=3 drain=0
+in range first=0 last=2 chans=2 complete=0 bad=0
+out arm seq=4 drain=0
+in timer seq=3
+in timer seq=3
+in timer seq=3
+in role role=2
+in timer seq=4
+out outcome attempt=3 kind=1
+out arm seq=5 drain=1
+in role role=0
+out filter wants=0
+in timer seq=4
+in timer seq=4
+in timer seq=5
+out disarm
+in role role=2
+out filter wants=1
+in timer seq=4
+in timer seq=4
+in role role=1
+in role role=0
+out filter wants=0
+begin chans=1,2 known=- batch=2 max_replies=6 lookup_err=0
+in start attempt=1
+out send_range
+out arm seq=1 drain=0
+in range first=0 last=0 chans=1 complete=0 bad=0
+out arm seq=2 drain=0
+in start attempt=2
+out outcome attempt=2 kind=3
+in start attempt=3
+out outcome attempt=3 kind=3
+in role role=2
+out filter wants=1
+in timer seq=2
+out outcome attempt=1 kind=1
+out arm seq=3 drain=1
+in timer seq=3
+out disarm
+in role role=0
+out filter wants=0
+in role role=1
+out filter wants=1
+in timer seq=2
+in role role=0
+out filter wants=0
+in timer seq=2
+in role role=2
+out filter wants=1
+in role role=1
+in role role=1
+in role role=2
+in timer seq=2
+in timer seq=2
+in timer seq=2
+in timer seq=2
+in role role=2
+in role role=0
+out filter wants=0
+in timer seq=2
+begin chans=1,4 known=1,4 batch=2 max_replies=6 lookup_err=0
+in start attempt=1
+out send_range
+out arm seq=1 drain=0
+in range first=0 last=2 chans=1 complete=0 bad=0
+out arm seq=2 drain=0
+in range first=3 last=3 chans=4 complete=1 bad=0
+out disarm
+out outcome attempt=1 kind=0
+in timer seq=1
+in start attempt=2
+out send_range
+out arm seq=3 drain=0
+in timer seq=3
+out outcome attempt=2 kind=1
+out arm seq=4 drain=1
+in start attempt=3
+out outcome attempt=3 kind=3
+in timer seq=4
+out disarm
+in timer seq=3
+in timer seq=3
+in timer seq=3
+in timer seq=3
+in timer seq=3
+in timer seq=3
+in timer seq=3
+in timer seq=3
+in timer seq=3
+in role role=0
+in timer seq=3
+in role role=1
+out filter wants=1
+in role role=2
+in role role=2
+in role role=0
+out filter wants=0
+begin chans=1,2,3,4 known=1,3 batch=2 max_replies=6 lookup_err=0
+in start attempt=1
+out send_range
+out arm seq=1 drain=0
+in start attempt=2
+out outcome attempt=2 kind=3
+in role role=0
+in start attempt=3
+out outcome attempt=3 kind=3
+in role role=1
+out filter wants=1
+in timer seq=1
+out outcome attempt=1 kind=1
+out arm seq=2 drain=1
+in role role=2
+in role role=0
+out filter wants=0
+in timer seq=1
+in timer seq=1
+in role role=0
+in role role=2
+out filter wants=1
+in role role=2
+in timer seq=2
+out disarm
+in role role=2
+in timer seq=1
+in role role=2
+in timer seq=1
+in timer seq=1
+in timer seq=1
+in timer seq=1
+in role role=0
+out filter wants=0
+in role role=1
+out filter wants=1
+begin chans=3,4 known=- batch=2 max_replies=6 lookup_err=1
+in start attempt=1
+out send_range
+out arm seq=1 drain=0
+in timer seq=1
+out outcome attempt=1 kind=1
+out arm seq=2 drain=1
+in timer seq=1
+in timer seq=2
+out disarm
+in start attempt=2
+out send_range
+out arm seq=3 drain=0
+in start attempt=3
+out outcome attempt=3 kind=3
+in timer seq=2
+in range first=0 last=3 chans=3,4 complete=1 bad=0
+out disarm
+out outcome attempt=2 kind=2
+in timer seq=2
+in role role=1
+out filter wants=1
+in timer seq=2
+in role role=2
+in role role=2
+in role role=1
+in timer seq=2
+in timer seq=2
+in role role=2
+in role role=2
+in timer seq=2
+in role role=0
+out filter wants=0
+in role role=0
+in timer seq=2
+in timer seq=2
+begin chans=4 known=- batch=1 max_replies=6 lookup_err=0
+in role role=0
+in start attempt=1
+out send_range
+out arm seq=1 drain=0
+in role role=1
+out filter wants=1
+in start attempt=2
+out outcome attempt=2 kind=3
+in timer seq=1
+out outcome attempt=1 kind=1
+out arm seq=2 drain=1
+in timer seq=2
+out disarm
+in timer seq=1
+in timer seq=1
+in start attempt=3
+out send_range
+out arm seq=3 drain=0
+in role role=1
+in timer seq=2
+in timer seq=2
+in timer seq=3
+out outcome attempt=3 kind=1
+out arm seq=4 drain=1
+in role role=0
+out filter wants=0
+in timer seq=3
+in timer seq=4
+out disarm
+in timer seq=3
+in role role=1
+out filter wants=1
+in role role=0
+out filter wants=0
+in role role=0
+in timer seq=3
+in role role=0
+begin chans=2,3 known=3 batch=1 max_replies=6 lookup_err=0
+in start attempt=1
+out send_range
+out arm seq=1 drain=0
+in range first=0 last=1 chans=2 complete=0 bad=0
+out arm seq=2 drain=0
+in timer seq=2
+out outcome attempt=1 kind=1
+out arm seq=3 drain=1
+in timer seq=2
+in timer seq=2
+in start attempt=2
+out outcome attempt=2 kind=3
+in timer seq=3
+out disarm
+in role role=0
+in role role=2
+out filter wants=1
+in role role=0
+out filter wants=0
+in start attempt=3
+out send_range
+out arm seq=4 drain=0
+in range first=0 last=1 chans=2 complete=0 bad=0
+out arm seq=5 drain=0
+in range first=2 last=3 chans=3 complete=1 bad=0
+out send_scids scids=2
+out arm seq=6 drain=0
+in end
+out disarm
+out outcome attempt=3 kind=0
+in timer seq=5
+in timer seq=5
+in timer seq=5
+in timer seq=5
+in role role=2
+out filter wants=1
+in role role=0
+out filter wants=0
+in timer seq=5
+in timer seq=5
+in timer seq=5

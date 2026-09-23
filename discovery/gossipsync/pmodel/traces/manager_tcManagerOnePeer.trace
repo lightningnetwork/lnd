@@ -1,0 +1,756 @@
+begin num_active=1
+in connect pub=1 pinned=0
+choice kind=start session=1 from=1
+snap roles=1:P synced=0 tracked=1 inflight=1 started=1 reset=1 publish=0
+in hist_tick
+snap roles=1:P synced=0 tracked=1 inflight=1 started=- reset=0 publish=0
+in hist_tick
+snap roles=1:P synced=0 tracked=1 inflight=1 started=- reset=0 publish=0
+in hist_tick
+snap roles=1:P synced=0 tracked=1 inflight=1 started=- reset=0 publish=0
+in hist_tick
+snap roles=1:P synced=0 tracked=1 inflight=1 started=- reset=0 publish=0
+in hist_tick
+snap roles=1:P synced=0 tracked=1 inflight=1 started=- reset=0 publish=0
+in hist_tick
+snap roles=1:P synced=0 tracked=1 inflight=1 started=- reset=0 publish=0
+in outcome session=1 attempt=1 kind=0
+choice kind=promote session=1 from=1
+snap roles=1:A synced=1 tracked=0 inflight=- started=- reset=0 publish=1
+begin num_active=1
+in connect pub=1 pinned=0
+choice kind=start session=1 from=1
+snap roles=1:P synced=0 tracked=1 inflight=1 started=1 reset=1 publish=0
+in hist_tick
+snap roles=1:P synced=0 tracked=1 inflight=1 started=- reset=0 publish=0
+in hist_tick
+snap roles=1:P synced=0 tracked=1 inflight=1 started=- reset=0 publish=0
+in hist_tick
+snap roles=1:P synced=0 tracked=1 inflight=1 started=- reset=0 publish=0
+in hist_tick
+snap roles=1:P synced=0 tracked=1 inflight=1 started=- reset=0 publish=0
+in hist_tick
+snap roles=1:P synced=0 tracked=1 inflight=1 started=- reset=0 publish=0
+in hist_tick
+snap roles=1:P synced=0 tracked=1 inflight=1 started=- reset=0 publish=0
+in outcome session=1 attempt=1 kind=0
+choice kind=promote session=1 from=1
+snap roles=1:A synced=1 tracked=0 inflight=- started=- reset=0 publish=1
+begin num_active=1
+in connect pub=1 pinned=0
+choice kind=start session=1 from=1
+snap roles=1:P synced=0 tracked=1 inflight=1 started=1 reset=1 publish=0
+in hist_tick
+snap roles=1:P synced=0 tracked=1 inflight=1 started=- reset=0 publish=0
+in hist_tick
+snap roles=1:P synced=0 tracked=1 inflight=1 started=- reset=0 publish=0
+in hist_tick
+snap roles=1:P synced=0 tracked=1 inflight=1 started=- reset=0 publish=0
+in hist_tick
+snap roles=1:P synced=0 tracked=1 inflight=1 started=- reset=0 publish=0
+in hist_tick
+snap roles=1:P synced=0 tracked=1 inflight=1 started=- reset=0 publish=0
+in hist_tick
+snap roles=1:P synced=0 tracked=1 inflight=1 started=- reset=0 publish=0
+in outcome session=1 attempt=1 kind=0
+choice kind=promote session=1 from=1
+snap roles=1:A synced=1 tracked=0 inflight=- started=- reset=0 publish=1
+begin num_active=1
+in connect pub=1 pinned=0
+choice kind=start session=1 from=1
+snap roles=1:P synced=0 tracked=1 inflight=1 started=1 reset=1 publish=0
+in hist_tick
+snap roles=1:P synced=0 tracked=1 inflight=1 started=- reset=0 publish=0
+in hist_tick
+snap roles=1:P synced=0 tracked=1 inflight=1 started=- reset=0 publish=0
+in hist_tick
+snap roles=1:P synced=0 tracked=1 inflight=1 started=- reset=0 publish=0
+in hist_tick
+snap roles=1:P synced=0 tracked=1 inflight=1 started=- reset=0 publish=0
+in hist_tick
+snap roles=1:P synced=0 tracked=1 inflight=1 started=- reset=0 publish=0
+in hist_tick
+snap roles=1:P synced=0 tracked=1 inflight=1 started=- reset=0 publish=0
+in outcome session=1 attempt=1 kind=2
+snap roles=1:P synced=0 tracked=0 inflight=- started=- reset=0 publish=0
+begin num_active=1
+in connect pub=1 pinned=0
+choice kind=start session=1 from=1
+snap roles=1:P synced=0 tracked=1 inflight=1 started=1 reset=1 publish=0
+in hist_tick
+snap roles=1:P synced=0 tracked=1 inflight=1 started=- reset=0 publish=0
+in hist_tick
+snap roles=1:P synced=0 tracked=1 inflight=1 started=- reset=0 publish=0
+in hist_tick
+snap roles=1:P synced=0 tracked=1 inflight=1 started=- reset=0 publish=0
+in hist_tick
+snap roles=1:P synced=0 tracked=1 inflight=1 started=- reset=0 publish=0
+in hist_tick
+snap roles=1:P synced=0 tracked=1 inflight=1 started=- reset=0 publish=0
+in hist_tick
+snap roles=1:P synced=0 tracked=1 inflight=1 started=- reset=0 publish=0
+in outcome session=1 attempt=1 kind=2
+snap roles=1:P synced=0 tracked=0 inflight=- started=- reset=0 publish=0
+begin num_active=1
+in connect pub=1 pinned=0
+choice kind=start session=1 from=1
+snap roles=1:P synced=0 tracked=1 inflight=1 started=1 reset=1 publish=0
+in hist_tick
+snap roles=1:P synced=0 tracked=1 inflight=1 started=- reset=0 publish=0
+in hist_tick
+snap roles=1:P synced=0 tracked=1 inflight=1 started=- reset=0 publish=0
+in hist_tick
+snap roles=1:P synced=0 tracked=1 inflight=1 started=- reset=0 publish=0
+in hist_tick
+snap roles=1:P synced=0 tracked=1 inflight=1 started=- reset=0 publish=0
+in outcome session=1 attempt=1 kind=0
+choice kind=promote session=1 from=1
+snap roles=1:A synced=1 tracked=0 inflight=- started=- reset=0 publish=1
+in hist_tick
+choice kind=start session=1 from=1
+snap roles=1:A synced=1 tracked=0 inflight=1 started=2 reset=0 publish=0
+in hist_tick
+snap roles=1:A synced=1 tracked=0 inflight=1 started=- reset=0 publish=0
+in outcome session=1 attempt=2 kind=1
+snap roles=1:A synced=1 tracked=0 inflight=- started=- reset=0 publish=0
+begin num_active=1
+in connect pub=1 pinned=0
+choice kind=start session=1 from=1
+snap roles=1:P synced=0 tracked=1 inflight=1 started=1 reset=1 publish=0
+in hist_tick
+snap roles=1:P synced=0 tracked=1 inflight=1 started=- reset=0 publish=0
+in hist_tick
+snap roles=1:P synced=0 tracked=1 inflight=1 started=- reset=0 publish=0
+in hist_tick
+snap roles=1:P synced=0 tracked=1 inflight=1 started=- reset=0 publish=0
+in hist_tick
+snap roles=1:P synced=0 tracked=1 inflight=1 started=- reset=0 publish=0
+in hist_tick
+snap roles=1:P synced=0 tracked=1 inflight=1 started=- reset=0 publish=0
+in hist_tick
+snap roles=1:P synced=0 tracked=1 inflight=1 started=- reset=0 publish=0
+in outcome session=1 attempt=1 kind=1
+snap roles=1:P synced=0 tracked=0 inflight=- started=- reset=0 publish=0
+begin num_active=1
+in connect pub=1 pinned=0
+choice kind=start session=1 from=1
+snap roles=1:P synced=0 tracked=1 inflight=1 started=1 reset=1 publish=0
+in hist_tick
+snap roles=1:P synced=0 tracked=1 inflight=1 started=- reset=0 publish=0
+in hist_tick
+snap roles=1:P synced=0 tracked=1 inflight=1 started=- reset=0 publish=0
+in hist_tick
+snap roles=1:P synced=0 tracked=1 inflight=1 started=- reset=0 publish=0
+in hist_tick
+snap roles=1:P synced=0 tracked=1 inflight=1 started=- reset=0 publish=0
+in hist_tick
+snap roles=1:P synced=0 tracked=1 inflight=1 started=- reset=0 publish=0
+in hist_tick
+snap roles=1:P synced=0 tracked=1 inflight=1 started=- reset=0 publish=0
+in outcome session=1 attempt=1 kind=0
+choice kind=promote session=1 from=1
+snap roles=1:A synced=1 tracked=0 inflight=- started=- reset=0 publish=1
+begin num_active=1
+in connect pub=1 pinned=0
+choice kind=start session=1 from=1
+snap roles=1:P synced=0 tracked=1 inflight=1 started=1 reset=1 publish=0
+in hist_tick
+snap roles=1:P synced=0 tracked=1 inflight=1 started=- reset=0 publish=0
+in hist_tick
+snap roles=1:P synced=0 tracked=1 inflight=1 started=- reset=0 publish=0
+in hist_tick
+snap roles=1:P synced=0 tracked=1 inflight=1 started=- reset=0 publish=0
+in hist_tick
+snap roles=1:P synced=0 tracked=1 inflight=1 started=- reset=0 publish=0
+in hist_tick
+snap roles=1:P synced=0 tracked=1 inflight=1 started=- reset=0 publish=0
+in hist_tick
+snap roles=1:P synced=0 tracked=1 inflight=1 started=- reset=0 publish=0
+in outcome session=1 attempt=1 kind=0
+choice kind=promote session=1 from=1
+snap roles=1:A synced=1 tracked=0 inflight=- started=- reset=0 publish=1
+begin num_active=1
+in connect pub=1 pinned=0
+choice kind=start session=1 from=1
+snap roles=1:P synced=0 tracked=1 inflight=1 started=1 reset=1 publish=0
+in hist_tick
+snap roles=1:P synced=0 tracked=1 inflight=1 started=- reset=0 publish=0
+in hist_tick
+snap roles=1:P synced=0 tracked=1 inflight=1 started=- reset=0 publish=0
+in hist_tick
+snap roles=1:P synced=0 tracked=1 inflight=1 started=- reset=0 publish=0
+in hist_tick
+snap roles=1:P synced=0 tracked=1 inflight=1 started=- reset=0 publish=0
+in hist_tick
+snap roles=1:P synced=0 tracked=1 inflight=1 started=- reset=0 publish=0
+in hist_tick
+snap roles=1:P synced=0 tracked=1 inflight=1 started=- reset=0 publish=0
+in outcome session=1 attempt=1 kind=2
+snap roles=1:P synced=0 tracked=0 inflight=- started=- reset=0 publish=0
+begin num_active=1
+in connect pub=1 pinned=0
+choice kind=start session=1 from=1
+snap roles=1:P synced=0 tracked=1 inflight=1 started=1 reset=1 publish=0
+in hist_tick
+snap roles=1:P synced=0 tracked=1 inflight=1 started=- reset=0 publish=0
+in hist_tick
+snap roles=1:P synced=0 tracked=1 inflight=1 started=- reset=0 publish=0
+in hist_tick
+snap roles=1:P synced=0 tracked=1 inflight=1 started=- reset=0 publish=0
+in hist_tick
+snap roles=1:P synced=0 tracked=1 inflight=1 started=- reset=0 publish=0
+in hist_tick
+snap roles=1:P synced=0 tracked=1 inflight=1 started=- reset=0 publish=0
+in hist_tick
+snap roles=1:P synced=0 tracked=1 inflight=1 started=- reset=0 publish=0
+in outcome session=1 attempt=1 kind=0
+choice kind=promote session=1 from=1
+snap roles=1:A synced=1 tracked=0 inflight=- started=- reset=0 publish=1
+begin num_active=1
+in connect pub=1 pinned=0
+choice kind=start session=1 from=1
+snap roles=1:P synced=0 tracked=1 inflight=1 started=1 reset=1 publish=0
+in hist_tick
+snap roles=1:P synced=0 tracked=1 inflight=1 started=- reset=0 publish=0
+in hist_tick
+snap roles=1:P synced=0 tracked=1 inflight=1 started=- reset=0 publish=0
+in hist_tick
+snap roles=1:P synced=0 tracked=1 inflight=1 started=- reset=0 publish=0
+in hist_tick
+snap roles=1:P synced=0 tracked=1 inflight=1 started=- reset=0 publish=0
+in hist_tick
+snap roles=1:P synced=0 tracked=1 inflight=1 started=- reset=0 publish=0
+in hist_tick
+snap roles=1:P synced=0 tracked=1 inflight=1 started=- reset=0 publish=0
+in outcome session=1 attempt=1 kind=2
+snap roles=1:P synced=0 tracked=0 inflight=- started=- reset=0 publish=0
+begin num_active=1
+in connect pub=1 pinned=0
+choice kind=start session=1 from=1
+snap roles=1:P synced=0 tracked=1 inflight=1 started=1 reset=1 publish=0
+in hist_tick
+snap roles=1:P synced=0 tracked=1 inflight=1 started=- reset=0 publish=0
+in hist_tick
+snap roles=1:P synced=0 tracked=1 inflight=1 started=- reset=0 publish=0
+in hist_tick
+snap roles=1:P synced=0 tracked=1 inflight=1 started=- reset=0 publish=0
+in hist_tick
+snap roles=1:P synced=0 tracked=1 inflight=1 started=- reset=0 publish=0
+in hist_tick
+snap roles=1:P synced=0 tracked=1 inflight=1 started=- reset=0 publish=0
+in hist_tick
+snap roles=1:P synced=0 tracked=1 inflight=1 started=- reset=0 publish=0
+in outcome session=1 attempt=1 kind=2
+snap roles=1:P synced=0 tracked=0 inflight=- started=- reset=0 publish=0
+begin num_active=1
+in connect pub=1 pinned=0
+choice kind=start session=1 from=1
+snap roles=1:P synced=0 tracked=1 inflight=1 started=1 reset=1 publish=0
+in hist_tick
+snap roles=1:P synced=0 tracked=1 inflight=1 started=- reset=0 publish=0
+in hist_tick
+snap roles=1:P synced=0 tracked=1 inflight=1 started=- reset=0 publish=0
+in hist_tick
+snap roles=1:P synced=0 tracked=1 inflight=1 started=- reset=0 publish=0
+in hist_tick
+snap roles=1:P synced=0 tracked=1 inflight=1 started=- reset=0 publish=0
+in hist_tick
+snap roles=1:P synced=0 tracked=1 inflight=1 started=- reset=0 publish=0
+in hist_tick
+snap roles=1:P synced=0 tracked=1 inflight=1 started=- reset=0 publish=0
+in outcome session=1 attempt=1 kind=2
+snap roles=1:P synced=0 tracked=0 inflight=- started=- reset=0 publish=0
+begin num_active=1
+in connect pub=1 pinned=0
+choice kind=start session=1 from=1
+snap roles=1:P synced=0 tracked=1 inflight=1 started=1 reset=1 publish=0
+in hist_tick
+snap roles=1:P synced=0 tracked=1 inflight=1 started=- reset=0 publish=0
+in hist_tick
+snap roles=1:P synced=0 tracked=1 inflight=1 started=- reset=0 publish=0
+in hist_tick
+snap roles=1:P synced=0 tracked=1 inflight=1 started=- reset=0 publish=0
+in hist_tick
+snap roles=1:P synced=0 tracked=1 inflight=1 started=- reset=0 publish=0
+in hist_tick
+snap roles=1:P synced=0 tracked=1 inflight=1 started=- reset=0 publish=0
+in outcome session=1 attempt=1 kind=1
+snap roles=1:P synced=0 tracked=0 inflight=- started=- reset=0 publish=0
+in hist_tick
+choice kind=start session=1 from=1
+snap roles=1:P synced=0 tracked=1 inflight=1 started=2 reset=1 publish=0
+in outcome session=1 attempt=2 kind=0
+choice kind=promote session=1 from=1
+snap roles=1:A synced=1 tracked=0 inflight=- started=- reset=0 publish=1
+begin num_active=1
+in connect pub=1 pinned=0
+choice kind=start session=1 from=1
+snap roles=1:P synced=0 tracked=1 inflight=1 started=1 reset=1 publish=0
+in hist_tick
+snap roles=1:P synced=0 tracked=1 inflight=1 started=- reset=0 publish=0
+in hist_tick
+snap roles=1:P synced=0 tracked=1 inflight=1 started=- reset=0 publish=0
+in hist_tick
+snap roles=1:P synced=0 tracked=1 inflight=1 started=- reset=0 publish=0
+in hist_tick
+snap roles=1:P synced=0 tracked=1 inflight=1 started=- reset=0 publish=0
+in hist_tick
+snap roles=1:P synced=0 tracked=1 inflight=1 started=- reset=0 publish=0
+in outcome session=1 attempt=1 kind=2
+snap roles=1:P synced=0 tracked=0 inflight=- started=- reset=0 publish=0
+in hist_tick
+choice kind=start session=1 from=1
+snap roles=1:P synced=0 tracked=1 inflight=1 started=2 reset=1 publish=0
+in outcome session=1 attempt=2 kind=1
+snap roles=1:P synced=0 tracked=0 inflight=- started=- reset=0 publish=0
+begin num_active=1
+in connect pub=1 pinned=0
+choice kind=start session=1 from=1
+snap roles=1:P synced=0 tracked=1 inflight=1 started=1 reset=1 publish=0
+in hist_tick
+snap roles=1:P synced=0 tracked=1 inflight=1 started=- reset=0 publish=0
+in hist_tick
+snap roles=1:P synced=0 tracked=1 inflight=1 started=- reset=0 publish=0
+in hist_tick
+snap roles=1:P synced=0 tracked=1 inflight=1 started=- reset=0 publish=0
+in hist_tick
+snap roles=1:P synced=0 tracked=1 inflight=1 started=- reset=0 publish=0
+in hist_tick
+snap roles=1:P synced=0 tracked=1 inflight=1 started=- reset=0 publish=0
+in hist_tick
+snap roles=1:P synced=0 tracked=1 inflight=1 started=- reset=0 publish=0
+in outcome session=1 attempt=1 kind=0
+choice kind=promote session=1 from=1
+snap roles=1:A synced=1 tracked=0 inflight=- started=- reset=0 publish=1
+begin num_active=1
+in connect pub=1 pinned=0
+choice kind=start session=1 from=1
+snap roles=1:P synced=0 tracked=1 inflight=1 started=1 reset=1 publish=0
+in hist_tick
+snap roles=1:P synced=0 tracked=1 inflight=1 started=- reset=0 publish=0
+in hist_tick
+snap roles=1:P synced=0 tracked=1 inflight=1 started=- reset=0 publish=0
+in hist_tick
+snap roles=1:P synced=0 tracked=1 inflight=1 started=- reset=0 publish=0
+in hist_tick
+snap roles=1:P synced=0 tracked=1 inflight=1 started=- reset=0 publish=0
+in hist_tick
+snap roles=1:P synced=0 tracked=1 inflight=1 started=- reset=0 publish=0
+in hist_tick
+snap roles=1:P synced=0 tracked=1 inflight=1 started=- reset=0 publish=0
+in outcome session=1 attempt=1 kind=2
+snap roles=1:P synced=0 tracked=0 inflight=- started=- reset=0 publish=0
+begin num_active=1
+in connect pub=1 pinned=0
+choice kind=start session=1 from=1
+snap roles=1:P synced=0 tracked=1 inflight=1 started=1 reset=1 publish=0
+in hist_tick
+snap roles=1:P synced=0 tracked=1 inflight=1 started=- reset=0 publish=0
+in hist_tick
+snap roles=1:P synced=0 tracked=1 inflight=1 started=- reset=0 publish=0
+in hist_tick
+snap roles=1:P synced=0 tracked=1 inflight=1 started=- reset=0 publish=0
+in hist_tick
+snap roles=1:P synced=0 tracked=1 inflight=1 started=- reset=0 publish=0
+in hist_tick
+snap roles=1:P synced=0 tracked=1 inflight=1 started=- reset=0 publish=0
+in hist_tick
+snap roles=1:P synced=0 tracked=1 inflight=1 started=- reset=0 publish=0
+in outcome session=1 attempt=1 kind=2
+snap roles=1:P synced=0 tracked=0 inflight=- started=- reset=0 publish=0
+begin num_active=1
+in connect pub=1 pinned=0
+choice kind=start session=1 from=1
+snap roles=1:P synced=0 tracked=1 inflight=1 started=1 reset=1 publish=0
+in hist_tick
+snap roles=1:P synced=0 tracked=1 inflight=1 started=- reset=0 publish=0
+in hist_tick
+snap roles=1:P synced=0 tracked=1 inflight=1 started=- reset=0 publish=0
+in hist_tick
+snap roles=1:P synced=0 tracked=1 inflight=1 started=- reset=0 publish=0
+in hist_tick
+snap roles=1:P synced=0 tracked=1 inflight=1 started=- reset=0 publish=0
+in hist_tick
+snap roles=1:P synced=0 tracked=1 inflight=1 started=- reset=0 publish=0
+in hist_tick
+snap roles=1:P synced=0 tracked=1 inflight=1 started=- reset=0 publish=0
+in outcome session=1 attempt=1 kind=2
+snap roles=1:P synced=0 tracked=0 inflight=- started=- reset=0 publish=0
+begin num_active=1
+in connect pub=1 pinned=0
+choice kind=start session=1 from=1
+snap roles=1:P synced=0 tracked=1 inflight=1 started=1 reset=1 publish=0
+in hist_tick
+snap roles=1:P synced=0 tracked=1 inflight=1 started=- reset=0 publish=0
+in hist_tick
+snap roles=1:P synced=0 tracked=1 inflight=1 started=- reset=0 publish=0
+in hist_tick
+snap roles=1:P synced=0 tracked=1 inflight=1 started=- reset=0 publish=0
+in hist_tick
+snap roles=1:P synced=0 tracked=1 inflight=1 started=- reset=0 publish=0
+in outcome session=1 attempt=1 kind=2
+snap roles=1:P synced=0 tracked=0 inflight=- started=- reset=0 publish=0
+in hist_tick
+choice kind=start session=1 from=1
+snap roles=1:P synced=0 tracked=1 inflight=1 started=2 reset=1 publish=0
+in hist_tick
+snap roles=1:P synced=0 tracked=1 inflight=1 started=- reset=0 publish=0
+in outcome session=1 attempt=2 kind=1
+snap roles=1:P synced=0 tracked=0 inflight=- started=- reset=0 publish=0
+begin num_active=1
+in connect pub=1 pinned=0
+choice kind=start session=1 from=1
+snap roles=1:P synced=0 tracked=1 inflight=1 started=1 reset=1 publish=0
+in hist_tick
+snap roles=1:P synced=0 tracked=1 inflight=1 started=- reset=0 publish=0
+in hist_tick
+snap roles=1:P synced=0 tracked=1 inflight=1 started=- reset=0 publish=0
+in hist_tick
+snap roles=1:P synced=0 tracked=1 inflight=1 started=- reset=0 publish=0
+in hist_tick
+snap roles=1:P synced=0 tracked=1 inflight=1 started=- reset=0 publish=0
+in hist_tick
+snap roles=1:P synced=0 tracked=1 inflight=1 started=- reset=0 publish=0
+in hist_tick
+snap roles=1:P synced=0 tracked=1 inflight=1 started=- reset=0 publish=0
+in outcome session=1 attempt=1 kind=2
+snap roles=1:P synced=0 tracked=0 inflight=- started=- reset=0 publish=0
+begin num_active=1
+in connect pub=1 pinned=0
+choice kind=start session=1 from=1
+snap roles=1:P synced=0 tracked=1 inflight=1 started=1 reset=1 publish=0
+in hist_tick
+snap roles=1:P synced=0 tracked=1 inflight=1 started=- reset=0 publish=0
+in hist_tick
+snap roles=1:P synced=0 tracked=1 inflight=1 started=- reset=0 publish=0
+in hist_tick
+snap roles=1:P synced=0 tracked=1 inflight=1 started=- reset=0 publish=0
+in hist_tick
+snap roles=1:P synced=0 tracked=1 inflight=1 started=- reset=0 publish=0
+in hist_tick
+snap roles=1:P synced=0 tracked=1 inflight=1 started=- reset=0 publish=0
+in hist_tick
+snap roles=1:P synced=0 tracked=1 inflight=1 started=- reset=0 publish=0
+in outcome session=1 attempt=1 kind=0
+choice kind=promote session=1 from=1
+snap roles=1:A synced=1 tracked=0 inflight=- started=- reset=0 publish=1
+begin num_active=1
+in connect pub=1 pinned=0
+choice kind=start session=1 from=1
+snap roles=1:P synced=0 tracked=1 inflight=1 started=1 reset=1 publish=0
+in hist_tick
+snap roles=1:P synced=0 tracked=1 inflight=1 started=- reset=0 publish=0
+in hist_tick
+snap roles=1:P synced=0 tracked=1 inflight=1 started=- reset=0 publish=0
+in hist_tick
+snap roles=1:P synced=0 tracked=1 inflight=1 started=- reset=0 publish=0
+in hist_tick
+snap roles=1:P synced=0 tracked=1 inflight=1 started=- reset=0 publish=0
+in hist_tick
+snap roles=1:P synced=0 tracked=1 inflight=1 started=- reset=0 publish=0
+in hist_tick
+snap roles=1:P synced=0 tracked=1 inflight=1 started=- reset=0 publish=0
+in outcome session=1 attempt=1 kind=2
+snap roles=1:P synced=0 tracked=0 inflight=- started=- reset=0 publish=0
+begin num_active=1
+in connect pub=1 pinned=0
+choice kind=start session=1 from=1
+snap roles=1:P synced=0 tracked=1 inflight=1 started=1 reset=1 publish=0
+in hist_tick
+snap roles=1:P synced=0 tracked=1 inflight=1 started=- reset=0 publish=0
+in hist_tick
+snap roles=1:P synced=0 tracked=1 inflight=1 started=- reset=0 publish=0
+in hist_tick
+snap roles=1:P synced=0 tracked=1 inflight=1 started=- reset=0 publish=0
+in hist_tick
+snap roles=1:P synced=0 tracked=1 inflight=1 started=- reset=0 publish=0
+in hist_tick
+snap roles=1:P synced=0 tracked=1 inflight=1 started=- reset=0 publish=0
+in hist_tick
+snap roles=1:P synced=0 tracked=1 inflight=1 started=- reset=0 publish=0
+in outcome session=1 attempt=1 kind=2
+snap roles=1:P synced=0 tracked=0 inflight=- started=- reset=0 publish=0
+begin num_active=1
+in connect pub=1 pinned=0
+choice kind=start session=1 from=1
+snap roles=1:P synced=0 tracked=1 inflight=1 started=1 reset=1 publish=0
+in hist_tick
+snap roles=1:P synced=0 tracked=1 inflight=1 started=- reset=0 publish=0
+in hist_tick
+snap roles=1:P synced=0 tracked=1 inflight=1 started=- reset=0 publish=0
+in hist_tick
+snap roles=1:P synced=0 tracked=1 inflight=1 started=- reset=0 publish=0
+in hist_tick
+snap roles=1:P synced=0 tracked=1 inflight=1 started=- reset=0 publish=0
+in hist_tick
+snap roles=1:P synced=0 tracked=1 inflight=1 started=- reset=0 publish=0
+in hist_tick
+snap roles=1:P synced=0 tracked=1 inflight=1 started=- reset=0 publish=0
+in outcome session=1 attempt=1 kind=1
+snap roles=1:P synced=0 tracked=0 inflight=- started=- reset=0 publish=0
+begin num_active=1
+in connect pub=1 pinned=0
+choice kind=start session=1 from=1
+snap roles=1:P synced=0 tracked=1 inflight=1 started=1 reset=1 publish=0
+in hist_tick
+snap roles=1:P synced=0 tracked=1 inflight=1 started=- reset=0 publish=0
+in hist_tick
+snap roles=1:P synced=0 tracked=1 inflight=1 started=- reset=0 publish=0
+in hist_tick
+snap roles=1:P synced=0 tracked=1 inflight=1 started=- reset=0 publish=0
+in hist_tick
+snap roles=1:P synced=0 tracked=1 inflight=1 started=- reset=0 publish=0
+in hist_tick
+snap roles=1:P synced=0 tracked=1 inflight=1 started=- reset=0 publish=0
+in hist_tick
+snap roles=1:P synced=0 tracked=1 inflight=1 started=- reset=0 publish=0
+in outcome session=1 attempt=1 kind=1
+snap roles=1:P synced=0 tracked=0 inflight=- started=- reset=0 publish=0
+begin num_active=1
+in connect pub=1 pinned=0
+choice kind=start session=1 from=1
+snap roles=1:P synced=0 tracked=1 inflight=1 started=1 reset=1 publish=0
+in hist_tick
+snap roles=1:P synced=0 tracked=1 inflight=1 started=- reset=0 publish=0
+in hist_tick
+snap roles=1:P synced=0 tracked=1 inflight=1 started=- reset=0 publish=0
+in outcome session=1 attempt=1 kind=1
+snap roles=1:P synced=0 tracked=0 inflight=- started=- reset=0 publish=0
+in hist_tick
+choice kind=start session=1 from=1
+snap roles=1:P synced=0 tracked=1 inflight=1 started=2 reset=1 publish=0
+in hist_tick
+snap roles=1:P synced=0 tracked=1 inflight=1 started=- reset=0 publish=0
+in hist_tick
+snap roles=1:P synced=0 tracked=1 inflight=1 started=- reset=0 publish=0
+in hist_tick
+snap roles=1:P synced=0 tracked=1 inflight=1 started=- reset=0 publish=0
+in outcome session=1 attempt=2 kind=2
+snap roles=1:P synced=0 tracked=0 inflight=- started=- reset=0 publish=0
+begin num_active=1
+in connect pub=1 pinned=0
+choice kind=start session=1 from=1
+snap roles=1:P synced=0 tracked=1 inflight=1 started=1 reset=1 publish=0
+in hist_tick
+snap roles=1:P synced=0 tracked=1 inflight=1 started=- reset=0 publish=0
+in hist_tick
+snap roles=1:P synced=0 tracked=1 inflight=1 started=- reset=0 publish=0
+in hist_tick
+snap roles=1:P synced=0 tracked=1 inflight=1 started=- reset=0 publish=0
+in hist_tick
+snap roles=1:P synced=0 tracked=1 inflight=1 started=- reset=0 publish=0
+in hist_tick
+snap roles=1:P synced=0 tracked=1 inflight=1 started=- reset=0 publish=0
+in hist_tick
+snap roles=1:P synced=0 tracked=1 inflight=1 started=- reset=0 publish=0
+in outcome session=1 attempt=1 kind=1
+snap roles=1:P synced=0 tracked=0 inflight=- started=- reset=0 publish=0
+begin num_active=1
+in connect pub=1 pinned=0
+choice kind=start session=1 from=1
+snap roles=1:P synced=0 tracked=1 inflight=1 started=1 reset=1 publish=0
+in hist_tick
+snap roles=1:P synced=0 tracked=1 inflight=1 started=- reset=0 publish=0
+in hist_tick
+snap roles=1:P synced=0 tracked=1 inflight=1 started=- reset=0 publish=0
+in hist_tick
+snap roles=1:P synced=0 tracked=1 inflight=1 started=- reset=0 publish=0
+in hist_tick
+snap roles=1:P synced=0 tracked=1 inflight=1 started=- reset=0 publish=0
+in hist_tick
+snap roles=1:P synced=0 tracked=1 inflight=1 started=- reset=0 publish=0
+in hist_tick
+snap roles=1:P synced=0 tracked=1 inflight=1 started=- reset=0 publish=0
+in outcome session=1 attempt=1 kind=0
+choice kind=promote session=1 from=1
+snap roles=1:A synced=1 tracked=0 inflight=- started=- reset=0 publish=1
+begin num_active=1
+in connect pub=1 pinned=0
+choice kind=start session=1 from=1
+snap roles=1:P synced=0 tracked=1 inflight=1 started=1 reset=1 publish=0
+in hist_tick
+snap roles=1:P synced=0 tracked=1 inflight=1 started=- reset=0 publish=0
+in hist_tick
+snap roles=1:P synced=0 tracked=1 inflight=1 started=- reset=0 publish=0
+in hist_tick
+snap roles=1:P synced=0 tracked=1 inflight=1 started=- reset=0 publish=0
+in hist_tick
+snap roles=1:P synced=0 tracked=1 inflight=1 started=- reset=0 publish=0
+in hist_tick
+snap roles=1:P synced=0 tracked=1 inflight=1 started=- reset=0 publish=0
+in hist_tick
+snap roles=1:P synced=0 tracked=1 inflight=1 started=- reset=0 publish=0
+in outcome session=1 attempt=1 kind=1
+snap roles=1:P synced=0 tracked=0 inflight=- started=- reset=0 publish=0
+begin num_active=1
+in connect pub=1 pinned=0
+choice kind=start session=1 from=1
+snap roles=1:P synced=0 tracked=1 inflight=1 started=1 reset=1 publish=0
+in hist_tick
+snap roles=1:P synced=0 tracked=1 inflight=1 started=- reset=0 publish=0
+in hist_tick
+snap roles=1:P synced=0 tracked=1 inflight=1 started=- reset=0 publish=0
+in hist_tick
+snap roles=1:P synced=0 tracked=1 inflight=1 started=- reset=0 publish=0
+in hist_tick
+snap roles=1:P synced=0 tracked=1 inflight=1 started=- reset=0 publish=0
+in hist_tick
+snap roles=1:P synced=0 tracked=1 inflight=1 started=- reset=0 publish=0
+in hist_tick
+snap roles=1:P synced=0 tracked=1 inflight=1 started=- reset=0 publish=0
+in outcome session=1 attempt=1 kind=2
+snap roles=1:P synced=0 tracked=0 inflight=- started=- reset=0 publish=0
+begin num_active=1
+in connect pub=1 pinned=0
+choice kind=start session=1 from=1
+snap roles=1:P synced=0 tracked=1 inflight=1 started=1 reset=1 publish=0
+in hist_tick
+snap roles=1:P synced=0 tracked=1 inflight=1 started=- reset=0 publish=0
+in hist_tick
+snap roles=1:P synced=0 tracked=1 inflight=1 started=- reset=0 publish=0
+in hist_tick
+snap roles=1:P synced=0 tracked=1 inflight=1 started=- reset=0 publish=0
+in hist_tick
+snap roles=1:P synced=0 tracked=1 inflight=1 started=- reset=0 publish=0
+in hist_tick
+snap roles=1:P synced=0 tracked=1 inflight=1 started=- reset=0 publish=0
+in outcome session=1 attempt=1 kind=1
+snap roles=1:P synced=0 tracked=0 inflight=- started=- reset=0 publish=0
+in hist_tick
+choice kind=start session=1 from=1
+snap roles=1:P synced=0 tracked=1 inflight=1 started=2 reset=1 publish=0
+in outcome session=1 attempt=2 kind=2
+snap roles=1:P synced=0 tracked=0 inflight=- started=- reset=0 publish=0
+begin num_active=1
+in connect pub=1 pinned=0
+choice kind=start session=1 from=1
+snap roles=1:P synced=0 tracked=1 inflight=1 started=1 reset=1 publish=0
+in hist_tick
+snap roles=1:P synced=0 tracked=1 inflight=1 started=- reset=0 publish=0
+in hist_tick
+snap roles=1:P synced=0 tracked=1 inflight=1 started=- reset=0 publish=0
+in hist_tick
+snap roles=1:P synced=0 tracked=1 inflight=1 started=- reset=0 publish=0
+in hist_tick
+snap roles=1:P synced=0 tracked=1 inflight=1 started=- reset=0 publish=0
+in hist_tick
+snap roles=1:P synced=0 tracked=1 inflight=1 started=- reset=0 publish=0
+in hist_tick
+snap roles=1:P synced=0 tracked=1 inflight=1 started=- reset=0 publish=0
+in outcome session=1 attempt=1 kind=1
+snap roles=1:P synced=0 tracked=0 inflight=- started=- reset=0 publish=0
+begin num_active=1
+in connect pub=1 pinned=0
+choice kind=start session=1 from=1
+snap roles=1:P synced=0 tracked=1 inflight=1 started=1 reset=1 publish=0
+in hist_tick
+snap roles=1:P synced=0 tracked=1 inflight=1 started=- reset=0 publish=0
+in hist_tick
+snap roles=1:P synced=0 tracked=1 inflight=1 started=- reset=0 publish=0
+in hist_tick
+snap roles=1:P synced=0 tracked=1 inflight=1 started=- reset=0 publish=0
+in hist_tick
+snap roles=1:P synced=0 tracked=1 inflight=1 started=- reset=0 publish=0
+in outcome session=1 attempt=1 kind=1
+snap roles=1:P synced=0 tracked=0 inflight=- started=- reset=0 publish=0
+in hist_tick
+choice kind=start session=1 from=1
+snap roles=1:P synced=0 tracked=1 inflight=1 started=2 reset=1 publish=0
+in hist_tick
+snap roles=1:P synced=0 tracked=1 inflight=1 started=- reset=0 publish=0
+in outcome session=1 attempt=2 kind=1
+snap roles=1:P synced=0 tracked=0 inflight=- started=- reset=0 publish=0
+begin num_active=1
+in connect pub=1 pinned=0
+choice kind=start session=1 from=1
+snap roles=1:P synced=0 tracked=1 inflight=1 started=1 reset=1 publish=0
+in hist_tick
+snap roles=1:P synced=0 tracked=1 inflight=1 started=- reset=0 publish=0
+in hist_tick
+snap roles=1:P synced=0 tracked=1 inflight=1 started=- reset=0 publish=0
+in hist_tick
+snap roles=1:P synced=0 tracked=1 inflight=1 started=- reset=0 publish=0
+in hist_tick
+snap roles=1:P synced=0 tracked=1 inflight=1 started=- reset=0 publish=0
+in hist_tick
+snap roles=1:P synced=0 tracked=1 inflight=1 started=- reset=0 publish=0
+in outcome session=1 attempt=1 kind=0
+choice kind=promote session=1 from=1
+snap roles=1:A synced=1 tracked=0 inflight=- started=- reset=0 publish=1
+in hist_tick
+choice kind=start session=1 from=1
+snap roles=1:A synced=1 tracked=0 inflight=1 started=2 reset=0 publish=0
+in outcome session=1 attempt=2 kind=0
+snap roles=1:A synced=1 tracked=0 inflight=- started=- reset=0 publish=0
+begin num_active=1
+in connect pub=1 pinned=0
+choice kind=start session=1 from=1
+snap roles=1:P synced=0 tracked=1 inflight=1 started=1 reset=1 publish=0
+in hist_tick
+snap roles=1:P synced=0 tracked=1 inflight=1 started=- reset=0 publish=0
+in hist_tick
+snap roles=1:P synced=0 tracked=1 inflight=1 started=- reset=0 publish=0
+in hist_tick
+snap roles=1:P synced=0 tracked=1 inflight=1 started=- reset=0 publish=0
+in hist_tick
+snap roles=1:P synced=0 tracked=1 inflight=1 started=- reset=0 publish=0
+in hist_tick
+snap roles=1:P synced=0 tracked=1 inflight=1 started=- reset=0 publish=0
+in hist_tick
+snap roles=1:P synced=0 tracked=1 inflight=1 started=- reset=0 publish=0
+in outcome session=1 attempt=1 kind=1
+snap roles=1:P synced=0 tracked=0 inflight=- started=- reset=0 publish=0
+begin num_active=1
+in connect pub=1 pinned=0
+choice kind=start session=1 from=1
+snap roles=1:P synced=0 tracked=1 inflight=1 started=1 reset=1 publish=0
+in hist_tick
+snap roles=1:P synced=0 tracked=1 inflight=1 started=- reset=0 publish=0
+in hist_tick
+snap roles=1:P synced=0 tracked=1 inflight=1 started=- reset=0 publish=0
+in hist_tick
+snap roles=1:P synced=0 tracked=1 inflight=1 started=- reset=0 publish=0
+in hist_tick
+snap roles=1:P synced=0 tracked=1 inflight=1 started=- reset=0 publish=0
+in hist_tick
+snap roles=1:P synced=0 tracked=1 inflight=1 started=- reset=0 publish=0
+in hist_tick
+snap roles=1:P synced=0 tracked=1 inflight=1 started=- reset=0 publish=0
+in outcome session=1 attempt=1 kind=2
+snap roles=1:P synced=0 tracked=0 inflight=- started=- reset=0 publish=0
+begin num_active=1
+in connect pub=1 pinned=0
+choice kind=start session=1 from=1
+snap roles=1:P synced=0 tracked=1 inflight=1 started=1 reset=1 publish=0
+in hist_tick
+snap roles=1:P synced=0 tracked=1 inflight=1 started=- reset=0 publish=0
+in hist_tick
+snap roles=1:P synced=0 tracked=1 inflight=1 started=- reset=0 publish=0
+in hist_tick
+snap roles=1:P synced=0 tracked=1 inflight=1 started=- reset=0 publish=0
+in hist_tick
+snap roles=1:P synced=0 tracked=1 inflight=1 started=- reset=0 publish=0
+in hist_tick
+snap roles=1:P synced=0 tracked=1 inflight=1 started=- reset=0 publish=0
+in hist_tick
+snap roles=1:P synced=0 tracked=1 inflight=1 started=- reset=0 publish=0
+in outcome session=1 attempt=1 kind=2
+snap roles=1:P synced=0 tracked=0 inflight=- started=- reset=0 publish=0
+begin num_active=1
+in connect pub=1 pinned=0
+choice kind=start session=1 from=1
+snap roles=1:P synced=0 tracked=1 inflight=1 started=1 reset=1 publish=0
+in hist_tick
+snap roles=1:P synced=0 tracked=1 inflight=1 started=- reset=0 publish=0
+in hist_tick
+snap roles=1:P synced=0 tracked=1 inflight=1 started=- reset=0 publish=0
+in hist_tick
+snap roles=1:P synced=0 tracked=1 inflight=1 started=- reset=0 publish=0
+in hist_tick
+snap roles=1:P synced=0 tracked=1 inflight=1 started=- reset=0 publish=0
+in hist_tick
+snap roles=1:P synced=0 tracked=1 inflight=1 started=- reset=0 publish=0
+in hist_tick
+snap roles=1:P synced=0 tracked=1 inflight=1 started=- reset=0 publish=0
+in outcome session=1 attempt=1 kind=2
+snap roles=1:P synced=0 tracked=0 inflight=- started=- reset=0 publish=0

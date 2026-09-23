@@ -10,6 +10,62 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
+// legacyHintCache implements the original height-only cache interfaces but not
+// their origin-aware extensions.
+type legacyHintCache struct {
+	chainntnfs.ConfirmHintCache
+	chainntnfs.SpendHintCache
+}
+
+var _ chainntnfs.ConfirmHintCache = (*legacyHintCache)(nil)
+var _ chainntnfs.SpendHintCache = (*legacyHintCache)(nil)
+
+// TestTxNotifierLegacyHintCacheCompatibility asserts that the original
+// exported cache interfaces remain usable. Their height-only hints are not
+// used to skip blocks because they cannot prove the origin of their coverage.
+func TestTxNotifierLegacyHintCacheCompatibility(t *testing.T) {
+	const (
+		tipHeight    = uint32(200)
+		cachedHeight = uint32(180)
+		heightHint   = uint32(100)
+	)
+
+	cache := newMockHintCache()
+	legacy := &legacyHintCache{
+		ConfirmHintCache: cache,
+		SpendHintCache:   cache,
+	}
+	script, tx := staleHintTx("legacy-cache-compatibility")
+	txid := tx.TxHash()
+	confRequest, err := chainntnfs.NewConfRequest(&txid, script)
+	require.NoError(t, err)
+	require.NoError(t, legacy.CommitConfirmHint(
+		cachedHeight, confRequest,
+	))
+
+	outpoint, spendScript, _ := staleHintSpend("legacy-cache-compatibility")
+	spendRequest, err := chainntnfs.NewSpendRequest(&outpoint, spendScript)
+	require.NoError(t, err)
+	require.NoError(t, legacy.CommitSpendHint(
+		cachedHeight, spendRequest,
+	))
+
+	n := chainntnfs.NewTxNotifier(
+		tipHeight, chainntnfs.ReorgSafetyLimit, legacy, legacy,
+	)
+	t.Cleanup(n.TearDown)
+
+	conf, err := n.RegisterConf(&txid, script, 1, heightHint)
+	require.NoError(t, err)
+	require.NotNil(t, conf.HistoricalDispatch)
+	require.Equal(t, heightHint, conf.HistoricalDispatch.StartHeight)
+
+	spend, err := n.RegisterSpend(&outpoint, spendScript, heightHint)
+	require.NoError(t, err)
+	require.NotNil(t, spend.HistoricalDispatch)
+	require.Equal(t, heightHint, spend.HistoricalDispatch.StartHeight)
+}
+
 // TestTxNotifierHintOriginGuardsEarlierHint asserts that a hint persisted while
 // only a late-hint subscriber watched a request cannot hide an earlier
 // confirmation or spend from the next subscriber after a restart. The first
@@ -39,7 +95,7 @@ func TestTxNotifierHintOriginGuardsEarlierHint(t *testing.T) {
 		request := late.HistoricalDispatch.ConfRequest
 		require.NoError(t, n.UpdateConfDetails(request, nil))
 		advanceEmptyChain(t, n, startHeight+1, tipHeight)
-		hint, err := cache.QueryConfirmHint(request)
+		hint, err := cache.QueryConfirmHintWithOrigin(request)
 		require.NoError(t, err)
 		require.Equal(t, chainntnfs.HeightHint{
 			Height: tipHeight, Origin: lateHint,
@@ -72,7 +128,7 @@ func TestTxNotifierHintOriginGuardsEarlierHint(t *testing.T) {
 		request := late.HistoricalDispatch.SpendRequest
 		require.NoError(t, n.UpdateSpendDetails(request, nil))
 		advanceEmptyChain(t, n, startHeight+1, tipHeight)
-		hint, err := cache.QuerySpendHint(request)
+		hint, err := cache.QuerySpendHintWithOrigin(request)
 		require.NoError(t, err)
 		require.Equal(t, chainntnfs.HeightHint{
 			Height: tipHeight, Origin: lateHint,
@@ -214,7 +270,9 @@ func TestTxNotifierHintOriginPrefixScans(t *testing.T) {
 	case details := <-knownEarly.Event.Confirmed:
 		require.Equal(t, cached+5, details.BlockHeight)
 	default:
-		t.Fatal("earlier subscriber missed known confirmation")
+		require.FailNow(
+			t, "earlier subscriber missed known confirmation",
+		)
 	}
 
 	// A subscriber whose hint is above the tip needs no scan. A later,
@@ -266,6 +324,84 @@ func TestTxNotifierHintOriginPrefixScans(t *testing.T) {
 	require.Equal(t, uint32(189), early.HistoricalDispatch.EndHeight)
 }
 
+// TestTxNotifierPendingScanAfterDeepReorg asserts that a prefix which lies
+// entirely above a reorged tip does not mark a set complete while its original
+// historical scan remains outstanding. A pending set must not advance its
+// cached hint when the next block connects.
+func TestTxNotifierPendingScanAfterDeepReorg(t *testing.T) {
+	const (
+		startHeight = uint32(100)
+		reorgTip    = uint32(50)
+		earlierHint = uint32(80)
+	)
+
+	disconnect := func(t *testing.T, n *chainntnfs.TxNotifier) {
+		t.Helper()
+		for height := startHeight; height > reorgTip; height-- {
+			require.NoError(t, n.DisconnectTip(height))
+		}
+	}
+
+	t.Run("confirmation", func(t *testing.T) {
+		cache := newMockHintCache()
+		n := chainntnfs.NewTxNotifier(
+			startHeight, chainntnfs.ReorgSafetyLimit, cache, cache,
+		)
+		t.Cleanup(n.TearDown)
+
+		script, tx := staleHintTx("pending-deep-reorg-conf")
+		txid := tx.TxHash()
+		initial, err := n.RegisterConf(
+			&txid, script, 1, startHeight,
+		)
+		require.NoError(t, err)
+		require.NotNil(t, initial.HistoricalDispatch)
+		request := initial.HistoricalDispatch.ConfRequest
+
+		disconnect(t, n)
+		earlier, err := n.RegisterConf(&txid, script, 1, earlierHint)
+		require.NoError(t, err)
+		require.Nil(t, earlier.HistoricalDispatch)
+
+		block := btcutil.NewBlock(&wire.MsgBlock{})
+		require.NoError(t, n.ConnectTip(block, reorgTip+1))
+		require.NoError(t, n.NotifyHeight(reorgTip+1))
+		_, err = cache.QueryConfirmHintWithOrigin(request)
+		require.ErrorIs(t, err, chainntnfs.ErrConfirmHintNotFound)
+	})
+
+	t.Run("spend", func(t *testing.T) {
+		cache := newMockHintCache()
+		n := chainntnfs.NewTxNotifier(
+			startHeight, chainntnfs.ReorgSafetyLimit, cache, cache,
+		)
+		t.Cleanup(n.TearDown)
+
+		outpoint, script, _ := staleHintSpend(
+			"pending-deep-reorg-spend",
+		)
+		initial, err := n.RegisterSpend(
+			&outpoint, script, startHeight,
+		)
+		require.NoError(t, err)
+		require.NotNil(t, initial.HistoricalDispatch)
+		request := initial.HistoricalDispatch.SpendRequest
+
+		disconnect(t, n)
+		earlier, err := n.RegisterSpend(
+			&outpoint, script, earlierHint,
+		)
+		require.NoError(t, err)
+		require.Nil(t, earlier.HistoricalDispatch)
+
+		block := btcutil.NewBlock(&wire.MsgBlock{})
+		require.NoError(t, n.ConnectTip(block, reorgTip+1))
+		require.NoError(t, n.NotifyHeight(reorgTip+1))
+		_, err = cache.QuerySpendHintWithOrigin(request)
+		require.ErrorIs(t, err, chainntnfs.ErrSpendHintNotFound)
+	})
+}
+
 // staleHintTx returns a transaction with a single output to a script unique to
 // the tag, along with that script.
 func staleHintTx(tag string) ([]byte, *wire.MsgTx) {
@@ -299,7 +435,7 @@ func assertNoSpend(t *testing.T, event *chainntnfs.SpendEvent) {
 	t.Helper()
 	select {
 	case <-event.Spend:
-		t.Fatal("unexpected spend")
+		require.FailNow(t, "unexpected spend")
 	default:
 	}
 }

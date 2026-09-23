@@ -41,6 +41,8 @@ type HeightHintCache struct {
 // and ConfirmHintCache interfaces.
 var _ chainntnfs.SpendHintCache = (*HeightHintCache)(nil)
 var _ chainntnfs.ConfirmHintCache = (*HeightHintCache)(nil)
+var _ chainntnfs.SpendHintCacheWithOrigin = (*HeightHintCache)(nil)
+var _ chainntnfs.ConfirmHintCacheWithOrigin = (*HeightHintCache)(nil)
 
 // NewHeightHintCache returns a new height hint cache backed by a database.
 func NewHeightHintCache(cfg CacheConfig, db kvdb.Backend) (*HeightHintCache,
@@ -105,10 +107,24 @@ func (c *HeightHintCache) CommitSpendHints(
 	})
 }
 
+// CommitSpendHint commits a height-only spend hint. It is retained for source
+// compatibility with SpendHintCache; new callers should use CommitSpendHints
+// so the covered origin is persisted as well.
+func (c *HeightHintCache) CommitSpendHint(height uint32,
+	spendRequests ...chainntnfs.SpendRequest) error {
+
+	hints := make(chainntnfs.SpendHints, len(spendRequests))
+	for _, request := range spendRequests {
+		hints[request] = chainntnfs.HeightHint{Height: height}
+	}
+
+	return c.CommitSpendHints(hints)
+}
+
 // QuerySpendHint returns the latest spend hint for an outpoint.
 // ErrSpendHintNotFound is returned if a spend hint does not exist within the
 // cache for the outpoint.
-func (c *HeightHintCache) QuerySpendHint(
+func (c *HeightHintCache) QuerySpendHintWithOrigin(
 	spendRequest chainntnfs.SpendRequest) (chainntnfs.HeightHint, error) {
 
 	var hint chainntnfs.HeightHint
@@ -143,6 +159,16 @@ func (c *HeightHintCache) QuerySpendHint(
 	}
 
 	return hint, nil
+}
+
+// QuerySpendHint returns only the height of the cached spend hint. It is
+// retained for source compatibility with SpendHintCache.
+func (c *HeightHintCache) QuerySpendHint(
+	spendRequest chainntnfs.SpendRequest) (uint32, error) {
+
+	hint, err := c.QuerySpendHintWithOrigin(spendRequest)
+
+	return hint.Height, err
 }
 
 // PurgeSpendHint removes the spend hint for the outpoints from the cache.
@@ -213,10 +239,25 @@ func (c *HeightHintCache) CommitConfirmHints(
 	})
 }
 
-// QueryConfirmHint returns the latest confirm hint for a confirmation request.
+// CommitConfirmHint commits a height-only confirmation hint. It is retained
+// for source compatibility with ConfirmHintCache; new callers should use
+// CommitConfirmHints so the covered origin is persisted as well.
+func (c *HeightHintCache) CommitConfirmHint(height uint32,
+	confRequests ...chainntnfs.ConfRequest) error {
+
+	hints := make(chainntnfs.ConfirmHints, len(confRequests))
+	for _, request := range confRequests {
+		hints[request] = chainntnfs.HeightHint{Height: height}
+	}
+
+	return c.CommitConfirmHints(hints)
+}
+
+// QueryConfirmHintWithOrigin returns the latest origin-aware confirm hint for a
+// confirmation request.
 // ErrConfirmHintNotFound is returned if a confirm hint does not exist within
 // the cache for the request.
-func (c *HeightHintCache) QueryConfirmHint(
+func (c *HeightHintCache) QueryConfirmHintWithOrigin(
 	confRequest chainntnfs.ConfRequest) (chainntnfs.HeightHint, error) {
 
 	var hint chainntnfs.HeightHint
@@ -251,6 +292,16 @@ func (c *HeightHintCache) QueryConfirmHint(
 	}
 
 	return hint, nil
+}
+
+// QueryConfirmHint returns only the height of the cached confirmation hint. It
+// is retained for source compatibility with ConfirmHintCache.
+func (c *HeightHintCache) QueryConfirmHint(
+	confRequest chainntnfs.ConfRequest) (uint32, error) {
+
+	hint, err := c.QueryConfirmHintWithOrigin(confRequest)
+
+	return hint.Height, err
 }
 
 // PurgeConfirmHint removes the confirm hints for the confirmation requests from

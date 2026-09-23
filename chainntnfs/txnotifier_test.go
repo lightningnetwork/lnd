@@ -46,6 +46,8 @@ type mockHintCache struct {
 
 var _ chainntnfs.SpendHintCache = (*mockHintCache)(nil)
 var _ chainntnfs.ConfirmHintCache = (*mockHintCache)(nil)
+var _ chainntnfs.SpendHintCacheWithOrigin = (*mockHintCache)(nil)
+var _ chainntnfs.ConfirmHintCacheWithOrigin = (*mockHintCache)(nil)
 
 func (c *mockHintCache) CommitSpendHints(
 	hints chainntnfs.SpendHints) error {
@@ -60,7 +62,7 @@ func (c *mockHintCache) CommitSpendHints(
 	return nil
 }
 
-func (c *mockHintCache) QuerySpendHint(
+func (c *mockHintCache) QuerySpendHintWithOrigin(
 	spendRequest chainntnfs.SpendRequest) (chainntnfs.HeightHint, error) {
 
 	c.mu.Lock()
@@ -72,6 +74,25 @@ func (c *mockHintCache) QuerySpendHint(
 	}
 
 	return hint, nil
+}
+
+func (c *mockHintCache) CommitSpendHint(height uint32,
+	spendRequests ...chainntnfs.SpendRequest) error {
+
+	hints := make(chainntnfs.SpendHints, len(spendRequests))
+	for _, request := range spendRequests {
+		hints[request] = chainntnfs.HeightHint{Height: height}
+	}
+
+	return c.CommitSpendHints(hints)
+}
+
+func (c *mockHintCache) QuerySpendHint(
+	spendRequest chainntnfs.SpendRequest) (uint32, error) {
+
+	hint, err := c.QuerySpendHintWithOrigin(spendRequest)
+
+	return hint.Height, err
 }
 
 func (c *mockHintCache) PurgeSpendHint(spendRequests ...chainntnfs.SpendRequest) error {
@@ -98,7 +119,7 @@ func (c *mockHintCache) CommitConfirmHints(
 	return nil
 }
 
-func (c *mockHintCache) QueryConfirmHint(
+func (c *mockHintCache) QueryConfirmHintWithOrigin(
 	confRequest chainntnfs.ConfRequest) (chainntnfs.HeightHint, error) {
 
 	c.mu.Lock()
@@ -111,6 +132,25 @@ func (c *mockHintCache) QueryConfirmHint(
 	}
 
 	return hint, nil
+}
+
+func (c *mockHintCache) CommitConfirmHint(height uint32,
+	confRequests ...chainntnfs.ConfRequest) error {
+
+	hints := make(chainntnfs.ConfirmHints, len(confRequests))
+	for _, request := range confRequests {
+		hints[request] = chainntnfs.HeightHint{Height: height}
+	}
+
+	return c.CommitConfirmHints(hints)
+}
+
+func (c *mockHintCache) QueryConfirmHint(
+	confRequest chainntnfs.ConfRequest) (uint32, error) {
+
+	hint, err := c.QueryConfirmHintWithOrigin(confRequest)
+
+	return hint.Height, err
 }
 
 func (c *mockHintCache) PurgeConfirmHint(confRequests ...chainntnfs.ConfRequest) error {
@@ -128,7 +168,7 @@ func (c *mockHintCache) PurgeConfirmHint(confRequests ...chainntnfs.ConfRequest)
 func (c *mockHintCache) confirmHeight(
 	confRequest chainntnfs.ConfRequest) (uint32, error) {
 
-	hint, err := c.QueryConfirmHint(confRequest)
+	hint, err := c.QueryConfirmHintWithOrigin(confRequest)
 
 	return hint.Height, err
 }
@@ -137,7 +177,7 @@ func (c *mockHintCache) confirmHeight(
 func (c *mockHintCache) spendHeight(
 	spendRequest chainntnfs.SpendRequest) (uint32, error) {
 
-	hint, err := c.QuerySpendHint(spendRequest)
+	hint, err := c.QuerySpendHintWithOrigin(spendRequest)
 
 	return hint.Height, err
 }
@@ -1952,18 +1992,10 @@ func TestTxNotifierConfirmHintCache(t *testing.T) {
 	// Both transactions should not have a height hint set, as RegisterConf
 	// should not alter the cache state.
 	_, err = hintCache.confirmHeight(ntfn1.HistoricalDispatch.ConfRequest)
-	if err != chainntnfs.ErrConfirmHintNotFound {
-		t.Fatalf("unexpected error when querying for height hint "+
-			"want: %v, got %v",
-			chainntnfs.ErrConfirmHintNotFound, err)
-	}
+	require.ErrorIs(t, err, chainntnfs.ErrConfirmHintNotFound)
 
 	_, err = hintCache.confirmHeight(ntfn2.HistoricalDispatch.ConfRequest)
-	if err != chainntnfs.ErrConfirmHintNotFound {
-		t.Fatalf("unexpected error when querying for height hint "+
-			"want: %v, got %v",
-			chainntnfs.ErrConfirmHintNotFound, err)
-	}
+	require.ErrorIs(t, err, chainntnfs.ErrConfirmHintNotFound)
 
 	// Create a new block that will include the dummy transaction and extend
 	// the chain.
@@ -1974,9 +2006,7 @@ func TestTxNotifierConfirmHintCache(t *testing.T) {
 
 	err = n.ConnectTip(block1, txDummyHeight)
 	require.NoError(t, err, "Failed to connect block")
-	if err := n.NotifyHeight(txDummyHeight); err != nil {
-		t.Fatalf("unable to dispatch notifications: %v", err)
-	}
+	require.NoError(t, n.NotifyHeight(txDummyHeight))
 
 	// Since UpdateConfDetails has not been called for either transaction,
 	// the height hints should remain unchanged. This simulates blocks
@@ -1985,20 +2015,12 @@ func TestTxNotifierConfirmHintCache(t *testing.T) {
 	_, err = hintCache.confirmHeight(
 		ntfn1.HistoricalDispatch.ConfRequest,
 	)
-	if err != chainntnfs.ErrConfirmHintNotFound {
-		t.Fatalf("unexpected error when querying for height hint "+
-			"want: %v, got %v",
-			chainntnfs.ErrConfirmHintNotFound, err)
-	}
+	require.ErrorIs(t, err, chainntnfs.ErrConfirmHintNotFound)
 
 	_, err = hintCache.confirmHeight(
 		ntfn2.HistoricalDispatch.ConfRequest,
 	)
-	if err != chainntnfs.ErrConfirmHintNotFound {
-		t.Fatalf("unexpected error when querying for height hint "+
-			"want: %v, got %v",
-			chainntnfs.ErrConfirmHintNotFound, err)
-	}
+	require.ErrorIs(t, err, chainntnfs.ErrConfirmHintNotFound)
 
 	// Now, update the conf details reporting that the neither txn was found
 	// in the historical dispatch.
@@ -2015,9 +2037,7 @@ func TestTxNotifierConfirmHintCache(t *testing.T) {
 
 	err = n.ConnectTip(block2, tx1Height)
 	require.NoError(t, err, "Failed to connect block")
-	if err := n.NotifyHeight(tx1Height); err != nil {
-		t.Fatalf("unable to dispatch notifications: %v", err)
-	}
+	require.NoError(t, n.NotifyHeight(tx1Height))
 
 	// Now that both notifications are waiting at tip for confirmations,
 	// they should have their height hints updated to the latest block
@@ -2026,19 +2046,13 @@ func TestTxNotifierConfirmHintCache(t *testing.T) {
 		ntfn1.HistoricalDispatch.ConfRequest,
 	)
 	require.NoError(t, err, "unable to query for hint")
-	if hint != tx1Height {
-		t.Fatalf("expected hint %d, got %d",
-			tx1Height, hint)
-	}
+	require.Equal(t, uint32(tx1Height), hint)
 
 	hint, err = hintCache.confirmHeight(
 		ntfn2.HistoricalDispatch.ConfRequest,
 	)
 	require.NoError(t, err, "unable to query for hint")
-	if hint != tx1Height {
-		t.Fatalf("expected hint %d, got %d",
-			tx2Height, hint)
-	}
+	require.Equal(t, uint32(tx1Height), hint)
 
 	// Next, we'll create another block that will include the second
 	// transaction and extend the chain.
@@ -2048,19 +2062,14 @@ func TestTxNotifierConfirmHintCache(t *testing.T) {
 
 	err = n.ConnectTip(block3, tx2Height)
 	require.NoError(t, err, "Failed to connect block")
-	if err := n.NotifyHeight(tx2Height); err != nil {
-		t.Fatalf("unable to dispatch notifications: %v", err)
-	}
+	require.NoError(t, n.NotifyHeight(tx2Height))
 
 	// The height hint for the first transaction should remain the same.
 	hint, err = hintCache.confirmHeight(
 		ntfn1.HistoricalDispatch.ConfRequest,
 	)
 	require.NoError(t, err, "unable to query for hint")
-	if hint != tx1Height {
-		t.Fatalf("expected hint %d, got %d",
-			tx1Height, hint)
-	}
+	require.Equal(t, uint32(tx1Height), hint)
 
 	// The height hint for the second transaction should now be updated to
 	// reflect its confirmation.
@@ -2068,16 +2077,11 @@ func TestTxNotifierConfirmHintCache(t *testing.T) {
 		ntfn2.HistoricalDispatch.ConfRequest,
 	)
 	require.NoError(t, err, "unable to query for hint")
-	if hint != tx2Height {
-		t.Fatalf("expected hint %d, got %d",
-			tx2Height, hint)
-	}
+	require.Equal(t, uint32(tx2Height), hint)
 
 	// Finally, we'll attempt do disconnect the last block in order to
 	// simulate a chain reorg.
-	if err := n.DisconnectTip(tx2Height); err != nil {
-		t.Fatalf("Failed to disconnect block: %v", err)
-	}
+	require.NoError(t, n.DisconnectTip(tx2Height))
 
 	// This should update the second transaction's height hint within the
 	// cache to the previous height.
@@ -2085,10 +2089,7 @@ func TestTxNotifierConfirmHintCache(t *testing.T) {
 		ntfn2.HistoricalDispatch.ConfRequest,
 	)
 	require.NoError(t, err, "unable to query for hint")
-	if hint != tx1Height {
-		t.Fatalf("expected hint %d, got %d",
-			tx1Height, hint)
-	}
+	require.Equal(t, uint32(tx1Height), hint)
 
 	// The first transaction's height hint should remain at the original
 	// confirmation height.
@@ -2096,10 +2097,7 @@ func TestTxNotifierConfirmHintCache(t *testing.T) {
 		ntfn2.HistoricalDispatch.ConfRequest,
 	)
 	require.NoError(t, err, "unable to query for hint")
-	if hint != tx1Height {
-		t.Fatalf("expected hint %d, got %d",
-			tx1Height, hint)
-	}
+	require.Equal(t, uint32(tx1Height), hint)
 }
 
 // TestTxNotifierSpendHintCache ensures that the height hints for outpoints are
@@ -2136,41 +2134,23 @@ func TestTxNotifierSpendHintCache(t *testing.T) {
 	// we must first determine whether they have already been spent in the
 	// chain.
 	_, err = hintCache.spendHeight(ntfn1.HistoricalDispatch.SpendRequest)
-	if err != chainntnfs.ErrSpendHintNotFound {
-		t.Fatalf("unexpected error when querying for height hint "+
-			"expected: %v, got %v", chainntnfs.ErrSpendHintNotFound,
-			err)
-	}
+	require.ErrorIs(t, err, chainntnfs.ErrSpendHintNotFound)
 	_, err = hintCache.spendHeight(ntfn2.HistoricalDispatch.SpendRequest)
-	if err != chainntnfs.ErrSpendHintNotFound {
-		t.Fatalf("unexpected error when querying for height hint "+
-			"expected: %v, got %v", chainntnfs.ErrSpendHintNotFound,
-			err)
-	}
+	require.ErrorIs(t, err, chainntnfs.ErrSpendHintNotFound)
 
 	// Create a new empty block and extend the chain.
 	emptyBlock := btcutil.NewBlock(&wire.MsgBlock{})
 	err = n.ConnectTip(emptyBlock, dummyHeight)
 	require.NoError(t, err, "unable to connect block")
-	if err := n.NotifyHeight(dummyHeight); err != nil {
-		t.Fatalf("unable to dispatch notifications: %v", err)
-	}
+	require.NoError(t, n.NotifyHeight(dummyHeight))
 
 	// Since we haven't called UpdateSpendDetails on any of the test
 	// outpoints, this implies that there is a still a pending historical
 	// rescan for them, so their spend hints should not be created/updated.
 	_, err = hintCache.spendHeight(ntfn1.HistoricalDispatch.SpendRequest)
-	if err != chainntnfs.ErrSpendHintNotFound {
-		t.Fatalf("unexpected error when querying for height hint "+
-			"expected: %v, got %v", chainntnfs.ErrSpendHintNotFound,
-			err)
-	}
+	require.ErrorIs(t, err, chainntnfs.ErrSpendHintNotFound)
 	_, err = hintCache.spendHeight(ntfn2.HistoricalDispatch.SpendRequest)
-	if err != chainntnfs.ErrSpendHintNotFound {
-		t.Fatalf("unexpected error when querying for height hint "+
-			"expected: %v, got %v", chainntnfs.ErrSpendHintNotFound,
-			err)
-	}
+	require.ErrorIs(t, err, chainntnfs.ErrSpendHintNotFound)
 
 	// Now, we'll simulate that their historical rescans have finished by
 	// calling UpdateSpendDetails. This should allow their spend hints to be
@@ -2192,9 +2172,7 @@ func TestTxNotifierSpendHintCache(t *testing.T) {
 	})
 	err = n.ConnectTip(block1, op1Height)
 	require.NoError(t, err, "unable to connect block")
-	if err := n.NotifyHeight(op1Height); err != nil {
-		t.Fatalf("unable to dispatch notifications: %v", err)
-	}
+	require.NoError(t, n.NotifyHeight(op1Height))
 
 	// Both outpoints should have their spend hints reflect the height of
 	// the new block being connected due to the first outpoint being spent
@@ -2203,16 +2181,12 @@ func TestTxNotifierSpendHintCache(t *testing.T) {
 		ntfn1.HistoricalDispatch.SpendRequest,
 	)
 	require.NoError(t, err, "unable to query for spend hint of op1")
-	if op1Hint != op1Height {
-		t.Fatalf("expected hint %d, got %d", op1Height, op1Hint)
-	}
+	require.Equal(t, uint32(op1Height), op1Hint)
 	op2Hint, err := hintCache.spendHeight(
 		ntfn2.HistoricalDispatch.SpendRequest,
 	)
 	require.NoError(t, err, "unable to query for spend hint of op2")
-	if op2Hint != op1Height {
-		t.Fatalf("expected hint %d, got %d", op1Height, op2Hint)
-	}
+	require.Equal(t, uint32(op1Height), op2Hint)
 
 	// Then, we'll create another block that spends the second outpoint.
 	spendTx2 := wire.NewMsgTx(2)
@@ -2225,9 +2199,7 @@ func TestTxNotifierSpendHintCache(t *testing.T) {
 	})
 	err = n.ConnectTip(block2, op2Height)
 	require.NoError(t, err, "unable to connect block")
-	if err := n.NotifyHeight(op2Height); err != nil {
-		t.Fatalf("unable to dispatch notifications: %v", err)
-	}
+	require.NoError(t, n.NotifyHeight(op2Height))
 
 	// Only the second outpoint should have its spend hint updated due to
 	// being spent within the new block. The first outpoint's spend hint
@@ -2236,22 +2208,16 @@ func TestTxNotifierSpendHintCache(t *testing.T) {
 		ntfn1.HistoricalDispatch.SpendRequest,
 	)
 	require.NoError(t, err, "unable to query for spend hint of op1")
-	if op1Hint != op1Height {
-		t.Fatalf("expected hint %d, got %d", op1Height, op1Hint)
-	}
+	require.Equal(t, uint32(op1Height), op1Hint)
 	op2Hint, err = hintCache.spendHeight(
 		ntfn2.HistoricalDispatch.SpendRequest,
 	)
 	require.NoError(t, err, "unable to query for spend hint of op2")
-	if op2Hint != op2Height {
-		t.Fatalf("expected hint %d, got %d", op2Height, op2Hint)
-	}
+	require.Equal(t, uint32(op2Height), op2Hint)
 
 	// Finally, we'll attempt do disconnect the last block in order to
 	// simulate a chain reorg.
-	if err := n.DisconnectTip(op2Height); err != nil {
-		t.Fatalf("unable to disconnect block: %v", err)
-	}
+	require.NoError(t, n.DisconnectTip(op2Height))
 
 	// This should update the second outpoint's spend hint within the cache
 	// to the previous height, as that's where its spending transaction was
@@ -2261,16 +2227,12 @@ func TestTxNotifierSpendHintCache(t *testing.T) {
 		ntfn1.HistoricalDispatch.SpendRequest,
 	)
 	require.NoError(t, err, "unable to query for spend hint of op1")
-	if op1Hint != op1Height {
-		t.Fatalf("expected hint %d, got %d", op1Height, op1Hint)
-	}
+	require.Equal(t, uint32(op1Height), op1Hint)
 	op2Hint, err = hintCache.spendHeight(
 		ntfn2.HistoricalDispatch.SpendRequest,
 	)
 	require.NoError(t, err, "unable to query for spend hint of op2")
-	if op2Hint != op1Height {
-		t.Fatalf("expected hint %d, got %d", op1Height, op2Hint)
-	}
+	require.Equal(t, uint32(op1Height), op2Hint)
 }
 
 // TestTxNotifierSpendDuringHistoricalRescan checks that the height hints and
@@ -2297,40 +2259,27 @@ func TestTxNotifierSpendDuringHistoricalRescan(t *testing.T) {
 
 	// A historical rescan should be initiated from the height hint to the
 	// current height.
-	if ntfn1.HistoricalDispatch.StartHeight != 1 {
-		t.Fatalf("expected historical dispatch to start at height hint")
-	}
-
-	if ntfn1.HistoricalDispatch.EndHeight != startingHeight {
-		t.Fatalf("expected historical dispatch to end at current height")
-	}
+	require.Equal(t, uint32(1), ntfn1.HistoricalDispatch.StartHeight)
+	require.Equal(
+		t, uint32(startingHeight), ntfn1.HistoricalDispatch.EndHeight,
+	)
 
 	// It should not have a spend hint set upon registration, as we must
 	// first determine whether it has already been spent in the chain.
 	_, err = hintCache.spendHeight(ntfn1.HistoricalDispatch.SpendRequest)
-	if err != chainntnfs.ErrSpendHintNotFound {
-		t.Fatalf("unexpected error when querying for height hint "+
-			"expected: %v, got %v", chainntnfs.ErrSpendHintNotFound,
-			err)
-	}
+	require.ErrorIs(t, err, chainntnfs.ErrSpendHintNotFound)
 
 	// Create a new empty block and extend the chain.
 	height := uint32(startingHeight) + 1
 	emptyBlock := btcutil.NewBlock(&wire.MsgBlock{})
 	err = n.ConnectTip(emptyBlock, height)
 	require.NoError(t, err, "unable to connect block")
-	if err := n.NotifyHeight(height); err != nil {
-		t.Fatalf("unable to dispatch notifications: %v", err)
-	}
+	require.NoError(t, n.NotifyHeight(height))
 
 	// Since we haven't called UpdateSpendDetails yet, there should be no
 	// spend hint found.
 	_, err = hintCache.spendHeight(ntfn1.HistoricalDispatch.SpendRequest)
-	if err != chainntnfs.ErrSpendHintNotFound {
-		t.Fatalf("unexpected error when querying for height hint "+
-			"expected: %v, got %v", chainntnfs.ErrSpendHintNotFound,
-			err)
-	}
+	require.ErrorIs(t, err, chainntnfs.ErrSpendHintNotFound)
 
 	// Simulate a bunch of blocks being mined while the historical rescan
 	// is still in progress. We make sure to not mine more than reorgSafety
@@ -2359,12 +2308,8 @@ func TestTxNotifierSpendDuringHistoricalRescan(t *testing.T) {
 		}
 
 		err = n.ConnectTip(block, height)
-		if err != nil {
-			t.Fatalf("unable to connect block: %v", err)
-		}
-		if err := n.NotifyHeight(height); err != nil {
-			t.Fatalf("unable to dispatch notifications: %v", err)
-		}
+		require.NoError(t, err)
+		require.NoError(t, n.NotifyHeight(height))
 	}
 
 	// Check that the height hint was set to the spending block.
@@ -2372,15 +2317,13 @@ func TestTxNotifierSpendDuringHistoricalRescan(t *testing.T) {
 		ntfn1.HistoricalDispatch.SpendRequest,
 	)
 	require.NoError(t, err, "unable to query for spend hint of op1")
-	if op1Hint != spendHeight {
-		t.Fatalf("expected hint %d, got %d", spendHeight, op1Hint)
-	}
+	require.Equal(t, spendHeight, op1Hint)
 
 	// We should be getting notified about the spend at this point.
 	select {
 	case <-ntfn1.Event.Spend:
 	default:
-		t.Fatal("expected to receive spend notification")
+		require.FailNow(t, "expected to receive spend notification")
 	}
 
 	// Now, we'll simulate that the historical rescan finished by
@@ -2394,9 +2337,7 @@ func TestTxNotifierSpendDuringHistoricalRescan(t *testing.T) {
 		ntfn1.HistoricalDispatch.SpendRequest,
 	)
 	require.NoError(t, err, "unable to query for spend hint of op1")
-	if op1Hint != spendHeight {
-		t.Fatalf("expected hint %d, got %d", spendHeight, op1Hint)
-	}
+	require.Equal(t, spendHeight, op1Hint)
 
 	// Then, we'll create another block that spends a second outpoint.
 	op2 := wire.OutPoint{Index: 2}
@@ -2411,9 +2352,7 @@ func TestTxNotifierSpendDuringHistoricalRescan(t *testing.T) {
 	})
 	err = n.ConnectTip(block2, height)
 	require.NoError(t, err, "unable to connect block")
-	if err := n.NotifyHeight(height); err != nil {
-		t.Fatalf("unable to dispatch notifications: %v", err)
-	}
+	require.NoError(t, n.NotifyHeight(height))
 
 	// The outpoint's spend hint should remain the same as it's already
 	// been spent before.
@@ -2421,9 +2360,7 @@ func TestTxNotifierSpendDuringHistoricalRescan(t *testing.T) {
 		ntfn1.HistoricalDispatch.SpendRequest,
 	)
 	require.NoError(t, err, "unable to query for spend hint of op1")
-	if op1Hint != spendHeight {
-		t.Fatalf("expected hint %d, got %d", spendHeight, op1Hint)
-	}
+	require.Equal(t, spendHeight, op1Hint)
 
 	// Now mine enough blocks for the spend notification to be forgotten.
 	for i := 0; i < 2*reorgSafety; i++ {
@@ -2431,12 +2368,8 @@ func TestTxNotifierSpendDuringHistoricalRescan(t *testing.T) {
 		block := btcutil.NewBlock(&wire.MsgBlock{})
 
 		err := n.ConnectTip(block, height)
-		if err != nil {
-			t.Fatalf("unable to connect block: %v", err)
-		}
-		if err := n.NotifyHeight(height); err != nil {
-			t.Fatalf("unable to dispatch notifications: %v", err)
-		}
+		require.NoError(t, err)
+		require.NoError(t, n.NotifyHeight(height))
 	}
 
 	// Attempting to update spend details at this point should fail, since
@@ -2445,18 +2378,14 @@ func TestTxNotifierSpendDuringHistoricalRescan(t *testing.T) {
 	// the spend request has been notified and removed because it has
 	// matured.
 	err = n.UpdateSpendDetails(ntfn1.HistoricalDispatch.SpendRequest, nil)
-	if err == nil {
-		t.Fatalf("expected updating spend details to fail")
-	}
+	require.Error(t, err)
 
 	// Finally, check that the height hint is still there, unchanged.
 	op1Hint, err = hintCache.spendHeight(
 		ntfn1.HistoricalDispatch.SpendRequest,
 	)
 	require.NoError(t, err, "unable to query for spend hint of op1")
-	if op1Hint != spendHeight {
-		t.Fatalf("expected hint %d, got %d", spendHeight, op1Hint)
-	}
+	require.Equal(t, spendHeight, op1Hint)
 }
 
 // TestTxNotifierNtfnDone ensures that a notification is sent to registered
@@ -2712,7 +2641,7 @@ func restartStart(heightHint uint32, cached chainntnfs.HeightHint,
 func (c *mockHintCache) confRestartStart(confRequest chainntnfs.ConfRequest,
 	heightHint uint32) uint32 {
 
-	hint, err := c.QueryConfirmHint(confRequest)
+	hint, err := c.QueryConfirmHintWithOrigin(confRequest)
 
 	return restartStart(heightHint, hint, err)
 }
@@ -2722,7 +2651,7 @@ func (c *mockHintCache) confRestartStart(confRequest chainntnfs.ConfRequest,
 func (c *mockHintCache) spendRestartStart(
 	spendRequest chainntnfs.SpendRequest, heightHint uint32) uint32 {
 
-	hint, err := c.QuerySpendHint(spendRequest)
+	hint, err := c.QuerySpendHintWithOrigin(spendRequest)
 
 	return restartStart(heightHint, hint, err)
 }

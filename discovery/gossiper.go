@@ -353,6 +353,18 @@ type Config struct {
 	// PassiveSync.
 	PinnedSyncers PinnedSyncers
 
+	// GossipSyncerV2 selects the actor based gossip syncer of the
+	// gossipsync package in place of the SyncManager.
+	GossipSyncerV2 bool
+
+	// HistoricalSyncInterval is how often the actor based syncer runs a
+	// historical sync with a random peer. The SyncManager uses
+	// HistoricalSyncTicker instead.
+	HistoricalSyncInterval time.Duration
+
+	// ActorSystem is the actor system the actor based syncer runs in.
+	ActorSystem *actor.ActorSystem
+
 	// MaxChannelUpdateBurst specifies the maximum number of updates for a
 	// specific channel and direction that we'll accept over an interval.
 	MaxChannelUpdateBurst int
@@ -1714,6 +1726,37 @@ func (d *AuthenticatedGossiper) finalizeGossipProcessing(logCtx context.Context,
 
 // newGossipSyncManager returns the sync manager the config selects.
 func newGossipSyncManager(cfg *Config, bestHeight func() uint32) syncManager {
+	if cfg.GossipSyncerV2 {
+		mgr, err := newSyncManagerV2(syncManagerV2Cfg{
+			chainHash:               *cfg.ChainParams.GenesisHash,
+			chanSeries:              cfg.ChanSeries,
+			bestHeight:              bestHeight,
+			numActiveSyncers:        cfg.NumActiveSyncers,
+			pinnedSyncers:           cfg.PinnedSyncers,
+			rotateInterval:          DefaultSyncerRotationInterval,
+			historicalSyncInterval:  cfg.HistoricalSyncInterval,
+			noTimestampQueries:      cfg.NoTimestampQueries,
+			ignoreHistoricalFilters: cfg.IgnoreHistoricalFilters,
+			isStillZombieChannel:    cfg.IsStillZombieChannel,
+			msgRateBytes:            cfg.MsgRateBytes,
+			msgBurstBytes:           cfg.MsgBurstBytes,
+			peerMsgRateBytes:        cfg.PeerMsgRateBytes,
+			filterConcurrency:       cfg.FilterConcurrency,
+			system:                  cfg.ActorSystem,
+		})
+		if err == nil {
+			log.Infof("Using the actor based gossip syncer")
+
+			return mgr
+		}
+
+		// Registering the syncer's actors only fails on a duplicate
+		// actor ID, which means the actor system is shared with a
+		// second gossiper. The legacy syncer keeps the node syncing.
+		log.Errorf("Unable to start the actor based gossip syncer, "+
+			"using the legacy syncer: %v", err)
+	}
+
 	return newSyncManager(&SyncManagerCfg{
 		ChainHash:                *cfg.ChainParams.GenesisHash,
 		ChanSeries:               cfg.ChanSeries,

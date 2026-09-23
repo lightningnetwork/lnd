@@ -1225,6 +1225,9 @@ func newServer(ctx context.Context, cfg *Config, listenAddrs []net.Addr,
 		FilterConcurrency:       cfg.Gossip.FilterConcurrency,
 		BanThreshold:            cfg.Gossip.BanThreshold,
 		PeerMsgRateBytes:        cfg.Gossip.PeerMsgRateBytes,
+		GossipSyncerV2:          cfg.Gossip.SyncerV2,
+		HistoricalSyncInterval:  cfg.HistoricalSyncInterval,
+		ActorSystem:             s.actorSystem,
 	}, nodeKeyDesc)
 
 	accessCfg := &accessManConfig{

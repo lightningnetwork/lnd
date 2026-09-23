@@ -25,29 +25,34 @@ const (
 type FailureDetail int32
 
 const (
-	FailureDetail_UNKNOWN                 FailureDetail = 0
-	FailureDetail_NO_DETAIL               FailureDetail = 1
-	FailureDetail_ONION_DECODE            FailureDetail = 2
-	FailureDetail_LINK_NOT_ELIGIBLE       FailureDetail = 3
-	FailureDetail_ON_CHAIN_TIMEOUT        FailureDetail = 4
-	FailureDetail_HTLC_EXCEEDS_MAX        FailureDetail = 5
-	FailureDetail_INSUFFICIENT_BALANCE    FailureDetail = 6
-	FailureDetail_INCOMPLETE_FORWARD      FailureDetail = 7
-	FailureDetail_HTLC_ADD_FAILED         FailureDetail = 8
-	FailureDetail_FORWARDS_DISABLED       FailureDetail = 9
-	FailureDetail_INVOICE_CANCELED        FailureDetail = 10
-	FailureDetail_INVOICE_UNDERPAID       FailureDetail = 11
-	FailureDetail_INVOICE_EXPIRY_TOO_SOON FailureDetail = 12
-	FailureDetail_INVOICE_NOT_OPEN        FailureDetail = 13
-	FailureDetail_MPP_INVOICE_TIMEOUT     FailureDetail = 14
-	FailureDetail_ADDRESS_MISMATCH        FailureDetail = 15
-	FailureDetail_SET_TOTAL_MISMATCH      FailureDetail = 16
-	FailureDetail_SET_TOTAL_TOO_LOW       FailureDetail = 17
-	FailureDetail_SET_OVERPAID            FailureDetail = 18
-	FailureDetail_UNKNOWN_INVOICE         FailureDetail = 19
-	FailureDetail_INVALID_KEYSEND         FailureDetail = 20
-	FailureDetail_MPP_IN_PROGRESS         FailureDetail = 21
-	FailureDetail_CIRCULAR_ROUTE          FailureDetail = 22
+	FailureDetail_UNKNOWN                    FailureDetail = 0
+	FailureDetail_NO_DETAIL                  FailureDetail = 1
+	FailureDetail_ONION_DECODE               FailureDetail = 2
+	FailureDetail_LINK_NOT_ELIGIBLE          FailureDetail = 3
+	FailureDetail_ON_CHAIN_TIMEOUT           FailureDetail = 4
+	FailureDetail_HTLC_EXCEEDS_MAX           FailureDetail = 5
+	FailureDetail_INSUFFICIENT_BALANCE       FailureDetail = 6
+	FailureDetail_INCOMPLETE_FORWARD         FailureDetail = 7
+	FailureDetail_HTLC_ADD_FAILED            FailureDetail = 8
+	FailureDetail_FORWARDS_DISABLED          FailureDetail = 9
+	FailureDetail_INVOICE_CANCELED           FailureDetail = 10
+	FailureDetail_INVOICE_UNDERPAID          FailureDetail = 11
+	FailureDetail_INVOICE_EXPIRY_TOO_SOON    FailureDetail = 12
+	FailureDetail_INVOICE_NOT_OPEN           FailureDetail = 13
+	FailureDetail_MPP_INVOICE_TIMEOUT        FailureDetail = 14
+	FailureDetail_ADDRESS_MISMATCH           FailureDetail = 15
+	FailureDetail_SET_TOTAL_MISMATCH         FailureDetail = 16
+	FailureDetail_SET_TOTAL_TOO_LOW          FailureDetail = 17
+	FailureDetail_SET_OVERPAID               FailureDetail = 18
+	FailureDetail_UNKNOWN_INVOICE            FailureDetail = 19
+	FailureDetail_INVALID_KEYSEND            FailureDetail = 20
+	FailureDetail_MPP_IN_PROGRESS            FailureDetail = 21
+	FailureDetail_CIRCULAR_ROUTE             FailureDetail = 22
+	FailureDetail_INVOICE_ALREADY_SETTLED    FailureDetail = 23
+	FailureDetail_HTLC_INVOICE_TYPE_MISMATCH FailureDetail = 24
+	FailureDetail_AMP_ERROR                  FailureDetail = 25
+	FailureDetail_AMP_RECONSTRUCTION         FailureDetail = 26
+	FailureDetail_EXTERNAL_VALIDATION_FAILED FailureDetail = 27
 )
 
 // Enum value maps for FailureDetail.
@@ -76,31 +81,41 @@ var (
 		20: "INVALID_KEYSEND",
 		21: "MPP_IN_PROGRESS",
 		22: "CIRCULAR_ROUTE",
+		23: "INVOICE_ALREADY_SETTLED",
+		24: "HTLC_INVOICE_TYPE_MISMATCH",
+		25: "AMP_ERROR",
+		26: "AMP_RECONSTRUCTION",
+		27: "EXTERNAL_VALIDATION_FAILED",
 	}
 	FailureDetail_value = map[string]int32{
-		"UNKNOWN":                 0,
-		"NO_DETAIL":               1,
-		"ONION_DECODE":            2,
-		"LINK_NOT_ELIGIBLE":       3,
-		"ON_CHAIN_TIMEOUT":        4,
-		"HTLC_EXCEEDS_MAX":        5,
-		"INSUFFICIENT_BALANCE":    6,
-		"INCOMPLETE_FORWARD":      7,
-		"HTLC_ADD_FAILED":         8,
-		"FORWARDS_DISABLED":       9,
-		"INVOICE_CANCELED":        10,
-		"INVOICE_UNDERPAID":       11,
-		"INVOICE_EXPIRY_TOO_SOON": 12,
-		"INVOICE_NOT_OPEN":        13,
-		"MPP_INVOICE_TIMEOUT":     14,
-		"ADDRESS_MISMATCH":        15,
-		"SET_TOTAL_MISMATCH":      16,
-		"SET_TOTAL_TOO_LOW":       17,
-		"SET_OVERPAID":            18,
-		"UNKNOWN_INVOICE":         19,
-		"INVALID_KEYSEND":         20,
-		"MPP_IN_PROGRESS":         21,
-		"CIRCULAR_ROUTE":          22,
+		"UNKNOWN":                    0,
+		"NO_DETAIL":                  1,
+		"ONION_DECODE":               2,
+		"LINK_NOT_ELIGIBLE":          3,
+		"ON_CHAIN_TIMEOUT":           4,
+		"HTLC_EXCEEDS_MAX":           5,
+		"INSUFFICIENT_BALANCE":       6,
+		"INCOMPLETE_FORWARD":         7,
+		"HTLC_ADD_FAILED":            8,
+		"FORWARDS_DISABLED":          9,
+		"INVOICE_CANCELED":           10,
+		"INVOICE_UNDERPAID":          11,
+		"INVOICE_EXPIRY_TOO_SOON":    12,
+		"INVOICE_NOT_OPEN":           13,
+		"MPP_INVOICE_TIMEOUT":        14,
+		"ADDRESS_MISMATCH":           15,
+		"SET_TOTAL_MISMATCH":         16,
+		"SET_TOTAL_TOO_LOW":          17,
+		"SET_OVERPAID":               18,
+		"UNKNOWN_INVOICE":            19,
+		"INVALID_KEYSEND":            20,
+		"MPP_IN_PROGRESS":            21,
+		"CIRCULAR_ROUTE":             22,
+		"INVOICE_ALREADY_SETTLED":    23,
+		"HTLC_INVOICE_TYPE_MISMATCH": 24,
+		"AMP_ERROR":                  25,
+		"AMP_RECONSTRUCTION":         26,
+		"EXTERNAL_VALIDATION_FAILED": 27,
 	}
 )
 
@@ -3973,7 +3988,7 @@ const file_routerrpc_router_proto_rawDesc = "" +
 	"\x14FindBaseAliasRequest\x12\x14\n" +
 	"\x05alias\x18\x01 \x01(\x04R\x05alias\"+\n" +
 	"\x15FindBaseAliasResponse\x12\x12\n" +
-	"\x04base\x18\x01 \x01(\x04R\x04base*\x81\x04\n" +
+	"\x04base\x18\x01 \x01(\x04R\x04base*\x85\x05\n" +
 	"\rFailureDetail\x12\v\n" +
 	"\aUNKNOWN\x10\x00\x12\r\n" +
 	"\tNO_DETAIL\x10\x01\x12\x10\n" +
@@ -3998,7 +4013,12 @@ const file_routerrpc_router_proto_rawDesc = "" +
 	"\x0fUNKNOWN_INVOICE\x10\x13\x12\x13\n" +
 	"\x0fINVALID_KEYSEND\x10\x14\x12\x13\n" +
 	"\x0fMPP_IN_PROGRESS\x10\x15\x12\x12\n" +
-	"\x0eCIRCULAR_ROUTE\x10\x16*\xae\x01\n" +
+	"\x0eCIRCULAR_ROUTE\x10\x16\x12\x1b\n" +
+	"\x17INVOICE_ALREADY_SETTLED\x10\x17\x12\x1e\n" +
+	"\x1aHTLC_INVOICE_TYPE_MISMATCH\x10\x18\x12\r\n" +
+	"\tAMP_ERROR\x10\x19\x12\x16\n" +
+	"\x12AMP_RECONSTRUCTION\x10\x1a\x12\x1e\n" +
+	"\x1aEXTERNAL_VALIDATION_FAILED\x10\x1b*\xae\x01\n" +
 	"\fPaymentState\x12\r\n" +
 	"\tIN_FLIGHT\x10\x00\x12\r\n" +
 	"\tSUCCEEDED\x10\x01\x12\x12\n" +

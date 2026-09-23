@@ -52,6 +52,10 @@
 
 ## RPC Updates
 
+* routerrpc HTLC event subscribers now receive specific failure details for
+  invoice-level validation failures, avoiding ambiguous `UNKNOWN` results.
+  [#10520](https://github.com/lightningnetwork/lnd/pull/10520)
+
 ## lncli Updates
 
 ## Breaking Changes
@@ -88,6 +92,7 @@
 
 # Contributors (Alphabetical Order)
 
+* Dario Anongba Varela
 * elsirion
 * Gijs van Dam
 * Yong Yu

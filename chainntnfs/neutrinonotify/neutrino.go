@@ -752,6 +752,17 @@ func (n *NeutrinoNotifier) notifyBlockEpochClient(epochClient *blockEpochRegistr
 	}
 }
 
+// extendHistoricalDispatch extends an initial historical scan through blocks
+// connected while the filter update was in flight. A supplemental scan covers
+// only a fixed prefix and must retain its original end height.
+func extendHistoricalDispatch(endHeight *uint32, supplemental bool,
+	currentHeight uint32) {
+
+	if !supplemental {
+		*endHeight = currentHeight
+	}
+}
+
 // RegisterSpendNtfn registers an intent to be notified once the target
 // outpoint/output script has been spent by a transaction on-chain. When
 // intending to be notified of the spend of an output script, a nil outpoint
@@ -838,9 +849,10 @@ func (n *NeutrinoNotifier) RegisterSpendNtfn(outpoint *wire.OutPoint,
 	// registration. Extend that scan through any blocks connected while the
 	// filter update was in flight. A supplemental scan ends below the range
 	// that is already covered and must retain that boundary.
-	if !ntfn.HistoricalDispatch.Supplemental {
-		ntfn.HistoricalDispatch.EndHeight = currentHeight
-	}
+	extendHistoricalDispatch(
+		&ntfn.HistoricalDispatch.EndHeight,
+		ntfn.HistoricalDispatch.Supplemental, currentHeight,
+	)
 
 	// With the filter updated, we'll dispatch our historical rescan to
 	// ensure we detect the spend if it happened in the past.
@@ -879,7 +891,8 @@ func (n *NeutrinoNotifier) RegisterSpendNtfn(outpoint *wire.OutPoint,
 				// We persist the rescan progress to achieve incremental
 				// behavior across restarts, otherwise long rescans may
 				// start from the beginning with every restart.
-				err := n.spendHintCache.CommitSpendHints(
+				err := chainntnfs.CommitSpendHints(
+					n.spendHintCache,
 					ntfn.HistoricalDispatch.ProgressHints(
 						processedHeight,
 					),
@@ -1006,9 +1019,10 @@ func (n *NeutrinoNotifier) RegisterConfirmationsNtfn(txid *chainhash.Hash,
 	// registration. Extend that scan through any blocks connected while the
 	// filter update was in flight. A supplemental scan ends below the range
 	// that is already covered and must retain that boundary.
-	if !ntfn.HistoricalDispatch.Supplemental {
-		ntfn.HistoricalDispatch.EndHeight = currentHeight
-	}
+	extendHistoricalDispatch(
+		&ntfn.HistoricalDispatch.EndHeight,
+		ntfn.HistoricalDispatch.Supplemental, currentHeight,
+	)
 
 	// Finally, with the filter updated, we can dispatch the historical
 	// rescan to ensure we can detect if the event happened in the past.

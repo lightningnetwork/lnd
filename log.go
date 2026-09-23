@@ -7,6 +7,7 @@ import (
 	"github.com/btcsuite/btclog/v2"
 	"github.com/lightninglabs/neutrino"
 	sphinx "github.com/lightningnetwork/lightning-onion"
+	"github.com/lightningnetwork/lnd/actor/timeout"
 	"github.com/lightningnetwork/lnd/autopilot"
 	"github.com/lightningnetwork/lnd/build"
 	"github.com/lightningnetwork/lnd/chainio"
@@ -187,6 +188,7 @@ func SetupLoggers(root *build.SubLoggerManager, interceptor signal.Interceptor) 
 	AddSubLogger(root, "CHCL", interceptor, chancloser.UseLogger)
 	AddSubLogger(root, "LCHN", interceptor, localchans.UseLogger)
 	AddSubLogger(root, "PFSM", interceptor, protofsm.UseLogger)
+	AddSubLogger(root, timeout.Subsystem, interceptor, timeout.UseLogger)
 
 	AddSubLogger(root, routing.Subsystem, interceptor, routing.UseLogger)
 	AddSubLogger(root, routerrpc.Subsystem, interceptor, routerrpc.UseLogger)

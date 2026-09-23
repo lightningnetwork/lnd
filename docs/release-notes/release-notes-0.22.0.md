@@ -66,6 +66,11 @@
   `NodeAnnouncement2` address decoders, where all decoded addresses aliased
   one scratch array and truncated records decoded without an error.
 
+* Taproot commitment signing and verification now [release transient MuSig2
+  signer sessions](https://github.com/lightningnetwork/lnd/pull/11246) once
+  the local node no longer needs them. Force-close and cooperative-close
+  signing continue to retain their sessions until signature combination.
+
 # New Features
 
 ## Functional Enhancements

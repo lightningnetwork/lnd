@@ -1443,9 +1443,10 @@ func testWrongPaymentAddr(ht *lntest.HarnessTest) {
 	invoiceAmt := int64(1000)
 
 	// Create a two hop network: Alice -> Bob.
-	_, nodes := ht.CreateSimpleNetwork(cfgs, openChannelParams)
+	chanPoints, nodes := ht.CreateSimpleNetwork(cfgs, openChannelParams)
 
 	alice, bob := nodes[0], nodes[1]
+	chanPoint := chanPoints[0]
 
 	request1 := bob.RPC.AddInvoice(&lnrpc.Invoice{
 		ValueMsat:  invoiceAmt,
@@ -1485,4 +1486,9 @@ func testWrongPaymentAddr(ht *lntest.HarnessTest) {
 	ht.AssertPaymentStatus(
 		alice, lntypes.Hash(request1.RHash), lnrpc.Payment_FAILED,
 	)
+
+	// The malformed payment should only fail the HTLC, leaving the channel
+	// active on both sides.
+	ht.AssertChannelActive(alice, chanPoint)
+	ht.AssertChannelActive(bob, chanPoint)
 }

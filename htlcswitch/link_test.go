@@ -6526,6 +6526,29 @@ func TestCheckHtlcForwardAuxShaperChannel(t *testing.T) {
 	)
 }
 
+// TestInvoiceProcessingFailResolution tests that invoice processing failures
+// use the generic final-hop wire failure while retaining their internal failure
+// details.
+func TestInvoiceProcessingFailResolution(t *testing.T) {
+	t.Parallel()
+
+	const amount = lnwire.MilliSatoshi(1000)
+	outcome := invpkg.ResultInvoiceInterceptorError
+	resolution := invpkg.NewFailResolution(
+		models.CircuitKey{}, testStartingHeight, outcome,
+	)
+	failure := getResolutionFailure(resolution, amount)
+
+	wireFailure := failure.WireMessage()
+	incorrectDetails, ok := wireFailure.(*lnwire.FailIncorrectDetails)
+	require.True(t, ok)
+	require.Equal(t, amount, incorrectDetails.Amount())
+	require.Equal(
+		t, uint32(testStartingHeight), incorrectDetails.Height(),
+	)
+	require.Equal(t, outcome, failure.FailureDetail)
+}
+
 // TestChannelLinkCanceledInvoice in this test checks the interaction
 // between Alice and Bob for a canceled invoice.
 func TestChannelLinkCanceledInvoice(t *testing.T) {

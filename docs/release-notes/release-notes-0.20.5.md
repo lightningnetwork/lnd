@@ -43,6 +43,14 @@
   failures](https://github.com/lightningnetwork/lnd/pull/11161), while
   preserving the recorded outcome for replayed HTLCs.
 
+* BOLT 11 invoice decoding [now
+  rejects](https://github.com/lightningnetwork/lnd/pull/11190) invoices that
+  contain more than one payment hash (`p`) field, including duplicate fields
+  with unsupported lengths. This is stricter than the current BOLT 11 text,
+  which tells a reader to use the first `p` field; the change is motivated by
+  [lightning/bolts#1357](https://github.com/lightning/bolts/pull/1357), and
+  is an interop consideration for any wallet emitting such invoices.
+
 # New Features
 
 ## Functional Enhancements
@@ -100,5 +108,6 @@
 * Dario Anongba Varela
 * elsirion
 * Gijs van Dam
+* Olaoluwa Osuntokun
 * Yong Yu
 * Ziggie

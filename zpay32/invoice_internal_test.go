@@ -1,6 +1,7 @@
 package zpay32
 
 import (
+	"bytes"
 	"encoding/binary"
 	"math"
 	"reflect"
@@ -781,6 +782,32 @@ func TestParseTaggedFields(t *testing.T) {
 
 	netParams := &chaincfg.SimNetParams
 
+	var malformedThenValid bytes.Buffer
+	require.NoError(t, writeTaggedField(
+		&malformedThenValid, fieldTypeP, []byte{0},
+	))
+	require.NoError(t, writeBytes32(
+		&malformedThenValid, fieldTypeP, [32]byte{},
+	))
+
+	var identicalPaymentHashes bytes.Buffer
+	require.NoError(t, writeBytes32(
+		&identicalPaymentHashes, fieldTypeP, testPaymentHash,
+	))
+	require.NoError(t, writeBytes32(
+		&identicalPaymentHashes, fieldTypeP, testPaymentHash,
+	))
+
+	var distinctPaymentHashes bytes.Buffer
+	require.NoError(t, writeBytes32(
+		&distinctPaymentHashes, fieldTypeP, testPaymentHash,
+	))
+	var secondPaymentHash [32]byte
+	copy(secondPaymentHash[:], testDescriptionHash[:])
+	require.NoError(t, writeBytes32(
+		&distinctPaymentHashes, fieldTypeP, secondPaymentHash,
+	))
+
 	tests := []struct {
 		name    string
 		data    []byte
@@ -806,6 +833,21 @@ func TestParseTaggedFields(t *testing.T) {
 		{
 			name: "unknown field valid data",
 			data: []byte{0xff, 0x00, 0x01, 0xab},
+		},
+		{
+			name:    "malformed then valid payment hash",
+			data:    malformedThenValid.Bytes(),
+			wantErr: ErrDuplicatePaymentHash,
+		},
+		{
+			name:    "identical payment hashes",
+			data:    identicalPaymentHashes.Bytes(),
+			wantErr: ErrDuplicatePaymentHash,
+		},
+		{
+			name:    "distinct payment hashes",
+			data:    distinctPaymentHashes.Bytes(),
+			wantErr: ErrDuplicatePaymentHash,
 		},
 		{
 			name:    "only type specified",

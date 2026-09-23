@@ -163,18 +163,15 @@ type subRef struct {
 }
 
 // asyncModel drives a TxNotifier with historical scans that complete, fail,
-// and report progress in any order relative to registrations, blocks, bounded
-// reorgs, and restarts. Subscribers draw their own height hints, so a later
-// subscriber can have an earlier hint, and a hint can be later than the event
-// itself. Rather than predicting each notification, the oracle checks
-// invariants after every action: no subscriber receives an event that is not
-// in the chain, a subscriber whose hint precedes its event is eventually
-// notified, and the hint cache never lets such a subscriber skip its event if
-// it registered first after a restart.
-//
-// The model does not cancel subscriptions, re-register a request once its set
-// has matured, or report Neutrino progress inside the reorg window. Those
-// paths are covered by a follow-up that reworks request set lifetimes.
+// and report progress in any order relative to registrations, cancellations,
+// blocks, reorgs, and restarts. Subscribers draw their own height hints, so
+// a later subscriber can have an earlier hint, and a hint can be later than
+// the event itself. Rather than predicting each notification, the oracle
+// checks invariants after every action: no subscriber receives an event
+// that is not in the chain, a subscriber whose hint precedes its event is
+// eventually notified, the hint cache never lets such a subscriber skip its
+// event after a restart, and no request set outlives both its subscribers
+// and the reorg window.
 type asyncModel struct {
 	n             *chainntnfs.TxNotifier
 	cache         *mockHintCache
@@ -195,11 +192,6 @@ type asyncModel struct {
 	// instance. Their subscribers are not owed a historical event until a
 	// restart scans again.
 	failed [2][asyncNumRequests]bool
-
-	// matured records requests whose set was retired by a Done
-	// notification. They take no new registrations, since a scan still
-	// outstanding from the retired set would report to the new one.
-	matured [2][asyncNumRequests]bool
 }
 
 // newAsyncModel creates a model with a fresh notifier and hint cache.
@@ -258,12 +250,7 @@ func (m *asyncModel) RegisterSpend(t *rapid.T) {
 
 // registerAction draws a free slot, a hint, and a depth, then registers.
 func (m *asyncModel) registerAction(t *rapid.T, kind asyncKind) {
-	var free []subRef
-	for _, ref := range m.slots(kind, false) {
-		if !m.matured[kind][ref.request] {
-			free = append(free, ref)
-		}
-	}
+	free := m.slots(kind, false)
 	if len(free) == 0 {
 		t.Skip("no free slots")
 	}
@@ -333,6 +320,39 @@ func (m *asyncModel) addScan(t *rapid.T, scan asyncScan) {
 	m.scans = append(m.scans, scan)
 }
 
+// CancelConf cancels an active confirmation subscriber.
+func (m *asyncModel) CancelConf(t *rapid.T) {
+	m.cancelAction(t, asyncConf)
+}
+
+// CancelSpend cancels an active spend subscriber.
+func (m *asyncModel) CancelSpend(t *rapid.T) {
+	m.cancelAction(t, asyncSpend)
+}
+
+// cancelAction cancels a random active subscriber of the given kind and
+// asserts that its event channel is closed.
+func (m *asyncModel) cancelAction(t *rapid.T, kind asyncKind) {
+	active := m.slots(kind, true)
+	if len(active) == 0 {
+		t.Skip("no active subscribers")
+	}
+
+	sub := m.sub(rapid.SampledFrom(active).Draw(t, "slot"))
+	sub.active = false
+	if kind == asyncConf {
+		sub.confEvent.Cancel()
+		_, ok := <-sub.confEvent.Confirmed
+		require.False(t, ok, "canceled confirmation channel is open")
+
+		return
+	}
+
+	sub.spendEvent.Cancel()
+	_, ok := <-sub.spendEvent.Spend
+	require.False(t, ok, "canceled spend channel is open")
+}
+
 // takeScan removes and returns a random outstanding scan.
 func (m *asyncModel) takeScan(t *rapid.T) asyncScan {
 	if len(m.scans) == 0 {
@@ -381,13 +401,11 @@ func (m *asyncModel) CompleteScan(t *rapid.T) {
 	}
 
 	// A set is removed when its request matures, even with a scan still
-	// outstanding, in which case the late result has nowhere to go.
-	if m.matured[scan.kind][scan.request] &&
-		errors.Is(err, chainntnfs.ErrStaleScanResult) {
-
-		return
+	// outstanding. The late result must then be discarded, not credited to
+	// a newer set for the same request.
+	if !errors.Is(err, chainntnfs.ErrStaleScanResult) {
+		require.NoError(t, err)
 	}
-	require.NoError(t, err)
 }
 
 // FailScan drops a random outstanding scan without reporting a result, as a
@@ -399,8 +417,8 @@ func (m *asyncModel) FailScan(t *rapid.T) {
 
 // ScanProgress persists partial progress for a random outstanding spend scan,
 // as Neutrino does after each block. The reported height never passes the
-// spend, which the scan would have found, or the reorg window, whose blocks
-// the scan may have seen before a reorg replaced them.
+// spend, which the scan would have found, but it can reach the tip, whose
+// blocks a later reorg may replace.
 func (m *asyncModel) ScanProgress(t *rapid.T) {
 	var spendScans []asyncScan
 	for _, scan := range m.scans {
@@ -414,7 +432,7 @@ func (m *asyncModel) ScanProgress(t *rapid.T) {
 
 	scan := rapid.SampledFrom(spendScans).Draw(t, "scan")
 	start, end := scan.bounds()
-	limit := min(end, m.maxTip-asyncReorgLimit)
+	limit := min(end, m.currentHeight)
 	spendHeight := m.requests[scan.request].spendHeight
 	if spendHeight != 0 && spendHeight >= start {
 		limit = min(limit, spendHeight)
@@ -532,6 +550,8 @@ func (m *asyncModel) Restart(t *rapid.T) {
 // Check drains every active subscriber's notifications and asserts the
 // model's invariants.
 func (m *asyncModel) Check(t *rapid.T) {
+	require.NoError(t, m.n.CheckSetInvariants())
+
 	for _, kind := range []asyncKind{asyncConf, asyncSpend} {
 		for _, ref := range m.slots(kind, true) {
 			if kind == asyncConf {
@@ -590,7 +610,6 @@ func (m *asyncModel) drainConf(t *rapid.T, ref subRef) {
 			require.True(t, sub.delivered, "done before "+
 				"confirmation")
 			sub.active = false
-			m.matured[asyncConf][ref.request] = true
 
 			return
 
@@ -629,7 +648,6 @@ func (m *asyncModel) drainSpend(t *rapid.T, ref subRef) {
 			)
 			require.True(t, sub.delivered, "done before spend")
 			sub.active = false
-			m.matured[asyncSpend][ref.request] = true
 
 			return
 
@@ -711,11 +729,12 @@ func (m *asyncModel) checkHint(t *rapid.T, ref subRef) {
 }
 
 // TestTxNotifierAsyncModelProperty runs asyncModel as a rapid state machine.
-// It covers the orderings the earlier height hint fixes depend on: scans
-// outstanding across other actions, failed scans, Neutrino progress writes,
-// subscribers with differing and late hints, spends alongside confirmations,
-// restarts that re-register subscribers in any order, and requests that
-// mature out of the reorg window.
+// Compared to TestTxNotifierModelProperty, which completes every scan inside
+// its registration and predicts each notification exactly, this model covers
+// the orderings where the bugs in this area have lived: scans outstanding
+// across other actions, failed scans, Neutrino progress writes, subscribers
+// with differing and late hints, spends, and requests that mature out of the
+// reorg window.
 func TestTxNotifierAsyncModelProperty(t *testing.T) {
 	rapid.Check(t, func(t *rapid.T) {
 		model := newAsyncModel()

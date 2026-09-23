@@ -3,7 +3,11 @@
 Status: model-derived draft. The requirements below were derived from the P
 models in `pmodel/` and checked against the Go code by the bridges named in
 each requirement. They are properties of the modeled abstraction under the
-explored schedules, not a proof of the Go code.
+explored schedules, not a proof of the Go code. The range reply rules
+(GSS-003, GSS-004, GSS-015 and GSS-016, and the range phase of GSS-007) are
+also proved, for every query and every stream length, of a Lean model of the
+accumulator and the chunker in `lean/`, which a differential test ties to the
+Go code (section 12.5).
 
 - Model SHA-256: `77edc425aa52dcda8a2560d2e60bcb8ac499bd2f6302e3ea3e9c9a49c21d7d09`
 - Model sources: `pmodel/src/manager.p`, `pmodel/src/syncer.p`,
@@ -32,7 +36,9 @@ timers as abstract events, and outcomes. Out of scope: the actor layer
 forwarding, the wire encoding of messages, zlib, timestamps and the freshness
 filter, and the SCID budget. Those are covered by the unit, property and
 simulation tests listed in section 12, and are marked unmodeled wherever a
-requirement touches them.
+requirement touches them. The Lean proofs in section 12.5 cover zlib weights,
+timestamps, the freshness filter and the SCID budget for the accumulator and
+the chunker.
 
 ## 2. Conventions
 
@@ -390,6 +396,10 @@ that breaks either rule MUST fail the attempt with a peer fault.
   `tcSyncerNoFirstReplyCheckCounterexample`;
   `TestRangeReplyRejectsOutOfQuery`; `TestHonestStreamAccepted`;
   `TestPModelSyncerBridge`.
+- Lean: `reject_outside_query`, `reject_first_late`, `reject_out_of_order`
+  (`lean/GossipSync/Rejection.lean`), and `run_sound`
+  (`lean/GossipSync/Soundness.lean`), which covers same-block continuation;
+  `TestLeanDiffAccumulator`.
 
 A range stream MUST end with a non-legacy reply that covers the query's last
 block, a legacy reply that sets complete, or the reply that spends the reply
@@ -401,6 +411,10 @@ budget, whichever comes first.
 - Evidence: `tcSyncerLegacySlow`, `tcSyncerLegacyPrompt`,
   `tcSyncerByzantine` (budget of three); `TestRangeReplyLegacy`;
   `TestRangeReplyBudgets`; `TestPModelSyncerBridge`.
+- Lean: `legacy_done_iff`, `after_legacy` (`lean/GossipSync/Legacy.lean`),
+  `run_sound`, `tiles_budget_cut` (`lean/GossipSync/RoundTrip.lean`);
+  `TestLeanDiffAccumulator`. See Q11 for a modern reply this rule reads as
+  legacy.
 
 When a range stream ends, a failed local lookup MUST end the attempt with a
 local fault and return to `Idle` without draining. Otherwise the syncer MUST
@@ -431,6 +445,10 @@ attempt MUST have queried exactly the channels the peer has and we lack.
 - Code: `syncer_states.go:273`, `syncer_states.go:337`.
 - Evidence: `tcSyncerHonestPrompt`, `tcSyncerHonestLossy`,
   `tcSyncerVerySlowPeer`, legacy green cases; `TestSyncerProperties`.
+- Lean: the range phase only, `roundtrip` and `roundtrip_all_fit`
+  (`lean/GossipSync/RoundTrip.lean`): every stream our chunker sends is
+  accepted in full exactly when it fits the budget and the SCID limit, with
+  exactly the channels it carries; `TestLeanDiffChunker`.
 
 ### 7.3 Timers
 
@@ -516,6 +534,8 @@ reply on, in order.
   `tcSyncerNoFirstReplyCheckCounterexample`; TLA+ green `SyncerVerySlow`
   (lnd-format peers only), finding `SyncerLegacyVerySlowFinding`, which
   shows a legacy-format peer beyond A-DRAIN breaking it (Q10).
+- Lean: `reject_first_late` (`lean/GossipSync/Rejection.lean`) proves the
+  first-reply check the property rests on.
 
 ### 7.6 Roles
 
@@ -538,6 +558,11 @@ whose SCIDs exceed the SCID limit MUST fail with a peer fault.
   Authority: `range_reply.go:118`.
 - Code: `range_reply.go:118`.
 - Evidence: `TestRangeReplyBudgets`.
+- Lean: `add_used_by_encoding`, `run_budget` (`lean/GossipSync/Budget.lean`),
+  `reject_too_large` (`lean/GossipSync/Rejection.lean`),
+  `roundtrip_too_large`; `TestLeanDiffAccumulator`. The budget is charged
+  after a reply is accepted, so the total can pass the budget by up to three
+  units on the last reply (Q12).
 
 Channels whose two update timestamps are both outside the freshness horizon
 SHOULD NOT be queried.
@@ -547,6 +572,8 @@ SHOULD NOT be queried.
   timestamps. Authority: `range_reply.go:257`.
 - Code: `range_reply.go:257`.
 - Evidence: `TestRangeReplyFreshness`.
+- Lean: `received_fresh` (`lean/GossipSync/Soundness.lean`), with the
+  horizon in whole seconds; `TestLeanDiffAccumulator`.
 
 ## 8. Failure, timeout and restart behavior
 
@@ -697,11 +724,11 @@ not re-arm, busy outcomes not backed off).
 | GSM-019 | `RetryPinned` | `GraphEventuallySyncedWithPinned` | `retryPinned` | `tcManagerPinnedOnly`, `tcManagerLiveness`, `tcManagerNoPinnedRetryCounterexample`, TLA+ `ManagerFair`, `ManagerNoPinnedRetry` | partially verified: model liveness verified exhaustively at small scope under `Fairness` (TLA+); the Go code follows the P executions through the bridge |
 | GSS-001 | `Idle`, `Refuse` | `OutcomeExactlyOnce` | `Idle`, `busy` | `TestSyncerProperties`, `TestPModelSyncerBridge` | verified |
 | GSS-002 | all states | `OutcomeExactlyOnce` | all states | `TestSyncerProperties`, `TestPModelSyncerBridge`, `tcSyncerByzantine` | verified |
-| GSS-003 | `OnReply` | `WholeStreamCredit` | `checkRange` | `TestRangeReplyRejectsOutOfQuery`, `tcSyncerNoFirstReplyCheckCounterexample`, `TestPModelSyncerBridge` | partially verified: same-block continuation is unmodeled |
-| GSS-004 | `OnReply` | bridge outbox | `complete` | `TestRangeReplyLegacy`, `TestRangeReplyBudgets`, `TestPModelSyncerBridge` | verified |
+| GSS-003 | `OnReply` | `WholeStreamCredit` | `checkRange` | `TestRangeReplyRejectsOutOfQuery`, `tcSyncerNoFirstReplyCheckCounterexample`, `TestPModelSyncerBridge`, `TestLeanDiffAccumulator` | proved in Lean (`run_sound`, `reject_*`), including same-block continuation, which the P model leaves out |
+| GSS-004 | `OnReply` | bridge outbox | `complete` | `TestRangeReplyLegacy`, `TestRangeReplyBudgets`, `TestPModelSyncerBridge`, `TestLeanDiffAccumulator` | verified; proved in Lean (`legacy_done_iff`, `run_sound`) |
 | GSS-005 | `OnReply` | bridge outbox | `onReply` | `TestSyncerLocalFault`, `TestPModelSyncerBridge` | verified |
 | GSS-006 | `SendNextBatch` | `CompletedQueriedMissing` | `QueryingSCIDs`, `nextBatch` | `TestSyncerProperties`, `TestPModelSyncerBridge` | verified |
-| GSS-007 | `OnReply`, `QueryingSCIDs` | `CompletedQueriedMissing` | `onReply` | `TestSyncerProperties`, honest green cases | verified |
+| GSS-007 | `OnReply`, `QueryingSCIDs` | `CompletedQueriedMissing` | `onReply` | `TestSyncerProperties`, honest green cases, `TestLeanDiffChunker` | verified; range phase proved in Lean (`roundtrip`) |
 | GSS-008 | `Arm`, `Draining` | bridge outbox | `armTimer`, `Draining` | `TestSyncerProperties`, `TestDrainingRearmsTimer`, `TestPModelSyncerBridge`, `tcSyncerFixedDrainDeadlineCounterexample` | verified |
 | GSS-009 | all states | `PromptPeerNeverFaulted` | all states | `tcSyncerHonestPrompt`, `tcSyncerLegacyPrompt` | verified |
 | GSS-010 | `AbandonRange`, `QueryingSCIDs` | `NoCrossAttemptCredit` | `abandon`, `QueryingSCIDs` | `tcSyncerNoDrainingCounterexample`, `TestPModelSyncerBridge` | verified |
@@ -709,8 +736,8 @@ not re-arm, busy outcomes not backed off).
 | GSS-012 | `Draining`, `OnReply` | `OneOutstandingQuery`, `NoCrossAttemptCredit` | `Draining`, `checkRange` | `TestSyncerProperties`, `tcSyncerHonestLossy`, `tcSyncerFixedDrainDeadlineCounterexample`, `tcSyncerCrossCreditBeyondDrainFinding`, TLA+ `SyncerADrain`, `SyncerTwoPausesFinding`, `SyncerCompleteFlagFinding` | partially verified: holds in every reachable state under A-DRAIN at small scope (TLA+), for streams that fit in the reply budget (`SyncerOverBudgetFinding`); a peer with two long pauses in one stream still beats the drain (Q9), and a peer that sets complete on every reply ends it early (Q8) |
 | GSS-013 | `OnReply` | `WholeStreamCredit` | `checkRange` | `tcSyncerVerySlowPeer`, `tcSyncerNoFirstReplyCheckCounterexample`, TLA+ `SyncerVerySlow`, `SyncerLegacyVerySlowFinding` | partially verified: holds for lnd-format peers under any timing, for streams that fit in the reply budget; fails for a legacy-format peer beyond A-DRAIN or beyond the budget (Q10) |
 | GSS-014 | `SetType` | bridge outbox | `setSyncType` | `TestSyncerProperties`, `TestPModelSyncerBridge` | verified |
-| GSS-015 | none | none | `add` | `TestRangeReplyBudgets` | unmodeled: the model has plain replies only |
-| GSS-016 | none | none | `bothOutOfBounds` | `TestRangeReplyFreshness` | unmodeled: the model has no timestamps |
+| GSS-015 | none | Lean `add_used_by_encoding`, `run_budget`, `reject_too_large` | `add` | `TestRangeReplyBudgets`, `TestLeanDiffAccumulator` | proved in Lean; unmodeled in P, which has plain replies only |
+| GSS-016 | none | Lean `received_fresh` | `bothOutOfBounds` | `TestRangeReplyFreshness`, `TestLeanDiffAccumulator` | proved in Lean; unmodeled in P, which has no timestamps |
 
 ### 12.4 TLA+ specs
 
@@ -739,6 +766,33 @@ No requirement has integration test (itest) evidence: the package has no
 itest yet, which the matrix records by omission from every row. The
 simulation tests (`TestSimInitialSync`, `TestDSTWorkload`,
 `FuzzDSTWorkload`) run the real actors end to end in `testing/synctest`.
+
+### 12.5 Lean proofs
+
+`lean/` holds a Lean 4 model of `rangeAccumulator.add` and
+`rangeChunker.replies`, written as plain functions over natural numbers and
+lists, and theorems about it that hold for every query, every limit and every
+stream length. `lean/README.md` documents each abstraction the model makes and
+walks through the proofs. The headline theorems:
+
+| Theorem | Statement | Requirements |
+|---|---|---|
+| `run_sound` | A stream completed without spending the budget lies in the query, starts at its first block, ends at its last, covers every block, is linked reply to reply when no reply is legacy, and buffers exactly its replies' channels | GSS-003, GSS-004 |
+| `reject_outside_query`, `reject_first_late`, `reject_out_of_order`, `reject_encoding`, `reject_too_large` | Each class of malformed reply is rejected, with the matching error | GSS-003, GSS-013, GSS-015 |
+| `add_eq_ok` | `add` succeeds exactly when none of those conditions holds | GSS-003 |
+| `add_used_by_encoding`, `run_budget` | A zlib reply costs four units and a plain one costs one; a stream consumes at most `max(1, MaxReplies)` replies, and its charge stays below `max(1, MaxReplies) + 4` | GSS-015 |
+| `legacy_done_iff`, `after_legacy`, `echo_without_complete_waits` | A legacy reply ends the stream only by its complete flag or the budget, and after one the only non-legacy reply accepted is the last block | GSS-004 |
+| `received_fresh` | A timestamped channel is buffered exactly when one of its timestamps is within the horizon | GSS-016 |
+| `roundtrip`, `roundtrip_budget_cut`, `roundtrip_too_large`, `roundtrip_all_fit` | Our chunker's stream is accepted in full exactly when `w * (n - 1) < MaxReplies` (given `MaxReplies > 0`) and its SCIDs fit the limit, with every channel it carries after the freshness filter; otherwise it is cut short by the budget or rejected as too large | GSS-007 (range phase) |
+
+`lean/check.sh` builds the model with Lean 4.34.0, which checks every proof,
+refuses any `sorry` and any axiom beyond Lean's standard three, and runs
+`TestLeanDiffAccumulator` and `TestLeanDiffChunker` with 100,000 rapid checks
+each. The two tests run the Go code and the compiled model on the same random
+queries, limits, clocks, reply streams and graphs, including malformed
+streams and heights near the top of the `uint32` range, and compare every
+step. They agreed on every check. Each of twelve mutations of the model was
+caught by the differential test, and ten of them also broke a proof.
 
 ## 13. Abstractions, disagreements and open questions
 
@@ -862,6 +916,27 @@ simulation tests (`TestSimInitialSync`, `TestDSTWorkload`,
   the remedy proposed for Q9, refusing a new attempt on the peer until the
   abandoned stream's complete reply has been seen. Should GSS-013 be
   restated for lnd-format peers only, or is this worth closing?
+- **Q11. A wrong-chain answer reads as an unfinished legacy stream.** For a
+  query on a chain it doesn't serve, `responder.go` answers with one reply
+  that echoes the query with complete cleared, as the legacy responder did,
+  meaning "not this chain". Echoing the query is exactly what
+  `isLegacyReply` tests, so an initiator's accumulator accepts the reply
+  without completing (`echo_without_complete_waits` in
+  `lean/GossipSync/Legacy.lean`), waits out the reply timeout, and charges
+  the peer with a fault. BOLT 7 requires every final reply to set
+  `sync_complete`, so only this wrong-chain answer, or a peer that breaks
+  the spec, takes the path. Is one slow, failed attempt against such a peer
+  acceptable, or should the accumulator end the stream on an echo whose
+  complete flag is clear?
+- **Q12. The reply budget is charged after the reply is accepted.** The
+  accumulator never checks the budget before accepting a reply, so a zlib
+  reply that arrives with fewer than four units left takes the total past
+  `MaxReplies`: with the default of 500, 499 plain replies and one zlib reply
+  total 503 (`budget_overshoot`, `run_budget`). The stream ends on that
+  reply regardless, so the charge is at most three units over (four when
+  `MaxReplies` is zero), and the number of replies processed is still at
+  most `max(1, MaxReplies)`. Is the bound as
+  proved the intended contract?
 
 ### 13.4 Resolved questions
 

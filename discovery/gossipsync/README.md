@@ -323,7 +323,7 @@ waiting for it.
 
 ## Testing
 
-The tests come in three layers.
+The tests come in five layers.
 
 **Pure state machine tests** call `ProcessEvent` directly, with no goroutines.
 `TestSyncerProperties` drives the syncer against a model peer that answers with
@@ -371,3 +371,13 @@ schedules. They check the manager's liveness under an explicit fairness
 condition, and each rule of the syncer's pairing under every timing, with a
 must-fail case for each rule and each fairness assumption. They are not
 bridged to the Go code. Run them with `bash discovery/gossipsync/tla/check.sh`.
+
+**Proofs** in [`lean/`](lean/README.md) cover the pure range reply logic that
+the P models abstract away. A Lean model of `rangeAccumulator` and
+`rangeChunker` comes with theorems, checked for every query and stream length,
+that an accepted stream covers exactly the queried range, that every stream
+our chunker sends is accepted in full exactly when it fits the limits, and
+which replies are rejected. `TestLeanDiffAccumulator` and `TestLeanDiffChunker`
+run the Go code and the Lean model on the same rapid inputs; they skip unless
+`GOSSIPSYNC_LEAN_BIN` is set, and `lean/check.sh` builds the model, checks the
+proofs, and runs them.

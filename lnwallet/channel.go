@@ -4276,7 +4276,7 @@ func (lc *LightningChannel) SignNextCommitment(
 		// a musig2 channel. The encoded normal ECDSA signature will be
 		// just blank.
 		remoteSession := lc.musigSessions.RemoteSession
-		musig, err := remoteSession.SignCommit(
+		musig, err := remoteSession.signCommitAndCleanup(
 			newCommitView.txn,
 		)
 		if err != nil {
@@ -4399,7 +4399,7 @@ func (lc *LightningChannel) resignMusigCommit(
 	commitTx *wire.MsgTx) (lnwire.OptPartialSigWithNonceTLV, error) {
 
 	remoteSession := lc.musigSessions.RemoteSession
-	musig, err := remoteSession.SignCommit(commitTx)
+	musig, err := remoteSession.signCommitAndCleanup(commitTx)
 	if err != nil {
 		var none lnwire.OptPartialSigWithNonceTLV
 		return none, err

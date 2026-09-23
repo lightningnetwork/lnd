@@ -128,7 +128,7 @@ func testConfirmationRegistrationOrder(t *testing.T, completeBeforeEarly,
 	)
 	require.NoError(t, err)
 	require.NoError(t, n.UpdateConfDetails(
-		initial.HistoricalDispatch.ConfRequest, nil,
+		initial.HistoricalDispatch, nil,
 	))
 	require.NoError(t, n.ConnectTip(block, minedHeight))
 	require.NoError(t, n.NotifyHeight(minedHeight))
@@ -168,7 +168,7 @@ func testConfirmationRegistrationOrder(t *testing.T, completeBeforeEarly,
 		}
 
 		require.NoError(t, n.UpdateConfDetails(
-			dispatch.ConfRequest, details,
+			dispatch, details,
 		))
 	}
 
@@ -425,7 +425,7 @@ func TestConfirmationRegistrationOrderProperty(t *testing.T) {
 			}
 
 			require.NoError(t, n.UpdateConfDetails(
-				dispatch.ConfRequest, details,
+				dispatch, details,
 			))
 
 			// An empty partial result cannot discard a prefix whose

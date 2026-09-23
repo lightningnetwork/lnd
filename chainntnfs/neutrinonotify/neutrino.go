@@ -464,7 +464,7 @@ func (n *NeutrinoNotifier) notificationDispatcher() {
 					// cache at tip, since any pending
 					// rescans have now completed.
 					err = n.txNotifier.UpdateConfDetails(
-						msg.ConfRequest, confDetails,
+						msg, confDetails,
 					)
 					if err != nil {
 						chainntnfs.Log.Error(err)
@@ -915,7 +915,7 @@ func (n *NeutrinoNotifier) RegisterSpendNtfn(outpoint *wire.OutPoint,
 		// outpoint's spend hint gets updated upon connected/disconnected
 		// blocks.
 		err = n.txNotifier.UpdateSpendDetails(
-			ntfn.HistoricalDispatch.SpendRequest, spendDetails,
+			ntfn.HistoricalDispatch, spendDetails,
 		)
 		if err != nil {
 			chainntnfs.Log.Errorf("Failed to update spend details: %v", err)

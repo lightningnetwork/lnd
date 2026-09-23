@@ -37,7 +37,9 @@ func TestTxNotifierHintOriginGuardsEarlierHint(t *testing.T) {
 		late, err := n.RegisterConf(&txid, script, 1, lateHint)
 		require.NoError(t, err)
 		request := late.HistoricalDispatch.ConfRequest
-		require.NoError(t, n.UpdateConfDetails(request, nil))
+		require.NoError(t, n.UpdateConfDetails(
+			late.HistoricalDispatch, nil,
+		))
 		advanceEmptyChain(t, n, startHeight+1, tipHeight)
 		hint, err := cache.QueryConfirmHint(request)
 		require.NoError(t, err)
@@ -70,7 +72,9 @@ func TestTxNotifierHintOriginGuardsEarlierHint(t *testing.T) {
 		late, err := n.RegisterSpend(&outpoint, script, lateHint)
 		require.NoError(t, err)
 		request := late.HistoricalDispatch.SpendRequest
-		require.NoError(t, n.UpdateSpendDetails(request, nil))
+		require.NoError(t, n.UpdateSpendDetails(
+			late.HistoricalDispatch, nil,
+		))
 		advanceEmptyChain(t, n, startHeight+1, tipHeight)
 		hint, err := cache.QuerySpendHint(request)
 		require.NoError(t, err)
@@ -201,7 +205,7 @@ func TestTxNotifierHintOriginPrefixScans(t *testing.T) {
 	require.NoError(t, err)
 	require.NotNil(t, known.HistoricalDispatch)
 	require.NoError(t, n.UpdateConfDetails(
-		known.HistoricalDispatch.ConfRequest,
+		known.HistoricalDispatch,
 		&chainntnfs.TxConfirmation{
 			BlockHeight: cached + 5,
 			Tx:          knownTx,
@@ -255,7 +259,7 @@ func TestTxNotifierHintOriginPrefixScans(t *testing.T) {
 	require.NoError(t, err)
 	require.NotNil(t, late.HistoricalDispatch)
 	require.NoError(t, n.UpdateConfDetails(
-		late.HistoricalDispatch.ConfRequest, nil,
+		late.HistoricalDispatch, nil,
 	))
 	late.Event.Cancel()
 

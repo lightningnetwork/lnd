@@ -1,8 +1,8 @@
 package chainntnfs_test
 
 import (
+	"errors"
 	"fmt"
-	"strings"
 	"testing"
 
 	"github.com/btcsuite/btcd/btcutil/v2"
@@ -365,7 +365,7 @@ func (m *asyncModel) CompleteScan(t *rapid.T) {
 				Tx:          r.confTx,
 			}
 		}
-		err = m.n.UpdateConfDetails(scan.conf.ConfRequest, details)
+		err = m.n.UpdateConfDetails(scan.conf, details)
 	} else {
 		var details *chainntnfs.SpendDetail
 		if found {
@@ -377,13 +377,13 @@ func (m *asyncModel) CompleteScan(t *rapid.T) {
 				SpendingHeight: int32(height),
 			}
 		}
-		err = m.n.UpdateSpendDetails(scan.spend.SpendRequest, details)
+		err = m.n.UpdateSpendDetails(scan.spend, details)
 	}
 
 	// A set is removed when its request matures, even with a scan still
 	// outstanding, in which case the late result has nowhere to go.
 	if m.matured[scan.kind][scan.request] &&
-		strings.Contains(err.Error(), "not found") {
+		errors.Is(err, chainntnfs.ErrStaleScanResult) {
 
 		return
 	}

@@ -288,7 +288,7 @@ out:
 					// cache at tip, since any pending
 					// rescans have now completed.
 					err = b.txNotifier.UpdateConfDetails(
-						msg.ConfRequest, confDetails,
+						msg, confDetails,
 					)
 					if err != nil {
 						chainntnfs.Log.Errorf("Unable "+
@@ -341,7 +341,7 @@ out:
 					// cache at tip, since any pending
 					// rescans have now completed.
 					err = b.txNotifier.UpdateSpendDetails(
-						msg.SpendRequest, spendDetails,
+						msg, spendDetails,
 					)
 					if err != nil {
 						chainntnfs.Log.Errorf("Unable "+
@@ -788,7 +788,7 @@ func (b *BitcoindNotifier) RegisterSpendNtfn(outpoint *wire.OutPoint,
 		// We'll let the txNotifier know the outpoint is still unspent
 		// in order to begin updating its spend hint.
 		err := b.txNotifier.UpdateSpendDetails(
-			ntfn.HistoricalDispatch.SpendRequest, nil,
+			ntfn.HistoricalDispatch, nil,
 		)
 		if err != nil {
 			return nil, err

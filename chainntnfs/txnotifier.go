@@ -58,6 +58,14 @@ var (
 	// with the TxNotifier but it been shut down.
 	ErrTxNotifierExiting = errors.New("TxNotifier is exiting")
 
+	// ErrStaleScanResult is returned when a historical scan reports its
+	// result after the request set that dispatched it was removed, for
+	// example because its request matured, or replaced by a newer set for
+	// the same request. The result is discarded.
+	ErrStaleScanResult = errors.New(
+		"historical scan outlived its request set",
+	)
+
 	// ErrNoScript is an error returned when a confirmation/spend
 	// registration is attempted without providing an accompanying output
 	// script.
@@ -320,6 +328,11 @@ type HistoricalConfDispatch struct {
 	// range that an earlier dispatch or tip notifications already cover.
 	// Its EndHeight is a fixed boundary rather than the current tip.
 	Supplemental bool
+
+	// confSet is the set that dispatched this scan. A result reported
+	// after that set was removed, or replaced by a new registration for
+	// the same request, is ignored.
+	confSet *confNtfnSet
 }
 
 // ConfRegistration encompasses all of the information required for callers to
@@ -502,6 +515,11 @@ type HistoricalSpendDispatch struct {
 	// origin is the earliest height covered once this scan completes,
 	// including any cached progress it resumes from.
 	origin uint32
+
+	// spendSet is the set that dispatched this scan. A result reported
+	// after that set was removed, or replaced by a new registration for
+	// the same request, is ignored.
+	spendSet *spendNtfnSet
 }
 
 // ProgressHints returns the spend hints a backend persists once this scan has
@@ -886,6 +904,7 @@ func (n *TxNotifier) RegisterConf(txid *chainhash.Hash, pkScript []byte,
 		StartHeight:  startHeight,
 		EndHeight:    endHeight,
 		Supplemental: scanPrefix,
+		confSet:      confSet,
 	}
 
 	// Set this confSet's status to pending, ensuring subsequent
@@ -951,7 +970,7 @@ func (n *TxNotifier) CancelConf(confRequest ConfRequest, confID uint64) {
 //
 // NOTE: The notification should be registered first to ensure notifications are
 // dispatched correctly.
-func (n *TxNotifier) UpdateConfDetails(confRequest ConfRequest,
+func (n *TxNotifier) UpdateConfDetails(dispatch *HistoricalConfDispatch,
 	details *TxConfirmation) error {
 
 	select {
@@ -965,12 +984,14 @@ func (n *TxNotifier) UpdateConfDetails(confRequest ConfRequest,
 	n.Lock()
 	defer n.Unlock()
 
-	// First, we'll determine whether we have an active confirmation
-	// notification for the given txid/script.
+	// First, we'll determine whether the set that dispatched this scan is
+	// still active. Results are otherwise keyed by request only, so a scan
+	// that outlived its set must not be credited to a newer one.
+	confRequest := dispatch.ConfRequest
 	confSet, ok := n.confNotifications[confRequest]
-	if !ok {
-		return fmt.Errorf("confirmation notification for %v not found",
-			confRequest)
+	if !ok || confSet != dispatch.confSet {
+		return fmt.Errorf("confirmation notification for %v not "+
+			"found: %w", confRequest, ErrStaleScanResult)
 	}
 
 	if confSet.pendingRescans > 0 {
@@ -1378,6 +1399,7 @@ func (n *TxNotifier) RegisterSpend(outpoint *wire.OutPoint, pkScript []byte,
 			EndHeight:    endHeight,
 			Supplemental: scanPrefix,
 			origin:       spendSet.coverageStart,
+			spendSet:     spendSet,
 		},
 		Height: n.currentHeight,
 	}, nil
@@ -1467,7 +1489,7 @@ func (n *TxNotifier) ProcessRelevantSpendTx(tx *btcutil.Tx,
 //
 // NOTE: A notification request for the outpoint/output script must be
 // registered first to ensure notifications are delivered.
-func (n *TxNotifier) UpdateSpendDetails(spendRequest SpendRequest,
+func (n *TxNotifier) UpdateSpendDetails(dispatch *HistoricalSpendDispatch,
 	details *SpendDetail) error {
 
 	select {
@@ -1483,9 +1505,15 @@ func (n *TxNotifier) UpdateSpendDetails(spendRequest SpendRequest,
 
 	// Only the historical callback completes a dispatched scan. Relevant
 	// transactions can arrive through updateSpendDetails while that
-	// callback is still outstanding.
+	// callback is still outstanding. A scan that outlived its set must not
+	// be credited to a newer one for the same request.
+	spendRequest := dispatch.SpendRequest
 	spendSet, ok := n.spendNotifications[spendRequest]
-	if ok && spendSet.pendingRescans > 0 {
+	if !ok || spendSet != dispatch.spendSet {
+		return fmt.Errorf("spend notification for %v not found: %w",
+			spendRequest, ErrStaleScanResult)
+	}
+	if spendSet.pendingRescans > 0 {
 		spendSet.pendingRescans--
 	}
 

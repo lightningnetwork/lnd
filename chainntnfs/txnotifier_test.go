@@ -443,7 +443,7 @@ func TestTxNotifierHistoricalConfDispatch(t *testing.T) {
 		TxIndex:     1,
 		Tx:          &tx1,
 	}
-	err = n.UpdateConfDetails(ntfn1.HistoricalDispatch.ConfRequest, &txConf1)
+	err = n.UpdateConfDetails(ntfn1.HistoricalDispatch, &txConf1)
 	require.NoError(t, err, "unable to update conf details")
 	select {
 	case updDetails := <-ntfn1.Event.Updates:
@@ -474,7 +474,7 @@ func TestTxNotifierHistoricalConfDispatch(t *testing.T) {
 		TxIndex:     2,
 		Tx:          &tx2,
 	}
-	err = n.UpdateConfDetails(ntfn2.HistoricalDispatch.ConfRequest, &txConf2)
+	err = n.UpdateConfDetails(ntfn2.HistoricalDispatch, &txConf2)
 	require.NoError(t, err, "unable to update conf details")
 	select {
 	case updDetails := <-ntfn2.Event.Updates:
@@ -814,7 +814,7 @@ func TestTxNotifierHistoricalSpendDispatch(t *testing.T) {
 	// as it is not possible for it to view historical events in the chain.
 	// By doing this, we replicate the functionality of the ChainNotifier.
 	err = n.UpdateSpendDetails(
-		ntfn.HistoricalDispatch.SpendRequest, expectedSpendDetails,
+		ntfn.HistoricalDispatch, expectedSpendDetails,
 	)
 	require.NoError(t, err, "unable to update spend details")
 
@@ -888,7 +888,7 @@ func TestTxNotifierMultipleHistoricalConfRescans(t *testing.T) {
 	confDetails := &chainntnfs.TxConfirmation{
 		BlockHeight: startingHeight - 1,
 	}
-	err = n.UpdateConfDetails(ntfn1.HistoricalDispatch.ConfRequest, confDetails)
+	err = n.UpdateConfDetails(ntfn1.HistoricalDispatch, confDetails)
 	require.NoError(t, err, "unable to update conf details")
 
 	ntfn3, err := n.RegisterConf(&chainntnfs.ZeroHash, testRawScript, 1, 1)
@@ -948,7 +948,7 @@ func TestTxNotifierMultipleHistoricalSpendRescans(t *testing.T) {
 		SpendingHeight:    startingHeight - 1,
 	}
 	err = n.UpdateSpendDetails(
-		ntfn1.HistoricalDispatch.SpendRequest, spendDetails,
+		ntfn1.HistoricalDispatch, spendDetails,
 	)
 	require.NoError(t, err, "unable to update spend details")
 
@@ -1010,7 +1010,7 @@ func TestTxNotifierMultipleHistoricalNtfns(t *testing.T) {
 		Tx:          wire.NewMsgTx(1),
 	}
 	err := n.UpdateConfDetails(
-		confNtfns[0].HistoricalDispatch.ConfRequest, expectedConfDetails,
+		confNtfns[0].HistoricalDispatch, expectedConfDetails,
 	)
 	require.NoError(t, err, "unable to update conf details")
 
@@ -1082,7 +1082,7 @@ func TestTxNotifierMultipleHistoricalNtfns(t *testing.T) {
 		SpendingHeight:    startingHeight - 1,
 	}
 	err = n.UpdateSpendDetails(
-		spendNtfns[0].HistoricalDispatch.SpendRequest, expectedSpendDetails,
+		spendNtfns[0].HistoricalDispatch, expectedSpendDetails,
 	)
 	require.NoError(t, err, "unable to update spend details")
 
@@ -1344,7 +1344,7 @@ func TestTxNotifierConfReorg(t *testing.T) {
 	ntfn1, err := n.RegisterConf(&tx1Hash, testRawScript, tx1NumConfs, 1)
 	require.NoError(t, err, "unable to register ntfn")
 
-	err = n.UpdateConfDetails(ntfn1.HistoricalDispatch.ConfRequest, nil)
+	err = n.UpdateConfDetails(ntfn1.HistoricalDispatch, nil)
 	require.NoError(t, err, "unable to deliver conf details")
 
 	// Tx 2 will be confirmed in block 10 and requires 1 conf.
@@ -1354,7 +1354,7 @@ func TestTxNotifierConfReorg(t *testing.T) {
 	ntfn2, err := n.RegisterConf(&tx2Hash, testRawScript, tx2NumConfs, 1)
 	require.NoError(t, err, "unable to register ntfn")
 
-	err = n.UpdateConfDetails(ntfn2.HistoricalDispatch.ConfRequest, nil)
+	err = n.UpdateConfDetails(ntfn2.HistoricalDispatch, nil)
 	require.NoError(t, err, "unable to deliver conf details")
 
 	// Tx 3 will be confirmed in block 10 and requires 2 confs.
@@ -1364,7 +1364,7 @@ func TestTxNotifierConfReorg(t *testing.T) {
 	ntfn3, err := n.RegisterConf(&tx3Hash, testRawScript, tx3NumConfs, 1)
 	require.NoError(t, err, "unable to register ntfn")
 
-	err = n.UpdateConfDetails(ntfn3.HistoricalDispatch.ConfRequest, nil)
+	err = n.UpdateConfDetails(ntfn3.HistoricalDispatch, nil)
 	require.NoError(t, err, "unable to deliver conf details")
 
 	// Sync chain to block 10. Txs 1 & 2 should be confirmed.
@@ -1596,7 +1596,7 @@ func TestTxNotifierReorgPartialConfirmation(t *testing.T) {
 	ntfn, err := n.RegisterConf(&txHash, testRawScript, txNumConfs, 1)
 	require.NoError(t, err, "unable to register ntfn")
 
-	err = n.UpdateConfDetails(ntfn.HistoricalDispatch.ConfRequest, nil)
+	err = n.UpdateConfDetails(ntfn.HistoricalDispatch, nil)
 	require.NoError(t, err, "unable to deliver conf details")
 
 	// Mine 1 block to satisfy the requirement for a partially confirmed tx.
@@ -1888,7 +1888,7 @@ func TestTxNotifierSpendReorgMissed(t *testing.T) {
 	// simulate a historical spend dispatch being performed. This should
 	// result in a notification being received on the Spend channel.
 	err = n.UpdateSpendDetails(
-		ntfn.HistoricalDispatch.SpendRequest, spendDetails,
+		ntfn.HistoricalDispatch, spendDetails,
 	)
 	require.Empty(t, err)
 
@@ -2001,9 +2001,9 @@ func TestTxNotifierConfirmHintCache(t *testing.T) {
 
 	// Now, update the conf details reporting that the neither txn was found
 	// in the historical dispatch.
-	err = n.UpdateConfDetails(ntfn1.HistoricalDispatch.ConfRequest, nil)
+	err = n.UpdateConfDetails(ntfn1.HistoricalDispatch, nil)
 	require.NoError(t, err, "unable to update conf details")
-	err = n.UpdateConfDetails(ntfn2.HistoricalDispatch.ConfRequest, nil)
+	err = n.UpdateConfDetails(ntfn2.HistoricalDispatch, nil)
 	require.NoError(t, err, "unable to update conf details")
 
 	// We'll create another block that will include the first transaction
@@ -2174,9 +2174,9 @@ func TestTxNotifierSpendHintCache(t *testing.T) {
 	// Now, we'll simulate that their historical rescans have finished by
 	// calling UpdateSpendDetails. This should allow their spend hints to be
 	// updated upon every block connected/disconnected.
-	err = n.UpdateSpendDetails(ntfn1.HistoricalDispatch.SpendRequest, nil)
+	err = n.UpdateSpendDetails(ntfn1.HistoricalDispatch, nil)
 	require.NoError(t, err, "unable to update spend details")
-	err = n.UpdateSpendDetails(ntfn2.HistoricalDispatch.SpendRequest, nil)
+	err = n.UpdateSpendDetails(ntfn2.HistoricalDispatch, nil)
 	require.NoError(t, err, "unable to update spend details")
 
 	// We'll create a new block that only contains the spending transaction
@@ -2386,7 +2386,7 @@ func TestTxNotifierSpendDuringHistoricalRescan(t *testing.T) {
 	// calling UpdateSpendDetails. Since a the spend actually happened at
 	// tip while the rescan was in progress, the height hint should not be
 	// updated to the latest height, but stay at the spend height.
-	err = n.UpdateSpendDetails(ntfn1.HistoricalDispatch.SpendRequest, nil)
+	err = n.UpdateSpendDetails(ntfn1.HistoricalDispatch, nil)
 	require.NoError(t, err, "unable to update spend details")
 
 	op1Hint, err = hintCache.spendHeight(
@@ -2443,7 +2443,7 @@ func TestTxNotifierSpendDuringHistoricalRescan(t *testing.T) {
 	// hint won't be overwritten if the historical rescan finishes after
 	// the spend request has been notified and removed because it has
 	// matured.
-	err = n.UpdateSpendDetails(ntfn1.HistoricalDispatch.SpendRequest, nil)
+	err = n.UpdateSpendDetails(ntfn1.HistoricalDispatch, nil)
 	if err == nil {
 		t.Fatalf("expected updating spend details to fail")
 	}

@@ -33,7 +33,7 @@ func TestSpendRegistrationEarlierHintAfterCompletion(t *testing.T) {
 	require.NoError(t, err)
 	initial := late.HistoricalDispatch
 	require.NotNil(t, initial)
-	require.NoError(t, n.UpdateSpendDetails(initial.SpendRequest, nil))
+	require.NoError(t, n.UpdateSpendDetails(initial, nil))
 	assertSpendHint(t, cache, initial.SpendRequest, tipHeight)
 
 	// A subscriber with an earlier hint needs the range the initial scan
@@ -52,7 +52,7 @@ func TestSpendRegistrationEarlierHintAfterCompletion(t *testing.T) {
 	assertSpendRestart(t, cache, prefix.SpendRequest, earlyHint)
 
 	// Once it reports an empty result, the hint follows the tip again.
-	require.NoError(t, n.UpdateSpendDetails(prefix.SpendRequest, nil))
+	require.NoError(t, n.UpdateSpendDetails(prefix, nil))
 	assertSpendHint(t, cache, prefix.SpendRequest, tipHeight+1)
 	advanceEmptyChain(t, n, tipHeight+2, tipHeight+2)
 	assertSpendHint(t, cache, prefix.SpendRequest, tipHeight+2)
@@ -174,7 +174,7 @@ func TestSpendRegistrationOrderProperty(t *testing.T) {
 			}
 
 			require.NoError(t, n.UpdateSpendDetails(
-				dispatch.SpendRequest, details,
+				dispatch, details,
 			))
 
 			// An empty partial result cannot discard a prefix whose

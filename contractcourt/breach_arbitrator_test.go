@@ -2442,3 +2442,43 @@ func createHTLC(data int, amount lnwire.MilliSatoshi) (*lnwire.UpdateAddHTLC, [3
 		Expiry:      uint32(5),
 	}, returnPreimage
 }
+
+// TestNewRetributionInfoSkipsBlankHtlc verifies that a blank HTLC
+// retribution is skipped, since its nil sign descriptor output cannot be
+// used, and that the surviving outputs are the right ones.
+func TestNewRetributionInfoSkipsBlankHtlc(t *testing.T) {
+	t.Parallel()
+
+	// Arrange: Create a breach carrying one blank and one populated HTLC
+	// retribution.
+	pkScript, err := input.PayToTaprootScript(&input.TaprootNUMSKey)
+	require.NoError(t, err)
+
+	signDesc := &input.SignDescriptor{
+		Output: &wire.TxOut{
+			Value:    1000,
+			PkScript: pkScript,
+		},
+	}
+	breachInfo := &lnwallet.BreachRetribution{
+		LocalOutpoint:       wire.OutPoint{Index: 1},
+		LocalOutputSignDesc: signDesc,
+		HtlcRetributions: []lnwallet.HtlcRetribution{
+			{},
+			{
+				SignDesc: *signDesc,
+				OutPoint: wire.OutPoint{Index: 3},
+			},
+		},
+	}
+
+	// Act: Convert the wallet retribution into the breach-arbitrator form.
+	// The blank entry must be skipped rather than dereferenced here.
+	retInfo := newRetributionInfo(&wire.OutPoint{}, breachInfo)
+
+	// Assert: Only the local output and the populated HTLC are swept, so
+	// the blank entry was skipped and the populated one survived.
+	require.Len(t, retInfo.breachedOutputs, 2)
+	require.EqualValues(t, 1, retInfo.breachedOutputs[0].outpoint.Index)
+	require.EqualValues(t, 3, retInfo.breachedOutputs[1].outpoint.Index)
+}

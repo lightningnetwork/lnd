@@ -117,6 +117,13 @@ type confNtfnSet struct {
 	// transaction/output script.
 	rescanStatus rescanState
 
+	// coverageStart is the earliest height from which every block is
+	// known, or is being scanned, not to include the request. It combines
+	// the origin of a cached hint, the historical scans dispatched for
+	// this set, and tip notifications. It is the origin of every hint this
+	// set persists.
+	coverageStart uint32
+
 	// details serves as a cache of the confirmation details of a
 	// transaction that we'll use to determine if a transaction/output
 	// script has already confirmed at the time of registration.
@@ -147,6 +154,13 @@ type spendNtfnSet struct {
 	// rescanStatus represents the current rescan state for the spend
 	// request (outpoint/output script).
 	rescanStatus rescanState
+
+	// coverageStart is the earliest height from which every block is
+	// known, or is being scanned, not to include the request. It combines
+	// the origin of a cached hint, the historical scans dispatched for
+	// this set, and tip notifications. It is the origin of every hint this
+	// set persists.
+	coverageStart uint32
 
 	// details serves as a cache of the spend details for an outpoint/output
 	// script that we'll use to determine if it has already been spent at
@@ -453,6 +467,22 @@ type HistoricalSpendDispatch struct {
 	// EndHeight specifies the last block height (inclusive) that the
 	// historical rescan should consider.
 	EndHeight uint32
+
+	// origin is the earliest height covered once this scan completes,
+	// including any cached progress it resumes from.
+	origin uint32
+}
+
+// ProgressHints returns the spend hints a backend persists once this scan has
+// processed every block up to the given height without finding a spend. They
+// carry the scan's origin, so they only apply to later registrations whose
+// own hint is covered by it.
+func (d *HistoricalSpendDispatch) ProgressHints(
+	height uint32) SpendHints {
+
+	return SpendHints{
+		d.SpendRequest: {Height: height, Origin: d.origin},
+	}
 }
 
 // SpendRegistration encompasses all of the information required for callers to
@@ -609,6 +639,30 @@ func (n *TxNotifier) newConfNtfn(txid *chainhash.Hash,
 	}, nil
 }
 
+// cachedScanStart returns the height at which the first historical scan for a
+// request must begin, along with the earliest height that the scan and the
+// cached hint cover together. A cached hint only applies if the subscriber's
+// own hint is not below the hint's origin, since the cache says nothing about
+// blocks below it. A legacy hint without an origin is trusted only for the
+// first subscriber, as before origins were persisted.
+func cachedScanStart(heightHint uint32, cached HeightHint,
+	found bool) (uint32, uint32) {
+
+	if !found {
+		return heightHint, heightHint
+	}
+
+	origin := cached.Origin
+	if origin == 0 {
+		origin = heightHint
+	}
+	if heightHint < origin || cached.Height <= heightHint {
+		return heightHint, heightHint
+	}
+
+	return cached.Height, origin
+}
+
 // RegisterConf handles a new confirmation notification request. The client will
 // be notified when the transaction/output script gets a sufficient number of
 // confirmations in the blockchain.
@@ -638,28 +692,6 @@ func (n *TxNotifier) RegisterConf(txid *chainhash.Hash, pkScript []byte,
 		return nil, err
 	}
 
-	// Before proceeding to register the notification, we'll query our
-	// height hint cache to determine whether a better one exists.
-	//
-	// TODO(conner): verify that all submitted height hints are identical.
-	startHeight := ntfn.HeightHint
-	hint, err := n.confirmHintCache.QueryConfirmHint(ntfn.ConfRequest)
-	if err == nil {
-		if hint > startHeight {
-			Log.Debugf("Using height hint %d retrieved from cache "+
-				"for %v instead of %d for conf subscription",
-				hint, ntfn.ConfRequest, startHeight)
-			startHeight = hint
-		}
-	} else if err != ErrConfirmHintNotFound {
-		Log.Errorf("Unable to query confirm hint for %v: %v",
-			ntfn.ConfRequest, err)
-	}
-
-	Log.Infof("New confirmation subscription: conf_id=%d, %v, "+
-		"num_confs=%v height_hint=%d", ntfn.ConfID, ntfn.ConfRequest,
-		numConfs, startHeight)
-
 	n.Lock()
 	defer n.Unlock()
 
@@ -671,6 +703,33 @@ func (n *TxNotifier) RegisterConf(txid *chainhash.Hash, pkScript []byte,
 		n.confNotifications[ntfn.ConfRequest] = confSet
 	}
 	confSet.ntfns[ntfn.ConfID] = ntfn
+
+	// The first registration queries our height hint cache to determine
+	// whether a better starting height exists. We hold the lock so that
+	// updateHints cannot change the hint underneath us.
+	startHeight := ntfn.HeightHint
+	if confSet.rescanStatus == rescanNotStarted {
+		hint, err := n.confirmHintCache.QueryConfirmHint(
+			ntfn.ConfRequest,
+		)
+		if err != nil && !errors.Is(err, ErrConfirmHintNotFound) {
+			Log.Errorf("Unable to query confirm hint for %v: %v",
+				ntfn.ConfRequest, err)
+		}
+
+		startHeight, confSet.coverageStart = cachedScanStart(
+			ntfn.HeightHint, hint, err == nil,
+		)
+		if startHeight != ntfn.HeightHint {
+			Log.Debugf("Using height hint %d retrieved from cache "+
+				"for %v instead of %d for conf subscription",
+				startHeight, ntfn.ConfRequest, ntfn.HeightHint)
+		}
+	}
+
+	Log.Infof("New confirmation subscription: conf_id=%d, %v, "+
+		"num_confs=%v height_hint=%d", ntfn.ConfID, ntfn.ConfRequest,
+		numConfs, startHeight)
 
 	switch confSet.rescanStatus {
 
@@ -870,8 +929,8 @@ func (n *TxNotifier) UpdateConfDetails(confRequest ConfRequest,
 		// We'll commit the current height as the confirm hint to
 		// prevent another potentially long rescan if we restart before
 		// a new block comes in.
-		err := n.confirmHintCache.CommitConfirmHint(
-			n.currentHeight, confRequest,
+		err := n.commitConfirmHint(
+			confRequest, confSet, n.currentHeight,
 		)
 		if err != nil {
 			// The error is not fatal as this is an optimistic
@@ -892,9 +951,7 @@ func (n *TxNotifier) UpdateConfDetails(confRequest ConfRequest,
 
 	Log.Debugf("Updating confirmation details for %v", confRequest)
 
-	err := n.confirmHintCache.CommitConfirmHint(
-		details.BlockHeight, confRequest,
-	)
+	err := n.commitConfirmHint(confRequest, confSet, details.BlockHeight)
 	if err != nil {
 		// The error is not fatal, so we should not return an error to
 		// the caller.
@@ -922,6 +979,22 @@ func (n *TxNotifier) UpdateConfDetails(confRequest ConfRequest,
 	}
 
 	return nil
+}
+
+// commitConfirmHint persists the height from which a new scan for the request
+// must begin, with the set's coverage as its origin. The caller must hold the
+// TxNotifier's lock.
+func (n *TxNotifier) commitConfirmHint(confRequest ConfRequest,
+	confSet *confNtfnSet, height uint32) error {
+
+	return n.confirmHintCache.CommitConfirmHints(
+		ConfirmHints{
+			confRequest: {
+				Height: height,
+				Origin: confSet.coverageStart,
+			},
+		},
+	)
 }
 
 // dispatchConfDetails attempts to cache and dispatch details to a particular
@@ -1072,27 +1145,8 @@ func (n *TxNotifier) RegisterSpend(outpoint *wire.OutPoint, pkScript []byte,
 		return nil, err
 	}
 
-	// Before proceeding to register the notification, we'll query our spend
-	// hint cache to determine whether a better one exists.
-	startHeight := ntfn.HeightHint
-	hint, err := n.spendHintCache.QuerySpendHint(ntfn.SpendRequest)
-	if err == nil {
-		if hint > startHeight {
-			Log.Debugf("Using height hint %d retrieved from cache "+
-				"for %v instead of %d for spend subscription",
-				hint, ntfn.SpendRequest, startHeight)
-			startHeight = hint
-		}
-	} else if err != ErrSpendHintNotFound {
-		Log.Errorf("Unable to query spend hint for %v: %v",
-			ntfn.SpendRequest, err)
-	}
-
 	n.Lock()
 	defer n.Unlock()
-
-	Log.Debugf("New spend subscription: spend_id=%d, %v, height_hint=%d",
-		ntfn.SpendID, ntfn.SpendRequest, startHeight)
 
 	// Keep track of the notification request so that we can properly
 	// dispatch a spend notification later on.
@@ -1104,6 +1158,30 @@ func (n *TxNotifier) RegisterSpend(outpoint *wire.OutPoint, pkScript []byte,
 		n.spendNotifications[ntfn.SpendRequest] = spendSet
 	}
 	spendSet.ntfns[ntfn.SpendID] = ntfn
+
+	// The first registration queries our spend hint cache to determine
+	// whether a better starting height exists. We hold the lock so that
+	// updateHints cannot change the hint underneath us.
+	startHeight := ntfn.HeightHint
+	if spendSet.rescanStatus == rescanNotStarted {
+		hint, err := n.spendHintCache.QuerySpendHint(ntfn.SpendRequest)
+		if err != nil && !errors.Is(err, ErrSpendHintNotFound) {
+			Log.Errorf("Unable to query spend hint for %v: %v",
+				ntfn.SpendRequest, err)
+		}
+
+		startHeight, spendSet.coverageStart = cachedScanStart(
+			ntfn.HeightHint, hint, err == nil,
+		)
+		if startHeight != ntfn.HeightHint {
+			Log.Debugf("Using height hint %d retrieved from cache "+
+				"for %v instead of %d for spend subscription",
+				startHeight, ntfn.SpendRequest, ntfn.HeightHint)
+		}
+	}
+
+	Log.Debugf("New spend subscription: spend_id=%d, %v, height_hint=%d",
+		ntfn.SpendID, ntfn.SpendRequest, startHeight)
 
 	// We'll now let the caller know whether a historical rescan is needed
 	// depending on the current rescan status.
@@ -1178,6 +1256,7 @@ func (n *TxNotifier) RegisterSpend(outpoint *wire.OutPoint, pkScript []byte,
 			SpendRequest: ntfn.SpendRequest,
 			StartHeight:  startHeight,
 			EndHeight:    n.currentHeight,
+			origin:       spendSet.coverageStart,
 		},
 		Height: n.currentHeight,
 	}, nil
@@ -1320,8 +1399,8 @@ func (n *TxNotifier) updateSpendDetails(spendRequest SpendRequest,
 		// We'll commit the current height as the spend hint to prevent
 		// another potentially long rescan if we restart before a new
 		// block comes in.
-		err := n.spendHintCache.CommitSpendHint(
-			n.currentHeight, spendRequest,
+		err := n.commitSpendHint(
+			spendRequest, spendSet, n.currentHeight,
 		)
 		if err != nil {
 			// The error is not fatal as this is an optimistic
@@ -1360,8 +1439,8 @@ func (n *TxNotifier) updateSpendDetails(spendRequest SpendRequest,
 	// Now that we've determined the request has been spent, we'll commit
 	// its spending height as its hint in the cache and dispatch
 	// notifications to all of its respective clients.
-	err := n.spendHintCache.CommitSpendHint(
-		uint32(details.SpendingHeight), spendRequest,
+	err := n.commitSpendHint(
+		spendRequest, spendSet, uint32(details.SpendingHeight),
 	)
 	if err != nil {
 		// The error is not fatal as this is an optimistic optimization,
@@ -1382,6 +1461,17 @@ func (n *TxNotifier) updateSpendDetails(spendRequest SpendRequest,
 	}
 
 	return nil
+}
+
+// commitSpendHint persists the height from which a new scan for the request
+// must begin, with the set's coverage as its origin. The caller must hold the
+// TxNotifier's lock.
+func (n *TxNotifier) commitSpendHint(spendRequest SpendRequest,
+	spendSet *spendNtfnSet, height uint32) error {
+
+	return n.spendHintCache.CommitSpendHints(SpendHints{
+		spendRequest: {Height: height, Origin: spendSet.coverageStart},
+	})
 }
 
 // dispatchSpendDetails dispatches a spend notification to the client.
@@ -1942,8 +2032,6 @@ func (n *TxNotifier) DisconnectTip(blockHeight uint32) error {
 // NOTE: This must be called with the TxNotifier's lock held and after its
 // height has already been reflected by a block being connected/disconnected.
 func (n *TxNotifier) updateHints(height uint32) {
-	// TODO(wilmer): update under one database transaction.
-	//
 	// To update the height hint for all the required confirmation requests
 	// under one database transaction, we'll gather the set of unconfirmed
 	// requests along with the ones that confirmed at the height being
@@ -1952,9 +2040,14 @@ func (n *TxNotifier) updateHints(height uint32) {
 	for confRequest := range n.confsByInitialHeight[height] {
 		confRequests = append(confRequests, confRequest)
 	}
-	err := n.confirmHintCache.CommitConfirmHint(
-		n.currentHeight, confRequests...,
-	)
+	confHints := make(ConfirmHints, len(confRequests))
+	for _, confRequest := range confRequests {
+		confHints[confRequest] = HeightHint{
+			Height: n.currentHeight,
+			Origin: n.confNotifications[confRequest].coverageStart,
+		}
+	}
+	err := n.confirmHintCache.CommitConfirmHints(confHints)
 	if err != nil {
 		// The error is not fatal as this is an optimistic optimization,
 		// so we'll avoid returning an error.
@@ -1970,7 +2063,15 @@ func (n *TxNotifier) updateHints(height uint32) {
 	for spendRequest := range n.spendsByHeight[height] {
 		spendRequests = append(spendRequests, spendRequest)
 	}
-	err = n.spendHintCache.CommitSpendHint(n.currentHeight, spendRequests...)
+	spendHints := make(SpendHints, len(spendRequests))
+	for _, spendRequest := range spendRequests {
+		spendSet := n.spendNotifications[spendRequest]
+		spendHints[spendRequest] = HeightHint{
+			Height: n.currentHeight,
+			Origin: spendSet.coverageStart,
+		}
+	}
+	err = n.spendHintCache.CommitSpendHints(spendHints)
 	if err != nil {
 		// The error is not fatal as this is an optimistic optimization,
 		// so we'll avoid returning an error.

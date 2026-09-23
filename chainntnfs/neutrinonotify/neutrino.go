@@ -873,9 +873,11 @@ func (n *NeutrinoNotifier) RegisterSpendNtfn(outpoint *wire.OutPoint,
 				// We persist the rescan progress to achieve incremental
 				// behavior across restarts, otherwise long rescans may
 				// start from the beginning with every restart.
-				err := n.spendHintCache.CommitSpendHint(
-					processedHeight,
-					ntfn.HistoricalDispatch.SpendRequest)
+				err := n.spendHintCache.CommitSpendHints(
+					ntfn.HistoricalDispatch.ProgressHints(
+						processedHeight,
+					),
+				)
 				if err != nil {
 					chainntnfs.Log.Errorf("Failed to update rescan "+
 						"progress: %v", err)

@@ -7,6 +7,7 @@ import (
 	"github.com/btcsuite/btcd/chainhash/v2"
 	"github.com/btcsuite/btcd/wire/v2"
 	"github.com/lightningnetwork/lnd/chainntnfs"
+	"github.com/lightningnetwork/lnd/kvdb"
 	"github.com/stretchr/testify/require"
 )
 
@@ -47,17 +48,22 @@ func TestHeightHintCacheConfirms(t *testing.T) {
 	require.ErrorIs(t, err, chainntnfs.ErrConfirmHintNotFound)
 
 	// Now, we'll create some transaction hashes and commit them to the
-	// cache with the same confirm hint.
+	// cache in one transaction, each with its own origin.
 	const height = 100
 	const numHashes = 5
 	confRequests := make([]chainntnfs.ConfRequest, numHashes)
+	hints := make(chainntnfs.ConfirmHints)
 	for i := 0; i < numHashes; i++ {
 		var txHash chainhash.Hash
 		copy(txHash[:], bytes.Repeat([]byte{byte(i + 1)}, 32))
 		confRequests[i] = chainntnfs.ConfRequest{TxID: txHash}
+		hints[confRequests[i]] = chainntnfs.HeightHint{
+			Height: height,
+			Origin: uint32(i + 1),
+		}
 	}
 
-	err = hintCache.CommitConfirmHint(height, confRequests...)
+	err = hintCache.CommitConfirmHints(hints)
 	require.NoError(t, err, "unable to add entries to cache")
 
 	// With the hashes committed, we'll now query the cache to ensure that
@@ -65,7 +71,7 @@ func TestHeightHintCacheConfirms(t *testing.T) {
 	for _, confRequest := range confRequests {
 		confirmHint, err := hintCache.QueryConfirmHint(confRequest)
 		require.NoError(t, err)
-		require.EqualValues(t, height, confirmHint)
+		require.Equal(t, hints[confRequest], confirmHint)
 	}
 
 	// We'll also attempt to purge all of them in a single database
@@ -97,26 +103,31 @@ func TestHeightHintCacheSpends(t *testing.T) {
 	_, err := hintCache.QuerySpendHint(unknownSpendRequest)
 	require.ErrorIs(t, err, chainntnfs.ErrSpendHintNotFound)
 
-	// Now, we'll create some outpoints and commit them to the cache with
-	// the same spend hint.
+	// Now, we'll create some outpoints and commit them to the cache in one
+	// transaction, each with its own origin.
 	const height = 100
 	const numOutpoints = 5
 	spendRequests := make([]chainntnfs.SpendRequest, numOutpoints)
+	hints := make(chainntnfs.SpendHints)
 	for i := uint32(0); i < numOutpoints; i++ {
 		spendRequests[i] = chainntnfs.SpendRequest{
 			OutPoint: wire.OutPoint{Index: i + 1},
 		}
+		hints[spendRequests[i]] = chainntnfs.HeightHint{
+			Height: height,
+			Origin: i + 1,
+		}
 	}
 
-	err = hintCache.CommitSpendHint(height, spendRequests...)
+	err = hintCache.CommitSpendHints(hints)
 	require.NoError(t, err, "unable to add entries to cache")
 
 	// With the outpoints committed, we'll now query the cache to ensure
-	// that we're able to properly retrieve the confirm hints.
+	// that we're able to properly retrieve the spend hints.
 	for _, spendRequest := range spendRequests {
 		spendHint, err := hintCache.QuerySpendHint(spendRequest)
 		require.NoError(t, err)
-		require.EqualValues(t, height, spendHint)
+		require.Equal(t, hints[spendRequest], spendHint)
 	}
 
 	// We'll also attempt to purge all of them in a single database
@@ -146,13 +157,17 @@ func TestQueryDisable(t *testing.T) {
 	confRequest := chainntnfs.ConfRequest{
 		TxID: chainhash.Hash{0x01, 0x02, 0x03},
 	}
-	err := hintCache.CommitConfirmHint(confHeight, confRequest)
+	err := hintCache.CommitConfirmHints(
+		chainntnfs.ConfirmHints{
+			confRequest: {Height: confHeight, Origin: 1},
+		},
+	)
 	require.Nil(t, err)
 
 	// Query for the confirmation hint, which should return zero.
-	cachedConfHeight, err := hintCache.QueryConfirmHint(confRequest)
+	cachedConfHint, err := hintCache.QueryConfirmHint(confRequest)
 	require.Nil(t, err)
-	require.Equal(t, uint32(0), cachedConfHeight)
+	require.Equal(t, chainntnfs.HeightHint{}, cachedConfHint)
 
 	// Insert a new spend hint with a non-zero height.
 	const spendHeight = 200
@@ -162,11 +177,60 @@ func TestQueryDisable(t *testing.T) {
 			Index: 42,
 		},
 	}
-	err = hintCache.CommitSpendHint(spendHeight, spendRequest)
+	err = hintCache.CommitSpendHints(
+		chainntnfs.SpendHints{
+			spendRequest: {Height: spendHeight, Origin: 1},
+		},
+	)
 	require.Nil(t, err)
 
 	// Query for the spend hint, which should return zero.
-	cachedSpendHeight, err := hintCache.QuerySpendHint(spendRequest)
+	cachedSpendHint, err := hintCache.QuerySpendHint(spendRequest)
 	require.Nil(t, err)
-	require.Equal(t, uint32(0), cachedSpendHeight)
+	require.Equal(t, chainntnfs.HeightHint{}, cachedSpendHint)
+}
+
+// TestHeightHintEncoding asserts that a hint written before origins were
+// persisted decodes with an unknown origin, and that a new hint still begins
+// with its height so that an older binary reading only four bytes recovers
+// it.
+func TestHeightHintEncoding(t *testing.T) {
+	t.Parallel()
+
+	hintCache := initHintCache(t)
+	confRequest := chainntnfs.ConfRequest{
+		TxID: chainhash.Hash{0x07},
+	}
+	key, err := confHintKey(&confRequest)
+	require.NoError(t, err)
+
+	// Write a legacy value holding only the height.
+	var legacy bytes.Buffer
+	require.NoError(t, WriteElement(&legacy, uint32(123)))
+	err = kvdb.Update(hintCache.db, func(tx kvdb.RwTx) error {
+		return tx.ReadWriteBucket(confirmHintBucket).Put(
+			key, legacy.Bytes(),
+		)
+	}, func() {})
+	require.NoError(t, err)
+
+	hint, err := hintCache.QueryConfirmHint(confRequest)
+	require.NoError(t, err)
+	require.Equal(t, chainntnfs.HeightHint{Height: 123}, hint)
+
+	// A new value is the height followed by the origin.
+	value, err := encodeHeightHint(chainntnfs.HeightHint{
+		Height: 456,
+		Origin: 400,
+	})
+	require.NoError(t, err)
+	var height uint32
+	require.NoError(t, ReadElement(bytes.NewReader(value), &height))
+	require.Equal(t, uint32(456), height)
+
+	decoded, err := decodeHeightHint(value)
+	require.NoError(t, err)
+	require.Equal(
+		t, chainntnfs.HeightHint{Height: 456, Origin: 400}, decoded,
+	)
 }

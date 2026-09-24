@@ -2474,6 +2474,7 @@ func (s *server) Start(ctx context.Context) error {
 		if !s.cfg.ProtocolOptions.NoOnionMessages() {
 			resolver := onionmessage.NewGraphNodeResolver(
 				s.graphDB, s.identityECDH.PubKey(),
+				s.privateChannelPeer,
 			)
 			s.onionActorFactory = onionmessage.NewOnionActorFactory(
 				s.sphinxOnionMsg, resolver, s,
@@ -4408,7 +4409,51 @@ func (s *server) SubscribeCustomMessages() (*subscribe.Client, error) {
 	return s.customMessageServer.Subscribe()
 }
 
-// SubscribeOnionMessages subscribes to a stream of incoming onion messages.
+// privateChannelPeer resolves the remote node of an unannounced channel.
+// The SCID is the confirmed short channel ID, a local alias, or the alias
+// the peer sent in channel_ready.
+func (s *server) privateChannelPeer(scid lnwire.ShortChannelID) (
+	*btcec.PublicKey, bool) {
+
+	if s.chanStateDB == nil {
+		return nil, false
+	}
+
+	channels, err := s.chanStateDB.FetchAllOpenChannels()
+	if err != nil {
+		srvrLog.Debugf("Unable to list open channels for onion SCID "+
+			"%v: %v", scid, err)
+
+		return nil, false
+	}
+
+	for _, channel := range channels {
+		if channel == nil || channel.IdentityPub == nil {
+			continue
+		}
+		if channel.ShortChanID() == scid {
+			return channel.IdentityPub, true
+		}
+		if s.aliasMgr == nil {
+			continue
+		}
+
+		chanID := lnwire.NewChanIDFromOutPoint(channel.FundingOutpoint)
+		if alias, err := s.aliasMgr.GetPeerAlias(chanID); err == nil &&
+			alias == scid {
+
+			return channel.IdentityPub, true
+		}
+		for _, alias := range s.aliasMgr.GetAliases(channel.ShortChanID()) {
+			if alias == scid {
+				return channel.IdentityPub, true
+			}
+		}
+	}
+
+	return nil, false
+}
+
 func (s *server) SubscribeOnionMessages() (*subscribe.Client, error) {
 	return s.onionMessageServer.Subscribe()
 }

@@ -32,6 +32,12 @@
   inputs and the resulting PSBT was rejected downstream by
   `walletkit.SignPsbt` with `input (index=N) doesn't specify any
   UTXO info`.
+* Fixed onion-message forwarding over a private channel. The next hop of a
+  blinded onion message may be a confirmed SCID or a local alias for an
+  unannounced channel. That SCID is not in the public graph, so the forward
+  was dropped with `edge not found`. The resolver now falls back to the local
+  open-channel set, including the peer's SCID alias.
+
 
 * [Fixed `OpenChannel` with
   `fund_max`](https://github.com/lightningnetwork/lnd/pull/10488) to use the

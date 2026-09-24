@@ -99,6 +99,15 @@
   outgoing channel's reputation if forwarded in isolation) and does not currently
   affect routing in any way. It can be disabled with `routing.no-reputation`.
 
+* The local reputation subsystem now [persists its channel
+  state](https://github.com/lightningnetwork/lnd/pull/11266) when the native SQL
+  store is in use (`db.use-native-sql`), so peers keep the reputation they have
+  built across a restart, with the downtime decaying it as if the node had
+  stayed online. HTLCs that were in flight during the restart are picked up
+  again from the switch on startup, and closed channels are dropped from the
+  reputation state. Nodes without the native SQL store keep the previous
+  in-memory behaviour.
+
 ## RPC Additions
 
 * The `routerrpc.EstimateRouteFee` RPC now supports [restricting fee estimates
@@ -212,6 +221,10 @@
   root determinism.
 
 ## Database
+
+* A new native SQL table, `reputation_channels`, [stores the local reputation
+  state of channels](https://github.com/lightningnetwork/lnd/pull/11266). It is
+  created by schema migration 16 for nodes running with `db.use-native-sql`.
 
 ## Code Health
 

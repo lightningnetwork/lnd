@@ -49,15 +49,19 @@ func TestInvoiceErrorRoundTrip(t *testing.T) {
 			name: "all fields",
 			ie: &InvoiceError{
 				ErroneousField: someErrField(82),
+				// Field 82 is invreq_amount, a tu64, so the
+				// suggested value has to be minimal: a
+				// leading zero byte would make it undecodable
+				// for the peer.
 				SuggestedValue: someSuggested(
-					[]byte{0x00, 0x01, 0x86, 0xa0},
+					[]byte{0x01, 0x86, 0xa0},
 				),
 				Error: someError("amount too low"),
 			},
 			wantMsg:      "amount too low",
 			wantHasField: true,
 			wantFieldNum: 82,
-			wantSuggest:  []byte{0x00, 0x01, 0x86, 0xa0},
+			wantSuggest:  []byte{0x01, 0x86, 0xa0},
 		},
 		{
 			name: "minimal error only",
@@ -73,7 +77,7 @@ func TestInvoiceErrorRoundTrip(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			t.Parallel()
 
-			encoded, err := tc.ie.Encode()
+			encoded, err := tc.ie.encode()
 			require.NoError(t, err)
 			require.NotEmpty(t, encoded)
 
@@ -98,7 +102,7 @@ func TestInvoiceErrorRoundTrip(t *testing.T) {
 
 			// Re-encoding the decoded message must reproduce the
 			// original bytes, pinning canonical record ordering.
-			reencoded, err := decoded.Encode()
+			reencoded, err := decoded.encode()
 			require.NoError(t, err)
 			require.Equal(t, encoded, reencoded)
 		})
@@ -116,7 +120,7 @@ func TestInvoiceErrorRoundTripWithUnknown(t *testing.T) {
 	ie := &InvoiceError{
 		Error: someError("rejected with unknown field present"),
 	}
-	valid, err := ie.Encode()
+	valid, err := ie.encode()
 	require.NoError(t, err)
 
 	// Append an unknown odd TLV (type 7) to the valid TLV stream.
@@ -135,7 +139,7 @@ func TestInvoiceErrorRoundTripWithUnknown(t *testing.T) {
 	)
 
 	// Re-encode the decoded message.
-	reencoded, err := decoded.Encode()
+	reencoded, err := decoded.encode()
 	require.NoError(t, err)
 
 	// The re-encoded stream must drop the unknown type 7 field, recovering
@@ -177,7 +181,7 @@ func TestInvoiceErrorEncodeValidates(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			t.Parallel()
 
-			_, err := tc.ie.Encode()
+			_, err := tc.ie.encode()
 			require.ErrorIs(t, err, tc.wantErr)
 		})
 	}
@@ -189,7 +193,7 @@ func TestInvoiceErrorEncodeValidates(t *testing.T) {
 func TestDecodeInvoiceError(t *testing.T) {
 	t.Parallel()
 
-	valid, err := (&InvoiceError{Error: someError("rejected")}).Encode()
+	valid, err := (&InvoiceError{Error: someError("rejected")}).encode()
 	require.NoError(t, err)
 
 	// A valid message with an unknown odd TLV (type 7) appended after error
@@ -239,7 +243,7 @@ func TestValidateInvoiceErrorRead(t *testing.T) {
 
 	// A valid encoded invoice_error (error = "rejected", type 5). Trailers
 	// use types > 5 to keep the stream strictly increasing.
-	base, err := (&InvoiceError{Error: someError("rejected")}).Encode()
+	base, err := (&InvoiceError{Error: someError("rejected")}).encode()
 	require.NoError(t, err)
 
 	tests := []struct {

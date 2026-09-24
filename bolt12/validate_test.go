@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"encoding/hex"
 	"math"
+	"strings"
 	"testing"
 	"time"
 
@@ -138,7 +139,7 @@ func TestValidateOfferWrite(t *testing.T) {
 			wantErr: ErrInvalidCurrency,
 		},
 		{
-			// Pins the docstring claim that ValidateOfferWrite's
+			// Pins the docstring claim that validateOfferWrite's
 			// offerAllowedRange loop exists to catch a
 			// decoded-then-mutated offer with an out-of-range TLV
 			// resurfacing via decodedTLVs.
@@ -149,6 +150,18 @@ func TestValidateOfferWrite(t *testing.T) {
 				}
 			},
 			wantErr: ErrOutOfRangeType,
+		},
+		{
+			// Same path as above, but for the must-understand
+			// rule: type 24 is in range and unknown to the offer
+			// schema, so the writer refuses to re-emit it.
+			name: "unknown even TLV in decoded extras",
+			mutate: func(o *Offer) {
+				o.decodedTLVs = tlv.TypeMap{
+					24: nil,
+				}
+			},
+			wantErr: ErrUnknownEvenType,
 		},
 		{
 			name: "empty blinded paths list",
@@ -220,7 +233,7 @@ func TestValidateOfferWrite(t *testing.T) {
 				o := validBobOffer(t)
 				tc.mutate(o)
 
-				err := ValidateOfferWrite(o)
+				err := validateOfferWrite(o)
 				if tc.wantErr == nil {
 					require.NoError(t, err)
 
@@ -676,7 +689,7 @@ func TestValidateOfferRead(t *testing.T) {
 				o := validBobOffer(t)
 				tc.mutate(o)
 
-				err := ValidateOfferRead(
+				err := validateOfferRead(
 					o, now, tc.activeChain, tc.known,
 				)
 				if tc.wantErr == nil {
@@ -749,7 +762,7 @@ func signedInvoiceRequest(t testing.TB,
 		),
 	}
 
-	encoded, err := ir.Encode()
+	encoded, err := ir.encode()
 	require.NoError(t, err)
 
 	decoded, err := DecodeInvoiceRequest(encoded)
@@ -824,7 +837,7 @@ func flipValueByte(t *testing.T, encoded, needle []byte) []byte {
 }
 
 // TestValidateReadRejectsBadSignature pins the reader-side signature gate on
-// both message types. ValidateInvoiceRequestRead and ValidateInvoiceRead key
+// both message types. ValidateInvoiceRequestRead and validateInvoiceRead key
 // the check on different public keys, so covering one does not cover the
 // other.
 //
@@ -856,7 +869,7 @@ func TestValidateReadRejectsBadSignature(t *testing.T) {
 			validate: func(t *testing.T) error {
 				encoded, err := signedInvoiceRequest(
 					t, bobPriv,
-				).Encode()
+				).encode()
 				require.NoError(t, err)
 
 				// invreq_metadata is a signed opaque blob, so
@@ -877,9 +890,9 @@ func TestValidateReadRejectsBadSignature(t *testing.T) {
 			validate: func(t *testing.T) error {
 				inv := signedInvoice(t, alicePriv)
 
-				return ValidateInvoiceRead(
+				return validateInvoiceRead(
 					inv, bitcoinMainnetGenesisHash,
-					InvoiceFeatureCatalogues{},
+					InvoiceKnownFeatures{},
 				)
 			},
 		},
@@ -888,7 +901,7 @@ func TestValidateReadRejectsBadSignature(t *testing.T) {
 			validate: func(t *testing.T) error {
 				signed := signedInvoice(t, bobPriv)
 
-				encoded, err := signed.Encode()
+				encoded, err := signed.encode()
 				require.NoError(t, err)
 
 				// invoice_payment_hash is a signed fixed-width
@@ -902,9 +915,9 @@ func TestValidateReadRejectsBadSignature(t *testing.T) {
 				))
 				require.NoError(t, err)
 
-				return ValidateInvoiceRead(
+				return validateInvoiceRead(
 					inv, bitcoinMainnetGenesisHash,
-					InvoiceFeatureCatalogues{},
+					InvoiceKnownFeatures{},
 				)
 			},
 		},
@@ -1038,7 +1051,7 @@ func TestValidateInvoiceForPayment(t *testing.T) {
 	// Blinded mode, happy path: the final node matches invoice_node_id.
 	require.NoError(t, ValidateInvoiceForPayment(
 		invDecoded, blindedIRDecoded, validNow,
-		bitcoinMainnetGenesisHash, InvoiceFeatureCatalogues{}, bobPub,
+		bitcoinMainnetGenesisHash, InvoiceKnownFeatures{}, bobPub,
 	))
 
 	// The expiry gate is part of the composite, so a caller that only calls
@@ -1046,7 +1059,7 @@ func TestValidateInvoiceForPayment(t *testing.T) {
 	// window is long past 8000s after creation.
 	err = ValidateInvoiceForPayment(
 		invDecoded, blindedIRDecoded, time.Unix(1234567890+8000, 0),
-		bitcoinMainnetGenesisHash, InvoiceFeatureCatalogues{}, bobPub,
+		bitcoinMainnetGenesisHash, InvoiceKnownFeatures{}, bobPub,
 	)
 	require.ErrorIs(t, err, ErrInvoiceExpired)
 
@@ -1090,7 +1103,7 @@ func TestValidateInvoiceForPayment(t *testing.T) {
 
 	err = ValidateInvoiceForPayment(
 		overchargedDecoded, amountIRDecoded, validNow,
-		bitcoinMainnetGenesisHash, InvoiceFeatureCatalogues{}, bobPub,
+		bitcoinMainnetGenesisHash, InvoiceKnownFeatures{}, bobPub,
 	)
 	require.ErrorIs(t, err, ErrInvoiceMismatch)
 	require.ErrorContains(
@@ -1101,7 +1114,7 @@ func TestValidateInvoiceForPayment(t *testing.T) {
 	// Bob answered, but the payer believes it addressed Alice.
 	err = ValidateInvoiceForPayment(
 		invDecoded, blindedIRDecoded, validNow,
-		bitcoinMainnetGenesisHash, InvoiceFeatureCatalogues{},
+		bitcoinMainnetGenesisHash, InvoiceKnownFeatures{},
 		alicePub,
 	)
 	require.ErrorIs(t, err, ErrUnexpectedInvoiceNodeID)
@@ -1134,14 +1147,14 @@ func TestValidateInvoiceForPayment(t *testing.T) {
 	// The reader accepts it, which is the half that makes the composite
 	// necessary rather than redundant. Asserting both halves on the same
 	// invoice is what shows the second step cannot be skipped.
-	require.NoError(t, ValidateInvoiceRead(
+	require.NoError(t, validateInvoiceRead(
 		forgedDecoded, bitcoinMainnetGenesisHash,
-		InvoiceFeatureCatalogues{},
+		InvoiceKnownFeatures{},
 	))
 
 	err = ValidateInvoiceForPayment(
 		forgedDecoded, blindedIRDecoded, validNow,
-		bitcoinMainnetGenesisHash, InvoiceFeatureCatalogues{}, bobPub,
+		bitcoinMainnetGenesisHash, InvoiceKnownFeatures{}, bobPub,
 	)
 	require.ErrorIs(t, err, ErrUnexpectedInvoiceNodeID)
 
@@ -1188,14 +1201,14 @@ func TestValidateInvoiceForPayment(t *testing.T) {
 	// the offer it built the request from.
 	require.NoError(t, ValidateInvoiceForPayment(
 		invDecoded, cleartextIRDecoded, validNow,
-		bitcoinMainnetGenesisHash, InvoiceFeatureCatalogues{}, bobPub,
+		bitcoinMainnetGenesisHash, InvoiceKnownFeatures{}, bobPub,
 	))
 
 	// The check is unconditional, so a wrong expectation is caught even
 	// though offer_issuer_id is present and the readers already bound it.
 	err = ValidateInvoiceForPayment(
 		invDecoded, cleartextIRDecoded, validNow,
-		bitcoinMainnetGenesisHash, InvoiceFeatureCatalogues{}, alicePub,
+		bitcoinMainnetGenesisHash, InvoiceKnownFeatures{}, alicePub,
 	)
 	require.ErrorIs(t, err, ErrUnexpectedInvoiceNodeID)
 }
@@ -1359,7 +1372,7 @@ func TestValidateInvoiceRequestWrite(t *testing.T) {
 
 			tc.mutate(ir)
 
-			err := ValidateInvoiceRequestWrite(ir)
+			err := validateInvoiceRequestWrite(ir)
 			if tc.wantErr == nil {
 				require.NoError(t, err)
 				return
@@ -1403,14 +1416,14 @@ func TestValidateInvoiceRequestWriteAmountConstraints(t *testing.T) {
 		ir := baseRequest()
 
 		// Absent invreq_amount -> invalid.
-		err := ValidateInvoiceRequestWrite(ir)
+		err := validateInvoiceRequestWrite(ir)
 		require.ErrorIs(t, err, ErrMissingAmount)
 
 		// Present invreq_amount -> valid.
 		ir.InvreqAmount = tlv.SomeRecordT(
 			tlv.NewRecordT[tlv.TlvType82, TUint64](1000),
 		)
-		require.NoError(t, ValidateInvoiceRequestWrite(ir))
+		require.NoError(t, validateInvoiceRequestWrite(ir))
 	})
 
 	// 2. Responding to an offer.
@@ -1432,14 +1445,14 @@ func TestValidateInvoiceRequestWriteAmountConstraints(t *testing.T) {
 			ir := baseResponseRequest()
 
 			// InvreqAmount absent -> invalid.
-			err := ValidateInvoiceRequestWrite(ir)
+			err := validateInvoiceRequestWrite(ir)
 			require.ErrorIs(t, err, ErrMissingAmount)
 
 			// InvreqAmount present -> valid.
 			ir.InvreqAmount = tlv.SomeRecordT(
 				tlv.NewRecordT[tlv.TlvType82, TUint64](1000),
 			)
-			require.NoError(t, ValidateInvoiceRequestWrite(ir))
+			require.NoError(t, validateInvoiceRequestWrite(ir))
 		})
 
 		// Case B: OfferAmount present, OfferCurrency absent (Bitcoin).
@@ -1456,7 +1469,7 @@ func TestValidateInvoiceRequestWriteAmountConstraints(t *testing.T) {
 			)
 
 			// InvreqAmount is optional (MAY omit it).
-			require.NoError(t, ValidateInvoiceRequestWrite(ir))
+			require.NoError(t, validateInvoiceRequestWrite(ir))
 
 			// If set, it MUST be >= OfferAmount * Quantity
 			// (1000 * 2 = 2000). InvreqAmount < expected ->
@@ -1464,14 +1477,14 @@ func TestValidateInvoiceRequestWriteAmountConstraints(t *testing.T) {
 			ir.InvreqAmount = tlv.SomeRecordT(
 				tlv.NewRecordT[tlv.TlvType82, TUint64](1999),
 			)
-			err := ValidateInvoiceRequestWrite(ir)
+			err := validateInvoiceRequestWrite(ir)
 			require.ErrorIs(t, err, ErrAmountBelowExpected)
 
 			// InvreqAmount >= expected -> valid.
 			ir.InvreqAmount = tlv.SomeRecordT(
 				tlv.NewRecordT[tlv.TlvType82, TUint64](2000),
 			)
-			require.NoError(t, ValidateInvoiceRequestWrite(ir))
+			require.NoError(t, validateInvoiceRequestWrite(ir))
 		})
 
 		// Case C: OfferAmount present, OfferCurrency present
@@ -1496,11 +1509,11 @@ func TestValidateInvoiceRequestWriteAmountConstraints(t *testing.T) {
 			// InvreqAmount < OfferAmount * Quantity is allowed
 			// because currency conversion is checked dynamically
 			// at runtime, not statically inside
-			// ValidateInvoiceRequestWrite.
+			// validateInvoiceRequestWrite.
 			ir.InvreqAmount = tlv.SomeRecordT(
 				tlv.NewRecordT[tlv.TlvType82, TUint64](100),
 			)
-			require.NoError(t, ValidateInvoiceRequestWrite(ir))
+			require.NoError(t, validateInvoiceRequestWrite(ir))
 		})
 	})
 }
@@ -1540,7 +1553,7 @@ func TestValidateInvoiceRequestWriteChainConstraints(t *testing.T) {
 		}
 
 		// Absent chain is OK.
-		require.NoError(t, ValidateInvoiceRequestWrite(ir))
+		require.NoError(t, validateInvoiceRequestWrite(ir))
 
 		// Bitcoin chain is OK.
 		ir.InvreqChain = tlv.SomeRecordT(
@@ -1548,13 +1561,13 @@ func TestValidateInvoiceRequestWriteChainConstraints(t *testing.T) {
 				bitcoinMainnetGenesisHash,
 			),
 		)
-		require.NoError(t, ValidateInvoiceRequestWrite(ir))
+		require.NoError(t, validateInvoiceRequestWrite(ir))
 
 		// Non-bitcoin chain is OK.
 		ir.InvreqChain = tlv.SomeRecordT(
 			tlv.NewPrimitiveRecord[tlv.TlvType80](testnetHash),
 		)
-		require.NoError(t, ValidateInvoiceRequestWrite(ir))
+		require.NoError(t, validateInvoiceRequestWrite(ir))
 	})
 
 	// 2. Responding to an offer.
@@ -1589,7 +1602,7 @@ func TestValidateInvoiceRequestWriteChainConstraints(t *testing.T) {
 			ir := baseRequest()
 
 			// InvreqChain absent (valid, defaults to bitcoin).
-			require.NoError(t, ValidateInvoiceRequestWrite(ir))
+			require.NoError(t, validateInvoiceRequestWrite(ir))
 
 			// InvreqChain == bitcoin (valid).
 			ir.InvreqChain = tlv.SomeRecordT(
@@ -1597,7 +1610,7 @@ func TestValidateInvoiceRequestWriteChainConstraints(t *testing.T) {
 					bitcoinMainnetGenesisHash,
 				),
 			)
-			require.NoError(t, ValidateInvoiceRequestWrite(ir))
+			require.NoError(t, validateInvoiceRequestWrite(ir))
 
 			// InvreqChain != bitcoin (invalid).
 			ir.InvreqChain = tlv.SomeRecordT(
@@ -1606,7 +1619,7 @@ func TestValidateInvoiceRequestWriteChainConstraints(t *testing.T) {
 				),
 			)
 			require.ErrorIs(
-				t, ValidateInvoiceRequestWrite(ir),
+				t, validateInvoiceRequestWrite(ir),
 				ErrUnsupportedChain,
 			)
 		})
@@ -1624,7 +1637,7 @@ func TestValidateInvoiceRequestWriteChainConstraints(t *testing.T) {
 			)
 
 			// InvreqChain absent (valid, defaults to bitcoin).
-			require.NoError(t, ValidateInvoiceRequestWrite(ir))
+			require.NoError(t, validateInvoiceRequestWrite(ir))
 
 			// InvreqChain == bitcoin (valid).
 			ir.InvreqChain = tlv.SomeRecordT(
@@ -1632,7 +1645,7 @@ func TestValidateInvoiceRequestWriteChainConstraints(t *testing.T) {
 					bitcoinMainnetGenesisHash,
 				),
 			)
-			require.NoError(t, ValidateInvoiceRequestWrite(ir))
+			require.NoError(t, validateInvoiceRequestWrite(ir))
 
 			// InvreqChain == testnet (invalid, not in offer
 			// chains).
@@ -1642,7 +1655,7 @@ func TestValidateInvoiceRequestWriteChainConstraints(t *testing.T) {
 				),
 			)
 			require.ErrorIs(
-				t, ValidateInvoiceRequestWrite(ir),
+				t, validateInvoiceRequestWrite(ir),
 				ErrUnsupportedChain,
 			)
 
@@ -1658,7 +1671,7 @@ func TestValidateInvoiceRequestWriteChainConstraints(t *testing.T) {
 			// InvreqChain absent (invalid, defaults to bitcoin
 			// which is not in offer chains).
 			require.ErrorIs(
-				t, ValidateInvoiceRequestWrite(ir),
+				t, validateInvoiceRequestWrite(ir),
 				ErrUnsupportedChain,
 			)
 
@@ -1668,7 +1681,7 @@ func TestValidateInvoiceRequestWriteChainConstraints(t *testing.T) {
 					testnetHash,
 				),
 			)
-			require.NoError(t, ValidateInvoiceRequestWrite(ir))
+			require.NoError(t, validateInvoiceRequestWrite(ir))
 
 			// InvreqChain == regtest (invalid, not in offer
 			// chains).
@@ -1678,7 +1691,7 @@ func TestValidateInvoiceRequestWriteChainConstraints(t *testing.T) {
 				),
 			)
 			require.ErrorIs(
-				t, ValidateInvoiceRequestWrite(ir),
+				t, validateInvoiceRequestWrite(ir),
 				ErrUnsupportedChain,
 			)
 		})
@@ -2048,8 +2061,55 @@ func TestValidateInvoiceRequestAmountOverflow(t *testing.T) {
 	require.ErrorIs(t, readErr, ErrAmountBelowExpected)
 
 	// The writer MUST reject it too (same rule, both sides).
-	writeErr := ValidateInvoiceRequestWrite(newRequest())
+	writeErr := validateInvoiceRequestWrite(newRequest())
 	require.ErrorIs(t, writeErr, ErrAmountBelowExpected)
+}
+
+// TestValidateInvoiceAmountOverflow is the invoice-side twin of
+// TestValidateInvoiceRequestAmountOverflow: with invreq_amount absent the
+// authorized amount is offer_amount times invreq_quantity, and that product
+// must not wrap. An unguarded multiply would truncate to zero and accept any
+// invoice_amount as "at least zero".
+func TestValidateInvoiceAmountOverflow(t *testing.T) {
+	t.Parallel()
+
+	_, pub := bobKey()
+
+	req := &InvoiceRequest{}
+	req.OfferIssuerID = tlv.SomeRecordT(
+		tlv.NewPrimitiveRecord[tlv.TlvType22](pub),
+	)
+	req.OfferAmount = tlv.SomeRecordT(
+		tlv.NewRecordT[tlv.TlvType8](TUint64(2)),
+	)
+
+	// quantity_max zero means unlimited, so the bound check does not cap
+	// the quantity below.
+	req.OfferQuantityMax = tlv.SomeRecordT(
+		tlv.NewRecordT[tlv.TlvType20](TUint64(0)),
+	)
+
+	// We request to pay 2^63 units, which would overflow the uint64 product
+	// with offer_amount(2).
+	req.InvreqQuantity = tlv.SomeRecordT(
+		tlv.NewRecordT[tlv.TlvType86](TUint64(1 << 63)),
+	)
+	req.InvreqPayerID = tlv.SomeRecordT(
+		tlv.NewPrimitiveRecord[tlv.TlvType88](pub),
+	)
+	req.InvreqMetadata = tlv.SomeRecordT(
+		tlv.NewPrimitiveRecord[tlv.TlvType0](tlv.Blob("m")),
+	)
+
+	// An invoice setting the overflow value of 0 would be accepted by an
+	// unguarded validator.
+	inv := NewInvoiceFromRequest(req)
+	inv.InvoiceAmount = tlv.SomeRecordT(
+		tlv.NewRecordT[tlv.TlvType170](TUint64(0)),
+	)
+
+	err := validateInvoiceAgainstRequest(inv, req)
+	require.ErrorIs(t, err, ErrAmountBelowExpected)
 }
 
 // TestValidateInvoiceRequestReadChain pins the spec invreq_chain rule:
@@ -2226,7 +2286,7 @@ func encodeInvBypassValidate(inv *Invoice) ([]byte, error) {
 }
 
 // TestValidateInvoiceRead table-drives every reader-side rejection in
-// ValidateInvoiceRead.
+// validateInvoiceRead.
 func TestValidateInvoiceRead(t *testing.T) {
 	t.Parallel()
 
@@ -2416,19 +2476,19 @@ func TestValidateInvoiceRead(t *testing.T) {
 			inv := baseline()
 			tc.mutate(inv)
 
-			err := ValidateInvoiceRead(
+			err := validateInvoiceRead(
 				inv, bitcoinMainnetGenesisHash,
-				InvoiceFeatureCatalogues{},
+				InvoiceKnownFeatures{},
 			)
 			require.ErrorIs(t, err, tc.wantErr)
 		})
 	}
 }
 
-// TestValidateInvoiceReadAcceptsSignatureRange pins the rule that an unknown
-// odd TLV anywhere in the signature range (240-1000) is ignored rather than
-// rejected.
-func TestValidateInvoiceReadAcceptsSignatureRange(t *testing.T) {
+// TestValidateInvoiceReadSignatureRange pins both rules for the signature
+// range (240-1000): an unknown odd TLV there is ignored, an unknown even one
+// is rejected.
+func TestValidateInvoiceReadSignatureRange(t *testing.T) {
 	t.Parallel()
 
 	priv, pub := bobKey()
@@ -2488,11 +2548,21 @@ func TestValidateInvoiceReadAcceptsSignatureRange(t *testing.T) {
 		tlv.NewPrimitiveRecord[tlv.TlvType240, [64]byte](sig),
 	)
 
-	err = ValidateInvoiceRead(
+	err = validateInvoiceRead(
 		inv, bitcoinMainnetGenesisHash,
-		InvoiceFeatureCatalogues{},
+		InvoiceKnownFeatures{},
 	)
 	require.NoError(t, err)
+
+	// An unknown even type in the signature range is must-understand:
+	// the range is exempt from the out-of-range rule only.
+	inv.decodedTLVs = tlv.TypeMap{242: nil}
+
+	err = validateInvoiceRead(
+		inv, bitcoinMainnetGenesisHash,
+		InvoiceKnownFeatures{},
+	)
+	require.ErrorIs(t, err, ErrUnknownEvenType)
 }
 
 // TestValidateInvoiceExpiry covers the relative-expiry default, an explicit
@@ -2581,7 +2651,7 @@ func TestValidateInvoiceExpiry(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			t.Parallel()
 
-			err := ValidateInvoiceExpiry(
+			err := validateInvoiceExpiry(
 				tc.inv, time.Unix(tc.now, 0),
 			)
 			if tc.wantErr != nil {
@@ -2706,7 +2776,7 @@ func TestValidateInvoiceAgainstRequest(t *testing.T) {
 			invDecoded, err := DecodeInvoice(invEncoded)
 			require.NoError(t, err)
 
-			err = ValidateInvoiceAgainstRequest(
+			err = validateInvoiceAgainstRequest(
 				invDecoded, irDecoded,
 			)
 			if tc.wantErr == nil {
@@ -2761,12 +2831,12 @@ func TestValidateInvoiceAgainstRequestAmountMirror(t *testing.T) {
 	// Equal amounts pass.
 	matchEnc, _ := encodeInvBypassValidate(build(2500))
 	matchDec, _ := DecodeInvoice(matchEnc)
-	require.NoError(t, ValidateInvoiceAgainstRequest(matchDec, irDecoded))
+	require.NoError(t, validateInvoiceAgainstRequest(matchDec, irDecoded))
 
 	// Mismatched amounts fail.
 	missEnc, _ := encodeInvBypassValidate(build(2501))
 	missDec, _ := DecodeInvoice(missEnc)
-	err = ValidateInvoiceAgainstRequest(missDec, irDecoded)
+	err = validateInvoiceAgainstRequest(missDec, irDecoded)
 	require.ErrorIs(t, err, ErrInvoiceMismatch)
 	require.Contains(t, err.Error(), "invoice_amount")
 }
@@ -2850,7 +2920,7 @@ func TestValidateInvoiceAgainstRequestOfferAmount(t *testing.T) {
 		invDec, err := DecodeInvoice(invEnc)
 		require.NoError(t, err)
 
-		return ValidateInvoiceAgainstRequest(invDec, irDec)
+		return validateInvoiceAgainstRequest(invDec, irDec)
 	}
 
 	qty := func(v uint64) *uint64 { return &v }
@@ -2899,7 +2969,7 @@ func TestValidateInvoiceAgainstRequestOfferAmount(t *testing.T) {
 }
 
 // TestValidateInvoiceWrite table-drives the writer-side checks of
-// ValidateInvoiceWrite by clearing required fields on a valid baseline invoice.
+// validateInvoiceWrite by clearing required fields on a valid baseline invoice.
 func TestValidateInvoiceWrite(t *testing.T) {
 	t.Parallel()
 
@@ -3045,7 +3115,7 @@ func TestValidateInvoiceWrite(t *testing.T) {
 			inv := validInvoice(t)
 			tc.mutate(inv)
 
-			err := ValidateInvoiceWrite(inv)
+			err := validateInvoiceWrite(inv)
 			if tc.wantErr == nil {
 				require.NoError(t, err)
 			} else {
@@ -3055,13 +3125,13 @@ func TestValidateInvoiceWrite(t *testing.T) {
 	}
 }
 
-// TestValidateFeaturesWithCatalogue verifies that both Role 1 endpoint features
-// and Role 2 routing path features are correctly validated using injected
-// catalogues.
-func TestValidateFeaturesWithCatalogue(t *testing.T) {
+// TestValidateFeaturesKnownBits verifies that both Role 1 endpoint features
+// and Role 2 routing path features are correctly validated against the known
+// bits the caller injects.
+func TestValidateFeaturesKnownBits(t *testing.T) {
 	t.Parallel()
 
-	// Role 1 validation verifies endpoint features on ValidateInvoiceRead.
+	// Role 1 validation verifies endpoint features on validateInvoiceRead.
 	t.Run("endpoint features (Role 1)", func(t *testing.T) {
 		t.Parallel()
 
@@ -3083,9 +3153,9 @@ func TestValidateFeaturesWithCatalogue(t *testing.T) {
 		)
 
 		// An unknown required bit must be rejected.
-		err = ValidateInvoiceRead(
+		err = validateInvoiceRead(
 			inv, bitcoinMainnetGenesisHash,
-			InvoiceFeatureCatalogues{},
+			InvoiceKnownFeatures{},
 		)
 		require.ErrorIs(t, err, ErrUnknownEvenFeature)
 
@@ -3093,15 +3163,15 @@ func TestValidateFeaturesWithCatalogue(t *testing.T) {
 		known := map[lnwire.FeatureBit]string{
 			lnwire.MPPRequired: "mpp",
 		}
-		err = ValidateInvoiceRead(
+		err = validateInvoiceRead(
 			inv, bitcoinMainnetGenesisHash,
-			InvoiceFeatureCatalogues{Invoice: known},
+			InvoiceKnownFeatures{Invoice: known},
 		)
 		require.NoError(t, err)
 	})
 
 	// Role 2 validation verifies routing path features on
-	// ValidateInvoiceRead.
+	// validateInvoiceRead.
 	t.Run("routing path features (Role 2)", func(t *testing.T) {
 		t.Parallel()
 
@@ -3127,22 +3197,22 @@ func TestValidateFeaturesWithCatalogue(t *testing.T) {
 			tlv.NewPrimitiveRecord[tlv.TlvType240, [64]byte](sig),
 		)
 
-		// If there are no known features in the catalogue, there are
-		// zero usable paths and we expect ErrNoUsablePaths.
-		err = ValidateInvoiceRead(
+		// With no known feature bits there are zero usable paths, so
+		// we expect ErrNoUsablePaths.
+		err = validateInvoiceRead(
 			inv, bitcoinMainnetGenesisHash,
-			InvoiceFeatureCatalogues{},
+			InvoiceKnownFeatures{},
 		)
 		require.ErrorIs(t, err, ErrNoUsablePaths)
 
-		// A known features catalogue for blinded pay results in at
-		// least one usable path, which must pass.
+		// Known blinded-pay bits leave at least one usable path, which
+		// must pass.
 		knownBlinded := map[lnwire.FeatureBit]string{
 			lnwire.MPPRequired: "mpp",
 		}
-		err = ValidateInvoiceRead(
+		err = validateInvoiceRead(
 			inv, bitcoinMainnetGenesisHash,
-			InvoiceFeatureCatalogues{Blinded: knownBlinded},
+			InvoiceKnownFeatures{Blinded: knownBlinded},
 		)
 		require.NoError(t, err)
 	})
@@ -3157,13 +3227,13 @@ func TestValidateFeaturesWithCatalogue(t *testing.T) {
 			tlv.NewRecordT[tlv.TlvType174](fv),
 		)
 
-		require.NoError(t, ValidateInvoiceWrite(inv))
+		require.NoError(t, validateInvoiceWrite(inv))
 	})
 }
 
 // TestValidateInvoiceWriteRejectsNilPubkeys verifies the writer rejects a
 // present-but-nil mirrored pubkey field, which would otherwise panic the codec
-// on encode. Symmetric with ValidateInvoiceRequestWrite.
+// on encode. Symmetric with validateInvoiceRequestWrite.
 func TestValidateInvoiceWriteRejectsNilPubkeys(t *testing.T) {
 	t.Parallel()
 
@@ -3176,7 +3246,7 @@ func TestValidateInvoiceWriteRejectsNilPubkeys(t *testing.T) {
 				(*btcec.PublicKey)(nil),
 			),
 		)
-		require.ErrorIs(t, ValidateInvoiceWrite(inv), ErrNilPublicKey)
+		require.ErrorIs(t, validateInvoiceWrite(inv), ErrNilPublicKey)
 	})
 
 	t.Run("present-but-nil offer_issuer_id", func(t *testing.T) {
@@ -3188,7 +3258,7 @@ func TestValidateInvoiceWriteRejectsNilPubkeys(t *testing.T) {
 				(*btcec.PublicKey)(nil),
 			),
 		)
-		require.ErrorIs(t, ValidateInvoiceWrite(inv), ErrNilPublicKey)
+		require.ErrorIs(t, validateInvoiceWrite(inv), ErrNilPublicKey)
 	})
 
 	t.Run("present-but-nil node_id", func(t *testing.T) {
@@ -3200,7 +3270,7 @@ func TestValidateInvoiceWriteRejectsNilPubkeys(t *testing.T) {
 				(*btcec.PublicKey)(nil),
 			),
 		)
-		require.ErrorIs(t, ValidateInvoiceWrite(inv), ErrNilPublicKey)
+		require.ErrorIs(t, validateInvoiceWrite(inv), ErrNilPublicKey)
 	})
 }
 
@@ -3266,7 +3336,7 @@ func TestValidateInvoiceErrorWrite(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			t.Parallel()
 
-			err := ValidateInvoiceErrorWrite(tc.ie)
+			err := validateInvoiceErrorWrite(tc.ie)
 			if tc.wantErr == nil {
 				require.NoError(t, err)
 
@@ -3293,7 +3363,7 @@ func TestValidateOfferReadVectors(t *testing.T) {
 		t.Run(tc.Description, func(t *testing.T) {
 			t.Parallel()
 
-			_, tlvBytes, bech32Err := Decode(tc.Bolt12)
+			_, tlvBytes, bech32Err := decodeBech32(tc.Bolt12)
 			if bech32Err != nil {
 				if tc.Valid {
 					require.NoError(
@@ -3328,7 +3398,7 @@ func TestValidateOfferReadVectors(t *testing.T) {
 				activeChain = c[0]
 			}
 
-			valErr := ValidateOfferRead(
+			valErr := validateOfferRead(
 				offer, now, activeChain, nil,
 			)
 
@@ -3375,6 +3445,23 @@ func TestValidateOfferReadVectors(t *testing.T) {
 					)
 				}
 
+				// Feed the vector back out through the
+				// writer. Nothing else runs Encode or the
+				// bech32 writer against spec data, so a
+				// record-ordering or writer bug would
+				// otherwise only show against fixtures we
+				// wrote ourselves.
+				restrung, encErr := EncodeOfferString(offer)
+				require.NoError(t, encErr)
+				require.True(
+					t,
+					strings.EqualFold(
+						tc.Bolt12, restrung,
+					),
+					"re-encode mismatch: want %s, got %s",
+					tc.Bolt12, restrung,
+				)
+
 				return
 			}
 
@@ -3385,68 +3472,6 @@ func TestValidateOfferReadVectors(t *testing.T) {
 			)
 		})
 	}
-}
-
-// TestOfferVectorsLayerCensus verifies that every invalid vector in
-// offers-test.json is rejected at the expected layer, pinning the distribution
-// of failure modes across bech32 decode, TLV decode, and semantic validation.
-func TestOfferVectorsLayerCensus(t *testing.T) {
-	t.Parallel()
-
-	vectors := loadOffersVectors(t)
-	now := farFutureNow()
-
-	var (
-		bech32Rejections int
-		tlvRejections    int
-		valRejections    int
-		falseAccepts     int
-	)
-
-	for _, tc := range vectors {
-		if tc.Valid {
-			continue
-		}
-
-		_, tlvBytes, bech32Err := Decode(tc.Bolt12)
-		if bech32Err != nil {
-			bech32Rejections++
-			continue
-		}
-
-		offer, decodeErr := decodeOffer(tlvBytes)
-		if decodeErr != nil {
-			tlvRejections++
-			continue
-		}
-
-		valErr := ValidateOfferRead(
-			offer, now, bitcoinMainnetGenesisHash, nil,
-		)
-		if valErr != nil {
-			valRejections++
-			continue
-		}
-
-		t.Errorf(
-			"invalid vector falsely accepted: %s",
-			tc.Description,
-		)
-		falseAccepts++
-	}
-
-	require.Equal(
-		t, 2, bech32Rejections, "bech32 rejections mismatch",
-	)
-	require.Equal(
-		t, 16, tlvRejections, "TLV decode rejections mismatch",
-	)
-	require.Equal(
-		t, 15, valRejections, "validation rejections mismatch",
-	)
-	require.Equal(
-		t, 0, falseAccepts, "false accepts count mismatch",
-	)
 }
 
 // findRecord searches a slice of TLV records for a record with the given type.

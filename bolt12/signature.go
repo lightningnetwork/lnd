@@ -25,7 +25,7 @@ const (
 	tagFieldSignature = "signature"
 )
 
-// ErrInvalidSignature is returned by VerifyInvoice and VerifyInvoiceRequest
+// ErrInvalidSignature is returned by verifyInvoice and verifyInvoiceRequest
 // when the BIP-340 Schnorr signature does not validate against the message's
 // Merkle root and signing key.
 var ErrInvalidSignature = errors.New("BOLT 12 signature is invalid")
@@ -92,6 +92,15 @@ func SignInvoiceRequest(ir *InvoiceRequest, privKey *btcec.PrivateKey) (
 		return [64]byte{}, ErrNilPrivateKey
 	}
 
+	// A signature over a message that breaks the writer requirements is
+	// worthless: the peer rejects it on read. Refusing here keeps a key
+	// from signing bytes no correct reader accepts.
+	if err := validateInvoiceRequestWrite(ir); err != nil {
+		return [64]byte{}, fmt.Errorf(
+			"validate invoice request: %w", err,
+		)
+	}
+
 	root, err := merkleRoot(signableTLVs(ir.AllRecords()))
 	if err != nil {
 		return [64]byte{}, err
@@ -102,9 +111,9 @@ func SignInvoiceRequest(ir *InvoiceRequest, privKey *btcec.PrivateKey) (
 	)
 }
 
-// VerifyInvoiceRequest verifies the signature on an invoice request using its
+// verifyInvoiceRequest verifies the signature on an invoice request using its
 // invreq_payer_id public key.
-func VerifyInvoiceRequest(ir *InvoiceRequest) error {
+func verifyInvoiceRequest(ir *InvoiceRequest) error {
 	pubKey, err := ir.InvreqPayerID.UnwrapOrErrV(ErrMissingPayerID)
 	if err != nil {
 		return err
@@ -136,6 +145,13 @@ func SignInvoice(inv *Invoice, privKey *btcec.PrivateKey) ([64]byte, error) {
 		return [64]byte{}, ErrNilPrivateKey
 	}
 
+	// A signature over a message that breaks the writer requirements is
+	// worthless: the peer rejects it on read. Refusing here keeps a key
+	// from signing bytes no correct reader accepts.
+	if err := validateInvoiceWrite(inv); err != nil {
+		return [64]byte{}, fmt.Errorf("validate invoice: %w", err)
+	}
+
 	root, err := merkleRoot(signableTLVs(inv.AllRecords()))
 	if err != nil {
 		return [64]byte{}, err
@@ -144,9 +160,9 @@ func SignInvoice(inv *Invoice, privKey *btcec.PrivateKey) ([64]byte, error) {
 	return signMessage(tagMsgInvoice, tagFieldSignature, root, privKey)
 }
 
-// VerifyInvoice verifies the signature on an invoice using its invoice_node_id
+// verifyInvoice verifies the signature on an invoice using its invoice_node_id
 // public key.
-func VerifyInvoice(inv *Invoice) error {
+func verifyInvoice(inv *Invoice) error {
 	pubKey, err := inv.InvoiceNodeID.UnwrapOrErrV(ErrMissingNodeID)
 	if err != nil {
 		return err

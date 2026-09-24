@@ -16,6 +16,10 @@ type Querier interface {
 	AddV2ChannelProof(ctx context.Context, arg AddV2ChannelProofParams) (sql.Result, error)
 	ClearKVInvoiceHashIndex(ctx context.Context) error
 	CountPayments(ctx context.Context) (int64, error)
+	// Detect missing and extra keys directly. For an existing mapping, detect an
+	// incorrect target by looking for a better candidate under the same key. This
+	// preserves the preferred-table ranking without globally sorting graph rows.
+	CountPreferredMappingDivergence(ctx context.Context) (CountPreferredMappingDivergenceRow, error)
 	CountZombieChannels(ctx context.Context, version int16) (int64, error)
 	CreateChannel(ctx context.Context, arg CreateChannelParams) (int64, error)
 	DeleteCanceledInvoices(ctx context.Context) (sql.Result, error)
@@ -230,7 +234,8 @@ type Querier interface {
 	ListChannelsWithPoliciesForCachePaginated(ctx context.Context, arg ListChannelsWithPoliciesForCachePaginatedParams) ([]ListChannelsWithPoliciesForCachePaginatedRow, error)
 	ListChannelsWithPoliciesPaginated(ctx context.Context, arg ListChannelsWithPoliciesPaginatedParams) ([]ListChannelsWithPoliciesPaginatedRow, error)
 	ListNodeIDsAndPubKeys(ctx context.Context, arg ListNodeIDsAndPubKeysParams) ([]ListNodeIDsAndPubKeysRow, error)
-	ListNodesPaginated(ctx context.Context, arg ListNodesPaginatedParams) ([]GraphNode, error)
+	ListPreferredChannelsPaginated(ctx context.Context, arg ListPreferredChannelsPaginatedParams) ([]ListPreferredChannelsPaginatedRow, error)
+	ListPreferredNodesPaginated(ctx context.Context, arg ListPreferredNodesPaginatedParams) ([]ListPreferredNodesPaginatedRow, error)
 	NextInvoiceSettleIndex(ctx context.Context) (int64, error)
 	NodeExists(ctx context.Context, arg NodeExistsParams) (bool, error)
 	OnAMPSubInvoiceCanceled(ctx context.Context, arg OnAMPSubInvoiceCanceledParams) error
@@ -255,6 +260,12 @@ type Querier interface {
 	UpsertNode(ctx context.Context, arg UpsertNodeParams) (int64, error)
 	UpsertNodeAddress(ctx context.Context, arg UpsertNodeAddressParams) error
 	UpsertNodeExtraType(ctx context.Context, arg UpsertNodeExtraTypeParams) error
+	// Recompute the preferred channel for a given SCID and upsert the result.
+	// Priority: v2 with policies > v1 with policies > v2 bare > v1 bare.
+	UpsertPreferredChannel(ctx context.Context, scid []byte) error
+	// Recompute the preferred node for a given pub_key and upsert the result.
+	// Priority: v2 announced > v1 announced > v2 shell > v1 shell.
+	UpsertPreferredNode(ctx context.Context, pubKey []byte) error
 	UpsertPruneLogEntry(ctx context.Context, arg UpsertPruneLogEntryParams) error
 	// We use a separate upsert for our own node since we want to be less strict
 	// about the last_update field. For our own node, we always want to

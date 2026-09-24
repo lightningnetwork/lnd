@@ -39,6 +39,13 @@ type DirectedChannel struct {
 
 	// Inbound fees of this node.
 	InboundFee lnwire.Fee
+
+	// version is the gossip version that announced the channel this entry
+	// was built from. The cache keys channels by SCID alone, so entries
+	// for the same channel on two gossip versions collide, and this field
+	// is what ranks them. Entries built for the no-cache read paths leave
+	// it unset, because only the cache ranks entries.
+	version lnwire.GossipVersion
 }
 
 // DeepCopy creates a deep copy of the channel, including the incoming policy.
@@ -124,19 +131,23 @@ func (c *GraphCache) AddChannel(info *models.CachedEdgeInfo,
 	// Create the edge entry for both nodes. We always add the channel
 	// structure to the cache, even if both policies are currently disabled,
 	// so that later policy updates can find and update the channel entry.
+	hasPolicies := policy1 != nil || policy2 != nil
+
 	c.mtx.Lock()
 	c.updateOrAddEdge(info.NodeKey1Bytes, &DirectedChannel{
 		ChannelID: info.ChannelID,
 		IsNode1:   true,
 		OtherNode: info.NodeKey2Bytes,
 		Capacity:  info.Capacity,
-	})
+		version:   info.Version,
+	}, hasPolicies)
 	c.updateOrAddEdge(info.NodeKey2Bytes, &DirectedChannel{
 		ChannelID: info.ChannelID,
 		IsNode1:   false,
 		OtherNode: info.NodeKey1Bytes,
 		Capacity:  info.Capacity,
-	})
+		version:   info.Version,
+	}, hasPolicies)
 	c.mtx.Unlock()
 
 	// Skip adding policies if both are disabled, as the channel is
@@ -171,13 +182,48 @@ func (c *GraphCache) AddChannel(info *models.CachedEdgeInfo,
 }
 
 // updateOrAddEdge makes sure the edge information for a node is either updated
-// if it already exists or is added to that node's list of channels.
-func (c *GraphCache) updateOrAddEdge(node route.Vertex, edge *DirectedChannel) {
+// if it already exists or is added to that node's list of channels. An entry
+// that a lower ranked gossip version would replace is kept, see
+// preferIncomingEdge.
+func (c *GraphCache) updateOrAddEdge(node route.Vertex, edge *DirectedChannel,
+	hasPolicies bool) {
+
 	if len(c.nodeChannels[node]) == 0 {
 		c.nodeChannels[node] = make(map[uint64]*DirectedChannel)
 	}
 
+	existing, ok := c.nodeChannels[node][edge.ChannelID]
+	if ok && !preferIncomingEdge(existing, edge, hasPolicies) {
+		return
+	}
+
 	c.nodeChannels[node][edge.ChannelID] = edge
+}
+
+// preferIncomingEdge reports whether an incoming cache entry must replace the
+// entry already held for the same channel. The two can only differ when the
+// channel is announced on more than one gossip version, and the ranking
+// applied here is the one the preferred lookup tables apply: a version that
+// carries policies outranks a bare one, and the higher version only breaks a
+// tie between two versions of equal policy state. Both views must rank the
+// same way, otherwise a channel is routable in RPC output and unroutable for
+// pathfinding.
+func preferIncomingEdge(existing, incoming *DirectedChannel,
+	incomingHasPolicies bool) bool {
+
+	// A repeated announcement on the same version always wins, so that a
+	// channel whose policies were withdrawn also loses them here.
+	if existing.version == incoming.version {
+		return true
+	}
+
+	existingHasPolicies := existing.OutPolicySet ||
+		existing.InPolicy != nil
+	if existingHasPolicies != incomingHasPolicies {
+		return incomingHasPolicies
+	}
+
+	return incoming.version > existing.version
 }
 
 // UpdatePolicy updates a single policy on both the from and to node. The order

@@ -1011,6 +1011,23 @@ func (n *TxNotifier) dispatchConfDetails(
 			n.confsByInitialHeight[details.BlockHeight] = txSet
 		}
 		txSet[ntfn.ConfRequest] = struct{}{}
+	} else {
+		// The transaction is already buried past the reorg-safety limit
+		// at dispatch time. This happens when a historical scan matches
+		// a transaction that already confirmed deeply (its
+		// reorg-safe height is at or below the current tip). The
+		// per-block finality sweep in ConnectTip only fires Done for
+		// requests maturing at the connecting height, so it will never
+		// retroactively fire for an already-mature registration.
+		// Signal Done now -- after the Confirmed dispatch above, which
+		// is guaranteed to have run since reorgSafeHeight <=
+		// currentHeight implies confHeight <= currentHeight -- so
+		// callers that block until finality do not hang.
+		select {
+		case ntfn.Event.Done <- struct{}{}:
+		case <-n.quit:
+			return ErrTxNotifierExiting
+		}
 	}
 
 	return nil
@@ -1419,6 +1436,19 @@ func (n *TxNotifier) dispatchSpendDetails(ntfn *SpendNtfn, details *SpendDetail)
 			n.spendsByHeight[spendHeight] = txSet
 		}
 		txSet[ntfn.SpendRequest] = struct{}{}
+	} else {
+		// The spend is already buried past the reorg-safety limit at
+		// dispatch time (a historical scan matched an already-mature
+		// spend). As with the confirmation path, the per-block finality
+		// sweep in ConnectTip never retroactively fires Done for an
+		// already-mature registration, so signal it now -- after the
+		// Spend dispatch above -- so callers blocking until finality do
+		// not hang.
+		select {
+		case ntfn.Event.Done <- struct{}{}:
+		case <-n.quit:
+			return ErrTxNotifierExiting
+		}
 	}
 
 	return nil

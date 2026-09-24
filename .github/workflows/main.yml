@@ -16,6 +16,8 @@ permissions:
   actions: write
   # Default permission for checking out code.
   contents: read
+  # Required to read the current PR labels via the API in check-label.
+  pull-requests: read
 
 concurrency:
   # Cancel any previous workflows if they are from a PR or push.

@@ -1038,7 +1038,9 @@ func (r *RouterBackend) extractIntentFromSendRequest(
 		}
 
 		// An invoice must include either a payment address or
-		// blinded paths.
+		// blinded paths. zpay32.Decode already enforces this, but we
+		// keep the check here as a defense in case the decoder is
+		// relaxed.
 		if payReq.PaymentAddr.IsNone() &&
 			len(payReq.BlindedPaymentPaths) == 0 {
 

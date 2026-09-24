@@ -122,6 +122,10 @@ type CircuitMap interface {
 	// circuits that use the given payment hash.
 	LookupByPaymentHash(hash [32]byte) []*PaymentCircuit
 
+	// ActiveCircuits returns all open circuits, i.e. those whose HTLC has
+	// been forwarded on an outgoing link and is awaiting resolution.
+	ActiveCircuits() []*PaymentCircuit
+
 	// NumPending returns the total number of active circuits added by
 	// CommitCircuits.
 	NumPending() int
@@ -1206,4 +1210,20 @@ func (cm *circuitMap) NumOpen() int {
 	defer cm.mtx.RUnlock()
 
 	return len(cm.opened)
+}
+
+// ActiveCircuits returns a snapshot of all open circuits, i.e. those whose
+// HTLC has been forwarded on an outgoing link and is awaiting a settle or fail
+// from the remote peer. The circuit map never mutates an opened circuit in
+// place, so the returned circuits are safe to read without the lock.
+func (cm *circuitMap) ActiveCircuits() []*PaymentCircuit {
+	cm.mtx.RLock()
+	defer cm.mtx.RUnlock()
+
+	circuits := make([]*PaymentCircuit, 0, len(cm.opened))
+	for _, c := range cm.opened {
+		circuits = append(circuits, c)
+	}
+
+	return circuits
 }

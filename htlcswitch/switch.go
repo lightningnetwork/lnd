@@ -2541,6 +2541,12 @@ func (s *Switch) CircuitLookup() CircuitLookup {
 	return s.circuits
 }
 
+// ActiveCircuits returns a snapshot of the open circuits tracked by the switch:
+// the HTLCs it has forwarded on an outgoing link that are awaiting resolution.
+func (s *Switch) ActiveCircuits() []*PaymentCircuit {
+	return s.circuits.ActiveCircuits()
+}
+
 // commitCircuits persistently adds a circuit to the switch's circuit map.
 func (s *Switch) commitCircuits(circuits ...*PaymentCircuit) (
 	*CircuitFwdActions, error) {
@@ -3085,10 +3091,16 @@ func (s *Switch) handlePacketAdd(packet *htlcPacket,
 }
 
 // htlcAccountable extracts the experimental accountable signal from an
-// incoming update_add_htlc's custom records (TLV 106823).
+// incoming update_add_htlc's custom records.
 func htlcAccountable(htlc *lnwire.UpdateAddHTLC) bool {
+	return AccountableFromRecords(htlc.CustomRecords)
+}
+
+// AccountableFromRecords reports whether the given custom records carry the
+// experimental accountable signal (TLV 106823).
+func AccountableFromRecords(records lnwire.CustomRecords) bool {
 	key := uint64(lnwire.ExperimentalAccountableType)
-	rec, ok := htlc.CustomRecords[key]
+	rec, ok := records[key]
 
 	return ok && len(rec) > 0 && rec[0] == lnwire.ExperimentalAccountable
 }

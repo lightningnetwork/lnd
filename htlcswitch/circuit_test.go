@@ -1358,3 +1358,74 @@ func TestCircuitMapDeleteOpenCircuit(t *testing.T) {
 			circuit2, nil)
 	}
 }
+
+// TestCircuitMapActiveCircuits checks that ActiveCircuits returns exactly the
+// opened circuits, that they survive a restart of the circuit map, and that a
+// circuit is no longer reported once it is closed.
+func TestCircuitMapActiveCircuits(t *testing.T) {
+	t.Parallel()
+
+	cfg, circuitMap := newCircuitMap(t, false)
+
+	// Nothing tracked yet.
+	require.Empty(t, circuitMap.ActiveCircuits())
+
+	// One circuit that is only committed, never opened, and two that are
+	// opened on outgoing channels.
+	pending := htlcswitch.Keystone{
+		InKey: htlcswitch.CircuitKey{
+			ChanID: lnwire.NewShortChanIDFromInt(1), HtlcID: 0,
+		},
+	}
+	openOne := htlcswitch.Keystone{
+		InKey: htlcswitch.CircuitKey{
+			ChanID: lnwire.NewShortChanIDFromInt(1), HtlcID: 1,
+		},
+		OutKey: htlcswitch.CircuitKey{
+			ChanID: lnwire.NewShortChanIDFromInt(2), HtlcID: 0,
+		},
+	}
+	openTwo := htlcswitch.Keystone{
+		InKey: htlcswitch.CircuitKey{
+			ChanID: lnwire.NewShortChanIDFromInt(3), HtlcID: 0,
+		},
+		OutKey: htlcswitch.CircuitKey{
+			ChanID: lnwire.NewShortChanIDFromInt(2), HtlcID: 1,
+		},
+	}
+	for _, ks := range []htlcswitch.Keystone{pending, openOne, openTwo} {
+		require.NoError(t, createTestCircuit(ks, circuitMap))
+	}
+
+	// activeKeys reduces the snapshot to (incoming, outgoing) key pairs
+	// for order independent comparison.
+	activeKeys := func(cm htlcswitch.CircuitMap) map[htlcswitch.CircuitKey]htlcswitch.CircuitKey { //nolint:ll
+		keys := make(map[htlcswitch.CircuitKey]htlcswitch.CircuitKey)
+		for _, c := range cm.ActiveCircuits() {
+			require.NotNil(t, c.Outgoing, "open circuit has no "+
+				"outgoing key")
+			keys[c.Incoming] = *c.Outgoing
+		}
+
+		return keys
+	}
+
+	want := map[htlcswitch.CircuitKey]htlcswitch.CircuitKey{
+		openOne.InKey: openOne.OutKey,
+		openTwo.InKey: openTwo.OutKey,
+	}
+	require.Equal(t, want, activeKeys(circuitMap))
+
+	// Opened circuits are persisted, so they are still active after the
+	// circuit map is rebuilt from disk.
+	_, circuitMap = restartCircuitMap(t, cfg)
+	require.Equal(t, want, activeKeys(circuitMap))
+
+	// Closing one drops it from the snapshot.
+	_, err := circuitMap.FailCircuit(openOne.InKey)
+	require.NoError(t, err)
+	require.NoError(t, circuitMap.DeleteCircuits(openOne.InKey))
+
+	delete(want, openOne.InKey)
+	require.Equal(t, want, activeKeys(circuitMap))
+}

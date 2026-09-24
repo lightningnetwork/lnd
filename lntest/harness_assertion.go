@@ -10,6 +10,7 @@ import (
 	"math"
 	"os"
 	"path/filepath"
+	"regexp"
 	"sort"
 	"strings"
 	"time"
@@ -102,6 +103,30 @@ func (h *HarnessTest) CountNodeLogOccurrences(hn *node.HarnessNode,
 	substr string) int {
 
 	var total int
+	for _, data := range h.readNodeLogs(hn) {
+		total += strings.Count(data, substr)
+	}
+
+	return total
+}
+
+// NodeLogSubmatches returns the submatches of every match of the given regular
+// expression across the node's lnd.log files, in the order they were logged.
+// It is used to read values out of log-only subsystem output.
+func (h *HarnessTest) NodeLogSubmatches(hn *node.HarnessNode,
+	re *regexp.Regexp) [][]string {
+
+	var matches [][]string
+	for _, data := range h.readNodeLogs(hn) {
+		matches = append(matches, re.FindAllStringSubmatch(data, -1)...)
+	}
+
+	return matches
+}
+
+// readNodeLogs returns the contents of the node's lnd.log files.
+func (h *HarnessTest) readNodeLogs(hn *node.HarnessNode) []string {
+	var logs []string
 
 	_ = filepath.WalkDir(hn.Cfg.LogDir, func(path string, d os.DirEntry,
 		err error) error {
@@ -115,13 +140,13 @@ func (h *HarnessTest) CountNodeLogOccurrences(hn *node.HarnessNode,
 
 		data, readErr := os.ReadFile(path)
 		if readErr == nil {
-			total += strings.Count(string(data), substr)
+			logs = append(logs, string(data))
 		}
 
 		return nil
 	})
 
-	return total
+	return logs
 }
 
 // WaitForBlockchainSyncTo waits until the node is synced to bestBlock.

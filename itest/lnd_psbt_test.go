@@ -1233,12 +1233,12 @@ func getAddressBip32Derivation(t testing.TB, addr string,
 	path[2] += hdkeychain.HardenedKeyStart
 
 	return &psbt.Bip32Derivation{
-		PubKey:    pubKeyBytes,
-		Bip32Path: path,
-	}, &psbt.TaprootBip32Derivation{
-		XOnlyPubKey: pubKeyBytes[1:],
-		Bip32Path:   path,
-	}
+			PubKey:    pubKeyBytes,
+			Bip32Path: path,
+		}, &psbt.TaprootBip32Derivation{
+			XOnlyPubKey: pubKeyBytes[1:],
+			Bip32Path:   path,
+		}
 }
 
 // fundPsbtCoinSelect calls the FundPsbt RPC on the given node using the coin

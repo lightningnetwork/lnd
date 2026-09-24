@@ -2,6 +2,7 @@ package lnwire
 
 import (
 	"bytes"
+	"io"
 	"testing"
 
 	"github.com/lightningnetwork/lnd/tlv"
@@ -51,14 +52,17 @@ func TestNodeAnn2EncodeDecode(t *testing.T) {
 		0x05,                               // type.
 		0x0c,                               // length (12 bytes).
 		0x0a, 0x00, 0x00, 0x01, 0x23, 0x28, // 10.0.0.1:9000
-		0x0a, 0x00, 0x00, 0x01, 0x1f, 0x90, // 10.0.0.1:8080
+		0x0a, 0x00, 0x00, 0x02, 0x1f, 0x90, // 10.0.0.2:8080
 
 		// IPV6Addrs record (optional).
 		0x07,                                           // type.
-		0x12,                                           // length.
+		0x24,                                           // length.
 		0x20, 0x01, 0x0d, 0xb8, 0x00, 0x00, 0x00, 0x00, // IPv6 address
 		0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x01, // 2001:db8::1
 		0x1f, 0x40, // port 8000
+		0x20, 0x01, 0x0d, 0xb8, 0x00, 0x00, 0x00, 0x00, // IPv6 address
+		0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x02, // 2001:db8::2
+		0x1f, 0x41, // port 8001
 
 		// TorV3Addrs record (optional).
 		0x09, // type.
@@ -116,4 +120,90 @@ func TestNodeAnn2EncodeDecode(t *testing.T) {
 	// The re-encoded bytes should be exactly the same as the original raw
 	// bytes.
 	require.Equal(t, rawBytes, b.Bytes())
+}
+
+// TestNodeAnn2AddrDecodeTruncated asserts that each fixed width address decoder
+// rejects a record that holds fewer bytes than its TLV length declares.
+func TestNodeAnn2AddrDecodeTruncated(t *testing.T) {
+	t.Parallel()
+
+	// Each family decodes addresses of one fixed width, so a record that
+	// holds fewer bytes than its length declares must fail instead of
+	// reading the untouched bytes of the decoder's scratch array.
+	families := []struct {
+		name   string
+		size   uint64
+		decode func(io.Reader, uint64) error
+	}{
+		{
+			name: "ipv4",
+			size: ipv4AddrEncodedSize,
+			decode: func(r io.Reader, l uint64) error {
+				var (
+					addrs IPV4Addrs
+					buf   [8]byte
+				)
+
+				return ipv4AddrsDecoder(r, &addrs, &buf, l)
+			},
+		},
+		{
+			name: "ipv6",
+			size: ipv6AddrEncodedSize,
+			decode: func(r io.Reader, l uint64) error {
+				var (
+					addrs IPV6Addrs
+					buf   [8]byte
+				)
+
+				return ipv6AddrsDecoder(r, &addrs, &buf, l)
+			},
+		},
+		{
+			name: "tor v3",
+			size: torV3AddrEncodedSize,
+			decode: func(r io.Reader, l uint64) error {
+				var (
+					addrs TorV3Addrs
+					buf   [8]byte
+				)
+
+				return torV3AddrsDecoder(r, &addrs, &buf, l)
+			},
+		},
+	}
+
+	for _, family := range families {
+		// Each decoder reads the address and the port separately. A
+		// record one byte short truncates only the port, so half a
+		// record is needed to reach the address read as well.
+		cases := []struct {
+			name     string
+			supplied uint64
+		}{
+			{
+				name:     "short address",
+				supplied: family.size / 2,
+			},
+			{
+				name:     "short port",
+				supplied: family.size - 1,
+			},
+		}
+
+		for _, tc := range cases {
+			name := family.name + "/" + tc.name
+
+			t.Run(name, func(t *testing.T) {
+				t.Parallel()
+
+				err := family.decode(
+					bytes.NewReader(
+						make([]byte, tc.supplied),
+					), family.size,
+				)
+				require.ErrorIs(t, err, io.ErrUnexpectedEOF)
+			})
+		}
+	}
 }

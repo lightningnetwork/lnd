@@ -53,6 +53,10 @@
   the reported network statistics such as total network capacity, channel
   count and max out degree.
 
+* [Fixed a bug](https://github.com/lightningnetwork/lnd/issues/11211) in the
+  `NodeAnnouncement2` address decoders, where all decoded addresses aliased
+  one scratch array and truncated records decoded without an error.
+
 # New Features
 
 ## Functional Enhancements
@@ -195,3 +199,4 @@
 * Erick Cestari
 * Jared Tobin
 * Nishant Bansal
+* s1ns3nz0

@@ -174,7 +174,7 @@ func decodeOffer(data []byte) (*Offer, error) {
 func DecodeOfferString(s string, now time.Time,
 	activeChain [32]byte) (*Offer, error) {
 
-	hrp, tlvBytes, err := Decode(s)
+	hrp, tlvBytes, err := decodeBech32(s)
 	if err != nil {
 		return nil, fmt.Errorf("bech32: %w", err)
 	}
@@ -206,5 +206,5 @@ func EncodeOfferString(o *Offer) (string, error) {
 		return "", err
 	}
 
-	return Encode(HRPOffer, tlvBytes)
+	return encodeBech32(HRPOffer, tlvBytes)
 }

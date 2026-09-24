@@ -54,7 +54,7 @@ func verifyInvoiceRequestSigVector(t *testing.T, tc sigTestVector,
 
 	// Decode the bech32 string and convert the TLV bytes into the record
 	// view merkleRoot consumes.
-	_, tlvBytes, err := Decode(tc.Bolt12)
+	_, tlvBytes, err := decodeBech32(tc.Bolt12)
 	require.NoError(t, err)
 
 	records := streamToRecords(t, tlvBytes)
@@ -128,7 +128,7 @@ func TestVerifyInvoiceRequestVector(t *testing.T) {
 	}
 	require.NotEmpty(t, tc.Bolt12)
 
-	hrp, tlvBytes, err := Decode(tc.Bolt12)
+	hrp, tlvBytes, err := decodeBech32(tc.Bolt12)
 	require.NoError(t, err)
 	require.Equal(t, "lnr", hrp)
 

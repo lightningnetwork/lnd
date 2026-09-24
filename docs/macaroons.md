@@ -224,6 +224,161 @@ Have a look at the [Java GRPC example](/docs/grpc/java.md) for programmatic usag
 The macaroon bakery is described in more detail in the
 [README in the macaroons package](../macaroons/README.md).
 
+## Protector caveats: restricting request fields
+
+Permissions decide *which* RPC methods a macaroon may call. Protector caveats
+add a second, finer layer: they restrict *which request fields* may be set on
+the methods covered by a named protector profile. A protector caveat is a
+first-party caveat of the form `protector <profile-name>`, added at bake time
+with `--protector` or appended to an existing macaroon with
+`constrainmacaroon`.
+
+A profile only has an opinion on the methods it covers. Every other method the
+macaroon's permissions reach stays fully usable, so a protector caveat is only
+meaningful when the permissions themselves are narrow. Bake as follows:
+
+* **Grant write access through explicit `uri:` permissions, never through
+  entity write permissions.** `OpenChannel` requires both `onchain:write` and
+  `offchain:write`, and the smallest entity bake that makes the profile usable
+  already reaches `SendCoins`, `SendMany`, `AbandonChannel`,
+  `RestoreChannelBackups` and several other write methods the profile knows
+  nothing about. A `uri:` permission grants exactly one method, so the holder
+  reaches only what was named.
+
+* **Read entities are fine, with one exception to know about.** `info:read`,
+  `peers:read` and the other read entities reach no method that can move
+  funds. `invoices:read` however exposes the preimage of invoices that have
+  not been paid yet, so grant it only if the role needs it.
+
+* **Name every method the delegated role needs**, including the ones the
+  profile does not cover, such as `ConnectPeer` (a channel open fails if the
+  peer is not connected) or `AddInvoice`. They pass through unaffected, and
+  naming them makes the full reach of the macaroon visible in the bake command
+  and in `printmacaroon` output.
+
+The following bake is taken from a production channel management service.
+The macaroon grants read access broadly, write access to exactly the named
+methods, and locks the fund-redirecting fields of the channel methods with the
+protector:
+
+```shell
+lncli bakemacaroon --protector channel-management-v1 \
+    address:read info:read invoices:read macaroon:read message:read \
+    offchain:read onchain:read peers:read \
+    uri:/invoicesrpc.Invoices/AddHoldInvoice \
+    uri:/invoicesrpc.Invoices/CancelInvoice \
+    uri:/lnrpc.Lightning/AddInvoice \
+    uri:/lnrpc.Lightning/BatchOpenChannel \
+    uri:/lnrpc.Lightning/CloseChannel \
+    uri:/lnrpc.Lightning/ConnectPeer \
+    uri:/lnrpc.Lightning/DisconnectPeer \
+    uri:/lnrpc.Lightning/OpenChannel \
+    uri:/lnrpc.Lightning/OpenChannelSync \
+    uri:/lnrpc.Lightning/SignMessage \
+    uri:/lnrpc.Lightning/UpdateChannelPolicy \
+    uri:/peersrpc.Peers/UpdateNodeAnnouncement
+```
+
+With this macaroon the service can connect to peers, open, close and manage
+channels, issue invoices, update the node announcement and sign messages with
+the node's identity key. Signing moves no funds, but it proves control of the
+node to any service that authenticates operators by node signature, so leave
+`SignMessage` out if the role does not need it. The service cannot push funds
+to the peer on open, set a close or delivery address, or supply a funding
+shim, because the profile denies those fields. Denying the funding shim also
+rules out PSBT funded opens (`lncli openchannel --psbt`), so channels cannot
+be funded from a hardware wallet or an external transaction. And it cannot
+reach `SendCoins`, `SendPayment` or any other fund-moving method, because
+none of them is named.
+
+The same service running against a `litd` node additionally needs the `tapd`
+and `litd` read entities. Those are unknown to `lnd`, so the bake requires
+`--allow_external_permissions`. Be aware that this flag disables validation
+of every permission in the bake, including `lnd`'s own `uri:` permissions, so
+a mistyped URI is accepted and simply never matches. Copy the URIs from the
+plain `lnd` command above rather than retyping them:
+
+```shell
+lncli bakemacaroon --allow_external_permissions \
+    --protector channel-management-v1 \
+    address:read addresses:read assets:read channels:read daemon:read \
+    info:read invoices:read macaroon:read message:read mint:read \
+    offchain:read onchain:read peers:read proofs:read proxy:read rfq:read \
+    universe:read \
+    uri:/invoicesrpc.Invoices/AddHoldInvoice \
+    uri:/invoicesrpc.Invoices/CancelInvoice \
+    uri:/lnrpc.Lightning/AddInvoice \
+    uri:/lnrpc.Lightning/BatchOpenChannel \
+    uri:/lnrpc.Lightning/CloseChannel \
+    uri:/lnrpc.Lightning/ConnectPeer \
+    uri:/lnrpc.Lightning/DisconnectPeer \
+    uri:/lnrpc.Lightning/OpenChannel \
+    uri:/lnrpc.Lightning/OpenChannelSync \
+    uri:/lnrpc.Lightning/SignMessage \
+    uri:/lnrpc.Lightning/UpdateChannelPolicy \
+    uri:/peersrpc.Peers/UpdateNodeAnnouncement
+```
+
+An existing macaroon can be tightened offline by anyone holding it, since
+caveats can only ever be added and never removed:
+
+```shell
+lncli constrainmacaroon --protector channel-management-v1 \
+    in.macaroon out.macaroon
+```
+
+Profile semantics are compiled into `lnd` and are versioned by name: the rules
+of an existing profile name may be tightened by a future release (existing
+macaroons then automatically benefit on upgrade), but never loosened; changed
+semantics require a new profile name. A macaroon referencing a profile name
+unknown to the validating `lnd` is rejected as a whole, so such macaroons fail
+closed on older versions. Both kinds of version change are triggered by the
+node operator and felt by the macaroon holder: an upgrade that tightens a
+profile breaks only the calls that set a newly denied field, while a downgrade
+to an `lnd` that does not know the profile makes every call fail, including
+calls to methods the profile does not cover.
+
+The first profile is `channel-management-v1`: channel management without the
+ability to redirect value to a third party. It covers `OpenChannel`,
+`OpenChannelSync`, `BatchOpenChannel`, `CloseChannel` and
+`UpdateChannelPolicy`, and denies setting `push_sat`, `close_address` and
+`funding_shim` on the open methods and `delivery_address` on `CloseChannel`.
+
+### Limitations
+
+A protector caveat is a targeted restriction, not a general spending policy.
+Understand these limits before delegating a macaroon that carries one:
+
+* **Only the covered methods are constrained.** Methods a profile does not
+  cover are completely unaffected by the caveat. Restricting the callable
+  method set remains the job of the macaroon's permissions, so a protector
+  caveat must be combined with `uri:` permissions as shown above. With entity
+  write permissions such as `onchain:write` the caveat provides no meaningful
+  protection, since uncovered methods like `SendCoins` stay fully usable.
+
+* **Services co-registered on the `lnd` gRPC server are uncovered as well.**
+  Other daemons can register their own gRPC services on the `lnd` server, and
+  `litd` in integrated mode does so for Loop, Pool and Faraday. Their methods
+  pass through the same interceptor chain, but no profile covers them, so a
+  macaroon whose permissions reach them can still move funds through a loop
+  out or a Pool order. This applies in particular to a `litd` super macaroon
+  constrained with a protector caveat offline. Keep those services out of the
+  bake.
+
+* **Never combine a protector caveat with `macaroon:generate`** (or
+  `uri:/lnrpc.Lightning/BakeMacaroon`). A macaroon that is allowed to bake
+  macaroons can mint itself a fresh one without the caveat, which voids the
+  restriction entirely.
+
+* **The guarantee is about redirection, not value loss in general.** Within
+  the covered methods the caveat prevents choosing where funds go, but it does
+  not bound on-chain fees, so a holder can still burn value through the fee
+  rate fields, and force closes remain permitted.
+
+* **No restriction on counterparties.** A profile places no limits on which
+  peers channels may be opened with, only on the fields of the requests it
+  covers.
+
 ## Future improvements to the `lnd` macaroon implementation
 
 The existing macaroon implementation in `lnd` and `lncli` lays the groundwork

@@ -478,20 +478,20 @@ func ipv4AddrsDecoder(r io.Reader, val interface{}, _ *[8]byte,
 		var (
 			numAddrs = int(l / ipv4AddrEncodedSize)
 			addrs    = make([]*net.TCPAddr, 0, numAddrs)
-			ip       [4]byte
 			port     [2]byte
 		)
 		for len(addrs) < numAddrs {
-			_, err := r.Read(ip[:])
+			ip := make(net.IP, net.IPv4len)
+			_, err := io.ReadFull(r, ip)
 			if err != nil {
 				return err
 			}
-			_, err = r.Read(port[:])
+			_, err = io.ReadFull(r, port[:])
 			if err != nil {
 				return err
 			}
 			addrs = append(addrs, &net.TCPAddr{
-				IP:   ip[:],
+				IP:   ip,
 				Port: int(binary.BigEndian.Uint16(port[:])),
 			})
 		}
@@ -562,20 +562,20 @@ func ipv6AddrsDecoder(r io.Reader, val interface{}, _ *[8]byte,
 		var (
 			numAddrs = int(l / ipv6AddrEncodedSize)
 			addrs    = make([]*net.TCPAddr, 0, numAddrs)
-			ip       [16]byte
 			port     [2]byte
 		)
 		for len(addrs) < numAddrs {
-			_, err := r.Read(ip[:])
+			ip := make(net.IP, net.IPv6len)
+			_, err := io.ReadFull(r, ip)
 			if err != nil {
 				return err
 			}
-			_, err = r.Read(port[:])
+			_, err = io.ReadFull(r, port[:])
 			if err != nil {
 				return err
 			}
 			addrs = append(addrs, &net.TCPAddr{
-				IP:   ip[:],
+				IP:   ip,
 				Port: int(binary.BigEndian.Uint16(port[:])),
 			})
 		}

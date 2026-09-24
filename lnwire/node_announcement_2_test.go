@@ -203,27 +203,33 @@ func TestNodeAnn2AddressesIgnorePortZero(t *testing.T) {
 		tor.OnionSuffix
 
 	var (
-		ip4 = &net.TCPAddr{IP: net.IPv4(10, 0, 0, 1).To4(), Port: 9735}
-		ip6 = &net.TCPAddr{IP: net.ParseIP("2001:db8::1"), Port: 9735}
-		onn = &tor.OnionAddr{OnionService: onion, Port: 9735}
-		dns = &DNSAddress{Hostname: "example.com", Port: 9735}
+		ip4 = &net.TCPAddr{
+			IP: net.IPv4(10, 0, 0, 1).To4(), Port: 9735,
+		}
+		ip4Zero = &net.TCPAddr{IP: net.IPv4(192, 0, 2, 1).To4()}
+		ip6     = &net.TCPAddr{
+			IP: net.ParseIP("2001:db8::1"), Port: 9735,
+		}
+		ip6Zero = &net.TCPAddr{IP: net.ParseIP("2001:db8::2")}
+		onn     = &tor.OnionAddr{OnionService: onion, Port: 9735}
+		dns     = &DNSAddress{Hostname: "example.com", Port: 9735}
 	)
 
-	// Each ip list reuses one IP for both of its entries, so that only
-	// the port tells them apart. The ip decoders share one buffer across
-	// entries, which is a known issue this test does not cover.
+	// Put a usable address before a distinct zero-port address. This
+	// ensures that decoding the latter cannot overwrite the former's IP
+	// bytes.
 	msg := &NodeAnnouncement2{}
 	msg.Signature.Val = testSchnorrSig
 	msg.IPV4Addrs = tlv.SomeRecordT(tlv.NewRecordT[tlv.TlvType5](
 		IPV4Addrs{
 			ip4,
-			{IP: net.IPv4(10, 0, 0, 1).To4(), Port: 0},
+			ip4Zero,
 		},
 	))
 	msg.IPV6Addrs = tlv.SomeRecordT(tlv.NewRecordT[tlv.TlvType7](
 		IPV6Addrs{
-			{IP: net.ParseIP("2001:db8::1"), Port: 0},
 			ip6,
+			ip6Zero,
 		},
 	))
 	msg.TorV3Addrs = tlv.SomeRecordT(tlv.NewRecordT[tlv.TlvType9](

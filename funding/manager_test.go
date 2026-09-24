@@ -674,6 +674,17 @@ func createTestFundingManager(t *testing.T, privKey *btcec.PrivateKey,
 		shutdownChannel: shutdownChan,
 		reportScidChan:  reportScidChan,
 		addr:            addr,
+
+		// Default both sides to static remote key. Without any
+		// features at all these nodes used to negotiate the legacy
+		// commitment type, which we no longer open. Tests that care
+		// about a specific type overwrite these.
+		localFeatures: []lnwire.FeatureBit{
+			lnwire.StaticRemoteKeyOptional,
+		},
+		remoteFeatures: []lnwire.FeatureBit{
+			lnwire.StaticRemoteKeyOptional,
+		},
 	}
 
 	f.cfg.NotifyWhenOnline = func(peer [33]byte,
@@ -5321,6 +5332,65 @@ func TestFundingManagerRejectMissingChanType(t *testing.T) {
 	err, ok := errMsg.(*lnwire.Error)
 	require.True(t, ok)
 	require.Equal(t, lnwire.ErrChanTypeRequired.Error(), string(err.Data))
+	assertNumPendingReservations(t, bob, alicePubKey, 0)
+}
+
+// TestFundingManagerRejectLegacyChanType verifies that the fundee rejects an
+// OpenChannel message carrying an empty ChannelType, which asks for the legacy
+// commitment type.
+//
+// This branch used to perform no feature check whatsoever, since the legacy
+// type predates feature bits entirely, so any peer could obtain a legacy
+// channel from us no matter what either side signalled.
+func TestFundingManagerRejectLegacyChanType(t *testing.T) {
+	t.Parallel()
+
+	alice, bob := setupFundingManagers(t)
+	t.Cleanup(func() {
+		tearDownFundingManagers(t, alice, bob)
+	})
+
+	// Both peers support better than the legacy type, which is exactly the
+	// case that used to slip through.
+	featureBits := []lnwire.FeatureBit{
+		lnwire.StaticRemoteKeyOptional,
+		lnwire.AnchorsZeroFeeHtlcTxOptional,
+	}
+	alice.localFeatures = featureBits
+	alice.remoteFeatures = featureBits
+	bob.localFeatures = featureBits
+	bob.remoteFeatures = featureBits
+
+	emptyChanType := (*lnwire.ChannelType)(lnwire.NewRawFeatureVector())
+
+	openChannelReq := &lnwire.OpenChannel{
+		ChainHash:            *fundingNetParams.GenesisHash,
+		PendingChannelID:     [32]byte{0x01},
+		FundingAmount:        btcutil.Amount(10000000),
+		PushAmount:           0,
+		DustLimit:            btcutil.Amount(546),
+		MaxValueInFlight:     lnwire.MilliSatoshi(100000000),
+		ChannelReserve:       btcutil.Amount(10000),
+		HtlcMinimum:          lnwire.MilliSatoshi(1000),
+		FeePerKiloWeight:     15000,
+		CsvDelay:             144,
+		MaxAcceptedHTLCs:     483,
+		FundingKey:           alice.privKey.PubKey(),
+		RevocationPoint:      alice.privKey.PubKey(),
+		PaymentPoint:         alice.privKey.PubKey(),
+		DelayedPaymentPoint:  alice.privKey.PubKey(),
+		HtlcPoint:            alice.privKey.PubKey(),
+		FirstCommitmentPoint: alice.privKey.PubKey(),
+		ChannelType:          emptyChanType,
+	}
+	bob.fundingMgr.ProcessFundingMsg(openChannelReq, alice)
+
+	// Bob should reject the OpenChannel message instead of echoing the
+	// empty channel type back in an AcceptChannel.
+	errMsg := assertFundingMsgSent(t, bob.msgChan, "Error")
+	err, ok := errMsg.(*lnwire.Error)
+	require.True(t, ok)
+	require.Equal(t, lnwire.ErrChanTypeDeprecated.Error(), string(err.Data))
 	assertNumPendingReservations(t, bob, alicePubKey, 0)
 }
 

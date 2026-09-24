@@ -80,9 +80,36 @@
 
 ## Breaking Changes
 
+* lnd [no longer opens or
+  accepts](https://github.com/lightningnetwork/lnd/pull/11212) new channels
+  using the legacy commitment type, which was
+  [removed](https://github.com/lightning/bolts/commit/91f4bd2383cc2fc7a0a43b697e209f9eb9f5183c)
+  from the spec in 2024. Its tweaked `to_remote` output is why funds in such a
+  channel cannot be recovered unilaterally after data loss: recovery needs the
+  peer to supply the relevant commitment point.
+
+  Note that an empty `channel_type` in `open_channel` asks for exactly this
+  type, and used to be accepted without any feature check at all, so a peer
+  could obtain a legacy channel from us no matter what either side signalled.
+  New channels now fall back to the static remote key commitment type instead.
+
+  Channels that already use the legacy type are **not** affected. They keep
+  working and can be operated, force closed and cooperatively closed as before.
+  Only opening new ones is refused.
+
+  `OpenChannel` now rejects `commitment_type` `LEGACY`. The enum value itself
+  remains, since it is also how existing channels are reported by
+  `ListChannels`, `ClosedChannels`, `PendingChannels` and the channel acceptor.
+
 ## Performance Improvements
 
 ## Deprecations
+
+* The dev build only `protocol.legacy.committweak` option is
+  [deprecated](https://github.com/lightningnetwork/lnd/pull/11212) and no longer
+  has any effect. It stopped the node from signalling
+  `option_static_remotekey`, which now leaves no commitment type left to
+  negotiate at all.
 
 # Technical and Architectural Updates
 

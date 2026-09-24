@@ -35,6 +35,23 @@ func newAggregatedWindowAverage(window time.Duration, windowCount uint8,
 	}
 }
 
+// restoreAggregatedWindowAverage rebuilds an aggregated average from persisted
+// state. The start time is restored too, so the warm-up factor keeps advancing
+// from where it was rather than restarting from zero periods.
+func restoreAggregatedWindowAverage(window time.Duration, windowCount uint8,
+	start time.Time, value int64,
+	lastUpdated time.Time) *aggregatedWindowAverage {
+
+	return &aggregatedWindowAverage{
+		start:          start,
+		windowCount:    windowCount,
+		windowDuration: window,
+		inner: restoreDecayingAverage(
+			value, lastUpdated, window*time.Duration(windowCount),
+		),
+	}
+}
+
 // add records a value at the given time.
 func (a *aggregatedWindowAverage) add(value int64, ts time.Time) int64 {
 	return a.inner.add(value, ts)

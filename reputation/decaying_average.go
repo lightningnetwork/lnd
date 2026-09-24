@@ -30,6 +30,21 @@ func newDecayingAverage(start time.Time,
 	}
 }
 
+// restoreDecayingAverage rebuilds a decaying average from persisted state. The
+// value and its timestamp are taken verbatim: decay is applied lazily on read,
+// so the first read decays the value over the whole time the state was not
+// live, including any downtime. Re-stamping the timestamp to the load time
+// would silently skip that decay.
+func restoreDecayingAverage(value int64, lastUpdated time.Time,
+	window time.Duration) *decayingAverage {
+
+	return &decayingAverage{
+		value:       satFromInt(value),
+		lastUpdated: lastUpdated,
+		decayRate:   decayRateForWindow(window),
+	}
+}
+
 // decayRateForWindow computes the per-second decay rate for the given window.
 // BOLT #1280 defines decay_rate = (1/2)^(1/(ln2 * window)); raised to elapsed
 // seconds this is e^(-elapsed/window), so the value decays to 1/e of itself

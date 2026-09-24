@@ -896,6 +896,7 @@ func newServer(ctx context.Context, cfg *Config, listenAddrs []net.Addr,
 	if !cfg.Routing.NoReputation {
 		s.reputationMgr, err = reputation.NewManager(
 			reputation.DefaultConfig(), clock.NewDefaultClock(),
+			nil,
 		)
 		if err != nil {
 			return nil, err

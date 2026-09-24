@@ -38,6 +38,41 @@ func newChannelReputation(cfg Config,
 	}
 }
 
+// restoreChannelReputation rebuilds channel state from its persisted form, with
+// no pending HTLCs: those are replayed separately from the switch's in-flight
+// circuits.
+func restoreChannelReputation(cfg Config,
+	state ChannelState) *channelReputation {
+
+	return &channelReputation{
+		outgoingReputation: restoreDecayingAverage(
+			state.OutgoingReputation,
+			state.OutgoingReputationUpdatedAt,
+			cfg.reputationWindow(),
+		),
+		incomingRevenue: restoreAggregatedWindowAverage(
+			cfg.RevenueWindow, cfg.RevenueWindowCount,
+			state.IncomingRevenueStartedAt, state.IncomingRevenue,
+			state.IncomingRevenueUpdatedAt,
+		),
+		pendingHTLCs: make(map[htlcRef]*pendingHTLC),
+	}
+}
+
+// state returns the persistable form of this channel's averages.
+func (c *channelReputation) state(scid uint64) ChannelState {
+	rep, rev := c.outgoingReputation, c.incomingRevenue
+
+	return ChannelState{
+		SCID:                        scid,
+		OutgoingReputation:          rep.value.Int64(),
+		OutgoingReputationUpdatedAt: rep.lastUpdated,
+		IncomingRevenue:             rev.inner.value.Int64(),
+		IncomingRevenueUpdatedAt:    rev.inner.lastUpdated,
+		IncomingRevenueStartedAt:    rev.start,
+	}
+}
+
 // inFlightRisk returns the total worst-case opportunity cost of the HTLCs
 // already in flight on this channel as an outgoing link. Per BOLT #1280 only
 // accountable HTLCs contribute: an unaccountable HTLC was never told it would

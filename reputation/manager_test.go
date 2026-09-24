@@ -20,7 +20,7 @@ func buildManager(t *testing.T, start int64) (*Manager, *clock.TestClock) {
 
 	clk := clock.NewTestClock(time.Unix(start, 0))
 
-	m, err := NewManager(DefaultConfig(), clk)
+	m, err := NewManager(DefaultConfig(), clk, nil)
 	require.NoError(t, err, "NewManager")
 	require.NoError(t, m.Start(), "Start")
 	t.Cleanup(func() { _ = m.Stop() })
@@ -33,7 +33,7 @@ func TestManagerStartStop(t *testing.T) {
 	t.Parallel()
 
 	m, err := NewManager(
-		DefaultConfig(), clock.NewTestClock(time.Unix(1000, 0)),
+		DefaultConfig(), clock.NewTestClock(time.Unix(1000, 0)), nil,
 	)
 	require.NoError(t, err)
 	require.NoError(t, m.Start())
@@ -51,7 +51,7 @@ func TestManagerStartStop(t *testing.T) {
 func TestManagerRequiresClock(t *testing.T) {
 	t.Parallel()
 
-	_, err := NewManager(DefaultConfig(), nil)
+	_, err := NewManager(DefaultConfig(), nil, nil)
 	require.Error(t, err)
 }
 

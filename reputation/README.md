@@ -14,7 +14,7 @@ peers that are likely being used to jam its channels from those that are not.
 
 The package is **observational only**: it watches the HTLCs the node forwards,
 maintains a per-channel reputation score, and logs the decision it would make
-for each HTLC. It never affects forwarding, alters the wire, or writes to disk.
+for each HTLC. It never affects forwarding or alters the wire.
 
 ## Reputation scoring
 
@@ -67,11 +67,33 @@ the worst case time it could be held for means a resolution was never reported
 to us. Such entries are logged as a warning and deliberately left in place
 rather than swept away, so the underlying bug stays visible.
 
+## Persistence
+
+Channel state is persisted through the `Store` interface so that peers keep
+the reputation they built when the node restarts. The SQL implementation is
+used when the node runs with `db.use-native-sql`; otherwise a no-op store is
+used, reputation lives in memory only and re-accrues from live traffic after
+a restart.
+
+Only the two averages are stored, each as its running value and the time it
+was last updated, plus the revenue start time for the warm-up factor. Decay is
+applied lazily on read, so restoring those verbatim is all that is needed for
+the downtime to be accounted for: the first read after a restart decays the
+value over the whole gap. Timestamps that lie in the future on load (the clock
+went backwards) are clamped to the load time, and channels whose averages
+have both decayed to zero are dropped rather than restored.
+
+Channels whose state changed are written every minute and on shutdown, so an
+unclean shutdown loses at most the last minute of changes. When a channel
+closes its state is removed from memory and from the store.
+
+Pending HTLCs are not persisted. On startup they are rebuilt from the switch's
+in-flight circuits, so in-flight risk survives a restart too.
+
 ## Operational notes
 
 The subsystem is enabled by default and can be disabled with the
-`routing.no-reputation` configuration flag. It holds no persisted state, so
-reputation resets on restart and re-accrues from live forwarding traffic.
+`routing.no-reputation` configuration flag.
 
 ## Installation and Updating
 

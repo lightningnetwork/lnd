@@ -16,6 +16,7 @@ import (
 func BenchmarkForwardResolve(b *testing.B) {
 	m, err := NewManager(
 		DefaultConfig(), clock.NewTestClock(time.Unix(1_000_000, 0)),
+		nil,
 	)
 	if err != nil {
 		b.Fatalf("NewManager: %v", err)
@@ -39,6 +40,7 @@ func BenchmarkForwardResolve(b *testing.B) {
 func BenchmarkOnForward(b *testing.B) {
 	m, err := NewManager(
 		DefaultConfig(), clock.NewTestClock(time.Unix(1_000_000, 0)),
+		nil,
 	)
 	if err != nil {
 		b.Fatalf("NewManager: %v", err)

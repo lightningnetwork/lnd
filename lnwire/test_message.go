@@ -239,8 +239,10 @@ func (c *ChannelAnnouncement2) RandTestMessage(t *rapid.T) Message {
 	copy(chainHashObj[:], chainHash[:])
 
 	msg := &ChannelAnnouncement2{
-		ChainHash: tlv.NewPrimitiveRecord[tlv.TlvType0, chainhash.Hash](
-			chainHashObj,
+		ChainHash: tlv.SomeRecordT(
+			tlv.NewPrimitiveRecord[tlv.TlvType0, chainhash.Hash](
+				chainHashObj,
+			),
 		),
 		ShortChannelID: tlv.NewRecordT[tlv.TlvType4, ShortChannelID](
 			shortChanID,
@@ -587,32 +589,45 @@ func (c *ChannelUpdate2) RandTestMessage(t *rapid.T) Message {
 	scidRecord := tlv.ZeroRecordT[tlv.TlvType2, SciddirIntro]()
 	scidRecord.Val = sciddir
 
-	//nolint:ll
 	msg := &ChannelUpdate2{
-		ChainHash: tlv.NewPrimitiveRecord[tlv.TlvType0, chainhash.Hash](
-			chainHashObj,
+		ChainHash: tlv.SomeRecordT(
+			tlv.NewPrimitiveRecord[tlv.TlvType0, chainhash.Hash](
+				chainHashObj,
+			),
 		),
 		ShortChannelID: scidRecord,
 		BlockHeight: tlv.NewPrimitiveRecord[tlv.TlvType4, uint32](
 			blockHeight,
 		),
-		DisabledFlags: tlv.NewPrimitiveRecord[tlv.TlvType6, ChanUpdateDisableFlags]( //nolint:ll
-			disabledFlags,
+		DisabledFlags: tlv.SomeRecordT(
+			tlv.NewPrimitiveRecord[tlv.TlvType6, ChanUpdateDisableFlags]( //nolint:ll
+				disabledFlags,
+			),
 		),
-		CLTVExpiryDelta: tlv.NewPrimitiveRecord[tlv.TlvType10, uint16](
-			cltvExpiryDelta,
+		CLTVExpiryDelta: tlv.SomeRecordT(
+			tlv.NewPrimitiveRecord[tlv.TlvType10, uint16](
+				cltvExpiryDelta,
+			),
 		),
-		HTLCMinimumMsat: tlv.NewPrimitiveRecord[tlv.TlvType12, MilliSatoshi](
-			htlcMinMsat,
+		HTLCMinimumMsat: tlv.SomeRecordT(
+			tlv.NewPrimitiveRecord[tlv.TlvType12, MilliSatoshi](
+				htlcMinMsat,
+			),
 		),
-		HTLCMaximumMsat: tlv.NewPrimitiveRecord[tlv.TlvType14, MilliSatoshi](
-			htlcMaxMsat,
+		HTLCMaximumMsat: tlv.SomeRecordT(
+			tlv.NewPrimitiveRecord[tlv.TlvType14, MilliSatoshi](
+				htlcMaxMsat,
+			),
 		),
-		FeeBaseMsat: tlv.NewPrimitiveRecord[tlv.TlvType16, uint32](
-			feeBaseMsat,
+		FeeBaseMsat: tlv.SomeRecordT(
+			tlv.NewPrimitiveRecord[tlv.TlvType16, uint32](
+				feeBaseMsat,
+			),
 		),
-		FeeProportionalMillionths: tlv.NewPrimitiveRecord[tlv.TlvType18, uint32](
-			feeProportionalMillionths,
+		FeeProportionalMillionths: tlv.SomeRecordT(
+			tlv.NewPrimitiveRecord[tlv.TlvType18, uint32](
+				feeProportionalMillionths,
+			),
 		),
 		ExtraSignedFields: make(map[uint64][]byte),
 	}
@@ -624,10 +639,12 @@ func (c *ChannelUpdate2) RandTestMessage(t *rapid.T) Message {
 		rate := uint32(
 			rapid.IntRange(1, 0x7FFFFFFF).Draw(t, "inFeeProp"),
 		)
-		msg.InboundFeeBaseMsat =
-			tlv.NewPrimitiveRecord[tlv.TlvType20](base)
-		msg.InboundFeeProportionalMillionths =
-			tlv.NewPrimitiveRecord[tlv.TlvType22](rate)
+		msg.InboundFeeBaseMsat = tlv.SomeRecordT(
+			tlv.NewPrimitiveRecord[tlv.TlvType20](base),
+		)
+		msg.InboundFeeProportionalMillionths = tlv.SomeRecordT(
+			tlv.NewPrimitiveRecord[tlv.TlvType22](rate),
+		)
 	}
 
 	msg.Signature.Val = RandSignature(t)

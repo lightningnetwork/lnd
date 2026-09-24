@@ -305,8 +305,9 @@ func validateChannelUpdate1Fields(capacity btcutil.Amount,
 func validateChannelUpdate2Fields(capacity btcutil.Amount,
 	c *lnwire.ChannelUpdate2) error {
 
-	maxHtlc := c.HTLCMaximumMsat.Val
-	if maxHtlc == 0 || maxHtlc < c.HTLCMinimumMsat.Val {
+	policy := c.ForwardingPolicy()
+	maxHtlc := policy.MaxHTLC
+	if maxHtlc == 0 || maxHtlc < policy.MinHTLC {
 		return fmt.Errorf("invalid max htlc for channel update %v",
 			lnutils.SpewLogClosure(c))
 	}

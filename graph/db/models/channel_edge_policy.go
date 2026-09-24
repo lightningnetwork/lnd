@@ -131,8 +131,7 @@ func ChanEdgePolicyFromWire(scid uint64,
 		// as "no inbound fee" so the downstream Option semantics
 		// still hold.
 		var inboundFee fn.Option[lnwire.Fee]
-		baseFee := upd.InboundFeeBaseMsat.Val
-		propFee := upd.InboundFeeProportionalMillionths.Val
+		baseFee, propFee := upd.InboundFee()
 
 		// The graph's fee model uses signed values to support v1
 		// discounts. Reject v2 surcharges that would wrap into
@@ -150,24 +149,23 @@ func ChanEdgePolicyFromWire(scid uint64,
 			})
 		}
 
+		policy := upd.ForwardingPolicy()
+		sigBytes := upd.Signature.Val.ToSignatureBytes()
+
 		return &ChannelEdgePolicy{
-			Version:         lnwire.GossipVersion2,
-			SigBytes:        upd.Signature.Val.ToSignatureBytes(),
-			ChannelID:       scid,
-			LastBlockHeight: upd.BlockHeight.Val,
-			SecondPeer:      !upd.IsNode1(),
-			DisableFlags:    upd.DisabledFlags.Val,
-			TimeLockDelta:   upd.CLTVExpiryDelta.Val,
-			MinHTLC:         upd.HTLCMinimumMsat.Val,
-			MaxHTLC:         upd.HTLCMaximumMsat.Val,
-			FeeBaseMSat: lnwire.MilliSatoshi(
-				upd.FeeBaseMsat.Val,
-			),
-			FeeProportionalMillionths: lnwire.MilliSatoshi(
-				upd.FeeProportionalMillionths.Val,
-			),
-			InboundFee:        inboundFee,
-			ExtraSignedFields: upd.ExtraSignedFields,
+			Version:                   lnwire.GossipVersion2,
+			SigBytes:                  sigBytes,
+			ChannelID:                 scid,
+			LastBlockHeight:           upd.BlockHeight.Val,
+			SecondPeer:                !upd.IsNode1(),
+			DisableFlags:              upd.DisableFlags(),
+			TimeLockDelta:             policy.TimeLockDelta,
+			MinHTLC:                   policy.MinHTLC,
+			MaxHTLC:                   policy.MaxHTLC,
+			FeeBaseMSat:               policy.BaseFee,
+			FeeProportionalMillionths: policy.FeeRate,
+			InboundFee:                inboundFee,
+			ExtraSignedFields:         upd.ExtraSignedFields,
 		}, nil
 	}
 

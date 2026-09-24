@@ -275,6 +275,34 @@ func AddOpt[T tlv.TlvType, V any](producers *[]tlv.RecordProducer,
 	)
 }
 
+// addOptTU32 appends a tu32 record producer for the given optional record to
+// producers when the optional is set, leaving producers unchanged otherwise.
+func addOptTU32[T tlv.TlvType](producers *[]tlv.RecordProducer,
+	opt tlv.OptionalRecordT[T, uint32]) {
+
+	opt.WhenSome(
+		func(r tlv.RecordT[T, uint32]) {
+			*producers = append(
+				*producers, truncatedUint32Record(&r),
+			)
+		},
+	)
+}
+
+// addOptTU64 appends a tu64 record producer for the given optional record to
+// producers when the optional is set, leaving producers unchanged otherwise.
+func addOptTU64[T tlv.TlvType, V ~uint64](producers *[]tlv.RecordProducer,
+	opt tlv.OptionalRecordT[T, V]) {
+
+	opt.WhenSome(
+		func(r tlv.RecordT[T, V]) {
+			*producers = append(
+				*producers, truncatedUint64Record(&r),
+			)
+		},
+	)
+}
+
 // SetOptFromMap marks target as Some(record) when record's TLV type appeared
 // on the wire (i.e., is a key in the decoded TypeMap).
 //

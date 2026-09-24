@@ -6,6 +6,7 @@ import (
 	"math"
 	"testing"
 
+	"github.com/btcsuite/btcd/chaincfg/v2"
 	"github.com/lightningnetwork/lnd/tlv"
 	"github.com/stretchr/testify/require"
 )
@@ -16,7 +17,7 @@ func TestChanUpdate2FeeEncoding(t *testing.T) {
 	t.Parallel()
 
 	// defaults holds the value each fee field takes when its TLV is
-	// absent. A fee equal to its default is not encoded.
+	// absent.
 	defaults := map[uint64]uint32{
 		16: defaultFeeBaseMsat,
 		18: defaultFeeProportionalMillionths,
@@ -73,12 +74,14 @@ func TestChanUpdate2FeeEncoding(t *testing.T) {
 				require.NoError(t, err)
 
 				// The TLV under test fills its own field. The
-				// other fee fields keep their defaults.
+				// other fee fields read as their defaults.
+				policy := msg.ForwardingPolicy()
+				inboundBase, inboundRate := msg.InboundFee()
 				fields := map[uint64]uint32{
-					16: msg.FeeBaseMsat.Val,
-					18: msg.FeeProportionalMillionths.Val,
-					20: msg.InboundFeeBaseMsat.Val,
-					22: msg.InboundFeeProportionalMillionths.Val, //nolint: ll
+					16: uint32(policy.BaseFee),
+					18: uint32(policy.FeeRate),
+					20: inboundBase,
+					22: inboundRate,
 				}
 				for fieldType, got := range fields {
 					want := defaults[fieldType]
@@ -107,11 +110,9 @@ func TestChanUpdate2FeeEncoding(t *testing.T) {
 					)
 				}
 
-				// The record is encoded only when the fee
-				// differs from its default.
-				require.Equal(
-					t, test.value != defaults[typ], found,
-				)
+				// The record is re-encoded because it was
+				// present, even when it holds the default.
+				require.True(t, found)
 			})
 		}
 	}
@@ -232,4 +233,94 @@ func TestChanUpdate2EncodeDecode(t *testing.T) {
 	// The re-encoded bytes should be exactly the same as the original raw
 	// bytes.
 	require.Equal(t, rawBytes, b.Bytes())
+}
+
+// TestGossipV2ExplicitDefaults tests that a gossip v2 message re-encodes to the
+// bytes that the sender signed, both when the sender omits a field that has a
+// default and when it encodes the default value explicitly.
+func TestGossipV2ExplicitDefaults(t *testing.T) {
+	t.Parallel()
+
+	mainnet := chaincfg.MainNetParams.GenesisHash[:]
+	newAnnouncement := func() Message { return &ChannelAnnouncement2{} }
+
+	// The compulsory records of each message, which every case includes.
+	update := map[uint64][]byte{
+		2:   make([]byte, sciddirLen),
+		4:   make([]byte, 4),
+		240: make([]byte, 64),
+	}
+	announcement := map[uint64][]byte{
+		4:   make([]byte, 8),
+		6:   {1},
+		8:   make([]byte, 33),
+		10:  make([]byte, 33),
+		18:  make([]byte, 34),
+		240: make([]byte, 64),
+	}
+
+	tests := []struct {
+		name    string
+		msg     func() Message
+		records map[uint64][]byte
+		typ     uint64
+		value   []byte
+	}{
+		{name: "update/all absent", typ: 1},
+		{name: "update/chain_hash", typ: 0, value: mainnet},
+		{name: "update/disable_flags", typ: 6, value: []byte{0}},
+		{
+			name:  "update/cltv_expiry_delta",
+			typ:   10,
+			value: []byte{0, 80},
+		},
+		{name: "update/htlc_minimum_msat", typ: 12, value: []byte{1}},
+		{name: "update/fee_base_msat", typ: 16, value: []byte{3, 0xe8}},
+		{name: "update/fee_proportional", typ: 18, value: []byte{1}},
+		{name: "update/inbound_fee_base", typ: 20, value: []byte{}},
+		{name: "update/inbound_fee_rate", typ: 22, value: []byte{}},
+		{
+			name:    "announcement/all absent",
+			msg:     newAnnouncement,
+			records: announcement,
+			typ:     1,
+		},
+		{
+			name:    "announcement/chain_hash",
+			msg:     newAnnouncement,
+			records: announcement,
+			typ:     0,
+			value:   mainnet,
+		},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			t.Parallel()
+
+			records := update
+			newMsg := func() Message { return &ChannelUpdate2{} }
+			if test.msg != nil {
+				records, newMsg = test.records, test.msg
+			}
+
+			fields := make(map[uint64][]byte, len(records)+1)
+			for typ, value := range records {
+				fields[typ] = value
+			}
+
+			// A nil value leaves every defaulted field absent.
+			if test.value != nil {
+				fields[test.typ] = test.value
+			}
+			raw, err := EncodeRecords(tlv.MapToRecords(fields))
+			require.NoError(t, err)
+
+			msg := newMsg()
+			require.NoError(t, msg.Decode(bytes.NewReader(raw), 0))
+
+			var b bytes.Buffer
+			require.NoError(t, msg.Encode(&b, 0))
+			require.Equal(t, raw, b.Bytes())
+		})
+	}
 }

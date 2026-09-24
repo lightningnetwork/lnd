@@ -909,13 +909,14 @@ func newServer(ctx context.Context, cfg *Config, listenAddrs []net.Addr,
 	// by default. It only observes HTLC forwarding to compute and log
 	// reputation; it never affects routing (log-only). When disabled via
 	// no-reputation, repMgrIface stays a nil interface so the switch skips
-	// the hooks entirely. Nothing is persisted, so reputation is re-accrued
-	// from live traffic on restart.
+	// the hooks entirely. Channel state is persisted through the
+	// reputation store when the native SQL store is in use; otherwise it
+	// is kept in memory only and re-accrued from live traffic on restart.
 	var repMgrIface htlcswitch.ReputationManager
 	if !cfg.Routing.NoReputation {
 		s.reputationMgr, err = reputation.NewManager(
 			reputation.DefaultConfig(), clock.NewDefaultClock(),
-			nil,
+			dbs.ReputationStore,
 		)
 		if err != nil {
 			return nil, err
@@ -2455,6 +2456,24 @@ func (s *server) Start(ctx context.Context) error {
 				startErr = err
 				return
 			}
+
+			// Rebuild the manager's view of the HTLCs that were in
+			// flight across the restart. This has to happen before
+			// the switch starts, since it re-forwards pending
+			// resolutions on start and those must find their HTLCs.
+			inFlight, err := reconstructInFlightHTLCs(
+				s.htlcSwitch, s.chanStateDB,
+			)
+			if err != nil {
+				startErr = err
+				return
+			}
+			s.reputationMgr.ReplayInFlight(
+				inFlight, s.htlcSwitch.BestHeight(),
+			)
+
+			s.wg.Add(1)
+			go s.forwardChannelClosesToReputation()
 		}
 
 		if s.towerClientMgr != nil {

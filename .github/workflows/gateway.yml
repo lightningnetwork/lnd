@@ -39,16 +39,19 @@ jobs:
           && contains(github.event.comment.body, '/gateway'))
       }}
     runs-on: ubuntu-latest
-    timeout-minutes: 15
+    # A GitHub timeout cancels the job before gateway can post an error,
+    # leaving a stale holding comment; real multi reviews have run past
+    # 15 minutes, so leave room.
+    timeout-minutes: 30
     env:
       GATEWAY_REVIEW_MODE: multi
     steps:
-      - uses: lightninglabs/gateway-action@334a8455ee316e40668ae3ac85249150c62704ec # v0.6.0
+      - uses: lightninglabs/gateway-action@8b259a8bb460b16e9fb796abfd3edfc95c2c40ba # v0.7.0
         with:
           # Pin the private runtime to an immutable commit (matches the action
           # SHA-pin above) so runtime upgrades go through an lnd PR, not a moved
-          # tag. Without this, runtime_ref defaults to the v0.6.0 tag.
-          runtime_ref: 75f6e67deac362bdcfc10d10629ddcf69c0e2615 # gateway v0.6.0
+          # tag. Without this, runtime_ref defaults to the v0.7.0 tag.
+          runtime_ref: e700d79aa9e25124497162f54c56e230e02fe0d1 # gateway v0.7.0
           event_name:      ${{ github.event_name }}
           event_action:    ${{ github.event.action }}
           repo:            ${{ github.repository }}

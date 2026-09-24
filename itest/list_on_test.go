@@ -15,6 +15,10 @@ var allTestCases = []*lntest.TestCase{
 		TestFunc: testLocalReputationLogOnly,
 	},
 	{
+		Name:     "local reputation persistence",
+		TestFunc: testLocalReputationPersistence,
+	},
+	{
 		Name:     "update channel status",
 		TestFunc: testUpdateChanStatus,
 	},

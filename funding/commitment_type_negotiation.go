@@ -8,71 +8,39 @@ import (
 )
 
 var (
-	// errUnsupportedCommitmentType is an error returned when a specific
+	// errUnsupportedChannelType is an error returned when a specific
 	// channel commitment type is being explicitly negotiated but either
 	// peer of the channel does not support it.
 	errUnsupportedChannelType = errors.New("requested channel type " +
 		"not supported")
 )
 
-// negotiateCommitmentType negotiates the commitment type of a newly opened
-// channel. If a desiredChanType is provided, explicit negotiation for said type
-// will be attempted if the set of both local and remote features support it.
-// Otherwise, implicit negotiation will be attempted.
+// negotiateCommitmentType determines the commitment type of a newly opened
+// channel. If desiredChanType is provided, it is validated against the
+// commitment features supported by both peers. Otherwise, a default type is
+// selected from those features.
 //
-// The returned ChannelType is nil when implicit negotiation is used. An error
-// is only returned if desiredChanType is not supported.
+// The returned ChannelType is always non-nil and is always signaled on the
+// wire. An error is only returned if desiredChanType is not supported.
 func negotiateCommitmentType(desiredChanType *lnwire.ChannelType, local,
 	remote *lnwire.FeatureVector) (*lnwire.ChannelType,
 	lnwallet.CommitmentType, error) {
 
-	// BOLT#2 specifies we MUST use explicit negotiation if both peers
-	// signal for it.
-	explicitNegotiation := hasFeatures(
-		local, remote, lnwire.ExplicitChannelTypeOptional,
-	)
-
-	chanTypeRequested := desiredChanType != nil
-
-	switch {
-	case explicitNegotiation && chanTypeRequested:
+	// If a specific channel type was provided, verify it's supported.
+	if desiredChanType != nil {
 		commitType, err := explicitNegotiateCommitmentType(
 			*desiredChanType, local, remote,
 		)
 
 		return desiredChanType, commitType, err
-
-	// We don't have a specific channel type requested, so we select a
-	// default type as if implicit negotiation were used, and then we
-	// explicitly signal that default type.
-	case explicitNegotiation && !chanTypeRequested:
-		defaultChanType, commitType := implicitNegotiateCommitmentType(
-			local, remote,
-		)
-
-		return defaultChanType, commitType, nil
-
-	// A specific channel type was requested, but we can't explicitly signal
-	// it. So if implicit negotiation wouldn't select the desired channel
-	// type, we must return an error.
-	case !explicitNegotiation && chanTypeRequested:
-		implicitChanType, commitType := implicitNegotiateCommitmentType(
-			local, remote,
-		)
-
-		expected := lnwire.RawFeatureVector(*desiredChanType)
-		actual := lnwire.RawFeatureVector(*implicitChanType)
-		if !expected.Equals(&actual) {
-			return nil, 0, errUnsupportedChannelType
-		}
-
-		return nil, commitType, nil
-
-	default: // !explicitNegotiation && !chanTypeRequested
-		_, commitType := implicitNegotiateCommitmentType(local, remote)
-
-		return nil, commitType, nil
 	}
+
+	// No specific channel type was requested. Select a default type based
+	// on locally-known feature compatibility. This default is then sent
+	// explicitly over the wire.
+	defaultChanType, commitType := selectDefaultChannelType(local, remote)
+
+	return defaultChanType, commitType, nil
 }
 
 // explicitNegotiateCommitmentType attempts to explicitly negotiate for a
@@ -454,15 +422,14 @@ func explicitNegotiateCommitmentType(channelType lnwire.ChannelType, local,
 	}
 }
 
-// implicitNegotiateCommitmentType negotiates the commitment type of a channel
-// implicitly by choosing the latest non-taproot type supported by the local and
-// remote features. Taproot channels must be requested explicitly, keeping
-// implicit opens on channel types that can be used for both public and private
-// channels.
+// selectDefaultChannelType selects a default channel type by choosing the most
+// preferred non-taproot type supported by the local and remote features.
+// Taproot channels must be requested explicitly, so that defaults stay on
+// channel types usable for both public and private channels.
 //
-// TODO(yy): Revisit implicit taproot negotiation once public taproot channel
+// TODO(yy): Revisit taproot channel selection once public taproot channel
 // announcements are supported.
-func implicitNegotiateCommitmentType(local,
+func selectDefaultChannelType(local,
 	remote *lnwire.FeatureVector) (*lnwire.ChannelType,
 	lnwallet.CommitmentType) {
 

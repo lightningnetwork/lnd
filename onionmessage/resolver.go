@@ -30,12 +30,20 @@ func (c *cachedPubKey) Size() (uint64, error) {
 	return 1, nil
 }
 
+// PrivateChannelLookup resolves the remote node of an unannounced channel.
+// The key is the confirmed SCID, the peer's SCID alias, or a local alias.
+type PrivateChannelLookup func(scid lnwire.ShortChannelID) (
+	*btcec.PublicKey, bool)
+
 // GraphNodeResolver resolves node public keys from short channel IDs using the
-// channel graph. It maintains an LRU cache to avoid repeated database lookups
-// for frequently used SCIDs.
+// channel graph, then local private channels. It maintains an LRU cache to
+// avoid repeated database lookups for frequently used SCIDs.
 type GraphNodeResolver struct {
 	graph  *graphdb.ChannelGraph
 	ourPub *btcec.PublicKey
+
+	// privateChannels resolves SCIDs that are not in the public graph.
+	privateChannels PrivateChannelLookup
 
 	// scidCache is an LRU cache mapping SCID (as uint64) to the remote
 	// node's compressed public key bytes.
@@ -46,11 +54,13 @@ type GraphNodeResolver struct {
 // graph and our node's public key. It initializes an LRU cache for SCID
 // lookups.
 func NewGraphNodeResolver(graph *graphdb.ChannelGraph,
-	ourPub *btcec.PublicKey) *GraphNodeResolver {
+	ourPub *btcec.PublicKey,
+	privateChannels PrivateChannelLookup) *GraphNodeResolver {
 
 	return &GraphNodeResolver{
-		graph:  graph,
-		ourPub: ourPub,
+		graph:           graph,
+		ourPub:          ourPub,
+		privateChannels: privateChannels,
 		scidCache: lru.NewCache[uint64, *cachedPubKey](
 			defaultSCIDCacheSize,
 		),
@@ -83,6 +93,22 @@ func (r *GraphNodeResolver) RemotePubFromSCID(ctx context.Context,
 
 	edge, _, _, err := r.graph.FetchChannelEdgesByID(ctx, scid.ToUint64())
 	if err != nil {
+		// A private channel is not announced, so the graph returns
+		// edge not found. Resolve it from the local channel set.
+		if r.privateChannels != nil {
+			if pubKey, ok := r.privateChannels(scid); ok &&
+				pubKey != nil {
+
+				var keyBytes [33]byte
+				copy(keyBytes[:], pubKey.SerializeCompressed())
+				_, _ = r.scidCache.Put(scidInt, &cachedPubKey{
+					pubKeyBytes: keyBytes,
+				})
+
+				return pubKey, nil
+			}
+		}
+
 		log.Debugf("Failed to fetch channel edges for SCID %v: %v",
 			scid, err)
 
@@ -110,9 +136,9 @@ func (r *GraphNodeResolver) RemotePubFromSCID(ctx context.Context,
 	// Cache the result for future lookups. We ignore the return values as
 	// caching is best-effort and a failure just means the next lookup will
 	// hit the database again.
-	_, _ = r.scidCache.Put(scidInt, &cachedPubKey{
-		pubKeyBytes: otherNodeKeyBytes,
-	})
+	var keyBytes [33]byte
+	copy(keyBytes[:], pubKey.SerializeCompressed())
+	_, _ = r.scidCache.Put(scidInt, &cachedPubKey{pubKeyBytes: keyBytes})
 
 	log.Tracef("Resolved SCID %v to node %s", scid,
 		hex.EncodeToString(pubKey.SerializeCompressed()))

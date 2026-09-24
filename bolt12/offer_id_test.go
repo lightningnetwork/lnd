@@ -17,7 +17,7 @@ func TestOfferIDMatchesOfferEncoding(t *testing.T) {
 	t.Parallel()
 
 	vec := findTestVector(t, "Minimal bolt12 offer")
-	_, tlvBytes, err := Decode(vec.Bolt12)
+	_, tlvBytes, err := decodeBech32(vec.Bolt12)
 	require.NoError(t, err)
 
 	offer, err := decodeOffer(tlvBytes)
@@ -76,7 +76,7 @@ func TestOfferIDSkipsFieldsOutsideTheOfferRange(t *testing.T) {
 	t.Parallel()
 
 	vec := findTestVector(t, "Minimal bolt12 offer")
-	_, tlvBytes, err := Decode(vec.Bolt12)
+	_, tlvBytes, err := decodeBech32(vec.Bolt12)
 	require.NoError(t, err)
 
 	offer, err := decodeOffer(tlvBytes)
@@ -119,7 +119,7 @@ func TestOfferIDMatchesCoreLightning(t *testing.T) {
 			"3f7e0f87e105aa88121"
 	)
 
-	_, tlvBytes, err := Decode(clnOffer)
+	_, tlvBytes, err := decodeBech32(clnOffer)
 	require.NoError(t, err)
 
 	offer, err := decodeOffer(tlvBytes)

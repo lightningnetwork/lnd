@@ -396,7 +396,7 @@ func DecodeInvoice(data []byte) (*Invoice, error) {
 // such as one read back from a database column. Every other caller wants
 // DecodeInvoiceString.
 func DecodeInvoiceStringUnvalidated(s string) (*Invoice, error) {
-	hrp, tlvBytes, err := Decode(s)
+	hrp, tlvBytes, err := decodeBech32(s)
 	if err != nil {
 		return nil, fmt.Errorf("bech32: %w", err)
 	}
@@ -459,7 +459,7 @@ func EncodeInvoiceString(inv *Invoice) (string, error) {
 		return "", err
 	}
 
-	return Encode(HRPInvoice, tlvBytes)
+	return encodeBech32(HRPInvoice, tlvBytes)
 }
 
 // NewInvoiceFromRequest constructs a new Invoice by copying (mirroring) all

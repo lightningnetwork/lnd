@@ -244,7 +244,7 @@ func DecodeInvoiceRequest(data []byte) (*InvoiceRequest, error) {
 func DecodeInvoiceRequestString(s string,
 	activeChain [32]byte) (*InvoiceRequest, error) {
 
-	hrp, tlvBytes, err := Decode(s)
+	hrp, tlvBytes, err := decodeBech32(s)
 	if err != nil {
 		return nil, fmt.Errorf("bech32: %w", err)
 	}
@@ -287,7 +287,7 @@ func EncodeInvoiceRequestString(ir *InvoiceRequest) (string, error) {
 		return "", err
 	}
 
-	return Encode(HRPInvoiceRequest, tlvBytes)
+	return encodeBech32(HRPInvoiceRequest, tlvBytes)
 }
 
 // NewInvoiceRequestFromOffer constructs a new InvoiceRequest by copying

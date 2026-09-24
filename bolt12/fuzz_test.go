@@ -50,7 +50,7 @@ func tlvStreams(t testing.TB, strings []string) [][]byte {
 
 	var seeds [][]byte
 	for _, s := range strings {
-		_, tlvBytes, err := Decode(s)
+		_, tlvBytes, err := decodeBech32(s)
 		if err != nil {
 			continue
 		}
@@ -233,12 +233,12 @@ func FuzzBech32RoundTrip(f *testing.F) {
 		}
 
 		hrp := hrps[int(hrpIdx)%len(hrps)]
-		encoded, err := Encode(hrp, data)
+		encoded, err := encodeBech32(hrp, data)
 		if err != nil {
 			return
 		}
 
-		gotHRP, gotData, err := Decode(encoded)
+		gotHRP, gotData, err := decodeBech32(encoded)
 		if err != nil {
 			t.Fatalf(
 				"decode after successful encode "+

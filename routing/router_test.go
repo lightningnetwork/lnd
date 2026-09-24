@@ -2998,7 +2998,7 @@ func (m *mockGraphBuilder) ApplyChannelUpdate(msg *lnwire.ChannelUpdate1) bool {
 	}
 
 	update, err := models.ChanEdgePolicyFromWire(
-		msg.ShortChannelID.ToUint64(), msg,
+		msg.ShortChannelID.ToUint64(), 0, msg,
 	)
 	if err != nil {
 		return false

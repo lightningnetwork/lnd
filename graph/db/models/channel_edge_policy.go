@@ -5,6 +5,7 @@ import (
 	"math"
 	"time"
 
+	"github.com/btcsuite/btcd/btcutil/v2"
 	"github.com/lightningnetwork/lnd/fn/v2"
 	"github.com/lightningnetwork/lnd/lnwire"
 )
@@ -102,7 +103,11 @@ type ChannelEdgePolicy struct {
 
 // ChanEdgePolicyFromWire constructs a ChannelEdgePolicy from a channel update
 // message.
-func ChanEdgePolicyFromWire(scid uint64,
+//
+// The capacity is only used by gossip v2, whose htlc_maximum_msat defaults to
+// half the channel capacity when the sender omits the TLV. Pass zero when the
+// capacity is unknown, which stores the policy without an HTLC limit.
+func ChanEdgePolicyFromWire(scid uint64, capacity btcutil.Amount,
 	update lnwire.ChannelUpdate) (*ChannelEdgePolicy, error) {
 
 	switch upd := update.(type) {
@@ -131,8 +136,7 @@ func ChanEdgePolicyFromWire(scid uint64,
 		// as "no inbound fee" so the downstream Option semantics
 		// still hold.
 		var inboundFee fn.Option[lnwire.Fee]
-		baseFee := upd.InboundFeeBaseMsat.Val
-		propFee := upd.InboundFeeProportionalMillionths.Val
+		baseFee, propFee := upd.InboundFee()
 
 		// The graph's fee model uses signed values to support v1
 		// discounts. Reject v2 surcharges that would wrap into
@@ -150,24 +154,27 @@ func ChanEdgePolicyFromWire(scid uint64,
 			})
 		}
 
+		policy := upd.ForwardingPolicy()
+		sigBytes := upd.Signature.Val.ToSignatureBytes()
+
+		maxHTLC := upd.MaxHTLC(
+			lnwire.NewMSatFromSatoshis(capacity),
+		).UnwrapOr(0)
+
 		return &ChannelEdgePolicy{
-			Version:         lnwire.GossipVersion2,
-			SigBytes:        upd.Signature.Val.ToSignatureBytes(),
-			ChannelID:       scid,
-			LastBlockHeight: upd.BlockHeight.Val,
-			SecondPeer:      !upd.IsNode1(),
-			DisableFlags:    upd.DisabledFlags.Val,
-			TimeLockDelta:   upd.CLTVExpiryDelta.Val,
-			MinHTLC:         upd.HTLCMinimumMsat.Val,
-			MaxHTLC:         upd.HTLCMaximumMsat.Val,
-			FeeBaseMSat: lnwire.MilliSatoshi(
-				upd.FeeBaseMsat.Val,
-			),
-			FeeProportionalMillionths: lnwire.MilliSatoshi(
-				upd.FeeProportionalMillionths.Val,
-			),
-			InboundFee:        inboundFee,
-			ExtraSignedFields: upd.ExtraSignedFields,
+			Version:                   lnwire.GossipVersion2,
+			SigBytes:                  sigBytes,
+			ChannelID:                 scid,
+			LastBlockHeight:           upd.BlockHeight.Val,
+			SecondPeer:                !upd.IsNode1(),
+			DisableFlags:              upd.DisableFlags(),
+			TimeLockDelta:             policy.TimeLockDelta,
+			MinHTLC:                   policy.MinHTLC,
+			MaxHTLC:                   maxHTLC,
+			FeeBaseMSat:               policy.BaseFee,
+			FeeProportionalMillionths: policy.FeeRate,
+			InboundFee:                inboundFee,
+			ExtraSignedFields:         upd.ExtraSignedFields,
 		}, nil
 	}
 

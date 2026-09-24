@@ -6,6 +6,8 @@ import (
 	"math"
 	"testing"
 
+	"github.com/btcsuite/btcd/chaincfg/v2"
+	"github.com/lightningnetwork/lnd/fn/v2"
 	"github.com/lightningnetwork/lnd/tlv"
 	"github.com/stretchr/testify/require"
 )
@@ -16,7 +18,7 @@ func TestChanUpdate2FeeEncoding(t *testing.T) {
 	t.Parallel()
 
 	// defaults holds the value each fee field takes when its TLV is
-	// absent. A fee equal to its default is not encoded.
+	// absent.
 	defaults := map[uint64]uint32{
 		16: defaultFeeBaseMsat,
 		18: defaultFeeProportionalMillionths,
@@ -95,12 +97,14 @@ func TestChanUpdate2FeeEncoding(t *testing.T) {
 				require.NoError(t, err)
 
 				// The TLV under test fills its own field. The
-				// other fee fields keep their defaults.
+				// other fee fields read as their defaults.
+				policy := msg.ForwardingPolicy()
+				inboundBase, inboundRate := msg.InboundFee()
 				fields := map[uint64]uint32{
-					16: msg.FeeBaseMsat.Val,
-					18: msg.FeeProportionalMillionths.Val,
-					20: msg.InboundFeeBaseMsat.Val,
-					22: msg.InboundFeeProportionalMillionths.Val, //nolint: ll
+					16: uint32(policy.BaseFee),
+					18: uint32(policy.FeeRate),
+					20: inboundBase,
+					22: inboundRate,
 				}
 				for fieldType, got := range fields {
 					want := defaults[fieldType]
@@ -129,11 +133,9 @@ func TestChanUpdate2FeeEncoding(t *testing.T) {
 					)
 				}
 
-				// The record is encoded only when the fee
-				// differs from its default.
-				require.Equal(
-					t, test.value != defaults[typ], found,
-				)
+				// The record is re-encoded because it was
+				// present, even when it holds the default.
+				require.True(t, found)
 			})
 		}
 	}
@@ -254,4 +256,154 @@ func TestChanUpdate2EncodeDecode(t *testing.T) {
 	// The re-encoded bytes should be exactly the same as the original raw
 	// bytes.
 	require.Equal(t, rawBytes, b.Bytes())
+}
+
+// TestGossipV2ExplicitDefaults tests that a gossip v2 message re-encodes to the
+// bytes that the sender signed, both when the sender omits a field that has a
+// default and when it encodes the default value explicitly.
+func TestGossipV2ExplicitDefaults(t *testing.T) {
+	t.Parallel()
+
+	mainnet := chaincfg.MainNetParams.GenesisHash[:]
+
+	// The compulsory records of each message, which every case includes.
+	compulsory := map[MessageType]map[uint64][]byte{
+		MsgChannelUpdate2: {
+			2:   make([]byte, sciddirLen),
+			4:   make([]byte, 4),
+			240: make([]byte, 64),
+		},
+		MsgChannelAnnouncement2: {
+			4:   make([]byte, 8),
+			6:   {1},
+			8:   make([]byte, 33),
+			10:  make([]byte, 33),
+			18:  make([]byte, 34),
+			240: make([]byte, 64),
+		},
+	}
+
+	tests := []struct {
+		name    string
+		msgType MessageType
+
+		// typ and value are the defaulted TLV that the sender encodes
+		// explicitly. A nil value leaves every defaulted TLV absent,
+		// and then typ is unused.
+		typ   uint64
+		value []byte
+	}{
+		{
+			name:    "update/all absent",
+			msgType: MsgChannelUpdate2,
+		},
+		{
+			name:    "update/chain_hash",
+			msgType: MsgChannelUpdate2,
+			typ:     0,
+			value:   mainnet,
+		},
+		{
+			name:    "update/disable_flags",
+			msgType: MsgChannelUpdate2,
+			typ:     6,
+			value:   []byte{0},
+		},
+		{
+			name:    "update/cltv_expiry_delta",
+			msgType: MsgChannelUpdate2,
+			typ:     10,
+			value:   []byte{0, 80},
+		},
+		{
+			name:    "update/htlc_minimum_msat",
+			msgType: MsgChannelUpdate2,
+			typ:     12,
+			value:   []byte{1},
+		},
+		{
+			name:    "update/fee_base_msat",
+			msgType: MsgChannelUpdate2,
+			typ:     16,
+			value:   []byte{3, 0xe8},
+		},
+		{
+			name:    "update/fee_proportional",
+			msgType: MsgChannelUpdate2,
+			typ:     18,
+			value:   []byte{1},
+		},
+		{
+			name:    "announcement/all absent",
+			msgType: MsgChannelAnnouncement2,
+		},
+		{
+			name:    "announcement/chain_hash",
+			msgType: MsgChannelAnnouncement2,
+			typ:     0,
+			value:   mainnet,
+		},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			t.Parallel()
+
+			var msg Message
+			switch test.msgType {
+			case MsgChannelUpdate2:
+				msg = &ChannelUpdate2{}
+
+			case MsgChannelAnnouncement2:
+				msg = &ChannelAnnouncement2{}
+
+			default:
+				t.Fatalf("unhandled message type %v",
+					test.msgType)
+			}
+
+			records := compulsory[test.msgType]
+			fields := make(map[uint64][]byte, len(records)+1)
+			for typ, value := range records {
+				fields[typ] = value
+			}
+
+			// A nil value leaves every defaulted field absent.
+			if test.value != nil {
+				fields[test.typ] = test.value
+			}
+			raw, err := EncodeRecords(tlv.MapToRecords(fields))
+			require.NoError(t, err)
+
+			require.NoError(t, msg.Decode(bytes.NewReader(raw), 0))
+
+			var b bytes.Buffer
+			require.NoError(t, msg.Encode(&b, 0))
+			require.Equal(t, raw, b.Bytes())
+		})
+	}
+}
+
+// TestChanUpdate2MaxHTLCLeavesRecordAbsent tests that deriving the spec
+// default for an absent htlc_maximum_msat does not add the record to the
+// message. The signature covers the records as the sender wrote them, so
+// materialising the default would invalidate it, and no round trip would
+// notice because the message is only re-encoded after a decode.
+//
+// The values MaxHTLC returns for each state are covered through
+// netann.TestValidateChannelUpdate2MaxHTLC.
+func TestChanUpdate2MaxHTLCLeavesRecordAbsent(t *testing.T) {
+	t.Parallel()
+
+	const capacityMsat = MilliSatoshi(1_000_000_000)
+
+	upd := &ChannelUpdate2{}
+	require.True(t, upd.HTLCMaximumMsat.IsNone())
+
+	// The limit is derived from the capacity the caller supplies, ...
+	require.Equal(
+		t, fn.Some(capacityMsat/2), upd.MaxHTLC(capacityMsat),
+	)
+
+	// ... but the record stays absent, so the signed bytes do not move.
+	require.True(t, upd.HTLCMaximumMsat.IsNone())
 }

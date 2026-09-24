@@ -14,7 +14,10 @@ import (
 type ChannelAnnouncement2 struct {
 	// ChainHash denotes the target chain that this channel was opened
 	// within. This value should be the genesis hash of the target chain.
-	ChainHash tlv.RecordT[tlv.TlvType0, chainhash.Hash]
+	// When absent, it is the bitcoin mainnet genesis block hash. It is
+	// present exactly when the sender included it, because the signature
+	// covers the records as sent.
+	ChainHash tlv.OptionalRecordT[tlv.TlvType0, chainhash.Hash]
 
 	// Features is the feature vector that encodes the features supported
 	// by the target node. This field can be used to signal the type of the
@@ -99,15 +102,15 @@ func (c *ChannelAnnouncement2) AllRecords() []tlv.Record {
 //
 //nolint:ll
 func (c *ChannelAnnouncement2) nonSignatureRecordProducers() []tlv.RecordProducer {
-	// The chain-hash record is only included if it is _not_ equal to the
-	// bitcoin mainnet genisis block hash.
 	var recordProducers []tlv.RecordProducer
-	if !c.ChainHash.Val.IsEqual(chaincfg.MainNetParams.GenesisHash) {
-		hash := tlv.ZeroRecordT[tlv.TlvType0, [32]byte]()
-		hash.Val = c.ChainHash.Val
-
-		recordProducers = append(recordProducers, &hash)
-	}
+	c.ChainHash.WhenSome(
+		func(r tlv.RecordT[tlv.TlvType0, chainhash.Hash]) {
+			hash := tlv.NewPrimitiveRecord[tlv.TlvType0, [32]byte](
+				r.Val,
+			)
+			recordProducers = append(recordProducers, &hash)
+		},
+	)
 
 	c.Features.WhenSome(
 		func(f tlv.RecordT[tlv.TlvType2, RawFeatureVector]) {
@@ -189,10 +192,10 @@ func (c *ChannelAnnouncement2) Decode(r io.Reader, _ uint32) error {
 		return err
 	}
 
-	// By default, the chain-hash is the bitcoin mainnet genesis block hash.
-	c.ChainHash.Val = *chaincfg.MainNetParams.GenesisHash
 	if _, ok := typeMap[c.ChainHash.TlvType()]; ok {
-		c.ChainHash.Val = chainHash.Val
+		hash := c.ChainHash.Zero()
+		hash.Val = chainHash.Val
+		c.ChainHash = tlv.SomeRecordT(hash)
 	}
 
 	if _, ok := typeMap[c.Features.TlvType()]; ok {
@@ -246,10 +249,10 @@ func (c *ChannelAnnouncement2) DecodeNonSigTLVRecords(r io.Reader) error {
 		return err
 	}
 
-	// By default, the chain-hash is the bitcoin mainnet genesis block hash.
-	c.ChainHash.Val = *chaincfg.MainNetParams.GenesisHash
 	if _, ok := typeMap[c.ChainHash.TlvType()]; ok {
-		c.ChainHash.Val = chainHash.Val
+		hash := c.ChainHash.Zero()
+		hash.Val = chainHash.Val
+		c.ChainHash = tlv.SomeRecordT(hash)
 	}
 
 	if _, ok := typeMap[c.Features.TlvType()]; ok {
@@ -329,7 +332,9 @@ func (c *ChannelAnnouncement2) Node2KeyBytes() [33]byte {
 //
 // NOTE: This is part of the ChannelAnnouncement interface.
 func (c *ChannelAnnouncement2) GetChainHash() chainhash.Hash {
-	return c.ChainHash.Val
+	return c.ChainHash.ValOpt().UnwrapOr(
+		*chaincfg.MainNetParams.GenesisHash,
+	)
 }
 
 // SCID returns the short channel ID of the channel.

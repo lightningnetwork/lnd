@@ -276,11 +276,9 @@ type chainWatcherConfig struct {
 	// auxCloser is used to finalize cooperative closes.
 	auxCloser fn.Option[AuxChanCloser]
 
-	// chanCloseConfs is an optional override for the number of
-	// confirmations required for channel closes. When set, this overrides
-	// the normal capacity-based scaling. This is only available in
-	// dev/integration builds for testing purposes.
-	chanCloseConfs fn.Option[uint32]
+	// spendConfDepth is the already-validated channel maturity policy used
+	// for every funding-spend lifecycle handled by this watcher.
+	spendConfDepth uint32
 
 	// notifyEarlyCoopClose, if set, is invoked with a synthesized
 	// ChannelCloseSummary the first time a cooperative close spend is
@@ -367,6 +365,15 @@ func (c *chainWatcher) EarlyCoopCloseDispatched() bool {
 // the chan point to watch, and also a notifier instance that will allow us to
 // detect on chain events.
 func newChainWatcher(cfg chainWatcherConfig) (*chainWatcher, error) {
+	// Guard direct test constructors as well as production call sites so a
+	// watcher can never launch with an unusable notifier depth.
+	if cfg.spendConfDepth == 0 ||
+		cfg.spendConfDepth > chainntnfs.MaxNumConfs {
+
+		return nil, fmt.Errorf("invalid spend confirmation depth %d",
+			cfg.spendConfDepth)
+	}
+
 	// In order to be able to detect the nature of a potential channel
 	// closure we'll need to reconstruct the state hint bytes used to
 	// obfuscate the commitment state number encoded in the lock time and
@@ -820,7 +827,7 @@ func (c *chainWatcher) processDetectedSpend(
 	// handled in chain_arbitrator.go via a CloseType check.
 	c.maybeDispatchEarlyCoopClose(spend)
 
-	numConfs := c.requiredConfsForSpend()
+	numConfs := c.cfg.spendConfDepth
 	txid := spend.SpenderTxHash
 
 	// Record the close confirmation height. This is the height at which
@@ -1403,18 +1410,6 @@ func (c *chainWatcher) finalizeCoopClose(aux AuxChanCloser,
 	return aux.FinalizeClose(desc, closeTx)
 }
 
-// requiredConfsForSpend determines the number of confirmations required before
-// processing a spend of the funding output. Uses config override if set
-// (typically for testing), otherwise scales with channel capacity to balance
-// security vs user experience for channels of different sizes.
-func (c *chainWatcher) requiredConfsForSpend() uint32 {
-	return c.cfg.chanCloseConfs.UnwrapOrFunc(func() uint32 {
-		return lnwallet.CloseConfsForCapacity(
-			c.cfg.chanState.Capacity,
-		)
-	})
-}
-
 // isCoopCloseSpend reports whether the supplied spending tx looks like a
 // cooperative close. A coop close has a finalized input sequence number
 // (either MaxTxInSequenceNum or MaxRBFSequence); regular commitment txns
@@ -1877,7 +1872,7 @@ func deriveFundingPkScript(chanState *chanstate.OpenChannel) ([]byte, error) {
 func (c *chainWatcher) handleSpendDispatch(spend *chainntnfs.SpendDetail,
 	source string) bool {
 
-	numConfs := c.requiredConfsForSpend()
+	numConfs := c.cfg.spendConfDepth
 	if numConfs == 1 {
 		log.Infof("ChannelPoint(%v): single confirmation mode, "+
 			"dispatching immediately from %s",

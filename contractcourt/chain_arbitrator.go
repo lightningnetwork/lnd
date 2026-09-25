@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"github.com/btcsuite/btcd/address/v2"
+	"github.com/btcsuite/btcd/btcutil/v2"
 	"github.com/btcsuite/btcd/chainhash/v2"
 	"github.com/btcsuite/btcd/wire/v2"
 	"github.com/btcsuite/btcwallet/walletdb"
@@ -451,10 +452,35 @@ func shouldSuppressClosedChannelNotify(closeType channeldb.ClosureType,
 	return closeType == channeldb.CooperativeClose && earlyDispatched
 }
 
+// resolveSpendConfDepth selects an explicit integration override or derives
+// the production policy from authoritative channel capacity, then validates
+// that every consumer can express the final value through ChainNotifier.
+func resolveSpendConfDepth(capacity btcutil.Amount,
+	override fn.Option[uint32]) (uint32, error) {
+
+	depth := override.UnwrapOrFunc(func() uint32 {
+		// Production uses the capacity-scaled close policy. The
+		// option keeps integration scenarios deterministic.
+		return lnwallet.CloseConfsForCapacity(capacity)
+	})
+
+	// Fail before constructing a watcher or resolver so no channel can
+	// start with a policy its notifier is unable to honor.
+	if depth == 0 || depth > chainntnfs.MaxNumConfs {
+		return 0, fmt.Errorf(
+			"invalid spend confirmation depth %d: %w", depth,
+			chainntnfs.ErrNumConfsOutOfRange,
+		)
+	}
+
+	return depth, nil
+}
+
 // newActiveChannelArbitrator creates a new instance of an active channel
 // arbitrator given the state of the target channel.
 func newActiveChannelArbitrator(channel *chanstate.OpenChannel,
-	c *ChainArbitrator, chanEvents *ChainEventSubscription) (*ChannelArbitrator, error) {
+	c *ChainArbitrator, chanEvents *ChainEventSubscription,
+	spendConfDepth uint32) (*ChannelArbitrator, error) {
 
 	// TODO(roasbeef): fetch best height (or pass in) so can ensure block
 	// epoch delivers all the notifications to
@@ -510,6 +536,7 @@ func newActiveChannelArbitrator(channel *chanstate.OpenChannel,
 			return nil
 		},
 		IsPendingClose:        false,
+		SpendConfDepth:        spendConfDepth,
 		ChainArbitratorConfig: c.cfg,
 		ChainEvents:           chanEvents,
 		PutResolverReport: func(tx kvdb.RwTx,
@@ -1187,6 +1214,15 @@ func (c *ChainArbitrator) WatchNewChannel(
 		return nil
 	}
 
+	// Resolve one channel-level policy before constructing either consumer
+	// so the watcher and every resolver cannot drift to different depths.
+	spendConfDepth, err := resolveSpendConfDepth(
+		newChan.Capacity, c.cfg.ChannelCloseConfs,
+	)
+	if err != nil {
+		return err
+	}
+
 	// First, also create an active chainWatcher for this channel to ensure
 	// that we detect any relevant on chain events.
 	chainWatcher, err := newChainWatcher(
@@ -1206,7 +1242,7 @@ func (c *ChainArbitrator) WatchNewChannel(
 			auxLeafStore:         c.cfg.AuxLeafStore,
 			auxResolver:          c.cfg.AuxResolver,
 			auxCloser:            c.cfg.AuxCloser,
-			chanCloseConfs:       c.cfg.ChannelCloseConfs,
+			spendConfDepth:       spendConfDepth,
 			notifyEarlyCoopClose: c.cfg.NotifyEarlyClosedChannel,
 		},
 	)
@@ -1220,6 +1256,7 @@ func (c *ChainArbitrator) WatchNewChannel(
 	// channel, and our internal state.
 	channelArb, err := newActiveChannelArbitrator(
 		newChan, c, chainWatcher.SubscribeChannelEvents(),
+		spendConfDepth,
 	)
 	if err != nil {
 		return err
@@ -1368,6 +1405,15 @@ func (c *ChainArbitrator) loadOpenChannels() error {
 	for _, channel := range openChannels {
 		chanPoint := channel.FundingOutpoint
 
+		// Derive from the persisted open channel so restart and the
+		// dynamic channel path share one capacity authority.
+		spendConfDepth, err := resolveSpendConfDepth(
+			channel.Capacity, c.cfg.ChannelCloseConfs,
+		)
+		if err != nil {
+			return err
+		}
+
 		// First, we'll create an active chainWatcher for this channel
 		// to ensure that we detect any relevant on chain events.
 		breachClosure := func(ret *lnwallet.BreachRetribution) error {
@@ -1386,7 +1432,7 @@ func (c *ChainArbitrator) loadOpenChannels() error {
 				auxLeafStore:         c.cfg.AuxLeafStore,
 				auxResolver:          c.cfg.AuxResolver,
 				auxCloser:            c.cfg.AuxCloser,
-				chanCloseConfs:       c.cfg.ChannelCloseConfs,
+				spendConfDepth:       spendConfDepth,
 				notifyEarlyCoopClose: notifyEarlyClose,
 			},
 		)
@@ -1397,6 +1443,7 @@ func (c *ChainArbitrator) loadOpenChannels() error {
 		c.activeWatchers[chanPoint] = chainWatcher
 		channelArb, err := newActiveChannelArbitrator(
 			channel, c, chainWatcher.SubscribeChannelEvents(),
+			spendConfDepth,
 		)
 		if err != nil {
 			return err
@@ -1442,6 +1489,15 @@ func (c *ChainArbitrator) loadPendingCloseChannels() error {
 		// We can leave off the CloseContract and ForceCloseChan
 		// methods as the channel is already closed at this point.
 		chanPoint := closeChanInfo.ChanPoint
+
+		// A pending-close restart has no live OpenChannel. Use the
+		// closed summary's capacity as the authoritative policy input.
+		spendConfDepth, err := resolveSpendConfDepth(
+			closeChanInfo.Capacity, c.cfg.ChannelCloseConfs,
+		)
+		if err != nil {
+			return err
+		}
 		arbCfg := ChannelArbitratorConfig{
 			ChanPoint:             chanPoint,
 			ShortChanID:           closeChanInfo.ShortChanID,
@@ -1450,6 +1506,7 @@ func (c *ChainArbitrator) loadPendingCloseChannels() error {
 			IsPendingClose:        true,
 			ClosingHeight:         closeChanInfo.CloseHeight,
 			CloseType:             closeChanInfo.CloseType,
+			SpendConfDepth:        spendConfDepth,
 			PutResolverReport: func(tx kvdb.RwTx,
 				report *channeldb.ResolverReport) error {
 

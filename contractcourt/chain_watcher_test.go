@@ -13,7 +13,6 @@ import (
 	"github.com/lightningnetwork/lnd/chainntnfs"
 	"github.com/lightningnetwork/lnd/channeldb"
 	"github.com/lightningnetwork/lnd/chanstate"
-	"github.com/lightningnetwork/lnd/fn/v2"
 	"github.com/lightningnetwork/lnd/input"
 	lnmock "github.com/lightningnetwork/lnd/lntest/mock"
 	"github.com/lightningnetwork/lnd/lnwallet"
@@ -48,7 +47,8 @@ func TestChainWatcherRemoteUnilateralClose(t *testing.T) {
 		notifier:            aliceNotifier,
 		signer:              aliceChannel.Signer,
 		extractStateNumHint: lnwallet.GetStateNumHint,
-		chanCloseConfs:      fn.Some(uint32(1)),
+		// This scenario deliberately exercises the immediate path.
+		spendConfDepth: 1,
 	})
 	require.NoError(t, err, "unable to create chain watcher")
 	err = aliceChainWatcher.Start()
@@ -95,7 +95,7 @@ func TestChainWatcherRemoteUnilateralClose(t *testing.T) {
 		t.Fatalf("unable to send blockbeat")
 	}
 
-	// With chanCloseConfs set to 1, the fast-path dispatches immediately
+	// With spendConfDepth set to 1, the fast path dispatches immediately
 	// without confirmation registration. The close event should arrive
 	// directly after processing the blockbeat.
 
@@ -165,7 +165,8 @@ func TestChainWatcherRemoteUnilateralClosePendingCommit(t *testing.T) {
 		notifier:            aliceNotifier,
 		signer:              aliceChannel.Signer,
 		extractStateNumHint: lnwallet.GetStateNumHint,
-		chanCloseConfs:      fn.Some(uint32(1)),
+		// This scenario deliberately exercises the immediate path.
+		spendConfDepth: 1,
 	})
 	require.NoError(t, err, "unable to create chain watcher")
 	if err := aliceChainWatcher.Start(); err != nil {
@@ -231,7 +232,7 @@ func TestChainWatcherRemoteUnilateralClosePendingCommit(t *testing.T) {
 		t.Fatalf("unable to send blockbeat")
 	}
 
-	// With chanCloseConfs set to 1, the fast-path dispatches immediately
+	// With spendConfDepth set to 1, the fast path dispatches immediately
 	// without confirmation registration. The close event should arrive
 	// directly after processing the blockbeat.
 
@@ -358,6 +359,11 @@ func TestChainWatcherDataLossProtect(t *testing.T) {
 			chanState: aliceChanState,
 			notifier:  aliceNotifier,
 			signer:    aliceChannel.Signer,
+			// Match production policy because this scenario
+			// does not override the close depth under test.
+			spendConfDepth: lnwallet.CloseConfsForCapacity(
+				aliceChanState.Capacity,
+			),
 			extractStateNumHint: func(*wire.MsgTx,
 				[lnwallet.StateHintSize]byte) uint64 {
 
@@ -563,6 +569,11 @@ func TestChainWatcherLocalForceCloseDetect(t *testing.T) {
 			notifier:            aliceNotifier,
 			signer:              aliceChannel.Signer,
 			extractStateNumHint: lnwallet.GetStateNumHint,
+			// Match production policy because this scenario
+			// does not override the close depth under test.
+			spendConfDepth: lnwallet.CloseConfsForCapacity(
+				aliceChanState.Capacity,
+			),
 		})
 		if err != nil {
 			t.Fatalf("unable to create chain watcher: %v", err)

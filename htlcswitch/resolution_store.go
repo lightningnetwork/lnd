@@ -16,10 +16,10 @@ var (
 	// CircuitKey -> ResolutionMsg mapping.
 	resBucketKey = []byte("resolution-store-bucket-key")
 
-	// errResMsgNotFound is used to let callers know that the resolution
-	// message was not found for the given CircuitKey. This is used in the
-	// checkResolutionMsg function.
-	errResMsgNotFound = errors.New("resolution message not found")
+	// ErrResMsgNotFound identifies a clean resolution store miss for the
+	// given CircuitKey. Callers must not treat other storage errors as
+	// proof that no resolution message exists.
+	ErrResMsgNotFound = errors.New("resolution message not found")
 )
 
 // resolutionStore contains ResolutionMsgs received from the contractcourt. The
@@ -75,14 +75,14 @@ func (r *resolutionStore) checkResolutionMsg(outKey *CircuitKey) error {
 		resBucket := tx.ReadBucket(resBucketKey)
 		if resBucket == nil {
 			// Return an error if the bucket doesn't exist.
-			return errResMsgNotFound
+			return ErrResMsgNotFound
 		}
 
 		msg := resBucket.Get(outKey.Bytes())
 		if msg == nil {
 			// Return the not found error since no message exists
 			// for this CircuitKey.
-			return errResMsgNotFound
+			return ErrResMsgNotFound
 		}
 
 		// Return nil to indicate that the message was found.

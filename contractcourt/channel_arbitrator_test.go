@@ -624,6 +624,97 @@ func TestChannelArbitratorRemoteForceClose(t *testing.T) {
 	}
 }
 
+// TestDanglingPreimageActions verifies that a known preimage settles a
+// dangling outgoing HTLC regardless of which valid commitment confirms.
+func TestDanglingPreimageActions(t *testing.T) {
+	t.Parallel()
+
+	preimage := lntypes.Preimage{4, 5, 6}
+	payHash := preimage.Hash()
+	danglingHTLC := channeldb.HTLC{
+		Incoming:    false,
+		HtlcIndex:   77,
+		RHash:       payHash,
+		OutputIndex: 0,
+	}
+	htlcSets := map[HtlcSetKey][]channeldb.HTLC{
+		LocalHtlcSet:         {},
+		RemoteHtlcSet:        {danglingHTLC},
+		RemotePendingHtlcSet: {},
+	}
+
+	tests := []struct {
+		name      string
+		trigger   transitionTrigger
+		confirmed HtlcSetKey
+	}{
+		{
+			name:      "local commitment",
+			trigger:   localCloseTrigger,
+			confirmed: LocalHtlcSet,
+		},
+		{
+			name:      "remote pending commitment",
+			trigger:   remoteCloseTrigger,
+			confirmed: RemotePendingHtlcSet,
+		},
+	}
+
+	log := &mockArbitratorLog{
+		state:     StateDefault,
+		newStates: make(chan ArbitratorState, 5),
+	}
+	ctx, err := createTestChannelArbitrator(t, log)
+	require.NoError(t, err)
+
+	preimageDB := newMockWitnessBeacon()
+	preimageDB.lookupPreimage[payHash] = preimage
+	ctx.chanArb.cfg.PreimageDB = preimageDB
+	shortChanID := lnwire.NewShortChanIDFromInt(44)
+	ctx.chanArb.cfg.ShortChanID = shortChanID
+
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			var response ResolutionMsg
+			ctx.chanArb.cfg.DeliverResolutionMsg = func(
+				msgs ...ResolutionMsg) error {
+
+				require.Len(t, msgs, 1)
+				response = msgs[0]
+
+				return nil
+			}
+
+			commitSet := CommitSet{
+				ConfCommitKey: fn.Some(test.confirmed),
+				HtlcSets:      htlcSets,
+			}
+			actions, err := ctx.chanArb.constructChainActions(
+				&commitSet, 0, test.trigger,
+			)
+			require.NoError(t, err)
+			require.Equal(
+				t, []channeldb.HTLC{danglingHTLC},
+				actions[HtlcSettleDanglingAction],
+			)
+			require.Empty(t, actions[HtlcFailDanglingAction])
+
+			err = ctx.chanArb.settleForwards(
+				actions[HtlcSettleDanglingAction],
+			)
+			require.NoError(t, err)
+			require.Equal(t, shortChanID, response.SourceChan)
+			require.Equal(
+				t, danglingHTLC.HtlcIndex, response.HtlcIndex,
+			)
+			require.Equal(
+				t, (*[32]byte)(&preimage), response.PreImage,
+			)
+			require.Nil(t, response.Failure)
+		})
+	}
+}
+
 // TestChannelArbitratorLocalForceClose tests that the ChannelArbitrator goes
 // through the expected states in case we request it to force close the channel,
 // and the local force close event is observed in chain.

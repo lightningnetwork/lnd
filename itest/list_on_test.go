@@ -51,6 +51,42 @@ var allTestCases = []*lntest.TestCase{
 		TestFunc: testReorgNotifications,
 	},
 	{
+		Name:     "pkScript notifier future registration rpc",
+		TestFunc: testPkScriptNotifierFutureRegistrationRPC,
+	},
+	{
+		Name:     "pkScript notifier future add rpc",
+		TestFunc: testPkScriptNotifierFutureAddRPC,
+	},
+	{
+		Name:     "pkScript notifier remove rpc",
+		TestFunc: testPkScriptNotifierRemoveRPC,
+	},
+	{
+		Name:     "pkScript notifier confirm only rpc",
+		TestFunc: testPkScriptNotifierConfirmOnlyRPC,
+	},
+	{
+		Name:     "pkScript notifier partial confirmation rpc",
+		TestFunc: testPkScriptNotifierPartialConfirmationRPC,
+	},
+	{
+		Name:     "pkScript notifier multi stream rpc",
+		TestFunc: testPkScriptNotifierMultiStreamRPC,
+	},
+	{
+		Name:     "pkScript notifier future only rpc",
+		TestFunc: testPkScriptNotifierFutureOnlyRPC,
+	},
+	{
+		Name:     "pkScript notifier validation rpc",
+		TestFunc: testPkScriptNotifierValidationRPC,
+	},
+	{
+		Name:     "pkScript notifier reorg rpc",
+		TestFunc: testPkScriptNotifierReorgRPC,
+	},
+	{
 		Name:     "disconnecting target peer",
 		TestFunc: testDisconnectingTargetPeer,
 	},

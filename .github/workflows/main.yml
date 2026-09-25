@@ -7,6 +7,11 @@ on:
   pull_request:
     branches:
       - "*"
+    # ready_for_review and converted_to_draft are added so that changing the
+    # draft state of a PR triggers a new run: draft PRs only run a fast
+    # subset of the jobs, so the run has to be replaced whenever the state
+    # changes. The concurrency group below cancels the previous one.
+    types: [opened, synchronize, reopened, ready_for_review, converted_to_draft]
   merge_group:
     branches:
       - "master"
@@ -16,6 +21,8 @@ permissions:
   actions: write
   # Default permission for checking out code.
   contents: read
+  # Required to read the current PR labels via the API in check-label.
+  pull-requests: read
 
 concurrency:
   # Cancel any previous workflows if they are from a PR or push.
@@ -44,8 +51,77 @@ env:
   GO_VERSION: 1.27.1
 
 jobs:
+  ########################
+  # CI gate: detect documentation-only changes
+  ########################
+  ci-gate:
+    name: CI gate
+    runs-on: ubuntu-latest
+    outputs:
+      # True when the PR only touches files under docs/ or markdown files.
+      # Push and merge_group runs never set this.
+      docs-only: ${{ steps.docs-only.outputs.docs-only }}
+    steps:
+      # Anything that isn't under docs/ or a markdown file counts as code and
+      # runs full CI. Renamed files are checked under both their old and new
+      # name so that moving a source file into docs/ doesn't count as a
+      # documentation change. An empty or failed file listing is treated as
+      # "not docs only".
+      #
+      # Jobs consuming this output either skip at the job level (non-matrix
+      # jobs) or keep the job instantiated and skip its steps (matrix jobs).
+      # The latter is needed because a job-level condition is evaluated
+      # before the matrix is expanded, so a skipped matrix job would never
+      # report the per-leg check names that branch protection requires.
+      - name: Detect documentation-only changes
+        id: docs-only
+        if: github.event_name == 'pull_request'
+        env:
+          GH_TOKEN: ${{ github.token }}
+          PR_NUMBER: ${{ github.event.pull_request.number }}
+        run: |
+          # One entry per changed file: new name, tab, old name (empty
+          # unless renamed). On any API failure the listing is empty.
+          entries=$(gh api --paginate \
+            "repos/${GITHUB_REPOSITORY}/pulls/${PR_NUMBER}/files?per_page=100" \
+            --jq '.[] | [.filename, (.previous_filename // "")] | @tsv' \
+            2>/dev/null) || entries=""
+
+          # The files endpoint returns at most 3000 entries. Cross-check the
+          # number of listed files against the PR's own count so that a
+          # truncated listing can never hide a code change.
+          expected=$(gh api "repos/${GITHUB_REPOSITORY}/pulls/${PR_NUMBER}" \
+            --jq '.changed_files' 2>/dev/null) || expected="unknown"
+          listed=$(grep -c . <<< "$entries" || true)
+
+          # Both names of a renamed file are checked.
+          files=$(tr '\t' '\n' <<< "$entries" | grep . || true)
+
+          docs_only=true
+          if [[ -z "$files" || "$listed" != "$expected" ]]; then
+            echo "Listed ${listed} files, PR reports ${expected}: not docs-only"
+            docs_only=false
+          fi
+          while IFS= read -r f; do
+            case "$f" in
+              docs/*|*.md) ;;
+              *) docs_only=false; break ;;
+            esac
+          done <<< "$files"
+
+          echo "Changed files (renames listed under both names):"
+          echo "$files"
+          if [[ "$docs_only" == "true" ]]; then
+            msg="CI checks auto-passed: documentation-only change"
+            echo "::notice::${msg}"
+            echo "${msg}" >> "$GITHUB_STEP_SUMMARY"
+          fi
+          echo "docs-only=${docs_only}" >> "$GITHUB_OUTPUT"
+
   static-checks:
     name: Static Checks
+    needs: ci-gate
+    if: ${{ !cancelled() && needs.ci-gate.outputs.docs-only != 'true' }}
     runs-on: ubuntu-latest
     steps:
       - name: Git checkout
@@ -141,6 +217,8 @@ jobs:
   ########################
   lint:
     name: Lint code
+    needs: ci-gate
+    if: ${{ !cancelled() && needs.ci-gate.outputs.docs-only != 'true' }}
     runs-on: ubuntu-latest
     steps:
       - name: git checkout
@@ -165,6 +243,14 @@ jobs:
   # cross compilation
   ########################
   cross-compile:
+    needs: ci-gate
+    # Run even if the gate job failed: without a status function a
+    # failed dependency skips this job, and a skipped required check
+    # counts as passed.
+    if: ${{ !cancelled() }}
+    env:
+      # Skipped for documentation-only changes and on draft PRs.
+      SKIP: ${{ needs.ci-gate.outputs.docs-only == 'true' || github.event.pull_request.draft == true }}
     name: Cross compilation
     runs-on: ubuntu-latest
     strategy:
@@ -179,13 +265,20 @@ jobs:
           - name: arm
             sys: darwin-arm64 freebsd-arm linux-armv6 linux-armv7 linux-arm64 windows-arm64
     steps:
+      - name: Skip notice
+        if: env.SKIP == 'true'
+        run: echo "::notice::Job auto-passed (documentation-only change or draft PR)"
+
       - name: Git checkout
+        if: env.SKIP != 'true'
         uses: actions/checkout@v5
 
       - name: Clean up runner space
+        if: env.SKIP != 'true'
         uses: ./.github/actions/cleanup-space
 
       - name: Setup go ${{ env.GO_VERSION }}
+        if: env.SKIP != 'true'
         uses: ./.github/actions/setup-go
         with:
           go-version: '${{ env.GO_VERSION }}'
@@ -193,12 +286,21 @@ jobs:
           use-build-cache: 'no'
 
       - name: Build release for all architectures
+        if: env.SKIP != 'true'
         run: make release sys="${{ matrix.sys }}"
 
   ########################
   # run unit tests
   ########################
   unit-test:
+    needs: ci-gate
+    # Run even if the gate job failed: without a status function a
+    # failed dependency skips this job, and a skipped required check
+    # counts as passed.
+    if: ${{ !cancelled() }}
+    env:
+      # Skipped for documentation-only changes; on draft PRs only the race legs are skipped.
+      SKIP: ${{ needs.ci-gate.outputs.docs-only == 'true' || (github.event.pull_request.draft == true && startsWith(matrix.unit_type, 'unit-race')) }}
     name: Run unit tests
     runs-on: ubuntu-latest
     strategy:
@@ -218,46 +320,57 @@ jobs:
           - unit-module
 
     steps:
+      - name: Skip notice
+        if: env.SKIP == 'true'
+        run: echo "::notice::Job auto-passed (documentation-only change or draft PR)"
+
       - name: Git checkout
+        if: env.SKIP != 'true'
         uses: actions/checkout@v5
         with:
           fetch-depth: 0
 
       - name: Clean up runner space
+        if: env.SKIP != 'true'
         uses: ./.github/actions/cleanup-space
 
       - name: Fetch and rebase on ${{ github.base_ref }}
-        if: github.event_name == 'pull_request'
+        if: env.SKIP != 'true' && github.event_name == 'pull_request'
         uses: ./.github/actions/rebase
 
       - name: Git checkout fuzzing seeds
+        if: env.SKIP != 'true'
         uses: actions/checkout@v5
         with:
           repository: lightninglabs/lnd-fuzz
           path: lnd-fuzz
 
       - name: Rsync fuzzing seeds
+        if: env.SKIP != 'true'
         run: rsync -a --ignore-existing lnd-fuzz/ ./
 
       - name: Setup go ${{ env.GO_VERSION }}
+        if: env.SKIP != 'true'
         uses: ./.github/actions/setup-go
         with:
           go-version: '${{ env.GO_VERSION }}'
           key-prefix: unit-test
 
       - name: Install bitcoind
+        if: env.SKIP != 'true'
         run: ./scripts/install_bitcoind.sh $BITCOIN_VERSION
 
       - name: Run ${{ matrix.unit_type }}
+        if: env.SKIP != 'true'
         run: make ${{ matrix.unit_type }}
 
       - name: Clean coverage
         run: grep -Ev '(\.pb\.go|\.pb\.json\.go|\.pb\.gw\.go)' coverage.txt > coverage-norpc.txt
-        if: matrix.unit_type == 'unit-cover'
+        if: env.SKIP != 'true' && matrix.unit_type == 'unit-cover'
 
       - name: Send coverage
         uses: coverallsapp/github-action@v2
-        if: matrix.unit_type == 'unit-cover'
+        if: env.SKIP != 'true' && matrix.unit_type == 'unit-cover'
         continue-on-error: true
         with:
           file: coverage-norpc.txt
@@ -270,6 +383,15 @@ jobs:
   # run integration tests with TRANCHES
   ########################
   basic-integration-test:
+    # Required check and part of the fast subset that runs on draft PRs. Kept
+    # instantiated for documentation-only changes so the per-leg checks are
+    # reported; the steps are skipped instead. Runs even if the gate job
+    # failed: without a status function a failed dependency skips this job,
+    # and a skipped required check counts as passed.
+    needs: ci-gate
+    if: ${{ !cancelled() }}
+    env:
+      SKIP: ${{ needs.ci-gate.outputs.docs-only == 'true' }}
     name: Run basic itests
     runs-on: ubuntu-latest
     strategy:
@@ -301,34 +423,34 @@ jobs:
           skip-message: "Tests auto-passed due to 'no-itest' label"
 
       - name: Clean up runner space
-        if: steps.check-label.outputs.skip != 'true'
+        if: steps.check-label.outputs.skip != 'true' && env.SKIP != 'true'
         uses: ./.github/actions/cleanup-space
 
       - name: Fetch and rebase on ${{ github.base_ref }}
-        if: github.event_name == 'pull_request' && steps.check-label.outputs.skip != 'true'
+        if: github.event_name == 'pull_request' && steps.check-label.outputs.skip != 'true' && env.SKIP != 'true'
         uses: ./.github/actions/rebase
 
       - name: Setup go ${{ env.GO_VERSION }}
-        if: steps.check-label.outputs.skip != 'true'
+        if: steps.check-label.outputs.skip != 'true' && env.SKIP != 'true'
         uses: ./.github/actions/setup-go
         with:
           go-version: '${{ env.GO_VERSION }}'
           key-prefix: integration-test
 
       - name: Install bitcoind
-        if: steps.check-label.outputs.skip != 'true'
+        if: steps.check-label.outputs.skip != 'true' && env.SKIP != 'true'
         run: ./scripts/install_bitcoind.sh $BITCOIN_VERSION
 
       - name: Run ${{ matrix.name }}
-        if: steps.check-label.outputs.skip != 'true'
+        if: steps.check-label.outputs.skip != 'true' && env.SKIP != 'true'
         run: make itest-parallel tranches=${{ env.TRANCHES }} ${{ matrix.args }} shuffleseed=${{ github.run_id }}${{ strategy.job-index }}
 
       - name: Clean coverage
         run: grep -Ev '(\.pb\.go|\.pb\.json\.go|\.pb\.gw\.go)' coverage.txt > coverage-norpc.txt
-        if: ${{ contains(matrix.args, 'cover=1') && steps.check-label.outputs.skip != 'true' }}
+        if: ${{ contains(matrix.args, 'cover=1') && steps.check-label.outputs.skip != 'true' && env.SKIP != 'true' }}
 
       - name: Send coverage
-        if: ${{ contains(matrix.args, 'cover=1') && steps.check-label.outputs.skip != 'true' }}
+        if: ${{ contains(matrix.args, 'cover=1') && steps.check-label.outputs.skip != 'true' && env.SKIP != 'true' }}
         continue-on-error: true
         uses: coverallsapp/github-action@v2
         with:
@@ -338,13 +460,13 @@ jobs:
           parallel: true
 
       - name: Zip log files on failure
-        if: ${{ failure() && steps.check-label.outputs.skip != 'true' }}
+        if: ${{ failure() && steps.check-label.outputs.skip != 'true' && env.SKIP != 'true' }}
         timeout-minutes: 5 # timeout after 5 minute
         run: 7z a logs-itest-${{ matrix.name }}.zip itest/**/*.log itest/postgres.log
 
       - name: Upload log files on failure
         uses: actions/upload-artifact@v4
-        if: ${{ failure() && steps.check-label.outputs.skip != 'true' }}
+        if: ${{ failure() && steps.check-label.outputs.skip != 'true' && env.SKIP != 'true' }}
         with:
           name: logs-itest-${{ matrix.name }}
           path: logs-itest-${{ matrix.name }}.zip
@@ -355,6 +477,10 @@ jobs:
   ########################
   integration-test:
     name: Run itests
+    # Not a required check, so it can be skipped at the job level. Draft PRs
+    # only run the fast subset (see the unit-test and basic itest jobs).
+    needs: ci-gate
+    if: ${{ !cancelled() && needs.ci-gate.outputs.docs-only != 'true' && github.event.pull_request.draft != true }}
     runs-on: ubuntu-latest
     strategy:
       # Allow other tests in the matrix to continue if one fails.
@@ -446,6 +572,10 @@ jobs:
   ########################
   windows-integration-test:
     name: Run windows itest
+    # Not a required check, so it can be skipped at the job level. Draft PRs
+    # only run the fast subset (see the unit-test and basic itest jobs).
+    needs: ci-gate
+    if: ${{ !cancelled() && needs.ci-gate.outputs.docs-only != 'true' && github.event.pull_request.draft != true }}
     runs-on: windows-latest
     steps:
       - name: Git checkout
@@ -498,6 +628,10 @@ jobs:
   ########################
   macos-integration-test:
     name: Run macOS itest
+    # Not a required check, so it can be skipped at the job level. Draft PRs
+    # only run the fast subset (see the unit-test and basic itest jobs).
+    needs: ci-gate
+    if: ${{ !cancelled() && needs.ci-gate.outputs.docs-only != 'true' && github.event.pull_request.draft != true }}
     runs-on: macos-14
     steps:
       - name: Git checkout
@@ -544,6 +678,14 @@ jobs:
   # check pinned dependencies
   ########################
   dep-pin:
+    needs: ci-gate
+    # Run even if the gate job failed: without a status function a
+    # failed dependency skips this job, and a skipped required check
+    # counts as passed.
+    if: ${{ !cancelled() }}
+    env:
+      # Skipped for documentation-only changes.
+      SKIP: ${{ needs.ci-gate.outputs.docs-only == 'true' }}
     name: Check pinned dependencies
     runs-on: ubuntu-latest
     strategy:
@@ -555,13 +697,20 @@ jobs:
           - github.com/golang/protobuf v1.5.4
 
     steps:
+      - name: Skip notice
+        if: env.SKIP == 'true'
+        run: echo "::notice::Job auto-passed (documentation-only change)"
+
       - name: Git checkout
+        if: env.SKIP != 'true'
         uses: actions/checkout@v5
 
       - name: Clean up runner space
+        if: env.SKIP != 'true'
         uses: ./.github/actions/cleanup-space
 
       - name: Ensure dependencies at correct version
+        if: env.SKIP != 'true'
         run: if ! grep -q "${{ matrix.pinned_dep }}" go.mod; then echo dependency ${{ matrix.pinned_dep }} should not be altered ; exit 1 ; fi
 
   ########################
@@ -594,6 +743,10 @@ jobs:
   ########################
   backwards-compatibility-test:
     name: Backwards compatibility test
+    # Not a required check, so it can be skipped at the job level. Draft PRs
+    # only run the fast subset (see the unit-test and basic itest jobs).
+    needs: ci-gate
+    if: ${{ !cancelled() && needs.ci-gate.outputs.docs-only != 'true' && github.event.pull_request.draft != true }}
     runs-on: ubuntu-latest
     steps:
       - name: Git checkout
@@ -656,8 +809,8 @@ jobs:
   # Notify about the completion of all coverage collecting jobs.
   finish:
     name: Send coverage report
-    if: ${{ !cancelled() }}
-    needs: [unit-test, basic-integration-test]
+    if: ${{ !cancelled() && needs.ci-gate.outputs.docs-only != 'true' }}
+    needs: [ci-gate, unit-test, basic-integration-test]
     runs-on: ubuntu-latest
     timeout-minutes: 5
     steps:

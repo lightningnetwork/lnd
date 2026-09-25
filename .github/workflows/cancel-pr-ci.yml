@@ -1,0 +1,77 @@
+name: Cancel PR CI
+
+on:
+  # pull_request_target runs in the context of the base repository, so the
+  # token has the permissions needed to cancel runs even for PRs opened from
+  # forks. No PR code is checked out or executed here.
+  pull_request_target:
+    types: [closed]
+
+permissions:
+  # Required to cancel workflow runs.
+  actions: write
+  # Required to re-read the PR state before cancelling.
+  pull-requests: read
+
+jobs:
+  cancel:
+    name: Cancel in-progress CI runs
+    runs-on: ubuntu-latest
+    steps:
+      # Once a PR is merged (or closed) its CI result no longer matters, but
+      # a run that is still in progress keeps occupying runners, often for
+      # the better part of an hour due to the itests. Cancel every run of the
+      # main CI workflow that was triggered by this PR's head commit and has
+      # not finished yet.
+      - name: Cancel CI runs of the closed PR
+        env:
+          GH_TOKEN: ${{ github.token }}
+          PR_NUMBER: ${{ github.event.pull_request.number }}
+          HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+          CLOSED_AT: ${{ github.event.pull_request.closed_at }}
+        run: |
+          echo "PR #${PR_NUMBER} closed at ${CLOSED_AT} (merged=${{ github.event.pull_request.merged }}), head ${HEAD_SHA}"
+
+          # A PR that is closed and quickly reopened gets a fresh run for the
+          # same head commit. Never cancel it: bail out if the PR is open
+          # again by now, and only ever consider runs created before the
+          # close event. Runs that the API associates only with a different
+          # PR (same head commit opened against another base) are left
+          # alone; runs of PRs from forks carry no association at all.
+          state=$(gh api "repos/${GITHUB_REPOSITORY}/pulls/${PR_NUMBER}" --jq .state)
+          if [[ "$state" != "closed" ]]; then
+            echo "PR #${PR_NUMBER} is ${state} again, nothing to cancel"
+            exit 0
+          fi
+
+          # Without a head SHA the query would match every PR run in the
+          # repository, so never proceed with an empty one.
+          if [[ -z "$HEAD_SHA" ]]; then
+            echo "No head SHA in the event payload, nothing to cancel"
+            exit 1
+          fi
+
+          run_ids=$(gh api --paginate \
+            "repos/${GITHUB_REPOSITORY}/actions/workflows/main.yml/runs?event=pull_request&head_sha=${HEAD_SHA}&per_page=100" \
+            --jq '.workflow_runs[]
+              | select(.created_at < env.CLOSED_AT)
+              | select((.pull_requests | length) == 0
+                or any(.pull_requests[]; .number == (env.PR_NUMBER | tonumber)))
+              | select(.status == "queued" or .status == "in_progress"
+                or .status == "waiting" or .status == "pending"
+                or .status == "requested")
+              | .id')
+
+          if [[ -z "$run_ids" ]]; then
+            echo "No unfinished CI runs found for PR #${PR_NUMBER}"
+            exit 0
+          fi
+
+          # A run that finished between the listing and the cancel request
+          # answers with 409, which must not abort the loop.
+          for id in $run_ids; do
+            echo "Cancelling run ${id}"
+            gh api --silent -X POST \
+              "repos/${GITHUB_REPOSITORY}/actions/runs/${id}/cancel" ||
+              echo "::warning::Failed to cancel run ${id}, it may have finished already"
+          done

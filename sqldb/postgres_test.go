@@ -5,6 +5,8 @@ package sqldb
 
 import (
 	"testing"
+
+	"github.com/stretchr/testify/require"
 )
 
 // isSQLite is false if the build tag is set to test_db_postgres. It is used in
@@ -34,4 +36,15 @@ func NewTestDBWithVersion(t *testing.T, version uint) *PostgresStore {
 	})
 
 	return NewTestPostgresDBWithVersion(t, pgFixture, version)
+}
+
+// TestPostgresMigrationsReleaseConns asserts that the store holds no
+// connection after it applies all migrations. An unclosed migrate driver
+// keeps one pooled connection, so leaks grow with each migration.
+func TestPostgresMigrationsReleaseConns(t *testing.T) {
+	t.Parallel()
+
+	store := NewTestDB(t)
+
+	require.Zero(t, store.DB.Stats().InUse)
 }

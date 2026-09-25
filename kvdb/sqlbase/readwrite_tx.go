@@ -23,6 +23,10 @@ type readWriteTx struct {
 
 	// locker is a pointer to the global db lock.
 	locker sync.Locker
+
+	// bucketIDs caches the ids of nested buckets looked up within this
+	// transaction.
+	bucketIDs *bucketIDCache
 }
 
 // newReadWriteTx creates an rw transaction using a connection from the
@@ -46,6 +50,10 @@ func newReadWriteTx(db *db, readOnly bool) (*readWriteTx, error) {
 	// be applied to the transaction as a whole. If possible, mark the
 	// transaction as read-only to make sure that potential programming
 	// errors cannot cause changes to the database.
+	//
+	// NOTE: The bucket id cache relies on the transaction reading from a
+	// single snapshot, so the isolation level must not be weaker than
+	// repeatable read.
 	tx, err := db.db.BeginTx(
 		context.Background(),
 		&sql.TxOptions{
@@ -59,10 +67,11 @@ func newReadWriteTx(db *db, readOnly bool) (*readWriteTx, error) {
 	}
 
 	return &readWriteTx{
-		db:     db,
-		tx:     tx,
-		active: true,
-		locker: locker,
+		db:        db,
+		tx:        tx,
+		active:    true,
+		locker:    locker,
+		bucketIDs: newBucketIDCache(),
 	}, nil
 }
 
@@ -126,6 +135,10 @@ func (tx *readWriteTx) CreateTopLevelBucket(key []byte) (
 // errors if the bucket can not be found or the key keys a single value
 // instead of a bucket.
 func (tx *readWriteTx) DeleteTopLevelBucket(key []byte) error {
+	// The delete cascades to all sub-buckets, so cached ids of any of them
+	// are no longer valid.
+	tx.bucketIDs.clear()
+
 	// Execute a cascading delete on the key.
 	result, err := tx.Exec(
 		"DELETE FROM "+tx.db.table+" WHERE key=$1 "+

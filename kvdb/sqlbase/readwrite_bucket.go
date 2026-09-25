@@ -115,6 +115,14 @@ func (b *readWriteBucket) NestedReadWriteBucket(
 		return nil
 	}
 
+	if id, ok := b.tx.bucketIDs.get(b.id, key); ok {
+		if id == nil {
+			return nil
+		}
+
+		return newReadWriteBucket(b.tx, id)
+	}
+
 	var id int64
 	row, cancel := b.tx.QueryRow(
 		"SELECT id FROM "+b.table+" WHERE "+parentSelector(b.id)+
@@ -125,11 +133,15 @@ func (b *readWriteBucket) NestedReadWriteBucket(
 
 	switch {
 	case err == sql.ErrNoRows:
+		b.tx.bucketIDs.put(b.id, key, nil)
+
 		return nil
 
 	case err != nil:
 		panic(err)
 	}
+
+	b.tx.bucketIDs.put(b.id, key, &id)
 
 	return newReadWriteBucket(b.tx, &id)
 }
@@ -183,6 +195,8 @@ func (b *readWriteBucket) CreateBucket(key []byte) (
 		return nil, err
 	}
 
+	b.tx.bucketIDs.put(b.id, key, &id)
+
 	return newReadWriteBucket(b.tx, &id), nil
 }
 
@@ -231,6 +245,8 @@ func (b *readWriteBucket) CreateBucketIfNotExists(key []byte) (
 		return nil, err
 	}
 
+	b.tx.bucketIDs.put(b.id, key, &id)
+
 	return newReadWriteBucket(b.tx, &id), nil
 }
 
@@ -241,6 +257,10 @@ func (b *readWriteBucket) DeleteNestedBucket(key []byte) error {
 	if len(key) == 0 {
 		return walletdb.ErrIncompatibleValue
 	}
+
+	// The delete cascades to all sub-buckets, so cached ids of any of them
+	// are no longer valid.
+	b.tx.bucketIDs.clear()
 
 	result, err := b.tx.Exec(
 		"DELETE FROM "+b.table+" WHERE "+parentSelector(b.id)+

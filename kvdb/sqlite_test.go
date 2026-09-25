@@ -1,12 +1,15 @@
+//go:build kvdb_sqlite && !(windows && (arm || 386)) && !(linux && (ppc64 || mips || mipsle || mips64))
+
 package kvdb
 
 import (
 	"testing"
 
 	"github.com/btcsuite/btcwallet/walletdb"
+	"github.com/stretchr/testify/require"
 )
 
-func TestBolt(t *testing.T) {
+func TestSqlite(t *testing.T) {
 	tests := []struct {
 		name string
 		test func(*testing.T, walletdb.DB)
@@ -87,9 +90,15 @@ func TestBolt(t *testing.T) {
 		t.Run(test.name, func(t *testing.T) {
 			t.Parallel()
 
-			f := NewBoltFixture(t)
+			db, err := StartSqliteTestBackend(
+				t.TempDir(), "tmp.db", "test",
+			)
+			require.NoError(t, err)
+			t.Cleanup(func() {
+				require.NoError(t, db.Close())
+			})
 
-			test.test(t, f.NewBackend())
+			test.test(t, db)
 		})
 	}
 }

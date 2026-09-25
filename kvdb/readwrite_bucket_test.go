@@ -634,3 +634,187 @@ func testSubBucketSequence(t *testing.T, db walletdb.DB) {
 		return nil
 	}, func() {}))
 }
+
+// testBucketLookupAfterDelete tests that nested buckets which were looked up
+// earlier in a transaction are no longer found once they, or one of their
+// parents, have been deleted in the same transaction, including after they
+// have been re-created.
+func testBucketLookupAfterDelete(t *testing.T, db walletdb.DB) {
+	err := Update(db, func(tx walletdb.ReadWriteTx) error {
+		// "apple/banana/pear" with a value in "apple/banana".
+		apple, err := tx.CreateTopLevelBucket([]byte("apple"))
+		require.NoError(t, err)
+
+		banana, err := apple.CreateBucket([]byte("banana"))
+		require.NoError(t, err)
+		require.NoError(t, banana.Put([]byte("key"), []byte("val")))
+
+		_, err = banana.CreateBucket([]byte("pear"))
+		require.NoError(t, err)
+
+		// Look up the whole path so that it is resolved at least once
+		// before it is deleted.
+		apple = tx.ReadWriteBucket([]byte("apple"))
+		require.NotNil(t, apple)
+		banana = apple.NestedReadWriteBucket([]byte("banana"))
+		require.NotNil(t, banana)
+		require.Equal(t, []byte("val"), banana.Get([]byte("key")))
+		require.NotNil(t, banana.NestedReadWriteBucket([]byte("pear")))
+
+		// Delete "apple/banana" and re-create it. The new bucket must
+		// neither contain the old value nor the old sub-bucket.
+		require.NoError(t, apple.DeleteNestedBucket([]byte("banana")))
+		require.Nil(t, apple.NestedReadWriteBucket([]byte("banana")))
+
+		banana, err = apple.CreateBucket([]byte("banana"))
+		require.NoError(t, err)
+		require.Nil(t, banana.Get([]byte("key")))
+		require.Nil(t, banana.NestedReadWriteBucket([]byte("pear")))
+
+		banana = apple.NestedReadWriteBucket([]byte("banana"))
+		require.NotNil(t, banana)
+		require.Nil(t, banana.Get([]byte("key")))
+		require.Nil(t, banana.NestedReadWriteBucket([]byte("pear")))
+
+		// Re-create "apple/banana/pear", then delete the top level
+		// bucket and re-create it. None of the sub-buckets may be
+		// found afterwards.
+		_, err = banana.CreateBucket([]byte("pear"))
+		require.NoError(t, err)
+
+		apple = tx.ReadWriteBucket([]byte("apple"))
+		require.NotNil(t, apple)
+		banana = apple.NestedReadWriteBucket([]byte("banana"))
+		require.NotNil(t, banana)
+		require.NotNil(t, banana.NestedReadWriteBucket([]byte("pear")))
+
+		require.NoError(t, tx.DeleteTopLevelBucket([]byte("apple")))
+		require.Nil(t, tx.ReadWriteBucket([]byte("apple")))
+
+		apple, err = tx.CreateTopLevelBucket([]byte("apple"))
+		require.NoError(t, err)
+		require.Nil(t, apple.NestedReadWriteBucket([]byte("banana")))
+
+		apple = tx.ReadWriteBucket([]byte("apple"))
+		require.NotNil(t, apple)
+		require.Nil(t, apple.NestedReadWriteBucket([]byte("banana")))
+
+		return nil
+	}, func() {})
+	require.NoError(t, err)
+}
+
+// testBucketLookupAfterCreate tests that nested buckets which were found not
+// to exist earlier in a transaction are found once they have been created in
+// the same transaction.
+func testBucketLookupAfterCreate(t *testing.T, db walletdb.DB) {
+	err := Update(db, func(tx walletdb.ReadWriteTx) error {
+		// "apple" doesn't exist yet.
+		require.Nil(t, tx.ReadWriteBucket([]byte("apple")))
+
+		apple, err := tx.CreateTopLevelBucket([]byte("apple"))
+		require.NoError(t, err)
+		require.NotNil(t, tx.ReadWriteBucket([]byte("apple")))
+
+		// "apple/banana" doesn't exist yet, create it through
+		// CreateBucketIfNotExists.
+		require.Nil(t, apple.NestedReadWriteBucket([]byte("banana")))
+
+		banana, err := apple.CreateBucketIfNotExists([]byte("banana"))
+		require.NoError(t, err)
+		require.NoError(t, banana.Put([]byte("key"), []byte("val")))
+
+		// Both a lookup and a second CreateBucketIfNotExists must
+		// return the same bucket.
+		banana = apple.NestedReadWriteBucket([]byte("banana"))
+		require.NotNil(t, banana)
+		require.Equal(t, []byte("val"), banana.Get([]byte("key")))
+
+		banana, err = apple.CreateBucketIfNotExists([]byte("banana"))
+		require.NoError(t, err)
+		require.Equal(t, []byte("val"), banana.Get([]byte("key")))
+
+		_, err = apple.CreateBucket([]byte("banana"))
+		require.ErrorIs(t, err, walletdb.ErrBucketExists)
+
+		// A value stored under a key isn't a bucket.
+		require.NoError(t, apple.Put([]byte("pear"), []byte("val")))
+		require.Nil(t, apple.NestedReadWriteBucket([]byte("pear")))
+
+		// Once the value is deleted, a bucket can be created under the
+		// same key and found.
+		require.NoError(t, apple.Delete([]byte("pear")))
+		_, err = apple.CreateBucket([]byte("pear"))
+		require.NoError(t, err)
+		require.NotNil(t, apple.NestedReadWriteBucket([]byte("pear")))
+
+		return nil
+	}, func() {})
+	require.NoError(t, err)
+}
+
+// testBucketLookupAcrossTxns tests that buckets resolved in one transaction
+// don't leak into other transactions, whether the first one is committed or
+// rolled back.
+func testBucketLookupAcrossTxns(t *testing.T, db walletdb.DB) {
+	errRollback := fmt.Errorf("rollback")
+
+	// Create "apple/banana" in a transaction that is rolled back.
+	err := Update(db, func(tx walletdb.ReadWriteTx) error {
+		apple, err := tx.CreateTopLevelBucket([]byte("apple"))
+		require.NoError(t, err)
+
+		_, err = apple.CreateBucket([]byte("banana"))
+		require.NoError(t, err)
+		require.NotNil(t, apple.NestedReadWriteBucket([]byte("banana")))
+
+		return errRollback
+	}, func() {})
+	require.ErrorIs(t, err, errRollback)
+
+	err = View(db, func(tx walletdb.ReadTx) error {
+		require.Nil(t, tx.ReadBucket([]byte("apple")))
+
+		return nil
+	}, func() {})
+	require.NoError(t, err)
+
+	// Create "apple/banana" for real.
+	err = Update(db, func(tx walletdb.ReadWriteTx) error {
+		apple, err := tx.CreateTopLevelBucket([]byte("apple"))
+		require.NoError(t, err)
+
+		banana, err := apple.CreateBucket([]byte("banana"))
+		require.NoError(t, err)
+
+		return banana.Put([]byte("key"), []byte("val1"))
+	}, func() {})
+	require.NoError(t, err)
+
+	// Replace "apple/banana" with a new bucket in a separate transaction.
+	err = Update(db, func(tx walletdb.ReadWriteTx) error {
+		apple := tx.ReadWriteBucket([]byte("apple"))
+		require.NotNil(t, apple)
+		require.NotNil(t, apple.NestedReadWriteBucket([]byte("banana")))
+		require.NoError(t, apple.DeleteNestedBucket([]byte("banana")))
+
+		banana, err := apple.CreateBucket([]byte("banana"))
+		require.NoError(t, err)
+
+		return banana.Put([]byte("key"), []byte("val2"))
+	}, func() {})
+	require.NoError(t, err)
+
+	// A new transaction must see the new bucket.
+	err = View(db, func(tx walletdb.ReadTx) error {
+		apple := tx.ReadBucket([]byte("apple"))
+		require.NotNil(t, apple)
+
+		banana := apple.NestedReadBucket([]byte("banana"))
+		require.NotNil(t, banana)
+		require.Equal(t, []byte("val2"), banana.Get([]byte("key")))
+
+		return nil
+	}, func() {})
+	require.NoError(t, err)
+}

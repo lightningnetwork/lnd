@@ -158,6 +158,95 @@ type PaymentSession interface {
 		channelID uint64) *models.CachedEdgePolicy
 }
 
+// PaymentResultReporter is an optional interface that a PaymentSession may
+// implement when it keeps a view of the network that it needs to update from
+// the outcome of the attempts it handed out. The payment lifecycle reports
+// every attempt outcome to mission control, which is a node global store the
+// session cannot own; a session with its own belief state needs the same
+// stream of observations delivered to itself as well.
+//
+// A session that does not implement this interface simply never hears about
+// the attempts it produced, which is exactly the contract the stock session
+// was written against.
+type PaymentResultReporter interface {
+	// ReportAttemptSuccess informs the session that the given attempt
+	// settled. The route is the one the session returned from
+	// RequestRoute.
+	ReportAttemptSuccess(attemptID uint64, rt *route.Route)
+
+	// ReportAttemptFailure informs the session that the given attempt
+	// failed. The failure source index follows the convention used by
+	// mission control: a nil index means the failure could not be
+	// attributed to any node on the route, and a zero index means the
+	// failure happened at our own node. The failure message is nil when it
+	// could not be read.
+	ReportAttemptFailure(attemptID uint64, rt *route.Route,
+		failureSourceIdx *int, failure lnwire.FailureMessage)
+
+	// ReleaseAttempts tells the session that its lifecycle has finished and
+	// that no further outcome will be reported to it. A session that tracks
+	// the attempts it handed out needs this, because a route it returned
+	// may never have reached the switch at all, in which case nothing else
+	// would ever tell it so.
+	ReleaseAttempts()
+}
+
+// additionalEdges is the set of ephemeral edges that a payment session knows
+// about on top of the channel graph, keyed by the node the edge starts at.
+// These come from bolt 11 route hints or from the blinded paths of an offer.
+type additionalEdges map[route.Vertex][]AdditionalEdge
+
+// UpdateAdditionalEdge updates the channel edge policy for a private edge. It
+// validates the message signature and checks it's up to date, then applies the
+// updates to the supplied policy. It returns a boolean to indicate whether
+// there's an error when applying the updates.
+func (a additionalEdges) UpdateAdditionalEdge(msg *lnwire.ChannelUpdate1,
+	pubKey *btcec.PublicKey, policy *models.CachedEdgePolicy) bool {
+
+	// Validate the message signature.
+	if err := netann.VerifyChannelUpdateSignature(msg, pubKey); err != nil {
+		log.Errorf(
+			"Unable to validate channel update signature: %v", err,
+		)
+		return false
+	}
+
+	// Update channel policy for the additional edge.
+	policy.TimeLockDelta = msg.TimeLockDelta
+	policy.FeeBaseMSat = lnwire.MilliSatoshi(msg.BaseFee)
+	policy.FeeProportionalMillionths = lnwire.MilliSatoshi(msg.FeeRate)
+
+	log.Debugf("New private channel update applied: %v",
+		lnutils.SpewLogClosure(msg))
+
+	return true
+}
+
+// GetAdditionalEdgePolicy uses the public key and channel ID to query the
+// ephemeral channel edge policy for additional edges. Returns a nil if nothing
+// found.
+func (a additionalEdges) GetAdditionalEdgePolicy(pubKey *btcec.PublicKey,
+	channelID uint64) *models.CachedEdgePolicy {
+
+	target := route.NewVertex(pubKey)
+
+	edges, ok := a[target]
+	if !ok {
+		return nil
+	}
+
+	for _, edge := range edges {
+		policy := edge.EdgePolicy()
+		if policy.ChannelID != channelID {
+			continue
+		}
+
+		return policy
+	}
+
+	return nil
+}
+
 // paymentSession is used during an HTLC routings session to prune the local
 // chain view in response to failures, and also report those failures back to
 // MissionController. The snapshot copied for this session will only ever grow,
@@ -169,7 +258,7 @@ type PaymentSession interface {
 type paymentSession struct {
 	selfNode route.Vertex
 
-	additionalEdges map[route.Vertex][]AdditionalEdge
+	additionalEdges
 
 	getBandwidthHints func(Graph) (bandwidthHints, error)
 
@@ -456,55 +545,4 @@ func (p *paymentSession) RequestRoute(maxAmt, feeLimit lnwire.MilliSatoshi,
 
 		return route, err
 	}
-}
-
-// UpdateAdditionalEdge updates the channel edge policy for a private edge. It
-// validates the message signature and checks it's up to date, then applies the
-// updates to the supplied policy. It returns a boolean to indicate whether
-// there's an error when applying the updates.
-func (p *paymentSession) UpdateAdditionalEdge(msg *lnwire.ChannelUpdate1,
-	pubKey *btcec.PublicKey, policy *models.CachedEdgePolicy) bool {
-
-	// Validate the message signature.
-	if err := netann.VerifyChannelUpdateSignature(msg, pubKey); err != nil {
-		log.Errorf(
-			"Unable to validate channel update signature: %v", err,
-		)
-		return false
-	}
-
-	// Update channel policy for the additional edge.
-	policy.TimeLockDelta = msg.TimeLockDelta
-	policy.FeeBaseMSat = lnwire.MilliSatoshi(msg.BaseFee)
-	policy.FeeProportionalMillionths = lnwire.MilliSatoshi(msg.FeeRate)
-
-	log.Debugf("New private channel update applied: %v",
-		lnutils.SpewLogClosure(msg))
-
-	return true
-}
-
-// GetAdditionalEdgePolicy uses the public key and channel ID to query the
-// ephemeral channel edge policy for additional edges. Returns a nil if nothing
-// found.
-func (p *paymentSession) GetAdditionalEdgePolicy(pubKey *btcec.PublicKey,
-	channelID uint64) *models.CachedEdgePolicy {
-
-	target := route.NewVertex(pubKey)
-
-	edges, ok := p.additionalEdges[target]
-	if !ok {
-		return nil
-	}
-
-	for _, edge := range edges {
-		policy := edge.EdgePolicy()
-		if policy.ChannelID != channelID {
-			continue
-		}
-
-		return policy
-	}
-
-	return nil
 }

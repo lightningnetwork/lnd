@@ -225,6 +225,12 @@ func (s *Stream) decode(r io.Reader, parsedTypes TypeMap, p2p bool) (TypeMap,
 			return nil, ErrRecordTooLarge
 		}
 
+		// io.CopyN accepts an int64 length, so larger record lengths
+		// cannot be decoded by this stream implementation.
+		if length > math.MaxInt64 {
+			return nil, ErrRecordTooLarge
+		}
+
 		// Search the records known to the stream for this type. We'll
 		// begin the search and recordIdx and walk forward until we find
 		// it or the next record's type is larger.
@@ -263,7 +269,7 @@ func (s *Stream) decode(r io.Reader, parsedTypes TypeMap, p2p bool) (TypeMap,
 			var b *bytes.Buffer
 			writer := io.Discard
 			if parsedTypes != nil {
-				b = bytes.NewBuffer(make([]byte, 0, length))
+				b = bytes.NewBuffer(nil)
 				writer = b
 			}
 

@@ -23,6 +23,10 @@ type mockRegistry struct {
 	notifyErr        error
 	notifyResolution invoices.HtlcResolution
 	notifyCalls      atomic.Int32
+
+	// invoices holds the invoices returned by LookupInvoice. Hashes that
+	// are not present report ErrInvoiceNotFound.
+	invoices map[lntypes.Hash]invoices.Invoice
 }
 
 func (r *mockRegistry) NotifyExitHopHtlc(payHash lntypes.Hash,
@@ -51,8 +55,13 @@ func (r *mockRegistry) NotifyExitHopHtlc(payHash lntypes.Hash,
 
 func (r *mockRegistry) HodlUnsubscribeAll(subscriber chan<- interface{}) {}
 
-func (r *mockRegistry) LookupInvoice(context.Context, lntypes.Hash) (
-	invoices.Invoice, error) {
+func (r *mockRegistry) LookupInvoice(_ context.Context,
+	payHash lntypes.Hash) (invoices.Invoice, error) {
 
-	return invoices.Invoice{}, invoices.ErrInvoiceNotFound
+	invoice, ok := r.invoices[payHash]
+	if !ok {
+		return invoices.Invoice{}, invoices.ErrInvoiceNotFound
+	}
+
+	return invoice, nil
 }

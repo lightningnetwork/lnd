@@ -878,11 +878,18 @@ func newServer(ctx context.Context, cfg *Config, listenAddrs []net.Addr,
 		return nil, err
 	}
 
+	// Forwarding responses live in the channel state database, which the
+	// switch reaches through the concrete store.
+	chanStateStore := dbs.ChanStateDB.ChannelStateDB()
+
 	s.htlcSwitch, err = htlcswitch.New(htlcswitch.Config{
 		DB:                   dbs.ChanStateDB,
 		FetchAllOpenChannels: s.chanStateDB.FetchAllOpenChannels,
 		FetchAllChannels:     s.chanStateDB.FetchAllChannels,
 		FetchClosedChannels:  s.chanStateDB.FetchClosedChannels,
+		CheckFwdResponse:     chanStateStore.CheckFwdResponse,
+		FetchFwdResponses:    chanStateStore.FetchFwdResponses,
+		DeleteFwdResponse:    chanStateStore.DeleteFwdResponse,
 		LocalChannelClose: func(pubKey []byte,
 			request *htlcswitch.ChanClose) {
 

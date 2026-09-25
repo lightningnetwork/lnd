@@ -33,7 +33,7 @@ func runRbfCoopCloseTest(st *lntest.HarnessTest,
 	alicePendingUpdate := aliceCloseUpdate.GetClosePending()
 	require.NotNil(st, aliceCloseUpdate)
 	require.Equal(
-		st, int64(aliceFeeRate), alicePendingUpdate.FeePerVbyte,
+		st, int64(aliceFeeRate), int64(alicePendingUpdate.FeePerKw/250),
 	)
 	require.True(st, alicePendingUpdate.LocalCloseTx)
 
@@ -48,7 +48,9 @@ func runRbfCoopCloseTest(st *lntest.HarnessTest,
 	// Confirm that this new update was at 10 sat/vb.
 	bobPendingUpdate := bobCloseUpdate.GetClosePending()
 	require.NotNil(st, bobCloseUpdate)
-	require.Equal(st, bobPendingUpdate.FeePerVbyte, int64(bobFeeRate))
+	require.Equal(
+		st, int64(bobPendingUpdate.FeePerKw/250), int64(bobFeeRate),
+	)
 	require.True(st, bobPendingUpdate.LocalCloseTx)
 
 	var err error
@@ -69,11 +71,11 @@ func runRbfCoopCloseTest(st *lntest.HarnessTest,
 		// calculation for taproot.
 		require.InDelta(
 			st, int64(bobFeeRate),
-			alicePendingUpdate.FeePerVbyte, 1,
+			int64(alicePendingUpdate.FeePerKw/250), 1,
 		)
 	} else {
 		require.Equal(
-			st, alicePendingUpdate.FeePerVbyte,
+			st, int64(alicePendingUpdate.FeePerKw/250),
 			int64(bobFeeRate),
 		)
 	}
@@ -92,7 +94,7 @@ func runRbfCoopCloseTest(st *lntest.HarnessTest,
 	alicePendingUpdate = aliceCloseUpdate.GetClosePending()
 	require.NotNil(st, aliceCloseUpdate)
 	require.Equal(
-		st, alicePendingUpdate.FeePerVbyte,
+		st, int64(alicePendingUpdate.FeePerKw/250),
 		int64(aliceRejectedFeeRate),
 	)
 	require.True(st, alicePendingUpdate.LocalCloseTx)
@@ -126,7 +128,7 @@ func runRbfCoopCloseTest(st *lntest.HarnessTest,
 	alicePendingUpdate = aliceCloseUpdate.GetClosePending()
 	require.NotNil(st, aliceCloseUpdate)
 	require.Equal(
-		st, alicePendingUpdate.FeePerVbyte, int64(aliceFeeRate),
+		st, int64(alicePendingUpdate.FeePerKw/250), int64(aliceFeeRate),
 	)
 	require.True(st, alicePendingUpdate.LocalCloseTx)
 

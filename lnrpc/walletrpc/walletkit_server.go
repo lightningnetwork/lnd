@@ -184,6 +184,10 @@ var (
 			Entity: "onchain",
 			Action: "write",
 		}},
+		"/walletrpc.WalletKit/RemoveAccount": {{
+			Entity: "onchain",
+			Action: "write",
+		}},
 		"/walletrpc.WalletKit/ImportPublicKey": {{
 			Entity: "onchain",
 			Action: "write",
@@ -2729,32 +2733,39 @@ func marshalWalletAddressList(w *WalletKit, account *waddrmgr.AccountProperties,
 // ListAccounts retrieves all accounts belonging to the wallet by default. A
 // name and key scope filter can be provided to filter through all of the wallet
 // accounts and return only those matching.
-func (w *WalletKit) ListAccounts(ctx context.Context,
-	req *ListAccountsRequest) (*ListAccountsResponse, error) {
-
-	// Map the supported address types into their corresponding key scope.
-	var keyScopeFilter *waddrmgr.KeyScope
-	switch req.AddressType {
+// keyScopeFromAddrType maps an RPC address type onto the key scope its
+// accounts live in. AddressType_UNKNOWN maps to nil, meaning no scope filter.
+func keyScopeFromAddrType(addrType AddressType) (*waddrmgr.KeyScope, error) {
+	switch addrType {
 	case AddressType_UNKNOWN:
-		break
+		return nil, nil
 
 	case AddressType_WITNESS_PUBKEY_HASH:
 		keyScope := waddrmgr.KeyScopeBIP0084
-		keyScopeFilter = &keyScope
+		return &keyScope, nil
 
 	case AddressType_NESTED_WITNESS_PUBKEY_HASH,
 		AddressType_HYBRID_NESTED_WITNESS_PUBKEY_HASH:
 
 		keyScope := waddrmgr.KeyScopeBIP0049Plus
-		keyScopeFilter = &keyScope
+		return &keyScope, nil
 
 	case AddressType_TAPROOT_PUBKEY:
 		keyScope := waddrmgr.KeyScopeBIP0086
-		keyScopeFilter = &keyScope
+		return &keyScope, nil
 
 	default:
-		return nil, fmt.Errorf("unhandled address type %v",
-			req.AddressType)
+		return nil, fmt.Errorf("unhandled address type %v", addrType)
+	}
+}
+
+func (w *WalletKit) ListAccounts(ctx context.Context,
+	req *ListAccountsRequest) (*ListAccountsResponse, error) {
+
+	// Map the supported address types into their corresponding key scope.
+	keyScopeFilter, err := keyScopeFromAddrType(req.AddressType)
+	if err != nil {
+		return nil, err
 	}
 
 	accounts, err := w.cfg.Wallet.ListAccounts(req.Name, keyScopeFilter)
@@ -3228,6 +3239,37 @@ func (w *WalletKit) ImportAccount(_ context.Context,
 	}
 
 	return resp, nil
+}
+
+// RemoveAccount removes a watch-only account that was previously imported via
+// ImportAccount, along with all addresses derived from it. The wallet stops
+// tracking the account's addresses: its balance and UTXOs disappear from the
+// wallet's view and later deposits to its addresses are not detected. The
+// funds themselves are not moved or lost — whoever holds the account's keys
+// retains full control, and re-importing the same extended public key restores
+// tracking.
+func (w *WalletKit) RemoveAccount(_ context.Context,
+	req *RemoveAccountRequest) (*RemoveAccountResponse, error) {
+
+	// The address type is only needed to pick between several key scopes
+	// holding the same name, which can only happen on wallets that predate
+	// the cross-scope uniqueness check, so it is usually left unset.
+	keyScope, err := keyScopeFromAddrType(req.AddressType)
+	if err != nil {
+		return nil, err
+	}
+
+	accountProps, err := w.cfg.Wallet.RemoveAccount(req.Name, keyScope)
+	if err != nil {
+		return nil, err
+	}
+
+	rpcAccount, err := marshalWalletAccount(w.internalScope(), accountProps)
+	if err != nil {
+		return nil, err
+	}
+
+	return &RemoveAccountResponse{Account: rpcAccount}, nil
 }
 
 // ImportPublicKey imports a single derived public key into the wallet. The

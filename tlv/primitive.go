@@ -5,6 +5,8 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"math"
+	"slices"
 
 	"github.com/btcsuite/btcd/btcec/v2"
 )
@@ -330,9 +332,35 @@ func EVarBytes(w io.Writer, val interface{}, _ *[8]byte) error {
 // is not *[]byte.
 func DVarBytes(r io.Reader, val interface{}, _ *[8]byte, l uint64) error {
 	if b, ok := val.(*[]byte); ok {
-		*b = make([]byte, l)
-		_, err := io.ReadFull(r, *b)
-		return err
+		if l > math.MaxInt64 {
+			return ErrRecordTooLarge
+		}
+
+		// Allocate at most MaxRecordSize bytes up front, then grow the
+		// buffer incrementally as bytes arrive. This way a malformed
+		// length prefix cannot force a large allocation for bytes that
+		// never arrive.
+		decoded := make([]byte, 0, min(l, MaxRecordSize))
+		for remaining := l; remaining > 0; {
+			chunk := min(remaining, MaxRecordSize)
+
+			// Extend the buffer by one chunk and read directly into
+			// its tail.
+			offset := len(decoded)
+			decoded = slices.Grow(
+				decoded, int(chunk),
+			)[:offset+int(chunk)]
+			_, err := io.ReadFull(r, decoded[offset:])
+			if err != nil {
+				return err
+			}
+
+			remaining -= chunk
+		}
+
+		*b = decoded
+
+		return nil
 	}
 	return NewTypeForDecodingErr(val, "[]byte", l, l)
 }

@@ -113,9 +113,9 @@ func randPubKey(t *testing.T) *btcec.PublicKey {
 	return priv.PubKey()
 }
 
-func assertStateTransitions[Event any, Env protofsm.Environment](
-	t *testing.T, stateSub protofsm.StateSubscriber[Event, Env],
-	expectedStates []protofsm.State[Event, Env]) {
+func assertStateTransitions[Event any, Out any, Env protofsm.Environment](
+	t *testing.T, stateSub protofsm.StateSubscriber[Event, Out, Env],
+	expectedStates []protofsm.State[Event, Out, Env]) {
 
 	t.Helper()
 
@@ -212,7 +212,7 @@ type rbfCloserTestHarness struct {
 	daemonAdapters *dummyAdapters
 	errReporter    *mockErrorReporter
 
-	stateSub protofsm.StateSubscriber[ProtocolEvent, *Environment]
+	stateSub RbfStateSub
 }
 
 var errfailAddr = fmt.Errorf("fail")
@@ -1018,14 +1018,20 @@ func newRbfCloserTestHarness(t *testing.T,
 
 	protoCfg := RbfChanCloserCfg{
 		ErrorReporter: errReporter,
-		Daemon:        daemonAdapters,
-		InitialState:  initialState,
-		Env:           &env,
-		InitEvent:     fn.Some[protofsm.DaemonEvent](&spendEvent),
+		OutboxHandler: fn.Some[RbfOutboxHandler](
+			protofsm.NewDaemonExecutor(
+				daemonAdapters,
+				protofsm.WithPollInterval[ProtocolEvent](
+					time.Nanosecond,
+				),
+			),
+		),
+		InitialState: initialState,
+		Env:          &env,
+		InitEvent:    fn.Some[protofsm.DaemonEvent](&spendEvent),
 		MsgMapper: fn.Some[protofsm.MsgMapper[ProtocolEvent]](
 			msgMapper,
 		),
-		CustomPollInterval: fn.Some(time.Nanosecond),
 	}
 
 	// Before we start we always expect an initial spend event.
@@ -3394,7 +3400,9 @@ func TestLocalOfferSentUsesStoredSig(t *testing.T) {
 			_ = recover()
 		}()
 
-		_, _ = localOfferSent.ProcessEvent(localSigEvent, env)
+		_, _ = localOfferSent.ProcessEvent(
+			t.Context(), localSigEvent, env,
+		)
 	}()
 
 	// ProposalClosingOpts should NOT have been called — we use the stored

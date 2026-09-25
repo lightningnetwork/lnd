@@ -3,9 +3,14 @@ package actor
 import (
 	"context"
 	"sync"
+	"time"
 
 	"github.com/lightningnetwork/lnd/fn/v2"
 )
+
+// DefaultCleanupTimeout bounds how long a Stoppable behavior's OnStop hook may
+// run.
+const DefaultCleanupTimeout = 5 * time.Second
 
 // MailboxFactory is a function type that creates a Mailbox implementation.
 // It receives the actor's context and the desired capacity, allowing custom
@@ -154,6 +159,20 @@ func (a *Actor[M, R]) process() {
 		}
 	}
 
+	// Give the behavior a chance to release anything it holds across
+	// messages. This runs on the actor's goroutine, so it never races
+	// Receive.
+	if stoppable, ok := a.behavior.(Stoppable); ok {
+		cleanupCtx, cancel := context.WithTimeout(
+			context.Background(), DefaultCleanupTimeout,
+		)
+		if err := stoppable.OnStop(cleanupCtx); err != nil {
+			log.Warnf("Actor %s: cleanup error during shutdown: "+
+				"%v", a.id, err)
+		}
+		cancel()
+	}
+
 	// Context was cancelled or mailbox closed, drain remaining messages.
 	a.mailbox.Close()
 
@@ -214,6 +233,31 @@ func (ref *actorRefImpl[M, R]) Tell(ctx context.Context, msg M) {
 		// (load shedding) or the caller's context was cancelled.
 		// Both are intentionally silent — no DLO routing.
 	}
+}
+
+// TryTell attempts to enqueue a message without blocking. See
+// TellOnlyRef.TryTell for the error contract.
+func (ref *actorRefImpl[M, R]) TryTell(ctx context.Context, msg M) error {
+	if ref.actor.ctx.Err() != nil {
+		return ErrActorTerminated
+	}
+
+	if err := ctx.Err(); err != nil {
+		return err
+	}
+
+	env := envelope[M, R]{message: msg, promise: nil}
+	if ref.actor.mailbox.TrySend(env) {
+		return nil
+	}
+
+	// TrySend reports a closed mailbox and a full one the same way, so we
+	// tell them apart by checking whether the actor is still alive.
+	if ref.actor.ctx.Err() != nil || ref.actor.mailbox.IsClosed() {
+		return ErrActorTerminated
+	}
+
+	return ErrMailboxFull
 }
 
 // Ask sends a message and returns a Future for the response. The Future will be

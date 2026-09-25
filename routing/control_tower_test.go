@@ -484,7 +484,7 @@ func testKVStoreSubscribeFail(t *testing.T, registerAttempt bool) {
 		if err != nil {
 			t.Fatalf("unable to fail htlc: %v", err)
 		}
-		if *htlcAttempt.Failure != failInfo {
+		if !reflect.DeepEqual(*htlcAttempt.Failure, failInfo) {
 			t.Fatalf("unexpected fail info returned")
 		}
 	}

@@ -91,6 +91,7 @@ SELECT
     hr.failure_source_index,
     hr.htlc_fail_reason,
     hr.failure_msg,
+    hr.hold_times,
     hr.settle_preimage
 FROM payment_htlc_attempts ha
 LEFT JOIN payment_htlc_attempt_resolutions hr ON hr.attempt_index = ha.attempt_index
@@ -411,7 +412,8 @@ INSERT INTO payment_htlc_attempt_resolutions (
     resolution_type,
     failure_source_index,
     htlc_fail_reason,
-    failure_msg
+    failure_msg,
+    hold_times
 )
 VALUES (
     @attempt_index,
@@ -419,7 +421,8 @@ VALUES (
     @resolution_type,
     @failure_source_index,
     @htlc_fail_reason,
-    @failure_msg
+    @failure_msg,
+    @hold_times
 );
 
 -- name: FailPayment :execresult

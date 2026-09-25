@@ -2,6 +2,7 @@ package paymentsdb
 
 import (
 	"bytes"
+	"encoding/binary"
 	"fmt"
 	"strconv"
 	"time"
@@ -14,6 +15,49 @@ import (
 	"github.com/lightningnetwork/lnd/sqldb/sqlc"
 	"github.com/lightningnetwork/lnd/tlv"
 )
+
+// encodeHoldTimes serialises hold times into a length-prefixed sequence of
+// big-endian uint32 entries. An empty input returns nil so the column stays
+// NULL in the database.
+func encodeHoldTimes(holdTimes []uint32) []byte {
+	if len(holdTimes) == 0 {
+		return nil
+	}
+
+	buf := make([]byte, 2+4*len(holdTimes))
+	binary.BigEndian.PutUint16(buf, uint16(len(holdTimes)))
+	for i, ht := range holdTimes {
+		binary.BigEndian.PutUint32(buf[2+4*i:], ht)
+	}
+
+	return buf
+}
+
+// decodeHoldTimes is the inverse of encodeHoldTimes.
+func decodeHoldTimes(blob []byte) ([]uint32, error) {
+	if len(blob) == 0 {
+		return nil, nil
+	}
+
+	if len(blob) < 2 {
+		return nil, fmt.Errorf("hold_times blob too short: %d bytes",
+			len(blob))
+	}
+
+	count := binary.BigEndian.Uint16(blob)
+	if len(blob) != int(2+4*count) {
+		return nil, fmt.Errorf("hold_times blob length mismatch: "+
+			"expected %d bytes for %d entries, got %d",
+			2+4*count, count, len(blob))
+	}
+
+	holdTimes := make([]uint32, count)
+	for i := range holdTimes {
+		holdTimes[i] = binary.BigEndian.Uint32(blob[2+4*i:])
+	}
+
+	return holdTimes, nil
+}
 
 // dbPaymentToCreationInfo converts database payment data to the
 // PaymentCreationInfo struct.
@@ -139,6 +183,13 @@ func dbAttemptToHTLCAttempt(dbAttempt sqlc.FetchHtlcAttemptsForPaymentsRow,
 			}
 			failure.Message = msg
 		}
+
+		holdTimes, err := decodeHoldTimes(dbAttempt.HoldTimes)
+		if err != nil {
+			return nil, fmt.Errorf("failed to decode hold "+
+				"times: %w", err)
+		}
+		failure.HoldTimes = holdTimes
 
 		attempt.Failure = failure
 	}

@@ -298,6 +298,12 @@ type HTLCFailInfo struct {
 	// field will be populated when the failure reason is either
 	// HTLCFailMessage or HTLCFailUnknown.
 	FailureSourceIndex uint32
+
+	// HoldTimes is an array of hold times (in 100ms units) as reported by
+	// nodes along the route via attributable errors. The first element
+	// corresponds to the first hop after the sender. This field is only
+	// populated when the error includes attribution data.
+	HoldTimes []uint32
 }
 
 // MPPaymentState wraps a series of info needed for a given payment, which is

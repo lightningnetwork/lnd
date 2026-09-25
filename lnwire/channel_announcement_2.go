@@ -14,13 +14,20 @@ import (
 type ChannelAnnouncement2 struct {
 	// ChainHash denotes the target chain that this channel was opened
 	// within. This value should be the genesis hash of the target chain.
-	ChainHash tlv.RecordT[tlv.TlvType0, chainhash.Hash]
+	// When absent, it is the bitcoin mainnet genesis block hash. It is
+	// present exactly when the sender included it, because the signature
+	// covers the records as sent.
+	ChainHash tlv.OptionalRecordT[tlv.TlvType0, chainhash.Hash]
 
 	// Features is the feature vector that encodes the features supported
 	// by the target node. This field can be used to signal the type of the
 	// channel, or modifications to the fields that would normally follow
 	// this vector.
-	Features tlv.RecordT[tlv.TlvType2, RawFeatureVector]
+	//
+	// The spec makes the field optional. It is present exactly when the
+	// sender included it, even when empty, because the signature covers
+	// the records as sent.
+	Features tlv.OptionalRecordT[tlv.TlvType2, RawFeatureVector]
 
 	// ShortChannelID is the unique description of the funding transaction,
 	// or where exactly it's located within the target blockchain.
@@ -61,7 +68,7 @@ type ChannelAnnouncement2 struct {
 
 	// Signature is a Schnorr signature over serialised signed-range TLV
 	// stream of the message.
-	Signature tlv.RecordT[tlv.TlvType160, Sig]
+	Signature tlv.RecordT[tlv.TlvType240, Sig]
 
 	// Any extra fields in the signed range that we do not yet know about,
 	// but we need to keep them for signature validation and to produce a
@@ -95,19 +102,25 @@ func (c *ChannelAnnouncement2) AllRecords() []tlv.Record {
 //
 //nolint:ll
 func (c *ChannelAnnouncement2) nonSignatureRecordProducers() []tlv.RecordProducer {
-	// The chain-hash record is only included if it is _not_ equal to the
-	// bitcoin mainnet genisis block hash.
 	var recordProducers []tlv.RecordProducer
-	if !c.ChainHash.Val.IsEqual(chaincfg.MainNetParams.GenesisHash) {
-		hash := tlv.ZeroRecordT[tlv.TlvType0, [32]byte]()
-		hash.Val = c.ChainHash.Val
+	c.ChainHash.WhenSome(
+		func(r tlv.RecordT[tlv.TlvType0, chainhash.Hash]) {
+			hash := tlv.NewPrimitiveRecord[tlv.TlvType0, [32]byte](
+				r.Val,
+			)
+			recordProducers = append(recordProducers, &hash)
+		},
+	)
 
-		recordProducers = append(recordProducers, &hash)
-	}
+	c.Features.WhenSome(
+		func(f tlv.RecordT[tlv.TlvType2, RawFeatureVector]) {
+			recordProducers = append(recordProducers, &f)
+		},
+	)
 
 	recordProducers = append(recordProducers,
-		&c.Features, &c.ShortChannelID, &c.Capacity, &c.NodeID1,
-		&c.NodeID2,
+		&c.ShortChannelID, truncatedUint64Record(&c.Capacity),
+		&c.NodeID1, &c.NodeID2,
 	)
 
 	c.BitcoinKey1.WhenSome(func(key tlv.RecordT[tlv.TlvType12, [33]byte]) {
@@ -137,6 +150,7 @@ func (c *ChannelAnnouncement2) nonSignatureRecordProducers() []tlv.RecordProduce
 //
 // This is part of the lnwire.Message interface.
 func (c *ChannelAnnouncement2) Decode(r io.Reader, _ uint32) error {
+	features := tlv.ZeroRecordT[tlv.TlvType2, RawFeatureVector]()
 	var (
 		chainHash      = tlv.ZeroRecordT[tlv.TlvType0, [32]byte]()
 		btcKey1        = tlv.ZeroRecordT[tlv.TlvType12, [33]byte]()
@@ -145,9 +159,9 @@ func (c *ChannelAnnouncement2) Decode(r io.Reader, _ uint32) error {
 	)
 	stream, err := tlv.NewStream(ProduceRecordsSorted(
 		&chainHash,
-		&c.Features,
+		&features,
 		&c.ShortChannelID,
-		&c.Capacity,
+		truncatedUint64Record(&c.Capacity),
 		&c.NodeID1,
 		&c.NodeID2,
 		&btcKey1,
@@ -166,10 +180,26 @@ func (c *ChannelAnnouncement2) Decode(r io.Reader, _ uint32) error {
 		return err
 	}
 
-	// By default, the chain-hash is the bitcoin mainnet genesis block hash.
-	c.ChainHash.Val = *chaincfg.MainNetParams.GenesisHash
+	if err := assertRequiredPresent(
+		typeMap,
+		c.ShortChannelID.TlvType(),
+		c.Outpoint.TlvType(),
+		c.Capacity.TlvType(),
+		c.NodeID1.TlvType(),
+		c.NodeID2.TlvType(),
+		c.Signature.TlvType(),
+	); err != nil {
+		return err
+	}
+
 	if _, ok := typeMap[c.ChainHash.TlvType()]; ok {
-		c.ChainHash.Val = chainHash.Val
+		hash := c.ChainHash.Zero()
+		hash.Val = chainHash.Val
+		c.ChainHash = tlv.SomeRecordT(hash)
+	}
+
+	if _, ok := typeMap[c.Features.TlvType()]; ok {
+		c.Features = tlv.SomeRecordT(features)
 	}
 
 	if _, ok := typeMap[c.BitcoinKey1.TlvType()]; ok {
@@ -191,6 +221,7 @@ func (c *ChannelAnnouncement2) Decode(r io.Reader, _ uint32) error {
 
 // DecodeNonSigTLVRecords decodes only the TLV section of the message.
 func (c *ChannelAnnouncement2) DecodeNonSigTLVRecords(r io.Reader) error {
+	features := tlv.ZeroRecordT[tlv.TlvType2, RawFeatureVector]()
 	var (
 		chainHash      = tlv.ZeroRecordT[tlv.TlvType0, [32]byte]()
 		btcKey1        = tlv.ZeroRecordT[tlv.TlvType12, [33]byte]()
@@ -199,9 +230,9 @@ func (c *ChannelAnnouncement2) DecodeNonSigTLVRecords(r io.Reader) error {
 	)
 	stream, err := tlv.NewStream(ProduceRecordsSorted(
 		&chainHash,
-		&c.Features,
+		&features,
 		&c.ShortChannelID,
-		&c.Capacity,
+		truncatedUint64Record(&c.Capacity),
 		&c.NodeID1,
 		&c.NodeID2,
 		&btcKey1,
@@ -218,10 +249,14 @@ func (c *ChannelAnnouncement2) DecodeNonSigTLVRecords(r io.Reader) error {
 		return err
 	}
 
-	// By default, the chain-hash is the bitcoin mainnet genesis block hash.
-	c.ChainHash.Val = *chaincfg.MainNetParams.GenesisHash
 	if _, ok := typeMap[c.ChainHash.TlvType()]; ok {
-		c.ChainHash.Val = chainHash.Val
+		hash := c.ChainHash.Zero()
+		hash.Val = chainHash.Val
+		c.ChainHash = tlv.SomeRecordT(hash)
+	}
+
+	if _, ok := typeMap[c.Features.TlvType()]; ok {
+		c.Features = tlv.SomeRecordT(features)
 	}
 
 	if _, ok := typeMap[c.BitcoinKey1.TlvType()]; ok {
@@ -297,7 +332,9 @@ func (c *ChannelAnnouncement2) Node2KeyBytes() [33]byte {
 //
 // NOTE: This is part of the ChannelAnnouncement interface.
 func (c *ChannelAnnouncement2) GetChainHash() chainhash.Hash {
-	return c.ChainHash.Val
+	return c.ChainHash.ValOpt().UnwrapOr(
+		*chaincfg.MainNetParams.GenesisHash,
+	)
 }
 
 // SCID returns the short channel ID of the channel.

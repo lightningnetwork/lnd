@@ -132,18 +132,25 @@ var _ TestMessage = (*AnnounceSignatures2)(nil)
 // This is part of the TestMessage interface.
 func (a *AnnounceSignatures2) RandTestMessage(t *rapid.T) Message {
 	var (
-		chanID = RandChannelID(t)
-		scid   = RandShortChannelID(t)
-		pSig   = RandPartialSig(t)
+		chanID      = RandChannelID(t)
+		scid        = RandShortChannelID(t)
+		nodeSig     = RandPartialSig(t)
+		bitcoinSig  = RandPartialSig(t)
+		fundingTxID = RandChainHash(t)
 	)
+
+	sigs := NewAnnouncementSigPair(nodeSig.Sig, bitcoinSig.Sig)
 
 	msg := &AnnounceSignatures2{
 		ChannelID: tlv.NewRecordT[tlv.TlvType0, ChannelID](
 			chanID,
 		),
 		ShortChannelID: tlv.NewRecordT[tlv.TlvType2](scid),
-		PartialSignature: tlv.NewRecordT[tlv.TlvType4, PartialSig](
-			*pSig,
+		PartialSignatures: tlv.NewRecordT[
+			tlv.TlvType4, AnnouncementSigPair,
+		](sigs),
+		FundingTxID: tlv.NewPrimitiveRecord[tlv.TlvType6](
+			fundingTxID,
 		),
 		ExtraSignedFields: make(map[uint64][]byte),
 	}
@@ -232,11 +239,10 @@ func (c *ChannelAnnouncement2) RandTestMessage(t *rapid.T) Message {
 	copy(chainHashObj[:], chainHash[:])
 
 	msg := &ChannelAnnouncement2{
-		ChainHash: tlv.NewPrimitiveRecord[tlv.TlvType0, chainhash.Hash](
-			chainHashObj,
-		),
-		Features: tlv.NewRecordT[tlv.TlvType2, RawFeatureVector](
-			*features,
+		ChainHash: tlv.SomeRecordT(
+			tlv.NewPrimitiveRecord[tlv.TlvType0, chainhash.Hash](
+				chainHashObj,
+			),
 		),
 		ShortChannelID: tlv.NewRecordT[tlv.TlvType4, ShortChannelID](
 			shortChanID,
@@ -262,6 +268,14 @@ func (c *ChannelAnnouncement2) RandTestMessage(t *rapid.T) Message {
 	}
 
 	// Randomly include optional fields
+	if rapid.Bool().Draw(t, "includeFeatures") {
+		msg.Features = tlv.SomeRecordT(
+			tlv.NewRecordT[tlv.TlvType2, RawFeatureVector](
+				*features,
+			),
+		)
+	}
+
 	if rapid.Bool().Draw(t, "includeBitcoinKey1") {
 		var bitcoinKey1 [33]byte
 		copy(bitcoinKey1[:], RandPubKey(t).SerializeCompressed())
@@ -564,58 +578,77 @@ func (c *ChannelUpdate2) RandTestMessage(t *rapid.T) Message {
 	var chainHashObj chainhash.Hash
 	copy(chainHashObj[:], chainHash[:])
 
-	//nolint:ll
+	var direction byte
+	if rapid.Bool().Draw(t, "isSecondPeer") {
+		direction = 1
+	}
+	sciddir, err := NewSciddirIntroFromSCID(direction, shortChanID)
+	if err != nil {
+		t.Fatalf("unable to build sciddir: %v", err)
+	}
+	scidRecord := tlv.ZeroRecordT[tlv.TlvType2, SciddirIntro]()
+	scidRecord.Val = sciddir
+
 	msg := &ChannelUpdate2{
-		ChainHash: tlv.NewPrimitiveRecord[tlv.TlvType0, chainhash.Hash](
-			chainHashObj,
+		ChainHash: tlv.SomeRecordT(
+			tlv.NewPrimitiveRecord[tlv.TlvType0, chainhash.Hash](
+				chainHashObj,
+			),
 		),
-		ShortChannelID: tlv.NewRecordT[tlv.TlvType2, ShortChannelID](
-			shortChanID,
-		),
+		ShortChannelID: scidRecord,
 		BlockHeight: tlv.NewPrimitiveRecord[tlv.TlvType4, uint32](
 			blockHeight,
 		),
-		DisabledFlags: tlv.NewPrimitiveRecord[tlv.TlvType6, ChanUpdateDisableFlags]( //nolint:ll
-			disabledFlags,
+		DisabledFlags: tlv.SomeRecordT(
+			tlv.NewPrimitiveRecord[tlv.TlvType6, ChanUpdateDisableFlags]( //nolint:ll
+				disabledFlags,
+			),
 		),
-		CLTVExpiryDelta: tlv.NewPrimitiveRecord[tlv.TlvType10, uint16](
-			cltvExpiryDelta,
+		CLTVExpiryDelta: tlv.SomeRecordT(
+			tlv.NewPrimitiveRecord[tlv.TlvType10, uint16](
+				cltvExpiryDelta,
+			),
 		),
-		HTLCMinimumMsat: tlv.NewPrimitiveRecord[tlv.TlvType12, MilliSatoshi](
-			htlcMinMsat,
+		HTLCMinimumMsat: tlv.SomeRecordT(
+			tlv.NewPrimitiveRecord[tlv.TlvType12, MilliSatoshi](
+				htlcMinMsat,
+			),
 		),
-		HTLCMaximumMsat: tlv.NewPrimitiveRecord[tlv.TlvType14, MilliSatoshi](
-			htlcMaxMsat,
+		HTLCMaximumMsat: tlv.SomeRecordT(
+			tlv.NewPrimitiveRecord[tlv.TlvType14, MilliSatoshi](
+				htlcMaxMsat,
+			),
 		),
-		FeeBaseMsat: tlv.NewPrimitiveRecord[tlv.TlvType16, uint32](
-			feeBaseMsat,
+		FeeBaseMsat: tlv.SomeRecordT(
+			tlv.NewPrimitiveRecord[tlv.TlvType16, uint32](
+				feeBaseMsat,
+			),
 		),
-		FeeProportionalMillionths: tlv.NewPrimitiveRecord[tlv.TlvType18, uint32](
-			feeProportionalMillionths,
+		FeeProportionalMillionths: tlv.SomeRecordT(
+			tlv.NewPrimitiveRecord[tlv.TlvType18, uint32](
+				feeProportionalMillionths,
+			),
 		),
 		ExtraSignedFields: make(map[uint64][]byte),
 	}
 
 	if rapid.Bool().Draw(t, "includeInboundFee") {
-		base := rapid.IntRange(-1000, 1000).Draw(t, "inFeeBase")
-		rate := rapid.IntRange(-1000, 1000).Draw(t, "inFeeProp")
-		fee := Fee{
-			BaseFee: int32(base),
-			FeeRate: int32(rate),
-		}
-		msg.InboundFee = tlv.SomeRecordT(
-			tlv.NewRecordT[tlv.TlvType55555](fee),
+		base := uint32(
+			rapid.IntRange(1, 0x7FFFFFFF).Draw(t, "inFeeBase"),
+		)
+		rate := uint32(
+			rapid.IntRange(1, 0x7FFFFFFF).Draw(t, "inFeeProp"),
+		)
+		msg.InboundFeeBaseMsat = tlv.SomeRecordT(
+			tlv.NewPrimitiveRecord[tlv.TlvType20](base),
+		)
+		msg.InboundFeeProportionalMillionths = tlv.SomeRecordT(
+			tlv.NewPrimitiveRecord[tlv.TlvType22](rate),
 		)
 	}
 
 	msg.Signature.Val = RandSignature(t)
 	msg.Signature.Val.ForceSchnorr()
-
-	if rapid.Bool().Draw(t, "isSecondPeer") {
-		msg.SecondPeer = tlv.SomeRecordT(
-			tlv.RecordT[tlv.TlvType8, TrueBoolean]{},
-		)
-	}
 
 	return msg
 }
@@ -1284,22 +1317,20 @@ func (g *GossipTimestampRange) RandTestMessage(t *rapid.T) Message {
 		ExtraData:      RandExtraOpaqueData(t, nil),
 	}
 
-	includeFirstBlockHeight := rapid.Bool().Draw(
-		t, "includeFirstBlockHeight",
+	includeBlockHeightRange := rapid.Bool().Draw(
+		t, "includeBlockHeightRange",
 	)
-	includeBlockRange := rapid.Bool().Draw(t, "includeBlockRange")
 
-	if includeFirstBlockHeight {
+	if includeBlockHeightRange {
 		height := rapid.Uint32().Draw(t, "firstBlockHeight")
-		msg.FirstBlockHeight = tlv.SomeRecordT(
-			tlv.RecordT[tlv.TlvType2, uint32]{Val: height},
-		)
-	}
-
-	if includeBlockRange {
-		blockRange := rapid.Uint32().Draw(t, "blockRange")
-		msg.BlockRange = tlv.SomeRecordT(
-			tlv.RecordT[tlv.TlvType4, uint32]{Val: blockRange},
+		numBlocks := rapid.Uint32().Draw(t, "numBlocks")
+		msg.BlockHeightRange = tlv.SomeRecordT(
+			tlv.RecordT[tlv.TlvType2, BlockHeightRange]{
+				Val: BlockHeightRange{
+					FirstBlockHeight: height,
+					NumBlocks:        numBlocks,
+				},
+			},
 		)
 	}
 
@@ -1498,19 +1529,21 @@ func (n *NodeAnnouncement2) RandTestMessage(t *rapid.T) Message {
 		msg.TorV3Addrs = tlv.SomeRecordT(torV3Record)
 	}
 
-	if rapid.Bool().Draw(t, "includeDNSHostName") {
-		// Generate a valid DNS hostname.
-		hostname := genValidHostname(t)
-		port := rapid.Uint16Range(1, 65535).Draw(t, "dnsPort")
-
-		dnsAddr := DNSAddress{
-			Hostname: hostname,
-			Port:     port,
+	if rapid.Bool().Draw(t, "includeDNSHostNames") {
+		numAddrs := rapid.IntRange(1, 3).Draw(t, "numDNSAddrs")
+		dnsAddrs := make(DNSAddrs, 0, numAddrs)
+		for i := 0; i < numAddrs; i++ {
+			dnsAddrs = append(dnsAddrs, &DNSAddress{
+				Hostname: genValidHostname(t),
+				Port: rapid.Uint16Range(1, 65535).Draw(
+					t, "dnsPort",
+				),
+			})
 		}
 
-		dnsRecord := tlv.ZeroRecordT[tlv.TlvType11, DNSAddress]()
-		dnsRecord.Val = dnsAddr
-		msg.DNSHostName = tlv.SomeRecordT(dnsRecord)
+		dnsRecord := tlv.ZeroRecordT[tlv.TlvType11, DNSAddrs]()
+		dnsRecord.Val = dnsAddrs
+		msg.DNSHostNames = tlv.SomeRecordT(dnsRecord)
 	}
 
 	randRecs, _ := RandSignedRangeRecords(t)

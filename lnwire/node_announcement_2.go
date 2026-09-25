@@ -7,11 +7,18 @@ import (
 	"fmt"
 	"image/color"
 	"io"
+	"math"
 	"net"
 	"unicode/utf8"
 
 	"github.com/lightningnetwork/lnd/tlv"
 	"github.com/lightningnetwork/lnd/tor"
+)
+
+// ErrNodeAnn2PortOutOfRange is returned when an address cannot represent its
+// port as the unsigned 16-bit value required on the wire.
+var ErrNodeAnn2PortOutOfRange = errors.New(
+	"node announcement address port outside uint16 range",
 )
 
 // NodeAnnouncement2 message is used to announce the presence of a Lightning
@@ -53,13 +60,13 @@ type NodeAnnouncement2 struct {
 	// reachable at.
 	TorV3Addrs tlv.OptionalRecordT[tlv.TlvType9, TorV3Addrs]
 
-	// DNSHostName is an optional DNS hostname that the node is reachable
-	// at.
-	DNSHostName tlv.OptionalRecordT[tlv.TlvType11, DNSAddress]
+	// DNSHostNames is an optional list of DNS hostnames that the node is
+	// reachable at.
+	DNSHostNames tlv.OptionalRecordT[tlv.TlvType11, DNSAddrs]
 
 	// Signature is used to validate the announced data and prove the
 	// ownership of node id.
-	Signature tlv.RecordT[tlv.TlvType160, Sig]
+	Signature tlv.RecordT[tlv.TlvType240, Sig]
 
 	// Any extra fields in the signed range that we do not yet know about,
 	// but we need to keep them for signature validation and to produce a
@@ -107,7 +114,7 @@ func (n *NodeAnnouncement2) AllRecords() []tlv.Record {
 		recordProducers = append(recordProducers, &r)
 	})
 
-	n.DNSHostName.WhenSome(func(r tlv.RecordT[tlv.TlvType11, DNSAddress]) {
+	n.DNSHostNames.WhenSome(func(r tlv.RecordT[tlv.TlvType11, DNSAddrs]) {
 		recordProducers = append(recordProducers, &r)
 	})
 
@@ -129,7 +136,7 @@ func (n *NodeAnnouncement2) Decode(r io.Reader, _ uint32) error {
 		ipv4  = tlv.ZeroRecordT[tlv.TlvType5, IPV4Addrs]()
 		ipv6  = tlv.ZeroRecordT[tlv.TlvType7, IPV6Addrs]()
 		torV3 = tlv.ZeroRecordT[tlv.TlvType9, TorV3Addrs]()
-		dns   = tlv.ZeroRecordT[tlv.TlvType11, DNSAddress]()
+		dns   = tlv.ZeroRecordT[tlv.TlvType11, DNSAddrs]()
 	)
 
 	stream, err := tlv.NewStream(ProduceRecordsSorted(
@@ -154,6 +161,16 @@ func (n *NodeAnnouncement2) Decode(r io.Reader, _ uint32) error {
 		return err
 	}
 
+	if err := assertRequiredPresent(
+		typeMap,
+		n.Features.TlvType(),
+		n.BlockHeight.TlvType(),
+		n.NodeID.TlvType(),
+		n.Signature.TlvType(),
+	); err != nil {
+		return err
+	}
+
 	if _, ok := typeMap[n.Alias.TlvType()]; ok {
 		n.Alias = tlv.SomeRecordT(alias)
 	}
@@ -174,8 +191,8 @@ func (n *NodeAnnouncement2) Decode(r io.Reader, _ uint32) error {
 		n.TorV3Addrs = tlv.SomeRecordT(torV3)
 	}
 
-	if _, ok := typeMap[n.DNSHostName.TlvType()]; ok {
-		n.DNSHostName = tlv.SomeRecordT(dns)
+	if _, ok := typeMap[n.DNSHostNames.TlvType()]; ok {
+		n.DNSHostNames = tlv.SomeRecordT(dns)
 	}
 
 	n.ExtraSignedFields = ExtraSignedFieldsFromTypeMap(typeMap)
@@ -211,6 +228,57 @@ func (n *NodeAnnouncement2) NodePub() [33]byte {
 // NOTE: part of the NodeAnnouncement interface.
 func (n *NodeAnnouncement2) NodeFeatures() *FeatureVector {
 	return NewFeatureVector(&n.Features.Val, Features)
+}
+
+// Addresses returns the addresses that the node can be reached at, with every
+// unusable entry left out. An entry with a zero port is unusable, and so is a
+// DNS entry whose hostname fails ValidateDNSAddr. BOLT 7 tells a receiver to
+// ignore such an address and keep the rest of the announcement, so a
+// consumer uses this method rather than the raw address fields.
+//
+// The filter cannot live in the codec. The address fields are in the signed
+// range, and the signature digest is rebuilt by re-encoding the decoded
+// records, so the codec has to round-trip every entry. For the same reason
+// the codec does not enforce the sender rule that a node must not announce a
+// zero port. That rule belongs where lnd builds its own announcement.
+func (n *NodeAnnouncement2) Addresses() []net.Addr {
+	var addrs []net.Addr
+
+	n.IPV4Addrs.WhenSome(func(r tlv.RecordT[tlv.TlvType5, IPV4Addrs]) {
+		for _, addr := range r.Val {
+			if addr.Port != 0 {
+				addrs = append(addrs, addr)
+			}
+		}
+	})
+
+	n.IPV6Addrs.WhenSome(func(r tlv.RecordT[tlv.TlvType7, IPV6Addrs]) {
+		for _, addr := range r.Val {
+			if addr.Port != 0 {
+				addrs = append(addrs, addr)
+			}
+		}
+	})
+
+	n.TorV3Addrs.WhenSome(func(r tlv.RecordT[tlv.TlvType9, TorV3Addrs]) {
+		for _, addr := range r.Val {
+			if addr.Port != 0 {
+				addrs = append(addrs, addr)
+			}
+		}
+	})
+
+	n.DNSHostNames.WhenSome(func(r tlv.RecordT[tlv.TlvType11, DNSAddrs]) {
+		for _, addr := range r.Val {
+			// ValidateDNSAddr also rejects a zero port.
+			err := ValidateDNSAddr(addr.Hostname, addr.Port)
+			if err == nil {
+				addrs = append(addrs, addr)
+			}
+		}
+	})
+
+	return addrs
 }
 
 // TimestampDesc returns a human-readable description of the timestamp of the
@@ -377,6 +445,10 @@ func (a *IPV4Addrs) encodedSize() uint64 {
 func ipv4AddrsEncoder(w io.Writer, val interface{}, _ *[8]byte) error {
 	if v, ok := val.(*IPV4Addrs); ok {
 		for _, ip := range *v {
+			if err := validateNodeAnn2Port(ip.Port); err != nil {
+				return err
+			}
+
 			_, err := w.Write(ip.IP.To4())
 			if err != nil {
 				return err
@@ -406,20 +478,20 @@ func ipv4AddrsDecoder(r io.Reader, val interface{}, _ *[8]byte,
 		var (
 			numAddrs = int(l / ipv4AddrEncodedSize)
 			addrs    = make([]*net.TCPAddr, 0, numAddrs)
-			ip       [4]byte
 			port     [2]byte
 		)
 		for len(addrs) < numAddrs {
-			_, err := r.Read(ip[:])
+			ip := make(net.IP, net.IPv4len)
+			_, err := io.ReadFull(r, ip)
 			if err != nil {
 				return err
 			}
-			_, err = r.Read(port[:])
+			_, err = io.ReadFull(r, port[:])
 			if err != nil {
 				return err
 			}
 			addrs = append(addrs, &net.TCPAddr{
-				IP:   ip[:],
+				IP:   ip,
 				Port: int(binary.BigEndian.Uint16(port[:])),
 			})
 		}
@@ -457,6 +529,10 @@ func (a *IPV6Addrs) encodedSize() uint64 {
 func ipv6AddrsEncoder(w io.Writer, val interface{}, _ *[8]byte) error {
 	if v, ok := val.(*IPV6Addrs); ok {
 		for _, ip := range *v {
+			if err := validateNodeAnn2Port(ip.Port); err != nil {
+				return err
+			}
+
 			_, err := w.Write(ip.IP.To16())
 			if err != nil {
 				return err
@@ -486,20 +562,20 @@ func ipv6AddrsDecoder(r io.Reader, val interface{}, _ *[8]byte,
 		var (
 			numAddrs = int(l / ipv6AddrEncodedSize)
 			addrs    = make([]*net.TCPAddr, 0, numAddrs)
-			ip       [16]byte
 			port     [2]byte
 		)
 		for len(addrs) < numAddrs {
-			_, err := r.Read(ip[:])
+			ip := make(net.IP, net.IPv6len)
+			_, err := io.ReadFull(r, ip)
 			if err != nil {
 				return err
 			}
-			_, err = r.Read(port[:])
+			_, err = io.ReadFull(r, port[:])
 			if err != nil {
 				return err
 			}
 			addrs = append(addrs, &net.TCPAddr{
-				IP:   ip[:],
+				IP:   ip,
 				Port: int(binary.BigEndian.Uint16(port[:])),
 			})
 		}
@@ -536,6 +612,10 @@ func (a *TorV3Addrs) Record() tlv.Record {
 func torV3AddrsEncoder(w io.Writer, val interface{}, _ *[8]byte) error {
 	if v, ok := val.(*TorV3Addrs); ok {
 		for _, addr := range *v {
+			if err := validateNodeAnn2Port(addr.Port); err != nil {
+				return err
+			}
+
 			encodedHostLen := tor.V3Len - tor.OnionSuffixLen
 			host, err := tor.Base32Encoding.DecodeString(
 				addr.OnionService[:encodedHostLen],
@@ -565,6 +645,17 @@ func torV3AddrsEncoder(w io.Writer, val interface{}, _ *[8]byte) error {
 	}
 
 	return tlv.NewTypeForEncodingErr(val, "lnwire.TorV3Addrs")
+}
+
+// validateNodeAnn2Port ensures a locally constructed address cannot wrap when
+// converted to its two-byte wire representation. Port zero remains encodable
+// so received signed records can be reproduced byte for byte.
+func validateNodeAnn2Port(port int) error {
+	if port < 0 || port > math.MaxUint16 {
+		return fmt.Errorf("%w: %d", ErrNodeAnn2PortOutOfRange, port)
+	}
+
+	return nil
 }
 
 // torV3AddrsDecoder decodes TLV bytes into Tor v3 addresses.

@@ -1,6 +1,7 @@
 package lnwallet
 
 import (
+	"crypto/sha256"
 	"testing"
 
 	"github.com/btcsuite/btcd/btcec/v2"
@@ -27,10 +28,78 @@ type muSessionHarness struct {
 	bobCommit   *wire.MsgTx
 
 	aliceSession *MusigPairSession
+	aliceSigner  *trackingMusigSigner
 
 	bobSession *MusigPairSession
+	bobSigner  *trackingMusigSigner
 
 	t *testing.T
+}
+
+// trackingMusigSigner records the sessions created and cleaned up by the
+// signer so tests can assert their lifecycle without reaching into its private
+// session map.
+type trackingMusigSigner struct {
+	*input.MockSigner
+
+	activeSessions map[input.MuSig2SessionID]struct{}
+}
+
+func newTrackingMusigSigner(signer *input.MockSigner) *trackingMusigSigner {
+	return &trackingMusigSigner{
+		MockSigner:     signer,
+		activeSessions: make(map[input.MuSig2SessionID]struct{}),
+	}
+}
+
+// MuSig2CreateSession records each session created by the backing signer.
+func (s *trackingMusigSigner) MuSig2CreateSession(
+	version input.MuSig2Version, keyLoc keychain.KeyLocator,
+	signerKeys []*btcec.PublicKey, tweaks *input.MuSig2Tweaks,
+	otherNonces [][musig2.PubNonceSize]byte,
+	localNonces *musig2.Nonces) (*input.MuSig2SessionInfo, error) {
+
+	session, err := s.MockSigner.MuSig2CreateSession(
+		version, keyLoc, signerKeys, tweaks, otherNonces, localNonces,
+	)
+	if err != nil {
+		return nil, err
+	}
+
+	s.activeSessions[session.SessionID] = struct{}{}
+
+	return session, nil
+}
+
+// MuSig2Cleanup records each session removed from the backing signer.
+func (s *trackingMusigSigner) MuSig2Cleanup(
+	sessionID input.MuSig2SessionID) error {
+
+	err := s.MockSigner.MuSig2Cleanup(sessionID)
+	if err != nil {
+		return err
+	}
+
+	delete(s.activeSessions, sessionID)
+
+	return nil
+}
+
+// MuSig2Sign records sessions removed atomically by the signing call.
+func (s *trackingMusigSigner) MuSig2Sign(sessionID input.MuSig2SessionID,
+	msg [sha256.Size]byte,
+	cleanUp bool) (*musig2.PartialSignature, error) {
+
+	sig, err := s.MockSigner.MuSig2Sign(sessionID, msg, cleanUp)
+	if err != nil {
+		return nil, err
+	}
+
+	if cleanUp {
+		delete(s.activeSessions, sessionID)
+	}
+
+	return sig, nil
 }
 
 func (h *muSessionHarness) selectSession(nodeName nodeType) *MusigPairSession {
@@ -78,7 +147,9 @@ func (h *muSessionHarness) refreshSession(nodeName nodeType,
 func (h *muSessionHarness) SignCommitment(nodeName nodeType) *MusigPartialSig {
 	targetSession := h.selectSession(nodeName)
 
-	sig, err := targetSession.RemoteSession.SignCommit(h.bobCommit)
+	sig, err := targetSession.RemoteSession.signCommitAndCleanup(
+		h.bobCommit,
+	)
 	require.NoError(h.t, err)
 
 	return sig
@@ -107,7 +178,9 @@ func (h *muSessionHarness) VerifyAndSignCommitment(nodeName nodeType,
 	// Next, sign a new version of the commitment for the remote party.
 	// This uses a JIT nonce that'll be sent along side the signature, and
 	// consumes the verification nonce of the remote party.
-	remoteSig, err := muSession.RemoteSession.SignCommit(h.aliceCommit)
+	remoteSig, err := muSession.RemoteSession.signCommitAndCleanup(
+		h.aliceCommit,
+	)
 	require.NoError(h.t, err)
 
 	return remoteSig, nextVerificationNonce
@@ -162,7 +235,9 @@ func newMuSessionHarness(t *testing.T) *muSessionHarness {
 	})
 
 	alicePriv, alicePub := btcec.PrivKeyFromBytes(testWalletPrivKey)
-	aliceSigner := input.NewMockSigner([]*btcec.PrivateKey{alicePriv}, nil)
+	aliceSigner := newTrackingMusigSigner(input.NewMockSigner(
+		[]*btcec.PrivateKey{alicePriv}, nil,
+	))
 
 	aliceVerificationNonce, err := musig2.GenNonces(
 		musig2.WithPublicKey(alicePub),
@@ -170,7 +245,9 @@ func newMuSessionHarness(t *testing.T) *muSessionHarness {
 	require.NoError(t, err)
 
 	bobPriv, bobPub := btcec.PrivKeyFromBytes(bobsPrivKey)
-	bobSigner := input.NewMockSigner([]*btcec.PrivateKey{bobPriv}, nil)
+	bobSigner := newTrackingMusigSigner(input.NewMockSigner(
+		[]*btcec.PrivateKey{bobPriv}, nil,
+	))
 
 	bobVerificationNonce, err := musig2.GenNonces(
 		musig2.WithPublicKey(bobPub),
@@ -211,8 +288,10 @@ func newMuSessionHarness(t *testing.T) *muSessionHarness {
 	return &muSessionHarness{
 		aliceCommit:  aliceCommit,
 		aliceSession: aliceSession,
+		aliceSigner:  aliceSigner,
 		bobCommit:    bobCommit,
 		bobSession:   bobSession,
+		bobSigner:    bobSigner,
 		t:            t,
 	}
 }
@@ -254,12 +333,39 @@ func TestMusigSesssion(t *testing.T) {
 			// Alice's new verification nonce.
 			muSessions.ProcessVerificationNonce(nodeBob, aliceNonce)
 
+			require.Empty(t, muSessions.aliceSigner.activeSessions)
+			require.Empty(t, muSessions.bobSigner.activeSessions)
+
 			// Modify the commitments after each round to simulate
 			// the LN protocol commitment randomness structure
 			// (sequence+locktime change each state, etc).
 			muSessions.aliceCommit.TxIn[0].PreviousOutPoint.Index++
 			muSessions.bobCommit.TxIn[0].PreviousOutPoint.Index++
 		}
+	})
+
+	t.Run("retained session", func(t *testing.T) {
+		muSessions := newMuSessionHarness(t)
+		remoteSession := muSessions.aliceSession.RemoteSession
+
+		_, err := remoteSession.SignCommit(muSessions.bobCommit)
+		require.NoError(t, err)
+		require.Len(t, muSessions.aliceSigner.activeSessions, 1)
+
+		require.NoError(t, remoteSession.cleanup())
+		require.Empty(t, muSessions.aliceSigner.activeSessions)
+	})
+
+	t.Run("invalid signature cleanup", func(t *testing.T) {
+		muSessions := newMuSessionHarness(t)
+		aliceSig := muSessions.SignCommitment(nodeAlice).ToWireSig()
+		aliceSig.Sig.SetInt(0)
+
+		_, err := muSessions.bobSession.LocalSession.VerifyCommitSig(
+			muSessions.bobCommit, aliceSig,
+		)
+		require.Error(t, err)
+		require.Empty(t, muSessions.bobSigner.activeSessions)
 	})
 
 	t.Run("no_finalize_error", func(t *testing.T) {

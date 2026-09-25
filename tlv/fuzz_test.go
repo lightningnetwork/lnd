@@ -2,6 +2,7 @@ package tlv
 
 import (
 	"bytes"
+	"math"
 	"testing"
 
 	"github.com/btcsuite/btcd/btcec/v2"
@@ -94,6 +95,23 @@ func FuzzVarBytes(f *testing.F) {
 	f.Fuzz(func(t *testing.T, data []byte) {
 		var val []byte
 		harness(t, data, EVarBytes, DVarBytes, &val, uint64(len(data)))
+	})
+}
+
+// FuzzVarBytesDeclaredLength verifies that the decoder only allocates bytes
+// supplied by the reader, regardless of the declared length.
+func FuzzVarBytesDeclaredLength(f *testing.F) {
+	f.Add([]byte{}, uint64(0))
+	f.Add([]byte{}, uint64(0x3030303030303030))
+	f.Add([]byte{}, uint64(math.MaxUint64))
+	f.Add([]byte{0x00}, uint64(1))
+
+	f.Fuzz(func(t *testing.T, data []byte, length uint64) {
+		var (
+			decoded []byte
+			buf     [8]byte
+		)
+		_ = DVarBytes(bytes.NewReader(data), &decoded, &buf, length)
 	})
 }
 
@@ -215,6 +233,11 @@ func encodeParsedTypes(t *testing.T, parsedTypes TypeMap,
 // FuzzStream does two stream decode-encode cycles on the fuzzer data and checks
 // that the encoded values match.
 func FuzzStream(f *testing.F) {
+	f.Add([]byte("0\xff00000000"))
+	f.Add([]byte{
+		0x08, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff,
+	})
+
 	f.Fuzz(func(t *testing.T, data []byte) {
 		var (
 			u8      uint8
@@ -274,9 +297,7 @@ func FuzzStream(f *testing.F) {
 
 		r := bytes.NewReader(data)
 
-		// Use the P2P decoding method to avoid OOMs from large lengths
-		// in the fuzzer TLV data.
-		parsedTypes, err := decodeStream.DecodeWithParsedTypesP2P(r)
+		parsedTypes, err := decodeStream.DecodeWithParsedTypes(r)
 		if err != nil {
 			return
 		}
@@ -294,5 +315,30 @@ func FuzzStream(f *testing.F) {
 		encoded2 := encodeParsedTypes(t, parsedTypes2, decodeRecords)
 
 		require.Equal(t, encoded, encoded2)
+	})
+}
+
+// FuzzUnknownRecordDecode verifies that untrusted unknown records can be
+// decoded with their values preserved without trusting their declared length.
+func FuzzUnknownRecordDecode(f *testing.F) {
+	f.Add([]byte{})
+	f.Add([]byte{0x01, 0x00})
+	f.Add([]byte{0x01, 0x01, 0x00})
+	f.Add([]byte("0\xff00000000"))
+	f.Add([]byte{
+		0x01, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff,
+	})
+
+	f.Fuzz(func(t *testing.T, data []byte) {
+		stream := MustNewStream()
+		parsedTypes, err := stream.DecodeWithParsedTypes(
+			bytes.NewReader(data),
+		)
+		if err != nil {
+			return
+		}
+
+		encoded := encodeParsedTypes(t, parsedTypes, nil)
+		require.True(t, bytes.Equal(data, encoded))
 	})
 }

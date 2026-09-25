@@ -1,10 +1,12 @@
 package tlv
 
 import (
+	"bytes"
 	"encoding/binary"
 	"errors"
 	"fmt"
 	"io"
+	"math"
 
 	"github.com/btcsuite/btcd/btcec/v2"
 )
@@ -330,9 +332,21 @@ func EVarBytes(w io.Writer, val interface{}, _ *[8]byte) error {
 // is not *[]byte.
 func DVarBytes(r io.Reader, val interface{}, _ *[8]byte, l uint64) error {
 	if b, ok := val.(*[]byte); ok {
-		*b = make([]byte, l)
-		_, err := io.ReadFull(r, *b)
-		return err
+		if l > math.MaxInt64 {
+			return ErrRecordTooLarge
+		}
+
+		var decoded bytes.Buffer
+		n, err := io.CopyN(&decoded, r, int64(l))
+		if err == io.EOF && n > 0 {
+			return io.ErrUnexpectedEOF
+		}
+		if err != nil {
+			return err
+		}
+
+		*b = decoded.Bytes()
+		return nil
 	}
 	return NewTypeForDecodingErr(val, "[]byte", l, l)
 }

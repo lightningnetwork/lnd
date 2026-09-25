@@ -323,7 +323,7 @@ waiting for it.
 
 ## Testing
 
-The tests come in two layers.
+The tests come in three layers.
 
 **Pure state machine tests** call `ProcessEvent` directly, with no goroutines.
 `TestSyncerProperties` drives the syncer against a model peer that answers with
@@ -358,3 +358,9 @@ packages at the first flag it doesn't know.
 
 Fake time makes these runs fast: a scenario covers six hours of fake time in
 about two milliseconds.
+
+**Formal models** in [`pmodel/`](pmodel/README.md) describe the contract of the
+manager and the peer syncer in P, and the P checker explores thousands of
+interleavings of every test case. The bridge tests replay the models' recorded
+executions against the Go state machines on every `go test`, and
+[`SPEC.md`](SPEC.md) is the requirements spec derived from the models.

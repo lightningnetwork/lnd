@@ -2,7 +2,6 @@ package htlcswitch_test
 
 import (
 	"bytes"
-	"fmt"
 	"reflect"
 	"testing"
 
@@ -98,7 +97,7 @@ func newOnionProcessor(t *testing.T) *hop.OnionProcessor {
 
 // newCircuitMap creates a new htlcswitch.CircuitMap using a temp db and a
 // fresh sphinx router. When resMsg is set to true, CheckResolutionMsg will
-// always return nil. Otherwise it will always return an error.
+// always return nil. Otherwise it will always report a clean miss.
 func newCircuitMap(t *testing.T, resMsg bool) (*htlcswitch.CircuitMapConfig,
 	htlcswitch.CircuitMap) {
 
@@ -110,6 +109,7 @@ func newCircuitMap(t *testing.T, resMsg bool) (*htlcswitch.CircuitMapConfig,
 		FetchAllOpenChannels:  db.ChannelStateDB().FetchAllOpenChannels,
 		FetchClosedChannels:   db.ChannelStateDB().FetchClosedChannels,
 		ExtractErrorEncrypter: onionProcessor.ExtractErrorEncrypter,
+		CheckFwdResponse:      db.ChannelStateDB().CheckFwdResponse,
 	}
 
 	if resMsg {
@@ -119,7 +119,7 @@ func newCircuitMap(t *testing.T, resMsg bool) (*htlcswitch.CircuitMapConfig,
 		circuitMapCfg.CheckResolutionMsg = checkRes
 	} else {
 		checkRes := func(out *htlcswitch.CircuitKey) error {
-			return fmt.Errorf("not found")
+			return htlcswitch.ErrResMsgNotFound
 		}
 		circuitMapCfg.CheckResolutionMsg = checkRes
 	}
@@ -648,6 +648,7 @@ func restartCircuitMap(t *testing.T, cfg *htlcswitch.CircuitMapConfig) (
 		FetchClosedChannels:   db.ChannelStateDB().FetchClosedChannels,
 		ExtractErrorEncrypter: cfg.ExtractErrorEncrypter,
 		CheckResolutionMsg:    cfg.CheckResolutionMsg,
+		CheckFwdResponse:      db.ChannelStateDB().CheckFwdResponse,
 	}
 	cm2, err := htlcswitch.NewCircuitMap(cfg2)
 	require.NoError(t, err, "unable to recreate persistent circuit map")

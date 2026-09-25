@@ -964,8 +964,12 @@ func (s *UtxoSweeper) markInputsPublished(tr *TxRecord, set InputSet) error {
 }
 
 // markInputsPublishFailed marks the list of inputs as failed to be published.
+// If nextStartingFeeRate is Some, it is recorded as the input's new starting
+// fee rate for the next attempt; if None, the input's existing StartingFeeRate
+// is preserved. None is delivered by any failure path that carries no
+// fee-rate signal - any error classifyRetryError maps to policyPreserve.
 func (s *UtxoSweeper) markInputsPublishFailed(set InputSet,
-	feeRate chainfee.SatPerKWeight) {
+	nextStartingFeeRate fn.Option[chainfee.SatPerKWeight]) {
 
 	// Reschedule sweep.
 	for _, inp := range set.Inputs() {
@@ -994,6 +998,23 @@ func (s *UtxoSweeper) markInputsPublishFailed(set InputSet,
 		// Update the input's state.
 		pi.state = PublishFailed
 
+		// Only ratchet the starting fee rate when the BumpResult
+		// carries one. Any failure path with no fee-rate signal
+		// (resource failures, dust outputs, zero fee-rate delta,
+		// etc.) delivers fn.None; preserving the input's existing
+		// starting rate in that case avoids stranding inputs whose
+		// intrinsic budget can't accommodate a higher rate and
+		// avoids resetting the rate to a meaningless value on
+		// non-fee failures.
+		if nextStartingFeeRate.IsNone() {
+			log.Debugf("Input(%v): preserving starting fee rate "+
+				"%v across non-fee failure", op,
+				pi.params.StartingFeeRate)
+
+			continue
+		}
+
+		feeRate := nextStartingFeeRate.UnsafeFromSome()
 		log.Debugf("Input(%v): updating params: starting fee rate "+
 			"[%v -> %v]", op, pi.params.StartingFeeRate,
 			feeRate)
@@ -1719,7 +1740,7 @@ func (s *UtxoSweeper) handleBumpEventTxFailed(resp *bumpResp) {
 	// the inputs specified by the set.
 	//
 	// TODO(yy): should we also remove the failed tx from db?
-	s.markInputsPublishFailed(resp.set, resp.result.FeeRate)
+	s.markInputsPublishFailed(resp.set, resp.result.NextStartingFeeRate)
 }
 
 // handleBumpEventTxReplaced handles the case where the sweeping tx has been
@@ -1970,7 +1991,7 @@ func (s *UtxoSweeper) handleUnknownSpendTx(inp *SweeperInput, tx *wire.MsgTx) {
 func (s *UtxoSweeper) handleBumpEventTxUnknownSpend(r *bumpResp) {
 	// Mark the inputs as publish failed, which means they will be retried
 	// later.
-	s.markInputsPublishFailed(r.set, r.result.FeeRate)
+	s.markInputsPublishFailed(r.set, r.result.NextStartingFeeRate)
 
 	// Get all the inputs that are not spent in the current sweeping tx.
 	spentInputs := r.result.SpentInputs

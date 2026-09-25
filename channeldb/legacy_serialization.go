@@ -2,6 +2,8 @@ package channeldb
 
 import (
 	"io"
+
+	cstate "github.com/lightningnetwork/lnd/chanstate"
 )
 
 // deserializeCloseChannelSummaryV6 reads the v6 database format for
@@ -34,7 +36,7 @@ func deserializeCloseChannelSummaryV6(r io.Reader) (*ChannelCloseSummary, error)
 		return nil, err
 	}
 
-	if err := readChanConfig(r, &c.LocalChanConfig); err != nil {
+	if err := cstate.ReadChanConfig(r, &c.LocalChanConfig); err != nil {
 		return nil, err
 	}
 

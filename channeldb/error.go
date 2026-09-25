@@ -13,8 +13,7 @@ var (
 
 	// ErrNoHistoricalBucket is returned when the historical channel bucket
 	// not been created yet.
-	ErrNoHistoricalBucket = fmt.Errorf("historical channel bucket has " +
-		"not yet been created")
+	ErrNoHistoricalBucket = cstate.ErrNoHistoricalBucket
 
 	// ErrDBReversion is returned when detecting an attempt to revert to a
 	// prior database version.
@@ -30,7 +29,7 @@ var (
 
 	// ErrNoPastDeltas is returned when the channel delta bucket hasn't been
 	// created.
-	ErrNoPastDeltas = fmt.Errorf("channel has no recorded deltas")
+	ErrNoPastDeltas = cstate.ErrNoPastDeltas
 
 	// ErrNodeNotFound is returned when node bucket exists, but node with
 	// specific identity can't be found.
@@ -50,7 +49,11 @@ var (
 
 	// ErrNoClosedChannels is returned when a node is queries for all the
 	// channels it has closed, but it hasn't yet closed any channels.
-	ErrNoClosedChannels = fmt.Errorf("no channel have been closed yet")
+	ErrNoClosedChannels = cstate.ErrNoClosedChannels
+
+	// ErrClosedChannelNotFound signals that a closed channel could not be
+	// found in the channeldb.
+	ErrClosedChannelNotFound = cstate.ErrClosedChannelNotFound
 
 	// ErrNoForwardingEvents is returned in the case that a query fails due
 	// to the log not having any recorded events.
@@ -59,5 +62,5 @@ var (
 	// ErrChanAlreadyExists is return when the caller attempts to create a
 	// channel with a channel point that is already present in the
 	// database.
-	ErrChanAlreadyExists = fmt.Errorf("channel already exists")
+	ErrChanAlreadyExists = cstate.ErrChanAlreadyExists
 )

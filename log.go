@@ -51,6 +51,7 @@ import (
 	paymentsdb "github.com/lightningnetwork/lnd/payments/db"
 	"github.com/lightningnetwork/lnd/peer"
 	"github.com/lightningnetwork/lnd/peernotifier"
+	"github.com/lightningnetwork/lnd/pool"
 	"github.com/lightningnetwork/lnd/protofsm"
 	"github.com/lightningnetwork/lnd/routing"
 	"github.com/lightningnetwork/lnd/routing/blindedpath"
@@ -210,6 +211,7 @@ func SetupLoggers(root *build.SubLoggerManager, interceptor signal.Interceptor) 
 	AddSubLogger(root, graphdb.Subsystem, interceptor, graphdb.UseLogger)
 	AddSubLogger(root, chainio.Subsystem, interceptor, chainio.UseLogger)
 	AddSubLogger(root, msgmux.Subsystem, interceptor, msgmux.UseLogger)
+	AddSubLogger(root, pool.Subsystem, interceptor, pool.UseLogger)
 	AddSubLogger(root, sqldb.Subsystem, interceptor, sqldb.UseLogger)
 	AddSubLogger(
 		root, paymentsdb.Subsystem, interceptor, paymentsdb.UseLogger,

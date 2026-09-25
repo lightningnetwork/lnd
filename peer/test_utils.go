@@ -355,7 +355,8 @@ func createTestPeerWithChannel(t *testing.T, updateChan func(a,
 // mockMessageSwitch is a mock implementation of the messageSwitch interface
 // used for testing without relying on a *htlcswitch.Switch in unit tests.
 type mockMessageSwitch struct {
-	links []htlcswitch.ChannelUpdateHandler
+	links        []htlcswitch.ChannelUpdateHandler
+	onRemoveLink func()
 }
 
 // BestHeight currently returns a dummy value.
@@ -368,8 +369,12 @@ func (m *mockMessageSwitch) CircuitModifier() htlcswitch.CircuitModifier {
 	return nil
 }
 
-// RemoveLink currently does nothing.
-func (m *mockMessageSwitch) RemoveLink(cid lnwire.ChannelID) {}
+// RemoveLink invokes an optional test hook.
+func (m *mockMessageSwitch) RemoveLink(cid lnwire.ChannelID) {
+	if m.onRemoveLink != nil {
+		m.onRemoveLink()
+	}
+}
 
 // CreateAndAddLink currently returns a dummy value.
 func (m *mockMessageSwitch) CreateAndAddLink(cfg htlcswitch.ChannelLinkConfig,

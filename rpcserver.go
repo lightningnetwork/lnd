@@ -3440,7 +3440,7 @@ func (r *rpcServer) GetInfo(_ context.Context,
 		uris[i] = fmt.Sprintf("%s@%s", encodedIDPub, addr.String())
 	}
 
-	isGraphSynced := r.server.authGossiper.SyncManager().IsGraphSynced()
+	isGraphSynced := r.server.authGossiper.IsGraphSynced()
 
 	features := make(map[uint32]*lnrpc.Feature)
 	sets := r.server.featureMgr.ListSets()
@@ -3599,9 +3599,7 @@ func (r *rpcServer) ListPeers(ctx context.Context,
 		// syncer for the peer, then we'll default to a passive sync.
 		// This can happen if the RPC is called while a peer is
 		// initializing.
-		syncer, ok := r.server.authGossiper.SyncManager().GossipSyncer(
-			nodePub,
-		)
+		syncType, ok := r.server.authGossiper.SyncTypeOf(nodePub)
 
 		var lnrpcSyncType lnrpc.Peer_SyncType
 		if !ok {
@@ -3609,7 +3607,6 @@ func (r *rpcServer) ListPeers(ctx context.Context,
 				nodePub)
 			lnrpcSyncType = lnrpc.Peer_UNKNOWN_SYNC
 		} else {
-			syncType := syncer.SyncType()
 			switch syncType {
 			case discovery.ActiveSync:
 				lnrpcSyncType = lnrpc.Peer_ACTIVE_SYNC

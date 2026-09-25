@@ -29,6 +29,10 @@ var (
 	// the timestamp of a peer's last flap count and its all time flap
 	// count.
 	flapCountKey = []byte("flap-count")
+
+	// peerStorageKey is a key used in the peer pubkey sub-bucket that
+	// stores an encrypted backup blob on behalf of that peer.
+	peerStorageKey = []byte("peer-storage")
 )
 
 var (
@@ -126,4 +130,63 @@ func (d *DB) ReadFlapCount(pubkey route.Vertex) (*FlapCount, error) {
 	}
 
 	return &flapCount, nil
+}
+
+// StorePeerStorage stores an encrypted backup blob for a peer, replacing any
+// existing blob. The blob is keyed by the peer's compressed public key.
+func (d *DB) StorePeerStorage(pubkey route.Vertex, blob []byte) error {
+	return kvdb.Update(d, func(tx kvdb.RwTx) error {
+		peers := tx.ReadWriteBucket(peersBucket)
+
+		peerBucket, err := peers.CreateBucketIfNotExists(pubkey[:])
+		if err != nil {
+			return err
+		}
+
+		return peerBucket.Put(peerStorageKey, blob)
+	}, func() {})
+}
+
+// FetchPeerStorage retrieves the stored encrypted backup blob for a peer.
+func (d *DB) FetchPeerStorage(pubkey route.Vertex) ([]byte, error) {
+	var blob []byte
+
+	if err := kvdb.View(d, func(tx kvdb.RTx) error {
+		peers := tx.ReadBucket(peersBucket)
+
+		peerBucket := peers.NestedReadBucket(pubkey[:])
+		if peerBucket == nil {
+			return ErrNoPeerBucket
+		}
+
+		stored := peerBucket.Get(peerStorageKey)
+		if stored == nil {
+			return fmt.Errorf("no peer storage for: %v", pubkey)
+		}
+
+		blob = make([]byte, len(stored))
+		copy(blob, stored)
+
+		return nil
+	}, func() {
+		blob = nil
+	}); err != nil {
+		return nil, err
+	}
+
+	return blob, nil
+}
+
+// DeletePeerStorage removes the stored encrypted backup blob for a peer.
+func (d *DB) DeletePeerStorage(pubkey route.Vertex) error {
+	return kvdb.Update(d, func(tx kvdb.RwTx) error {
+		peers := tx.ReadWriteBucket(peersBucket)
+
+		peerBucket := peers.NestedReadWriteBucket(pubkey[:])
+		if peerBucket == nil {
+			return nil
+		}
+
+		return peerBucket.Delete(peerStorageKey)
+	}, func() {})
 }

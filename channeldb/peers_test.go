@@ -8,6 +8,49 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
+// TestPeerStorage tests store, fetch, overwrite, and delete of peer storage
+// blobs.
+func TestPeerStorage(t *testing.T) {
+	db, err := MakeTestDB(t)
+	require.NoError(t, err)
+
+	peer := route.Vertex{1, 1, 1}
+
+	// Fetching from a peer with no bucket should fail.
+	_, err = db.FetchPeerStorage(peer)
+	require.ErrorIs(t, err, ErrNoPeerBucket)
+
+	// Store a blob and fetch it back.
+	blob := []byte("encrypted-backup-data")
+	err = db.StorePeerStorage(peer, blob)
+	require.NoError(t, err)
+
+	fetched, err := db.FetchPeerStorage(peer)
+	require.NoError(t, err)
+	require.Equal(t, blob, fetched)
+
+	// Overwrite with a new blob.
+	newBlob := []byte("updated-backup-data")
+	err = db.StorePeerStorage(peer, newBlob)
+	require.NoError(t, err)
+
+	fetched, err = db.FetchPeerStorage(peer)
+	require.NoError(t, err)
+	require.Equal(t, newBlob, fetched)
+
+	// Delete the blob.
+	err = db.DeletePeerStorage(peer)
+	require.NoError(t, err)
+
+	// Fetch should now fail.
+	_, err = db.FetchPeerStorage(peer)
+	require.Error(t, err)
+
+	// Delete on a non-existent blob should not error.
+	err = db.DeletePeerStorage(peer)
+	require.NoError(t, err)
+}
+
 // TestFlapCount tests lookup and writing of flap count to disk.
 func TestFlapCount(t *testing.T) {
 	db, err := MakeTestDB(t)

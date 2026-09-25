@@ -22,6 +22,7 @@ import (
 	"github.com/lightningnetwork/lnd/cluster"
 	"github.com/lightningnetwork/lnd/contractcourt"
 	"github.com/lightningnetwork/lnd/discovery"
+	"github.com/lightningnetwork/lnd/discovery/gossipsync"
 	"github.com/lightningnetwork/lnd/funding"
 	"github.com/lightningnetwork/lnd/graph"
 	graphdb "github.com/lightningnetwork/lnd/graph/db"
@@ -188,6 +189,9 @@ func SetupLoggers(root *build.SubLoggerManager, interceptor signal.Interceptor) 
 	AddSubLogger(root, "CHCL", interceptor, chancloser.UseLogger)
 	AddSubLogger(root, "LCHN", interceptor, localchans.UseLogger)
 	AddSubLogger(root, "PFSM", interceptor, protofsm.UseLogger)
+	AddSubLogger(
+		root, gossipsync.Subsystem, interceptor, gossipsync.UseLogger,
+	)
 	AddSubLogger(root, timeout.Subsystem, interceptor, timeout.UseLogger)
 
 	AddSubLogger(root, routing.Subsystem, interceptor, routing.UseLogger)

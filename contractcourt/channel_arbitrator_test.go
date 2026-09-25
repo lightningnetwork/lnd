@@ -1,6 +1,7 @@
 package contractcourt
 
 import (
+	"context"
 	"errors"
 	"fmt"
 	"path/filepath"
@@ -651,7 +652,29 @@ func TestChannelArbitratorLocalForceClose(t *testing.T) {
 	// We create a channel we can use to pause the ChannelArbitrator at the
 	// point where it broadcasts the close tx, and check its state.
 	stateChan := make(chan ArbitratorState)
+	materialized := make(chan struct{})
+	chanArb.cfg.AuxChannelLifecycle = fn.Some[AuxChannelLifecycle](
+		&mockAuxChannelLifecycle{
+			prepare: func(_ context.Context,
+				point wire.OutPoint) error {
+
+				if point != chanArb.cfg.ChanPoint {
+					return fmt.Errorf("unexpected channel "+
+						"point %v", point)
+				}
+				close(materialized)
+
+				return nil
+			},
+		},
+	)
 	chanArb.cfg.PublishTx = func(*wire.MsgTx, string) error {
+		select {
+		case <-materialized:
+		default:
+			return fmt.Errorf("commitment published before barrier")
+		}
+
 		// When the force close tx is being broadcasted, check that the
 		// state is correct at that point.
 		select {
@@ -1177,6 +1200,153 @@ func TestChannelArbitratorLocalForceClosePendingHtlc(t *testing.T) {
 	case <-time.After(defaultTimeout):
 		t.Fatalf("contract was not resolved")
 	}
+}
+
+// TestChannelArbitratorCommitmentPublishBarrier verifies a failed external
+// funding barrier runs before ForceCloseChan can tear down the live link.
+func TestChannelArbitratorCommitmentPublishBarrier(t *testing.T) {
+	t.Parallel()
+
+	forceCloseErr := errors.New("force close called")
+	chanArbCtx, err := createTestChannelArbitrator(
+		t, &mockArbitratorLog{}, withForceCloseErr(forceCloseErr),
+	)
+	require.NoError(t, err)
+	chanArb := chanArbCtx.chanArb
+	chanArb.state = StateBroadcastCommit
+
+	barrierErr := errors.New("funding outpoint unavailable")
+	chanArb.cfg.AuxChannelLifecycle = fn.Some[AuxChannelLifecycle](
+		&mockAuxChannelLifecycle{
+			prepare: func(context.Context, wire.OutPoint) error {
+				return barrierErr
+			},
+		},
+	)
+	nextState, closeTx, err := chanArb.stateStep(
+		0, userTrigger, nil,
+	)
+	require.ErrorIs(t, err, barrierErr)
+	require.Equal(t, StateError, nextState)
+	require.Nil(t, closeTx)
+
+	chanArb.cfg.AuxChannelLifecycle = fn.None[AuxChannelLifecycle]()
+	_, _, err = chanArb.stateStep(0, userTrigger, nil)
+	require.ErrorIs(t, err, forceCloseErr)
+}
+
+// TestChannelArbitratorResumeForceClose verifies an embedding runtime can
+// retry the publication state after its external funding barrier becomes
+// available, while subsequent resume requests remain idempotent.
+func TestChannelArbitratorResumeForceClose(t *testing.T) {
+	t.Parallel()
+
+	log := &mockArbitratorLog{
+		state:     StateDefault,
+		newStates: make(chan ArbitratorState, 5),
+	}
+	chanArbCtx, err := createTestChannelArbitrator(t, log)
+	require.NoError(t, err)
+	chanArb := chanArbCtx.chanArb
+
+	barrierErr := errors.New("funding outpoint unavailable")
+	barrierCalls := 0
+	chanArb.cfg.AuxChannelLifecycle = fn.Some[AuxChannelLifecycle](
+		&mockAuxChannelLifecycle{
+			prepare: func(context.Context, wire.OutPoint) error {
+				barrierCalls++
+				if barrierCalls == 1 {
+					return barrierErr
+				}
+
+				return nil
+			},
+		},
+	)
+	published := make(chan struct{}, 1)
+	chanArb.cfg.PublishTx = func(*wire.MsgTx, string) error {
+		published <- struct{}{}
+
+		return nil
+	}
+
+	beat := newBeatFromHeight(0)
+	require.NoError(t, chanArb.Start(nil, beat))
+	t.Cleanup(func() {
+		require.NoError(t, chanArb.Stop())
+	})
+	chanArbCtx.AssertState(StateDefault)
+
+	request := func(resume bool) (*wire.MsgTx, error) {
+		errChan := make(chan error, 1)
+		respChan := make(chan *wire.MsgTx, 1)
+		chanArb.forceCloseReqs <- &forceCloseReq{
+			errResp: errChan,
+			closeTx: respChan,
+			resume:  resume,
+		}
+
+		return <-respChan, <-errChan
+	}
+
+	closeTx, err := request(true)
+	require.ErrorIs(t, err, ErrNoForceCloseToResume)
+	require.Nil(t, closeTx)
+	chanArbCtx.AssertState(StateDefault)
+	require.Zero(t, barrierCalls)
+
+	closeTx, err = request(false)
+	require.ErrorIs(t, err, barrierErr)
+	require.Nil(t, closeTx)
+	chanArbCtx.AssertStateTransitions(StateBroadcastCommit)
+
+	closeTx, err = request(true)
+	require.NoError(t, err)
+	require.NotNil(t, closeTx)
+	chanArbCtx.AssertStateTransitions(StateCommitmentBroadcasted)
+	select {
+	case <-published:
+	case <-time.After(stateTimeout):
+		t.Fatal("commitment was not published after resume")
+	}
+	require.Equal(t, 2, barrierCalls)
+
+	closeTx, err = request(true)
+	require.NoError(t, err)
+	require.Nil(t, closeTx)
+}
+
+// TestResumeForceCloseDoesNotDisableHealthyChannel verifies a stale replay is
+// side-effect free when no commitment publication is pending.
+func TestResumeForceCloseDoesNotDisableHealthyChannel(t *testing.T) {
+	t.Parallel()
+
+	chanArbCtx, err := createTestChannelArbitrator(
+		t, &mockArbitratorLog{state: StateDefault},
+	)
+	require.NoError(t, err)
+	channelArb := chanArbCtx.chanArb
+	require.NoError(t, channelArb.Start(nil, newBeatFromHeight(0)))
+	t.Cleanup(func() {
+		require.NoError(t, channelArb.Stop())
+	})
+
+	disableCalls := 0
+	chainArb := NewChainArbitrator(ChainArbitratorConfig{
+		DisableChannel: func(wire.OutPoint) error {
+			disableCalls++
+
+			return nil
+		},
+	}, nil)
+	chainArb.activeChannels[channelArb.cfg.ChanPoint] = channelArb
+
+	closeTx, err := chainArb.ResumeForceCloseContract(
+		channelArb.cfg.ChanPoint,
+	)
+	require.ErrorIs(t, err, ErrNoForceCloseToResume)
+	require.Nil(t, closeTx)
+	require.Zero(t, disableCalls)
 }
 
 // TestChannelArbitratorLocalForceCloseRemoteConfiremd tests that the

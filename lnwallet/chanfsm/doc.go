@@ -14,7 +14,8 @@
 // RestoredLedger, which only the peer's channel_reestablish turns into a
 // Ledger, together with the SyncPlan of what to retransmit.
 //
-// See pmodel/ for the P models of the protocol, lean/ for the proofs about
-// forwarding, and dst_test.go for the deterministic simulation of both
-// actors over real channels with crashes and disconnections.
+// See SPEC.md for the requirements, pmodel/ for the P models they were
+// derived from, lean/ for the proofs about forwarding, and dst_test.go for
+// the deterministic simulation of both actors over real channels with
+// crashes and disconnections.
 package chanfsm

@@ -9,7 +9,9 @@ ledger and state machine in `lnwallet/chanfsm`, and a world that connects
 them, disconnects them, restarts them from what lnd persists, and lets one of
 them misbehave. A Go test in the parent package replays recorded runs of the
 models into the real state machine, so a model that no longer matches the
-code fails `go test`.
+code fails `go test`. `../SPEC.md` is the requirements spec derived from the
+models, with every requirement tied back to the model, the code and the test
+that checks it.
 
 ## What the models add
 
@@ -222,6 +224,24 @@ The bridge doesn't run a `LightningChannel`; the mirror and differential
 tests do. It also can't see log compaction, which changes which error a
 removal of a compacted HTLC gets but not whether it's refused.
 
+## The spec
+
+`../SPEC.md` is written like a protocol specification: 36 numbered
+requirements (`CFSM-001` on) using the normative keywords of RFC 2119, with
+BOLT 2 as the wire authority. Each requirement names the model lines that
+state it, the Go code that implements it and the tests that check it, and a
+traceability matrix marks each one verified, partially verified, or
+unmodeled.
+
+The spec is derived from the models and pinned to them.
+`scripts/extract_p_model.py` builds an inventory of the model's machines,
+states, events and functions, with a SHA-256 digest over the model sources.
+`scripts/validate_spec.py` checks that every requirement uses a normative
+keyword and has its model disposition, that every `file.p:line` citation
+points at a real line, and that the digest recorded at the top of `SPEC.md`
+matches the current model. So editing any `.p` file without revisiting the
+spec fails `check.sh`.
+
 ## What the models don't cover
 
 The models are checked by exploring schedules, not by proof, and each case
@@ -234,12 +254,12 @@ Amounts, reserves, dust, fee rates and signatures are abstracted away, and
 so are the data loss protection fields of `channel_reestablish`: a node
 that learns it lost state fails the channel outright. The actor, its
 mailbox and the channel beside the ledger aren't modeled, so the forwarding
-package cross check and the ledger snapshot check are covered only by the
-Go tests.
+package cross check and the ledger snapshot check are unmodeled in the
+spec, and covered by the Go tests.
 
 ## Running
 
-`check.sh` needs P 3.0.4 and the .NET SDK it runs on:
+`check.sh` needs P 3.0.4, the .NET SDK it runs on, and Python 3:
 
 ```sh
 dotnet tool install --global P --version 3.0.4
@@ -248,8 +268,8 @@ lnwallet/chanfsm/pmodel/check.sh
 
 It compiles the project, runs every green case (2000 schedules each by
 default) and every counterexample, records fresh traces for the bridged
-cases and replays them into the Go code. These environment variables tune
-it:
+cases and replays them into the Go code, and validates `../SPEC.md`. These
+environment variables tune it:
 
 | Variable | Default | Meaning |
 |---|---|---|
@@ -278,7 +298,7 @@ lines show up prefixed with `<PrintLog> CTRACE`.
 When a change to the Go state machine makes the bridge fail, first decide
 which side is wrong. If the code now does something BOLT 2 or lnd doesn't
 allow, the bridge caught a bug. If the protocol should change, change the
-model first, then refresh the traces:
+model first, then refresh the traces and the spec:
 
   1. Edit the node model. State a new rule as a monitor that keeps its own
      bookkeeping, and add a counterexample case that removes the rule
@@ -287,6 +307,8 @@ model first, then refresh the traces:
   2. If the model prints something new, teach the bridge to read it.
   3. Run `KEEP_TRACES=1 lnwallet/chanfsm/pmodel/check.sh` to refresh
      `traces/`.
+  4. Update `../SPEC.md`: the affected requirements, their citations, and
+     the digest at the top, which `check.sh` checks.
 
 A few P details trip people up. Strings can't be joined with `+`, so nest
 `format` calls instead. Variables must be declared before the first
@@ -302,5 +324,7 @@ selects test cases by prefix, so no case name may be a prefix of another.
 | `src/spec.p` | The monitors |
 | `test/channel_test.p` | Drivers and test cases |
 | `traces/` | A recorded sample of the bridged cases, replayed on every `go test` |
-| `check.sh` | Compile, check every case, record traces, run the bridge |
+| `scripts/` | The spec inventory extractor and validator |
+| `check.sh` | Compile, check every case, record traces, run the bridge, validate the spec |
 | `../pmodel_bridge_test.go` | `TestPModelBridge` |
+| `../SPEC.md` | The specification derived from the models |

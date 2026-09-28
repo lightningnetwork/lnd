@@ -854,3 +854,37 @@ func TestTaprootFastClose(t *testing.T) {
 			"bob MarkCoopBroadcasted call %d had nil tx", i)
 	}
 }
+
+// TestCalcCoopCloseFeeCoversVSize asserts that the co-op close fee covers
+// the virtual size of the close transaction at the given fee rate. The
+// weight estimate of a taproot close is 615 weight units, which is 154
+// vbytes, so at the 1 sat/vbyte relay floor the fee must be 154 sats, not
+// the 153 sats that the raw weight yields.
+func TestCalcCoopCloseFeeCoversVSize(t *testing.T) {
+	t.Parallel()
+
+	p2trScript := make([]byte, input.P2TRSize)
+	localOut := &wire.TxOut{PkScript: p2trScript}
+	extraOuts := []*wire.TxOut{{PkScript: p2trScript}}
+
+	var weightEstimator input.TxWeightEstimator
+	weightEstimator.AddWitnessInput(input.TaprootSignatureWitnessSize)
+	weightEstimator.AddTxOutput(localOut)
+	weightEstimator.AddTxOutput(extraOuts[0])
+	vSize := lntypes.VByte(weightEstimator.VSize())
+
+	// 250 sat/kw is exactly 1 sat/vbyte.
+	feeRate := chainfee.SatPerKWeight(250)
+	fee := calcCoopCloseFee(
+		channeldb.SimpleTaprootFeatureBit, localOut, nil, extraOuts,
+		feeRate,
+	)
+
+	require.Equal(t, feeRate.FeeForVByte(vSize), fee)
+	require.GreaterOrEqual(
+		t, fee, btcutil.Amount(vSize)*btcutil.Amount(
+			feeRate.FeePerVByte(),
+		),
+	)
+	require.Greater(t, fee, feeRate.FeeForWeight(weightEstimator.Weight()))
+}

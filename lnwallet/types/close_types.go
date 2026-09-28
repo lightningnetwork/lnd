@@ -5,6 +5,7 @@ import (
 	"github.com/btcsuite/btcd/btcutil/v2"
 	"github.com/btcsuite/btcd/wire/v2"
 	"github.com/lightningnetwork/lnd/fn/v2"
+	"github.com/lightningnetwork/lnd/lntypes"
 	"github.com/lightningnetwork/lnd/lnwire"
 	"github.com/lightningnetwork/lnd/tlv"
 )
@@ -57,6 +58,31 @@ type AuxCloseShapeDesc struct {
 	AuxShutdownReq
 }
 
+// AuxCloseTemplateDesc describes a channel close for which the auxiliary
+// close outputs are requested once, for every close transaction of the
+// negotiation. It carries what the auxiliary outputs depend on: the final
+// channel state and the shutdown terms of both parties. Nothing in it
+// changes with the close fee.
+type AuxCloseTemplateDesc struct {
+	AuxShutdownReq
+
+	// LocalDeliveryScript is the script the local party's funds are paid
+	// to.
+	LocalDeliveryScript lnwire.DeliveryAddress
+
+	// LocalShutdownRecords are the custom records the local party sent
+	// with its shutdown message.
+	LocalShutdownRecords lnwire.CustomRecords
+
+	// RemoteDeliveryScript is the script the remote party's funds are
+	// paid to.
+	RemoteDeliveryScript lnwire.DeliveryAddress
+
+	// RemoteShutdownRecords are the custom records the remote party sent
+	// with its shutdown message.
+	RemoteShutdownRecords lnwire.CustomRecords
+}
+
 // AuxCloseDesc is used to describe the channel close that is being performed.
 type AuxCloseDesc struct {
 	AuxShutdownReq
@@ -76,4 +102,10 @@ type AuxCloseDesc struct {
 	// to. This will be None if the remote party will not have an output on
 	// the co-op close transaction.
 	RemoteCloseOutput fn.Option[CloseOutput]
+
+	// FeePayer is the party that pays CloseFee. If None, the channel
+	// initiator pays, which is the rule of the legacy close negotiation.
+	// The RBF close flow sets this explicitly, as there the party that
+	// proposes a close transaction pays its fee out of its own balance.
+	FeePayer fn.Option[lntypes.ChannelParty]
 }

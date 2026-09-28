@@ -40,12 +40,14 @@ func sendShutdownEvents(chanID lnwire.ChannelID, chanPoint wire.OutPoint,
 	deliveryAddr lnwire.DeliveryAddress, peerPub btcec.PublicKey,
 	postSendEvent fn.Option[ProtocolEvent], chanState ChanStateObserver,
 	env *Environment, localCloseeNonce fn.Option[lnwire.Musig2Nonce],
+	customRecords lnwire.CustomRecords,
 ) (protofsm.DaemonEventSet, fn.Option[lnwire.Musig2Nonce], error) {
 
 	// Create the shutdown message.
 	shutdownMsg := &lnwire.Shutdown{
-		ChannelID: chanID,
-		Address:   deliveryAddr,
+		ChannelID:     chanID,
+		Address:       deliveryAddr,
+		CustomRecords: customRecords,
 	}
 
 	none := fn.None[lnwire.Musig2Nonce]()
@@ -299,6 +301,13 @@ func (c *ChannelActive) ProcessEvent(event ProtocolEvent, env *Environment,
 		chancloserLog.Infof("ChannelPoint(%v): sending shutdown msg "+
 			"at next clean commit state", env.ChanPoint)
 
+		// If an aux closer is present, it may want to add custom
+		// records to our shutdown message.
+		customRecords, err := env.shutdownCustomRecords(shutdownAddr)
+		if err != nil {
+			return nil, err
+		}
+
 		// Now that we know the shutdown message is valid, we'll obtain
 		// the set of daemon events we need to emit. We'll also specify
 		// that once the message has actually been sent, that we
@@ -308,6 +317,7 @@ func (c *ChannelActive) ProcessEvent(event ProtocolEvent, env *Environment,
 			env.ChanPeer,
 			fn.Some[ProtocolEvent](&ShutdownComplete{}),
 			env.ChanObserver, env, fn.None[lnwire.Musig2Nonce](),
+			customRecords,
 		)
 		if err != nil {
 			return nil, err
@@ -334,6 +344,10 @@ func (c *ChannelActive) ProcessEvent(event ProtocolEvent, env *Environment,
 				ShutdownScripts: ShutdownScripts{
 					LocalDeliveryScript:  shutdownAddr,
 					RemoteDeliveryScript: remoteAddr,
+				},
+				ShutdownCustomRecords: ShutdownCustomRecords{
+					LocalCustomRecords:  customRecords,
+					RemoteCustomRecords: msg.CustomRecords,
 				},
 				NonceState: NonceState{
 					RemoteCloseeNonce: msg.RemoteShutdownNonce, //nolint:ll
@@ -371,6 +385,11 @@ func (c *ChannelActive) processSendShutdown(
 		return nil, err
 	}
 
+	customRecords, err := env.shutdownCustomRecords(shutdownScript)
+	if err != nil {
+		return nil, err
+	}
+
 	// We'll emit some daemon events to send the shutdown message and
 	// disable the channel on the network level. In this case, we don't need
 	// a post send event as receiving their shutdown is what'll move us
@@ -378,6 +397,7 @@ func (c *ChannelActive) processSendShutdown(
 	daemonEvents, localCloseeNonce, err := sendShutdownEvents(
 		env.ChanID, env.ChanPoint, shutdownScript, env.ChanPeer,
 		fn.None[ProtocolEvent](), env.ChanObserver, env, closeeNonce,
+		customRecords,
 	)
 	if err != nil {
 		return nil, err
@@ -394,6 +414,9 @@ func (c *ChannelActive) processSendShutdown(
 			IdealFeeRate: idealFeeOpt,
 			ShutdownScripts: ShutdownScripts{
 				LocalDeliveryScript: shutdownScript,
+			},
+			ShutdownCustomRecords: ShutdownCustomRecords{
+				LocalCustomRecords: customRecords,
 			},
 			NonceState: NonceState{
 				LocalCloseeNonce: localCloseeNonce,
@@ -541,6 +564,10 @@ func (s *ShutdownPending) ProcessEvent(event ProtocolEvent, env *Environment,
 					LocalDeliveryScript:  s.LocalDeliveryScript, //nolint:ll
 					RemoteDeliveryScript: msg.ShutdownScript,    //nolint:ll
 				},
+				ShutdownCustomRecords: ShutdownCustomRecords{
+					LocalCustomRecords:  s.LocalCustomRecords, //nolint:ll
+					RemoteCustomRecords: msg.CustomRecords,
+				},
 				NonceState:          updatedNonceState,
 				LocalCloseRequested: s.LocalCloseRequested,
 				PendingBump:         s.PendingBump,
@@ -586,11 +613,12 @@ func (s *ShutdownPending) ProcessEvent(event ProtocolEvent, env *Environment,
 		// We'll stay here until we receive the ChannelFlushed event.
 		return &CloseStateTransition{
 			NextState: &ChannelFlushing{
-				IdealFeeRate:        s.IdealFeeRate,
-				ShutdownScripts:     s.ShutdownScripts,
-				NonceState:          s.NonceState,
-				LocalCloseRequested: s.LocalCloseRequested,
-				PendingBump:         s.PendingBump,
+				ShutdownCustomRecords: s.ShutdownCustomRecords,
+				IdealFeeRate:          s.IdealFeeRate,
+				ShutdownScripts:       s.ShutdownScripts,
+				NonceState:            s.NonceState,
+				LocalCloseRequested:   s.LocalCloseRequested,
+				PendingBump:           s.PendingBump,
 			},
 			NewEvents: newEvents,
 		}, nil
@@ -667,13 +695,25 @@ func (c *ChannelFlushing) ProcessEvent(event ProtocolEvent, env *Environment,
 		// we'll be using to close the channel, so we'll create them
 		// here.
 		closeTerms := CloseChannelTerms{
-			ShutdownScripts:  c.ShutdownScripts,
-			ShutdownBalances: msg.ShutdownBalances,
-			NonceState:       c.NonceState,
+			ShutdownScripts:       c.ShutdownScripts,
+			ShutdownCustomRecords: c.ShutdownCustomRecords,
+			ShutdownBalances:      msg.ShutdownBalances,
+			NonceState:            c.NonceState,
 		}
 
 		chancloserLog.Infof("ChannelPoint(%v): channel flushed! "+
 			"proceeding with co-op close", env.ChanPoint)
+
+		// For an aux channel, the aux closer signs its asset state
+		// once for the whole negotiation, so we fetch the aux outputs
+		// now and carry them along in the close terms, where every
+		// close transaction we sign from here on is checked against
+		// them.
+		auxTemplate, err := env.closeTemplate(&closeTerms)
+		if err != nil {
+			return nil, err
+		}
+		closeTerms.AuxTemplate = auxTemplate
 
 		// If an explicit fee bump arrived while we were waiting on
 		// shutdown or flushing, prefer its fee rate. Otherwise, fall
@@ -693,11 +733,16 @@ func (c *ChannelFlushing) ProcessEvent(event ProtocolEvent, env *Environment,
 		}
 
 		// We'll then use that fee rate to determine the absolute fee
-		// we'd propose.
+		// we'd propose. Any aux outputs add to the weight of the
+		// close transaction, so they're included in the estimate.
 		localTxOut, remoteTxOut := closeTerms.DeriveCloseTxOuts()
+		auxShape, err := env.auxCloseShape(&closeTerms)
+		if err != nil {
+			return nil, err
+		}
 		absoluteFee := env.FeeEstimator.EstimateFee(
-			env.ChanType, localTxOut, remoteTxOut, nil,
-			idealFeeRate.FeePerKWeight(),
+			env.ChanType, localTxOut, remoteTxOut,
+			auxShapeTxOuts(auxShape), idealFeeRate.FeePerKWeight(),
 		)
 
 		chancloserLog.Infof("ChannelPoint(%v): using ideal_fee=%v, "+
@@ -720,7 +765,8 @@ func (c *ChannelFlushing) ProcessEvent(event ProtocolEvent, env *Environment,
 		//
 		// TODO(roasbeef): also only proceed if was higher than fee in
 		// last round?
-		if closeTerms.LocalCanPayFees(absoluteFee) || explicitBump {
+		canPay := env.localCanPayFees(&closeTerms, absoluteFee)
+		if canPay || explicitBump {
 			// Each time we go into this negotiation flow, we'll
 			// kick off our local state with a new close attempt.
 			// So we'll emit a internal event to drive forward that
@@ -1070,6 +1116,13 @@ func (c *ClosingNegotiation) updateAndValidateCloseTerms(event ProtocolEvent,
 		// we update to the new one, just as we do for the initial
 		// shutdown script.
 		if !bytes.Equal(oldRemoteAddr, newRemoteAddr) {
+			// The aux shutdown records of the remote party are
+			// bound to the script they sent them with, so for an
+			// aux channel a new script needs a new shutdown.
+			if len(c.RemoteCustomRecords) != 0 {
+				return ErrAuxScriptChange
+			}
+
 			err := validateRemoteDeliveryScript(
 				env.RemoteUpfrontShutdown, newRemoteAddr,
 				env.ChainParams,
@@ -1119,9 +1172,7 @@ func (c *ClosingNegotiation) ProcessEvent(event ProtocolEvent, env *Environment,
 	// now transition to the StateFin state.
 	case *SpendEvent:
 		return &CloseStateTransition{
-			NextState: &CloseFin{
-				ConfirmedTx: msg.Tx,
-			},
+			NextState: c.closeFin(msg.Tx, env),
 		}, nil
 	}
 
@@ -1170,6 +1221,49 @@ func (c *ClosingNegotiation) ProcessEvent(event ProtocolEvent, env *Environment,
 
 	return nil, fmt.Errorf("%w: received %T while in %v",
 		ErrInvalidStateTransition, event, c)
+}
+
+// closeFin returns the terminal state for the given confirmed transaction.
+// If the transaction is one of the close transactions negotiated in this
+// state (either party may have one pending), then the close outputs of that
+// transaction are carried over, so they can be reported to the caller.
+func (c *ClosingNegotiation) closeFin(confirmedTx *wire.MsgTx,
+	env *Environment) *CloseFin {
+
+	closeFin := &CloseFin{
+		ConfirmedTx: confirmedTx,
+	}
+	if confirmedTx == nil {
+		return closeFin
+	}
+
+	confirmedTxid := confirmedTx.TxHash()
+	for _, party := range []lntypes.ChannelParty{
+		lntypes.Local, lntypes.Remote,
+	} {
+		pending, ok := c.PeerState.GetForParty(party).(*ClosePending)
+		if !ok || pending.CloseTx == nil ||
+			pending.CloseTx.TxHash() != confirmedTxid {
+
+			continue
+		}
+
+		closeFin.AuxOutputs = c.auxOutputs()
+
+		// The close outputs need the channel info, which is only
+		// guaranteed to be present when an aux closer is set.
+		if env.ChanInfo != nil {
+			localOut, remoteOut := env.closeOutputs(
+				pending.CloseChannelTerms,
+			)
+			closeFin.LocalCloseOutput = fn.Some(localOut)
+			closeFin.RemoteCloseOutput = fn.Some(remoteOut)
+		}
+
+		break
+	}
+
+	return closeFin
 }
 
 // newSigTlv is a helper function that returns a new optional TLV sig field for
@@ -1268,17 +1362,23 @@ func (l *LocalCloseStart) ProcessEvent(event ProtocolEvent, env *Environment,
 // the fee.
 func (l *LocalCloseStart) processSendOffer(targetFeeRate chainfee.SatPerVByte,
 	env *Environment) (*CloseStateTransition, error) {
-	// given the state of the local/remote outputs.
 	// First, we'll figure out the absolute fee rate we should pay
+	// given the state of the local/remote outputs, and any aux
+	// outputs the close transaction will carry.
 	localTxOut, remoteTxOut := l.DeriveCloseTxOuts()
+	auxShape, err := env.auxCloseShape(l.CloseChannelTerms)
+	if err != nil {
+		return nil, err
+	}
 	absoluteFee := env.FeeEstimator.EstimateFee(
-		env.ChanType, localTxOut, remoteTxOut, nil,
+		env.ChanType, localTxOut, remoteTxOut,
+		auxShapeTxOuts(auxShape),
 		targetFeeRate.FeePerKWeight(),
 	)
 
 	// If we can't actually pay for fees here, then we'll just do a
 	// noop back to the same state to await a new fee rate.
-	if !l.LocalCanPayFees(absoluteFee) {
+	if !env.localCanPayFees(l.CloseChannelTerms, absoluteFee) {
 		chancloserLog.Infof("ChannelPoint(%v): unable to pay "+
 			"fee=%v with local balance %v, skipping "+
 			"closing_complete", env.ChanPoint, absoluteFee,
@@ -1335,6 +1435,10 @@ func (l *LocalCloseStart) processSendOffer(targetFeeRate chainfee.SatPerVByte,
 		closeOpts = append(closeOpts, musigOpts...)
 	}
 
+	// For an aux channel, the close transaction carries the aux
+	// outputs of the negotiation.
+	closeOpts = append(closeOpts, auxCloseOpts(l.auxOutputs())...)
+
 	rawSig, closeTx, closeBalance, err := env.CloseSigner.CreateCloseProposal( //nolint:ll
 		absoluteFee, localScript, l.RemoteDeliveryScript,
 		closeOpts...,
@@ -1342,6 +1446,13 @@ func (l *LocalCloseStart) processSendOffer(targetFeeRate chainfee.SatPerVByte,
 	if err != nil {
 		return nil, fmt.Errorf("unable to create close "+
 			"proposal: %w", err)
+	}
+
+	// The aux closer signed its asset state for the outputs of the
+	// aux close template, so the transaction we offer needs to
+	// carry exactly those.
+	if err := l.checkAuxCloseTemplate(closeTx); err != nil {
+		return nil, err
 	}
 
 	// Depending on the channel type, we'll be encoding a normal
@@ -1730,6 +1841,10 @@ func (l *LocalOfferSent) ProcessEvent(event ProtocolEvent, env *Environment,
 				"to prepare closing sigs: %w", err)
 		}
 		closeOpts = append(closeOpts, musigOpts...)
+
+		// The aux outputs are the ones we signed for in our offer, so
+		// we complete the very same transaction.
+		closeOpts = append(closeOpts, auxCloseOpts(l.auxOutputs())...)
 
 		// Now that we have their signature, we'll attempt to validate
 		// it, then extract a valid closing signature from it.
@@ -2265,6 +2380,10 @@ func (l *RemoteCloseStart) ProcessEvent(event ProtocolEvent, env *Environment,
 			l.LocalDeliveryScript[:], l.RemoteDeliveryScript[:],
 			msg.SigMsg.FeeSatoshis, msg.SigMsg.LockTime)
 
+		// For an aux channel, the close transaction carries the aux
+		// outputs of the negotiation.
+		chanOpts = append(chanOpts, auxCloseOpts(l.auxOutputs())...)
+
 		// Now that we have the remote sig, we'll sign the version they
 		// signed, then attempt to complete the cooperative close
 		// process.
@@ -2290,6 +2409,13 @@ func (l *RemoteCloseStart) ProcessEvent(event ProtocolEvent, env *Environment,
 		if err != nil {
 			return nil, fmt.Errorf("RemoteCloseStart: unable "+
 				"to complete coop close: %w", err)
+		}
+
+		// The aux closer signed its asset state for the outputs of the
+		// aux close template. If the fee the remote party pays drops
+		// or merges away one of them, we don't sign the transaction.
+		if err := l.checkAuxCloseTemplate(closeTx); err != nil {
+			return nil, err
 		}
 
 		chancloserLog.Infof("ChannelPoint(%v): received sig (fee=%v "+

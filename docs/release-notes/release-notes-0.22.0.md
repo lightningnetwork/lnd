@@ -53,6 +53,13 @@
   the reported network statistics such as total network capacity, channel
   count and max out degree.
 
+* [Fixed a bug](https://github.com/lightningnetwork/lnd/pull/11268) where a
+  channel didn't persist the updates the peer had acknowledged but not yet
+  signed for until we first revoked a commitment of our own. If the
+  initiator's first update was a fee update and the connection dropped in
+  that window, the initiator restored without it, rejected the peer's valid
+  signature, and force closed the channel.
+
 # New Features
 
 ## Functional Enhancements
@@ -187,3 +194,4 @@
 * Boris Nagaev
 * Erick Cestari
 * Jared Tobin
+* Olaoluwa Osuntokun

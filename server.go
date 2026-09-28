@@ -728,17 +728,10 @@ func newServer(ctx context.Context, cfg *Config, listenAddrs []net.Addr,
 
 	// If taproot channels are enabled, we also enable the RBF cooperative
 	// close protocol, as it is required for taproot channel
-	// interoperability.
-	//
-	// Exception: when taproot-overlay channels are enabled we do NOT
-	// auto-enable RBF, because the RBF coop close state machine does not
-	// yet thread through the AuxCloser hook that overlay channels rely on
-	// to build the aux-aware close transaction. Forcing RBF on for a
-	// node that holds overlay channels would silently break their coop
-	// closes.
-	if cfg.ProtocolOptions.TaprootChans &&
-		!cfg.ProtocolOptions.TaprootOverlayChans {
-
+	// interoperability. Taproot overlay channels only use the RBF flow
+	// if the aux closer supports it for the channel, so this is safe to
+	// enable for them as well.
+	if cfg.ProtocolOptions.TaprootChans {
 		cfg.ProtocolOptions.RbfCoopClose = true
 	}
 

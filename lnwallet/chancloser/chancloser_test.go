@@ -23,6 +23,7 @@ import (
 	"github.com/lightningnetwork/lnd/lnwallet/chainfee"
 	wallettypes "github.com/lightningnetwork/lnd/lnwallet/types"
 	"github.com/lightningnetwork/lnd/lnwire"
+	"github.com/lightningnetwork/lnd/routing/route"
 	"github.com/lightningnetwork/lnd/tlv"
 	"github.com/stretchr/testify/require"
 )
@@ -350,10 +351,23 @@ func (m *mockAuxChanCloser) AuxCloseOutputs(
 	}), nil
 }
 
+func (m *mockAuxChanCloser) AuxCloseTemplate(
+	desc wallettypes.AuxCloseTemplateDesc) (fn.Option[AuxCloseOutputs],
+	error) {
+
+	return fn.None[AuxCloseOutputs](), nil
+}
+
 func (m *mockAuxChanCloser) FinalizeClose(desc wallettypes.AuxCloseDesc,
 	closeTx *wire.MsgTx) error {
 
 	return nil
+}
+
+func (m *mockAuxChanCloser) SupportsRbfClose(lnwire.ChannelID,
+	route.Vertex) bool {
+
+	return false
 }
 
 type mockCoopFeeEstimator struct {

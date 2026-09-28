@@ -160,6 +160,15 @@
   requests, and invoices, and `ValidateInvoiceForPayment` to bundle the
   payer-side invoice checks into one call.
 
+* [BOLT 12 offer
+  store](https://github.com/lightningnetwork/lnd/pull/11278): add the
+  `offers` package with a SQL-backed store for BOLT 12 offers. The store
+  keeps the encoded offer, a disabled flag and the creation time. It finds
+  an offer by its hash. `CreateOffer` validates the parameters, encodes the
+  offer and stores it. The `offers` table migration is a development
+  migration for now, so a normal build does not change the database
+  schema.
+
 ## Testing
 
 * [BOLT 12 spec test vectors](https://github.com/lightningnetwork/lnd/pull/11001):

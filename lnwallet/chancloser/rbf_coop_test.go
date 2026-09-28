@@ -19,6 +19,7 @@ import (
 	"github.com/btcsuite/btcd/mempool"
 	"github.com/btcsuite/btcd/txscript/v2"
 	"github.com/btcsuite/btcd/wire/v2"
+	"github.com/lightningnetwork/lnd/channeldb"
 	"github.com/lightningnetwork/lnd/fn/v2"
 	"github.com/lightningnetwork/lnd/input"
 	"github.com/lightningnetwork/lnd/lntest/wait"
@@ -188,6 +189,13 @@ type harnessCfg struct {
 
 	localMusigSession  fn.Option[MusigSession]
 	remoteMusigSession fn.Option[MusigSession]
+
+	chanType  channeldb.ChannelType
+	auxCloser fn.Option[AuxChanCloser]
+	chanInfo  ChanInfo
+
+	deliveryAddrInternalKey func(lnwire.DeliveryAddress) (
+		fn.Option[btcec.PublicKey], error)
 }
 
 // rbfCloserTestHarness is a test harness for the RBF closer.
@@ -978,19 +986,23 @@ func newRbfCloserTestHarness(t *testing.T,
 	}
 
 	env := Environment{
-		ChainParams:           chaincfg.RegressionNetParams,
-		ChanPeer:              *peerPub,
-		ChanPoint:             chanPoint,
-		ChanID:                chanID,
-		Scid:                  scid,
-		DefaultFeeRate:        defaultFeeRate.FeePerVByte(),
-		ThawHeight:            cfg.thawHeight,
-		RemoteUpfrontShutdown: cfg.remoteUpfrontAddr,
-		LocalUpfrontShutdown:  cfg.localUpfrontAddr,
-		NewDeliveryScript:     harness.newAddrFunc,
-		FeeEstimator:          feeEstimator,
-		ChanObserver:          mockObserver,
-		CloseSigner:           mockSigner,
+		ChainParams:             chaincfg.RegressionNetParams,
+		ChanPeer:                *peerPub,
+		ChanPoint:               chanPoint,
+		ChanID:                  chanID,
+		Scid:                    scid,
+		ChanType:                cfg.chanType,
+		DefaultFeeRate:          defaultFeeRate.FeePerVByte(),
+		ThawHeight:              cfg.thawHeight,
+		RemoteUpfrontShutdown:   cfg.remoteUpfrontAddr,
+		LocalUpfrontShutdown:    cfg.localUpfrontAddr,
+		NewDeliveryScript:       harness.newAddrFunc,
+		FeeEstimator:            feeEstimator,
+		ChanObserver:            mockObserver,
+		CloseSigner:             mockSigner,
+		AuxCloser:               cfg.auxCloser,
+		ChanInfo:                cfg.chanInfo,
+		DeliveryAddrInternalKey: cfg.deliveryAddrInternalKey,
 	}
 
 	// If musig sessions are provided, we set them in the environment.

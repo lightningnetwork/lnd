@@ -113,21 +113,21 @@ func parsePostgresError(pqErr *pgconn.PgError) error {
 	// Unable to serialize the transaction, so we'll need to try again.
 	case pgerrcode.SerializationFailure:
 		return &ErrSerializationError{
-			DBError: pqErr,
+			DBError: withPostgresDetail(pqErr),
 		}
 
 	// In failed SQL transaction because we didn't catch a previous
 	// serialization error, so return this one as a serialization error.
 	case pgerrcode.InFailedSQLTransaction:
 		return &ErrSerializationError{
-			DBError: pqErr,
+			DBError: withPostgresDetail(pqErr),
 		}
 
 	// Deadlock detedted because of a serialization error, so return this
 	// one as a serialization error.
 	case pgerrcode.DeadlockDetected:
 		return &ErrSerializationError{
-			DBError: pqErr,
+			DBError: withPostgresDetail(pqErr),
 		}
 
 	default:

@@ -193,12 +193,15 @@ func NewPostgresStore(cfg *PostgresConfig) (*PostgresStore, error) {
 	db.SetConnMaxLifetime(connMaxLifetime)
 	db.SetConnMaxIdleTime(connMaxIdleTime)
 
+	rrWrites := effectiveCfg.WriteTxRepeatableRead()
+
 	return &PostgresStore{
 		cfg: &effectiveCfg,
 		BaseDB: &BaseDB{
-			DB:             db,
-			BackendType:    BackendTypePostgres,
-			SkipMigrations: effectiveCfg.SkipMigrations,
+			DB:                    db,
+			BackendType:           BackendTypePostgres,
+			SkipMigrations:        effectiveCfg.SkipMigrations,
+			WriteTxRepeatableRead: rrWrites,
 		},
 	}, nil
 }

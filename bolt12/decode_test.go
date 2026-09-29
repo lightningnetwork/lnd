@@ -81,6 +81,122 @@ func TestDecodeRejectsNonMinimalFeatures(t *testing.T) {
 	}
 }
 
+// TestEncodeWritesMinimalFeatures tests that every features field is written in
+// its minimal form on encode. The Merkle leaves commit to the encoded bytes, so
+// a padded vector would sign bytes the strict decoder rejects.
+func TestEncodeWritesMinimalFeatures(t *testing.T) {
+	t.Parallel()
+
+	// Clearing a high bit must not leave padding behind. Only bit 1 is
+	// left, whose minimal encoding is the single byte 0x02.
+	features := lnwire.NewRawFeatureVector()
+	features.Set(201)
+	features.Unset(201)
+	features.Set(1)
+	minimal := []byte{0x02}
+
+	offer := validBobOffer(t)
+	offer.OfferFeatures = tlv.SomeRecordT(
+		tlv.NewRecordT[tlv.TlvType12](*features),
+	)
+
+	invreq := validInvoiceRequest(t)
+	invreq.InvreqFeatures = tlv.SomeRecordT(
+		tlv.NewRecordT[tlv.TlvType84](*features),
+	)
+
+	// A request that answers an offer also mirrors offer_features.
+	_, payerPub := aliceKey()
+	offerReq, err := NewInvoiceRequestFromOffer(
+		offer, payerPub, []byte("metadata"), bitcoinMainnetGenesisHash,
+	)
+	require.NoError(t, err)
+	offerReq.InvreqFeatures = invreq.InvreqFeatures
+	offerReq.InvreqAmount = invreq.InvreqAmount
+
+	inv := validInvoice(t)
+	inv.OfferFeatures = offer.OfferFeatures
+	inv.InvreqFeatures = invreq.InvreqFeatures
+	inv.InvoiceFeatures = tlv.SomeRecordT(
+		tlv.NewRecordT[tlv.TlvType174](*features),
+	)
+
+	tests := []struct {
+		name   string
+		encode func() ([]byte, error)
+		decode func([]byte) error
+		types  []tlv.Type
+	}{
+		{
+			name:   "offer",
+			encode: offer.encode,
+			decode: func(b []byte) error {
+				_, err := decodeOffer(b)
+				return err
+			},
+			types: []tlv.Type{offerFeaturesType},
+		},
+		{
+			name:   "invoice_request for an offer",
+			encode: offerReq.encode,
+			decode: func(b []byte) error {
+				_, err := DecodeInvoiceRequest(b)
+				return err
+			},
+			types: []tlv.Type{
+				offerFeaturesType, invreqFeaturesType,
+			},
+		},
+		{
+			name:   "invoice_request",
+			encode: invreq.encode,
+			decode: func(b []byte) error {
+				_, err := DecodeInvoiceRequest(b)
+				return err
+			},
+			types: []tlv.Type{invreqFeaturesType},
+		},
+		{
+			name:   "invoice",
+			encode: inv.encode,
+			decode: func(b []byte) error {
+				_, err := DecodeInvoice(b)
+				return err
+			},
+			types: []tlv.Type{
+				offerFeaturesType, invreqFeaturesType,
+				invoiceFeaturesType,
+			},
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+
+			encoded, err := tc.encode()
+			require.NoError(t, err)
+
+			stream, err := tlv.NewStream()
+			require.NoError(t, err)
+			typeMap, err := stream.DecodeWithParsedTypesP2P(
+				bytes.NewReader(encoded),
+			)
+			require.NoError(t, err)
+
+			for _, typ := range tc.types {
+				require.Equal(
+					t, minimal, typeMap[typ],
+					"type %d", typ,
+				)
+			}
+
+			// The strict decoder accepts what encode wrote.
+			require.NoError(t, tc.decode(encoded))
+		})
+	}
+}
+
 // TestDecodeRejectsNonMinimalAmount tests that a non-minimally encoded
 // amount is rejected at decode, so the canonical re-encode of an accepted
 // message always reproduces the wire bytes.

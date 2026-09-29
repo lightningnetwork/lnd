@@ -66,26 +66,21 @@ const (
 // would change the Merkle leaf bytes and invalidate an otherwise valid
 // signature. All three message types use it so the features fields decode
 // through one path. The payinfo features guard in decodeBlindedPayInfos is the
-// same check one subtype level down.
+// same check one subtype level down. The encoder passes through to lnwire's
+// features record, which already writes the minimal form, so no second copy of
+// the encoding exists to drift from it.
 func strictFeaturesRecord[T tlv.TlvType](
 	t *tlv.RecordT[T, lnwire.RawFeatureVector]) tlv.Record {
 
+	lnwireRec := t.Val.Record()
+
 	return tlv.MakeDynamicRecord(
-		t.TlvType(), &t.Val,
-		func() uint64 { return uint64(t.Val.SerializeSize()) },
-		strictFeaturesEncoder, strictFeaturesDecoder,
+		t.TlvType(), &t.Val, lnwireRec.Size,
+		func(w io.Writer, _ any, _ *[8]byte) error {
+			return lnwireRec.Encode(w)
+		},
+		strictFeaturesDecoder,
 	)
-}
-
-// strictFeaturesEncoder writes the minimal feature vector bytes, matching the
-// shared lnwire encoder.
-func strictFeaturesEncoder(w io.Writer, val any, _ *[8]byte) error {
-	fv, ok := val.(*lnwire.RawFeatureVector)
-	if !ok {
-		return tlv.NewTypeForEncodingErr(val, "lnwire.RawFeatureVector")
-	}
-
-	return fv.EncodeBase256(w)
 }
 
 // strictFeaturesDecoder decodes a feature vector and rejects a non-minimal

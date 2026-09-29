@@ -1617,17 +1617,29 @@ func validateInvoiceExpiry(inv *Invoice, now time.Time) error {
 
 // validateInvoiceNodeID rejects an invoice that was not signed by the node the
 // payer expected to answer. Which node that is comes from the payer's own
-// state: offer_issuer_id, the final blinded_node_id of the path it chose, or
-// the node it addressed an offerless request to. None of that is derivable
-// from the invoice, so validateInvoiceRead cannot make the comparison.
-// ValidateInvoiceForPayment folds it in, as it does for validateInvoiceExpiry.
+// state: offer_issuer_id, or the final blinded_node_id of the path it chose.
+// None of that is derivable from the invoice, so validateInvoiceRead cannot
+// make the comparison. ValidateInvoiceForPayment folds it in, as it does for
+// validateInvoiceExpiry.
 //
-// Skipping it is not cosmetic. Every node on the blinded path can answer with
-// its own correctly signed invoice, and the reader accepts it, because the
-// signature only has to agree with whatever invoice_node_id the invoice itself
-// carries.
-func validateInvoiceNodeID(inv *Invoice,
+// Skipping it is not cosmetic for a response to an offer. Every node on the
+// blinded path can answer with its own correctly signed invoice, and the
+// reader accepts it, because the signature only has to agree with whatever
+// invoice_node_id the invoice itself carries.
+func validateInvoiceNodeID(inv *Invoice, req *InvoiceRequest,
 	expectedNodeID *btcec.PublicKey) error {
+
+	// - otherwise (invoice_request without an offer):
+	//   - MAY reject the invoice if it cannot confirm that invoice_node_id
+	//     is correct, out-of-band.
+	//
+	// The payer published the invoice request and never addressed the
+	// payee, so it has a key to compare against only if it learned one out
+	// of band. Without one it passes nil.
+	isOfferResponse := req.OfferIssuerID.IsSome() || req.OfferPaths.IsSome()
+	if expectedNodeID == nil && !isOfferResponse {
+		return nil
+	}
 
 	if expectedNodeID == nil {
 		return fmt.Errorf("%w: expected invoice_node_id",
@@ -1983,11 +1995,13 @@ func validateInvoiceRead(inv *Invoice, activeChain [32]byte,
 // ValidateInvoiceForPayment runs the full set of payer-side invoice checks in
 // one call against an invoice and its originating request.
 //
-// expectedNodeID is the node the payer expects to have signed the invoice,
-// and is always compared against invoice_node_id. It is offer_issuer_id for
-// an offer that carried one, the final blinded_node_id on the path the payer
-// chose for an offer that carried offer_paths, and the node it sent to for an
-// offerless request.
+// expectedNodeID is the node the payer expects to have signed the invoice, and
+// is compared against invoice_node_id. It is offer_issuer_id for an offer that
+// carried one, and the final blinded_node_id on the path the payer chose for an
+// offer that carried offer_paths. For a request that answers no offer it is a
+// key the payer confirmed out of band, or nil when it has none. Only that case
+// accepts nil. For a response to an offer a nil expectedNodeID returns
+// ErrNilPublicKey.
 func ValidateInvoiceForPayment(inv *Invoice, req *InvoiceRequest,
 	now time.Time, activeChain [32]byte,
 	features InvoiceKnownFeatures,
@@ -2005,5 +2019,5 @@ func ValidateInvoiceForPayment(inv *Invoice, req *InvoiceRequest,
 		return err
 	}
 
-	return validateInvoiceNodeID(inv, expectedNodeID)
+	return validateInvoiceNodeID(inv, req, expectedNodeID)
 }

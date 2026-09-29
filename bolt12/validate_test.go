@@ -934,41 +934,69 @@ func TestValidateReadRejectsBadSignature(t *testing.T) {
 
 // TestValidateInvoiceNodeID pins the binding the readers cannot check for
 // themselves: invoice_node_id must name the node the payer expected to
-// answer, which is state only the payer holds.
+// answer, which is state only the payer holds. A request that answers no
+// offer is compared only against a key the payer confirmed out of band.
 func TestValidateInvoiceNodeID(t *testing.T) {
 	t.Parallel()
 
 	_, alicePub := aliceKey()
 	_, bobPub := bobKey()
 
+	// An offer response carries offer_issuer_id or offer_paths, and a
+	// request that answers no offer carries neither.
+	offerResponse := &InvoiceRequest{
+		OfferIssuerID: tlv.SomeRecordT(
+			tlv.NewPrimitiveRecord[tlv.TlvType22](bobPub),
+		),
+	}
+	offerless := &InvoiceRequest{}
+
 	tests := []struct {
 		name     string
+		req      *InvoiceRequest
 		nodeID   fn.Option[*btcec.PublicKey]
 		expected *btcec.PublicKey
 		wantErr  error
 	}{
 		{
 			name:     "matches the path's final node",
+			req:      offerResponse,
 			nodeID:   fn.Some(bobPub),
 			expected: bobPub,
 		},
 		{
 			name:     "another node on the path impersonates",
+			req:      offerResponse,
 			nodeID:   fn.Some(alicePub),
 			expected: bobPub,
 			wantErr:  ErrUnexpectedInvoiceNodeID,
 		},
 		{
 			name:     "invoice_node_id absent",
+			req:      offerResponse,
 			nodeID:   fn.None[*btcec.PublicKey](),
 			expected: bobPub,
 			wantErr:  ErrMissingNodeID,
 		},
 		{
 			name:     "caller supplies no final node",
+			req:      offerResponse,
 			nodeID:   fn.Some(bobPub),
 			expected: nil,
 			wantErr:  ErrNilPublicKey,
+		},
+		{
+			name:     "offerless request, no key confirmed",
+			req:      offerless,
+			nodeID:   fn.Some(alicePub),
+			expected: nil,
+		},
+		{
+			name:     "offerless request, confirmed key differs",
+			req:      offerless,
+			nodeID:   fn.Some(alicePub),
+			expected: bobPub,
+			wantErr:  ErrUnexpectedInvoiceNodeID,
 		},
 	}
 
@@ -988,7 +1016,7 @@ func TestValidateInvoiceNodeID(t *testing.T) {
 				)
 			})
 
-			err := validateInvoiceNodeID(inv, tc.expected)
+			err := validateInvoiceNodeID(inv, tc.req, tc.expected)
 			if tc.wantErr == nil {
 				require.NoError(t, err)
 				return

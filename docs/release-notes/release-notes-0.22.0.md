@@ -58,6 +58,11 @@
   no longer hangs on a fresh database when `db.postgres.maxconnections` is
   set to a low value.
 
+* [Fixed a bug](https://github.com/lightningnetwork/lnd/pull/11283) where an
+  invalid MuSig2 partial commitment signature on a taproot channel was
+  rejected without the commitment height and transaction attached, and
+  without sending those debug details to the remote peer.
+
 # New Features
 
 ## Functional Enhancements
@@ -201,3 +206,4 @@
 * Jared Tobin
 * Kevin Cai
 * Vandit Singh
+* Pins

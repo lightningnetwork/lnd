@@ -71,6 +71,11 @@
   the local node no longer needs them. Force-close and cooperative-close
   signing continue to retain their sessions until signature combination.
 
+* [Fixed a bug](https://github.com/lightningnetwork/lnd/pull/11283) where an
+  invalid MuSig2 partial commitment signature on a taproot channel was
+  rejected without the commitment height and transaction attached, and
+  without sending those debug details to the remote peer.
+
 # New Features
 
 ## Functional Enhancements
@@ -233,6 +238,8 @@
 * Erick Cestari
 * Jared Tobin
 * Kevin Cai
+* Nishant Bansal
 * Vandit Singh
 * Viktor Torstensson
+* Pins
 * s1ns3nz0

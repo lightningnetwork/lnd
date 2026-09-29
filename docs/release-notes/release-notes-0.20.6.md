@@ -25,6 +25,9 @@
   signer sessions](https://github.com/lightningnetwork/lnd/pull/11246) once
   the local node no longer needs them. Force-close and cooperative-close
   signing continue to retain their sessions until signature combination.
+  Invalid MuSig2 partial commitment signatures are now rejected with the
+  commitment height and transaction attached, and those debug details are
+  sent to the remote peer.
 
 # New Features
 
@@ -63,3 +66,4 @@
 # Contributors (Alphabetical Order)
 
 * Olaoluwa Osuntokun
+* Pins

@@ -434,7 +434,7 @@ func ReadElement(r io.Reader, element interface{}) error { //nolint:funlen
 		}
 
 		*e = make([]net.Addr, numAddrs)
-		for i := uint32(0); i < numAddrs; i++ {
+		for i := range numAddrs {
 			addr, err := graphdb.DeserializeAddr(r)
 			if err != nil {
 				return err

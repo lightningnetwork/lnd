@@ -301,7 +301,7 @@ func isWhitespace(c byte) bool {
 // continuation stripping.
 func toBech32Bytes(s string) ([]byte, error) {
 	result := make([]byte, len(s))
-	for i := 0; i < len(s); i++ {
+	for i := range len(s) {
 		idx := strings.IndexByte(charset, s[i])
 		if idx < 0 {
 			return nil, fmt.Errorf(

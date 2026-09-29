@@ -149,7 +149,7 @@ func decodeLocalNoncesData(r io.Reader, val any, _ *[8]byte,
 	// existing entries if the LocalNoncesData instance is being reused.
 	l.NoncesMap = make(map[chainhash.Hash]Musig2Nonce, numEntries)
 
-	for i := uint64(0); i < numEntries; i++ {
+	for range numEntries {
 		var (
 			txid  chainhash.Hash
 			nonce Musig2Nonce

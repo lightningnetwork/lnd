@@ -87,7 +87,7 @@ func NewValidationBarrier(numActiveReqs int,
 	// We'll first initialize a set of semaphores to limit our concurrency
 	// when validating incoming requests in parallel.
 	v.validationSemaphore = make(chan struct{}, numActiveReqs)
-	for i := 0; i < numActiveReqs; i++ {
+	for range numActiveReqs {
 		v.validationSemaphore <- struct{}{}
 	}
 

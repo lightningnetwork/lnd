@@ -1260,7 +1260,7 @@ func (d *DefaultDatabaseBuilder) BuildDatabase(
 
 			// Make sure we attach the custom migration function to
 			// the correct migration version.
-			for i := 0; i < len(migrations); i++ {
+			for i := range migrations {
 				version := migrations[i].Version
 				switch version {
 				case invoiceMigration:

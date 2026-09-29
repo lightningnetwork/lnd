@@ -27,7 +27,7 @@ func makeQueryParams(numTotalArgs, numListArgs int) string {
 	b.Grow(numListArgs * 6)
 
 	diff := numTotalArgs - numListArgs
-	for i := 0; i < numListArgs; i++ {
+	for i := range numListArgs {
 		if i > 0 {
 			// We don't need to check the error here because the
 			// WriteString method of strings.Builder always returns

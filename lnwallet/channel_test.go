@@ -6436,6 +6436,56 @@ func TestInvalidCommitSigError(t *testing.T) {
 	}
 }
 
+// TestInvalidPartialCommitSigError tests that if the remote party sends us an
+// invalid musig2 partial signature for a taproot channel, then we'll reject it
+// and return an InvalidPartialCommitSigError carrying the commitment details.
+// The error must also match *InvalidCommitSigError, as that's what the link
+// uses to decide whether to send the debug data to the remote party.
+func TestInvalidPartialCommitSigError(t *testing.T) {
+	t.Parallel()
+
+	// First, we'll make a taproot channel between Alice and Bob.
+	aliceChannel, bobChannel, err := CreateTestChannels(
+		t, channeldb.SingleFunderTweaklessBit|
+			channeldb.AnchorOutputsBit|
+			channeldb.SimpleTaprootFeatureBit,
+	)
+	require.NoError(t, err, "unable to create test channels")
+
+	// With the channel established, we'll now send a single HTLC from
+	// Alice to Bob.
+	var htlcAmt lnwire.MilliSatoshi = 100000
+	htlc, _ := createHTLC(0, htlcAmt)
+	addAndReceiveHTLC(t, aliceChannel, bobChannel, htlc, nil)
+
+	// Alice will now attempt to initiate a state transition.
+	aliceNewCommit, err := aliceChannel.SignNextCommitment(ctxb)
+	require.NoError(t, err, "unable to sign new commit")
+
+	// Before the partial signature gets to Bob, we'll mutate it, such
+	// that the signature is now actually invalid.
+	partialSig, err := aliceNewCommit.PartialSig.UnwrapOrErrV(
+		errNoPartialSig,
+	)
+	require.NoError(t, err)
+	partialSig.Sig.SetInt(1)
+	aliceNewCommit.PartialSig = lnwire.MaybePartialSigWithNonce(
+		&partialSig,
+	)
+
+	// Bob should reject this new state, and return the proper error.
+	err = bobChannel.ReceiveNewCommitment(aliceNewCommit.CommitSigs)
+	require.Error(t, err)
+
+	var partialSigErr *InvalidPartialCommitSigError
+	require.ErrorAs(t, err, &partialSigErr)
+	require.EqualValues(t, 1, partialSigErr.commitHeight)
+	require.NotEmpty(t, partialSigErr.commitTx)
+
+	var commitSigErr *InvalidCommitSigError
+	require.ErrorAs(t, err, &commitSigErr)
+}
+
 // TestChannelUnilateralCloseHtlcResolution tests that in the case of a
 // unilateral channel closure, then the party that didn't broadcast the
 // commitment is able to properly sweep all relevant outputs.

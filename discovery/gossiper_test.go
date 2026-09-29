@@ -4177,7 +4177,7 @@ func TestRateLimitChannelUpdates(t *testing.T) {
 	require.NoError(t, err)
 
 	timeout := time.After(2 * trickleDelay)
-	for i := 0; i < 3; i++ {
+	for range 3 {
 		select {
 		case <-tCtx.broadcastedMessage:
 		case <-timeout:
@@ -4238,7 +4238,7 @@ func TestRateLimitChannelUpdates(t *testing.T) {
 	// seconds with a max burst of 5 per direction. We'll process the max
 	// burst of one direction first. None of these should be rate limited.
 	updateSameDirection := keepAliveUpdate
-	for i := uint32(0); i < uint32(tCtx.gossiper.cfg.MaxChannelUpdateBurst); i++ { //nolint:ll
+	for range uint32(tCtx.gossiper.cfg.MaxChannelUpdateBurst) {
 		updateSameDirection.Timestamp++
 		updateSameDirection.BaseFee++
 		require.NoError(
@@ -4264,7 +4264,7 @@ func TestRateLimitChannelUpdates(t *testing.T) {
 	// Wait for the next interval to tick. Since we've only waited for one,
 	// only one more update is allowed.
 	<-time.After(tCtx.gossiper.cfg.ChannelUpdateInterval)
-	for i := 0; i < tCtx.gossiper.cfg.MaxChannelUpdateBurst; i++ {
+	for i := range tCtx.gossiper.cfg.MaxChannelUpdateBurst {
 		updateSameDirection.Timestamp++
 		updateSameDirection.BaseFee++
 		require.NoError(t, signUpdate(remoteKeyPriv1, &updateSameDirection))

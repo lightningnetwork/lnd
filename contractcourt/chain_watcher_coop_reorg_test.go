@@ -171,7 +171,7 @@ func TestChainWatcherCoopCloseRapidReorgs(t *testing.T) {
 	harness.sendSpend(tx)
 
 	// Trigger multiple rapid reorgs to stress the state machine.
-	for i := 0; i < 5; i++ {
+	for i := range 5 {
 		harness.waitForConfRegistration()
 		harness.mineBlocks(1)
 		harness.triggerReorg(tx, int32(i+1))

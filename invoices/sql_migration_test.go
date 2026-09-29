@@ -120,7 +120,7 @@ func randHTLCRapid(t *rapid.T, invoice *Invoice, amt lnwire.MilliSatoshi) (
 	// Add randomized custom records to the HTLC.
 	htlc.CustomRecords = make(record.CustomSet)
 	numRecords := rapid.IntRange(0, 5).Draw(t, "numRecords")
-	for i := 0; i < numRecords; i++ {
+	for range numRecords {
 		key := rapid.Uint64Range(
 			record.CustomTypeStart, 1000+record.CustomTypeStart,
 		).Draw(t, "customRecordKey")
@@ -163,7 +163,7 @@ func generateInvoiceHTLCsRapid(t *rapid.T, invoice *Invoice) {
 		amt := total / lnwire.MilliSatoshi(numHTLCs)
 		remainder := total - amt*lnwire.MilliSatoshi(numHTLCs)
 
-		for i := 0; i < numHTLCs; i++ {
+		for i := range numHTLCs {
 			if i == numHTLCs-1 {
 				// Add remainder to the last HTLC.
 				amt += remainder
@@ -184,7 +184,7 @@ func generateAMPHtlcsRapid(t *rapid.T, invoice *Invoice) {
 	numSetIDs := rapid.IntRange(1, 5).Draw(t, "numSetIDs")
 	settledIdx := uint64(1)
 
-	for i := 0; i < numSetIDs; i++ {
+	for range numSetIDs {
 		var setID SetID
 		_, err := crand.Read(setID[:])
 		require.NoError(t, err)
@@ -200,7 +200,7 @@ func generateAMPHtlcsRapid(t *rapid.T, invoice *Invoice) {
 		remainder := total - amt*lnwire.MilliSatoshi(numHTLCs)
 
 		var htlcState HtlcState
-		for j := 0; j < numHTLCs; j++ {
+		for j := range numHTLCs {
 			if j == numHTLCs-1 {
 				amt += remainder
 			}

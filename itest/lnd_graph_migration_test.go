@@ -93,7 +93,7 @@ func testGraphMigration(ht *lntest.HarnessTest) {
 
 	// Now run the migration flow three times to ensure that each run is
 	// idempotent.
-	for i := 0; i < 3; i++ {
+	for range 3 {
 		// Start Alice with the native SQL flag set. This will trigger
 		// the migration to run.
 		require.NoError(ht, alice.Start(ht.Context()))

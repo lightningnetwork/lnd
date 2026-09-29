@@ -39,7 +39,7 @@ func TestMultiMutexConcurrency(t *testing.T) {
 	var wg sync.WaitGroup
 	const numOps = 100
 
-	for i := 0; i < numOps; i++ {
+	for range numOps {
 		wg.Add(1)
 		go func() {
 			defer wg.Done()
@@ -70,7 +70,7 @@ func TestMultiMutexMultipleIDs(t *testing.T) {
 	var wg sync.WaitGroup
 	const numOps = 50
 
-	for i := 0; i < numOps; i++ {
+	for range numOps {
 		wg.Add(2)
 
 		go func(id string) {
@@ -110,7 +110,7 @@ func TestMultiMutexReuse(t *testing.T) {
 	t.Parallel()
 	mtx := newTestMutex[int]()
 
-	for i := 0; i < 5; i++ {
+	for range 5 {
 		mtx.Lock(1)
 		mtx.Unlock(1)
 	}

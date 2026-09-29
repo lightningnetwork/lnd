@@ -87,7 +87,7 @@ func BenchmarkWriteMessage(b *testing.B) {
 	b.ReportAllocs()
 	b.ResetTimer()
 
-	for i := 0; i < b.N; i++ {
+	for range b.N {
 		// Write our massive message, then call flush to actually write
 		// the encrypted message This simulates a full write operation
 		// to a network.

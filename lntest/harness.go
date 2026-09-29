@@ -536,7 +536,7 @@ func (h *HarnessTest) NewNodeWithCoins(name string,
 		totalAmount = fundAmount * numOutputs
 	)
 
-	for i := 0; i < numOutputs; i++ {
+	for range numOutputs {
 		h.createAndSendOutput(
 			node, fundAmount,
 			lnrpc.AddressType_WITNESS_PUBKEY_HASH,
@@ -1579,7 +1579,7 @@ func (h *HarnessTest) FundNumCoins(hn *node.HarnessNode, num int) {
 	const fundAmount = 1 * btcutil.SatoshiPerBitcoin
 
 	// Send out the outputs from the miner.
-	for i := 0; i < num; i++ {
+	for range num {
 		h.createAndSendOutput(
 			hn, fundAmount, lnrpc.AddressType_WITNESS_PUBKEY_HASH,
 		)

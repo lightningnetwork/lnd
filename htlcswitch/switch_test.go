@@ -2030,7 +2030,7 @@ func TestNodeIDNonStrictRouting(t *testing.T) {
 	// Forward many HTLCs so that random selection would almost certainly
 	// land on the incoming channel, which will be sorted out by the switch.
 	const numHTLCs = 20
-	for i := 0; i < numHTLCs; i++ {
+	for i := range numHTLCs {
 		var hash [sha256.Size]byte
 		hash[0] = byte(i)
 

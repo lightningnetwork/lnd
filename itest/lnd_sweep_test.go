@@ -1855,7 +1855,7 @@ func testFeeReplacement(ht *lntest.HarnessTest) {
 	// Create numPayments HTLCs on Bob's incoming and outgoing channels.
 	preimages := make([][]byte, 0, numPayments)
 	streams := make([]rpc.SingleInvoiceClient, 0, numPayments)
-	for i := 0; i < numPayments; i++ {
+	for range numPayments {
 		// Create the preimage.
 		var preimage lntypes.Preimage
 		copy(preimage[:], ht.Random32Bytes())

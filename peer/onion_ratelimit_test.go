@@ -241,7 +241,7 @@ func TestAllowOnionMessageHappyPath(t *testing.T) {
 	var key [33]byte
 	key[0] = 0x04
 
-	for i := 0; i < 10; i++ {
+	for i := range 10 {
 		result := allowOnionMessage(
 			limiter, key, testMsgBytes, true, false,
 		)
@@ -270,7 +270,7 @@ func TestAllowOnionMessagePeerIsolation(t *testing.T) {
 	keyB[0] = 0x03
 
 	// Drain peer A.
-	for i := 0; i < 2; i++ {
+	for range 2 {
 		result := allowOnionMessage(
 			limiter, keyA, testMsgBytes, true, false,
 		)
@@ -280,7 +280,7 @@ func TestAllowOnionMessagePeerIsolation(t *testing.T) {
 	require.Error(t, result.Err())
 
 	// Peer B must still have its full burst available.
-	for i := 0; i < 2; i++ {
+	for i := range 2 {
 		result := allowOnionMessage(
 			limiter, keyB, testMsgBytes, true, false,
 		)
@@ -315,11 +315,11 @@ func TestAllowOnionMessageConcurrent(t *testing.T) {
 	var wg sync.WaitGroup
 	var accepted atomic.Uint64
 
-	for w := 0; w < workers; w++ {
+	for range workers {
 		wg.Add(1)
 		go func() {
 			defer wg.Done()
-			for i := 0; i < perWorker; i++ {
+			for range perWorker {
 				result := allowOnionMessage(
 					limiter, key, testMsgBytes, true, false,
 				)

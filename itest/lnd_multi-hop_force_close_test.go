@@ -3342,7 +3342,7 @@ func runHtlcAggregation(ht *lntest.HarnessTest,
 	)
 
 	// Add Carol invoices.
-	for i := 0; i < numInvoices; i++ {
+	for range numInvoices {
 		preimage := ht.RandomPreimage()
 		payHash := preimage.Hash()
 
@@ -3364,7 +3364,7 @@ func runHtlcAggregation(ht *lntest.HarnessTest,
 
 	// We'll give Alice's invoices a longer CLTV expiry, to ensure the
 	// channel Bob<->Carol will be closed first.
-	for i := 0; i < numInvoices; i++ {
+	for range numInvoices {
 		preimage := ht.RandomPreimage()
 		payHash := preimage.Hash()
 

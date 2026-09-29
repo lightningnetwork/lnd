@@ -568,7 +568,7 @@ func testAnchorThirdPartySpend(ht *lntest.HarnessTest) {
 	blocks := anchorCsv - defaultCSV
 
 	// Mine empty blocks and check Alice still has the two pending sweeps.
-	for i := 0; i < blocks; i++ {
+	for range blocks {
 		ht.MineEmptyBlocks(1)
 		ht.AssertNumPendingSweeps(alice, 2)
 	}

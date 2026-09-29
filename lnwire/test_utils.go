@@ -125,7 +125,7 @@ func RandFeatureVector(t *rapid.T) *RawFeatureVector {
 
 	// Add a random number of random feature bits
 	numFeatures := rapid.IntRange(0, 20).Draw(t, "numFeatures")
-	for i := 0; i < numFeatures; i++ {
+	for i := range numFeatures {
 		bit := FeatureBit(rapid.IntRange(0, 100).Draw(
 			t, fmt.Sprintf("featureBit-%d", i)),
 		)
@@ -218,7 +218,7 @@ func RandNetAddrs(t *rapid.T) []net.Addr {
 	}
 
 	addresses := make([]net.Addr, numAddresses)
-	for i := 0; i < numAddresses; i++ {
+	for i := range numAddresses {
 		addressType := rapid.IntRange(0, 1).Draw(
 			t, fmt.Sprintf("addressType-%d", i),
 		)
@@ -289,7 +289,7 @@ func RandTLVRecords(t *rapid.T, ignoreRecords fn.Set[uint64],
 	rangeStop := rangeStart + 30_000
 
 	ignoreSet := fn.NewSet[uint64]()
-	for i := 0; i < numRecords; i++ {
+	for i := range numRecords {
 		recordType := uint64(
 			rapid.IntRange(rangeStart, rangeStop).
 				Filter(func(i int) bool {

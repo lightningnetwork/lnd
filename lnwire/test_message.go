@@ -391,7 +391,7 @@ func (a *ChannelReestablish) RandTestMessage(t *rapid.T) Message {
 	if includeLocalNonces {
 		numNonces := rapid.IntRange(0, 3).Draw(t, "numLocalNonces")
 		nonces := make(map[chainhash.Hash]Musig2Nonce)
-		for i := 0; i < numNonces; i++ {
+		for range numNonces {
 			txid := RandChainHash(t)
 
 			// Ensure unique txids for the map.
@@ -883,7 +883,7 @@ func (c *CommitSig) RandTestMessage(t *rapid.T) Message {
 
 	numHtlcSigs := rapid.IntRange(0, 20).Draw(t, "numHtlcSigs")
 	htlcSigs := make([]Sig, numHtlcSigs)
-	for i := 0; i < numHtlcSigs; i++ {
+	for i := range numHtlcSigs {
 		htlcSigs[i] = RandSignature(t)
 	}
 
@@ -1078,7 +1078,7 @@ func (dr *DynReject) RandTestMessage(t *rapid.T) Message {
 	featureVec := NewRawFeatureVector()
 
 	numFeatures := rapid.IntRange(0, 8).Draw(t, "numRejections")
-	for i := 0; i < numFeatures; i++ {
+	for i := range numFeatures {
 		bit := FeatureBit(
 			rapid.IntRange(0, 31).Draw(
 				t, fmt.Sprintf("rejectionBit-%d", i),
@@ -1315,7 +1315,7 @@ func (msg *Init) RandTestMessage(t *rapid.T) Message {
 	local := NewRawFeatureVector()
 
 	numGlobalFeatures := rapid.IntRange(0, 20).Draw(t, "numGlobalFeatures")
-	for i := 0; i < numGlobalFeatures; i++ {
+	for i := range numGlobalFeatures {
 		bit := FeatureBit(
 			rapid.IntRange(0, 100).Draw(
 				t, fmt.Sprintf("globalFeatureBit%d", i),
@@ -1325,7 +1325,7 @@ func (msg *Init) RandTestMessage(t *rapid.T) Message {
 	}
 
 	numLocalFeatures := rapid.IntRange(0, 20).Draw(t, "numLocalFeatures")
-	for i := 0; i < numLocalFeatures; i++ {
+	for i := range numLocalFeatures {
 		bit := FeatureBit(
 			rapid.IntRange(0, 100).Draw(
 				t, fmt.Sprintf("localFeatureBit%d", i),
@@ -1462,7 +1462,7 @@ func (n *NodeAnnouncement2) RandTestMessage(t *rapid.T) Message {
 		ipv6Addrs := make(IPV6Addrs, 1)
 		ip := make(net.IP, 16)
 		// Generate random IPv6 address.
-		for j := 0; j < 16; j++ {
+		for j := range 16 {
 			ip[j] = uint8(rapid.IntRange(0, 255).Draw(
 				t, fmt.Sprintf("ip6_%d", j)),
 			)
@@ -1636,7 +1636,7 @@ func (p *Ping) RandTestMessage(t *rapid.T) Message {
 	padding := make(PingPayload, paddingLen)
 
 	// Fill padding with random bytes
-	for i := 0; i < paddingLen; i++ {
+	for i := range paddingLen {
 		padding[i] = byte(rapid.IntRange(0, 255).Draw(
 			t, fmt.Sprintf("paddingByte%d", i)),
 		)
@@ -1731,7 +1731,7 @@ func (q *QueryShortChanIDs) RandTestMessage(t *rapid.T) Message {
 
 	// Generate sorted short channel IDs.
 	shortChanIDs := make([]ShortChannelID, numIDs)
-	for i := 0; i < numIDs; i++ {
+	for i := range numIDs {
 		shortChanIDs[i] = RandShortChannelID(t)
 
 		// Ensure they're properly sorted.
@@ -1782,7 +1782,7 @@ func (c *ReplyChannelRange) RandTestMessage(t *rapid.T) Message {
 
 	scidSet := fn.NewSet[ShortChannelID]()
 	scids := make([]ShortChannelID, numShortChanIDs)
-	for i := 0; i < numShortChanIDs; i++ {
+	for i := range numShortChanIDs {
 		scid := RandShortChannelID(t)
 		for scidSet.Contains(scid) {
 			scid = RandShortChannelID(t)
@@ -1798,7 +1798,7 @@ func (c *ReplyChannelRange) RandTestMessage(t *rapid.T) Message {
 
 	if rapid.Bool().Draw(t, "includeTimestamps") && numShortChanIDs > 0 {
 		msg.Timestamps = make(Timestamps, numShortChanIDs)
-		for i := 0; i < numShortChanIDs; i++ {
+		for i := range numShortChanIDs {
 			msg.Timestamps[i] = ChanUpdateTimestamps{
 				Timestamp1: uint32(rapid.IntRange(0, math.MaxInt32).Draw(t, fmt.Sprintf("timestamp-1-%d", i))), //nolint:ll
 				Timestamp2: uint32(rapid.IntRange(0, math.MaxInt32).Draw(t, fmt.Sprintf("timestamp-2-%d", i))), //nolint:ll
@@ -1858,7 +1858,7 @@ func (c *RevokeAndAck) RandTestMessage(t *rapid.T) Message {
 	if rapid.Bool().Draw(t, "includeLocalNonces") {
 		numNonces := rapid.IntRange(0, 3).Draw(t, "numLocalNonces")
 		nonces := make(map[chainhash.Hash]Musig2Nonce)
-		for i := 0; i < numNonces; i++ {
+		for range numNonces {
 			txid := RandChainHash(t)
 
 			// Ensure unique txids for the map.
@@ -2092,7 +2092,7 @@ func (c *Warning) RandTestMessage(t *rapid.T) Message {
 	if useASCII {
 		length := rapid.IntRange(1, 100).Draw(t, "warningDataLength")
 		data := make([]byte, length)
-		for i := 0; i < length; i++ {
+		for i := range length {
 			data[i] = byte(
 				rapid.IntRange(32, 126).Draw(
 					t, fmt.Sprintf("warningDataByte-%d", i),
@@ -2127,7 +2127,7 @@ func (c *Error) RandTestMessage(t *rapid.T) Message {
 	if useASCII {
 		length := rapid.IntRange(1, 100).Draw(t, "errorDataLength")
 		data := make([]byte, length)
-		for i := 0; i < length; i++ {
+		for i := range length {
 			data[i] = byte(
 				rapid.IntRange(32, 126).Draw(
 					t, fmt.Sprintf("errorDataByte-%d", i),
@@ -2157,7 +2157,7 @@ func genValidHostname(t *rapid.T) string {
 	length := rapid.IntRange(1, 255).Draw(t, "hostname_length")
 
 	hostname := make([]byte, length)
-	for i := 0; i < length; i++ {
+	for i := range length {
 		charIndex := rapid.IntRange(0, len(validChars)-1).Draw(
 			t, fmt.Sprintf("char_%d", i),
 		)

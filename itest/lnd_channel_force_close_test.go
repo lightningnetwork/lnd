@@ -159,7 +159,7 @@ func runChannelForceClosureTest(ht *lntest.HarnessTest,
 	// htlc outputs should be left unsettled, and should be swept by the
 	// utxo nursery.
 	carolPubKey := carol.PubKey[:]
-	for i := 0; i < numInvoices; i++ {
+	for range numInvoices {
 		req := &routerrpc.SendPaymentRequest{
 			Dest:           carolPubKey,
 			Amt:            int64(paymentAmt),

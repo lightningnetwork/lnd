@@ -578,7 +578,7 @@ func BenchmarkCacheLoading(b *testing.B) {
 			// Reset timer to exclude setup time.
 			b.ResetTimer()
 
-			for i := 0; i < b.N; i++ {
+			for range b.N {
 				b.StopTimer()
 				graph, err := NewChannelGraph(store)
 				require.NoError(b, err)
@@ -740,7 +740,7 @@ func BenchmarkGraphReadMethods(b *testing.B) {
 				// Reset timer to exclude setup time.
 				b.ResetTimer()
 
-				for i := 0; i < b.N; i++ {
+				for range b.N {
 					test.fn(b, store)
 				}
 			})
@@ -892,7 +892,7 @@ CREATE INDEX IF NOT EXISTS graph_channels_node_id_2_idx
 					b.ResetTimer()
 
 					//nolint:ll
-					for i := 0; i < b.N; i++ {
+					for range b.N {
 						iter := backend.store.NodeUpdatesInHorizon(
 							ctx,
 							lnwire.GossipVersion1,
@@ -987,7 +987,7 @@ func BenchmarkFindOptimalSQLQueryConfig(b *testing.B) {
 				// Reset timer to exclude setup time.
 				b.ResetTimer()
 
-				for i := 0; i < b.N; i++ {
+				for range b.N {
 					var (
 						numNodes    = 0
 						numChannels = 0

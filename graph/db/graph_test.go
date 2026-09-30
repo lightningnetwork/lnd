@@ -2781,7 +2781,7 @@ func testNodeUpdatesWithBatchSize(t *testing.T, ctx context.Context,
 	startTime := time.Unix(1234567890, 0)
 	var nodeAnns []models.Node
 
-	for i := 0; i < 25; i++ {
+	for i := range 25 {
 		nodeAnn := createTestVertex(t, lnwire.GossipVersion1)
 		nodeAnn.LastUpdate = startTime.Add(
 			time.Duration(i) * time.Hour,
@@ -2953,7 +2953,7 @@ func TestNodeUpdatesInHorizonEarlyTermination(t *testing.T) {
 	// We'll start by creating 100 nodes, each with an update time spaced
 	// one hour apart.
 	startTime := time.Unix(1234567890, 0)
-	for i := 0; i < 100; i++ {
+	for i := range 100 {
 		nodeAnn := createTestVertex(t, lnwire.GossipVersion1)
 		nodeAnn.LastUpdate = startTime.Add(time.Duration(i) * time.Hour)
 		require.NoError(t, graph.AddNode(ctx, nodeAnn))
@@ -3020,7 +3020,7 @@ func TestChanUpdatesInHorizonBoundaryConditions(t *testing.T) {
 			startTime := time.Unix(1234567890, 0)
 			const numChans = 25
 
-			for i := 0; i < numChans; i++ {
+			for i := range numChans {
 				updateTime := startTime.Add(
 					time.Duration(i) * time.Hour,
 				)
@@ -3193,7 +3193,7 @@ func TestNodeUpdatesInHorizonV2(t *testing.T) {
 	const heightStep uint32 = 10
 
 	nodeAnns := make([]models.Node, 0, numNodes)
-	for i := 0; i < numNodes; i++ {
+	for i := range numNodes {
 		node := createTestVertex(t, lnwire.GossipVersion2)
 		node.LastBlockHeight = startHeight + uint32(i)*heightStep
 		nodeAnns = append(nodeAnns, *node)
@@ -3432,7 +3432,7 @@ func TestChanUpdatesInHorizonV2(t *testing.T) {
 	const startHeight uint32 = 100
 	const heightStep uint32 = 10
 
-	for i := 0; i < numChans; i++ {
+	for i := range numChans {
 		height := startHeight + uint32(i)*heightStep
 
 		channel, chanID := createEdge(
@@ -3755,7 +3755,7 @@ func testFilterKnownChanIDs(t *testing.T, v lnwire.GossipVersion) {
 	// block height 10 blocks after the previous.
 	const numChans = 5
 	chanIDs := make([]ChannelUpdateInfo, 0, numChans)
-	for i := 0; i < numChans; i++ {
+	for i := range numChans {
 		channel, chanID := createEdge(
 			v, uint32(i*10), 0, 0, 0, node1, node2,
 		)
@@ -3766,7 +3766,7 @@ func testFilterKnownChanIDs(t *testing.T, v lnwire.GossipVersion) {
 
 	const numZombies = 5
 	zombieIDs := make([]ChannelUpdateInfo, 0, numZombies)
-	for i := 0; i < numZombies; i++ {
+	for i := range numZombies {
 		channel, chanID := createEdge(
 			v, uint32(i*10+1), 0, 0, 0, node1, node2,
 		)
@@ -4493,7 +4493,7 @@ func testFetchChanInfos(t *testing.T, v lnwire.GossipVersion) {
 	require.NoError(t, err, "unable to fetch chan edges")
 	require.Len(t, resp, len(edges))
 
-	for i := 0; i < len(resp); i++ {
+	for i := range resp {
 		compareEdgePolicies(t, resp[i].Policy1, edges[i].Policy1)
 		compareEdgePolicies(t, resp[i].Policy2, edges[i].Policy2)
 		assertEdgeInfoEqual(t, resp[i].Info, edges[i].Info)
@@ -4521,7 +4521,7 @@ func testChannelView(t *testing.T, v lnwire.GossipVersion) {
 
 	const numChans = 3
 	edgePoints := make([]EdgePoint, 0, numChans)
-	for i := 0; i < numChans; i++ {
+	for i := range numChans {
 		edge, _ := createEdge(
 			v, uint32(i+1), 0, 0, uint32(i), node1, node2,
 		)
@@ -5755,7 +5755,7 @@ func testBatchedUpdateEdgePolicy(t *testing.T, v lnwire.GossipVersion) {
 	}
 	wg.Wait()
 
-	for i := 0; i < len(updates); i++ {
+	for range updates {
 		err := <-errChan
 		require.Nil(t, err)
 	}
@@ -5775,7 +5775,7 @@ func BenchmarkForEachChannel(b *testing.B) {
 
 	b.ReportAllocs()
 	b.ResetTimer()
-	for i := 0; i < b.N; i++ {
+	for range b.N {
 		var (
 			totalCapacity btcutil.Amount
 			maxHTLCs      lnwire.MilliSatoshi
@@ -6042,7 +6042,7 @@ func TestAsyncGraphCache(t *testing.T) {
 		wg      sync.WaitGroup
 		numRuns = 10
 	)
-	for i := 0; i < numRuns; i++ {
+	for range numRuns {
 		wg.Add(1)
 		go func() {
 			defer wg.Done()

@@ -123,7 +123,7 @@ func (f *PkgFilter) Equal(f2 *PkgFilter) bool {
 // otherwise.
 func (f *PkgFilter) IsFull() bool {
 	// Batch validate bytes that are fully used.
-	for i := uint16(0); i < f.count/8; i++ {
+	for i := range f.count / 8 {
 		if f.filter[i] != 0xFF {
 			return false
 		}

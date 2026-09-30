@@ -198,7 +198,7 @@ func createIndices(numCases, numTranches uint) [][2]uint {
 	indices := make([][2]uint, numTranches)
 	start := uint(0)
 
-	for i := uint(0); i < numTranches; i++ {
+	for i := range numTranches {
 		end := start + base
 		if i < remainder {
 			// Add one for the remainder.

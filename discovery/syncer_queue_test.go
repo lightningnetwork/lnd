@@ -74,7 +74,7 @@ func TestGossipSyncerQueueTimestampRangeFull(t *testing.T) {
 
 	// Fill the queue to capacity (10 messages for test syncer).
 	queueSize := 10
-	for i := 0; i < queueSize; i++ {
+	for i := range queueSize {
 		msg := &lnwire.GossipTimestampRange{
 			ChainHash:      chainhash.Hash{byte(i)},
 			FirstTimestamp: uint32(i),
@@ -121,12 +121,12 @@ func TestGossipSyncerQueueTimestampRangeConcurrent(t *testing.T) {
 	numGoroutines := 20
 	messagesPerGoroutine := 10
 
-	for i := 0; i < numGoroutines; i++ {
+	for i := range numGoroutines {
 		wg.Add(1)
 		go func(id int) {
 			defer wg.Done()
 
-			for j := 0; j < messagesPerGoroutine; j++ {
+			for j := range messagesPerGoroutine {
 				msg := &lnwire.GossipTimestampRange{
 					ChainHash: chainhash.Hash{
 						byte(id), byte(j),
@@ -277,7 +277,7 @@ func TestGossipSyncerQueueInvariants(t *testing.T) {
 		)
 
 		// Run through each of the operations.
-		for i := 0; i < numOps; i++ {
+		for range numOps {
 			// Generate a random message.
 			msg := genTimestampRange(t)
 
@@ -372,7 +372,7 @@ func TestGossipSyncerQueueOrder(t *testing.T) {
 
 	// Set up a goroutine to respond to horizon queries.
 	go func() {
-		for i := 0; i < 5; i++ {
+		for range 5 {
 			// Wait for horizon query from ApplyGossipFilter.
 			req := <-chanSeries.horizonReq
 
@@ -406,7 +406,7 @@ func TestGossipSyncerQueueOrder(t *testing.T) {
 	processWg.Add(numMessages)
 
 	var queuedMessages []*lnwire.GossipTimestampRange
-	for i := 0; i < numMessages; i++ {
+	for i := range numMessages {
 		msg := &lnwire.GossipTimestampRange{
 			ChainHash:      chainhash.Hash{},
 			FirstTimestamp: uint32(1000 + i*100),
@@ -428,7 +428,7 @@ func TestGossipSyncerQueueOrder(t *testing.T) {
 	defer orderMu.Unlock()
 
 	require.Len(t, processedRanges, numMessages)
-	for i := 0; i < len(processedRanges); i++ {
+	for i := range processedRanges {
 		// Check that timestamps match what we queued.
 		require.Equal(
 			t, queuedMessages[i].FirstTimestamp,

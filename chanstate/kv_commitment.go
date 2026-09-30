@@ -149,7 +149,7 @@ func DeserializeHtlcs(r io.Reader) ([]HTLC, error) {
 	}
 
 	htlcs = make([]HTLC, numHtlcs)
-	for i := uint16(0); i < numHtlcs; i++ {
+	for i := range numHtlcs {
 		var onionAndExtraData []byte
 		if err := ReadElements(r,
 			&htlcs[i].Signature, &htlcs[i].RHash, &htlcs[i].Amt,
@@ -528,7 +528,7 @@ func DeserializeLogUpdates(r io.Reader) ([]LogUpdate, error) {
 	}
 
 	logUpdates := make([]LogUpdate, numUpdates)
-	for i := 0; i < int(numUpdates); i++ {
+	for i := range numUpdates {
 		err := ReadElements(r,
 			&logUpdates[i].LogIndex, &logUpdates[i].UpdateMsg,
 		)
@@ -622,7 +622,7 @@ func DeserializeCommitDiff(r io.Reader) (*CommitDiff, error) {
 	}
 
 	d.OpenedCircuitKeys = make([]models.CircuitKey, numOpenRefs)
-	for i := 0; i < int(numOpenRefs); i++ {
+	for i := range numOpenRefs {
 		err := ReadElements(r,
 			&d.OpenedCircuitKeys[i].ChanID,
 			&d.OpenedCircuitKeys[i].HtlcID)
@@ -637,7 +637,7 @@ func DeserializeCommitDiff(r io.Reader) (*CommitDiff, error) {
 	}
 
 	d.ClosedCircuitKeys = make([]models.CircuitKey, numClosedRefs)
-	for i := 0; i < int(numClosedRefs); i++ {
+	for i := range numClosedRefs {
 		err := ReadElements(r,
 			&d.ClosedCircuitKeys[i].ChanID,
 			&d.ClosedCircuitKeys[i].HtlcID)

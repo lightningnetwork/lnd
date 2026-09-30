@@ -247,7 +247,7 @@ func newSyncManager(cfg *SyncManagerCfg) *SyncManager {
 	}
 
 	filterSema := make(chan struct{}, filterConcurrency)
-	for i := 0; i < filterConcurrency; i++ {
+	for range filterConcurrency {
 		filterSema <- struct{}{}
 	}
 
@@ -684,7 +684,7 @@ func (m *SyncManager) promoteSyncers() {
 	log.Debugf("Attempting to transition %v passive "+
 		"GossipSyncers to active", numActiveLeft)
 
-	for i := 0; i < numActiveLeft; i++ {
+	for range numActiveLeft {
 		chooseRandomSyncer(
 			m.inactiveSyncers, m.transitionPassiveSyncer,
 		)

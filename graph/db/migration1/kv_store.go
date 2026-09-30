@@ -1556,7 +1556,7 @@ func deserializeLightningNode(r io.Reader) (*models.Node, error) {
 	numAddresses := int(byteOrder.Uint16(scratch[:2]))
 
 	var addresses []net.Addr
-	for i := 0; i < numAddresses; i++ {
+	for range numAddresses {
 		address, err := DeserializeAddr(r)
 		if err != nil {
 			return nil, err

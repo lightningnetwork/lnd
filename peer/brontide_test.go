@@ -1350,7 +1350,7 @@ func TestPeerPingLimitsAllowHonestCadence(t *testing.T) {
 
 			// Act: Advance a synthetic clock at the selected
 			// cadence, avoiding scheduler and wall-clock noise.
-			for i := 0; i < 5000; i++ {
+			for i := range 5000 {
 				elapsed := time.Duration(i) * test.cadence
 				now := start.Add(elapsed)
 
@@ -1383,7 +1383,7 @@ func TestPeerValidPingsReceivePongs(t *testing.T) {
 	// Act: Deliver exactly the admitted burst of valid Pings through the
 	// normal read path. Drain one wire response after each request to avoid
 	// mock backpressure while observing the protocol behavior.
-	for i := 0; i < pingFloodBurst; i++ {
+	for i := range pingFloodBurst {
 		var b bytes.Buffer
 		ping := lnwire.NewPing(1)
 		ping.PaddingBytes = []byte{byte(i)}
@@ -1554,7 +1554,7 @@ func TestPeerPingFloodDisconnects(t *testing.T) {
 	// Act: Send two oversized Pings. The first spends the sole token and
 	// reaches the router; the second finds no budget and disconnects before
 	// routing.
-	for i := 0; i < 2; i++ {
+	for range 2 {
 		select {
 		case params.mockConn.readMessages <- b.Bytes():
 		case <-peer.cg.Done():
@@ -1617,7 +1617,7 @@ func TestPeerMaxPongBurstDisconnects(t *testing.T) {
 	// Act: Deliver and drain 20 maximum-size requests so the queue cannot
 	// back up, then send the 21st and wait for its insufficient weighted
 	// budget to disconnect.
-	for i := 0; i < admittedMaxPongs; i++ {
+	for range admittedMaxPongs {
 		select {
 		case params.mockConn.readMessages <- b.Bytes():
 		case <-peer.cg.Done():
@@ -1846,7 +1846,7 @@ func TestPeerSendMessageQueueBounds(t *testing.T) {
 			// Act: Queue the exact boundary through SendMessage.
 			// Its async path waits for queueHandler to
 			// receive its message without requiring a writer.
-			for i := 0; i < test.numAtLimit; i++ {
+			for range test.numAtLimit {
 				err := peer.SendMessage(false, newMsg())
 				require.NoError(t, err)
 			}
@@ -1966,7 +1966,7 @@ func TestPeerConcurrentSenders(t *testing.T) {
 	// Act: Launch all synchronous senders concurrently and collect each
 	// public result through a buffered channel that cannot serialize them.
 	results := make(chan error, numSenders)
-	for i := 0; i < numSenders; i++ {
+	for range numSenders {
 		go func() {
 			results <- peer.SendMessage(true, lnwire.NewPing(0))
 		}()
@@ -1974,7 +1974,7 @@ func TestPeerConcurrentSenders(t *testing.T) {
 
 	// Assert: Every sender receives its successful writer acknowledgment,
 	// all expected wire operations occur, and both handlers join cleanly.
-	for i := 0; i < numSenders; i++ {
+	for range numSenders {
 		err, recvErr := fn.RecvOrTimeout(results, timeout)
 		require.NoError(t, recvErr)
 		require.NoError(t, err)

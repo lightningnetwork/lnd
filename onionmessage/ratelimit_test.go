@@ -32,7 +32,7 @@ func TestGlobalLimiterDisabled(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			t.Parallel()
 			lim := NewGlobalLimiter(tc.kbps, tc.burstBytes)
-			for i := 0; i < 1000; i++ {
+			for range 1000 {
 				require.True(t, lim.AllowN(msgBytes))
 			}
 			// Disabled limiters must be noopLimiters, not
@@ -56,7 +56,7 @@ func TestGlobalLimiterBurstExhaustion(t *testing.T) {
 	const burstMessages = 5
 	lim := NewGlobalLimiter(1, burstMessages*msgBytes)
 
-	for i := 0; i < burstMessages; i++ {
+	for i := range burstMessages {
 		require.True(t, lim.AllowN(msgBytes),
 			"burst slot %d should pass", i)
 	}
@@ -89,7 +89,7 @@ func TestPeerRateLimiterDisabled(t *testing.T) {
 			var peer [33]byte
 			peer[0] = 0x02
 
-			for i := 0; i < 1000; i++ {
+			for range 1000 {
 				require.True(t, p.AllowN(peer, msgBytes))
 			}
 			require.Equal(t, uint64(0), p.Dropped())
@@ -112,14 +112,14 @@ func TestPeerRateLimiterIsolation(t *testing.T) {
 	peerB[0] = 0x03
 
 	// Drain peer A's bucket.
-	for i := 0; i < burstMessages; i++ {
+	for range burstMessages {
 		require.True(t, p.AllowN(peerA, msgBytes))
 	}
 	require.False(t, p.AllowN(peerA, msgBytes),
 		"peer A should be exhausted")
 
 	// Peer B should still have its full burst.
-	for i := 0; i < burstMessages; i++ {
+	for i := range burstMessages {
 		require.True(t, p.AllowN(peerB, msgBytes),
 			"peer B slot %d", i)
 	}
@@ -146,7 +146,7 @@ func TestCountingLimiterFirstDropClaimOnce(t *testing.T) {
 	const workers = 32
 	var wins atomic.Uint64
 	var wg sync.WaitGroup
-	for i := 0; i < workers; i++ {
+	for range workers {
 		wg.Add(1)
 		go func() {
 			defer wg.Done()
@@ -173,7 +173,7 @@ func TestPeerRateLimiterFirstDropClaimOnce(t *testing.T) {
 	const workers = 32
 	var wins atomic.Uint64
 	var wg sync.WaitGroup
-	for i := 0; i < workers; i++ {
+	for range workers {
 		wg.Add(1)
 		go func() {
 			defer wg.Done()
@@ -214,13 +214,13 @@ func TestPeerRateLimiterConcurrentAllowN(t *testing.T) {
 
 	var wg sync.WaitGroup
 	var ops atomic.Uint64
-	for w := 0; w < workers; w++ {
+	for w := range workers {
 		wg.Add(1)
 		go func() {
 			defer wg.Done()
 			var key [33]byte
 			key[0] = byte(w)
-			for i := 0; i < iters; i++ {
+			for range iters {
 				p.AllowN(key, msgBytes)
 				ops.Add(1)
 			}

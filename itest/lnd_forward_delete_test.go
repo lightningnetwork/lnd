@@ -70,7 +70,7 @@ func testBasicDeletion(ht *lntest.HarnessTest) {
 
 	// Send multiple payments from Alice to Carol through Bob. Sleep after
 	// each payment to ensure minimum age validation.
-	for i := 0; i < numPayments; i++ {
+	for i := range numPayments {
 		invoice := carol.RPC.AddInvoice(&lnrpc.Invoice{
 			ValueMsat: paymentAmt,
 			Memo:      fmt.Sprintf("test payment %d", i),
@@ -181,7 +181,7 @@ func testPartialDeletion(ht *lntest.HarnessTest) {
 	const paymentAmt = 1000
 
 	// Send first batch of payments.
-	for i := 0; i < firstBatch; i++ {
+	for i := range firstBatch {
 		invoice := carol.RPC.AddInvoice(&lnrpc.Invoice{
 			ValueMsat: paymentAmt,
 			Memo:      fmt.Sprintf("batch 1 payment %d", i),
@@ -204,7 +204,7 @@ func testPartialDeletion(ht *lntest.HarnessTest) {
 
 	// Send a second batch of payments.
 	const secondBatch = 5
-	for i := 0; i < secondBatch; i++ {
+	for i := range secondBatch {
 		invoice := carol.RPC.AddInvoice(&lnrpc.Invoice{
 			ValueMsat: paymentAmt,
 			Memo:      fmt.Sprintf("batch 2 payment %d", i),
@@ -311,7 +311,7 @@ func testDeletionIdempotency(ht *lntest.HarnessTest) {
 	const numPayments = 5
 	const paymentAmt = 1000
 
-	for i := 0; i < numPayments; i++ {
+	for i := range numPayments {
 		invoice := carol.RPC.AddInvoice(&lnrpc.Invoice{
 			ValueMsat: paymentAmt,
 			Memo:      fmt.Sprintf("payment %d", i),
@@ -398,7 +398,7 @@ func testTimeFormats(ht *lntest.HarnessTest) {
 
 	// Helper function to create forwarding events.
 	createForwards := func(count int) {
-		for i := 0; i < count; i++ {
+		for i := range count {
 			invoice := carol.RPC.AddInvoice(&lnrpc.Invoice{
 				ValueMsat: 1000,
 				Memo:      fmt.Sprintf("payment %d", i),

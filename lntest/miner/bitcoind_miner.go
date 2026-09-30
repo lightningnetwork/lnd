@@ -213,7 +213,7 @@ func (b *BitcoindMinerBackend) Start(setupChain bool,
 	maxRetries := 120
 	retryDelay := 1 * time.Second
 
-	for i := 0; i < maxRetries; i++ {
+	for i := range maxRetries {
 		_, err = b.rpcClient.GetBlockCount()
 		if err == nil {
 			// Successfully connected!

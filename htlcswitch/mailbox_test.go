@@ -179,7 +179,7 @@ func TestMailBoxAdmissionBudgets(t *testing.T) {
 		mailbox := newMemoryMailBox(&mailBoxConfig{})
 		msg := &lnwire.UpdateFee{}
 
-		for i := 0; i < maxWireMessages; i++ {
+		for range maxWireMessages {
 			require.NoError(t, mailbox.AddMessage(msg))
 		}
 

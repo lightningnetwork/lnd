@@ -151,7 +151,7 @@ func TestReadOnly(t *testing.T) {
 			writes   = 0
 			writesMu sync.Mutex
 		)
-		for i := 0; i < 100; i++ {
+		for range 100 {
 			// Spin off the reads.
 			wg.Add(1)
 			go func() {
@@ -286,7 +286,7 @@ func TestReadOnly(t *testing.T) {
 		// Execute a bunch of read-only requests in parallel. These
 		// should be batched together and kept as read only.
 		var wg sync.WaitGroup
-		for i := 0; i < 100; i++ {
+		for i := range 100 {
 			wg.Add(1)
 			go func(i int) {
 				defer wg.Done()
@@ -311,7 +311,7 @@ func TestReadOnly(t *testing.T) {
 		// batched together and the tx should be updated to read-write.
 		// We just simulate this scenario. Write transactions succeeding
 		// are how we know that the tx was upgraded to read-write.
-		for i := 0; i < 100; i++ {
+		for i := range 100 {
 			// Spin off the writes.
 			wg.Add(1)
 			go func(i int) {
@@ -414,7 +414,7 @@ func BenchmarkBoltBatching(b *testing.B) {
 		b.ResetTimer()
 
 		var wg sync.WaitGroup
-		for i := 0; i < b.N; i++ {
+		for range b.N {
 			wg.Add(1)
 			go func() {
 				defer wg.Done()
@@ -439,7 +439,7 @@ func BenchmarkBoltBatching(b *testing.B) {
 		b.ResetTimer()
 
 		err := db.Update(func(tx kvdb.RwTx) error {
-			for i := 0; i < b.N; i++ {
+			for range b.N {
 				writeRecord(b, tx)
 			}
 
@@ -470,7 +470,7 @@ func BenchmarkBoltBatching(b *testing.B) {
 		b.ResetTimer()
 
 		var wg sync.WaitGroup
-		for i := 0; i < b.N; i++ {
+		for range b.N {
 			wg.Add(1)
 			go func() {
 				defer wg.Done()
@@ -594,7 +594,7 @@ func benchmarkSQLBatching(b *testing.B, sqlite bool) {
 		b.ResetTimer()
 
 		var wg sync.WaitGroup
-		for i := 0; i < b.N; i++ {
+		for i := range b.N {
 			wg.Add(1)
 			go func(j int) {
 				defer wg.Done()
@@ -624,7 +624,7 @@ func benchmarkSQLBatching(b *testing.B, sqlite bool) {
 		err := db.ExecTx(
 			ctx, opts,
 			func(tx *sqlc.Queries) error {
-				for i := 0; i < b.N; i++ {
+				for i := range b.N {
 					writeRecord(b, tx, int64(i))
 				}
 
@@ -654,7 +654,7 @@ func benchmarkSQLBatching(b *testing.B, sqlite bool) {
 		b.ResetTimer()
 
 		var wg sync.WaitGroup
-		for i := 0; i < b.N; i++ {
+		for i := range b.N {
 			wg.Add(1)
 			go func(j int) {
 				defer wg.Done()

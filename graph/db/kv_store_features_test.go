@@ -278,7 +278,7 @@ func TestDeserializeChanEdgeFeaturesPropertyBased(t *testing.T) {
 		// Generate random feature bits (max 256 to keep reasonable).
 		numFeatures := rapid.IntRange(0, 20).Draw(t, "numFeatures")
 		featureBits := make([]lnwire.FeatureBit, numFeatures)
-		for i := 0; i < numFeatures; i++ {
+		for i := range numFeatures {
 			featureBits[i] = lnwire.FeatureBit(
 				rapid.IntRange(0, 255).Draw(t, "featureBit"),
 			)
@@ -305,7 +305,7 @@ func TestDeserializeChanEdgeFeaturesPropertyBased(t *testing.T) {
 		// Generate random feature bits.
 		numFeatures := rapid.IntRange(0, 20).Draw(t, "numFeatures")
 		featureBits := make([]lnwire.FeatureBit, numFeatures)
-		for i := 0; i < numFeatures; i++ {
+		for i := range numFeatures {
 			featureBits[i] = lnwire.FeatureBit(
 				rapid.IntRange(0, 255).Draw(t, "featureBit"),
 			)
@@ -348,7 +348,7 @@ func TestDeserializeChanEdgeFeaturesLegacyFormatNoCollision(t *testing.T) {
 		numExtra := rapid.IntRange(0, 10).Draw(t, "numExtra")
 
 		featureBits := []lnwire.FeatureBit{lnwire.FeatureBit(maxBit)}
-		for i := 0; i < numExtra; i++ {
+		for range numExtra {
 			bit := rapid.IntRange(0, maxBit).Draw(t, "extraBit")
 			featureBits = append(featureBits,
 				lnwire.FeatureBit(bit))

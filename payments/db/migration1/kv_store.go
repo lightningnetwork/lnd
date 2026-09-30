@@ -1855,7 +1855,7 @@ func deserializeHop(r io.Reader) (*Hop, error) {
 	}
 
 	tlvMap := make(map[uint64][]byte)
-	for i := uint32(0); i < numElements; i++ {
+	for range numElements {
 		var tlvType uint64
 		if err := ReadElements(r, &tlvType); err != nil {
 			return nil, err
@@ -2007,7 +2007,7 @@ func DeserializeRoute(r io.Reader) (Route, error) {
 	}
 
 	var hops []*Hop
-	for i := uint32(0); i < numHops; i++ {
+	for range numHops {
 		hop, err := deserializeHop(r)
 		if err != nil {
 			return rt, err

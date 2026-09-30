@@ -173,7 +173,7 @@ func testInvoiceMigration(ht *lntest.HarnessTest) {
 
 	// Step 1: Add 10 normal invoices and pay 5 of them.
 	normalInvoices := make([]*lnrpc.AddInvoiceResponse, 10)
-	for i := 0; i < 10; i++ {
+	for i := range 10 {
 		invoice := &lnrpc.Invoice{
 			Value: int64(1000 + i*100), // Varying amounts
 			IsAmp: false,
@@ -195,7 +195,7 @@ func testInvoiceMigration(ht *lntest.HarnessTest) {
 
 	// Step 2: Add 10 AMP invoices and send multiple payments to 5 of them.
 	ampInvoices := make([]*lnrpc.AddInvoiceResponse, 10)
-	for i := 0; i < 10; i++ {
+	for i := range 10 {
 		invoice := &lnrpc.Invoice{
 			Value: int64(2000 + i*200), // Varying amounts
 			IsAmp: true,
@@ -206,11 +206,11 @@ func testInvoiceMigration(ht *lntest.HarnessTest) {
 	}
 
 	// Select the first 5 invoices to send multiple AMP payments.
-	for i := 0; i < 5; i++ {
+	for i := range 5 {
 		inv := ampInvoices[i]
 
 		// Send 3 payments to each.
-		for j := 0; j < 3; j++ {
+		for range 3 {
 			payReq := &routerrpc.SendPaymentRequest{
 				PaymentRequest: inv.PaymentRequest,
 				TimeoutSeconds: 60,
@@ -264,7 +264,7 @@ func testInvoiceMigration(ht *lntest.HarnessTest) {
 
 	// Now run the migration flow three times to ensure that each run is
 	// idempotent.
-	for i := 0; i < 3; i++ {
+	for range 3 {
 		// Start bob with the native SQL flag set. This will trigger the
 		// migration to run.
 		require.NoError(ht, bob.Start(ht.Context()))
@@ -285,7 +285,7 @@ func testInvoiceMigration(ht *lntest.HarnessTest) {
 
 		// Simply zero out the add index so we don't fail on that when
 		// comparing.
-		for i := 0; i < numInvoices; i++ {
+		for i := range numInvoices {
 			result1.Invoices[i].AddIndex = 0
 			result2.Invoices[i].AddIndex = 0
 

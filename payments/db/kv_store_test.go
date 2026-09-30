@@ -589,7 +589,7 @@ func TestKVStoreQueryPaymentsDuplicates(t *testing.T) {
 			// bucket.
 			nonDuplicatePayments := 6
 
-			for i := 0; i < nonDuplicatePayments; i++ {
+			for i := range nonDuplicatePayments {
 				// Generate a test payment.
 				info, preimg := genInfo(t)
 

@@ -5783,7 +5783,7 @@ func TestChannelReadyUnknownChannelID(t *testing.T) {
 	// Send a batch of channel_ready messages with random (unknown)
 	// ChannelIDs to Alice from Bob.
 	const numUnknownMessages = 100
-	for i := 0; i < numUnknownMessages; i++ {
+	for range numUnknownMessages {
 		var randomChanID lnwire.ChannelID
 		_, err := rand.Read(randomChanID[:])
 		require.NoError(t, err)

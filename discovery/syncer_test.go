@@ -2686,7 +2686,7 @@ func TestGossipSyncerMaxChannelRangeSCIDs(t *testing.T) {
 	}
 
 	numFullReplies := maxChanRangeReplySCIDs / len(scids)
-	for i := 0; i < numFullReplies; i++ {
+	for range numFullReplies {
 		require.NoError(t, syncer.processChanRangeReply(ctx, reply))
 	}
 

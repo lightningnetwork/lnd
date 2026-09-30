@@ -103,7 +103,7 @@ func TestMigrationWithChannelDB(t *testing.T) {
 
 		// Simply zero out the add index so we don't fail on that when
 		// comparing.
-		for i := 0; i < numInvoices; i++ {
+		for i := range numInvoices {
 			result1.Invoices[i].AddIndex = 0
 			result2.Invoices[i].AddIndex = 0
 

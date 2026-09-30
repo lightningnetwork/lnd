@@ -133,7 +133,7 @@ func createTestPayments(t *testing.T, p DB, payments []*payment) {
 
 	attemptID := uint64(0)
 
-	for i := 0; i < len(payments); i++ {
+	for i := range payments {
 		preimg := genPreimage(t)
 
 		rhash := sha256.Sum256(preimg[:])
@@ -2118,7 +2118,7 @@ func TestMultiShard(t *testing.T) {
 		shardAmt := info.Value / 3
 
 		var attempts []*HTLCAttemptInfo
-		for i := uint64(0); i < 3; i++ {
+		for i := range uint64(3) {
 			a := genAttemptWithHash(
 				t, i, genSessionKey(t), rhash,
 			)

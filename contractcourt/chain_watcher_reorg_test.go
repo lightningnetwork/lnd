@@ -134,7 +134,7 @@ func generateAltTxsForReorgs(h *chainWatcherTestHarness, ct closeType,
 
 	altTxs := make([]*wire.MsgTx, numReorgs)
 
-	for i := 0; i < numReorgs; i++ {
+	for i := range numReorgs {
 		switch ct {
 		case closeTypeBreach, closeTypeRemoteUnilateral,
 			closeTypeLocalForce:
@@ -215,7 +215,7 @@ func testReorgProperties(testingT *testing.T) func(*rapid.T) {
 		// Execute the set of re-orgs, based on our random sample, we'll
 		// mine N blocks, do a re-org of size N, then wait for
 		// detection, and repeat.
-		for i := 0; i < numReorgs; i++ {
+		for i := range numReorgs {
 			// Generate random reorg depth (1 to requiredConfs-1).
 			// We cap it to avoid reorging too far back.
 			reorgDepth := rapid.IntRange(

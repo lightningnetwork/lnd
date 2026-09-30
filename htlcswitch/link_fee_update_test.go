@@ -155,7 +155,7 @@ func TestLinkLogDeduplication(t *testing.T) {
 	logger, logBuffer := newLinkCapturingLogger()
 	link.log = logger
 
-	for i := 0; i < 2; i++ {
+	for range 2 {
 		link.handleUpstreamMsg(t.Context(), &lnwire.Warning{})
 		link.handleUpstreamMsg(
 			t.Context(), &lnwire.ChannelReestablish{},
@@ -195,7 +195,7 @@ func TestChannelMessageAdmissionError(t *testing.T) {
 
 	mailbox := newMemoryMailBox(&mailBoxConfig{})
 	link.mailBox = mailbox
-	for i := 0; i < maxWireMessages; i++ {
+	for range maxWireMessages {
 		require.NoError(t, mailbox.AddMessage(&lnwire.UpdateFee{}))
 	}
 

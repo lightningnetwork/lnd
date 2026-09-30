@@ -55,7 +55,7 @@ func BenchmarkPostgresNestedBucketLookup(b *testing.B) {
 				}
 			}
 
-			for i := 0; i < numBenchKeys; i++ {
+			for i := range numBenchKeys {
 				key := fmt.Sprintf("key%08d", i)
 				val := fmt.Sprintf("value%08d", i)
 				err := bucket.Put([]byte(key), []byte(val))
@@ -75,7 +75,7 @@ func BenchmarkPostgresNestedBucketLookup(b *testing.B) {
 
 			name := fmt.Sprintf("depth=%d/reads=%d", depth, reads)
 			b.Run(name, func(b *testing.B) {
-				for i := 0; i < b.N; i++ {
+				for range b.N {
 					err := View(f.Db, read, func() {})
 					require.NoError(b, err)
 				}
@@ -87,7 +87,7 @@ func BenchmarkPostgresNestedBucketLookup(b *testing.B) {
 // readNested reads the given number of keys from the bucket at the given
 // path, resolving the path again for each of them.
 func readNested(tx walletdb.ReadTx, path [][]byte, reads int) error {
-	for i := 0; i < reads; i++ {
+	for i := range reads {
 		bucket := tx.ReadBucket(path[0])
 		for _, key := range path[1:] {
 			bucket = bucket.NestedReadBucket(key)

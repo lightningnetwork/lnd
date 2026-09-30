@@ -85,7 +85,7 @@ func TestForAllPreservesEmptyValues(t *testing.T) {
 // TestForAllReturnsIterationError verifies that a failure encountered after a
 // query starts is returned instead of being mistaken for normal exhaustion.
 func TestForAllReturnsIterationError(t *testing.T) {
-	ctx, cancel := context.WithCancel(context.Background())
+	ctx, cancel := context.WithCancel(t.Context())
 	db := newTestDB(t, ctx)
 
 	err := db.Update(func(tx walletdb.ReadWriteTx) error {
@@ -95,7 +95,8 @@ func TestForAllReturnsIterationError(t *testing.T) {
 		}
 
 		for _, key := range []string{"one", "two", "three"} {
-			if err := bucket.Put([]byte(key), []byte("value")); err != nil {
+			err := bucket.Put([]byte(key), []byte("value"))
+			if err != nil {
 				return err
 			}
 		}
@@ -107,9 +108,10 @@ func TestForAllReturnsIterationError(t *testing.T) {
 	var count int
 	err = db.View(func(tx walletdb.ReadTx) error {
 		bucket := tx.ReadBucket([]byte("top"))
-		forAllBucket := bucket.(interface {
+		forAllBucket, ok := bucket.(interface {
 			ForAll(func(k, v []byte) error) error
 		})
+		require.True(t, ok)
 
 		return forAllBucket.ForAll(func(_, _ []byte) error {
 			count++

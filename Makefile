@@ -81,12 +81,13 @@ ifdef CI
 # CI mode: bind mount to host paths that GitHub Actions caches.
 DOCKER_TOOLS_BASE = docker run \
   --rm \
-  -v $${HOME}/.cache/go-build:/tmp/build/.cache \
-  -v $${HOME}/go/pkg/mod:/tmp/build/.modcache \
-  -v $${HOME}/.cache/golangci-lint:/root/.cache/golangci-lint \
-	-v $$(pwd):/build
+  -v "$${HOME}/.cache/go-build:/tmp/build/.cache" \
+  -v "$${HOME}/go/pkg/mod:/tmp/build/.modcache" \
+  -v "$${HOME}/.cache/golangci-lint:/root/.cache/golangci-lint" \
+  -v "$$(pwd):/build"
 DOCKER_TOOLS = $(DOCKER_TOOLS_BASE) lnd-tools
-DOCKER_TOOLS_LINT = $(DOCKER_TOOLS)
+DOCKER_TOOLS_LINT_BASE = $(DOCKER_TOOLS_BASE)
+DOCKER_TOOLS_LINT = $(DOCKER_TOOLS_LINT_BASE) lnd-tools
 else
 # Local mode: Docker named volumes for fast macOS/Windows performance.
 # Detect if we're in a git worktree. Use git rev-parse --git-common-dir to get
@@ -103,9 +104,10 @@ DOCKER_TOOLS_BASE = docker run \
   -v lnd-go-build-cache:/tmp/build/.cache \
   -v lnd-go-mod-cache:/tmp/build/.modcache \
   -v lnd-go-lint-cache:/root/.cache/golangci-lint \
-  -v $$(pwd):/build
+  -v "$$(pwd):/build"
 DOCKER_TOOLS = $(DOCKER_TOOLS_BASE) lnd-tools
-DOCKER_TOOLS_LINT = $(DOCKER_TOOLS_BASE) $(GIT_VOLUME) lnd-tools
+DOCKER_TOOLS_LINT_BASE = $(DOCKER_TOOLS_BASE) $(GIT_VOLUME)
+DOCKER_TOOLS_LINT = $(DOCKER_TOOLS_LINT_BASE) lnd-tools
 endif
 
 GREEN := "\\033[0;32m"
@@ -402,6 +404,21 @@ lint-native: check-go-version lint-config-check build-native-linter
 	GOWORK=off ./tools/custom-gcl run -v $(LINT_WORKERS) \
 	  --new-from-rev=$$(git merge-base HEAD master)
 
+#? lint-module: Run static code analysis on all submodules (or specify module=<name> for a specific one)
+lint-module: docker-tools
+	@$(call print, "Linting submodules.")
+	LINT_MODULE_MAKE="$(MAKE)" LINT_MODULE_WORKERS="$(workers)" \
+		scripts/lint_modules.sh "$(module)"
+
+# lint-module-run runs the linter for one module. It is called by
+# scripts/lint_modules.sh so all lint targets share the Docker cache and Git
+# worktree mounts defined above.
+lint-module-run:
+	$(DOCKER_TOOLS_LINT_BASE) \
+		--workdir "/build/$(module)" \
+		lnd-tools custom-gcl run -v $(LINT_WORKERS) \
+		-c "$(lint_config)"
+
 #? protolint: Lint proto files using protolint
 protolint:
 	@$(call print, "Linting proto files.")
@@ -543,6 +560,8 @@ clean-docker-volumes:
 	flake-unit \
 	fmt \
 	lint \
+	lint-module \
+	lint-module-run \
 	lint-native \
 	list \
 	rpc \

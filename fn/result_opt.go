@@ -27,6 +27,7 @@ func MapResultOpt[T, U any](ro ResultOpt[T], f func(T) U) ResultOpt[U] {
 		return ErrOpt[U](ro.Err())
 	}
 	opt, _ := ro.Unpack()
+
 	return ResultOpt[U]{Ok(MapOption(f)(opt))}
 }
 
@@ -42,6 +43,7 @@ func AndThenResultOpt[T, U any](ro ResultOpt[T],
 	if opt.IsNone() {
 		return NoneOpt[U]()
 	}
+
 	return f(opt.some)
 }
 
@@ -51,6 +53,7 @@ func (ro ResultOpt[T]) IsSome() bool {
 		return false
 	}
 	opt, _ := ro.Unpack()
+
 	return opt.IsSome()
 }
 
@@ -60,5 +63,6 @@ func (ro ResultOpt[T]) IsNone() bool {
 		return false
 	}
 	opt, _ := ro.Unpack()
+
 	return opt.IsNone()
 }

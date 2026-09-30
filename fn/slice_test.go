@@ -664,7 +664,7 @@ func BenchmarkMapVsForEachConc(b *testing.B) {
 				b.ResetTimer()
 				b.ReportAllocs()
 
-				for i := 0; i < b.N; i++ {
+				for range b.N {
 					Map(s, inc)
 				}
 			})
@@ -677,7 +677,7 @@ func BenchmarkMapVsForEachConc(b *testing.B) {
 				b.ResetTimer()
 				b.ReportAllocs()
 
-				for i := 0; i < b.N; i++ {
+				for range b.N {
 					ForEachConc(s, inc)
 				}
 			})

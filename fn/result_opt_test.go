@@ -104,6 +104,7 @@ func maybeEvenOpt(x int) ResultOpt[int] {
 	if x%2 == 0 {
 		return OkOpt(x / 2)
 	}
+
 	return NoneOpt[int]()
 }
 

@@ -185,6 +185,9 @@ linters:
         # Temporary pins for confirmation-controlled lease expiry.
         - github.com/btcsuite/btcwallet
         - github.com/btcsuite/btcwallet/wtxmgr
+        # The sqldb/v2 module uses a fork of golang-migrate with custom
+        # functionality that is not yet available upstream.
+        - github.com/golang-migrate/migrate/v4
       replace-local: true
 
     gosec:

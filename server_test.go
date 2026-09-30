@@ -1,10 +1,15 @@
 package lnd
 
 import (
+	"fmt"
 	"net"
 	"testing"
 	"time"
 
+	"github.com/btcsuite/btcd/btcec/v2"
+	"github.com/btcsuite/btcd/wire"
+	"github.com/lightningnetwork/lnd/channeldb"
+	"github.com/lightningnetwork/lnd/lnwire"
 	"github.com/lightningnetwork/lnd/tor"
 	"github.com/stretchr/testify/require"
 )
@@ -237,4 +242,81 @@ func TestWithoutV2Onion(t *testing.T) {
 	// An all-v2 input filters to an empty slice; callers such as
 	// fetchNodeAdvertisedAddrs treat this as "no advertised address".
 	require.Empty(t, withoutV2Onion([]net.Addr{v2, v2}))
+}
+
+// stubPrivateChannelLookup is an in-memory alias map for onion SCID tests.
+type stubPrivateChannelLookup struct {
+	peerAlias map[lnwire.ChannelID]lnwire.ShortChannelID
+	aliases   map[lnwire.ShortChannelID][]lnwire.ShortChannelID
+}
+
+func (s stubPrivateChannelLookup) GetPeerAlias(id lnwire.ChannelID) (
+	lnwire.ShortChannelID, error) {
+
+	alias, ok := s.peerAlias[id]
+	if !ok {
+		return lnwire.ShortChannelID{}, fmt.Errorf("no peer alias")
+	}
+
+	return alias, nil
+}
+
+func (s stubPrivateChannelLookup) GetAliases(
+	base lnwire.ShortChannelID) []lnwire.ShortChannelID {
+
+	return s.aliases[base]
+}
+
+// TestPrivateChannelPeerFrom matches a blinded next hop against a private
+// channel. The hop may be the confirmed SCID, a local alias, or the alias
+// the peer sent in channel_ready.
+func TestPrivateChannelPeerFrom(t *testing.T) {
+	t.Parallel()
+
+	peerPriv, err := btcec.NewPrivateKey()
+	require.NoError(t, err)
+	peerPub := peerPriv.PubKey()
+
+	outpoint := wire.OutPoint{Index: 1}
+	chanID := lnwire.NewChanIDFromOutPoint(outpoint)
+	confirmed := lnwire.NewShortChanIDFromInt(42)
+	localAlias := lnwire.NewShortChanIDFromInt(1 << 55)
+	peerAlias := lnwire.NewShortChanIDFromInt(1<<55 + 1)
+
+	channel := &channeldb.OpenChannel{
+		FundingOutpoint: outpoint,
+		ShortChannelID:  confirmed,
+		IdentityPub:     peerPub,
+	}
+	channels := []*channeldb.OpenChannel{nil, channel}
+	lookup := stubPrivateChannelLookup{
+		peerAlias: map[lnwire.ChannelID]lnwire.ShortChannelID{
+			chanID: peerAlias,
+		},
+		aliases: map[lnwire.ShortChannelID][]lnwire.ShortChannelID{
+			confirmed: {localAlias},
+		},
+	}
+
+	for _, scid := range []lnwire.ShortChannelID{
+		confirmed, localAlias, peerAlias,
+	} {
+		got, ok := privateChannelPeerFrom(scid, channels, lookup)
+		require.True(t, ok)
+		require.True(t, got.IsEqual(peerPub))
+	}
+
+	// A nil alias lookup still matches the confirmed SCID, and a miss
+	// stays a miss.
+	got, ok := privateChannelPeerFrom(confirmed, channels, nil)
+	require.True(t, ok)
+	require.True(t, got.IsEqual(peerPub))
+
+	_, ok = privateChannelPeerFrom(
+		lnwire.NewShortChanIDFromInt(99), channels, lookup,
+	)
+	require.False(t, ok)
+
+	_, ok = privateChannelPeerFrom(localAlias, channels, nil)
+	require.False(t, ok)
 }

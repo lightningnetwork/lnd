@@ -86,7 +86,7 @@ DOCKER_TOOLS_BASE = docker run \
   -v "$${HOME}/.cache/golangci-lint:/root/.cache/golangci-lint" \
   -v "$$(pwd):/build"
 DOCKER_TOOLS = $(DOCKER_TOOLS_BASE) lnd-tools
-DOCKER_TOOLS_LINT_BASE = $(DOCKER_TOOLS_BASE)
+DOCKER_TOOLS_LINT_BASE = $(DOCKER_TOOLS_BASE) -e GOGC
 DOCKER_TOOLS_LINT = $(DOCKER_TOOLS_LINT_BASE) lnd-tools
 else
 # Local mode: Docker named volumes for fast macOS/Windows performance.
@@ -106,7 +106,7 @@ DOCKER_TOOLS_BASE = docker run \
   -v lnd-go-lint-cache:/root/.cache/golangci-lint \
   -v "$$(pwd):/build"
 DOCKER_TOOLS = $(DOCKER_TOOLS_BASE) lnd-tools
-DOCKER_TOOLS_LINT_BASE = $(DOCKER_TOOLS_BASE) $(GIT_VOLUME)
+DOCKER_TOOLS_LINT_BASE = $(DOCKER_TOOLS_BASE) $(GIT_VOLUME) -e GOGC
 DOCKER_TOOLS_LINT = $(DOCKER_TOOLS_LINT_BASE) lnd-tools
 endif
 

@@ -132,7 +132,8 @@ func TestBucketLookupCached(t *testing.T) {
 	t.Cleanup(func() {
 		require.NoError(t, tx.Rollback())
 	})
-	rwTx := tx.(*readWriteTx)
+	rwTx, ok := tx.(*readWriteTx)
+	require.True(t, ok)
 
 	apple := tx.ReadWriteBucket([]byte("apple"))
 	require.NotNil(t, apple)
@@ -153,9 +154,12 @@ func TestBucketLookupCached(t *testing.T) {
 
 	// A bucket that wasn't looked up before is still read from the
 	// database.
+	appleBucket, ok := apple.(*readWriteBucket)
+	require.True(t, ok)
+
 	_, err = rwTx.Exec(
 		"INSERT INTO "+db.table+" (parent_id, key) VALUES($1, $2)",
-		*apple.(*readWriteBucket).id, []byte("pear"),
+		*appleBucket.id, []byte("pear"),
 	)
 	require.NoError(t, err)
 	require.NotNil(t, apple.NestedReadWriteBucket([]byte("pear")))

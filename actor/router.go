@@ -47,6 +47,7 @@ func NewRoundRobinStrategy[M Message, R any]() *RoundRobinStrategy[M, R] {
 func (s *RoundRobinStrategy[M, R]) Select(
 	refs []ActorRef[M, R],
 ) (ActorRef[M, R], error) {
+
 	if len(refs) == 0 {
 		return nil, ErrNoActorsAvailable
 	}

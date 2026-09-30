@@ -58,6 +58,8 @@ type Actor[M Message, R any] struct {
 	mailbox Mailbox[M, R]
 
 	// ctx is the context governing the actor's lifecycle.
+	//
+	//nolint:containedctx
 	ctx context.Context
 
 	// cancel is the function to cancel the actor's context.
@@ -91,6 +93,10 @@ func NewActor[M Message, R any](cfg ActorConfig[M, R]) (*Actor[M, R],
 		return nil, ErrNilBehavior
 	}
 
+	// The cancel func is stored on the actor and called by Stop, which
+	// gosec can't see through.
+	//
+	//nolint:gosec
 	ctx, cancel := context.WithCancel(context.Background())
 
 	// Ensure MailboxSize has a sane default if not specified or zero. A
@@ -192,8 +198,6 @@ type actorRefImpl[M Message, R any] struct {
 // Tell sends a message without waiting for a response. If the context is
 // cancelled before the message can be sent to the actor's mailbox, the message
 // may be dropped.
-//
-//nolint:ll
 func (ref *actorRefImpl[M, R]) Tell(ctx context.Context, msg M) {
 	// If the actor's own context is already done, don't try to send.
 	// Route to DLO if available.

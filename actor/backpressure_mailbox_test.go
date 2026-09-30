@@ -18,7 +18,7 @@ var _ Mailbox[TestMessage, int] = (*BackpressureMailbox[TestMessage, int])(nil)
 func TestBackpressureMailboxDropsWhenThresholdReached(t *testing.T) {
 	t.Parallel()
 
-	ctx := context.Background()
+	ctx := t.Context()
 	const capacity = 10
 	const dropThreshold = 5
 
@@ -52,7 +52,7 @@ func TestBackpressureMailboxDropsWhenThresholdReached(t *testing.T) {
 func TestBackpressureMailboxTrySendDrops(t *testing.T) {
 	t.Parallel()
 
-	ctx := context.Background()
+	ctx := t.Context()
 	const capacity = 10
 	const dropThreshold = 3
 
@@ -86,7 +86,7 @@ func TestBackpressureMailboxTrySendDrops(t *testing.T) {
 func TestBackpressureMailboxNeverDropPassesThrough(t *testing.T) {
 	t.Parallel()
 
-	ctx := context.Background()
+	ctx := t.Context()
 	const capacity = 5
 
 	neverDrop := queue.DropCheckFunc(func(queueLen int) bool {
@@ -112,7 +112,7 @@ func TestBackpressureMailboxNeverDropPassesThrough(t *testing.T) {
 func TestBackpressureMailboxDelegatesReceive(t *testing.T) {
 	t.Parallel()
 
-	ctx, cancel := context.WithCancel(context.Background())
+	ctx, cancel := context.WithCancel(t.Context())
 	defer cancel()
 
 	const capacity = 5
@@ -147,7 +147,7 @@ func TestBackpressureMailboxDelegatesReceive(t *testing.T) {
 func TestBackpressureMailboxDelegatesDrain(t *testing.T) {
 	t.Parallel()
 
-	ctx := context.Background()
+	ctx := t.Context()
 	const capacity = 5
 	neverDrop := queue.DropCheckFunc(func(queueLen int) bool {
 		return false
@@ -180,7 +180,7 @@ func TestBackpressureMailboxDelegatesDrain(t *testing.T) {
 func TestBackpressureMailboxSendRespectsActorCtx(t *testing.T) {
 	t.Parallel()
 
-	actorCtx, actorCancel := context.WithCancel(context.Background())
+	actorCtx, actorCancel := context.WithCancel(t.Context())
 
 	const capacity = 1
 	neverDrop := queue.DropCheckFunc(func(queueLen int) bool {
@@ -194,7 +194,7 @@ func TestBackpressureMailboxSendRespectsActorCtx(t *testing.T) {
 	env := envelope[TestMessage, int]{
 		message: TestMessage{Value: 1},
 	}
-	ok := mbox.Send(context.Background(), env)
+	ok := mbox.Send(t.Context(), env)
 	require.True(t, ok)
 
 	// Cancel the actor context. The next blocking send should fail.
@@ -203,7 +203,7 @@ func TestBackpressureMailboxSendRespectsActorCtx(t *testing.T) {
 	env2 := envelope[TestMessage, int]{
 		message: TestMessage{Value: 2},
 	}
-	ok = mbox.Send(context.Background(), env2)
+	ok = mbox.Send(t.Context(), env2)
 	require.False(t, ok, "send should fail when actor context is cancelled")
 }
 
@@ -212,7 +212,7 @@ func TestBackpressureMailboxSendRespectsActorCtx(t *testing.T) {
 func TestBackpressureMailboxReceiveAfterClose(t *testing.T) {
 	t.Parallel()
 
-	ctx := context.Background()
+	ctx := t.Context()
 	const capacity = 5
 	neverDrop := queue.DropCheckFunc(func(queueLen int) bool {
 		return false
@@ -242,7 +242,7 @@ func TestBackpressureMailboxReceiveAfterClose(t *testing.T) {
 func TestBackpressureMailboxDrainAfterDrain(t *testing.T) {
 	t.Parallel()
 
-	ctx := context.Background()
+	ctx := t.Context()
 	const capacity = 5
 	neverDrop := queue.DropCheckFunc(func(queueLen int) bool {
 		return false
@@ -283,7 +283,7 @@ func TestBackpressureMailboxConcurrentSendClose(t *testing.T) {
 		capacity   = 20
 	)
 
-	ctx := context.Background()
+	ctx := t.Context()
 	neverDrop := queue.DropCheckFunc(func(queueLen int) bool {
 		return false
 	})
@@ -361,7 +361,7 @@ func TestBackpressureMailboxConcurrentSendClose(t *testing.T) {
 func TestBackpressureMailboxConcurrentMultiClose(t *testing.T) {
 	t.Parallel()
 
-	ctx := context.Background()
+	ctx := t.Context()
 	neverDrop := queue.DropCheckFunc(func(queueLen int) bool {
 		return false
 	})

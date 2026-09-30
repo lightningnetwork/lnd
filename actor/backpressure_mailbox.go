@@ -28,6 +28,8 @@ type BackpressureMailbox[M Message, R any] struct {
 	closeOnce sync.Once
 
 	// actorCtx is the actor's context for lifecycle management.
+	//
+	//nolint:containedctx
 	actorCtx context.Context
 }
 

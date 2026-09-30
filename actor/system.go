@@ -55,6 +55,8 @@ type ActorSystem struct {
 	mu sync.RWMutex
 
 	// ctx is the main context for the actor system.
+	//
+	//nolint:containedctx
 	ctx context.Context
 
 	// cancel cancels the main system context.
@@ -66,7 +68,8 @@ func NewActorSystem() *ActorSystem {
 	return NewActorSystemWithConfig(DefaultConfig())
 }
 
-// NewActorSystemWithConfig creates a new actor system with custom configuration
+// NewActorSystemWithConfig creates a new actor system with custom
+// configuration.
 func NewActorSystemWithConfig(config SystemConfig) *ActorSystem {
 	ctx, cancel := context.WithCancel(context.Background())
 
@@ -433,8 +436,9 @@ func FindInReceptionist[M Message, R any](r *Receptionist,
 		typedRefs := make([]ActorRef[M, R], 0, len(refs))
 		for _, ref := range refs {
 			// Make sure that the reference is of the correct type.
-			// This type assertion is crucial for type safety, ensuring
-			// that the returned ActorRefs match the expected M and R.
+			// This type assertion is crucial for type safety,
+			// ensuring that the returned ActorRefs match the
+			// expected M and R.
 			if typedRef, ok := ref.(ActorRef[M, R]); ok {
 				typedRefs = append(typedRefs, typedRef)
 			}

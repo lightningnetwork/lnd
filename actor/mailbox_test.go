@@ -22,8 +22,8 @@ func (tm TestMessage) MessageType() string {
 // TestChannelMailboxSend tests the Send method of ChannelMailbox.
 func TestChannelMailboxSend(t *testing.T) {
 	t.Run("successful send", func(t *testing.T) {
-		mailbox := NewChannelMailbox[TestMessage, int](context.Background(), 10)
-		ctx := context.Background()
+		mailbox := NewChannelMailbox[TestMessage, int](t.Context(), 10)
+		ctx := t.Context()
 		env := envelope[TestMessage, int]{
 			message: TestMessage{Value: 42},
 			promise: nil,
@@ -34,7 +34,7 @@ func TestChannelMailboxSend(t *testing.T) {
 	})
 
 	t.Run("send with cancelled context", func(t *testing.T) {
-		mailbox := NewChannelMailbox[TestMessage, int](context.Background(), 1)
+		mailbox := NewChannelMailbox[TestMessage, int](t.Context(), 1)
 		// Fill the mailbox first.
 		env := envelope[TestMessage, int]{
 			message: TestMessage{Value: 42},
@@ -42,7 +42,7 @@ func TestChannelMailboxSend(t *testing.T) {
 		}
 		mailbox.TrySend(env)
 
-		ctx, cancel := context.WithCancel(context.Background())
+		ctx, cancel := context.WithCancel(t.Context())
 		// Cancel immediately.
 		cancel()
 
@@ -52,14 +52,16 @@ func TestChannelMailboxSend(t *testing.T) {
 		}
 
 		sent := mailbox.Send(ctx, env2)
-		require.False(t, sent, "Send should fail with cancelled context")
+		require.False(
+			t, sent, "Send should fail with cancelled context",
+		)
 	})
 
 	t.Run("send to closed mailbox", func(t *testing.T) {
-		mailbox := NewChannelMailbox[TestMessage, int](context.Background(), 10)
+		mailbox := NewChannelMailbox[TestMessage, int](t.Context(), 10)
 		mailbox.Close()
 
-		ctx := context.Background()
+		ctx := t.Context()
 		env := envelope[TestMessage, int]{
 			message: TestMessage{Value: 42},
 			promise: nil,
@@ -73,7 +75,7 @@ func TestChannelMailboxSend(t *testing.T) {
 // TestChannelMailboxTrySend tests the TrySend method of ChannelMailbox.
 func TestChannelMailboxTrySend(t *testing.T) {
 	t.Run("successful try send", func(t *testing.T) {
-		mailbox := NewChannelMailbox[TestMessage, int](context.Background(), 10)
+		mailbox := NewChannelMailbox[TestMessage, int](t.Context(), 10)
 		env := envelope[TestMessage, int]{
 			message: TestMessage{Value: 42},
 			promise: nil,
@@ -84,7 +86,7 @@ func TestChannelMailboxTrySend(t *testing.T) {
 	})
 
 	t.Run("try send to full mailbox", func(t *testing.T) {
-		mailbox := NewChannelMailbox[TestMessage, int](context.Background(), 1)
+		mailbox := NewChannelMailbox[TestMessage, int](t.Context(), 1)
 		env := envelope[TestMessage, int]{
 			message: TestMessage{Value: 42},
 			promise: nil,
@@ -100,7 +102,7 @@ func TestChannelMailboxTrySend(t *testing.T) {
 	})
 
 	t.Run("try send to closed mailbox", func(t *testing.T) {
-		mailbox := NewChannelMailbox[TestMessage, int](context.Background(), 10)
+		mailbox := NewChannelMailbox[TestMessage, int](t.Context(), 10)
 		mailbox.Close()
 
 		env := envelope[TestMessage, int]{
@@ -116,11 +118,11 @@ func TestChannelMailboxTrySend(t *testing.T) {
 // TestChannelMailboxReceive tests the Receive method of ChannelMailbox.
 func TestChannelMailboxReceive(t *testing.T) {
 	t.Run("receive messages", func(t *testing.T) {
-		mailbox := NewChannelMailbox[TestMessage, int](context.Background(), 10)
-		ctx := context.Background()
+		mailbox := NewChannelMailbox[TestMessage, int](t.Context(), 10)
+		ctx := t.Context()
 
 		// Send some messages.
-		for i := 0; i < 3; i++ {
+		for i := range 3 {
 			env := envelope[TestMessage, int]{
 				message: TestMessage{Value: i},
 				promise: nil,
@@ -144,19 +146,22 @@ func TestChannelMailboxReceive(t *testing.T) {
 		wg.Wait()
 
 		require.Len(t, received, 3, "Should receive 3 messages")
-		require.Equal(t, []int{0, 1, 2}, received, "Should receive messages in order")
+		require.Equal(
+			t, []int{0, 1, 2}, received,
+			"Should receive messages in order",
+		)
 	})
 
 	t.Run("receive with cancelled context", func(t *testing.T) {
-		mailbox := NewChannelMailbox[TestMessage, int](context.Background(), 10)
-		ctx, cancel := context.WithCancel(context.Background())
+		mailbox := NewChannelMailbox[TestMessage, int](t.Context(), 10)
+		ctx, cancel := context.WithCancel(t.Context())
 
 		// Send a message.
 		env := envelope[TestMessage, int]{
 			message: TestMessage{Value: 42},
 			promise: nil,
 		}
-		mailbox.Send(context.Background(), env)
+		mailbox.Send(t.Context(), env)
 
 		// Start receiving.
 		var received int
@@ -182,12 +187,16 @@ func TestChannelMailboxReceive(t *testing.T) {
 
 // TestChannelMailboxClose tests the Close and IsClosed methods.
 func TestChannelMailboxClose(t *testing.T) {
-	mailbox := NewChannelMailbox[TestMessage, int](context.Background(), 10)
+	mailbox := NewChannelMailbox[TestMessage, int](t.Context(), 10)
 
-	require.False(t, mailbox.IsClosed(), "Mailbox should not be closed initially")
+	require.False(
+		t, mailbox.IsClosed(), "Mailbox should not be closed initially",
+	)
 
 	mailbox.Close()
-	require.True(t, mailbox.IsClosed(), "Mailbox should be closed after Close()")
+	require.True(
+		t, mailbox.IsClosed(), "Mailbox should be closed after Close()",
+	)
 
 	// Closing again should be safe.
 	mailbox.Close()
@@ -196,11 +205,11 @@ func TestChannelMailboxClose(t *testing.T) {
 
 // TestChannelMailboxDrain tests the Drain method of ChannelMailbox.
 func TestChannelMailboxDrain(t *testing.T) {
-	mailbox := NewChannelMailbox[TestMessage, int](context.Background(), 10)
-	ctx := context.Background()
+	mailbox := NewChannelMailbox[TestMessage, int](t.Context(), 10)
+	ctx := t.Context()
 
 	// Send some messages.
-	for i := 0; i < 3; i++ {
+	for i := range 3 {
 		env := envelope[TestMessage, int]{
 			message: TestMessage{Value: i},
 			promise: nil,
@@ -218,13 +227,15 @@ func TestChannelMailboxDrain(t *testing.T) {
 	}
 
 	require.Len(t, drained, 3, "Should drain 3 messages")
-	require.Equal(t, []int{0, 1, 2}, drained, "Should drain messages in order")
+	require.Equal(
+		t, []int{0, 1, 2}, drained, "Should drain messages in order",
+	)
 }
 
 // TestChannelMailboxConcurrent tests concurrent operations on ChannelMailbox.
 func TestChannelMailboxConcurrent(t *testing.T) {
-	mailbox := NewChannelMailbox[TestMessage, int](context.Background(), 100)
-	ctx := context.Background()
+	mailbox := NewChannelMailbox[TestMessage, int](t.Context(), 100)
+	ctx := t.Context()
 
 	const numSenders = 10
 	const messagesPerSender = 100
@@ -232,13 +243,15 @@ func TestChannelMailboxConcurrent(t *testing.T) {
 	var wg sync.WaitGroup
 
 	// Start multiple senders.
-	for i := 0; i < numSenders; i++ {
+	for i := range numSenders {
 		wg.Add(1)
 		go func(senderID int) {
 			defer wg.Done()
-			for j := 0; j < messagesPerSender; j++ {
+			for j := range messagesPerSender {
 				env := envelope[TestMessage, int]{
-					message: TestMessage{Value: senderID*1000 + j},
+					message: TestMessage{
+						Value: senderID*1000 + j,
+					},
 					promise: nil,
 				}
 				mailbox.Send(ctx, env)
@@ -270,7 +283,7 @@ func TestChannelMailboxConcurrent(t *testing.T) {
 
 // TestChannelMailboxZeroCapacity tests that zero capacity defaults to 1.
 func TestChannelMailboxZeroCapacity(t *testing.T) {
-	mailbox := NewChannelMailbox[TestMessage, int](context.Background(), 0)
+	mailbox := NewChannelMailbox[TestMessage, int](t.Context(), 0)
 
 	// Should default to capacity of 1.
 	env := envelope[TestMessage, int]{
@@ -290,7 +303,7 @@ func TestChannelMailboxZeroCapacity(t *testing.T) {
 // context for cancellation.
 func TestChannelMailboxActorContext(t *testing.T) {
 	t.Run("send respects actor context", func(t *testing.T) {
-		actorCtx, actorCancel := context.WithCancel(context.Background())
+		actorCtx, actorCancel := context.WithCancel(t.Context())
 		mailbox := NewChannelMailbox[TestMessage, int](actorCtx, 1)
 
 		// Fill the mailbox.
@@ -305,18 +318,21 @@ func TestChannelMailboxActorContext(t *testing.T) {
 
 		// Try to send with a fresh caller context - should fail due to
 		// actor context cancellation.
-		callerCtx := context.Background()
+		callerCtx := t.Context()
 		env2 := envelope[TestMessage, int]{
 			message: TestMessage{Value: 43},
 			promise: nil,
 		}
 
 		sent := mailbox.Send(callerCtx, env2)
-		require.False(t, sent, "Send should fail when actor context is cancelled")
+		require.False(
+			t, sent,
+			"Send should fail when actor context is cancelled",
+		)
 	})
 
 	t.Run("receive respects actor context", func(t *testing.T) {
-		actorCtx, actorCancel := context.WithCancel(context.Background())
+		actorCtx, actorCancel := context.WithCancel(t.Context())
 		mailbox := NewChannelMailbox[TestMessage, int](actorCtx, 10)
 
 		// Send a message.
@@ -324,10 +340,10 @@ func TestChannelMailboxActorContext(t *testing.T) {
 			message: TestMessage{Value: 42},
 			promise: nil,
 		}
-		mailbox.Send(context.Background(), env)
+		mailbox.Send(t.Context(), env)
 
 		// Start receiving with a fresh context.
-		callerCtx := context.Background()
+		callerCtx := t.Context()
 		var received int
 		var wg sync.WaitGroup
 		wg.Add(1)
@@ -343,7 +359,8 @@ func TestChannelMailboxActorContext(t *testing.T) {
 		actorCancel()
 		wg.Wait()
 
-		// Should have stopped receiving due to actor context cancellation.
+		// Should have stopped receiving due to actor context
+		// cancellation.
 		require.LessOrEqual(t, received, 1,
 			"Should stop receiving when actor context is cancelled")
 	})
@@ -355,8 +372,8 @@ func TestMailboxConcurrentSendAndClose(t *testing.T) {
 	const numSenders = 20
 	const sendsPerSender = 100
 
-	mailbox := NewChannelMailbox[TestMessage, int](context.Background(), 100)
-	ctx := context.Background()
+	mailbox := NewChannelMailbox[TestMessage, int](t.Context(), 100)
+	ctx := t.Context()
 
 	var wg sync.WaitGroup
 
@@ -371,13 +388,15 @@ func TestMailboxConcurrentSendAndClose(t *testing.T) {
 	}()
 
 	// Start multiple senders.
-	for i := 0; i < numSenders; i++ {
+	for i := range numSenders {
 		wg.Add(1)
 		go func(senderID int) {
 			defer wg.Done()
-			for j := 0; j < sendsPerSender; j++ {
+			for j := range sendsPerSender {
 				env := envelope[TestMessage, int]{
-					message: TestMessage{Value: senderID*1000 + j},
+					message: TestMessage{
+						Value: senderID*1000 + j,
+					},
 					promise: nil,
 				}
 				// Send may fail if mailbox closes, that's ok.
@@ -388,7 +407,7 @@ func TestMailboxConcurrentSendAndClose(t *testing.T) {
 
 	// Concurrently close the mailbox multiple times from different
 	// goroutines.
-	for i := 0; i < 5; i++ {
+	for range 5 {
 		wg.Add(1)
 		go func() {
 			defer wg.Done()
@@ -417,28 +436,31 @@ func TestMailboxConcurrentTrySendAndClose(t *testing.T) {
 	const numSenders = 20
 	const sendsPerSender = 100
 
-	mailbox := NewChannelMailbox[TestMessage, int](context.Background(), 10)
+	mailbox := NewChannelMailbox[TestMessage, int](t.Context(), 10)
 
 	var wg sync.WaitGroup
 
 	// Start multiple senders using TrySend.
-	for i := 0; i < numSenders; i++ {
+	for i := range numSenders {
 		wg.Add(1)
 		go func(senderID int) {
 			defer wg.Done()
-			for j := 0; j < sendsPerSender; j++ {
+			for j := range sendsPerSender {
 				env := envelope[TestMessage, int]{
-					message: TestMessage{Value: senderID*1000 + j},
+					message: TestMessage{
+						Value: senderID*1000 + j,
+					},
 					promise: nil,
 				}
-				// TrySend may fail if mailbox is full or closed.
+				// TrySend may fail if mailbox is full or
+				// closed.
 				mailbox.TrySend(env)
 			}
 		}(i)
 	}
 
 	// Concurrently close the mailbox.
-	for i := 0; i < 5; i++ {
+	for range 5 {
 		wg.Add(1)
 		go func() {
 			defer wg.Done()
@@ -465,12 +487,12 @@ func TestMailboxConcurrentTrySendAndClose(t *testing.T) {
 func TestMailboxMultipleCloseCallers(t *testing.T) {
 	const numClosers = 100
 
-	mailbox := NewChannelMailbox[TestMessage, int](context.Background(), 10)
+	mailbox := NewChannelMailbox[TestMessage, int](t.Context(), 10)
 
 	var wg sync.WaitGroup
 
 	// Start many goroutines all trying to close the mailbox.
-	for i := 0; i < numClosers; i++ {
+	for range numClosers {
 		wg.Add(1)
 		go func() {
 			defer wg.Done()
@@ -494,19 +516,21 @@ func TestMailboxCloseWhileSending(t *testing.T) {
 	const numSenders = 10
 	const sendsPerSender = 1000
 
-	mailbox := NewChannelMailbox[TestMessage, int](context.Background(), 100)
-	ctx := context.Background()
+	mailbox := NewChannelMailbox[TestMessage, int](t.Context(), 100)
+	ctx := t.Context()
 
 	var sendWg sync.WaitGroup
 
 	// Start multiple senders.
-	for i := 0; i < numSenders; i++ {
+	for i := range numSenders {
 		sendWg.Add(1)
 		go func(senderID int) {
 			defer sendWg.Done()
-			for j := 0; j < sendsPerSender; j++ {
+			for j := range sendsPerSender {
 				env := envelope[TestMessage, int]{
-					message: TestMessage{Value: senderID*1000 + j},
+					message: TestMessage{
+						Value: senderID*1000 + j,
+					},
 					promise: nil,
 				}
 				// Send may fail after close, that's expected.
@@ -547,19 +571,21 @@ func TestMailboxStressTest(t *testing.T) {
 	const numReceivers = 5
 	const sendsPerSender = 200
 
-	mailbox := NewChannelMailbox[TestMessage, int](context.Background(), 200)
-	ctx := context.Background()
+	mailbox := NewChannelMailbox[TestMessage, int](t.Context(), 200)
+	ctx := t.Context()
 
 	var sendWg sync.WaitGroup
 
 	// Start multiple senders.
-	for i := 0; i < numSenders; i++ {
+	for i := range numSenders {
 		sendWg.Add(1)
 		go func(senderID int) {
 			defer sendWg.Done()
-			for j := 0; j < sendsPerSender; j++ {
+			for j := range sendsPerSender {
 				env := envelope[TestMessage, int]{
-					message: TestMessage{Value: senderID*1000 + j},
+					message: TestMessage{
+						Value: senderID*1000 + j,
+					},
 					promise: nil,
 				}
 				mailbox.Send(ctx, env)
@@ -569,7 +595,7 @@ func TestMailboxStressTest(t *testing.T) {
 
 	// Start multiple receivers.
 	var recvWg sync.WaitGroup
-	for i := 0; i < numReceivers; i++ {
+	for range numReceivers {
 		recvWg.Add(1)
 		go func() {
 			defer recvWg.Done()

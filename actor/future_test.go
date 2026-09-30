@@ -20,11 +20,11 @@ func TestFutureAwaitContextCancellation(t *testing.T) {
 
 	rapid.Check(t, func(t *rapid.T) {
 		// Test cancellation when the Await context is cancelled via
-		// context.Cancel. The underlying future will not be completed, allowing
-		// us to test the cancellation path of Await.
+		// context.Cancel. The underlying future will not be completed,
+		// allowing us to test the cancellation path of Await.
 		prom1 := NewPromise[int]()
 		fut1 := prom1.Future()
-		ctx1, cancel1 := context.WithCancel(context.Background())
+		ctx1, cancel1 := context.WithCancel(t.Context())
 
 		// We'll cancel the future immediately after creating it.
 		cancel1()
@@ -44,7 +44,7 @@ func TestFutureAwaitContextCancellation(t *testing.T) {
 
 		// Use a very short timeout that will trigger.
 		ctx2, cancel2 := context.WithTimeout(
-			context.Background(), 1*time.Nanosecond,
+			t.Context(), 1*time.Nanosecond,
 		)
 		defer cancel2()
 
@@ -80,7 +80,7 @@ func TestFutureAwaitFutureCompletes(t *testing.T) {
 
 		// Use a background context for Await, as we expect the future
 		// to complete normally.
-		ctx := context.Background()
+		ctx := t.Context()
 
 		// Complete the future in a separate goroutine to simulate an
 		// asynchronous operation.
@@ -133,7 +133,7 @@ func TestFutureThenApplyContextCancellation(t *testing.T) {
 
 		// Create a context for ThenApply and cancel it immediately.
 		ctxApply, cancelApply := context.WithCancel(
-			context.Background(),
+			t.Context(),
 		)
 		cancelApply()
 
@@ -150,7 +150,7 @@ func TestFutureThenApplyContextCancellation(t *testing.T) {
 		// Await the new (transformed) future. Use a background context
 		// for this Await to isolate the test to the cancellation of
 		// ctxApply.
-		result := newFut.Await(context.Background())
+		result := newFut.Await(t.Context())
 
 		require.True(t, result.IsErr())
 		require.ErrorIs(
@@ -187,7 +187,7 @@ func TestFutureThenApplyOriginalFutureCompletes(t *testing.T) {
 		// Create a context for ThenApply that should not cancel before
 		// the original future completes.
 		ctxApply, cancelApply := context.WithTimeout(
-			context.Background(), 50*time.Millisecond,
+			t.Context(), 50*time.Millisecond,
 		)
 		defer cancelApply()
 
@@ -213,7 +213,7 @@ func TestFutureThenApplyOriginalFutureCompletes(t *testing.T) {
 
 		// Await our new future which transforms the original future's
 		// result. Use a background context for this Await.
-		result := newFut.Await(context.Background())
+		result := newFut.Await(t.Context())
 
 		if originalErr != nil {
 			// If the original future had an error, the transformed
@@ -230,7 +230,8 @@ func TestFutureThenApplyOriginalFutureCompletes(t *testing.T) {
 			)
 		} else {
 			// If the original future completed successfully, the
-			// transformed future should contain the transformed value.
+			// transformed future should contain the transformed
+			// value.
 			require.False(
 				t, result.IsErr(),
 				"ThenApply with original value",
@@ -267,7 +268,7 @@ func TestFutureOnCompleteContextCancellation(t *testing.T) {
 		// Create a context for OnComplete and cancel it immediately to
 		// simulate a premature cancellation.
 		ctxComplete, cancelComplete := context.WithCancel(
-			context.Background(),
+			t.Context(),
 		)
 		cancelComplete()
 
@@ -350,7 +351,7 @@ func TestFutureOnCompleteFutureCompletes(t *testing.T) {
 
 		// Use a background context for OnComplete, as we expect the
 		// future to complete normally.
-		ctxComplete := context.Background()
+		ctxComplete := t.Context()
 
 		var wg sync.WaitGroup
 		wg.Add(1)
@@ -441,7 +442,7 @@ func TestCompleteWith(t *testing.T) {
 	promise := NewPromise[int]()
 	CompleteWith(promise, 42)
 
-	result := promise.Future().Await(context.Background())
+	result := promise.Future().Await(t.Context())
 	require.False(t, result.IsErr())
 	result.WhenOk(func(v int) {
 		require.Equal(t, 42, v)
@@ -450,10 +451,12 @@ func TestCompleteWith(t *testing.T) {
 	// Second call must be a no-op; the future must still hold 42.
 	CompleteWith(promise, 99)
 
-	result2 := promise.Future().Await(context.Background())
+	result2 := promise.Future().Await(t.Context())
 	require.False(t, result2.IsErr())
 	result2.WhenOk(func(v int) {
-		require.Equal(t, 42, v, "second CompleteWith must not overwrite")
+		require.Equal(
+			t, 42, v, "second CompleteWith must not overwrite",
+		)
 	})
 }
 
@@ -468,7 +471,7 @@ func TestAwaitFuture(t *testing.T) {
 	promise := NewPromise[string]()
 	CompleteWith(promise, "hello")
 
-	val, err := AwaitFuture(context.Background(), promise.Future())
+	val, err := AwaitFuture(t.Context(), promise.Future())
 	require.NoError(t, err)
 	require.Equal(t, "hello", val)
 
@@ -478,13 +481,13 @@ func TestAwaitFuture(t *testing.T) {
 	errPromise := NewPromise[string]()
 	errPromise.Complete(fn.Err[string](sentinel))
 
-	val3, err3 := AwaitFuture(context.Background(), errPromise.Future())
+	val3, err3 := AwaitFuture(t.Context(), errPromise.Future())
 	require.ErrorIs(t, err3, sentinel)
 	require.Equal(t, "", val3, "zero value expected on fn.Err result")
 
 	// Cancelled context — should return the zero value and ctx.Err().
 	unresolved := NewPromise[string]()
-	ctx, cancel := context.WithCancel(context.Background())
+	ctx, cancel := context.WithCancel(t.Context())
 	cancel()
 
 	val2, err2 := AwaitFuture(ctx, unresolved.Future())
@@ -514,7 +517,7 @@ func TestPromiseCompleteIdempotency(t *testing.T) {
 	require.False(t, ok, "third Complete should return false")
 
 	// The future should contain the first value.
-	result := future.Await(context.Background())
+	result := future.Await(t.Context())
 	require.False(t, result.IsErr(), "future should not be an error")
 	result.WhenOk(func(val string) {
 		require.Equal(

@@ -68,11 +68,13 @@ func (s *StatefulCounterActor) Receive(ctx context.Context,
 	return fn.Err[CounterResponse](fmt.Errorf("invalid CounterMsg"))
 }
 
-// ExampleActor_stateful demonstrates creating an actor whose behavior is defined
-// by a struct with methods, allowing it to maintain internal state.
+// ExampleActor_stateful demonstrates creating an actor whose behavior is
+// defined by a struct with methods, allowing it to maintain internal state.
 func ExampleActor_stateful() {
 	system := actor.NewActorSystem()
-	defer system.Shutdown()
+	defer func() {
+		_ = system.Shutdown()
+	}()
 
 	counterServiceKey := actor.NewServiceKey[CounterMsg, CounterResponse](
 		"struct-counter-service",

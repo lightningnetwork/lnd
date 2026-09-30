@@ -21,12 +21,14 @@ func TestActorSystemNewActorSystem(t *testing.T) {
 	require.NotNil(t, as, "newActorSystem should not return nil")
 	require.NotNil(t, as.Receptionist(), "receptionist should not be nil")
 	require.NotNil(t, as.DeadLetters(), "deadLetters should not be nil")
-	require.Equal(t, "dead-letters", as.DeadLetters().ID(), "dLO ID mismatch")
+	require.Equal(
+		t, "dead-letters", as.DeadLetters().ID(), "dLO ID mismatch",
+	)
 
 	// Test the DLO's behavior (it should return an error for Ask).
 	testDLOMsg := newTestMsg("to-dlo")
-	future := as.DeadLetters().Ask(context.Background(), testDLOMsg)
-	result := future.Await(context.Background())
+	future := as.DeadLetters().Ask(t.Context(), testDLOMsg)
+	result := future.Await(t.Context())
 
 	// We should get back an error for asks.
 	require.True(
@@ -62,22 +64,29 @@ func TestActorSystemRegisterWithSystem(t *testing.T) {
 	// We'll start off by registering the actor.
 	actorRef, err := RegisterWithSystem(as, actorID, serviceKey, beh)
 	require.NoError(t, err)
-	require.NotNil(t, actorRef, "registerWithSystem should return a valid ActorRef")
+	require.NotNil(
+		t, actorRef,
+		"registerWithSystem should return a valid ActorRef",
+	)
 	require.Equal(t, actorID, actorRef.ID(), "registered actor ID mismatch")
 
 	// The actor should be found in the receptionist.
 	foundActors := FindInReceptionist(as.Receptionist(), serviceKey)
 	require.Len(t, foundActors, 1, "actor not found in receptionist")
-	require.Equal(t, actorRef, foundActors[0], "incorrect actor in receptionist")
+	require.Equal(
+		t, actorRef, foundActors[0], "incorrect actor in receptionist",
+	)
 
 	// Next, we'll send out a simple tell, using our reply channel to make
 	// sure it's actually processed.
 	msgData := "hello-system-actor"
 	replyChan := make(chan string, 1)
-	actorRef.Tell(context.Background(), newTestMsgWithReply(msgData, replyChan))
+	actorRef.Tell(t.Context(), newTestMsgWithReply(msgData, replyChan))
 
 	received, err := fn.RecvOrTimeout(replyChan, 100*time.Millisecond)
-	require.NoError(t, err, "timed out waiting for actor to process message")
+	require.NoError(
+		t, err, "timed out waiting for actor to process message",
+	)
 	require.Equal(t, msgData, received, "actor did not process message")
 
 	// Stop the actor through the system.
@@ -91,7 +100,7 @@ func TestActorSystemRegisterWithSystem(t *testing.T) {
 	// system's DLO.
 	afterStopMsg := newTestMsg("after-stop-to-dlo")
 	require.NotPanics(t, func() {
-		actorRef.Tell(context.Background(), afterStopMsg)
+		actorRef.Tell(t.Context(), afterStopMsg)
 	}, "tell to stopped actor should not panic")
 }
 
@@ -105,7 +114,7 @@ func TestActorSystemShutdown(t *testing.T) {
 	// We'll start by making 3 new actors, each with a unique ID.
 	numActors := 3
 	actorRefs := make([]ActorRef[*testMsg, string], numActors)
-	for i := 0; i < numActors; i++ {
+	for i := range numActors {
 		actorID := fmt.Sprintf("shutdown-test-actor-%d", i)
 		key := NewServiceKey[*testMsg, string](
 			fmt.Sprintf("service-%d", i),
@@ -120,11 +129,11 @@ func TestActorSystemShutdown(t *testing.T) {
 	// running.
 	for i, ref := range actorRefs {
 		future := ref.Ask(
-			context.Background(),
+			t.Context(),
 			newTestMsg(fmt.Sprintf("ping-%d", i)),
 		)
 		ctxAwait, cancelAwait := context.WithTimeout(
-			context.Background(), time.Second,
+			t.Context(), time.Second,
 		)
 		res := future.Await(ctxAwait)
 		cancelAwait()
@@ -143,16 +152,18 @@ func TestActorSystemShutdown(t *testing.T) {
 	// Check if the system context is done using RecvOrTimeout with a zero
 	// timeout for a non-blocking check.
 	_, err = fn.RecvOrTimeout(as.ctx.Done(), time.Millisecond*100)
-	require.NoError(t, err, "actorSystem context not cancelled after shutdown")
+	require.NoError(
+		t, err, "actorSystem context not cancelled after shutdown",
+	)
 
 	// We'll now try to send a message to each of the actors, this should
 	// result in an error.
 	for i, ref := range actorRefs {
 		future := ref.Ask(
-			context.Background(),
+			t.Context(),
 			newTestMsg(fmt.Sprintf("ping-after-shutdown-%d", i)),
 		)
-		res := future.Await(context.Background())
+		res := future.Await(t.Context())
 		require.True(
 			t, res.IsErr(),
 			"actor %d Ask should fail after shutdown", i,
@@ -167,9 +178,9 @@ func TestActorSystemShutdown(t *testing.T) {
 	// Once shutdown, we shouldn't be able to send to the DLO either.
 	dloRef := as.DeadLetters()
 	futureDLO := dloRef.Ask(
-		context.Background(), newTestMsg("ping-dlo-after-shutdown"),
+		t.Context(), newTestMsg("ping-dlo-after-shutdown"),
 	)
-	resDLO := futureDLO.Await(context.Background())
+	resDLO := futureDLO.Await(t.Context())
 	require.True(
 		t, resDLO.IsErr(), "DLO Ask should fail after system shutdown",
 	)
@@ -207,8 +218,8 @@ func TestActorSystemStopAndRemoveActor(t *testing.T) {
 	stopped := as.StopAndRemoveActor(actor1ID)
 	require.True(t, stopped, "failed to stop and remove actor1")
 
-	future1 := ref1.Ask(context.Background(), newTestMsg("ping-actor1"))
-	res1 := future1.Await(context.Background())
+	future1 := ref1.Ask(t.Context(), newTestMsg("ping-actor1"))
+	res1 := future1.Await(t.Context())
 	require.True(t, res1.IsErr(), "actor1 should be stopped")
 	require.ErrorIs(t, res1.Err(), ErrActorTerminated)
 
@@ -221,11 +232,11 @@ func TestActorSystemStopAndRemoveActor(t *testing.T) {
 
 	// Make sure that we can still send messages to the existing actor.
 	future2 := ref2.Ask(
-		context.Background(), newTestMsg("ping-actor2"),
+		t.Context(), newTestMsg("ping-actor2"),
 	)
 
 	ctxAwait2, cancelAwait2 := context.WithTimeout(
-		context.Background(), time.Second,
+		t.Context(), time.Second,
 	)
 	res2 := future2.Await(ctxAwait2)
 	cancelAwait2()
@@ -299,10 +310,14 @@ func TestReceptionist(t *testing.T) {
 	require.Equal(t, actor2Ref, foundForKey1AfterUnreg[0])
 
 	// If we try to unregister the same actor again, it should fail.
-	unregisteredAgain := UnregisterFromReceptionist(receptionist, key1, actor1Ref)
+	unregisteredAgain := UnregisterFromReceptionist(
+		receptionist, key1, actor1Ref,
+	)
 	require.False(t, unregisteredAgain)
 
-	unregisteredLast := UnregisterFromReceptionist(receptionist, key1, actor2Ref)
+	unregisteredLast := UnregisterFromReceptionist(
+		receptionist, key1, actor2Ref,
+	)
 	require.True(t, unregisteredLast)
 	foundForKey1AfterAllUnreg := FindInReceptionist(receptionist, key1)
 	require.Empty(t, foundForKey1AfterAllUnreg)
@@ -310,13 +325,19 @@ func TestReceptionist(t *testing.T) {
 	receptionist.mu.RLock()
 	_, exists := receptionist.registrations[key1.name]
 	receptionist.mu.RUnlock()
-	require.False(t, exists, "key1 should be removed from registrations map")
+	require.False(
+		t, exists, "key1 should be removed from registrations map",
+	)
 
 	// Finally, if we use the wrong key, or one that doesn't exist, that
 	// should also fail.
-	unregisteredWrongKey := UnregisterFromReceptionist(receptionist, key1, actor3Ref)
+	unregisteredWrongKey := UnregisterFromReceptionist(
+		receptionist, key1, actor3Ref,
+	)
 	require.False(t, unregisteredWrongKey)
-	unregisteredNonExistentKey := UnregisterFromReceptionist(receptionist, nonExistentKey, actor1Ref)
+	unregisteredNonExistentKey := UnregisterFromReceptionist(
+		receptionist, nonExistentKey, actor1Ref,
+	)
 	require.False(t, unregisteredNonExistentKey)
 }
 
@@ -365,8 +386,8 @@ func TestServiceKeyMethods(t *testing.T) {
 
 	// If we try to send a message to the actor after unregistering it, then
 	// we should get an error.
-	future := actorRef.Ask(context.Background(), newTestMsg("ping"))
-	res := future.Await(context.Background())
+	future := actorRef.Ask(t.Context(), newTestMsg("ping"))
+	res := future.Await(t.Context())
 	require.True(t, res.IsErr() && errors.Is(res.Err(), ErrActorTerminated))
 
 	successAgain := key.Unregister(as, actorRef)
@@ -473,8 +494,8 @@ func TestServiceKeyUnregisterAll(t *testing.T) {
 
 		// Verify actors are stopped.
 		resultActor1Key1 := actor1Key1.Ask(
-			context.Background(), newTestMsg("ping-k1-a1"),
-		).Await(context.Background())
+			t.Context(), newTestMsg("ping-k1-a1"),
+		).Await(t.Context())
 		require.True(
 			st, resultActor1Key1.IsErr(),
 			"Actor1 key1 Ask should fail after UnregisterAll.",
@@ -485,8 +506,8 @@ func TestServiceKeyUnregisterAll(t *testing.T) {
 		)
 
 		resultActor2Key1 := actor2Key1.Ask(
-			context.Background(), newTestMsg("ping-k1-a2"),
-		).Await(context.Background())
+			t.Context(), newTestMsg("ping-k1-a2"),
+		).Await(t.Context())
 		require.True(
 			st, resultActor2Key1.IsErr(),
 			"Actor2 key1 Ask should fail after UnregisterAll.",
@@ -587,16 +608,16 @@ func TestServiceKeyUnregisterAll(t *testing.T) {
 
 		// Verify keyA actors are stopped, keyB actor is running.
 		resultActorA1Mixed := actorA1.Ask(
-			context.Background(), newTestMsg("ping-kA-a1"),
-		).Await(context.Background())
+			t.Context(), newTestMsg("ping-kA-a1"),
+		).Await(t.Context())
 		require.True(st, resultActorA1Mixed.IsErr())
 		require.ErrorIs(
 			st, resultActorA1Mixed.Err(), ErrActorTerminated,
 		)
 
 		resultActorB1Mixed := actorB1.Ask(
-			context.Background(), newTestMsg("ping-kB-a1"),
-		).Await(context.Background())
+			t.Context(), newTestMsg("ping-kB-a1"),
+		).Await(t.Context())
 		require.False(
 			st, resultActorB1Mixed.IsErr(),
 			"ActorB1 terminated incorrectly (mixed test): %v",
@@ -632,7 +653,8 @@ func TestServiceKeyUnregisterAll(t *testing.T) {
 		// Verify actor is gone from receptionist and system map, and is
 		// stopped.
 		require.Empty(
-			st, FindInReceptionist(as.Receptionist(), keyIdempotent),
+			st,
+			FindInReceptionist(as.Receptionist(), keyIdempotent),
 			"Actors for keyIdempotent still in receptionist "+
 				"after calls.",
 		)
@@ -646,14 +668,15 @@ func TestServiceKeyUnregisterAll(t *testing.T) {
 		)
 
 		resultActorIdem := actorIdem.Ask(
-			context.Background(), newTestMsg("ping-kidem-a1"),
-		).Await(context.Background())
+			t.Context(), newTestMsg("ping-kidem-a1"),
+		).Await(t.Context())
 		require.True(st, resultActorIdem.IsErr())
 		require.ErrorIs(st, resultActorIdem.Err(), ErrActorTerminated)
 	})
 }
 
-// routerTestHarness helps set up routers and their associated actors for testing.
+// routerTestHarness helps set up routers and their associated actors for
+// testing.
 // It uses an actorTestHarness internally for DLO observation for the router.
 type routerTestHarness struct {
 	*actorTestHarness
@@ -669,11 +692,14 @@ func newRouterTestHarness(t *testing.T) *routerTestHarness {
 	system := NewActorSystem()
 	t.Cleanup(func() {
 		err := system.Shutdown()
-		require.NoError(t, err, "router test actor system shutdown failed")
+		require.NoError(
+			t, err, "router test actor system shutdown failed",
+		)
 	})
 
 	// The DLO for the router itself will come from actorTestHarness.
-	// Actors managed by `system` (router targets) will use `system.DeadLetters()`.
+	// Actors managed by `system` (router targets) will use
+	// `system.DeadLetters()`.
 	return &routerTestHarness{
 		actorTestHarness: newActorTestHarness(t),
 		as:               system,
@@ -706,7 +732,9 @@ func TestRouterNewRouter(t *testing.T) {
 
 	router := NewRouter(h.receptionist, key, strategy, h.dlo.Ref())
 	require.NotNil(t, router, "newRouter should not return nil")
-	require.Equal(t, "router(router-service)", router.ID(), "router ID mismatch")
+	require.Equal(
+		t, "router(router-service)", router.ID(), "router ID mismatch",
+	)
 }
 
 // countingEchoBehavior is an echo behavior that also counts how many messages
@@ -735,6 +763,7 @@ func (b *countingEchoBehavior) Receive(ctx context.Context,
 	if err == nil {
 		return fn.Ok(fmt.Sprintf("%s:%s", b.id, val))
 	}
+
 	return res
 }
 
@@ -758,22 +787,23 @@ func TestRouterTellAndAskRoundRobin(t *testing.T) {
 
 	// Nxet, we'll send a mix of Tell and Ask messages to the router.
 	numMessages := 6
-	for i := 0; i < numMessages; i++ {
+	for i := range numMessages {
 		msgData := fmt.Sprintf("message-%d", i)
 		if i%2 == 0 {
-			router.Tell(context.Background(), newTestMsg(msgData))
+			router.Tell(t.Context(), newTestMsg(msgData))
 		} else {
 			future := router.Ask(
-				context.Background(), newTestMsg(msgData),
+				t.Context(), newTestMsg(msgData),
 			)
 			ctxAwait, cancelAwait := context.WithTimeout(
-				context.Background(), time.Second,
+				t.Context(), time.Second,
 			)
 
 			result := future.Await(ctxAwait)
 			cancelAwait()
 			require.False(
-				t, result.IsErr(), "ask failed: %v", result.Err(),
+				t, result.IsErr(), "ask failed: %v",
+				result.Err(),
 			)
 		}
 	}
@@ -807,16 +837,17 @@ func TestRouterNoActorsAvailable(t *testing.T) {
 
 	// We'll send a message, then assert that it goes to the DLO.
 	tellMsg := newTestMsg("tell-no-actor")
-	router.Tell(context.Background(), tellMsg)
+	router.Tell(t.Context(), tellMsg)
 	h.assertDLOMessage(tellMsg)
 
 	// If we use an ask instead, then we should get an error.
 	askMsg := newTestMsg("ask-no-actor")
-	future := router.Ask(context.Background(), askMsg)
-	result := future.Await(context.Background())
+	future := router.Ask(t.Context(), askMsg)
+	result := future.Await(t.Context())
 
 	require.True(
-		t, result.IsErr(), "ask should fail when no actors are available",
+		t, result.IsErr(),
+		"ask should fail when no actors are available",
 	)
 	require.ErrorIs(t, result.Err(), ErrNoActorsAvailable, "error mismatch")
 }
@@ -837,7 +868,7 @@ func TestRouterTellAskContextCancellation(t *testing.T) {
 
 	// Next, we'll send a Tell message with a context that will be cancelled
 	// before we even send.
-	ctxTell, cancelTell := context.WithCancel(context.Background())
+	ctxTell, cancelTell := context.WithCancel(t.Context())
 	cancelTell()
 	router.Tell(ctxTell, newTestMsg("tell-ctx-cancelled"))
 
@@ -846,10 +877,10 @@ func TestRouterTellAskContextCancellation(t *testing.T) {
 	h.assertNoDLOMessages()
 
 	// Next, we'll do the same for Ask. This time, we should get an error.
-	ctxAsk, cancelAsk := context.WithCancel(context.Background())
+	ctxAsk, cancelAsk := context.WithCancel(t.Context())
 	cancelAsk()
 	futureAsk := router.Ask(ctxAsk, newTestMsg("ask-ctx-cancelled"))
-	resultAsk := futureAsk.Await(context.Background())
+	resultAsk := futureAsk.Await(t.Context())
 
 	require.True(
 		t, resultAsk.IsErr(), "ask with cancelled context should fail",
@@ -872,20 +903,27 @@ func TestRouterDynamicActorRegistration(t *testing.T) {
 
 	// If we try to send a mesasge to the router before any actors are
 	// added, we should get an error.
-	futureNoActor := router.Ask(context.Background(), newTestMsg("ping-no-actors"))
-	resNoActor := futureNoActor.Await(context.Background())
+	futureNoActor := router.Ask(t.Context(), newTestMsg("ping-no-actors"))
+	resNoActor := futureNoActor.Await(t.Context())
 	require.ErrorIs(t, resNoActor.Err(), ErrNoActorsAvailable)
 
 	actor1Beh := newCountingEchoBehavior(t, "actor1")
-	actor1Ref := h.newRouterTargetActor("actor1-dynamic", serviceKey, actor1Beh)
+	actor1Ref := h.newRouterTargetActor(
+		"actor1-dynamic", serviceKey, actor1Beh,
+	)
 
 	// At this point, we have a new actor added, but we'll try to send a
 	// message to a different actor ID. This should go to the router's DLO.
-	futureActor1 := router.Ask(context.Background(), newTestMsg("ping-actor1"))
-	ctxAwaitA1, cancelAwaitA1 := context.WithTimeout(context.Background(), time.Second)
+	futureActor1 := router.Ask(t.Context(), newTestMsg("ping-actor1"))
+	ctxAwaitA1, cancelAwaitA1 := context.WithTimeout(
+		t.Context(), time.Second,
+	)
 	resActor1 := futureActor1.Await(ctxAwaitA1)
 	cancelAwaitA1()
-	require.False(t, resActor1.IsErr(), "ask to actor1 failed: %v", resActor1.Err())
+	require.False(
+		t, resActor1.IsErr(), "ask to actor1 failed: %v",
+		resActor1.Err(),
+	)
 	resActor1.WhenOk(func(s string) {
 		require.Equal(t, "actor1:echo: ping-actor1", s)
 	})
@@ -898,15 +936,17 @@ func TestRouterDynamicActorRegistration(t *testing.T) {
 	// Now that we've added two actors above, we should round robin between
 	// them when sending.
 	ctxAwaitDA1, cancelAwaitDA1 := context.WithTimeout(
-		context.Background(), time.Second,
+		t.Context(), time.Second,
 	)
-	router.Ask(context.Background(), newTestMsg("dynamic-ask1")).Await(
+	router.Ask(t.Context(), newTestMsg("dynamic-ask1")).Await(
 		ctxAwaitDA1,
 	)
 	cancelAwaitDA1()
 
-	ctxAwaitDA2, cancelAwaitDA2 := context.WithTimeout(context.Background(), time.Second)
-	router.Ask(context.Background(), newTestMsg("dynamic-ask2")).Await(ctxAwaitDA2)
+	ctxAwaitDA2, cancelAwaitDA2 := context.WithTimeout(
+		t.Context(), time.Second,
+	)
+	router.Ask(t.Context(), newTestMsg("dynamic-ask2")).Await(ctxAwaitDA2)
 	cancelAwaitDA2()
 
 	time.Sleep(50 * time.Millisecond)
@@ -922,11 +962,11 @@ func TestRouterDynamicActorRegistration(t *testing.T) {
 	require.True(t, unregistered)
 
 	// All the messages should now go to the second actor.
-	for i := 0; i < 2; i++ {
+	for i := range 2 {
 		msgData := fmt.Sprintf("to-actor2-%d", i)
-		future := router.Ask(context.Background(), newTestMsg(msgData))
+		future := router.Ask(t.Context(), newTestMsg(msgData))
 		ctxAwaitLoop, cancelAwaitLoop := context.WithTimeout(
-			context.Background(), time.Second,
+			t.Context(), time.Second,
 		)
 
 		res := future.Await(ctxAwaitLoop)
@@ -953,6 +993,6 @@ func TestRouterDynamicActorRegistration(t *testing.T) {
 
 	// If we try to send another message, it should go to the DL.
 	tellMsg := newTestMsg("dynamic-tell-no-actors")
-	router.Tell(context.Background(), tellMsg)
+	router.Tell(t.Context(), tellMsg)
 	h.assertDLOMessage(tellMsg)
 }

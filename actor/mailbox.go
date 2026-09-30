@@ -49,6 +49,8 @@ type ChannelMailbox[M Message, R any] struct {
 	closeOnce sync.Once
 
 	// actorCtx is the actor's context for lifecycle management.
+	//
+	//nolint:containedctx
 	actorCtx context.Context
 }
 
@@ -60,6 +62,7 @@ func NewChannelMailbox[M Message, R any](actorCtx context.Context,
 	if capacity <= 0 {
 		capacity = 1
 	}
+
 	return &ChannelMailbox[M, R]{
 		ch:       make(chan envelope[M, R], capacity),
 		actorCtx: actorCtx,
@@ -108,6 +111,7 @@ func (m *ChannelMailbox[M, R]) TrySend(env envelope[M, R]) bool {
 // Receive implements Mailbox.Receive using iter.Seq pattern.
 func (m *ChannelMailbox[M, R]) Receive(
 	ctx context.Context) iter.Seq[envelope[M, R]] {
+
 	return func(yield func(envelope[M, R]) bool) {
 		for {
 			select {

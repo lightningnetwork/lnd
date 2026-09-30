@@ -191,7 +191,6 @@ func (s *PostgresStore) GetSchemaVersion() (int, bool, error) {
 	driver, err := pgx_migrate.WithInstance(s.DB, &pgx_migrate.Config{})
 	if err != nil {
 		return 0, false, errPostgresMigration(err)
-
 	}
 
 	version, dirty, err := driver.Version()

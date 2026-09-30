@@ -408,7 +408,7 @@ func ApplyMigrations(ctx context.Context, db *BaseDB,
 	migrator MigrationExecutor, migrations []MigrationConfig) error {
 
 	// Ensure that the migrations are sorted by version.
-	for i := 0; i < len(migrations); i++ {
+	for i := range migrations {
 		if migrations[i].Version != i+1 {
 			return fmt.Errorf("migration version %d is out of "+
 				"order. Expected %d", migrations[i].Version,
@@ -420,7 +420,7 @@ func ApplyMigrations(ctx context.Context, db *BaseDB,
 		return db.WithTx(tx)
 	})
 
-	currentVersion := 0
+	var currentVersion int
 	version, err := db.GetDatabaseVersion(ctx)
 	if !errors.Is(err, sql.ErrNoRows) {
 		if err != nil {

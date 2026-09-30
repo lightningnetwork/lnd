@@ -142,11 +142,11 @@ func (q *BackpressureQueue[T]) TryEnqueue(item T) bool {
 // available.
 func (q *BackpressureQueue[T]) Dequeue(ctx context.Context) fn.Result[T] {
 	select {
-
 	case item, ok := <-q.ch:
 		if !ok {
 			return fn.Err[T](ErrQueueClosed)
 		}
+
 		return fn.Ok(item)
 
 	case <-ctx.Done():

@@ -235,6 +235,11 @@ func randRetryDelay(initialRetryDelay, maxRetryDelay time.Duration,
 	// multiplying the value with 2^n. We limit the power to 32 to avoid
 	// overflows.
 	factor := time.Duration(math.Pow(2, min(float64(attempt), 32)))
+
+	// The factor is a plain multiplier and not a duration, so multiplying
+	// it with the initial delay is intended.
+	//
+	//nolint:durationcheck
 	actualDelay := initialDelay * factor
 
 	// Cap the delay at the maximum configured value.
@@ -271,8 +276,8 @@ type OnBackoff func(retry int, delay time.Duration)
 func executeTxAttempt(tx Tx, txBody TxBody, rollbackTx RollbackTx,
 	waitBeforeRetry func(int) bool, attempt int) (bool, error) {
 
-	// Rollback is safe to call even if the tx is already closed, so if the tx
-	// commits successfully, this is a no-op.
+	// Rollback is safe to call even if the tx is already closed, so if the
+	// tx commits successfully, this is a no-op.
 	defer func() {
 		_ = tx.Rollback()
 	}()
@@ -280,8 +285,8 @@ func executeTxAttempt(tx Tx, txBody TxBody, rollbackTx RollbackTx,
 	if bodyErr := txBody(tx); bodyErr != nil {
 		log.Tracef("Error in txBody: %v", bodyErr)
 
-		// Roll back the transaction, then attempt a random backoff and try
-		// again if the error was a serialization error.
+		// Roll back the transaction, then attempt a random backoff and
+		// try again if the error was a serialization error.
 		if err := rollbackTx(tx); err != nil {
 			return false, MapSQLError(err)
 		}
@@ -298,8 +303,8 @@ func executeTxAttempt(tx Tx, txBody TxBody, rollbackTx RollbackTx,
 	if commitErr := tx.Commit(); commitErr != nil {
 		log.Tracef("Failed to commit tx: %v", commitErr)
 
-		// Roll back the transaction, then attempt a random backoff and try
-		// again if the error was a serialization error.
+		// Roll back the transaction, then attempt a random backoff and
+		// try again if the error was a serialization error.
 		if err := rollbackTx(tx); err != nil {
 			return false, MapSQLError(err)
 		}
@@ -344,7 +349,7 @@ func ExecuteSQLTransactionWithRetry(ctx context.Context, makeTx MakeTx,
 		}
 	}
 
-	for i := 0; i < opts.numRetries; i++ {
+	for i := range opts.numRetries {
 		tx, err := makeTx()
 		if err != nil {
 			dbErr := MapSQLError(err)
@@ -367,7 +372,8 @@ func ExecuteSQLTransactionWithRetry(ctx context.Context, makeTx MakeTx,
 			tx, txBody, rollbackTx, waitBeforeRetry, i,
 		)
 		if retry {
-			// Transient serialization error, discard this attempt and retry.
+			// Transient serialization error, discard this attempt
+			// and retry.
 			continue
 		}
 		if err != nil {
@@ -402,6 +408,7 @@ func (t *TransactionExecutor[Q]) ExecTx(ctx context.Context,
 		}
 
 		reset()
+
 		return txBody(t.createQuery(sqlTx))
 	}
 

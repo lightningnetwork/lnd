@@ -48,6 +48,7 @@ func SQLPtrInt32[T constraints.Integer](num *T) sql.NullInt32 {
 	if num == nil {
 		return sql.NullInt32{}
 	}
+
 	return sql.NullInt32{
 		Int32: int32(*num),
 		Valid: true,
@@ -83,6 +84,7 @@ func SQLPtrInt64[T constraints.Integer](num *T) sql.NullInt64 {
 	if num == nil {
 		return sql.NullInt64{}
 	}
+
 	return sql.NullInt64{
 		Int64: int64(*num),
 		Valid: true,
@@ -148,6 +150,7 @@ func ExtractSqlInt64Ptr[T constraints.Integer](num sql.NullInt64) *T {
 		return nil
 	}
 	val := T(num.Int64)
+
 	return &val
 }
 
@@ -164,6 +167,7 @@ func ExtractSqlInt32Ptr[T constraints.Integer](num sql.NullInt32) *T {
 		return nil
 	}
 	val := T(num.Int32)
+
 	return &val
 }
 
@@ -174,6 +178,7 @@ func ExtractOptSqlInt32[T constraints.Integer](num sql.NullInt32) fn.Option[T] {
 	}
 
 	result := T(num.Int32)
+
 	return fn.Some(result)
 }
 

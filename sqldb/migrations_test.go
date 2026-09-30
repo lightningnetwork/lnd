@@ -2,6 +2,7 @@ package sqldb
 
 import (
 	"database/sql"
+	"errors"
 	"fmt"
 	"path/filepath"
 	"strings"
@@ -114,10 +115,12 @@ func testInvoiceExpiryMigration(t *testing.T, makeDB makeMigrationTestDB) {
 	// AMP invoices.
 	err = migrate(TargetVersion(4))
 
-	invoices, err := db.FilterInvoicesByAddIndex(ctxb, sqlc.FilterInvoicesByAddIndexParams{
-		AddIndexGet: 1,
-		NumLimit:    100,
-	})
+	invoices, err := db.FilterInvoicesByAddIndex(
+		ctxb, sqlc.FilterInvoicesByAddIndexParams{
+			AddIndexGet: 1,
+			NumLimit:    100,
+		},
+	)
 
 	const (
 		// 1 day in seconds.
@@ -289,7 +292,7 @@ func TestCustomMigration(t *testing.T) {
 			require.NoError(t, err)
 
 			version, _, err := sqlMigrate.Version()
-			if err != migrate.ErrNilVersion {
+			if !errors.Is(err, migrate.ErrNilVersion) {
 				require.NoError(t, err)
 			}
 
@@ -311,7 +314,7 @@ func TestCustomMigration(t *testing.T) {
 
 			// Run the migration 3 times to test that the migrations
 			// are idempotent.
-			for i := 0; i < 3; i++ {
+			for range 3 {
 				db, err = NewSqliteStore(&SqliteConfig{
 					SkipMigrations: false,
 				}, dbFileName)
@@ -400,7 +403,7 @@ func TestCustomMigration(t *testing.T) {
 
 			// Run the migration 3 times to test that the migrations
 			// are idempotent.
-			for i := 0; i < 3; i++ {
+			for range 3 {
 				cfg.SkipMigrations = false
 				db, err = NewPostgresStore(cfg)
 				require.NoError(t, err)
@@ -517,7 +520,7 @@ func TestMigrationSucceedsAfterDirtyStateMigrationFailure19RC1(t *testing.T) {
 		require.False(t, dirty)
 
 		// Set the schema version to the failing version and
-		// make make the version dirty which essentially tells
+		// make the version dirty which essentially tells
 		// golang-migrate that the migration failed.
 		require.NoError(
 			t, db.SetSchemaVersion(failingSchemaVersion, true),
@@ -588,7 +591,7 @@ func TestMigrationSucceedsAfterDirtyStateMigrationFailure19RC1(t *testing.T) {
 		require.False(t, dirty)
 
 		// Set the schema version to the failing version and
-		// make make the version dirty which essentially tells
+		// make the version dirty which essentially tells
 		// golang-migrate that the migration failed.
 		require.NoError(
 			t, db.SetSchemaVersion(failingSchemaVersion, true),
@@ -650,7 +653,7 @@ func TestMigrationConfigConsistency(t *testing.T) {
 		expectedPrefix := fmt.Sprintf("%06d_", version)
 		require.True(t,
 			len(f.Name()) > len(expectedPrefix) &&
-				f.Name()[:len(expectedPrefix)] == expectedPrefix,
+				strings.HasPrefix(f.Name(), expectedPrefix),
 			"schema migration file %q should use 6-digit "+
 				"zero-padded prefix %q", f.Name(),
 			expectedPrefix)
@@ -699,13 +702,15 @@ func TestMigrationConfigConsistency(t *testing.T) {
 					" file exists in the embedded FS",
 				m.Name, m.Version, m.SchemaVersion,
 				m.SchemaVersion)
-			require.Equal(t, strings.TrimSuffix(fileName, ".up.sql"),
+			require.Equal(t,
+				strings.TrimSuffix(fileName, ".up.sql"),
 				m.Name, "migration %q (version %d) has "+
-					"SchemaVersion=%d but its name does not "+
-					"match embedded file %q",
+					"SchemaVersion=%d but its name does "+
+					"not match embedded file %q",
 				m.Name, m.Version, m.SchemaVersion, fileName)
 
-			if existing, ok := seenSchemaVersions[m.SchemaVersion]; ok {
+			existing, ok := seenSchemaVersions[m.SchemaVersion]
+			if ok {
 				t.Fatalf("duplicate schema version %d: "+
 					"%q and %q", m.SchemaVersion,
 					existing, m.Name)
@@ -721,5 +726,4 @@ func TestMigrationConfigConsistency(t *testing.T) {
 				"(migrations must be sequential)",
 			m.Name, m.Version, i+1)
 	}
-
 }

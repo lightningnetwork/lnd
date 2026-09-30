@@ -240,7 +240,7 @@ func NewTestSqliteDB(t testing.TB) *SqliteStore {
 	require.NoError(t, err)
 
 	require.NoError(t, sqlDB.ApplyAllMigrations(
-		context.Background(), GetMigrations()),
+		t.Context(), GetMigrations()),
 	)
 
 	t.Cleanup(func() {

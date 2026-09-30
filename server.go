@@ -4419,6 +4419,12 @@ func (s *server) SubscribeCustomMessages() (*subscribe.Client, error) {
 // privateChannelPeer resolves the remote node of an unannounced channel.
 // The SCID is the confirmed short channel ID, a local alias, or the alias
 // the peer sent in channel_ready.
+//
+// This runs only after the public-graph lookup misses. There is no SCID
+// index on the open-channel set, and peer aliases are keyed by ChannelID,
+// so the lookup walks every open channel. A hit is cached by the onion
+// resolver, so a repeated SCID does not walk the set again. Onion messages
+// are rate limited, which bounds how often a miss can trigger the walk.
 func (s *server) privateChannelPeer(scid lnwire.ShortChannelID) (
 	*btcec.PublicKey, bool) {
 
@@ -4434,6 +4440,22 @@ func (s *server) privateChannelPeer(scid lnwire.ShortChannelID) (
 		return nil, false
 	}
 
+	return privateChannelPeerFrom(scid, channels, s.aliasMgr)
+}
+
+// privateChannelLookup is the alias-manager surface used to resolve an
+// unannounced onion-message hop. *aliasmgr.Manager implements it.
+type privateChannelLookup interface {
+	GetPeerAlias(lnwire.ChannelID) (lnwire.ShortChannelID, error)
+	GetAliases(lnwire.ShortChannelID) []lnwire.ShortChannelID
+}
+
+// privateChannelPeerFrom matches a SCID against the local open-channel set.
+// A nil alias lookup still matches the confirmed short channel ID.
+func privateChannelPeerFrom(scid lnwire.ShortChannelID,
+	channels []*channeldb.OpenChannel, aliases privateChannelLookup) (
+	*btcec.PublicKey, bool) {
+
 	for _, channel := range channels {
 		if channel == nil || channel.IdentityPub == nil {
 			continue
@@ -4441,17 +4463,18 @@ func (s *server) privateChannelPeer(scid lnwire.ShortChannelID) (
 		if channel.ShortChanID() == scid {
 			return channel.IdentityPub, true
 		}
-		if s.aliasMgr == nil {
+		if aliases == nil {
 			continue
 		}
 
 		chanID := lnwire.NewChanIDFromOutPoint(channel.FundingOutpoint)
-		if alias, err := s.aliasMgr.GetPeerAlias(chanID); err == nil &&
+		if alias, err := aliases.GetPeerAlias(chanID); err == nil &&
 			alias == scid {
 
 			return channel.IdentityPub, true
 		}
-		for _, alias := range s.aliasMgr.GetAliases(channel.ShortChanID()) {
+		aliasesForBase := aliases.GetAliases(channel.ShortChanID())
+		for _, alias := range aliasesForBase {
 			if alias == scid {
 				return channel.IdentityPub, true
 			}
@@ -4461,6 +4484,7 @@ func (s *server) privateChannelPeer(scid lnwire.ShortChannelID) (
 	return nil, false
 }
 
+// SubscribeOnionMessages subscribes to a stream of incoming onion messages.
 func (s *server) SubscribeOnionMessages() (*subscribe.Client, error) {
 	return s.onionMessageServer.Subscribe()
 }

@@ -135,7 +135,7 @@ func TestInvoiceRequestRoundTrip(t *testing.T) {
 		tlv.NewPrimitiveRecord[tlv.TlvType240](sig),
 	)
 
-	encoded, err := ir.Encode()
+	encoded, err := ir.encode()
 	require.NoError(t, err)
 	require.NotEmpty(t, encoded)
 
@@ -149,7 +149,7 @@ func TestInvoiceRequestRoundTrip(t *testing.T) {
 	ir.decodedTLVs = decoded.decodedTLVs
 	require.Equal(t, ir, decoded)
 
-	reencoded, err := decoded.Encode()
+	reencoded, err := decoded.encode()
 	require.NoError(t, err)
 	require.Equal(t, encoded, reencoded)
 }
@@ -227,7 +227,7 @@ func TestNewInvoiceRequestFromOfferMirrorsUnknownFields(t *testing.T) {
 			tlv.NewPrimitiveRecord[tlv.TlvType22](pub),
 		),
 	}
-	encoded, err := offer.Encode()
+	encoded, err := offer.encode()
 	require.NoError(t, err)
 
 	const unknownType = 33
@@ -279,7 +279,7 @@ func TestDecodeInvoiceRequestString(t *testing.T) {
 		"k95tzeswywffxlkeyhml0hh46kndmwf4m6xma3tkq2lu0" +
 		"4qz3slje2rfthc89vss"
 
-	ir, err := DecodeInvoiceRequestString(lnrStr, bitcoinMainnetGenesisHash)
+	ir, err := decodeInvoiceRequestString(lnrStr, bitcoinMainnetGenesisHash)
 	require.NoError(t, err)
 
 	// Verify invreq_metadata is set (8 zero bytes).
@@ -319,33 +319,9 @@ func TestDecodeInvoiceRequestString(t *testing.T) {
 	require.Equal(t, "A Mathematical Treatise", string(desc))
 }
 
-// TestInvoiceRequestStringRoundTrip pins the encode→decode identity of the
-// lnr wrapper pair: the recovered request must re-encode to the original TLV
-// stream byte-for-byte.
-func TestInvoiceRequestStringRoundTrip(t *testing.T) {
-	t.Parallel()
-
-	ir := validInvoiceRequest(t)
-
-	encoded, err := EncodeInvoiceRequestString(ir)
-	require.NoError(t, err)
-	require.NotEmpty(t, encoded)
-
-	decoded, err := DecodeInvoiceRequestString(
-		encoded, bitcoinMainnetGenesisHash,
-	)
-	require.NoError(t, err)
-
-	originalBytes, err := ir.Encode()
-	require.NoError(t, err)
-	decodedBytes, err := decoded.Encode()
-	require.NoError(t, err)
-	require.Equal(t, originalBytes, decodedBytes)
-}
-
-// TestEncodeInvoiceRequestStringInvalid asserts the wrapper refuses to emit
-// a request that fails writer validation.
-func TestEncodeInvoiceRequestStringInvalid(t *testing.T) {
+// TestEncodeSignedInvalid asserts EncodeSigned refuses to emit a request
+// that fails writer validation.
+func TestEncodeSignedInvalid(t *testing.T) {
 	t.Parallel()
 
 	ir := validInvoiceRequest(t)
@@ -353,29 +329,28 @@ func TestEncodeInvoiceRequestStringInvalid(t *testing.T) {
 		tlv.TlvType88, *btcec.PublicKey,
 	]{}
 
-	encoded, err := EncodeInvoiceRequestString(ir)
+	encoded, err := ir.EncodeSigned()
 	require.ErrorIs(t, err, ErrMissingPayerID)
 	require.Empty(t, encoded)
 }
 
-// TestEncodeInvoiceRequestStringUnsigned asserts the wire-string layer
-// refuses to emit an unsigned invoice request: the signature becomes
-// mandatory at the bech32 boundary even though pre-sign Encode is permitted.
-func TestEncodeInvoiceRequestStringUnsigned(t *testing.T) {
+// TestEncodeSignedUnsigned asserts EncodeSigned refuses to emit an unsigned
+// invoice request. An invoice request reaches a peer as raw TLV, so this is
+// the boundary that makes the writer-side signature MUST unavoidable.
+func TestEncodeSignedUnsigned(t *testing.T) {
 	t.Parallel()
 
 	ir := validInvoiceRequest(t)
 	ir.Signature = tlv.OptionalRecordT[tlv.TlvType240, [64]byte]{}
 
-	encoded, err := EncodeInvoiceRequestString(ir)
+	encoded, err := ir.EncodeSigned()
 	require.ErrorIs(t, err, ErrMissingSignature)
 	require.Empty(t, encoded)
 }
 
-// TestEncodeInvoiceRequestStringInvalidSignature asserts the wire-string
-// layer refuses to emit a request whose signature does not verify against
-// invreq_payer_id.
-func TestEncodeInvoiceRequestStringInvalidSignature(t *testing.T) {
+// TestEncodeSignedInvalidSignature asserts EncodeSigned refuses to emit a
+// request whose signature does not verify against invreq_payer_id.
+func TestEncodeSignedInvalidSignature(t *testing.T) {
 	t.Parallel()
 
 	ir := validInvoiceRequest(t)
@@ -386,7 +361,7 @@ func TestEncodeInvoiceRequestStringInvalidSignature(t *testing.T) {
 		tlv.NewRecordT[tlv.TlvType82, TUint64](TUint64(2000)),
 	)
 
-	encoded, err := EncodeInvoiceRequestString(ir)
+	encoded, err := ir.EncodeSigned()
 	require.ErrorIs(t, err, ErrInvalidSignature)
 	require.Empty(t, encoded)
 }

@@ -143,6 +143,7 @@ type Querier interface {
 	GetNodesByBlockHeightRange(ctx context.Context, arg GetNodesByBlockHeightRangeParams) ([]GraphNode, error)
 	GetNodesByIDs(ctx context.Context, ids []int64) ([]GraphNode, error)
 	GetNodesByLastUpdateRange(ctx context.Context, arg GetNodesByLastUpdateRangeParams) ([]GraphNode, error)
+	GetOfferByHash(ctx context.Context, hash []byte) (Offer, error)
 	GetPruneEntriesForHeights(ctx context.Context, heights []int64) ([]GraphPruneLog, error)
 	GetPruneHashByHeight(ctx context.Context, blockHeight int64) ([]byte, error)
 	GetPruneTip(ctx context.Context) (GraphPruneLog, error)
@@ -198,6 +199,7 @@ type Querier interface {
 	// is used because of the constraint in that query that requires a node update
 	// to have a newer last_update than the existing node).
 	InsertNodeMig(ctx context.Context, arg InsertNodeMigParams) (int64, error)
+	InsertOffer(ctx context.Context, arg InsertOfferParams) (int64, error)
 	// Insert a new payment and return its ID.
 	// When creating a payment we don't have a fail reason because we start the
 	// payment process.

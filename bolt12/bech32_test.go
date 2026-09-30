@@ -22,7 +22,7 @@ func TestBech32FormatStringVectors(t *testing.T) {
 		t.Run(tc.Comment, func(t *testing.T) {
 			t.Parallel()
 
-			hrp, decoded, err := Decode(tc.String)
+			hrp, decoded, err := decodeBech32(tc.String)
 
 			if !tc.Valid {
 				require.Error(t, err, "expected error for: %s",
@@ -37,10 +37,10 @@ func TestBech32FormatStringVectors(t *testing.T) {
 			require.NotEmpty(t, decoded)
 
 			// Round-trip: re-encode and decode again.
-			encoded, err := Encode(hrp, decoded)
+			encoded, err := encodeBech32(hrp, decoded)
 			require.NoError(t, err)
 
-			hrp2, decoded2, err := Decode(encoded)
+			hrp2, decoded2, err := decodeBech32(encoded)
 			require.NoError(t, err)
 			require.Equal(t, hrp, hrp2)
 			require.Equal(t, decoded, decoded2)
@@ -59,11 +59,11 @@ func TestBech32RoundTrip(t *testing.T) {
 		t.Run(hrp, func(t *testing.T) {
 			t.Parallel()
 
-			encoded, err := Encode(hrp, testData)
+			encoded, err := encodeBech32(hrp, testData)
 			require.NoError(t, err)
 			require.True(t, len(encoded) > len(hrp)+1)
 
-			gotHRP, gotData, err := Decode(encoded)
+			gotHRP, gotData, err := decodeBech32(encoded)
 			require.NoError(t, err)
 			require.Equal(t, hrp, gotHRP)
 			require.Equal(t, testData, gotData)
@@ -105,7 +105,7 @@ func TestBech32DecodeErrors(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			t.Parallel()
 
-			_, _, err := Decode(tc.input)
+			_, _, err := decodeBech32(tc.input)
 			require.Error(t, err)
 		})
 	}
@@ -239,13 +239,13 @@ func TestDecodeContinuationAnywhere(t *testing.T) {
 	t.Parallel()
 
 	payload := []byte{0x01, 0x23, 0x45, 0x67, 0x89, 0xab, 0xcd, 0xef}
-	encoded, err := Encode(HRPOffer, payload)
+	encoded, err := encodeBech32(HRPOffer, payload)
 	require.NoError(t, err)
 
 	for i := 1; i < len(encoded); i++ {
 		split := encoded[:i] + "+" + encoded[i:]
 
-		hrp, data, err := Decode(split)
+		hrp, data, err := decodeBech32(split)
 		require.NoError(t, err, "marker at position %d", i)
 		require.Equal(t, HRPOffer, hrp)
 		require.Equal(t, payload, data)
@@ -259,7 +259,7 @@ func TestDecodeContinuationAnywhere(t *testing.T) {
 func TestEncodeUnknownHRP(t *testing.T) {
 	t.Parallel()
 
-	_, err := Encode("bogus", []byte{0x00})
+	_, err := encodeBech32("bogus", []byte{0x00})
 	require.ErrorIs(t, err, ErrUnsupportedHRP)
 
 	for _, hrp := range validHRPs {
@@ -272,7 +272,7 @@ func TestEncodeUnknownHRP(t *testing.T) {
 func TestDecodeUnknownHRP(t *testing.T) {
 	t.Parallel()
 
-	_, _, err := Decode("bogus1pqps7sjq")
+	_, _, err := decodeBech32("bogus1pqps7sjq")
 	require.ErrorIs(t, err, ErrUnsupportedHRP)
 }
 
@@ -293,51 +293,53 @@ func TestDecodeUnprintableCharacter(t *testing.T) {
 	}
 
 	for _, input := range unprintable {
-		_, _, err := Decode(input)
+		_, _, err := decodeBech32(input)
 		require.ErrorIs(t, err, ErrInvalidCharacter)
 	}
 }
 
-// TestDecodeOversizeInput asserts the input length cap fires before any
-// allocation.
-func TestDecodeOversizeInput(t *testing.T) {
+// maxEncodedLen is the length of the string Encode makes from the largest
+// payload it accepts: the prefix, the separator, and one character per group
+// of five payload bits.
+const maxEncodedLen = bolt12HRPLen + 1 + (maxBolt12DataLen*8+4)/5
+
+// TestDecodeAcceptsAboveWriterLimit asserts Decode enforces no length limit of
+// its own, so a string longer than anything Encode emits still decodes. The
+// bound belongs to the caller's medium, not to the codec.
+func TestDecodeAcceptsAboveWriterLimit(t *testing.T) {
 	t.Parallel()
 
-	// A raw string above the transport limit is rejected.
-	huge := strings.Repeat("a", maxBolt12RawStringLen+1)
-	_, _, err := Decode(huge)
-	require.ErrorIs(t, err, ErrStringTooLong)
+	payload := make([]byte, maxBolt12DataLen)
+	encoded, err := encodeBech32(HRPOffer, payload)
+	require.NoError(t, err)
 
-	// A string under the raw limit but over the cleaned limit is
-	// rejected after stripping.
-	oversize := strings.Repeat("a", maxBolt12StringLen+1)
-	_, _, err = Decode(oversize)
-	require.ErrorIs(t, err, ErrStringTooLong)
+	// Eight more data characters carry five more payload bytes, so the
+	// string and its payload both exceed what Encode would emit.
+	oversize := encoded + strings.Repeat("q", 8)
+	require.Greater(t, len(oversize), maxEncodedLen)
 
-	// A string at the cleaned limit is accepted, but here leads to a
-	// parsing error.
-	oversize = strings.Repeat("a", maxBolt12StringLen)
-	_, _, err = Decode(oversize)
-	require.ErrorIs(t, err, ErrInvalidSeparator)
+	hrp, data, err := decodeBech32(oversize)
+	require.NoError(t, err)
+	require.Equal(t, HRPOffer, hrp)
+	require.Greater(t, len(data), maxBolt12DataLen)
 }
 
 // TestDecodeWrappedMaxPayload asserts that a legal continuation wrapping of the
-// longest string Encode can make still decodes. The cleaned limit governs the
-// payload, and the raw limit leaves room for the wrapping.
+// longest string Encode can make still decodes.
 func TestDecodeWrappedMaxPayload(t *testing.T) {
 	t.Parallel()
 
 	payload := make([]byte, maxBolt12DataLen)
-	encoded, err := Encode(HRPOffer, payload)
+	encoded, err := encodeBech32(HRPOffer, payload)
 	require.NoError(t, err)
-	require.Len(t, encoded, maxBolt12StringLen)
+	require.Len(t, encoded, maxEncodedLen)
 
-	// Insert a marker and a whitespace run into the data part. The raw
-	// string grows past the cleaned limit but stays under the raw one.
+	// Insert a marker and a whitespace run into the data part, so the raw
+	// string grows past the string Encode made.
 	wrapped := encoded[:100] + "+ \n\t" + encoded[100:]
-	require.Greater(t, len(wrapped), maxBolt12StringLen)
+	require.Greater(t, len(wrapped), len(encoded))
 
-	hrp, data, err := Decode(wrapped)
+	hrp, data, err := decodeBech32(wrapped)
 	require.NoError(t, err)
 	require.Equal(t, HRPOffer, hrp)
 	require.Equal(t, payload, data)
@@ -397,7 +399,7 @@ func TestEncodePayloadSize(t *testing.T) {
 		{
 			name:    "longest payload",
 			payload: make([]byte, maxBolt12DataLen),
-			wantLen: maxBolt12StringLen,
+			wantLen: maxEncodedLen,
 		},
 		{
 			name:    "one byte above the longest payload",
@@ -410,7 +412,7 @@ func TestEncodePayloadSize(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			t.Parallel()
 
-			encoded, err := Encode(HRPOffer, tc.payload)
+			encoded, err := encodeBech32(HRPOffer, tc.payload)
 			if tc.wantErr != nil {
 				require.ErrorIs(t, err, tc.wantErr)
 
@@ -423,7 +425,7 @@ func TestEncodePayloadSize(t *testing.T) {
 			}
 
 			// Decode takes each string that Encode makes.
-			hrp, data, err := Decode(encoded)
+			hrp, data, err := decodeBech32(encoded)
 			require.NoError(t, err)
 			require.Equal(t, HRPOffer, hrp)
 			require.Equal(t, tc.payload, data)
@@ -438,13 +440,13 @@ func TestDecodeUppercase(t *testing.T) {
 	t.Parallel()
 
 	payload := []byte{0x01, 0x23, 0x45, 0x67}
-	encoded, err := Encode(HRPOffer, payload)
+	encoded, err := encodeBech32(HRPOffer, payload)
 	require.NoError(t, err)
 
 	uppered := strings.ToUpper(encoded)
 	require.NotEqual(t, encoded, uppered)
 
-	hrp, data, err := Decode(uppered)
+	hrp, data, err := decodeBech32(uppered)
 	require.NoError(t, err)
 	require.Equal(t, HRPOffer, hrp)
 	require.Equal(t, payload, data)
@@ -472,10 +474,10 @@ func TestPropertyBech32RoundTrip(t *testing.T) {
 			rapid.Byte(), size, size,
 		).Draw(t, "data")
 
-		encoded, err := Encode(hrp, data)
+		encoded, err := encodeBech32(hrp, data)
 		require.NoError(t, err)
 
-		decodedHRP, decodedData, err := Decode(encoded)
+		decodedHRP, decodedData, err := decodeBech32(encoded)
 		require.NoError(t, err)
 		require.Equal(t, hrp, decodedHRP)
 		require.Equal(t, data, decodedData)

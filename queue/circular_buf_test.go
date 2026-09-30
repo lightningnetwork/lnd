@@ -205,7 +205,8 @@ func TestLatest(t *testing.T) {
 func TestCircularBufferConcurrentAccess(t *testing.T) {
 	// Arrange: Create a small wrapping buffer and two finite workers behind
 	// one start gate. The writer repeatedly wraps the storage while the
-	// reader exercises every public observation method against those writes.
+	// reader exercises every public observation method against those
+	// writes.
 	const (
 		bufferSize = 8
 		iterations = 1000
@@ -221,7 +222,7 @@ func TestCircularBufferConcurrentAccess(t *testing.T) {
 		defer workers.Done()
 		<-start
 
-		for i := 0; i < iterations; i++ {
+		for i := range iterations {
 			buffer.Add(i)
 		}
 	}()
@@ -230,7 +231,7 @@ func TestCircularBufferConcurrentAccess(t *testing.T) {
 		defer workers.Done()
 		<-start
 
-		for i := 0; i < iterations; i++ {
+		for range iterations {
 			buffer.List()
 			buffer.Latest()
 			buffer.Total()

@@ -4,7 +4,6 @@ import (
 	"context"
 	"database/sql"
 	"fmt"
-	"math"
 	"math/rand"
 	"time"
 )
@@ -224,8 +223,14 @@ func randRetryDelay(initialRetryDelay, maxRetryDelay time.Duration,
 	// 50% plus 0%-100% gives us the range of 50%-150%.
 	initialDelay := halfDelay + time.Duration(randDelay)
 
+	// Cap the delay before multiplying so a large initial delay or retry
+	// count cannot overflow time.Duration.
+	if initialDelay >= maxRetryDelay {
+		return maxRetryDelay
+	}
+
 	// If this is the first attempt, we just return the initial delay.
-	if attempt == 0 {
+	if attempt <= 0 {
 		return initialDelay
 	}
 
@@ -234,20 +239,12 @@ func randRetryDelay(initialRetryDelay, maxRetryDelay time.Duration,
 	// attempt. If we double something n times, that's the same as
 	// multiplying the value with 2^n. We limit the power to 32 to avoid
 	// overflows.
-	factor := time.Duration(math.Pow(2, min(float64(attempt), 32)))
-
-	// The factor is a plain multiplier and not a duration, so multiplying
-	// it with the initial delay is intended.
-	//
-	//nolint:durationcheck
-	actualDelay := initialDelay * factor
-
-	// Cap the delay at the maximum configured value.
-	if actualDelay > maxRetryDelay {
+	factor := int64(1) << min(attempt, 32)
+	if int64(initialDelay) > int64(maxRetryDelay)/factor {
 		return maxRetryDelay
 	}
 
-	return actualDelay
+	return time.Duration(int64(initialDelay) * factor)
 }
 
 // MakeTx is a function that creates a new transaction. It returns a Tx and an

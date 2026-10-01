@@ -461,9 +461,10 @@ func buildUnsignedChanAnnouncement(node1, node2 *keyRing,
 	withBtcKeys bool) *lnwire.ChannelAnnouncement2 {
 
 	var ann lnwire.ChannelAnnouncement2
-	ann.ChainHash.Val = *chaincfg.MainNetParams.GenesisHash
 	features := lnwire.NewRawFeatureVector()
-	ann.Features.Val = *features
+	ann.Features = tlv.SomeRecordT(
+		tlv.NewRecordT[tlv.TlvType2](*features),
+	)
 	ann.ShortChannelID.Val = lnwire.ShortChannelID{
 		BlockHeight: 1000,
 		TxIndex:     100,

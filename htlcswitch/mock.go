@@ -526,27 +526,43 @@ type mockIteratorDecoder struct {
 
 	decodeFail bool
 
-	// nextOnionFailMode, when non-zero, makes the next DecodeHopIterator
-	// call produce an iterator that fails in the matching processRemoteAdds
-	// branch. The flag is one-shot: it is cleared after being consumed.
-	nextOnionFailMode onionFailMode
+	// onionFailModes maps a payment hash to the processRemoteAdds branch
+	// in which that HTLC's onion fails to decode. Entries are never
+	// consumed, so every decode of the HTLC fails the same way, just as a
+	// genuinely malformed onion would, however many HTLCs are batched
+	// before the decode runs.
+	onionFailModes map[[32]byte]onionFailMode
 }
 
 func newMockIteratorDecoder() *mockIteratorDecoder {
 	return &mockIteratorDecoder{
-		responses: make(map[[32]byte][]hop.DecodeHopIteratorResponse),
+		responses: make(
+			map[[32]byte][]hop.DecodeHopIteratorResponse,
+		),
+		onionFailModes: make(map[[32]byte]onionFailMode),
 	}
+}
+
+// setOnionFailMode makes every decode of the HTLC with the given payment hash
+// fail in the processRemoteAdds branch selected by mode.
+func (p *mockIteratorDecoder) setOnionFailMode(rHash [32]byte,
+	mode onionFailMode) {
+
+	p.mu.Lock()
+	defer p.mu.Unlock()
+
+	p.onionFailModes[rHash] = mode
 }
 
 func (p *mockIteratorDecoder) DecodeHopIterator(r io.Reader, rHash []byte,
 	cltv uint32) (hop.Iterator, lnwire.FailCode) {
 
-	// Consume any pending one-shot fail-mode set by the bad-onion fuzz
-	// event. The mode applies to this single decode call only.
-	p.mu.Lock()
-	mode := p.nextOnionFailMode
-	p.nextOnionFailMode = onionFailNone
-	p.mu.Unlock()
+	var hash [32]byte
+	copy(hash[:], rHash)
+
+	p.mu.RLock()
+	mode := p.onionFailModes[hash]
+	p.mu.RUnlock()
 
 	if mode == onionFailDecode {
 		return nil, lnwire.CodeTemporaryChannelFailure

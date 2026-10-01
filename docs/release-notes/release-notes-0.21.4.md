@@ -67,6 +67,11 @@
   modern revocation log format, and the breach arbiter now skips and logs
   any HTLC retribution with a nil sign descriptor output.
 
+* lnd [no longer keeps one Postgres connection for each schema
+  migration](https://github.com/lightningnetwork/lnd/pull/11267). Startup
+  no longer hangs on a fresh database when `db.postgres.maxconnections` is
+  set to a low value.
+
 # New Features
 
 ## Functional Enhancements
@@ -159,6 +164,7 @@
 # Contributors (Alphabetical Order)
 
 * Andras Banki-Horvath
+* bitromortac
 * elsirion
 * Gijs van Dam
 * Nishant Bansal

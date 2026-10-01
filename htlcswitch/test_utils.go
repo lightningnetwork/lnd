@@ -146,10 +146,77 @@ type testLightningChannel struct {
 // representations.
 //
 // TODO(roasbeef): need to factor out, similar func re-used in many parts of codebase
+// testChannelConfig holds optional overrides for createTestChannel.
+type testChannelConfig struct {
+	signerFactory func(*btcec.PrivateKey) input.Signer
+	chanOpts      []lnwallet.ChannelOpt
+	shape         testChannelShape
+}
+
+// testChannelShape holds the channel type, initial fee rate and per-side
+// channel parameters createTestChannel opens the channel with.
+type testChannelShape struct {
+	chanType channeldb.ChannelType
+	feePerKw chainfee.SatPerKWeight
+
+	aliceDustLimit, bobDustLimit               btcutil.Amount
+	aliceMinHTLC, bobMinHTLC                   lnwire.MilliSatoshi
+	aliceMaxAcceptedHtlcs, bobMaxAcceptedHtlcs uint16
+}
+
+// defaultTestChannelShape is the shape every createTestChannel caller gets
+// unless it passes withTestChanShape.
+func defaultTestChannelShape() testChannelShape {
+	return testChannelShape{
+		chanType:              channeldb.SingleFunderTweaklessBit,
+		feePerKw:              6000,
+		aliceDustLimit:        200,
+		bobDustLimit:          800,
+		aliceMaxAcceptedHtlcs: maxInflightHtlcs,
+		bobMaxAcceptedHtlcs:   maxInflightHtlcs,
+	}
+}
+
+// withTestChanShape overrides the channel type, initial fee rate and
+// per-side channel parameters.
+func withTestChanShape(shape testChannelShape) testChannelOpt {
+	return func(c *testChannelConfig) {
+		c.shape = shape
+	}
+}
+
+// testChannelOpt is a functional option for createTestChannel.
+type testChannelOpt func(*testChannelConfig)
+
+// withTestSignerFactory overrides the signer used for both Alice and Bob.
+func withTestSignerFactory(f func(*btcec.PrivateKey) input.Signer) testChannelOpt { //nolint
+	return func(c *testChannelConfig) {
+		c.signerFactory = f
+	}
+}
+
+// withTestChanOpts appends extra ChannelOpts passed to NewLightningChannel.
+func withTestChanOpts(opts ...lnwallet.ChannelOpt) testChannelOpt {
+	return func(c *testChannelConfig) {
+		c.chanOpts = append(c.chanOpts, opts...)
+	}
+}
+
 func createTestChannel(t *testing.T, alicePrivKey, bobPrivKey []byte,
 	aliceAmount, bobAmount, aliceReserve, bobReserve btcutil.Amount,
-	chanID lnwire.ShortChannelID) (*testLightningChannel,
+	chanID lnwire.ShortChannelID,
+	opts ...testChannelOpt) (*testLightningChannel,
 	*testLightningChannel, error) {
+
+	cfg := &testChannelConfig{
+		signerFactory: func(k *btcec.PrivateKey) input.Signer {
+			return input.NewMockSigner([]*btcec.PrivateKey{k}, nil)
+		},
+		shape: defaultTestChannelShape(),
+	}
+	for _, o := range opts {
+		o(cfg)
+	}
 
 	aliceKeyPriv, aliceKeyPub := btcec.PrivKeyFromBytes(alicePrivKey)
 	bobKeyPriv, bobKeyPub := btcec.PrivKeyFromBytes(bobPrivKey)
@@ -163,11 +230,11 @@ func createTestChannel(t *testing.T, alicePrivKey, bobPrivKey []byte,
 		MaxPendingAmount: lnwire.NewMSatFromSatoshis(
 			channelCapacity),
 		ChanReserve:      aliceReserve,
-		MinHTLC:          0,
-		MaxAcceptedHtlcs: maxInflightHtlcs,
+		MinHTLC:          cfg.shape.aliceMinHTLC,
+		MaxAcceptedHtlcs: cfg.shape.aliceMaxAcceptedHtlcs,
 	}
 	aliceCommitParams := channeldb.CommitmentParams{
-		DustLimit: btcutil.Amount(200),
+		DustLimit: cfg.shape.aliceDustLimit,
 		CsvDelay:  uint16(csvTimeoutAlice),
 	}
 
@@ -175,11 +242,11 @@ func createTestChannel(t *testing.T, alicePrivKey, bobPrivKey []byte,
 		MaxPendingAmount: lnwire.NewMSatFromSatoshis(
 			channelCapacity),
 		ChanReserve:      bobReserve,
-		MinHTLC:          0,
-		MaxAcceptedHtlcs: maxInflightHtlcs,
+		MinHTLC:          cfg.shape.bobMinHTLC,
+		MaxAcceptedHtlcs: cfg.shape.bobMaxAcceptedHtlcs,
 	}
 	bobCommitParams := channeldb.CommitmentParams{
-		DustLimit: btcutil.Amount(800),
+		DustLimit: cfg.shape.bobDustLimit,
 		CsvDelay:  uint16(csvTimeoutBob),
 	}
 
@@ -259,7 +326,7 @@ func createTestChannel(t *testing.T, alicePrivKey, bobPrivKey []byte,
 
 	aliceCommitTx, bobCommitTx, err := lnwallet.CreateCommitmentTxns(
 		aliceAmount, bobAmount, &aliceCfg, &bobCfg, aliceCommitPoint,
-		bobCommitPoint, *fundingTxIn, channeldb.SingleFunderTweaklessBit,
+		bobCommitPoint, *fundingTxIn, cfg.shape.chanType,
 		isAliceInitiator, 0,
 	)
 	if err != nil {
@@ -269,12 +336,16 @@ func createTestChannel(t *testing.T, alicePrivKey, bobPrivKey []byte,
 	dbAlice := channeldb.OpenForTesting(t, t.TempDir())
 	dbBob := channeldb.OpenForTesting(t, t.TempDir())
 
-	estimator := chainfee.NewStaticEstimator(6000, 0)
-	feePerKw, err := estimator.EstimateFeePerKW(1)
-	if err != nil {
-		return nil, nil, err
+	// The initiator pays the commitment fee for an empty commitment of
+	// this type and, with anchors, both anchor outputs.
+	feePerKw := cfg.shape.feePerKw
+	commitFee := feePerKw.FeeForWeight(
+		lnwallet.CommitWeight(cfg.shape.chanType),
+	)
+	initiatorDebit := commitFee
+	if cfg.shape.chanType.HasAnchors() {
+		initiatorDebit += 2 * lnwallet.AnchorSize
 	}
-	commitFee := feePerKw.FeeForWeight(724)
 
 	const broadcastHeight = 1
 	bobAddr := &net.TCPAddr{
@@ -287,9 +358,10 @@ func createTestChannel(t *testing.T, alicePrivKey, bobPrivKey []byte,
 		Port: 18556,
 	}
 
+	aliceBalance := lnwire.NewMSatFromSatoshis(aliceAmount - initiatorDebit)
 	aliceCommit := channeldb.ChannelCommitment{
 		CommitHeight:  0,
-		LocalBalance:  lnwire.NewMSatFromSatoshis(aliceAmount - commitFee),
+		LocalBalance:  aliceBalance,
 		RemoteBalance: lnwire.NewMSatFromSatoshis(bobAmount),
 		CommitFee:     commitFee,
 		FeePerKw:      btcutil.Amount(feePerKw),
@@ -299,26 +371,33 @@ func createTestChannel(t *testing.T, alicePrivKey, bobPrivKey []byte,
 	bobCommit := channeldb.ChannelCommitment{
 		CommitHeight:  0,
 		LocalBalance:  lnwire.NewMSatFromSatoshis(bobAmount),
-		RemoteBalance: lnwire.NewMSatFromSatoshis(aliceAmount - commitFee),
+		RemoteBalance: aliceBalance,
 		CommitFee:     commitFee,
 		FeePerKw:      btcutil.Amount(feePerKw),
 		CommitTx:      bobCommitTx,
 		CommitSig:     bytes.Repeat([]byte{1}, 71),
 	}
 
+	// Each party's remote commitment is the counterparty's commitment
+	// transaction, seen with the party's own balances.
+	aliceRemoteCommit := aliceCommit
+	aliceRemoteCommit.CommitTx = bobCommitTx
+	bobRemoteCommit := bobCommit
+	bobRemoteCommit.CommitTx = aliceCommitTx
+
 	aliceChannelState := &chanstate.OpenChannel{
 		LocalChanCfg:            aliceCfg,
 		RemoteChanCfg:           bobCfg,
 		IdentityPub:             aliceKeyPub,
 		FundingOutpoint:         *prevOut,
-		ChanType:                channeldb.SingleFunderTweaklessBit,
+		ChanType:                cfg.shape.chanType,
 		IsInitiator:             isAliceInitiator,
 		Capacity:                channelCapacity,
 		RemoteCurrentRevocation: bobCommitPoint,
 		RevocationProducer:      alicePreimageProducer,
 		RevocationStore:         shachain.NewRevocationStore(),
 		LocalCommitment:         aliceCommit,
-		RemoteCommitment:        aliceCommit,
+		RemoteCommitment:        aliceRemoteCommit,
 		ShortChannelID:          chanID,
 		Db:                      dbAlice.ChannelStateDB(),
 		FundingTxn:              channels.TestFundingTx,
@@ -329,14 +408,14 @@ func createTestChannel(t *testing.T, alicePrivKey, bobPrivKey []byte,
 		RemoteChanCfg:           aliceCfg,
 		IdentityPub:             bobKeyPub,
 		FundingOutpoint:         *prevOut,
-		ChanType:                channeldb.SingleFunderTweaklessBit,
+		ChanType:                cfg.shape.chanType,
 		IsInitiator:             !isAliceInitiator,
 		Capacity:                channelCapacity,
 		RemoteCurrentRevocation: aliceCommitPoint,
 		RevocationProducer:      bobPreimageProducer,
 		RevocationStore:         shachain.NewRevocationStore(),
 		LocalCommitment:         bobCommit,
-		RemoteCommitment:        bobCommit,
+		RemoteCommitment:        bobRemoteCommit,
 		ShortChannelID:          chanID,
 		Db:                      dbBob.ChannelStateDB(),
 	}
@@ -349,35 +428,40 @@ func createTestChannel(t *testing.T, alicePrivKey, bobPrivKey []byte,
 		return nil, nil, err
 	}
 
-	aliceSigner := input.NewMockSigner(
-		[]*btcec.PrivateKey{aliceKeyPriv}, nil,
-	)
-	bobSigner := input.NewMockSigner(
-		[]*btcec.PrivateKey{bobKeyPriv}, nil,
-	)
+	aliceSigner := cfg.signerFactory(aliceKeyPriv)
+	bobSigner := cfg.signerFactory(bobKeyPriv)
 
-	alicePool := lnwallet.NewSigPool(runtime.NumCPU(), aliceSigner)
 	signerMock := lnwallet.NewDefaultAuxSignerMock(t)
-	channelAlice, err := lnwallet.NewLightningChannel(
-		aliceSigner, aliceChannelState, alicePool,
+	baseOpts := []lnwallet.ChannelOpt{
 		lnwallet.WithLeafStore(&lnwallet.MockAuxLeafStore{}),
 		lnwallet.WithAuxSigner(signerMock),
+	}
+	chanOptsAlice := baseOpts
+	chanOptsAlice = append(chanOptsAlice, cfg.chanOpts...)
+	chanOptsBob := baseOpts
+	chanOptsBob = append(chanOptsBob, cfg.chanOpts...)
+
+	alicePool := lnwallet.NewSigPool(runtime.NumCPU(), aliceSigner)
+	channelAlice, err := lnwallet.NewLightningChannel(
+		aliceSigner, aliceChannelState, alicePool,
+		chanOptsAlice...,
 	)
 	if err != nil {
 		return nil, nil, err
 	}
 	alicePool.Start()
+	t.Cleanup(func() { require.NoError(t, alicePool.Stop()) })
 
 	bobPool := lnwallet.NewSigPool(runtime.NumCPU(), bobSigner)
 	channelBob, err := lnwallet.NewLightningChannel(
 		bobSigner, bobChannelState, bobPool,
-		lnwallet.WithLeafStore(&lnwallet.MockAuxLeafStore{}),
-		lnwallet.WithAuxSigner(signerMock),
+		chanOptsBob...,
 	)
 	if err != nil {
 		return nil, nil, err
 	}
 	bobPool.Start()
+	t.Cleanup(func() { require.NoError(t, bobPool.Stop()) })
 
 	// Now that the channel are open, simulate the start of a session by
 	// having Alice and Bob extend their revocation windows to each other.
@@ -430,8 +514,10 @@ func createTestChannel(t *testing.T, alicePrivKey, bobPrivKey []byte,
 
 		newAliceChannel, err := lnwallet.NewLightningChannel(
 			aliceSigner, aliceStoredChannel, alicePool,
-			lnwallet.WithLeafStore(&lnwallet.MockAuxLeafStore{}),
-			lnwallet.WithAuxSigner(signerMock),
+			append([]lnwallet.ChannelOpt{
+				lnwallet.WithLeafStore(&lnwallet.MockAuxLeafStore{}), //nolint:ll
+				lnwallet.WithAuxSigner(signerMock),
+			}, cfg.chanOpts...)...,
 		)
 		if err != nil {
 			return nil, fmt.Errorf("unable to create new "+
@@ -478,8 +564,10 @@ func createTestChannel(t *testing.T, alicePrivKey, bobPrivKey []byte,
 
 		newBobChannel, err := lnwallet.NewLightningChannel(
 			bobSigner, bobStoredChannel, bobPool,
-			lnwallet.WithLeafStore(&lnwallet.MockAuxLeafStore{}),
-			lnwallet.WithAuxSigner(signerMock),
+			append([]lnwallet.ChannelOpt{
+				lnwallet.WithLeafStore(&lnwallet.MockAuxLeafStore{}), //nolint:ll
+				lnwallet.WithAuxSigner(signerMock),
+			}, cfg.chanOpts...)...,
 		)
 		if err != nil {
 			return nil, fmt.Errorf("unable to create new "+
@@ -1213,6 +1301,118 @@ func (h *hopNetwork) createChannelLink(server, peer *mockServer,
 	}()
 
 	return link, nil
+}
+
+// newFuzzLink creates a channelLink for fuzz and deterministic test harnesses
+// without starting the htlcManager goroutine and without a Switch. No
+// background goroutines are spawned — the caller drives all state transitions
+// via direct method calls. The caller must inject the remote ChanSyncMsg into
+// the returned upstream channel and then call link.resumeLink to complete
+// reestablishment synchronously.
+func (h *hopNetwork) newFuzzLink(t testing.TB,
+	peer lnpeer.Peer,
+	channel *lnwallet.LightningChannel,
+	decoder *mockIteratorDecoder,
+	registry *mockInvoiceRegistry,
+	pCache *mockPreimageCache,
+	circuits CircuitMap,
+	bestHeight func() uint32,
+	maxFeeExposure lnwire.MilliSatoshi,
+	maxFeeAllocation float64,
+	feeEstimator chainfee.Estimator,
+	onFailure func(LinkFailureError),
+) (*channelLink, chan lnwire.Message) {
+
+	const (
+		minFeeUpdateTimeout = 30 * time.Minute
+		maxFeeUpdateTimeout = 40 * time.Minute
+	)
+
+	upstream := make(chan lnwire.Message, 1)
+
+	onChannelFailure := func(_ lnwire.ChannelID, _ lnwire.ShortChannelID,
+		linkErr LinkFailureError) {
+
+		onFailure(linkErr)
+	}
+
+	//nolint:ll
+	l := NewChannelLink(
+		ChannelLinkConfig{
+			BestHeight:    bestHeight,
+			FwrdingPolicy: h.globalPolicy,
+			Peer:          peer,
+			Circuits:      circuits,
+			// The fuzz harness only exercises single-hop direct
+			// payments, so no packet forwarding ever occurs.
+			ForwardPackets:     func(<-chan struct{}, bool, ...*htlcPacket) error { return nil },
+			DecodeHopIterators: decoder.DecodeHopIterators,
+			ExtractErrorEncrypter: func(*btcec.PublicKey) (
+				hop.ErrorEncrypter, lnwire.FailCode) {
+
+				return h.obfuscator, lnwire.CodeNone
+			},
+			FetchLastChannelUpdate: mockGetChanUpdateMessage,
+			Registry:               registry,
+			FeeEstimator:           feeEstimator,
+			PreimageCache:          pCache,
+			UpdateContractSignals: func(*contractcourt.ContractSignals) error {
+				return nil
+			},
+			NotifyContractUpdate: func(*contractcourt.ContractUpdate) error {
+				return nil
+			},
+			ChainEvents:                &contractcourt.ChainEventSubscription{},
+			SyncStates:                 true,
+			BatchSize:                  10,
+			BatchTicker:                &noopTicker{},
+			FwdPkgGCTicker:             &noopTicker{},
+			PendingCommitTicker:        &noopTicker{},
+			MinUpdateTimeout:           minFeeUpdateTimeout,
+			MaxUpdateTimeout:           maxFeeUpdateTimeout,
+			OnChannelFailure:           onChannelFailure,
+			OutgoingCltvRejectDelta:    3,
+			MaxOutgoingCltvExpiry:      DefaultMaxOutgoingCltvExpiry,
+			MaxFeeAllocation:           maxFeeAllocation,
+			MaxFeeExposure:             maxFeeExposure,
+			MaxAnchorsCommitFeeRate:    chainfee.SatPerKVByte(10 * 1000).FeePerKWeight(),
+			NotifyActiveLink:           func(wire.OutPoint) {},
+			NotifyActiveChannel:        func(wire.OutPoint) {},
+			NotifyInactiveChannel:      func(wire.OutPoint) {},
+			NotifyInactiveLinkEvent:    func(wire.OutPoint) {},
+			NotifyChannelUpdate:        func(*channeldb.OpenChannel) {},
+			HtlcNotifier:               &mockHTLCNotifier{},
+			GetAliases:                 func(lnwire.ShortChannelID) []lnwire.ShortChannelID { return nil },
+			ShouldFwdExpAccountability: func() bool { return true },
+			// Set a large quiescence timeout so the background
+			// timer never fires during fuzz iterations.
+			QuiescenceTimeout: time.Hour,
+		},
+		channel,
+	)
+
+	chanLink, ok := l.(*channelLink)
+	require.True(t, ok, "expected *channelLink")
+
+	// Wire the upstream channel directly instead of going through a
+	// mailbox. The link reads from upstream during syncChanStates, so we
+	// must set it before calling resumeLink.
+	chanLink.upstream = upstream
+	chanLink.mailBox = &mockMailBox{}
+
+	t.Cleanup(func() {
+		// Stop the link to terminate the fwdPkgGarbager goroutine that
+		// resumeLink spawns internally. Without this the goroutine
+		// leaks for the lifetime of the test binary.
+		chanLink.Stop()
+
+		// Drain the upstream channel to unblock any pending sends.
+		for len(upstream) > 0 {
+			<-upstream
+		}
+	})
+
+	return chanLink, upstream
 }
 
 // twoHopNetwork is used for managing the created cluster of 2 hops.

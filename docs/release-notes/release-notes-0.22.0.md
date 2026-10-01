@@ -22,6 +22,15 @@
 
 # Bug Fixes
 
+* Fixed a [channel-opening
+  race](https://github.com/lightningnetwork/lnd/pull/11288)
+  by delaying peer `channel_ready` processing until the funding manager's
+  commitment restoration attempt returns, including after a restart. This
+  prevents a latent nil-pointer dereference when a new link updates commitment
+  state during restoration, including for zero-confirmation channels. Failed
+  restoration also releases queued `channel_ready` messages instead of leaving
+  them blocked until shutdown.
+
 * [Fixed historical graph
   synchronization](https://github.com/lightningnetwork/lnd/pull/11173) so a
   peer whose channel range response cannot be used is rotated out of the

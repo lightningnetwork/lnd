@@ -747,19 +747,20 @@ func (f *Manager) start() error {
 	for _, channel := range allChannels {
 		chanID := lnwire.NewChanIDFromOutPoint(channel.FundingOutpoint)
 
-		// For any channels that were in a pending state when the
-		// daemon was last connected, the Funding Manager will
-		// re-initialize the channel barriers, and republish the
-		// funding transaction if we're the initiator.
-		if channel.IsPending {
-			log.Tracef("Loading pending ChannelPoint(%v), "+
+		// Restore the barrier for channels that are still pending or
+		// have not processed channel_ready. MarkAsOpen can have been
+		// persisted before commitment restoration finished.
+		if channel.IsPending || channel.RemoteNextRevocation == nil {
+			log.Tracef("Loading opening ChannelPoint(%v), "+
 				"creating chan barrier",
 				channel.FundingOutpoint)
 
 			f.localDiscoverySignals.Store(
 				chanID, make(chan struct{}),
 			)
+		}
 
+		if channel.IsPending {
 			// Rebroadcast the funding transaction for any pending
 			// channel that we initiated. No error will be returned
 			// if the transaction already has been broadcast.
@@ -1123,6 +1124,22 @@ func (f *Manager) advanceFundingState(channel *chanstate.OpenChannel,
 	lnChannel, err := lnwallet.NewLightningChannel(
 		nil, channel, nil, chanOpts...,
 	)
+
+	// Allow channel_ready processing only after commitment restoration
+	// returns. Processing it earlier can start a link that writes a pending
+	// commitment while restoring from a channel copy whose next
+	// remote revocation point is still nil. Release the signal on failure
+	// too, since this goroutine will no longer read the commitment chain.
+	chanID := lnwire.NewChanIDFromOutPoint(channel.FundingOutpoint)
+	if discoverySignal, ok := f.localDiscoverySignals.Load(chanID); ok {
+		if err != nil {
+			log.Warnf("ChannelPoint(%v): unblocking channel_ready "+
+				"after commitment restoration failed: %v",
+				channel.FundingOutpoint, err)
+		}
+		close(discoverySignal)
+	}
+
 	if err != nil {
 		log.Errorf("Unable to create LightningChannel(%v): %v",
 			channel.FundingOutpoint, err)
@@ -1336,14 +1353,6 @@ func (f *Manager) advancePendingChannelState(channel *chanstate.OpenChannel,
 		f.cfg.NotifyOpenChannelEvent(
 			channel.FundingOutpoint, channel.IdentityPub,
 		)
-
-		// Find and close the discoverySignal for this channel such
-		// that ChannelReady messages will be processed.
-		chanID := lnwire.NewChanIDFromOutPoint(channel.FundingOutpoint)
-		discoverySignal, ok := f.localDiscoverySignals.Load(chanID)
-		if ok {
-			close(discoverySignal)
-		}
 
 		return nil
 	}
@@ -2677,9 +2686,8 @@ func (f *Manager) fundeeProcessFundingCreated(peer lnpeer.Peer,
 			"arbitration: %v", fundingOut, err)
 	}
 
-	// Create an entry in the local discovery map so we can ensure that we
-	// process the channel confirmation fully before we receive a
-	// channel_ready message.
+	// Create a discovery barrier so funding confirmation and commitment
+	// restoration finish before we process the peer's channel_ready.
 	f.localDiscoverySignals.Store(cid.chanID, make(chan struct{}))
 
 	// Inform the ChannelNotifier that the channel has entered
@@ -2767,9 +2775,8 @@ func (f *Manager) funderProcessFundingSigned(peer lnpeer.Peer,
 		return
 	}
 
-	// Create an entry in the local discovery map so we can ensure that we
-	// process the channel confirmation fully before we receive a
-	// channel_ready message.
+	// Create a discovery barrier so funding confirmation and commitment
+	// restoration finish before we process the peer's channel_ready.
 	fundingPoint := resCtx.reservation.FundingOutpoint()
 	permChanID := lnwire.NewChanIDFromOutPoint(*fundingPoint)
 	f.localDiscoverySignals.Store(permChanID, make(chan struct{}))
@@ -3388,14 +3395,12 @@ func (f *Manager) makeLabelForTx(c *chanstate.OpenChannel) {
 
 // handleFundingConfirmation marks a channel as open in the database, and set
 // the channelOpeningState markedOpen. In addition it will report the now
-// decided short channel ID to the switch, and close the local discovery signal
-// for this channel.
+// decided short channel ID to the switch.
 func (f *Manager) handleFundingConfirmation(
 	completeChan *chanstate.OpenChannel,
 	confChannel *confirmedChannel) error {
 
 	fundingPoint := completeChan.FundingOutpoint
-	chanID := lnwire.NewChanIDFromOutPoint(fundingPoint)
 
 	// TODO(roasbeef): ideally persistent state update for chan above
 	// should be abstracted
@@ -3455,14 +3460,6 @@ func (f *Manager) handleFundingConfirmation(
 	f.cfg.NotifyOpenChannelEvent(
 		completeChan.FundingOutpoint, completeChan.IdentityPub,
 	)
-
-	// Close the discoverySignal channel, indicating to a separate
-	// goroutine that the channel now is marked as open in the database
-	// and that it is acceptable to process channel_ready messages
-	// from the peer.
-	if discoverySignal, ok := f.localDiscoverySignals.Load(chanID); ok {
-		close(discoverySignal)
-	}
 
 	return nil
 }
@@ -4075,11 +4072,9 @@ func (f *Manager) handleChannelReady(peer lnpeer.Peer,
 		return
 	}
 
-	// Check whether we need to wait for the local funding confirmation flow
-	// to finish before we can proceed with this message. The
-	// localDiscoverySignal is only present for channels that we are
-	// actively funding and is bounded by the maximum number of pending
-	// channels.
+	// Channels still being opened, including those resumed after a
+	// restart, must wait for the funding goroutine's commitment restoration
+	// attempt to return before processing channel_ready.
 	localDiscoverySignal, ok := f.localDiscoverySignals.Load(msg.ChanID)
 	if ok {
 		f.wg.Add(1)
@@ -4089,10 +4084,9 @@ func (f *Manager) handleChannelReady(peer lnpeer.Peer,
 				msg.ChanID,
 			)
 
-			// Wait for the local waitForFundingConfirmation
-			// goroutine to signal that it has the necessary state
-			// in place. Otherwise, we may be missing critical
-			// information required to handle forwarded HTLC's.
+			// Wait until the funding goroutine finishes its
+			// commitment restoration attempt, so a new link cannot
+			// update commitment state during restoration.
 			select {
 			case <-localDiscoverySignal:
 			case <-f.quit:

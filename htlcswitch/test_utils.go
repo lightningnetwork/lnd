@@ -339,6 +339,13 @@ func createTestChannel(t *testing.T, alicePrivKey, bobPrivKey []byte,
 		CommitSig:     bytes.Repeat([]byte{1}, 71),
 	}
 
+	// Each party's remote commitment is the counterparty's commitment
+	// transaction, seen with the party's own balances.
+	aliceRemoteCommit := aliceCommit
+	aliceRemoteCommit.CommitTx = bobCommitTx
+	bobRemoteCommit := bobCommit
+	bobRemoteCommit.CommitTx = aliceCommitTx
+
 	aliceChannelState := &chanstate.OpenChannel{
 		LocalChanCfg:            aliceCfg,
 		RemoteChanCfg:           bobCfg,
@@ -351,7 +358,7 @@ func createTestChannel(t *testing.T, alicePrivKey, bobPrivKey []byte,
 		RevocationProducer:      alicePreimageProducer,
 		RevocationStore:         shachain.NewRevocationStore(),
 		LocalCommitment:         aliceCommit,
-		RemoteCommitment:        aliceCommit,
+		RemoteCommitment:        aliceRemoteCommit,
 		ShortChannelID:          chanID,
 		Db:                      dbAlice.ChannelStateDB(),
 		FundingTxn:              channels.TestFundingTx,
@@ -369,7 +376,7 @@ func createTestChannel(t *testing.T, alicePrivKey, bobPrivKey []byte,
 		RevocationProducer:      bobPreimageProducer,
 		RevocationStore:         shachain.NewRevocationStore(),
 		LocalCommitment:         bobCommit,
-		RemoteCommitment:        bobCommit,
+		RemoteCommitment:        bobRemoteCommit,
 		ShortChannelID:          chanID,
 		Db:                      dbBob.ChannelStateDB(),
 	}

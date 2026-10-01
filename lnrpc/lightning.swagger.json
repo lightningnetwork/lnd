@@ -4034,6 +4034,16 @@
           "type": "string",
           "format": "byte",
           "description": "Custom channel data that might be populated in custom channels."
+        },
+        "local_spendable_msat": {
+          "type": "string",
+          "format": "int64",
+          "description": "The amount of funds in milli-satoshis that we can send in the channel,\nnet of reserve and commitment fees. This field is only populated if the\nchannel is active (has an active link)."
+        },
+        "remote_spendable_msat": {
+          "type": "string",
+          "format": "int64",
+          "description": "The amount of funds in milli-satoshis that the remote party can send to\nus (i.e., our inbound capacity), net of reserve and commitment fees.\nThis field is only populated if the channel is active (has an active link)."
         }
       }
     },

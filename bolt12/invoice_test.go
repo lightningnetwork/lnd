@@ -11,7 +11,7 @@ import (
 )
 
 // validInvoice returns an Invoice populated with the minimum set of fields
-// required to satisfy ValidateInvoiceWrite.
+// required to satisfy validateInvoiceWrite.
 func validInvoice(t testing.TB) *Invoice {
 	t.Helper()
 
@@ -94,7 +94,7 @@ func TestUsableFallbackAddresses(t *testing.T) {
 		),
 	}
 
-	got := inv.UsableFallbackAddresses()
+	got := inv.usableFallbackAddresses()
 	require.Len(t, got, 2)
 	require.Equal(t, byte(0), got[0].Version)
 	require.Equal(t, byte(16), got[1].Version)
@@ -172,7 +172,7 @@ func TestUsablePaths(t *testing.T) {
 	require.Equal(t, uint32(2), got[1].PayInfo.FeeBaseMsat)
 
 	// A length mismatch between paths and payinfos yields no usable paths
-	// (rejected upstream by ValidateInvoiceRead).
+	// (rejected upstream by validateInvoiceRead).
 	inv.InvoiceBlindedPay = payRecord(BlindedPayInfo{})
 	require.Empty(t, inv.UsablePaths(known))
 }
@@ -327,14 +327,14 @@ func TestInvoiceRoundTripPreservesAllTypes(t *testing.T) {
 		tlv.NewPrimitiveRecord[tlv.TlvType240](sig),
 	)
 
-	encoded, err := inv.Encode()
+	encoded, err := inv.encode()
 	require.NoError(t, err)
 	require.NotEmpty(t, encoded)
 
 	decoded, err := DecodeInvoice(encoded)
 	require.NoError(t, err)
 
-	err = ValidateInvoiceRead(
+	err = validateInvoiceRead(
 		decoded, bitcoinMainnetGenesisHash,
 		InvoiceKnownFeatures{
 			Invoice: Bolt12Features,
@@ -351,7 +351,7 @@ func TestInvoiceRoundTripPreservesAllTypes(t *testing.T) {
 	require.Equal(t, inv, decoded)
 
 	// Re-encode the decoded copy and confirm canonicality.
-	reencoded, err := decoded.Encode()
+	reencoded, err := decoded.encode()
 	require.NoError(t, err)
 	require.Equal(t, encoded, reencoded)
 }
@@ -364,7 +364,7 @@ func TestDecodeInvoiceRejectsTruncated(t *testing.T) {
 	t.Parallel()
 
 	inv := validInvoice(t)
-	encoded, err := inv.Encode()
+	encoded, err := inv.encode()
 	require.NoError(t, err)
 
 	// Chop off the last byte. The truncation lands in the middle of the
@@ -450,7 +450,7 @@ func TestNewInvoiceFromRequestMirrorsUnknownFields(t *testing.T) {
 			tlv.NewRecordT[tlv.TlvType82, TUint64](1000),
 		),
 	}
-	encoded, err := req.Encode()
+	encoded, err := req.encode()
 	require.NoError(t, err)
 
 	// Fill in an unknown odd TLV (type 93, within the invreq signed range
@@ -494,7 +494,7 @@ func TestNewInvoiceFromRequestMirrorsUnknownFields(t *testing.T) {
 }
 
 // TestInvoiceEncodeValidationGate verifies that Encode runs
-// ValidateInvoiceWrite and rejects invalid invoices.
+// validateInvoiceWrite and rejects invalid invoices.
 func TestInvoiceEncodeValidationGate(t *testing.T) {
 	t.Parallel()
 
@@ -503,7 +503,7 @@ func TestInvoiceEncodeValidationGate(t *testing.T) {
 		tlv.TlvType164, TUint64,
 	]{}
 
-	_, err := inv.Encode()
+	_, err := inv.encode()
 	require.ErrorIs(t, err, ErrMissingCreatedAt)
 }
 
@@ -534,9 +534,9 @@ func TestInvoiceStringRoundTrip(t *testing.T) {
 	)
 	require.NoError(t, err)
 
-	originalBytes, err := inv.Encode()
+	originalBytes, err := inv.encode()
 	require.NoError(t, err)
-	decodedBytes, err := decoded.Encode()
+	decodedBytes, err := decoded.encode()
 	require.NoError(t, err)
 	require.Equal(t, originalBytes, decodedBytes)
 }
@@ -563,8 +563,8 @@ func TestEncodeInvoiceStringInvalid(t *testing.T) {
 }
 
 // TestEncodeInvoiceStringUnsigned asserts the wire-string layer refuses to
-// emit an unsigned invoice: the signature becomes mandatory at the bech32
-// boundary even though pre-sign Encode is permitted.
+// emit an unsigned invoice: the signature is mandatory at every exported
+// way out, while encode itself does not require one.
 func TestEncodeInvoiceStringUnsigned(t *testing.T) {
 	t.Parallel()
 

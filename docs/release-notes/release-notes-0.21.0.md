@@ -113,6 +113,11 @@
   channel arbitrator suppresses the duplicate event that would otherwise be
   emitted from `MarkChannelClosed` at the final confirmation depth.
 
+- [Fixed an issue](https://github.com/lightningnetwork/lnd/pull/10340) where
+channels without policies were skipped in the `ChanUpdatesInHorizon` method for
+zombie channels pruning. This caused zombie channels with no policies to persist
+in the database indefinitely.
+
 # New Features
 
 - [Basic Support](https://github.com/lightningnetwork/lnd/pull/9868) for onion

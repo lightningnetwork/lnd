@@ -22,6 +22,13 @@ var (
 	ErrChainNotifierShuttingDown = errors.New("chain notifier shutting down")
 )
 
+const (
+	// pkScriptNotificationChanSize is the handoff buffer between the
+	// notifier's bounded internal queue and the caller-facing notification
+	// channel.
+	pkScriptNotificationChanSize = 1
+)
+
 // TxConfStatus denotes the status of a transaction's lookup.
 type TxConfStatus uint8
 
@@ -74,13 +81,32 @@ func (t TxConfStatus) String() string {
 // modify the type of chain event notifications they receive.
 type NotifierOptions struct {
 	// IncludeBlock if true, then the dispatched confirmation notification
-	// will include the block that mined the transaction.
+	// will include the relevant block.
 	IncludeBlock bool
+
+	// IncludeTx if true, then the dispatched pkScript notification will
+	// include the transaction relevant to the event.
+	IncludeTx bool
+
+	// Events is the set of pkScript events that should be watched.
+	Events PkScriptEventType
+
+	// NumConfs is the confirmation depth required before final
+	// confirmation notifications are dispatched.
+	NumConfs uint32
+
+	// IncludeConfirmationUpdates, if true, requests partial confirmation
+	// progress notifications before the final confirmation notification is
+	// dispatched.
+	IncludeConfirmationUpdates bool
 }
 
 // DefaultNotifierOptions returns the set of default options for the notifier.
 func DefaultNotifierOptions() *NotifierOptions {
-	return &NotifierOptions{}
+	return &NotifierOptions{
+		Events:   PkScriptEventConfirm | PkScriptEventSpend,
+		NumConfs: 1,
+	}
 }
 
 // NotifierOption is a functional option that allows a caller to modify the
@@ -88,10 +114,44 @@ func DefaultNotifierOptions() *NotifierOptions {
 type NotifierOption func(*NotifierOptions)
 
 // WithIncludeBlock is an optional argument that allows the caller to specify
-// that the block that mined a transaction should be included in the response.
+// that the relevant block should be included in the response.
 func WithIncludeBlock() NotifierOption {
 	return func(o *NotifierOptions) {
 		o.IncludeBlock = true
+	}
+}
+
+// WithIncludeTx is an optional argument that allows the caller to specify that
+// the transaction relevant to a pkScript notification should be included in the
+// response.
+func WithIncludeTx() NotifierOption {
+	return func(o *NotifierOptions) {
+		o.IncludeTx = true
+	}
+}
+
+// WithEvents is an optional argument that sets which pkScript events should be
+// watched by an AddPkScripts call.
+func WithEvents(events PkScriptEventType) NotifierOption {
+	return func(o *NotifierOptions) {
+		o.Events = events
+	}
+}
+
+// WithNumConfs is an optional argument that sets the confirmation depth
+// required before final pkScript confirmation notifications are dispatched.
+func WithNumConfs(numConfs uint32) NotifierOption {
+	return func(o *NotifierOptions) {
+		o.NumConfs = numConfs
+	}
+}
+
+// WithIncludeConfirmationUpdates is an optional argument that asks the
+// notifier to send partial confirmation progress notifications for watched
+// pkScripts before the requested confirmation depth is reached.
+func WithIncludeConfirmationUpdates() NotifierOption {
+	return func(o *NotifierOptions) {
+		o.IncludeConfirmationUpdates = true
 	}
 }
 
@@ -176,6 +236,26 @@ type ChainNotifier interface {
 	// Additionally, all pending client notifications will be canceled
 	// by closing the related channels on the *Event's.
 	Stop() error
+}
+
+// PkScriptNotifier provides a subscription-based interface for receiving
+// per-block spend/confirmation notifications for all on-chain occurrences of
+// watched pkScripts.
+//
+// Callers that already know the exact transaction to confirm or the exact
+// outpoint to spend should prefer RegisterConfirmationsNtfn or
+// RegisterSpendNtfn, which track a single target rather than a stream of
+// script matches.
+//
+// AddPkScripts acknowledgments only mean the scripts were accepted for future
+// chain activity. Confirmation notifications are only sent once the requested
+// confirmation depth is reached. Reorg invalidations are sent on the same
+// stream with Disconnected=true.
+type PkScriptNotifier interface {
+	// RegisterPkScriptNotifier creates a new pkScript notification stream.
+	// Scripts are added explicitly with AddPkScripts on the returned
+	// registration.
+	RegisterPkScriptNotifier() (*PkScriptNotificationRegistration, error)
 }
 
 // TxConfirmation carries some additional block-level details of the exact
@@ -363,12 +443,148 @@ type SpendEvent struct {
 	Cancel func()
 }
 
+// PkScriptEventType identifies which events a pkScript watch should receive.
+type PkScriptEventType uint8
+
+const (
+	// PkScriptEventConfirm enables confirmation notifications for
+	// matched outputs once they reach the requested confirmation depth.
+	PkScriptEventConfirm PkScriptEventType = 1 << iota
+
+	// PkScriptEventSpend enables spend notifications for matched outputs.
+	PkScriptEventSpend
+)
+
+// Has returns true if the receiver contains the given flag.
+func (t PkScriptEventType) Has(flag PkScriptEventType) bool {
+	return t&flag == flag
+}
+
+// PkScriptNotificationType identifies the type of pkScript notification.
+type PkScriptNotificationType uint8
+
+const (
+	// PkScriptNotificationConfirm signals that a matched output has reached
+	// the configured confirmation depth.
+	PkScriptNotificationConfirm PkScriptNotificationType = iota
+
+	// PkScriptNotificationSpend signals a spend of a previously matched
+	// output.
+	PkScriptNotificationSpend
+
+	// PkScriptNotificationConfirmUpdate signals partial confirmation
+	// progress for a matched output before it reaches the configured
+	// confirmation depth.
+	PkScriptNotificationConfirmUpdate
+)
+
+// PkScriptUTXO describes a UTXO created for a watched pkScript.
+type PkScriptUTXO struct {
+	OutPoint    wire.OutPoint
+	Value       btcutil.Amount
+	PkScript    []byte
+	BlockHeight uint32
+	BlockHash   *chainhash.Hash
+	TxIndex     uint32
+}
+
+// PkScriptNotification describes a spend or confirmation event for a watched
+// pkScript.
+type PkScriptNotification struct {
+	Type      PkScriptNotificationType
+	Height    uint32
+	BlockHash *chainhash.Hash
+	TxHash    *chainhash.Hash
+
+	// TxIndex is the index of the relevant transaction in the block that
+	// mined it. For confirmations, this is the funding transaction's index
+	// in the UTXO block. For spends, this is the spending transaction's
+	// index in the spend block.
+	TxIndex uint32
+
+	// InputIndex is the index of the input that spends the watched UTXO. It
+	// is only set for spend notifications.
+	InputIndex       uint32
+	NumConfirmations uint32
+	RequiredConfs    uint32
+	Disconnected     bool
+	UTXO             *PkScriptUTXO
+
+	// Tx is the transaction relevant to this notification if the caller
+	// requested that full transactions be included. For confirmation
+	// notifications, this is the transaction that created the watched UTXO.
+	// For spend notifications, this is the transaction that spent it.
+	Tx *wire.MsgTx
+
+	// Block is the block relevant to this notification if the caller
+	// requested that full blocks be included. For confirmation
+	// notifications, this is the block at which the watched UTXO reached
+	// the required confirmation depth. For spend notifications, this is the
+	// block containing the spend.
+	Block *wire.MsgBlock
+}
+
+// PkScriptAddResult describes the result of adding pkScripts to a registration.
+type PkScriptAddResult struct {
+	NumAdded uint32
+}
+
+// PkScriptNotificationRegistration encapsulates an on-going stream of pkScript
+// notifications.
+//
+// NOTE: If the caller wishes to cancel their registered pkScript notification,
+// the Cancel closure MUST be called.
+type PkScriptNotificationRegistration struct {
+	notifications chan *PkScriptNotification
+
+	// Notifications is a receive-only channel that will be sent upon for
+	// each matched confirmation/spend event.
+	//
+	// NOTE: This channel must be buffered.
+	Notifications <-chan *PkScriptNotification
+
+	// AddPkScripts adds scripts to this notification stream. Scripts
+	// already watched by this stream keep their original options.
+	AddPkScripts func(pkScripts [][]byte,
+		opts ...NotifierOption) (*PkScriptAddResult, error)
+
+	// RemovePkScripts removes scripts from this notification stream.
+	RemovePkScripts func(pkScripts [][]byte) error
+
+	// Err returns the terminal error that closed the notification stream,
+	// if known. It returns nil while the stream is active.
+	Err func() error
+
+	// Cancel is a closure that should be executed by the caller in the case
+	// that they wish to abandon their registered pkScript notification.
+	Cancel func()
+}
+
 // NewSpendEvent constructs a new SpendEvent with newly opened channels.
 func NewSpendEvent(cancel func()) *SpendEvent {
 	return &SpendEvent{
 		Spend:  make(chan *SpendDetail, 1),
 		Reorg:  make(chan struct{}, 1),
 		Done:   make(chan struct{}, 1),
+		Cancel: cancel,
+	}
+}
+
+// NewPkScriptNotificationRegistration constructs a new pkScript notification
+// registration with a newly opened channel.
+func NewPkScriptNotificationRegistration(
+	cancel func()) *PkScriptNotificationRegistration {
+
+	notifications := make(
+		chan *PkScriptNotification, pkScriptNotificationChanSize,
+	)
+
+	return &PkScriptNotificationRegistration{
+		notifications: notifications,
+		Notifications: notifications,
+		Err: func() error {
+			return nil
+		},
 		Cancel: cancel,
 	}
 }

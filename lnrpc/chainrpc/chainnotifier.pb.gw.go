@@ -106,6 +106,49 @@ func request_ChainNotifier_RegisterBlockEpochNtfn_0(ctx context.Context, marshal
 
 }
 
+func request_ChainNotifier_RegisterPkScriptNtfn_0(ctx context.Context, marshaler runtime.Marshaler, client ChainNotifierClient, req *http.Request, pathParams map[string]string) (ChainNotifier_RegisterPkScriptNtfnClient, runtime.ServerMetadata, error) {
+	var metadata runtime.ServerMetadata
+	stream, err := client.RegisterPkScriptNtfn(ctx)
+	if err != nil {
+		grpclog.Infof("Failed to start streaming: %v", err)
+		return nil, metadata, err
+	}
+	dec := marshaler.NewDecoder(req.Body)
+	handleSend := func() error {
+		var protoReq PkScriptRequest
+		err := dec.Decode(&protoReq)
+		if err == io.EOF {
+			return err
+		}
+		if err != nil {
+			grpclog.Infof("Failed to decode request: %v", err)
+			return err
+		}
+		if err := stream.Send(&protoReq); err != nil {
+			grpclog.Infof("Failed to send request: %v", err)
+			return err
+		}
+		return nil
+	}
+	go func() {
+		for {
+			if err := handleSend(); err != nil {
+				break
+			}
+		}
+		if err := stream.CloseSend(); err != nil {
+			grpclog.Infof("Failed to terminate client stream: %v", err)
+		}
+	}()
+	header, err := stream.Header()
+	if err != nil {
+		grpclog.Infof("Failed to get header from client: %v", err)
+		return nil, metadata, err
+	}
+	metadata.HeaderMD = header
+	return stream, metadata, nil
+}
+
 // RegisterChainNotifierHandlerServer registers the http handlers for service ChainNotifier to "mux".
 // UnaryRPC     :call ChainNotifierServer directly.
 // StreamingRPC :currently unsupported pending https://github.com/grpc/grpc-go/issues/906.
@@ -127,6 +170,13 @@ func RegisterChainNotifierHandlerServer(ctx context.Context, mux *runtime.ServeM
 	})
 
 	mux.Handle("POST", pattern_ChainNotifier_RegisterBlockEpochNtfn_0, func(w http.ResponseWriter, req *http.Request, pathParams map[string]string) {
+		err := status.Error(codes.Unimplemented, "streaming calls are not yet supported in the in-process transport")
+		_, outboundMarshaler := runtime.MarshalerForRequest(mux, req)
+		runtime.HTTPError(ctx, mux, outboundMarshaler, w, req, err)
+		return
+	})
+
+	mux.Handle("POST", pattern_ChainNotifier_RegisterPkScriptNtfn_0, func(w http.ResponseWriter, req *http.Request, pathParams map[string]string) {
 		err := status.Error(codes.Unimplemented, "streaming calls are not yet supported in the in-process transport")
 		_, outboundMarshaler := runtime.MarshalerForRequest(mux, req)
 		runtime.HTTPError(ctx, mux, outboundMarshaler, w, req, err)
@@ -240,6 +290,28 @@ func RegisterChainNotifierHandlerClient(ctx context.Context, mux *runtime.ServeM
 
 	})
 
+	mux.Handle("POST", pattern_ChainNotifier_RegisterPkScriptNtfn_0, func(w http.ResponseWriter, req *http.Request, pathParams map[string]string) {
+		ctx, cancel := context.WithCancel(req.Context())
+		defer cancel()
+		inboundMarshaler, outboundMarshaler := runtime.MarshalerForRequest(mux, req)
+		var err error
+		var annotatedContext context.Context
+		annotatedContext, err = runtime.AnnotateContext(ctx, mux, req, "/chainrpc.ChainNotifier/RegisterPkScriptNtfn", runtime.WithHTTPPathPattern("/v2/chainnotifier/register/pkscript"))
+		if err != nil {
+			runtime.HTTPError(ctx, mux, outboundMarshaler, w, req, err)
+			return
+		}
+		resp, md, err := request_ChainNotifier_RegisterPkScriptNtfn_0(annotatedContext, inboundMarshaler, client, req, pathParams)
+		annotatedContext = runtime.NewServerMetadataContext(annotatedContext, md)
+		if err != nil {
+			runtime.HTTPError(annotatedContext, mux, outboundMarshaler, w, req, err)
+			return
+		}
+
+		forward_ChainNotifier_RegisterPkScriptNtfn_0(annotatedContext, mux, outboundMarshaler, w, req, func() (proto.Message, error) { return resp.Recv() }, mux.GetForwardResponseOptions()...)
+
+	})
+
 	return nil
 }
 
@@ -249,6 +321,8 @@ var (
 	pattern_ChainNotifier_RegisterSpendNtfn_0 = runtime.MustPattern(runtime.NewPattern(1, []int{2, 0, 2, 1, 2, 2, 2, 3}, []string{"v2", "chainnotifier", "register", "spends"}, ""))
 
 	pattern_ChainNotifier_RegisterBlockEpochNtfn_0 = runtime.MustPattern(runtime.NewPattern(1, []int{2, 0, 2, 1, 2, 2, 2, 3}, []string{"v2", "chainnotifier", "register", "blocks"}, ""))
+
+	pattern_ChainNotifier_RegisterPkScriptNtfn_0 = runtime.MustPattern(runtime.NewPattern(1, []int{2, 0, 2, 1, 2, 2, 2, 3}, []string{"v2", "chainnotifier", "register", "pkscript"}, ""))
 )
 
 var (
@@ -257,4 +331,6 @@ var (
 	forward_ChainNotifier_RegisterSpendNtfn_0 = runtime.ForwardResponseStream
 
 	forward_ChainNotifier_RegisterBlockEpochNtfn_0 = runtime.ForwardResponseStream
+
+	forward_ChainNotifier_RegisterPkScriptNtfn_0 = runtime.ForwardResponseStream
 )

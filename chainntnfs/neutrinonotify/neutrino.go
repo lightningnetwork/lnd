@@ -464,7 +464,7 @@ func (n *NeutrinoNotifier) notificationDispatcher() {
 					// cache at tip, since any pending
 					// rescans have now completed.
 					err = n.txNotifier.UpdateConfDetails(
-						msg.ConfRequest, confDetails,
+						msg, confDetails,
 					)
 					if err != nil {
 						chainntnfs.Log.Error(err)
@@ -834,7 +834,13 @@ func (n *NeutrinoNotifier) RegisterSpendNtfn(outpoint *wire.OutPoint,
 	currentHeight := uint32(n.bestBlock.Height)
 	n.bestBlockMtx.RUnlock()
 
-	ntfn.HistoricalDispatch.EndHeight = currentHeight
+	// An initial scan ends at the txNotifier height observed during
+	// registration. Extend that scan through any blocks connected while the
+	// filter update was in flight. A supplemental scan ends below the range
+	// that is already covered and must retain that boundary.
+	if !ntfn.HistoricalDispatch.Supplemental {
+		ntfn.HistoricalDispatch.EndHeight = currentHeight
+	}
 
 	// With the filter updated, we'll dispatch our historical rescan to
 	// ensure we detect the spend if it happened in the past.
@@ -870,16 +876,14 @@ func (n *NeutrinoNotifier) RegisterSpendNtfn(outpoint *wire.OutPoint,
 				Height: int32(ntfn.HistoricalDispatch.EndHeight),
 			}),
 			neutrino.ProgressHandler(func(processedHeight uint32) {
-				// We persist the rescan progress to achieve incremental
-				// behavior across restarts, otherwise long rescans may
-				// start from the beginning with every restart.
-				err := n.spendHintCache.CommitSpendHint(
+				// We record the rescan progress to achieve
+				// incremental behavior across restarts,
+				// otherwise long rescans may start from the
+				// beginning with every restart. The TxNotifier
+				// persists it with its next hint update.
+				ntfn.HistoricalDispatch.Progress.Update(
 					processedHeight,
-					ntfn.HistoricalDispatch.SpendRequest)
-				if err != nil {
-					chainntnfs.Log.Errorf("Failed to update rescan "+
-						"progress: %v", err)
-				}
+				)
 			}),
 			neutrino.QuitChan(n.quit),
 		)
@@ -907,7 +911,7 @@ func (n *NeutrinoNotifier) RegisterSpendNtfn(outpoint *wire.OutPoint,
 		// outpoint's spend hint gets updated upon connected/disconnected
 		// blocks.
 		err = n.txNotifier.UpdateSpendDetails(
-			ntfn.HistoricalDispatch.SpendRequest, spendDetails,
+			ntfn.HistoricalDispatch, spendDetails,
 		)
 		if err != nil {
 			chainntnfs.Log.Errorf("Failed to update spend details: %v", err)
@@ -994,7 +998,13 @@ func (n *NeutrinoNotifier) RegisterConfirmationsNtfn(txid *chainhash.Hash,
 	currentHeight := uint32(n.bestBlock.Height)
 	n.bestBlockMtx.RUnlock()
 
-	ntfn.HistoricalDispatch.EndHeight = currentHeight
+	// An initial scan ends at the txNotifier height observed during
+	// registration. Extend that scan through any blocks connected while the
+	// filter update was in flight. A supplemental scan ends below the range
+	// that is already covered and must retain that boundary.
+	if !ntfn.HistoricalDispatch.Supplemental {
+		ntfn.HistoricalDispatch.EndHeight = currentHeight
+	}
 
 	// Finally, with the filter updated, we can dispatch the historical
 	// rescan to ensure we can detect if the event happened in the past.

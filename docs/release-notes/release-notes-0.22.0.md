@@ -53,6 +53,16 @@
   the reported network statistics such as total network capacity, channel
   count and max out degree.
 
+* [Fixed several chain notifier
+  issues](https://github.com/lightningnetwork/lnd/pull/11183) around height hint
+  and request lifetimes. A cached height hint is now released once its last
+  subscription is canceled, so a restart after a reorg can no longer skip a
+  confirmation or spend on the replacement chain. Canceled requests are freed
+  instead of staying in memory, historical scan results can no longer be
+  credited to a newer request for the same transaction or outpoint, and
+  Neutrino spend scan progress is only persisted while it can't claim past a
+  spend the notifier already knows about.
+
 # New Features
 
 ## Functional Enhancements

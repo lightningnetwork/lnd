@@ -37,13 +37,23 @@ var (
 	// it is/has already been stopped.
 	ErrSweeperShuttingDown = errors.New("utxo sweeper shutting down")
 
+	// ErrRequiredConfsMismatch rejects updates to an admitted spend policy.
+	ErrRequiredConfsMismatch = errors.New("required confirmations mismatch")
+
 	// DefaultDeadlineDelta defines a default deadline delta (1 week) to be
 	// used when sweeping inputs with no deadline pressure.
 	DefaultDeadlineDelta = int32(1008)
+
+	// DefaultRequiredConfs preserves maturity when callers omit policy.
+	DefaultRequiredConfs uint32 = 1
 )
 
 // Params contains the parameters that control the sweeping process.
 type Params struct {
+	// RequiredConfs is the immutable spend maturity for this input. Zero
+	// selects DefaultRequiredConfs only when the input is first admitted.
+	RequiredConfs uint32
+
 	// ExclusiveGroup is an identifier that, if set, ensures this input is
 	// swept in a transaction by itself, and not batched with any other
 	// inputs.
@@ -81,8 +91,10 @@ func (p Params) String() string {
 	}
 
 	return fmt.Sprintf("startingFeeRate=%v, immediate=%v, "+
-		"exclusive_group=%v, budget=%v, deadline=%v", p.StartingFeeRate,
-		p.Immediate, exclusiveGroup, p.Budget, deadline)
+		"exclusive_group=%v, budget=%v, deadline=%v, required_confs=%v",
+		p.StartingFeeRate, p.Immediate, exclusiveGroup, p.Budget,
+		deadline, p.RequiredConfs,
+	)
 }
 
 // SweepState represents the current state of a pending input.
@@ -189,6 +201,9 @@ type SweeperInput struct {
 	// publishAttempts records the number of attempts that have already been
 	// made to sweep this tx.
 	publishAttempts int
+
+	// missingSince starts the shallow-discovery grace period.
+	missingSince fn.Option[int32]
 
 	// params contains the parameters that control the sweeping process.
 	params Params
@@ -340,6 +355,10 @@ type UtxoSweeper struct {
 	newInputs chan *sweepInputMessage
 	spendChan chan *chainntnfs.SpendDetail
 
+	// spendReorgChan carries the exact outpoint whose provisional spend
+	// disappeared, allowing the collector to retry only that input.
+	spendReorgChan chan wire.OutPoint
+
 	// pendingSweepsReq is a channel that will be sent requests by external
 	// callers in order to retrieve the set of pending inputs the
 	// UtxoSweeper is attempting to sweep.
@@ -449,6 +468,7 @@ func New(cfg *UtxoSweeperConfig) *UtxoSweeper {
 		cfg:               cfg,
 		newInputs:         make(chan *sweepInputMessage),
 		spendChan:         make(chan *chainntnfs.SpendDetail),
+		spendReorgChan:    make(chan wire.OutPoint),
 		updateReqs:        make(chan *updateReq),
 		pendingSweepsReqs: make(chan *pendingSweepsReq),
 		quit:              make(chan struct{}),
@@ -530,6 +550,16 @@ func (s *UtxoSweeper) SweepInput(inp input.Input,
 		inp.SignDesc() == nil {
 
 		return nil, errors.New("nil input received")
+	}
+
+	// Reject an invalid maturity policy before it reaches the collector.
+	// A notifier registration error inside the collector would otherwise
+	// stop the node-wide sweep loop instead of failing only this request.
+	if params.RequiredConfs > chainntnfs.MaxNumConfs {
+		return nil, fmt.Errorf(
+			"required confirmations %d: %w",
+			params.RequiredConfs, chainntnfs.ErrNumConfsOutOfRange,
+		)
 	}
 
 	absoluteTimeLock, _ := inp.RequiredLockTime()
@@ -640,6 +670,27 @@ func (s *UtxoSweeper) removeConflictSweepDescendants(
 	return nil
 }
 
+// conflictCleanupOutpoints returns transaction inputs whose conflicts are safe
+// to retire. The mature outpoint is authoritative, untracked inputs have no
+// pending lifecycle policy, and terminal tracked inputs cannot be revived;
+// tracked non-terminal siblings remain owned until their own depth matures.
+func (s *UtxoSweeper) conflictCleanupOutpoints(tx *wire.MsgTx,
+	matureOutpoint wire.OutPoint) map[wire.OutPoint]struct{} {
+
+	outpoints := map[wire.OutPoint]struct{}{
+		matureOutpoint: {},
+	}
+	for _, txIn := range tx.TxIn {
+		outpoint := txIn.PreviousOutPoint
+		input, tracked := s.inputs[outpoint]
+		if !tracked || input.terminated() {
+			outpoints[outpoint] = struct{}{}
+		}
+	}
+
+	return outpoints
+}
+
 // collector is the sweeper main loop. It processes new inputs, spend
 // notifications and counts down to publication of the sweep tx.
 func (s *UtxoSweeper) collector() {
@@ -682,6 +733,15 @@ func (s *UtxoSweeper) collector() {
 		// results to the caller(s).
 		case spend := <-s.spendChan:
 			s.handleInputSpent(spend)
+
+		// A provisional spend was disconnected before reaching the
+		// input's requested depth. Requeue only its owning input; the
+		// next blockbeat will drive the existing retry path.
+		case outpoint := <-s.spendReorgChan:
+			input, ok := s.inputs[outpoint]
+			if ok && input.state == Published {
+				input.state = PublishFailed
+			}
 
 		// A new external request has been received to retrieve all of
 		// the inputs we're currently attempting to sweep.
@@ -849,6 +909,17 @@ func (s *UtxoSweeper) sweep(set InputSet) error {
 		return err
 	}
 
+	// Publisher results stay provisional if any lifecycle input needs
+	// multiple confirmations; input monitors remain terminal authority.
+	deferTerminal := false
+	for _, inp := range set.Inputs() {
+		pending, ok := s.inputs[inp.OutPoint()]
+		if ok && pending.params.RequiredConfs > DefaultRequiredConfs {
+			deferTerminal = true
+			break
+		}
+	}
+
 	// Create a fee bump request and ask the publisher to broadcast it. The
 	// publisher will then take over and start monitoring the tx for
 	// potential fee bump.
@@ -876,7 +947,7 @@ func (s *UtxoSweeper) sweep(set InputSet) error {
 	// subscribing to the result chan and listen for future updates about
 	// this tx.
 	s.wg.Add(1)
-	go s.monitorFeeBumpResult(set, resp)
+	go s.monitorFeeBumpResult(set, resp, deferTerminal)
 
 	return nil
 }
@@ -955,6 +1026,8 @@ func (s *UtxoSweeper) markInputsPublished(tr *TxRecord, set InputSet) error {
 
 		// Update the input's state.
 		pi.state = Published
+		// Successful publication starts future missing windows anew.
+		pi.missingSince = fn.None[int32]()
 
 		// Update the input's latest fee rate.
 		pi.lastFeeRate = chainfee.SatPerKWeight(tr.FeeRate)
@@ -1005,19 +1078,39 @@ func (s *UtxoSweeper) markInputsPublishFailed(set InputSet,
 	}
 }
 
-// monitorSpend registers a spend notification with the chain notifier. It
-// returns a cancel function that can be used to cancel the registration.
+// monitorSpend registers a terminal observer at the input's policy and a
+// one-confirmation reorg observer for deep inputs, returning one shared cancel.
 func (s *UtxoSweeper) monitorSpend(outpoint wire.OutPoint,
-	script []byte, heightHint uint32) (func(), error) {
+	script []byte, heightHint, requiredConfs uint32) (func(), error) {
 
 	log.Tracef("Wait for spend of %v at heightHint=%v",
 		outpoint, heightHint)
 
-	spendEvent, err := s.cfg.Notifier.RegisterSpendNtfn(
+	// The input monitor owns terminal delivery, so the notifier hides
+	// candidates until the input's immutable policy is met.
+	terminalEvent, err := s.cfg.Notifier.RegisterSpendNtfn(
 		&outpoint, script, heightHint,
+		chainntnfs.WithSpendNumConfs(requiredConfs),
 	)
 	if err != nil {
 		return nil, fmt.Errorf("register spend ntfn: %w", err)
+	}
+
+	var shallowEvent *chainntnfs.SpendEvent
+	if requiredConfs > DefaultRequiredConfs {
+		// The early observer exposes candidate reorgs before terminal
+		// depth. Only the terminal observer reports final spends.
+		shallowEvent, err = s.cfg.Notifier.RegisterSpendNtfn(
+			&outpoint, script, heightHint,
+			chainntnfs.WithSpendNumConfs(DefaultRequiredConfs),
+		)
+		if err != nil {
+			terminalEvent.Cancel()
+
+			return nil, fmt.Errorf(
+				"register shallow spend ntfn: %w", err,
+			)
+		}
 	}
 
 	s.wg.Add(1)
@@ -1025,15 +1118,13 @@ func (s *UtxoSweeper) monitorSpend(outpoint wire.OutPoint,
 		defer s.wg.Done()
 
 		select {
-		case spend, ok := <-spendEvent.Spend:
+		case spend, ok := <-terminalEvent.Spend:
 			if !ok {
-				log.Debugf("Spend ntfn for %v canceled",
-					outpoint)
+				log.Debugf("Spend %v watch canceled", outpoint)
 				return
 			}
 
 			log.Debugf("Delivering spend ntfn for %v", outpoint)
-
 			select {
 			case s.spendChan <- spend:
 				log.Debugf("Delivered spend ntfn for %v",
@@ -1041,11 +1132,56 @@ func (s *UtxoSweeper) monitorSpend(outpoint wire.OutPoint,
 
 			case <-s.quit:
 			}
+
 		case <-s.quit:
 		}
 	}()
 
-	return spendEvent.Cancel, nil
+	if shallowEvent != nil {
+		s.wg.Add(1)
+		go s.monitorShallowSpend(outpoint, shallowEvent)
+	}
+
+	return func() {
+		// Both observers share the admitted input's terminal lifetime.
+		terminalEvent.Cancel()
+		if shallowEvent != nil {
+			shallowEvent.Cancel()
+		}
+	}, nil
+}
+
+// monitorShallowSpend routes provisional reorgs back to the owning input while
+// leaving terminal spend delivery to the separate depth-aware observer.
+func (s *UtxoSweeper) monitorShallowSpend(outpoint wire.OutPoint,
+	spendEvent *chainntnfs.SpendEvent) {
+
+	defer s.wg.Done()
+
+	for {
+		select {
+		case _, ok := <-spendEvent.Spend:
+			if !ok {
+				return
+			}
+
+			// Consume the spend without reporting terminal success.
+
+		case _, ok := <-spendEvent.Reorg:
+			if !ok {
+				return
+			}
+
+			select {
+			case s.spendReorgChan <- outpoint:
+			case <-s.quit:
+				return
+			}
+
+		case <-s.quit:
+			return
+		}
+	}
 }
 
 // PendingInputs returns the set of inputs that the UtxoSweeper is currently
@@ -1115,6 +1251,8 @@ func (s *UtxoSweeper) handlePendingSweepsReq(
 // and force flag that will be used for a new sweep transaction of the input
 // that will act as a replacement transaction (RBF) of the original sweeping
 // transaction, if any. The exclusive group is left unchanged.
+// RequiredConfs is also left unchanged because the active spend notification
+// owns the depth selected when the input was admitted.
 //
 // NOTE: This currently doesn't do any fee rate validation to ensure that a bump
 // is actually successful. The responsibility of doing so should be handled by
@@ -1168,11 +1306,22 @@ func (s *UtxoSweeper) handleUpdateReq(req *updateReq) (
 	// Create the updated parameters struct. Leave the exclusive group
 	// unchanged.
 	newParams := Params{
+		RequiredConfs:   sweeperInput.params.RequiredConfs,
 		StartingFeeRate: req.params.StartingFeeRate,
 		Immediate:       req.params.Immediate,
 		Budget:          req.params.Budget,
 		DeadlineHeight:  req.params.DeadlineHeight,
 		ExclusiveGroup:  sweeperInput.params.ExclusiveGroup,
+	}
+
+	// Omitted depth means a fee-only update, while an explicit mismatch
+	// would desynchronize the existing notifier client from stored policy.
+	if req.params.RequiredConfs != 0 &&
+		req.params.RequiredConfs != newParams.RequiredConfs {
+
+		return nil, fmt.Errorf("%w: admitted=%d, requested=%d",
+			ErrRequiredConfsMismatch, newParams.RequiredConfs,
+			req.params.RequiredConfs)
 	}
 
 	log.Debugf("Updating parameters for %v(state=%v) from (%v) to (%v)",
@@ -1253,6 +1402,12 @@ func (s *UtxoSweeper) handleNewInput(input *sweepInputMessage) error {
 		return nil
 	}
 
+	// Apply the compatibility default once, before the pending record and
+	// its eventual spend monitor take ownership of immutable policy.
+	if input.params.RequiredConfs == 0 {
+		input.params.RequiredConfs = DefaultRequiredConfs
+	}
+
 	// This is a new input, and we want to query the mempool to see if this
 	// input has already been spent. If so, we'll start the input with the
 	// RBFInfo.
@@ -1292,7 +1447,7 @@ func (s *UtxoSweeper) handleNewInput(input *sweepInputMessage) error {
 	// party.
 	cancel, err := s.monitorSpend(
 		outpoint, input.input.SignDesc().Output.PkScript,
-		input.input.HeightHint(),
+		input.input.HeightHint(), pi.params.RequiredConfs,
 	)
 	if err != nil {
 		err := fmt.Errorf("wait for spend: %w", err)
@@ -1375,6 +1530,23 @@ func (s *UtxoSweeper) decideRBFInfo(
 func (s *UtxoSweeper) handleExistingInput(input *sweepInputMessage,
 	oldInput *SweeperInput) {
 
+	// A duplicate offer may omit policy and inherit the admitted depth, but
+	// it cannot replace the value owned by the active spend registration.
+	if input.params.RequiredConfs == 0 {
+		input.params.RequiredConfs = oldInput.params.RequiredConfs
+	} else if input.params.RequiredConfs !=
+		oldInput.params.RequiredConfs {
+
+		input.resultChan <- Result{Err: fmt.Errorf(
+			"%w: admitted=%d, requested=%d",
+			ErrRequiredConfsMismatch,
+			oldInput.params.RequiredConfs,
+			input.params.RequiredConfs,
+		)}
+
+		return
+	}
+
 	// Before updating the input details, check if a previous exclusive
 	// group was set. In case the same input is registered again, the
 	// previous input and its sweep parameters are outdated hence need to be
@@ -1417,19 +1589,22 @@ func (s *UtxoSweeper) handleInputSpent(spend *chainntnfs.SpendDetail) {
 	spendHash := *spend.SpenderTxHash
 	isOurTx := s.cfg.Store.IsOurTx(spendHash)
 
+	// Deep inputs retain wallet rebroadcast ownership after the publisher's
+	// shallow confirmation. Release it only when the input monitor supplies
+	// the mature terminal spend handled below.
+	if isOurTx {
+		s.cfg.Wallet.CancelRebroadcast(spendHash)
+	}
+
 	// If this isn't our transaction, it means someone else swept outputs
 	// that we were attempting to sweep. This can happen for anchor outputs
 	// as well as justice transactions. In this case, we'll notify the
 	// wallet to remove any spends that descent from this output.
 	if !isOurTx {
-		// Construct a map of the inputs this transaction spends.
 		spendingTx := spend.SpendingTx
-		inputsSpent := make(
-			map[wire.OutPoint]struct{}, len(spendingTx.TxIn),
+		inputsSpent := s.conflictCleanupOutpoints(
+			spendingTx, *spend.SpentOutPoint,
 		)
-		for _, txIn := range spendingTx.TxIn {
-			inputsSpent[txIn.PreviousOutPoint] = struct{}{}
-		}
 
 		log.Debugf("Attempting to remove descendant txns invalidated "+
 			"by (txid=%v): %v", spendingTx.TxHash(),
@@ -1446,62 +1621,43 @@ func (s *UtxoSweeper) handleInputSpent(spend *chainntnfs.SpendDetail) {
 			lnutils.SpewLogClosure(spend.SpendingTx))
 	}
 
-	// We now use the spending tx to update the state of the inputs.
-	s.markInputsSwept(spend.SpendingTx, isOurTx)
+	// Only this mature notification's outpoint is terminal. Other inputs
+	// keep their independent depth registrations.
+	s.markNotifiedInputSwept(
+		*spend.SpentOutPoint, spend.SpendingTx, isOurTx,
+	)
 }
 
-// markInputsSwept marks all inputs swept by the spending transaction as swept.
-// It will also notify all the subscribers of this input.
-func (s *UtxoSweeper) markInputsSwept(tx *wire.MsgTx, isOurTx bool) {
-	for _, txIn := range tx.TxIn {
-		outpoint := txIn.PreviousOutPoint
+// markNotifiedInputSwept finalizes the independently notified outpoint while
+// leaving other transaction inputs viable until their own mature events.
+func (s *UtxoSweeper) markNotifiedInputSwept(outpoint wire.OutPoint,
+	tx *wire.MsgTx, isOurTx bool) {
 
-		// Check if this input is known to us. It could probably be
-		// unknown if we canceled the registration, deleted from inputs
-		// map but the ntfn was in-flight already. Or this could be not
-		// one of our inputs.
-		input, ok := s.inputs[outpoint]
-		if !ok {
-			// It's very likely that a spending tx contains inputs
-			// that we don't know.
-			log.Tracef("Skipped marking input as swept: %v not "+
-				"found in pending inputs", outpoint)
+	// An in-flight notification may arrive after its input was removed, or
+	// after another terminal path won, so both cases are safe no-ops.
+	inp, ok := s.inputs[outpoint]
+	if !ok || inp.terminated() {
+		return
+	}
 
-			continue
-		}
+	inp.state = Swept
 
-		// This input may already been marked as swept by a previous
-		// spend notification, which is likely to happen as one sweep
-		// transaction usually sweeps multiple inputs.
-		if input.terminated() {
-			log.Debugf("Skipped marking input as swept: %v "+
-				"state=%v", outpoint, input.state)
+	// Our mature spend reports success. A mature competing spend reports
+	// the existing remote-spend result through the same listener path.
+	var err error
+	if !isOurTx {
+		log.Warnf(
+			"Input=%v was spent by remote or third party in tx=%v",
+			outpoint, tx.TxHash(),
+		)
+		err = ErrRemoteSpend
+	}
+	s.signalResult(inp, Result{Tx: tx, Err: err})
 
-			continue
-		}
-
-		input.state = Swept
-
-		// Return either a nil or a remote spend result.
-		var err error
-		if !isOurTx {
-			log.Warnf("Input=%v was spent by remote or third "+
-				"party in tx=%v", outpoint, tx.TxHash())
-			err = ErrRemoteSpend
-		}
-
-		// Signal result channels.
-		s.signalResult(input, Result{
-			Tx:  tx,
-			Err: err,
-		})
-
-		// Remove all other inputs in this exclusive group.
-		if input.params.ExclusiveGroup != nil {
-			s.removeExclusiveGroup(
-				*input.params.ExclusiveGroup, outpoint,
-			)
-		}
+	// Exclusive siblings become unspendable only after this input's own
+	// policy is satisfied, preserving the pre-maturity reorg window.
+	if inp.params.ExclusiveGroup != nil {
+		s.removeExclusiveGroup(*inp.params.ExclusiveGroup, outpoint)
 	}
 }
 
@@ -1633,6 +1789,10 @@ type bumpResp struct {
 
 	// set is the input set that was used in the bump attempt.
 	set InputSet
+
+	// deferTerminal keeps one-confirmation publisher observations from
+	// retiring inputs whose own spend monitors require greater depth.
+	deferTerminal bool
 }
 
 // monitorFeeBumpResult subscribes to the passed result chan to listen for
@@ -1640,7 +1800,7 @@ type bumpResp struct {
 //
 // NOTE: must run as a goroutine.
 func (s *UtxoSweeper) monitorFeeBumpResult(set InputSet,
-	resultChan <-chan *BumpResult) {
+	resultChan <-chan *BumpResult, deferTerminal bool) {
 
 	defer s.wg.Done()
 
@@ -1654,8 +1814,9 @@ func (s *UtxoSweeper) monitorFeeBumpResult(set InputSet,
 			}
 
 			resp := &bumpResp{
-				result: r,
-				set:    set,
+				result:        r,
+				set:           set,
+				deferTerminal: deferTerminal,
 			}
 
 			// Send the result back to the main event loop.
@@ -1674,7 +1835,8 @@ func (s *UtxoSweeper) monitorFeeBumpResult(set InputSet,
 			// TODO(yy): can instead remove the spend subscription
 			// in sweeper and rely solely on this event to mark
 			// inputs as Swept?
-			if r.Event == TxConfirmed || r.Event == TxFailed {
+			switch r.Event {
+			case TxConfirmed, TxFailed, TxFatal, TxUnknownSpend:
 				// Exit if the tx is failed to be created.
 				if r.Tx == nil {
 					log.Debugf("Received %v for nil tx, "+
@@ -1687,8 +1849,13 @@ func (s *UtxoSweeper) monitorFeeBumpResult(set InputSet,
 					"fee bump monitor", r.Event,
 					r.Tx.TxHash())
 
-				// Cancel the rebroadcasting of the failed tx.
-				s.cfg.Wallet.CancelRebroadcast(r.Tx.TxHash())
+				// A deep input retains rebroadcast ownership
+				// until its independent mature spend arrives.
+				if r.Event == TxFailed || !deferTerminal {
+					s.cfg.Wallet.CancelRebroadcast(
+						r.Tx.TxHash(),
+					)
+				}
 
 				return
 			}
@@ -1804,6 +1971,30 @@ func (s *UtxoSweeper) handleBumpEventTxPublished(resp *bumpResp) error {
 func (s *UtxoSweeper) handleBumpEventTxFatal(resp *bumpResp) error {
 	r := resp.result
 
+	// Delay while shallow discovery can explain the missing input; then
+	// fall through so a genuine orphan becomes terminal.
+	if resp.deferTerminal && errors.Is(r.Err, ErrInputMissing) {
+		deferMissing := false
+		for _, inp := range resp.set.Inputs() {
+			pending, ok := s.inputs[inp.OutPoint()]
+			if !ok {
+				continue
+			}
+
+			since := pending.missingSince.UnwrapOr(s.currentHeight)
+			pending.missingSince = fn.Some(since)
+			age := s.currentHeight - since
+			if age < int32(pending.params.RequiredConfs) {
+				deferMissing = true
+			}
+		}
+
+		if deferMissing {
+			s.markInputsPublishFailed(resp.set, r.FeeRate)
+			return nil
+		}
+	}
+
 	// Remove the tx from the sweeper store if there is one. Since this is
 	// a broadcast error, it's likely there isn't a tx here.
 	if r.Tx != nil {
@@ -1856,12 +2047,19 @@ func (s *UtxoSweeper) markInputsFatal(set InputSet, err error) {
 // handleBumpEvent handles the result sent from the bumper based on its event
 // type.
 //
-// NOTE: TxConfirmed event is not handled, since we already subscribe to the
-// input's spending event, we don't need to do anything here.
+// NOTE: The input spend registration remains the terminal authority. The
+// shallow observer requeues a deeper input only if its confirmed spend is
+// actually disconnected.
 func (s *UtxoSweeper) handleBumpEvent(r *bumpResp) error {
 	log.Debugf("Received bump result %v", r.result)
 
 	switch r.result.Event {
+	// A shallow publisher result is provisional for a deeper input.
+	// Keep the input published while that spend remains confirmed; its
+	// shallow observer will requeue only the affected outpoint on a reorg.
+	case TxConfirmed:
+		return nil
+
 	// The tx has been published, we update the inputs' state and create a
 	// record to be stored in the sweeper db.
 	case TxPublished:
@@ -1950,11 +2148,7 @@ func (s *UtxoSweeper) handleUnknownSpendTx(inp *SweeperInput, tx *wire.MsgTx) {
 	log.Debugf("Removing descendant txns invalidated by (txid=%v): %v",
 		txid, lnutils.SpewLogClosure(tx))
 
-	// Construct a map of the inputs this transaction spends.
-	spentInputs := make(map[wire.OutPoint]struct{}, len(tx.TxIn))
-	for _, txIn := range tx.TxIn {
-		spentInputs[txIn.PreviousOutPoint] = struct{}{}
-	}
+	spentInputs := s.conflictCleanupOutpoints(tx, op)
 
 	err := s.removeConflictSweepDescendants(spentInputs)
 	if err != nil {
@@ -1968,12 +2162,23 @@ func (s *UtxoSweeper) handleUnknownSpendTx(inp *SweeperInput, tx *wire.MsgTx) {
 // by another party with their tx being confirmed. It will retry sweeping the
 // "good" inputs once the "bad" ones are kicked out.
 func (s *UtxoSweeper) handleBumpEventTxUnknownSpend(r *bumpResp) {
+	// Snapshot inputs already returned by a shallow reorg before the stale
+	// batch response mutates states. Such inputs must remain retryable.
+	requeued := make(map[wire.OutPoint]struct{})
+	for op, pending := range s.inputs {
+		if pending.state == PublishFailed {
+			requeued[op] = struct{}{}
+		}
+	}
+
 	// Mark the inputs as publish failed, which means they will be retried
 	// later.
 	s.markInputsPublishFailed(r.set, r.result.FeeRate)
 
 	// Get all the inputs that are not spent in the current sweeping tx.
 	spentInputs := r.result.SpentInputs
+	canRetry := r.result.Err == nil ||
+		errors.Is(r.result.Err, ErrUnknownSpent)
 
 	// Create a slice to track inputs to be retried.
 	inputsToRetry := make([]input.Input, 0, len(r.set.Inputs()))
@@ -1993,14 +2198,37 @@ func (s *UtxoSweeper) handleBumpEventTxUnknownSpend(r *bumpResp) {
 
 			continue
 		}
+		if input.terminated() {
+			// A stale batch cannot revive a terminal input.
+			// Its lifecycle observer already settled it.
+			continue
+		}
 
 		// Check whether this input has been spent, if so we mark it as
 		// fatal or swept based on whether this is one of our previous
 		// sweeping txns, then move to the next.
 		tx, spent := spentInputs[op]
 		if spent {
+			if input.params.RequiredConfs > DefaultRequiredConfs {
+				if _, ok := requeued[op]; ok {
+					continue
+				}
+
+				// Its observer owns reorgs until maturity.
+				input.state = Published
+
+				continue
+			}
+
 			s.handleUnknownSpendTx(input, tx)
 
+			continue
+		}
+		if !canRetry {
+			// A fee-policy failure applies only to viable siblings.
+			// Shallow evidence retains its depth monitor.
+			// It cannot be terminalized batch-wide.
+			s.markInputFatal(input, nil, r.result.Err)
 			continue
 		}
 

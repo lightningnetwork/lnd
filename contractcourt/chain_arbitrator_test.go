@@ -4,18 +4,59 @@ import (
 	"net"
 	"testing"
 
+	"github.com/btcsuite/btcd/btcutil/v2"
 	"github.com/btcsuite/btcd/chainhash/v2"
 	"github.com/btcsuite/btcd/wire/v2"
 	"github.com/lightningnetwork/lnd/chainntnfs"
 	"github.com/lightningnetwork/lnd/channeldb"
 	"github.com/lightningnetwork/lnd/chanstate"
 	"github.com/lightningnetwork/lnd/clock"
+	"github.com/lightningnetwork/lnd/fn/v2"
 	"github.com/lightningnetwork/lnd/graph/db/models"
 	"github.com/lightningnetwork/lnd/lntest/mock"
 	"github.com/lightningnetwork/lnd/lntypes"
 	"github.com/lightningnetwork/lnd/lnwallet"
 	"github.com/stretchr/testify/require"
 )
+
+// TestResolveSpendConfDepth verifies production capacity derivation and both
+// validation layers applied to the existing integration override.
+func TestResolveSpendConfDepth(t *testing.T) {
+	t.Parallel()
+
+	// Arrange a representative channel capacity and the expected value from
+	// lnd's existing close-confirmation policy. No watcher or resolver is
+	// constructed, which isolates the shared policy boundary itself.
+	capacity := btcutil.Amount(1_000_000)
+	wantDerived := lnwallet.CloseConfsForCapacity(capacity)
+
+	// Act by resolving production policy, a valid deterministic override,
+	// zero, and a value beyond the notifier's maximum supported depth.
+	derived, derivedErr := resolveSpendConfDepth(
+		capacity, fn.None[uint32](),
+	)
+	overridden, overriddenErr := resolveSpendConfDepth(
+		capacity, fn.Some(uint32(2)),
+	)
+	zero, zeroErr := resolveSpendConfDepth(
+		capacity, fn.Some(uint32(0)),
+	)
+	overLimit, overLimitErr := resolveSpendConfDepth(
+		capacity, fn.Some(uint32(chainntnfs.MaxNumConfs+1)),
+	)
+
+	// Assert capacity remains the production authority, the integration
+	// override is honored exactly, and invalid values cannot leak a usable
+	// depth into partially constructed lifecycle components.
+	require.NoError(t, derivedErr)
+	require.Equal(t, wantDerived, derived)
+	require.NoError(t, overriddenErr)
+	require.Equal(t, uint32(2), overridden)
+	require.ErrorIs(t, zeroErr, chainntnfs.ErrNumConfsOutOfRange)
+	require.Zero(t, zero)
+	require.ErrorIs(t, overLimitErr, chainntnfs.ErrNumConfsOutOfRange)
+	require.Zero(t, overLimit)
+}
 
 // TestChainArbitratorRepulishCloses tests that the chain arbitrator will
 // republish closing transactions for channels marked CommitementBroadcast or

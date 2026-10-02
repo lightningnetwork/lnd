@@ -1019,7 +1019,7 @@ func createTestCtx(t *testing.T, startHeight uint32, isChanPeer bool) (
 
 	// Mark the graph as synced in order to allow the announcements to be
 	// broadcast.
-	gossiper.syncMgr.markGraphSynced()
+	gossiper.syncMgr.(*SyncManager).markGraphSynced()
 
 	t.Cleanup(func() {
 		gossiper.Stop()
@@ -1669,7 +1669,7 @@ func TestSignatureAnnouncementRetryAtStartup(t *testing.T) {
 
 	// Mark the graph as synced in order to allow the announcements to be
 	// broadcast.
-	gossiper.syncMgr.markGraphSynced()
+	gossiper.syncMgr.(*SyncManager).markGraphSynced()
 
 	tCtx.gossiper = gossiper
 	remotePeer.quit = tCtx.gossiper.quit
@@ -3888,7 +3888,7 @@ func TestBroadcastAnnsAfterGraphSynced(t *testing.T) {
 	// We'll mark the graph as not synced. This should prevent us from
 	// broadcasting any messages we've received as part of our initial
 	// historical sync.
-	tCtx.gossiper.syncMgr.markGraphSyncing()
+	tCtx.gossiper.syncMgr.(*SyncManager).markGraphSyncing()
 
 	assertBroadcast := func(msg lnwire.Message, isRemote bool,
 		shouldBroadcast bool) {
@@ -3939,7 +3939,7 @@ func TestBroadcastAnnsAfterGraphSynced(t *testing.T) {
 
 	// Mark the graph as synced, which should allow the channel announcement
 	// should to be broadcast.
-	tCtx.gossiper.syncMgr.markGraphSynced()
+	tCtx.gossiper.syncMgr.(*SyncManager).markGraphSynced()
 
 	chanAnn2, err := tCtx.createRemoteChannelAnnouncement(1)
 	require.NoError(t, err, "unable to create channel announcement")
@@ -5031,7 +5031,7 @@ func TestGossipSyncerRace(t *testing.T) {
 		time.Sleep(trickleDelay)
 
 		gossipTimestampRange := &lnwire.GossipTimestampRange{
-			ChainHash:      tCtx.gossiper.syncMgr.cfg.ChainHash,
+			ChainHash:      tCtx.gossiper.syncMgr.(*SyncManager).cfg.ChainHash,
 			FirstTimestamp: uint32(time.Now().Unix()),
 			TimestampRange: 3600,
 		}

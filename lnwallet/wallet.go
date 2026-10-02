@@ -1861,7 +1861,7 @@ func (l *LightningWallet) signCommitTx(pendingReservation *ChannelReservation,
 		// transaction. We use the remote session as this is for the
 		// remote commitment transaction.
 		musigSessions := pendingReservation.musigSessions
-		partialSig, err := musigSessions.RemoteSession.SignCommit(
+		partialSig, err := musigSessions.RemoteSession.signCommitAndCleanup(
 			commitTx,
 		)
 		if err != nil {

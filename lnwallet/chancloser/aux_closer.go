@@ -6,6 +6,7 @@ import (
 	"github.com/lightningnetwork/lnd/lnwallet"
 	"github.com/lightningnetwork/lnd/lnwallet/types"
 	"github.com/lightningnetwork/lnd/lnwire"
+	"github.com/lightningnetwork/lnd/routing/route"
 )
 
 // AuxCloseOutputs is used to specify extra outputs that should be used when
@@ -65,4 +66,12 @@ type AuxChanCloser interface {
 	// FinalizeClose is called after the close transaction has been agreed
 	// upon.
 	FinalizeClose(desc types.AuxCloseDesc, closeTx *wire.MsgTx) error
+
+	// SupportsRbfClose returns true if the channel identified by the
+	// given channel ID can be closed with the RBF co-op close flow with
+	// the given peer. The RBF feature bits are negotiated at the peer
+	// level, so this is how an aux channel opts into the flow on a
+	// per-channel basis: both peers need an aux closer that drives the
+	// aux hooks from within the RBF state machine.
+	SupportsRbfClose(chanID lnwire.ChannelID, peer route.Vertex) bool
 }

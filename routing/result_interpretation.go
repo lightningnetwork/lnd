@@ -28,6 +28,12 @@ type pairResult struct {
 	// success indicates whether the payment attempt was successful through
 	// this pair.
 	success bool
+
+	// halfPenalty indicates that the recorded failure should be applied
+	// with half the normal weight. It is used to express a softer
+	// "second-chance" style penalty: we want to discourage immediate
+	// retries over the same pair, but not as severely as a hard failure.
+	halfPenalty bool
 }
 
 // failPairResult creates a new result struct for a failure.

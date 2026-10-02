@@ -228,19 +228,28 @@ func TestMissionControl(t *testing.T) {
 }
 
 // TestMissionControlChannelUpdate tests that the first channel update is not
-// penalizing the channel yet.
+// fully penalizing the channel. Instead we should see a half penalty being
+// applied to the probability, scoped only to the offending pair.
 func TestMissionControlChannelUpdate(t *testing.T) {
 	ctx := createMcTestContext(t)
 
-	// Report a policy related failure. Because it is the first, we don't
-	// expect a penalty.
+	// Report a policy related failure. As this is the first time we see a
+	// channel update for this pair, mission control grants a second chance
+	// and records a half-penalty failure on the offending pair only.
 	ctx.reportFailure(
 		0, lnwire.NewFeeInsufficient(0, lnwire.ChannelUpdate1{}),
 	)
-	ctx.expectP(100, testAprioriHopProbability)
 
-	// Report another failure for the same channel. We expect it to be
-	// pruned.
+	// Because the half penalty is scoped to this pair, the node-level
+	// probability for node1 is unaffected (no other entries exist), so
+	// it equals the a priori hop probability. The pair-specific weight is
+	// halved (fresh half-penalty), which yields a probability of
+	// nodeProbability * (1 - 0.5) = testAprioriHopProbability * 0.5.
+	ctx.expectP(100, testAprioriHopProbability*0.5)
+
+	// Report another failure for the same channel. The second chance is
+	// not granted again within the second-chance interval, so this falls
+	// back to the normal full-penalty path and the channel is pruned.
 	ctx.reportFailure(
 		0, lnwire.NewFeeInsufficient(0, lnwire.ChannelUpdate1{}),
 	)

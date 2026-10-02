@@ -23,11 +23,11 @@ import (
 	"github.com/btcsuite/btcd/wire/v2"
 	"github.com/davecgh/go-spew/spew"
 	"github.com/lightninglabs/neutrino/cache"
-	"github.com/lightningnetwork/lnd/actor"
 	"github.com/lightningnetwork/lnd/batch"
 	"github.com/lightningnetwork/lnd/chainntnfs"
 	"github.com/lightningnetwork/lnd/channeldb"
 	"github.com/lightningnetwork/lnd/chanstate"
+	"github.com/lightningnetwork/lnd/fn/v2"
 	"github.com/lightningnetwork/lnd/graph"
 	graphdb "github.com/lightningnetwork/lnd/graph/db"
 	"github.com/lightningnetwork/lnd/graph/db/models"
@@ -2894,7 +2894,7 @@ func assertBroadcast(t *testing.T, ctx *testCtx, num int) []lnwire.Message {
 
 // assertProcessAnnouncement is a helper method that checks that the result of
 // processing an announcement is successful.
-func assertProcessAnnouncement(t *testing.T, result actor.Future[error]) {
+func assertProcessAnnouncement(t *testing.T, result fn.Future[error]) {
 	t.Helper()
 
 	err := mustProcess(t, result)
@@ -3476,7 +3476,7 @@ func sendRemoteMsg(t *testing.T, ctx *testCtx, msg lnwire.Message,
 
 // mustProcess awaits a gossip future with a 2-second deadline, failing
 // the test immediately if the deadline is exceeded.
-func mustProcess(t *testing.T, f actor.Future[error]) error {
+func mustProcess(t *testing.T, f fn.Future[error]) error {
 	t.Helper()
 
 	ctx, cancel := context.WithTimeout(t.Context(), 2*time.Second)
@@ -3898,7 +3898,7 @@ func TestBroadcastAnnsAfterGraphSynced(t *testing.T) {
 		nodePeer := &mockPeer{
 			remoteKeyPriv1.PubKey(), nil, nil, atomic.Bool{},
 		}
-		var errChan actor.Future[error]
+		var errChan fn.Future[error]
 		if isRemote {
 			errChan = tCtx.gossiper.ProcessRemoteAnnouncement(
 				ctx, msg, nodePeer,
@@ -4627,7 +4627,7 @@ func assertChanChainRejection(t *testing.T, ctx *testCtx,
 	t.Helper()
 
 	nodePeer := &mockPeer{bitcoinKeyPub2, nil, nil, atomic.Bool{}}
-	errPromise := actor.NewPromise[error]()
+	errPromise := fn.NewPromise[error]()
 	nMsg := &networkMsg{
 		msg:        edge,
 		isRemote:   true,
@@ -4658,13 +4658,13 @@ func TestRecoverGossipPanic(t *testing.T) {
 
 	testCases := []struct {
 		name       string
-		setupMsg   func() (*networkMsg, actor.Future[error])
+		setupMsg   func() (*networkMsg, fn.Future[error])
 		checkError bool
 	}{
 		{
 			name: "panic with full message context",
-			setupMsg: func() (*networkMsg, actor.Future[error]) {
-				promise := actor.NewPromise[error]()
+			setupMsg: func() (*networkMsg, fn.Future[error]) {
+				promise := fn.NewPromise[error]()
 				nMsg := &networkMsg{
 					msg: &lnwire.ChannelUpdate1{
 						Timestamp: testTimestamp,
@@ -4682,8 +4682,8 @@ func TestRecoverGossipPanic(t *testing.T) {
 		},
 		{
 			name: "panic with nil message",
-			setupMsg: func() (*networkMsg, actor.Future[error]) {
-				promise := actor.NewPromise[error]()
+			setupMsg: func() (*networkMsg, fn.Future[error]) {
+				promise := fn.NewPromise[error]()
 				nMsg := &networkMsg{
 					msg:        nil,
 					peer:       nil,
@@ -4696,7 +4696,7 @@ func TestRecoverGossipPanic(t *testing.T) {
 		},
 		{
 			name: "panic with nil error promise",
-			setupMsg: func() (*networkMsg, actor.Future[error]) {
+			setupMsg: func() (*networkMsg, fn.Future[error]) {
 				return &networkMsg{
 					msg: &lnwire.ChannelUpdate1{
 						Timestamp: testTimestamp,
@@ -4778,7 +4778,7 @@ func TestRecoverGossipPanicBlockedErrorChannel(t *testing.T) {
 	nMsg := &networkMsg{
 		msg:        &lnwire.ChannelUpdate1{Timestamp: testTimestamp},
 		peer:       &mockPeer{remoteKeyPub1, nil, nil, atomic.Bool{}},
-		errPromise: actor.NewPromise[error](),
+		errPromise: fn.NewPromise[error](),
 	}
 
 	// Initialize a proper job so CompleteJob has a slot to return.
@@ -4848,7 +4848,7 @@ func TestRecoverGossipPanicSignalsDependents(t *testing.T) {
 
 	// Now simulate the parent job panicking and recovering.
 	// The recovery should call SignalDependents.
-	errPromise := actor.NewPromise[error]()
+	errPromise := fn.NewPromise[error]()
 	nMsg := &networkMsg{
 		msg: chanAnn,
 		peer: &mockPeer{
@@ -4912,7 +4912,7 @@ func TestRecoverGossipPanicNilJobID(t *testing.T) {
 		ShortChannelID: lnwire.NewShortChanIDFromInt(12345),
 	}
 
-	errPromise := actor.NewPromise[error]()
+	errPromise := fn.NewPromise[error]()
 	nMsg := &networkMsg{
 		msg: annSigs,
 		peer: &mockPeer{

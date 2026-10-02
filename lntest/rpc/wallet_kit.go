@@ -357,6 +357,33 @@ func (h *HarnessRPC) ImportAccountAssertErr(
 	return err
 }
 
+// RemoveAccount makes a RPC call to the node's WalletKitClient and asserts.
+func (h *HarnessRPC) RemoveAccount(
+	req *walletrpc.RemoveAccountRequest) *walletrpc.RemoveAccountResponse {
+
+	ctxt, cancel := context.WithTimeout(h.runCtx, DefaultTimeout)
+	defer cancel()
+
+	resp, err := h.WalletKit.RemoveAccount(ctxt, req)
+	h.NoError(err, "RemoveAccount")
+
+	return resp
+}
+
+// RemoveAccountAssertErr makes the RemoveAccount RPC call and asserts an error
+// is returned. It then returns the error.
+func (h *HarnessRPC) RemoveAccountAssertErr(
+	req *walletrpc.RemoveAccountRequest) error {
+
+	ctxt, cancel := context.WithTimeout(h.runCtx, DefaultTimeout)
+	defer cancel()
+
+	_, err := h.WalletKit.RemoveAccount(ctxt, req)
+	require.Error(h, err)
+
+	return err
+}
+
 // ImportPublicKey makes a RPC call to the node's WalletKitClient and asserts.
 //
 //nolint:ll

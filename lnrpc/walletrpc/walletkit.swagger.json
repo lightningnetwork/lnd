@@ -164,6 +164,40 @@
         ]
       }
     },
+    "/v2/wallet/accounts/remove": {
+      "post": {
+        "summary": "lncli: `wallet accounts remove`\nRemoveAccount removes a watch-only account that was previously imported\nvia ImportAccount, along with all addresses derived from it.",
+        "description": "Only accounts imported through ImportAccount can be removed; the wallet's\nreserved \"default\" and \"imported\" accounts, and accounts owned by the\nwallet itself, are refused.\n\nNOTE: Removal is allowed even if the account still holds a balance. The\nwallet simply stops tracking the account's addresses: its balance and\nUTXOs disappear from the wallet's view and later deposits to its addresses\nare not detected. The funds themselves are not moved or lost — whoever\nholds the account's keys retains full control, and re-importing the same\nextended public key (followed by a rescan once supported) restores\ntracking.",
+        "operationId": "WalletKit_RemoveAccount",
+        "responses": {
+          "200": {
+            "description": "A successful response.",
+            "schema": {
+              "$ref": "#/definitions/walletrpcRemoveAccountResponse"
+            }
+          },
+          "default": {
+            "description": "An unexpected error response.",
+            "schema": {
+              "$ref": "#/definitions/rpcStatus"
+            }
+          }
+        },
+        "parameters": [
+          {
+            "name": "body",
+            "in": "body",
+            "required": true,
+            "schema": {
+              "$ref": "#/definitions/walletrpcRemoveAccountRequest"
+            }
+          }
+        ],
+        "tags": [
+          "WalletKit"
+        ]
+      }
+    },
     "/v2/wallet/address/next": {
       "post": {
         "summary": "NextAddr returns the next unused address within the wallet.",
@@ -2145,6 +2179,28 @@
         "status": {
           "type": "string",
           "description": "The status of the release operation."
+        }
+      }
+    },
+    "walletrpcRemoveAccountRequest": {
+      "type": "object",
+      "properties": {
+        "name": {
+          "type": "string",
+          "description": "The name of the account to remove."
+        },
+        "address_type": {
+          "$ref": "#/definitions/walletrpcAddressType",
+          "description": "An optional address type used to resolve which key scope the account lives\nin. Account names are normally unique across all key scopes, so this can\nusually be left unset; it is only required if the same name exists under\nmore than one key scope, which is possible on wallets created before\nuniqueness was enforced."
+        }
+      }
+    },
+    "walletrpcRemoveAccountResponse": {
+      "type": "object",
+      "properties": {
+        "account": {
+          "$ref": "#/definitions/walletrpcAccount",
+          "description": "The properties of the account that was removed."
         }
       }
     },

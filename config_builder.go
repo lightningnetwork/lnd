@@ -683,17 +683,19 @@ func (d *DefaultWalletImpl) BuildWalletConfig(ctx context.Context,
 	}
 
 	walletConfig := &btcwallet.Config{
-		PrivatePass:      privateWalletPw,
-		PublicPass:       publicWalletPw,
-		Birthday:         walletInitParams.Birthday,
-		RecoveryWindow:   walletInitParams.RecoveryWindow,
-		NetParams:        d.cfg.ActiveNetParams.Params,
-		CoinType:         d.cfg.ActiveNetParams.CoinType,
-		Wallet:           walletInitParams.Wallet,
-		LoaderOptions:    []btcwallet.LoaderOption{dbs.WalletDB},
-		ChainSource:      partialChainControl.ChainSource,
-		WatchOnly:        d.watchOnly,
-		MigrateWatchOnly: d.migrateWatchOnly,
+		AccountBackupPath:   d.cfg.WalletAccountBackup,
+		AccountBackupCreate: d.cfg.WalletAccountBackupCreate,
+		PrivatePass:         privateWalletPw,
+		PublicPass:          publicWalletPw,
+		Birthday:            walletInitParams.Birthday,
+		RecoveryWindow:      walletInitParams.RecoveryWindow,
+		NetParams:           d.cfg.ActiveNetParams.Params,
+		CoinType:            d.cfg.ActiveNetParams.CoinType,
+		Wallet:              walletInitParams.Wallet,
+		LoaderOptions:       []btcwallet.LoaderOption{dbs.WalletDB},
+		ChainSource:         partialChainControl.ChainSource,
+		WatchOnly:           d.watchOnly,
+		MigrateWatchOnly:    d.migrateWatchOnly,
 	}
 
 	// Parse coin selection strategy.

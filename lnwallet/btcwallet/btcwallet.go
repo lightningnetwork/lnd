@@ -110,6 +110,9 @@ type BtcWallet struct {
 	// to prevent.
 	accountMtx sync.Mutex
 
+	// accountBackup gates issued keys on independent durable metadata.
+	accountBackup *walletAccountBackup
+
 	blockCache *blockcache.BlockCache
 
 	*input.MusigSessionManager
@@ -394,9 +397,16 @@ func (b *BtcWallet) Start() error {
 		return err
 	}
 
+	// Validate recovery evidence before starting wallet synchronization
+	// or RPCs.
+	if err := b.openAccountBackup(); err != nil {
+		return err
+	}
+
 	// Establish an RPC connection in addition to starting the goroutines
 	// in the underlying wallet.
 	if err := b.chain.Start(context.Background()); err != nil {
+		_ = b.closeAccountBackup()
 		return err
 	}
 
@@ -406,6 +416,7 @@ func (b *BtcWallet) Start() error {
 	// Pass the rpc client into the wallet so it can sync up to the
 	// current main chain.
 	b.wallet.SynchronizeRPC(b.chain)
+	b.refreshAccountBackup()
 
 	return nil
 }
@@ -421,7 +432,7 @@ func (b *BtcWallet) Stop() error {
 
 	b.chain.Stop()
 
-	return nil
+	return b.closeAccountBackup()
 }
 
 // ReadySignal currently signals that the wallet is ready instantly.
@@ -535,10 +546,20 @@ func (b *BtcWallet) NewAddress(t lnwallet.AddressType, change bool,
 		return nil, err
 	}
 
+	var addr address.Address
 	if change {
-		return b.wallet.NewChangeAddress(account, keyScope)
+		addr, err = b.wallet.NewChangeAddress(account, keyScope)
+	} else {
+		addr, err = b.wallet.NewAddress(account, keyScope)
 	}
-	return b.wallet.NewAddress(account, keyScope)
+	if err != nil {
+		return nil, err
+	}
+	if err := b.recordNamedAccountBackup(accountName); err != nil {
+		return nil, err
+	}
+
+	return addr, nil
 }
 
 // LastUnusedAddress returns the last *unused* address known by the wallet. An
@@ -561,7 +582,15 @@ func (b *BtcWallet) LastUnusedAddress(addrType lnwallet.AddressType,
 		return nil, err
 	}
 
-	return b.wallet.CurrentAddress(account, keyScope)
+	addr, err := b.wallet.CurrentAddress(account, keyScope)
+	if err != nil {
+		return nil, err
+	}
+	if err := b.recordNamedAccountBackup(accountName); err != nil {
+		return nil, err
+	}
+
+	return addr, nil
 }
 
 // IsOurAddress checks if the passed address belongs to this wallet
@@ -913,6 +942,10 @@ func (b *BtcWallet) CreateAccount(keyScope waddrmgr.KeyScope,
 			"account %v: %w", name, err)
 	}
 
+	if err := b.recordAccountBackup(); err != nil {
+		return nil, err
+	}
+
 	return props, nil
 }
 
@@ -973,6 +1006,9 @@ func (b *BtcWallet) ImportAccount(name string, accountPubKey *hdkeychain.Extende
 			name, accountPubKey, masterKeyFingerprint, addrType,
 		)
 		if err != nil {
+			return nil, nil, nil, err
+		}
+		if err := b.recordAccountBackup(); err != nil {
 			return nil, nil, nil, err
 		}
 		return accountProps, nil, nil, nil

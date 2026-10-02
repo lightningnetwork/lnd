@@ -4,8 +4,10 @@ import (
 	"sync"
 	"sync/atomic"
 	"testing"
+	"time"
 
 	"github.com/stretchr/testify/require"
+	"golang.org/x/time/rate"
 )
 
 // msgBytes is the byte count used as the per-Allow token charge across the
@@ -128,6 +130,45 @@ func TestPeerRateLimiterIsolation(t *testing.T) {
 	require.Equal(t, uint64(2), p.Dropped())
 }
 
+// TestPeerRateLimiterConcurrentFirstMessages sends a fresh peer's first
+// messages from many goroutines at once, so that they race to create that
+// peer's bucket, and asserts exactly one burst gets through. Every caller but
+// one ends up discarding the bucket it built; if the message that caller was
+// charging were discarded with it, the peer would be allowed more than its
+// burst. It is the accounting counterpart to the sweep tests: those cover a
+// bucket being reclaimed, this covers a bucket being superseded at birth.
+func TestPeerRateLimiterConcurrentFirstMessages(t *testing.T) {
+	t.Parallel()
+
+	// Room for exactly burstMessages, at a rate too slow to refill within
+	// the test, so the allowed count is decided purely by the accounting.
+	const (
+		burstMessages = 4
+		workers       = 32
+	)
+	p := NewPeerRateLimiter(1, burstMessages*msgBytes)
+
+	var peer [33]byte
+	peer[0] = 0x02
+
+	var (
+		allowed atomic.Uint64
+		wg      sync.WaitGroup
+	)
+	for range workers {
+		wg.Go(func() {
+			if p.AllowN(peer, msgBytes) {
+				allowed.Add(1)
+			}
+		})
+	}
+	wg.Wait()
+
+	require.Equal(t, uint64(burstMessages), allowed.Load(),
+		"racing first messages must each be charged exactly once")
+	require.Equal(t, uint64(workers-burstMessages), p.Dropped())
+}
+
 // TestCountingLimiterFirstDropClaimOnce verifies that FirstDropClaim on a
 // countingLimiter returns true exactly once and false on every subsequent
 // call, across concurrent goroutines, so that the first-drop info log is
@@ -241,4 +282,256 @@ func TestPeerRateLimiterConcurrentAllowN(t *testing.T) {
 // accounting it cares about.
 func peerMapLen(p *PeerRateLimiter) int {
 	return p.peers.Len()
+}
+
+// TestPeerRateLimiterEvictsOnlyFullBuckets verifies the core invariant of
+// the sweep: a bucket that has refilled to its full burst is evicted, while
+// a bucket that still owes tokens (is currently draining) is retained. The
+// latter is what preserves the anti-reset property across disconnects.
+func TestPeerRateLimiterEvictsOnlyFullBuckets(t *testing.T) {
+	t.Parallel()
+
+	p := NewPeerRateLimiter(1, msgBytes)
+
+	var fullPeer, drainedPeer [33]byte
+	fullPeer[0] = 0x01
+	drainedPeer[0] = 0x02
+
+	// A freshly constructed limiter starts at full burst.
+	p.peers.Store(fullPeer, rate.NewLimiter(p.rate, p.burst))
+
+	// Drain the second bucket completely so it owes its entire burst.
+	// With a per-peer rate of 1 Kbps it will not refill within the test.
+	drained := rate.NewLimiter(p.rate, p.burst)
+	require.True(t, drained.AllowN(time.Now(), p.burst))
+	p.peers.Store(drainedPeer, drained)
+	p.numPeers.Store(2)
+
+	p.evictFullBuckets()
+
+	// The full bucket is gone; the draining bucket is kept.
+	_, ok := p.peers.Load(fullPeer)
+	require.False(t, ok, "full bucket should be evicted")
+	_, ok = p.peers.Load(drainedPeer)
+	require.True(t, ok, "draining bucket must be retained")
+
+	require.Equal(t, 1, peerMapLen(p))
+	require.Equal(t, int64(1), p.numPeers.Load())
+}
+
+// TestPeerRateLimiterDebitsBeforeSweep asserts that a peer whose insertion
+// crosses the registry high-water mark still carries the cost of the message
+// that triggered the sweep. The sweep reclaims buckets sitting at full burst,
+// so a bucket that has not been debited by the time the sweep inspects it is
+// evicted right away and the debit lands on a limiter no longer in the
+// registry. The peer's next message would then allocate another full bucket,
+// handing it an unmetered burst per message for as long as the registry stays
+// at its high-water mark.
+func TestPeerRateLimiterDebitsBeforeSweep(t *testing.T) {
+	t.Parallel()
+
+	// A burst of exactly one message, at a rate far too slow to refill
+	// within the test: the peer's second message must be rejected.
+	p := NewPeerRateLimiter(1, msgBytes)
+	p.maxPeers = 1
+
+	// Pin the registry at its high-water mark with a fully drained bucket.
+	// It is never full, so no sweep can reclaim it, and every subsequent
+	// insertion therefore crosses the mark and triggers a sweep.
+	var pinned, peer [33]byte
+	pinned[0] = 0x01
+	peer[0] = 0x02
+
+	drained := rate.NewLimiter(p.rate, p.burst)
+	require.True(t, drained.AllowN(time.Now(), p.burst))
+	p.peers.Store(pinned, drained)
+	p.numPeers.Store(1)
+
+	// The first message allocates the peer's bucket and crosses the mark,
+	// triggering a sweep.
+	require.True(t, p.AllowN(peer, msgBytes))
+
+	// That bucket must have survived the sweep it triggered, still holding
+	// the debit for the message just allowed.
+	_, ok := p.peers.Load(peer)
+	require.True(t, ok, "debited bucket was evicted by the sweep it "+
+		"triggered")
+
+	// With its whole burst spent, the peer's next message must be rejected
+	// rather than served from a freshly recreated bucket.
+	require.False(t, p.AllowN(peer, msgBytes),
+		"peer received a fresh full burst after the sweep")
+	require.Equal(t, uint64(1), p.Dropped())
+}
+
+// TestPeerRateLimiterBurstNotResetBySweep gives each of many fresh peers a
+// two-message run while sweepers race the callers, and asserts every peer gets
+// exactly one message through. A bucket is only evictable while it sits at
+// full burst, so if AllowN publishes a bucket before debiting it, a sweep
+// landing in that window reclaims the bucket and drops the debit. The peer's
+// second message then misses the registry, allocates another full bucket and
+// is allowed, so winning that race repeatedly ratchets into unmetered
+// throughput rather than costing a single message.
+func TestPeerRateLimiterBurstNotResetBySweep(t *testing.T) {
+	t.Parallel()
+
+	// One message of burst, refilling at 125 B/s: over the lifetime of
+	// this test no bucket can legitimately refill enough for a second
+	// message, so each peer may be allowed exactly once.
+	p := NewPeerRateLimiter(1, msgBytes)
+
+	const (
+		peers    = 100_000
+		workers  = 8
+		sweepers = 4
+	)
+
+	var (
+		allowed atomic.Uint64
+		callers sync.WaitGroup
+		sweep   sync.WaitGroup
+		stop    = make(chan struct{})
+	)
+
+	// Sweepers are driven directly rather than through the high-water mark
+	// so that the window is exercised on every insertion.
+	for range sweepers {
+		sweep.Go(func() {
+			for {
+				select {
+				case <-stop:
+					return
+				default:
+				}
+				p.evictFullBuckets()
+			}
+		})
+	}
+
+	for w := range workers {
+		callers.Go(func() {
+			for i := w; i < peers; i += workers {
+				var key [33]byte
+				key[0] = byte(i)
+				key[1] = byte(i >> 8)
+				key[2] = byte(i >> 16)
+
+				// The first message must pass and the second
+				// must not: the burst is a single message.
+				for range 2 {
+					if p.AllowN(key, msgBytes) {
+						allowed.Add(1)
+					}
+				}
+			}
+		})
+	}
+
+	callers.Wait()
+	close(stop)
+	sweep.Wait()
+
+	require.Equal(t, uint64(peers), allowed.Load(),
+		"a peer was allowed more than its burst; a sweep reclaimed a "+
+			"bucket before it was debited")
+}
+
+// TestPeerRateLimiterSweepAccountingUnderRace runs evictFullBuckets
+// concurrently with AllowN on a shared key set and asserts that, once quiesced,
+// numPeers still matches the registry size. It guards against a sweep leaving
+// the counter drifted above the map, which would eventually pin numPeers over
+// maxPeers and force an O(N) sweep on every new peer.
+func TestPeerRateLimiterSweepAccountingUnderRace(t *testing.T) {
+	t.Parallel()
+
+	// A single-message burst with a high rate snaps each bucket between
+	// full and empty: buckets read full most of the time (the sweep's
+	// check passes) but a debit landing mid-sweep drops one clearly below
+	// full. That is the interleaving that can desync numPeers.
+	p := NewPeerRateLimiter(1_000_000, msgBytes)
+
+	// Fewer keys than workers concentrates goroutines on the same key, and
+	// a low high-water mark keeps AllowN triggering sweeps that evict and
+	// recreate buckets.
+	const numKeys = 8
+	p.maxPeers = 4
+
+	keys := make([][33]byte, numKeys)
+	for i := range keys {
+		keys[i][0] = byte(i)
+	}
+
+	const (
+		workers = 16
+		rounds  = 4000
+		sweeps  = 3
+	)
+
+	var wg sync.WaitGroup
+
+	// Worker goroutines hammer AllowN across the shared key set.
+	for w := range workers {
+		wg.Add(1)
+		go func(seed int) {
+			defer wg.Done()
+			for r := range rounds {
+				p.AllowN(keys[(seed+r)%numKeys], msgBytes)
+			}
+		}(w)
+	}
+
+	// Dedicated sweeper goroutines race the workers.
+	for range sweeps {
+		wg.Go(func() {
+			for range rounds {
+				p.evictFullBuckets()
+			}
+		})
+	}
+
+	wg.Wait()
+
+	// At quiescence every map entry must be counted exactly once.
+	require.Equal(t, int64(peerMapLen(p)), p.numPeers.Load(),
+		"numPeers drifted from the registry size under concurrent "+
+			"sweeps")
+}
+
+// TestPeerRateLimiterBoundedUnderIdentityChurn exercises the sweep under a
+// large number of distinct pubkeys that each send a single small onion
+// message, as can happen when the channel gate is disabled via
+// --onion-msg-relay-all. Without eviction the registry would grow one entry
+// per identity; with it, the map stays bounded because each near-full bucket
+// refills and is reclaimed on a subsequent sweep.
+func TestPeerRateLimiterBoundedUnderIdentityChurn(t *testing.T) {
+	t.Parallel()
+
+	// A high per-peer rate means the tiny per-message debit refills
+	// essentially instantly, so buckets from earlier identities read as
+	// full by the time a later insertion triggers a sweep.
+	p := NewPeerRateLimiter(1_000_000, msgBytes)
+
+	// Lower the high-water mark so the test drives the sweep without
+	// allocating tens of thousands of entries.
+	p.maxPeers = 64
+
+	const identities = 100_000
+	for i := 0; i < identities; i++ {
+		var key [33]byte
+		key[0] = byte(i)
+		key[1] = byte(i >> 8)
+		key[2] = byte(i >> 16)
+
+		// One minimal onion message from a fresh identity.
+		require.True(t, p.AllowN(key, 1))
+	}
+
+	// After 100k distinct identities, the registry must remain bounded near
+	// the high-water mark rather than retaining an entry per identity. A
+	// small multiple of the threshold covers the entries created since the
+	// most recent sweep.
+	require.LessOrEqual(
+		t, int64(peerMapLen(p)), 2*p.maxPeers,
+		"registry grew unbounded under identity churn",
+	)
 }

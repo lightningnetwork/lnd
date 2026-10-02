@@ -4,6 +4,8 @@ import (
 	"fmt"
 	"testing"
 
+	"github.com/btcsuite/btcd/btcec/v2"
+	"github.com/btcsuite/btcd/txscript/v2"
 	"github.com/btcsuite/btcd/wire/v2"
 	"github.com/lightningnetwork/lnd/chainntnfs"
 	"github.com/lightningnetwork/lnd/channeldb"
@@ -13,6 +15,7 @@ import (
 	"github.com/lightningnetwork/lnd/kvdb"
 	"github.com/lightningnetwork/lnd/lnmock"
 	"github.com/lightningnetwork/lnd/lntest/mock"
+	"github.com/lightningnetwork/lnd/lntypes"
 	"github.com/lightningnetwork/lnd/lnwallet"
 	"github.com/lightningnetwork/lnd/lnwire"
 	"github.com/stretchr/testify/require"
@@ -82,8 +85,11 @@ func TestHtlcOutgoingResolverRemoteClaim(t *testing.T) {
 	spendTx := &wire.MsgTx{
 		TxIn: []*wire.TxIn{
 			{
+				PreviousOutPoint: ctx.resolver.htlcResolution.
+					ClaimOutpoint,
 				Witness: [][]byte{
 					{0}, {1}, {2}, preimage[:],
+					{txscript.OP_TRUE},
 				},
 			},
 		},
@@ -91,7 +97,7 @@ func TestHtlcOutgoingResolverRemoteClaim(t *testing.T) {
 
 	spendHash := spendTx.TxHash()
 
-	ctx.notifier.SpendChan <- &chainntnfs.SpendDetail{
+	ctx.spendChan <- &chainntnfs.SpendDetail{
 		SpendingTx:    spendTx,
 		SpenderTxHash: &spendHash,
 	}
@@ -116,6 +122,193 @@ func TestHtlcOutgoingResolverRemoteClaim(t *testing.T) {
 
 	// Assert that the resolver finishes without error.
 	ctx.waitForResult(false)
+}
+
+// TestHtlcOutgoingResolverTaprootSpend tests both contest spend notification
+// sites with authenticated and non-preimage Taproot paths.
+func TestHtlcOutgoingResolverTaprootSpend(t *testing.T) {
+	// Arrange: Build cached and live success, alternate, and malformed
+	// spends of the authoritative Taproot HTLC output.
+	// Act: Launch resolution and deliver each spend through the buffered
+	// mock event while recording the output that the resolver watches.
+	// Assert: Only authenticated success resolves and reveals a preimage;
+	// other paths transition safely and malformed proofs return an error.
+	tests := []struct {
+		name      string
+		cached    bool
+		spendPath string
+	}{
+		{"cached success", true, "success"},
+		{"cached auxiliary", true, "auxiliary"},
+		{"cached key", true, "key"},
+		{"cached malformed", true, "malformed"},
+		{"loop success", false, "success"},
+		{"loop auxiliary", false, "auxiliary"},
+		{"loop key", false, "key"},
+		{"loop malformed", false, "malformed"},
+	}
+
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			ctx := newOutgoingResolverTestContext(t)
+			fixture := newOutgoingTaprootFixture(t, test.spendPath)
+			ctx.resolver.htlcResolution = fixture.resolution
+			ctx.resolver.initReport()
+			initialReport := ctx.resolver.currentReport
+
+			if test.cached {
+				ctx.spendChan <- fixture.spend
+				ctx.startResolve()
+			} else {
+				ctx.resolve()
+				ctx.spendChan <- fixture.spend
+			}
+
+			registration := <-ctx.registered
+			require.Equal(
+				t, fixture.outpoint, registration.outpoint,
+			)
+			require.Equal(
+				t, fixture.pkScript, registration.pkScript,
+			)
+
+			result := <-ctx.resolverResultChan
+			switch test.spendPath {
+			case "success":
+				require.NoError(t, result.err)
+				require.Nil(t, result.nextResolver)
+				require.True(t, ctx.resolver.IsResolved())
+				require.Len(t, ctx.preimageDB.newPreimages, 1)
+				require.Len(t, ctx.resolutionChan, 1)
+				require.Len(t, ctx.checkpointChan, 1)
+
+			case "malformed":
+				require.Error(t, result.err)
+				require.NotErrorIs(
+					t, result.err, errPreimageMismatch,
+				)
+				require.Nil(t, result.nextResolver)
+
+			default:
+				require.NoError(t, result.err)
+				require.Same(
+					t, ctx.resolver.htlcTimeoutResolver,
+					result.nextResolver,
+				)
+			}
+
+			if test.spendPath != "success" {
+				require.False(t, ctx.resolver.IsResolved())
+				require.Empty(t, ctx.preimageDB.newPreimages)
+				require.Empty(t, ctx.resolutionChan)
+				require.Empty(t, ctx.checkpointChan)
+				require.Empty(
+					t, ctx.htlcNotifier.finalHtlcEvents,
+				)
+				require.Equal(
+					t, initialReport,
+					ctx.resolver.currentReport,
+				)
+			}
+		})
+	}
+}
+
+// outgoingTaprootFixture pairs a commitment resolution with its candidate
+// spend so contest tests exercise the same authenticated tree and outpoint.
+type outgoingTaprootFixture struct {
+	resolution lnwallet.OutgoingHtlcResolution
+	spend      *chainntnfs.SpendDetail
+	outpoint   wire.OutPoint
+	pkScript   []byte
+}
+
+// newOutgoingTaprootFixture creates a realistic remote-commitment Taproot
+// spend and the resolution data needed to authenticate it.
+func newOutgoingTaprootFixture(t *testing.T,
+	spendPath string) *outgoingTaprootFixture {
+
+	t.Helper()
+	_, senderKey := btcec.PrivKeyFromBytes([]byte{1})
+	_, receiverKey := btcec.PrivKeyFromBytes([]byte{2})
+	_, revokeKey := btcec.PrivKeyFromBytes([]byte{3})
+	successLeaf, err := input.ReceiverHtlcTapLeafSuccess(
+		receiverKey, senderKey, testResHash[:],
+	)
+	require.NoError(t, err)
+	auxLeaf := txscript.NewTapLeaf(0xc2, successLeaf.Script)
+	tree, err := input.ReceiverHTLCScriptTaproot(
+		outgoingContestHtlcExpiry, senderKey, receiverKey, revokeKey,
+		testResHash[:], lntypes.Remote, fn.Some(auxLeaf),
+	)
+	require.NoError(t, err)
+
+	controlBytes := func(path input.ScriptPath) []byte {
+		control, err := tree.CtrlBlockForPath(path)
+		require.NoError(t, err)
+		serialized, err := control.ToBytes()
+		require.NoError(t, err)
+
+		return serialized
+	}
+	timeoutControl := controlBytes(input.ScriptPathTimeout)
+	script, control := tree.SuccessTapLeaf.Script,
+		controlBytes(input.ScriptPathSuccess)
+	preimage := testResPreimage[:]
+	switch spendPath {
+	case "auxiliary":
+		auxIndex := tree.TapScriptTree().
+			LeafProofIndex[auxLeaf.TapHash()]
+		auxProof := tree.TapScriptTree().LeafMerkleProofs[auxIndex]
+		auxControl := auxProof.ToControlBlock(revokeKey)
+		control, err = auxControl.ToBytes()
+		require.NoError(t, err)
+		script = auxLeaf.Script
+		preimage = make([]byte, lntypes.HashSize)
+
+	case "key":
+		script, control = nil, nil
+
+	case "malformed":
+		control = []byte{1}
+	}
+
+	outpoint := wire.OutPoint{Index: 9}
+	witness := wire.TxWitness{
+		dummyBytes, dummyBytes, preimage, script, control,
+	}
+	if spendPath == "key" {
+		witness = wire.TxWitness{dummyBytes}
+	}
+	spendingTx := &wire.MsgTx{TxIn: []*wire.TxIn{{
+		PreviousOutPoint: outpoint,
+		Witness:          witness,
+	}}}
+	spendingHash := spendingTx.TxHash()
+	pkScript := tree.PkScript()
+
+	return &outgoingTaprootFixture{
+		resolution: lnwallet.OutgoingHtlcResolution{
+			ClaimOutpoint: outpoint,
+			Expiry:        outgoingContestHtlcExpiry,
+			SweepSignDesc: input.SignDescriptor{
+				Output: &wire.TxOut{
+					Value:    int64(testHtlcAmount),
+					PkScript: pkScript,
+				},
+				WitnessScript: tree.TimeoutTapLeaf.Script,
+				ControlBlock:  timeoutControl,
+			},
+		},
+		spend: &chainntnfs.SpendDetail{
+			SpentOutPoint:     &outpoint,
+			SpendingTx:        spendingTx,
+			SpenderTxHash:     &spendingHash,
+			SpenderInputIndex: 0,
+		},
+		outpoint: outpoint,
+		pkScript: pkScript,
+	}
 }
 
 type resolveResult struct {
@@ -155,31 +348,34 @@ func TestHtlcOutgoingResolverSupplementDeadline(t *testing.T) {
 
 type outgoingResolverTestContext struct {
 	resolver           *htlcOutgoingContestResolver
-	notifier           *mock.ChainNotifier
+	notifier           *chainntnfs.MockChainNotifier
+	spendChan          chan *chainntnfs.SpendDetail
+	epochChan          chan *chainntnfs.BlockEpoch
+	registered         chan spendRegistration
 	preimageDB         *mockWitnessBeacon
+	htlcNotifier       *mockHTLCNotifier
 	resolverResultChan chan resolveResult
 	resolutionChan     chan ResolutionMsg
+	checkpointChan     chan struct{}
 	t                  *testing.T
 }
 
 func newOutgoingResolverTestContext(t *testing.T) *outgoingResolverTestContext {
-	notifier := &mock.ChainNotifier{
-		EpochChan: make(chan *chainntnfs.BlockEpoch),
-		SpendChan: make(chan *chainntnfs.SpendDetail),
-		ConfChan:  make(chan *chainntnfs.TxConfirmation),
-	}
+	notifier, spendChan, epochChan, registered := newSpendMockNotifier()
 
 	checkPointChan := make(chan struct{}, 1)
 	resolutionChan := make(chan ResolutionMsg, 1)
 
 	preimageDB := newMockWitnessBeacon()
+	htlcNotifier := &mockHTLCNotifier{}
 
 	onionProcessor := &mockOnionProcessor{}
 
 	chainCfg := ChannelArbitratorConfig{
 		ChainArbitratorConfig: ChainArbitratorConfig{
-			Notifier:   notifier,
-			PreimageDB: preimageDB,
+			Notifier:     notifier,
+			PreimageDB:   preimageDB,
+			HtlcNotifier: htlcNotifier,
 			DeliverResolutionMsg: func(msgs ...ResolutionMsg) error {
 				if len(msgs) != 1 {
 					return fmt.Errorf("expected 1 "+
@@ -235,22 +431,32 @@ func newOutgoingResolverTestContext(t *testing.T) *outgoingResolverTestContext {
 		},
 	}
 	resolver.initLogger("htlcOutgoingContestResolver")
+	resolver.initReport()
 
 	return &outgoingResolverTestContext{
 		resolver:       resolver,
 		notifier:       notifier,
+		spendChan:      spendChan,
+		epochChan:      epochChan,
+		registered:     registered,
 		preimageDB:     preimageDB,
+		htlcNotifier:   htlcNotifier,
 		resolutionChan: resolutionChan,
+		checkpointChan: checkPointChan,
 		t:              t,
 	}
 }
 
-func (i *outgoingResolverTestContext) resolve() {
-	// Start resolver.
+// startResolve starts the contest resolver without sending an initial epoch
+// and returns every launch or resolution error to the owning test goroutine.
+func (i *outgoingResolverTestContext) startResolve() {
 	i.resolverResultChan = make(chan resolveResult, 1)
 	go func() {
 		err := i.resolver.Launch()
-		require.NoError(i.t, err)
+		if err != nil {
+			i.resolverResultChan <- resolveResult{err: err}
+			return
+		}
 
 		nextResolver, err := i.resolver.Resolve()
 		i.resolverResultChan <- resolveResult{
@@ -258,13 +464,20 @@ func (i *outgoingResolverTestContext) resolve() {
 			err:          err,
 		}
 	}()
+}
+
+// resolve starts the contest resolver and sends its initial block epoch.
+func (i *outgoingResolverTestContext) resolve() {
+	i.startResolve()
 
 	// Notify initial block height.
 	i.notifyEpoch(testInitialBlockHeight)
 }
 
+// notifyEpoch delivers a block height through the explicit mock event so the
+// resolver observes it through the production notifier subscription.
 func (i *outgoingResolverTestContext) notifyEpoch(height int32) {
-	i.notifier.EpochChan <- &chainntnfs.BlockEpoch{
+	i.epochChan <- &chainntnfs.BlockEpoch{
 		Height: height,
 	}
 }

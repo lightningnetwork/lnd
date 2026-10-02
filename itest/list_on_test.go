@@ -388,6 +388,10 @@ var allTestCases = []*lntest.TestCase{
 		TestFunc: testDeleteMacaroonID,
 	},
 	{
+		Name:     "protector macaroon",
+		TestFunc: testProtectorMacaroon,
+	},
+	{
 		Name:     "stateless init",
 		TestFunc: testStatelessInit,
 	},

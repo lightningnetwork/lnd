@@ -4139,11 +4139,11 @@ func TestStressTestChannelGraphAPI(t *testing.T) {
 		executionCount = 100
 	)
 
-	for i := 0; i < concurrencyLevel; i++ {
+	for i := range concurrencyLevel {
 		t.Run(fmt.Sprintf("%d", i), func(t *testing.T) {
 			t.Parallel()
 
-			for j := 0; j < executionCount; j++ {
+			for range executionCount {
 				// Randomly select a method to execute.
 				methodIndex := rand.Intn(len(methods))
 
@@ -4226,7 +4226,7 @@ func TestFilterChannelRange(t *testing.T) {
 		return updateTime
 	}
 
-	for i := 0; i < numChans/2; i++ {
+	for i := range numChans / 2 {
 		chanHeight := endHeight
 		channel1, chanID1 := createEdge(
 			lnwire.GossipVersion1, chanHeight, uint32(i+1), 0,

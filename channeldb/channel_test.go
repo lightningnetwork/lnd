@@ -732,7 +732,9 @@ func TestChannelStateTransition(t *testing.T) {
 		},
 	}
 
-	_, err = channel.UpdateCommitment(&commitment, unsignedAckedUpdates)
+	_, err = channel.UpdateCommitment(
+		&commitment, unsignedAckedUpdates, fn.None[tlv.Blob](),
+	)
 	require.NoError(t, err, "unable to update commitment")
 
 	// Assert that update is correctly written to the database.

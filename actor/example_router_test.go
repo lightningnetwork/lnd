@@ -28,7 +28,9 @@ type RouterGreetingResponse struct {
 // key and using a router to dispatch messages to them.
 func ExampleRouter() {
 	system := actor.NewActorSystem()
-	defer system.Shutdown()
+	defer func() {
+		_ = system.Shutdown()
+	}()
 
 	//nolint:ll
 	routerGreeterKey := actor.NewServiceKey[RouterGreetingMsg, RouterGreetingResponse](
@@ -39,7 +41,8 @@ func ExampleRouter() {
 	actorID1 := "router-greeter-1"
 	greeterBehavior1 := actor.NewFunctionBehavior(
 		func(ctx context.Context,
-			msg RouterGreetingMsg) fn.Result[RouterGreetingResponse] {
+			msg RouterGreetingMsg,
+		) fn.Result[RouterGreetingResponse] {
 
 			return fn.Ok(RouterGreetingResponse{
 				Greeting:  "Greetings, " + msg.Name + "!",
@@ -58,7 +61,8 @@ func ExampleRouter() {
 	actorID2 := "router-greeter-2"
 	greeterBehavior2 := actor.NewFunctionBehavior(
 		func(ctx context.Context,
-			msg RouterGreetingMsg) fn.Result[RouterGreetingResponse] {
+			msg RouterGreetingMsg,
+		) fn.Result[RouterGreetingResponse] {
 
 			return fn.Ok(RouterGreetingResponse{
 				Greeting:  "Salutations, " + msg.Name + "!",
@@ -80,8 +84,7 @@ func ExampleRouter() {
 			RouterGreetingResponse](),
 		system.DeadLetters(),
 	)
-	fmt.Printf("Router %s created for service key '%s'.\n",
-		greeterRouter.ID(), "router-greeter-service")
+	fmt.Printf("Router %s created.\n", greeterRouter.ID())
 
 	// Send messages through the router.
 	names := []string{"Alice", "Bob", "Charlie", "David"}
@@ -112,7 +115,7 @@ func ExampleRouter() {
 	// Output:
 	// Actor router-greeter-1 spawned.
 	// Actor router-greeter-2 spawned.
-	// Router router(router-greeter-service) created for service key 'router-greeter-service'.
+	// Router router(router-greeter-service) created.
 	// For Alice: Received 'Greetings, Alice!' from router-greeter-1
 	// For Bob: Received 'Salutations, Bob!' from router-greeter-2
 	// For Charlie: Received 'Greetings, Charlie!' from router-greeter-1

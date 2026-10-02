@@ -219,6 +219,7 @@ func (s *SqliteStore) backupAndMigrate(mig *migrate.Migrate,
 			"migration attempt and backup creation "+
 			"(current_db_version=%v, max_migration_version=%v)",
 			currentDbVersion, maxMigrationVersion)
+
 		return nil
 	}
 
@@ -238,6 +239,7 @@ func (s *SqliteStore) backupAndMigrate(mig *migrate.Migrate,
 	}
 
 	log.Infof("Applying migrations to database")
+
 	return mig.Up()
 }
 
@@ -284,6 +286,7 @@ func (s *SqliteStore) executeMigrations(target MigrationTarget,
 	// Populate the database with our set of schemas based on our embedded
 	// in-memory file system.
 	sqliteFS := newReplacerFS(set.SQLFiles, sqliteSchemaReplacements)
+
 	return applyMigrations(
 		sqliteFS, driver, set.SQLFileDirectory, "sqlite", target, opts,
 	)

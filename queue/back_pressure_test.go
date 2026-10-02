@@ -37,8 +37,8 @@ func (m *queueMachine[T]) Enqueue(t *rapid.T) {
 	if errors.Is(err, ErrItemDropped) {
 		actualDrop = true
 	} else if err != nil {
-		// If Enqueue with background context returns an error other than
-		// ErrItemDropped, it's unexpected.
+		// If Enqueue with background context returns an error other
+		// than ErrItemDropped, it's unexpected.
 		m.tb.Fatalf("Enqueue with background context returned "+
 			"unexpected error: %v", err)
 	}
@@ -70,8 +70,8 @@ func (m *queueMachine[T]) Dequeue(t *rapid.T) {
 
 		result := m.queue.Dequeue(ctx)
 		require.True(
-			m.tb, result.IsErr(), "dequeue "+
-				"should return error on empty queue with timeout",
+			m.tb, result.IsErr(), "dequeue should return error "+
+				"on empty queue with timeout",
 		)
 		require.ErrorIs(
 			m.tb, result.Err(),
@@ -198,7 +198,7 @@ func TestBackpressureQueueEnqueueCancellation(t *testing.T) {
 		// Fill the queue to its capacity. The predicate always returns
 		// false, so no drops expected.
 		for i := range capacity {
-			err := q.Enqueue(context.Background(), i)
+			err := q.Enqueue(t.Context(), i)
 			require.NoError(
 				rt, err, "enqueue failed during setup: %v", err,
 			)
@@ -208,9 +208,9 @@ func TestBackpressureQueueEnqueueCancellation(t *testing.T) {
 				"should be full after setup",
 		)
 
-		// Attempt to enqueue one more item with an immediately cancelled
-		// context.
-		ctx, cancel := context.WithCancel(context.Background())
+		// Attempt to enqueue one more item with an immediately
+		// cancelled context.
+		ctx, cancel := context.WithCancel(t.Context())
 		cancel()
 
 		err := q.Enqueue(ctx, 999)
@@ -250,7 +250,7 @@ func TestBackpressureQueueDequeueCancellation(t *testing.T) {
 
 		// Attempt to dequeue from the empty queue with an immediately
 		// cancelled context.
-		ctx, cancel := context.WithCancel(context.Background())
+		ctx, cancel := context.WithCancel(t.Context())
 		cancel()
 
 		result := q.Dequeue(ctx)
@@ -300,12 +300,11 @@ func TestBackpressureQueueComposedPredicate(t *testing.T) {
 	for i := range minThresh {
 		// All items aren't 42, and queue is not full enough for RED to
 		// drop.
-		err := q.Enqueue(context.Background(), i)
+		err := q.Enqueue(t.Context(), i)
 		require.NoErrorf(t, err, "enqueue S1 setup "+
 			"item %d (qLen before: %d) should not be dropped. "+
 			"Predicate was redCheck(%d) || customPred(%d,%d)",
 			i, len(q.ch)-1, len(q.ch)-1, len(q.ch)-1, i)
-
 	}
 
 	currentLen := len(q.ch)
@@ -314,7 +313,7 @@ func TestBackpressureQueueComposedPredicate(t *testing.T) {
 	// Enqueue item 42. customValuePredicate is true, so composedPredicate
 	// is true. Item 42 should be dropped regardless of what redCheck
 	// decides.
-	err = q.Enqueue(context.Background(), 42)
+	err = q.Enqueue(t.Context(), 42)
 	require.ErrorIs(
 		t, err, ErrItemDropped,
 		"item 42 should have been dropped by composed predicate",
@@ -336,7 +335,7 @@ func TestBackpressureQueueComposedPredicate(t *testing.T) {
 			"for S2 test",
 	)
 
-	err = q.Enqueue(context.Background(), 100)
+	err = q.Enqueue(t.Context(), 100)
 
 	// Expect drop because queue is full (len=capacity), so
 	// redCheck(capacity) is true. customValuePredicate(capacity, 100)
@@ -406,7 +405,7 @@ func TestBackpressureQueueLenAndReceiveChan(t *testing.T) {
 	require.Equal(t, 0, q.Len())
 
 	for i := range 3 {
-		require.NoError(t, q.Enqueue(context.Background(), i))
+		require.NoError(t, q.Enqueue(t.Context(), i))
 	}
 	require.Equal(t, 3, q.Len())
 
@@ -427,7 +426,7 @@ func TestBackpressureQueueClose(t *testing.T) {
 	q := NewBackpressureQueue(10, neverDrop)
 
 	for i := range 3 {
-		require.NoError(t, q.Enqueue(context.Background(), i))
+		require.NoError(t, q.Enqueue(t.Context(), i))
 	}
 
 	q.Close()
@@ -464,10 +463,10 @@ func TestBackpressureQueueEnqueueAfterClose(t *testing.T) {
 	})
 	q := NewBackpressureQueue(5, neverDrop)
 
-	require.NoError(t, q.Enqueue(context.Background(), 1))
+	require.NoError(t, q.Enqueue(t.Context(), 1))
 	q.Close()
 
-	err := q.Enqueue(context.Background(), 2)
+	err := q.Enqueue(t.Context(), 2)
 	require.ErrorIs(t, err, ErrQueueClosed)
 }
 

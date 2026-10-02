@@ -458,7 +458,7 @@ func TestContextGuardCountGoroutines(t *testing.T) {
 	count1 := runtime.NumGoroutine()
 
 	// Create 1000 contexts of each type.
-	for i := 0; i < 1000; i++ {
+	for range 1000 {
 		_, _ = g.Create(ctx)
 		_, _ = g.Create(ctx, WithBlockingCG())
 		_, _ = g.Create(ctx, WithTimeoutCG())

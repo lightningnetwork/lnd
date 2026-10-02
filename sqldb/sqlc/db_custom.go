@@ -27,7 +27,7 @@ func makeQueryParams(numTotalArgs, numListArgs int) string {
 	b.Grow(numListArgs * 6)
 
 	diff := numTotalArgs - numListArgs
-	for i := 0; i < numListArgs; i++ {
+	for i := range numListArgs {
 		if i > 0 {
 			// We don't need to check the error here because the
 			// WriteString method of strings.Builder always returns
@@ -174,7 +174,8 @@ type PaymentAndIntent interface {
 	// GetPayment returns the Payment associated with this interface.
 	GetPayment() Payment
 
-	// GetPaymentIntent returns the PaymentIntent associated with this payment.
+	// GetPaymentIntent returns the PaymentIntent associated with this
+	// payment.
 	GetPaymentIntent() PaymentIntent
 }
 
@@ -194,6 +195,7 @@ func (r FilterPaymentsRow) GetPaymentIntent() PaymentIntent {
 	if !r.IntentType.Valid {
 		return PaymentIntent{}
 	}
+
 	return PaymentIntent{
 		IntentType:    r.IntentType.Int16,
 		IntentPayload: r.IntentPayload,
@@ -216,6 +218,7 @@ func (r FetchPaymentRow) GetPaymentIntent() PaymentIntent {
 	if !r.IntentType.Valid {
 		return PaymentIntent{}
 	}
+
 	return PaymentIntent{
 		IntentType:    r.IntentType.Int16,
 		IntentPayload: r.IntentPayload,
@@ -236,6 +239,7 @@ func (r FetchPaymentsByIDsRow) GetPaymentIntent() PaymentIntent {
 	if !r.IntentType.Valid {
 		return PaymentIntent{}
 	}
+
 	return PaymentIntent{
 		IntentType:    r.IntentType.Int16,
 		IntentPayload: r.IntentPayload,

@@ -259,6 +259,7 @@ func (s *PostgresStore) executeMigrations(target MigrationTarget,
 	// Populate the database with our set of schemas based on our embedded
 	// in-memory file system.
 	postgresFS := newReplacerFS(set.SQLFiles, postgresSchemaReplacements)
+
 	return applyMigrations(
 		postgresFS, driver, set.SQLFileDirectory, dbName, target, opts,
 	)
@@ -269,7 +270,6 @@ func (s *PostgresStore) GetSchemaVersion() (int, bool, error) {
 	driver, err := pgx_migrate.WithInstance(s.DB, &pgx_migrate.Config{})
 	if err != nil {
 		return 0, false, errPostgresMigration(err)
-
 	}
 
 	version, dirty, err := driver.Version()

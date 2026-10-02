@@ -152,7 +152,7 @@ func NewTestPostgresDB(t testing.TB, fixture *TestPgFixture) *PostgresStore {
 	require.NoError(t, err)
 
 	require.NoError(t, store.ApplyAllMigrations(
-		context.Background(), GetMigrations()),
+		t.Context(), GetMigrations()),
 	)
 
 	t.Cleanup(func() {

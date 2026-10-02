@@ -110,7 +110,8 @@ func (f *futureImpl[T]) Await(ctx context.Context) fn.Result[T] {
 		return *resPtr
 
 	case <-ctx.Done():
-		// The waiting context was cancelled before the future completed.
+		// The waiting context was cancelled before the future
+		// completed.
 		return fn.Err[T](ctx.Err())
 	}
 }
@@ -144,8 +145,8 @@ func (f *futureImpl[T]) ThenApply(ctx context.Context,
 			return
 		}
 
-		// Otherwise, the original future completed successfully. Apply the
-		// transformation function to its result.
+		// Otherwise, the original future completed successfully. Apply
+		// the transformation function to its result.
 		originalResult.WhenOk(func(res T) {
 			newValue := fApply(res)
 			transformedPromise.Complete(fn.Ok(newValue))

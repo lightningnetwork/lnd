@@ -51,10 +51,10 @@ func BenchmarkSqliteMaxConns(b *testing.B) {
 	require.NoError(b, err)
 
 	require.NoError(b, setupStore.ApplyAllMigrations(
-		context.Background(), GetMigrations(),
+		b.Context(), GetMigrations(),
 	))
 
-	ctx := context.Background()
+	ctx := b.Context()
 
 	// Insert test invoices. We use a predictable hash per invoice so we
 	// can look them up deterministically during the benchmark.
@@ -129,10 +129,10 @@ func BenchmarkSqliteMaxConnsConcurrentReads(b *testing.B) {
 	require.NoError(b, err)
 
 	require.NoError(b, setupStore.ApplyAllMigrations(
-		context.Background(), GetMigrations(),
+		b.Context(), GetMigrations(),
 	))
 
-	ctx := context.Background()
+	ctx := b.Context()
 
 	hashes := make([][]byte, numInvoices)
 	for i := range numInvoices {

@@ -4,7 +4,6 @@ import (
 	"context"
 	"database/sql"
 	"fmt"
-	"math"
 	"math/rand"
 	"time"
 )
@@ -224,8 +223,14 @@ func randRetryDelay(initialRetryDelay, maxRetryDelay time.Duration,
 	// 50% plus 0%-100% gives us the range of 50%-150%.
 	initialDelay := halfDelay + time.Duration(randDelay)
 
+	// Cap the delay before multiplying so a large initial delay or retry
+	// count cannot overflow time.Duration.
+	if initialDelay >= maxRetryDelay {
+		return maxRetryDelay
+	}
+
 	// If this is the first attempt, we just return the initial delay.
-	if attempt == 0 {
+	if attempt <= 0 {
 		return initialDelay
 	}
 
@@ -234,15 +239,12 @@ func randRetryDelay(initialRetryDelay, maxRetryDelay time.Duration,
 	// attempt. If we double something n times, that's the same as
 	// multiplying the value with 2^n. We limit the power to 32 to avoid
 	// overflows.
-	factor := time.Duration(math.Pow(2, min(float64(attempt), 32)))
-	actualDelay := initialDelay * factor
-
-	// Cap the delay at the maximum configured value.
-	if actualDelay > maxRetryDelay {
+	factor := int64(1) << min(attempt, 32)
+	if int64(initialDelay) > int64(maxRetryDelay)/factor {
 		return maxRetryDelay
 	}
 
-	return actualDelay
+	return time.Duration(int64(initialDelay) * factor)
 }
 
 // MakeTx is a function that creates a new transaction. It returns a Tx and an
@@ -271,8 +273,8 @@ type OnBackoff func(retry int, delay time.Duration)
 func executeTxAttempt(tx Tx, txBody TxBody, rollbackTx RollbackTx,
 	waitBeforeRetry func(int) bool, attempt int) (bool, error) {
 
-	// Rollback is safe to call even if the tx is already closed, so if the tx
-	// commits successfully, this is a no-op.
+	// Rollback is safe to call even if the tx is already closed, so if the
+	// tx commits successfully, this is a no-op.
 	defer func() {
 		_ = tx.Rollback()
 	}()
@@ -280,8 +282,8 @@ func executeTxAttempt(tx Tx, txBody TxBody, rollbackTx RollbackTx,
 	if bodyErr := txBody(tx); bodyErr != nil {
 		log.Tracef("Error in txBody: %v", bodyErr)
 
-		// Roll back the transaction, then attempt a random backoff and try
-		// again if the error was a serialization error.
+		// Roll back the transaction, then attempt a random backoff and
+		// try again if the error was a serialization error.
 		if err := rollbackTx(tx); err != nil {
 			return false, MapSQLError(err)
 		}
@@ -298,8 +300,8 @@ func executeTxAttempt(tx Tx, txBody TxBody, rollbackTx RollbackTx,
 	if commitErr := tx.Commit(); commitErr != nil {
 		log.Tracef("Failed to commit tx: %v", commitErr)
 
-		// Roll back the transaction, then attempt a random backoff and try
-		// again if the error was a serialization error.
+		// Roll back the transaction, then attempt a random backoff and
+		// try again if the error was a serialization error.
 		if err := rollbackTx(tx); err != nil {
 			return false, MapSQLError(err)
 		}
@@ -344,7 +346,7 @@ func ExecuteSQLTransactionWithRetry(ctx context.Context, makeTx MakeTx,
 		}
 	}
 
-	for i := 0; i < opts.numRetries; i++ {
+	for i := range opts.numRetries {
 		tx, err := makeTx()
 		if err != nil {
 			dbErr := MapSQLError(err)
@@ -367,7 +369,8 @@ func ExecuteSQLTransactionWithRetry(ctx context.Context, makeTx MakeTx,
 			tx, txBody, rollbackTx, waitBeforeRetry, i,
 		)
 		if retry {
-			// Transient serialization error, discard this attempt and retry.
+			// Transient serialization error, discard this attempt
+			// and retry.
 			continue
 		}
 		if err != nil {
@@ -402,6 +405,7 @@ func (t *TransactionExecutor[Q]) ExecTx(ctx context.Context,
 		}
 
 		reset()
+
 		return txBody(t.createQuery(sqlTx))
 	}
 

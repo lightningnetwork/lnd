@@ -252,7 +252,7 @@ type CollectFunc[T any, ID any] func(T) (ID, error)
 // - extractPageCursor: extracts cursor from paginated item for next page
 // - collectFunc: extracts identifier from paginated item
 // - batchDataFunc: batch loads shared data from collected IDs for one page
-// - processItem: processes each item with the shared batch data
+// - processItem: processes each item with the shared batch data.
 func ExecuteCollectAndBatchWithSharedDataQuery[C any, T any, I any, D any](
 	ctx context.Context, cfg *QueryConfig, initialCursor C,
 	pageQueryFunc PagedQueryFunc[C, T],

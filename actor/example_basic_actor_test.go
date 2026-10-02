@@ -27,7 +27,9 @@ type BasicGreetingResponse struct {
 // directly using Ask, and then unregistering and stopping it.
 func ExampleActor() {
 	system := actor.NewActorSystem()
-	defer system.Shutdown()
+	defer func() {
+		_ = system.Shutdown()
+	}()
 
 	//nolint:ll
 	greeterKey := actor.NewServiceKey[BasicGreetingMsg, BasicGreetingResponse](

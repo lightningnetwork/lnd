@@ -90,8 +90,8 @@ type MigrationSet struct {
 func (m MigrationSet) validate() error {
 	if len(m.Descriptors) == 0 {
 		if m.LatestMigrationVersion != 0 {
-			return fmt.Errorf("latest migration version %d requires "+
-				"at least one descriptor",
+			return fmt.Errorf("latest migration version %d "+
+				"requires at least one descriptor",
 				m.LatestMigrationVersion)
 		}
 
@@ -101,9 +101,9 @@ func (m MigrationSet) validate() error {
 	for i, descriptor := range m.Descriptors {
 		expectedVersion := i + 1
 		if descriptor.Version != expectedVersion {
-			return fmt.Errorf("migration descriptor version %d is out "+
-				"of order, expected %d", descriptor.Version,
-				expectedVersion)
+			return fmt.Errorf("migration descriptor version %d "+
+				"is out of order, expected %d",
+				descriptor.Version, expectedVersion)
 		}
 	}
 
@@ -161,14 +161,6 @@ type migrateOptions struct {
 	programmaticMigrs map[uint]migrate.ProgrammaticMigrEntry
 }
 
-// defaultMigrateOptions returns a new migrateOptions instance with default
-// settings.
-func defaultMigrateOptions() *migrateOptions {
-	return &migrateOptions{
-		programmaticMigrs: make(map[uint]migrate.ProgrammaticMigrEntry),
-	}
-}
-
 // MigrateOpt is a functional option that can be passed to migrate related
 // methods to modify behavior.
 type MigrateOpt func(*migrateOptions)
@@ -222,7 +214,7 @@ func (m *migrationLogger) Printf(format string, v ...interface{}) {
 	}
 }
 
-// Verbose should return true when verbose logging output is wanted
+// Verbose should return true when verbose logging output is wanted.
 func (m *migrationLogger) Verbose() bool {
 	return m.log.Level() <= btclog.LevelDebug
 }

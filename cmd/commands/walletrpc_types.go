@@ -22,6 +22,7 @@ type PendingSweep struct {
 	Budget               uint64       `json:"budget"`
 	DeadlineHeight       uint32       `json:"deadline_height"`
 	MaturityHeight       uint32       `json:"maturity_height"`
+	RawTxHex             string       `json:"raw_tx_hex"`
 
 	NextBroadcastHeight uint32 `json:"next_broadcast_height"`
 	RequestedConfTarget uint32 `json:"requested_conf_target"`
@@ -44,6 +45,7 @@ func NewPendingSweepFromProto(pendingSweep *walletrpc.PendingSweep) *PendingSwee
 		Budget:               pendingSweep.Budget,
 		DeadlineHeight:       pendingSweep.DeadlineHeight,
 		MaturityHeight:       pendingSweep.MaturityHeight,
+		RawTxHex:             pendingSweep.RawTxHex,
 
 		// Deprecated fields.
 		NextBroadcastHeight: pendingSweep.NextBroadcastHeight,

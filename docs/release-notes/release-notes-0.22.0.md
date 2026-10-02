@@ -88,6 +88,12 @@
 
 ## RPC Updates
 
+* [Corrected the `timeout_seconds`
+  documentation](https://github.com/lightningnetwork/lnd/pull/11244) in
+  `SendPaymentRequest` to describe it as the total time budget for the entire
+  payment attempt (path finding and every HTLC attempt, including retries)
+  rather than a delay before attempting the first HTLC.
+
 ## lncli Updates
 
 ## Breaking Changes

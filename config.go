@@ -5,6 +5,7 @@
 package lnd
 
 import (
+	"bytes"
 	"encoding/hex"
 	"errors"
 	"fmt"
@@ -1343,6 +1344,29 @@ func ValidateConfig(cfg Config, interceptor signal.Interceptor, fileParser,
 			"mutually exclusive, only one should be selected")
 	}
 
+	// Distinguish an omitted interval from an explicit zero, including when
+	// lnd's config is embedded in another application.
+	blockTimeSet := cfg.Bitcoin.SigNetBlockTime != 0
+	for _, parser := range []*flags.Parser{fileParser, flagParser} {
+		if parser == nil {
+			continue
+		}
+
+		for _, name := range []string{
+			"bitcoin.signetblocktime",
+			"lnd.bitcoin.signetblocktime",
+		} {
+			option := parser.FindOptionByLongName(name)
+			blockTimeSet = blockTimeSet ||
+				(option != nil && option.IsSet())
+		}
+	}
+
+	err = validateSigNetBackendOptions(cfg.Bitcoin, blockTimeSet)
+	if err != nil {
+		return nil, mkErr("error validating bitcoin params: %v", err)
+	}
+
 	// Multiple networks can't be selected simultaneously.  Count
 	// number of network flags passed; assign active network params
 	// while we're at it.
@@ -1410,9 +1434,27 @@ func ValidateConfig(cfg Config, interceptor signal.Interceptor, fileParser,
 			}
 		}
 
-		chainParams := chaincfg.CustomSignetParams(
-			sigNetChallenge, sigNetSeeds,
+		blockTime := cfg.Bitcoin.SigNetBlockTime
+		if !blockTimeSet {
+			blockTime = chaincfg.SigNetParams.TargetTimePerBlock
+		} else if bytes.Equal(
+			sigNetChallenge, chaincfg.DefaultSignetChallenge,
+		) {
+
+			return nil, mkErr("signet block time " +
+				"requires custom signet challenge")
+		}
+
+		// Construct and validate the complete consensus parameters in
+		// chaincfg for a compatible custom-Signet backend, such as the
+		// Mutinynet Bitcoin fork or Bitcoin Knots.
+		chainParams, err := chaincfg.CustomSignetParamsWithBlockTime(
+			sigNetChallenge, sigNetSeeds, blockTime,
 		)
+		if err != nil {
+			return nil, mkErr("invalid custom signet "+
+				"parameters: %v", err)
+		}
 		cfg.ActiveNetParams.Params = &chainParams
 	}
 	if numNets > 1 {
@@ -2574,6 +2616,62 @@ func configToFlatMap(cfg Config) (map[string]string,
 	printConfig(reflect.ValueOf(cfg), "")
 
 	return result, deprecated, nil
+}
+
+// validateSigNetBackendOptions validates custom signet options against the
+// selected chain backend. blockTimeSet indicates whether an interval was
+// supplied, including an explicit zero.
+func validateSigNetBackendOptions(cfg *lncfg.Chain, blockTimeSet bool) error {
+	if cfg == nil {
+		return fmt.Errorf("bitcoin config cannot be nil")
+	}
+
+	if !cfg.SigNet {
+		if blockTimeSet {
+			return fmt.Errorf("bitcoin.signetblocktime requires " +
+				"bitcoin.signet=true")
+		}
+
+		return nil
+	}
+
+	switch cfg.Node {
+	case bitcoindBackendName:
+		switch {
+		case cfg.SigNetChallenge != "":
+			return fmt.Errorf("bitcoin.signetchallenge must not " +
+				"be set with bitcoin.node=bitcoind; " +
+				"configure custom signet consensus options " +
+				"on bitcoind instead")
+
+		case blockTimeSet:
+			return fmt.Errorf("bitcoin.signetblocktime must not " +
+				"be set with bitcoin.node=bitcoind; " +
+				"configure custom signet consensus options " +
+				"on bitcoind instead")
+		}
+
+	case btcdBackendName:
+		if blockTimeSet {
+			return fmt.Errorf("bitcoin.signetblocktime must not " +
+				"be set with bitcoin.node=btcd; configure " +
+				"custom signet consensus options on btcd " +
+				"instead")
+		}
+	}
+
+	if blockTimeSet {
+		if cfg.Node != neutrinoBackendName {
+			return fmt.Errorf("bitcoin.signetblocktime is only " +
+				"supported with bitcoin.node=neutrino")
+		}
+		if cfg.SigNetChallenge == "" {
+			return fmt.Errorf("signet block time requires custom " +
+				"signet challenge")
+		}
+	}
+
+	return nil
 }
 
 // logWarningsForDeprecation logs a warning if a deprecated config option is

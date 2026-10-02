@@ -1,21 +1,56 @@
 package lnd
 
 import (
+	"encoding/hex"
 	"fmt"
+	"strings"
 	"testing"
+	"time"
 
+	"github.com/btcsuite/btcd/chaincfg/v2"
+	"github.com/btcsuite/btcd/txscript/v2"
+	flags "github.com/jessevdk/go-flags"
+	"github.com/lightningnetwork/lnd/build"
 	"github.com/lightningnetwork/lnd/chainreg"
 	"github.com/lightningnetwork/lnd/htlcswitch"
 	"github.com/lightningnetwork/lnd/lncfg"
 	"github.com/lightningnetwork/lnd/routing"
+	"github.com/lightningnetwork/lnd/signal"
 	"github.com/lightningnetwork/lnd/tor"
 	"github.com/stretchr/testify/require"
 )
+
+// testSigNetChallengeHex is OP_TRUE encoded as Bitcoin Script hex.
+const testSigNetChallengeHex = "51"
 
 var (
 	testPassword     = "testpassword"
 	redactedPassword = "[redacted]"
 )
+
+// testSigNetChallenge is OP_TRUE encoded as Bitcoin Script bytes.
+var testSigNetChallenge = []byte{txscript.OP_TRUE}
+
+// validateTestConfig runs ValidateConfig with isolated test logging and closes
+// the log rotator that ValidateConfig starts on successful validation.
+func validateTestConfig(t *testing.T, cfg Config) (*Config, error) {
+	t.Helper()
+
+	cfg.SubLogMgr = build.NewSubLoggerManager()
+
+	fileParser := flags.NewParser(&cfg, flags.Default)
+	flagParser := flags.NewParser(&cfg, flags.Default)
+	cleanCfg, err := ValidateConfig(
+		cfg, signal.Interceptor{}, fileParser, flagParser,
+	)
+	if err != nil {
+		return cleanCfg, err
+	}
+
+	require.NoError(t, cleanCfg.LogRotator.Close())
+
+	return cleanCfg, nil
+}
 
 // TestConfigToFlatMap tests that the configToFlatMap function works as
 // expected on the default configuration.
@@ -164,6 +199,326 @@ func TestNormalizeRemoteSignerListenAddrs(t *testing.T) {
 			require.NoError(t, err)
 			require.Len(t, addrs, 1)
 			require.Equal(t, test.expected, addrs[0].String())
+		})
+	}
+}
+
+// TestValidateConfigSigNetBlockTime tests that custom signet block times are
+// only applied as an optional addition to a custom signet challenge.
+func TestValidateConfigSigNetBlockTime(t *testing.T) {
+	tests := []struct {
+		name        string
+		challenge   string
+		seeds       []string
+		blockTime   time.Duration
+		expectError string
+		expectTime  time.Duration
+	}{
+		{
+			name:       "default signet",
+			expectTime: chaincfg.SigNetParams.TargetTimePerBlock,
+		},
+		{
+			name:       "custom challenge only",
+			challenge:  testSigNetChallengeHex,
+			expectTime: chaincfg.SigNetParams.TargetTimePerBlock,
+		},
+		{
+			name:       "custom challenge with block time",
+			challenge:  testSigNetChallengeHex,
+			seeds:      []string{"seed.example"},
+			blockTime:  30 * time.Second,
+			expectTime: 30 * time.Second,
+		},
+		{
+			name:        "negative interval",
+			challenge:   testSigNetChallengeHex,
+			blockTime:   -time.Second,
+			expectError: "is below one second",
+		},
+		{
+			name:        "subsecond interval",
+			challenge:   testSigNetChallengeHex,
+			blockTime:   500 * time.Millisecond,
+			expectError: "is below one second",
+		},
+		{
+			name:        "fractional seconds",
+			challenge:   testSigNetChallengeHex,
+			blockTime:   1500 * time.Millisecond,
+			expectError: "is not whole seconds",
+		},
+		{
+			name:        "interval above timespan",
+			challenge:   testSigNetChallengeHex,
+			blockTime:   14*24*time.Hour + time.Second,
+			expectError: "exceeds timespan",
+		},
+		{
+			name:       "one second interval",
+			challenge:  testSigNetChallengeHex,
+			blockTime:  time.Second,
+			expectTime: time.Second,
+		},
+		{
+			name:       "interval equal to timespan",
+			challenge:  testSigNetChallengeHex,
+			blockTime:  14 * 24 * time.Hour,
+			expectTime: 14 * 24 * time.Hour,
+		},
+		{
+			name:       "nondivisible timespan",
+			challenge:  testSigNetChallengeHex,
+			blockTime:  11 * time.Second,
+			expectTime: 11 * time.Second,
+		},
+		{
+			name:        "invalid challenge hex",
+			challenge:   "zz",
+			blockTime:   30 * time.Second,
+			expectError: "hex decode failed",
+		},
+		{
+			name: "explicit default challenge",
+			challenge: hex.EncodeToString(
+				chaincfg.DefaultSignetChallenge,
+			),
+			blockTime:   30 * time.Second,
+			expectError: "requires custom signet challenge",
+		},
+		{
+			name:        "block time without custom challenge",
+			blockTime:   30 * time.Second,
+			expectError: "requires custom signet challenge",
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			cfg := DefaultConfig()
+			cfg.LndDir = t.TempDir()
+			cfg.Bitcoin.Node = neutrinoBackendName
+			cfg.Bitcoin.SigNet = true
+			cfg.Bitcoin.SigNetChallenge = tc.challenge
+			cfg.Bitcoin.SigNetSeedNode = tc.seeds
+			cfg.Bitcoin.SigNetBlockTime = tc.blockTime
+
+			cleanCfg, err := validateTestConfig(t, cfg)
+
+			if tc.expectError != "" {
+				require.ErrorContains(t, err, tc.expectError)
+				return
+			}
+
+			require.NoError(t, err)
+			require.Equal(
+				t, tc.expectTime,
+				cleanCfg.ActiveNetParams.Params.
+					TargetTimePerBlock,
+			)
+			params := cleanCfg.ActiveNetParams.Params
+			require.Equal(t, 14*24*time.Hour, params.TargetTimespan)
+			require.False(t, params.ReduceMinDifficulty)
+			if tc.challenge != "" {
+				expected := chaincfg.CustomSignetParams(
+					testSigNetChallenge,
+					chaincfg.DefaultSignetDNSSeeds,
+				)
+				require.Equal(t, expected.Net, params.Net)
+			}
+			if len(tc.seeds) != 0 {
+				require.Equal(t, []chaincfg.DNSSeed{{
+					Host: tc.seeds[0],
+				}}, params.DNSSeeds)
+			}
+		})
+	}
+}
+
+// TestValidateConfigSigNetBackendOptions tests that custom signet options are
+// only accepted for backends that can use them.
+func TestValidateConfigSigNetBackendOptions(t *testing.T) {
+	err := validateSigNetBackendOptions(nil, false)
+	require.ErrorContains(t, err, "bitcoin config cannot be nil")
+
+	tests := []struct {
+		name        string
+		node        string
+		challenge   string
+		blockTime   time.Duration
+		expectError string
+		expectNet   chaincfg.Params
+	}{
+		{
+			name:      "bitcoind default signet",
+			node:      bitcoindBackendName,
+			expectNet: chaincfg.SigNetParams,
+		},
+		{
+			name:      "bitcoind custom challenge",
+			node:      bitcoindBackendName,
+			challenge: testSigNetChallengeHex,
+			expectError: "bitcoin.signetchallenge must not be " +
+				"set with bitcoin.node=bitcoind",
+		},
+		{
+			name:      "bitcoind custom challenge and block time",
+			node:      bitcoindBackendName,
+			challenge: testSigNetChallengeHex,
+			blockTime: 30 * time.Second,
+			expectError: "bitcoin.signetchallenge must not be " +
+				"set with bitcoin.node=bitcoind",
+		},
+		{
+			name:      "bitcoind custom block time",
+			node:      bitcoindBackendName,
+			blockTime: 30 * time.Second,
+			expectError: "bitcoin.signetblocktime must not be " +
+				"set with bitcoin.node=bitcoind",
+		},
+		{
+			name:      "btcd custom challenge",
+			node:      btcdBackendName,
+			challenge: testSigNetChallengeHex,
+			expectNet: chaincfg.CustomSignetParams(
+				testSigNetChallenge,
+				chaincfg.DefaultSignetDNSSeeds,
+			),
+		},
+		{
+			name:      "btcd custom block time",
+			node:      btcdBackendName,
+			challenge: testSigNetChallengeHex,
+			blockTime: 30 * time.Second,
+			expectError: "bitcoin.signetblocktime must not be " +
+				"set with bitcoin.node=btcd",
+		},
+		{
+			name:      "no chain backend custom block time",
+			node:      "nochainbackend",
+			challenge: testSigNetChallengeHex,
+			blockTime: 30 * time.Second,
+			expectError: "only supported with " +
+				"bitcoin.node=neutrino",
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			cfg := DefaultConfig()
+			cfg.LndDir = t.TempDir()
+			cfg.Bitcoin.Node = tc.node
+			cfg.Bitcoin.SigNet = true
+			cfg.Bitcoin.SigNetChallenge = tc.challenge
+			cfg.Bitcoin.SigNetBlockTime = tc.blockTime
+			cfg.BtcdMode.RPCUser = "user"
+			cfg.BtcdMode.RPCPass = "pass"
+			cfg.BitcoindMode.RPCUser = "user"
+			cfg.BitcoindMode.RPCPass = "pass"
+			cfg.BitcoindMode.RPCPolling = true
+
+			cleanCfg, err := validateTestConfig(t, cfg)
+
+			if tc.expectError != "" {
+				require.ErrorContains(t, err, tc.expectError)
+				return
+			}
+
+			require.NoError(t, err)
+			require.Equal(t, tc.node, cleanCfg.Bitcoin.Node)
+			require.Equal(
+				t, tc.expectNet.Net,
+				cleanCfg.ActiveNetParams.Params.Net,
+			)
+			require.Equal(
+				t, tc.expectNet.TargetTimePerBlock,
+				cleanCfg.ActiveNetParams.Params.
+					TargetTimePerBlock,
+			)
+		})
+	}
+}
+
+// TestValidateConfigBlockTimeWithoutSigNet prevents custom block intervals from
+// being silently ignored when a different network is selected.
+func TestValidateConfigBlockTimeWithoutSigNet(t *testing.T) {
+	tests := []struct {
+		name      string
+		selectNet func(*lncfg.Chain)
+	}{
+		{
+			name:      "mainnet",
+			selectNet: func(c *lncfg.Chain) { c.MainNet = true },
+		},
+		{
+			name:      "testnet3",
+			selectNet: func(c *lncfg.Chain) { c.TestNet3 = true },
+		},
+		{
+			name:      "testnet4",
+			selectNet: func(c *lncfg.Chain) { c.TestNet4 = true },
+		},
+		{
+			name:      "regtest",
+			selectNet: func(c *lncfg.Chain) { c.RegTest = true },
+		},
+		{
+			name:      "simnet",
+			selectNet: func(c *lncfg.Chain) { c.SimNet = true },
+		},
+		{name: "no network", selectNet: func(c *lncfg.Chain) {}},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			cfg := DefaultConfig()
+			cfg.LndDir = t.TempDir()
+			cfg.Bitcoin.Node = neutrinoBackendName
+			cfg.Bitcoin.SigNetChallenge = testSigNetChallengeHex
+			cfg.Bitcoin.SigNetBlockTime = 30 * time.Second
+			tc.selectNet(cfg.Bitcoin)
+
+			_, err := validateTestConfig(t, cfg)
+			require.ErrorContains(
+				t, err, "bitcoin.signetblocktime requires "+
+					"bitcoin.signet=true",
+			)
+		})
+	}
+}
+
+// TestValidateConfigExplicitZeroSigNetBlockTime distinguishes an unset interval
+// from a zero interval supplied through either configuration parser.
+func TestValidateConfigExplicitZeroSigNetBlockTime(t *testing.T) {
+	for _, source := range []string{"flag", "file"} {
+		t.Run(source, func(t *testing.T) {
+			cfg := DefaultConfig()
+			cfg.LndDir = t.TempDir()
+			cfg.SubLogMgr = build.NewSubLoggerManager()
+			cfg.Bitcoin.Node = neutrinoBackendName
+			cfg.Bitcoin.SigNet = true
+			cfg.Bitcoin.SigNetChallenge = testSigNetChallengeHex
+
+			fileParser := flags.NewParser(&cfg, flags.Default)
+			flagParser := flags.NewParser(&cfg, flags.Default)
+			if source == "flag" {
+				_, err := flagParser.ParseArgs([]string{
+					"--bitcoin.signetblocktime=0s",
+				})
+				require.NoError(t, err)
+			} else {
+				ini := flags.NewIniParser(fileParser)
+				err := ini.Parse(strings.NewReader(
+					"[Bitcoin]\n" +
+						"bitcoin.signetblocktime=0s\n",
+				))
+				require.NoError(t, err)
+			}
+
+			_, err := ValidateConfig(
+				cfg, signal.Interceptor{}, fileParser,
+				flagParser,
+			)
+			require.ErrorContains(t, err, "is below one second")
 		})
 	}
 }

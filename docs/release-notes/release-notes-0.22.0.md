@@ -57,6 +57,15 @@
 
 ## Functional Enhancements
 
+* A new [`bitcoin.signetblocktime`
+  config option](https://github.com/lightningnetwork/lnd/pull/10864) allows
+  neutrino-backed custom signet nodes to override the expected block interval
+  used for header validation. The interval must be a positive whole number of
+  seconds no greater than 14 days, with `bitcoin.signet=true` and a custom
+  `bitcoin.signetchallenge`. It must match a compatible custom-Signet backend,
+  such as the Mutinynet Bitcoin fork or Bitcoin Knots. Upstream Bitcoin Core
+  does not support `-signetblocktime`.
+
 ## RPC Additions
 
 * The `routerrpc.EstimateRouteFee` RPC now supports [restricting fee estimates
@@ -195,3 +204,4 @@
 * Erick Cestari
 * Jared Tobin
 * Kevin Cai
+* Tee8z

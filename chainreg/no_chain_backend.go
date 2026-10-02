@@ -66,7 +66,7 @@ func (n *NoChainBackend) RegisterConfirmationsNtfn(*chainhash.Hash, []byte,
 }
 
 func (n *NoChainBackend) RegisterSpendNtfn(*wire.OutPoint, []byte,
-	uint32) (*chainntnfs.SpendEvent, error) {
+	uint32, ...chainntnfs.SpendOption) (*chainntnfs.SpendEvent, error) {
 
 	return nil, errNotImplemented
 }

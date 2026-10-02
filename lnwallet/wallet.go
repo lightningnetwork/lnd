@@ -677,12 +677,40 @@ func (l *LightningWallet) ResetReservations() {
 // ActiveReservations returns a slice of all the currently active
 // (non-canceled) reservations.
 func (l *LightningWallet) ActiveReservations() []*ChannelReservation {
+	l.limboMtx.RLock()
+	defer l.limboMtx.RUnlock()
+
 	reservations := make([]*ChannelReservation, 0, len(l.fundingLimbo))
 	for _, reservation := range l.fundingLimbo {
 		reservations = append(reservations, reservation)
 	}
 
 	return reservations
+}
+
+// PendingFundingOutput returns the exact funding output negotiated for an
+// active reservation. The lookup is safe to call from an external funding
+// coordinator while the wallet's reservation worker is running.
+func (l *LightningWallet) PendingFundingOutput(
+	pendingChanID [32]byte) (*wire.TxOut, error) {
+
+	l.limboMtx.RLock()
+	reservationID, ok := l.reservationIDs[pendingChanID]
+	if !ok {
+		l.limboMtx.RUnlock()
+
+		return nil, fmt.Errorf("funding reservation %x not found",
+			pendingChanID[:])
+	}
+
+	reservation, ok := l.fundingLimbo[reservationID]
+	l.limboMtx.RUnlock()
+	if !ok {
+		return nil, fmt.Errorf("funding reservation %x is unavailable",
+			pendingChanID[:])
+	}
+
+	return reservation.fundingOutput()
 }
 
 // requestHandler is the primary goroutine(s) responsible for handling, and

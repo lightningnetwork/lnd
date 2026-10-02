@@ -279,6 +279,10 @@ var allTestCases = []*lntest.TestCase{
 		TestFunc: testMultiHopPayments,
 	},
 	{
+		Name:     "interval router multi hop payment",
+		TestFunc: testIntervalRouterMultiHopPayment,
+	},
+	{
 		Name:     "estimate route fee",
 		TestFunc: testEstimateRouteFee,
 	},

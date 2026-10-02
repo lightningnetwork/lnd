@@ -1,6 +1,9 @@
 package models
 
-import "github.com/btcsuite/btcd/btcutil/v2"
+import (
+	"github.com/btcsuite/btcd/btcutil/v2"
+	"github.com/lightningnetwork/lnd/lnwire"
+)
 
 // CachedEdgeInfo is a struct that only caches the information of a
 // ChannelEdgeInfo that we actually use for pathfinding and therefore need to
@@ -20,6 +23,11 @@ type CachedEdgeInfo struct {
 	// Capacity is the total capacity of the channel, this is determined by
 	// the value output in the outpoint that created this channel.
 	Capacity btcutil.Amount
+
+	// Version is the gossip version that announced this channel. A channel
+	// can be announced on more than one version, and consumers that key
+	// channels by SCID alone need this field to tell the two apart.
+	Version lnwire.GossipVersion
 }
 
 // NewCachedEdge creates a new CachedEdgeInfo from the provided ChannelEdgeInfo.
@@ -29,5 +37,6 @@ func NewCachedEdge(edgeInfo *ChannelEdgeInfo) *CachedEdgeInfo {
 		NodeKey1Bytes: edgeInfo.NodeKey1Bytes,
 		NodeKey2Bytes: edgeInfo.NodeKey2Bytes,
 		Capacity:      edgeInfo.Capacity,
+		Version:       edgeInfo.Version,
 	}
 }

@@ -53,6 +53,11 @@
   the reported network statistics such as total network capacity, channel
   count and max out degree.
 
+* lnd [no longer keeps one Postgres connection for each schema
+  migration](https://github.com/lightningnetwork/lnd/pull/11267). Startup
+  no longer hangs on a fresh database when `db.postgres.maxconnections` is
+  set to a low value.
+
 # New Features
 
 ## Functional Enhancements
@@ -187,3 +192,4 @@
 * Boris Nagaev
 * Erick Cestari
 * Jared Tobin
+* Vandit Singh

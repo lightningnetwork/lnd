@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"encoding/hex"
 	"fmt"
+	"math"
 	"math/rand"
 	"reflect"
 	"testing"
@@ -206,13 +207,131 @@ func TestBlindedPathAccumulatedPolicyCalc(t *testing.T) {
 	// Alice's minimum final expiry delta is chosen to be 12.
 	aliceMinFinalExpDelta := uint16(12)
 
-	totalBase, totalRate, totalCLTVDelta := calcBlindedPathPolicies(
+	totalBase, totalRate, totalCLTVDelta, err := calcBlindedPathPolicies(
 		hopPolicies, aliceMinFinalExpDelta,
 	)
+	require.NoError(t, err)
 
-	require.Equal(t, lnwire.MilliSatoshi(201), totalBase)
+	require.EqualValues(t, 201, totalBase)
 	require.EqualValues(t, 1001, totalRate)
 	require.EqualValues(t, 300, totalCLTVDelta)
+}
+
+// TestBlindedPathAccumulatedPolicyCalcLargeFees asserts that the accumulated
+// fee base and rate of a blinded route are calculated exactly up to the
+// maximum value of the uint32 invoice fields, and that a path whose aggregate
+// fees cannot be represented exactly is rejected instead of being advertised
+// with under-reported fees.
+func TestBlindedPathAccumulatedPolicyCalcLargeFees(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name         string
+		policies     []*record.PaymentRelayInfo
+		expectedBase uint32
+		expectedRate uint32
+		expectedErr  string
+	}{
+		{
+			// 2 x 2750 ppm sums past ~4295 ppm, where the uint32
+			// rate calculation wrapped to 1213.
+			name: "fee rate above uint32 range",
+			policies: []*record.PaymentRelayInfo{
+				{FeeRate: 2750, BaseFee: 1100},
+				{FeeRate: 2750, BaseFee: 1100},
+			},
+			expectedBase: 2204,
+			expectedRate: 5508,
+		},
+		{
+			// A single 5000 msat base fee already exceeds the
+			// uint32 range once scaled by one million.
+			name: "base fee above uint32 range",
+			policies: []*record.PaymentRelayInfo{
+				{FeeRate: 1, BaseFee: 5000},
+				{FeeRate: 1, BaseFee: 5000},
+			},
+			expectedBase: 10001,
+			expectedRate: 3,
+		},
+		{
+			name: "aggregate base fee equal to max uint32",
+			policies: []*record.PaymentRelayInfo{
+				{BaseFee: 1},
+				{BaseFee: math.MaxUint32 - 1},
+			},
+			expectedBase: math.MaxUint32,
+		},
+		{
+			// 4294962999 + 1 + ceil(4294962999 * 1 / 1e6)
+			// = 4294967295.
+			name: "aggregate fee rate equal to max uint32",
+			policies: []*record.PaymentRelayInfo{
+				{FeeRate: 1},
+				{FeeRate: 4294962999},
+			},
+			expectedRate: math.MaxUint32,
+		},
+		{
+			name: "aggregate base fee one above max uint32",
+			policies: []*record.PaymentRelayInfo{
+				{BaseFee: 2},
+				{BaseFee: math.MaxUint32 - 1},
+			},
+			expectedErr: "aggregate base fee of 4294967296 msat " +
+				"exceeds",
+		},
+		{
+			// 4294963000 + 1 + ceil(4294963000 * 1 / 1e6)
+			// = 4294967296.
+			name: "aggregate fee rate one above max uint32",
+			policies: []*record.PaymentRelayInfo{
+				{FeeRate: 1},
+				{FeeRate: 4294963000},
+			},
+			expectedErr: "aggregate fee rate of 4294967296 ppm " +
+				"exceeds",
+		},
+		{
+			// The hop base fee scaled by one million doesn't fit
+			// in a uint64.
+			name: "base fee uint64 overflow",
+			policies: []*record.PaymentRelayInfo{
+				{BaseFee: math.MaxUint64 / 1_000_000 * 2},
+			},
+			expectedErr: "aggregate base fee overflows uint64",
+		},
+		{
+			// Two valid uint32 fee rates whose product plus their
+			// scaled sum doesn't fit in a uint64.
+			name: "fee rate uint64 overflow",
+			policies: []*record.PaymentRelayInfo{
+				{FeeRate: math.MaxUint32},
+				{FeeRate: math.MaxUint32},
+			},
+			expectedErr: "aggregate fee rate overflows uint64",
+		},
+	}
+
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			t.Parallel()
+
+			totalBase, totalRate, _, err := calcBlindedPathPolicies(
+				test.policies, 12,
+			)
+			if test.expectedErr != "" {
+				require.ErrorIs(t, err, errInvalidBlindedPath)
+				require.ErrorContains(t, err, test.expectedErr)
+
+				return
+			}
+
+			require.NoError(t, err)
+			require.Equal(t, test.expectedBase, totalBase)
+			require.Equal(t, test.expectedRate, totalRate)
+		})
+	}
 }
 
 // TestPadBlindedHopInfo asserts that the padding of blinded hop data is done
@@ -1035,6 +1154,96 @@ func TestSingleHopBlindedPath(t *testing.T) {
 	require.EqualValues(t, 0, path.HTLCMinMsat)
 	require.EqualValues(t, 0, path.HTLCMaxMsat)
 	require.EqualValues(t, 12, path.CltvExpiryDelta)
+}
+
+// TestBuildBlindedPathSkipsFeeOverflow asserts that a candidate route whose
+// aggregate fees cannot be represented in the invoice is skipped, while the
+// other usable candidates are still turned into blinded paths.
+func TestBuildBlindedPathSkipsFeeOverflow(t *testing.T) {
+	t.Parallel()
+
+	// Alice receives via two single-hop candidate routes: one through
+	// Carol, whose base fee doesn't fit in the uint32 invoice field, and
+	// one through Bob with ordinary fees.
+	var (
+		_, pkC = btcec.PrivKeyFromBytes([]byte{1})
+		_, pkB = btcec.PrivKeyFromBytes([]byte{2})
+		_, pkA = btcec.PrivKeyFromBytes([]byte{3})
+
+		carol = route.NewVertex(pkC)
+		bob   = route.NewVertex(pkB)
+		alice = route.NewVertex(pkA)
+
+		chanCA = uint64(1)
+		chanBA = uint64(2)
+	)
+
+	routes := []*route.Route{
+		{
+			SourcePubKey: carol,
+			Hops: []*route.Hop{{
+				PubKeyBytes: alice,
+				ChannelID:   chanCA,
+			}},
+		},
+		{
+			SourcePubKey: bob,
+			Hops: []*route.Hop{{
+				PubKeyBytes: alice,
+				ChannelID:   chanBA,
+			}},
+		},
+	}
+
+	policies := map[uint64]*models.ChannelEdgePolicy{
+		chanCA: {
+			ChannelID:   chanCA,
+			ToNode:      alice,
+			FeeBaseMSat: math.MaxUint32 + 1,
+			MaxHTLC:     1_000_000,
+		},
+		chanBA: {
+			ChannelID:                 chanBA,
+			ToNode:                    alice,
+			FeeBaseMSat:               100,
+			FeeProportionalMillionths: 500,
+			TimeLockDelta:             144,
+			MaxHTLC:                   1_000_000,
+		},
+	}
+
+	paths, err := BuildBlindedPaymentPaths(&BuildBlindedPathCfg{
+		FindRoutes: func(_ lnwire.MilliSatoshi) ([]*route.Route,
+			error) {
+
+			return routes, nil
+		},
+		FetchChannelEdgesByID: func(chanID uint64) (
+			*models.ChannelEdgeInfo, *models.ChannelEdgePolicy,
+			*models.ChannelEdgePolicy, error) {
+
+			return nil, policies[chanID], nil, nil
+		},
+		BestHeight: func() (uint32, error) {
+			return 1000, nil
+		},
+		AddPolicyBuffer: func(p *BlindedHopPolicy) (*BlindedHopPolicy,
+			error) {
+
+			return p, nil
+		},
+		PathID:                  []byte{1, 2, 3},
+		ValueMsat:               1000,
+		MinFinalCLTVExpiryDelta: 12,
+		BlocksUntilExpiry:       200,
+	})
+	require.NoError(t, err)
+
+	// Only the path through Bob is returned.
+	require.Len(t, paths, 1)
+	require.True(t, paths[0].Hops[0].BlindedNodePub.IsEqual(pkB))
+	require.EqualValues(t, 100, paths[0].FeeBaseMsat)
+	require.EqualValues(t, 500, paths[0].FeeRate)
 }
 
 func decryptAndDecodeHopData(t *testing.T, priv *btcec.PrivateKey,

@@ -22,6 +22,16 @@
 
 # Bug Fixes
 
+* [Fixed an overflow](https://github.com/lightningnetwork/lnd/pull/11290)
+  in the accumulated fee calculation for blinded paths. The aggregate base fee
+  and fee rate advertised in a blinded path's payinfo were computed with
+  `uint32` arithmetic, which wrapped once the summed fees exceeded about 4295
+  msat or 4295 ppm. The under-reported fees made payers underpay, so payments
+  to such invoices failed. The aggregates are now computed with checked
+  arithmetic, and a candidate path whose aggregate fees don't fit in the
+  invoice's `uint32` payinfo fields is skipped instead of being advertised
+  with under-reported fees.
+
 * [Fixed historical graph
   synchronization](https://github.com/lightningnetwork/lnd/pull/11173) so a
   peer whose channel range response cannot be used is rotated out of the
@@ -190,6 +200,7 @@
 
 # Contributors (Alphabetical Order)
 
+* Allen Piscitello
 * bitromortac
 * Boris Nagaev
 * Erick Cestari

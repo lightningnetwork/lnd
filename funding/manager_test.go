@@ -4880,6 +4880,132 @@ func TestFundingManagerNoEchoChanType(t *testing.T) {
 	assertFundingMsgSent(t, alice.msgChan, "Error")
 }
 
+// TestFundingManagerProposedCommitFeeRate checks the commitment fee rate that
+// the initiator proposes: the fee estimate, capped for anchor channels, but
+// never below the floor. The fundee should store the proposed rate unchanged.
+func TestFundingManagerProposedCommitFeeRate(t *testing.T) {
+	t.Parallel()
+
+	staticRemoteKey := (*lnwire.ChannelType)(lnwire.NewRawFeatureVector(
+		lnwire.StaticRemoteKeyRequired,
+	))
+	anchors := (*lnwire.ChannelType)(lnwire.NewRawFeatureVector(
+		lnwire.StaticRemoteKeyRequired,
+		lnwire.AnchorsZeroFeeHtlcTxRequired,
+	))
+
+	floor := chainfee.FeePerKwFloor
+
+	// A max-commit-fee-rate-anchors of 1 sat/vbyte converts to a cap below
+	// the floor.
+	lowCap := chainfee.SatPerVByte(1).FeePerKWeight()
+
+	// assertCommitFeeRate asserts that both commitments of the node's only
+	// pending channel use the given fee rate.
+	assertCommitFeeRate := func(t *testing.T, node *testNode,
+		feeRate chainfee.SatPerKWeight) {
+
+		t.Helper()
+
+		db := node.fundingMgr.cfg.Wallet.Cfg.Database
+		channels, err := db.FetchPendingChannels()
+		require.NoError(t, err)
+		require.Len(t, channels, 1)
+
+		channel := channels[0]
+		require.Equal(
+			t, btcutil.Amount(feeRate),
+			channel.LocalCommitment.FeePerKw,
+		)
+		require.Equal(
+			t, btcutil.Amount(feeRate),
+			channel.RemoteCommitment.FeePerKw,
+		)
+	}
+
+	testCases := []struct {
+		name       string
+		chanType   *lnwire.ChannelType
+		estimate   chainfee.SatPerKWeight
+		anchorsCap chainfee.SatPerKWeight
+		expected   chainfee.SatPerKWeight
+	}{
+		{
+			name:       "anchors capped",
+			chanType:   anchors,
+			estimate:   62500,
+			anchorsCap: 2500,
+			expected:   2500,
+		},
+		{
+			name:       "anchors cap below floor",
+			chanType:   anchors,
+			estimate:   62500,
+			anchorsCap: lowCap,
+			expected:   floor,
+		},
+		{
+			name:       "anchors estimate below floor",
+			chanType:   anchors,
+			estimate:   floor - 1,
+			anchorsCap: 2500,
+			expected:   floor,
+		},
+		{
+			name:       "static remote key ignores anchors cap",
+			chanType:   staticRemoteKey,
+			estimate:   62500,
+			anchorsCap: 2500,
+			expected:   62500,
+		},
+		{
+			name:       "static remote key estimate below floor",
+			chanType:   staticRemoteKey,
+			estimate:   floor - 1,
+			anchorsCap: 2500,
+			expected:   floor,
+		},
+	}
+
+	for _, tc := range testCases {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+
+			estimator := chainfee.NewStaticEstimator(
+				tc.estimate, 0,
+			)
+			setFeePolicy := func(cfg *Config) {
+				cfg.FeeEstimator = estimator
+				cfg.MaxAnchorsCommitFeeRate = tc.anchorsCap
+			}
+
+			alice, bob := setupFundingManagers(t, setFeePolicy)
+			t.Cleanup(func() {
+				tearDownFundingManagers(t, alice, bob)
+			})
+
+			featureBits := []lnwire.FeatureBit{
+				lnwire.ExplicitChannelTypeOptional,
+				lnwire.StaticRemoteKeyOptional,
+				lnwire.AnchorsZeroFeeHtlcTxOptional,
+			}
+			alice.localFeatures = featureBits
+			alice.remoteFeatures = featureBits
+			bob.localFeatures = featureBits
+			bob.remoteFeatures = featureBits
+
+			updateChan := make(chan *lnrpc.OpenStatusUpdate)
+			openChannel(
+				t, alice, bob, 500000, 0, 1, updateChan, true,
+				tc.chanType,
+			)
+
+			assertCommitFeeRate(t, alice, tc.expected)
+			assertCommitFeeRate(t, bob, tc.expected)
+		})
+	}
+}
+
 // TestFundingManagerZeroConf tests that the fundingmanager properly handles
 // the whole flow for zero-conf channels.
 func TestFundingManagerZeroConf(t *testing.T) {

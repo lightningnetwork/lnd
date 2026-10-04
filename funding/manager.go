@@ -533,7 +533,9 @@ type Config struct {
 	EnableUpfrontShutdown bool
 
 	// MaxAnchorsCommitFeeRate is the max commitment fee rate we'll use as
-	// the initiator for channels of the anchor type.
+	// the initiator for channels of the anchor type. A value below
+	// chainfee.FeePerKwFloor acts as the floor, as we never propose a
+	// commitment fee rate below it.
 	MaxAnchorsCommitFeeRate chainfee.SatPerKWeight
 
 	// DeleteAliasEdge allows the Manager to delete an alias channel edge
@@ -4920,6 +4922,10 @@ func (f *Manager) handleInitFundingMsg(msg *InitFundingMsg) {
 
 		commitFeePerKw = f.cfg.MaxAnchorsCommitFeeRate
 	}
+
+	// Never propose a commitment fee rate below the floor, as our peer
+	// would reject it. The floor takes precedence over a lower anchor cap.
+	commitFeePerKw = max(commitFeePerKw, chainfee.FeePerKwFloor)
 
 	var scidFeatureVal bool
 	if hasFeatures(

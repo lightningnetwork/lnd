@@ -11,6 +11,7 @@ import (
 	"reflect"
 	"runtime"
 	"strings"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -4878,6 +4879,190 @@ func TestFundingManagerNoEchoChanType(t *testing.T) {
 	acceptChanMsg.ChannelType = nil
 	alice.fundingMgr.ProcessFundingMsg(acceptChanMsg, bob)
 	assertFundingMsgSent(t, alice.msgChan, "Error")
+}
+
+// countingAcceptor is a channel acceptor that accepts every channel and counts
+// how often it's consulted.
+type countingAcceptor struct {
+	calls atomic.Int32
+}
+
+// Accept counts the call and accepts the channel with our default parameters.
+//
+// NOTE: This is part of the chanacceptor.ChannelAcceptor interface.
+func (c *countingAcceptor) Accept(
+	*acpt.ChannelAcceptRequest) *acpt.ChannelAcceptResponse {
+
+	c.calls.Add(1)
+
+	return &acpt.ChannelAcceptResponse{}
+}
+
+// TestFundingManagerCommitFeeRateFloor checks that the fundee rejects an
+// OpenChannel message proposing a commitment fee rate below the floor that the
+// channel state machine enforces for every later commitment, without
+// consulting the channel acceptor, and accepts one at or above the floor.
+func TestFundingManagerCommitFeeRateFloor(t *testing.T) {
+	t.Parallel()
+
+	staticRemoteKey := (*lnwire.ChannelType)(lnwire.NewRawFeatureVector(
+		lnwire.StaticRemoteKeyRequired,
+	))
+	anchors := (*lnwire.ChannelType)(lnwire.NewRawFeatureVector(
+		lnwire.StaticRemoteKeyRequired,
+		lnwire.AnchorsZeroFeeHtlcTxRequired,
+	))
+
+	floor := chainfee.FeePerKwFloor
+
+	// newOpenChannel returns an otherwise valid OpenChannel message from
+	// Alice that proposes the given channel type and commitment fee rate.
+	newOpenChannel := func(chanType *lnwire.ChannelType,
+		feeRate chainfee.SatPerKWeight) *lnwire.OpenChannel {
+
+		return &lnwire.OpenChannel{
+			ChainHash:            *fundingNetParams.GenesisHash,
+			PendingChannelID:     [32]byte{0x01},
+			FundingAmount:        btcutil.Amount(10000000),
+			DustLimit:            btcutil.Amount(546),
+			MaxValueInFlight:     lnwire.MilliSatoshi(100000000),
+			ChannelReserve:       btcutil.Amount(10000),
+			HtlcMinimum:          lnwire.MilliSatoshi(1000),
+			FeePerKiloWeight:     uint32(feeRate),
+			CsvDelay:             144,
+			MaxAcceptedHTLCs:     483,
+			FundingKey:           alicePubKey,
+			RevocationPoint:      alicePubKey,
+			PaymentPoint:         alicePubKey,
+			DelayedPaymentPoint:  alicePubKey,
+			HtlcPoint:            alicePubKey,
+			FirstCommitmentPoint: alicePubKey,
+			ChannelType:          chanType,
+		}
+	}
+
+	testCases := []struct {
+		name     string
+		chanType *lnwire.ChannelType
+		feeRate  chainfee.SatPerKWeight
+		accept   bool
+	}{
+		{
+			name:     "zero",
+			chanType: staticRemoteKey,
+			feeRate:  0,
+		},
+		{
+			name:     "one",
+			chanType: staticRemoteKey,
+			feeRate:  1,
+		},
+		{
+			// A max-commit-fee-rate-anchors of 1 sat/vbyte
+			// converts to this rate.
+			name:     "one sat per vbyte",
+			chanType: staticRemoteKey,
+			feeRate:  chainfee.SatPerVByte(1).FeePerKWeight(),
+		},
+		{
+			name:     "just below the floor",
+			chanType: staticRemoteKey,
+			feeRate:  floor - 1,
+		},
+		{
+			name:     "at the floor",
+			chanType: staticRemoteKey,
+			feeRate:  floor,
+			accept:   true,
+		},
+		{
+			name:     "above the floor",
+			chanType: staticRemoteKey,
+			feeRate:  floor + 1,
+			accept:   true,
+		},
+		{
+			// The zero-fee HTLC transactions of anchor channels
+			// don't exempt the commitment transaction.
+			name:     "anchors just below the floor",
+			chanType: anchors,
+			feeRate:  floor - 1,
+		},
+		{
+			name:     "anchors at the floor",
+			chanType: anchors,
+			feeRate:  floor,
+			accept:   true,
+		},
+	}
+
+	for _, tc := range testCases {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+
+			acceptor := &countingAcceptor{}
+			useAcceptor := func(cfg *Config) {
+				cfg.OpenChannelPredicate = acceptor
+			}
+
+			alice, bob := setupFundingManagers(t, useAcceptor)
+			t.Cleanup(func() {
+				tearDownFundingManagers(t, alice, bob)
+			})
+
+			// Both peers support anchors, so the static remote key
+			// channel type explicitly asks for a channel without
+			// anchor outputs.
+			featureBits := []lnwire.FeatureBit{
+				lnwire.ExplicitChannelTypeOptional,
+				lnwire.StaticRemoteKeyOptional,
+				lnwire.AnchorsZeroFeeHtlcTxOptional,
+			}
+			alice.localFeatures = featureBits
+			alice.remoteFeatures = featureBits
+			bob.localFeatures = featureBits
+			bob.remoteFeatures = featureBits
+
+			openChannelReq := newOpenChannel(
+				tc.chanType, tc.feeRate,
+			)
+			bob.fundingMgr.ProcessFundingMsg(openChannelReq, alice)
+
+			if tc.accept {
+				assertFundingMsgSent(
+					t, bob.msgChan, "AcceptChannel",
+				)
+				assertNumPendingReservations(
+					t, bob, alicePubKey, 1,
+				)
+				require.EqualValues(t, 1, acceptor.calls.Load())
+
+				return
+			}
+
+			// Bob should reject the channel with an error naming
+			// the fee rate, without consulting his channel acceptor
+			// or creating a reservation.
+			errMsg, ok := assertFundingMsgSent(
+				t, bob.msgChan, "Error",
+			).(*lnwire.Error)
+			require.True(t, ok)
+
+			expectedErr := lnwallet.ErrCommitFeeRateTooLow(
+				tc.feeRate, floor,
+			)
+			require.Equal(
+				t, expectedErr.Error(), string(errMsg.Data),
+			)
+
+			pendingChanID := lnwire.ChannelID(
+				openChannelReq.PendingChannelID,
+			)
+			require.Equal(t, pendingChanID, errMsg.ChanID)
+			require.Zero(t, acceptor.calls.Load())
+			assertNumPendingReservations(t, bob, alicePubKey, 0)
+		})
+	}
 }
 
 // TestFundingManagerProposedCommitFeeRate checks the commitment fee rate that

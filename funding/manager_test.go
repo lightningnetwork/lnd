@@ -406,6 +406,12 @@ func createTestFundingManager(t *testing.T, privKey *btcec.PrivateKey,
 	netParams := fundingNetParams.Params
 	estimator := chainfee.NewStaticEstimator(62500, 0)
 
+	// Like a node running with the default config, cap the commitment fee
+	// rate of anchor channels at 10 sat/vbyte.
+	maxAnchorsCommitFeeRate := chainfee.SatPerVByte(
+		lnwallet.DefaultAnchorsCommitMaxFeeRateSatPerVByte,
+	).FeePerKWeight()
+
 	chainNotifier := &mockNotifier{
 		oneConfChannel:   make(chan *chainntnfs.TxConfirmation, 1),
 		sixConfChannel:   make(chan *chainntnfs.TxConfirmation, 1),
@@ -563,6 +569,7 @@ func createTestFundingManager(t *testing.T, privKey *btcec.PrivateKey,
 		MaxChanSize:                   MaxBtcFundingAmount,
 		MaxLocalCSVDelay:              defaultMaxLocalCSVDelay,
 		MaxPendingChannels:            lncfg.DefaultMaxPendingChannels,
+		MaxAnchorsCommitFeeRate:       maxAnchorsCommitFeeRate,
 		NotifyOpenChannelEvent:        evt.NotifyOpenChannelEvent,
 		OpenChannelPredicate:          chainedAcceptor,
 		NotifyPendingOpenChannelEvent: evt.NotifyPendingOpenChannelEvent,
@@ -678,9 +685,10 @@ func recreateAliceFundingManager(t *testing.T, alice *testNode) {
 			FeeRate:       1000,
 			TimeLockDelta: 10,
 		},
-		DefaultMinHtlcIn:       5,
-		RequiredRemoteMaxValue: oldCfg.RequiredRemoteMaxValue,
-		ReportShortChanID:      oldCfg.ReportShortChanID,
+		DefaultMinHtlcIn:        5,
+		RequiredRemoteMaxValue:  oldCfg.RequiredRemoteMaxValue,
+		ReportShortChanID:       oldCfg.ReportShortChanID,
+		MaxAnchorsCommitFeeRate: oldCfg.MaxAnchorsCommitFeeRate,
 		PublishTransaction: func(txn *wire.MsgTx, _ string) error {
 			publishChan <- txn
 			return nil

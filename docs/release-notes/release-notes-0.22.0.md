@@ -22,6 +22,10 @@
 
 # Bug Fixes
 
+* Known TLV records now reject declared lengths that do not match their
+  encodings, preventing malformed records from shifting the remainder of the
+  stream during decoding ([#11298](https://github.com/lightningnetwork/lnd/pull/11298)).
+
 * [Fixed historical graph
   synchronization](https://github.com/lightningnetwork/lnd/pull/11173) so a
   peer whose channel range response cannot be used is rotated out of the
@@ -195,6 +199,7 @@
 
 # Contributors (Alphabetical Order)
 
+* AnkitNakhawa
 * bitromortac
 * Boris Nagaev
 * Erick Cestari

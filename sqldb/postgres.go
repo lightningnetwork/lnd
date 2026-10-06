@@ -9,6 +9,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/golang-migrate/migrate/v4/database"
 	pgx_migrate "github.com/golang-migrate/migrate/v4/database/pgx/v5"
 	_ "github.com/golang-migrate/migrate/v4/source/file" // Read migrations from files. // nolint:ll
 	_ "github.com/jackc/pgx/v5"
@@ -165,6 +166,35 @@ func errPostgresMigration(err error) error {
 	return fmt.Errorf("error creating postgres migration: %w", err)
 }
 
+// newMigrateDriver returns a migrate driver on a handle separate from s.DB,
+// because closing the driver also closes its handle. The caller must close
+// the driver to release its connection.
+func (s *PostgresStore) newMigrateDriver() (database.Driver, error) {
+	db, err := sql.Open("pgx", s.cfg.Dsn)
+	if err != nil {
+		return nil, errPostgresMigration(err)
+	}
+
+	driver, err := pgx_migrate.WithInstance(db, &pgx_migrate.Config{})
+	if err != nil {
+		if cerr := db.Close(); cerr != nil {
+			log.Errorf("Unable to close migrate handle: %v", cerr)
+		}
+
+		return nil, errPostgresMigration(err)
+	}
+
+	return driver, nil
+}
+
+// closeMigrateDriver closes the driver and logs an error, because the callers
+// defer the close and cannot return its error.
+func closeMigrateDriver(driver database.Driver) {
+	if err := driver.Close(); err != nil {
+		log.Errorf("Unable to close migrate driver: %v", err)
+	}
+}
+
 // ExecuteMigrations runs migrations for the Postgres database, depending on the
 // target given, either all migrations or up to a given version.
 func (s *PostgresStore) ExecuteMigrations(target MigrationTarget) error {
@@ -173,10 +203,11 @@ func (s *PostgresStore) ExecuteMigrations(target MigrationTarget) error {
 		return err
 	}
 
-	driver, err := pgx_migrate.WithInstance(s.DB, &pgx_migrate.Config{})
+	driver, err := s.newMigrateDriver()
 	if err != nil {
-		return errPostgresMigration(err)
+		return err
 	}
+	defer closeMigrateDriver(driver)
 
 	// Populate the database with our set of schemas based on our embedded
 	// in-memory file system.
@@ -188,11 +219,11 @@ func (s *PostgresStore) ExecuteMigrations(target MigrationTarget) error {
 
 // GetSchemaVersion returns the current schema version of the Postgres database.
 func (s *PostgresStore) GetSchemaVersion() (int, bool, error) {
-	driver, err := pgx_migrate.WithInstance(s.DB, &pgx_migrate.Config{})
+	driver, err := s.newMigrateDriver()
 	if err != nil {
-		return 0, false, errPostgresMigration(err)
-
+		return 0, false, err
 	}
+	defer closeMigrateDriver(driver)
 
 	version, dirty, err := driver.Version()
 	if err != nil {
@@ -206,10 +237,11 @@ func (s *PostgresStore) GetSchemaVersion() (int, bool, error) {
 //
 // NOTE: This alters the internal database schema tracker. USE WITH CAUTION!!!
 func (s *PostgresStore) SetSchemaVersion(version int, dirty bool) error {
-	driver, err := pgx_migrate.WithInstance(s.DB, &pgx_migrate.Config{})
+	driver, err := s.newMigrateDriver()
 	if err != nil {
-		return errPostgresMigration(err)
+		return err
 	}
+	defer closeMigrateDriver(driver)
 
 	return driver.SetVersion(version, dirty)
 }

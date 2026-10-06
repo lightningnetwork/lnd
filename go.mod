@@ -232,3 +232,5 @@ replace github.com/lightningnetwork/lnd/kvdb => ./kvdb
 replace github.com/lightningnetwork/lnd/queue => ./queue
 
 replace github.com/lightningnetwork/lnd/ticker => ./ticker
+
+replace github.com/lightningnetwork/lnd/tlv => ./tlv

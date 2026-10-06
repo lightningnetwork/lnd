@@ -120,9 +120,16 @@ type RemoteSignerRequests interface {
 		*signrpc.MuSig2GetCombinedNonceResponse, error)
 }
 
-// OutboundConnection is an abstraction of the outbound connection made to an
-// inbound remote signer. An inbound remote signer is a remote signer that
-// allows the watch-only node to connect to it via an inbound GRPC connection.
+// OutboundConnection is the watch-only node's side of a setup where the
+// watch-only node dials the signer. The connection is outbound as seen from
+// the watch-only node, which is the same connection the signer sees as
+// inbound, and is why such a signer is configured as an "inbound" remote
+// signer.
+//
+// NOTE: Throughout this package, "inbound" and "outbound" describe the
+// direction as seen by the node whose code you are reading, so the same
+// connection carries both labels depending on the side. See InboundConnection
+// for the opposite arrangement.
 type OutboundConnection struct {
 	// Embedded signrpc.SignerClient and walletrpc.WalletKitClient to
 	// implement the RemoteSigner interface.
@@ -160,9 +167,9 @@ func NewOutboundConnection(ctx context.Context,
 //
 // NOTE: This is part of the RemoteSignerConnection interface.
 func (r *OutboundConnection) Ready(_ context.Context) chan error {
-	// The inbound remote signer is ready as soon we have connected to the
-	// remote signer node in the constructor. Therefore, we always send
-	// nil here to signal that we are ready.
+	// We dialled the signer in the constructor, so it is ready as soon as
+	// this connection exists. Therefore, we always send nil here to signal
+	// that we are ready.
 	readyChan := make(chan error, 1)
 	readyChan <- nil
 
@@ -296,21 +303,28 @@ func (r *OutboundConnection) connectRPC(ctx context.Context,
 // RemoteSignerConnection interface.
 var _ RemoteSignerConnection = (*OutboundConnection)(nil)
 
-// InboundRemoteSignerConnection is an interface that abstracts the
-// communication with an outbound remote signer. It extends the
-// RemoteSignerConnection insterface.
+// InboundRemoteSignerConnection abstracts the watch-only node's side of a
+// setup where the signer dials the watch-only node. The connection is inbound
+// as seen from the watch-only node, and such a signer is correspondingly
+// configured as an "outbound" remote signer. It extends the
+// RemoteSignerConnection interface.
 type InboundRemoteSignerConnection interface {
 	RemoteSignerConnection
 
-	// AddConnection feeds the inbound connection handler with the incoming
-	// stream set up by an outbound remote signer and then blocks until the
-	// stream is closed. Lnd can then send any requests to the remote signer
-	// through the stream.
+	// AddConnection hands the connection handler the stream that the signer
+	// opened when it dialled this node, then blocks until that stream is
+	// closed. Lnd can send requests to the signer over the stream for as
+	// long as it is open.
 	AddConnection(stream StreamServer) error
 }
 
-// InboundConnection is an abstraction that manages the inbound connection that
-// is set up by an outbound remote signer that connects to the watch-only node.
+// InboundConnection is the watch-only node's side of a setup where the signer
+// dials the watch-only node. The connection is inbound as seen from the
+// watch-only node, which is the same connection the signer sees as outbound,
+// and is why such a signer is configured as an "outbound" remote signer.
+//
+// NOTE: See OutboundConnection for the opposite arrangement, and for why the
+// same connection carries both labels.
 type InboundConnection struct {
 	*SignCoordinator
 
@@ -387,10 +401,9 @@ func (r *InboundConnection) Ping(ctx context.Context,
 	return nil
 }
 
-// AddConnection feeds the inbound connection handler with the incoming stream
-// set up by an outbound remote signer and then blocks until the stream is
-// closed. Lnd can then send any requests to the remote signer through the
-// stream.
+// AddConnection hands the connection handler the stream that the signer opened
+// when it dialled this node, then blocks until that stream is closed. Lnd can
+// send requests to the signer over the stream for as long as it is open.
 //
 // NOTE: This is part of the InboundRemoteSignerConnection interface.
 func (r *InboundConnection) AddConnection(stream StreamServer) error {

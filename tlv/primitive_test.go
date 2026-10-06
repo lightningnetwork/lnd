@@ -127,6 +127,33 @@ func TestDVarBytesDeclaredLength(t *testing.T) {
 	require.Nil(t, decoded)
 }
 
+// TestDVarBytesAllocationBound verifies that the number of allocations made
+// when decoding a record does not scale with the record size within the
+// record size limit.
+func TestDVarBytesAllocationBound(t *testing.T) {
+	allocsForSize := func(size int) float64 {
+		value := bytes.Repeat([]byte{42}, size)
+		reader := bytes.NewReader(value)
+
+		return testing.AllocsPerRun(100, func() {
+			reader.Reset(value)
+
+			var (
+				decoded []byte
+				buf     [8]byte
+			)
+			if err := tlv.DVarBytes(
+				reader, &decoded, &buf, uint64(size),
+			); err != nil {
+
+				t.Fatal(err)
+			}
+		})
+	}
+
+	require.Equal(t, allocsForSize(1), allocsForSize(tlv.MaxRecordSize))
+}
+
 type fieldEncoder struct {
 	val     interface{}
 	encoder tlv.Encoder

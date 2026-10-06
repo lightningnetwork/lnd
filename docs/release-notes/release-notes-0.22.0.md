@@ -32,6 +32,10 @@
   invoice's `uint32` payinfo fields is skipped instead of being advertised
   with under-reported fees.
 
+* [TLV decoding](https://github.com/lightningnetwork/lnd/pull/11299) now reads
+  variable-length values incrementally and validates declared lengths while
+  preserving support for larger non-P2P records.
+
 * [Tightened the validation](https://github.com/lightningnetwork/lnd/pull/11068)
   of auxiliary HTLC signatures on taproot overlay channels. Their count is now
   checked against the number of HTLCs on the commitment, mirroring the check

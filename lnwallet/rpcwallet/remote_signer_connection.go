@@ -314,26 +314,31 @@ type InboundRemoteSignerConnection interface {
 type InboundConnection struct {
 	*SignCoordinator
 
-	connectionTimeout time.Duration
+	startupTimeout time.Duration
 }
 
-// NewInboundConnection creates a new InboundConnection instance.
+// NewInboundConnection creates a new InboundConnection instance. The
+// startupTimeout bounds how long we wait for the remote signer to connect to
+// us during startup, where 0 means that we wait indefinitely.
 func NewInboundConnection(requestTimeout time.Duration,
-	connectionTimeout time.Duration) *InboundConnection {
+	startupTimeout time.Duration) *InboundConnection {
 
 	return &InboundConnection{
-		connectionTimeout: connectionTimeout,
+		startupTimeout: startupTimeout,
 		SignCoordinator: NewSignCoordinator(
-			requestTimeout, connectionTimeout,
+			requestTimeout, startupTimeout,
 		),
 	}
 }
 
-// Timeout returns the set connection timeout for the remote signer.
+// Timeout returns the startup timeout for the remote signer, i.e. how long we
+// wait for it to connect to us during startup. Unlike the outbound case, there
+// is no connection for us to establish, so this is the only connection-related
+// timeout that applies.
 //
 // NOTE: This is part of the RemoteSignerConnection interface.
 func (r *InboundConnection) Timeout() time.Duration {
-	return r.connectionTimeout
+	return r.startupTimeout
 }
 
 // RequestTimeout returns the timeout that should be used for per-request RPC

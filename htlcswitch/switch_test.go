@@ -568,6 +568,213 @@ func testSwitchForwardMapping(t *testing.T, alicePrivate, aliceZeroConf,
 	}
 }
 
+// TestLookupLinkByOutgoingSCID checks that the onion-message SCID lookup
+// accepts the same outgoing SCIDs as HTLC forwarding, and that it does not
+// rewrite the caller's SCID.
+func TestLookupLinkByOutgoingSCID(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name         string
+		alicePrivate bool
+		zeroConf     bool
+		optionScid   bool
+		useAlias     bool
+		aliceAlias   lnwire.ShortChannelID
+		aliceReal    lnwire.ShortChannelID
+		expectErr    bool
+	}{
+		{
+			name:         "private unconfirmed zero-conf",
+			alicePrivate: true,
+			zeroConf:     true,
+			useAlias:     true,
+			aliceAlias: lnwire.ShortChannelID{
+				BlockHeight: 16_000_002,
+				TxIndex:     2,
+				TxPosition:  2,
+			},
+		},
+		{
+			name:         "private confirmed zero-conf alias",
+			alicePrivate: true,
+			zeroConf:     true,
+			useAlias:     true,
+			aliceAlias: lnwire.ShortChannelID{
+				BlockHeight: 16_000_003,
+				TxIndex:     3,
+				TxPosition:  3,
+			},
+			aliceReal: lnwire.ShortChannelID{
+				BlockHeight: 300000,
+				TxIndex:     3,
+				TxPosition:  3,
+			},
+		},
+		{
+			name:         "private confirmed zero-conf real scid",
+			alicePrivate: true,
+			zeroConf:     true,
+			aliceAlias: lnwire.ShortChannelID{
+				BlockHeight: 16_000_004,
+				TxIndex:     4,
+				TxPosition:  4,
+			},
+			aliceReal: lnwire.ShortChannelID{
+				BlockHeight: 300002,
+				TxIndex:     4,
+				TxPosition:  4,
+			},
+			expectErr: true,
+		},
+		{
+			name:     "public confirmed zero-conf real scid",
+			zeroConf: true,
+			aliceAlias: lnwire.ShortChannelID{
+				BlockHeight: 16_000_007,
+				TxIndex:     7,
+				TxPosition:  7,
+			},
+			aliceReal: lnwire.ShortChannelID{
+				BlockHeight: 502000,
+				TxIndex:     7,
+				TxPosition:  7,
+			},
+		},
+		{
+			name:         "private non-option channel",
+			alicePrivate: true,
+			aliceReal: lnwire.ShortChannelID{
+				BlockHeight: 505000,
+				TxIndex:     8,
+				TxPosition:  8,
+			},
+		},
+		{
+			name:         "private option channel alias",
+			alicePrivate: true,
+			optionScid:   true,
+			useAlias:     true,
+			aliceAlias: lnwire.ShortChannelID{
+				BlockHeight: 16_000_015,
+				TxIndex:     9,
+				TxPosition:  9,
+			},
+			aliceReal: lnwire.ShortChannelID{
+				BlockHeight: 506000,
+				TxIndex:     10,
+				TxPosition:  10,
+			},
+		},
+		{
+			name:         "private option channel real scid",
+			alicePrivate: true,
+			optionScid:   true,
+			aliceAlias: lnwire.ShortChannelID{
+				BlockHeight: 16_000_016,
+				TxIndex:     16,
+				TxPosition:  16,
+			},
+			aliceReal: lnwire.ShortChannelID{
+				BlockHeight: 507000,
+				TxIndex:     17,
+				TxPosition:  17,
+			},
+			expectErr: true,
+		},
+		{
+			name: "public non-option channel",
+			aliceReal: lnwire.ShortChannelID{
+				BlockHeight: 508000,
+				TxIndex:     17,
+				TxPosition:  17,
+			},
+		},
+		{
+			name:       "public option channel real scid",
+			optionScid: true,
+			aliceAlias: lnwire.ShortChannelID{
+				BlockHeight: 16_000_019,
+				TxIndex:     19,
+				TxPosition:  19,
+			},
+			aliceReal: lnwire.ShortChannelID{
+				BlockHeight: 510000,
+				TxIndex:     20,
+				TxPosition:  20,
+			},
+		},
+	}
+
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			t.Parallel()
+
+			alicePeer, err := newMockServer(
+				t, "alice", testStartingHeight, nil,
+				testDefaultDelta,
+			)
+			require.NoError(t, err)
+
+			s, err := initSwitchWithTempDB(t, testStartingHeight)
+			require.NoError(t, err)
+			require.NoError(t, s.Start())
+			t.Cleanup(func() { _ = s.Stop() })
+
+			chanID, _ := genID()
+
+			var link *mockChannelLink
+			if test.zeroConf {
+				link = newMockChannelLink(
+					s, chanID, test.aliceAlias,
+					test.aliceReal, alicePeer, true,
+					test.alicePrivate, true, false,
+				)
+			} else {
+				link = newMockChannelLink(
+					s, chanID, test.aliceReal, emptyScid,
+					alicePeer, true, test.alicePrivate,
+					false, test.optionScid,
+				)
+				if test.optionScid {
+					link.addAlias(test.aliceAlias)
+				}
+			}
+			require.NoError(t, s.AddLink(link))
+
+			outgoing := test.aliceReal
+			if test.useAlias {
+				outgoing = test.aliceAlias
+			}
+			queried := outgoing
+
+			got, err := s.LookupLinkByOutgoingSCID(outgoing)
+			require.Equal(t, queried, outgoing)
+			if test.expectErr {
+				require.ErrorIs(t, err, ErrChannelLinkNotFound)
+				require.Nil(t, got)
+
+				return
+			}
+
+			require.NoError(t, err)
+			require.Equal(t, link, got)
+
+			// A peer alias is not in the switch indexes.
+			peerAlias := test.aliceAlias
+			peerAlias.TxPosition++
+			if peerAlias == test.aliceAlias ||
+				peerAlias == test.aliceReal {
+
+				peerAlias.TxIndex++
+			}
+			missing, err := s.LookupLinkByOutgoingSCID(peerAlias)
+			require.ErrorIs(t, err, ErrChannelLinkNotFound)
+			require.Nil(t, missing)
+		})
+	}
+}
+
 // TestSwitchSendHTLCMapping tests that SendHTLC will properly route packets to
 // zero-conf or option-scid-alias (feature-bit) channels if the confirmed SCID
 // is used. It also tests that nothing breaks with the mapping change.

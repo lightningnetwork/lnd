@@ -2287,6 +2287,87 @@ func (s *Switch) getLink(chanID lnwire.ChannelID) (ChannelLink, error) {
 	return link, nil
 }
 
+// LookupLinkByOutgoingSCID returns the link an HTLC with this outgoing SCID
+// forwards over. It applies the alias and privacy rules of getLinkByMapping
+// without mutating a packet.
+//
+// A local alias resolves whether or not the channel is public. A confirmed
+// SCID resolves only when the channel did not negotiate option-scid-alias, or
+// when the channel is public. The confirmed SCID of a private option-scid-alias
+// or zero-conf channel does not resolve. The peer's alias is not in these
+// indexes, so it does not resolve either.
+//
+// The switch only indexes links of online peers. An onion message cannot be
+// delivered to an offline peer, so a missing link is a miss.
+func (s *Switch) LookupLinkByOutgoingSCID(
+	scid lnwire.ShortChannelID) (ChannelLink, error) {
+
+	s.indexMtx.RLock()
+	defer s.indexMtx.RUnlock()
+
+	return s.lookupLinkByOutgoingSCID(scid)
+}
+
+// lookupLinkByOutgoingSCID is LookupLinkByOutgoingSCID without the lock.
+//
+// NOTE: This MUST be called with the indexMtx read lock held.
+func (s *Switch) lookupLinkByOutgoingSCID(
+	scid lnwire.ShortChannelID) (ChannelLink, error) {
+
+	// A local alias maps to the link SCID in baseIndex. forwardingIndex is
+	// keyed by that link SCID for both zero-conf and option-scid-alias.
+	if s.cfg.IsAlias(scid) {
+		baseScid, ok := s.baseIndex[scid]
+		if !ok {
+			return nil, ErrChannelLinkNotFound
+		}
+
+		link, ok := s.forwardingIndex[baseScid]
+		if !ok {
+			log.Debugf("Forwarding index not found using "+
+				"baseScid=%v", baseScid)
+
+			return nil, ErrChannelLinkNotFound
+		}
+
+		return link, nil
+	}
+
+	// A confirmed SCID with no baseIndex entry did not negotiate the alias
+	// feature. The forwarding index is keyed by that SCID.
+	baseScid, ok := s.baseIndex[scid]
+	if !ok {
+		link, ok := s.forwardingIndex[scid]
+		if !ok {
+			log.Debugf("Forwarding index not found using "+
+				"chanID=%v", scid)
+
+			return nil, ErrChannelLinkNotFound
+		}
+
+		return link, nil
+	}
+
+	link, ok := s.forwardingIndex[baseScid]
+	if !ok {
+		log.Debugf("Forwarding index not found using baseScid=%v",
+			baseScid)
+
+		return nil, ErrChannelLinkNotFound
+	}
+
+	// The real SCID of an unadvertised alias channel must not resolve.
+	// That SCID is what the alias feature hides.
+	if link.IsUnadvertised() {
+		log.Debugf("Link is unadvertised, chanID=%v, baseScid=%v",
+			scid, baseScid)
+
+		return nil, ErrChannelLinkNotFound
+	}
+
+	return link, nil
+}
+
 // GetLinkByShortID attempts to return the link which possesses the target short
 // channel ID.
 func (s *Switch) GetLinkByShortID(chanID lnwire.ShortChannelID) (ChannelLink,

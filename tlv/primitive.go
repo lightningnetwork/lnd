@@ -338,6 +338,8 @@ func DVarBytes(r io.Reader, val interface{}, _ *[8]byte, l uint64) error {
 
 		var decoded bytes.Buffer
 		n, err := io.CopyN(&decoded, r, int64(l))
+		// Match io.ReadFull's handling of exact, not wrapped, EOF.
+		//nolint:errorlint
 		if err == io.EOF && n > 0 {
 			return io.ErrUnexpectedEOF
 		}
@@ -346,6 +348,7 @@ func DVarBytes(r io.Reader, val interface{}, _ *[8]byte, l uint64) error {
 		}
 
 		*b = decoded.Bytes()
+
 		return nil
 	}
 	return NewTypeForDecodingErr(val, "[]byte", l, l)

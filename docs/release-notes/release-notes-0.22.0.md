@@ -1,4 +1,5 @@
 # Release Notes
+
 - [Bug Fixes](#bug-fixes)
 - [New Features](#new-features)
     - [Functional Enhancements](#functional-enhancements)
@@ -31,6 +32,10 @@
   arithmetic, and a candidate path whose aggregate fees don't fit in the
   invoice's `uint32` payinfo fields is skipped instead of being advertised
   with under-reported fees.
+
+* [TLV decoding](https://github.com/lightningnetwork/lnd/pull/11299) now reads
+  variable-length values incrementally and validates declared lengths while
+  preserving support for larger non-P2P records.
 
 * [Fixed historical graph
   synchronization](https://github.com/lightningnetwork/lnd/pull/11173) so a

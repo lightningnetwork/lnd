@@ -44,12 +44,25 @@ xxx               xx
 ```
 
 When using a remote signer, the "signer" node can be configured to operate in
-one of two modes.
-It can either be configured as an "inbound" remote signer (the default setting)
-or as an "outbound" remote signer. As an "inbound" remote signer, the signer
-node permits a single inbound gRPC connection **from** the watch-only lnd node.
-Conversely, when configured as an "outbound" remote signer, it allows a single
-outbound gRPC connection **to** the watch-only lnd node.
+one of two modes. The only thing that differs between them is **which node
+dials the other**; the signing itself is identical either way.
+
+| Mode | Who dials | Who listens |
+| --- | --- | --- |
+| "inbound" remote signer (default) | The watch-only node dials the signer | The signer |
+| "outbound" remote signer | The signer dials the watch-only node | The watch-only node |
+
+The names describe the connection from the **signer's** point of view: an
+"inbound" remote signer is one that receives an inbound connection, and an
+"outbound" remote signer is one that makes an outbound connection.
+
+Be aware that the same connection has the opposite name on the other side, so
+the labels appear inverted depending on which node you are looking at. A setup
+using an "outbound" remote signer is one where the watch-only node accepts an
+*inbound* connection, which is why the option that selects it is called
+`remotesigner.experimentalallowinboundconnection` and why the watch-only node's
+internals refer to it as an inbound connection. Where it matters, this document
+says which node dials rather than relying on the labels.
 
 ## Security model
 

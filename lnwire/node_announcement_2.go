@@ -344,7 +344,7 @@ func rgbEncoder(w io.Writer, val any, _ *[8]byte) error {
 
 // rgbDecoder decodes RGB bytes into a Color.
 func rgbDecoder(r io.Reader, val any, _ *[8]byte, l uint64) error {
-	if v, ok := val.(*Color); ok {
+	if v, ok := val.(*Color); ok && l == 3 {
 		return ReadElements(r, &v.R, &v.G, &v.B)
 	}
 

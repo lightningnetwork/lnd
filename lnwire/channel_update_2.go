@@ -457,9 +457,9 @@ func booleanEncoder(_ io.Writer, val interface{}, _ *[8]byte) error {
 func booleanDecoder(_ io.Reader, val interface{}, _ *[8]byte,
 	l uint64) error {
 
-	if _, ok := val.(*TrueBoolean); ok && (l == 0 || l == 1) {
+	if _, ok := val.(*TrueBoolean); ok && l == 0 {
 		return nil
 	}
 
-	return tlv.NewTypeForEncodingErr(val, "TrueBoolean")
+	return tlv.NewTypeForDecodingErr(val, "TrueBoolean", l, 0)
 }

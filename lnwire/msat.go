@@ -82,6 +82,12 @@ func decodeMilliSatoshis(r io.Reader, val interface{}, buf *[8]byte,
 		if err != nil {
 			return err
 		}
+		expectedLength := tlv.VarIntSize(bigSize)
+		if l != expectedLength {
+			return tlv.NewTypeForDecodingErr(
+				val, "lnwire.MilliSatoshi", l, expectedLength,
+			)
+		}
 
 		*v = MilliSatoshi(bigSize)
 

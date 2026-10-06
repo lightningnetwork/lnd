@@ -231,6 +231,51 @@ func TestDecodeBigSizeFormatTlvStream(t *testing.T) {
 	}
 }
 
+// TestDecodeBigSizeFormatInvalidLength tests that BigSize records reject a
+// declared length that does not match the encoded value.
+func TestDecodeBigSizeFormatInvalidLength(t *testing.T) {
+	t.Parallel()
+
+	testCases := []struct {
+		name  string
+		bytes []byte
+	}{
+		{
+			name:  "uint32 length too long",
+			bytes: []byte{0x0a, 0x03, 0x01},
+		},
+		{
+			name:  "uint32 length too short",
+			bytes: []byte{0x0a, 0x01, 0xfd, 0x00, 0xff},
+		},
+		{
+			name:  "uint64 length too long",
+			bytes: []byte{0x0b, 0x03, 0x01},
+		},
+		{
+			name:  "uint64 length too short",
+			bytes: []byte{0x0b, 0x01, 0xfd, 0x00, 0xff},
+		},
+	}
+
+	for _, testCase := range testCases {
+		t.Run(testCase.name, func(t *testing.T) {
+			t.Parallel()
+
+			var (
+				value32 uint32
+				value64 uint64
+			)
+			stream := makeBigSizeFormatTlvStream(
+				t, &value32, &value64,
+			)
+
+			err := stream.Decode(bytes.NewReader(testCase.bytes))
+			require.Error(t, err)
+		})
+	}
+}
+
 func makeBigSizeFormatTlvStream(t *testing.T, vUint32 *uint32,
 	vUint64 *uint64) *tlv.Stream {
 

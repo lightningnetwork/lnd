@@ -295,6 +295,31 @@ func MakeBigSizeRecord[T constraintUint32Or64](typ Type, val *T) Record {
 		panic(fmt.Sprintf("unknown supported compact type: %T", val))
 	}
 
+	decoder = func(r io.Reader, val interface{}, buf *[8]byte,
+		l uint64) error {
+
+		err := DBigSize(r, val, buf, l)
+		if err != nil {
+			return err
+		}
+
+		var expectedLength uint64
+		switch value := val.(type) {
+		case *uint32:
+			expectedLength = VarIntSize(uint64(*value))
+
+		case *uint64:
+			expectedLength = VarIntSize(*value)
+		}
+		if l != expectedLength {
+			return NewTypeForDecodingErr(
+				val, "BigSize", l, expectedLength,
+			)
+		}
+
+		return nil
+	}
+
 	return Record{
 		value:      val,
 		typ:        typ,

@@ -577,8 +577,12 @@ func convertToSecondLevelRevoke(bo *breachedOutput, breachInfo *retributionInfo,
 
 	// For taproot outputs, the taptweak also needs to be swapped out. We
 	// do this unconditionally as this field isn't used at all for segwit
-	// v0 outputs.
-	bo.signDesc.TapTweak = bo.secondLevelTapTweak[:]
+	// v0 outputs. The tweak is copied out of the breached output, as a
+	// slice over the array embedded in the struct keeps pointing at this
+	// slot of the breached outputs slice. Once updateBreachInfo compacts
+	// that slice, another output shifts into the slot and we would sign
+	// with its tweak.
+	bo.signDesc.TapTweak = bytes.Clone(bo.secondLevelTapTweak[:])
 
 	// Finally, we'll need to adjust the witness program in the
 	// SignDescriptor.

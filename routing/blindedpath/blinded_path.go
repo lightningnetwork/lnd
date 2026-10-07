@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"math"
+	"math/bits"
 	"sort"
 
 	"github.com/btcsuite/btcd/btcec/v2"
@@ -144,8 +145,8 @@ func BuildBlindedPaymentPaths(cfg *BuildBlindedPathCfg) (
 		path, err := buildBlindedPaymentPath(cfg, candidatePath)
 		if errors.Is(err, errInvalidBlindedPath) {
 			log.Debugf("Not using route (%s) as a blinded path "+
-				"since it resulted in an invalid blinded path",
-				route)
+				"since it resulted in an invalid blinded "+
+				"path: %v", route, err)
 
 			continue
 		} else if err != nil {
@@ -185,9 +186,13 @@ func buildBlindedPaymentPath(cfg *BuildBlindedPathCfg, path *candidatePath) (
 
 	// Using the collected relay info, we can calculate the aggregated
 	// policy values for the route.
-	baseFee, feeRate, cltvDelta := calcBlindedPathPolicies(
+	baseFee, feeRate, cltvDelta, err := calcBlindedPathPolicies(
 		relayInfo, uint16(cfg.MinFinalCLTVExpiryDelta),
 	)
+	if err != nil {
+		return nil, fmt.Errorf("could not calculate blinded path "+
+			"policies: %w", err)
+	}
 
 	currentHeight, err := cfg.BestHeight()
 	if err != nil {
@@ -303,7 +308,7 @@ func buildBlindedPaymentPath(cfg *BuildBlindedPathCfg, path *candidatePath) (
 
 	// Now construct a z32 blinded path.
 	return &zpay32.BlindedPaymentPath{
-		FeeBaseMsat:                 uint32(baseFee),
+		FeeBaseMsat:                 baseFee,
 		FeeRate:                     feeRate,
 		CltvExpiryDelta:             cltvDelta,
 		HTLCMinMsat:                 uint64(minHTLC),
@@ -829,13 +834,19 @@ func AddPolicyBuffer(policy *BlindedHopPolicy, incMultiplier,
 // These values include the total base fee, the total proportional fee and the
 // total CLTV delta. This function assumes that all the passed relay infos have
 // already been adjusted with a buffer to account for easy probing attacks.
+//
+// The aggregate fees are advertised in the invoice's uint32 payinfo fields, so
+// they must represent the fees enforced inside the blinded path exactly. If
+// either aggregate does not fit, an error wrapping errInvalidBlindedPath is
+// returned so that the path is not advertised.
 func calcBlindedPathPolicies(relayInfo []*record.PaymentRelayInfo,
-	ourMinFinalCLTVDelta uint16) (lnwire.MilliSatoshi, uint32, uint16) {
+	ourMinFinalCLTVDelta uint16) (uint32, uint32, uint16, error) {
 
 	var (
-		totalFeeBase lnwire.MilliSatoshi
+		totalFeeBase uint32
 		totalFeeProp uint32
 		totalCLTV    = ourMinFinalCLTVDelta
+		err          error
 	)
 	// Use the algorithms defined in BOLT 4 to calculate the accumulated
 	// relay fees for the route:
@@ -844,39 +855,111 @@ func calcBlindedPathPolicies(relayInfo []*record.PaymentRelayInfo,
 	for i := len(relayInfo) - 1; i >= 0; i-- {
 		info := relayInfo[i]
 
-		totalFeeBase = calcNextTotalBaseFee(
+		totalFeeBase, err = calcNextTotalBaseFee(
 			totalFeeBase, info.BaseFee, info.FeeRate,
 		)
+		if err != nil {
+			return 0, 0, 0, err
+		}
 
-		totalFeeProp = calcNextTotalFeeRate(totalFeeProp, info.FeeRate)
+		totalFeeProp, err = calcNextTotalFeeRate(
+			totalFeeProp, info.FeeRate,
+		)
+		if err != nil {
+			return 0, 0, 0, err
+		}
 
 		totalCLTV += info.CltvExpiryDelta
 	}
 
-	return totalFeeBase, totalFeeProp, totalCLTV
+	return totalFeeBase, totalFeeProp, totalCLTV, nil
 }
 
 // calcNextTotalBaseFee takes the current total accumulated base fee of a
 // blinded path at hop `n` along with the fee rate and base fee of the hop at
-// `n+1` and uses these to calculate the accumulated base fee at hop `n+1`.
-func calcNextTotalBaseFee(currentTotal, hopBaseFee lnwire.MilliSatoshi,
-	hopFeeRate uint32) lnwire.MilliSatoshi {
+// `n+1` and uses these to calculate the accumulated base fee at hop `n+1`. An
+// error wrapping errInvalidBlindedPath is returned if the calculation
+// overflows or the result does not fit in a uint32.
+func calcNextTotalBaseFee(currentTotal uint32, hopBaseFee lnwire.MilliSatoshi,
+	hopFeeRate uint32) (uint32, error) {
 
-	numerator := (uint32(hopBaseFee) * oneMillion) +
-		(uint32(currentTotal) * (oneMillion + hopFeeRate)) +
-		oneMillion - 1
+	million := uint64(oneMillion)
 
-	return lnwire.MilliSatoshi(numerator / oneMillion)
+	// Calculate the numerator for the accumulated base fee. Adding
+	// million-1 before dividing by million rounds any fractional fee up
+	// to the next whole millisatoshi.
+	//
+	// Formula: hopBaseFee*1e6 + currentTotal*(1e6+hopFeeRate) + (1e6-1).
+	baseTerm, baseTermOK := mulUint64(uint64(hopBaseFee), million)
+	totalTerm, totalTermOK := mulUint64(
+		uint64(currentTotal), million+uint64(hopFeeRate),
+	)
+	numerator, termsSumOK := addUint64(baseTerm, totalTerm)
+	roundedNumerator, roundingOK := addUint64(numerator, million-1)
+	if !baseTermOK || !totalTermOK || !termsSumOK || !roundingOK {
+		return 0, fmt.Errorf("%w: aggregate base fee overflows uint64",
+			errInvalidBlindedPath)
+	}
+
+	total := roundedNumerator / million
+	if total > math.MaxUint32 {
+		return 0, fmt.Errorf("%w: aggregate base fee of %d msat "+
+			"exceeds the maximum of %d msat", errInvalidBlindedPath,
+			total, uint32(math.MaxUint32))
+	}
+
+	return uint32(total), nil
 }
 
-// calculateNextTotalFeeRate takes the current total accumulated fee rate of a
+// calcNextTotalFeeRate takes the current total accumulated fee rate of a
 // blinded path at hop `n` along with the fee rate of the hop at `n+1` and uses
-// these to calculate the accumulated fee rate at hop `n+1`.
-func calcNextTotalFeeRate(currentTotal, hopFeeRate uint32) uint32 {
-	numerator := (currentTotal+hopFeeRate)*oneMillion +
-		currentTotal*hopFeeRate + oneMillion - 1
+// these to calculate the accumulated fee rate at hop `n+1`. An error wrapping
+// errInvalidBlindedPath is returned if the calculation overflows or the
+// result does not fit in a uint32.
+func calcNextTotalFeeRate(currentTotal, hopFeeRate uint32) (uint32, error) {
+	million := uint64(oneMillion)
 
-	return numerator / oneMillion
+	// Calculate the numerator for the accumulated fee rate. Adding
+	// million-1 before dividing by million rounds any fractional rate up
+	// to the next whole part per million.
+	//
+	// Formula: (currentTotal+hopFeeRate)*1e6 + currentTotal*hopFeeRate +
+	// (1e6-1).
+	sumTerm, sumTermOK := mulUint64(
+		uint64(currentTotal)+uint64(hopFeeRate), million,
+	)
+	productTerm, productTermOK := mulUint64(
+		uint64(currentTotal), uint64(hopFeeRate),
+	)
+	numerator, termsSumOK := addUint64(sumTerm, productTerm)
+	roundedNumerator, roundingOK := addUint64(numerator, million-1)
+	if !sumTermOK || !productTermOK || !termsSumOK || !roundingOK {
+		return 0, fmt.Errorf("%w: aggregate fee rate overflows uint64",
+			errInvalidBlindedPath)
+	}
+
+	total := roundedNumerator / million
+	if total > math.MaxUint32 {
+		return 0, fmt.Errorf("%w: aggregate fee rate of %d ppm "+
+			"exceeds the maximum of %d ppm", errInvalidBlindedPath,
+			total, uint32(math.MaxUint32))
+	}
+
+	return uint32(total), nil
+}
+
+// mulUint64 returns a*b and true, or false if the product overflows a uint64.
+func mulUint64(a, b uint64) (uint64, bool) {
+	hi, lo := bits.Mul64(a, b)
+
+	return lo, hi == 0
+}
+
+// addUint64 returns a+b and true, or false if the sum overflows a uint64.
+func addUint64(a, b uint64) (uint64, bool) {
+	sum, carry := bits.Add64(a, b, 0)
+
+	return sum, carry == 0
 }
 
 // hopData packages the record.BlindedRouteData for a hop on a blinded path with

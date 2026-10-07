@@ -395,6 +395,18 @@ func ipv4AddrsEncoder(w io.Writer, val interface{}, _ *[8]byte) error {
 	return tlv.NewTypeForEncodingErr(val, "lnwire.IPV4Addrs")
 }
 
+// readAddrField fills b from an address list record. The TLV length declares
+// every byte of the list, so an io.EOF at an address boundary is a truncation
+// and returns io.ErrUnexpectedEOF.
+func readAddrField(r io.Reader, b []byte) error {
+	_, err := io.ReadFull(r, b)
+	if errors.Is(err, io.EOF) {
+		return io.ErrUnexpectedEOF
+	}
+
+	return err
+}
+
 // ipv4AddrsDecoder decodes TLV bytes into IPv4 addresses.
 func ipv4AddrsDecoder(r io.Reader, val interface{}, _ *[8]byte,
 	l uint64) error {
@@ -406,15 +418,19 @@ func ipv4AddrsDecoder(r io.Reader, val interface{}, _ *[8]byte,
 		var (
 			numAddrs = int(l / ipv4AddrEncodedSize)
 			addrs    = make([]*net.TCPAddr, 0, numAddrs)
-			ip       [4]byte
-			port     [2]byte
 		)
 		for len(addrs) < numAddrs {
-			_, err := r.Read(ip[:])
+			// Each address owns its arrays, so no two share bytes.
+			var (
+				ip   [4]byte
+				port [2]byte
+			)
+
+			err := readAddrField(r, ip[:])
 			if err != nil {
 				return err
 			}
-			_, err = r.Read(port[:])
+			err = readAddrField(r, port[:])
 			if err != nil {
 				return err
 			}
@@ -486,15 +502,19 @@ func ipv6AddrsDecoder(r io.Reader, val interface{}, _ *[8]byte,
 		var (
 			numAddrs = int(l / ipv6AddrEncodedSize)
 			addrs    = make([]*net.TCPAddr, 0, numAddrs)
-			ip       [16]byte
-			port     [2]byte
 		)
 		for len(addrs) < numAddrs {
-			_, err := r.Read(ip[:])
+			// Each address owns its arrays, so no two share bytes.
+			var (
+				ip   [16]byte
+				port [2]byte
+			)
+
+			err := readAddrField(r, ip[:])
 			if err != nil {
 				return err
 			}
-			_, err = r.Read(port[:])
+			err = readAddrField(r, port[:])
 			if err != nil {
 				return err
 			}
@@ -578,19 +598,25 @@ func torV3AddrsDecoder(r io.Reader, val interface{}, _ *[8]byte,
 		var (
 			numAddrs = int(l / torV3AddrEncodedSize)
 			addrs    = make([]*tor.OnionAddr, 0, numAddrs)
-			ip       [tor.V3DecodedLen]byte
-			p        [2]byte
 		)
 		for len(addrs) < numAddrs {
-			_, err := r.Read(ip[:])
+			// Each address owns its arrays, so no two share bytes.
+			var (
+				host [tor.V3DecodedLen]byte
+				port [2]byte
+			)
+
+			err := readAddrField(r, host[:])
 			if err != nil {
 				return err
 			}
-			_, err = r.Read(p[:])
+			err = readAddrField(r, port[:])
 			if err != nil {
 				return err
 			}
-			onionService := tor.Base32Encoding.EncodeToString(ip[:])
+			onionService := tor.Base32Encoding.EncodeToString(
+				host[:],
+			)
 			onionService += tor.OnionSuffix
 
 			if len(onionService) != tor.V3Len {
@@ -599,10 +625,10 @@ func torV3AddrsDecoder(r io.Reader, val interface{}, _ *[8]byte,
 					tor.V3Len, len(onionService))
 			}
 
-			port := int(binary.BigEndian.Uint16(p[:]))
+			portNum := int(binary.BigEndian.Uint16(port[:]))
 			addrs = append(addrs, &tor.OnionAddr{
 				OnionService: onionService,
-				Port:         port,
+				Port:         portNum,
 			})
 		}
 		*v = addrs

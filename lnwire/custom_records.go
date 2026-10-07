@@ -275,6 +275,34 @@ func AddOpt[T tlv.TlvType, V any](producers *[]tlv.RecordProducer,
 	)
 }
 
+// addOptTU32 appends a tu32 record producer for the given optional record to
+// producers when the optional is set, leaving producers unchanged otherwise.
+func addOptTU32[T tlv.TlvType](producers *[]tlv.RecordProducer,
+	opt tlv.OptionalRecordT[T, uint32]) {
+
+	opt.WhenSome(
+		func(r tlv.RecordT[T, uint32]) {
+			*producers = append(
+				*producers, truncatedUint32Record(&r),
+			)
+		},
+	)
+}
+
+// addOptTU64 appends a tu64 record producer for the given optional record to
+// producers when the optional is set, leaving producers unchanged otherwise.
+func addOptTU64[T tlv.TlvType, V ~uint64](producers *[]tlv.RecordProducer,
+	opt tlv.OptionalRecordT[T, V]) {
+
+	opt.WhenSome(
+		func(r tlv.RecordT[T, V]) {
+			*producers = append(
+				*producers, truncatedUint64Record(&r),
+			)
+		},
+	)
+}
+
 // SetOptFromMap marks target as Some(record) when record's TLV type appeared
 // on the wire (i.e., is a key in the decoded TypeMap).
 //
@@ -287,6 +315,65 @@ func SetOptFromMap[T tlv.TlvType, V any](typeMap tlv.TypeMap,
 	if _, ok := typeMap[record.TlvType()]; ok {
 		*target = tlv.SomeRecordT(record)
 	}
+}
+
+// truncatedUint32Record preserves a typed record's value and type while using
+// BOLT's tu32 encoding, which omits leading zero bytes.
+func truncatedUint32Record[T tlv.TlvType](
+	value *tlv.RecordT[T, uint32]) *tlv.Record {
+
+	record := tlv.MakeDynamicRecord(
+		value.TlvType(), &value.Val,
+		func() uint64 {
+			return tlv.SizeTUint32(value.Val)
+		},
+		tlv.ETUint32, tlv.DTUint32,
+	)
+
+	return &record
+}
+
+// truncatedUint64Record preserves a typed record's value and type while using
+// BOLT's tu64 encoding, which omits leading zero bytes. It accepts any type
+// whose underlying type is uint64, such as MilliSatoshi, because the tlv
+// codecs only take a plain *uint64.
+func truncatedUint64Record[T tlv.TlvType, V ~uint64](
+	value *tlv.RecordT[T, V]) *tlv.Record {
+
+	record := tlv.MakeDynamicRecord(
+		value.TlvType(), &value.Val,
+		func() uint64 {
+			return tlv.SizeTUint64(uint64(value.Val))
+		},
+		func(w io.Writer, val interface{}, buf *[8]byte) error {
+			v, ok := val.(*V)
+			if !ok {
+				return tlv.NewTypeForEncodingErr(val, "tu64")
+			}
+
+			return tlv.ETUint64T(w, uint64(*v), buf)
+		},
+		func(r io.Reader, val interface{}, buf *[8]byte,
+			l uint64) error {
+
+			v, ok := val.(*V)
+			if !ok {
+				return tlv.NewTypeForDecodingErr(
+					val, "tu64", l, 8,
+				)
+			}
+
+			var x uint64
+			if err := tlv.DTUint64(r, &x, buf, l); err != nil {
+				return err
+			}
+			*v = V(x)
+
+			return nil
+		},
+	)
+
+	return &record
 }
 
 // AssertUniqueTypes asserts that the given records have unique types.

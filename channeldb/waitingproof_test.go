@@ -8,6 +8,7 @@ import (
 	"testing"
 
 	"github.com/btcsuite/btcd/btcec/v2"
+	"github.com/btcsuite/btcd/chainhash/v2"
 	"github.com/davecgh/go-spew/spew"
 	"github.com/lightningnetwork/lnd/lnwire"
 	"github.com/stretchr/testify/require"
@@ -108,7 +109,8 @@ func TestWaitingProofV2RoundTrip(t *testing.T) {
 	annSig2 := lnwire.NewAnnSigs2(
 		lnwire.ChannelID{1, 2, 3},
 		lnwire.NewShortChanIDFromInt(42),
-		partialSig,
+		lnwire.NewAnnouncementSigPair(partialSig.Sig, partialSig.Sig),
+		chainhash.Hash{1, 2, 3},
 	)
 
 	// Generate a deterministic public key for the combined nonce.
@@ -205,7 +207,8 @@ func TestWaitingProofV2Store(t *testing.T) {
 	annSig2 := lnwire.NewAnnSigs2(
 		lnwire.ChannelID{5, 6, 7},
 		lnwire.NewShortChanIDFromInt(100),
-		partialSig,
+		lnwire.NewAnnouncementSigPair(partialSig.Sig, partialSig.Sig),
+		chainhash.Hash{5, 6, 7},
 	)
 
 	proof := NewV2WaitingProof(true, annSig2, pubKey)
@@ -251,7 +254,8 @@ func TestWaitingProofCrossVersionKeyIsolation(t *testing.T) {
 	v2AnnSig := lnwire.NewAnnSigs2(
 		lnwire.ChannelID{9, 9, 9},
 		scid,
-		partialSig,
+		lnwire.NewAnnouncementSigPair(partialSig.Sig, partialSig.Sig),
+		chainhash.Hash{9, 9, 9},
 	)
 	v2Proof := NewV2WaitingProof(true, v2AnnSig, pubKey)
 

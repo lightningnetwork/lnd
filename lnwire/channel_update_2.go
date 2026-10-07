@@ -2,6 +2,7 @@ package lnwire
 
 import (
 	"bytes"
+	"encoding/binary"
 	"fmt"
 	"io"
 
@@ -11,25 +12,37 @@ import (
 )
 
 const (
-	defaultCltvExpiryDelta           = uint16(80)
-	defaultHtlcMinMsat               = MilliSatoshi(1)
-	defaultFeeBaseMsat               = uint32(1000)
-	defaultFeeProportionalMillionths = uint32(1)
+	defaultCltvExpiryDelta                  = uint16(80)
+	defaultHtlcMinMsat                      = MilliSatoshi(1)
+	defaultFeeBaseMsat                      = uint32(1000)
+	defaultFeeProportionalMillionths        = uint32(1)
+	defaultInboundFeeBaseMsat               = uint32(0)
+	defaultInboundFeeProportionalMillionths = uint32(0)
 )
 
 // ChannelUpdate2 message is used after taproot channel has been initially
 // announced. Each side independently announces its fees and minimum expiry for
 // HTLCs and other parameters. This message is also used to redeclare initially
 // set channel parameters.
+//
+// Every field with a spec default is optional. A field is present exactly
+// when the sender included it, even when it holds the default value, because
+// the signature covers the records as sent. The default applies only when a
+// caller reads an absent field.
 type ChannelUpdate2 struct {
 	// ChainHash denotes the target chain that this channel was opened
 	// within. This value should be the genesis hash of the target chain.
 	// Along with the short channel ID, this uniquely identifies the
-	// channel globally in a blockchain.
-	ChainHash tlv.RecordT[tlv.TlvType0, chainhash.Hash]
+	// channel globally in a blockchain. When absent, it is the bitcoin
+	// mainnet genesis block hash.
+	ChainHash tlv.OptionalRecordT[tlv.TlvType0, chainhash.Hash]
 
-	// ShortChannelID is the unique description of the funding transaction.
-	ShortChannelID tlv.RecordT[tlv.TlvType2, ShortChannelID]
+	// ShortChannelID identifies the channel and the side of it that sent
+	// this update. It is BOLT 1's `sciddir_or_pubkey` type constrained to
+	// the `sciddir` form: 9 wire bytes of `<dirbyte><scid>`, where the
+	// direction byte is `0` for `node_id_1` and `1` for `node_id_2`. It is
+	// the only field that says which side sent the update.
+	ShortChannelID tlv.RecordT[tlv.TlvType2, SciddirIntro]
 
 	// BlockHeight allows ordering in the case of multiple announcements. We
 	// should ignore the message if block height is not greater than the
@@ -40,44 +53,49 @@ type ChannelUpdate2 struct {
 
 	// DisabledFlags is an optional bitfield that describes various reasons
 	// that the node is communicating that the channel should be considered
-	// disabled.
-	DisabledFlags tlv.RecordT[tlv.TlvType6, ChanUpdateDisableFlags]
-
-	// SecondPeer is used to indicate which node the channel node has
-	// created and signed this message. If this field is present, it was
-	// node 2 otherwise it was node 1.
-	SecondPeer tlv.OptionalRecordT[tlv.TlvType8, TrueBoolean]
+	// disabled. When absent, the channel is enabled.
+	DisabledFlags tlv.OptionalRecordT[tlv.TlvType6, ChanUpdateDisableFlags]
 
 	// CLTVExpiryDelta is the minimum number of blocks this node requires to
 	// be added to the expiry of HTLCs. This is a security parameter
 	// determined by the node operator. This value represents the required
 	// gap between the time locks of the incoming and outgoing HTLC's set
-	// to this node.
-	CLTVExpiryDelta tlv.RecordT[tlv.TlvType10, uint16]
+	// to this node. When absent, it is 80.
+	CLTVExpiryDelta tlv.OptionalRecordT[tlv.TlvType10, uint16]
 
 	// HTLCMinimumMsat is the minimum HTLC value which will be accepted.
-	HTLCMinimumMsat tlv.RecordT[tlv.TlvType12, MilliSatoshi]
+	// When absent, it is 1.
+	HTLCMinimumMsat tlv.OptionalRecordT[tlv.TlvType12, MilliSatoshi]
 
 	// HtlcMaximumMsat is the maximum HTLC value which will be accepted.
-	HTLCMaximumMsat tlv.RecordT[tlv.TlvType14, MilliSatoshi]
+	HTLCMaximumMsat tlv.OptionalRecordT[tlv.TlvType14, MilliSatoshi]
 
 	// FeeBaseMsat is the base fee that must be used for incoming HTLC's to
 	// this particular channel. This value will be tacked onto the required
-	// for a payment independent of the size of the payment.
-	FeeBaseMsat tlv.RecordT[tlv.TlvType16, uint32]
+	// for a payment independent of the size of the payment. When absent,
+	// it is 1000.
+	FeeBaseMsat tlv.OptionalRecordT[tlv.TlvType16, uint32]
 
 	// FeeProportionalMillionths is the fee rate that will be charged per
-	// millionth of a satoshi.
-	FeeProportionalMillionths tlv.RecordT[tlv.TlvType18, uint32]
+	// millionth of a satoshi. When absent, it is 1.
+	FeeProportionalMillionths tlv.OptionalRecordT[tlv.TlvType18, uint32]
 
-	// InboundFee is an optional TLV record that contains the fee
-	// information for incoming HTLCs.
-	// TODO(elle): assign normal tlv type?
-	InboundFee tlv.OptionalRecordT[tlv.TlvType55555, Fee]
+	// InboundFeeBaseMsat is the base fee (in millisatoshis) added by this
+	// node for HTLCs forwarded *in* via this channel, regardless of which
+	// channel they are forwarded out on. Default 0. Positive-only: this
+	// version of gossip does not support negative inbound fees.
+	InboundFeeBaseMsat tlv.OptionalRecordT[tlv.TlvType20, uint32]
+
+	// InboundFeeProportionalMillionths is the proportional inbound fee (in
+	// millionths of a satoshi) added by this node per transferred satoshi
+	// for HTLCs forwarded *in* via this channel. Default 0. Positive-only.
+	InboundFeeProportionalMillionths tlv.OptionalRecordT[
+		tlv.TlvType22, uint32,
+	]
 
 	// Signature is used to validate the announced data and prove the
 	// ownership of node id.
-	Signature tlv.RecordT[tlv.TlvType160, Sig]
+	Signature tlv.RecordT[tlv.TlvType240, Sig]
 
 	// Any extra fields in the signed range that we do not yet know about,
 	// but we need to keep them for signature validation and to produce a
@@ -112,60 +130,54 @@ func (c *ChannelUpdate2) Decode(r io.Reader, _ uint32) error {
 	}
 
 	var (
-		chainHash  = tlv.ZeroRecordT[tlv.TlvType0, [32]byte]()
-		secondPeer = tlv.ZeroRecordT[tlv.TlvType8, TrueBoolean]()
-		inboundFee = tlv.ZeroRecordT[tlv.TlvType55555, Fee]()
+		chainHash     = tlv.ZeroRecordT[tlv.TlvType0, [32]byte]()
+		disabledFlags = tlv.ZeroRecordT[
+			tlv.TlvType6, ChanUpdateDisableFlags,
+		]()
+		cltvDelta   = tlv.ZeroRecordT[tlv.TlvType10, uint16]()
+		htlcMin     = tlv.ZeroRecordT[tlv.TlvType12, MilliSatoshi]()
+		htlcMax     = tlv.ZeroRecordT[tlv.TlvType14, MilliSatoshi]()
+		feeBase     = tlv.ZeroRecordT[tlv.TlvType16, uint32]()
+		feeRate     = tlv.ZeroRecordT[tlv.TlvType18, uint32]()
+		inboundBase = tlv.ZeroRecordT[tlv.TlvType20, uint32]()
+		inboundRate = tlv.ZeroRecordT[tlv.TlvType22, uint32]()
 	)
 	typeMap, err := tlvRecords.ExtractRecords(
-		&chainHash, &c.ShortChannelID, &c.BlockHeight, &c.DisabledFlags,
-		&secondPeer, &c.CLTVExpiryDelta, &c.HTLCMinimumMsat,
-		&c.HTLCMaximumMsat, &c.FeeBaseMsat,
-		&c.FeeProportionalMillionths, &inboundFee,
-		&c.Signature,
+		&chainHash, sciddirRecord(&c.ShortChannelID), &c.BlockHeight,
+		&disabledFlags, &cltvDelta, truncatedUint64Record(&htlcMin),
+		truncatedUint64Record(&htlcMax),
+		truncatedUint32Record(&feeBase),
+		truncatedUint32Record(&feeRate),
+		truncatedUint32Record(&inboundBase),
+		truncatedUint32Record(&inboundRate), &c.Signature,
 	)
 	if err != nil {
 		return err
 	}
 	c.Signature.Val.ForceSchnorr()
 
-	// By default, the chain-hash is the bitcoin mainnet genesis block hash.
-	c.ChainHash.Val = *chaincfg.MainNetParams.GenesisHash
+	if err := assertRequiredPresent(
+		typeMap,
+		c.ShortChannelID.TlvType(),
+		c.BlockHeight.TlvType(),
+		c.Signature.TlvType(),
+	); err != nil {
+		return err
+	}
+
 	if _, ok := typeMap[c.ChainHash.TlvType()]; ok {
-		c.ChainHash.Val = chainHash.Val
+		hash := c.ChainHash.Zero()
+		hash.Val = chainHash.Val
+		c.ChainHash = tlv.SomeRecordT(hash)
 	}
-
-	// The presence of the second_peer tlv type indicates "true".
-	if _, ok := typeMap[c.SecondPeer.TlvType()]; ok {
-		c.SecondPeer = tlv.SomeRecordT(secondPeer)
-	}
-
-	// If the CLTV expiry delta was not encoded, then set it to the default
-	// value.
-	if _, ok := typeMap[c.CLTVExpiryDelta.TlvType()]; !ok {
-		c.CLTVExpiryDelta.Val = defaultCltvExpiryDelta
-	}
-
-	// If the HTLC Minimum msat was not encoded, then set it to the default
-	// value.
-	if _, ok := typeMap[c.HTLCMinimumMsat.TlvType()]; !ok {
-		c.HTLCMinimumMsat.Val = defaultHtlcMinMsat
-	}
-
-	// If the base fee was not encoded, then set it to the default value.
-	if _, ok := typeMap[c.FeeBaseMsat.TlvType()]; !ok {
-		c.FeeBaseMsat.Val = defaultFeeBaseMsat
-	}
-
-	// If the proportional fee was not encoded, then set it to the default
-	// value.
-	if _, ok := typeMap[c.FeeProportionalMillionths.TlvType()]; !ok {
-		c.FeeProportionalMillionths.Val = defaultFeeProportionalMillionths //nolint:ll
-	}
-
-	// If the inbound fee was encoded, set it.
-	if _, ok := typeMap[c.InboundFee.TlvType()]; ok {
-		c.InboundFee = tlv.SomeRecordT(inboundFee)
-	}
+	SetOptFromMap(typeMap, &c.DisabledFlags, disabledFlags)
+	SetOptFromMap(typeMap, &c.CLTVExpiryDelta, cltvDelta)
+	SetOptFromMap(typeMap, &c.HTLCMinimumMsat, htlcMin)
+	SetOptFromMap(typeMap, &c.HTLCMaximumMsat, htlcMax)
+	SetOptFromMap(typeMap, &c.FeeBaseMsat, feeBase)
+	SetOptFromMap(typeMap, &c.FeeProportionalMillionths, feeRate)
+	SetOptFromMap(typeMap, &c.InboundFeeBaseMsat, inboundBase)
+	SetOptFromMap(typeMap, &c.InboundFeeProportionalMillionths, inboundRate)
 
 	c.ExtraSignedFields = ExtraSignedFieldsFromTypeMap(typeMap)
 
@@ -178,56 +190,28 @@ func (c *ChannelUpdate2) Decode(r io.Reader, _ uint32) error {
 //
 // NOTE: this is part of the PureTLVMessage interface.
 func (c *ChannelUpdate2) AllRecords() []tlv.Record {
-	var recordProducers []tlv.RecordProducer
-
-	// The chain-hash record is only included if it is _not_ equal to the
-	// bitcoin mainnet genisis block hash.
-	if !c.ChainHash.Val.IsEqual(chaincfg.MainNetParams.GenesisHash) {
-		hash := tlv.ZeroRecordT[tlv.TlvType0, [32]byte]()
-		hash.Val = c.ChainHash.Val
-
-		recordProducers = append(recordProducers, &hash)
+	recordProducers := []tlv.RecordProducer{
+		sciddirRecord(&c.ShortChannelID), &c.BlockHeight, &c.Signature,
 	}
 
-	recordProducers = append(recordProducers,
-		&c.ShortChannelID, &c.BlockHeight, &c.Signature,
+	// Each optional record is emitted exactly when it is present, so a
+	// decoded message re-encodes to the bytes that the sender signed.
+	c.ChainHash.WhenSome(
+		func(r tlv.RecordT[tlv.TlvType0, chainhash.Hash]) {
+			hash := tlv.NewPrimitiveRecord[tlv.TlvType0, [32]byte](
+				r.Val,
+			)
+			recordProducers = append(recordProducers, &hash)
+		},
 	)
-
-	// Only include the disable flags if any bit is set.
-	if !c.DisabledFlags.Val.IsEnabled() {
-		recordProducers = append(recordProducers, &c.DisabledFlags)
-	}
-
-	// We only need to encode the second peer boolean if it is true
-	c.SecondPeer.WhenSome(func(r tlv.RecordT[tlv.TlvType8, TrueBoolean]) {
-		recordProducers = append(recordProducers, &r)
-	})
-
-	// We only encode the cltv expiry delta if it is not equal to the
-	// default.
-	if c.CLTVExpiryDelta.Val != defaultCltvExpiryDelta {
-		recordProducers = append(recordProducers, &c.CLTVExpiryDelta)
-	}
-
-	if c.HTLCMinimumMsat.Val != defaultHtlcMinMsat {
-		recordProducers = append(recordProducers, &c.HTLCMinimumMsat)
-	}
-
-	recordProducers = append(recordProducers, &c.HTLCMaximumMsat)
-
-	if c.FeeBaseMsat.Val != defaultFeeBaseMsat {
-		recordProducers = append(recordProducers, &c.FeeBaseMsat)
-	}
-
-	if c.FeeProportionalMillionths.Val != defaultFeeProportionalMillionths {
-		recordProducers = append(
-			recordProducers, &c.FeeProportionalMillionths,
-		)
-	}
-
-	c.InboundFee.WhenSome(func(r tlv.RecordT[tlv.TlvType55555, Fee]) {
-		recordProducers = append(recordProducers, &r)
-	})
+	AddOpt(&recordProducers, c.DisabledFlags)
+	AddOpt(&recordProducers, c.CLTVExpiryDelta)
+	addOptTU64(&recordProducers, c.HTLCMinimumMsat)
+	addOptTU64(&recordProducers, c.HTLCMaximumMsat)
+	addOptTU32(&recordProducers, c.FeeBaseMsat)
+	addOptTU32(&recordProducers, c.FeeProportionalMillionths)
+	addOptTU32(&recordProducers, c.InboundFeeBaseMsat)
+	addOptTU32(&recordProducers, c.InboundFeeProportionalMillionths)
 
 	recordProducers = append(recordProducers, RecordsAsProducers(
 		tlv.MapToRecords(c.ExtraSignedFields),
@@ -259,19 +243,21 @@ var _ Message = (*ChannelUpdate2)(nil)
 // lnwire.PureTLVMessage interface.
 var _ PureTLVMessage = (*ChannelUpdate2)(nil)
 
-// SCID returns the ShortChannelID of the channel that the update applies to.
+// SCID returns the ShortChannelID of the channel that the update applies to,
+// projecting away the direction byte that the wire encoding carries.
 //
 // NOTE: this is part of the ChannelUpdate interface.
 func (c *ChannelUpdate2) SCID() ShortChannelID {
-	return c.ShortChannelID.Val
+	return c.ShortChannelID.Val.ShortChannelID()
 }
 
 // IsNode1 is true if the update was produced by node 1 of the channel peers.
-// Node 1 is the node with the lexicographically smaller public key.
+// Node 1 is the node with the lexicographically smaller public key, and is
+// indicated by a direction byte of 0 in the encoded ShortChannelID.
 //
 // NOTE: this is part of the ChannelUpdate interface.
 func (c *ChannelUpdate2) IsNode1() bool {
-	return c.SecondPeer.IsNone()
+	return c.ShortChannelID.Val.Direction == 0
 }
 
 // IsDisabled is true if the update is announcing that the channel should be
@@ -279,27 +265,41 @@ func (c *ChannelUpdate2) IsNode1() bool {
 //
 // NOTE: this is part of the ChannelUpdate interface.
 func (c *ChannelUpdate2) IsDisabled() bool {
-	return !c.DisabledFlags.Val.IsEnabled()
+	return !c.DisableFlags().IsEnabled()
 }
 
 // GetChainHash returns the hash of the chain that the message is referring to.
 //
 // NOTE: this is part of the ChannelUpdate interface.
 func (c *ChannelUpdate2) GetChainHash() chainhash.Hash {
-	return c.ChainHash.Val
+	return c.ChainHash.ValOpt().UnwrapOr(
+		*chaincfg.MainNetParams.GenesisHash,
+	)
 }
 
 // ForwardingPolicy returns the set of forwarding constraints of the update.
 //
 // NOTE: this is part of the ChannelUpdate interface.
 func (c *ChannelUpdate2) ForwardingPolicy() *ForwardingPolicy {
+	maxHTLC := c.HTLCMaximumMsat.ValOpt()
+
 	return &ForwardingPolicy{
-		TimeLockDelta: c.CLTVExpiryDelta.Val,
-		BaseFee:       MilliSatoshi(c.FeeBaseMsat.Val),
-		FeeRate:       MilliSatoshi(c.FeeProportionalMillionths.Val),
-		MinHTLC:       c.HTLCMinimumMsat.Val,
-		HasMaxHTLC:    true,
-		MaxHTLC:       c.HTLCMaximumMsat.Val,
+		TimeLockDelta: c.CLTVExpiryDelta.ValOpt().UnwrapOr(
+			defaultCltvExpiryDelta,
+		),
+		BaseFee: MilliSatoshi(c.FeeBaseMsat.ValOpt().UnwrapOr(
+			defaultFeeBaseMsat,
+		)),
+		FeeRate: MilliSatoshi(
+			c.FeeProportionalMillionths.ValOpt().UnwrapOr(
+				defaultFeeProportionalMillionths,
+			),
+		),
+		MinHTLC: c.HTLCMinimumMsat.ValOpt().UnwrapOr(
+			defaultHtlcMinMsat,
+		),
+		HasMaxHTLC: maxHTLC.IsSome(),
+		MaxHTLC:    maxHTLC.UnwrapOr(0),
 	}
 }
 
@@ -329,20 +329,54 @@ func (c *ChannelUpdate2) CmpAge(update ChannelUpdate) (CompareResult, error) {
 //
 // NOTE: this is part of the ChannelUpdate interface.
 func (c *ChannelUpdate2) SetDisabledFlag(disabled bool) {
+	flags := c.DisableFlags()
 	if disabled {
-		c.DisabledFlags.Val |= ChanUpdateDisableIncoming
-		c.DisabledFlags.Val |= ChanUpdateDisableOutgoing
+		flags |= ChanUpdateDisableIncoming
+		flags |= ChanUpdateDisableOutgoing
 	} else {
-		c.DisabledFlags.Val &^= ChanUpdateDisableIncoming
-		c.DisabledFlags.Val &^= ChanUpdateDisableOutgoing
+		flags &^= ChanUpdateDisableIncoming
+		flags &^= ChanUpdateDisableOutgoing
+	}
+
+	// The update is re-signed after this change, so the flags follow the
+	// writer rule and are omitted when they take the default value.
+	c.DisabledFlags = tlv.OptionalRecordT[
+		tlv.TlvType6, ChanUpdateDisableFlags,
+	]{}
+	if !flags.IsEnabled() {
+		c.DisabledFlags = tlv.SomeRecordT(
+			tlv.NewRecordT[tlv.TlvType6](flags),
+		)
 	}
 }
 
-// SetSCID can be used to overwrite the SCID of the update.
+// DisableFlags returns the disable flags of the update, or the enabled default
+// when the update does not carry them.
+func (c *ChannelUpdate2) DisableFlags() ChanUpdateDisableFlags {
+	return c.DisabledFlags.ValOpt().UnwrapOr(0)
+}
+
+// InboundFee returns the inbound base fee and the inbound fee rate of the
+// update, with the default of 0 for each fee that the update does not carry.
+func (c *ChannelUpdate2) InboundFee() (uint32, uint32) {
+	base := c.InboundFeeBaseMsat.ValOpt().UnwrapOr(
+		defaultInboundFeeBaseMsat,
+	)
+	rate := c.InboundFeeProportionalMillionths.ValOpt().UnwrapOr(
+		defaultInboundFeeProportionalMillionths,
+	)
+
+	return base, rate
+}
+
+// SetSCID can be used to overwrite the SCID of the update, leaving the
+// existing direction byte in place.
 //
 // NOTE: this is part of the ChannelUpdate interface.
 func (c *ChannelUpdate2) SetSCID(scid ShortChannelID) {
-	c.ShortChannelID.Val = scid
+	binary.BigEndian.PutUint64(
+		c.ShortChannelID.Val.SCID[:], scid.ToUint64(),
+	)
 }
 
 // A compile time check to ensure ChannelUpdate2 implements the

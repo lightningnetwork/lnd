@@ -64,10 +64,23 @@ func WithErrorOnUnknownFeatureBit() DecodeOption {
 	}
 }
 
+// WithSkipPaymentSecretCheck is a functional option that allows the Decode
+// function to accept an invoice that has neither a payment secret nor blinded
+// paths. BOLT 11 requires a reader to fail the payment for such an invoice, so
+// this option must only be used when the invoice is not going to be paid, for
+// example to display invoices that were stored before payment secrets were
+// mandatory.
+func WithSkipPaymentSecretCheck() DecodeOption {
+	return func(options *decodeOptions) {
+		options.skipPaymentSecretCheck = true
+	}
+}
+
 // decodeOptions holds the set of Decode options.
 type decodeOptions struct {
-	knownFeatureBits      map[lnwire.FeatureBit]string
-	errorOnUnknownFeature bool
+	knownFeatureBits       map[lnwire.FeatureBit]string
+	errorOnUnknownFeature  bool
+	skipPaymentSecretCheck bool
 }
 
 // newDecodeOptions constructs the default decodeOptions struct.
@@ -212,6 +225,16 @@ func Decode(invoice string, net *chaincfg.Params, opts ...DecodeOption) (
 		return nil, err
 	}
 
+	// The invoice must include a payment secret, unless it uses blinded
+	// paths, in which case the PathID in the final hop serves the same
+	// purpose.
+	if !options.skipPaymentSecretCheck &&
+		len(decodedInvoice.BlindedPaymentPaths) == 0 &&
+		decodedInvoice.PaymentAddr.IsNone() {
+
+		return nil, ErrPaymentSecretNotFound
+	}
+
 	if options.errorOnUnknownFeature {
 		// Make sure that we understand all the required feature bits
 		// in the invoice.
@@ -265,11 +288,7 @@ func parseTimestamp(data []byte) (uint64, error) {
 // parseTaggedFields takes the base32 encoded tagged fields of the invoice, and
 // fills the Invoice struct accordingly.
 func parseTaggedFields(invoice *Invoice, fields []byte, net *chaincfg.Params) error {
-	var (
-		index           int
-		paymentHashSeen bool
-	)
-
+	index := 0
 	for len(fields)-index > 0 {
 		// If there are less than 3 groups to read, there cannot be more
 		// interesting information, as we need the type (1 group) and
@@ -298,27 +317,30 @@ func parseTaggedFields(invoice *Invoice, fields []byte, net *chaincfg.Params) er
 
 		switch typ {
 		case fieldTypeP:
-			if paymentHashSeen {
+			paymentHash, err := parse32Bytes(base32Data)
+			if err != nil {
+				return fmt.Errorf("payment hash: %w", err)
+			}
+
+			if invoice.PaymentHash != nil {
 				return ErrDuplicatePaymentHash
 			}
-			paymentHashSeen = true
 
-			invoice.PaymentHash, err = parse32Bytes(base32Data)
+			invoice.PaymentHash = paymentHash
 
 		case fieldTypeS:
+			addr, err := parse32Bytes(base32Data)
+			if err != nil {
+				return fmt.Errorf("payment secret: %w", err)
+			}
+
 			if invoice.PaymentAddr.IsSome() {
 				// We skip the field if we have already seen a
 				// supported one.
 				continue
 			}
 
-			addr, err := parse32Bytes(base32Data)
-			if err != nil {
-				return err
-			}
-			if addr != nil {
-				invoice.PaymentAddr = fn.Some(*addr)
-			}
+			invoice.PaymentAddr = fn.Some(*addr)
 
 		case fieldTypeD:
 			if invoice.Description != nil {
@@ -339,22 +361,32 @@ func parseTaggedFields(invoice *Invoice, fields []byte, net *chaincfg.Params) er
 			invoice.Metadata, err = parseMetadata(base32Data)
 
 		case fieldTypeN:
+			destination, err := parseDestination(base32Data)
+			if err != nil {
+				return fmt.Errorf("destination id: %w", err)
+			}
+
 			if invoice.Destination != nil {
 				// We skip the field if we have already seen a
 				// supported one.
 				continue
 			}
 
-			invoice.Destination, err = parseDestination(base32Data)
+			invoice.Destination = destination
 
 		case fieldTypeH:
+			descriptionHash, err := parse32Bytes(base32Data)
+			if err != nil {
+				return fmt.Errorf("description hash: %w", err)
+			}
+
 			if invoice.DescriptionHash != nil {
 				// We skip the field if we have already seen a
 				// supported one.
 				continue
 			}
 
-			invoice.DescriptionHash, err = parse32Bytes(base32Data)
+			invoice.DescriptionHash = descriptionHash
 
 		case fieldTypeX:
 			if invoice.expiry != nil {
@@ -449,16 +481,10 @@ func parseFieldDataLength(data []byte) (uint16, error) {
 func parse32Bytes(data []byte) (*[32]byte, error) {
 	var paymentHash [32]byte
 
-	// A field with an unexpected length is reported as absent rather
-	// than as an error, leaving it to the caller to decide whether a
-	// missing field is fatal. Note that BOLT 11 is stricter, and
-	// requires a reader to fail on a fixed-length field (p, h, s, n)
-	// with the wrong length. For the payment hash the end result is the
-	// same: a lone wrong-length field leaves PaymentHash nil and
-	// validateInvoice rejects the invoice, and a wrong-length field
-	// paired with a valid one is rejected as a duplicate.
+	// As BOLT-11 states, a reader must fail the payment if a 32-byte
+	// field (p, h, s) does not have a length of 52.
 	if len(data) != hashBase32Len {
-		return nil, nil
+		return nil, ErrInvalidFieldLength
 	}
 
 	hash, err := bech32.ConvertBits(data, 5, 8, false)
@@ -497,10 +523,10 @@ func parseMetadata(data []byte) ([]byte, error) {
 // parseDestination converts the data (encoded in base32) into a 33-byte public
 // key of the payee node.
 func parseDestination(data []byte) (*btcec.PublicKey, error) {
-	// As BOLT-11 states, a reader must skip over the destination field
-	// if it does not have a length of 53, so avoid returning an error.
+	// As BOLT-11 states, a reader must fail the payment if the destination
+	// field does not have a length of 53.
 	if len(data) != pubKeyBase32Len {
-		return nil, nil
+		return nil, ErrInvalidFieldLength
 	}
 
 	base256Data, err := bech32.ConvertBits(data, 5, 8, false)

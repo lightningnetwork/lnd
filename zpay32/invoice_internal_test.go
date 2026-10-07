@@ -3,6 +3,7 @@ package zpay32
 import (
 	"bytes"
 	"encoding/binary"
+	"errors"
 	"math"
 	"reflect"
 	"testing"
@@ -317,8 +318,7 @@ func TestParseFieldDataLength(t *testing.T) {
 }
 
 // TestParse32Bytes checks that the payment hash is properly parsed.
-// If the data does not have a length of 52 bytes, we skip over parsing the
-// field and do not return an error.
+// If the data does not have a length of 52 bytes, we return an error.
 func TestParse32Bytes(t *testing.T) {
 	t.Parallel()
 
@@ -330,14 +330,12 @@ func TestParse32Bytes(t *testing.T) {
 		result *[32]byte
 	}{
 		{
-			data:   []byte{},
-			valid:  true,
-			result: nil, // skip unknown length, not 52 bytes
+			data:  []byte{},
+			valid: false,
 		},
 		{
-			data:   []byte{0x0, 0x0, 0x0, 0x0, 0x0, 0x0},
-			valid:  true,
-			result: nil, // skip unknown length, not 52 bytes
+			data:  []byte{0x0, 0x0, 0x0, 0x0, 0x0, 0x0},
+			valid: false,
 		},
 		{
 			data:   testPaymentHashData,
@@ -345,9 +343,8 @@ func TestParse32Bytes(t *testing.T) {
 			result: &testPaymentHash,
 		},
 		{
-			data:   append(testPaymentHashData, 0x0),
-			valid:  true,
-			result: nil, // skip unknown length, not 52 bytes
+			data:  append(testPaymentHashData, 0x0),
+			valid: false,
 		},
 	}
 
@@ -423,8 +420,7 @@ func TestParseDescription(t *testing.T) {
 }
 
 // TestParseDestination checks that the destination is properly parsed.
-// If the data does not have a length of 53 bytes, we skip over parsing the
-// field and do not return an error.
+// If the data does not have a length of 53 bytes, we return an error.
 func TestParseDestination(t *testing.T) {
 	t.Parallel()
 
@@ -436,14 +432,12 @@ func TestParseDestination(t *testing.T) {
 		result *btcec.PublicKey
 	}{
 		{
-			data:   []byte{},
-			valid:  true,
-			result: nil, // skip unknown length, not 53 bytes
+			data:  []byte{},
+			valid: false,
 		},
 		{
-			data:   []byte{0x0, 0x0, 0x0, 0x0, 0x0, 0x0},
-			valid:  true,
-			result: nil, // skip unknown length, not 53 bytes
+			data:  []byte{0x0, 0x0, 0x0, 0x0, 0x0, 0x0},
+			valid: false,
 		},
 		{
 			data:   testPubKeyData,
@@ -451,9 +445,8 @@ func TestParseDestination(t *testing.T) {
 			result: testPubKey,
 		},
 		{
-			data:   append(testPubKeyData, 0x0),
-			valid:  true,
-			result: nil, // skip unknown length, not 53 bytes
+			data:  append(testPubKeyData, 0x0),
+			valid: false,
 		},
 	}
 
@@ -808,6 +801,24 @@ func TestParseTaggedFields(t *testing.T) {
 		&distinctPaymentHashes, fieldTypeP, secondPaymentHash,
 	))
 
+	// validThenMalformed returns a valid field of the given type followed
+	// by a second field of the same type with an invalid length.
+	validThenMalformed := func(fieldType byte, valid []byte) []byte {
+		var b bytes.Buffer
+		require.NoError(t, writeTaggedField(&b, fieldType, valid))
+		require.NoError(t, writeTaggedField(&b, fieldType, []byte{0}))
+
+		return b.Bytes()
+	}
+
+	hashData, err := bech32.ConvertBits(testPaymentHash[:], 8, 5, true)
+	require.NoError(t, err)
+
+	pubKeyData, err := bech32.ConvertBits(
+		testPubKey.SerializeCompressed(), 8, 5, true,
+	)
+	require.NoError(t, err)
+
 	tests := []struct {
 		name    string
 		data    []byte
@@ -837,7 +848,27 @@ func TestParseTaggedFields(t *testing.T) {
 		{
 			name:    "malformed then valid payment hash",
 			data:    malformedThenValid.Bytes(),
-			wantErr: ErrDuplicatePaymentHash,
+			wantErr: ErrInvalidFieldLength,
+		},
+		{
+			name:    "valid then malformed payment hash",
+			data:    validThenMalformed(fieldTypeP, hashData),
+			wantErr: ErrInvalidFieldLength,
+		},
+		{
+			name:    "valid then malformed payment secret",
+			data:    validThenMalformed(fieldTypeS, hashData),
+			wantErr: ErrInvalidFieldLength,
+		},
+		{
+			name:    "valid then malformed description hash",
+			data:    validThenMalformed(fieldTypeH, hashData),
+			wantErr: ErrInvalidFieldLength,
+		},
+		{
+			name:    "valid then malformed destination",
+			data:    validThenMalformed(fieldTypeN, pubKeyData),
+			wantErr: ErrInvalidFieldLength,
 		},
 		{
 			name:    "identical payment hashes",
@@ -879,7 +910,7 @@ func TestParseTaggedFields(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			var invoice Invoice
 			gotErr := parseTaggedFields(&invoice, tc.data, netParams)
-			if tc.wantErr != gotErr {
+			if !errors.Is(gotErr, tc.wantErr) {
 				t.Fatalf("Unexpected error. want=%v got=%v",
 					tc.wantErr, gotErr)
 			}

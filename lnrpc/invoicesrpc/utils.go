@@ -33,8 +33,13 @@ func decodePayReq(invoice *invoices.Invoice,
 		}, nil
 	}
 
-	var err error
-	decoded, err := zpay32.Decode(paymentRequest, activeNetParams)
+	// Invoices created by lnd versions before v0.9.0 have no payment
+	// secret. We skip that check so that they can still be returned by the
+	// RPCs, since the invoice is only converted for display here.
+	decoded, err := zpay32.Decode(
+		paymentRequest, activeNetParams,
+		zpay32.WithSkipPaymentSecretCheck(),
+	)
 	if err != nil {
 		return nil, fmt.Errorf("unable to decode payment "+
 			"request: %v", err)

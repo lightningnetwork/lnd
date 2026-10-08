@@ -829,6 +829,17 @@ func (w *WebAPIEstimator) EstimateFeePerKW(numBlocks uint32) (
 		satPerKw = FeePerKwFloor
 	}
 
+	// Similarly, if the result is too high, then we'll clamp it to our
+	// fee ceiling. The web API is an untrusted, external data source, so
+	// we bound its input to sane values before it reaches wallet code.
+	if satPerKw > FeePerKwCeiling {
+		log.Warnf("Web API fee estimate of %v exceeds fee ceiling, "+
+			"clamping to %v", int64(satPerKw),
+			int64(FeePerKwCeiling))
+
+		satPerKw = FeePerKwCeiling
+	}
+
 	log.Debugf("Web API returning %v sat/kw for conf target of %v",
 		int64(satPerKw), numBlocks)
 

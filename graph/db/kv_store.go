@@ -174,6 +174,10 @@ const (
 	// would be possible for a node to create a ton of updates and slowly
 	// fill our disk, and also waste bandwidth due to relaying.
 	MaxAllowedExtraOpaqueBytes = 10000
+
+	// maxPolicyOpaqueBytes is the largest serialized policy opaque blob.
+	// The blob contains the extra opaque data after an optional max_htlc.
+	maxPolicyOpaqueBytes = MaxAllowedExtraOpaqueBytes + 8
 )
 
 // KVStore is a persistent, on-disk graph representation of the Lightning
@@ -5560,7 +5564,7 @@ func deserializeChanEdgePolicyRaw(r io.Reader) (*models.ChannelEdgePolicy,
 	// We'll try and see if there are any opaque bytes left, if not, then
 	// we'll ignore the EOF error and return the edge as is.
 	edge.ExtraOpaqueData, err = wire.ReadVarBytes(
-		r, 0, MaxAllowedExtraOpaqueBytes, "blob",
+		r, 0, maxPolicyOpaqueBytes, "blob",
 	)
 	switch {
 	case errors.Is(err, io.ErrUnexpectedEOF):

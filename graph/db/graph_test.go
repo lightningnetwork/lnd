@@ -29,8 +29,10 @@ import (
 	"github.com/lightningnetwork/lnd/lntest/wait"
 	"github.com/lightningnetwork/lnd/lnwire"
 	"github.com/lightningnetwork/lnd/routing/route"
+	"github.com/lightningnetwork/lnd/tlv"
 	"github.com/stretchr/testify/require"
 	"golang.org/x/exp/rand"
+	"pgregory.net/rapid"
 )
 
 var (
@@ -5356,6 +5358,49 @@ func TestEdgePolicyMissingMaxHTLC(t *testing.T) {
 	assertEdgeInfoEqual(t, dbEdgeInfo, edgeInfo)
 }
 
+// TestEdgePolicyOpaqueDataRoundTrip asserts that every extra opaque data size
+// accepted by the policy serializer can be read back when max_htlc is present.
+func TestEdgePolicyOpaqueDataRoundTrip(t *testing.T) {
+	t.Parallel()
+
+	assertRoundTrip := func(t require.TestingT, payloadLen int) {
+		var (
+			extra   bytes.Buffer
+			scratch [8]byte
+		)
+		require.NoError(t, tlv.WriteVarInt(&extra, 1, &scratch))
+		require.NoError(t, tlv.WriteVarInt(
+			&extra, uint64(payloadLen), &scratch,
+		))
+		_, err := extra.Write(make([]byte, payloadLen))
+		require.NoError(t, err)
+		require.LessOrEqual(t, extra.Len(), MaxAllowedExtraOpaqueBytes)
+
+		policy := randEdgePolicy(1)
+		policy.SigBytes = []byte{}
+		policy.ExtraOpaqueData = extra.Bytes()
+
+		var encoded bytes.Buffer
+		require.NoError(t, serializeChanEdgePolicy(
+			&encoded, policy, policy.ToNode[:],
+		))
+
+		decoded, err := deserializeChanEdgePolicy(&encoded)
+		require.NoError(t, err)
+		require.Equal(t, policy, decoded)
+	}
+
+	rapid.Check(t, func(t *rapid.T) {
+		payloadLen := rapid.IntRange(0, 9996).Draw(t, "payload_len")
+		assertRoundTrip(t, payloadLen)
+	})
+
+	for _, payloadLen := range []int{0, 252, 253, 9996} {
+		t.Run(fmt.Sprintf("payload_%d", payloadLen), func(t *testing.T) {
+			assertRoundTrip(t, payloadLen)
+		})
+	}
+}
 // putSerializedPolicy is a helper function that writes a serialized
 // ChannelEdgePolicy to the edge bucket in the database.
 func putSerializedPolicy(t *testing.T, db kvdb.Backend, from []byte,

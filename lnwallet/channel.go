@@ -6303,7 +6303,9 @@ func (lc *LightningChannel) addHTLC(htlc *lnwire.UpdateAddHTLC,
 // the dust sum on. The return value is the sum of dust on the desired
 // commitment tx.
 //
-// NOTE: This over-estimates the dust exposure.
+// NOTE: This over-estimates the dust exposure, since it also counts adds that
+// aren't on the commitment yet. HTLCs whose settle or fail is already locked
+// into the commitment chain aren't counted.
 func (lc *LightningChannel) GetDustSum(whoseCommit lntypes.ChannelParty,
 	dryRunFee fn.Option[chainfee.SatPerKWeight]) lnwire.MilliSatoshi {
 
@@ -6326,10 +6328,45 @@ func (lc *LightningChannel) GetDustSum(whoseCommit lntypes.ChannelParty,
 	// Optionally use the dry-run fee-rate.
 	feeRate = dryRunFee.UnwrapOr(feeRate)
 
+	// An add whose settle or fail is locked into this commitment chain
+	// (included at or below its tail) is on no commitment of the chain
+	// that can still be broadcast, even though the logs keep it until
+	// they are compacted on the next received revocation. Their removals
+	// point at our adds and ours at theirs.
+	tailHeight := lc.commitChains.Local.tail().height
+	if whoseCommit.IsRemote() {
+		tailHeight = lc.commitChains.Remote.tail().height
+	}
+	removedIn := func(log *updateLog) map[uint64]struct{} {
+		removed := make(map[uint64]struct{})
+		for e := log.Front(); e != nil; e = e.Next() {
+			pd := e.Value
+			switch pd.EntryType {
+			case Settle, Fail, MalformedFail:
+			default:
+				continue
+			}
+
+			height := pd.removeCommitHeights.GetForParty(
+				whoseCommit,
+			)
+			if height != 0 && height <= tailHeight {
+				removed[pd.ParentIndex] = struct{}{}
+			}
+		}
+
+		return removed
+	}
+	ourRemoved := removedIn(lc.updateLogs.Remote)
+	theirRemoved := removedIn(lc.updateLogs.Local)
+
 	// Grab all of our HTLCs and evaluate against the dust limit.
 	for e := lc.updateLogs.Local.Front(); e != nil; e = e.Next() {
 		pd := e.Value
 		if !pd.isAdd() {
+			continue
+		}
+		if _, ok := ourRemoved[pd.HtlcIndex]; ok {
 			continue
 		}
 
@@ -6349,6 +6386,9 @@ func (lc *LightningChannel) GetDustSum(whoseCommit lntypes.ChannelParty,
 	for e := lc.updateLogs.Remote.Front(); e != nil; e = e.Next() {
 		pd := e.Value
 		if !pd.isAdd() {
+			continue
+		}
+		if _, ok := theirRemoved[pd.HtlcIndex]; ok {
 			continue
 		}
 

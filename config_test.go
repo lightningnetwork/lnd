@@ -2,6 +2,7 @@ package lnd
 
 import (
 	"fmt"
+	"math"
 	"testing"
 
 	"github.com/lightningnetwork/lnd/chainreg"
@@ -282,4 +283,99 @@ func TestValidateChannelPolicyTimeLockDelta(t *testing.T) {
 		cfg.MaxOutgoingCltvExpiry+1, cfg.MaxOutgoingCltvExpiry,
 	)
 	require.ErrorContains(t, err, "exceeds max-cltv-expiry")
+}
+
+// TestValidateBolt12Offers verifies that the startup check refuses BOLT 12
+// offers on a node that cannot hold their tables or deliver their messages,
+// and accepts them only in a build with the development migrations.
+func TestValidateBolt12Offers(t *testing.T) {
+	t.Parallel()
+
+	// A release build has no BOLT 12 migrations and must refuse the
+	// flag. A build with the development migrations accepts it.
+	buildErr := ""
+	if _, missing := missingMigration(bolt12Migrations); missing {
+		buildErr = "not part of this build"
+	}
+
+	tests := []struct {
+		name    string
+		modify  func(cfg *Config)
+		wantErr string
+	}{
+		{
+			name: "no onion messages",
+			modify: func(cfg *Config) {
+				cfg.ProtocolOptions.NoOnionMessagesOption = true
+			},
+			wantErr: "onion messages",
+		},
+		{
+			name: "no route blinding",
+			modify: func(cfg *Config) {
+				cfg.ProtocolOptions.NoRouteBlindingOption = true
+			},
+			wantErr: "route blinding",
+		},
+		{
+			name: "no native sql",
+			modify: func(cfg *Config) {
+				cfg.DB.UseNativeSQL = false
+			},
+			wantErr: "db.use-native-sql",
+		},
+		{
+			name: "time lock delta above the path limit",
+			modify: func(cfg *Config) {
+				cfg.Bitcoin.TimeLockDelta = math.MaxUint16 -
+					uint32(routing.BlockPadding) + 1
+			},
+			wantErr: "bitcoin.timelockdelta",
+		},
+		{
+			name:    "build migrations",
+			modify:  func(*Config) {},
+			wantErr: buildErr,
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+
+			cfg := &Config{
+				ProtocolOptions: &lncfg.ProtocolOptions{},
+				DB:              &lncfg.DB{UseNativeSQL: true},
+				Bitcoin: &lncfg.Chain{
+					TimeLockDelta: chainreg.
+						DefaultBitcoinTimeLockDelta,
+				},
+			}
+			tc.modify(cfg)
+
+			err := validateBolt12Offers(cfg)
+			if tc.wantErr == "" {
+				require.NoError(t, err)
+
+				return
+			}
+
+			require.ErrorContains(t, err, tc.wantErr)
+		})
+	}
+}
+
+// TestMissingMigration verifies that the migration lookup finds a migration
+// that every build applies and reports one that no build has.
+func TestMissingMigration(t *testing.T) {
+	t.Parallel()
+
+	_, missing := missingMigration([]string{"000001_invoices"})
+	require.False(t, missing)
+
+	name, missing := missingMigration(
+		[]string{"000001_invoices", "999999_unknown"},
+	)
+	require.True(t, missing)
+	require.Equal(t, "999999_unknown", name)
 }

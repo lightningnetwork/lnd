@@ -206,6 +206,14 @@ func (p *paymentLifecycle) resumePayment(ctx context.Context) ([32]byte,
 	// return.
 	defer p.stop()
 
+	// This session will never be asked for another route, and no further
+	// outcome will be reported to it, so let it drop whatever it was
+	// tracking on behalf of the attempts it handed out. A route we asked
+	// for but never managed to send is only ever cleaned up here.
+	defer p.reportToSession(func(r PaymentResultReporter) {
+		r.ReleaseAttempts()
+	})
+
 	// If we had any existing attempts outstanding, we'll start by spinning
 	// up goroutines that'll collect their results and deliver them to the
 	// lifecycle loop below.
@@ -464,6 +472,25 @@ func (p *paymentLifecycle) requestRoute(ctx context.Context,
 	// avoid terminating the payment lifecycle as there might be other
 	// inflight HTLCs which we must wait for their results.
 	return nil, nil
+}
+
+// reportToSession hands an attempt outcome to the payment session when the
+// session asked to hear about them. Sessions that do not implement
+// PaymentResultReporter, the stock session among them, are left alone.
+//
+// NOTE: p.paySession can be nil when this is reached through SendToRoute,
+// where there is no payment lifecycle driving the attempts.
+func (p *paymentLifecycle) reportToSession(report func(PaymentResultReporter)) {
+	if p.paySession == nil {
+		return
+	}
+
+	reporter, ok := p.paySession.(PaymentResultReporter)
+	if !ok {
+		return
+	}
+
+	report(reporter)
 }
 
 // stop signals any active shard goroutine to exit.
@@ -876,6 +903,14 @@ func (p *paymentLifecycle) handleSwitchErr(ctx context.Context,
 			reason = &internalErrorReason
 		}
 
+		// If the payment session keeps a belief state of its own, it
+		// needs the same observation mission control just received.
+		p.reportToSession(func(r PaymentResultReporter) {
+			r.ReportAttemptFailure(
+				attemptID, &attempt.Route, srcIdx, msg,
+			)
+		})
+
 		// Fail the attempt only if there's no reason.
 		if reason == nil {
 			// Fail the attempt.
@@ -1205,6 +1240,12 @@ func (p *paymentLifecycle) handleAttemptResult(ctx context.Context,
 	if err != nil {
 		log.Errorf("Error reporting payment success to mc: %v", err)
 	}
+
+	// If the payment session keeps a belief state of its own, it needs the
+	// same observation mission control just received.
+	p.reportToSession(func(r PaymentResultReporter) {
+		r.ReportAttemptSuccess(attempt.AttemptID, &attempt.Route)
+	})
 
 	// In case of success we atomically store settle result to the DB and
 	// move the shard to the settled state.

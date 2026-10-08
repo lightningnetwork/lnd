@@ -161,6 +161,11 @@ const (
 	// maxPolicyOpaqueBytes is the largest serialized policy opaque blob.
 	// The blob contains the extra opaque data after an optional max_htlc.
 	maxPolicyOpaqueBytes = MaxAllowedExtraOpaqueBytes + 8
+
+	// maxChannelEdgeFeatureBytes is the largest encoded raw feature vector.
+	// A feature bit is a uint16, so its base-256 payload is at most 8192
+	// bytes. RawFeatureVector.Encode prefixes that payload with two bytes.
+	maxChannelEdgeFeatureBytes = 2 + 1<<13
 )
 
 // KVStore is a persistent, on-disk graph representation of the Lightning
@@ -1782,7 +1787,9 @@ func deserializeChanEdgeInfo(r io.Reader) (*models.ChannelEdgeInfo, error) {
 		return nil, err
 	}
 
-	featureBytes, err := wire.ReadVarBytes(r, 0, 900, "features")
+	featureBytes, err := wire.ReadVarBytes(
+		r, 0, maxChannelEdgeFeatureBytes, "features",
+	)
 	if err != nil {
 		return nil, err
 	}

@@ -95,6 +95,30 @@ func (u *updateLog) appendHtlc(pd *paymentDescriptor) {
 	u.logIndex++
 }
 
+// appendFeeUpdate appends a fee update unless the newest fee update hasn't yet
+// been committed to either commitment chain. In that case, only its fee is
+// replaced. Keeping the original descriptor and log index preserves a
+// contiguous update stream for persistence while avoiding redundant entries.
+func (u *updateLog) appendFeeUpdate(pd *paymentDescriptor) {
+	for entry := u.Back(); entry != nil; entry = entry.Prev() {
+		update := entry.Value
+		if update.EntryType != FeeUpdate {
+			continue
+		}
+
+		if update.addCommitHeights.Local == 0 &&
+			update.addCommitHeights.Remote == 0 {
+
+			update.Amount = pd.Amount
+			return
+		}
+
+		break
+	}
+
+	u.appendUpdate(pd)
+}
+
 // lookupHtlc attempts to look up an offered HTLC according to its offer
 // index. If the entry isn't found, then a nil pointer is returned.
 func (u *updateLog) lookupHtlc(i uint64) *paymentDescriptor {

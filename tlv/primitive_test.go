@@ -2,6 +2,8 @@ package tlv_test
 
 import (
 	"bytes"
+	"io"
+	"math"
 	"reflect"
 	"testing"
 
@@ -94,6 +96,35 @@ func TestWrongDecodingType(t *testing.T) {
 				"got %T", err)
 		}
 	}
+}
+
+// TestDVarBytesDeclaredLength verifies that DVarBytes does not allocate a
+// declared length before the input provides the corresponding bytes.
+func TestDVarBytesDeclaredLength(t *testing.T) {
+	t.Parallel()
+
+	var (
+		decoded []byte
+		buf     [8]byte
+	)
+
+	err := tlv.DVarBytes(
+		bytes.NewReader(nil), &decoded, &buf, 0x3030303030303030,
+	)
+	require.ErrorIs(t, err, io.EOF)
+	require.Nil(t, decoded)
+
+	err = tlv.DVarBytes(
+		bytes.NewReader([]byte{0x01}), &decoded, &buf, 2,
+	)
+	require.ErrorIs(t, err, io.ErrUnexpectedEOF)
+	require.Nil(t, decoded)
+
+	err = tlv.DVarBytes(
+		bytes.NewReader(nil), &decoded, &buf, math.MaxUint64,
+	)
+	require.ErrorIs(t, err, tlv.ErrRecordTooLarge)
+	require.Nil(t, decoded)
 }
 
 type fieldEncoder struct {

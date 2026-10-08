@@ -2,6 +2,7 @@ package tlv_test
 
 import (
 	"bytes"
+	"io"
 	"reflect"
 	"testing"
 
@@ -49,6 +50,45 @@ func TestParsedTypes(t *testing.T) {
 		test := test
 		t.Run(test.name, func(t *testing.T) {
 			testParsedTypes(t, test)
+		})
+	}
+}
+
+// TestUnknownRecordDeclaredLength ensures that an unknown record's declared
+// length cannot trigger an eager allocation or overflow io.CopyN's length.
+func TestUnknownRecordDeclaredLength(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name     string
+		encoded  []byte
+		expected error
+	}{
+		{
+			name:     "large length with missing value",
+			encoded:  []byte("0\xff00000000"),
+			expected: io.ErrUnexpectedEOF,
+		},
+		{
+			name: "length exceeds max int64",
+			encoded: []byte{
+				0x01, 0xff, 0xff, 0xff, 0xff, 0xff,
+				0xff, 0xff, 0xff, 0xff,
+			},
+			expected: tlv.ErrRecordTooLarge,
+		},
+	}
+
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			t.Parallel()
+
+			stream := tlv.MustNewStream()
+			parsedTypes, err := stream.DecodeWithParsedTypes(
+				bytes.NewReader(test.encoded),
+			)
+			require.ErrorIs(t, err, test.expected)
+			require.Nil(t, parsedTypes)
 		})
 	}
 }

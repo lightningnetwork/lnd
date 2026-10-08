@@ -289,6 +289,57 @@ func TestWebAPIFeeEstimator(t *testing.T) {
 	feeSource.AssertExpectations(t)
 }
 
+// TestWebAPIFeeEstimatorCeiling checks that the WebAPIEstimator clamps fee
+// rates returned by the external API to FeePerKwCeiling, so that
+// out-of-range API responses are bounded.
+func TestWebAPIFeeEstimatorCeiling(t *testing.T) {
+	t.Parallel()
+
+	var (
+		minTarget uint32 = 2
+		maxTarget uint32 = 6
+
+		// Fee rates are in sat/kb. The sane rate is below the ceiling,
+		// while the absurd rate of 10^7 sat/kw is far above it.
+		saneFeeRate   = uint32(FeePerKwCeiling.FeePerKVByte()) - 4000
+		absurdFeeRate = uint32(FeePerKwCeiling.FeePerKVByte()) * 4
+
+		minFeeUpdateTimeout = 5 * time.Minute
+		maxFeeUpdateTimeout = 20 * time.Minute
+	)
+
+	feeRates := map[uint32]uint32{
+		minTarget: absurdFeeRate,
+		maxTarget: saneFeeRate,
+	}
+	resp := WebAPIResponse{
+		FeeByBlockTarget: feeRates,
+	}
+
+	feeSource := &mockFeeSource{}
+	feeSource.On("GetFeeInfo").Return(resp, nil)
+
+	estimator, err := NewWebAPIEstimator(
+		feeSource, false, minFeeUpdateTimeout, maxFeeUpdateTimeout,
+	)
+	require.NoError(t, err)
+	require.NoError(t, estimator.Start(), "unable to start fee estimator")
+
+	// The absurd fee rate must be clamped to the ceiling.
+	est, err := estimator.EstimateFeePerKW(minTarget)
+	require.NoError(t, err)
+	require.Equal(t, FeePerKwCeiling, est)
+
+	// The sane fee rate below the ceiling must pass through untouched.
+	est, err = estimator.EstimateFeePerKW(maxTarget)
+	require.NoError(t, err)
+	require.Equal(t, SatPerKVByte(saneFeeRate).FeePerKWeight(), est)
+
+	require.NoError(t, estimator.Stop(), "unable to stop fee estimator")
+
+	feeSource.AssertExpectations(t)
+}
+
 // TestGetCachedFee checks that the fee caching logic works as expected.
 func TestGetCachedFee(t *testing.T) {
 	var (

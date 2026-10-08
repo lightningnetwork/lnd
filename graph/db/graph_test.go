@@ -4305,6 +4305,86 @@ func TestEdgePolicyOpaqueDataRoundTrip(t *testing.T) {
 		})
 	}
 }
+
+// TestUnreadablePolicyPruning asserts that a policy read error cannot be
+// mistaken for a successfully deleted channel with a nil edge result.
+func TestUnreadablePolicyPruning(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name  string
+		prune func(*testing.T, *ChannelGraph,
+			*models.ChannelEdgeInfo) error
+	}{
+		{
+			name: "spend",
+			prune: func(t *testing.T, graph *ChannelGraph,
+				edge *models.ChannelEdgeInfo) error {
+
+				var blockHash chainhash.Hash
+				closed, err := graph.PruneGraph(
+					[]*wire.OutPoint{
+						&edge.ChannelPoint,
+					}, &blockHash, 1,
+				)
+				require.Empty(t, closed)
+
+				return err
+			},
+		},
+		{
+			name: "disconnect",
+			prune: func(t *testing.T, graph *ChannelGraph,
+				edge *models.ChannelEdgeInfo) error {
+
+				height := lnwire.NewShortChanIDFromInt(
+					edge.ChannelID,
+				).BlockHeight
+				closed, err := graph.DisconnectBlockAtHeight(height)
+				require.Empty(t, closed)
+
+				return err
+			},
+		},
+	}
+
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			t.Parallel()
+
+			graph := MakeTestGraph(t)
+			boltStore, ok := graph.V1Store.(*KVStore)
+			if !ok {
+				t.Skipf("skipping test that is aimed at a KV graph DB")
+			}
+
+			node1 := createTestVertex(t)
+			node2 := createTestVertex(t)
+			require.NoError(t, graph.SetSourceNode(t.Context(), node1))
+			require.NoError(t, graph.AddNode(t.Context(), node2))
+
+			edgeInfo, edge1, edge2 := createChannelEdge(node1, node2)
+			require.NoError(t, graph.AddChannelEdge(
+				t.Context(), edgeInfo,
+			))
+			require.NoError(t, graph.UpdateEdgePolicy(
+				t.Context(), edge1,
+			))
+			require.NoError(t, graph.UpdateEdgePolicy(
+				t.Context(), edge2,
+			))
+
+			// Replace one policy with a value that cannot be decoded.
+			putSerializedPolicy(
+				t, boltStore.db, edge2.ToNode[:],
+				edgeInfo.ChannelID, []byte{1},
+			)
+
+			require.Error(t, test.prune(t, graph, edgeInfo))
+		})
+	}
+}
+
 // putSerializedPolicy is a helper function that writes a serialized
 // ChannelEdgePolicy to the edge bucket in the database.
 func putSerializedPolicy(t *testing.T, db kvdb.Backend, from []byte,

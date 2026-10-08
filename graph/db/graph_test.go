@@ -5381,6 +5381,34 @@ func TestEdgePolicyMissingMaxHTLC(t *testing.T) {
 	assertEdgeInfoEqual(t, dbEdgeInfo, edgeInfo)
 }
 
+// TestEdgeInfoFeatureRoundTrip asserts that the largest raw feature vector can
+// be read back after the edge-info serializer accepts it.
+func TestEdgeInfoFeatureRoundTrip(t *testing.T) {
+	t.Parallel()
+
+	ctx := t.Context()
+	graph := MakeTestGraph(t)
+	node1 := createTestVertex(t, lnwire.GossipVersion1)
+	node2 := createTestVertex(t, lnwire.GossipVersion1)
+	require.NoError(t, graph.SetSourceNode(ctx, node1))
+	require.NoError(t, graph.AddNode(ctx, node2))
+
+	edgeInfo, _, _ := createChannelEdge(
+		node1, node2, lnwire.GossipVersion1,
+	)
+	rawFeatures := lnwire.NewRawFeatureVector(
+		lnwire.FeatureBit(math.MaxUint16),
+	)
+	edgeInfo.Features = lnwire.NewFeatureVector(rawFeatures, lnwire.Features)
+	require.NoError(t, graph.AddChannelEdge(ctx, edgeInfo))
+
+	stored, _, _, err := graph.FetchChannelEdgesByID(
+		ctx, edgeInfo.ChannelID,
+	)
+	require.NoError(t, err)
+	require.True(t, stored.Features.Equals(rawFeatures))
+}
+
 // TestEdgePolicyOpaqueDataRoundTrip asserts that every extra opaque data size
 // accepted by the policy serializer can be read back when max_htlc is present.
 func TestEdgePolicyOpaqueDataRoundTrip(t *testing.T) {

@@ -5,13 +5,18 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"sync"
 	"sync/atomic"
 
+	"github.com/btcsuite/btcd/btcutil/v2"
+	"github.com/btcsuite/btcd/txscript/v2"
 	"github.com/btcsuite/btcd/wire/v2"
 	"github.com/btcsuite/btclog/v2"
 	"github.com/lightningnetwork/lnd/channeldb"
 	"github.com/lightningnetwork/lnd/chanstate"
 	"github.com/lightningnetwork/lnd/fn/v2"
+	"github.com/lightningnetwork/lnd/input"
+	"github.com/lightningnetwork/lnd/lntypes"
 	"github.com/lightningnetwork/lnd/sweep"
 )
 
@@ -138,6 +143,11 @@ type contractResolverKit struct {
 
 	// resolved reflects if the contract has been fully resolved or not.
 	resolved atomic.Bool
+
+	// wg tracks background goroutines spawned by the resolver (the
+	// consumers of pre-signed tx outcomes reported by the sweeper) so
+	// Stop can wait for them to exit.
+	wg sync.WaitGroup
 }
 
 // newContractResolverKit instantiates the mix-in struct.
@@ -179,8 +189,203 @@ func (r *contractResolverKit) markLaunched() {
 	r.launched.Store(true)
 }
 
+// clearLaunched clears the launched flag, allowing a later Launch call to
+// retry after a synchronous launch failure. Without this, a resolver whose
+// launch failed before anything was handed to the sweeper (or scheduled for
+// publish) would no-op every subsequent Launch until a restart.
+func (r *contractResolverKit) clearLaunched() {
+	r.launched.Store(false)
+}
+
+// publishPreSignedHtlcTx hands a pre-signed second-level HTLC transaction
+// to the sweeper, which owns its whole lifecycle from here on: publication
+// gated on the tx locktime and retried on every block, CPFP of the embedded
+// anchor (when present) through the regular sweep machinery, and the final
+// outcome. The call returns as soon as the sweeper has accepted the request;
+// a tracked goroutine logs the eventual result so failures are visible.
+//
+// The resolver's Resolve() path independently waits for the spend of the
+// HTLC output, so none of this changes resolution semantics; it only
+// determines whether the immutable parent gets confirmed in time.
+func (r *contractResolverKit) publishPreSignedHtlcTx(
+	req sweep.PreSignedTxRequest) error {
+
+	resultChan, err := r.Sweeper.PublishPreSignedTx(req)
+	if err != nil {
+		return fmt.Errorf("hand pre-signed tx %v to sweeper: %w",
+			req.Tx.TxHash(), err)
+	}
+
+	txid := req.Tx.TxHash()
+	r.log.Infof("handed pre-signed second-level tx=%v to the sweeper "+
+		"(locktime=%d, anchor=%v, budget=%v, deadline=%v)", txid,
+		req.Tx.LockTime, req.Anchor != nil, req.Budget,
+		req.DeadlineHeight)
+
+	r.wg.Add(1)
+	go func() {
+		defer r.wg.Done()
+
+		select {
+		case result, ok := <-resultChan:
+			if !ok {
+				return
+			}
+
+			switch {
+			case errors.Is(result.Err, sweep.ErrRemoteSpend):
+				r.log.Debugf("anchor of pre-signed tx=%v "+
+					"spent by a third party", txid)
+
+			case result.Err != nil:
+				r.log.Errorf("pre-signed tx=%v lifecycle "+
+					"ended with error: %v", txid,
+					result.Err)
+
+			case result.Tx != nil:
+				r.log.Infof("pre-signed tx=%v concluded, "+
+					"final tx=%v", txid,
+					result.Tx.TxHash())
+			}
+
+		case <-r.quit:
+		}
+	}()
+
+	return nil
+}
+
 var (
 	// errResolverShuttingDown is returned when the resolver stops
 	// progressing because it received the quit signal.
 	errResolverShuttingDown = errors.New("resolver shutting down")
 )
+
+// secondLevelAnchorInput builds the sweepable input for the CPFP anchor at
+// index 1 of a pre-signed DeterministicHTLCs second-level HTLC tx, along
+// with the fee budget the sweeper may spend on the child. The pre-signed
+// parent cannot be RBF'd under SigHashDefault, so CPFP via this anchor is
+// its only fee-bumping path.
+//
+// The anchor is a taproot output spendable by the broadcaster's ToLocalKey
+// via key-path (fast) or by anyone after 16 blocks via script path. We use
+// the key-path. The delay key is derived from the second-level HTLC
+// output's sweep sign descriptor (delay base point plus the commitment
+// point's single tweak), which is exactly the key the anchor is keyed to.
+//
+// It returns a nil input when the tx carries no anchor or the descriptor
+// lacks the key material: the parent then still publishes at its baked-in
+// floor fee, CPFP is just unavailable.
+func secondLevelAnchorInput(parentTx *wire.MsgTx,
+	htlcSweepDesc input.SignDescriptor, parentFee btcutil.Amount,
+	broadcastHeight uint32, budgetCfg BudgetConfig,
+	log btclog.Logger) (input.Input, btcutil.Amount, error) {
+
+	// The anchor sits at index 1 of every DeterministicHTLCs second-level
+	// tx (index 0 is the HTLC output). If the tx only has one output the
+	// caller built it without an anchor and there's nothing to sweep.
+	if len(parentTx.TxOut) < 2 {
+		return nil, 0, nil
+	}
+
+	if htlcSweepDesc.KeyDesc.PubKey == nil ||
+		len(htlcSweepDesc.SingleTweak) == 0 {
+
+		log.Warnf("cannot sweep second-level anchor: sweep sign " +
+			"descriptor lacks delay key material; CPFP " +
+			"unavailable")
+
+		return nil, 0, nil
+	}
+	delayKey := input.TweakPubKeyWithTweak(
+		htlcSweepDesc.KeyDesc.PubKey, htlcSweepDesc.SingleTweak,
+	)
+	anchorTree, err := input.NewAnchorScriptTree(delayKey)
+	if err != nil {
+		return nil, 0, fmt.Errorf("build anchor script tree: %w", err)
+	}
+
+	op := wire.OutPoint{
+		Hash:  parentTx.TxHash(),
+		Index: 1,
+	}
+
+	// Build the sign descriptor for the key-path spend. Clone the HTLC
+	// output's SweepSignDesc (which already carries the local delay key
+	// descriptor + tweak) and swap the anchor-specific fields.
+	signDesc := htlcSweepDesc
+	signDesc.Output = parentTx.TxOut[1]
+	signDesc.WitnessScript = anchorTree.SweepLeaf.Script
+	signDesc.TapTweak = anchorTree.TapscriptRoot
+	signDesc.HashType = txscript.SigHashDefault
+
+	// We pass the parent tx fee + weight so the sweeper computes the
+	// effective package fee rate for CPFP. The baked-in parent fee is
+	// the floor rate (see lnwallet.HtlcSuccessFee / HtlcTimeoutFee under
+	// sigHashDefault) and the weight includes the appended anchor.
+	strippedSize := parentTx.SerializeSizeStripped()
+	parentWeight := lntypes.WeightUnit(
+		(strippedSize * 3) + parentTx.SerializeSize(),
+	)
+	parentInfo := &input.TxInfo{
+		Fee:    parentFee,
+		Weight: parentWeight,
+	}
+
+	anchorInput := input.MakeBaseInput(
+		&op, input.TaprootAnchorSweepSpend, &signDesc,
+		broadcastHeight, parentInfo,
+	)
+
+	// The budget bounds the fees the sweeper may pay for the CPFP child
+	// (funded from wallet inputs, so it can and usually must exceed the
+	// anchor's own value). Derive it from the value under protection,
+	// the second-level HTLC output, with the same configuration used
+	// for commitment anchor CPFP, plus the anchor value itself.
+	budget := calculateBudget(
+		btcutil.Amount(parentTx.TxOut[0].Value),
+		budgetCfg.AnchorCPFPRatio, budgetCfg.AnchorCPFP,
+	) + AnchorOutputValue
+
+	return &anchorInput, budget, nil
+}
+
+// preSignedTxFee returns the exact fee baked into a pre-signed second-level
+// HTLC tx: the value of the commitment output it spends (carried by the sign
+// details' sign descriptor) minus the sum of its outputs.
+func preSignedTxFee(tx *wire.MsgTx,
+	signDetails *input.SignDetails) btcutil.Amount {
+
+	inputValue := signDetails.SignDesc.Output.Value
+
+	var outputValue int64
+	for _, txOut := range tx.TxOut {
+		outputValue += txOut.Value
+	}
+
+	return btcutil.Amount(inputValue - outputValue)
+}
+
+// isSecondLevelSigHashDefault returns true when a pre-signed second-level
+// HTLC transaction was signed with SigHashDefault. In this case the tx
+// has baked-in fees and must be broadcast as-is: the sweeper cannot add
+// wallet inputs or change outputs without invalidating the peer's
+// signature.
+//
+// The sighash check alone filters every channel that populates sign
+// details today: legacy channels sign second levels with SIGHASH_ALL
+// (0x01), anchor and taproot channels with SIGHASH_SINGLE|ANYONECANPAY
+// (0x83), and taproot asset channels that did not negotiate
+// DeterministicHTLCs also carry 0x83. The channel type gate
+// (TapscriptRootBit, only ever set for aux/custom channels) is layered
+// on top for two reasons: it makes the custom-channel-only isolation of
+// this path explicit, and it protects against SigHashDefault being the
+// zero value of SigHashType, so no present or future code path that
+// leaves the field unset can ever steer a non-custom channel in here.
+func isSecondLevelSigHashDefault(signDetails *input.SignDetails,
+	chanType channeldb.ChannelType) bool {
+
+	return signDetails != nil &&
+		signDetails.SigHashType == txscript.SigHashDefault &&
+		chanType.HasTapscriptRoot()
+}

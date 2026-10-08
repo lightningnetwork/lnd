@@ -367,6 +367,18 @@ type UtxoSweeper struct {
 	// bumpRespChan is a channel that receives broadcast results from the
 	// TxPublisher.
 	bumpRespChan chan *bumpResp
+
+	// preSignedReqs delivers PublishPreSignedTx requests into the main
+	// event loop.
+	preSignedReqs chan *preSignedTxMessage
+
+	// preSignedAnchorResults delivers the final result of a pre-signed
+	// tx's anchor sweep back into the main event loop.
+	preSignedAnchorResults chan *preSignedAnchorResult
+
+	// preSigned tracks the pre-signed transactions whose lifecycle the
+	// sweeper currently owns, keyed by txid.
+	preSigned map[chainhash.Hash]*preSignedTxState
 }
 
 // Compile-time check for the chainio.Consumer interface.
@@ -454,6 +466,11 @@ func New(cfg *UtxoSweeperConfig) *UtxoSweeper {
 		quit:              make(chan struct{}),
 		inputs:            make(InputsMap),
 		bumpRespChan:      make(chan *bumpResp, 100),
+		preSignedReqs:     make(chan *preSignedTxMessage),
+		preSignedAnchorResults: make(
+			chan *preSignedAnchorResult, 100,
+		),
+		preSigned: make(map[chainhash.Hash]*preSignedTxState),
 	}
 
 	// Mount the block consumer.
@@ -711,6 +728,15 @@ func (s *UtxoSweeper) collector() {
 					err)
 			}
 
+		// A pre-signed transaction is handed to us to publish and
+		// CPFP; take ownership of its lifecycle.
+		case msg := <-s.preSignedReqs:
+			s.handlePreSignedTxReq(msg)
+
+		// The anchor sweep of a pre-signed transaction concluded.
+		case r := <-s.preSignedAnchorResults:
+			s.handlePreSignedAnchorResult(r)
+
 		// A new block comes in, update the bestHeight, perform a check
 		// over all pending inputs and publish sweeping txns if needed.
 		case beat := <-s.BlockbeatChan:
@@ -730,10 +756,18 @@ func (s *UtxoSweeper) collector() {
 			// Attempt to sweep any pending inputs.
 			s.sweepPendingInputs(inputs)
 
+			// Drive the pre-signed transactions we own one step
+			// further (publish once the locktime allows, register
+			// their anchors).
+			s.processPreSignedTxs()
+
 			// Notify we've processed the block.
 			s.NotifyBlockProcessed(beat, nil)
 
 		case <-s.quit:
+			// Release anyone waiting on a pre-signed tx outcome.
+			s.failPreSignedTxs(ErrSweeperShuttingDown)
+
 			return
 		}
 	}

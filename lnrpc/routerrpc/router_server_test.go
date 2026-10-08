@@ -901,3 +901,36 @@ func TestProbePaymentRequestUsesUniqueHashPerLSP(t *testing.T) {
 	require.Contains(t, probedDests, eveVertex)
 	require.Contains(t, probedDests, daveVertex)
 }
+
+// TestAliasRPCPermissions tests that the experimental alias RPCs are all
+// registered in the macaroon permission map, as the rpc interceptor rejects any
+// method that is missing from it.
+func TestAliasRPCPermissions(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		method string
+		action string
+	}{
+		{
+			method: "/routerrpc.Router/XAddLocalChanAliases",
+			action: "write",
+		},
+		{
+			method: "/routerrpc.Router/XDeleteLocalChanAliases",
+			action: "write",
+		},
+		{
+			method: "/routerrpc.Router/XFindBaseLocalChanAlias",
+			action: "read",
+		},
+	}
+
+	for _, test := range tests {
+		permissions, ok := macPermissions[test.method]
+		require.True(t, ok, test.method)
+		require.Len(t, permissions, 1, test.method)
+		require.Equal(t, "offchain", permissions[0].Entity)
+		require.Equal(t, test.action, permissions[0].Action)
+	}
+}

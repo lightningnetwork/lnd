@@ -170,7 +170,8 @@ service Router {
 
     /*
     XFindBaseLocalChanAlias is an experimental API that looks up the base scid
-    for a local chan alias that was registered during the current runtime.
+    for a local chan alias. This includes persistent aliases that were added in
+    previous runtimes.
     */
     rpc XFindBaseLocalChanAlias (FindBaseAliasRequest)
         returns (FindBaseAliasResponse);

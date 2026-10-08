@@ -1014,6 +1014,34 @@ func (b *BtcdNotifier) RegisterConfirmationsNtfn(txid *chainhash.Hash,
 	}
 }
 
+// RegisterPkScriptNotifier creates a new pkScript notification stream.
+func (b *BtcdNotifier) RegisterPkScriptNotifier() (
+	*chainntnfs.PkScriptNotificationRegistration, error) {
+
+	reg, err := b.txNotifier.RegisterPkScriptNotifier()
+	if err != nil {
+		return nil, err
+	}
+
+	reg.Event.AddPkScripts = func(
+		pkScripts [][]byte, opts ...chainntnfs.NotifierOption,
+	) (*chainntnfs.PkScriptAddResult, error) {
+
+		_, addedScripts, err := reg.AddPkScripts(pkScripts, opts...)
+		if err != nil {
+			return nil, err
+		}
+
+		return chainntnfs.NewPkScriptAddResult(addedScripts), nil
+	}
+
+	reg.Event.RemovePkScripts = func(pkScripts [][]byte) error {
+		return reg.RemovePkScripts(pkScripts)
+	}
+
+	return reg.Event, nil
+}
+
 // blockEpochRegistration represents a client's intent to receive a
 // notification with each newly connected block.
 type blockEpochRegistration struct {

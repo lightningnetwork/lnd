@@ -14,8 +14,10 @@ import (
 	"github.com/lightningnetwork/lnd/lntypes"
 	"github.com/lightningnetwork/lnd/lnwallet"
 	"github.com/lightningnetwork/lnd/lnwallet/chainfee"
+	"github.com/lightningnetwork/lnd/lnwallet/types"
 	"github.com/lightningnetwork/lnd/lnwire"
 	"github.com/lightningnetwork/lnd/protofsm"
+	"github.com/lightningnetwork/lnd/tlv"
 )
 
 var (
@@ -54,6 +56,17 @@ var (
 	// ClosingComplete message that doesn't carry our last local script
 	// sent.
 	ErrWrongLocalScript = fmt.Errorf("wrong local script")
+
+	// ErrAuxScriptChange is returned when the remote party changes its
+	// delivery script within a close negotiation of an aux channel. The
+	// aux shutdown records are bound to the script they were sent with,
+	// so a new script requires a new shutdown message.
+	ErrAuxScriptChange = fmt.Errorf("aux channel delivery script can " +
+		"only change with a new shutdown message")
+
+	// ErrAuxChanInfoMissing is returned when an aux closer is configured
+	// without the channel info it needs.
+	ErrAuxChanInfoMissing = fmt.Errorf("aux closer set without chan info")
 
 	// ErrTaprootShutdownNonceMissing is returned when a taproot channel
 	// receives a shutdown message without the required nonce.
@@ -126,6 +139,10 @@ type ShutdownReceived struct {
 	// ShutdownScript is the script the remote party wants to use to
 	// shutdown.
 	ShutdownScript lnwire.DeliveryAddress
+
+	// CustomRecords is the set of custom records the remote party
+	// included in its shutdown message.
+	CustomRecords lnwire.CustomRecords
 
 	// BlockHeight is the height at which the shutdown message was
 	// received. This is used for channel leases to determine if a co-op
@@ -288,6 +305,36 @@ type ChanStateObserver interface {
 	FinalBalances() fn.Option[ShutdownBalances]
 }
 
+// ChanInfo exposes the live channel state that's needed to drive the aux
+// closer hooks. Unlike the rest of the Environment, the values returned by
+// these methods may change while the channel is still active (commit fee
+// updates, new commitment blobs), so they're only read once the channel has
+// been flushed.
+type ChanInfo interface {
+	// IsInitiator returns true if we're the initiator of the channel.
+	IsInitiator() bool
+
+	// CommitFee returns the commitment fee for the current commitment
+	// state.
+	CommitFee() btcutil.Amount
+
+	// LocalCommitmentBlob may return the auxiliary data storage blob for
+	// the local commitment transaction.
+	LocalCommitmentBlob() fn.Option[tlv.Blob]
+
+	// FundingBlob may return the auxiliary data storage blob related to
+	// funding details for the channel.
+	FundingBlob() fn.Option[tlv.Blob]
+
+	// LocalBalanceDust returns true if the local balance will be dust
+	// on the co-op close transaction, along with the local dust limit.
+	LocalBalanceDust() (bool, btcutil.Amount)
+
+	// RemoteBalanceDust returns true if the remote balance will be dust
+	// on the co-op close transaction, along with the remote dust limit.
+	RemoteBalanceDust() (bool, btcutil.Amount)
+}
+
 // Environment is a set of dependencies that a state machine may need to carry
 // out the logic for a given state transition. All fields are to be considered
 // immutable, and will be fixed for the lifetime of the state machine.
@@ -341,6 +388,22 @@ type Environment struct {
 	// satoshis we'll pay given a local and/or remote output.
 	FeeEstimator CoopFeeEstimator
 
+	// AuxCloser is an optional aux closer that's consulted for the custom
+	// records to include in our shutdown message, and for the extra
+	// outputs to add to the close transaction.
+	AuxCloser fn.Option[AuxChanCloser]
+
+	// ChanInfo exposes the channel state the aux closer hooks need. This
+	// must be set if AuxCloser is set.
+	ChanInfo ChanInfo
+
+	// DeliveryAddrInternalKey returns the taproot internal key of a local
+	// delivery address, if it's a taproot address that belongs to our
+	// wallet. The aux closer needs the key to prove that our delivery
+	// output doesn't commit to any assets. If nil, no key is looked up.
+	DeliveryAddrInternalKey func(lnwire.DeliveryAddress) (
+		fn.Option[btcec.PublicKey], error)
+
 	// ChanObserver is an interface used to observe state changes to the
 	// channel. We'll use this to figure out when/if we can send certain
 	// messages.
@@ -374,6 +437,261 @@ func (e *Environment) Name() string {
 // taproot if both the LocalMusigSession and RemoteMusigSession are set.
 func (e *Environment) IsTaproot() bool {
 	return e.LocalMusigSession != nil && e.RemoteMusigSession != nil
+}
+
+// hasAuxCloser returns true if an aux closer is configured. The ChanInfo is
+// required alongside it, as the aux hooks can't be driven without it.
+func (e *Environment) hasAuxCloser() (bool, error) {
+	if e.AuxCloser.IsNone() {
+		return false, nil
+	}
+	if e.ChanInfo == nil {
+		return false, ErrAuxChanInfoMissing
+	}
+
+	return true, nil
+}
+
+// auxShutdownReq builds the aux shutdown request for our delivery address.
+func (e *Environment) auxShutdownReq(
+	localAddr lnwire.DeliveryAddress) (types.AuxShutdownReq, error) {
+
+	var internalKey fn.Option[btcec.PublicKey]
+	if e.DeliveryAddrInternalKey != nil {
+		var err error
+		internalKey, err = e.DeliveryAddrInternalKey(localAddr)
+		if err != nil {
+			return types.AuxShutdownReq{}, fmt.Errorf("unable to "+
+				"fetch delivery addr internal key: %w", err)
+		}
+	}
+
+	return types.AuxShutdownReq{
+		ChanPoint:   e.ChanPoint,
+		ShortChanID: e.Scid,
+		Initiator:   e.ChanInfo.IsInitiator(),
+		InternalKey: internalKey,
+		CommitBlob:  e.ChanInfo.LocalCommitmentBlob(),
+		FundingBlob: e.ChanInfo.FundingBlob(),
+	}, nil
+}
+
+// shutdownCustomRecords returns the custom records the aux closer wants to
+// include in a shutdown message that uses the given local delivery address.
+func (e *Environment) shutdownCustomRecords(
+	localAddr lnwire.DeliveryAddress) (lnwire.CustomRecords, error) {
+
+	hasAux, err := e.hasAuxCloser()
+	if err != nil || !hasAux {
+		return nil, err
+	}
+
+	req, err := e.auxShutdownReq(localAddr)
+	if err != nil {
+		return nil, err
+	}
+
+	var records lnwire.CustomRecords
+	err = fn.MapOptionZ(e.AuxCloser, func(aux AuxChanCloser) error {
+		auxRecords, err := aux.ShutdownBlob(req)
+		if err != nil {
+			return err
+		}
+
+		auxRecords.WhenSome(func(r lnwire.CustomRecords) {
+			records = r
+		})
+
+		return nil
+	})
+	if err != nil {
+		return nil, fmt.Errorf("unable to fetch aux shutdown "+
+			"records: %w", err)
+	}
+
+	return records, nil
+}
+
+// auxCloseShape returns the fee-independent shape of the aux close outputs,
+// which is needed to estimate the weight of the close transaction.
+func (e *Environment) auxCloseShape(
+	terms *CloseChannelTerms) (fn.Option[AuxCloseShape], error) {
+
+	hasAux, err := e.hasAuxCloser()
+	if err != nil || !hasAux {
+		return fn.None[AuxCloseShape](), err
+	}
+
+	req, err := e.auxShutdownReq(terms.LocalDeliveryScript)
+	if err != nil {
+		return fn.None[AuxCloseShape](), err
+	}
+
+	var shape fn.Option[AuxCloseShape]
+	err = fn.MapOptionZ(e.AuxCloser, func(aux AuxChanCloser) error {
+		auxShape, err := aux.AuxCloseShape(types.AuxCloseShapeDesc{
+			AuxShutdownReq: req,
+		})
+		if err != nil {
+			return err
+		}
+
+		shape = auxShape
+
+		return nil
+	})
+	if err != nil {
+		return fn.None[AuxCloseShape](), fmt.Errorf("unable to fetch "+
+			"aux close shape: %w", err)
+	}
+
+	return shape, nil
+}
+
+// closeOutputs returns the local and remote close outputs as the aux closer
+// sees them: the settled commitment balances (including any anchor value the
+// initiator regains), paired with the delivery script and shutdown records of
+// each party. The outputs are always populated, as even a dust BTC balance
+// may carry value in custom channel terms.
+func (e *Environment) closeOutputs(
+	terms *CloseChannelTerms) (types.CloseOutput, types.CloseOutput) {
+
+	localBalance := terms.LocalBalance.ToSatoshis()
+	remoteBalance := terms.RemoteBalance.ToSatoshis()
+	if e.ChanType.HasAnchors() {
+		if e.ChanInfo.IsInitiator() {
+			localBalance += 2 * lnwallet.AnchorSize
+		} else {
+			remoteBalance += 2 * lnwallet.AnchorSize
+		}
+	}
+
+	_, localDust := e.ChanInfo.LocalBalanceDust()
+	_, remoteDust := e.ChanInfo.RemoteBalanceDust()
+
+	localOut := types.CloseOutput{
+		Amt:             localBalance,
+		DustLimit:       localDust,
+		PkScript:        terms.LocalDeliveryScript,
+		ShutdownRecords: terms.LocalCustomRecords,
+	}
+	remoteOut := types.CloseOutput{
+		Amt:             remoteBalance,
+		DustLimit:       remoteDust,
+		PkScript:        terms.RemoteDeliveryScript,
+		ShutdownRecords: terms.RemoteCustomRecords,
+	}
+
+	return localOut, remoteOut
+}
+
+// auxCloseOutputs asks the aux closer for the extra outputs to add to a close
+// transaction that pays the given fee, paid by the given party. The result is
+// validated against the shape the aux closer declared for fee estimation.
+func (e *Environment) auxCloseOutputs(terms *CloseChannelTerms,
+	closeFee btcutil.Amount,
+	payer lntypes.ChannelParty) (fn.Option[AuxCloseOutputs], error) {
+
+	hasAux, err := e.hasAuxCloser()
+	if err != nil || !hasAux {
+		return fn.None[AuxCloseOutputs](), err
+	}
+
+	req, err := e.auxShutdownReq(terms.LocalDeliveryScript)
+	if err != nil {
+		return fn.None[AuxCloseOutputs](), err
+	}
+
+	localOut, remoteOut := e.closeOutputs(terms)
+
+	var outputs fn.Option[AuxCloseOutputs]
+	err = fn.MapOptionZ(e.AuxCloser, func(aux AuxChanCloser) error {
+		auxOutputs, err := aux.AuxCloseOutputs(types.AuxCloseDesc{
+			AuxShutdownReq:    req,
+			CloseFee:          closeFee,
+			CommitFee:         e.ChanInfo.CommitFee(),
+			LocalCloseOutput:  fn.Some(localOut),
+			RemoteCloseOutput: fn.Some(remoteOut),
+			FeePayer:          fn.Some(payer),
+		})
+		if err != nil {
+			return err
+		}
+
+		outputs = auxOutputs
+
+		return nil
+	})
+	if err != nil {
+		return fn.None[AuxCloseOutputs](), fmt.Errorf("unable to "+
+			"fetch aux close outputs: %w", err)
+	}
+
+	// The concrete outputs must match the shape that was used to
+	// estimate the fee, otherwise the fee we sign for is off.
+	shape, err := e.auxCloseShape(terms)
+	if err != nil {
+		return fn.None[AuxCloseOutputs](), err
+	}
+	if err := validateAuxShape(shape, outputs); err != nil {
+		return fn.None[AuxCloseOutputs](), err
+	}
+
+	return outputs, nil
+}
+
+// localCanPayFees returns true if we can propose a close transaction that
+// pays the given absolute fee. Besides being able to afford the fee, for an
+// aux channel that adds an output for our party, our own output needs to
+// stay above dust after the fee: the channel omits our output otherwise, and
+// the aux output of our party along with it, which must never happen as it
+// carries the assets. In that case the remote party needs to be the closer.
+func (e *Environment) localCanPayFees(terms *CloseChannelTerms,
+	absoluteFee btcutil.Amount, auxShape fn.Option[AuxCloseShape]) bool {
+
+	if !terms.LocalCanPayFees(absoluteFee) {
+		return false
+	}
+
+	hasLocalAuxOutput := false
+	auxShape.WhenSome(func(shape AuxCloseShape) {
+		for _, out := range shape.Outputs {
+			if out.IsLocal {
+				hasLocalAuxOutput = true
+			}
+		}
+	})
+	if !hasLocalAuxOutput {
+		return true
+	}
+
+	// Our settled balance on the close transaction is what the aux closer
+	// sees, plus the commitment fee we regain as the initiator, minus the
+	// fee we pay as the closer.
+	localOut, _ := e.closeOutputs(terms)
+	balance := localOut.Amt
+	if e.ChanInfo.IsInitiator() {
+		balance += e.ChanInfo.CommitFee()
+	}
+
+	_, dustLimit := e.ChanInfo.LocalBalanceDust()
+
+	return balance-absoluteFee >= dustLimit
+}
+
+// auxCloseOpts maps the aux close outputs to the options that make the
+// channel include them in the close transaction.
+func auxCloseOpts(outputs fn.Option[AuxCloseOutputs]) []lnwallet.ChanCloseOpt {
+	var opts []lnwallet.ChanCloseOpt
+	outputs.WhenSome(func(outs AuxCloseOutputs) {
+		opts = append(
+			opts,
+			lnwallet.WithExtraCloseOutputs(outs.ExtraCloseOutputs),
+			lnwallet.WithCustomCoopSort(outs.CustomSort),
+		)
+	})
+
+	return opts
 }
 
 // CloseStateTransition is the StateTransition type specific to the coop close
@@ -463,6 +781,19 @@ type ShutdownScripts struct {
 	RemoteDeliveryScript lnwire.DeliveryAddress
 }
 
+// ShutdownCustomRecords is the set of custom records that both parties
+// included in their shutdown messages. An aux closer uses these to derive the
+// extra outputs of the close transaction.
+type ShutdownCustomRecords struct {
+	// LocalCustomRecords are the custom records we sent in our shutdown
+	// message.
+	LocalCustomRecords lnwire.CustomRecords
+
+	// RemoteCustomRecords are the custom records the remote party sent
+	// in its shutdown message.
+	RemoteCustomRecords lnwire.CustomRecords
+}
+
 // ShutdownPending is the state we enter into after we've sent or received the
 // shutdown message. If we sent the shutdown, then we'll wait for the remote
 // party to send a shutdown. Otherwise, if we received it, then we'll send our
@@ -479,6 +810,10 @@ type ShutdownPending struct {
 	// ShutdownScripts store the set of scripts we'll use to initiate a coop
 	// close.
 	ShutdownScripts
+
+	// ShutdownCustomRecords are the custom records exchanged in the
+	// shutdown messages so far.
+	ShutdownCustomRecords
 
 	// IdealFeeRate is the ideal fee rate we'd like to use for the closing
 	// attempt.
@@ -527,6 +862,10 @@ type ChannelFlushing struct {
 	// ShutdownScripts store the set of scripts we'll use to initiate a coop
 	// close.
 	ShutdownScripts
+
+	// ShutdownCustomRecords are the custom records exchanged in the
+	// shutdown messages.
+	ShutdownCustomRecords
 
 	// IdealFeeRate is the ideal fee rate we'd like to use for the closing
 	// transaction. Once the channel has been flushed, we'll use this as
@@ -666,6 +1005,8 @@ type NonceState struct {
 type CloseChannelTerms struct {
 	ShutdownScripts
 
+	ShutdownCustomRecords
+
 	ShutdownBalances
 
 	// NonceState tracks nonces for taproot channels across RBF iterations.
@@ -796,6 +1137,11 @@ type LocalOfferSent struct {
 	// signatures without re-signing, which prevents nonce reuse across
 	// RBF iterations. Only set for taproot channels.
 	LocalMusigSig fn.Option[lnwallet.MusigPartialSig]
+
+	// AuxOutputs are the extra outputs the aux closer added to the close
+	// transaction we signed, so the same transaction can be completed
+	// once the remote party's signature arrives.
+	AuxOutputs fn.Option[AuxCloseOutputs]
 }
 
 // String returns the name of the state for LocalOfferSent, including proposed.
@@ -846,6 +1192,9 @@ type ClosePending struct {
 	// Party indicates which party is at this state. This is used to
 	// implement the state transition properly, based on ShouldRouteTo.
 	Party lntypes.ChannelParty
+
+	// AuxOutputs are the extra outputs the aux closer added to CloseTx.
+	AuxOutputs fn.Option[AuxCloseOutputs]
 }
 
 // String returns the name of the state for ClosePending.
@@ -895,6 +1244,20 @@ func (c *ClosePending) IsTerminal() bool {
 type CloseFin struct {
 	// ConfirmedTx is the transaction that confirmed the channel close.
 	ConfirmedTx *wire.MsgTx
+
+	// LocalCloseOutput is the output that pays our settled balance. This
+	// is only set if the confirmed transaction is one that this state
+	// machine negotiated.
+	LocalCloseOutput fn.Option[types.CloseOutput]
+
+	// RemoteCloseOutput is the output that pays the remote party's
+	// settled balance. This is only set if the confirmed transaction is
+	// one that this state machine negotiated.
+	RemoteCloseOutput fn.Option[types.CloseOutput]
+
+	// AuxOutputs are the extra outputs the aux closer added to the
+	// confirmed transaction, if any.
+	AuxOutputs fn.Option[AuxCloseOutputs]
 }
 
 // String returns the name of the state for CloseFin.

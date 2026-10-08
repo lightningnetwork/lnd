@@ -76,6 +76,16 @@
 
 ## Functional Enhancements
 
+* The [RBF cooperative close flow now drives the aux channel closer
+  hooks](https://github.com/lightningnetwork/lnd/pull/11279): the shutdown
+  message carries the aux custom records, the aux close outputs are included
+  in the fee estimate and the close transaction of every RBF iteration, and
+  the final close update reports the close outputs. Aux (taproot overlay)
+  channels use the RBF flow once the aux closer reports support for the
+  channel, and fall back to the legacy negotiate closer otherwise. As a
+  consequence, `protocol.rbf-coop-close` is now also enabled automatically
+  when taproot overlay channels are enabled.
+
 ## RPC Additions
 
 * The `routerrpc.EstimateRouteFee` RPC now supports [restricting fee estimates

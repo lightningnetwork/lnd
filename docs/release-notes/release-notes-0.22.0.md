@@ -32,12 +32,6 @@
   invoice's `uint32` payinfo fields is skipped instead of being advertised
   with under-reported fees.
 
-* [Fixed historical graph
-  synchronization](https://github.com/lightningnetwork/lnd/pull/11173) so a
-  peer whose channel range response cannot be used is rotated out of the
-  current historical sync. The sync manager selects another peer without
-  disconnecting the first one or waiting for the historical sync interval.
-
 * Bitcoind outbound peer health checks [now use](https://github.com/lightningnetwork/lnd/pull/10686)
   `getnetworkinfo.connections_out` instead of `getpeerinfo`. The same PR also
   [clarifies](https://github.com/lightningnetwork/lnd/issues/10568) the ZMQ
@@ -76,6 +70,26 @@
 
 ## Functional Enhancements
 
+* lnd now supports an [outbound remote
+  signer](https://github.com/lightningnetwork/lnd/pull/8754) (experimental).
+  Instead of the watch-only node dialing the signer, the signer opens a single
+  outbound connection to the watch-only node, so the signer needs no open
+  inbound port. The watch-only node enables this with
+  `remotesigner.experimentalallowinboundconnection` and
+  `remotesigner.experimentalrpclisten`, and the signer with
+  `remotesigner.experimentalenable`. See
+  [remote-signing.md](https://github.com/lightningnetwork/lnd/blob/master/docs/remote-signing.md)
+  for setup.
+
+* A new `watchonlyrpc.WatchOnly` service with a
+  [`SignCoordinatorStreams`](https://github.com/lightningnetwork/lnd/pull/8754)
+  RPC, used by an outbound remote signer to connect to its watch-only node.
+
+* Add [graph-based pathfinding for onion
+  messages](https://github.com/lightningnetwork/lnd/pull/10612), which finds
+  the shortest path to a destination through nodes that advertise onion
+  message support.
+
 ## RPC Additions
 
 * The `routerrpc.EstimateRouteFee` RPC now supports [restricting fee estimates
@@ -83,23 +97,12 @@
   channels](https://github.com/lightningnetwork/lnd/pull/10501) via the new
   `outgoing_chan_ids` field in `RouteFeeRequest`.
 
-* A new
-  [`walletrpc.SubmitPackage`](https://github.com/lightningnetwork/lnd/pull/10900)
-  RPC submits a package of related transactions (parents first, child last) to
-  the chain backend via bitcoind's `submitpackage`, allowing a zero-fee v3/TRUC
-  parent to be accepted together with a fee-paying CPFP child.
-
 ## lncli Additions
 
 * The `estimateroutefee` command now supports [restricting fee estimates to
   specific first-hop outgoing
   channels](https://github.com/lightningnetwork/lnd/pull/10501) via the new
   `--outgoing_chan_id` flag.
-
-* A new
-  [`wallet submitpackage`](https://github.com/lightningnetwork/lnd/pull/10900)
-  command submits a package of hex-encoded transactions via the new
-  `SubmitPackage` RPC.
 
 # Improvements
 
@@ -209,6 +212,7 @@
 
 # Contributors (Alphabetical Order)
 
+* Abdullahi Yunus
 * Allen Piscitello
 * bitromortac
 * Boris Nagaev
@@ -216,4 +220,5 @@
 * Jared Tobin
 * Kevin Cai
 * Vandit Singh
+* Viktor Torstensson
 * s1ns3nz0

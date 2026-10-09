@@ -16,6 +16,7 @@ import (
 	"github.com/lightningnetwork/lnd/chanstate"
 	"github.com/lightningnetwork/lnd/fn/v2"
 	"github.com/lightningnetwork/lnd/input"
+	"github.com/lightningnetwork/lnd/labels"
 	"github.com/lightningnetwork/lnd/lntypes"
 	"github.com/lightningnetwork/lnd/lnutils"
 	"github.com/lightningnetwork/lnd/lnwallet"
@@ -644,6 +645,7 @@ func (h *htlcTimeoutResolver) Stop() {
 	defer h.log.Debugf("stopped")
 
 	close(h.quit)
+	h.wg.Wait()
 }
 
 // report returns a report on the resolution state of the contract.
@@ -997,6 +999,49 @@ func (h *htlcTimeoutResolver) isZeroFeeOutput() bool {
 		h.htlcResolution.SignDetails != nil
 }
 
+// isSigHashDefault returns true when the second-level HTLC transaction
+// was signed with SigHashDefault. See isSecondLevelSigHashDefault.
+func (h *htlcTimeoutResolver) isSigHashDefault() bool {
+	return isSecondLevelSigHashDefault(
+		h.htlcResolution.SignDetails, h.chanType,
+	)
+}
+
+// publishTimeoutTx directly broadcasts the pre-signed second-level HTLC
+// timeout transaction. This is used when the transaction was signed with
+// SigHashDefault (baked-in fees), where the sweeper's normal tx-rebuilding
+// flow would invalidate the peer's signature. The anchor output appended
+// to the second-level tx is handed over alongside it so the sweeper can
+// CPFP the parent once it is in the mempool.
+func (h *htlcTimeoutResolver) publishTimeoutTx() error {
+	parentTx := h.htlcResolution.SignedTimeoutTx
+	h.log.Infof("publishing pre-signed 2nd-level HTLC timeout tx=%v "+
+		"(SigHashDefault, baked-in fees)", parentTx.TxHash())
+
+	// The CPFP anchor at index 1 is the parent's only fee-bumping path.
+	// The deadline is the incoming HTLC's expiry: past that height our
+	// upstream peer can claw back the funds, matching the deadline the
+	// other timeout-path sweeps use.
+	anchor, budget, err := secondLevelAnchorInput(
+		parentTx, h.htlcResolution.SweepSignDesc,
+		preSignedTxFee(parentTx, h.htlcResolution.SignDetails),
+		h.broadcastHeight, h.Budget, h.log,
+	)
+	if err != nil {
+		return err
+	}
+
+	return h.publishPreSignedHtlcTx(sweep.PreSignedTxRequest{
+		Tx: parentTx,
+		Label: labels.MakeLabel(
+			labels.LabelTypeChannelClose, &h.ShortChanID,
+		),
+		Anchor:         anchor,
+		Budget:         budget,
+		DeadlineHeight: h.incomingHTLCExpiryHeight,
+	})
+}
+
 // waitHtlcSpendAndCheckPreimage waits for the htlc output to be spent and
 // checks whether the spending reveals the preimage. If the preimage is found,
 // it will be added to the preimage beacon to settle the incoming link, and a
@@ -1089,6 +1134,8 @@ func (h *htlcTimeoutResolver) sweepTimeoutTxOutput() error {
 		witType = input.HtlcOfferedTimeoutSecondLevel
 	}
 
+	resolutionBlob := h.htlcResolution.ResolutionBlob
+
 	// Let the sweeper sweep the second-level output now that the CSV/CLTV
 	// locks have expired.
 	inp := h.makeSweepInput(
@@ -1096,7 +1143,7 @@ func (h *htlcTimeoutResolver) sweepTimeoutTxOutput() error {
 		input.LeaseHtlcOfferedTimeoutSecondLevel,
 		&h.htlcResolution.SweepSignDesc,
 		h.htlcResolution.CsvDelay, uint32(commitSpend.SpendingHeight),
-		h.htlc.RHash, h.htlcResolution.ResolutionBlob,
+		h.htlc.RHash, resolutionBlob,
 	)
 
 	// Calculate the budget for this sweep.
@@ -1343,6 +1390,22 @@ func (h *htlcTimeoutResolver) Launch() error {
 		// can go ahead and sweep its output.
 		if h.outputIncubating {
 			return h.sweepTimeoutTxOutput()
+		}
+
+		// When the peer signed with SigHashDefault the pre-signed
+		// second-level tx has baked-in fees and cannot be modified
+		// (adding wallet inputs would invalidate the signature).
+		// Publish it directly instead of going through the sweeper.
+		if h.isSigHashDefault() {
+			// See the success resolver: a synchronous publish
+			// setup failure must clear the launched flag so a
+			// later Launch can retry.
+			err := h.publishTimeoutTx()
+			if err != nil {
+				h.clearLaunched()
+			}
+
+			return err
 		}
 
 		// Otherwise, sweep the second level tx.

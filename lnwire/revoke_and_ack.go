@@ -42,6 +42,13 @@ type RevokeAndAck struct {
 	// nonces, keyed by TXID. This is used for splice nonce coordination.
 	LocalNonces OptLocalNonces
 
+	// CustomRecords is a set of custom TLV records that can be used to
+	// attach auxiliary data to the revocation message. For custom
+	// channels, this carries the revoking party's aux signatures for
+	// the second-level HTLC transactions on the commitment being
+	// revoked.
+	CustomRecords CustomRecords
+
 	// ExtraData is the set of data that was appended to this message to
 	// fill out the full maximum transport message size. These fields can
 	// be used to specify optional data such as custom TLV fields.
@@ -50,9 +57,7 @@ type RevokeAndAck struct {
 
 // NewRevokeAndAck creates a new RevokeAndAck message.
 func NewRevokeAndAck() *RevokeAndAck {
-	return &RevokeAndAck{
-		ExtraData: make([]byte, 0),
-	}
+	return &RevokeAndAck{}
 }
 
 // A compile time check to ensure RevokeAndAck implements the lnwire.Message
@@ -68,43 +73,41 @@ var _ SizeableMessage = (*RevokeAndAck)(nil)
 //
 // This is part of the lnwire.Message interface.
 func (c *RevokeAndAck) Decode(r io.Reader, pver uint32) error {
+	// msgExtraData is a temporary variable used to read the message extra
+	// data field from the reader.
+	var msgExtraData ExtraOpaqueData
+
 	err := ReadElements(r,
 		&c.ChanID,
 		c.Revocation[:],
 		&c.NextRevocationKey,
+		&msgExtraData,
 	)
 	if err != nil {
 		return err
 	}
 
-	var tlvRecords ExtraOpaqueData
-	if err := ReadElements(r, &tlvRecords); err != nil {
-		return err
-	}
+	// Extract TLV records from the extra data field.
+	localNonce := c.LocalNonce.Zero()
+	var localNoncesData LocalNoncesData
 
-	var (
-		localNonce      = c.LocalNonce.Zero()
-		localNoncesData LocalNoncesData
-	)
-
-	typeMap, err := tlvRecords.ExtractRecords(
-		&localNonce, &localNoncesData,
+	customRecords, parsed, extraData, err := ParseAndExtractCustomRecords(
+		msgExtraData, &localNonce, &localNoncesData,
 	)
 	if err != nil {
 		return err
 	}
 
 	// Set the corresponding TLV types if they were included in the stream.
-	if val, ok := typeMap[c.LocalNonce.TlvType()]; ok && val == nil {
+	if _, ok := parsed[localNonce.TlvType()]; ok {
 		c.LocalNonce = tlv.SomeRecordT(localNonce)
 	}
-	if val, ok := typeMap[(LocalNoncesRecordTypeDef)(nil).TypeVal()]; ok && val == nil { //nolint:ll
+	if _, ok := parsed[(LocalNoncesRecordTypeDef)(nil).TypeVal()]; ok {
 		c.LocalNonces = SomeLocalNonces(localNoncesData)
 	}
 
-	if len(tlvRecords) != 0 {
-		c.ExtraData = tlvRecords
-	}
+	c.CustomRecords = customRecords
+	c.ExtraData = extraData
 
 	return nil
 }
@@ -121,7 +124,10 @@ func (c *RevokeAndAck) Encode(w *bytes.Buffer, pver uint32) error {
 	c.LocalNonces.WhenSome(func(ln LocalNoncesData) {
 		recordProducers = append(recordProducers, &ln)
 	})
-	err := EncodeMessageExtraData(&c.ExtraData, recordProducers...)
+
+	extraData, err := MergeAndEncode(
+		recordProducers, c.ExtraData, c.CustomRecords,
+	)
 	if err != nil {
 		return err
 	}
@@ -138,7 +144,7 @@ func (c *RevokeAndAck) Encode(w *bytes.Buffer, pver uint32) error {
 		return err
 	}
 
-	return WriteBytes(w, c.ExtraData)
+	return WriteBytes(w, extraData)
 }
 
 // MsgType returns the integer uniquely identifying this message type on the

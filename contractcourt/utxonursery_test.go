@@ -1067,6 +1067,14 @@ func newMockSweeperFull(t *testing.T) *mockSweeperFull {
 	}
 }
 
+func (s *mockSweeperFull) PublishPreSignedTx(
+	sweep.PreSignedTxRequest) (<-chan sweep.Result, error) {
+
+	c := make(chan sweep.Result, 1)
+
+	return c, nil
+}
+
 func (s *mockSweeperFull) sweepInput(input input.Input,
 	_ sweep.Params) (chan sweep.Result, error) {
 

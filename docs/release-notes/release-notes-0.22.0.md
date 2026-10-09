@@ -66,6 +66,17 @@
   `NodeAnnouncement2` address decoders, where all decoded addresses aliased
   one scratch array and truncated records decoded without an error.
 
+* lnd [now exits with a non-zero
+  code](https://github.com/lightningnetwork/lnd/pull/11304) when it shuts
+  itself down because of a [failure](https://github.com/lightningnetwork/lnd/issues/5625),
+  so process managers such as systemd
+  restart it instead of treating the stop as deliberate. A critical error
+  exits with 1, and a failed health check exits with a code that identifies
+  it: 10 chain backend, 11 disk space, 12 TLS certificate, 13 tor connection,
+  14 remote signer, 15 leader status. An OS signal or `lncli stop` exits with
+  0, including a signal received while lnd is still waiting for the wallet to
+  be unlocked, which previously exited with 1.
+
 # New Features
 
 ## Functional Enhancements
@@ -228,6 +239,7 @@
 * Erick Cestari
 * Jared Tobin
 * Kevin Cai
+* Suheb
 * Vandit Singh
 * Viktor Torstensson
 * s1ns3nz0

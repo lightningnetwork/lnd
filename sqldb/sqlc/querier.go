@@ -34,6 +34,7 @@ type Querier interface {
 	DeleteNodeFeature(ctx context.Context, arg DeleteNodeFeatureParams) error
 	DeletePayment(ctx context.Context, id int64) error
 	DeletePruneLogEntriesInRange(ctx context.Context, arg DeletePruneLogEntriesInRangeParams) error
+	DeleteReputationChannel(ctx context.Context, scid []byte) (int64, error)
 	DeleteUnconnectedNodes(ctx context.Context) ([][]byte, error)
 	DeleteZombieChannel(ctx context.Context, arg DeleteZombieChannelParams) (sql.Result, error)
 	FailAttempt(ctx context.Context, arg FailAttemptParams) error
@@ -69,6 +70,7 @@ type Querier interface {
 	// lower bound on the primary key used for cursor-based pagination; the caller
 	// must supply 0 when starting from the beginning.
 	FetchPendingInvoices(ctx context.Context, arg FetchPendingInvoicesParams) ([]Invoice, error)
+	FetchReputationChannels(ctx context.Context) ([]ReputationChannel, error)
 	FetchRouteLevelFirstHopCustomRecords(ctx context.Context, htlcAttemptIndices []int64) ([]PaymentAttemptFirstHopCustomRecord, error)
 	FetchSettledAMPSubInvoices(ctx context.Context, arg FetchSettledAMPSubInvoicesParams) ([]FetchSettledAMPSubInvoicesRow, error)
 	// FilterInvoicesByAddIndex returns invoices whose add_index (primary key id)
@@ -258,6 +260,7 @@ type Querier interface {
 	UpsertNodeAddress(ctx context.Context, arg UpsertNodeAddressParams) error
 	UpsertNodeExtraType(ctx context.Context, arg UpsertNodeExtraTypeParams) error
 	UpsertPruneLogEntry(ctx context.Context, arg UpsertPruneLogEntryParams) error
+	UpsertReputationChannel(ctx context.Context, arg UpsertReputationChannelParams) error
 	// We use a separate upsert for our own node since we want to be less strict
 	// about the last_update field. For our own node, we always want to
 	// update the record even if the last_update is the same as what we have.

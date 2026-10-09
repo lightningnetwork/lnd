@@ -55,6 +55,7 @@ import (
 	paymentsdb "github.com/lightningnetwork/lnd/payments/db"
 	paymentsmig1 "github.com/lightningnetwork/lnd/payments/db/migration1"
 	paymentsmig1sqlc "github.com/lightningnetwork/lnd/payments/db/migration1/sqlc"
+	"github.com/lightningnetwork/lnd/reputation"
 	"github.com/lightningnetwork/lnd/rpcperms"
 	"github.com/lightningnetwork/lnd/signal"
 	"github.com/lightningnetwork/lnd/sqldb"
@@ -1028,6 +1029,11 @@ type DatabaseInstances struct {
 	// be used for native SQL queries for tables that already support it.
 	// This may be nil if the use-native-sql flag was not set.
 	NativeSQLStore sqldb.DB
+
+	// ReputationStore is the database that stores the local reputation
+	// state of channels. It is nil unless the native SQL store is in use,
+	// in which case reputation is kept in memory only.
+	ReputationStore reputation.Store
 }
 
 // DefaultDatabaseBuilder is a type that builds the default database backends
@@ -1359,6 +1365,16 @@ func (d *DefaultDatabaseBuilder) BuildDatabase(
 		)
 
 		dbs.InvoiceDB = sqlInvoiceDB
+
+		// Create the reputation store.
+		reputationExecutor := sqldb.NewTransactionExecutor(
+			baseDB, func(tx *sql.Tx) reputation.SQLQueries {
+				return baseDB.WithTx(tx)
+			},
+		)
+		dbs.ReputationStore = reputation.NewSQLStore(
+			reputationExecutor,
+		)
 
 		// Create the graph store.
 		graphExecutor := sqldb.NewTransactionExecutor(

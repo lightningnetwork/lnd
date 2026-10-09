@@ -103,6 +103,24 @@
   the shortest path to a destination through nodes that advertise onion
   message support.
 
+* A new experimental [local reputation
+  subsystem](https://github.com/lightningnetwork/lnd/pull/10919) tracks the
+  historical forwarding behaviour of peers, following the scoring recommended in
+  BOLT [#1280](https://github.com/lightning/bolts/pull/1280). It is enabled by
+  default but is purely observational: it watches forwarded HTLCs to compute and
+  log a per-HTLC reputation decision (whether the HTLC could stand on the
+  outgoing channel's reputation if forwarded in isolation) and does not currently
+  affect routing in any way. It can be disabled with `routing.no-reputation`.
+
+* The local reputation subsystem now [persists its channel
+  state](https://github.com/lightningnetwork/lnd/pull/11266) when the native SQL
+  store is in use (`db.use-native-sql`), so peers keep the reputation they have
+  built across a restart, with the downtime decaying it as if the node had
+  stayed online. HTLCs that were in flight during the restart are picked up
+  again from the switch on startup, and closed channels are dropped from the
+  reputation state. Nodes without the native SQL store keep the previous
+  in-memory behaviour.
+
 ## RPC Additions
 
 * The `routerrpc.EstimateRouteFee` RPC now supports [restricting fee estimates
@@ -216,6 +234,10 @@
   root determinism.
 
 ## Database
+
+* A new native SQL table, `reputation_channels`, [stores the local reputation
+  state of channels](https://github.com/lightningnetwork/lnd/pull/11266). It is
+  created by schema migration 16 for nodes running with `db.use-native-sql`.
 
 ## Code Health
 

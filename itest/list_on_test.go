@@ -11,6 +11,14 @@ import (
 
 var allTestCases = []*lntest.TestCase{
 	{
+		Name:     "local reputation log only",
+		TestFunc: testLocalReputationLogOnly,
+	},
+	{
+		Name:     "local reputation persistence",
+		TestFunc: testLocalReputationPersistence,
+	},
+	{
 		Name:     "update channel status",
 		TestFunc: testUpdateChanStatus,
 	},

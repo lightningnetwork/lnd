@@ -3309,7 +3309,9 @@ func (m *strictNonceMusigSession) InitRemoteNonce(nonce *musig2.Nonces) {
 	m.remoteNonce = *nonce
 }
 
-func (m *strictNonceMusigSession) InvalidateNonce() {}
+func (m *strictNonceMusigSession) InvalidateNonce() error {
+	return nil
+}
 
 func (m *strictNonceMusigSession) ClosingNonce() (*musig2.Nonces, error) {
 	return &musig2.Nonces{

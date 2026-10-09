@@ -4274,7 +4274,7 @@ func (lc *LightningChannel) SignNextCommitment(
 		// a musig2 channel. The encoded normal ECDSA signature will be
 		// just blank.
 		remoteSession := lc.musigSessions.RemoteSession
-		musig, err := remoteSession.SignCommit(
+		musig, err := remoteSession.signCommitAndCleanup(
 			newCommitView.txn,
 		)
 		if err != nil {
@@ -4397,7 +4397,7 @@ func (lc *LightningChannel) resignMusigCommit(
 	commitTx *wire.MsgTx) (lnwire.OptPartialSigWithNonceTLV, error) {
 
 	remoteSession := lc.musigSessions.RemoteSession
-	musig, err := remoteSession.SignCommit(commitTx)
+	musig, err := remoteSession.signCommitAndCleanup(commitTx)
 	if err != nil {
 		var none lnwire.OptPartialSigWithNonceTLV
 		return none, err
@@ -5360,6 +5360,12 @@ func (i *InvalidPartialCommitSigError) Error() string {
 		i.invalidPartialSigError)
 }
 
+// Unwrap returns the embedded InvalidCommitSigError, so callers matching on
+// *InvalidCommitSigError also handle invalid musig2 partial signatures.
+func (i *InvalidPartialCommitSigError) Unwrap() error {
+	return &i.InvalidCommitSigError
+}
+
 // InvalidHtlcSigError is a struct that implements the error interface to
 // report a failure to validate an htlc signature from a remote peer. We'll use
 // the items in this struct to generate a rich error message for the remote
@@ -5531,7 +5537,7 @@ func (lc *LightningChannel) ReceiveNewCommitment(commitSigs *CommitSigs) error {
 		if err != nil {
 			close(cancelChan)
 
-			var sigErr invalidPartialSigError
+			var sigErr *invalidPartialSigError
 			if errors.As(err, &sigErr) {
 				// If we fail to validate their commitment
 				// signature, we'll generate a special error to
@@ -5541,7 +5547,7 @@ func (lc *LightningChannel) ReceiveNewCommitment(commitSigs *CommitSigs) error {
 				var txBytes bytes.Buffer
 				_ = localCommitTx.Serialize(&txBytes)
 				return &InvalidPartialCommitSigError{
-					invalidPartialSigError: &sigErr,
+					invalidPartialSigError: sigErr,
 					InvalidCommitSigError: InvalidCommitSigError{ //nolint:ll
 						commitHeight: nextHeight,
 						commitTx:     txBytes.Bytes(),

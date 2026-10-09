@@ -130,10 +130,20 @@ func (m *MusigChanCloser) InitRemoteNonce(nonce *musig2.Nonces) {
 
 // InvalidateNonce clears the cached local nonce, forcing a fresh nonce to be
 // generated on the next call to ClosingNonce. This prevents nonce reuse across
-// RBF iterations.
-func (m *MusigChanCloser) InvalidateNonce() {
+// RBF iterations. Any backing signer session is also released, as an aborted
+// round never reaches CombineSigs, which is the only other place the session
+// would be cleaned up.
+func (m *MusigChanCloser) InvalidateNonce() error {
 	m.localNonce = nil
+
+	if m.musigSession == nil {
+		return nil
+	}
+
+	err := m.musigSession.Cleanup()
 	m.musigSession = nil
+
+	return err
 }
 
 // A compile-time assertion to ensure MusigChanCloser implements the

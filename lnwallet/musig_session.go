@@ -337,8 +337,8 @@ func (m *MusigSession) FinalizeSession(signingNonce musig2.Nonces) error {
 	return nil
 }
 
-// cleanup releases the backing signer session once it is no longer needed.
-func (m *MusigSession) cleanup() error {
+// Cleanup releases the backing signer session once it is no longer needed.
+func (m *MusigSession) Cleanup() error {
 	if m.session == nil {
 		return nil
 	}
@@ -398,7 +398,7 @@ func (m *MusigSession) signCommit(tx *wire.MsgTx,
 			return err
 		}
 
-		return errors.Join(err, m.cleanup())
+		return errors.Join(err, m.Cleanup())
 	}
 
 	switch {
@@ -575,7 +575,7 @@ func (m *MusigSession) VerifyCommitSig(commitTx *wire.MsgTx,
 	// Release the backing signer session once we're done, whether the
 	// verification succeeded or failed.
 	defer func() {
-		err := m.cleanup()
+		err := m.Cleanup()
 		if err != nil {
 			walletLog.Errorf("unable to clean up musig2 "+
 				"session: %v", err)

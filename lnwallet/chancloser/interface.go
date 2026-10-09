@@ -140,6 +140,8 @@ type MusigSession interface {
 	// InvalidateNonce clears the cached local nonce, forcing a fresh
 	// nonce to be generated on the next call to ClosingNonce. This
 	// must be called after each RBF round completes to prevent nonce
-	// reuse across iterations.
-	InvalidateNonce()
+	// reuse across iterations. Any backing signer session created for
+	// the round is also released; a completed round has no further use
+	// for it, and an aborted round would otherwise leak it.
+	InvalidateNonce() error
 }

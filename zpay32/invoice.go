@@ -109,6 +109,12 @@ var (
 	ErrDuplicatePaymentHash = errors.New(
 		"invoice contains multiple payment hashes",
 	)
+
+	// ErrHighSSignature is returned when an invoice that includes the `n`
+	// field carries a signature that is not in canonical low-S form.
+	ErrHighSSignature = errors.New(
+		"invoice signature is not in low-S form",
+	)
 )
 
 // MessageSigner is passed to the Encode method to provide a signature

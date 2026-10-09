@@ -1983,6 +1983,78 @@ func TestHandleInitialBroadcastFail(t *testing.T) {
 	require.Equal(t, 0, tp.subscriberChans.Len())
 }
 
+// TestMissingInputsWaitsForSpend verifies that a missing spend notification
+// is not proof of an orphan. An indexed backend can learn of a spend after the
+// mempool backend has already rejected a replacement transaction.
+func TestMissingInputsWaitsForSpend(t *testing.T) {
+	t.Parallel()
+
+	tp, m := createTestPublisher(t)
+	req := createTestBumpRequest()
+	op := req.Inputs[0].OutPoint()
+	record := &monitorRecord{
+		requestID: 1,
+		req:       req,
+		tx:        wire.NewMsgTx(2),
+	}
+
+	// The first lookup has no notification yet. Retrying must leave the
+	// sweeper's long-lived spend subscription and resolver alive.
+	event := chainntnfs.NewSpendEvent(func() {})
+	m.notifier.On("RegisterSpendNtfn", &op, mock.Anything,
+		mock.Anything).Return(event, nil).Once()
+
+	result := tp.handleMissingInputs(record)
+	require.Equal(t, TxFailed, result.Event)
+	require.ErrorIs(t, result.Err, ErrInputMissing)
+	require.NoError(t, result.Validate())
+
+	set := &MockInputSet{}
+	t.Cleanup(func() { set.AssertExpectations(t) })
+	set.On("Inputs").Return(req.Inputs)
+	resolved := make(chan Result, 1)
+	canceled := false
+	sweeper := New(&UtxoSweeperConfig{})
+	sweeper.inputs[op] = &SweeperInput{
+		Input:         req.Inputs[0],
+		state:         Published,
+		listeners:     []chan Result{resolved},
+		ntfnRegCancel: func() { canceled = true },
+	}
+	require.NoError(t, sweeper.handleBumpEvent(&bumpResp{
+		result: result,
+		set:    set,
+	}))
+	require.Equal(t, PublishFailed, sweeper.inputs[op].state)
+	require.False(t, canceled)
+	require.Empty(t, resolved)
+
+	// Once the index catches up, the normal spend reconciliation path can
+	// resolve the input, including a previous sweep that won the RBF race.
+	spendingTx := wire.NewMsgTx(2)
+	spendingTx.AddTxIn(&wire.TxIn{PreviousOutPoint: op})
+	m.notifier.On("RegisterSpendNtfn", &op, mock.Anything,
+		mock.Anything).Return(
+		createTestSpendEvent(spendingTx), nil,
+	).Once()
+
+	result = tp.handleMissingInputs(record)
+	require.Equal(t, TxUnknownSpend, result.Event)
+	require.Equal(t, spendingTx, result.SpentInputs[op])
+	require.NoError(t, result.Validate())
+
+	sweeper.markInputsSwept(spendingTx, true)
+	require.True(t, canceled)
+	select {
+	case result := <-resolved:
+		require.NoError(t, result.Err)
+		require.Equal(t, spendingTx, result.Tx)
+
+	default:
+		t.Fatal("confirmed sweep did not resolve the input")
+	}
+}
+
 // TestHasInputsSpent checks the expected outpoint:tx map is returned.
 func TestHasInputsSpent(t *testing.T) {
 	t.Parallel()

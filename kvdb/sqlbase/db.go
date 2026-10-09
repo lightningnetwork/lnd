@@ -1,5 +1,3 @@
-//go:build kvdb_postgres || (kvdb_sqlite && !(windows && (arm || 386)) && !(linux && (ppc64 || mips || mipsle || mips64)))
-
 package sqlbase
 
 import (
@@ -140,7 +138,7 @@ func NewSqlBackend(ctx context.Context, cfg *Config) (*db, error) {
 
 	_, err = dbConn.ExecContext(ctx, query)
 	if err != nil {
-		_ = dbConn.Close()
+		_ = dbConns.Close(cfg.Dsn)
 
 		return nil, err
 	}

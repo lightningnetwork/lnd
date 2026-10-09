@@ -1,12 +1,18 @@
 package lnwallet
 
 import (
+	"bytes"
 	"testing"
 	"time"
 
+	"github.com/btcsuite/btcd/btcec/v2"
+	"github.com/btcsuite/btcd/btcutil/v2"
 	"github.com/btcsuite/btcd/wire/v2"
 	"github.com/btcsuite/btcwallet/wtxmgr"
+	"github.com/lightningnetwork/lnd/channeldb"
 	"github.com/lightningnetwork/lnd/chanstate"
+	"github.com/lightningnetwork/lnd/input"
+	"github.com/lightningnetwork/lnd/keychain"
 	"github.com/stretchr/testify/require"
 )
 
@@ -104,4 +110,63 @@ func TestRegisterFundingIntent(t *testing.T) {
 	// Call the method using the same ID should give us an error.
 	err = lw.RegisterFundingIntent(testID, nil)
 	require.ErrorIs(err, ErrDuplicatePendingChanID)
+}
+
+// TestPendingFundingOutput verifies external funders can retrieve the exact
+// output of a negotiated reservation without enumerating wallet internals.
+func TestPendingFundingOutput(t *testing.T) {
+	t.Parallel()
+
+	_, localKey := btcec.PrivKeyFromBytes(bytes.Repeat([]byte{1}, 32))
+	_, remoteKey := btcec.PrivKeyFromBytes(bytes.Repeat([]byte{2}, 32))
+	const capacity = btcutil.Amount(100_000)
+
+	pendingID := [32]byte{1, 2, 3}
+	reservation := &ChannelReservation{
+		pendingChanID: pendingID,
+		ourContribution: &ChannelContribution{
+			ChannelConfig: &channeldb.ChannelConfig{
+				MultiSigKey: keychain.KeyDescriptor{
+					PubKey: localKey,
+				},
+			},
+		},
+		theirContribution: &ChannelContribution{
+			ChannelConfig: &channeldb.ChannelConfig{
+				MultiSigKey: keychain.KeyDescriptor{
+					PubKey: remoteKey,
+				},
+			},
+		},
+		partialState: &chanstate.OpenChannel{
+			Capacity: capacity,
+			ChanType: channeldb.SingleFunderTweaklessBit,
+		},
+	}
+	wallet, err := NewLightningWallet(Config{})
+	require.NoError(t, err)
+	wallet.fundingLimbo[7] = reservation
+	wallet.reservationIDs[pendingID] = 7
+
+	output, err := wallet.PendingFundingOutput(pendingID)
+	require.NoError(t, err)
+	_, expectedOutput, err := input.GenFundingPkScript(
+		localKey.SerializeCompressed(), remoteKey.SerializeCompressed(),
+		int64(capacity),
+	)
+	require.NoError(t, err)
+	require.Equal(t, expectedOutput, output)
+
+	reservation.partialState.ChanType = channeldb.SimpleTaprootFeatureBit
+	output, err = wallet.PendingFundingOutput(pendingID)
+	require.NoError(t, err)
+	_, expectedOutput, err = input.GenTaprootFundingScript(
+		localKey, remoteKey, int64(capacity),
+		reservation.partialState.TapscriptRoot,
+	)
+	require.NoError(t, err)
+	require.Equal(t, expectedOutput, output)
+
+	_, err = wallet.PendingFundingOutput([32]byte{9})
+	require.ErrorContains(t, err, "not found")
 }

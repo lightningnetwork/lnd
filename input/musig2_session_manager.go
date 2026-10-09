@@ -42,6 +42,13 @@ type MusigSessionManager struct {
 	musig2Sessions *lnutils.SyncMap[MuSig2SessionID, *MuSig2State]
 }
 
+// NumLiveSessions returns the number of MuSig2 sessions that are currently
+// held by this manager. This is used by callers (and tests) to verify that
+// sessions are released once they're no longer needed.
+func (m *MusigSessionManager) NumLiveSessions() int {
+	return m.musig2Sessions.Len()
+}
+
 // NewMusigSessionManager creates a new musig manager given an abstract key
 // fetcher.
 func NewMusigSessionManager(keyFetcher PrivKeyFetcher) *MusigSessionManager {

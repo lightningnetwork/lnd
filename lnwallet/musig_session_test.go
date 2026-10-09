@@ -352,7 +352,7 @@ func TestMusigSesssion(t *testing.T) {
 		require.NoError(t, err)
 		require.Len(t, muSessions.aliceSigner.activeSessions, 1)
 
-		require.NoError(t, remoteSession.cleanup())
+		require.NoError(t, remoteSession.Cleanup())
 		require.Empty(t, muSessions.aliceSigner.activeSessions)
 	})
 

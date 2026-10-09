@@ -563,9 +563,19 @@ func Main(cfg *Config, lisCfg ListenerCfg, implCfg *ImplementationCfg,
 		// clean up functions can be executed. That will also shut down
 		// the wallet.
 		// We can't continue to execute the code below as we can't
-		// do any operations which requires private keys.
-		return mkErr("Shutting down", errors.New("shutdown signal "+
-			"received while waiting for wallet to be ready"))
+		// do any operations which requires private keys. A stop forced
+		// by a failure is still reported as an error for callers of
+		// Main that do not read the exit code.
+		if interceptor.ExitCode() != signal.ExitCodeSuccess {
+			return mkErr("Shutting down", errors.New("shutdown "+
+				"forced by a failure while waiting for wallet "+
+				"to be ready"))
+		}
+
+		ltndLog.Info("Shutdown signal received while waiting for " +
+			"wallet to be ready")
+
+		return nil
 	}
 
 	// TODO(roasbeef): add rotation
@@ -699,7 +709,7 @@ func Main(cfg *Config, lisCfg ListenerCfg, implCfg *ImplementationCfg,
 		ctx, cfg, cfg.Listeners, dbs, activeChainControl, &idKeyDesc,
 		activeChainControl.Cfg.WalletUnlockParams.ChansToRestore,
 		multiAcceptor, torController, tlsManager, leaderElector,
-		implCfg, remoteSignerClientFactory,
+		implCfg, remoteSignerClientFactory, interceptor,
 	)
 	if err != nil {
 		return mkErr("unable to create server", err)

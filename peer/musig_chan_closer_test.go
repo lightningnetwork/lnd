@@ -1,90 +1,151 @@
 package peer
 
 import (
+	"bytes"
 	"testing"
 
-	"github.com/btcsuite/btcd/btcec/v2/schnorr/musig2"
+	"github.com/btcsuite/btcd/txscript/v2"
 	"github.com/lightningnetwork/lnd/channeldb"
 	"github.com/lightningnetwork/lnd/input"
 	"github.com/lightningnetwork/lnd/lnwallet"
+	"github.com/lightningnetwork/lnd/lnwallet/chainfee"
 	"github.com/stretchr/testify/require"
 )
 
-// TestMusigChanCloserSessionCleanup asserts that the MuSig2 signer sessions
-// created for cooperative close rounds are released once the round is
-// finished, whether it completed or was aborted.
+// newDeliveryScript returns a dummy P2TR-compatible delivery script for the
+// co-op close tests.
+func newDeliveryScript(prefix byte) []byte {
+	script := bytes.Repeat([]byte{prefix}, 34)
+	script[0] = txscript.OP_1
+	script[1] = txscript.OP_DATA_32
+
+	return script
+}
+
+// TestMusigChanCloserCompletedRoundCleanup drives a full cooperative close
+// round against the real MusigSessionManager: both parties create their
+// partial signatures over the same close transaction via
+// CreateCloseProposal, the closer combines them via
+// CompleteCooperativeClose, and both then invalidate their nonce as the RBF
+// transitions do once a round completes.
 //
-// Each RBF round calls ProposalClosingOpts() to create a fresh backing signer
-// session, then hands the partial signature to the remote party. If the round
-// never reaches CombineSigs (the peer disconnects, the fee doesn't match,
-// etc.), InvalidateNonce() is the only place left that can release the
-// session. Before the fix it only dropped the pointer, leaving one live
-// session per aborted round in the signer's session manager.
-func TestMusigChanCloserSessionCleanup(t *testing.T) {
+// This is a regression test for two bugs: the round used to leave the
+// backing signer session in the manager when it completed, and once that was
+// fixed via Cleanup-on-InvalidateNonce, the post-round cleanup errored with
+// "session not found" because the signer had already dropped the session
+// during CombineSigs while MusigSession still held a reference to it.
+func TestMusigChanCloserCompletedRoundCleanup(t *testing.T) {
 	t.Parallel()
 
 	chanType := channeldb.SingleFunderTweaklessBit |
 		channeldb.AnchorOutputsBit | channeldb.SimpleTaprootFeatureBit
 
-	aliceChan, _, err := lnwallet.CreateTestChannels(t, chanType)
+	aliceChan, bobChan, err := lnwallet.CreateTestChannels(t, chanType)
 	require.NoError(t, err, "unable to create test channels")
 
-	// The test channels are backed by a mock signer that tracks its live
-	// MuSig2 sessions, so we can assert they're released.
-	signer, ok := aliceChan.Signer.(*input.MockSigner)
-	require.True(t, ok)
+	// Both channels are backed by mock signers that hold real
+	// MusigSessionManagers, so we can watch their live session sets.
+	aliceSigner, ok := aliceChan.Signer.(*input.MockSigner)
+	require.True(t, ok, "expected mock signer for alice")
+	bobSigner, ok := bobChan.Signer.(*input.MockSigner)
+	require.True(t, ok, "expected mock signer for bob")
 
-	closer := NewMusigChanCloser(aliceChan)
+	aliceCloser := NewMusigChanCloser(aliceChan)
+	bobCloser := NewMusigChanCloser(bobChan)
 
-	// Drive five aborted co-op close rounds: each generates a local nonce,
-	// binds a remote nonce, and creates the backing signer session via
-	// ProposalClosingOpts(), but never combines signatures.
-	const numRounds = 5
-	for i := 0; i < numRounds; i++ {
-		_, err := closer.ClosingNonce()
-		require.NoError(t, err, "unable to generate closer nonce")
+	aliceScript := newDeliveryScript(0x01)
+	bobScript := newDeliveryScript(0x02)
 
-		remoteNonce, err := musig2.GenNonces(
-			musig2.WithPublicKey(
-				aliceChan.State().RemoteChanCfg.MultiSigKey.PubKey,
-			),
-		)
-		require.NoError(t, err, "unable to generate remote nonce")
-		closer.InitRemoteNonce(remoteNonce)
+	// Exchange nonces: each party generates its own closing nonce and
+	// hands the public part to the other party, mirroring the shutdown /
+	// closing_complete nonce exchange.
+	aliceNonce, err := aliceCloser.ClosingNonce()
+	require.NoError(t, err, "unable to generate alice nonce")
 
-		_, err = closer.ProposalClosingOpts()
-		require.NoError(t, err, "unable to get closing opts")
+	bobNonce, err := bobCloser.ClosingNonce()
+	require.NoError(t, err, "unable to generate bob nonce")
 
-		// The session for this round is live in the signer's session
-		// manager, waiting for the remote party's partial signature.
-		require.Equal(t, 1, signer.NumLiveSessions(),
-			"round %d should hold one live session", i)
+	aliceCloser.InitRemoteNonce(bobNonce)
+	bobCloser.InitRemoteNonce(aliceNonce)
 
-		// The round is aborted, which is signalled by invalidating the
-		// nonce. The backing session must be released as well.
-		require.NoError(t, closer.InvalidateNonce())
-		require.Equal(t, 0, signer.NumLiveSessions(),
-			"aborted round %d should release its session", i)
-	}
+	// Both parties create their closing options, which creates the backing
+	// signer session on each side.
+	aliceOpts, err := aliceCloser.ProposalClosingOpts()
+	require.NoError(t, err, "unable to get alice closing opts")
+	require.Equal(t, 1, aliceSigner.NumLiveSessions())
 
-	// Invalidating again with no session or nonce held is a no-op.
-	require.NoError(t, closer.InvalidateNonce())
-	require.Equal(t, 0, signer.NumLiveSessions())
+	bobOpts, err := bobCloser.ProposalClosingOpts()
+	require.NoError(t, err, "unable to get bob closing opts")
+	require.Equal(t, 1, bobSigner.NumLiveSessions())
 
-	// A fresh round after the aborts still works and starts from a clean
-	// slate.
-	_, err = closer.ClosingNonce()
-	require.NoError(t, err)
+	// Both parties now sign the same close transaction.
+	feeRate := chainfee.SatPerKWeight(10000)
+	fee := aliceChan.CalcFee(feeRate)
 
-	remoteNonce, err := musig2.GenNonces(
-		musig2.WithPublicKey(
-			aliceChan.State().RemoteChanCfg.MultiSigKey.PubKey,
-		),
+	aliceSig, aliceCloseTx, _, err := aliceChan.CreateCloseProposal(
+		fee, aliceScript, bobScript, aliceOpts...,
 	)
-	require.NoError(t, err)
-	closer.InitRemoteNonce(remoteNonce)
+	require.NoError(t, err, "unable to create alice close proposal")
 
-	_, err = closer.ProposalClosingOpts()
-	require.NoError(t, err)
-	require.Equal(t, 1, signer.NumLiveSessions())
+	bobSig, bobCloseTx, _, err := bobChan.CreateCloseProposal(
+		fee, bobScript, aliceScript, bobOpts...,
+	)
+	require.NoError(t, err, "unable to create bob close proposal")
+
+	// Both proposals must be over the same transaction for the partial
+	// signatures to combine.
+	require.Equal(t, aliceCloseTx.TxHash(), bobCloseTx.TxHash(),
+		"close proposals differ")
+
+	// The round completes: the closer (Alice) combines both partial
+	// signatures into the final schnorr signature. This drives the real
+	// MusigSessionManager, which drops the session from its set once all
+	// partial signatures are combined.
+	alicePartialSig, ok := aliceSig.(*lnwallet.MusigPartialSig)
+	require.True(t, ok, "expected musig partial sig for alice")
+	bobPartialSig, ok := bobSig.(*lnwallet.MusigPartialSig)
+	require.True(t, ok, "expected musig partial sig for bob")
+
+	localSig, remoteSig, combineOpts, err := aliceCloser.CombineClosingOpts(
+		alicePartialSig.ToWireSig().PartialSig,
+		bobPartialSig.ToWireSig().PartialSig,
+	)
+	require.NoError(t, err, "unable to combine closing opts")
+
+	_, _, err = aliceChan.CompleteCooperativeClose(
+		localSig, remoteSig, aliceScript, bobScript, fee,
+		combineOpts...,
+	)
+	require.NoError(t, err, "unable to complete cooperative close")
+
+	// The signer dropped the session during the combine, so nothing is
+	// live at this point.
+	require.Equal(t, 0, aliceSigner.NumLiveSessions(),
+		"combined session should be gone from the manager")
+
+	// The RBF transitions call InvalidateNonce once the round completes.
+	// This must not error even though the signer already removed the
+	// session during CombineSigs.
+	require.NoError(t, aliceCloser.InvalidateNonce(),
+		"post-round InvalidateNonce must not error")
+	require.Equal(t, 0, aliceSigner.NumLiveSessions())
+
+	// The closee (Bob) does the same on its side.
+	bobLocalSig, bobRemoteSig, bobCombineOpts, err :=
+		bobCloser.CombineClosingOpts(
+			bobPartialSig.ToWireSig().PartialSig,
+			alicePartialSig.ToWireSig().PartialSig,
+		)
+	require.NoError(t, err, "unable to combine bob closing opts")
+
+	_, _, err = bobChan.CompleteCooperativeClose(
+		bobLocalSig, bobRemoteSig, bobScript, aliceScript, fee,
+		bobCombineOpts...,
+	)
+	require.NoError(t, err, "unable to complete bob cooperative close")
+
+	require.Equal(t, 0, bobSigner.NumLiveSessions())
+	require.NoError(t, bobCloser.InvalidateNonce(),
+		"post-round InvalidateNonce must not error")
+	require.Equal(t, 0, bobSigner.NumLiveSessions())
 }

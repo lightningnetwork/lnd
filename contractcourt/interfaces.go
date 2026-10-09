@@ -60,6 +60,13 @@ type UtxoSweeper interface {
 	SweepInput(input input.Input, params sweep.Params) (chan sweep.Result,
 		error)
 
+	// PublishPreSignedTx hands a fully signed, immutable transaction to
+	// the sweeper, which owns its publication (gated on its locktime and
+	// retried per block) and the CPFP of its anchor output. The returned
+	// channel receives the single final outcome.
+	PublishPreSignedTx(req sweep.PreSignedTxRequest) (<-chan sweep.Result,
+		error)
+
 	// RelayFeePerKW returns the minimum fee rate required for transactions
 	// to be relayed.
 	RelayFeePerKW() chainfee.SatPerKWeight

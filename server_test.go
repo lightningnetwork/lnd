@@ -1,10 +1,17 @@
 package lnd
 
 import (
+	"context"
+	"errors"
 	"net"
+	"path/filepath"
 	"testing"
 	"time"
 
+	"github.com/lightningnetwork/lnd/chainreg"
+	"github.com/lightningnetwork/lnd/lncfg"
+	"github.com/lightningnetwork/lnd/lntest/mock"
+	"github.com/lightningnetwork/lnd/signal"
 	"github.com/lightningnetwork/lnd/tor"
 	"github.com/stretchr/testify/require"
 )
@@ -237,4 +244,190 @@ func TestWithoutV2Onion(t *testing.T) {
 	// An all-v2 input filters to an empty slice; callers such as
 	// fetchNodeAdvertisedAddrs treat this as "no advertised address".
 	require.Empty(t, withoutV2Onion([]net.Addr{v2, v2}))
+}
+
+// TestExitCodeOnFailure asserts that the failure callback attached to a
+// health check records that check's exit code, and that a later generic code
+// does not overwrite it.
+func TestExitCodeOnFailure(t *testing.T) {
+	interceptor, err := signal.Intercept()
+	require.NoError(t, err)
+	t.Cleanup(func() {
+		interceptor.RequestShutdown()
+		<-interceptor.ShutdownChannel()
+	})
+
+	exitCodeOnFailure(interceptor, signal.ExitCodeChainBackend)()
+	interceptor.SetExitCode(signal.ExitCodeCriticalError)
+
+	require.Equal(t, signal.ExitCodeChainBackend, interceptor.ExitCode())
+}
+
+// failingPinger is a wallet controller whose remote signer ping always fails.
+type failingPinger struct {
+	*mock.WalletController
+}
+
+// Ping fails so that the remote signer health check gives up.
+func (p *failingPinger) Ping(context.Context, time.Duration) error {
+	return errors.New("remote signer unreachable")
+}
+
+// notLeader is a leader elector that reports it is never the leader.
+type notLeader struct{}
+
+func (notLeader) Campaign(context.Context) error         { return nil }
+func (notLeader) Resign(context.Context) error           { return nil }
+func (notLeader) Leader(context.Context) (string, error) { return "", nil }
+func (notLeader) IsLeader(context.Context) (bool, error) { return false, nil }
+
+// TestLivenessMonitorExitCodes drives the server's liveness monitor with one
+// failing health check at a time and asserts that each check records its own
+// exit code. The tor check is not covered as it needs a live tor control
+// connection.
+func TestLivenessMonitorExitCodes(t *testing.T) {
+	// disabled keeps a check out of the monitor, enabled fails it on the
+	// first attempt shortly after the monitor starts.
+	disabled := func() *lncfg.CheckConfig {
+		return &lncfg.CheckConfig{Attempts: 0}
+	}
+	enabled := func() *lncfg.CheckConfig {
+		return &lncfg.CheckConfig{
+			Interval: 10 * time.Millisecond,
+			Attempts: 1,
+			Timeout:  time.Second,
+			Backoff:  0,
+		}
+	}
+
+	tests := []struct {
+		name string
+
+		// setup enables the check under test and makes it fail.
+		setup func(t *testing.T, s *server, cfg *Config,
+			cc *chainreg.ChainControl)
+
+		leader   bool
+		exitCode signal.ExitCode
+	}{{
+		name: "chain backend",
+		setup: func(t *testing.T, s *server, cfg *Config,
+			cc *chainreg.ChainControl) {
+
+			cfg.HealthChecks.ChainCheck = enabled()
+			cc.HealthCheck = func() error {
+				return errors.New("chain backend down")
+			}
+		},
+		exitCode: signal.ExitCodeChainBackend,
+	}, {
+		name: "disk space",
+		setup: func(t *testing.T, s *server, cfg *Config,
+			cc *chainreg.ChainControl) {
+
+			cfg.HealthChecks.DiskCheck = &lncfg.DiskCheckConfig{
+				RequiredRemaining: 1,
+				CheckConfig:       enabled(),
+			}
+		},
+		exitCode: signal.ExitCodeDiskSpace,
+	}, {
+		name: "tls certificate",
+		setup: func(t *testing.T, s *server, cfg *Config,
+			cc *chainreg.ChainControl) {
+
+			cfg.HealthChecks.TLSCheck = enabled()
+			s.tlsManager = NewTLSManager(&TLSManagerCfg{
+				TLSCertPath: filepath.Join(
+					cfg.LndDir, "missing.cert",
+				),
+				TLSKeyPath: filepath.Join(
+					cfg.LndDir, "missing.key",
+				),
+			})
+		},
+		exitCode: signal.ExitCodeTLSCert,
+	}, {
+		name: "remote signer",
+		setup: func(t *testing.T, s *server, cfg *Config,
+			cc *chainreg.ChainControl) {
+
+			cfg.HealthChecks.RemoteSigner = enabled()
+			cfg.RemoteSigner.Enable = true
+			cc.Wc = &failingPinger{
+				WalletController: &mock.WalletController{},
+			}
+		},
+		exitCode: signal.ExitCodeRemoteSigner,
+	}, {
+		name: "leader status",
+		setup: func(t *testing.T, s *server, cfg *Config,
+			cc *chainreg.ChainControl) {
+
+			cfg.HealthChecks.LeaderCheck = enabled()
+		},
+		leader:   true,
+		exitCode: signal.ExitCodeLeaderStatus,
+	}}
+
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			interceptor, err := signal.Intercept()
+			require.NoError(t, err)
+			t.Cleanup(func() {
+				interceptor.RequestShutdown()
+				<-interceptor.ShutdownChannel()
+			})
+
+			cfg := &Config{
+				LndDir:       t.TempDir(),
+				Bitcoin:      &lncfg.Chain{Node: "bitcoind"},
+				RemoteSigner: &lncfg.RemoteSigner{},
+				HealthChecks: &lncfg.HealthCheckConfig{
+					ChainCheck: disabled(),
+					DiskCheck: &lncfg.DiskCheckConfig{
+						CheckConfig: disabled(),
+					},
+					TLSCheck:      disabled(),
+					TorConnection: disabled(),
+					RemoteSigner:  disabled(),
+					LeaderCheck:   disabled(),
+				},
+			}
+			partial := &chainreg.PartialChainControl{
+				HealthCheck: func() error { return nil },
+			}
+			cc := &chainreg.ChainControl{
+				PartialChainControl: partial,
+			}
+			s := &server{
+				cfg:         cfg,
+				interceptor: interceptor,
+				cc:          cc,
+			}
+
+			test.setup(t, s, cfg, cc)
+
+			var elector notLeader
+			if test.leader {
+				err = s.createLivenessMonitor(
+					t.Context(), cfg, cc, elector,
+				)
+			} else {
+				err = s.createLivenessMonitor(
+					t.Context(), cfg, cc, nil,
+				)
+			}
+			require.NoError(t, err)
+
+			require.NoError(t, s.livenessMonitor.Start())
+			t.Cleanup(func() {
+				require.NoError(t, s.livenessMonitor.Stop())
+			})
+
+			require.Eventually(t, func() bool {
+				return interceptor.ExitCode() == test.exitCode
+			}, 5*time.Second, 10*time.Millisecond)
+		})
+	}
 }

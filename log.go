@@ -111,12 +111,15 @@ func genSubLogger(root *build.SubLoggerManager,
 	interceptor signal.Interceptor) func(string) btclog.Logger {
 
 	// Create a shutdown function which will request shutdown from our
-	// interceptor if it is listening.
+	// interceptor if it is listening. A critical error is a failure, so
+	// the process exits with a non-zero code unless a more specific one
+	// was already recorded.
 	shutdown := func() {
 		if !interceptor.Listening() {
 			return
 		}
 
+		interceptor.SetExitCode(signal.ExitCodeCriticalError)
 		interceptor.RequestShutdown()
 	}
 

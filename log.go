@@ -8,6 +8,7 @@ import (
 	"github.com/lightninglabs/neutrino"
 	sphinx "github.com/lightningnetwork/lightning-onion"
 	"github.com/lightningnetwork/lnd/autopilot"
+	"github.com/lightningnetwork/lnd/bolt12handler"
 	"github.com/lightningnetwork/lnd/build"
 	"github.com/lightningnetwork/lnd/chainio"
 	"github.com/lightningnetwork/lnd/chainntnfs"
@@ -206,6 +207,10 @@ func SetupLoggers(root *build.SubLoggerManager, interceptor signal.Interceptor) 
 	AddSubLogger(root, lncfg.Subsystem, interceptor, lncfg.UseLogger)
 	AddSubLogger(
 		root, blindedpath.Subsystem, interceptor, blindedpath.UseLogger,
+	)
+	AddSubLogger(
+		root, bolt12handler.Subsystem, interceptor,
+		bolt12handler.UseLogger,
 	)
 	AddSubLogger(root, graphdb.Subsystem, interceptor, graphdb.UseLogger)
 	AddSubLogger(root, chainio.Subsystem, interceptor, chainio.UseLogger)

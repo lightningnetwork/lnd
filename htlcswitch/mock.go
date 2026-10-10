@@ -34,6 +34,7 @@ import (
 	"github.com/lightningnetwork/lnd/lntypes"
 	"github.com/lightningnetwork/lnd/lnwallet/chainfee"
 	"github.com/lightningnetwork/lnd/lnwire"
+	"github.com/lightningnetwork/lnd/record"
 	"github.com/lightningnetwork/lnd/ticker"
 	"github.com/lightningnetwork/lnd/tlv"
 )
@@ -325,17 +326,45 @@ func (s *mockServer) QuitSignal() <-chan struct{} {
 	return s.quit
 }
 
+// onionFailMode selects which branch of processRemoteAdds the mock onion
+// pipeline should fail in. Used by fuzz/test harnesses to exercise the
+// error-handling paths of processRemoteAdds.
+type onionFailMode int
+
+const (
+	onionFailNone    onionFailMode = 0
+	onionFailDecode  onionFailMode = 1
+	onionFailPayload onionFailMode = 2
+	onionFailExtract onionFailMode = 3
+)
+
 // mockHopIterator represents the test version of hop iterator which instead
 // of encrypting the path in onion blob just stores the path as a list of hops.
 type mockHopIterator struct {
 	hops []*hop.Payload
+
+	// payloadFail, when true, makes HopPayload return a
+	// hop.ErrInvalidPayload instead of the next hop. Used by the bad-onion
+	// fuzz event.
+	payloadFail bool
+
+	// extractFail, when true, makes ExtractErrorEncrypter return a
+	// non-CodeNone failcode. Used by the bad-onion fuzz event.
+	extractFail bool
 }
 
-func newMockHopIterator(hops ...*hop.Payload) hop.Iterator {
+func newMockHopIterator(hops ...*hop.Payload) *mockHopIterator {
 	return &mockHopIterator{hops: hops}
 }
 
 func (r *mockHopIterator) HopPayload() (*hop.Payload, hop.RouteRole, error) {
+	if r.payloadFail {
+		return nil, hop.RouteRoleCleartext, hop.ErrInvalidPayload{
+			Type:      record.AmtOnionType,
+			Violation: hop.OmittedViolation,
+			FinalHop:  true,
+		}
+	}
 	h := r.hops[0]
 	r.hops = r.hops[1:]
 	return h, hop.RouteRoleCleartext, nil
@@ -349,6 +378,9 @@ func (r *mockHopIterator) ExtractErrorEncrypter(
 	extracter hop.ErrorEncrypterExtracter, _ bool) (hop.ErrorEncrypter,
 	lnwire.FailCode) {
 
+	if r.extractFail {
+		return nil, lnwire.CodeInvalidOnionVersion
+	}
 	return extracter(nil)
 }
 
@@ -493,16 +525,48 @@ type mockIteratorDecoder struct {
 	responses map[[32]byte][]hop.DecodeHopIteratorResponse
 
 	decodeFail bool
+
+	// onionFailModes maps a payment hash to the processRemoteAdds branch
+	// in which that HTLC's onion fails to decode. Entries are never
+	// consumed, so every decode of the HTLC fails the same way, just as a
+	// genuinely malformed onion would, however many HTLCs are batched
+	// before the decode runs.
+	onionFailModes map[[32]byte]onionFailMode
 }
 
 func newMockIteratorDecoder() *mockIteratorDecoder {
 	return &mockIteratorDecoder{
-		responses: make(map[[32]byte][]hop.DecodeHopIteratorResponse),
+		responses: make(
+			map[[32]byte][]hop.DecodeHopIteratorResponse,
+		),
+		onionFailModes: make(map[[32]byte]onionFailMode),
 	}
+}
+
+// setOnionFailMode makes every decode of the HTLC with the given payment hash
+// fail in the processRemoteAdds branch selected by mode.
+func (p *mockIteratorDecoder) setOnionFailMode(rHash [32]byte,
+	mode onionFailMode) {
+
+	p.mu.Lock()
+	defer p.mu.Unlock()
+
+	p.onionFailModes[rHash] = mode
 }
 
 func (p *mockIteratorDecoder) DecodeHopIterator(r io.Reader, rHash []byte,
 	cltv uint32) (hop.Iterator, lnwire.FailCode) {
+
+	var hash [32]byte
+	copy(hash[:], rHash)
+
+	p.mu.RLock()
+	mode := p.onionFailModes[hash]
+	p.mu.RUnlock()
+
+	if mode == onionFailDecode {
+		return nil, lnwire.CodeTemporaryChannelFailure
+	}
 
 	var b [4]byte
 	_, err := r.Read(b[:])
@@ -530,7 +594,15 @@ func (p *mockIteratorDecoder) DecodeHopIterator(r io.Reader, rHash []byte,
 		})
 	}
 
-	return newMockHopIterator(hops...), lnwire.CodeNone
+	iterator := newMockHopIterator(hops...)
+	switch mode {
+	case onionFailPayload:
+		iterator.payloadFail = true
+	case onionFailExtract:
+		iterator.extractFail = true
+	}
+
+	return iterator, lnwire.CodeNone
 }
 
 func (p *mockIteratorDecoder) DecodeHopIterators(id []byte,
@@ -1034,6 +1106,11 @@ func newMockRegistry(t testing.TB) *mockInvoiceRegistry {
 		},
 	)
 	registry.Start()
+	t.Cleanup(func() {
+		if err := registry.Stop(); err != nil {
+			t.Errorf("registry.Stop: %v", err)
+		}
+	})
 
 	return &mockInvoiceRegistry{
 		registry: registry,
@@ -1194,3 +1271,81 @@ func (h *mockHTLCNotifier) NotifyFinalHtlcEvent(key models.CircuitKey,
 	info channeldb.FinalHtlcInfo) {
 
 }
+
+// mockMailBox is a no-op mailbox for testing.
+type mockMailBox struct{}
+
+// Compile-time assertion that mockMailBox implements MailBox.
+var _ MailBox = (*mockMailBox)(nil)
+
+func (m *mockMailBox) AddMessage(msg lnwire.Message) error {
+	return nil
+}
+
+func (m *mockMailBox) AddPacket(packet *htlcPacket) error {
+	return nil
+}
+
+func (m *mockMailBox) HasPacket(CircuitKey) bool {
+	return false
+}
+
+func (m *mockMailBox) AckPacket(CircuitKey) bool {
+	return false
+}
+
+func (m *mockMailBox) FailAdd(packet *htlcPacket) {
+
+}
+
+func (m *mockMailBox) MessageOutBox() chan lnwire.Message {
+	return make(chan lnwire.Message)
+}
+
+func (m *mockMailBox) PacketOutBox() chan *htlcPacket {
+	return make(chan *htlcPacket)
+}
+
+func (m *mockMailBox) ResetMessages() error {
+	return nil
+}
+
+func (m *mockMailBox) ResetPackets() error {
+	return nil
+}
+
+func (m *mockMailBox) SetDustClosure(isDust dustClosure) {
+
+}
+
+func (m *mockMailBox) SetFeeRate(feerate chainfee.SatPerKWeight) {
+
+}
+
+func (m *mockMailBox) DustPackets() (lnwire.MilliSatoshi, lnwire.MilliSatoshi) {
+	return 0, 0
+}
+
+func (m *mockMailBox) Start() {
+
+}
+
+func (m *mockMailBox) Stop() {
+
+}
+
+type noopTicker struct{}
+
+func (n *noopTicker) Ticks() <-chan time.Time {
+	// Returning nil intentionally: a receive on a nil channel blocks
+	// forever, so the link's timer-driven paths never fire.
+	return nil
+}
+
+func (n *noopTicker) Stop() {}
+
+func (n *noopTicker) Pause() {}
+
+func (n *noopTicker) Resume() {}
+
+func (n *noopTicker) ForceTick() {}

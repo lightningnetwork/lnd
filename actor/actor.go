@@ -41,7 +41,7 @@ type ActorConfig[M Message, R any] struct {
 // signifies a "tell" operation (fire-and-forget).
 type envelope[M Message, R any] struct {
 	message M
-	promise Promise[R]
+	promise fn.Promise[R]
 }
 
 // Actor represents a concrete actor implementation. It encapsulates a behavior,
@@ -221,9 +221,9 @@ func (ref *actorRefImpl[M, R]) Tell(ctx context.Context, msg M) {
 // context cancellation before send).
 //
 //nolint:ll
-func (ref *actorRefImpl[M, R]) Ask(ctx context.Context, msg M) Future[R] {
+func (ref *actorRefImpl[M, R]) Ask(ctx context.Context, msg M) fn.Future[R] {
 	// Create a new promise that will be fulfilled with the actor's response.
-	promise := NewPromise[R]()
+	promise := fn.NewPromise[R]()
 
 	// If the actor's own context is already done, complete the promise with
 	// ErrActorTerminated and return immediately. This is the primary guard

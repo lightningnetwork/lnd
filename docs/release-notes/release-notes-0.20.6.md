@@ -21,6 +21,11 @@
 
 # Bug Fixes
 
+* Native SQLite graph migrations [now accept policies with empty
+  signatures](https://github.com/lightningnetwork/lnd/pull/11311) instead of
+  failing validation because the KV and SQL stores use different empty byte
+  slice representations.
+
 # New Features
 
 ## Functional Enhancements

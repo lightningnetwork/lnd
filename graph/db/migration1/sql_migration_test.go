@@ -408,10 +408,15 @@ func TestMigrateGraphToSQL(t *testing.T) {
 					},
 				),
 
-				// Now, insert a single update for the
-				// first channel.
+				// Now, insert a single update with an empty
+				// signature for the first channel.
 				// 	- channel policy count += 1
-				makeTestPolicy(chanID1, node1, false),
+				makeTestPolicy(
+					chanID1, node1, false,
+					func(p *models.ChannelEdgePolicy) {
+						p.SigBytes = []byte{}
+					},
+				),
 
 				// Insert two updates for the second
 				// channel, one for each direction.
@@ -678,8 +683,14 @@ func fetchAllChannelsAndPolicies(t *testing.T, store V1Store) chanSet {
 		if p1 != nil && len(p1.ExtraOpaqueData) == 0 {
 			p1.ExtraOpaqueData = nil
 		}
+		if p1 != nil && len(p1.SigBytes) == 0 {
+			p1.SigBytes = nil
+		}
 		if p2 != nil && len(p2.ExtraOpaqueData) == 0 {
 			p2.ExtraOpaqueData = nil
+		}
+		if p2 != nil && len(p2.SigBytes) == 0 {
+			p2.SigBytes = nil
 		}
 
 		channels = append(channels, chanInfo{

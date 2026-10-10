@@ -91,6 +91,14 @@
   rejected without the commitment height and transaction attached, and
   without sending those debug details to the remote peer.
 
+* [Fixed a bug](https://github.com/lightningnetwork/lnd/pull/11303) where
+  the link failed on an incoming HTLC whose fee exposure was within the
+  `channel-max-fee-exposure` limit. After resolving a dust HTLC, the
+  resolving side kept counting it as dust until its update logs were
+  compacted on the next revocation, so a later add could look over the limit
+  to it, while the sender saw it within. HTLCs whose settle or fail is locked
+  into a commitment are no longer counted on it.
+
 # New Features
 
 ## Functional Enhancements
@@ -255,7 +263,7 @@
 * Jared Tobin
 * Kevin Cai
 * Nishant Bansal
+* Pins
 * Vandit Singh
 * Viktor Torstensson
-* Pins
 * s1ns3nz0

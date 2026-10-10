@@ -10032,8 +10032,7 @@ func testGetDustSum(t *testing.T, chantype channeldb.ChannelType) {
 	checkDust(bobChannel, htlc1Amt, lnwire.MilliSatoshi(0))
 
 	// Settling the HTLC back from Alice to Bob should not change the dust
-	// sum because the HTLC is counted until it's removed from the update
-	// logs via compactLogs.
+	// sum because the settle isn't locked into either commitment yet.
 	err = aliceChannel.SettleHTLC(preimage1, uint64(0), nil, nil, nil)
 	require.NoError(t, err)
 	err = bobChannel.ReceiveHTLCSettle(preimage1, uint64(0))
@@ -10041,13 +10040,14 @@ func testGetDustSum(t *testing.T, chantype channeldb.ChannelType) {
 	checkDust(aliceChannel, lnwire.MilliSatoshi(0), htlc1Amt)
 	checkDust(bobChannel, htlc1Amt, lnwire.MilliSatoshi(0))
 
-	// Forcing a state transition will remove the HTLC in-memory for Bob
-	// since ReceiveRevocation is called which calls compactLogs. Bob
-	// should have a zero dust sum at this point. Alice will see Bob as
-	// having the original dust sum since compactLogs hasn't been called.
+	// Forcing a state transition locks the settle into both commitments.
+	// Bob compacts his logs on Alice's revocation, but Alice receives
+	// Bob's revocation before her own commitment drops the HTLC, so her
+	// logs still hold it. She must not count it as dust anyway, since no
+	// commitment that can still be broadcast has it.
 	err = ForceStateTransition(aliceChannel, bobChannel)
 	require.NoError(t, err)
-	checkDust(aliceChannel, lnwire.MilliSatoshi(0), htlc1Amt)
+	checkDust(aliceChannel, lnwire.MilliSatoshi(0), lnwire.MilliSatoshi(0))
 	checkDust(bobChannel, lnwire.MilliSatoshi(0), lnwire.MilliSatoshi(0))
 
 	// Alice now sends an HTLC of 100sats, which is below both sides' dust
@@ -10059,7 +10059,7 @@ func testGetDustSum(t *testing.T, chantype channeldb.ChannelType) {
 
 	// Assert that GetDustSum from Alice's perspective includes the new
 	// HTLC as dust on both commitments.
-	checkDust(aliceChannel, htlc2Amt, htlc1Amt+htlc2Amt)
+	checkDust(aliceChannel, htlc2Amt, htlc2Amt)
 
 	// Assert that GetDustSum from Bob's perspective also includes the HTLC
 	// on both commitments.
@@ -10070,12 +10070,12 @@ func testGetDustSum(t *testing.T, chantype channeldb.ChannelType) {
 	require.NoError(t, err)
 	err = bobChannel.ReceiveNewCommitment(aliceNewCommit.CommitSigs)
 	require.NoError(t, err)
-	checkDust(aliceChannel, htlc2Amt, htlc1Amt+htlc2Amt)
+	checkDust(aliceChannel, htlc2Amt, htlc2Amt)
 	checkDust(bobChannel, htlc2Amt, htlc2Amt)
 
-	// Bob now sends a revocation for his prior commitment, and this should
-	// change Alice's perspective to no longer include the first HTLC as
-	// dust.
+	// Bob now sends a revocation for his prior commitment, which compacts
+	// the first HTLC out of Alice's logs, and neither perspective should
+	// change.
 	bobRevocation, _, _, err := bobChannel.RevokeCurrentCommitment()
 	require.NoError(t, err)
 	_, _, err = aliceChannel.ReceiveRevocation(bobRevocation)
@@ -10130,6 +10130,140 @@ func testGetDustSum(t *testing.T, chantype channeldb.ChannelType) {
 		checkDust(aliceChannel, htlc2Amt+htlc3Amt, htlc2Amt+htlc3Amt)
 		checkDust(bobChannel, htlc2Amt+htlc3Amt, htlc2Amt+htlc3Amt)
 	}
+}
+
+// TestGetDustSumResolvedHTLC asserts that GetDustSum stops counting a dust
+// HTLC on a commitment chain once its settle or fail is locked into that
+// chain, even when the update logs still hold the add because they haven't
+// been compacted yet.
+func TestGetDustSumResolvedHTLC(t *testing.T) {
+	t.Parallel()
+
+	testCases := []struct {
+		name    string
+		resolve resolveHTLCFunc
+	}{
+		{
+			name: "settle",
+			resolve: func(t *testing.T, alice,
+				bob *LightningChannel, preimage [32]byte) {
+
+				err := alice.SettleHTLC(
+					preimage, 0, nil, nil, nil,
+				)
+				require.NoError(t, err)
+				err = bob.ReceiveHTLCSettle(preimage, 0)
+				require.NoError(t, err)
+			},
+		},
+		{
+			name: "fail",
+			resolve: func(t *testing.T, alice,
+				bob *LightningChannel, _ [32]byte) {
+
+				err := alice.FailHTLC(
+					0, []byte("fail"), nil, nil, nil,
+				)
+				require.NoError(t, err)
+				err = bob.ReceiveFailHTLC(0, []byte("fail"))
+				require.NoError(t, err)
+			},
+		},
+		{
+			name: "malformed fail",
+			resolve: func(t *testing.T, alice,
+				bob *LightningChannel, _ [32]byte) {
+
+				err := alice.MalformedFailHTLC(
+					0, lnwire.CodeInvalidOnionHmac,
+					[sha256.Size]byte{}, nil,
+				)
+				require.NoError(t, err)
+				err = bob.ReceiveFailHTLC(0, []byte{})
+				require.NoError(t, err)
+			},
+		},
+	}
+
+	for _, tc := range testCases {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+
+			testGetDustSumResolvedHTLC(t, tc.resolve)
+		})
+	}
+}
+
+// resolveHTLCFunc has Alice settle or fail Bob's HTLC with index 0, and Bob
+// receive the removal.
+type resolveHTLCFunc func(t *testing.T, alice, bob *LightningChannel,
+	preimage [32]byte)
+
+func testGetDustSumResolvedHTLC(t *testing.T, resolve resolveHTLCFunc) {
+	alice, bob, err := CreateTestChannels(
+		t, channeldb.SingleFunderTweaklessBit,
+	)
+	require.NoError(t, err)
+
+	checkDust := func(c *LightningChannel, expLocal,
+		expRemote lnwire.MilliSatoshi) {
+
+		t.Helper()
+
+		noFee := fn.None[chainfee.SatPerKWeight]()
+		require.Equal(t, expLocal, c.GetDustSum(lntypes.Local, noFee))
+		require.Equal(t, expRemote, c.GetDustSum(lntypes.Remote, noFee))
+	}
+
+	// Bob offers Alice an HTLC that is dust on both commitments, and both
+	// lock it in.
+	amt := lnwire.NewMSatFromSatoshis(1_000)
+	htlc, preimage := createHTLC(0, amt)
+	addAndReceiveHTLC(t, bob, alice, htlc, nil)
+	require.NoError(t, ForceStateTransition(bob, alice))
+	checkDust(alice, amt, amt)
+	checkDust(bob, amt, amt)
+
+	// Alice resolves the HTLC. Until the removal is locked into a
+	// commitment, both still count it.
+	resolve(t, alice, bob, preimage)
+	checkDust(alice, amt, amt)
+	checkDust(bob, amt, amt)
+
+	// Alice signs a commitment for Bob without the HTLC. Bob's current
+	// commitment still holds it until he revokes it.
+	aliceSig, err := alice.SignNextCommitment(ctxb)
+	require.NoError(t, err)
+	require.NoError(t, bob.ReceiveNewCommitment(aliceSig.CommitSigs))
+	checkDust(alice, amt, amt)
+	checkDust(bob, amt, amt)
+
+	// Once Bob revokes, his commitment no longer holds the HTLC. Alice
+	// can't compact her logs on this revocation, since her own commitment
+	// still holds the HTLC.
+	bobRev, _, _, err := bob.RevokeCurrentCommitment()
+	require.NoError(t, err)
+	_, _, err = alice.ReceiveRevocation(bobRev)
+	require.NoError(t, err)
+	checkDust(alice, amt, 0)
+	checkDust(bob, 0, amt)
+
+	// Bob signs a commitment for Alice without the HTLC, and Alice revokes
+	// the one that still holds it. Bob compacts his logs on her
+	// revocation, while Alice's logs keep the add until the next
+	// revocation she receives, yet neither counts it any more.
+	bobSig, err := bob.SignNextCommitment(ctxb)
+	require.NoError(t, err)
+	require.NoError(t, alice.ReceiveNewCommitment(bobSig.CommitSigs))
+	checkDust(alice, amt, 0)
+	checkDust(bob, 0, amt)
+
+	aliceRev, _, _, err := alice.RevokeCurrentCommitment()
+	require.NoError(t, err)
+	_, _, err = bob.ReceiveRevocation(aliceRev)
+	require.NoError(t, err)
+	checkDust(alice, 0, 0)
+	checkDust(bob, 0, 0)
 }
 
 // deriveDummyRetributionParams is a helper function that derives a list of

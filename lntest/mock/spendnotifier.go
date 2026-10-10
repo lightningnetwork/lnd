@@ -31,7 +31,8 @@ func MakeMockSpendNotifier() *SpendNotifier {
 
 // RegisterSpendNtfn registers a spend notification for a specified outpoint.
 func (s *SpendNotifier) RegisterSpendNtfn(outpoint *wire.OutPoint,
-	_ []byte, heightHint uint32) (*chainntnfs.SpendEvent, error) {
+	_ []byte, heightHint uint32,
+	_ ...chainntnfs.SpendOption) (*chainntnfs.SpendEvent, error) {
 
 	s.mtx.Lock()
 	defer s.mtx.Unlock()

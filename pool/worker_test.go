@@ -20,6 +20,12 @@ type workerPoolTest struct {
 	numWorkers int
 }
 
+type panickingStringer struct{}
+
+func (panickingStringer) String() string {
+	panic("panic while formatting panic value")
+}
+
 // TestConcreteWorkerPools asserts the behavior of any concrete implementations
 // of worker pools provided by the pool package. Currently this tests the
 // pool.Read and pool.Write instances.
@@ -285,6 +291,161 @@ func stopGeneric(t *testing.T, p interface{}) {
 	}
 
 	require.NoError(t, err, "unable to stop worker pool")
+}
+
+// TestWorkerPoolPanicRecovery verifies that a task panic is returned as an
+// error and the pool retains all worker slots.
+func TestWorkerPoolPanicRecovery(t *testing.T) {
+	t.Parallel()
+
+	const (
+		gcInterval     = time.Second
+		expiryInterval = 250 * time.Millisecond
+		numWorkers     = 3
+
+		// The worker timeout is set well beyond the duration of the
+		// test, so that a worker only ever exits because we tore it
+		// down, and never because it went idle for too long.
+		workerTimeout = time.Minute
+	)
+
+	// panicTask is a task that panics rather than returning an error.
+	panicTask := func(*buffer.Read) error {
+		panic("panic in worker task")
+	}
+	panickingValueTask := func(*buffer.Read) error {
+		panic(panickingStringer{})
+	}
+
+	// newReadPool creates and starts a fresh pool.Read, which is the pool
+	// used to decode messages we read off the wire.
+	newReadPool := func(t *testing.T) *pool.Read {
+		bp := pool.NewReadBuffer(gcInterval, expiryInterval)
+		p := pool.NewRead(bp, numWorkers, workerTimeout)
+
+		require.NoError(t, p.Start())
+		t.Cleanup(func() {
+			require.NoError(t, p.Stop())
+		})
+
+		return p
+	}
+
+	// submitWithTimeout keeps a regression from parking the test before its
+	// cleanup can stop the pool and release the blocked submission.
+	submitWithTimeout := func(t *testing.T, p *pool.Read,
+		task func(*buffer.Read) error) error {
+
+		t.Helper()
+
+		errChan := make(chan error, 1)
+		go func() {
+			errChan <- p.Submit(task)
+		}()
+
+		select {
+		case err := <-errChan:
+			return err
+
+		case <-time.After(5 * time.Second):
+			t.Fatal("worker task submission never returned")
+
+			return nil
+		}
+	}
+
+	// saturate submits exactly numWorkers tasks that each block until all
+	// of them are running, meaning the pool must be able to allocate its
+	// full complement of workers for this to return. If any worker slot has
+	// been leaked, fewer tasks can run in parallel and this will time out.
+	saturate := func(t *testing.T, p *pool.Read) {
+		t.Helper()
+
+		var (
+			started = make(chan struct{}, numWorkers)
+			release = make(chan struct{})
+			errs    = make(chan error, numWorkers)
+		)
+		for i := 0; i < numWorkers; i++ {
+			go func() {
+				errs <- p.Submit(func(*buffer.Read) error {
+					started <- struct{}{}
+					<-release
+
+					return nil
+				})
+			}()
+		}
+
+		for i := 0; i < numWorkers; i++ {
+			select {
+			case <-started:
+			case <-time.After(5 * time.Second):
+				t.Fatalf("only %d of %d tasks are running in "+
+					"parallel, a worker slot was leaked",
+					i, numWorkers)
+			}
+		}
+
+		close(release)
+
+		for i := 0; i < numWorkers; i++ {
+			select {
+			case err := <-errs:
+				require.NoError(t, err)
+
+			case <-time.After(5 * time.Second):
+				t.Fatalf("task %d never completed", i)
+			}
+		}
+	}
+
+	// The first case covers a panic in the very first task handed to a
+	// newly spawned worker goroutine.
+	t.Run("first task on a new worker", func(t *testing.T) {
+		t.Parallel()
+
+		p := newReadPool(t)
+
+		err := submitWithTimeout(t, p, panicTask)
+		require.ErrorIs(t, err, pool.ErrWorkerTaskPanic)
+		require.ErrorContains(t, err, "panic in worker task")
+
+		saturate(t, p)
+	})
+
+	// The second case covers a panic in a task handed to a worker that has
+	// already processed a task and is sitting idle waiting for more work.
+	t.Run("task on an existing worker", func(t *testing.T) {
+		t.Parallel()
+
+		p := newReadPool(t)
+
+		// Saturating the pool leaves us with numWorkers idle workers,
+		// so the next task we submit is guaranteed to be handed to one
+		// of them rather than to a freshly spawned worker.
+		saturate(t, p)
+
+		err := submitWithTimeout(t, p, panicTask)
+		require.ErrorIs(t, err, pool.ErrWorkerTaskPanic)
+		require.ErrorContains(t, err, "panic in worker task")
+
+		saturate(t, p)
+	})
+
+	// A panic value is allowed to implement String or Error with arbitrary
+	// code. A second panic while formatting it must not turn the recovered
+	// task into an apparent success or prevent worker retirement.
+	t.Run("panic value formatting panics", func(t *testing.T) {
+		t.Parallel()
+
+		p := newReadPool(t)
+
+		err := submitWithTimeout(t, p, panickingValueTask)
+		require.ErrorIs(t, err, pool.ErrWorkerTaskPanic)
+
+		saturate(t, p)
+	})
 }
 
 func submitGeneric(p interface{}, sem <-chan struct{}) error {

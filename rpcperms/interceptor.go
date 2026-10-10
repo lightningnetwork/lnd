@@ -1,16 +1,16 @@
 package rpcperms
 
 import (
-	"bytes"
 	"context"
 	"errors"
 	"fmt"
-	"runtime/debug"
+	"log/slog"
 	"sync"
 	"sync/atomic"
 
 	"github.com/btcsuite/btclog/v2"
 	grpc_middleware "github.com/grpc-ecosystem/go-grpc-middleware"
+	"github.com/lightningnetwork/lnd/fn/v2"
 	"github.com/lightningnetwork/lnd/lnrpc"
 	"github.com/lightningnetwork/lnd/macaroons"
 	"github.com/lightningnetwork/lnd/monitoring"
@@ -642,41 +642,12 @@ func logRecoveredPanic(logger btclog.Logger, fullMethod string,
 		fullMethod = "<unknown>"
 	}
 
-	stack := truncatePanicStack(debug.Stack())
-
-	logger.Errorf("[%v]: recovered panic in RPC handler: %v\n%s",
-		fullMethod, panicValue, stack)
-}
-
-const (
-	// maxPanicStackSize is the maximum stack size logged for recovered RPC
-	// panics. This follows the existing 8 KiB recovered-panic stack bound
-	// convention while avoiding package coupling for a single constant.
-	maxPanicStackSize = 8192
-
-	panicStackTruncatedMsg = "\n... stack trace truncated ..."
-)
-
-// truncatePanicStack caps a panic stack trace while keeping the final logged
-// line readable when possible.
-func truncatePanicStack(stack []byte) []byte {
-	if len(stack) <= maxPanicStackSize {
-		return stack
-	}
-
-	suffix := []byte(panicStackTruncatedMsg)
-	maxStackLen := maxPanicStackSize - len(suffix)
-	searchStack := stack[:maxStackLen+1]
-	newLineIndex := bytes.LastIndexByte(searchStack, '\n')
-	if newLineIndex > 0 {
-		maxStackLen = newLineIndex
-	}
-
-	truncatedStack := make([]byte, 0, maxStackLen+len(suffix))
-	truncatedStack = append(truncatedStack, stack[:maxStackLen]...)
-	truncatedStack = append(truncatedStack, suffix...)
-
-	return truncatedStack
+	fn.LogRecoveredPanic(
+		context.Background(), logger, fn.Panic{
+			Value: panicValue,
+			Stack: fn.PanicStack(),
+		}, slog.String("rpc_method", fullMethod),
+	)
 }
 
 // panicRecoveryUnaryServerInterceptor recovers panics from unary RPC handlers

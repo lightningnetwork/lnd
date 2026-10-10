@@ -122,12 +122,35 @@
   channels](https://github.com/lightningnetwork/lnd/pull/10501) via the new
   `outgoing_chan_ids` field in `RouteFeeRequest`.
 
+* A new
+  [`walletrpc.SubmitPackage`](https://github.com/lightningnetwork/lnd/pull/10900)
+  RPC submits a package of related transactions (parents first, child last) to
+  the chain backend via bitcoind's `submitpackage`, allowing a zero-fee v3/TRUC
+  parent to be accepted together with a fee-paying CPFP child.
+
+* [Add sat_per_kw option for more fine granular control of transaction
+  fees](https://github.com/lightningnetwork/lnd/pull/10067). This option is
+  added for the sendcoins, sendmany, openchannel, batchopenchannel,
+  closechannel, closeallchannels and wallet bumpfee commands. Also add
+  max_fee_per_kw for closechannel command.
+
 ## lncli Additions
 
 * The `estimateroutefee` command now supports [restricting fee estimates to
   specific first-hop outgoing
   channels](https://github.com/lightningnetwork/lnd/pull/10501) via the new
   `--outgoing_chan_id` flag.
+
+* A new
+  [`wallet submitpackage`](https://github.com/lightningnetwork/lnd/pull/10900)
+  command submits a package of hex-encoded transactions via the new
+  `SubmitPackage` RPC.
+
+* The [--sat_per_vbyte](https://github.com/lightningnetwork/lnd/pull/10067)
+  option now supports fractional values (e.g. 1.05). This option is added for
+  the sendcoins, sendmany, openchannel, batchopenchannel, closechannel,
+  closeallchannels and wallet bumpfee commands. The max_fee_rate argument for
+  closechannel also supports fractional values.
 
 # Improvements
 
@@ -255,7 +278,7 @@
 * Jared Tobin
 * Kevin Cai
 * Nishant Bansal
+* Pins
 * Vandit Singh
 * Viktor Torstensson
-* Pins
 * s1ns3nz0

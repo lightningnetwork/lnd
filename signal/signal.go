@@ -31,7 +31,7 @@ func systemdNotifyReady() error {
 		err := fmt.Errorf("failed to notify systemd %v (if you aren't "+
 			"running systemd clear the environment variable "+
 			"NOTIFY_SOCKET)", err)
-		log.Error(err)
+		getLogger().Error(err)
 
 		// The SdNotify doc says it's common to ignore the
 		// error. We don't want to ignore it because if someone
@@ -40,10 +40,10 @@ func systemdNotifyReady() error {
 		return err
 	}
 	if notified {
-		log.Info("Systemd was notified about our readiness")
+		getLogger().Info("Systemd was notified about our readiness")
 	} else {
-		log.Info("We're not running within systemd or the service " +
-			"type is not 'notify'")
+		getLogger().Info("We're not running within systemd or the " +
+			"service type is not 'notify'")
 	}
 	return nil
 }
@@ -56,10 +56,10 @@ func systemdNotifyStop() {
 
 	// Just log - we're stopping anyway.
 	if err != nil {
-		log.Errorf("Failed to notify systemd: %v", err)
+		getLogger().Errorf("Failed to notify systemd: %v", err)
 	}
 	if notified {
-		log.Infof("Systemd was notified about stopping")
+		getLogger().Infof("Systemd was notified about stopping")
 	}
 }
 
@@ -159,11 +159,11 @@ func (c *Interceptor) mainInterruptHandler() {
 	shutdown := func() {
 		// Ignore more than one shutdown signal.
 		if isShutdown {
-			log.Infof("Already shutting down...")
+			getLogger().Infof("Already shutting down...")
 			return
 		}
 		isShutdown = true
-		log.Infof("Shutting down...")
+		getLogger().Infof("Shutting down...")
 		c.Notifier.notifyStop()
 
 		// Signal the main interrupt handler to exit, and stop accept
@@ -174,15 +174,15 @@ func (c *Interceptor) mainInterruptHandler() {
 	for {
 		select {
 		case signal := <-c.interruptChannel:
-			log.Infof("Received %v", signal)
+			getLogger().Infof("Received %v", signal)
 			shutdown()
 
 		case <-c.shutdownRequestChannel:
-			log.Infof("Received shutdown request.")
+			getLogger().Infof("Received shutdown request.")
 			shutdown()
 
 		case <-c.quit:
-			log.Infof("Gracefully shutting down.")
+			getLogger().Infof("Gracefully shutting down.")
 			close(c.shutdownChannel)
 			signal.Stop(c.interruptChannel)
 			return

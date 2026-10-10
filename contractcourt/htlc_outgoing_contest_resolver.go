@@ -4,6 +4,7 @@ import (
 	"io"
 
 	"github.com/btcsuite/btcd/btcutil/v2"
+	"github.com/lightningnetwork/lnd/chainntnfs"
 	"github.com/lightningnetwork/lnd/channeldb"
 	"github.com/lightningnetwork/lnd/fn/v2"
 	"github.com/lightningnetwork/lnd/lnwallet"
@@ -73,9 +74,9 @@ func (h *htlcOutgoingContestResolver) Launch() error {
 //  1. The HTLC expires. In this case, we'll sweep the funds and send a clean
 //     up cancel message to outside sub-systems.
 //
-//  2. The remote party sweeps this HTLC on-chain, in which case we'll add the
-//     pre-image to our global cache, then send a clean up settle message
-//     backwards.
+//  2. The output is spent on-chain. An authenticated success adds the
+//     preimage to our cache and settles backwards, while another valid spend
+//     is handed to the timeout resolver.
 //
 // When either of these two things happens, we'll create a new resolver which
 // is able to handle the final resolution of the contract. We're only the pivot
@@ -111,14 +112,14 @@ func (h *htlcOutgoingContestResolver) Resolve() (ContractResolver, error) {
 
 	// We'll quickly check to see if the output has already been spent.
 	select {
-	// If the output has already been spent, then we can stop early and
-	// sweep the pre-image from the output.
+	// If the output has already been spent, authenticate the spend before
+	// cleaning up or handing its timeout work to the inner resolver.
 	case commitSpend, ok := <-spendNtfn.Spend:
 		if !ok {
 			return nil, errResolverShuttingDown
 		}
 
-		return nil, h.claimCleanUp(commitSpend)
+		return h.resolveSpend(commitSpend)
 
 	// If it hasn't, then we'll watch for both the expiration, and the
 	// sweeping out this output.
@@ -179,16 +180,31 @@ func (h *htlcOutgoingContestResolver) Resolve() (ContractResolver, error) {
 				return nil, errResolverShuttingDown
 			}
 
-			// The only way this output can be spent by the remote
-			// party is by revealing the preimage. So we'll perform
-			// our duties to clean up the contract once it has been
-			// claimed.
-			return nil, h.claimCleanUp(commitSpend)
+			// Only an authenticated success spend can reveal the
+			// preimage. Other valid spends belong to the timeout
+			// resolver's existing non-preimage path.
+			return h.resolveSpend(commitSpend)
 
 		case <-h.quit:
 			return nil, errResolverShuttingDown
 		}
 	}
+}
+
+// resolveSpend authenticates a commitment spend before choosing the resolver
+// that owns its remaining work.
+func (h *htlcOutgoingContestResolver) resolveSpend(
+	commitSpend *chainntnfs.SpendDetail) (ContractResolver, error) {
+
+	hasPreimage, err := h.htlcTimeoutResolver.isPreimageSpend(commitSpend)
+	if err != nil {
+		return nil, err
+	}
+	if !hasPreimage {
+		return h.htlcTimeoutResolver, nil
+	}
+
+	return nil, h.claimCleanUp(commitSpend)
 }
 
 // report returns a report on the resolution state of the contract.

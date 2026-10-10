@@ -1,6 +1,7 @@
 package protofsm
 
 import (
+	"context"
 	"encoding/hex"
 	"fmt"
 	"sync/atomic"
@@ -68,6 +69,18 @@ type registerSpend struct {
 func (r *registerSpend) dummy() {
 }
 
+// testTransition is the state transition type of the dummy state machine.
+type testTransition = StateTransition[dummyEvents, DaemonEvent, *dummyEnv]
+
+// daemonHandler wraps adapters in a DaemonExecutor for the dummy machine.
+func daemonHandler(adapters DaemonAdapters) fn.Option[OutboxHandler[
+	dummyEvents, DaemonEvent]] {
+
+	return fn.Some[OutboxHandler[dummyEvents, DaemonEvent]](
+		NewDaemonExecutor[dummyEvents](adapters),
+	)
+}
+
 type dummyEnv struct {
 	mock.Mock
 }
@@ -99,21 +112,21 @@ var (
 	))
 )
 
-func (d *dummyStateStart) ProcessEvent(event dummyEvents, env *dummyEnv,
-) (*StateTransition[dummyEvents, *dummyEnv], error) {
+func (d *dummyStateStart) ProcessEvent(_ context.Context, event dummyEvents,
+	env *dummyEnv) (*testTransition, error) {
 
 	switch newEvent := event.(type) {
 	case *goToFin:
-		return &StateTransition[dummyEvents, *dummyEnv]{
+		return &testTransition{
 			NextState: &dummyStateFin{},
 		}, nil
 
 	// This state will loop back upon itself, but will also emit an event
 	// to head to the terminal state.
 	case *emitInternal:
-		return &StateTransition[dummyEvents, *dummyEnv]{
+		return &testTransition{
 			NextState: &dummyStateStart{},
-			NewEvents: fn.Some(EmittedEvent[dummyEvents]{
+			NewEvents: fn.Some(EmittedEvent[dummyEvents, DaemonEvent]{
 				InternalEvent: []dummyEvents{&goToFin{}},
 			}),
 		}, nil
@@ -138,15 +151,15 @@ func (d *dummyStateStart) ProcessEvent(event dummyEvents, env *dummyEnv,
 			TargetPeer: *pub2,
 		}
 
-		return &StateTransition[dummyEvents, *dummyEnv]{
+		return &testTransition{
 			// We'll state in this state until the send succeeds
 			// based on our predicate. Then it'll transition to the
 			// final state.
 			NextState: &dummyStateStart{
 				canSend: d.canSend,
 			},
-			NewEvents: fn.Some(EmittedEvent[dummyEvents]{
-				ExternalEvents: DaemonEventSet{
+			NewEvents: fn.Some(EmittedEvent[dummyEvents, DaemonEvent]{
+				Outbox: DaemonEventSet{
 					sendEvent, sendEvent2,
 					&BroadcastTxn{
 						Tx:    &wire.MsgTx{},
@@ -179,14 +192,14 @@ func (d *dummyStateStart) ProcessEvent(event dummyEvents, env *dummyEnv,
 			),
 		}
 
-		return &StateTransition[dummyEvents, *dummyEnv]{
+		return &testTransition{
 			// Stay in the start state until the conf event is
 			// received and mapped.
 			NextState: &dummyStateStart{
 				canSend: d.canSend,
 			},
-			NewEvents: fn.Some(EmittedEvent[dummyEvents]{
-				ExternalEvents: DaemonEventSet{
+			NewEvents: fn.Some(EmittedEvent[dummyEvents, DaemonEvent]{
+				Outbox: DaemonEventSet{
 					regConfEvent,
 				},
 			}),
@@ -197,7 +210,7 @@ func (d *dummyStateStart) ProcessEvent(event dummyEvents, env *dummyEnv,
 	case *confDetailsEvent:
 		// We received the mapped confirmation details, transition to
 		// the confirmed state.
-		return &StateTransition[dummyEvents, *dummyEnv]{
+		return &testTransition{
 			NextState: &dummyStateConfirmed{
 				blockHash:   newEvent.blockHash,
 				blockHeight: newEvent.blockHeight,
@@ -226,14 +239,14 @@ func (d *dummyStateStart) ProcessEvent(event dummyEvents, env *dummyEnv,
 			),
 		}
 
-		return &StateTransition[dummyEvents, *dummyEnv]{
+		return &testTransition{
 			// Stay in the start state until the spend event is
 			// received and mapped.
 			NextState: &dummyStateStart{
 				canSend: d.canSend,
 			},
-			NewEvents: fn.Some(EmittedEvent[dummyEvents]{
-				ExternalEvents: DaemonEventSet{
+			NewEvents: fn.Some(EmittedEvent[dummyEvents, DaemonEvent]{
+				Outbox: DaemonEventSet{
 					regSpendEvent,
 				},
 			}),
@@ -244,7 +257,7 @@ func (d *dummyStateStart) ProcessEvent(event dummyEvents, env *dummyEnv,
 	case *spendDetailsEvent:
 		// We received the mapped spend details, transition to the
 		// spent state.
-		return &StateTransition[dummyEvents, *dummyEnv]{
+		return &testTransition{
 			NextState: &dummyStateSpent{
 				spenderTxHash:  newEvent.spenderTxHash,
 				spendingHeight: newEvent.spendingHeight,
@@ -266,10 +279,10 @@ func (d *dummyStateFin) String() string {
 	return "dummyStateFin"
 }
 
-func (d *dummyStateFin) ProcessEvent(event dummyEvents, env *dummyEnv,
-) (*StateTransition[dummyEvents, *dummyEnv], error) {
+func (d *dummyStateFin) ProcessEvent(_ context.Context, event dummyEvents,
+	env *dummyEnv) (*testTransition, error) {
 
-	return &StateTransition[dummyEvents, *dummyEnv]{
+	return &testTransition{
 		NextState: &dummyStateFin{},
 	}, nil
 }
@@ -287,11 +300,11 @@ func (d *dummyStateConfirmed) String() string {
 	return "dummyStateConfirmed"
 }
 
-func (d *dummyStateConfirmed) ProcessEvent(event dummyEvents, env *dummyEnv,
-) (*StateTransition[dummyEvents, *dummyEnv], error) {
+func (d *dummyStateConfirmed) ProcessEvent(_ context.Context, event dummyEvents,
+	env *dummyEnv) (*testTransition, error) {
 
 	// This is a terminal state, no further transitions.
-	return &StateTransition[dummyEvents, *dummyEnv]{
+	return &testTransition{
 		NextState: d,
 	}, nil
 }
@@ -309,11 +322,11 @@ func (d *dummyStateSpent) String() string {
 	return "dummyStateSpent"
 }
 
-func (d *dummyStateSpent) ProcessEvent(event dummyEvents, env *dummyEnv,
-) (*StateTransition[dummyEvents, *dummyEnv], error) {
+func (d *dummyStateSpent) ProcessEvent(_ context.Context, event dummyEvents,
+	env *dummyEnv) (*testTransition, error) {
 
 	// This is a terminal state, no further transitions.
-	return &StateTransition[dummyEvents, *dummyEnv]{
+	return &testTransition{
 		NextState: d,
 	}, nil
 }
@@ -324,8 +337,9 @@ func (d *dummyStateSpent) IsTerminal() bool {
 
 // assertState asserts that the state machine is currently in the expected
 // state type and returns the state cast to that type.
-func assertState[Event any, Env Environment, S State[Event, Env]](t *testing.T,
-	m *StateMachine[Event, Env], expectedState S) S {
+func assertState[Event any, Out any, Env Environment,
+	S State[Event, Out, Env]](t *testing.T, m *StateMachine[Event, Out, Env],
+	expectedState S) S {
 
 	state, err := m.CurrentState()
 	require.NoError(t, err)
@@ -338,9 +352,9 @@ func assertState[Event any, Env Environment, S State[Event, Env]](t *testing.T,
 	return concreteState
 }
 
-func assertStateTransitions[Event any, Env Environment](
-	t *testing.T, stateSub StateSubscriber[Event, Env],
-	expectedStates []State[Event, Env]) {
+func assertStateTransitions[Event any, Out any, Env Environment](
+	t *testing.T, stateSub StateSubscriber[Event, Out, Env],
+	expectedStates []State[Event, Out, Env]) {
 
 	for _, expectedState := range expectedStates {
 		newState := <-stateSub.NewItemCreated.ChanOut()
@@ -425,11 +439,11 @@ func TestStateMachineOnInitDaemonEvent(t *testing.T) {
 		PostSendEvent: fn.Some(dummyEvents(&goToFin{})),
 	}
 
-	cfg := StateMachineCfg[dummyEvents, *dummyEnv]{
-		Daemon:       adapters,
-		InitialState: startingState,
-		Env:          env,
-		InitEvent:    fn.Some[DaemonEvent](initEvent),
+	cfg := StateMachineCfg[dummyEvents, DaemonEvent, *dummyEnv]{
+		OutboxHandler: daemonHandler(adapters),
+		InitialState:  startingState,
+		Env:           env,
+		InitEvent:     fn.Some[DaemonEvent](initEvent),
 	}
 	stateMachine := NewStateMachine(cfg)
 
@@ -447,7 +461,7 @@ func TestStateMachineOnInitDaemonEvent(t *testing.T) {
 
 	// Assert that we go from the starting state to the final state.  The
 	// state machine should now also be on the final terminal state.
-	expectedStates := []State[dummyEvents, *dummyEnv]{
+	expectedStates := []State[dummyEvents, DaemonEvent, *dummyEnv]{
 		&dummyStateStart{}, &dummyStateFin{},
 	}
 	assertStateTransitions(t, stateSub, expectedStates)
@@ -472,11 +486,11 @@ func TestStateMachineInternalEvents(t *testing.T) {
 
 	adapters := newDaemonAdapters()
 
-	cfg := StateMachineCfg[dummyEvents, *dummyEnv]{
-		Daemon:       adapters,
-		InitialState: startingState,
-		Env:          env,
-		InitEvent:    fn.None[DaemonEvent](),
+	cfg := StateMachineCfg[dummyEvents, DaemonEvent, *dummyEnv]{
+		OutboxHandler: daemonHandler(adapters),
+		InitialState:  startingState,
+		Env:           env,
+		InitEvent:     fn.None[DaemonEvent](),
 	}
 	stateMachine := NewStateMachine(cfg)
 
@@ -494,7 +508,7 @@ func TestStateMachineInternalEvents(t *testing.T) {
 
 	// We'll now also assert the path we took to get here to ensure the
 	// internal events were processed.
-	expectedStates := []State[dummyEvents, *dummyEnv]{
+	expectedStates := []State[dummyEvents, DaemonEvent, *dummyEnv]{
 		&dummyStateStart{}, &dummyStateStart{}, &dummyStateFin{},
 	}
 	assertStateTransitions(
@@ -502,7 +516,7 @@ func TestStateMachineInternalEvents(t *testing.T) {
 	)
 
 	// We should ultimately end up in the terminal state.
-	assertState[dummyEvents, *dummyEnv](t, &stateMachine, &dummyStateFin{})
+	assertState[dummyEvents, DaemonEvent, *dummyEnv](t, &stateMachine, &dummyStateFin{})
 
 	// Make sure all the env expectations were met.
 	env.AssertExpectations(t)
@@ -525,11 +539,11 @@ func TestStateMachineDaemonEvents(t *testing.T) {
 
 	adapters := newDaemonAdapters()
 
-	cfg := StateMachineCfg[dummyEvents, *dummyEnv]{
-		Daemon:       adapters,
-		InitialState: startingState,
-		Env:          env,
-		InitEvent:    fn.None[DaemonEvent](),
+	cfg := StateMachineCfg[dummyEvents, DaemonEvent, *dummyEnv]{
+		OutboxHandler: daemonHandler(adapters),
+		InitialState:  startingState,
+		Env:           env,
+		InitEvent:     fn.None[DaemonEvent](),
 	}
 	stateMachine := NewStateMachine(cfg)
 
@@ -567,7 +581,7 @@ func TestStateMachineDaemonEvents(t *testing.T) {
 
 	// We should transition back to the starting state now, after we
 	// started from the very same state.
-	expectedStates := []State[dummyEvents, *dummyEnv]{
+	expectedStates := []State[dummyEvents, DaemonEvent, *dummyEnv]{
 		&dummyStateStart{}, &dummyStateStart{},
 	}
 	assertStateTransitions(t, stateSub, expectedStates)
@@ -584,7 +598,7 @@ func TestStateMachineDaemonEvents(t *testing.T) {
 	boolTrigger.Store(true)
 	adapters.On("SendMessages", *pub1, mock.Anything).Return(nil)
 
-	expectedStates = []State[dummyEvents, *dummyEnv]{&dummyStateFin{}}
+	expectedStates = []State[dummyEvents, DaemonEvent, *dummyEnv]{&dummyStateFin{}}
 	assertStateTransitions(t, stateSub, expectedStates)
 
 	adapters.AssertExpectations(t)
@@ -604,10 +618,10 @@ func testStateMachineConfMapperImpl(t *testing.T, fullBlock bool) {
 	startingState := &dummyStateStart{}
 	adapters := newDaemonAdapters()
 
-	cfg := StateMachineCfg[dummyEvents, *dummyEnv]{
-		Daemon:       adapters,
-		InitialState: startingState,
-		Env:          env,
+	cfg := StateMachineCfg[dummyEvents, DaemonEvent, *dummyEnv]{
+		OutboxHandler: daemonHandler(adapters),
+		InitialState:  startingState,
+		Env:           env,
 	}
 	stateMachine := NewStateMachine(cfg)
 
@@ -662,7 +676,7 @@ func testStateMachineConfMapperImpl(t *testing.T, fullBlock bool) {
 	stateMachine.SendEvent(ctx, regConfEvent)
 
 	// We should transition back to the starting state initially.
-	expectedStates := []State[dummyEvents, *dummyEnv]{
+	expectedStates := []State[dummyEvents, DaemonEvent, *dummyEnv]{
 		&dummyStateStart{}, &dummyStateStart{},
 	}
 	assertStateTransitions(t, stateSub, expectedStates)
@@ -680,7 +694,7 @@ func testStateMachineConfMapperImpl(t *testing.T, fullBlock bool) {
 
 	// This should trigger the mapper and send the confDetailsEvent,
 	// transitioning us to the confirmed state.
-	expectedStates = []State[dummyEvents, *dummyEnv]{&dummyStateConfirmed{}}
+	expectedStates = []State[dummyEvents, DaemonEvent, *dummyEnv]{&dummyStateConfirmed{}}
 	assertStateTransitions(t, stateSub, expectedStates)
 
 	// Final state assertion.
@@ -728,10 +742,10 @@ func TestStateMachineSpendMapper(t *testing.T) {
 	startingState := &dummyStateStart{}
 	adapters := newDaemonAdapters()
 
-	cfg := StateMachineCfg[dummyEvents, *dummyEnv]{
-		Daemon:       adapters,
-		InitialState: startingState,
-		Env:          env,
+	cfg := StateMachineCfg[dummyEvents, DaemonEvent, *dummyEnv]{
+		OutboxHandler: daemonHandler(adapters),
+		InitialState:  startingState,
+		Env:           env,
 	}
 	stateMachine := NewStateMachine(cfg)
 
@@ -754,7 +768,7 @@ func TestStateMachineSpendMapper(t *testing.T) {
 	stateMachine.SendEvent(ctx, &registerSpend{})
 
 	// We should transition back to the starting state initially.
-	expectedStates := []State[dummyEvents, *dummyEnv]{
+	expectedStates := []State[dummyEvents, DaemonEvent, *dummyEnv]{
 		&dummyStateStart{}, &dummyStateStart{},
 	}
 	assertStateTransitions(t, stateSub, expectedStates)
@@ -774,7 +788,7 @@ func TestStateMachineSpendMapper(t *testing.T) {
 
 	// This should trigger the mapper and send the spendDetailsEvent,
 	// transitioning us to the spent state.
-	expectedStates = []State[dummyEvents, *dummyEnv]{&dummyStateSpent{}}
+	expectedStates = []State[dummyEvents, DaemonEvent, *dummyEnv]{&dummyStateSpent{}}
 	assertStateTransitions(t, stateSub, expectedStates)
 
 	// Final state assertion.
@@ -832,11 +846,11 @@ func TestStateMachineMsgMapper(t *testing.T) {
 	)
 	dummyMapper.On("MapMsg", initMsg).Return(fn.None[dummyEvents]())
 
-	cfg := StateMachineCfg[dummyEvents, *dummyEnv]{
-		Daemon:       adapters,
-		InitialState: startingState,
-		Env:          env,
-		MsgMapper:    fn.Some[MsgMapper[dummyEvents]](dummyMapper),
+	cfg := StateMachineCfg[dummyEvents, DaemonEvent, *dummyEnv]{
+		OutboxHandler: daemonHandler(adapters),
+		InitialState:  startingState,
+		Env:           env,
+		MsgMapper:     fn.Some[MsgMapper[dummyEvents]](dummyMapper),
 	}
 	stateMachine := NewStateMachine(cfg)
 
@@ -859,7 +873,7 @@ func TestStateMachineMsgMapper(t *testing.T) {
 	require.True(t, stateMachine.SendMessage(ctx, wireError))
 
 	// We should transition to the final state.
-	expectedStates := []State[dummyEvents, *dummyEnv]{
+	expectedStates := []State[dummyEvents, DaemonEvent, *dummyEnv]{
 		&dummyStateStart{}, &dummyStateFin{},
 	}
 	assertStateTransitions(t, stateSub, expectedStates)

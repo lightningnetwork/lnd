@@ -127,6 +127,19 @@ func (r *Router[M, R]) Tell(ctx context.Context, msg M) {
 	selectedActor.Tell(ctx, msg)
 }
 
+// TryTell attempts a non-blocking send to one of the actors managed by the
+// router, selected by the routing strategy. It returns ErrNoActorsAvailable if
+// no actor is registered for the service key, and otherwise the result of the
+// selected actor's TryTell.
+func (r *Router[M, R]) TryTell(ctx context.Context, msg M) error {
+	selectedActor, err := r.getActor()
+	if err != nil {
+		return err
+	}
+
+	return selectedActor.TryTell(ctx, msg)
+}
+
 // Ask sends a message to one of the actors managed by the router, selected by
 // the routing strategy, and returns a Future for the response. If no actors are
 // available (ErrNoActorsAvailable), the Future will be completed with this

@@ -555,7 +555,7 @@ type AuthenticatedGossiper struct {
 	// on how many other gossip syncers are currently active. Any activeSync
 	// gossip syncers are started in a round-robin manner to ensure we're
 	// not syncing with multiple peers at the same time.
-	syncMgr *SyncManager
+	syncMgr syncManager
 
 	// reliableSender is a subsystem responsible for handling reliable
 	// message send requests to peers. This should only be used for channels
@@ -607,22 +607,7 @@ func New(cfg Config, selfKeyDesc *keychain.KeyDescriptor) *AuthenticatedGossiper
 
 	gossiper.vb = NewValidationBarrier(1000, gossiper.quit)
 
-	gossiper.syncMgr = newSyncManager(&SyncManagerCfg{
-		ChainHash:                *cfg.ChainParams.GenesisHash,
-		ChanSeries:               cfg.ChanSeries,
-		RotateTicker:             cfg.RotateTicker,
-		HistoricalSyncTicker:     cfg.HistoricalSyncTicker,
-		NumActiveSyncers:         cfg.NumActiveSyncers,
-		NoTimestampQueries:       cfg.NoTimestampQueries,
-		IgnoreHistoricalFilters:  cfg.IgnoreHistoricalFilters,
-		BestHeight:               gossiper.latestHeight,
-		PinnedSyncers:            cfg.PinnedSyncers,
-		IsStillZombieChannel:     cfg.IsStillZombieChannel,
-		AllotedMsgBytesPerSecond: cfg.MsgRateBytes,
-		AllotedMsgBytesBurst:     cfg.MsgBurstBytes,
-		FilterConcurrency:        cfg.FilterConcurrency,
-		PeerMsgBytesPerSecond:    cfg.PeerMsgRateBytes,
-	})
+	gossiper.syncMgr = newGossipSyncManager(&cfg, gossiper.latestHeight)
 
 	gossiper.reliableSender = newReliableSender(&reliableSenderCfg{
 		NotifyWhenOnline:  cfg.NotifyWhenOnline,
@@ -901,58 +886,11 @@ func (d *AuthenticatedGossiper) ProcessRemoteAnnouncement(ctx context.Context,
 	case *lnwire.QueryShortChanIDs,
 		*lnwire.QueryChannelRange,
 		*lnwire.ReplyChannelRange,
-		*lnwire.ReplyShortChanIDsEnd:
+		*lnwire.ReplyShortChanIDsEnd,
+		*lnwire.GossipTimestampRange:
 
-		syncer, ok := d.syncMgr.GossipSyncer(peer.PubKey())
-		if !ok {
-			log.Warnf("Gossip syncer for peer=%x not found",
-				peer.PubKey())
-
-			completeGossipResult(promise, ErrGossipSyncerNotFound)
-
-			return promise.Future()
-		}
-
-		// If we've found the message target, then we'll dispatch the
-		// message directly to it.
-		err := syncer.ProcessQueryMsg(m, peer.QuitSignal())
-		if err != nil {
-			log.Errorf("Process query msg from peer %x got %v",
-				peer.PubKey(), err)
-		}
-
+		err := d.syncMgr.deliverQueryMsg(ctx, peer, m)
 		completeGossipResult(promise, err)
-
-		return promise.Future()
-
-	// If a peer is updating its current update horizon, then we'll dispatch
-	// that directly to the proper GossipSyncer.
-	case *lnwire.GossipTimestampRange:
-		syncer, ok := d.syncMgr.GossipSyncer(peer.PubKey())
-		if !ok {
-			log.Warnf("Gossip syncer for peer=%x not found",
-				peer.PubKey())
-
-			completeGossipResult(promise, ErrGossipSyncerNotFound)
-
-			return promise.Future()
-		}
-
-		// Queue the message for asynchronous processing to prevent
-		// blocking the gossiper when rate limiting is active.
-		if !syncer.QueueTimestampRange(m) {
-			log.Warnf("Unable to queue gossip filter for peer=%x: "+
-				"queue full", peer.PubKey())
-
-			// Return nil to indicate we've handled the message,
-			// even though it was dropped. This prevents the peer
-			// from being disconnected.
-			completeGossipResult(promise, nil)
-
-			return promise.Future()
-		}
-
-		completeGossipResult(promise, nil)
 
 		return promise.Future()
 
@@ -1063,7 +1001,7 @@ type msgWithSenders struct {
 // with peers that we have an active GossipSyncer with. We do this to ensure
 // that we don't broadcast messages to any peers that we have active gossip
 // syncers for.
-func (m *msgWithSenders) mergeSyncerMap(syncers map[route.Vertex]*GossipSyncer) {
+func (m *msgWithSenders) mergeSyncerMap(syncers map[route.Vertex]struct{}) {
 	for peerPub := range syncers {
 		m.senders[peerPub] = struct{}{}
 	}
@@ -1449,14 +1387,9 @@ func (d *AuthenticatedGossiper) sendLocalBatch(annBatch []msgWithSenders) {
 func (d *AuthenticatedGossiper) sendRemoteBatch(ctx context.Context,
 	annBatch []msgWithSenders) {
 
-	syncerPeers := d.syncMgr.GossipSyncers()
-
 	// We'll first attempt to filter out this new message for all peers
 	// that have active gossip syncers active.
-	for pub, syncer := range syncerPeers {
-		log.Tracef("Sending messages batch to GossipSyncer(%s)", pub)
-		syncer.FilterGossipMsgs(ctx, annBatch...)
-	}
+	syncerPeers := d.syncMgr.forwardBatch(ctx, annBatch)
 
 	for _, msgChunk := range annBatch {
 
@@ -1777,6 +1710,26 @@ func (d *AuthenticatedGossiper) finalizeGossipProcessing(logCtx context.Context,
 				ctxStr, msgType, r),
 		)
 	}
+}
+
+// newGossipSyncManager returns the sync manager the config selects.
+func newGossipSyncManager(cfg *Config, bestHeight func() uint32) syncManager {
+	return newSyncManager(&SyncManagerCfg{
+		ChainHash:                *cfg.ChainParams.GenesisHash,
+		ChanSeries:               cfg.ChanSeries,
+		RotateTicker:             cfg.RotateTicker,
+		HistoricalSyncTicker:     cfg.HistoricalSyncTicker,
+		NumActiveSyncers:         cfg.NumActiveSyncers,
+		NoTimestampQueries:       cfg.NoTimestampQueries,
+		IgnoreHistoricalFilters:  cfg.IgnoreHistoricalFilters,
+		BestHeight:               bestHeight,
+		PinnedSyncers:            cfg.PinnedSyncers,
+		IsStillZombieChannel:     cfg.IsStillZombieChannel,
+		AllotedMsgBytesPerSecond: cfg.MsgRateBytes,
+		AllotedMsgBytesBurst:     cfg.MsgBurstBytes,
+		FilterConcurrency:        cfg.FilterConcurrency,
+		PeerMsgBytesPerSecond:    cfg.PeerMsgRateBytes,
+	})
 }
 
 // TODO(roasbeef): d/c peers that send updates not on our chain
@@ -2515,9 +2468,18 @@ func (d *AuthenticatedGossiper) updateChannel(ctx context.Context,
 	return chanAnn, chanUpdate, nil
 }
 
-// SyncManager returns the gossiper's SyncManager instance.
-func (d *AuthenticatedGossiper) SyncManager() *SyncManager {
-	return d.syncMgr
+// IsGraphSynced reports whether the gossiper's initial historical sync has
+// completed.
+func (d *AuthenticatedGossiper) IsGraphSynced() bool {
+	return d.syncMgr.IsGraphSynced()
+}
+
+// SyncTypeOf returns a connected peer's gossip sync type, or false if the peer
+// has no gossip syncer.
+func (d *AuthenticatedGossiper) SyncTypeOf(peer route.Vertex) (SyncerType,
+	bool) {
+
+	return d.syncMgr.SyncTypeOf(peer)
 }
 
 // IsKeepAliveUpdate determines whether this channel update is considered a

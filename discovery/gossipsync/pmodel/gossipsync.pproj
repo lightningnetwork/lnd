@@ -1,0 +1,10 @@
+<Project>
+<ProjectName>GossipSyncModels</ProjectName>
+<InputFiles>
+<PFile>src/manager.p</PFile>
+<PFile>src/syncer.p</PFile>
+<PFile>test/manager_test.p</PFile>
+<PFile>test/syncer_test.p</PFile>
+</InputFiles>
+<OutputDir>PGenerated</OutputDir>
+</Project>

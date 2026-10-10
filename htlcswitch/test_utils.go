@@ -147,7 +147,10 @@ type testLightningChannel struct {
 //
 // TODO(roasbeef): need to factor out, similar func re-used in many parts of codebase
 func createTestChannel(t *testing.T, alicePrivKey, bobPrivKey []byte,
-	aliceAmount, bobAmount, aliceReserve, bobReserve btcutil.Amount,
+	aliceAmount, bobAmount, aliceReserve, bobReserve, aliceDustLimit,
+	bobDustLimit btcutil.Amount, aliceFeePerKw chainfee.SatPerKWeight,
+	aliceMinHTLC, bobMinHTLC lnwire.MilliSatoshi,
+	aliceFeeWu lntypes.WeightUnit,
 	chanID lnwire.ShortChannelID) (*testLightningChannel,
 	*testLightningChannel, error) {
 
@@ -163,11 +166,11 @@ func createTestChannel(t *testing.T, alicePrivKey, bobPrivKey []byte,
 		MaxPendingAmount: lnwire.NewMSatFromSatoshis(
 			channelCapacity),
 		ChanReserve:      aliceReserve,
-		MinHTLC:          0,
+		MinHTLC:          aliceMinHTLC,
 		MaxAcceptedHtlcs: maxInflightHtlcs,
 	}
 	aliceCommitParams := channeldb.CommitmentParams{
-		DustLimit: btcutil.Amount(200),
+		DustLimit: aliceDustLimit,
 		CsvDelay:  uint16(csvTimeoutAlice),
 	}
 
@@ -175,11 +178,11 @@ func createTestChannel(t *testing.T, alicePrivKey, bobPrivKey []byte,
 		MaxPendingAmount: lnwire.NewMSatFromSatoshis(
 			channelCapacity),
 		ChanReserve:      bobReserve,
-		MinHTLC:          0,
+		MinHTLC:          bobMinHTLC,
 		MaxAcceptedHtlcs: maxInflightHtlcs,
 	}
 	bobCommitParams := channeldb.CommitmentParams{
-		DustLimit: btcutil.Amount(800),
+		DustLimit: bobDustLimit,
 		CsvDelay:  uint16(csvTimeoutBob),
 	}
 
@@ -269,12 +272,12 @@ func createTestChannel(t *testing.T, alicePrivKey, bobPrivKey []byte,
 	dbAlice := channeldb.OpenForTesting(t, t.TempDir())
 	dbBob := channeldb.OpenForTesting(t, t.TempDir())
 
-	estimator := chainfee.NewStaticEstimator(6000, 0)
+	estimator := chainfee.NewStaticEstimator(aliceFeePerKw, 0)
 	feePerKw, err := estimator.EstimateFeePerKW(1)
 	if err != nil {
 		return nil, nil, err
 	}
-	commitFee := feePerKw.FeeForWeight(724)
+	commitFee := feePerKw.FeeForWeight(aliceFeeWu)
 
 	const broadcastHeight = 1
 	bobAddr := &net.TCPAddr{
@@ -367,6 +370,7 @@ func createTestChannel(t *testing.T, alicePrivKey, bobPrivKey []byte,
 		return nil, nil, err
 	}
 	alicePool.Start()
+	t.Cleanup(func() { _ = alicePool.Stop() })
 
 	bobPool := lnwallet.NewSigPool(runtime.NumCPU(), bobSigner)
 	channelBob, err := lnwallet.NewLightningChannel(
@@ -378,6 +382,7 @@ func createTestChannel(t *testing.T, alicePrivKey, bobPrivKey []byte,
 		return nil, nil, err
 	}
 	bobPool.Start()
+	t.Cleanup(func() { _ = bobPool.Stop() })
 
 	// Now that the channel are open, simulate the start of a session by
 	// having Alice and Bob extend their revocation windows to each other.
@@ -891,7 +896,8 @@ func createClusterChannels(t *testing.T, aliceToBob, bobToCarol btcutil.Amount) 
 
 	// Create lightning channels between Alice<->Bob and Bob<->Carol
 	aliceChannel, firstBobChannel, err := createTestChannel(t, alicePrivKey,
-		bobPrivKey, aliceToBob, aliceToBob, 0, 0, firstChanID,
+		bobPrivKey, aliceToBob, aliceToBob, 0, 0, 200, 800, 6000, 0, 0,
+		724, firstChanID,
 	)
 	if err != nil {
 		return nil, nil, fmt.Errorf("unable to create "+
@@ -899,7 +905,8 @@ func createClusterChannels(t *testing.T, aliceToBob, bobToCarol btcutil.Amount) 
 	}
 
 	secondBobChannel, carolChannel, err := createTestChannel(t, bobPrivKey,
-		carolPrivKey, bobToCarol, bobToCarol, 0, 0, secondChanID,
+		carolPrivKey, bobToCarol, bobToCarol, 0, 0, 200, 800, 6000, 0,
+		0, 724, secondChanID,
 	)
 	if err != nil {
 		return nil, nil, fmt.Errorf("unable to create "+
@@ -1080,7 +1087,8 @@ func createMirroredChannel(t *testing.T, aliceToBob,
 
 	// Create lightning channels between Alice<->Bob for Alice and Bob
 	alice, bob, err := createTestChannel(t, alicePrivKey, bobPrivKey,
-		aliceToBob, bobToAlice, 0, 0, firstChanID,
+		aliceToBob, bobToAlice, 0, 0, 200, 800, 6000, 0, 0, 724,
+		firstChanID,
 	)
 	if err != nil {
 		return nil, nil, fmt.Errorf("unable to create "+

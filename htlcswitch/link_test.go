@@ -2072,6 +2072,7 @@ type mockPeer struct {
 	sync.Mutex
 	disconnected bool
 	sentMsgs     chan lnwire.Message
+	pubKeyBytes  [33]byte
 	quit         chan struct{}
 }
 
@@ -2104,7 +2105,7 @@ func (m *mockPeer) AddNewChannel(_ *lnpeer.NewChannel,
 }
 func (m *mockPeer) WipeChannel(*wire.OutPoint) {}
 func (m *mockPeer) PubKey() [33]byte {
-	return [33]byte{}
+	return m.pubKeyBytes
 }
 func (m *mockPeer) IdentityKey() *btcec.PublicKey {
 	return nil
@@ -2129,6 +2130,15 @@ func (m *mockPeer) RemovePendingChannel(_ lnwire.ChannelID) error {
 	return nil
 }
 
+// createMockPeer creates a new mock peer for testing.
+func createMockPeer(pubKeyBytes [33]byte) *mockPeer {
+	return &mockPeer{
+		sentMsgs:    make(chan lnwire.Message, pendingUpdatesBufSize),
+		pubKeyBytes: pubKeyBytes,
+		quit:        make(chan struct{}),
+	}
+}
+
 type singleLinkTestHarness struct {
 	aliceSwitch      *Switch
 	aliceLink        ChannelLink
@@ -2151,7 +2161,7 @@ func newSingleLinkTestHarness(t *testing.T, chanAmt,
 
 	aliceLc, bobLc, err := createTestChannel(
 		t, alicePrivKey, bobPrivKey, chanAmt, chanAmt,
-		chanReserve, chanReserve, chanID,
+		chanReserve, chanReserve, 200, 800, 6000, 0, 0, 724, chanID,
 	)
 	if err != nil {
 		return singleLinkTestHarness{}, err
@@ -6201,7 +6211,7 @@ func TestCheckHtlcForward(t *testing.T) {
 
 	testChannel, _, err := createTestChannel(
 		t, alicePrivKey, bobPrivKey, 100000, 100000,
-		1000, 1000, lnwire.ShortChannelID{},
+		1000, 1000, 200, 800, 6000, 0, 0, 724, lnwire.ShortChannelID{},
 	)
 	if err != nil {
 		t.Fatal(err)

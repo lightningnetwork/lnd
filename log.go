@@ -42,6 +42,7 @@ import (
 	"github.com/lightningnetwork/lnd/lnwallet"
 	"github.com/lightningnetwork/lnd/lnwallet/btcwallet"
 	"github.com/lightningnetwork/lnd/lnwallet/chancloser"
+	"github.com/lightningnetwork/lnd/lnwallet/chanfsm"
 	"github.com/lightningnetwork/lnd/lnwallet/chanfunding"
 	"github.com/lightningnetwork/lnd/lnwallet/rpcwallet"
 	"github.com/lightningnetwork/lnd/monitoring"
@@ -187,6 +188,7 @@ func SetupLoggers(root *build.SubLoggerManager, interceptor signal.Interceptor) 
 	AddSubLogger(root, "CHCL", interceptor, chancloser.UseLogger)
 	AddSubLogger(root, "LCHN", interceptor, localchans.UseLogger)
 	AddSubLogger(root, "PFSM", interceptor, protofsm.UseLogger)
+	AddSubLogger(root, chanfsm.Subsystem, interceptor, chanfsm.UseLogger)
 
 	AddSubLogger(root, routing.Subsystem, interceptor, routing.UseLogger)
 	AddSubLogger(root, routerrpc.Subsystem, interceptor, routerrpc.UseLogger)

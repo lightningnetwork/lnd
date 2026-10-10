@@ -56,6 +56,10 @@
   incoming HTLC resolver could treat a foreign commitment spend as its own
   success transaction and offer a phantom input to the sweeper.
 
+* [Fixed an issue](https://github.com/lightningnetwork/lnd/pull/11085) where an
+  outgoing HTLC resolver could treat a foreign commitment spend as its own
+  timeout transaction and offer a phantom input to the sweeper.
+
 * Native SQL invoice migration [now correctly associates legacy AMP invoice
   HTLCs](https://github.com/lightningnetwork/lnd/pull/11106) with their AMP
   sub-invoices. Previously, the HTLC rows were inserted without those

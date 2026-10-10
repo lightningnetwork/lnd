@@ -106,6 +106,12 @@
   ensures dependencies are properly freed and logs the panic trace for
   debugging.
 
+* [Improved error message clarity](https://github.com/lightningnetwork/lnd/pull/10607) 
+  when a transaction would cause a peer's balance to fall below the channel
+  reserve. The error message has been updated to be more user-friendly, 
+  notifying that the transaction was rejected because the minimum safety 
+  balance must be preserved.
+
 ## RPC Updates
 
  * The `EstimateRouteFee` RPC now implements an [LSP detection 

@@ -256,46 +256,10 @@ func (store *networkResultStore) InitAttempt(attemptID uint64) error {
 			return ErrPaymentIDAlreadyExists
 		}
 
-		// Create an empty networkResult to serve as place holder until
-		// a result from the network is received.
-		//
-		// TODO(calvin): When migrating to native SQL storage, replace
-		// this custom message placeholder with a proper status enum or
-		// struct to represent the pending state of an attempt.
-		pendingMsg, err := lnwire.NewCustom(pendingHtlcMsgType, nil)
-		if err != nil {
-			// This should not happen with a static message type,
-			// but if it does, it's an internal error that prevents
-			// a definitive outcome, so we must treat it as
-			// ambiguous.
-			return err
-		}
-		inProgressResult := &networkResult{
-			msg:          pendingMsg,
-			unencrypted:  true,
-			isResolution: false,
-		}
-
-		var b bytes.Buffer
-		err = serializeNetworkResult(&b, inProgressResult)
-		if err != nil {
-			return err
-		}
-
-		var attemptIDBytes [8]byte
-		binary.BigEndian.PutUint64(attemptIDBytes[:], attemptID)
-
 		// Mark an attempt with this ID as having been seen by storing
 		// the pending placeholder. No network result is available yet,
 		// so we do not notify subscribers.
-		bucket, err := tx.CreateTopLevelBucket(
-			networkResultStoreBucketKey,
-		)
-		if err != nil {
-			return err
-		}
-
-		return bucket.Put(attemptIDBytes[:], b.Bytes())
+		return putPendingPlaceholder(tx, attemptID)
 	}, func() {
 		// No need to reset existingResult here as it's scoped to the
 		// transaction.
@@ -318,6 +282,46 @@ func (store *networkResultStore) InitAttempt(attemptID uint64) error {
 		attemptID)
 
 	return nil
+}
+
+// putPendingPlaceholder writes the pending placeholder record for the given
+// attempt ID within the passed transaction. The placeholder marks the attempt
+// as initialized until a result from the network is received.
+func putPendingPlaceholder(tx kvdb.RwTx, attemptID uint64) error {
+	// Create an empty networkResult to serve as place holder until a
+	// result from the network is received.
+	//
+	// TODO(calvin): When migrating to native SQL storage, replace this
+	// custom message placeholder with a proper status enum or struct to
+	// represent the pending state of an attempt.
+	pendingMsg, err := lnwire.NewCustom(pendingHtlcMsgType, nil)
+	if err != nil {
+		// This should not happen with a static message type, but if it
+		// does, it's an internal error that prevents a definitive
+		// outcome, so we must treat it as ambiguous.
+		return err
+	}
+	inProgressResult := &networkResult{
+		msg:          pendingMsg,
+		unencrypted:  true,
+		isResolution: false,
+	}
+
+	var b bytes.Buffer
+	err = serializeNetworkResult(&b, inProgressResult)
+	if err != nil {
+		return err
+	}
+
+	var attemptIDBytes [8]byte
+	binary.BigEndian.PutUint64(attemptIDBytes[:], attemptID)
+
+	bucket, err := tx.CreateTopLevelBucket(networkResultStoreBucketKey)
+	if err != nil {
+		return err
+	}
+
+	return bucket.Put(attemptIDBytes[:], b.Bytes())
 }
 
 // StoreResult stores the networkResult for the given attemptID, and notifies

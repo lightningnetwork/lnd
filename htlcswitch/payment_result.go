@@ -159,6 +159,11 @@ type networkResultStore struct {
 	// its read-then-write sequence from concurrent calls, and it maintains
 	// consistency between the database state and result subscribers.
 	attemptIDMtx *multimutex.Mutex[uint64]
+
+	// externalKeyMtx is a multimutex keyed by the external attempt key.
+	// It serializes the index lookup and insert in InitExternalAttempt,
+	// so two calls with the same key yield exactly one internal ID.
+	externalKeyMtx *multimutex.Mutex[string]
 }
 
 func newNetworkResultStore(db kvdb.Backend,
@@ -212,9 +217,10 @@ func newNetworkResultStore(db kvdb.Backend,
 	}
 
 	return &networkResultStore{
-		backend:      db,
-		results:      make(map[uint64][]chan *networkResult),
-		attemptIDMtx: multimutex.NewMutex[uint64](),
+		backend:        db,
+		results:        make(map[uint64][]chan *networkResult),
+		attemptIDMtx:   multimutex.NewMutex[uint64](),
+		externalKeyMtx: multimutex.NewMutex[string](),
 	}, nil
 }
 
@@ -867,11 +873,19 @@ func newInternalFailureResult(linkErr *LinkError) (*networkResult, error) {
 // and if none are found, deletes the remote router marker from the database.
 func (store *networkResultStore) DisableRemoteRouter() error {
 	return store.backend.Update(func(tx kvdb.RwTx) error {
-		// First, check if there are any attempt entries.
-		bucket := tx.ReadBucket(networkResultStoreBucketKey)
-		if bucket != nil {
-			cursor := bucket.ReadCursor()
-			k, _ := cursor.First()
+		// First, check if there are any attempt entries, either as
+		// records or as external index entries. The two are written
+		// and deleted together, but we check both regardless.
+		for _, key := range [][]byte{
+			networkResultStoreBucketKey,
+			externalAttemptIndexBucketKey,
+		} {
+			bucket := tx.ReadBucket(key)
+			if bucket == nil {
+				continue
+			}
+
+			k, _ := bucket.ReadCursor().First()
 			if k != nil {
 				return ErrAttemptEntriesExist
 			}

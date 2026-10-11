@@ -53,6 +53,14 @@ func createNewSubServer(configRegistry lnrpc.SubServerConfigDispatcher) (
 		return nil, nil, fmt.Errorf("attempt store must be set to " +
 			"create SwitchRPC")
 	}
+	if config.ExternalAttemptStore == nil {
+		return nil, nil, fmt.Errorf("external attempt store must be " +
+			"set to create SwitchRPC")
+	}
+	if config.NextAttemptID == nil {
+		return nil, nil, fmt.Errorf("attempt ID allocator must be " +
+			"set to create SwitchRPC")
+	}
 
 	if config.RemoteRouterController == nil {
 		return nil, nil, fmt.Errorf("remote router controller must " +

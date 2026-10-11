@@ -40,6 +40,15 @@ type Config struct {
 	// the state of an HTLC attempt, including initializing and failing it.
 	AttemptStore htlcswitch.AttemptStore
 
+	// ExternalAttemptStore maps the idempotency key a client attaches to
+	// an attempt to the internal attempt ID the switch allocated for it.
+	ExternalAttemptStore htlcswitch.ExternalAttemptStore
+
+	// NextAttemptID allocates internal attempt IDs. It MUST be the same
+	// sequencer the local router uses, so that every attempt ID in the
+	// switch comes from one allocator.
+	NextAttemptID func() (uint64, error)
+
 	// ChannelInfoAccessor defines an interface for accessing channel
 	// information necessary for dispatching payment attempts, specifically
 	// methods for fetching links by public key.

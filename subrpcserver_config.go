@@ -135,7 +135,8 @@ func (s *subRPCServerConfigs) PopulateDependencies(cfg *Config,
 	parseAddr func(addr string) (net.Addr, error),
 	rpcLogger btclog.Logger, aliasMgr *aliasmgr.Manager,
 	auxDataParser fn.Option[AuxDataParser],
-	invoiceHtlcModifier *invoices.HtlcModificationInterceptor) error {
+	invoiceHtlcModifier *invoices.HtlcModificationInterceptor,
+	nextPaymentID func() (uint64, error)) error {
 
 	// First, we'll use reflect to obtain a version of the config struct
 	// that allows us to programmatically inspect its fields.
@@ -342,6 +343,15 @@ func (s *subRPCServerConfigs) PopulateDependencies(cfg *Config,
 
 			subCfgValue.FieldByName("AttemptStore").Set(
 				reflect.ValueOf(htlcSwitch.AttemptStore()),
+			)
+
+			externalStore := htlcSwitch.ExternalAttemptStore()
+			subCfgValue.FieldByName("ExternalAttemptStore").Set(
+				reflect.ValueOf(externalStore),
+			)
+
+			subCfgValue.FieldByName("NextAttemptID").Set(
+				reflect.ValueOf(nextPaymentID),
 			)
 
 			subCfgValue.FieldByName("RemoteRouterController").Set(

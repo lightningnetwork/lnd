@@ -380,6 +380,11 @@ type server struct {
 
 	chanRouter *routing.ChannelRouter
 
+	// paymentSequencer allocates attempt IDs. It is shared by the router
+	// and the switch RPC server, so that every attempt ID in the switch
+	// comes from one allocator.
+	paymentSequencer htlcswitch.Sequencer
+
 	controlTower routing.ControlTower
 
 	authGossiper *discovery.AuthenticatedGossiper
@@ -1069,6 +1074,7 @@ func newServer(ctx context.Context, cfg *Config, listenAddrs []net.Addr,
 	if err != nil {
 		return nil, err
 	}
+	s.paymentSequencer = sequencer
 
 	// Instantiate mission control with config from the sub server.
 	//

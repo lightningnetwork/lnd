@@ -21,6 +21,14 @@
 
 # Bug Fixes
 
+* Taproot commitment signing and verification now [release transient MuSig2
+  signer sessions](https://github.com/lightningnetwork/lnd/pull/11246) once
+  the local node no longer needs them. Force-close and cooperative-close
+  signing continue to retain their sessions until signature combination.
+  Invalid MuSig2 partial commitment signatures are now rejected with the
+  commitment height and transaction attached, and those debug details are
+  sent to the remote peer.
+
 * Native SQLite graph migrations [now accept policies with empty
   signatures](https://github.com/lightningnetwork/lnd/pull/11311) instead of
   failing validation because the KV and SQL stores use different empty byte
@@ -62,4 +70,6 @@
 
 # Contributors (Alphabetical Order)
 
+* Olaoluwa Osuntokun
+* Pins
 * Ziggie

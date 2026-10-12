@@ -4278,7 +4278,9 @@ func TestEdgeInfoFeatureRoundTrip(t *testing.T) {
 	rawFeatures := lnwire.NewRawFeatureVector(
 		lnwire.FeatureBit(math.MaxUint16),
 	)
-	edgeInfo.Features = lnwire.NewFeatureVector(rawFeatures, lnwire.Features)
+	edgeInfo.Features = lnwire.NewFeatureVector(
+		rawFeatures, lnwire.Features,
+	)
 	require.NoError(t, graph.AddChannelEdge(ctx, edgeInfo))
 
 	stored, _, _, err := graph.FetchChannelEdgesByID(edgeInfo.ChannelID)
@@ -4302,7 +4304,9 @@ func TestEdgePolicyOpaqueDataRoundTrip(t *testing.T) {
 		))
 		_, err := extra.Write(make([]byte, payloadLen))
 		require.NoError(t, err)
-		require.LessOrEqual(t, extra.Len(), MaxAllowedExtraOpaqueBytes)
+		require.LessOrEqual(
+			t, extra.Len(), MaxAllowedExtraOpaqueBytes,
+		)
 
 		policy := randEdgePolicy(1)
 		policy.SigBytes = []byte{}
@@ -4324,9 +4328,12 @@ func TestEdgePolicyOpaqueDataRoundTrip(t *testing.T) {
 	})
 
 	for _, payloadLen := range []int{0, 252, 253, 9996} {
-		t.Run(fmt.Sprintf("payload_%d", payloadLen), func(t *testing.T) {
-			assertRoundTrip(t, payloadLen)
-		})
+		t.Run(
+			fmt.Sprintf("payload_%d", payloadLen),
+			func(t *testing.T) {
+				assertRoundTrip(t, payloadLen)
+			},
+		)
 	}
 }
 
@@ -4379,12 +4386,16 @@ func TestUnreadablePolicyPruning(t *testing.T) {
 			graph := MakeTestGraph(t)
 			boltStore, ok := graph.V1Store.(*KVStore)
 			if !ok {
-				t.Skipf("skipping test that is aimed at a KV graph DB")
+				t.Skipf(
+					"skipping test that is aimed at a KV graph DB",
+				)
 			}
 
 			node1 := createTestVertex(t)
 			node2 := createTestVertex(t)
-			require.NoError(t, graph.SetSourceNode(t.Context(), node1))
+			require.NoError(t, graph.SetSourceNode(
+				t.Context(), node1,
+			))
 			require.NoError(t, graph.AddNode(t.Context(), node2))
 
 			edgeInfo, edge1, edge2 := createChannelEdge(node1, node2)
@@ -4398,13 +4409,31 @@ func TestUnreadablePolicyPruning(t *testing.T) {
 				t.Context(), edge2,
 			))
 
-			// Replace one policy with a value that cannot be decoded.
+			// Replace one policy with a value that cannot be
+			// decoded.
 			putSerializedPolicy(
 				t, boltStore.db, edge2.ToNode[:],
 				edgeInfo.ChannelID, []byte{1},
 			)
 
 			require.Error(t, test.prune(t, graph, edgeInfo))
+
+			_, _, err := graph.PruneTip()
+			require.ErrorIs(t, err, ErrGraphNeverPruned)
+
+			err = kvdb.View(boltStore.db, func(tx kvdb.RTx) error {
+				edges := tx.ReadBucket(edgeBucket)
+				require.NotNil(t, edges)
+				edgeIndex := edges.NestedReadBucket(edgeIndexBucket)
+				require.NotNil(t, edgeIndex)
+
+				var chanID [8]byte
+				byteOrder.PutUint64(chanID[:], edgeInfo.ChannelID)
+				require.NotNil(t, edgeIndex.Get(chanID[:]))
+
+				return nil
+			}, func() {})
+			require.NoError(t, err)
 		})
 	}
 }

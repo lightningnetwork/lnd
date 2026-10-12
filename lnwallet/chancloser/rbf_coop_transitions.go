@@ -1602,9 +1602,14 @@ func (l *LocalOfferSent) ProcessEvent(event ProtocolEvent, env *Environment,
 
 		// Invalidate the closer nonce now that the round is complete.
 		// The next RBF round will generate a fresh nonce in
-		// LocalCloseStart.
+		// LocalCloseStart. This also releases the backing signer
+		// session, as this round has no further use for it.
 		if env.IsTaproot() {
-			env.LocalMusigSession.InvalidateNonce()
+			err := env.LocalMusigSession.InvalidateNonce()
+			if err != nil {
+				return nil, fmt.Errorf("unable to "+
+					"invalidate closer nonce: %w", err)
+			}
 		}
 
 		// As we're about to broadcast a new version of the co-op close
@@ -2091,9 +2096,15 @@ func (l *RemoteCloseStart) ProcessEvent(event ProtocolEvent, env *Environment,
 
 		// Invalidate the closee nonce that was consumed for signing.
 		// This forces createClosingSigMessage to generate a fresh
-		// nonce for NextCloseeNonce in the next RBF round.
+		// nonce for NextCloseeNonce in the next RBF round. This also
+		// releases the backing signer session, as this round has no
+		// further use for it.
 		if env.IsTaproot() {
-			env.RemoteMusigSession.InvalidateNonce()
+			err := env.RemoteMusigSession.InvalidateNonce()
+			if err != nil {
+				return nil, fmt.Errorf("unable to "+
+					"invalidate closee nonce: %w", err)
+			}
 		}
 
 		closingSigMsg, err := createClosingSigMessage(

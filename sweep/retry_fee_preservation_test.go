@@ -29,7 +29,11 @@ func TestSpendCheckRetryPreservesStartingFeeRate(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			tp, mocks := createTestPublisher(t)
 			req := createTestBumpRequest()
-			req.StartingFeeRate = tc.starting
+			req.FeeSchedules = []InputSchedule{{
+				FeeSchedule: FeeSchedule{
+					StartingFeeRate: tc.starting,
+				},
+			}}
 			r := &monitorRecord{requestID: 1, req: req}
 
 			op := req.Inputs[0].OutPoint()

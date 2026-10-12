@@ -1506,16 +1506,13 @@ func TestReplacementRejectionKeepsOldTx(t *testing.T) {
 			// Arrange every accepted attempt at the same real cap;
 			// exclusion must work after fee growth has stopped.
 			req.DeadlineHeight = 1
+			schedules := []InputSchedule{{FeeSchedule: FeeSchedule{
+				StartingFeeRate: fn.Some(
+					chainfee.SatPerKWeight(1000),
+				),
+			}}}
 			feeFunc, err := newPooledFeeFunction(
-				1000, 1, 0, []InputSchedule{{
-					FeeSchedule: FeeSchedule{
-						StartingFeeRate: fn.Some(
-							chainfee.SatPerKWeight(
-								1000,
-							),
-						),
-					},
-				}}, m.estimator,
+				1000, 1, 0, schedules, m.estimator,
 			)
 			require.NoError(t, err)
 			var record *monitorRecord
@@ -1690,9 +1687,7 @@ func TestReplacementRejectionKeepsOldTx(t *testing.T) {
 				// Arrange the accepted public request and
 				// its subsequent missing replacement.
 				req.MaxFeeRate = 1000
-				req.StartingFeeRate = fn.Some(
-					chainfee.SatPerKWeight(1000),
-				)
+				req.FeeSchedules = schedules
 				req.Immediate = true
 				m.wallet.On(
 					"CheckMempoolAcceptance",
@@ -2387,12 +2382,15 @@ func TestBroadcastRetryMempoolErrors(t *testing.T) {
 			if tc.atCeiling {
 				deadline = 1
 			}
+			schedules := []InputSchedule{{FeeSchedule: FeeSchedule{
+				StartingFeeRate: fn.Some(feeRate),
+			}}}
 			req := &BumpRequest{
 				DeliveryAddress: changePkScript,
 				Inputs:          []input.Input{&inp},
 				Budget:          btcutil.Amount(10_000),
 				MaxFeeRate:      maxFeeRate,
-				StartingFeeRate: fn.Some(feeRate),
+				FeeSchedules:    schedules,
 				DeadlineHeight:  deadline,
 				Immediate:       true,
 			}
@@ -2437,12 +2435,15 @@ func TestBroadcastAlreadyInMempool(t *testing.T) {
 	tp, m := createTestPublisher(t)
 	inp := createTestInput(100_000, input.WitnessKeyHash)
 	feeRate := chainfee.SatPerKWeight(1000)
+	schedules := []InputSchedule{{FeeSchedule: FeeSchedule{
+		StartingFeeRate: fn.Some(feeRate),
+	}}}
 	req := &BumpRequest{
 		DeliveryAddress: changePkScript,
 		Inputs:          []input.Input{&inp},
 		Budget:          btcutil.Amount(10_000),
 		MaxFeeRate:      feeRate * 10,
-		StartingFeeRate: fn.Some(feeRate),
+		FeeSchedules:    schedules,
 		DeadlineHeight:  10,
 		Immediate:       true,
 	}
@@ -2581,7 +2582,11 @@ func TestBroadcastProbeFailureRetries(t *testing.T) {
 				scriptCalls = tc.scriptCalls
 			}
 			req.MaxFeeRate = maxFeeRate
-			req.StartingFeeRate = fn.Some(feeRate)
+			req.FeeSchedules = []InputSchedule{{
+				FeeSchedule: FeeSchedule{
+					StartingFeeRate: fn.Some(feeRate),
+				},
+			}}
 			req.DeadlineHeight = 10
 			req.Immediate = true
 			if tc.atCeiling {

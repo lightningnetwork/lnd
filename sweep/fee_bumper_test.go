@@ -1203,12 +1203,15 @@ func TestBroadcastRetryMempoolErrors(t *testing.T) {
 			if tc.atCeiling {
 				deadline = 1
 			}
+			schedules := []InputSchedule{{FeeSchedule: FeeSchedule{
+				StartingFeeRate: fn.Some(feeRate),
+			}}}
 			req := &BumpRequest{
 				DeliveryAddress: changePkScript,
 				Inputs:          []input.Input{&inp},
 				Budget:          btcutil.Amount(10_000),
 				MaxFeeRate:      maxFeeRate,
-				StartingFeeRate: fn.Some(feeRate),
+				FeeSchedules:    schedules,
 				DeadlineHeight:  deadline,
 				Immediate:       true,
 			}
@@ -1253,12 +1256,15 @@ func TestBroadcastAlreadyInMempool(t *testing.T) {
 	tp, m := createTestPublisher(t)
 	inp := createTestInput(100_000, input.WitnessKeyHash)
 	feeRate := chainfee.SatPerKWeight(1000)
+	schedules := []InputSchedule{{FeeSchedule: FeeSchedule{
+		StartingFeeRate: fn.Some(feeRate),
+	}}}
 	req := &BumpRequest{
 		DeliveryAddress: changePkScript,
 		Inputs:          []input.Input{&inp},
 		Budget:          btcutil.Amount(10_000),
 		MaxFeeRate:      feeRate * 10,
-		StartingFeeRate: fn.Some(feeRate),
+		FeeSchedules:    schedules,
 		DeadlineHeight:  10,
 		Immediate:       true,
 	}

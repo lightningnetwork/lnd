@@ -1788,14 +1788,14 @@ func testBumpForceCloseFee(ht *lntest.HarnessTest) {
 //  8. Mine enough blocks so Bob will force close Bob=>Carol to claim his
 //     outgoing HTLCs.
 //  9. Carol comes online, sweeps one of Bob's outgoing HTLCs and it confirms.
-//  10. Bob creates a new sweeping tx to sweep his remaining HTLC with a
-//     previous fee rate.
+//  10. Bob creates a new sweeping tx for his remaining HTLC using its original
+//     schedule and the smaller batch's budget.
 //
 // Test:
 //  1. Bob will immediately sweeps his remaining outgoing HTLC given that the
 //     other one has been spent by Carol.
-//  2. Bob's new sweeping tx will use the previous fee rate instead of
-//     initializing a new starting fee rate.
+//  2. Bob's new sweeping tx preserves elapsed urgency, recalculated against the
+//     surviving input's budget, without changing its requested starting rate.
 func testFeeReplacement(ht *lntest.HarnessTest) {
 	// Set the min relay feerate to be 10 sat/vbyte so the non-CPFP anchor
 	// is never swept.
@@ -1945,11 +1945,12 @@ func testFeeReplacement(ht *lntest.HarnessTest) {
 	// Bob should have one sweeping tx in the mempool, which sweeps all his
 	// outgoing HTLCs.
 	outgoingSweep0 := ht.GetNumTxsFromMempool(1)[0]
+	startHeight := ht.CurrentHeight()
 
 	// We now mine one empty block so Bob will perform one fee bump, after
 	// which his sweeping tx should be updated with a new fee rate. We do
-	// this so we can test later when Bob sweeps his remaining HTLC, the new
-	// sweeping tx will start with the current fee rate.
+	// this so we can later verify the remaining HTLC retains the elapsed
+	// urgency of this schedule.
 	//
 	// Calculate Bob's initial sweeping fee rate.
 	initialFeeRate := ht.CalculateTxFeeRate(outgoingSweep0)
@@ -1966,8 +1967,6 @@ func testFeeReplacement(ht *lntest.HarnessTest) {
 
 	// Assert the Bob has updated the fee rate.
 	require.Greater(ht, currentFeeRate, initialFeeRate)
-
-	delta := currentFeeRate - initialFeeRate
 
 	// Check the shape of the sweeping tx - we expect it to be
 	// 3-input-3-output as a wallet utxo is used and a required output is
@@ -1996,22 +1995,38 @@ func testFeeReplacement(ht *lntest.HarnessTest) {
 	// Bob should have numPayments-1 pending sweep for the outgoing HTLCs.
 	// In addition, he should have his to_local output sweep which is
 	// immature.
-	ht.AssertNumPendingSweeps(bob, numPayments)
+	pending := ht.AssertNumPendingSweeps(bob, numPayments)
+	var htlcSweep *walletrpc.PendingSweep
+	for _, p := range pending {
+		if p.WitnessType != walletrpc.WitnessType_COMMITMENT_TIME_LOCK {
+			htlcSweep = p
+		}
+	}
+	require.NotNil(ht, htlcSweep)
+	require.Zero(ht, htlcSweep.RequestedSatPerVbyte)
 
-	// Assert Bob immediately sweeps his remaining HTLC with the previous
-	// fee rate.
+	// Assert Bob immediately sweeps his remaining HTLC.
 	outgoingSweep2 := ht.GetNumTxsFromMempool(1)[0]
 
 	// Calculate the fee rate.
 	feeRate := ht.CalculateTxFeeRate(outgoingSweep2)
 
-	// We expect the current fee rate to be equal to the last fee rate he
-	// used plus the delta, as we expect the fee rate to stay on the initial
-	// line given by his fee function.
-	expectedFeeRate := currentFeeRate + delta
+	// Preserve the original time origin and baseline, but use the surviving
+	// input's budget and the new transaction's weight for the endpoint.
+	// Allow for the estimator's conservative weight and integer rounding.
+	maxFeeRate := chainfee.NewSatPerKWeight(
+		btcutil.Amount(htlcSweep.Budget),
+		ht.CalculateTxWeight(outgoingSweep2),
+	)
+	width := chainfee.SatPerKWeight(
+		htlcSweep.DeadlineHeight - startHeight - 1,
+	)
+	elapsed := chainfee.SatPerKWeight(ht.CurrentHeight() - startHeight)
+	expectedFeeRate := initialFeeRate +
+		(maxFeeRate-initialFeeRate)*elapsed/width
 	require.InEpsilonf(ht, uint64(expectedFeeRate),
 		uint64(feeRate), 0.02, "want %d, got %d in tx=%v",
-		currentFeeRate, feeRate, outgoingSweep2.TxHash())
+		expectedFeeRate, feeRate, outgoingSweep2.TxHash())
 
 	// Finally, clean the mempool.
 	ht.MineBlocksAndAssertNumTxes(1, 1)

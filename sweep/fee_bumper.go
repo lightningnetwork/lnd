@@ -160,15 +160,15 @@ type BumpRequest struct {
 	// MaxFeeRate is the maximum fee rate that can be used for fee bumping.
 	MaxFeeRate chainfee.SatPerKWeight
 
-	// StartingFeeRate is an optional parameter that can be used to specify
-	// the initial fee rate to use for the fee function.
-	StartingFeeRate fn.Option[chainfee.SatPerKWeight]
-
 	// FeeSchedules retain the original time and rate of each input's
 	// policy, with each input's contribution to Budget. They are
 	// snapshots, independent of the active fee search. A request without
 	// them has a single schedule originating at the current height.
 	FeeSchedules []InputSchedule
+
+	// PreviousTxs describes prior publications involving these inputs.
+	// Their rates are bounded starting hints, not input eligibility rules.
+	PreviousTxs []RBFInfo
 
 	// ExtraTxOut tracks if this bump request has an optional set of extra
 	// outputs to add to the transaction.
@@ -536,11 +536,10 @@ func (t *TxPublisher) initializeFeeFunction(
 	schedules := req.FeeSchedules
 	if len(schedules) == 0 {
 		// A caller without per-input policy has one schedule that
-		// originates now.
+		// originates now, with an estimated starting rate.
 		schedules = []InputSchedule{{
 			FeeSchedule: FeeSchedule{
-				StartHeight:     t.currentHeight.Load(),
-				StartingFeeRate: req.StartingFeeRate,
+				StartHeight: t.currentHeight.Load(),
 			},
 		}}
 	}
@@ -556,7 +555,14 @@ func (t *TxPublisher) initializeFeeFunction(
 		return nil, err
 	}
 
-	return pooled, nil
+	// Published progress can seed this attempt, but never override its
+	// budget. Mempool acceptance remains the authority on replacement.
+	var floor chainfee.SatPerKWeight
+	for _, previous := range req.PreviousTxs {
+		floor = max(floor, min(previous.FeeRate, maxFeeRateAllowed))
+	}
+
+	return &flooredFeeFunction{FeeFunction: pooled, floor: floor}, nil
 }
 
 // isFeeRejection identifies reasons to search for a higher candidate fee.

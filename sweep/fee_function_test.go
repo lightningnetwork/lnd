@@ -279,3 +279,104 @@ func TestPooledFeeMatchesLinear(t *testing.T) {
 		}
 	})
 }
+
+// TestPooledFeeFloor checks that a prior publication masks advances of the
+// pooled schedule until either time or a fee search raises it above the floor.
+func TestPooledFeeFloor(t *testing.T) {
+	t.Parallel()
+
+	for _, search := range []bool{false, true} {
+		t.Run(fmt.Sprintf("search=%v", search), func(t *testing.T) {
+			pooled, err := newPooledFeeFunction(
+				11000, 111, 100, deferredBatch(), nil,
+			)
+			require.NoError(t, err)
+			f := &flooredFeeFunction{
+				FeeFunction: pooled, floor: 3000,
+			}
+			advance := func() (bool, error) {
+				return f.IncreaseFeeRate(10)
+			}
+			clearFloor := func() error {
+				_, err := f.IncreaseFeeRate(8)
+				return err
+			}
+			if search {
+				advance = f.Increment
+				clearFloor = func() error {
+					return increaseCandidateFee(f)
+				}
+			}
+			increased, err := advance()
+			require.NoError(t, err)
+			require.False(t, increased)
+			require.EqualValues(t, 3000, f.FeeRate())
+			require.NoError(t, clearFloor())
+			require.Greater(t, f.FeeRate(), f.floor)
+			require.LessOrEqual(t, f.FeeRate(),
+				chainfee.SatPerKWeight(11000))
+		})
+	}
+}
+
+// TestFlooredFeeFunction checks that a floor from a prior publication raises
+// the effective rate without touching the schedule, and that an increase is
+// reported only when the effective rate rises above the floor.
+func TestFlooredFeeFunction(t *testing.T) {
+	t.Parallel()
+
+	rt := require.New(t)
+
+	// Width 8, delta 100: the schedule runs 100, 200, ..., 900.
+	maxFeeRate := chainfee.SatPerKWeight(900)
+	start := fn.Some(chainfee.SatPerKWeight(100))
+	inner, err := newPooledFeeFunction(
+		maxFeeRate, 109, 100, singleSchedule(start), nil,
+	)
+	rt.NoError(err)
+
+	f := &flooredFeeFunction{FeeFunction: inner, floor: 350}
+	rt.EqualValues(350, f.FeeRate())
+	rt.EqualValues(100, inner.FeeRate())
+
+	// Steps below the floor advance the schedule but report no increase.
+	for _, want := range []chainfee.SatPerKWeight{200, 300} {
+		increased, err := f.Increment()
+		rt.NoError(err)
+		rt.False(increased)
+		rt.EqualValues(350, f.FeeRate())
+		rt.Equal(want, inner.FeeRate())
+	}
+
+	// The first step above the floor is an increase.
+	increased, err := f.Increment()
+	rt.NoError(err)
+	rt.True(increased)
+	rt.EqualValues(400, f.FeeRate())
+
+	// The same holds for elapsed time. A floor above the schedule's rate
+	// at conf target 6 hides that step; conf target 3 clears it.
+	g := &flooredFeeFunction{floor: 650}
+	g.FeeFunction, err = newPooledFeeFunction(
+		maxFeeRate, 109, 100, singleSchedule(start), nil,
+	)
+	rt.NoError(err)
+
+	increased, err = g.IncreaseFeeRate(6)
+	rt.NoError(err)
+	rt.False(increased)
+	rt.EqualValues(650, g.FeeRate())
+
+	increased, err = g.IncreaseFeeRate(3)
+	rt.NoError(err)
+	rt.True(increased)
+	rt.EqualValues(700, g.FeeRate())
+
+	// Exhaustion passes through unchanged.
+	increased, err = g.IncreaseFeeRate(0)
+	rt.NoError(err)
+	rt.True(increased)
+	rt.Equal(maxFeeRate, g.FeeRate())
+	_, err = g.Increment()
+	rt.ErrorIs(err, ErrMaxPosition)
+}

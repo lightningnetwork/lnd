@@ -658,14 +658,10 @@ func TestSweepPendingInputs(t *testing.T) {
 	setNeedWallet.On("Inputs").Return(nil).Maybe()
 	setNeedWallet.On("DeadlineHeight").Return(testHeight).Once()
 	setNeedWallet.On("Budget").Return(btcutil.Amount(1)).Once()
-	setNeedWallet.On("StartingFeeRate").Return(
-		fn.None[chainfee.SatPerKWeight]()).Once()
 	setNeedWallet.On("Immediate").Return(false).Once()
 	normalSet.On("Inputs").Return(nil).Maybe()
 	normalSet.On("DeadlineHeight").Return(testHeight).Once()
 	normalSet.On("Budget").Return(btcutil.Amount(1)).Once()
-	normalSet.On("StartingFeeRate").Return(
-		fn.None[chainfee.SatPerKWeight]()).Once()
 	normalSet.On("Immediate").Return(false).Once()
 
 	// Make pending inputs for testing. We don't need real values here as
@@ -1273,6 +1269,12 @@ func TestHandleUpdateReqPreservesNoInputBatch(t *testing.T) {
 	inp := createMockInput(t, s, Published)
 	op := inp.OutPoint()
 	s.inputs[op].params.NoInputBatch = true
+
+	// The policy change starts a new fee schedule, which reads the
+	// input's maturity.
+	inp.On("RequiredLockTime").Return(uint32(0), false).Once()
+	inp.On("BlocksToMaturity").Return(uint32(0)).Once()
+	inp.On("HeightHint").Return(uint32(0)).Once()
 
 	_, err := s.handleUpdateReq(&updateReq{
 		input: op,

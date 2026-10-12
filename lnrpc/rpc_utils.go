@@ -231,23 +231,38 @@ func GetChannelOutPoint(chanPoint *ChannelPoint) (*OutPoint, error) {
 // request to calculate the fee rate. It provides compatibility for the
 // deprecated field, satPerByte. Once the field is safe to be removed, the
 // check can then be deleted.
-func CalculateFeeRate(satPerByte, satPerVByte uint64, targetConf uint32,
-	estimator chainfee.Estimator) (chainfee.SatPerKWeight, error) {
+func CalculateFeeRate(satPerByte int64, satPerVByte uint64, targetConf uint32,
+	satPerKWeight uint64, estimator chainfee.Estimator) (
+	chainfee.SatPerKWeight, error) {
 
 	var feeRate chainfee.SatPerKWeight
 
-	// We only allow using either the deprecated field or the new field.
-	if satPerByte != 0 && satPerVByte != 0 {
-		return feeRate, fmt.Errorf("either SatPerByte or " +
-			"SatPerVByte should be set, but not both")
-	}
+	// Only one fee field may be set: satPerKWeight, satPerByte, or
+	// satPerVByte. Set the fee rate based on which field is provided.
+	var satPerKw chainfee.SatPerKWeight
+	fieldsSet := 0
 
-	// Default to satPerVByte, and overwrite it if satPerByte is set.
-	satPerKw := chainfee.SatPerKVByte(satPerVByte * 1000).FeePerKWeight()
+	if satPerVByte != 0 {
+		satPerKw = chainfee.SatPerKVByte(
+			satPerVByte * 1000,
+		).FeePerKWeight()
+
+		fieldsSet++
+	}
 	if satPerByte != 0 {
 		satPerKw = chainfee.SatPerKVByte(
 			satPerByte * 1000,
 		).FeePerKWeight()
+
+		fieldsSet++
+	}
+	if satPerKWeight != 0 {
+		satPerKw = chainfee.SatPerKWeight(satPerKWeight)
+		fieldsSet++
+	}
+
+	if fieldsSet > 1 {
+		return feeRate, fmt.Errorf("only one fee field may be set")
 	}
 
 	// Based on the passed fee related parameters, we'll determine an
@@ -260,6 +275,12 @@ func CalculateFeeRate(satPerByte, satPerVByte uint64, targetConf uint32,
 	feeRate, err := feePref.Estimate(estimator, 0)
 	if err != nil {
 		return feeRate, err
+	}
+
+	// A security measure to prevent very high fees, especially
+	// when the fee is specified via satPerKWeight.
+	if feeRate > sweep.DefaultMaxFeeRate.FeePerKWeight() {
+		feeRate = sweep.DefaultMaxFeeRate.FeePerKWeight()
 	}
 
 	return feeRate, nil

@@ -164,6 +164,12 @@ type BumpRequest struct {
 	// the initial fee rate to use for the fee function.
 	StartingFeeRate fn.Option[chainfee.SatPerKWeight]
 
+	// FeeSchedules retain the original time and rate of each input's
+	// policy, with each input's contribution to Budget. They are
+	// snapshots, independent of the active fee search. A request without
+	// them has a single schedule originating at the current height.
+	FeeSchedules []InputSchedule
+
 	// ExtraTxOut tracks if this bump request has an optional set of extra
 	// outputs to add to the transaction.
 	ExtraTxOut fn.Option[SweepOutput]
@@ -527,13 +533,30 @@ func (t *TxPublisher) initializeFeeFunction(
 		"maxFeeRateAllowed=%v", confTarget, req.Budget,
 		maxFeeRateAllowed)
 
-	// Initialize the fee function and return it.
-	//
-	// TODO(yy): return based on differet req.Strategy?
-	return NewLinearFeeFunction(
-		maxFeeRateAllowed, confTarget, t.cfg.Estimator,
-		req.StartingFeeRate,
+	schedules := req.FeeSchedules
+	if len(schedules) == 0 {
+		// A caller without per-input policy has one schedule that
+		// originates now.
+		schedules = []InputSchedule{{
+			FeeSchedule: FeeSchedule{
+				StartHeight:     t.currentHeight.Load(),
+				StartingFeeRate: req.StartingFeeRate,
+			},
+		}}
+	}
+
+	// Re-evaluate the original schedules against this batch's cap. An old
+	// batch's rate must never become a new input minimum, nor may an old
+	// input's elapsed urgency spend a new input's budget.
+	pooled, err := newPooledFeeFunction(
+		maxFeeRateAllowed, req.DeadlineHeight, t.currentHeight.Load(),
+		schedules, t.cfg.Estimator,
 	)
+	if err != nil {
+		return nil, err
+	}
+
+	return pooled, nil
 }
 
 // isFeeRejection identifies reasons to search for a higher candidate fee.
@@ -1095,12 +1118,7 @@ func (t *TxPublisher) handleInitialTxError(r *monitorRecord, err error) {
 	case errors.Is(err, ErrTxNoOutput):
 		result.Event = TxFailed
 
-	// When the error is due to zero fee rate delta, we'll send a TxFailed
-	// so these inputs can be retried in the next block.
-	case errors.Is(err, ErrZeroFeeRateDelta):
-		result.Event = TxFailed
-
-	// When the error is due to budget being used up, we'll send a TxFailed
+	// When the fee search is exhausted, we'll send a TxFailed
 	// so these inputs can be retried with a different group in the next
 	// block.
 	case errors.Is(err, ErrMaxPosition):

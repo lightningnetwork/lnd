@@ -117,11 +117,11 @@ guarantee that the initial publish meets the RBF requirements.
 rate, an ending fee rate, and a width (the deadline delta). It's used by the
 `Bumper` to suggest a new fee rate for bumping the sweeping transaction.
 
-`LinearFeeFunction` implements this interface using a linear function - it
+`TxPublisher` uses a linear implementation of this interface - it
 calculates a fee rate delta using `(ending_fee_rate - starting_fee_rate) /
 deadline`, and increases the fee rate by this delta value every time a new block
-arrives. Once the deadline is passed, `LinearFeeFunction` will cap its
-returning fee rate at the ending fee rate.
+arrives. Once the deadline is passed, the fee function will cap its returning
+fee rate at the ending fee rate.
 
 The starting fee rate is the estimated fee rate from the fee estimator, which
 is the result from calling `estimatesmartfee`(`bitcoind`),

@@ -427,51 +427,50 @@ func (t *TxPublisher) Broadcast(req *BumpRequest) <-chan *BumpResult {
 	log.Tracef("Received broadcast request: %s",
 		lnutils.SpewLogClosure(req))
 
-	// Store the request.
-	record := t.storeInitialRecord(req)
+	record := t.newRecord(req)
 
 	// Create a chan to send the result to the caller.
 	subscriber := make(chan *BumpResult, 1)
 	t.subscriberChans.Store(record.requestID, subscriber)
 
-	// Publish the tx immediately if specified.
+	// Publish the tx immediately if specified. The record is withheld from
+	// block processing until its initial result has been delivered, since
+	// the caller reads that result only after this method returns.
+	// Otherwise, the next block performs the initial broadcast.
 	if req.Immediate {
 		t.handleInitialBroadcast(record)
+	} else {
+		t.records.Store(record.requestID, record)
 	}
 
 	return subscriber
 }
 
-// storeInitialRecord initializes a monitor record and saves it in the map.
-func (t *TxPublisher) storeInitialRecord(req *BumpRequest) *monitorRecord {
+// newRecord initializes a monitor record with a new request ID.
+func (t *TxPublisher) newRecord(req *BumpRequest) *monitorRecord {
 	// Increase the request counter.
 	//
 	// NOTE: this is the only place where we increase the counter.
 	requestID := t.requestCounter.Add(1)
 
-	// Register the record.
-	record := &monitorRecord{
+	return &monitorRecord{
 		requestID: requestID,
 		req:       req,
 	}
-	t.records.Store(requestID, record)
-
-	return record
 }
 
-// updateRecord updates the given record's tx and fee, and saves it in the
-// records map.
-func (t *TxPublisher) updateRecord(r *monitorRecord,
+// candidateRecord stages a transaction without overwriting the last published
+// transaction. It is installed only after the wallet accepts publication.
+func (t *TxPublisher) candidateRecord(r *monitorRecord,
 	sweepCtx *sweepTxCtx) *monitorRecord {
 
-	r.tx = sweepCtx.tx
-	r.fee = sweepCtx.fee
-	r.outpointToTxIndex = sweepCtx.outpointToTxIndex
+	candidate := *r
+	candidate.tx = sweepCtx.tx
+	candidate.fee = sweepCtx.fee
+	candidate.feeRate = sweepCtx.feeRate
+	candidate.outpointToTxIndex = sweepCtx.outpointToTxIndex
 
-	// Register the record.
-	t.records.Store(r.requestID, r)
-
-	return r
+	return &candidate
 }
 
 // Name returns the name of the transaction publisher consumer.
@@ -480,7 +479,8 @@ func (t *TxPublisher) Name() string {
 }
 
 // initializeTx initializes a fee function and creates an RBF-compliant tx. If
-// succeeded, the initial tx is stored in the records map.
+// successful, the candidate is ready to publish. The published record is
+// installed only after broadcast succeeds.
 func (t *TxPublisher) initializeTx(r *monitorRecord) (*monitorRecord, error) {
 	// Create a fee bumping algorithm to be used for future RBF.
 	feeAlgo, err := t.initializeFeeFunction(r.req)
@@ -552,8 +552,8 @@ func (t *TxPublisher) createRBFCompliantTx(
 
 		switch {
 		case err == nil:
-			// The tx is valid, store it.
-			record := t.updateRecord(r, sweepCtx)
+			// The tx is valid; stage it for publication.
+			record := t.candidateRecord(r, sweepCtx)
 
 			log.Infof("Created initial sweep tx=%v for %v inputs: "+
 				"feerate=%v, fee=%v, inputs:\n%v",
@@ -667,9 +667,6 @@ func (t *TxPublisher) createAndCheckTx(r *monitorRecord) (*sweepTxCtx, error) {
 		log.Debugf("Tx %v missing inputs, it's likely the input has "+
 			"been spent by others", sweepCtx.tx.TxHash())
 
-		// Make sure to update the record with the latest attempt.
-		t.updateRecord(r, sweepCtx)
-
 		return sweepCtx, ErrInputMissing
 	}
 
@@ -714,7 +711,7 @@ func (t *TxPublisher) handleMissingInputs(r *monitorRecord) *BumpResult {
 	// current sweeping tx has been failed due to missing inputs, the
 	// spending tx must be a different tx, thus it should NOT be matched. We
 	// perform a sanity check here to catch the unexpected state.
-	if !t.isUnknownSpent(r, spends) {
+	if r.tx != nil && !t.isUnknownSpent(r, spends) {
 		log.Errorf("Sweeping tx %v has missing inputs, yet the "+
 			"spending tx is the sweeping tx itself: %v",
 			r.tx.TxHash(), r.spentInputs)
@@ -723,11 +720,9 @@ func (t *TxPublisher) handleMissingInputs(r *monitorRecord) *BumpResult {
 	return t.createUnknownSpentBumpResult(r)
 }
 
-// broadcast takes a monitored tx and publishes it to the network. Prior to the
-// broadcast, it will subscribe the tx's confirmation notification and attach
-// the event channel to the record. Any broadcast-related errors will not be
-// returned here, instead, they will be put inside the `BumpResult` and
-// returned to the caller.
+// broadcast publishes a candidate. Wallet errors are reported in the
+// BumpResult; auxiliary notification errors are returned directly. Callers
+// install the candidate's record only after a successful publication.
 func (t *TxPublisher) broadcast(record *monitorRecord) (*BumpResult, error) {
 	txid := record.tx.TxHash()
 
@@ -773,7 +768,7 @@ func (t *TxPublisher) broadcast(record *monitorRecord) (*BumpResult, error) {
 		Event:     event,
 		Tx:        record.tx,
 		Fee:       record.fee,
-		FeeRate:   record.feeFunction.FeeRate(),
+		FeeRate:   record.feeRate,
 		Err:       err,
 		requestID: record.requestID,
 	}
@@ -878,8 +873,10 @@ type monitorRecord struct {
 	// feeFunction is the fee bumping algorithm used by the publisher.
 	feeFunction FeeFunction
 
-	// fee is the fee paid by the tx.
-	fee btcutil.Amount
+	// fee and feeRate describe the published tx, independently of the
+	// fee function, which may already be considering a higher candidate.
+	fee     btcutil.Amount
+	feeRate chainfee.SatPerKWeight
 
 	// outpointToTxIndex is a map of outpoint to tx index.
 	outpointToTxIndex map[wire.OutPoint]int
@@ -1083,7 +1080,7 @@ func (t *TxPublisher) handleTxConfirmed(r *monitorRecord) {
 		Tx:        r.tx,
 		requestID: r.requestID,
 		Fee:       r.fee,
-		FeeRate:   r.feeFunction.FeeRate(),
+		FeeRate:   r.feeRate,
 	}
 
 	// Notify that this tx is confirmed and remove the record from the map.
@@ -1164,15 +1161,7 @@ func (t *TxPublisher) handleInitialTxError(r *monitorRecord, err error) {
 func (t *TxPublisher) handleInitialBroadcast(r *monitorRecord) {
 	log.Debugf("Initial broadcast for requestID=%v", r.requestID)
 
-	var (
-		result *BumpResult
-		err    error
-	)
-
-	// Attempt an initial broadcast which is guaranteed to comply with the
-	// RBF rules.
-	//
-	// Create the initial tx to be broadcasted.
+	// Create the initial candidate, using mempool preflight when available.
 	record, err := t.initializeTx(r)
 	if err != nil {
 		log.Errorf("Initial broadcast failed: %v", err)
@@ -1183,13 +1172,10 @@ func (t *TxPublisher) handleInitialBroadcast(r *monitorRecord) {
 		return
 	}
 
-	// Successfully created the first tx, now broadcast it.
-	result, err = t.broadcast(record)
+	// Publish once and return any failure, including fee rejection, to the
+	// sweeper, which can retry or regroup the inputs.
+	result, err := t.broadcast(record)
 	if err != nil {
-		// The broadcast failed, which can only happen if the tx record
-		// cannot be found or the aux sweeper returns an error. In
-		// either case, we will send back a TxFail event so these
-		// inputs can be retried.
 		result = &BumpResult{
 			Event:     TxFailed,
 			Err:       err,
@@ -1198,6 +1184,12 @@ func (t *TxPublisher) handleInitialBroadcast(r *monitorRecord) {
 	}
 
 	t.handleResult(result)
+
+	// Install the publication only after its result has been delivered, so
+	// that no later result for this request can be delivered first.
+	if result.Event == TxPublished {
+		t.records.Store(record.requestID, record)
+	}
 }
 
 // handleFeeBumpTx checks if the tx needs to be bumped, and if so, it will
@@ -1215,11 +1207,8 @@ func (t *TxPublisher) handleFeeBumpTx(r *monitorRecord, currentHeight int32) {
 	// Get the current conf target for this record.
 	confTarget := calcCurrentConfTarget(currentHeight, r.req.DeadlineHeight)
 
-	// Ask the fee function whether a bump is needed. We expect the fee
-	// function to increase its returned fee rate after calling this
-	// method.
-	increased, err := r.feeFunction.IncreaseFeeRate(confTarget)
-	if err != nil {
+	// Advance the fee function to the current conf target.
+	if _, err := r.feeFunction.IncreaseFeeRate(confTarget); err != nil {
 		// TODO(yy): send this error back to the sweeper so it can
 		// re-group the inputs?
 		log.Errorf("Failed to increase fee rate for tx %v at "+
@@ -1228,8 +1217,10 @@ func (t *TxPublisher) handleFeeBumpTx(r *monitorRecord, currentHeight int32) {
 		return
 	}
 
-	// If the fee rate was not increased, there's no need to bump the fee.
-	if !increased {
+	// Bump only when the candidate exceeds what is published. A candidate
+	// is never below the published rate, so this also retries an earlier
+	// candidate that was rejected and remains unpublished.
+	if r.feeFunction.FeeRate() <= r.feeRate {
 		log.Tracef("Skip bumping tx %v at height=%v", oldTxid,
 			t.currentHeight.Load())
 
@@ -1308,9 +1299,8 @@ func (t *TxPublisher) createAndPublishTx(
 
 	// Create a new tx with the new fee rate.
 	//
-	// NOTE: The fee function is expected to have increased its returned
-	// fee rate after calling the SkipFeeBump method. So we can use it
-	// directly here.
+	// The fee function holds the candidate rate selected by deadline
+	// progression or a preceding fee rejection.
 	sweepCtx, err := t.createAndCheckTx(r)
 
 	// If there's an error creating the replacement tx, we need to abort the
@@ -1319,9 +1309,9 @@ func (t *TxPublisher) createAndPublishTx(
 		return t.handleReplacementTxError(r, oldTx, err)
 	}
 
-	// The tx has been created without any errors, we now register a new
-	// record by overwriting the same requestID.
-	record := t.updateRecord(r, sweepCtx)
+	// Stage the candidate, retaining the old published record until the
+	// replacement has actually been published.
+	record := t.candidateRecord(r, sweepCtx)
 
 	// Attempt to broadcast this new tx.
 	result, err := t.broadcast(record)
@@ -1357,6 +1347,9 @@ func (t *TxPublisher) createAndPublishTx(
 
 	log.Debugf("Replaced tx=%v with new tx=%v", oldTx.TxHash(),
 		sweepCtx.tx.TxHash())
+
+	// Install the replacement now that it has been published.
+	t.records.Store(record.requestID, record)
 
 	// Otherwise, it's a successful RBF, set the event and return.
 	result.Event = TxReplaced
@@ -1487,6 +1480,9 @@ type sweepTxCtx struct {
 	tx *wire.MsgTx
 
 	fee btcutil.Amount
+
+	// feeRate is the rate used to construct this candidate.
+	feeRate chainfee.SatPerKWeight
 
 	extraTxOut fn.Option[SweepOutput]
 
@@ -1630,6 +1626,7 @@ func (t *TxPublisher) createSweepTx(inputs []input.Input,
 	return &sweepTxCtx{
 		tx:                sweepTx,
 		fee:               txFee,
+		feeRate:           feeRate,
 		extraTxOut:        fn.FlattenOption(extraTxOut),
 		outpointToTxIndex: outpointToTxIndex,
 	}, nil

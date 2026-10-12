@@ -1181,6 +1181,65 @@ func TestBroadcastImmediateWithheld(t *testing.T) {
 	require.Same(t, result.Tx, record.tx)
 }
 
+// TestReplacementFeeRejectionKinds checks that a replacement paying too
+// little to replace its predecessor waits for the next block, while one below
+// the mempool minimum fails so that its inputs can regroup. Each holds whether
+// preflight or publication reports the rejection.
+func TestReplacementFeeRejectionKinds(t *testing.T) {
+	t.Parallel()
+
+	wrapped := fmt.Errorf("%w: %s", lnwallet.ErrMempoolFee,
+		chain.ErrMempoolMinFeeNotMet.Error())
+	for _, tc := range []struct {
+		name   string
+		err    error
+		failed bool
+	}{
+		{"insufficient fee", chain.ErrInsufficientFee, false},
+		{"mempool min fee", chain.ErrMempoolMinFeeNotMet, true},
+		{"min relay fee", chain.ErrMinRelayFeeNotMet, true},
+		{"wrapped mempool fee", wrapped, true},
+	} {
+		for _, preflight := range []bool{true, false} {
+			name := fmt.Sprintf("%s/preflight=%v", tc.name,
+				preflight)
+			t.Run(name, func(t *testing.T) {
+				tp, m := createTestPublisher(t)
+				m.feeFunc.On("FeeRate").Return(
+					chainfee.SatPerKWeight(1000))
+				m.signer.On("ComputeInputScript",
+					mock.Anything, mock.Anything).Return(
+					&input.Script{}, nil)
+
+				checkErr := tc.err
+				if !preflight {
+					checkErr = nil
+					m.wallet.On("PublishTransaction",
+						mock.Anything, mock.Anything).
+						Return(tc.err).Once()
+				}
+				m.wallet.On("CheckMempoolAcceptance",
+					mock.Anything).Return(checkErr).Once()
+
+				record := &monitorRecord{
+					requestID:   1,
+					req:         createTestBumpRequest(),
+					feeFunction: m.feeFunc,
+					tx:          &wire.MsgTx{},
+				}
+				resultOpt := tp.createAndPublishTx(record)
+				if !tc.failed {
+					require.True(t, resultOpt.IsNone())
+					return
+				}
+				result := resultOpt.UnwrapOrFail(t)
+				require.Equal(t, TxFailed, result.Event)
+				require.ErrorIs(t, result.Err, tc.err)
+			})
+		}
+	}
+}
+
 // TestCreateAndPublishFail checks all the error cases are handled properly in
 // the method createAndPublishTx.
 func TestCreateAndPublishFail(t *testing.T) {
@@ -1231,14 +1290,17 @@ func TestCreateAndPublishFail(t *testing.T) {
 	// error to be returned from CheckMempoolAcceptance.
 	req.Budget = 1000
 
-	// Mock the testmempoolaccept to return a fee related error that should
-	// be ignored.
+	// Mock the testmempoolaccept to return an error below the mempool
+	// minimum. The predecessor has most likely left the mempool, so the
+	// attempt fails and its inputs can regroup.
 	m.wallet.On("CheckMempoolAcceptance",
 		mock.Anything).Return(lnwallet.ErrMempoolFee).Once()
 
-	// Call the createAndPublish method and expect a none option.
+	// Call the createAndPublish method and expect a failure result.
 	resultOpt = tp.createAndPublishTx(record)
-	require.True(t, resultOpt.IsNone())
+	result = resultOpt.UnwrapOrFail(t)
+	require.Equal(t, TxFailed, result.Event)
+	require.ErrorIs(t, result.Err, lnwallet.ErrMempoolFee)
 
 	// Mock the testmempoolaccept to return a fee related error that should
 	// be ignored.

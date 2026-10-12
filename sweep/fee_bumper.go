@@ -536,6 +536,29 @@ func (t *TxPublisher) initializeFeeFunction(
 	)
 }
 
+// isFeeRejection identifies reasons to search for a higher candidate fee.
+// It has no effect on the caller's policy or publication history.
+func isFeeRejection(err error) bool {
+	return errors.Is(err, chain.ErrInsufficientFee) ||
+		errors.Is(err, lnwallet.ErrMempoolFee) ||
+		errors.Is(err, chain.ErrMinRelayFeeNotMet) ||
+		errors.Is(err, chain.ErrMempoolMinFeeNotMet)
+}
+
+// increaseCandidateFee steps the fee function until its rate rises, or
+// returns the error that ends the search.
+func increaseCandidateFee(f FeeFunction) error {
+	for {
+		increased, err := f.Increment()
+		if err != nil {
+			return err
+		}
+		if increased {
+			return nil
+		}
+	}
+}
+
 // createRBFCompliantTx creates a tx that is compliant with RBF rules. It does
 // so by creating a tx, validate it using `TestMempoolAccept`, and bump its fee
 // and redo the process until the tx is valid, or return an error when non-RBF
@@ -563,41 +586,9 @@ func (t *TxPublisher) createRBFCompliantTx(
 
 			return record, nil
 
-		// If the error indicates the fees paid is not enough, we will
-		// ask the fee function to increase the fee rate and retry.
-		case errors.Is(err, lnwallet.ErrMempoolFee),
-			errors.Is(err, chain.ErrMinRelayFeeNotMet),
-			errors.Is(err, chain.ErrMempoolMinFeeNotMet):
-
-			// We should at least start with a feerate above the
-			// mempool min feerate, so if we get this error, it
-			// means something is wrong earlier in the pipeline.
-			log.Errorf("Current fee=%v, feerate=%v, %v",
-				sweepCtx.fee, f.FeeRate(), err)
-
-			fallthrough
-
-		// We are not paying enough fees to RBF a previous tx, so we
-		// increase it.
-		case errors.Is(err, chain.ErrInsufficientFee):
-			increased := false
-
-			// Keep calling the fee function until the fee rate is
-			// increased or maxed out.
-			for !increased {
-				log.Debugf("Increasing fee for next round, "+
-					"current fee=%v, feerate=%v",
-					sweepCtx.fee, f.FeeRate())
-
-				// If the fee function tells us that we have
-				// used up the budget, we will return an error
-				// indicating this tx cannot be made. The
-				// sweeper should handle this error and try to
-				// cluster these inputs differently.
-				increased, err = f.Increment()
-				if err != nil {
-					return nil, err
-				}
+		case isFeeRejection(err):
+			if err := increaseCandidateFee(f); err != nil {
+				return nil, err
 			}
 
 		// TODO(yy): suppose there's only one bad input, we can do a
@@ -1299,14 +1290,14 @@ func (t *TxPublisher) createAndPublishTx(
 		return fn.None[BumpResult]()
 	}
 
-	// If the result error is fee related, we will return no error and let
-	// the fee bumper retry it at next block.
+	// If the replacement pays too little to replace its predecessor, we
+	// will return no error and let the fee bumper retry it at next block.
+	// A rejection below the mempool minimum fails, as in
+	// handleReplacementTxError.
 	//
 	// NOTE: we may get this error if we've bypassed the mempool check,
 	// which means we are using neutrino backend.
-	if errors.Is(result.Err, chain.ErrInsufficientFee) ||
-		errors.Is(result.Err, lnwallet.ErrMempoolFee) {
-
+	if errors.Is(result.Err, chain.ErrInsufficientFee) {
 		log.Debugf("Failed to bump tx %v: %v", oldTx.TxHash(),
 			result.Err)
 
@@ -1804,8 +1795,8 @@ func prepareSweepTx(inputs []input.Input, changePkScript lnwallet.AddrWithKey,
 func (t *TxPublisher) handleReplacementTxError(r *monitorRecord,
 	oldTx *wire.MsgTx, err error) fn.Option[BumpResult] {
 
-	// If the error is fee related, we will return no error and let the fee
-	// bumper retry it at next block.
+	// If the replacement pays too little to replace its predecessor, we
+	// will return no error and let the fee bumper retry it at next block.
 	//
 	// NOTE: we can check the RBF error here and ask the fee function to
 	// recalculate the fee rate. However, this would defeat the purpose of
@@ -1814,9 +1805,13 @@ func (t *TxPublisher) handleReplacementTxError(r *monitorRecord,
 	// - if the deadline is close, we expect the fee function to give us a
 	//   higher fee rate. If the fee rate cannot satisfy the RBF rules, it
 	//   means the budget is not enough.
-	if errors.Is(err, chain.ErrInsufficientFee) ||
-		errors.Is(err, lnwallet.ErrMempoolFee) {
-
+	//
+	// A replacement below the mempool minimum is different: its
+	// predecessor paid less still, so has most likely left the mempool.
+	// There is then nothing to replace, and the elapsed-time schedule has
+	// no bearing on the mempool's floor. We fail the attempt below so the
+	// inputs can be regrouped and a new candidate searched for.
+	if errors.Is(err, chain.ErrInsufficientFee) {
 		log.Debugf("Failed to bump tx %v: %v", oldTx.TxHash(), err)
 		return fn.None[BumpResult]()
 	}

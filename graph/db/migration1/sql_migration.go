@@ -856,11 +856,19 @@ func validateMigratedChannelWithBatchData(cfg *SQLStoreConfig,
 		default:
 		}
 
+		// The KV decoder uses a non-nil empty slice, while SQLite
+		// uses nil for an empty BLOB. Normalize both before comparison.
 		if len(expPolicy.ExtraOpaqueData) == 0 {
 			expPolicy.ExtraOpaqueData = nil
 		}
 		if len(migPolicy.ExtraOpaqueData) == 0 {
 			migPolicy.ExtraOpaqueData = nil
+		}
+		if len(expPolicy.SigBytes) == 0 {
+			expPolicy.SigBytes = nil
+		}
+		if len(migPolicy.SigBytes) == 0 {
+			migPolicy.SigBytes = nil
 		}
 
 		return sqldb.CompareRecords(

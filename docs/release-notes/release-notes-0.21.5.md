@@ -43,6 +43,11 @@
   with the commitment height and transaction attached, and those debug details
   are sent to the remote peer.
 
+* Native SQLite graph migrations [now accept policies with empty
+  signatures](https://github.com/lightningnetwork/lnd/pull/11311) instead of
+  failing validation because the KV and SQL stores use different empty byte
+  slice representations.
+
 # New Features
 
 ## Functional Enhancements
@@ -94,3 +99,4 @@
 * Kevin Cai
 * Olaoluwa Osuntokun
 * Pins
+* Ziggie

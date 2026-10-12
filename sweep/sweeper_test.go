@@ -658,14 +658,10 @@ func TestSweepPendingInputs(t *testing.T) {
 	setNeedWallet.On("Inputs").Return(nil).Maybe()
 	setNeedWallet.On("DeadlineHeight").Return(testHeight).Once()
 	setNeedWallet.On("Budget").Return(btcutil.Amount(1)).Once()
-	setNeedWallet.On("StartingFeeRate").Return(
-		fn.None[chainfee.SatPerKWeight]()).Once()
 	setNeedWallet.On("Immediate").Return(false).Once()
 	normalSet.On("Inputs").Return(nil).Maybe()
 	normalSet.On("DeadlineHeight").Return(testHeight).Once()
 	normalSet.On("Budget").Return(btcutil.Amount(1)).Once()
-	normalSet.On("StartingFeeRate").Return(
-		fn.None[chainfee.SatPerKWeight]()).Once()
 	normalSet.On("Immediate").Return(false).Once()
 
 	// Make pending inputs for testing. We don't need real values here as

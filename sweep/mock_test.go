@@ -261,13 +261,6 @@ func (m *MockInputSet) Budget() btcutil.Amount {
 	return args.Get(0).(btcutil.Amount)
 }
 
-// StartingFeeRate returns the max starting fee rate found in the inputs.
-func (m *MockInputSet) StartingFeeRate() fn.Option[chainfee.SatPerKWeight] {
-	args := m.Called()
-
-	return args.Get(0).(fn.Option[chainfee.SatPerKWeight])
-}
-
 // Immediate returns whether the inputs should be swept immediately.
 func (m *MockInputSet) Immediate() bool {
 	args := m.Called()

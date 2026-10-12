@@ -116,13 +116,6 @@
 
 ## Performance Improvements
 
-* The SQL (Postgres and SQLite) kvdb backend now [caches nested bucket
-  lookups](https://github.com/lightningnetwork/lnd/pull/11264) within a
-  transaction instead of querying the database for every lookup. This mostly
-  benefits the wallet, which resolves the same buckets repeatedly. On a
-  remote signing node with 255 key family accounts, `WalletBalance` issues
-  ~60% fewer queries.
-
 ## Deprecations
 
 # Technical and Architectural Updates
@@ -227,7 +220,6 @@
 * Boris Nagaev
 * Erick Cestari
 * Jared Tobin
-* Kevin Cai
 * Vandit Singh
 * Viktor Torstensson
 * s1ns3nz0

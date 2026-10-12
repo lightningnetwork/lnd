@@ -68,6 +68,13 @@
 
 ## Performance Improvements
 
+* The SQL (Postgres and SQLite) kvdb backend now [caches nested bucket
+  lookups](https://github.com/lightningnetwork/lnd/pull/11264) within a
+  transaction instead of querying the database for every lookup. This mostly
+  benefits the wallet, which resolves the same buckets repeatedly. On a
+  remote signing node with 255 key family accounts, `WalletBalance` issues
+  ~60% fewer queries.
+
 ## Deprecations
 
 ### ⚠️ **Warning:** Deprecated fields in `lnrpc.Hop` will be removed in release version **0.22**
@@ -89,6 +96,7 @@
 # Contributors (Alphabetical Order)
 
 * George Tsagkarelis
+* Kevin Cai
 * Olaoluwa Osuntokun
 * Pins
 * Ziggie

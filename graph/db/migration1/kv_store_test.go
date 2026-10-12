@@ -1,3 +1,5 @@
+//go:build test_db_postgres || test_db_sqlite
+
 package migration1
 
 import (
@@ -7,7 +9,6 @@ import (
 
 	"github.com/btcsuite/btcd/btcec/v2"
 	"github.com/lightningnetwork/lnd/graph/db/migration1/models"
-	"github.com/lightningnetwork/lnd/kvdb"
 	"github.com/lightningnetwork/lnd/lnwire"
 	"github.com/lightningnetwork/lnd/routing/route"
 	"github.com/lightningnetwork/lnd/tlv"
@@ -17,11 +18,7 @@ import (
 // TestEdgeInfoFeatureRoundTrip asserts that the migration reader accepts the
 // largest raw feature vector that the legacy writer can produce.
 func TestEdgeInfoFeatureRoundTrip(t *testing.T) {
-	db, cleanup, err := kvdb.GetTestBackend(t.TempDir(), "graph")
-	require.NoError(t, err)
-	t.Cleanup(cleanup)
-	store, err := NewKVStore(db)
-	require.NoError(t, err)
+	store := setUpKVStore(t)
 
 	newVertex := func() route.Vertex {
 		key, err := btcec.NewPrivateKey()
@@ -46,7 +43,7 @@ func TestEdgeInfoFeatureRoundTrip(t *testing.T) {
 	require.NoError(t, store.AddChannelEdge(t.Context(), edge))
 
 	var stored *models.ChannelEdgeInfo
-	err = store.ForEachChannel(
+	err := store.ForEachChannel(
 		t.Context(),
 		func(info *models.ChannelEdgeInfo,
 			_ *models.ChannelEdgePolicy,

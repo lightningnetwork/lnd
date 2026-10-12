@@ -171,6 +171,18 @@ func TestPostgres(t *testing.T) {
 			},
 		},
 		{
+			name: "bucket lookup after delete",
+			test: testBucketLookupAfterDelete,
+		},
+		{
+			name: "bucket lookup after create",
+			test: testBucketLookupAfterCreate,
+		},
+		{
+			name: "bucket lookup across txns",
+			test: testBucketLookupAcrossTxns,
+		},
+		{
 			name: "tx manual commit",
 			test: testTxManualCommit,
 			expectedDb: m{

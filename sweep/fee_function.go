@@ -239,3 +239,49 @@ func (p *pooledFeeFunction) IncreaseFeeRate(confTarget uint32) (bool, error) {
 
 	return p.FeeRate() > oldFeeRate, nil
 }
+
+// flooredFeeFunction composes a schedule with the rate of a prior
+// publication. The schedule remains a function of policy and time; the floor
+// belongs to this attempt alone. An increase is reported only when the
+// effective rate rises above the floor.
+type flooredFeeFunction struct {
+	FeeFunction
+
+	floor chainfee.SatPerKWeight
+}
+
+// Compile-time check to ensure flooredFeeFunction satisfies the FeeFunction.
+var _ FeeFunction = (*flooredFeeFunction)(nil)
+
+// FeeRate returns the schedule's rate, or the floor if that is higher.
+//
+// NOTE: part of the FeeFunction interface.
+func (f *flooredFeeFunction) FeeRate() chainfee.SatPerKWeight {
+	return max(f.FeeFunction.FeeRate(), f.floor)
+}
+
+// Increment advances the schedule by one step and reports whether the
+// effective rate rose.
+//
+// NOTE: part of the FeeFunction interface.
+func (f *flooredFeeFunction) Increment() (bool, error) {
+	oldFeeRate := f.FeeRate()
+	if _, err := f.FeeFunction.Increment(); err != nil {
+		return false, err
+	}
+
+	return f.FeeRate() > oldFeeRate, nil
+}
+
+// IncreaseFeeRate advances the schedule to the given conf target and reports
+// whether the effective rate rose.
+//
+// NOTE: part of the FeeFunction interface.
+func (f *flooredFeeFunction) IncreaseFeeRate(confTarget uint32) (bool, error) {
+	oldFeeRate := f.FeeRate()
+	if _, err := f.FeeFunction.IncreaseFeeRate(confTarget); err != nil {
+		return false, err
+	}
+
+	return f.FeeRate() > oldFeeRate, nil
+}

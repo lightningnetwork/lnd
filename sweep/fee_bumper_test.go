@@ -289,7 +289,7 @@ func TestInitializeFeeFunction(t *testing.T) {
 
 	// Mock the fee estimator to return an error.
 	//
-	// We are not testing `NewLinearFeeFunction` here, so the actual params
+	// We are not testing the fee function here, so the actual params
 	// used are irrelevant.
 	dummyErr := fmt.Errorf("dummy error")
 	estimator.On("EstimateFeePerKW", mock.Anything).Return(
@@ -302,7 +302,7 @@ func TestInitializeFeeFunction(t *testing.T) {
 
 	// Mock the fee estimator to return the testing fee rate.
 	//
-	// We are not testing `NewLinearFeeFunction` here, so the actual params
+	// We are not testing the fee function here, so the actual params
 	// used are irrelevant.
 	estimator.On("EstimateFeePerKW", mock.Anything).Return(
 		feerate, nil).Once()
@@ -329,7 +329,7 @@ func TestCandidateRecord(t *testing.T) {
 	}
 
 	// Create a naive fee function.
-	feeFunc := &LinearFeeFunction{}
+	feeFunc := &pooledFeeFunction{}
 
 	// Create a test fee and tx.
 	fee := btcutil.Amount(1000)
@@ -2100,7 +2100,7 @@ func TestHandleInitialBroadcastSuccess(t *testing.T) {
 
 	// Mock the fee estimator to return the testing fee rate.
 	//
-	// We are not testing `NewLinearFeeFunction` here, so the actual params
+	// We are not testing the fee function here, so the actual params
 	// used are irrelevant.
 	m.estimator.On("EstimateFeePerKW", mock.Anything).Return(
 		feerate, nil).Once()
@@ -2187,7 +2187,7 @@ func TestHandleInitialBroadcastFail(t *testing.T) {
 
 	// Mock the fee estimator to return the testing fee rate.
 	//
-	// We are not testing `NewLinearFeeFunction` here, so the actual params
+	// We are not testing the fee function here, so the actual params
 	// used are irrelevant.
 	m.estimator.On("EstimateFeePerKW", mock.Anything).Return(
 		feerate, nil).Twice()

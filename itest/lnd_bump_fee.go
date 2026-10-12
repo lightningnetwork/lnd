@@ -541,37 +541,16 @@ func runBumpFee(ht *lntest.HarnessTest, alice *node.HarnessNode) {
 	}
 	alice.RPC.BumpFee(bumpFeeReq)
 
-	// Calculate the ending fee rate, which is used in the above fee bump
-	// when fee function's max posistion is reached.
-	txWeight := ht.CalculateTxWeight(sweepTx6)
-	endingFeeRate := chainfee.NewSatPerKWeight(
-		btcutil.Amount(smallBudget), txWeight,
-	)
-
-	// Since the fee function has been maxed out, the starting fee rate for
-	// the next sweep attempt should be the ending fee rate.
-	//
-	// TODO(yy): The weight estimator used in the sweeper gives a different
-	// result than the weight calculated here, which is the result from
-	// `blockchain.GetTransactionWeight`. For this particular tx:
-	// - result from the `weightEstimator`: 445 wu
-	// - result from `GetTransactionWeight`: 444 wu
-	//
-	// This means the fee rates are different,
-	// - `weightEstimator`: 2247 sat/kw, or 8 sat/vb (8.988 round down)
-	// - here we have 2252 sat/kw, or 9 sat/vb (9.008 round down)
-	//
-	// We should investigate and check whether if it's possible to make the
-	// `weightEstimator` more accurate.
-	expectedStartFeeRate := uint64(endingFeeRate.FeePerVByte()) - 1
+	// An exhausted replacement attempt does not rewrite the requested
+	// starting rate. Published fee history remains that of sweepTx6.
 
 	// Assert the pending sweep is created with the expected values:
 	// - broadcast attempts: 7.
-	// - starting fee rate: 8 sat/vbyte.
+	// - requested starting fee rate: 1 sat/vbyte.
 	// - deadline: 1.
 	// - budget: 1000 sats.
 	sweepTx7 := assertPendingSweepResp(
-		7, smallBudget, uint32(currentHeight+1), expectedStartFeeRate,
+		7, smallBudget, uint32(currentHeight+1), startFeeRate,
 	)
 
 	// Since this budget is too small to cover the RBF, we expect the

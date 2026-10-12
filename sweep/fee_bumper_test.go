@@ -1195,7 +1195,6 @@ func TestCreateAndPublishFail(t *testing.T) {
 	// Create a test feerate and return it from the mock fee function.
 	feerate := chainfee.SatPerKWeight(1000)
 	m.feeFunc.On("FeeRate").Return(feerate)
-	m.feeFunc.On("Increment").Return(true, nil).Once()
 
 	// Create a testing monitor record.
 	req := createTestBumpRequest()
@@ -1845,13 +1844,6 @@ func TestProcessRecordsSpent(t *testing.T) {
 	tp.subscriberChans.Store(requestID, subscriber)
 	tp.records.Store(requestID, recordConfirmed)
 
-	// Mock the fee function to increase feerate.
-	m.feeFunc.On("Increment").Return(true, nil).Once()
-
-	// Create a test feerate and return it from the mock fee function.
-	feerate := chainfee.SatPerKWeight(1000)
-	m.feeFunc.On("FeeRate").Return(feerate)
-
 	// Call processRecords and expect the results are notified back.
 	tp.processRecords()
 
@@ -1865,8 +1857,8 @@ func TestProcessRecordsSpent(t *testing.T) {
 		require.Equal(t, TxUnknownSpend, result.Event)
 		require.Equal(t, tx, result.Tx)
 
-		// We expect the fee rate to be updated.
-		require.Equal(t, feerate, result.FeeRate)
+		// An unknown spend does not create fee history.
+		require.Zero(t, result.FeeRate)
 
 		// No error should be set.
 		require.ErrorIs(t, result.Err, ErrUnknownSpent)

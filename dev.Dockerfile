@@ -4,10 +4,6 @@ FROM golang:1.27.3-alpine AS builder
 
 LABEL maintainer="Olaoluwa Osuntokun <laolu@lightning.engineering>"
 
-# Force Go to use the cgo based DNS resolver. This is required to ensure DNS
-# queries required to connect to linked containers succeed.
-ENV GODEBUG netdns=cgo
-
 # Install dependencies.
 RUN apk add --no-cache --update alpine-sdk \
     bash \

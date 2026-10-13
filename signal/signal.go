@@ -111,6 +111,11 @@ type Interceptor struct {
 	// close this channel.
 	quit chan struct{}
 
+	// exitCode is the code the process should exit with once shutdown
+	// completes. It is a pointer so that every copy of the interceptor
+	// shares it, as the interceptor is passed around by value.
+	exitCode *atomic.Int32
+
 	// Notifier handles sending shutdown notifications.
 	Notifier Notifier
 }
@@ -127,6 +132,7 @@ func Intercept() (Interceptor, error) {
 		shutdownChannel:        make(chan struct{}),
 		shutdownRequestChannel: make(chan struct{}),
 		quit:                   make(chan struct{}),
+		exitCode:               &atomic.Int32{},
 	}
 
 	signalsToCatch := []os.Signal{
@@ -147,7 +153,6 @@ func Intercept() (Interceptor, error) {
 // callback registration.
 // It must be run as a goroutine.
 func (c *Interceptor) mainInterruptHandler() {
-	defer atomic.StoreInt32(&started, 0)
 	// isShutdown is a flag which is used to indicate whether or not
 	// the shutdown signal has already been received and hence any future
 	// attempts to add a new interrupt handler should invoke them
@@ -183,6 +188,11 @@ func (c *Interceptor) mainInterruptHandler() {
 
 		case <-c.quit:
 			log.Infof("Gracefully shutting down.")
+
+			// Release the started flag before signaling the exit
+			// so a new interceptor can be started as soon as the
+			// shutdown channel is closed.
+			atomic.StoreInt32(&started, 0)
 			close(c.shutdownChannel)
 			signal.Stop(c.interruptChannel)
 			return
@@ -214,12 +224,40 @@ func (c *Interceptor) Alive() bool {
 	}
 }
 
-// RequestShutdown initiates a graceful shutdown from the application.
+// RequestShutdown initiates a graceful shutdown from the application. Unless
+// an exit code was recorded with SetExitCode, the process exits with
+// ExitCodeSuccess.
 func (c *Interceptor) RequestShutdown() {
 	select {
 	case c.shutdownRequestChannel <- struct{}{}:
 	case <-c.quit:
 	}
+}
+
+// SetExitCode records the code the process should exit with once shutdown
+// completes. Only the first non-zero code is kept, so that the specific
+// reason recorded by the component that detected a failure is not overwritten
+// by the generic critical error raised while logging it. A code recorded
+// after shutdown has already begun is ignored, so a failure noticed during
+// the teardown of a deliberate stop does not turn it into a failed exit. That
+// guard is best-effort: the liveness check and the record are separate steps,
+// so a code recorded in the instant shutdown begins may still be kept.
+func (c *Interceptor) SetExitCode(code ExitCode) {
+	if c.exitCode == nil || !c.Alive() {
+		return
+	}
+
+	c.exitCode.CompareAndSwap(int32(ExitCodeSuccess), int32(code))
+}
+
+// ExitCode returns the code the process should exit with. It is
+// ExitCodeSuccess unless a failure was recorded with SetExitCode.
+func (c *Interceptor) ExitCode() ExitCode {
+	if c.exitCode == nil {
+		return ExitCodeSuccess
+	}
+
+	return ExitCode(c.exitCode.Load())
 }
 
 // ShutdownChannel returns the channel that will be closed once the main

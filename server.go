@@ -78,6 +78,7 @@ import (
 	"github.com/lightningnetwork/lnd/routing"
 	"github.com/lightningnetwork/lnd/routing/localchans"
 	"github.com/lightningnetwork/lnd/routing/route"
+	"github.com/lightningnetwork/lnd/signal"
 	"github.com/lightningnetwork/lnd/subscribe"
 	"github.com/lightningnetwork/lnd/sweep"
 	"github.com/lightningnetwork/lnd/ticker"
@@ -233,6 +234,10 @@ type server struct {
 	cfg *Config
 
 	implCfg *ImplementationCfg
+
+	// interceptor is used to request a shutdown of the daemon, and to
+	// record the exit code that explains why.
+	interceptor signal.Interceptor
 
 	// identityECDH is an ECDH capable wrapper for the private key used
 	// to authenticate any incoming connections.
@@ -671,7 +676,7 @@ func newServer(ctx context.Context, cfg *Config, listenAddrs []net.Addr,
 	leaderElector cluster.LeaderElector,
 	implCfg *ImplementationCfg,
 	remoteSignerClientFactory func() (rpcwallet.RemoteSignerClient,
-		error)) (*server, error) {
+		error), interceptor signal.Interceptor) (*server, error) {
 
 	var (
 		err         error
@@ -796,6 +801,7 @@ func newServer(ctx context.Context, cfg *Config, listenAddrs []net.Addr,
 	s := &server{
 		cfg:            cfg,
 		implCfg:        implCfg,
+		interceptor:    interceptor,
 		graphDB:        dbs.GraphDB,
 		v1Graph:        v1Graph,
 		chanStateDB:    chanStateDB,
@@ -2085,6 +2091,9 @@ func (s *server) createLivenessMonitor(ctx context.Context, cfg *Config,
 		cfg.HealthChecks.ChainCheck.Timeout,
 		cfg.HealthChecks.ChainCheck.Backoff,
 		chainBackendAttempts,
+		healthcheck.WithFailureCallback(exitCodeOnFailure(
+			s.interceptor, signal.ExitCodeChainBackend,
+		)),
 	)
 
 	diskCheck := healthcheck.NewObservation(
@@ -2111,6 +2120,9 @@ func (s *server) createLivenessMonitor(ctx context.Context, cfg *Config,
 		cfg.HealthChecks.DiskCheck.Timeout,
 		cfg.HealthChecks.DiskCheck.Backoff,
 		cfg.HealthChecks.DiskCheck.Attempts,
+		healthcheck.WithFailureCallback(exitCodeOnFailure(
+			s.interceptor, signal.ExitCodeDiskSpace,
+		)),
 	)
 
 	tlsHealthCheck := healthcheck.NewObservation(
@@ -2135,6 +2147,9 @@ func (s *server) createLivenessMonitor(ctx context.Context, cfg *Config,
 		cfg.HealthChecks.TLSCheck.Timeout,
 		cfg.HealthChecks.TLSCheck.Backoff,
 		cfg.HealthChecks.TLSCheck.Attempts,
+		healthcheck.WithFailureCallback(exitCodeOnFailure(
+			s.interceptor, signal.ExitCodeTLSCert,
+		)),
 	)
 
 	checks := []*healthcheck.Observation{
@@ -2159,6 +2174,9 @@ func (s *server) createLivenessMonitor(ctx context.Context, cfg *Config,
 			cfg.HealthChecks.TorConnection.Timeout,
 			cfg.HealthChecks.TorConnection.Backoff,
 			cfg.HealthChecks.TorConnection.Attempts,
+			healthcheck.WithFailureCallback(exitCodeOnFailure(
+				s.interceptor, signal.ExitCodeTorConnection,
+			)),
 		)
 		checks = append(checks, torConnectionCheck)
 	}
@@ -2203,6 +2221,9 @@ func (s *server) createLivenessMonitor(ctx context.Context, cfg *Config,
 			outerTimeout,
 			cfg.HealthChecks.RemoteSigner.Backoff,
 			cfg.HealthChecks.RemoteSigner.Attempts,
+			healthcheck.WithFailureCallback(exitCodeOnFailure(
+				s.interceptor, signal.ExitCodeRemoteSigner,
+			)),
 		)
 		checks = append(checks, rsConnectionCheck)
 	}
@@ -2245,6 +2266,9 @@ func (s *server) createLivenessMonitor(ctx context.Context, cfg *Config,
 			cfg.HealthChecks.LeaderCheck.Timeout,
 			cfg.HealthChecks.LeaderCheck.Backoff,
 			cfg.HealthChecks.LeaderCheck.Attempts,
+			healthcheck.WithFailureCallback(exitCodeOnFailure(
+				s.interceptor, signal.ExitCodeLeaderStatus,
+			)),
 		)
 
 		checks = append(checks, leaderCheck)
@@ -2260,6 +2284,18 @@ func (s *server) createLivenessMonitor(ctx context.Context, cfg *Config,
 	)
 
 	return nil
+}
+
+// exitCodeOnFailure returns a health check failure callback that records code
+// as the exit code of the process. The monitor fires it right before it
+// requests shutdown through the critical logger, which records the generic
+// critical error code, so the code for the failed check is the one kept.
+func exitCodeOnFailure(interceptor signal.Interceptor,
+	code signal.ExitCode) func() {
+
+	return func() {
+		interceptor.SetExitCode(code)
+	}
 }
 
 // Started returns true if the server has been started, and false otherwise.

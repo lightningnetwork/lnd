@@ -15,9 +15,16 @@ ExecStop=/usr/local/bin/lncli stop
 User=bitcoin
 Group=bitcoin
 
-# Try restarting lnd if it stops due to a failure
+# Try restarting lnd if it stops due to a failure. lnd exits with 0 after an
+# OS signal or `lncli stop`, with 1 on a critical error, and with a distinct
+# code when a health check gives up: 10 chain backend, 11 disk space, 12 TLS
+# certificate, 13 tor connection, 14 remote signer, 15 leader status. A
+# restart cannot fix some of these, such as low disk space. Whether lnd should
+# stay down in that case is an operator decision, so uncomment and adjust the
+# RestartPreventExitStatus line below to make it.
 Restart=on-failure
 RestartSec=60
+#RestartPreventExitStatus=11
 
 # Type=notify is required for lnd to notify systemd when it is ready
 Type=notify

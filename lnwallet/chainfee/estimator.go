@@ -1025,9 +1025,25 @@ func (w *WebAPIEstimator) updateFeeEstimates() {
 			return string(resp)
 		}))
 
+	// Clamp the relay fee to sane bounds, just like the block target
+	// estimates. The web API is an untrusted, external data source, so
+	// we bound its input here as well before it reaches wallet code.
+	minRelayFee := resp.MinRelayFeerate.FeePerKWeight()
+	switch {
+	case minRelayFee < FeePerKwFloor:
+		minRelayFee = FeePerKwFloor
+
+	case minRelayFee > FeePerKwCeiling:
+		log.Warnf("Web API min relay feerate of %v exceeds fee "+
+			"ceiling, clamping to %v", int64(minRelayFee),
+			int64(FeePerKwCeiling))
+
+		minRelayFee = FeePerKwCeiling
+	}
+
 	w.feesMtx.Lock()
 	w.feeByBlockTarget = resp.FeeByBlockTarget
-	w.minRelayFeerate = resp.MinRelayFeerate
+	w.minRelayFeerate = minRelayFee.FeePerKVByte()
 	w.feesMtx.Unlock()
 }
 

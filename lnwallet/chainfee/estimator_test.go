@@ -341,6 +341,76 @@ func TestWebAPIFeeEstimatorCeiling(t *testing.T) {
 	feeSource.AssertExpectations(t)
 }
 
+// TestWebAPIEstimatorRelayFeeClamp checks that the WebAPIEstimator clamps
+// the min relay feerate returned by the external API to sane bounds, so
+// that out-of-range API responses are bounded.
+func TestWebAPIEstimatorRelayFeeClamp(t *testing.T) {
+	t.Parallel()
+
+	var (
+		minFeeUpdateTimeout = 5 * time.Minute
+		maxFeeUpdateTimeout = 20 * time.Minute
+
+		saneRelayFee   = SatPerKVByte(2000)
+		absurdRelayFee = FeePerKwCeiling.FeePerKVByte() * 4
+	)
+
+	testCases := []struct {
+		name        string
+		relayFee    SatPerKVByte
+		expectedFee SatPerKWeight
+	}{
+		{
+			// An absent relay fee defaults to the floor.
+			name:        "absent relay fee",
+			relayFee:    0,
+			expectedFee: FeePerKwFloor,
+		},
+		{
+			// A sane relay fee passes through untouched.
+			name:        "sane relay fee",
+			relayFee:    saneRelayFee,
+			expectedFee: saneRelayFee.FeePerKWeight(),
+		},
+		{
+			// An absurd relay fee is clamped to the ceiling.
+			name:        "absurd relay fee",
+			relayFee:    absurdRelayFee,
+			expectedFee: FeePerKwCeiling,
+		},
+	}
+
+	for _, tc := range testCases {
+		t.Run(tc.name, func(t *testing.T) {
+			resp := WebAPIResponse{
+				FeeByBlockTarget: map[uint32]uint32{
+					6: 2000,
+				},
+				MinRelayFeerate: tc.relayFee,
+			}
+
+			feeSource := &mockFeeSource{}
+			feeSource.On("GetFeeInfo").Return(resp, nil)
+
+			estimator, err := NewWebAPIEstimator(
+				feeSource, false, minFeeUpdateTimeout,
+				maxFeeUpdateTimeout,
+			)
+			require.NoError(t, err)
+			require.NoError(t, estimator.Start(),
+				"unable to start fee estimator")
+
+			relayFee := estimator.RelayFeePerKW()
+			require.Equal(t, tc.expectedFee, relayFee)
+
+			require.NoError(t, estimator.Stop(),
+				"unable to stop fee estimator")
+
+			feeSource.AssertExpectations(t)
+		})
+	}
+}
+
 // TestGetCachedFee checks that the fee caching logic works as expected.
 func TestGetCachedFee(t *testing.T) {
 	var (

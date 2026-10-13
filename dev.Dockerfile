@@ -26,7 +26,7 @@ RUN --mount=type=cache,target=/go/pkg/mod \
     --mount=type=cache,target=/root/.cache/go-build \
     cd /go/src/github.com/lightningnetwork/lnd \
     &&  make \
-    &&  make install-all tags="signrpc walletrpc chainrpc invoicesrpc peersrpc kvdb_sqlite"
+    &&  make release-install manpages
 
 # Start a new, final image to reduce size.
 FROM alpine AS final

@@ -5,6 +5,7 @@ package invoicesrpc
 
 import (
 	"context"
+	"crypto/rand"
 	"errors"
 	"fmt"
 	"os"
@@ -352,9 +353,34 @@ func (s *Server) AddHoldInvoice(ctx context.Context,
 		GetAlias:              s.cfg.GetAlias,
 	}
 
-	hash, err := lntypes.MakeHash(invoice.Hash)
-	if err != nil {
-		return nil, err
+	var (
+		hashPtr      *lntypes.Hash
+		autoPreimage *lntypes.Preimage
+	)
+
+	switch {
+	// Hash provided: existing behavior.
+	case len(invoice.Hash) > 0:
+		hash, err := lntypes.MakeHash(invoice.Hash)
+		if err != nil {
+			return nil, fmt.Errorf("invalid hash: %w", err)
+		}
+		hashPtr = &hash
+
+	// Neither provided: auto-generate a preimage locally. The
+	// generated preimage is returned in the response but not passed
+	// to AddInvoice, so it is never persisted by the invoice DB.
+	// This preserves the hold-invoice invariant that the server only
+	// learns the preimage at SettleInvoice time.
+	default:
+		var preimage lntypes.Preimage
+		if _, err := rand.Read(preimage[:]); err != nil {
+			return nil, fmt.Errorf("unable to generate "+
+				"preimage: %w", err)
+		}
+		hash := preimage.Hash()
+		hashPtr = &hash
+		autoPreimage = &preimage
 	}
 
 	value, err := lnrpc.UnmarshallAmt(invoice.Value, invoice.ValueMsat)
@@ -367,9 +393,10 @@ func (s *Server) AddHoldInvoice(ctx context.Context,
 	if err != nil {
 		return nil, err
 	}
+
 	addInvoiceData := &AddInvoiceData{
 		Memo:            invoice.Memo,
-		Hash:            &hash,
+		Hash:            hashPtr,
 		Value:           value,
 		DescriptionHash: invoice.DescriptionHash,
 		Expiry:          invoice.Expiry,
@@ -377,20 +404,28 @@ func (s *Server) AddHoldInvoice(ctx context.Context,
 		CltvExpiry:      invoice.CltvExpiry,
 		Private:         invoice.Private,
 		HodlInvoice:     true,
-		Preimage:        nil,
 		RouteHints:      routeHints,
 	}
 
-	_, dbInvoice, err := AddInvoice(ctx, addInvoiceCfg, addInvoiceData)
+	payHash, dbInvoice, err := AddInvoice(
+		ctx, addInvoiceCfg, addInvoiceData,
+	)
 	if err != nil {
 		return nil, err
 	}
 
-	return &AddHoldInvoiceResp{
+	resp := &AddHoldInvoiceResp{
 		AddIndex:       dbInvoice.AddIndex,
 		PaymentRequest: string(dbInvoice.PaymentRequest),
 		PaymentAddr:    dbInvoice.Terms.PaymentAddr[:],
-	}, nil
+		PaymentHash:    payHash[:],
+	}
+
+	if autoPreimage != nil {
+		resp.PaymentPreimage = autoPreimage[:]
+	}
+
+	return resp, nil
 }
 
 // LookupInvoiceV2 attempts to look up at invoice. An invoice can be referenced

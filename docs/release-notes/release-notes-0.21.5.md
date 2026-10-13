@@ -30,6 +30,19 @@
   with the commitment height and transaction attached, and those debug details
   are sent to the remote peer.
 
+* [Tightened the validation](https://github.com/lightningnetwork/lnd/pull/11068)
+  of auxiliary HTLC signatures on taproot overlay channels. Their count is now
+  checked against the number of HTLCs on the commitment, mirroring the check
+  that already exists for the BTC level signatures. A commitment that fails the
+  check is rejected as an invalid commitment, which force closes the channel.
+  This is a change in behaviour for one configuration in particular: a taproot
+  overlay channel whose peer runs `lnd` with no aux signer attached (`tapd`
+  stopped, or `lnd` started standalone). Such a peer's commitments used to be
+  accepted, leaving HTLCs on disk with an empty auxiliary signature that could
+  not be swept at force close time. They now force close the channel as soon as
+  a commitment carries an HTLC. Peers running an older `tapd` with the aux
+  signer attached are unaffected.
+
 * Native SQLite graph migrations [now accept policies with empty
   signatures](https://github.com/lightningnetwork/lnd/pull/11311) instead of
   failing validation because the KV and SQL stores use different empty byte
@@ -75,6 +88,7 @@
 
 # Contributors (Alphabetical Order)
 
+* George Tsagkarelis
 * Olaoluwa Osuntokun
 * Pins
 * Ziggie

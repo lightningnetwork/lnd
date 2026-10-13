@@ -25,6 +25,11 @@ const (
 	tagFieldSignature = "signature"
 )
 
+// InvoiceSignatureTag is the BIP-340 tag of an invoice signature. The
+// signature covers the tagged hash of the root that InvoiceSigningRoot returns.
+const InvoiceSignatureTag = signatureTagPrefix + tagMsgInvoice +
+	tagFieldSignature
+
 // ErrInvalidSignature is returned by verifyInvoice and verifyInvoiceRequest
 // when the BIP-340 Schnorr signature does not validate against the message's
 // Merkle root and signing key.
@@ -145,19 +150,27 @@ func SignInvoice(inv *Invoice, privKey *btcec.PrivateKey) ([64]byte, error) {
 		return [64]byte{}, ErrNilPrivateKey
 	}
 
-	// A signature over a message that breaks the writer requirements is
-	// worthless: the peer rejects it on read. Refusing here keeps a key
-	// from signing bytes no correct reader accepts.
-	if err := validateInvoiceWrite(inv); err != nil {
-		return [64]byte{}, fmt.Errorf("validate invoice: %w", err)
-	}
-
-	root, err := merkleRoot(signableTLVs(inv.AllRecords()))
+	root, err := InvoiceSigningRoot(inv)
 	if err != nil {
 		return [64]byte{}, err
 	}
 
 	return signMessage(tagMsgInvoice, tagFieldSignature, root, privKey)
+}
+
+// InvoiceSigningRoot returns the Merkle root that the invoice signature
+// covers. A signer without the raw private key, such as a remote signer, signs
+// it under InvoiceSignatureTag. It returns an error for an invoice that breaks
+// the writer requirements.
+func InvoiceSigningRoot(inv *Invoice) ([32]byte, error) {
+	// A signature over a message that breaks the writer requirements is
+	// worthless: the peer rejects it on read. Refusing here keeps a key
+	// from signing bytes no correct reader accepts.
+	if err := validateInvoiceWrite(inv); err != nil {
+		return [32]byte{}, fmt.Errorf("validate invoice: %w", err)
+	}
+
+	return merkleRoot(signableTLVs(inv.AllRecords()))
 }
 
 // verifyInvoice verifies the signature on an invoice using its invoice_node_id

@@ -27,6 +27,10 @@ type mockRegistry struct {
 	// invoices holds the invoices returned by LookupInvoice. Hashes that
 	// are not present report ErrInvoiceNotFound.
 	invoices map[lntypes.Hash]invoices.Invoice
+
+	// ampPreimages holds the settled AMP child preimages per set ID.
+	ampPreimages map[[32]byte][]lntypes.Preimage
+	ampLookupErr error
 }
 
 func (r *mockRegistry) NotifyExitHopHtlc(payHash lntypes.Hash,
@@ -64,4 +68,16 @@ func (r *mockRegistry) LookupInvoice(_ context.Context,
 	}
 
 	return invoice, nil
+}
+
+func (r *mockRegistry) LookupAMPHtlcPreimage(_ context.Context,
+	setID [32]byte, hash lntypes.Hash) (lntypes.Preimage, bool, error) {
+
+	for _, preimage := range r.ampPreimages[setID] {
+		if preimage.Matches(hash) {
+			return preimage, true, nil
+		}
+	}
+
+	return lntypes.Preimage{}, false, r.ampLookupErr
 }

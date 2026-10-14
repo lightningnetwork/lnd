@@ -5511,9 +5511,7 @@ func TestUnreadablePolicyPruning(t *testing.T) {
 			graph := MakeTestGraph(t)
 			boltStore, ok := graph.db.(*KVStore)
 			if !ok {
-				t.Skipf(
-					"skipping test that is aimed at a KV graph DB",
-				)
+				t.Skip("skipping KV graph DB test")
 			}
 
 			node1 := createTestVertex(t, lnwire.GossipVersion1)
@@ -5551,11 +5549,15 @@ func TestUnreadablePolicyPruning(t *testing.T) {
 			err = kvdb.View(boltStore.db, func(tx kvdb.RTx) error {
 				edges := tx.ReadBucket(edgeBucket)
 				require.NotNil(t, edges)
-				edgeIndex := edges.NestedReadBucket(edgeIndexBucket)
+				edgeIndex := edges.NestedReadBucket(
+					edgeIndexBucket,
+				)
 				require.NotNil(t, edgeIndex)
 
 				var chanID [8]byte
-				byteOrder.PutUint64(chanID[:], edgeInfo.ChannelID)
+				byteOrder.PutUint64(
+					chanID[:], edgeInfo.ChannelID,
+				)
 				require.NotNil(t, edgeIndex.Get(chanID[:]))
 
 				return nil

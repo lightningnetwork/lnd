@@ -815,8 +815,8 @@ func (c *KVStore) PruneGraph(spentOutputs []*wire.OutPoint,
 				continue
 			}
 
-			// Attempt to delete the channel. Missing edges are skipped,
-			// while all other failures abort pruning.
+			// Attempt to delete the channel. Missing edges are
+			// skipped, while all other failures abort pruning.
 			result := c.delChannelEdgeUnsafe(
 				edges, edgeIndex, chanIndex, zombieIndex,
 				chanID, false, false,

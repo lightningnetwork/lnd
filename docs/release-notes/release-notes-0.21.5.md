@@ -21,6 +21,11 @@
 
 # Bug Fixes
 
+* Revocation processing now [orders its state-transition and key checks before
+  their corresponding bookkeeping updates](https://github.com/lightningnetwork/lnd/pull/11330).
+  The remote party's next revocation point now uses `fn.Option`, so callers
+  handle the optional state explicitly.
+
 * Taproot commitment signing and verification now [release transient MuSig2
   signer sessions](https://github.com/lightningnetwork/lnd/pull/11246) once
   the local node no longer needs them. Force-close and cooperative-close

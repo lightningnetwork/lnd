@@ -950,6 +950,34 @@ func (i *InvoiceRegistry) processAMP(ctx invoiceUpdateCtx) error {
 	}
 }
 
+// isReplayedHtlc returns true if the HTLC is already recorded on the invoice
+// it pays to. For AMP HTLCs, only the HTLC set of the payment's set ID is
+// loaded.
+func (i *InvoiceRegistry) isReplayedHtlc(ctx *invoiceUpdateCtx) (bool,
+	error) {
+
+	ref := ctx.invoiceRef()
+	if setID := ctx.setID(); setID != nil {
+		ref = InvoiceRefBySetIDFiltered(*setID)
+	}
+
+	invoice, err := i.idb.LookupInvoice(context.Background(), ref)
+	switch {
+	case errors.Is(err, ErrInvoiceNotFound) ||
+		errors.Is(err, ErrNoInvoicesCreated) ||
+		errors.Is(err, ErrInvRefEquivocation):
+
+		return false, nil
+
+	case err != nil:
+		return false, err
+	}
+
+	_, ok := invoice.Htlcs[ctx.circuitKey]
+
+	return ok, nil
+}
+
 // NotifyExitHopHtlc attempts to mark an invoice as settled. The return value
 // describes how the htlc should be resolved.
 //
@@ -989,7 +1017,21 @@ func (i *InvoiceRegistry) NotifyExitHopHtlc(rHash lntypes.Hash,
 		totalAmtMsat:         payload.TotalAmtMsat(),
 	}
 
+	// A replayed HTLC must be resolved according to its recorded state.
+	// The spontaneous payment checks below only apply to new HTLCs. In
+	// particular their expiry check uses the current height, so a held
+	// HTLC replayed by the on-chain resolver close to its expiry would
+	// otherwise be failed, while the invoice can still settle it as part
+	// of its set.
+	replayed, err := i.isReplayedHtlc(&ctx)
+	if err != nil {
+		return nil, err
+	}
+
 	switch {
+	// Replays are handled by the locked notify logic below.
+	case replayed:
+
 	// If we are accepting spontaneous AMP payments and this payload
 	// contains an AMP record, create an AMP invoice that will be settled
 	// below.

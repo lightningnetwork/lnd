@@ -556,6 +556,14 @@ func TestInvoiceRegistry(t *testing.T) {
 			name: "LookupAMPHtlcPreimage",
 			test: testLookupAMPHtlcPreimage,
 		},
+		{
+			name: "ReplayedAMPHtlcNearExpiry",
+			test: testReplayedAMPHtlcNearExpiry,
+		},
+		{
+			name: "ReplayedHoldKeysendNearExpiry",
+			test: testReplayedHoldKeysendNearExpiry,
+		},
 	}
 
 	makeKeyValueDB := func(t *testing.T) (invpkg.InvoiceDB,
@@ -858,6 +866,125 @@ func testLookupAMPHtlcPreimage(t *testing.T,
 	)
 	require.NoError(t, err)
 	require.False(t, ok)
+}
+
+// testReplayedAMPHtlcNearExpiry asserts that a held AMP HTLC that is replayed
+// close to its expiry, as the on-chain resolver does after a force close, is
+// still treated as accepted. Otherwise the resolver would abandon the HTLC,
+// while the invoice later settles it as part of its set: the payer would get
+// the shard back on-chain while the invoice reports it as paid.
+func testReplayedAMPHtlcNearExpiry(t *testing.T,
+	makeDB func(t *testing.T) (invpkg.InvoiceDB, *clock.TestClock)) {
+
+	t.Parallel()
+	defer timeout()()
+
+	cfg := defaultRegistryConfig()
+	cfg.AcceptAMP = true
+	ctx := newTestContext(t, &cfg, makeDB)
+
+	const totalAmt = lnwire.MilliSatoshi(360)
+
+	var payAddr, setID [32]byte
+	_, err := rand.Read(payAddr[:])
+	require.NoError(t, err)
+	_, err = rand.Read(setID[:])
+	require.NoError(t, err)
+
+	sharer, err := amp.NewSeedSharer()
+	require.NoError(t, err)
+	left, right, err := sharer.Split()
+	require.NoError(t, err)
+	shardA, shardB := left.Child(0), right.Child(1)
+
+	payload := func(child *amp.Child, index uint32) *mockPayload {
+		return &mockPayload{
+			mpp: record.NewMPP(totalAmt, payAddr),
+			amp: record.NewAMP(child.Share, setID, index),
+		}
+	}
+
+	// The large shard A arrives with the minimum accepted expiry and is
+	// held until the set completes.
+	minExpiry := uint32(testCurrentHeight + testFinalCltvRejectDelta)
+	resolution, err := ctx.registry.NotifyExitHopHtlc(
+		shardA.Hash, 300, minExpiry, testCurrentHeight,
+		getCircuitKey(1), make(chan interface{}, 1), nil,
+		payload(shardA, 0),
+	)
+	require.NoError(t, err)
+	require.Nil(t, resolution)
+
+	// The channel goes on-chain and the resolver replays shard A one block
+	// later. It must still be accepted rather than failed by the expiry
+	// check for new HTLCs.
+	resolverChan := make(chan interface{}, 1)
+	resolution, err = ctx.registry.NotifyExitHopHtlc(
+		shardA.Hash, 300, minExpiry, testCurrentHeight+1,
+		getCircuitKey(1), resolverChan, nil, payload(shardA, 0),
+	)
+	require.NoError(t, err)
+	require.Nil(t, resolution)
+
+	// The tiny shard B completes the set.
+	resolution, err = ctx.registry.NotifyExitHopHtlc(
+		shardB.Hash, 60, uint32(testCurrentHeight+40),
+		testCurrentHeight+1, getCircuitKey(2),
+		make(chan interface{}, 1), nil, payload(shardB, 1),
+	)
+	require.NoError(t, err)
+	checkSettleResolution(t, resolution, shardB.Preimage)
+
+	// The resolver learns shard A's child preimage, so it can claim the
+	// HTLC that the invoice now counts as paid.
+	select {
+	case res := <-resolverChan:
+		htlcResolution, ok := res.(invpkg.HtlcResolution)
+		require.True(t, ok)
+
+		checkSettleResolution(
+			t, htlcResolution, shardA.Preimage,
+		)
+
+	case <-time.After(testTimeout):
+		t.Fatal("resolver not notified of settled shard")
+	}
+}
+
+// testReplayedHoldKeysendNearExpiry asserts that a held keysend HTLC that is
+// replayed close to its expiry is still treated as accepted, instead of being
+// failed by the expiry check for new keysend payments.
+func testReplayedHoldKeysendNearExpiry(t *testing.T,
+	makeDB func(t *testing.T) (invpkg.InvoiceDB, *clock.TestClock)) {
+
+	t.Parallel()
+	defer timeout()()
+
+	cfg := defaultRegistryConfig()
+	cfg.AcceptKeySend = true
+	cfg.KeysendHoldTime = time.Minute
+	ctx := newTestContext(t, &cfg, makeDB)
+
+	preimage := lntypes.Preimage{1, 2, 3}
+	keysendPayload := &mockPayload{
+		customRecords: map[uint64][]byte{
+			record.KeySendType: preimage[:],
+		},
+	}
+	minExpiry := uint32(testCurrentHeight + testFinalCltvRejectDelta)
+
+	for _, height := range []int32{
+		testCurrentHeight, testCurrentHeight + 1,
+	} {
+		resolution, err := ctx.registry.NotifyExitHopHtlc(
+			preimage.Hash(), 1000, minExpiry, height,
+			getCircuitKey(10), make(chan interface{}, 1), nil,
+			keysendPayload,
+		)
+		require.NoError(t, err)
+		require.Nil(t, resolution, "expected hold resolution at "+
+			"height %v", height)
+	}
 }
 
 // testSettleInvoice tests settling of an invoice and related notifications.

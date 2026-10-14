@@ -709,6 +709,88 @@ func TestRetireChanCloserIsIdempotent(t *testing.T) {
 	}
 }
 
+// TestDisconnectAnswersCloseCallers answers callers before peer shutdown.
+func TestDisconnectAnswersCloseCallers(t *testing.T) {
+	t.Parallel()
+
+	harness, err := createTestPeerWithChannel(t, noUpdate)
+	require.NoError(t, err)
+
+	var (
+		alicePeer  = harness.peer
+		bobChan    = harness.channel
+		mockSwitch = harness.mockSwitch
+	)
+
+	chanPoint := bobChan.ChannelPoint()
+	chanID := lnwire.NewChanIDFromOutPoint(chanPoint)
+	mockSwitch.links = append(
+		mockSwitch.links, newMockUpdateHandler(chanID),
+	)
+	closeReq := newTestCloseRequest(&chanPoint, 1)
+	closeReq.CloseType = contractcourt.CloseRegular
+	closeReq.TargetFeePerKw = 12500
+	alicePeer.localCloseChanReqs <- closeReq
+
+	select {
+	case out := <-alicePeer.outgoingQueue:
+		_, ok := out.msg.(*lnwire.Shutdown)
+		require.True(t, ok, "expected Shutdown, got %T", out.msg)
+
+	case <-time.After(timeout):
+		t.Fatal("peer did not send Shutdown")
+	}
+
+	alicePeer.Disconnect(errors.New("test disconnect"))
+
+	select {
+	case err := <-closeReq.Err:
+		require.ErrorIs(t, err, lnpeer.ErrPeerExiting)
+
+	case <-time.After(timeout):
+		t.Fatal("disconnect left the close caller waiting")
+	}
+	_, closerFound := alicePeer.activeChanCloses.Load(chanID)
+	require.False(t, closerFound)
+}
+
+// TestDisconnectReleasesRbfCloserResources stops and detaches an RBF closer.
+func TestDisconnectReleasesRbfCloserResources(t *testing.T) {
+	t.Parallel()
+
+	harness, err := createTestPeerWithChannel(t, noUpdate)
+	require.NoError(t, err)
+
+	alicePeer := harness.peer
+	chanPoint := harness.channel.ChannelPoint()
+	chanID := lnwire.NewChanIDFromOutPoint(chanPoint)
+
+	useTestCloseRouter(t, alicePeer)
+
+	rbfCloser := initTestRbfCloser(t, alicePeer, harness.channel)
+	alicePeer.activeChanCloses.Store(chanID, makeRbfCloser(rbfCloser))
+	require.True(t, rbfCloser.IsRunning())
+
+	closeMsg := msgmux.PeerMsg{
+		PeerPub: *alicePeer.IdentityKey(),
+		Message: lnwire.NewShutdown(chanID, genScript(t, p2wshAddress)),
+	}
+
+	alicePeer.Disconnect(errors.New("test disconnect"))
+	err = wait.Predicate(func() bool {
+		return errors.Is(
+			routeMsg(t, alicePeer, closeMsg),
+			msgmux.ErrUnableToRouteMsg,
+		)
+	}, timeout)
+	require.NoError(t, err)
+
+	err = wait.Predicate(func() bool {
+		return !rbfCloser.IsRunning()
+	}, timeout)
+	require.NoError(t, err)
+}
+
 // TestCloseReqClaimedExactlyOnce supports cooperative-close tests.
 func TestCloseReqClaimedExactlyOnce(t *testing.T) {
 	t.Parallel()

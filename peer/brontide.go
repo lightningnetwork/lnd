@@ -4597,6 +4597,10 @@ func WaitForChanToClose(bestHeight uint32, notifier chainntnfs.ChainNotifier,
 func (p *Brontide) WipeChannel(chanPoint *wire.OutPoint) {
 	chanID := lnwire.NewChanIDFromOutPoint(*chanPoint)
 
+	// Retire any cooperative close state before removing the channel. A
+	// closer is only valid for the active channel and link that created it.
+	p.activeChanCloses.Delete(chanID)
+
 	p.activeChannels.Delete(chanID)
 
 	// Instruct the HtlcSwitch to close this link as the channel is no
@@ -5039,6 +5043,16 @@ func (p *Brontide) handleCloseMsg(msg *closeMsg) {
 	// We'll either continue negotiation, or halt.
 	switch typed := msg.msg.(type) {
 	case *lnwire.Shutdown:
+		// A missing link only proves the channel has flushed when the
+		// channel state is clean. Link removal also happens on paths
+		// that do not retire the closer, so the closer alone is not
+		// evidence that the channel is done.
+		if link == nil && !chanCloser.Channel().IsChannelClean() {
+			handleErr(fmt.Errorf("channel is not clean"))
+
+			return
+		}
+
 		// Disable incoming adds immediately.
 		if link != nil && !link.DisableAdds(htlcswitch.Incoming) {
 			p.log.Warnf("Incoming link adds already disabled: %v",

@@ -138,14 +138,117 @@ func (e StaticEstimator) Stop() error {
 // Estimator interface.
 var _ Estimator = (*StaticEstimator)(nil)
 
+// feeEstimateCache stores the last positive fee estimate, in sat/kw, for each
+// confirmation target. Entries live for the process lifetime and are never
+// dropped on a timer: discarding a rate during an outage is what substitutes
+// the much higher cold-start fallback and can provoke a force close. A long
+// outage therefore keeps serving an increasingly stale rate until the backend
+// answers again. The next successful query for that target replaces the entry
+// immediately.
+//
+// Only EstimateFeePerKW consults this cache. Feefilter-cap queries go through
+// fetchEstimateInner and must not be stored here, or a cap lookup could
+// satisfy a later channel fee estimate for the same target.
+//
+// mu guards rates and must not be held across backend I/O. Relay-fee queries
+// do their own RPC, including a possible fetchEstimateInner for the feefilter
+// cap, so they must run after mu is released.
+type feeEstimateCache struct {
+	mu    sync.Mutex
+	rates map[uint32]SatPerKWeight
+}
+
+func newFeeEstimateCache() *feeEstimateCache {
+	return &feeEstimateCache{
+		rates: make(map[uint32]SatPerKWeight),
+	}
+}
+
+// store records a positive estimate for target. Non-positive rates are ignored
+// so an unusable response cannot evict a good entry.
+func (c *feeEstimateCache) store(target uint32, fee SatPerKWeight) {
+	if fee <= 0 {
+		return
+	}
+
+	c.mu.Lock()
+	c.rates[target] = fee
+	c.mu.Unlock()
+}
+
+// get returns the last successful estimate for target.
+func (c *feeEstimateCache) get(target uint32) (SatPerKWeight, bool) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+
+	fee, ok := c.rates[target]
+	return fee, ok
+}
+
+// useQueriedFee caches a positive query result for target and returns it. On
+// error or an unusable (non-positive) result it returns the cached rate for
+// the same target, floored by relayFee, or fallback when that target has never
+// succeeded. relayFee is called only on a cache hit and performs backend I/O,
+// so it must not require the cache lock.
+func (c *feeEstimateCache) useQueriedFee(target uint32, fallback,
+	queried SatPerKWeight, queryErr error,
+	relayFee func() SatPerKWeight) SatPerKWeight {
+
+	if queryErr != nil || queried <= 0 {
+		if queryErr != nil {
+			log.Errorf("unable to query estimator: %v", queryErr)
+		}
+
+		return c.cachedFeeOrFallback(target, fallback, relayFee)
+	}
+
+	c.store(target, queried)
+
+	return queried
+}
+
+// cachedFeeOrFallback returns the retained estimate for target when one
+// exists. The cached rate is raised to the current relay fee so a minimum
+// learned independently of the estimate is still enforced. fallback is
+// returned only when this target has never had a successful estimate, and it
+// is not written into the cache.
+//
+// relayFee is invoked without the cache lock held.
+func (c *feeEstimateCache) cachedFeeOrFallback(target uint32,
+	fallback SatPerKWeight, relayFee func() SatPerKWeight) SatPerKWeight {
+
+	cached, ok := c.get(target)
+	if !ok {
+		return fallback
+	}
+
+	floor := relayFee()
+	if cached < floor {
+		log.Debugf("Cached fee rate of %v sat/kw for conf target %v "+
+			"is below fee floor of %v sat/kw, using floor",
+			int64(cached), target, int64(floor))
+
+		return floor
+	}
+
+	log.Debugf("Using cached fee rate of %v sat/kw for conf target %v "+
+		"after fee estimator query failed", int64(cached), target)
+
+	return cached
+}
+
 // BtcdEstimator is an implementation of the Estimator interface backed
 // by the RPC interface of an active btcd node. This implementation will proxy
 // any fee estimation requests to btcd's RPC interface.
 type BtcdEstimator struct {
-	// fallbackFeePerKW is the fall back fee rate in sat/kw that is returned
-	// if the fee estimator does not yet have enough data to actually
-	// produce fee estimates.
+	// fallbackFeePerKW is returned when a query fails or is unusable and
+	// this target has never had a successful estimate.
 	fallbackFeePerKW SatPerKWeight
+
+	// feeCache is the last successful EstimateFeePerKW result for each
+	// confirmation target. Entries are retained in memory for the life of
+	// the process; see feeEstimateCache.
+	feeCache *feeEstimateCache
 
 	// minFeeManager is used to query the current minimum fee, in sat/kw,
 	// that we should enforce. This will be used to determine fee rate for
@@ -163,9 +266,10 @@ type BtcdEstimator struct {
 
 // NewBtcdEstimator creates a new BtcdEstimator given a fully populated
 // rpc config that is able to successfully connect and authenticate with the
-// btcd node, and also a fall back fee rate. The fallback fee rate is used in
-// the occasion that the estimator has insufficient data, or returns zero for a
-// fee estimate.
+// btcd node, and also a fall back fee rate. The fallback fee rate is used
+// when a query fails or is unusable and that confirmation target has never
+// had a successful estimate. Successful estimates are kept in memory for the
+// life of the process; see feeEstimateCache.
 func NewBtcdEstimator(rpcConfig rpcclient.ConnConfig,
 	fallBackFeeRate SatPerKWeight) (*BtcdEstimator, error) {
 
@@ -182,6 +286,7 @@ func NewBtcdEstimator(rpcConfig rpcclient.ConnConfig,
 
 	return &BtcdEstimator{
 		fallbackFeePerKW: fallBackFeeRate,
+		feeCache:         newFeeEstimateCache(),
 		btcdConn:         chainConn,
 		filterManager:    newFilterManager(fetchCb),
 	}, nil
@@ -246,22 +351,22 @@ func (b *BtcdEstimator) Stop() error {
 // EstimateFeePerKW takes in a target for the number of blocks until an initial
 // confirmation and returns the estimated fee expressed in sat/kw.
 //
+// The backend is queried on every call. A positive result replaces the cached
+// rate for this target. If the query fails, the last successful rate for the
+// same target is returned when one exists; the configured fallback is used
+// only when this target has never succeeded. A zero result is still floored to
+// the relay fee by fetchEstimate before it is cached.
+//
 // NOTE: This method is part of the Estimator interface.
-func (b *BtcdEstimator) EstimateFeePerKW(numBlocks uint32) (SatPerKWeight, error) {
+func (b *BtcdEstimator) EstimateFeePerKW(
+	numBlocks uint32) (SatPerKWeight, error) {
+
 	feeEstimate, err := b.fetchEstimate(numBlocks)
-	switch {
-	// If the estimator doesn't have enough data, or returns an error, then
-	// to return a proper value, then we'll return the default fall back
-	// fee rate.
-	case err != nil:
-		log.Errorf("unable to query estimator: %v", err)
-		fallthrough
 
-	case feeEstimate == 0:
-		return b.fallbackFeePerKW, nil
-	}
-
-	return feeEstimate, nil
+	return b.feeCache.useQueriedFee(
+		numBlocks, b.fallbackFeePerKW, feeEstimate, err,
+		b.RelayFeePerKW,
+	), nil
 }
 
 // RelayFeePerKW returns the minimum fee rate required for transactions to be
@@ -336,10 +441,15 @@ var _ Estimator = (*BtcdEstimator)(nil)
 // the RPC interface of an active bitcoind node. This implementation will proxy
 // any fee estimation requests to bitcoind's RPC interface.
 type BitcoindEstimator struct {
-	// fallbackFeePerKW is the fallback fee rate in sat/kw that is returned
-	// if the fee estimator does not yet have enough data to actually
-	// produce fee estimates.
+	// fallbackFeePerKW is returned when a query fails or is unusable and
+	// this target has never had a successful estimate.
 	fallbackFeePerKW SatPerKWeight
+
+	// feeCache is the last successful EstimateFeePerKW result for each
+	// confirmation target. Targets above MaxBlockTarget share the
+	// MaxBlockTarget entry. Entries are retained in memory for the life of
+	// the process; see feeEstimateCache.
+	feeCache *feeEstimateCache
 
 	// minFeeManager is used to keep track of the minimum fee, in sat/kw,
 	// that we should enforce. This will be used as the default fee rate
@@ -365,8 +475,9 @@ type BitcoindEstimator struct {
 // NewBitcoindEstimator creates a new BitcoindEstimator given a fully populated
 // rpc config that is able to successfully connect and authenticate with the
 // bitcoind node, and also a fall back fee rate. The fallback fee rate is used
-// in the occasion that the estimator has insufficient data, or returns zero
-// for a fee estimate.
+// when a query fails or is unusable and that confirmation target has never
+// had a successful estimate. Successful estimates are kept in memory for the
+// life of the process; see feeEstimateCache.
 func NewBitcoindEstimator(rpcConfig rpcclient.ConnConfig, feeMode string,
 	fallBackFeeRate SatPerKWeight) (*BitcoindEstimator, error) {
 
@@ -385,6 +496,7 @@ func NewBitcoindEstimator(rpcConfig rpcclient.ConnConfig, feeMode string,
 
 	return &BitcoindEstimator{
 		fallbackFeePerKW: fallBackFeeRate,
+		feeCache:         newFeeEstimateCache(),
 		bitcoindConn:     chainConn,
 		feeMode:          feeMode,
 		filterManager:    newFilterManager(fetchCb),
@@ -454,10 +566,20 @@ func (b *BitcoindEstimator) Stop() error {
 // EstimateFeePerKW takes in a target for the number of blocks until an initial
 // confirmation and returns the estimated fee expressed in sat/kw.
 //
+// The backend is queried on every call. A positive result replaces the cached
+// rate for this target. If the query fails or yields an unusable rate (such as
+// Bitcoin Core omitting the feerate), the last successful rate for the same
+// effective target is returned when one exists; the configured fallback is
+// used only when this target has never succeeded. Targets above MaxBlockTarget
+// are normalized before the query and the cache lookup, so they share
+// MaxBlockTarget's entry.
+//
 // NOTE: This method is part of the Estimator interface.
 func (b *BitcoindEstimator) EstimateFeePerKW(
 	numBlocks uint32) (SatPerKWeight, error) {
 
+	// Clamp before the backend query and the cache lookup so every target
+	// above MaxBlockTarget shares one normalized cache entry.
 	if numBlocks > MaxBlockTarget {
 		log.Debugf("conf target %d exceeds the max value, "+
 			"use %d instead.", numBlocks, MaxBlockTarget,
@@ -466,19 +588,11 @@ func (b *BitcoindEstimator) EstimateFeePerKW(
 	}
 
 	feeEstimate, err := b.fetchEstimate(numBlocks, b.feeMode)
-	switch {
-	// If the estimator doesn't have enough data, or returns an error, then
-	// to return a proper value, then we'll return the default fall back
-	// fee rate.
-	case err != nil:
-		log.Errorf("unable to query estimator: %v", err)
-		fallthrough
 
-	case feeEstimate == 0:
-		return b.fallbackFeePerKW, nil
-	}
-
-	return feeEstimate, nil
+	return b.feeCache.useQueriedFee(
+		numBlocks, b.fallbackFeePerKW, feeEstimate, err,
+		b.RelayFeePerKW,
+	), nil
 }
 
 // RelayFeePerKW returns the minimum fee rate required for transactions to be

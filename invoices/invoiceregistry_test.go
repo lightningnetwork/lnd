@@ -544,6 +544,10 @@ func TestInvoiceRegistry(t *testing.T) {
 			name: "ProcessingErrors",
 			test: testInvoiceRegistryProcessingErrors,
 		},
+		{
+			name: "LookupAMPHtlcPreimage",
+			test: testLookupAMPHtlcPreimage,
+		},
 	}
 
 	makeKeyValueDB := func(t *testing.T) (invpkg.InvoiceDB,
@@ -613,6 +617,97 @@ func TestInvoiceRegistry(t *testing.T) {
 				})
 		})
 	}
+}
+
+// testLookupAMPHtlcPreimage asserts that the child preimage of an AMP HTLC
+// can be looked up by its set ID and hash once, and only once, the HTLC is
+// settled.
+func testLookupAMPHtlcPreimage(t *testing.T,
+	makeDB func(t *testing.T) (invpkg.InvoiceDB, *clock.TestClock)) {
+
+	t.Parallel()
+	defer timeout()()
+
+	cfg := defaultRegistryConfig()
+	cfg.AcceptAMP = true
+	ctx := newTestContext(t, &cfg, makeDB)
+	ctxb := t.Context()
+
+	const (
+		totalAmt = lnwire.MilliSatoshi(360)
+		expiry   = uint32(testCurrentHeight + 20)
+	)
+
+	var payAddr, setID, otherSetID [32]byte
+	_, err := rand.Read(payAddr[:])
+	require.NoError(t, err)
+	_, err = rand.Read(setID[:])
+	require.NoError(t, err)
+	_, err = rand.Read(otherSetID[:])
+	require.NoError(t, err)
+
+	sharer, err := amp.NewSeedSharer()
+	require.NoError(t, err)
+	left, right, err := sharer.Split()
+	require.NoError(t, err)
+	children := []*amp.Child{left.Child(0), right.Child(1)}
+
+	notify := func(i int) invpkg.HtlcResolution {
+		payload := &mockPayload{
+			mpp: record.NewMPP(totalAmt, payAddr),
+			amp: record.NewAMP(children[i].Share, setID, uint32(i)),
+		}
+
+		resolution, err := ctx.registry.NotifyExitHopHtlc(
+			children[i].Hash, totalAmt/2, expiry,
+			testCurrentHeight, getCircuitKey(uint64(i)),
+			make(chan interface{}, 1), nil, payload,
+		)
+		require.NoError(t, err)
+
+		return resolution
+	}
+
+	// Before any HTLC arrived, the set is unknown.
+	_, ok, err := ctx.registry.LookupAMPHtlcPreimage(
+		ctxb, setID, children[0].Hash,
+	)
+	require.NoError(t, err)
+	require.False(t, ok)
+
+	// The first shard is only accepted, so its preimage must not be
+	// exposed yet.
+	require.Nil(t, notify(0))
+	_, ok, err = ctx.registry.LookupAMPHtlcPreimage(
+		ctxb, setID, children[0].Hash,
+	)
+	require.NoError(t, err)
+	require.False(t, ok)
+
+	// The second shard completes and settles the set. Both child
+	// preimages are now available.
+	checkSettleResolution(t, notify(1), children[1].Preimage)
+	for _, child := range children {
+		preimage, ok, err := ctx.registry.LookupAMPHtlcPreimage(
+			ctxb, setID, child.Hash,
+		)
+		require.NoError(t, err)
+		require.True(t, ok)
+		require.Equal(t, child.Preimage, preimage)
+	}
+
+	// A hash that isn't part of the set, or a set that doesn't exist,
+	// yields no preimage.
+	_, ok, err = ctx.registry.LookupAMPHtlcPreimage(
+		ctxb, setID, lntypes.Hash{1},
+	)
+	require.NoError(t, err)
+	require.False(t, ok)
+	_, ok, err = ctx.registry.LookupAMPHtlcPreimage(
+		ctxb, otherSetID, children[0].Hash,
+	)
+	require.NoError(t, err)
+	require.False(t, ok)
 }
 
 // testSettleInvoice tests settling of an invoice and related notifications.

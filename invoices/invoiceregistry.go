@@ -636,6 +636,50 @@ func (i *InvoiceRegistry) LookupInvoiceByRef(ctx context.Context,
 	return i.idb.LookupInvoice(ctx, ref)
 }
 
+// LookupAMPHtlcPreimage returns the child preimage of a settled AMP HTLC that
+// pays to the given hash within the given set. AMP invoices don't carry an
+// invoice-level preimage, so this is the only way for on-chain resolution to
+// learn a child preimage that was already revealed off-chain. Unlike
+// NotifyExitHopHtlc, this is a pure read without any side effects on the
+// invoice. False is returned if no matching settled HTLC is found.
+func (i *InvoiceRegistry) LookupAMPHtlcPreimage(ctx context.Context,
+	setID [32]byte, hash lntypes.Hash) (lntypes.Preimage, bool, error) {
+
+	invoice, err := i.idb.LookupInvoice(
+		ctx, InvoiceRefBySetIDFiltered(setID),
+	)
+	switch {
+	case errors.Is(err, ErrInvoiceNotFound) ||
+		errors.Is(err, ErrNoInvoicesCreated):
+
+		return lntypes.Preimage{}, false, nil
+
+	case err != nil:
+		return lntypes.Preimage{}, false, err
+	}
+
+	settled := invoice.HTLCSet(&setID, HtlcStateSettled)
+	for _, htlc := range settled {
+		if htlc.AMP == nil || htlc.AMP.Hash != hash {
+			continue
+		}
+
+		if htlc.AMP.Preimage == nil {
+			return lntypes.Preimage{}, false, ErrHTLCPreimageMissing
+		}
+
+		preimage := *htlc.AMP.Preimage
+		if !preimage.Matches(hash) {
+			return lntypes.Preimage{}, false,
+				ErrHTLCPreimageMismatch
+		}
+
+		return preimage, true, nil
+	}
+
+	return lntypes.Preimage{}, false, nil
+}
+
 // startHtlcTimer starts a new timer via the invoice registry main loop that
 // cancels a single htlc on an invoice when the htlc hold duration has passed.
 func (i *InvoiceRegistry) startHtlcTimer(invoiceRef InvoiceRef,

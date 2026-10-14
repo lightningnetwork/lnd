@@ -605,6 +605,142 @@ func TestLinkFailureNotifiesLocalCloseRequest(t *testing.T) {
 	require.False(t, closerFound)
 }
 
+// TestRetireChanCloserReleasesRbfResources releases the machine and router
+// endpoint.
+func TestRetireChanCloserReleasesRbfResources(t *testing.T) {
+	t.Parallel()
+
+	harness, err := createTestPeerWithChannel(t, noUpdate)
+	require.NoError(t, err)
+
+	var (
+		alicePeer = harness.peer
+		bobChan   = harness.channel
+	)
+
+	chanPoint := bobChan.ChannelPoint()
+	chanID := lnwire.NewChanIDFromOutPoint(chanPoint)
+	useTestCloseRouter(t, alicePeer)
+	rbfCloser := initTestRbfCloser(t, alicePeer, bobChan)
+	require.True(t, rbfCloser.IsRunning())
+	alicePeer.activeChanCloses.Store(chanID, makeRbfCloser(rbfCloser))
+
+	alicePeer.deleteActiveChanCloser(chanID, chanPoint)
+	_, found := alicePeer.activeChanCloses.Load(chanID)
+	require.False(t, found)
+	closeMsg := msgmux.PeerMsg{
+		PeerPub: *alicePeer.IdentityKey(),
+		Message: lnwire.NewShutdown(chanID, genScript(t, p2wshAddress)),
+	}
+	err = wait.Predicate(func() bool {
+		return errors.Is(
+			routeMsg(t, alicePeer, closeMsg),
+			msgmux.ErrUnableToRouteMsg,
+		)
+	}, timeout)
+	require.NoError(t, err)
+	err = wait.NoError(func() error {
+		if rbfCloser.IsRunning() {
+			return fmt.Errorf("rbf closer still running")
+		}
+
+		return nil
+	}, timeout)
+	require.NoError(t, err)
+}
+
+// initTestRbfCloser constructs the production RBF closer with negotiated
+// features.
+func initTestRbfCloser(t *testing.T, p *Brontide,
+	channel *lnwallet.LightningChannel) *chancloser.RbfChanCloser {
+
+	rbfBits := lnwire.NewRawFeatureVector(lnwire.RbfCoopCloseOptional)
+	p.cfg.Features = lnwire.NewFeatureVector(rbfBits, lnwire.Features)
+	p.remoteFeatures = lnwire.NewFeatureVector(rbfBits, lnwire.Features)
+	require.True(t, p.rbfCoopCloseAllowed(channel.ChanType()))
+
+	closer, err := p.initRbfChanCloser(channel)
+	require.NoError(t, err)
+	require.NotNil(t, closer)
+
+	return closer
+}
+
+// routeMsg routes a message through the peer endpoint registry.
+func routeMsg(t *testing.T, p *Brontide, msg msgmux.PeerMsg) error {
+	t.Helper()
+
+	var err error
+	p.msgRouter.WhenSome(func(r msgmux.Router) {
+		err = r.RouteMsg(msg)
+	})
+
+	return err
+}
+
+// TestRetireChanCloserIsIdempotent supports cooperative-close tests.
+func TestRetireChanCloserIsIdempotent(t *testing.T) {
+	t.Parallel()
+
+	harness, err := createTestPeerWithChannel(t, noUpdate)
+	require.NoError(t, err)
+
+	alicePeer := harness.peer
+	chanPoint := harness.channel.ChannelPoint()
+	chanID := lnwire.NewChanIDFromOutPoint(chanPoint)
+	closeReq := newTestCloseRequest(&chanPoint, 1)
+	alicePeer.activeCloseReqs.add(chanID, closeReq)
+
+	alicePeer.deleteActiveChanCloser(chanID, chanPoint)
+	alicePeer.deleteActiveChanCloser(chanID, chanPoint)
+
+	select {
+	case err := <-closeReq.Err:
+		require.ErrorIs(t, err, ErrCoopCloseAbortedByLinkFailure)
+
+	case <-time.After(timeout):
+		t.Fatal("caller was not told the close ended")
+	}
+	select {
+	case err := <-closeReq.Err:
+		t.Fatalf("caller was told twice: %v", err)
+
+	case <-time.After(shortTimeout):
+	}
+}
+
+// TestCloseReqClaimedExactlyOnce supports cooperative-close tests.
+func TestCloseReqClaimedExactlyOnce(t *testing.T) {
+	t.Parallel()
+
+	harness, err := createTestPeerWithChannel(t, noUpdate)
+	require.NoError(t, err)
+
+	alicePeer := harness.peer
+	chanPoint := harness.channel.ChannelPoint()
+	chanID := lnwire.NewChanIDFromOutPoint(chanPoint)
+
+	closeReq := newTestCloseRequest(&chanPoint, 1)
+	alicePeer.activeCloseReqs.add(chanID, closeReq)
+	alicePeer.deleteActiveChanCloser(chanID, chanPoint)
+	require.Nil(t, alicePeer.activeCloseReqs.peek(chanID))
+
+	select {
+	case err := <-closeReq.Err:
+		require.ErrorIs(t, err, ErrCoopCloseAbortedByLinkFailure)
+
+	case <-time.After(timeout):
+		t.Fatal("retirement did not tell the caller the close ended")
+	}
+
+	select {
+	case update := <-closeReq.Updates:
+		t.Fatalf("close reported a second outcome: %v", update)
+
+	case <-time.After(shortTimeout):
+	}
+}
+
 // TestPeerChannelClosureAcceptFeeInitiator tests the shutdown initiator's
 // behavior if we can agree on the fee immediately.
 func TestPeerChannelClosureAcceptFeeInitiator(t *testing.T) {
@@ -3445,4 +3581,14 @@ func newTestCloseRequest(point *wire.OutPoint,
 		Updates:   make(chan interface{}, buffer),
 		Err:       make(chan error, 1),
 	}
+}
+
+// useTestCloseRouter installs a shared router and arranges its cleanup.
+func useTestCloseRouter(t *testing.T, p *Brontide) {
+	t.Helper()
+	router := msgmux.NewMultiMsgRouter()
+	router.Start(t.Context())
+	t.Cleanup(router.Stop)
+	p.msgRouter = fn.Some[msgmux.Router](router)
+	p.globalMsgRouter = true
 }

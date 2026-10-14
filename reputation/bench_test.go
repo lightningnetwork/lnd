@@ -1,6 +1,8 @@
 package reputation
 
 import (
+	"fmt"
+	"math/rand"
 	"testing"
 	"time"
 
@@ -72,5 +74,53 @@ func BenchmarkDecayingAverageAdd(b *testing.B) {
 	for i := range b.N {
 		ts := testStart.Add(time.Duration(i) * time.Second)
 		d.add(1000, ts)
+	}
+}
+
+// BenchmarkForwardResolveManyChannels is BenchmarkForwardResolve on a node
+// with many channels: each forward picks a pseudo-random (incoming, outgoing)
+// pair out of numChannels, so the per-channel map and the HTLC index are
+// populated rather than holding a single entry. The per-HTLC cost should stay
+// flat as the channel count grows.
+func BenchmarkForwardResolveManyChannels(b *testing.B) {
+	for _, numChannels := range []uint64{10, 100, 1000} {
+		name := fmt.Sprintf("channels=%d", numChannels)
+		b.Run(name, func(b *testing.B) {
+			m, err := NewManager(
+				DefaultConfig(),
+				clock.NewTestClock(time.Unix(1_000_000, 0)),
+			)
+			if err != nil {
+				b.Fatalf("NewManager: %v", err)
+			}
+
+			rng := rand.New(rand.NewSource(1))
+
+			// Warm every channel up so the maps are fully populated
+			// before timing starts.
+			for c := uint64(1); c <= numChannels; c++ {
+				in := circuit(c, 0)
+				m.OnForward(
+					in, chanID(c), chanID(c%numChannels+1),
+					2000, 1000, 1000, 200, 100, false,
+				)
+				m.OnSettle(in)
+			}
+
+			b.ReportAllocs()
+			b.ResetTimer()
+			n := int64(numChannels)
+			for i := range b.N {
+				inChan := uint64(rng.Int63n(n)) + 1
+				outChan := uint64(rng.Int63n(n)) + 1
+
+				in := circuit(inChan, uint64(i))
+				m.OnForward(
+					in, chanID(inChan), chanID(outChan),
+					2000, 1000, 1000, 200, 100, false,
+				)
+				m.OnSettle(in)
+			}
+		})
 	}
 }

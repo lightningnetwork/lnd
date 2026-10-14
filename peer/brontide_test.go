@@ -3,6 +3,7 @@ package peer
 import (
 	"bytes"
 	"context"
+	"errors"
 	"fmt"
 	"net"
 	"sync/atomic"
@@ -19,6 +20,7 @@ import (
 	"github.com/lightningnetwork/lnd/contractcourt"
 	"github.com/lightningnetwork/lnd/fn/v2"
 	"github.com/lightningnetwork/lnd/htlcswitch"
+	"github.com/lightningnetwork/lnd/input"
 	"github.com/lightningnetwork/lnd/lnpeer"
 	"github.com/lightningnetwork/lnd/lntest/wait"
 	"github.com/lightningnetwork/lnd/lnwallet"
@@ -80,6 +82,63 @@ func TestPeerChannelClosureShutdownResponseLinkRemoved(t *testing.T) {
 	}
 
 	require.NotEqualValues(t, shutdownMsg.Address, dummyDeliveryScript)
+}
+
+// TestPeerChannelClosureRejectsDirtyChannelWithoutLink rejects dirty channels
+// without a link.
+func TestPeerChannelClosureRejectsDirtyChannelWithoutLink(t *testing.T) {
+	addHtlc := func(a, b *chanstate.OpenChannel) {
+		aliceCommit := a.LocalCommitment
+		aliceCommit.Htlcs = []chanstate.HTLC{{
+			Amt:           1_000_000,
+			RefundTimeout: 1000,
+			OutputIndex:   2,
+			Incoming:      false,
+		}}
+		a.LocalCommitment = aliceCommit
+		a.RemoteCommitment = aliceCommit
+
+		bobCommit := b.LocalCommitment
+		bobCommit.Htlcs = []chanstate.HTLC{{
+			Amt:           1_000_000,
+			RefundTimeout: 1000,
+			OutputIndex:   2,
+			Incoming:      true,
+		}}
+		b.LocalCommitment = bobCommit
+		b.RemoteCommitment = bobCommit
+	}
+
+	harness, err := createTestPeerWithChannel(t, addHtlc)
+	require.NoError(t, err)
+
+	peer := harness.peer
+	chanPoint := harness.channel.ChannelPoint()
+	chanID := lnwire.NewChanIDFromOutPoint(chanPoint)
+	require.Empty(t, harness.mockSwitch.links)
+
+	peer.chanCloseMsgs <- &closeMsg{
+		cid: chanID,
+		msg: lnwire.NewShutdown(
+			chanID, genScript(t, p2wshAddress),
+		),
+	}
+
+	select {
+	case <-peer.cg.Done():
+	case <-time.After(timeout):
+		t.Fatal("peer accepted a dirty channel without a link")
+	}
+
+	_, found := peer.activeChanCloses.Load(chanID)
+	require.False(t, found)
+
+	select {
+	case out := <-peer.outgoingQueue:
+		t.Fatalf("unexpected close message: %T", out.msg)
+
+	case <-time.After(shortTimeout):
+	}
 }
 
 // TestPeerChannelClosureAcceptFeeResponder tests the shutdown responder's
@@ -309,6 +368,160 @@ func TestPeerChannelClosureFlushDrivesNegotiation(t *testing.T) {
 	notifier.ConfChan <- &chainntnfs.TxConfirmation{}
 }
 
+// TestLinkFailureRetiresRestoredLegacyCloser retires a restored closer after
+// link failure.
+func TestLinkFailureRetiresRestoredLegacyCloser(t *testing.T) {
+	const htlcAmt = btcutil.Amount(1_000_000)
+	htlcMsat := lnwire.NewMSatFromSatoshis(htlcAmt)
+
+	addHtlc := func(a, b *chanstate.OpenChannel) {
+		commitFee := lnwire.NewMSatFromSatoshis(
+			a.LocalCommitment.CommitFee,
+		)
+
+		aliceCommit := a.LocalCommitment
+		aliceCommit.LocalBalance -= htlcMsat + commitFee
+		aliceCommit.LocalHtlcIndex = 1
+		aliceCommit.LocalLogIndex = 1
+		aliceCommit.Htlcs = []chanstate.HTLC{{
+			Amt:           htlcMsat,
+			RefundTimeout: 1000,
+			OutputIndex:   2,
+			Incoming:      false,
+		}}
+		a.LocalCommitment = aliceCommit
+		a.RemoteCommitment = aliceCommit
+
+		bobCommit := b.LocalCommitment
+		bobCommit.RemoteBalance -= htlcMsat + commitFee
+		bobCommit.RemoteHtlcIndex = 1
+		bobCommit.RemoteLogIndex = 1
+		bobCommit.Htlcs = []chanstate.HTLC{{
+			Amt:           htlcMsat,
+			RefundTimeout: 1000,
+			OutputIndex:   2,
+			Incoming:      true,
+		}}
+		b.LocalCommitment = bobCommit
+		b.RemoteCommitment = bobCommit
+	}
+
+	harness, err := createTestPeerWithChannel(t, addHtlc)
+	require.NoError(t, err)
+
+	firstPeer := harness.peer
+	chanPoint := harness.channel.ChannelPoint()
+	chanID := lnwire.NewChanIDFromOutPoint(chanPoint)
+	firstLink := newDeferredFlushUpdateHandler(chanID)
+	harness.mockSwitch.links = append(harness.mockSwitch.links, firstLink)
+	closeReq := newTestCloseRequest(&chanPoint, 1)
+	closeReq.CloseType = contractcourt.CloseRegular
+	closeReq.TargetFeePerKw = 12500
+	firstPeer.localCloseChanReqs <- closeReq
+
+	select {
+	case out := <-firstPeer.outgoingQueue:
+		_, ok := out.msg.(*lnwire.Shutdown)
+		require.True(t, ok, "expected Shutdown, got %T", out.msg)
+
+	case <-time.After(timeout):
+		t.Fatal("initial peer did not send Shutdown")
+	}
+
+	firstPeer.Disconnect(errors.New("test reconnect"))
+	firstPeer.cg.WgWait()
+	dbChans, err := firstPeer.cfg.ChannelDB.FetchOpenChannels(
+		firstPeer.cfg.Addr.IdentityKey,
+	)
+	require.NoError(t, err)
+	require.Len(t, dbChans, 1)
+	require.NotNil(t, harness.privKey)
+
+	signer := input.NewMockSigner(
+		[]*btcec.PrivateKey{harness.privKey}, nil,
+	)
+	sigPool := lnwallet.NewSigPool(1, signer)
+	require.NoError(t, sigPool.Start())
+	t.Cleanup(func() {
+		require.NoError(t, sigPool.Stop())
+	})
+
+	restoredChan, err := lnwallet.NewLightningChannel(
+		signer, dbChans[0], sigPool,
+		lnwallet.WithLeafStore(&lnwallet.MockAuxLeafStore{}),
+		lnwallet.WithAuxSigner(lnwallet.NewAuxSignerMock(
+			lnwallet.EmptyMockJobHandler,
+		)),
+	)
+	require.NoError(t, err)
+	require.Len(t, restoredChan.ActiveHtlcs(), 1)
+
+	reconnectedPeer := NewBrontide(firstPeer.cfg)
+	reconnectedPeer.remoteFeatures = lnwire.EmptyFeatureVector()
+	reconnectedPeer.storeActiveChannel(chanID, restoredChan)
+
+	restoredShutdown, err := reconnectedPeer.restartCoopClose(restoredChan)
+	require.NoError(t, err)
+	require.NotNil(t, restoredShutdown)
+	_, ok := reconnectedPeer.activeChanCloses.Load(chanID)
+	require.True(t, ok, "legacy closer was not restored")
+
+	reconnectedLink := newDeferredFlushUpdateHandler(chanID)
+	harness.mockSwitch.links = []htlcswitch.ChannelUpdateHandler{
+		reconnectedLink,
+	}
+
+	reconnectedPeer.cg.WgAdd(1)
+	go reconnectedPeer.channelManager()
+	t.Cleanup(func() {
+		reconnectedPeer.Disconnect(errors.New("test complete"))
+		reconnectedPeer.cg.WgWait()
+	})
+	reconnectedPeer.linkFailures <- linkFailureReport{
+		chanPoint: chanPoint,
+		chanID:    chanID,
+		linkErr: htlcswitch.LinkFailureError{
+			FailureAction: htlcswitch.LinkFailureForceNone,
+		},
+	}
+
+	select {
+	case out := <-reconnectedPeer.outgoingQueue:
+		_, ok := out.msg.(*lnwire.Error)
+		require.True(t, ok, "expected Error, got %T", out.msg)
+		out.errChan <- nil
+
+	case <-time.After(timeout):
+		t.Fatal("peer did not report the link failure")
+	}
+
+	_, channelFound := reconnectedPeer.activeChannels.Load(chanID)
+	require.False(t, channelFound)
+	_, closerFound := reconnectedPeer.activeChanCloses.Load(chanID)
+	require.False(t, closerFound)
+	harness.mockSwitch.links = nil
+	reconnectedPeer.chanCloseMsgs <- &closeMsg{
+		cid: chanID,
+		msg: lnwire.NewShutdown(
+			chanID, genScript(t, p2wshAddress),
+		),
+	}
+
+	select {
+	case out := <-reconnectedPeer.outgoingQueue:
+		t.Fatalf("stale closer handled Shutdown: %T", out.msg)
+
+	case <-time.After(shortTimeout):
+	}
+
+	select {
+	case tx := <-harness.publishTx:
+		t.Fatalf("unexpected cooperative close broadcast: %v", tx)
+
+	case <-time.After(shortTimeout):
+	}
+}
+
 // TestPeerChannelClosureAcceptFeeInitiator tests the shutdown initiator's
 // behavior if we can agree on the fee immediately.
 func TestPeerChannelClosureAcceptFeeInitiator(t *testing.T) {
@@ -425,7 +638,8 @@ func TestPeerChannelClosureAcceptFeeInitiator(t *testing.T) {
 			bobFee, closingSignedMsg.FeeSatoshis)
 	}
 
-	// Alice should be waiting on a single confirmation for the coop close tx.
+	// Alice should be waiting on a single confirmation for the coop
+	// close tx.
 	notifier.ConfChan <- &chainntnfs.TxConfirmation{}
 }
 
@@ -609,7 +823,8 @@ func TestPeerChannelClosureFeeNegotiationsResponder(t *testing.T) {
 		t.Fatalf("expected to receive closing signed message, got %T", msg)
 	}
 
-	// Alice should be waiting on a single confirmation for the coop close tx.
+	// Alice should be waiting on a single confirmation for the coop
+	// close tx.
 	notifier.ConfChan <- &chainntnfs.TxConfirmation{}
 }
 
@@ -805,7 +1020,8 @@ func TestPeerChannelClosureFeeNegotiationsInitiator(t *testing.T) {
 		t.Fatalf("expected to receive closing signed message, got %T", msg)
 	}
 
-	// Alice should be waiting on a single confirmation for the coop close tx.
+	// Alice should be waiting on a single confirmation for the coop
+	// close tx.
 	notifier.ConfChan <- &chainntnfs.TxConfirmation{}
 }
 
@@ -2662,3 +2878,397 @@ func TestRemovePendingChannel(t *testing.T) {
 
 	require.NoError(t, err)
 }
+<<<<<<< HEAD
+=======
+
+// mockAuxTrafficShaper is a mock implementation of htlcswitch.AuxTrafficShaper
+// for testing the createHtlcValidator function.
+type mockAuxTrafficShaper struct {
+	mock.Mock
+}
+
+// ShouldHandleTraffic returns the configured mock values.
+func (m *mockAuxTrafficShaper) ShouldHandleTraffic(
+	cid lnwire.ShortChannelID,
+	fundingBlob, htlcBlob fn.Option[tlv.Blob]) (bool, error) {
+
+	args := m.Called(cid, fundingBlob, htlcBlob)
+	return args.Bool(0), args.Error(1)
+}
+
+// PaymentBandwidth returns the configured mock values.
+func (m *mockAuxTrafficShaper) PaymentBandwidth(fundingBlob, htlcBlob,
+	commitmentBlob fn.Option[tlv.Blob], linkBandwidth,
+	htlcAmt lnwire.MilliSatoshi, htlcView lnwallet.AuxHtlcView,
+	peer route.Vertex) (lnwire.MilliSatoshi, error) {
+
+	args := m.Called(
+		fundingBlob, htlcBlob, commitmentBlob, linkBandwidth,
+		htlcAmt, htlcView, peer,
+	)
+
+	bw, _ := args.Get(0).(lnwire.MilliSatoshi)
+
+	return bw, args.Error(1)
+}
+
+// ProduceHtlcExtraData is part of the AuxTrafficShaper interface.
+func (m *mockAuxTrafficShaper) ProduceHtlcExtraData(
+	totalAmount lnwire.MilliSatoshi,
+	htlcCustomRecords lnwire.CustomRecords,
+	peer route.Vertex) (lnwire.MilliSatoshi, lnwire.CustomRecords,
+	error) {
+
+	args := m.Called(totalAmount, htlcCustomRecords, peer)
+
+	amt, _ := args.Get(0).(lnwire.MilliSatoshi)
+	records, _ := args.Get(1).(lnwire.CustomRecords)
+
+	return amt, records, args.Error(2)
+}
+
+// IsCustomHTLC is part of the AuxTrafficShaper interface.
+func (m *mockAuxTrafficShaper) IsCustomHTLC(
+	htlcRecords lnwire.CustomRecords) bool {
+
+	args := m.Called(htlcRecords)
+	return args.Bool(0)
+}
+
+// Compile-time check that mockAuxTrafficShaper implements AuxTrafficShaper.
+var _ htlcswitch.AuxTrafficShaper = (*mockAuxTrafficShaper)(nil)
+
+// TestCreateHtlcValidator tests that the HTLC validator created by
+// createHtlcValidator respects the ShouldHandleTraffic check. When
+// ShouldHandleTraffic returns false, the validator should return nil without
+// calling PaymentBandwidth.
+func TestCreateHtlcValidator(t *testing.T) {
+	t.Parallel()
+
+	// Create a minimal Brontide with just the identity key set.
+	privKey, err := btcec.NewPrivateKey()
+	require.NoError(t, err)
+
+	peer := &Brontide{
+		cfg: Config{
+			Addr: &lnwire.NetAddress{
+				IdentityKey: privKey.PubKey(),
+			},
+		},
+	}
+
+	// Create a mock channel with minimal required fields.
+	dbChan := &chanstate.OpenChannel{
+		ShortChannelID: lnwire.NewShortChanIDFromInt(123),
+	}
+
+	anyArg := mock.Anything
+
+	testCases := []struct {
+		name        string
+		setupMock   func(*mockAuxTrafficShaper)
+		htlcAmount  lnwire.MilliSatoshi
+		linkBw      lnwire.MilliSatoshi
+		expectError bool
+	}{
+		{
+			name: "non-custom channel skips check",
+			setupMock: func(m *mockAuxTrafficShaper) {
+				m.On(
+					"ShouldHandleTraffic",
+					anyArg, anyArg, anyArg,
+				).Return(false, nil)
+			},
+			htlcAmount:  1000,
+			linkBw:      5000,
+			expectError: false,
+		},
+		{
+			name: "sufficient bandwidth",
+			setupMock: func(m *mockAuxTrafficShaper) {
+				m.On(
+					"ShouldHandleTraffic",
+					anyArg, anyArg, anyArg,
+				).Return(true, nil)
+				m.On(
+					"PaymentBandwidth",
+					anyArg, anyArg, anyArg,
+					anyArg, anyArg, anyArg,
+					anyArg,
+				).Return(
+					lnwire.MilliSatoshi(10000),
+					nil,
+				)
+			},
+			htlcAmount:  1000,
+			linkBw:      5000,
+			expectError: false,
+		},
+		{
+			name: "insufficient bandwidth",
+			setupMock: func(m *mockAuxTrafficShaper) {
+				m.On(
+					"ShouldHandleTraffic",
+					anyArg, anyArg, anyArg,
+				).Return(true, nil)
+				m.On(
+					"PaymentBandwidth",
+					anyArg, anyArg, anyArg,
+					anyArg, anyArg, anyArg,
+					anyArg,
+				).Return(
+					lnwire.MilliSatoshi(500),
+					nil,
+				)
+			},
+			htlcAmount:  1000,
+			linkBw:      5000,
+			expectError: true,
+		},
+		{
+			name: "ShouldHandleTraffic error",
+			setupMock: func(m *mockAuxTrafficShaper) {
+				m.On(
+					"ShouldHandleTraffic",
+					anyArg, anyArg, anyArg,
+				).Return(
+					false,
+					fmt.Errorf("shaper error"),
+				)
+			},
+			htlcAmount:  1000,
+			linkBw:      5000,
+			expectError: true,
+		},
+		{
+			name: "PaymentBandwidth error",
+			setupMock: func(m *mockAuxTrafficShaper) {
+				m.On(
+					"ShouldHandleTraffic",
+					anyArg, anyArg, anyArg,
+				).Return(true, nil)
+				m.On(
+					"PaymentBandwidth",
+					anyArg, anyArg, anyArg,
+					anyArg, anyArg, anyArg,
+					anyArg,
+				).Return(
+					lnwire.MilliSatoshi(0),
+					fmt.Errorf("bandwidth error"),
+				)
+			},
+			htlcAmount:  1000,
+			linkBw:      5000,
+			expectError: true,
+		},
+	}
+
+	for _, tc := range testCases {
+		t.Run(tc.name, func(t *testing.T) {
+			m := &mockAuxTrafficShaper{}
+			tc.setupMock(m)
+
+			validator := peer.createHtlcValidator(
+				dbChan, m,
+			)
+
+			err := validator.ValidateHtlc(
+				tc.htlcAmount, tc.linkBw,
+				nil, lnwallet.AuxHtlcView{},
+			)
+
+			if tc.expectError {
+				require.Error(t, err)
+			} else {
+				require.NoError(t, err)
+			}
+
+			m.AssertExpectations(t)
+		})
+	}
+}
+
+// TestHasActiveChannels exercises the atomic active-channel counter that
+// backs hasActiveChannels(). hasActiveChannels is on the hot path for
+// every incoming onion message — the onion message ingress gate calls
+// it per packet — so a correct, O(1) shadow of activeChannels is a
+// load-bearing invariant. This test walks the three state transitions
+// that have to keep numActiveChans in lockstep with activeChannels:
+// initial emptiness, pending entries (nil values) that must not count,
+// and pending-delete paths that must not decrement.
+func TestHasActiveChannels(t *testing.T) {
+	t.Parallel()
+
+	peer := NewBrontide(Config{})
+
+	// Initial state: no channels, counter is zero, gate is closed.
+	require.False(t, peer.hasActiveChannels())
+	require.Equal(t, int32(0), peer.numActiveChans.Load())
+
+	// Simulate the loadActiveChannels active-channel path: the entry
+	// is stored and the counter is incremented in lockstep. After
+	// this, hasActiveChannels must flip to true because the peer now
+	// holds a non-pending channel.
+	activeID := lnwire.ChannelID{0x01}
+	peer.activeChannels.Store(activeID, &lnwallet.LightningChannel{})
+	peer.numActiveChans.Add(1)
+	require.True(t, peer.hasActiveChannels())
+	require.Equal(t, int32(1), peer.numActiveChans.Load())
+
+	// Simulate the loadActiveChannels pending path: the entry is
+	// stored as nil and the counter must NOT move. This is the
+	// invariant the onion message gate relies on — pending channels
+	// are cheap to open and get stuck, so they must not satisfy the
+	// Sybil-resistance gate on their own.
+	pendingID := lnwire.ChannelID{0x02}
+	peer.activeChannels.Store(pendingID, nil)
+	require.Equal(t, int32(1), peer.numActiveChans.Load())
+	require.True(t, peer.hasActiveChannels())
+
+	// handleRemovePendingChannel walks the pending-delete path. It
+	// uses LoadAndDelete and must skip the counter decrement when
+	// the previous value was nil (pending). If this invariant ever
+	// broke, the counter would underflow every time a pending
+	// channel was cancelled and hasActiveChannels would return the
+	// wrong answer until the next reconnect.
+	errChan := make(chan error, 1)
+	peer.handleRemovePendingChannel(&newChannelMsg{
+		channelID: pendingID,
+		err:       errChan,
+	})
+	require.Equal(t, int32(1), peer.numActiveChans.Load())
+	require.True(t, peer.hasActiveChannels())
+
+	// The pending entry must have been removed from the map.
+	_, found := peer.activeChannels.Load(pendingID)
+	require.False(t, found)
+
+	// Drain the request error channel so the test leaves no loose
+	// ends. handleRemovePendingChannel closes the err chan via
+	// defer, so we expect a closed-channel receive here.
+	_, reqOk := <-errChan
+	require.False(t, reqOk)
+
+	// Finally, simulate WipeChannel's decrement path directly via
+	// LoadAndDelete. We cannot call WipeChannel in this
+	// dummy-config harness because it also calls
+	// p.cfg.Switch.RemoveLink, but the counter-maintenance half of
+	// WipeChannel is exactly the LoadAndDelete + conditional Add(-1)
+	// we exercise here.
+	prev, loaded := peer.activeChannels.LoadAndDelete(activeID)
+	require.True(t, loaded)
+	require.NotNil(t, prev)
+	peer.numActiveChans.Add(-1)
+
+	require.False(t, peer.hasActiveChannels())
+	require.Equal(t, int32(0), peer.numActiveChans.Load())
+}
+
+// TestRbfCoopCloseAllowed asserts that the per-channel RBF coop close
+// predicate excludes aux channels (channel types carrying a tapscript root)
+// even when both peers have negotiated the RBF coop close feature, while
+// permitting it for all other channel types.
+func TestRbfCoopCloseAllowed(t *testing.T) {
+	t.Parallel()
+
+	newPeer := func(local, remote *lnwire.RawFeatureVector) *Brontide {
+		return &Brontide{
+			cfg: Config{
+				Features: lnwire.NewFeatureVector(
+					local, lnwire.Features,
+				),
+			},
+			remoteFeatures: lnwire.NewFeatureVector(
+				remote, lnwire.Features,
+			),
+		}
+	}
+
+	var (
+		noBits = lnwire.NewRawFeatureVector()
+		rbfBit = lnwire.NewRawFeatureVector(
+			lnwire.RbfCoopCloseOptional,
+		)
+		stagingBit = lnwire.NewRawFeatureVector(
+			lnwire.RbfCoopCloseOptionalStaging,
+		)
+
+		overlayChan = chanstate.SimpleTaprootFeatureBit |
+			chanstate.TapscriptRootBit
+	)
+
+	tests := []struct {
+		name     string
+		peer     *Brontide
+		chanType chanstate.ChannelType
+		allowed  bool
+	}{
+		{
+			name:     "both signal, plain channel",
+			peer:     newPeer(rbfBit, rbfBit),
+			chanType: chanstate.SingleFunderTweaklessBit,
+			allowed:  true,
+		},
+		{
+			name:     "both signal staging, plain channel",
+			peer:     newPeer(stagingBit, stagingBit),
+			chanType: chanstate.SingleFunderTweaklessBit,
+			allowed:  true,
+		},
+		{
+			name:     "both signal, simple taproot channel",
+			peer:     newPeer(rbfBit, rbfBit),
+			chanType: chanstate.SimpleTaprootFeatureBit,
+			allowed:  true,
+		},
+		{
+			name:     "both signal, aux (overlay) channel",
+			peer:     newPeer(rbfBit, rbfBit),
+			chanType: overlayChan,
+			allowed:  false,
+		},
+		{
+			name:     "both signal staging, aux (overlay) channel",
+			peer:     newPeer(stagingBit, stagingBit),
+			chanType: overlayChan,
+			allowed:  false,
+		},
+		{
+			name:     "only local signals, plain channel",
+			peer:     newPeer(rbfBit, noBits),
+			chanType: chanstate.SingleFunderTweaklessBit,
+			allowed:  false,
+		},
+		{
+			name:     "neither signals, aux (overlay) channel",
+			peer:     newPeer(noBits, noBits),
+			chanType: overlayChan,
+			allowed:  false,
+		},
+	}
+
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			t.Parallel()
+
+			require.Equal(
+				t, test.allowed,
+				test.peer.rbfCoopCloseAllowed(
+					test.chanType,
+				),
+			)
+		})
+	}
+}
+
+// newTestCloseRequest allocates the channels used by a close caller.
+func newTestCloseRequest(point *wire.OutPoint,
+	buffer int) *htlcswitch.ChanClose {
+
+	return &htlcswitch.ChanClose{
+		ChanPoint: point,
+		Updates:   make(chan interface{}, buffer),
+		Err:       make(chan error, 1),
+	}
+}
+>>>>>>> 9b7a98284 (peer: retire closers when wiping channels)

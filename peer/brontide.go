@@ -104,6 +104,25 @@ var (
 	// is pending.
 	ErrChannelNotFound = fmt.Errorf("channel not found")
 
+	// ErrCoopCloseAbortedByLinkFailure is delivered to a locally initiated
+	// cooperative close whose closer was retired because the channel's
+	// link failed. The closer is the only writer of the request's error
+	// channel, so retiring it without this notification would leave the
+	// caller waiting for an update that can never arrive.
+	ErrCoopCloseAbortedByLinkFailure = errors.New(
+		"cooperative close aborted by link failure",
+	)
+
+	// ErrCoopCloseAbortedByBreach is delivered to a locally initiated
+	// cooperative close whose channel turned out to be breached rather
+	// than closed cooperatively. It is kept apart from the link-failure
+	// sentinel because a breach is a terminal channel event rather than
+	// a transient failure, so a caller which read one as the other would
+	// be wrong to retry.
+	ErrCoopCloseAbortedByBreach = errors.New(
+		"cooperative close aborted by channel breach",
+	)
+
 	// errPingFlood gives every flood-teardown path one stable identity. The
 	// peer still records the descriptive text, while callers and tests can
 	// match wrapped instances without depending on that text.
@@ -1688,6 +1707,51 @@ func (p *Brontide) Disconnect(reason error) {
 // String returns the string representation of this peer.
 func (p *Brontide) String() string {
 	return fmt.Sprintf("%x@%s", p.cfg.PubKeyBytes, p.cfg.Conn.RemoteAddr())
+}
+
+// notifyActiveChanCloserOfLinkFailure reports a terminal error to a locally
+// initiated legacy cooperative close that is about to be retired, so its
+// caller learns the close will never complete instead of waiting on a request
+// that nobody is left to answer.
+//
+// Only a closer we initiated carries a close request, so a responder or a
+// restored closer is left alone. So is the RBF closer, whose caller is
+// answered by its state machine rather than by the request, and whose own
+// terminal-error reporting this helper does not attempt to replace.
+//
+// NOTE: MUST be called from the channelManager goroutine.
+func (p *Brontide) notifyActiveChanCloserOfLinkFailure(
+	chanID lnwire.ChannelID) {
+
+	chanCloserE, found := p.activeChanCloses.Load(chanID)
+	if !found {
+		return
+	}
+
+	chanCloserE.WhenLeft(func(chanCloser *chancloser.ChanCloser) {
+		// Only the initiator of the legacy flow owns a close request,
+		// so a responder or a restored closer has nothing to notify.
+		closeReq := chanCloser.CloseRequest()
+		if closeReq == nil {
+			return
+		}
+
+		// Clear the channel's closing flag, which the shutdown marked.
+		// It gates the legacy close on the channel, so leaving it set
+		// would make any later attempt to close this channel fail as
+		// already closing. The other teardown paths of this negotiation
+		// reset it for the same reason.
+		chanCloser.Channel().ResetState()
+
+		// The request already owns the slot it reads from, so this send
+		// never blocks on the caller. Escaping on the peer's teardown
+		// keeps a caller that has gone away from stranding the channel
+		// manager here.
+		select {
+		case closeReq.Err <- ErrCoopCloseAbortedByLinkFailure:
+		case <-p.cg.Done():
+		}
+	})
 }
 
 // readNextMessage reads, and returns the next message on the wire along with
@@ -4386,6 +4450,12 @@ func (p *Brontide) handleLinkFailure(failure linkFailureReport) {
 	// have access to it even after WipeChannel remove it from the map.
 	chanID := lnwire.NewChanIDFromOutPoint(failure.chanPoint)
 	lnChan, _ := p.activeChannels.Load(chanID)
+
+	// A locally initiated cooperative close may still be waiting on this
+	// channel. Wiping the channel retires its closer, so notify the caller
+	// before that happens, while the closer is still reachable. Otherwise
+	// the CloseChannel RPC blocks on a request whose only writer is gone.
+	p.notifyActiveChanCloserOfLinkFailure(chanID)
 
 	// We begin by wiping the link, which will remove it from the switch,
 	// such that it won't be attempted used for any more updates.

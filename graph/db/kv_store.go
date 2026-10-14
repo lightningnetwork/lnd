@@ -174,6 +174,15 @@ const (
 	// would be possible for a node to create a ton of updates and slowly
 	// fill our disk, and also waste bandwidth due to relaying.
 	MaxAllowedExtraOpaqueBytes = 10000
+
+	// maxPolicyOpaqueBytes is the largest serialized policy opaque blob.
+	// The blob contains the extra opaque data after an optional max_htlc.
+	maxPolicyOpaqueBytes = MaxAllowedExtraOpaqueBytes + 8
+
+	// maxChannelEdgeFeatureBytes is the largest encoded raw feature vector.
+	// A feature bit is a uint16, so its base-256 payload is at most 8192
+	// bytes. RawFeatureVector.Encode prefixes that payload with two bytes.
+	maxChannelEdgeFeatureBytes = 2 + 1<<13
 )
 
 // KVStore is a persistent, on-disk graph representation of the Lightning
@@ -1569,19 +1578,19 @@ func (c *KVStore) PruneGraph(_ context.Context, spentOutputs []*wire.OutPoint,
 				continue
 			}
 
-			// Attempt to delete the channel, an ErrEdgeNotFound
-			// will be returned if that outpoint isn't known to be
-			// a channel. If no error is returned, then a channel
-			// was successfully pruned.
-			edgeInfo, err := c.delChannelEdgeUnsafe(
+			// Attempt to delete the channel. If no error is
+			// returned, then a channel was successfully pruned.
+			result := c.delChannelEdgeUnsafe(
 				edges, edgeIndex, chanIndex, zombieIndex,
 				chanID, false, false,
 			)
-			if err != nil && !errors.Is(err, ErrEdgeNotFound) {
+			edgeInfo, err := result.Unpack()
+			if err != nil {
 				return err
 			}
-
-			chansClosed = append(chansClosed, edgeInfo)
+			edgeInfo.WhenSome(func(info models.ChannelEdgeInfo) {
+				chansClosed = append(chansClosed, &info)
+			})
 		}
 
 		metaBucket, err := tx.CreateTopLevelBucket(graphMetaBucket)
@@ -1837,15 +1846,17 @@ func (c *KVStore) DisconnectBlockAtHeight(_ context.Context,
 		}
 
 		for _, k := range keys {
-			edgeInfo, err := c.delChannelEdgeUnsafe(
+			result := c.delChannelEdgeUnsafe(
 				edges, edgeIndex, chanIndex, zombieIndex,
 				k, false, false,
 			)
-			if err != nil && !errors.Is(err, ErrEdgeNotFound) {
+			edgeInfo, err := result.Unpack()
+			if err != nil {
 				return err
 			}
-
-			removedChans = append(removedChans, edgeInfo)
+			edgeInfo.WhenSome(func(info models.ChannelEdgeInfo) {
+				removedChans = append(removedChans, &info)
+			})
 		}
 
 		// Delete all the entries in the prune log having a height
@@ -1992,15 +2003,21 @@ func (c *KVStore) DeleteChannelEdges(_ context.Context,
 		var rawChanID [8]byte
 		for _, chanID := range chanIDs {
 			byteOrder.PutUint64(rawChanID[:], chanID)
-			edgeInfo, err := c.delChannelEdgeUnsafe(
+			result := c.delChannelEdgeUnsafe(
 				edges, edgeIndex, chanIndex, zombieIndex,
 				rawChanID[:], markZombie, strictZombiePruning,
 			)
+			edgeInfo, err := result.Unpack()
 			if err != nil {
 				return err
 			}
 
-			infos = append(infos, edgeInfo)
+			info, err := edgeInfo.UnwrapOrErr(ErrEdgeNotFound)
+			if err != nil {
+				return err
+			}
+
+			infos = append(infos, &info)
 		}
 
 		return nil
@@ -3223,11 +3240,15 @@ func delEdgeUpdateIndexEntry(edgesBucket kvdb.RwBucket, chanID uint64,
 // acquired.
 func (c *KVStore) delChannelEdgeUnsafe(edges, edgeIndex, chanIndex,
 	zombieIndex kvdb.RwBucket, chanID []byte, isZombie,
-	strictZombie bool) (*models.ChannelEdgeInfo, error) {
+	strictZombie bool) fn.ResultOpt[models.ChannelEdgeInfo] {
 
 	edgeInfo, err := fetchChanEdgeInfo(edgeIndex, chanID)
-	if err != nil {
-		return nil, err
+	switch {
+	case errors.Is(err, ErrEdgeNotFound):
+		return fn.NoneOpt[models.ChannelEdgeInfo]()
+
+	case err != nil:
+		return fn.ErrOpt[models.ChannelEdgeInfo](err)
 	}
 
 	// We'll also remove the entry in the edge update index bucket before
@@ -3236,11 +3257,11 @@ func (c *KVStore) delChannelEdgeUnsafe(edges, edgeIndex, chanIndex,
 	cid := byteOrder.Uint64(chanID)
 	edge1, edge2, err := fetchChanEdgePolicies(edgeIndex, edges, chanID)
 	if err != nil {
-		return nil, err
+		return fn.ErrOpt[models.ChannelEdgeInfo](err)
 	}
 	err = delEdgeUpdateIndexEntry(edges, cid, edge1, edge2)
 	if err != nil {
-		return nil, err
+		return fn.ErrOpt[models.ChannelEdgeInfo](err)
 	}
 
 	// The edge key is of the format pubKey || chanID. First we construct
@@ -3254,13 +3275,13 @@ func (c *KVStore) delChannelEdgeUnsafe(edges, edgeIndex, chanIndex,
 	copy(edgeKey[:33], edgeInfo.NodeKey1Bytes[:])
 	if edges.Get(edgeKey[:]) != nil {
 		if err := edges.Delete(edgeKey[:]); err != nil {
-			return nil, err
+			return fn.ErrOpt[models.ChannelEdgeInfo](err)
 		}
 	}
 	copy(edgeKey[:33], edgeInfo.NodeKey2Bytes[:])
 	if edges.Get(edgeKey[:]) != nil {
 		if err := edges.Delete(edgeKey[:]); err != nil {
-			return nil, err
+			return fn.ErrOpt[models.ChannelEdgeInfo](err)
 		}
 	}
 
@@ -3269,31 +3290,31 @@ func (c *KVStore) delChannelEdgeUnsafe(edges, edgeIndex, chanIndex,
 	// directions.
 	err = updateEdgePolicyDisabledIndex(edges, cid, false, false)
 	if err != nil {
-		return nil, err
+		return fn.ErrOpt[models.ChannelEdgeInfo](err)
 	}
 	err = updateEdgePolicyDisabledIndex(edges, cid, true, false)
 	if err != nil {
-		return nil, err
+		return fn.ErrOpt[models.ChannelEdgeInfo](err)
 	}
 
 	// With the edge data deleted, we can purge the information from the two
 	// edge indexes.
 	if err := edgeIndex.Delete(chanID); err != nil {
-		return nil, err
+		return fn.ErrOpt[models.ChannelEdgeInfo](err)
 	}
 	var b bytes.Buffer
 	if err := WriteOutpoint(&b, &edgeInfo.ChannelPoint); err != nil {
-		return nil, err
+		return fn.ErrOpt[models.ChannelEdgeInfo](err)
 	}
 	if err := chanIndex.Delete(b.Bytes()); err != nil {
-		return nil, err
+		return fn.ErrOpt[models.ChannelEdgeInfo](err)
 	}
 
 	// Finally, we'll mark the edge as a zombie within our index if it's
 	// being removed due to the channel becoming a zombie. We do this to
 	// ensure we don't store unnecessary data for spent channels.
 	if !isZombie {
-		return edgeInfo, nil
+		return fn.OkOpt(*edgeInfo)
 	}
 
 	nodeKey1, nodeKey2 := edgeInfo.NodeKey1Bytes, edgeInfo.NodeKey2Bytes
@@ -3312,9 +3333,14 @@ func (c *KVStore) delChannelEdgeUnsafe(edges, edgeIndex, chanIndex,
 		)
 	}
 
-	return edgeInfo, markEdgeZombie(
+	err = markEdgeZombie(
 		zombieIndex, byteOrder.Uint64(chanID), nodeKey1, nodeKey2,
 	)
+	if err != nil {
+		return fn.ErrOpt[models.ChannelEdgeInfo](err)
+	}
+
+	return fn.OkOpt(*edgeInfo)
 }
 
 // makeZombiePubkeys derives the node pubkeys to store in the zombie index for a
@@ -5134,7 +5160,9 @@ func deserializeChanEdgeInfo(r io.Reader) (*models.ChannelEdgeInfo, error) {
 	}
 	edgeInfo.BitcoinKey2Bytes = fn.Some(btcKey2)
 
-	featureBytes, err := wire.ReadVarBytes(r, 0, 900, "features")
+	featureBytes, err := wire.ReadVarBytes(
+		r, 0, maxChannelEdgeFeatureBytes, "features",
+	)
 	if err != nil {
 		return nil, err
 	}
@@ -5565,7 +5593,7 @@ func deserializeChanEdgePolicyRaw(r io.Reader) (*models.ChannelEdgePolicy,
 	// We'll try and see if there are any opaque bytes left, if not, then
 	// we'll ignore the EOF error and return the edge as is.
 	edge.ExtraOpaqueData, err = wire.ReadVarBytes(
-		r, 0, MaxAllowedExtraOpaqueBytes, "blob",
+		r, 0, maxPolicyOpaqueBytes, "blob",
 	)
 	switch {
 	case errors.Is(err, io.ErrUnexpectedEOF):

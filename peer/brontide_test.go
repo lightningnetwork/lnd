@@ -14,8 +14,10 @@ import (
 	"github.com/btcsuite/btcd/btcec/v2"
 	"github.com/btcsuite/btcd/btcutil/v2"
 	"github.com/btcsuite/btcd/chaincfg/v2"
+	"github.com/btcsuite/btcd/chainhash/v2"
 	"github.com/btcsuite/btcd/txscript/v2"
 	"github.com/btcsuite/btcd/wire/v2"
+	"github.com/lightningnetwork/lnd/actor"
 	"github.com/lightningnetwork/lnd/chainntnfs"
 	"github.com/lightningnetwork/lnd/chanstate"
 	"github.com/lightningnetwork/lnd/contractcourt"
@@ -572,7 +574,7 @@ func TestLinkFailureNotifiesLocalCloseRequest(t *testing.T) {
 		t.Fatal("peer did not report the link failure")
 	}
 	select {
-	case err := <-closeReq.Err:
+	case err := <-closeReq.ErrChan(t.Context()):
 		require.ErrorIs(t, err, ErrCoopCloseAbortedByLinkFailure)
 
 	case <-time.After(timeout):
@@ -678,37 +680,6 @@ func routeMsg(t *testing.T, p *Brontide, msg msgmux.PeerMsg) error {
 	return err
 }
 
-// TestRetireChanCloserIsIdempotent supports cooperative-close tests.
-func TestRetireChanCloserIsIdempotent(t *testing.T) {
-	t.Parallel()
-
-	harness, err := createTestPeerWithChannel(t, noUpdate)
-	require.NoError(t, err)
-
-	alicePeer := harness.peer
-	chanPoint := harness.channel.ChannelPoint()
-	chanID := lnwire.NewChanIDFromOutPoint(chanPoint)
-	closeReq := newTestCloseRequest(&chanPoint, 1)
-	alicePeer.activeCloseReqs.add(chanID, closeReq)
-
-	alicePeer.deleteActiveChanCloser(chanID, chanPoint)
-	alicePeer.deleteActiveChanCloser(chanID, chanPoint)
-
-	select {
-	case err := <-closeReq.Err:
-		require.ErrorIs(t, err, ErrCoopCloseAbortedByLinkFailure)
-
-	case <-time.After(timeout):
-		t.Fatal("caller was not told the close ended")
-	}
-	select {
-	case err := <-closeReq.Err:
-		t.Fatalf("caller was told twice: %v", err)
-
-	case <-time.After(shortTimeout):
-	}
-}
-
 // TestDisconnectAnswersCloseCallers answers callers before peer shutdown.
 func TestDisconnectAnswersCloseCallers(t *testing.T) {
 	t.Parallel()
@@ -744,7 +715,7 @@ func TestDisconnectAnswersCloseCallers(t *testing.T) {
 	alicePeer.Disconnect(errors.New("test disconnect"))
 
 	select {
-	case err := <-closeReq.Err:
+	case err := <-closeReq.ErrChan(t.Context()):
 		require.ErrorIs(t, err, lnpeer.ErrPeerExiting)
 
 	case <-time.After(timeout):
@@ -791,38 +762,6 @@ func TestDisconnectReleasesRbfCloserResources(t *testing.T) {
 	require.NoError(t, err)
 }
 
-// TestCloseReqClaimedExactlyOnce supports cooperative-close tests.
-func TestCloseReqClaimedExactlyOnce(t *testing.T) {
-	t.Parallel()
-
-	harness, err := createTestPeerWithChannel(t, noUpdate)
-	require.NoError(t, err)
-
-	alicePeer := harness.peer
-	chanPoint := harness.channel.ChannelPoint()
-	chanID := lnwire.NewChanIDFromOutPoint(chanPoint)
-
-	closeReq := newTestCloseRequest(&chanPoint, 1)
-	alicePeer.activeCloseReqs.add(chanID, closeReq)
-	alicePeer.deleteActiveChanCloser(chanID, chanPoint)
-	require.Nil(t, alicePeer.activeCloseReqs.peek(chanID))
-
-	select {
-	case err := <-closeReq.Err:
-		require.ErrorIs(t, err, ErrCoopCloseAbortedByLinkFailure)
-
-	case <-time.After(timeout):
-		t.Fatal("retirement did not tell the caller the close ended")
-	}
-
-	select {
-	case update := <-closeReq.Updates:
-		t.Fatalf("close reported a second outcome: %v", update)
-
-	case <-time.After(shortTimeout):
-	}
-}
-
 // TestPeerChannelClosureAcceptFeeInitiator tests the shutdown initiator's
 // behavior if we can agree on the fee immediately.
 func TestPeerChannelClosureAcceptFeeInitiator(t *testing.T) {
@@ -848,13 +787,12 @@ func TestPeerChannelClosureAcceptFeeInitiator(t *testing.T) {
 
 	// We make Alice send a shutdown request.
 	updateChan := make(chan interface{}, 1)
-	errChan := make(chan error, 1)
 	closeCommand := &htlcswitch.ChanClose{
 		CloseType:      contractcourt.CloseRegular,
 		ChanPoint:      &chanPoint,
 		Updates:        updateChan,
 		TargetFeePerKw: 12500,
-		Err:            errChan,
+		Err:            actor.NewPromise[error](),
 	}
 	alicePeer.localCloseChanReqs <- closeCommand
 
@@ -1153,13 +1091,12 @@ func TestPeerChannelClosureFeeNegotiationsInitiator(t *testing.T) {
 
 	// We make the initiator send a shutdown request.
 	updateChan := make(chan interface{}, 1)
-	errChan := make(chan error, 1)
 	closeCommand := &htlcswitch.ChanClose{
 		CloseType:      contractcourt.CloseRegular,
 		ChanPoint:      &chanPoint,
 		Updates:        updateChan,
 		TargetFeePerKw: 12500,
-		Err:            errChan,
+		Err:            actor.NewPromise[error](),
 	}
 
 	alicePeer.localCloseChanReqs <- closeCommand
@@ -1487,19 +1424,24 @@ func TestCustomShutdownScript(t *testing.T) {
 			// Request initiator to cooperatively close the channel,
 			// with a specified delivery address.
 			updateChan := make(chan interface{}, 1)
-			errChan := make(chan error, 1)
 			closeCommand := htlcswitch.ChanClose{
 				CloseType:      contractcourt.CloseRegular,
 				ChanPoint:      &chanPoint,
 				Updates:        updateChan,
 				TargetFeePerKw: 12500,
 				DeliveryScript: test.userCloseScript,
-				Err:            errChan,
+				Err:            actor.NewPromise[error](),
 			}
 
 			// Send the close command for the correct channel and check that a
 			// shutdown message is sent.
 			alicePeer.localCloseChanReqs <- &closeCommand
+
+			// The request resolves at most once, so read through
+			// the channel derived from its promise.
+			closeErrChan := closeCommand.ErrChan(
+				t.Context(),
+			)
 
 			var msg lnwire.Message
 			select {
@@ -1507,7 +1449,7 @@ func TestCustomShutdownScript(t *testing.T) {
 				msg = outMsg.msg
 			case <-time.After(timeout):
 				t.Fatalf("did not receive shutdown message")
-			case err := <-errChan:
+			case err := <-closeErrChan:
 				// Fail if we do not expect an error.
 				if test.expectedError != nil {
 					require.ErrorIs(
@@ -3654,6 +3596,353 @@ func TestRbfCoopCloseAllowed(t *testing.T) {
 	}
 }
 
+// TestCloseReqRegistryOverlappingCallers answers both callers on one channel.
+func TestCloseReqRegistryOverlappingCallers(t *testing.T) {
+	t.Parallel()
+
+	harness, err := createTestPeerWithChannel(t, noUpdate)
+	require.NoError(t, err)
+
+	var (
+		alicePeer = harness.peer
+		bobChan   = harness.channel
+	)
+
+	chanPoint := bobChan.ChannelPoint()
+	chanID := lnwire.NewChanIDFromOutPoint(chanPoint)
+
+	useTestCloseRouter(t, alicePeer)
+
+	rbfCloser := initTestRbfCloser(t, alicePeer, bobChan)
+	alicePeer.activeChanCloses.Store(chanID, makeRbfCloser(rbfCloser))
+	first := newTestCloseRequest(&chanPoint, 5)
+	second := newTestCloseRequest(&chanPoint, 5)
+	alicePeer.activeCloseReqs.add(chanID, first)
+	alicePeer.activeCloseReqs.add(chanID, second)
+
+	stateSub := rbfCloser.RegisterStateEvents()
+
+	alicePeer.cg.WgAdd(1)
+	go func() {
+		defer alicePeer.cg.WgDone()
+
+		alicePeer.observeRbfCloseUpdates(rbfCloser, first, stateSub)
+	}()
+
+	rbfCloser.SendEvent(t.Context(), &chancloser.SpendEvent{
+		Tx: wire.NewMsgTx(1),
+	})
+	for i, req := range []*htlcswitch.ChanClose{first, second} {
+		select {
+		case update := <-req.Updates:
+			closeUpdate, ok := update.(*ChannelCloseUpdate)
+			require.True(t, ok, "expected a close update, got %T",
+				update)
+			require.True(t, closeUpdate.Success)
+
+		case <-time.After(timeout):
+			t.Fatalf("caller %d was not told the close ended", i)
+		}
+		select {
+		case err := <-req.ErrChan(t.Context()):
+			t.Fatalf("caller %d was told the close failed: %v",
+				i, err)
+
+		case <-time.After(shortTimeout):
+		}
+
+		require.True(t, req.Err.Complete(fn.Ok[error](nil)) == false,
+			"caller %d's request was left unresolved", i)
+	}
+	require.Nil(t, alicePeer.activeCloseReqs.peek(chanID))
+}
+
+// TestCloseBreachAnswersCloseCaller resolves the incoming breach request.
+func TestCloseBreachAnswersCloseCaller(t *testing.T) {
+	t.Parallel()
+
+	harness, err := createTestPeerWithChannel(t, noUpdate)
+	require.NoError(t, err)
+
+	var (
+		alicePeer = harness.peer
+		bobChan   = harness.channel
+	)
+
+	chanPoint := bobChan.ChannelPoint()
+
+	closeReq := newTestCloseRequest(&chanPoint, 1)
+	closeReq.CloseType = contractcourt.CloseBreach
+	alicePeer.handleLocalCloseReq(closeReq)
+
+	select {
+	case err := <-closeReq.ErrChan(t.Context()):
+		require.ErrorIs(t, err, ErrCoopCloseAbortedByBreach)
+
+	case <-time.After(timeout):
+		t.Fatal("caller was not told the close ended")
+	}
+}
+
+// TestCloseBreachAnswersWaitingCaller reports the breach to an existing
+// caller.
+func TestCloseBreachAnswersWaitingCaller(t *testing.T) {
+	t.Parallel()
+
+	harness, err := createTestPeerWithChannel(t, noUpdate)
+	require.NoError(t, err)
+
+	var (
+		alicePeer  = harness.peer
+		bobChan    = harness.channel
+		mockSwitch = harness.mockSwitch
+	)
+	chanPoint := bobChan.ChannelPoint()
+	chanID := lnwire.NewChanIDFromOutPoint(chanPoint)
+	mockSwitch.links = append(
+		mockSwitch.links, newMockUpdateHandler(chanID),
+	)
+	coopReq := newTestCloseRequest(&chanPoint, 1)
+	coopReq.CloseType = contractcourt.CloseRegular
+	coopReq.TargetFeePerKw = 12500
+	alicePeer.localCloseChanReqs <- coopReq
+
+	select {
+	case out := <-alicePeer.outgoingQueue:
+		_, ok := out.msg.(*lnwire.Shutdown)
+		require.True(t, ok, "expected Shutdown, got %T", out.msg)
+
+	case <-time.After(timeout):
+		t.Fatal("peer did not send Shutdown")
+	}
+	_, closerLive := alicePeer.activeChanCloses.Load(chanID)
+	require.True(t, closerLive)
+	alicePeer.localCloseChanReqs <- &htlcswitch.ChanClose{
+		CloseType: contractcourt.CloseBreach,
+		ChanPoint: &chanPoint,
+		Updates:   make(chan interface{}, 1),
+		Err:       actor.NewPromise[error](),
+	}
+	select {
+	case err := <-coopReq.ErrChan(t.Context()):
+		require.ErrorIs(t, err, ErrCoopCloseAbortedByBreach)
+
+	case <-time.After(timeout):
+		t.Fatal("the waiting caller was not answered when the " +
+			"channel was breached")
+	}
+}
+
+// TestRbfCloseErrThenSuccess delivers success only to callers not already
+// answered.
+func TestRbfCloseErrThenSuccess(t *testing.T) {
+	t.Parallel()
+
+	harness, err := createTestPeerWithChannel(t, noUpdate)
+	require.NoError(t, err)
+
+	alicePeer := harness.peer
+	chanPoint := harness.channel.ChannelPoint()
+	chanID := lnwire.NewChanIDFromOutPoint(chanPoint)
+	failed := newTestCloseRequest(&chanPoint, 5)
+	waiting := newTestCloseRequest(&chanPoint, 5)
+	alicePeer.activeCloseReqs.add(chanID, failed)
+	alicePeer.activeCloseReqs.add(chanID, waiting)
+
+	closeErr := errors.New("unable to pay for the closing fee")
+	alicePeer.reportRbfCloseErr(failed, closeErr)
+
+	select {
+	case err := <-failed.ErrChan(t.Context()):
+		require.ErrorIs(t, err, closeErr)
+
+	case <-time.After(timeout):
+		t.Fatal("the failed caller was not told")
+	}
+	var closingTxid chainhash.Hash
+	alicePeer.reportRbfCloseSuccess(chanID, closingTxid)
+	select {
+	case update := <-failed.Updates:
+		t.Fatalf("caller that failed was told the close succeeded: %v",
+			update)
+
+	case <-time.After(shortTimeout):
+	}
+	select {
+	case update := <-waiting.Updates:
+		closeUpdate, ok := update.(*ChannelCloseUpdate)
+		require.True(t, ok, "expected a close update, got %T", update)
+		require.True(t, closeUpdate.Success)
+
+	case <-time.After(timeout):
+		t.Fatal("the waiting caller was not told the close ended")
+	}
+	require.Nil(t, alicePeer.activeCloseReqs.peek(chanID))
+}
+
+// TestLegacyCloseAbortBeatsConfirmingClose checks both claim orderings and
+// cancellation.
+func TestLegacyCloseAbortBeatsConfirmingClose(t *testing.T) {
+	t.Parallel()
+
+	harness, err := createTestPeerWithChannel(t, noUpdate)
+	require.NoError(t, err)
+
+	chanPoint := harness.channel.ChannelPoint()
+	aborted := newTestCloseRequest(&chanPoint, 5)
+	aborted.CompleteErr(ErrCoopCloseAbortedByLinkFailure)
+	var closingTxid chainhash.Hash
+	claimAndReportLegacyCloseSuccess(aborted, &ChannelCloseUpdate{
+		ClosingTxid: closingTxid[:],
+		Success:     true,
+	})
+
+	select {
+	case update := <-aborted.Updates:
+		t.Fatalf("an aborted close was also reported as successful: %v",
+			update)
+
+	case <-time.After(shortTimeout):
+	}
+	select {
+	case err := <-aborted.ErrChan(t.Context()):
+		require.ErrorIs(t, err, ErrCoopCloseAbortedByLinkFailure)
+
+	case <-time.After(timeout):
+		t.Fatal("the aborted caller was not told")
+	}
+	confirmed := newTestCloseRequest(&chanPoint, 5)
+	claimAndReportLegacyCloseSuccess(confirmed, &ChannelCloseUpdate{
+		ClosingTxid: closingTxid[:],
+		Success:     true,
+	})
+
+	select {
+	case update := <-confirmed.Updates:
+		closeUpdate, ok := update.(*ChannelCloseUpdate)
+		require.True(t, ok, "expected a close update, got %T", update)
+		require.True(t, closeUpdate.Success)
+
+	case <-time.After(timeout):
+		t.Fatal("a confirmed close was not reported to its caller")
+	}
+	select {
+	case err := <-confirmed.ErrChan(t.Context()):
+		t.Fatalf("a successful close reported an error: %v", err)
+
+	case <-time.After(shortTimeout):
+	}
+	abandonedCtx, cancelAbandoned := context.WithCancel(t.Context())
+	cancelAbandoned()
+
+	abandoned := newTestCloseRequest(&chanPoint, 0)
+	abandoned.Ctx = abandonedCtx
+	claimAndReportLegacyCloseSuccess(abandoned, &ChannelCloseUpdate{
+		ClosingTxid: closingTxid[:],
+		Success:     true,
+	})
+
+	select {
+	case update := <-abandoned.Updates:
+		t.Fatalf("a caller that stopped waiting was told: %v", update)
+
+	case <-time.After(shortTimeout):
+	}
+}
+
+// TestRbfCloseSuccessSurvivesShutdown delivers success after peer shutdown.
+func TestRbfCloseSuccessSurvivesShutdown(t *testing.T) {
+	t.Parallel()
+
+	harness, err := createTestPeerWithChannel(t, noUpdate)
+	require.NoError(t, err)
+
+	alicePeer := harness.peer
+	chanPoint := harness.channel.ChannelPoint()
+	chanID := lnwire.NewChanIDFromOutPoint(chanPoint)
+
+	closeReq := newTestCloseRequest(&chanPoint, 0)
+	alicePeer.activeCloseReqs.add(chanID, closeReq)
+	alicePeer.cg.Quit()
+
+	var closingTxid chainhash.Hash
+
+	reported := make(chan struct{})
+	go func() {
+		defer close(reported)
+
+		alicePeer.reportRbfCloseSuccess(chanID, closingTxid)
+	}()
+	select {
+	case <-reported:
+
+	case <-time.After(timeout):
+		t.Fatal("reporting a confirmed close waited on a caller that " +
+			"was not reading")
+	}
+	select {
+	case update := <-closeReq.Updates:
+		closeUpdate, ok := update.(*ChannelCloseUpdate)
+		require.True(t, ok, "expected a close update, got %T", update)
+		require.True(t, closeUpdate.Success)
+
+	case <-time.After(timeout):
+		t.Fatal("a confirmed close was never reported")
+	}
+	select {
+	case err := <-closeReq.ErrChan(t.Context()):
+		t.Fatalf("a successful close was reported as failed: %v", err)
+
+	case <-time.After(shortTimeout):
+	}
+}
+
+// TestRbfCloseCancelReleasesOnlyItsCaller preserves the other registered
+// caller.
+func TestRbfCloseCancelReleasesOnlyItsCaller(t *testing.T) {
+	t.Parallel()
+
+	harness, err := createTestPeerWithChannel(t, noUpdate)
+	require.NoError(t, err)
+
+	alicePeer := harness.peer
+	chanPoint := harness.channel.ChannelPoint()
+	chanID := lnwire.NewChanIDFromOutPoint(chanPoint)
+	cancelledCtx, cancel := context.WithCancel(t.Context())
+	cancelled := newTestCloseRequest(&chanPoint, 5)
+	cancelled.Ctx = cancelledCtx
+	waiting := newTestCloseRequest(&chanPoint, 5)
+	alicePeer.activeCloseReqs.add(chanID, cancelled)
+	alicePeer.activeCloseReqs.add(chanID, waiting)
+
+	cancel()
+	alicePeer.releaseCloseReq(chanID, cancelled)
+
+	var closingTxid chainhash.Hash
+	alicePeer.reportRbfCloseSuccess(chanID, closingTxid)
+	select {
+	case update := <-cancelled.Updates:
+		t.Fatalf("a cancelled caller was told: %v", update)
+
+	case <-time.After(shortTimeout):
+	}
+	select {
+	case update := <-waiting.Updates:
+		closeUpdate, ok := update.(*ChannelCloseUpdate)
+		require.True(t, ok, "expected a close update, got %T", update)
+		require.True(t, closeUpdate.Success)
+
+	case <-time.After(timeout):
+		t.Fatal("the waiting caller was not told the close ended")
+	}
+	select {
+	case update := <-cancelled.Updates:
+		t.Fatalf("a cancelled caller was told: %v", update)
+
+	case <-time.After(shortTimeout):
+	}
+}
+
 // newTestCloseRequest allocates the channels used by a close caller.
 func newTestCloseRequest(point *wire.OutPoint,
 	buffer int) *htlcswitch.ChanClose {
@@ -3661,7 +3950,7 @@ func newTestCloseRequest(point *wire.OutPoint,
 	return &htlcswitch.ChanClose{
 		ChanPoint: point,
 		Updates:   make(chan interface{}, buffer),
-		Err:       make(chan error, 1),
+		Err:       actor.NewPromise[error](),
 	}
 }
 

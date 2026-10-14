@@ -136,7 +136,7 @@ func (r *rbfCloseActor) Receive(_ context.Context,
 	// RBF coop close.
 	closeUpdates := &CoopCloseUpdates{
 		UpdateChan: make(chan interface{}, 1),
-		ErrChan:    make(chan error, 1),
+		ErrPromise: actor.NewPromise[error](),
 	}
 
 	// We'll re-use the existing switch struct here, even though we're
@@ -149,7 +149,7 @@ func (r *rbfCloseActor) Receive(_ context.Context,
 		TargetFeePerKw: msg.FeeRate,
 		DeliveryScript: msg.DeliveryScript,
 		Updates:        closeUpdates.UpdateChan,
-		Err:            closeUpdates.ErrChan,
+		Err:            closeUpdates.ErrPromise,
 		Ctx:            msg.Ctx,
 	}
 

@@ -722,6 +722,11 @@ jobs:
     steps:
       - name: Git checkout
         uses: actions/checkout@v5
+        with:
+          # The check compares the PR's merge commit against its first
+          # parent, the base branch, to find the release note fragments
+          # added by the PR.
+          fetch-depth: 2
 
       - name: Check for no-changelog label
         id: check-label

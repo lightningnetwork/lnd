@@ -21,6 +21,11 @@
 
 # Bug Fixes
 
+* Revocation processing now [orders its state-transition and key checks before
+  their corresponding bookkeeping updates](https://github.com/lightningnetwork/lnd/pull/11330).
+  The remote party's next revocation point now uses `fn.Option`, so callers
+  handle the optional state explicitly.
+
 * [Tightened the validation](https://github.com/lightningnetwork/lnd/pull/11068)
   of auxiliary HTLC signatures on taproot overlay channels. Their count is now
   checked against the number of HTLCs on the commitment, mirroring the check

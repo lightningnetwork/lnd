@@ -1072,8 +1072,9 @@ type OpenChannel struct {
 	// RemoteNextRevocation is the revocation key to be used for the *next*
 	// commitment transaction we create for the local node. Within the
 	// specification, this value is referred to as the
-	// per-commitment-point.
-	RemoteNextRevocation *btcec.PublicKey
+	// per-commitment-point. It's only known once the remote party has sent
+	// channel_ready, so it's None until then.
+	RemoteNextRevocation fn.Option[btcec.PublicKey]
 
 	// RevocationProducer is used to generate the revocation in such a way
 	// that remote side might store it efficiently and have the ability to
@@ -3457,11 +3458,11 @@ func (c *OpenChannel) RemoteUnsignedLocalUpdates() ([]LogUpdate, error) {
 //
 // NOTE: If this method isn't called, then the target channel won't be able to
 // propose new states for the commitment state of the remote party.
-func (c *OpenChannel) InsertNextRevocation(revKey *btcec.PublicKey) error {
+func (c *OpenChannel) InsertNextRevocation(revKey btcec.PublicKey) error {
 	c.Lock()
 	defer c.Unlock()
 
-	c.RemoteNextRevocation = revKey
+	c.RemoteNextRevocation = fn.Some(revKey)
 
 	err := kvdb.Update(c.Db.backend, func(tx kvdb.RwTx) error {
 		chanBucket, err := fetchChanBucketRw(
@@ -4014,8 +4015,9 @@ type ChannelCloseSummary struct {
 	// RemoteNextRevocation is the revocation key to be used for the *next*
 	// commitment transaction we create for the local node. Within the
 	// specification, this value is referred to as the
-	// per-commitment-point.
-	RemoteNextRevocation *btcec.PublicKey
+	// per-commitment-point. It's None if the channel was closed before the
+	// remote party sent channel_ready.
+	RemoteNextRevocation fn.Option[btcec.PublicKey]
 
 	// LocalChanConfig is the channel configuration for the local node.
 	LocalChanConfig ChannelConfig
@@ -4593,15 +4595,19 @@ func serializeChannelCloseSummary(w io.Writer, cs *ChannelCloseSummary) error {
 	// channel to be closed before we learn of the next unrevoked
 	// revocation point for the remote party. Write a boolean indicating
 	// whether this field is present or not.
-	if err := WriteElements(w, cs.RemoteNextRevocation != nil); err != nil {
+	err = WriteElements(w, cs.RemoteNextRevocation.IsSome())
+	if err != nil {
 		return err
 	}
 
 	// Write the field, if present.
-	if cs.RemoteNextRevocation != nil {
-		if err = WriteElements(w, cs.RemoteNextRevocation); err != nil {
-			return err
-		}
+	err = fn.MapOptionZ(
+		cs.RemoteNextRevocation, func(key btcec.PublicKey) error {
+			return WriteElements(w, &key)
+		},
+	)
+	if err != nil {
+		return err
 	}
 
 	// Write whether the channel sync message is present.
@@ -4665,10 +4671,12 @@ func deserializeCloseChannelSummary(r io.Reader) (*ChannelCloseSummary, error) {
 
 	// If this field was written, read it.
 	if hasRemoteNextRevocation {
-		err = ReadElements(r, &c.RemoteNextRevocation)
+		var nextRevocation *btcec.PublicKey
+		err = ReadElements(r, &nextRevocation)
 		if err != nil {
 			return nil, err
 		}
+		c.RemoteNextRevocation = fn.Some(*nextRevocation)
 	}
 
 	// Check if we have a channel sync message to read.
@@ -4876,11 +4884,13 @@ func putChanRevocationState(chanBucket kvdb.RwBucket, channel *OpenChannel) erro
 
 	// If the next revocation is present, which is only the case after the
 	// ChannelReady message has been sent, then we'll write it to disk.
-	if channel.RemoteNextRevocation != nil {
-		err = WriteElements(&b, channel.RemoteNextRevocation)
-		if err != nil {
-			return err
-		}
+	err = fn.MapOptionZ(
+		channel.RemoteNextRevocation, func(key btcec.PublicKey) error {
+			return WriteElements(&b, &key)
+		},
+	)
+	if err != nil {
+		return err
 	}
 
 	return chanBucket.Put(revocationStateKey, b.Bytes())
@@ -5066,7 +5076,13 @@ func fetchChanRevocationState(chanBucket kvdb.RBucket, channel *OpenChannel) err
 
 	// Otherwise we'll read the next revocation for the remote party which
 	// is always the last item within the buffer.
-	return ReadElements(r, &channel.RemoteNextRevocation)
+	var nextRevocation *btcec.PublicKey
+	if err := ReadElements(r, &nextRevocation); err != nil {
+		return err
+	}
+	channel.RemoteNextRevocation = fn.Some(*nextRevocation)
+
+	return nil
 }
 
 func deleteOpenChannel(chanBucket kvdb.RwBucket) error {

@@ -733,7 +733,7 @@ func (l *channelLink) eligibleToForward() bool {
 //
 // NOTE: MUST be called from the main event loop.
 func (l *channelLink) eligibleToUpdate() bool {
-	return l.channel.RemoteNextRevocation() != nil &&
+	return l.channel.RemoteNextRevocation().IsSome() &&
 		l.channel.ShortChanID() != hop.Source &&
 		l.isReestablished() &&
 		l.quiescer.CanSendUpdates()

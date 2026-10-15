@@ -33,6 +33,10 @@ Instead of manually creating branches, cherry-picking commits, and creating PRs,
    - Creates a new PR targeting the release branch
    - Adds the `no-changelog` label (since release notes are in the master PR)
 
+The release note fragment of the master PR is cherry-picked along with the
+change, so it ends up in the release notes of the next patch release. See the
+[release notes guide](release-notes/README.md#backports) for details.
+
 ### Example Scenario
 
 ```
@@ -509,7 +513,8 @@ If you encounter issues not covered here:
      git checkout v0.20.x-branch
      git checkout -b manual-backport-123-to-v0.20.x
 
-     # Cherry-pick commits from the original PR
+     # Cherry-pick all commits from the original PR, including the one
+     # adding its release note fragment.
      git cherry-pick <commit-hash>
 
      # Resolve any conflicts, then:

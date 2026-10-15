@@ -744,6 +744,25 @@ jobs:
         run: scripts/check-release-notes.sh
 
   ########################
+  # check release notes are consistent with the fragments
+  ########################
+  release-notes-consistency:
+    name: Check release notes consistency
+    runs-on: ubuntu-latest
+    steps:
+      - name: Git checkout
+        uses: actions/checkout@v5
+        with:
+          # The check compares the PR's merge commit against its first
+          # parent, the base branch, to detect version bumps.
+          fetch-depth: 2
+
+      # This job intentionally ignores the no-changelog label: the PRs that
+      # fold release note fragments or bump the version carry that label.
+      - name: Release notes consistency check
+        run: scripts/check-release-notes-consistency.sh pr
+
+  ########################
   # Backwards Compatibility Test
   ########################
   backwards-compatibility-test:

@@ -121,6 +121,15 @@ separate pull request as before. That pull request also deletes the fragments
 on `master` that the patch release announced, since those changes have now
 been released.
 
+CI enforces these steps independently of the `no-changelog` label. A pull
+request fails if it leaves a fragment behind whose pull request is already
+announced in a release note document. A pull request that bumps
+`build/version.go` to a release version requires `release-notes-<version>.md`
+to exist and all fragments to be folded into it, for release candidates as
+well as final releases. A final release additionally requires a non-empty
+contributors section. The release build runs the same check against the tagged
+commit.
+
 This deliberately leaves editorial consolidation as a single release-time
 change. Normal development pull requests therefore never contend on the same
 release note document.

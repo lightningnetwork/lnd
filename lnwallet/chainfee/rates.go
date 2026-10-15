@@ -17,6 +17,12 @@ const (
 	// transaction that we should ever _create_. This is the equivalent
 	// of 1 sat/byte in sat/kw.
 	AbsoluteFeePerKwFloor SatPerKWeight = 250
+
+	// FeePerKwCeiling is the highest fee rate in sat/kw that we should
+	// use for estimating transaction fees before signing. This is the
+	// equivalent of 10,000 sat/vb, which matches the highest fee rate
+	// the sweeper can be configured with.
+	FeePerKwCeiling SatPerKWeight = 2_500_000
 )
 
 // SatPerVByte represents a fee rate in sat/vbyte.

@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"time"
 
+	"github.com/btcsuite/btcd/blockchain"
 	"github.com/lightningnetwork/lnd/contractcourt"
 	"github.com/lightningnetwork/lnd/lnwallet/chainfee"
 	"github.com/lightningnetwork/lnd/sweep"
@@ -15,8 +16,11 @@ const (
 	MaxFeeRateFloor chainfee.SatPerVByte = 100
 
 	// MaxAllowedFeeRate is the largest fee rate in sat/vb that we allow
-	// when configuring the MaxFeeRate.
-	MaxAllowedFeeRate = 10_000
+	// when configuring the MaxFeeRate. It is derived from the chainfee
+	// ceiling so the two values can never diverge.
+	MaxAllowedFeeRate = chainfee.SatPerVByte(
+		chainfee.FeePerKwCeiling * blockchain.WitnessScaleFactor / 1000,
+	)
 )
 
 //nolint:ll

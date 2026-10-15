@@ -130,6 +130,16 @@ var (
 	ErrForceCloseLocalDataLoss = errors.New("cannot force close " +
 		"channel with local data loss")
 
+	// ErrUnexpectedRevocation is returned when a revocation cannot be
+	// applied in the current commitment state.
+	ErrUnexpectedRevocation = errors.New("received revocation in " +
+		"invalid commitment state")
+
+	// ErrNoNextRevocation is returned when an operation needs the remote
+	// party's next revocation point, but they haven't sent it to us yet.
+	ErrNoNextRevocation = errors.New("remote next revocation point not " +
+		"known")
+
 	// errNoNonce is returned when a nonce is required, but none is found.
 	errNoNonce = errors.New("no nonce found")
 
@@ -1507,10 +1517,14 @@ func (lc *LightningChannel) restoreCommitState(
 		// inserting it into the remote party's commitment chain. We
 		// don't pass our commit point as we don't have the
 		// corresponding state for the local commitment chain.
-		pendingCommitPoint := lc.channelState.RemoteNextRevocation
+		pendingCommitPoint, err := lc.channelState.
+			RemoteNextRevocation.UnwrapOrErr(ErrNoNextRevocation)
+		if err != nil {
+			return err
+		}
 		pendingRemoteCommit, err = lc.diskCommitToMemCommit(
 			lntypes.Remote, &pendingRemoteCommitDiff.Commitment,
-			nil, pendingCommitPoint,
+			nil, &pendingCommitPoint,
 		)
 		if err != nil {
 			return err
@@ -1523,7 +1537,7 @@ func (lc *LightningChannel) restoreCommitState(
 		// We'll also re-create the set of commitment keys needed to
 		// fully re-derive the state.
 		pendingRemoteKeyChain = DeriveCommitmentKeys(
-			pendingCommitPoint, lntypes.Remote,
+			&pendingCommitPoint, lntypes.Remote,
 			lc.channelState.ChanType,
 			&lc.channelState.LocalChanCfg,
 			&lc.channelState.RemoteChanCfg,
@@ -4098,11 +4112,13 @@ func (lc *LightningChannel) SignNextCommitment(
 	// don't yet have the initial next revocation point of the remote
 	// party, then we're unable to create new states. Each time we create a
 	// new state, we consume a prior revocation point.
-	commitPoint := lc.channelState.RemoteNextRevocation
 	unacked := lc.commitChains.Remote.hasUnackedCommitment()
-	if unacked || commitPoint == nil {
-		lc.log.Tracef("waiting for remote ack=%v, nil "+
-			"RemoteNextRevocation: %v", unacked, commitPoint == nil)
+	commitPoint, err := lc.channelState.RemoteNextRevocation.UnwrapOrErr(
+		ErrNoNextRevocation,
+	)
+	if unacked || err != nil {
+		lc.log.Tracef("waiting for remote ack=%v, "+
+			"RemoteNextRevocation known: %v", unacked, err == nil)
 		return nil, ErrNoWindow
 	}
 
@@ -4117,7 +4133,7 @@ func (lc *LightningChannel) SignNextCommitment(
 	// We do not enforce the FeeBuffer here because when we reach this
 	// point all updates will have to get locked-in so we enforce the
 	// minimum requirement.
-	err := lc.validateCommitmentSanity(
+	err = lc.validateCommitmentSanity(
 		remoteACKedIndex, lc.updateLogs.Local.logIndex, lntypes.Remote,
 		NoBuffer, nil, nil,
 	)
@@ -4129,7 +4145,7 @@ func (lc *LightningChannel) SignNextCommitment(
 	// used within fetchCommitmentView to derive all the keys necessary to
 	// construct the commitment state.
 	keyRing := DeriveCommitmentKeys(
-		commitPoint, lntypes.Remote, lc.channelState.ChanType,
+		&commitPoint, lntypes.Remote, lc.channelState.ChanType,
 		&lc.channelState.LocalChanCfg, &lc.channelState.RemoteChanCfg,
 	)
 
@@ -4696,13 +4712,13 @@ func (lc *LightningChannel) ProcessChanSyncMsg(ctx context.Context,
 	// in sync, or that we are in a state we can recover from. As a final
 	// check, we ensure that the commitment point sent to us by the remote
 	// is valid.
-	var commitPoint *btcec.PublicKey
+	var commitPoint fn.Option[btcec.PublicKey]
 	switch {
 	// If their height is one beyond what we know their current height to
 	// be, then we need to compare their current unrevoked commitment point
 	// as that's what they should send.
 	case msg.NextLocalCommitHeight == remoteTailHeight+1:
-		commitPoint = lc.channelState.RemoteCurrentRevocation
+		commitPoint = fn.Some(*lc.channelState.RemoteCurrentRevocation)
 
 	// Alternatively, if their height is two beyond what we know their best
 	// height to be, then they're holding onto two commitments, and the
@@ -4716,9 +4732,12 @@ func (lc *LightningChannel) ProcessChanSyncMsg(ctx context.Context,
 	// Only if this is a tweakless channel will we attempt to verify the
 	// commitment point, as otherwise it has no validity requirements.
 	tweakless := lc.channelState.ChanType.IsTweakless()
-	if !tweakless && commitPoint != nil &&
-		!commitPoint.IsEqual(msg.LocalUnrevokedCommitPoint) {
-
+	pointMismatch := fn.MapOptionZ(
+		commitPoint, func(point btcec.PublicKey) bool {
+			return !point.IsEqual(msg.LocalUnrevokedCommitPoint)
+		},
+	)
+	if !tweakless && pointMismatch {
 		lc.log.Errorf("sync failed: remote sent invalid commit point "+
 			"for height %v!",
 			msg.NextLocalCommitHeight)
@@ -5762,10 +5781,8 @@ func (lc *LightningChannel) RevokeCurrentCommitment() (*lnwire.RevokeAndAck,
 }
 
 // ReceiveRevocation processes a revocation sent by the remote party for the
-// lowest unrevoked commitment within their commitment chain. We receive a
-// revocation either during the initial session negotiation wherein revocation
-// windows are extended, or in response to a state update that we initiate. If
-// successful, then the remote commitment chain is advanced by a single
+// lowest unrevoked commitment within their commitment chain. If validation
+// succeeds, then the remote commitment chain is advanced by a single
 // commitment, and a log compaction is attempted.
 //
 // The returned values correspond to:
@@ -5779,6 +5796,31 @@ func (lc *LightningChannel) ReceiveRevocation(revMsg *lnwire.RevokeAndAck) (
 	lc.Lock()
 	defer lc.Unlock()
 
+	// Ensure the remote commitment chain can advance before updating any
+	// revocation state.
+	if !lc.commitChains.Remote.hasUnackedCommitment() {
+		return nil, nil, ErrUnexpectedRevocation
+	}
+
+	// The next revocation point is required to advance
+	// the remote commitment chain.
+	nextRevocation, err := lc.channelState.RemoteNextRevocation.
+		UnwrapOrErr(ErrNoNextRevocation)
+	if err != nil {
+		return nil, nil, err
+	}
+
+	// Verify that if we use the commitment point computed based off of the
+	// revealed secret to derive a revocation key with our revocation base
+	// point, then it matches the current revocation of the remote party.
+	// We check this before adding the secret to the store, so a revocation
+	// for the wrong point leaves our state untouched.
+	currentCommitPoint := lc.channelState.RemoteCurrentRevocation
+	derivedCommitPoint := input.ComputeCommitmentPoint(revMsg.Revocation[:])
+	if !derivedCommitPoint.IsEqual(currentCommitPoint) {
+		return nil, nil, fmt.Errorf("revocation key mismatch")
+	}
+
 	// Ensure that the new pre-image can be placed in preimage store.
 	store := lc.channelState.RevocationStore
 	revocation, err := chainhash.NewHash(revMsg.Revocation[:])
@@ -5789,22 +5831,15 @@ func (lc *LightningChannel) ReceiveRevocation(revMsg *lnwire.RevokeAndAck) (
 		return nil, nil, err
 	}
 
-	// Verify that if we use the commitment point computed based off of the
-	// revealed secret to derive a revocation key with our revocation base
-	// point, then it matches the current revocation of the remote party.
-	currentCommitPoint := lc.channelState.RemoteCurrentRevocation
-	derivedCommitPoint := input.ComputeCommitmentPoint(revMsg.Revocation[:])
-	if !derivedCommitPoint.IsEqual(currentCommitPoint) {
-		return nil, nil, fmt.Errorf("revocation key mismatch")
-	}
-
 	// Now that we've verified that the prior commitment has been properly
 	// revoked, we'll advance the revocation state we track for the remote
 	// party: the new current revocation is what was previously the next
 	// revocation, and the new next revocation is set to the key included
 	// in the message.
-	lc.channelState.RemoteCurrentRevocation = lc.channelState.RemoteNextRevocation
-	lc.channelState.RemoteNextRevocation = revMsg.NextRevocationKey
+	lc.channelState.RemoteCurrentRevocation = &nextRevocation
+	lc.channelState.RemoteNextRevocation = fn.Some(
+		*revMsg.NextRevocationKey,
+	)
 
 	lc.log.Tracef("remote party accepted state transition, revoked height "+
 		"%v, now at %v",
@@ -6049,7 +6084,7 @@ func (lc *LightningChannel) NextRevocationKey() (*btcec.PublicKey, error) {
 // revocation to be used when creating a new commitment state for the remote
 // party. This function MUST be called before the channel can accept or propose
 // any new states.
-func (lc *LightningChannel) InitNextRevocation(revKey *btcec.PublicKey) error {
+func (lc *LightningChannel) InitNextRevocation(revKey btcec.PublicKey) error {
 	lc.Lock()
 	defer lc.Unlock()
 
@@ -8844,8 +8879,13 @@ func (lc *LightningChannel) NewAnchorResolutions() (*AnchorResolutions,
 	}
 
 	if remotePendingCommit != nil {
+		pendingCommitPoint, err := lc.channelState.
+			RemoteNextRevocation.UnwrapOrErr(ErrNoNextRevocation)
+		if err != nil {
+			return nil, err
+		}
 		pendingRemoteKeyRing := DeriveCommitmentKeys(
-			lc.channelState.RemoteNextRevocation, lntypes.Remote,
+			&pendingCommitPoint, lntypes.Remote,
 			lc.channelState.ChanType, &lc.channelState.LocalChanCfg,
 			&lc.channelState.RemoteChanCfg,
 		)
@@ -9829,20 +9869,16 @@ func (lc *LightningChannel) IdealCommitFeeRate(netFeeRate, minRelayFeeRate,
 }
 
 // RemoteNextRevocation returns the channelState's RemoteNextRevocation. For
-// musig2 channels, until a nonce pair is processed by the remote party, a nil
-// public key is returned.
+// musig2 channels, until a nonce pair is processed by the remote party, None
+// is returned.
 //
 // TODO(roasbeef): revisit, maybe just make a more general method instead?
-func (lc *LightningChannel) RemoteNextRevocation() *btcec.PublicKey {
+func (lc *LightningChannel) RemoteNextRevocation() fn.Option[btcec.PublicKey] {
 	lc.RLock()
 	defer lc.RUnlock()
 
-	if !lc.channelState.ChanType.IsTaproot() {
-		return lc.channelState.RemoteNextRevocation
-	}
-
-	if lc.musigSessions == nil {
-		return nil
+	if lc.channelState.ChanType.IsTaproot() && lc.musigSessions == nil {
+		return fn.None[btcec.PublicKey]()
 	}
 
 	return lc.channelState.RemoteNextRevocation

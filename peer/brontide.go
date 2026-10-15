@@ -2962,7 +2962,7 @@ func (p *Brontide) ChannelSnapshots() []*channeldb.ChannelSnapshot {
 
 		// We'll only return a snapshot for channels that are
 		// *immediately* available for routing payments over.
-		if activeChan.RemoteNextRevocation() == nil {
+		if activeChan.RemoteNextRevocation().IsNone() {
 			return nil
 		}
 
@@ -5349,16 +5349,22 @@ func (p *Brontide) updateNextRevocation(c *channeldb.OpenChannel) error {
 	// If we're being sent a new channel, and our existing channel doesn't
 	// have the next revocation, then we need to update the current
 	// existing channel.
-	if currentChan.RemoteNextRevocation() != nil {
+	if currentChan.RemoteNextRevocation().IsSome() {
 		return nil
 	}
 
 	p.log.Infof("Processing retransmitted ChannelReady for "+
 		"ChannelPoint(%v)", chanPoint)
 
-	nextRevoke := c.RemoteNextRevocation
+	nextRevoke, err := c.RemoteNextRevocation.UnwrapOrErr(
+		lnwallet.ErrNoNextRevocation,
+	)
+	if err != nil {
+		return fmt.Errorf("retransmitted channel has no next "+
+			"revocation: %w", err)
+	}
 
-	err := currentChan.InitNextRevocation(nextRevoke)
+	err = currentChan.InitNextRevocation(nextRevoke)
 	if err != nil {
 		return fmt.Errorf("unable to init next revocation: %w", err)
 	}

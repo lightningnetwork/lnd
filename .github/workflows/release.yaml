@@ -39,6 +39,9 @@ jobs:
       - name: Set env
         run: echo "RELEASE_VERSION=${GITHUB_REF#refs/*/}" >> $GITHUB_ENV
 
+      - name: check release notes are ready
+        run: scripts/check-release-notes-consistency.sh release
+
       - name: build release for all architectures
         run: make release tag=${{ env.RELEASE_VERSION }}
 

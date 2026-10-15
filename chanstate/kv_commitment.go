@@ -298,11 +298,13 @@ func PutChanRevocationState(chanBucket kvdb.RwBucket,
 
 	// If the next revocation is present, which is only the case after the
 	// ChannelReady message has been sent, then we'll write it to disk.
-	if channel.RemoteNextRevocation != nil {
-		err = WriteElements(&b, channel.RemoteNextRevocation)
-		if err != nil {
-			return err
-		}
+	err = fn.MapOptionZ(
+		channel.RemoteNextRevocation, func(key btcec.PublicKey) error {
+			return WriteElements(&b, &key)
+		},
+	)
+	if err != nil {
+		return err
 	}
 
 	return chanBucket.Put(revocationStateKey, b.Bytes())
@@ -387,7 +389,13 @@ func FetchChanRevocationState(chanBucket kvdb.RBucket,
 
 	// Otherwise we'll read the next revocation for the remote party which
 	// is always the last item within the buffer.
-	return ReadElements(r, &channel.RemoteNextRevocation)
+	var nextRevocation *btcec.PublicKey
+	if err := ReadElements(r, &nextRevocation); err != nil {
+		return err
+	}
+	channel.RemoteNextRevocation = fn.Some(*nextRevocation)
+
+	return nil
 }
 
 // DeleteOpenChannel deletes the persisted open channel state from the channel

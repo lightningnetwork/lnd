@@ -266,7 +266,7 @@ type OpenChannelCommitmentMutationStore interface {
 	// InsertNextRevocation inserts the next commitment point into the
 	// persisted channel state.
 	InsertNextRevocation(channel *OpenChannel,
-		revKey *btcec.PublicKey) error
+		revKey btcec.PublicKey) error
 
 	// AdvanceCommitChainTail records the new state transition within the
 	// revocation log and promotes the pending remote commitment to the

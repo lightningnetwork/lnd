@@ -1129,11 +1129,21 @@ func (c *chainWatcher) handleKnownRemoteState(
 		log.Infof("Remote party broadcast pending set, "+
 			"commit_num=%v", chainSet.remoteStateNum+1)
 
+		// We only sign a pending commitment for the remote party once
+		// we know their next revocation point, which is the point for
+		// that commitment.
+		commitPoint, err := c.cfg.chanState.RemoteNextRevocation.
+			UnwrapOrErr(lnwallet.ErrNoNextRevocation)
+		if err != nil {
+			return false, fmt.Errorf("unable to handle remote "+
+				"pending close for chan_point=%v: %w",
+				c.cfg.chanState.FundingOutpoint, err)
+		}
+
 		chainSet.commitSet.ConfCommitKey = fn.Some(RemotePendingHtlcSet)
-		err := c.dispatchRemoteForceClose(
+		err = c.dispatchRemoteForceClose(
 			commitSpend, *chainSet.remotePendingCommit,
-			chainSet.commitSet,
-			c.cfg.chanState.RemoteNextRevocation,
+			chainSet.commitSet, &commitPoint,
 		)
 		if err != nil {
 			return false, fmt.Errorf("unable to handle remote "+

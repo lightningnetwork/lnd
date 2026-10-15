@@ -256,7 +256,9 @@ func createTestChannel(t *testing.T, cdb *ChannelStateDB,
 		err = params.channel.CloseChannel(&ChannelCloseSummary{
 			RemotePub:               params.channel.IdentityPub,
 			RemoteCurrentRevocation: params.channel.IdentityPub,
-			RemoteNextRevocation:    params.channel.IdentityPub,
+			RemoteNextRevocation: fn.Some(
+				*params.channel.IdentityPub,
+			),
 		})
 		require.NoError(t, err, "unable to close channel")
 	}
@@ -410,7 +412,7 @@ func createTestChannelState(t *testing.T, cdb *ChannelStateDB) *OpenChannel {
 		},
 		NumConfsRequired:        4,
 		RemoteCurrentRevocation: privKey.PubKey(),
-		RemoteNextRevocation:    privKey.PubKey(),
+		RemoteNextRevocation:    fn.Some(*privKey.PubKey()),
 		RevocationProducer:      producer,
 		RevocationStore:         store,
 		Db:                      cdb,
@@ -479,7 +481,7 @@ func TestOpenChannelPutGetDelete(t *testing.T) {
 	// post-funding revocation exchange.
 	nextRevKey, err := btcec.NewPrivateKey()
 	require.NoError(t, err, "unable to create new private key")
-	if err := state.InsertNextRevocation(nextRevKey.PubKey()); err != nil {
+	if err := state.InsertNextRevocation(*nextRevKey.PubKey()); err != nil {
 		t.Fatalf("unable to update revocation: %v", err)
 	}
 
@@ -488,9 +490,11 @@ func TestOpenChannelPutGetDelete(t *testing.T) {
 	updatedChan := openChannels[0]
 
 	// Ensure that the revocation was set properly.
-	if !nextRevKey.PubKey().IsEqual(updatedChan.RemoteNextRevocation) {
-		t.Fatalf("next revocation wasn't updated")
-	}
+	require.Equal(
+		t, fn.Some(*nextRevKey.PubKey()),
+		updatedChan.RemoteNextRevocation,
+		"next revocation wasn't updated",
+	)
 
 	// Finally to wrap up the test, delete the state of the channel within
 	// the database. This involves "closing" the channel which removes all
@@ -837,10 +841,11 @@ func TestChannelStateTransition(t *testing.T) {
 	// needed to rectify any fishy behavior by the remote party. Modify the
 	// current uncollapsed revocation state to simulate a state transition
 	// by the remote party.
-	channel.RemoteCurrentRevocation = channel.RemoteNextRevocation
+	nextPoint := channel.RemoteNextRevocation.UnwrapOrFail(t)
+	channel.RemoteCurrentRevocation = &nextPoint
 	newPriv, err := btcec.NewPrivateKey()
 	require.NoError(t, err, "unable to generate key")
-	channel.RemoteNextRevocation = newPriv.PubKey()
+	channel.RemoteNextRevocation = fn.Some(*newPriv.PubKey())
 
 	fwdPkg := NewFwdPkg(channel.ShortChanID(), oldRemoteCommit.CommitHeight,
 		diskCommitDiff.LogUpdates, nil)
@@ -932,9 +937,11 @@ func TestChannelStateTransition(t *testing.T) {
 	if !channel.RemoteCurrentRevocation.IsEqual(updatedChannel[0].RemoteCurrentRevocation) {
 		t.Fatalf("revocation state was not synced")
 	}
-	if !channel.RemoteNextRevocation.IsEqual(updatedChannel[0].RemoteNextRevocation) {
-		t.Fatalf("revocation state was not synced")
-	}
+	require.Equal(
+		t, channel.RemoteNextRevocation,
+		updatedChannel[0].RemoteNextRevocation,
+		"revocation state was not synced",
+	)
 
 	// At this point, we should have 2 forwarding packages added.
 	fwdPkgs := loadFwdPkgs(
@@ -1114,6 +1121,70 @@ func TestFetchPendingChannels(t *testing.T) {
 	if len(pendingChannels) != 0 {
 		t.Fatalf("incorrect number of pending channels: expecting %v,"+
 			"got %v", 0, len(pendingChannels))
+	}
+}
+
+// TestRemoteNextRevocationOptional tests that a channel without the remote
+// party's next revocation point round trips through the database as None,
+// that inserting the point later persists it, and that close summaries keep
+// the point, or the lack of one, as well.
+func TestRemoteNextRevocationOptional(t *testing.T) {
+	t.Parallel()
+
+	fullDB, err := MakeTestDB(t)
+	require.NoError(t, err)
+
+	cdb := fullDB.ChannelStateDB()
+
+	// We'll start with a channel that confirmed, but for which the remote
+	// party never sent channel_ready.
+	noNextPoint := func(params *testChannelParams) {
+		params.channel.RemoteNextRevocation = fn.None[btcec.PublicKey]()
+	}
+	state := createTestChannel(t, cdb, openChannelOption(), noNextPoint)
+
+	fetchState := func() *OpenChannel {
+		t.Helper()
+
+		channels, err := cdb.FetchOpenChannels(state.IdentityPub)
+		require.NoError(t, err)
+		require.Len(t, channels, 1)
+
+		return channels[0]
+	}
+
+	// The revocation state on disk shouldn't carry a next point.
+	require.True(t, fetchState().RemoteNextRevocation.IsNone())
+
+	// Once channel_ready arrives, the point is inserted and should be
+	// read back as is.
+	nextPriv, err := btcec.NewPrivateKey()
+	require.NoError(t, err)
+	require.NoError(t, state.InsertNextRevocation(*nextPriv.PubKey()))
+
+	require.Equal(
+		t, fn.Some(*nextPriv.PubKey()),
+		fetchState().RemoteNextRevocation,
+	)
+
+	// Close summaries also persist the point only if it's present.
+	for _, nextPoint := range []fn.Option[btcec.PublicKey]{
+		fn.None[btcec.PublicKey](), fn.Some(*nextPriv.PubKey()),
+	} {
+		summary := &ChannelCloseSummary{
+			RemotePub:               state.IdentityPub,
+			RemoteCurrentRevocation: state.IdentityPub,
+			RemoteNextRevocation:    nextPoint,
+		}
+
+		var b bytes.Buffer
+		require.NoError(t, serializeChannelCloseSummary(&b, summary))
+
+		decoded, err := deserializeCloseChannelSummary(&b)
+		require.NoError(t, err)
+		require.Equal(
+			t, nextPoint, decoded.RemoteNextRevocation,
+		)
 	}
 }
 

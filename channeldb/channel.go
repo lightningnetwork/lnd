@@ -1316,9 +1316,9 @@ func (c *ChannelStateDB) RemoteUnsignedLocalUpdates(channel *OpenChannel) (
 // InsertNextRevocation inserts the next commitment point into the persisted
 // channel state.
 func (c *ChannelStateDB) InsertNextRevocation(channel *OpenChannel,
-	revKey *btcec.PublicKey) error {
+	revKey btcec.PublicKey) error {
 
-	channel.RemoteNextRevocation = revKey
+	channel.RemoteNextRevocation = fn.Some(revKey)
 
 	err := kvdb.Update(c.backend, func(tx kvdb.RwTx) error {
 		chanBucket, err := fetchChanBucketRw(

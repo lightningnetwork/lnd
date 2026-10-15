@@ -6096,13 +6096,191 @@ func TestSignCommitmentFailNotLockedIn(t *testing.T) {
 
 	// Next, we'll modify Alice's internal state to omit knowledge of Bob's
 	// next revocation point.
-	aliceChannel.channelState.RemoteNextRevocation = nil
+	aliceState := aliceChannel.channelState
+	aliceState.RemoteNextRevocation = fn.None[btcec.PublicKey]()
 
 	// If we now try to initiate a state update, then it should fail as
 	// Alice is unable to actually create a new state.
 	_, err = aliceChannel.SignNextCommitment(ctxb)
 	if err != ErrNoWindow {
 		t.Fatalf("expected ErrNoWindow, instead have: %v", err)
+	}
+}
+
+// TestReceiveRevocationInvalidState tests that rejected revocations leave the
+// channel state unchanged and don't prevent a later valid transition.
+func TestReceiveRevocationInvalidState(t *testing.T) {
+	t.Parallel()
+
+	noNextPoint := fn.None[btcec.PublicKey]()
+
+	testCases := []struct {
+		name     string
+		chanType channeldb.ChannelType
+
+		// dropNextPoint clears Alice's copy of Bob's next revocation
+		// point.
+		dropNextPoint bool
+	}{
+		{
+			name:     "tweakless",
+			chanType: channeldb.SingleFunderTweaklessBit,
+		},
+		{
+			name:          "tweakless no next point",
+			chanType:      channeldb.SingleFunderTweaklessBit,
+			dropNextPoint: true,
+		},
+		{
+			name: "taproot",
+			chanType: channeldb.SimpleTaprootFeatureBit |
+				channeldb.SingleFunderTweaklessBit |
+				channeldb.AnchorOutputsBit,
+		},
+		{
+			name: "taproot no next point",
+			chanType: channeldb.SimpleTaprootFeatureBit |
+				channeldb.SingleFunderTweaklessBit |
+				channeldb.AnchorOutputsBit,
+			dropNextPoint: true,
+		},
+	}
+	for _, tc := range testCases {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+
+			aliceChannel, bobChannel, err := CreateTestChannels(
+				t, tc.chanType,
+			)
+			require.NoError(t, err)
+
+			aliceState := aliceChannel.channelState
+			if tc.dropNextPoint {
+				aliceState.RemoteNextRevocation = noNextPoint
+			}
+
+			// Generate a revocation message for the
+			// current commitment state.
+			bobHeight := bobChannel.commitChains.Local.tail().height
+			revMsg, err := bobChannel.generateRevocation(bobHeight)
+			require.NoError(t, err)
+
+			curPoint := aliceState.RemoteCurrentRevocation
+			nextPoint := aliceState.RemoteNextRevocation
+
+			_, _, err = aliceChannel.ReceiveRevocation(revMsg)
+			require.ErrorIs(t, err, ErrUnexpectedRevocation)
+
+			// The rejected transition must leave the
+			// revocation state unchanged.
+			require.Equal(
+				t, curPoint, aliceState.RemoteCurrentRevocation,
+			)
+			require.Equal(
+				t, nextPoint, aliceState.RemoteNextRevocation,
+			)
+			_, err = aliceState.RevocationStore.LookUp(bobHeight)
+			require.Error(t, err)
+
+			if tc.dropNextPoint {
+				return
+			}
+
+			// A normal state transition should still
+			// succeed afterwards.
+			require.NoError(
+				t, ForceStateTransition(
+					aliceChannel, bobChannel,
+				),
+			)
+			_, err = aliceState.RevocationStore.LookUp(bobHeight)
+			require.NoError(t, err)
+		})
+	}
+}
+
+// TestReceiveRevocationWrongSecret tests that a revocation for the wrong
+// commitment point is rejected before the remote party's revocation state is
+// modified, and that the correct revocation can still be processed afterwards.
+func TestReceiveRevocationWrongSecret(t *testing.T) {
+	t.Parallel()
+
+	testCases := []struct {
+		name     string
+		chanType channeldb.ChannelType
+	}{
+		{
+			name:     "tweakless",
+			chanType: channeldb.SingleFunderTweaklessBit,
+		},
+		{
+			name: "taproot",
+			chanType: channeldb.SimpleTaprootFeatureBit |
+				channeldb.SingleFunderTweaklessBit |
+				channeldb.AnchorOutputsBit,
+		},
+	}
+
+	for _, tc := range testCases {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+
+			aliceChannel, bobChannel, err := CreateTestChannels(
+				t, tc.chanType,
+			)
+			require.NoError(t, err)
+
+			// Give Alice an outstanding commitment for Bob so the
+			// revocation reaches the secret validation.
+			commitSigs, err := aliceChannel.SignNextCommitment(ctxb)
+			require.NoError(t, err)
+			err = bobChannel.ReceiveNewCommitment(
+				commitSigs.CommitSigs,
+			)
+			require.NoError(t, err)
+
+			bobHeight := bobChannel.commitChains.Local.tail().height
+			bobRevocation, _, _, err := bobChannel.
+				RevokeCurrentCommitment()
+			require.NoError(t, err)
+
+			aliceState := aliceChannel.channelState
+			currentPoint := aliceState.RemoteCurrentRevocation
+			nextPoint := aliceState.RemoteNextRevocation
+
+			// Corrupt the revealed secret so it no longer
+			// derives the remote party's current revocation
+			// point.
+			wrongRevocation := *bobRevocation
+			wrongRevocation.Revocation[0] ^= 1
+
+			_, _, err = aliceChannel.ReceiveRevocation(
+				&wrongRevocation,
+			)
+			require.EqualError(t, err, "revocation key mismatch")
+
+			// The rejected revocation must not advance
+			// either point or enter the bad secret in the
+			// revocation store.
+			require.Equal(
+				t, currentPoint,
+				aliceState.RemoteCurrentRevocation,
+			)
+			require.Equal(
+				t, nextPoint, aliceState.RemoteNextRevocation,
+			)
+			_, err = aliceState.RevocationStore.LookUp(bobHeight)
+			require.Error(t, err)
+
+			// The real revocation should still be accepted
+			// afterwards.
+			_, _, err = aliceChannel.ReceiveRevocation(
+				bobRevocation,
+			)
+			require.NoError(t, err)
+			_, err = aliceState.RevocationStore.LookUp(bobHeight)
+			require.NoError(t, err)
+		})
 	}
 }
 
@@ -6714,11 +6892,13 @@ func TestChannelUnilateralClosePendingCommit(t *testing.T) {
 	// properly populated.
 	aliceRemoteChainTip, err := aliceChannel.channelState.RemoteCommitChainTip()
 	require.NoError(t, err, "unable to fetch remote chain tip")
+	bobNextPoint := aliceChannel.channelState.RemoteNextRevocation.
+		UnwrapOrFail(t)
 	aliceCloseSummary, err := NewUnilateralCloseSummary(
 		aliceChannel.channelState, aliceChannel.Signer,
 		spendDetail,
 		aliceRemoteChainTip.Commitment,
-		aliceChannel.channelState.RemoteNextRevocation,
+		&bobNextPoint,
 		fn.Some[AuxLeafStore](&MockAuxLeafStore{}),
 		fn.Some[AuxContractResolver](&MockAuxContractResolver{}),
 	)

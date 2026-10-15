@@ -53,6 +53,13 @@
   failing validation because the KV and SQL stores use different empty byte
   slice representations.
 
+* Fee estimates returned by the external `--fee.url` API are [now clamped
+  to a ceiling](https://github.com/lightningnetwork/lnd/pull/11334) of
+  10,000 sat/vb (`chainfee.FeePerKwCeiling`). Previously the estimates were
+  only floor-clamped, so out-of-range values from the external API could
+  propagate into fee-sensitive wallet operations. The API's
+  `min_relay_feerate` is now clamped to the same bounds.
+
 # New Features
 
 ## Functional Enhancements

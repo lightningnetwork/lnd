@@ -234,7 +234,10 @@ Before your code is accepted, the [release notes we keep in-tree for the next
 upcoming milestone should be extended to describe the changes contained in your
 PR](https://github.com/lightningnetwork/lnd/tree/master/docs/release-notes).
 Unless otherwise mentioned by the reviewers of your PR, the description of your
-changes should live in the document set for the _next_ major release. 
+changes should be added as a release note fragment. Follow the [release note
+guide](release-notes/README.md) and add a file named after your PR to
+`docs/release-notes/unreleased/` instead of editing a shared release note
+document.
 
 Once your code is accepted, it will be integrated with the master branch. After
 2+ (sometimes 1) LGTM's (approvals) are given on a PR, it's eligible to land in

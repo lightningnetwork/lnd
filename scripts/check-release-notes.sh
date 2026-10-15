@@ -15,9 +15,14 @@ if [[ $PR_NUMBER == "master" ]] || [[ $PR_NUMBER == "gh-readonly-queue" ]]; then
     exit 0
 fi
 
-# Ensure that the PR number at least shows up in the release notes folder under
-# one of the contained milestones.
-if ! grep -r -q "lightningnetwork/lnd/pull/$PR_NUMBER" docs/release-notes; then
-    echo "PR $PR_NUMBER didn't update release notes"
+# Ensure that the PR number at least shows up in the release notes folder.
+# New entries are PR-specific fragments in docs/release-notes/unreleased, as
+# documented in docs/release-notes/README.md. The recursive check keeps the
+# version-wide files of older release lines compatible.
+NOTES_DIR=docs/release-notes
+if ! grep -r -q "lightningnetwork/lnd/pull/$PR_NUMBER" "$NOTES_DIR"; then
+    echo "PR $PR_NUMBER didn't update the release notes"
+    echo "Add $NOTES_DIR/unreleased/$PR_NUMBER.md"
+    echo "See $NOTES_DIR/README.md for details"
     exit 1
 fi

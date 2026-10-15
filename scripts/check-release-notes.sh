@@ -18,9 +18,12 @@ fi
 # Ensure that the PR number at least shows up in the release notes folder.
 # New entries are PR-specific fragments in docs/release-notes/unreleased, as
 # documented in docs/release-notes/README.md. The recursive check keeps the
-# version-wide files of older release lines compatible.
+# version-wide files of older release lines compatible. The PR number must not
+# be followed by another digit, so that e.g. PR 1132 isn't satisfied by a link
+# to PR 11326.
 NOTES_DIR=docs/release-notes
-if ! grep -r -q "lightningnetwork/lnd/pull/$PR_NUMBER" "$NOTES_DIR"; then
+PR_LINK="lightningnetwork/lnd/pull/${PR_NUMBER}([^0-9]|$)"
+if ! grep -r -q -E "$PR_LINK" "$NOTES_DIR"; then
     echo "PR $PR_NUMBER didn't update the release notes"
     echo "Add $NOTES_DIR/unreleased/$PR_NUMBER.md"
     echo "See $NOTES_DIR/README.md for details"

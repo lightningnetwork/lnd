@@ -7,6 +7,8 @@ import (
 	"testing"
 
 	"github.com/btcsuite/btcd/btcec/v2"
+	"github.com/btcsuite/btcd/btcec/v2/schnorr"
+	"github.com/btcsuite/btcd/chainhash/v2"
 	"github.com/lightningnetwork/lnd/tlv"
 	"github.com/stretchr/testify/require"
 )
@@ -485,4 +487,36 @@ func TestVerifyInvoiceRequestDirect(t *testing.T) {
 			}
 		})
 	}
+}
+
+// TestInvoiceSigningRoot verifies that a signature over the tagged hash of
+// InvoiceSigningRoot is a valid invoice signature. A signer without the raw
+// key signs in this way.
+func TestInvoiceSigningRoot(t *testing.T) {
+	t.Parallel()
+
+	bobPriv, _ := bobKey()
+	inv := validInvoice(t)
+
+	root, err := InvoiceSigningRoot(inv)
+	require.NoError(t, err)
+
+	digest := chainhash.TaggedHash([]byte(InvoiceSignatureTag), root[:])
+	sig, err := schnorr.Sign(bobPriv, digest[:])
+	require.NoError(t, err)
+
+	inv.Signature = tlv.SomeRecordT(
+		tlv.NewPrimitiveRecord[tlv.TlvType240, [64]byte](
+			[64]byte(sig.Serialize()),
+		),
+	)
+	require.NoError(t, verifyInvoice(inv))
+
+	// The root function runs the writer validation, so an invoice that
+	// breaks it has no root to sign.
+	inv.InvoiceNodeID = tlv.OptionalRecordT[
+		tlv.TlvType176, *btcec.PublicKey,
+	]{}
+	_, err = InvoiceSigningRoot(inv)
+	require.Error(t, err)
 }

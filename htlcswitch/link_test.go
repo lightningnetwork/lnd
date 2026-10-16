@@ -5794,6 +5794,10 @@ func (m *mockPackager) LoadFwdPkgs(tx kvdb.RTx) ([]*channeldb.FwdPkg, error) {
 	return nil, nil
 }
 
+func (*mockPackager) CountFwdPkgs(tx kvdb.RTx) (int, error) {
+	return 0, nil
+}
+
 func (*mockPackager) RemovePkg(tx kvdb.RwTx, height uint64) error {
 	return nil
 }

@@ -1015,6 +1015,15 @@ func (c *OpenChannel) LoadFwdPkgs() ([]*FwdPkg, error) {
 	return c.Db.LoadFwdPkgs(c)
 }
 
+// CountFwdPkgs returns the number of forwarding packages without loading their
+// contents.
+func (c *OpenChannel) CountFwdPkgs() (int, error) {
+	c.RLock()
+	defer c.RUnlock()
+
+	return c.Db.CountFwdPkgs(c)
+}
+
 // AckAddHtlcs updates the AckAddFilter containing any of the provided AddRefs
 // indicating that a response to this Add has been committed to the remote
 // party. Doing so will prevent these Add HTLCs from being reforwarded

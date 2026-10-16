@@ -303,6 +303,10 @@ type OpenChannelFwdPkgStore interface {
 	// LoadFwdPkgs loads forwarding packages that have not been processed.
 	LoadFwdPkgs(channel *OpenChannel) ([]*FwdPkg, error)
 
+	// CountFwdPkgs returns the number of forwarding packages without
+	// loading their contents.
+	CountFwdPkgs(channel *OpenChannel) (int, error)
+
 	// AckAddHtlcs marks add HTLCs in forwarding packages as resolved.
 	AckAddHtlcs(channel *OpenChannel, addRefs ...AddRef) error
 

@@ -24,6 +24,7 @@ func devCommands() []cli.Command {
 			ArgsUsage:   "graph-json-file",
 			Action:      actionDecorator(importGraph),
 		},
+		CreateOfferCommand,
 	}
 }
 

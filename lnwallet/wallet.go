@@ -2830,8 +2830,10 @@ func (s *shimKeyRing) DeriveNextKey(keyFam keychain.KeyFamily) (keychain.KeyDesc
 func ValidateUpfrontShutdown(shutdown lnwire.DeliveryAddress,
 	params *chaincfg.Params) bool {
 
-	// We don't need to worry about a large UpfrontShutdownScript since it
-	// was already checked in lnwire when decoding from the wire.
+	// The script's length is not necessarily bounded by lnwire: the
+	// upfront shutdown script in open_channel and accept_channel is a TLV
+	// field without a size cap. Each accepted template below has a fixed
+	// size or is a witness program, which bounds it to 42 bytes.
 	scriptClass, _, _, _ := txscript.ExtractPkScriptAddrs(shutdown, params)
 
 	switch {

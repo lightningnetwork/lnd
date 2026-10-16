@@ -400,7 +400,9 @@ func RandSHA256Hash(t *rapid.T) [sha256.Size]byte {
 
 // RandDeliveryAddress generates a random delivery address (script).
 func RandDeliveryAddress(t *rapid.T) DeliveryAddress {
-	addrLen := rapid.IntRange(1, 34).Draw(t, "addrLen")
+	addrLen := rapid.IntRange(1, deliveryAddressMaxSize).Draw(
+		t, "addrLen",
+	)
 
 	return rapid.SliceOfN(rapid.Byte(), addrLen, addrLen).Draw(
 		t, "deliveryAddress",

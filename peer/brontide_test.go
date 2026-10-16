@@ -85,6 +85,99 @@ func TestPeerChannelClosureShutdownResponseLinkRemoved(t *testing.T) {
 	require.NotEqualValues(t, shutdownMsg.Address, dummyDeliveryScript)
 }
 
+// TestPeerShutdownAnySegwitScript checks that a Shutdown read off the wire is
+// handed to the co-op close flow when its delivery script is a witness program
+// that option_shutdown_anysegwit allows, up to the 42-byte maximum. A script
+// above 34 bytes used to fail decoding, which disconnected the peer.
+func TestPeerShutdownAnySegwitScript(t *testing.T) {
+	t.Parallel()
+
+	// Both cases are witness v2 programs, OP_2 followed by a single push.
+	testCases := []struct {
+		name     string
+		pushSize int
+	}{
+		{name: "34-byte script", pushSize: 32},
+		{name: "42-byte script", pushSize: 40},
+	}
+
+	for _, tc := range testCases {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+
+			harness, err := createTestPeerWithChannel(t, noUpdate)
+			require.NoError(t, err)
+
+			alicePeer := harness.peer
+			anySegwit := lnwire.NewFeatureVector(
+				lnwire.NewRawFeatureVector(
+					lnwire.ShutdownAnySegwitOptional,
+				),
+				lnwire.Features,
+			)
+			alicePeer.remoteFeatures = anySegwit
+			alicePeer.cfg.Features = anySegwit
+
+			chanID := lnwire.NewChanIDFromOutPoint(
+				harness.channel.ChannelPoint(),
+			)
+			harness.mockSwitch.links = append(
+				harness.mockSwitch.links,
+				newMockUpdateHandler(chanID),
+			)
+
+			// The harness does not run a message router, so stand
+			// in for one with no Shutdown endpoint, which leaves
+			// the message to the peer's own dispatch.
+			router := &mockMsgRouter{}
+			router.On("RouteMsg", mock.Anything).Return(
+				msgmux.ErrUnableToRouteMsg,
+			).Maybe()
+			alicePeer.msgRouter = fn.Some[msgmux.Router](router)
+
+			script := lnwire.DeliveryAddress(append(
+				[]byte{txscript.OP_2, byte(tc.pushSize)},
+				bytes.Repeat([]byte{0x01}, tc.pushSize)...,
+			))
+			require.True(t, lnwallet.ValidateUpfrontShutdown(
+				script, &alicePeer.cfg.Wallet.Cfg.NetParams,
+			))
+
+			var b bytes.Buffer
+			_, err = lnwire.WriteMessage(
+				&b, lnwire.NewShutdown(chanID, script), 0,
+			)
+			require.NoError(t, err)
+
+			alicePeer.cg.WgAdd(1)
+			go alicePeer.readHandler()
+
+			select {
+			case harness.mockConn.readMessages <- b.Bytes():
+			case <-alicePeer.cg.Done():
+				t.Fatal("peer disconnected before Shutdown " +
+					"was delivered")
+			}
+
+			// Alice answers with her own Shutdown rather than
+			// dropping the connection.
+			select {
+			case outMsg := <-alicePeer.outgoingQueue:
+				_, ok := outMsg.msg.(*lnwire.Shutdown)
+				require.True(t, ok, "expected Shutdown, got %T",
+					outMsg.msg)
+
+			case <-alicePeer.cg.Done():
+				t.Fatal("peer disconnected on a valid " +
+					"anysegwit delivery script")
+
+			case <-time.After(timeout):
+				t.Fatal("did not receive Shutdown message")
+			}
+		})
+	}
+}
+
 // TestPeerChannelClosureAcceptFeeResponder tests the shutdown responder's
 // behavior if we can agree on the fee immediately.
 func TestPeerChannelClosureAcceptFeeResponder(t *testing.T) {

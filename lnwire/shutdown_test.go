@@ -143,3 +143,47 @@ func TestShutdownEncodeDecode(t *testing.T) {
 		})
 	}
 }
+
+// TestShutdownAnySegwitMaxScript checks that a Shutdown carries the largest
+// script option_shutdown_anysegwit allows, a witness program with a 40-byte
+// push, and that the decoder still rejects anything longer.
+func TestShutdownAnySegwitMaxScript(t *testing.T) {
+	t.Parallel()
+
+	testCases := []struct {
+		name      string
+		size      int
+		expectErr bool
+	}{
+		{name: "max anysegwit script", size: 42},
+		{name: "above max", size: 43, expectErr: true},
+	}
+
+	for _, tc := range testCases {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+
+			// OP_2 followed by a single push of the remaining
+			// bytes, so the 42-byte case is a valid witness v2
+			// program.
+			script := append(
+				[]byte{0x52, byte(tc.size - 2)},
+				bytes.Repeat([]byte{0x01}, tc.size-2)...,
+			)
+			msg := NewShutdown(ChannelID{1}, script)
+
+			var buf bytes.Buffer
+			require.NoError(t, msg.Encode(&buf, 0))
+
+			var decoded Shutdown
+			err := decoded.Decode(bytes.NewReader(buf.Bytes()), 0)
+			if tc.expectErr {
+				require.Error(t, err)
+				return
+			}
+
+			require.NoError(t, err)
+			require.Equal(t, msg.Address, decoded.Address)
+		})
+	}
+}

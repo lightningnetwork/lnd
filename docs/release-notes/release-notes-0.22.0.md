@@ -90,6 +90,20 @@
   the shortest path to a destination through nodes that advertise onion
   message support.
 
+* A new experimental [local reputation
+  subsystem](https://github.com/lightningnetwork/lnd/pull/10919) tracks the
+  historical forwarding behaviour of peers, following the scoring recommended in
+  BOLT [#1280](https://github.com/lightning/bolts/pull/1280). It is enabled by
+  default but is purely observational and does not affect routing in any way.
+  For every HTLC the node forwards it records whether the outgoing channel has
+  earned enough fees in the past to be trusted with that HTLC, and logs the
+  answer. The per-HTLC lines are logged at debug level under the `REPM`
+  subsystem, so operators who want to see them should run with
+  `--debuglevel=REPM=debug`. Nothing is persisted and no action is needed from
+  operators in this release; the output exists so that the scoring can be
+  evaluated against real traffic before any enforcement is added. The subsystem
+  can be disabled with `routing.no-reputation`.
+
 ## RPC Additions
 
 * The `routerrpc.EstimateRouteFee` RPC now supports [restricting fee estimates

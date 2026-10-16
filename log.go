@@ -53,6 +53,7 @@ import (
 	"github.com/lightningnetwork/lnd/peer"
 	"github.com/lightningnetwork/lnd/peernotifier"
 	"github.com/lightningnetwork/lnd/protofsm"
+	"github.com/lightningnetwork/lnd/reputation"
 	"github.com/lightningnetwork/lnd/routing"
 	"github.com/lightningnetwork/lnd/routing/blindedpath"
 	"github.com/lightningnetwork/lnd/routing/localchans"
@@ -221,6 +222,9 @@ func SetupLoggers(root *build.SubLoggerManager, interceptor signal.Interceptor) 
 	)
 
 	AddSubLogger(root, onionmessage.Subsystem, interceptor, onionmessage.UseLogger)
+	AddSubLogger(
+		root, reputation.Subsystem, interceptor, reputation.UseLogger,
+	)
 }
 
 // AddSubLogger is a helper method to conveniently create and register the

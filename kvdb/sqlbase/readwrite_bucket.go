@@ -464,20 +464,33 @@ func (b *readWriteBucket) Prefetch(paths ...[]string) {}
 // additional queries can be executed within the callback.
 func (b *readWriteBucket) ForAll(cb func(k, v []byte) error) error {
 	rows, cancel, err := b.tx.Query(
-		"SELECT key, value FROM " + b.table + " WHERE " +
-			parentSelector(b.id) + " ORDER BY key",
+		"SELECT key, value, " +
+			"CASE WHEN value IS NULL THEN 1 ELSE 0 END " +
+			"FROM " + b.table + " WHERE " + parentSelector(b.id) +
+			" ORDER BY key",
 	)
 	if err != nil {
 		return err
 	}
 	defer cancel()
+	defer rows.Close()
 
 	for rows.Next() {
-		var key, value []byte
+		var (
+			key      []byte
+			value    []byte
+			isBucket int
+		)
 
-		err := rows.Scan(&key, &value)
+		err := rows.Scan(&key, &value, &isBucket)
 		if err != nil {
 			return err
+		}
+
+		// SQLite decodes an empty BLOB into nil. Preserve the distinction
+		// between empty leaf values and the SQL NULL used for buckets.
+		if isBucket == 0 && value == nil {
+			value = []byte{}
 		}
 
 		err = cb(key, value)
@@ -486,5 +499,5 @@ func (b *readWriteBucket) ForAll(cb func(k, v []byte) error) error {
 		}
 	}
 
-	return nil
+	return rows.Err()
 }

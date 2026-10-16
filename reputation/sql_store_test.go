@@ -12,7 +12,7 @@ import (
 
 // newTestSQLStore creates an SQLStore on a fresh test database, returning the
 // underlying queries as well so tests can bypass the store.
-func newTestSQLStore(t *testing.T) (*SQLStore, BatchedSQLQueries) {
+func newTestSQLStore(t testing.TB) (*SQLStore, BatchedSQLQueries) {
 	t.Helper()
 
 	db := newTestDB(t)

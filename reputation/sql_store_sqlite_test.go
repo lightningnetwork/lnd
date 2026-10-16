@@ -9,6 +9,6 @@ import (
 )
 
 // newTestDB creates a fresh SQLite database with all migrations applied.
-func newTestDB(t *testing.T) *sqldb.BaseDB {
+func newTestDB(t testing.TB) *sqldb.BaseDB {
 	return sqldb.NewTestSqliteDB(t).BaseDB
 }

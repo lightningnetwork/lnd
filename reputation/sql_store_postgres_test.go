@@ -9,7 +9,7 @@ import (
 )
 
 // newTestDB creates a fresh Postgres database with all migrations applied.
-func newTestDB(t *testing.T) *sqldb.BaseDB {
+func newTestDB(t testing.TB) *sqldb.BaseDB {
 	fixture := sqldb.NewTestPgFixture(
 		t, sqldb.DefaultPostgresFixtureLifetime,
 	)

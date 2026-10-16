@@ -5699,6 +5699,7 @@ func (r *rpcServer) SubscribeChannelEvents(req *lnrpc.ChannelEventSubscription,
 			if errors.Is(updateStream.Context().Err(), context.Canceled) {
 				return nil
 			}
+
 			return updateStream.Context().Err()
 
 		case <-r.quit:

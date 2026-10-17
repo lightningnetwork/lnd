@@ -349,6 +349,7 @@ func createTestPeerWithChannel(t *testing.T, updateChan func(a,
 		notifier:   notifier,
 		publishTx:  publishTx,
 		mockSwitch: mockSwitch,
+		privKey:    aliceKeyPriv,
 		mockConn:   params.mockConn,
 	}, nil
 }

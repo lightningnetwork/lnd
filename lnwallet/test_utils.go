@@ -6,8 +6,8 @@ import (
 	"crypto/rand"
 	"encoding/binary"
 	"encoding/hex"
+	"fmt"
 	"io"
-	prand "math/rand"
 	"net"
 	"testing"
 
@@ -121,6 +121,18 @@ func CreateTestChannels(t *testing.T, chanType channeldb.ChannelType,
 	dbModifiers ...channeldb.OptionModifier) (*LightningChannel,
 	*LightningChannel, error) {
 
+	return CreateTestChannelsWithRand(
+		t, chanType, rand.Reader, dbModifiers...,
+	)
+}
+
+// CreateTestChannelsWithRand is CreateTestChannels with the funding output
+// index, the short channel ID and the tapscript root drawn from rnd, so that
+// two calls given the same randomness create identical pairs of channels.
+func CreateTestChannelsWithRand(t *testing.T, chanType channeldb.ChannelType,
+	rnd io.Reader, dbModifiers ...channeldb.OptionModifier) (
+	*LightningChannel, *LightningChannel, error) {
+
 	channelCapacity, err := btcutil.NewAmount(testChannelCapacity)
 	if err != nil {
 		return nil, nil, err
@@ -131,9 +143,13 @@ func CreateTestChannels(t *testing.T, chanType channeldb.ChannelType,
 	csvTimeoutBob := uint32(4)
 	isAliceInitiator := true
 
+	var fundingIndex [4]byte
+	if _, err := io.ReadFull(rnd, fundingIndex[:]); err != nil {
+		return nil, nil, err
+	}
 	prevOut := &wire.OutPoint{
 		Hash:  chainhash.Hash(testHdSeed),
-		Index: prand.Uint32(),
+		Index: binary.BigEndian.Uint32(fundingIndex[:]),
 	}
 	fundingTxIn := wire.NewTxIn(prevOut, nil, nil)
 
@@ -301,7 +317,7 @@ func CreateTestChannels(t *testing.T, chanType channeldb.ChannelType,
 	}
 
 	var chanIDBytes [8]byte
-	if _, err := io.ReadFull(rand.Reader, chanIDBytes[:]); err != nil {
+	if _, err := io.ReadFull(rnd, chanIDBytes[:]); err != nil {
 		return nil, nil, err
 	}
 
@@ -347,7 +363,7 @@ func CreateTestChannels(t *testing.T, chanType channeldb.ChannelType,
 	// one here to apply to both the channels.
 	if chanType.HasTapscriptRoot() {
 		var tapscriptRoot chainhash.Hash
-		_, err := io.ReadFull(rand.Reader, tapscriptRoot[:])
+		_, err := io.ReadFull(rnd, tapscriptRoot[:])
 		if err != nil {
 			return nil, nil, err
 		}
@@ -673,4 +689,34 @@ func NewDefaultAuxSignerMock(t *testing.T) *MockAuxSigner {
 	).Return(nil)
 
 	return auxSigner
+}
+
+// RestartTestChannel returns a new LightningChannel for the same channel,
+// loaded from the database the way lnd loads a channel when it reconnects to
+// the peer: everything that was only in memory is gone. The old channel must
+// not be used afterwards.
+func RestartTestChannel(lc *LightningChannel) (*LightningChannel, error) {
+	state := lc.channelState
+	channels, err := state.Db.FetchOpenChannels(state.IdentityPub)
+	if err != nil {
+		return nil, err
+	}
+
+	for _, c := range channels {
+		if c.FundingOutpoint != state.FundingOutpoint {
+			continue
+		}
+
+		var opts []ChannelOpt
+		lc.opts.leafStore.WhenSome(func(s AuxLeafStore) {
+			opts = append(opts, WithLeafStore(s))
+		})
+		lc.opts.auxSigner.WhenSome(func(s AuxSigner) {
+			opts = append(opts, WithAuxSigner(s))
+		})
+
+		return NewLightningChannel(lc.Signer, c, lc.sigPool, opts...)
+	}
+
+	return nil, fmt.Errorf("channel %v not found", state.FundingOutpoint)
 }

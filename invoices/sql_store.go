@@ -886,7 +886,7 @@ func (i *SQLStore) InvoicesSettledSince(ctx context.Context, idx uint64) (
 
 		// Now fetch all the AMP sub invoices that were settled since
 		// the provided index.
-		ampInvoices, err := i.db.FetchSettledAMPSubInvoices(
+		ampInvoices, err := db.FetchSettledAMPSubInvoices(
 			ctx, sqlc.FetchSettledAMPSubInvoicesParams{
 				SettleIndexGet: sqldb.SQLInt64(idx + 1),
 			},

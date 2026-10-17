@@ -1,0 +1,10 @@
+<Project>
+<ProjectName>ChanFSMModels</ProjectName>
+<InputFiles>
+<PFile>src/node.p</PFile>
+<PFile>src/world.p</PFile>
+<PFile>src/spec.p</PFile>
+<PFile>test/channel_test.p</PFile>
+</InputFiles>
+<OutputDir>PGenerated</OutputDir>
+</Project>

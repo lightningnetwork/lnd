@@ -298,6 +298,14 @@ forwards an update twice, forwards only irrevocably committed updates, and
 forwards every one of them. A differential test ties the Lean model to the
 Go ledger.
 
+**P models** in [`pmodel/`](pmodel/README.md) state the protocol's contract
+as two communicating nodes, and the P checker explores thousands of
+interleavings, disconnections and a byzantine peer included. The bridge
+replays the models' recorded runs into the Go state machine on every
+`go test`, and [`SPEC.md`](SPEC.md) is the requirements spec derived from
+the models, with each requirement tied to the code and the tests that check
+it.
+
 To run the randomized tests longer, or to replay a failure:
 
 ```sh

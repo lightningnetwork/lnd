@@ -1,0 +1,1249 @@
+bob begin initiator=0
+alice begin initiator=1
+alice in cmd sign
+alice out reply ok
+bob in cmd sign
+bob out reply ok
+alice in cmd fee
+alice out send fee id=0
+alice out reply ok
+alice in cmd sign
+alice out send sig
+alice out reply ok
+bob in cmd sign
+bob out reply ok
+alice in cmd sign
+alice out reply ok
+alice in cmd add
+alice out send add id=0
+alice out reply ok
+alice in cmd sign
+alice out reply ok
+bob in cmd add
+bob out send add id=0
+bob out reply ok
+bob in msg fee id=0
+bob in cmd add
+bob out send add id=1
+bob out reply ok
+bob in cmd sign
+bob out send sig
+bob out reply ok
+bob in msg sig ok=1
+bob out send raa
+alice in cmd sign
+alice out reply ok
+alice in cmd sign
+alice out reply ok
+bob in cmd add
+bob out send add id=2
+bob out reply ok
+bob in msg add id=0
+alice in cmd sign
+alice out reply ok
+alice in msg add id=0
+bob in cmd fail id=0
+bob out reply err
+alice in msg add id=1
+bob in cmd settle id=0
+bob out reply err
+alice in cmd sign
+alice out reply ok
+bob in cmd add
+bob out send add id=3
+bob out reply ok
+alice in msg sig ok=1
+alice out send raa
+alice in cmd fee
+alice out send fee id=0
+alice out reply ok
+alice in msg raa ok=1
+alice out send sig
+alice in msg add id=2
+alice in cmd sign
+alice out reply ok
+alice in cmd fee
+alice out send fee id=0
+alice out reply ok
+bob in cmd malformed id=0
+bob out reply err
+alice in cmd settle id=1
+alice out reply err
+alice in msg add id=3
+bob in msg raa ok=1
+bob out send sig
+alice in msg sig ok=1
+alice out send raa
+bob in msg fee id=0
+bob in msg sig ok=1
+bob out send raa
+alice in msg raa ok=1
+alice out fwd add id=0
+alice out fwd add id=1
+alice out send sig
+bob in msg fee id=0
+bob in msg raa ok=1
+bob out send sig
+alice in msg sig ok=1
+alice out send raa
+bob in msg sig ok=1
+bob out send raa
+alice in msg raa ok=1
+alice out fwd add id=2
+alice out fwd add id=3
+bob in msg raa ok=1
+bob out fwd add id=0
+bob out send sig
+alice in msg sig ok=1
+alice out send raa
+bob in msg raa ok=1
+bob in cmd sign
+bob out reply ok
+alice in cmd sign
+alice out reply ok
+bob in cmd sign
+bob out reply ok
+alice in cmd sign
+alice out reply ok
+bob in cmd sign
+bob out reply ok
+alice in cmd sign
+alice out reply ok
+alice begin initiator=1
+bob begin initiator=0
+bob in cmd sign
+bob out reply ok
+alice in cmd sign
+alice out reply ok
+bob in cmd sign
+bob out reply ok
+alice in cmd sign
+alice out reply ok
+alice in cmd sign
+alice out reply ok
+alice in cmd sign
+alice out reply ok
+bob in cmd sign
+bob out reply ok
+bob in cmd sign
+bob out reply ok
+alice in cmd sign
+alice out reply ok
+alice in cmd sign
+alice out reply ok
+alice in cmd sign
+alice out reply ok
+alice in cmd sign
+alice out reply ok
+alice in cmd sign
+alice out reply ok
+alice in cmd fee
+alice out send fee id=0
+alice out reply ok
+bob in cmd sign
+bob out reply ok
+bob in msg fee id=0
+alice in msg raa ok=1
+alice out fail
+alice begin initiator=1
+bob begin initiator=0
+bob in cmd sign
+bob out reply ok
+bob in cmd sign
+bob out reply ok
+alice in cmd sign
+alice out reply ok
+bob in cmd sign
+bob out reply ok
+bob in cmd sign
+bob out reply ok
+bob in cmd sign
+bob out reply ok
+alice in cmd fee
+alice out send fee id=0
+alice out reply ok
+alice in msg raa ok=1
+alice out fail
+alice begin initiator=1
+bob begin initiator=0
+alice in cmd sign
+alice out reply ok
+alice in cmd sign
+alice out reply ok
+alice in cmd sign
+alice out reply ok
+bob in cmd add
+bob out send add id=0
+bob out reply ok
+alice in msg add id=0
+bob in cmd sign
+bob out send sig
+bob out reply ok
+alice in msg sig ok=1
+alice out send raa
+alice out send sig
+bob in msg raa ok=1
+bob in cmd sign
+bob out reply ok
+bob in msg sig ok=1
+bob out send raa
+alice in msg raa ok=1
+alice out fwd add id=0
+alice in cmd fee
+alice out send fee id=0
+alice out reply ok
+bob in msg fee id=0
+alice in cmd sign
+alice out send sig
+alice out reply ok
+alice in cmd settle id=0
+alice out send settle id=0
+alice out reply ok
+bob in msg sig ok=1
+bob out send raa
+bob out send sig
+alice in msg raa ok=1
+alice out send sig
+alice in msg sig ok=1
+alice out send raa
+bob in msg settle id=0
+alice in cmd settle id=0
+alice out reply err
+bob in msg sig ok=1
+bob out send raa
+bob in msg raa ok=1
+bob out send sig
+bob in cmd sign
+bob out reply ok
+bob in cmd sign
+bob out reply ok
+bob in cmd sign
+bob out reply ok
+alice in msg raa ok=1
+alice in cmd fail id=0
+alice out reply err
+alice in cmd fee
+alice out send fee id=0
+alice out reply ok
+bob in msg fee id=0
+alice in msg sig ok=1
+alice out send raa
+alice out send sig
+bob in msg raa ok=1
+bob out fwd settle id=0
+alice in cmd fee
+alice out send fee id=0
+alice out reply ok
+bob in msg sig ok=1
+bob out send raa
+bob out send sig
+alice in cmd fee
+alice out send fee id=0
+alice out reply ok
+bob in msg fee id=0
+alice in cmd settle id=0
+alice out reply err
+alice in cmd fee
+alice out send fee id=0
+alice out reply ok
+bob in msg fee id=0
+bob in cmd sign
+bob out reply ok
+alice in msg raa ok=1
+alice out send sig
+alice in msg sig ok=1
+alice out send raa
+alice in cmd add
+alice out send add id=0
+alice out reply ok
+bob in msg fee id=0
+bob in msg sig ok=1
+bob out send raa
+alice in msg raa ok=1
+alice out send sig
+bob in msg raa ok=1
+bob out send sig
+alice in msg sig ok=1
+alice out send raa
+bob in msg add id=0
+bob in msg sig ok=1
+bob out send raa
+alice in msg raa ok=1
+bob in msg raa ok=1
+bob out send sig
+alice in msg sig ok=1
+alice out send raa
+bob in msg raa ok=1
+bob out fwd add id=0
+bob in cmd sign
+bob out reply ok
+alice in cmd sign
+alice out reply ok
+bob in cmd sign
+bob out reply ok
+alice in cmd sign
+alice out reply ok
+bob in cmd sign
+bob out reply ok
+alice in cmd sign
+alice out reply ok
+alice begin initiator=1
+alice in cmd sign
+alice out reply ok
+bob begin initiator=0
+alice in cmd sign
+alice out reply ok
+bob in cmd sign
+bob out reply ok
+alice in cmd fee
+alice out send fee id=0
+alice out reply ok
+alice in cmd fee
+alice out send fee id=0
+alice out reply ok
+bob in cmd add
+bob out send add id=0
+bob out reply ok
+alice in msg add id=0
+bob in msg fee id=0
+bob in msg fee id=0
+bob in cmd sign
+bob out send sig
+bob out reply ok
+bob in cmd sign
+bob out reply ok
+bob in cmd sign
+bob out reply ok
+alice in cmd fail id=0
+alice out reply err
+alice in msg raa ok=1
+alice out fail
+alice begin initiator=1
+bob begin initiator=0
+alice in cmd sign
+alice out reply ok
+bob in cmd sign
+bob out reply ok
+bob in cmd sign
+bob out reply ok
+alice in cmd sign
+alice out reply ok
+alice in cmd sign
+alice out reply ok
+alice in cmd add
+alice out send add id=0
+alice out reply ok
+bob in msg add id=0
+alice in msg raa ok=1
+alice out fail
+alice begin initiator=1
+bob begin initiator=0
+alice in cmd sign
+alice out reply ok
+bob in cmd sign
+bob out reply ok
+bob in cmd add
+bob out send add id=0
+bob out reply ok
+alice in cmd sign
+alice out reply ok
+bob in cmd sign
+bob out send sig
+bob out reply ok
+alice in msg add id=0
+alice in cmd settle id=0
+alice out reply err
+alice in msg raa ok=1
+alice out fail
+alice begin initiator=1
+bob begin initiator=0
+bob in cmd sign
+bob out reply ok
+bob in cmd sign
+bob out reply ok
+bob in cmd sign
+bob out reply ok
+bob in cmd sign
+bob out reply ok
+bob in cmd sign
+bob out reply ok
+bob in cmd sign
+bob out reply ok
+alice in cmd add
+alice out send add id=0
+alice out reply ok
+alice in cmd sign
+alice out send sig
+alice out reply ok
+bob in msg add id=0
+bob in cmd sign
+bob out reply ok
+bob in msg sig ok=1
+bob out send raa
+bob out send sig
+alice in msg raa ok=1
+bob in cmd sign
+bob out reply ok
+alice in msg sig ok=1
+alice out send raa
+alice in cmd sign
+alice out reply ok
+bob in cmd fail id=0
+bob out reply err
+bob in msg raa ok=1
+bob out fwd add id=0
+alice in msg raa ok=1
+alice out fail
+bob begin initiator=0
+alice begin initiator=1
+bob in cmd add
+bob out send add id=0
+bob out reply ok
+alice in msg add id=0
+alice in cmd add
+alice out send add id=0
+alice out reply ok
+bob in msg add id=0
+bob in cmd add
+bob out send add id=1
+bob out reply ok
+alice in msg add id=1
+alice in cmd settle id=0
+alice out reply err
+alice in cmd settle id=1
+alice out reply err
+bob in cmd settle id=0
+bob out reply err
+bob in cmd fail id=0
+bob out reply err
+bob in cmd add
+bob out send add id=2
+bob out reply ok
+bob in cmd add
+bob out send add id=3
+bob out reply ok
+bob in cmd add
+bob out send add id=4
+bob out reply ok
+alice in msg add id=2
+alice in cmd malformed id=1
+alice out reply err
+alice in msg add id=3
+alice in msg add id=4
+alice in cmd malformed id=3
+alice out reply err
+alice in cmd malformed id=0
+alice out reply err
+alice in msg raa ok=1
+alice out fail
+bob begin initiator=0
+alice begin initiator=1
+alice in cmd add
+alice out send add id=0
+alice out reply ok
+alice in cmd add
+alice out send add id=1
+alice out reply ok
+bob in msg add id=0
+bob in msg add id=1
+alice in cmd sign
+alice out send sig
+alice out reply ok
+bob in cmd fail id=1
+bob out reply err
+bob in msg sig ok=1
+bob out send raa
+bob out send sig
+alice in msg raa ok=1
+bob in cmd malformed id=0
+bob out reply err
+alice in msg sig ok=1
+alice out send raa
+bob in msg raa ok=1
+bob out fwd add id=0
+bob out fwd add id=1
+alice in cmd sign
+alice out reply ok
+alice in cmd add
+alice out send add id=2
+alice out reply ok
+bob in msg add id=2
+bob in cmd settle id=1
+bob out send settle id=1
+bob out reply ok
+alice in cmd fee
+alice out send fee id=0
+alice out reply ok
+alice in msg raa ok=1
+alice out fail
+bob begin initiator=0
+alice begin initiator=1
+bob in cmd sign
+bob out reply ok
+bob in cmd sign
+bob out reply ok
+bob in cmd add
+bob out send add id=0
+bob out reply ok
+bob in cmd sign
+bob out send sig
+bob out reply ok
+alice in cmd add
+alice out send add id=0
+alice out reply ok
+alice in cmd sign
+alice out send sig
+alice out reply ok
+bob in msg add id=0
+bob in msg sig ok=1
+bob out send raa
+alice in cmd sign
+alice out reply ok
+alice in msg add id=0
+alice in msg sig ok=1
+alice out send raa
+bob in msg raa ok=1
+bob out send sig
+alice in cmd sign
+alice out reply ok
+alice in msg raa ok=1
+alice out send sig
+alice in msg sig ok=1
+alice out send raa
+bob in cmd sign
+bob out reply ok
+bob in cmd sign
+bob out reply ok
+bob in msg sig ok=1
+bob out send raa
+alice in msg raa ok=1
+alice out fwd add id=0
+alice in msg raa ok=1
+alice out fail
+alice begin initiator=1
+bob begin initiator=0
+bob in cmd sign
+bob out reply ok
+alice in cmd sign
+alice out reply ok
+alice in cmd sign
+alice out reply ok
+alice in cmd fee
+alice out send fee id=0
+alice out reply ok
+bob in msg fee id=0
+bob in cmd sign
+bob out reply ok
+alice in cmd sign
+alice out send sig
+alice out reply ok
+bob in cmd sign
+bob out reply ok
+bob in msg sig ok=1
+bob out send raa
+bob out send sig
+alice in msg raa ok=1
+bob in cmd sign
+bob out reply ok
+bob in cmd sign
+bob out reply ok
+alice in msg sig ok=1
+alice out send raa
+bob in msg raa ok=1
+alice in cmd add
+alice out send add id=0
+alice out reply ok
+bob in cmd sign
+bob out reply ok
+alice in msg raa ok=1
+alice out fail
+alice begin initiator=1
+bob begin initiator=0
+alice in cmd sign
+alice out reply ok
+alice in cmd sign
+alice out reply ok
+bob in cmd sign
+bob out reply ok
+bob in cmd sign
+bob out reply ok
+bob in cmd add
+bob out send add id=0
+bob out reply ok
+alice in msg add id=0
+alice in cmd fee
+alice out send fee id=0
+alice out reply ok
+alice in cmd sign
+alice out send sig
+alice out reply ok
+bob in cmd add
+bob out send add id=1
+bob out reply ok
+bob in msg fee id=0
+bob in cmd sign
+bob out send sig
+bob out reply ok
+alice in msg add id=1
+alice in msg sig ok=1
+alice out send raa
+bob in msg sig ok=1
+bob out send raa
+bob in cmd sign
+bob out reply ok
+bob in cmd sign
+bob out reply ok
+alice in msg raa ok=1
+alice out send sig
+bob in msg raa ok=1
+bob out send sig
+alice in msg sig ok=1
+alice out send raa
+bob in msg sig ok=1
+bob out send raa
+bob in cmd sign
+bob out reply ok
+alice in msg raa ok=1
+alice out fwd add id=0
+alice out fwd add id=1
+bob in msg raa ok=1
+alice in msg raa ok=1
+alice out fail
+bob begin initiator=0
+alice begin initiator=1
+bob in cmd sign
+bob out reply ok
+alice in cmd sign
+alice out reply ok
+alice in cmd sign
+alice out reply ok
+alice in cmd fee
+alice out send fee id=0
+alice out reply ok
+bob in msg fee id=0
+alice in cmd sign
+alice out send sig
+alice out reply ok
+bob in msg sig ok=1
+bob out send raa
+bob out send sig
+alice in msg raa ok=1
+alice in msg sig ok=1
+alice out send raa
+bob in msg raa ok=1
+bob in cmd add
+bob out send add id=0
+bob out reply ok
+alice in msg add id=0
+bob in cmd sign
+bob out send sig
+bob out reply ok
+alice in msg sig ok=1
+alice out send raa
+alice out send sig
+bob in msg raa ok=1
+bob in msg sig ok=1
+bob out send raa
+bob in cmd sign
+bob out reply ok
+alice in msg raa ok=1
+alice out fwd add id=0
+alice in msg raa ok=1
+alice out fail
+alice begin initiator=1
+bob begin initiator=0
+alice in cmd sign
+alice out reply ok
+bob in cmd sign
+bob out reply ok
+alice in cmd sign
+alice out reply ok
+alice in cmd fee
+alice out send fee id=0
+alice out reply ok
+bob in cmd sign
+bob out reply ok
+alice in cmd sign
+alice out send sig
+alice out reply ok
+bob in cmd add
+bob out send add id=0
+bob out reply ok
+bob in msg fee id=0
+alice in msg add id=0
+bob in msg sig ok=1
+bob out send raa
+bob out send sig
+alice in msg raa ok=1
+bob in cmd add
+bob out send add id=1
+bob out reply ok
+alice in msg raa ok=1
+alice out fail
+alice begin initiator=1
+bob begin initiator=0
+alice in cmd sign
+alice out reply ok
+bob in cmd sign
+bob out reply ok
+alice in cmd add
+alice out send add id=0
+alice out reply ok
+bob in cmd sign
+bob out reply ok
+bob in msg add id=0
+bob in cmd sign
+bob out reply ok
+alice in cmd sign
+alice out send sig
+alice out reply ok
+alice in cmd fee
+alice out send fee id=0
+alice out reply ok
+bob in cmd settle id=0
+bob out reply err
+bob in cmd fail id=0
+bob out reply err
+bob in msg sig ok=1
+bob out send raa
+bob out send sig
+bob in cmd malformed id=0
+bob out reply err
+bob in cmd fail id=0
+bob out reply err
+bob in cmd sign
+bob out reply ok
+bob in cmd sign
+bob out reply ok
+bob in cmd settle id=0
+bob out reply err
+alice in msg raa ok=1
+alice out send sig
+alice in msg sig ok=1
+alice out send raa
+bob in msg fee id=0
+bob in msg sig ok=1
+bob out send raa
+alice in cmd add
+alice out send add id=1
+alice out reply ok
+alice in msg raa ok=1
+alice out send sig
+bob in msg raa ok=1
+bob out fwd add id=0
+bob out send sig
+alice in msg sig ok=1
+alice out send raa
+bob in msg add id=1
+bob in msg sig ok=1
+bob out send raa
+alice in msg raa ok=1
+bob in msg raa ok=1
+bob out send sig
+alice in msg sig ok=1
+alice out send raa
+bob in msg raa ok=1
+bob out fwd add id=1
+bob in cmd sign
+bob out reply ok
+alice in cmd sign
+alice out reply ok
+bob in cmd sign
+bob out reply ok
+alice in cmd sign
+alice out reply ok
+bob in cmd sign
+bob out reply ok
+alice in cmd sign
+alice out reply ok
+alice begin initiator=1
+bob begin initiator=0
+alice in cmd sign
+alice out reply ok
+bob in cmd sign
+bob out reply ok
+alice in cmd sign
+alice out reply ok
+alice in cmd sign
+alice out reply ok
+bob in cmd sign
+bob out reply ok
+alice in cmd sign
+alice out reply ok
+bob in cmd add
+bob out send add id=0
+bob out reply ok
+alice in msg add id=0
+alice in cmd malformed id=0
+alice out reply err
+alice in cmd malformed id=0
+alice out reply err
+alice in cmd sign
+alice out reply ok
+alice in cmd settle id=0
+alice out reply err
+bob in cmd add
+bob out send add id=1
+bob out reply ok
+alice in cmd sign
+alice out reply ok
+alice in msg add id=1
+alice in cmd sign
+alice out reply ok
+bob in cmd add
+bob out send add id=2
+bob out reply ok
+alice in msg raa ok=1
+alice out fail
+alice begin initiator=1
+bob begin initiator=0
+bob in cmd sign
+bob out reply ok
+alice in cmd add
+alice out send add id=0
+alice out reply ok
+bob in msg add id=0
+bob in cmd sign
+bob out reply ok
+alice in cmd add
+alice out send add id=1
+alice out reply ok
+bob in msg add id=1
+bob in cmd settle id=0
+bob out reply err
+bob in cmd fail id=1
+bob out reply err
+bob in cmd sign
+bob out reply ok
+alice in cmd sign
+alice out send sig
+alice out reply ok
+bob in cmd sign
+bob out reply ok
+bob in msg sig ok=1
+bob out send raa
+bob out send sig
+bob in cmd fail id=0
+bob out reply err
+alice in cmd sign
+alice out reply ok
+alice in cmd sign
+alice out reply ok
+alice in msg raa ok=1
+alice in msg raa ok=1
+alice out fail
+alice begin initiator=1
+bob begin initiator=0
+alice in cmd sign
+alice out reply ok
+alice in cmd add
+alice out send add id=0
+alice out reply ok
+alice in cmd sign
+alice out send sig
+alice out reply ok
+bob in cmd sign
+bob out reply ok
+alice in cmd sign
+alice out reply ok
+bob in msg add id=0
+bob in msg sig ok=1
+bob out send raa
+bob out send sig
+alice in cmd sign
+alice out reply ok
+alice in cmd sign
+alice out reply ok
+alice in msg raa ok=1
+alice in msg sig ok=1
+alice out send raa
+alice in cmd sign
+alice out reply ok
+bob in msg raa ok=1
+bob out fwd add id=0
+alice in msg raa ok=1
+alice out fail
+bob begin initiator=0
+alice begin initiator=1
+bob in cmd sign
+bob out reply ok
+alice in cmd sign
+alice out reply ok
+alice in cmd fee
+alice out send fee id=0
+alice out reply ok
+alice in cmd sign
+alice out send sig
+alice out reply ok
+bob in msg fee id=0
+bob in msg sig ok=1
+bob out send raa
+bob out send sig
+alice in msg raa ok=1
+bob in cmd add
+bob out send add id=0
+bob out reply ok
+alice in msg sig ok=1
+alice out send raa
+bob in cmd sign
+bob out reply ok
+alice in msg raa ok=1
+alice out fail
+bob begin initiator=0
+alice begin initiator=1
+alice in cmd sign
+alice out reply ok
+bob in cmd sign
+bob out reply ok
+alice in cmd sign
+alice out reply ok
+bob in cmd sign
+bob out reply ok
+bob in cmd sign
+bob out reply ok
+alice in cmd sign
+alice out reply ok
+alice in cmd sign
+alice out reply ok
+alice in cmd sign
+alice out reply ok
+alice in cmd sign
+alice out reply ok
+alice in cmd sign
+alice out reply ok
+alice in msg raa ok=1
+alice out fail
+alice begin initiator=1
+bob begin initiator=0
+bob in cmd sign
+bob out reply ok
+alice in cmd add
+alice out send add id=0
+alice out reply ok
+bob in msg add id=0
+alice in cmd sign
+alice out send sig
+alice out reply ok
+bob in msg sig ok=1
+bob out send raa
+bob out send sig
+alice in cmd sign
+alice out reply ok
+bob in cmd sign
+bob out reply ok
+bob in cmd sign
+bob out reply ok
+alice in cmd sign
+alice out reply ok
+alice in msg raa ok=1
+alice in msg sig ok=1
+alice out send raa
+alice in cmd sign
+alice out reply ok
+bob in msg raa ok=1
+bob out fwd add id=0
+bob in cmd settle id=0
+bob out send settle id=0
+bob out reply ok
+alice in msg settle id=0
+bob in cmd fail id=0
+bob out reply err
+bob in cmd sign
+bob out send sig
+bob out reply ok
+bob in cmd sign
+bob out reply ok
+alice in cmd fee
+alice out send fee id=0
+alice out reply ok
+alice in msg sig ok=1
+alice out send raa
+alice out send sig
+alice in cmd sign
+alice out reply ok
+bob in msg fee id=0
+bob in cmd malformed id=0
+bob out reply err
+bob in cmd add
+bob out send add id=0
+bob out reply ok
+alice in cmd sign
+alice out reply ok
+bob in cmd sign
+bob out reply ok
+alice in msg add id=0
+alice in cmd settle id=0
+alice out reply err
+bob in cmd malformed id=0
+bob out reply err
+bob in msg raa ok=1
+bob out send sig
+bob in msg sig ok=1
+bob out send raa
+bob in cmd sign
+bob out reply ok
+alice in msg sig ok=1
+alice out send raa
+bob in msg raa ok=1
+bob out send sig
+alice in msg raa ok=1
+alice out fwd settle id=0
+alice out send sig
+alice in msg sig ok=1
+alice out send raa
+bob in msg sig ok=1
+bob out send raa
+alice in msg raa ok=1
+alice out fwd add id=0
+bob in msg raa ok=1
+bob in cmd sign
+bob out reply ok
+alice in cmd sign
+alice out reply ok
+bob in cmd sign
+bob out reply ok
+alice in cmd sign
+alice out reply ok
+bob in cmd sign
+bob out reply ok
+alice in cmd sign
+alice out reply ok
+alice begin initiator=1
+bob begin initiator=0
+bob in cmd sign
+bob out reply ok
+bob in cmd sign
+bob out reply ok
+alice in cmd add
+alice out send add id=0
+alice out reply ok
+alice in cmd sign
+alice out send sig
+alice out reply ok
+bob in msg add id=0
+alice in cmd add
+alice out send add id=1
+alice out reply ok
+alice in cmd sign
+alice out reply ok
+alice in cmd sign
+alice out reply ok
+alice in cmd sign
+alice out reply ok
+alice in cmd fee
+alice out send fee id=0
+alice out reply ok
+bob in cmd fail id=0
+bob out reply err
+bob in cmd malformed id=0
+bob out reply err
+alice in cmd add
+alice out send add id=2
+alice out reply ok
+alice in cmd sign
+alice out reply ok
+bob in msg sig ok=1
+bob out send raa
+bob out send sig
+bob in msg add id=1
+alice in msg raa ok=1
+alice out send sig
+alice in msg sig ok=1
+alice out send raa
+bob in cmd settle id=0
+bob out reply err
+bob in cmd malformed id=1
+bob out reply err
+bob in msg fee id=0
+bob in cmd sign
+bob out reply ok
+alice in cmd sign
+alice out reply ok
+bob in cmd sign
+bob out reply ok
+bob in msg add id=2
+bob in msg sig ok=1
+bob out send raa
+bob in cmd sign
+bob out reply ok
+bob in msg raa ok=1
+bob out fwd add id=0
+bob out send sig
+alice in cmd sign
+alice out reply ok
+bob in cmd sign
+bob out reply ok
+alice in cmd add
+alice out send add id=3
+alice out reply ok
+alice in cmd sign
+alice out reply ok
+alice in msg raa ok=1
+alice out send sig
+bob in msg add id=3
+alice in msg sig ok=1
+alice out send raa
+alice in cmd sign
+alice out reply ok
+bob in cmd fail id=0
+bob out send fail id=0
+bob out reply ok
+alice in msg fail id=0
+bob in msg sig ok=1
+bob out send raa
+alice in msg raa ok=1
+bob in msg raa ok=1
+bob out fwd add id=1
+bob out fwd add id=2
+bob out send sig
+alice in msg sig ok=1
+alice out send raa
+alice out send sig
+bob in msg raa ok=1
+bob out fwd add id=3
+bob in msg sig ok=1
+bob out send raa
+alice in msg raa ok=1
+alice out fwd fail id=0
+bob in cmd sign
+bob out reply ok
+alice in cmd sign
+alice out reply ok
+bob in cmd sign
+bob out reply ok
+alice in cmd sign
+alice out reply ok
+bob in cmd sign
+bob out reply ok
+alice in cmd sign
+alice out reply ok
+bob begin initiator=0
+alice begin initiator=1
+alice in cmd add
+alice out send add id=0
+alice out reply ok
+bob in msg add id=0
+alice in cmd add
+alice out send add id=1
+alice out reply ok
+alice in cmd fee
+alice out send fee id=0
+alice out reply ok
+alice in cmd add
+alice out send add id=2
+alice out reply ok
+alice in cmd sign
+alice out send sig
+alice out reply ok
+bob in msg add id=1
+bob in cmd malformed id=1
+bob out reply err
+alice in cmd sign
+alice out reply ok
+bob in cmd sign
+bob out reply ok
+alice in cmd sign
+alice out reply ok
+bob in cmd sign
+bob out reply ok
+bob in msg fee id=0
+bob in msg add id=2
+bob in msg sig ok=1
+bob out send raa
+bob out send sig
+alice in msg raa ok=1
+alice in msg sig ok=1
+alice out send raa
+bob in cmd settle id=0
+bob out reply err
+bob in msg raa ok=1
+bob out fwd add id=0
+bob out fwd add id=1
+bob out fwd add id=2
+alice in msg raa ok=1
+alice out fail
+alice begin initiator=1
+bob begin initiator=0
+alice in cmd sign
+alice out reply ok
+bob in cmd sign
+bob out reply ok
+alice in cmd sign
+alice out reply ok
+alice in cmd sign
+alice out reply ok
+bob in cmd sign
+bob out reply ok
+alice in cmd sign
+alice out reply ok
+bob in cmd sign
+bob out reply ok
+alice in cmd fee
+alice out send fee id=0
+alice out reply ok
+bob in cmd sign
+bob out reply ok
+bob in msg fee id=0
+alice in cmd sign
+alice out send sig
+alice out reply ok
+bob in msg sig ok=1
+bob out send raa
+bob out send sig
+alice in cmd fee
+alice out send fee id=0
+alice out reply ok
+alice in msg raa ok=1
+alice out send sig
+alice in msg sig ok=1
+alice out send raa
+alice in cmd fee
+alice out send fee id=0
+alice out reply ok
+bob in msg fee id=0
+alice in cmd sign
+alice out reply ok
+bob in msg sig ok=1
+bob out send raa
+bob in msg raa ok=1
+bob out send sig
+bob in msg fee id=0
+alice in msg raa ok=1
+alice out send sig
+alice in cmd add
+alice out send add id=0
+alice out reply ok
+bob in cmd sign
+bob out reply ok
+bob in msg sig ok=1
+bob out send raa
+bob in msg add id=0
+alice in msg sig ok=1
+alice out send raa
+alice in msg raa ok=1
+alice out send sig
+bob in msg raa ok=1
+bob out send sig
+alice in msg sig ok=1
+alice out send raa
+bob in msg sig ok=1
+bob out send raa
+alice in msg raa ok=1
+bob in msg raa ok=1
+bob out send sig
+alice in msg sig ok=1
+alice out send raa
+bob in msg raa ok=1
+bob out fwd add id=0
+bob in cmd sign
+bob out reply ok
+alice in cmd sign
+alice out reply ok
+bob in cmd sign
+bob out reply ok
+alice in cmd sign
+alice out reply ok
+bob in cmd sign
+bob out reply ok
+alice in cmd sign
+alice out reply ok

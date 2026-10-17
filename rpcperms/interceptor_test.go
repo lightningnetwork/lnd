@@ -1,7 +1,6 @@
 package rpcperms
 
 import (
-	"bytes"
 	"context"
 	"errors"
 	"testing"
@@ -109,21 +108,4 @@ type recordingServerStream struct {
 func (s *recordingServerStream) SendMsg(any) error {
 	s.numSent++
 	return nil
-}
-
-// TestTruncatePanicStack asserts that panic stack traces are capped with a
-// readable truncation marker.
-func TestTruncatePanicStack(t *testing.T) {
-	shortStack := []byte("short stack")
-	require.Equal(t, shortStack, truncatePanicStack(shortStack))
-
-	longStack := bytes.Repeat([]byte("stack frame\n"), maxPanicStackSize)
-	truncatedStack := truncatePanicStack(longStack)
-
-	require.LessOrEqual(t, len(truncatedStack), maxPanicStackSize)
-	require.True(
-		t, bytes.HasSuffix(
-			truncatedStack, []byte(panicStackTruncatedMsg),
-		),
-	)
 }

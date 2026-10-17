@@ -1375,17 +1375,31 @@ func newServer(ctx context.Context, cfg *Config, listenAddrs []net.Addr,
 		Budget:              s.cfg.Sweeper.Budget,
 	})
 
+	// closeLinkCtx bounds every close request started by the closure
+	// below to the daemon's own lifetime. It is derived once, rather
+	// than inside the closure, because a request's context must
+	// outlive the call that starts it: the closure returns as soon as
+	// the request has been handed to the switch, and cancelling on
+	// that return would expire the context the request itself is still
+	// selecting on, making it look to the close paths as though the
+	// caller had gone away. Its cancel is deliberately not called,
+	// since quitting the daemon is what ends it.
+	closeLinkCtx, _ := lnutils.ContextFromQuit(s.quit)
+
 	// Construct a closure that wraps the htlcswitch's CloseLink method.
 	closeLink := func(chanPoint *wire.OutPoint,
 		closureType contractcourt.ChannelCloseType) {
 		// TODO(conner): Properly respect the update and error channels
 		// returned by CloseLink.
 
-		// Instruct the switch to close the channel.  Provide no close out
-		// delivery script or target fee per kw because user input is not
-		// available when the remote peer closes the channel.
+		// Instruct the switch to close the channel. Provide no close
+		// out delivery script or target fee per kw because user input
+		// is not available when the remote peer closes the channel.
+		// The request this starts is resolved by whichever path
+		// finishes the close.
+
 		s.htlcSwitch.CloseLink(
-			context.Background(), chanPoint, closureType, 0, 0, nil,
+			closeLinkCtx, chanPoint, closureType, 0, 0, nil,
 		)
 	}
 

@@ -2870,7 +2870,16 @@ func (r *rpcServer) CloseChannel(in *lnrpc.CloseChannelRequest,
 		numConfs := uint32(1)
 
 		go peer.WaitForChanToClose(
-			uint32(bestHeight), notifier, errChan, chanPoint,
+			uint32(bestHeight), notifier, func(err error) {
+				// Deliver without waiting, so that a reader
+				// that has already gone cannot hold up the
+				// notification.
+				select {
+				case errChan <- err:
+
+				default:
+				}
+			}, chanPoint,
 			&closingTxid, closingTx.TxOut[0].PkScript, numConfs,
 			func() {
 				// Respond to the local subsystem which
@@ -3032,7 +3041,9 @@ func (r *rpcServer) CloseChannel(in *lnrpc.CloseChannelRequest,
 			}
 
 			updateChan = closeUpdates.UpdateChan
-			errChan = closeUpdates.ErrChan
+			errChan = closeUpdates.ErrChan(
+				updateStream.Context(),
+			)
 		} else {
 			maxFee := chainfee.SatPerKVByte(
 				in.MaxFeePerVbyte * 1000,

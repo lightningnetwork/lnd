@@ -13,6 +13,7 @@ import (
 	"github.com/btcsuite/btcd/btcec/v2/ecdsa"
 	"github.com/btcsuite/btcd/btcutil/v2"
 	"github.com/btcsuite/btcd/wire/v2"
+	"github.com/lightningnetwork/lnd/actor"
 	"github.com/lightningnetwork/lnd/chainntnfs"
 	"github.com/lightningnetwork/lnd/channeldb"
 	"github.com/lightningnetwork/lnd/chanstate"
@@ -124,11 +125,73 @@ type ChanClose struct {
 	// execution of the close channel request.
 	Updates chan interface{}
 
-	// Err is used by request creator to receive request execution error.
-	Err chan error
+	// Err is completed by whichever path ends this close, so that the
+	// request creator can learn how it ended. The promise is completed at
+	// most once, and a second writer is told it did not win: two paths
+	// racing to resolve one close cannot report two different outcomes to
+	// the same caller. Nothing blocks on completion, so a path that
+	// resolves the close cannot be held up by a creator that has stopped
+	// reading. A successful close is reported through Updates instead, so
+	// this is completed with a nil error only to end the request without
+	// an error.
+	Err actor.Promise[error]
 
 	// Ctx is a context linked to the lifetime of the caller.
 	Ctx context.Context //nolint:containedctx
+}
+
+// CompleteErr resolves this close request with err. Only the first completion
+// takes effect, so a close that several paths race to resolve reports exactly
+// one outcome, and completion never blocks. A request without a promise, or a
+// nil request, is a no-op.
+func (c *ChanClose) CompleteErr(err error) {
+	if c == nil || c.Err == nil {
+		return
+	}
+
+	actor.CompleteWith(c.Err, err)
+}
+
+// Done returns a channel that is closed when the caller's lifetime ends, or
+// nil when the request has no caller context. A request built without one is
+// not tied to any caller, so it never ends that way; a nil channel is exactly
+// that in a select, where the case simply never fires.
+func (c *ChanClose) Done() <-chan struct{} {
+	if c == nil || c.Ctx == nil {
+		return nil
+	}
+
+	return c.Ctx.Done()
+}
+
+// ErrChan returns a channel that carries the error this close request ended
+// with, and stays silent when it ends without one.
+//
+// It exists so that a caller which waits on channels sees no change: the
+// promise behind it is awaited on the caller's behalf, and only a non-nil
+// result is forwarded. A close that succeeds signals through Updates, so
+// nothing is sent here for it, and the channel is deliberately left open
+// rather than closed, because a closed channel would read as an immediate nil
+// error and cut a wait short before the close had finished.
+func (c *ChanClose) ErrChan(ctx context.Context) chan error {
+	errChan := make(chan error, 1)
+	if c == nil || c.Err == nil {
+		return errChan
+	}
+
+	go func() {
+		err, ctxErr := actor.AwaitFuture[error](ctx, c.Err.Future())
+
+		switch {
+		case ctxErr != nil:
+			errChan <- ctxErr
+
+		case err != nil:
+			errChan <- err
+		}
+	}()
+
+	return errChan
 }
 
 // Config defines the configuration for the service. ALL elements within the
@@ -1472,8 +1535,13 @@ func (s *Switch) CloseLink(ctx context.Context, chanPoint *wire.OutPoint,
 	deliveryScript lnwire.DeliveryAddress) (chan interface{}, chan error) {
 
 	// TODO(roasbeef) abstract out the close updates.
-	updateChan := make(chan interface{}, 2)
-	errChan := make(chan error, 1)
+	//
+	// The buffer holds the terminal update as well as a pending update from
+	// each side of the negotiation, so that a caller which has stopped
+	// reading cannot cause a close to block on delivering them.
+	updateChan := make(chan interface{}, 3)
+
+	errPromise := actor.NewPromise[error]()
 
 	command := &ChanClose{
 		CloseType:      closeType,
@@ -1481,19 +1549,19 @@ func (s *Switch) CloseLink(ctx context.Context, chanPoint *wire.OutPoint,
 		Updates:        updateChan,
 		TargetFeePerKw: targetFeePerKw,
 		DeliveryScript: deliveryScript,
-		Err:            errChan,
+		Err:            errPromise,
 		MaxFee:         maxFee,
 		Ctx:            ctx,
 	}
 
 	select {
 	case s.chanCloseRequests <- command:
-		return updateChan, errChan
+		return updateChan, command.ErrChan(ctx)
 
 	case <-s.quit:
-		errChan <- ErrSwitchExiting
+		actor.CompleteWith(errPromise, ErrSwitchExiting)
 		close(updateChan)
-		return updateChan, errChan
+		return updateChan, command.ErrChan(ctx)
 	}
 }
 
@@ -1603,8 +1671,8 @@ out:
 			if !ok {
 				s.indexMtx.RUnlock()
 
-				req.Err <- fmt.Errorf("no peer for channel with "+
-					"chan_id=%x", chanID[:])
+				req.CompleteErr(fmt.Errorf("no peer for "+
+					"channel with chan_id=%x", chanID[:]))
 				continue
 			}
 			s.indexMtx.RUnlock()

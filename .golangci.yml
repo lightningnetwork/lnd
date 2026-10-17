@@ -231,6 +231,10 @@ linters:
           # Tab width in spaces.
           tab-width: 8
 
+      txscope:
+        type: module
+        description: Prevent pool access from within ExecTx callbacks.
+
   exclusions:
     # Mode of the generated files analysis.
     #

@@ -41,6 +41,7 @@ import (
 	"github.com/lightningnetwork/lnd/lnrpc/signrpc"
 	"github.com/lightningnetwork/lnd/lnutils"
 	"github.com/lightningnetwork/lnd/lnwallet"
+	"github.com/lightningnetwork/lnd/lnwallet/chainfee"
 	"github.com/lightningnetwork/lnd/lnwire"
 	"github.com/lightningnetwork/lnd/onionmessage"
 	"github.com/lightningnetwork/lnd/routing"
@@ -504,7 +505,7 @@ type Config struct {
 
 	MaxChannelFeeAllocation float64 `long:"max-channel-fee-allocation" description:"The maximum percentage of total funds that can be allocated to a channel's commitment fee. This only applies for the initiator of the channel. Valid values are within [0.1, 1]."`
 
-	MaxCommitFeeRateAnchors uint64 `long:"max-commit-fee-rate-anchors" description:"The maximum fee rate in sat/vbyte that will be used for commitments of channels of the anchors type. Must be large enough to ensure transaction propagation"`
+	MaxCommitFeeRateAnchors uint64 `long:"max-commit-fee-rate-anchors" description:"The maximum fee rate in sat/vbyte that will be used for commitments of channels of the anchors type. If this is below the minimum commitment fee rate of 253 sat/kw, the minimum is used instead."`
 
 	DryRunMigration bool `long:"dry-run-migration" description:"If true, lnd will abort committing a migration if it would otherwise have been successful. This leaves the database unmodified, and still compatible with the previously active version of lnd."`
 
@@ -1848,6 +1849,18 @@ func ValidateConfig(cfg Config, interceptor signal.Interceptor, fileParser,
 			channeldb.MaxResponseEvents)
 
 		cfg.FwdHistoryDeleteBatchSize = channeldb.MaxResponseEvents
+	}
+
+	// The commitment fee floor takes precedence over a lower cap on the
+	// commitment fee rate of anchor channels, both when opening a channel
+	// and when updating its fee. Let the operator know if that's the case
+	// for their configured cap.
+	anchorsCap := chainfee.SatPerVByte(cfg.MaxCommitFeeRateAnchors)
+	if anchorsCap.FeePerKWeight() < chainfee.FeePerKwFloor {
+		ltndLog.Warnf("max-commit-fee-rate-anchors=%d (%v) is below "+
+			"the minimum commitment fee rate, using %v instead",
+			cfg.MaxCommitFeeRateAnchors, anchorsCap.FeePerKWeight(),
+			chainfee.FeePerKwFloor)
 	}
 
 	if err := cfg.Gossip.Parse(); err != nil {

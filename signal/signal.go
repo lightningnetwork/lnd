@@ -111,6 +111,11 @@ type Interceptor struct {
 	// close this channel.
 	quit chan struct{}
 
+	// shutdownRequested is set to true when an internal shutdown is the
+	// first trigger (e.g. health check failure). Pointer-typed so the
+	// value is shared across copies of Interceptor.
+	shutdownRequested *atomic.Bool
+
 	// Notifier handles sending shutdown notifications.
 	Notifier Notifier
 }
@@ -127,6 +132,7 @@ func Intercept() (Interceptor, error) {
 		shutdownChannel:        make(chan struct{}),
 		shutdownRequestChannel: make(chan struct{}),
 		quit:                   make(chan struct{}),
+		shutdownRequested:      &atomic.Bool{},
 	}
 
 	signalsToCatch := []os.Signal{
@@ -179,6 +185,14 @@ func (c *Interceptor) mainInterruptHandler() {
 
 		case <-c.shutdownRequestChannel:
 			log.Infof("Received shutdown request.")
+
+			// Only mark the shutdown as internally requested if
+			// this is the first shutdown trigger. This prevents
+			// a late internal request from overriding a
+			// user-initiated signal shutdown.
+			if !isShutdown {
+				c.shutdownRequested.Store(true)
+			}
 			shutdown()
 
 		case <-c.quit:
@@ -220,6 +234,13 @@ func (c *Interceptor) RequestShutdown() {
 	case c.shutdownRequestChannel <- struct{}{}:
 	case <-c.quit:
 	}
+}
+
+// ShutdownWasRequested returns true if the shutdown was initiated internally
+// via RequestShutdown (e.g. due to a health check failure) rather than by an
+// external OS signal.
+func (c *Interceptor) ShutdownWasRequested() bool {
+	return c.shutdownRequested.Load()
 }
 
 // ShutdownChannel returns the channel that will be closed once the main

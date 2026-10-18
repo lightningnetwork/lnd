@@ -1,6 +1,7 @@
 package htlcswitch
 
 import (
+	"context"
 	"crypto/rand"
 	"crypto/sha256"
 	"errors"
@@ -14,6 +15,7 @@ import (
 
 	"github.com/btcsuite/btcd/btcutil"
 	"github.com/davecgh/go-spew/spew"
+	"github.com/lightningnetwork/lnd/actor"
 	"github.com/lightningnetwork/lnd/chainntnfs"
 	"github.com/lightningnetwork/lnd/channeldb"
 	"github.com/lightningnetwork/lnd/contractcourt"
@@ -6026,4 +6028,120 @@ func testSwitchAliasInterceptFail(t *testing.T, zeroConf bool) {
 	}
 
 	require.NoError(t, interceptSwitch.Stop())
+}
+
+// TestChanCloseErrChan checks the channel a close request offers to callers
+// that wait on channels: it carries an error when the close ends with one, it
+// carries the caller's cancellation when the caller goes away, and it stays
+// silent when the close ends without an error, because a successful close
+// reports through its updates instead.
+func TestChanCloseErrChan(t *testing.T) {
+	t.Parallel()
+
+	const timeout = 5 * time.Second
+	const shortTimeout = 250 * time.Millisecond
+
+	var errResolved = errors.New("close resolved with an error")
+
+	t.Run("resolution is delivered", func(t *testing.T) {
+		t.Parallel()
+
+		ctx, cancel := context.WithCancel(t.Context())
+		defer cancel()
+
+		req := &ChanClose{Err: actor.NewPromise[error]()}
+		errChan := req.ErrChan(ctx)
+
+		req.CompleteErr(errResolved)
+
+		select {
+		case err := <-errChan:
+			require.ErrorIs(t, err, errResolved)
+
+		case <-time.After(timeout):
+			t.Fatal("resolution was not delivered")
+		}
+	})
+
+	// A close that succeeds reports through its updates, so resolving the
+	// request without an error must produce nothing here. A caller that
+	// read an error would treat a successful close as a failed one.
+	t.Run("a close that succeeds stays silent", func(t *testing.T) {
+		t.Parallel()
+
+		ctx, cancel := context.WithCancel(t.Context())
+		defer cancel()
+
+		req := &ChanClose{Err: actor.NewPromise[error]()}
+		errChan := req.ErrChan(ctx)
+
+		req.CompleteErr(nil)
+
+		select {
+		case err := <-errChan:
+			t.Fatalf("successful close reported %v", err)
+
+		case <-time.After(shortTimeout):
+		}
+	})
+
+	// A caller that goes away has to end its own wait, so that a caller
+	// blocked on this channel returns instead of parking until the whole
+	// daemon stops.
+	t.Run("cancellation ends the wait", func(t *testing.T) {
+		t.Parallel()
+
+		ctx, cancel := context.WithCancel(t.Context())
+		req := &ChanClose{Err: actor.NewPromise[error]()}
+		errChan := req.ErrChan(ctx)
+
+		cancel()
+
+		select {
+		case err := <-errChan:
+			require.ErrorIs(t, err, context.Canceled)
+
+		case <-time.After(timeout):
+			t.Fatal("cancellation did not end the wait")
+		}
+	})
+
+	// Only the first resolution counts, so a second one cannot hand the
+	// caller an outcome that contradicts the one it already has.
+	t.Run("only the first resolution counts", func(t *testing.T) {
+		t.Parallel()
+
+		ctx, cancel := context.WithCancel(t.Context())
+		defer cancel()
+
+		req := &ChanClose{Err: actor.NewPromise[error]()}
+		errChan := req.ErrChan(ctx)
+
+		require.True(t, req.Err.Complete(fn.Ok[error](errResolved)))
+		require.False(t, req.Err.Complete(fn.Ok[error](nil)))
+
+		select {
+		case err := <-errChan:
+			require.ErrorIs(t, err, errResolved)
+
+		case <-time.After(timeout):
+			t.Fatal("resolution was not delivered")
+		}
+	})
+
+	// A request without a promise is still safe to derive from, since it
+	// is built that way in tests and in paths that have no caller.
+	t.Run("a request without a promise is silent", func(t *testing.T) {
+		t.Parallel()
+
+		req := &ChanClose{}
+		errChan := req.ErrChan(t.Context())
+
+		select {
+		case err := <-errChan:
+			t.Fatalf("empty request reported %v", err)
+
+		case <-time.After(shortTimeout):
+		}
+	})
 }

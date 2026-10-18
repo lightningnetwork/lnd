@@ -515,9 +515,10 @@ func Main(cfg *Config, lisCfg ListenerCfg, implCfg *ImplementationCfg,
 
 	activeChainControl := chainControlResult.ChainControl
 
-	// If the chain control returned an inbound remote signer connection,
-	// start the dedicated RPC server for it. This RPC is not served by
-	// the main RPC server.
+	// If the signer dials this node rather than the other way around, chain
+	// control returned the receiving side of that connection. Start the
+	// dedicated RPC server that accepts it. This RPC is not served by the
+	// main RPC server.
 	if chainControlResult.InboundRemoteSignerConn != nil {
 		rsGRPCServer, rsListeners,
 			rsInterceptor, err := startInboundWatchOnlyRPCServer(
@@ -526,8 +527,8 @@ func Main(cfg *Config, lisCfg ListenerCfg, implCfg *ImplementationCfg,
 			chainControlResult.InboundRemoteSignerConn,
 		)
 		if err != nil {
-			return mkErr("error starting inbound remote signer "+
-				"RPC server", err)
+			return mkErr("error starting the dedicated RPC server "+
+				"that remote signers dial", err)
 		}
 		if rsGRPCServer != nil {
 			defer rsGRPCServer.Stop()
@@ -1134,8 +1135,9 @@ func startRestProxy(ctx context.Context, cfg *Config, rpcServer *rpcServer,
 }
 
 // makeRemoteSignerListeners normalizes and binds the listeners for the
-// dedicated remote signer RPC server. A nil or empty listener set indicates
-// the inbound watch-only signer endpoint is disabled.
+// dedicated remote signer RPC server, which is the endpoint a remote signer
+// dials when it connects to this watch-only node. A nil or empty listener set
+// indicates that the endpoint is disabled.
 func makeRemoteSignerListeners(cfg *Config) ([]*ListenerWithSignal, error) {
 	addrs, err := normalizeRemoteSignerListenAddrs(cfg)
 	if err != nil {
@@ -1189,10 +1191,11 @@ func normalizeRemoteSignerListenAddrs(cfg *Config) ([]net.Addr, error) {
 	return addrs, nil
 }
 
-// startInboundWatchOnlyRPCServer starts the dedicated gRPC server that serves
-// the inbound watch-only signer stream. The server uses its own interceptor
-// chain and listeners so remote signing can be exposed independently from the
-// main RPC server while still sharing the main macaroon service.
+// startInboundWatchOnlyRPCServer starts the dedicated gRPC server that accepts
+// the connection a remote signer dials to this watch-only node, and serves the
+// signing stream over it. The server uses its own interceptor chain and
+// listeners so remote signing can be exposed independently from the main RPC
+// server while still sharing the main macaroon service.
 func startInboundWatchOnlyRPCServer(cfg *Config,
 	baseServerOpts []grpc.ServerOption,
 	serverKeepalive keepalive.ServerParameters,
@@ -1254,9 +1257,9 @@ func startInboundWatchOnlyRPCServer(cfg *Config,
 			"RPC permission: %w", err)
 	}
 
-	// This dedicated server is only intended to serve the inbound remote
-	// signer stream during startup and runtime, so it can be active
-	// immediately.
+	// This dedicated server only ever serves the signing stream that the
+	// remote signer opens when it dials us, during startup and at runtime,
+	// so it can be active immediately.
 	interceptor.SetRPCActive()
 
 	serverOpts := append([]grpc.ServerOption{}, baseServerOpts...)

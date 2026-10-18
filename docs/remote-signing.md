@@ -10,6 +10,10 @@ the **private** keys.
 The advantage of such a setup is that the `lnd` instance containing the private
 keys (the "signer") can be completely offline except for a single inbound or
 outbound gRPC connection.
+Note that this protects the key material itself, but does not prevent a
+compromised watch-only node from obtaining valid signatures. See
+[Security model](#security-model) for what the split does and does not
+guarantee.
 The signer instance can run on a different machine with more tightly locked down
 network security, optimally only allowing the single gRPC connection to or from
 the outside.
@@ -40,12 +44,106 @@ xxx               xx
 ```
 
 When using a remote signer, the "signer" node can be configured to operate in
-one of two modes.
-It can either be configured as an "inbound" remote signer (the default setting)
-or as an "outbound" remote signer. As an "inbound" remote signer, the signer
-node permits a single inbound gRPC connection **from** the watch-only lnd node.
-Conversely, when configured as an "outbound" remote signer, it allows a single
-outbound gRPC connection **to** the watch-only lnd node.
+one of two modes. The only thing that differs between them is **which node
+dials the other**; the signing itself is identical either way.
+
+| Mode | Who dials | Who listens |
+| --- | --- | --- |
+| "inbound" remote signer (default) | The watch-only node dials the signer | The signer |
+| "outbound" remote signer | The signer dials the watch-only node | The watch-only node |
+
+The names describe the connection from the **signer's** point of view: an
+"inbound" remote signer is one that receives an inbound connection, and an
+"outbound" remote signer is one that makes an outbound connection.
+
+Be aware that the same connection has the opposite name on the other side, so
+the labels appear inverted depending on which node you are looking at. A setup
+using an "outbound" remote signer is one where the watch-only node accepts an
+*inbound* connection, which is why the option that selects it is called
+`remotesigner.experimentalallowinboundconnection` and why the watch-only node's
+internals refer to it as an inbound connection. Where it matters, this document
+says which node dials rather than relying on the labels.
+
+## Security model
+
+Remote signing splits key material away from the node that is exposed to the
+internet. It does **not** make the watch-only node harmless if it is
+compromised. Read this section before deploying a remote signer, as the
+distinction decides what the setup actually buys you.
+
+> **Warning:** "watch-only" describes which keys the node holds, not how much
+> damage it can do. The signer does not inspect or validate what it is asked to
+> sign. An attacker who controls the watch-only node can ask the signer to
+> produce valid signatures, including signatures over transactions that send
+> your funds to an address of their choosing. The signer will produce them. In
+> its current form this represents blind signing rather than a spending
+> policy or a hardware-wallet style confirmation step.
+
+### What the signer protects against
+
+* **Key exfiltration from the exposed node.** The watch-only node only ever
+  holds public keys (`xpub`s). An attacker who reads its disk, memory or
+  backups does not obtain the seed or any private key, and cannot sign offline
+  or after losing access.
+* **Blast radius of a host compromise over time.** Access to the watch-only
+  node is only useful for as long as the attacker keeps it and the signer stays
+  reachable. Revoking the connection or stopping the signer immediately removes
+  the ability to produce new signatures.
+* **Network exposure of the key material.** The signer needs no chain backend,
+  no p2p connectivity and no inbound internet access. It can be confined to a
+  separate network zone that permits exactly one gRPC connection, as shown in
+  the example configurations below.
+
+### What the signer does not protect against
+
+The signer forwards every request it receives to its local `signrpc` and
+`walletrpc` sub-servers and returns the result. It does not examine the
+contents of a request, and there is no allow-list of destinations, amounts,
+transaction shapes or key paths.
+
+The following operations are delegated over the connection, and a compromised
+watch-only node can invoke any of them:
+
+| Request | What the signer does with it |
+| --- | --- |
+| `SignPsbt` | Signs the PSBT given, whatever it spends and wherever it pays |
+| `SignMessage` | Signs an arbitrary digest under a requested key locator |
+| `DeriveSharedKey` | Performs ECDH against a supplied public key |
+| `MuSig2*` | Runs the full MuSig2 session lifecycle, incl. partial signing |
+
+Concretely, this means a compromised watch-only node can construct a
+transaction that sweeps the wallet to an attacker-controlled address and obtain
+a valid signature for it. The private keys stay on the signer throughout, and
+the funds still leave.
+
+### Assumptions this setup makes
+
+* The watch-only node is honest, and only asks the signer to sign what the
+  operator intended. The signer has no way to check this.
+* The operator secures the watch-only node's host, credentials and RPC surface
+  to a standard appropriate for a machine that can move funds. Its security is
+  part of the fund-safety perimeter, not outside it.
+* The macaroon used for the connection is a bearer credential and must be
+  protected like a private key, as must the listening node's TLS private key.
+  Note that the macaroon belongs to the node being **dialled**, not the one
+  dialling: when the signer dials the watch-only node it presents the
+  *watch-only node's* macaroon, and when the watch-only node dials the signer
+  it presents the *signer's* macaroon.
+
+  If it is compromised, rotate it on the node that issued it, i.e. on the node
+  being dialled. `lncli changepassword --new_mac_root_key` invalidates every
+  macaroon that node has issued. Deleting its `macaroons.db` has the same effect
+  but also discards any custom root key.
+  Where the signer is the one being dialled, a stolen macaroon is theft-capable,
+  and YOU MUST rotate the macaroon. If it is compromised, stop the signer until
+  the rotation is done.
+
+### What this is not (yet)
+
+A validating remote signer, which would enforce a policy on what it is willing
+to sign, is a separate and larger piece of work. Until it exists, the trust
+model above is the one in effect: the signer protects the keys, and the
+watch-only node decides what gets signed.
 
 ## Example setups
 

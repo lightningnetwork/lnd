@@ -321,3 +321,12 @@ type PaymentRouteHopMpp struct {
 	PaymentAddr []byte
 	TotalMsat   int64
 }
+
+type ReputationChannel struct {
+	ChannelID                   []byte
+	OutgoingReputation          int64
+	OutgoingReputationUpdatedAt time.Time
+	IncomingRevenue             int64
+	IncomingRevenueUpdatedAt    time.Time
+	IncomingRevenueStartedAt    time.Time
+}

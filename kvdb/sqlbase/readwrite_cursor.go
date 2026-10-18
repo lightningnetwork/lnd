@@ -1,5 +1,3 @@
-//go:build kvdb_postgres || (kvdb_sqlite && !(windows && (arm || 386)) && !(linux && (ppc64 || mips || mipsle || mips64)))
-
 package sqlbase
 
 import (
@@ -28,7 +26,7 @@ func newReadWriteCursor(b *readWriteBucket) *readWriteCursor {
 func (c *readWriteCursor) First() ([]byte, []byte) {
 	var (
 		key   []byte
-		value []byte
+		value *[]byte
 	)
 	row, cancel := c.bucket.tx.QueryRow(
 		"SELECT key, value FROM " + c.bucket.table + " WHERE " +
@@ -50,7 +48,7 @@ func (c *readWriteCursor) First() ([]byte, []byte) {
 	c.currKey = make([]byte, len(key))
 	copy(c.currKey, key)
 
-	return key, value
+	return key, sqlValue(value)
 }
 
 // Last positions the cursor at the last key/value pair and returns the
@@ -58,7 +56,7 @@ func (c *readWriteCursor) First() ([]byte, []byte) {
 func (c *readWriteCursor) Last() ([]byte, []byte) {
 	var (
 		key   []byte
-		value []byte
+		value *[]byte
 	)
 	row, cancel := c.bucket.tx.QueryRow(
 		"SELECT key, value FROM " + c.bucket.table + " WHERE " +
@@ -80,7 +78,7 @@ func (c *readWriteCursor) Last() ([]byte, []byte) {
 	c.currKey = make([]byte, len(key))
 	copy(c.currKey, key)
 
-	return key, value
+	return key, sqlValue(value)
 }
 
 // Next moves the cursor one key/value pair forward and returns the new
@@ -88,7 +86,7 @@ func (c *readWriteCursor) Last() ([]byte, []byte) {
 func (c *readWriteCursor) Next() ([]byte, []byte) {
 	var (
 		key   []byte
-		value []byte
+		value *[]byte
 	)
 	row, cancel := c.bucket.tx.QueryRow(
 		"SELECT key, value FROM "+c.bucket.table+" WHERE "+
@@ -111,7 +109,7 @@ func (c *readWriteCursor) Next() ([]byte, []byte) {
 	c.currKey = make([]byte, len(key))
 	copy(c.currKey, key)
 
-	return key, value
+	return key, sqlValue(value)
 }
 
 // Prev moves the cursor one key/value pair backward and returns the new
@@ -119,7 +117,7 @@ func (c *readWriteCursor) Next() ([]byte, []byte) {
 func (c *readWriteCursor) Prev() ([]byte, []byte) {
 	var (
 		key   []byte
-		value []byte
+		value *[]byte
 	)
 	row, cancel := c.bucket.tx.QueryRow(
 		"SELECT key, value FROM "+c.bucket.table+" WHERE "+
@@ -142,7 +140,7 @@ func (c *readWriteCursor) Prev() ([]byte, []byte) {
 	c.currKey = make([]byte, len(key))
 	copy(c.currKey, key)
 
-	return key, value
+	return key, sqlValue(value)
 }
 
 // Seek positions the cursor at the passed seek key.  If the key does
@@ -157,7 +155,7 @@ func (c *readWriteCursor) Seek(seek []byte) ([]byte, []byte) {
 
 	var (
 		key   []byte
-		value []byte
+		value *[]byte
 	)
 	row, cancel := c.bucket.tx.QueryRow(
 		"SELECT key, value FROM "+c.bucket.table+" WHERE "+
@@ -180,7 +178,7 @@ func (c *readWriteCursor) Seek(seek []byte) ([]byte, []byte) {
 	c.currKey = make([]byte, len(key))
 	copy(c.currKey, key)
 
-	return key, value
+	return key, sqlValue(value)
 }
 
 // Delete removes the current key/value pair the cursor is at without

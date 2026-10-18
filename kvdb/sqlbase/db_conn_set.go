@@ -4,8 +4,6 @@ import (
 	"database/sql"
 	"fmt"
 	"sync"
-
-	_ "github.com/jackc/pgx/v5/stdlib"
 )
 
 // dbConn stores the actual connection and a user count.

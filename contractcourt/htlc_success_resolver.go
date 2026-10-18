@@ -31,6 +31,9 @@ var errInvalidSpendDetails = errors.New("invalid spend details")
 // errInvalidSuccessResolver identifies malformed success resolver state.
 var errInvalidSuccessResolver = errors.New("invalid success resolver")
 
+// errInvalidSecondLevelOutput identifies malformed second-level output data.
+var errInvalidSecondLevelOutput = errors.New("invalid second-level output")
+
 // htlcSuccessResolver is a resolver that's capable of sweeping an incoming
 // HTLC output on-chain. If this is the remote party's commitment, we'll sweep
 // it directly from the commitment output *immediately*. If this is our
@@ -639,9 +642,8 @@ func (h *htlcSuccessResolver) validatedSpendInput(
 //
 // The HTLC input uses SINGLE|ANYONECANPAY, so it commits to the transaction
 // output at the same index. A match returns that output's actual outpoint.
-func (h *htlcSuccessResolver) matchSecondLevelOutput(
-	spendingTx *wire.MsgTx,
-	outputIndex uint32) (wire.OutPoint, bool, error) {
+func matchSecondLevelOutput(spendingTx *wire.MsgTx, outputIndex uint32,
+	expected *wire.TxOut) (wire.OutPoint, bool, error) {
 
 	var zeroOutpoint wire.OutPoint
 	if spendingTx == nil {
@@ -650,11 +652,10 @@ func (h *htlcSuccessResolver) matchSecondLevelOutput(
 		)
 	}
 
-	expected := h.htlcResolution.SweepSignDesc.Output
 	if expected == nil {
 		return zeroOutpoint, false, fmt.Errorf(
-			"%w: missing expected output for %v",
-			errInvalidSuccessResolver, h.outpoint(),
+			"%w: missing expected output",
+			errInvalidSecondLevelOutput,
 		)
 	}
 
@@ -822,8 +823,9 @@ func (h *htlcSuccessResolver) sweepSuccessTxOutput() error {
 	if err != nil {
 		return err
 	}
-	secondLevelOutpoint, matches, err := h.matchSecondLevelOutput(
+	secondLevelOutpoint, matches, err := matchSecondLevelOutput(
 		commitSpend.SpendingTx, commitSpend.SpenderInputIndex,
+		h.htlcResolution.SweepSignDesc.Output,
 	)
 	if err != nil {
 		return err
@@ -978,8 +980,9 @@ func (h *htlcSuccessResolver) resolveSuccessTx() error {
 	if err != nil {
 		return err
 	}
-	secondLevelOutpoint, matches, err := h.matchSecondLevelOutput(
+	secondLevelOutpoint, matches, err := matchSecondLevelOutput(
 		commitSpend.SpendingTx, commitSpend.SpenderInputIndex,
+		h.htlcResolution.SweepSignDesc.Output,
 	)
 	if err != nil {
 		return err

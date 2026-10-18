@@ -302,9 +302,13 @@ func ExecuteSQLTransactionWithRetry(ctx context.Context, makeTx MakeTx,
 
 			// Roll back the transaction, then attempt a random
 			// backoff and try again if the error was a
-			// serialization error.
+			// serialization error. If the rollback itself fails,
+			// we log the rollback error but still return the
+			// original body error, since that's the root cause
+			// the caller needs to see.
 			if err := rollbackTx(tx); err != nil {
-				return MapSQLError(err)
+				log.Warnf("Failed to rollback tx "+
+					"(orig_err=%v): %v", bodyErr, err)
 			}
 
 			dbErr := MapSQLError(bodyErr)
@@ -323,9 +327,13 @@ func ExecuteSQLTransactionWithRetry(ctx context.Context, makeTx MakeTx,
 
 			// Roll back the transaction, then attempt a random
 			// backoff and try again if the error was a
-			// serialization error.
+			// serialization error. If the rollback itself fails,
+			// we log the rollback error but still return the
+			// original commit error.
 			if err := rollbackTx(tx); err != nil {
-				return MapSQLError(err)
+				log.Warnf("Failed to rollback tx after "+
+					"commit failure (commit_err=%v): "+
+					"%v", commitErr, err)
 			}
 
 			dbErr := MapSQLError(commitErr)

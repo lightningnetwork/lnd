@@ -180,11 +180,6 @@ var openChannelCommand = cli.Command{
 				"used for fee estimation",
 		},
 		cli.Int64Flag{
-			Name:   "sat_per_byte",
-			Usage:  "Deprecated, use sat_per_vbyte instead.",
-			Hidden: true,
-		},
-		cli.Int64Flag{
 			Name: "sat_per_vbyte",
 			Usage: "(optional) a manual fee expressed in " +
 				"sat/vbyte that should be used when crafting " +
@@ -319,19 +314,10 @@ func openChannel(ctx *cli.Context) error {
 		return nil
 	}
 
-	// Check that only the field sat_per_vbyte or the deprecated field
-	// sat_per_byte is used.
-	feeRateFlag, err := checkNotBothSet(
-		ctx, "sat_per_vbyte", "sat_per_byte",
-	)
-	if err != nil {
-		return err
-	}
-
 	minConfs := int32(ctx.Uint64("min_confs"))
 	req := &lnrpc.OpenChannelRequest{
 		TargetConf:                 int32(ctx.Int64("conf_target")),
-		SatPerVbyte:                ctx.Uint64(feeRateFlag),
+		SatPerVbyte:                ctx.Uint64("sat_per_vbyte"),
 		MinHtlcMsat:                ctx.Int64("min_htlc_msat"),
 		RemoteCsvDelay:             uint32(ctx.Uint64("remote_csv_delay")),
 		MinConfs:                   minConfs,
@@ -1080,7 +1066,7 @@ func checkPsbtFlags(req *lnrpc.OpenChannelRequest) error {
 		return fmt.Errorf("specifying minimum confirmations for PSBT " +
 			"funding is not supported")
 	}
-	if req.TargetConf != 0 || req.SatPerByte != 0 || req.SatPerVbyte != 0 { // nolint:staticcheck
+	if req.TargetConf != 0 || req.SatPerVbyte != 0 {
 		return fmt.Errorf("setting fee estimation parameters not " +
 			"supported for PSBT funding")
 	}

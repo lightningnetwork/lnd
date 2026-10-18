@@ -197,7 +197,7 @@ func TestRemoteCloseStartTaprootIntegration(t *testing.T) {
 	// processRemoteTaprootSig() initializes the nonce on line 1943.
 	//
 	// After the fix (swapping the order), this should succeed.
-	_, err = state.ProcessEvent(event, &env)
+	_, err = state.ProcessEvent(t.Context(), event, &env)
 
 	require.NoError(
 		t, err, "ProcessEvent should not fail - if it fails "+

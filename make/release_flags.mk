@@ -1,5 +1,5 @@
 VERSION_TAG = $(shell date +%Y%m%d)-01
-VERSION_CHECK = @$(call print, "Building master with date version tag")
+VERSION_CHECK = $(call MSG,RELEASE,Building master with date version tag)
 
 # Create these directories before Docker bind mounts them. Docker creates a
 # missing bind-mount source as root, which makes the cache unwritable because

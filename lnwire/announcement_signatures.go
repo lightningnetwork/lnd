@@ -3,6 +3,8 @@ package lnwire
 import (
 	"bytes"
 	"io"
+
+	"github.com/btcsuite/btcd/btcec/v2/ecdsa"
 )
 
 // AnnounceSignatures1 is a direct message between two endpoints of a
@@ -41,6 +43,63 @@ type AnnounceSignatures1 struct {
 	// and ensure we're able to make upgrades to the network in a forwards
 	// compatible manner.
 	ExtraOpaqueData ExtraOpaqueData
+}
+
+func newAnnSig(chanID ChannelID, shortChanID ShortChannelID,
+	nodeSig, bitcoinSig Sig,
+	extraOpaqueData ExtraOpaqueData) *AnnounceSignatures1 {
+
+	return &AnnounceSignatures1{
+		ChannelID:        chanID,
+		ShortChannelID:   shortChanID,
+		NodeSignature:    nodeSig,
+		BitcoinSignature: bitcoinSig,
+		ExtraOpaqueData:  extraOpaqueData,
+	}
+}
+
+// NewAnnSigFromSignature creates a new AnnounceSignatures1 message from the
+// passed channel IDs, and `ecdsa.Signature` instances for the node and bitcoin
+// keys.
+func NewAnnSigFromSignature(chanID ChannelID,
+	shortChanID ShortChannelID, nodeSig, bitcoinSig *ecdsa.Signature,
+	extraOpaqueData ExtraOpaqueData) (*AnnounceSignatures1, error) {
+
+	nodeSignature, err := NewSigFromSignature(nodeSig)
+	if err != nil {
+		return nil, err
+	}
+	bitcoinSignature, err := NewSigFromSignature(bitcoinSig)
+	if err != nil {
+		return nil, err
+	}
+
+	return newAnnSig(
+		chanID, shortChanID, nodeSignature, bitcoinSignature,
+		extraOpaqueData,
+	), nil
+}
+
+// NewAnnSigFromWireECDSARaw creates a new AnnounceSignatures1 message from the
+// passed channel IDs, and raw byte slices for the node and bitcoin key
+// signatures.
+func NewAnnSigFromWireECDSARaw(chanID ChannelID,
+	shortChanID ShortChannelID, nodeSig, bitcoinSig []byte,
+	extraOpaqueData ExtraOpaqueData) (*AnnounceSignatures1, error) {
+
+	nodeSignature, err := NewSigFromECDSARawSignature(nodeSig)
+	if err != nil {
+		return nil, err
+	}
+	bitcoinSignature, err := NewSigFromECDSARawSignature(bitcoinSig)
+	if err != nil {
+		return nil, err
+	}
+
+	return newAnnSig(
+		chanID, shortChanID, nodeSignature, bitcoinSignature,
+		extraOpaqueData,
+	), nil
 }
 
 // A compile time check to ensure AnnounceSignatures1 implements the

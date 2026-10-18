@@ -389,8 +389,69 @@ func (s *Server) RegisterConfirmationsNtfn(in *ConfRequest,
 	}
 	defer confEvent.Cancel()
 
-	// With the request registered, we'll wait for its spend notification to
-	// be dispatched.
+	sendConfirmation := func(details *chainntnfs.TxConfirmation) error {
+		var rawTxBuf bytes.Buffer
+		err := details.Tx.Serialize(&rawTxBuf)
+		if err != nil {
+			return err
+		}
+
+		// If the block was included (should only be there if
+		// IncludeBlock is true), then we'll encode the bytes to send
+		// with the response.
+		var blockBytes []byte
+		if details.Block != nil {
+			var blockBuf bytes.Buffer
+			err := details.Block.Serialize(&blockBuf)
+			if err != nil {
+				return err
+			}
+
+			blockBytes = blockBuf.Bytes()
+		}
+
+		rpcConfDetails := &ConfDetails{
+			RawTx:       rawTxBuf.Bytes(),
+			BlockHash:   details.BlockHash[:],
+			BlockHeight: details.BlockHeight,
+			TxIndex:     details.TxIndex,
+			RawBlock:    blockBytes,
+		}
+
+		conf := &ConfEvent{
+			Event: &ConfEvent_Conf{
+				Conf: rpcConfDetails,
+			},
+		}
+
+		return confStream.Send(conf)
+	}
+	waitForConfirmation := func() (bool, error) {
+		select {
+		case details, ok := <-confEvent.Confirmed:
+			if !ok {
+				return false,
+					chainntnfs.ErrChainNotifierShuttingDown
+			}
+
+			return true, sendConfirmation(details)
+
+		case <-confStream.Context().Done():
+			err := confStream.Context().Err()
+			if errors.Is(err, context.Canceled) {
+				return false, nil
+			}
+
+			return false, err
+
+		case <-s.quit:
+			return false, ErrChainNotifierServerShuttingDown
+		}
+	}
+
+	// With the request registered, we'll wait for its confirmation
+	// notification to be dispatched.
+	confDelivered := false
 	for {
 		select {
 		// The transaction satisfying the request has confirmed on-chain
@@ -401,63 +462,58 @@ func (s *Server) RegisterConfirmationsNtfn(in *ConfRequest,
 				return chainntnfs.ErrChainNotifierShuttingDown
 			}
 
-			var rawTxBuf bytes.Buffer
-			err := details.Tx.Serialize(&rawTxBuf)
-			if err != nil {
+			if err := sendConfirmation(details); err != nil {
 				return err
 			}
-
-			// If the block was included (should only be there if
-			// IncludeBlock is true), then we'll encode the bytes
-			// to send with the response.
-			var blockBytes []byte
-			if details.Block != nil {
-				var blockBuf bytes.Buffer
-				err := details.Block.Serialize(&blockBuf)
-				if err != nil {
-					return err
-				}
-
-				blockBytes = blockBuf.Bytes()
-			}
-
-			rpcConfDetails := &ConfDetails{
-				RawTx:       rawTxBuf.Bytes(),
-				BlockHash:   details.BlockHash[:],
-				BlockHeight: details.BlockHeight,
-				TxIndex:     details.TxIndex,
-				RawBlock:    blockBytes,
-			}
-
-			conf := &ConfEvent{
-				Event: &ConfEvent_Conf{
-					Conf: rpcConfDetails,
-				},
-			}
-			if err := confStream.Send(conf); err != nil {
-				return err
-			}
+			confDelivered = true
 
 		// The transaction satisfying the request has been reorged out
-		// of the chain, so we'll send an event describing it.
-		case _, ok := <-confEvent.NegativeConf:
+		// of the chain, so we'll send an event describing it. The depth
+		// of the re-org is forwarded so reorg-safety-aware callers can
+		// reason about how far the chain rewound.
+		case depth, ok := <-confEvent.NegativeConf:
 			if !ok {
 				return chainntnfs.ErrChainNotifierShuttingDown
 			}
 
 			reorg := &ConfEvent{
-				Event: &ConfEvent_Reorg{Reorg: &Reorg{}},
+				Event: &ConfEvent_Reorg{
+					Reorg: &Reorg{Depth: uint32(depth)},
+				},
 			}
 			if err := confStream.Send(reorg); err != nil {
 				return err
 			}
+			confDelivered = false
 
 		// The transaction satisfying the request has confirmed and is
-		// no longer under the risk of being reorged out of the chain,
-		// so we can safely exit.
+		// no longer under the risk of being reorged out of the chain.
+		// Send an explicit Done event before exiting so callers can
+		// distinguish reaching re-org safety depth from the stream
+		// being torn down for any other reason.
 		case _, ok := <-confEvent.Done:
 			if !ok {
 				return chainntnfs.ErrChainNotifierShuttingDown
+			}
+
+			// Done and Confirmed use separate channels.
+			// A select may receive Done first. Forward the
+			// confirmation before continuing.
+			if !confDelivered {
+				delivered, err := waitForConfirmation()
+				if err != nil {
+					return err
+				}
+				if !delivered {
+					return nil
+				}
+			}
+
+			done := &ConfEvent{
+				Event: &ConfEvent_Done{Done: &Done{}},
+			}
+			if err := confStream.Send(done); err != nil {
+				return err
 			}
 
 			return nil
@@ -511,8 +567,58 @@ func (s *Server) RegisterSpendNtfn(in *SpendRequest,
 	}
 	defer spendEvent.Cancel()
 
+	sendSpend := func(details *chainntnfs.SpendDetail) error {
+		var rawSpendingTxBuf bytes.Buffer
+		err := details.SpendingTx.Serialize(&rawSpendingTxBuf)
+		if err != nil {
+			return err
+		}
+
+		rpcSpendDetails := &SpendDetails{
+			SpendingOutpoint: &Outpoint{
+				Hash:  details.SpentOutPoint.Hash[:],
+				Index: details.SpentOutPoint.Index,
+			},
+			RawSpendingTx:      rawSpendingTxBuf.Bytes(),
+			SpendingTxHash:     details.SpenderTxHash[:],
+			SpendingInputIndex: details.SpenderInputIndex,
+			SpendingHeight:     uint32(details.SpendingHeight),
+		}
+
+		spend := &SpendEvent{
+			Event: &SpendEvent_Spend{
+				Spend: rpcSpendDetails,
+			},
+		}
+
+		return spendStream.Send(spend)
+	}
+	waitForSpend := func() (bool, error) {
+		select {
+		case details, ok := <-spendEvent.Spend:
+			if !ok {
+				return false,
+					chainntnfs.ErrChainNotifierShuttingDown
+			}
+
+			return true, sendSpend(details)
+
+		case <-spendStream.Context().Done():
+			err := spendStream.Context().Err()
+			if errors.Is(err, context.Canceled) {
+				return false, nil
+			}
+
+			return false, err
+
+		case <-s.quit:
+			return false, ErrChainNotifierServerShuttingDown
+		}
+	}
+
 	// With the request registered, we'll wait for its spend notification to
 	// be dispatched.
+	spendDelivered := false
 	for {
 		select {
 		// A transaction that spends the given has confirmed on-chain.
@@ -523,31 +629,10 @@ func (s *Server) RegisterSpendNtfn(in *SpendRequest,
 				return chainntnfs.ErrChainNotifierShuttingDown
 			}
 
-			var rawSpendingTxBuf bytes.Buffer
-			err := details.SpendingTx.Serialize(&rawSpendingTxBuf)
-			if err != nil {
+			if err := sendSpend(details); err != nil {
 				return err
 			}
-
-			rpcSpendDetails := &SpendDetails{
-				SpendingOutpoint: &Outpoint{
-					Hash:  details.SpentOutPoint.Hash[:],
-					Index: details.SpentOutPoint.Index,
-				},
-				RawSpendingTx:      rawSpendingTxBuf.Bytes(),
-				SpendingTxHash:     details.SpenderTxHash[:],
-				SpendingInputIndex: details.SpenderInputIndex,
-				SpendingHeight:     uint32(details.SpendingHeight),
-			}
-
-			spend := &SpendEvent{
-				Event: &SpendEvent_Spend{
-					Spend: rpcSpendDetails,
-				},
-			}
-			if err := spendStream.Send(spend); err != nil {
-				return err
-			}
+			spendDelivered = true
 
 		// The spending transaction of the request has been reorged of
 		// the chain. We'll return an event to the caller indicating so.
@@ -562,13 +647,35 @@ func (s *Server) RegisterSpendNtfn(in *SpendRequest,
 			if err := spendStream.Send(reorg); err != nil {
 				return err
 			}
+			spendDelivered = false
 
 		// The spending transaction of the requests has confirmed
 		// on-chain and is no longer under the risk of being reorged out
-		// of the chain, so we can safely exit.
+		// of the chain. Send an explicit Done event before exiting so
+		// callers can distinguish reaching re-org safety depth from the
+		// stream being torn down for any other reason.
 		case _, ok := <-spendEvent.Done:
 			if !ok {
 				return chainntnfs.ErrChainNotifierShuttingDown
+			}
+
+			// As with confirmations, ensure Spend reaches the RPC
+			// client before Done.
+			if !spendDelivered {
+				delivered, err := waitForSpend()
+				if err != nil {
+					return err
+				}
+				if !delivered {
+					return nil
+				}
+			}
+
+			done := &SpendEvent{
+				Event: &SpendEvent_Done{Done: &Done{}},
+			}
+			if err := spendStream.Send(done); err != nil {
+				return err
 			}
 
 			return nil

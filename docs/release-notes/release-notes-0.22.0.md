@@ -22,6 +22,15 @@
 
 # Bug Fixes
 
+* The bitcoind and btcd fee estimators now [keep the last successful
+  fee estimate](https://github.com/lightningnetwork/lnd/issues/11316) for each
+  confirmation target when a backend query fails. A temporary fee-source
+  outage previously replaced a usable rate with the 25 sat/vB cold-start
+  fallback, which could push channel commitment fees high enough for peers to
+  force close. Cached rates live only in memory, are not evicted on a timer,
+  and are replaced as soon as the backend returns a fresh estimate. Targets
+  that have never succeeded still use the configured fallback.
+
 * [Fixed an overflow](https://github.com/lightningnetwork/lnd/pull/11290)
   in the accumulated fee calculation for blinded paths. The aggregate base fee
   and fee rate advertised in a blinded path's payinfo were computed with

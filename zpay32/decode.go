@@ -186,6 +186,15 @@ func Decode(invoice string, net *chaincfg.Params, opts ...DecodeOption) (
 			return nil, fmt.Errorf("unable to deserialize "+
 				"signature: %v", err)
 		}
+
+		// When the `n` field is present, BOLT 11 requires the
+		// signature to be in canonical low-S form.
+		err = ecdsa.VerifyLowS(sig.ToSignatureBytes())
+		if err != nil {
+			return nil, fmt.Errorf("%w: %w", ErrHighSSignature,
+				err)
+		}
+
 		if !signature.Verify(hash, decodedInvoice.Destination) {
 			return nil, fmt.Errorf("invalid invoice signature")
 		}

@@ -47,7 +47,7 @@ require (
 	github.com/lightningnetwork/lnd/queue v1.2.0
 	github.com/lightningnetwork/lnd/sqldb v1.0.13
 	github.com/lightningnetwork/lnd/ticker v1.1.1
-	github.com/lightningnetwork/lnd/tlv v1.4.0
+	github.com/lightningnetwork/lnd/tlv v1.4.1
 	github.com/lightningnetwork/lnd/tor v1.2.0
 	github.com/ltcsuite/ltcd v0.0.0-20190101042124-f37f8bf35796
 	github.com/miekg/dns v1.1.43
@@ -232,5 +232,3 @@ replace github.com/lightningnetwork/lnd/kvdb => ./kvdb
 replace github.com/lightningnetwork/lnd/queue => ./queue
 
 replace github.com/lightningnetwork/lnd/ticker => ./ticker
-
-replace github.com/lightningnetwork/lnd/tlv => ./tlv

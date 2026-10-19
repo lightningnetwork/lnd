@@ -15,16 +15,23 @@ if [[ $PR_NUMBER == "master" ]] || [[ $PR_NUMBER == "gh-readonly-queue" ]]; then
     exit 0
 fi
 
-# Ensure that the PR number at least shows up in the release notes folder.
-# New entries are PR-specific fragments in docs/release-notes/unreleased, as
-# documented in docs/release-notes/README.md. The recursive check keeps the
-# version-wide files of older release lines compatible. The PR number must not
-# be followed by another digit, so that e.g. PR 1132 isn't satisfied by a link
-# to PR 11326.
+# Ensure that the PR is described by a release note fragment in
+# docs/release-notes/unreleased, as documented in docs/release-notes/README.md.
+# This is usually the PR's own fragment, but a PR may also extend the fragment
+# of an earlier PR. Entries in the version-wide release note documents don't
+# count, since those are only written when a release is prepared, by PRs that
+# carry the no-changelog label. The PR number must not be followed by another
+# digit, so that e.g. PR 1132 isn't satisfied by a link to PR 11326. If the
+# PR's own fragment exists, the fragment checks below report a missing link.
 NOTES_DIR=docs/release-notes
 PR_LINK="lightningnetwork/lnd/pull/${PR_NUMBER}([^0-9]|$)"
-if ! grep -r -q -E "$PR_LINK" "$NOTES_DIR"; then
-    echo "PR $PR_NUMBER didn't update the release notes"
+if [[ ! -f "$NOTES_DIR/unreleased/$PR_NUMBER.md" ]] &&
+    ! grep -r -q -E "$PR_LINK" "$NOTES_DIR/unreleased"; then
+    echo "PR $PR_NUMBER didn't add a release note fragment"
+    if grep -r -q -E "$PR_LINK" "$NOTES_DIR"; then
+        echo "Release notes are no longer added to the version-wide documents,"
+        echo "move the entry to a fragment"
+    fi
     echo "Add $NOTES_DIR/unreleased/$PR_NUMBER.md"
     echo "See $NOTES_DIR/README.md for details"
     exit 1
@@ -66,6 +73,18 @@ fail() {
     echo "$1: $2"
     FAILED=1
 }
+
+# The version-wide release note documents are only written when a release is
+# prepared, by PRs that carry the no-changelog label and therefore skip this
+# check. Any other PR touching them would keep conflicting with other PRs and
+# could announce its change twice, once from its fragment.
+while IFS= read -r document; do
+    if [[ -n "$document" ]]; then
+        fail "$document" "version-wide release notes are only edited when a \
+release is prepared, move the entry to a fragment"
+    fi
+done <<< "$(git diff --name-only --no-renames "$BASE" HEAD -- \
+    "$NOTES_DIR/release-notes-[0-9]*.md")"
 
 # Validate every file that the PR adds or modifies in a subdirectory of the
 # release notes. A new fragment must be named after the PR and link to it.

@@ -58,12 +58,14 @@ Follow these rules:
 Changes that do not need a release note should continue to use the
 `no-changelog` label.
 
-The release note CI check enforces these rules for every fragment a pull
-request adds: the file must be located in `unreleased/`, be named after the
-pull request, link to it, start with a top-level heading and only use known
-headings without a contributors section. Fragments that a pull request
-modifies, e.g. to extend the entry of an earlier pull request, are only checked
-for their location and headings.
+The release note CI check enforces these rules. Unless it carries the
+`no-changelog` label, a pull request must be linked from a fragment in
+`unreleased/`, usually its own, and must not modify the version-wide
+documents. Every fragment a pull request adds must be located in
+`unreleased/`, be named after the pull request, link to it, start with a
+top-level heading and only use known headings without a contributors section.
+Fragments that a pull request modifies, e.g. to extend the entry of an earlier
+pull request, are only checked for their location and headings.
 
 ### Transition
 

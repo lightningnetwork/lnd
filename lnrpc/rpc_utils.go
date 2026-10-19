@@ -116,7 +116,16 @@ func RPCTransaction(tx *lnwallet.TransactionDetail) *Transaction {
 	}
 }
 
-// RPCTransactionDetails returns a set of rpc transaction details.
+// RPCTransactionDetails returns a set of rpc transaction details. The
+// transactions are sorted by number of confirmations in ascending order, which
+// puts unconfirmed transactions first, followed by the most recent confirmed
+// transactions down to the oldest.
+//
+// NOTE: The sort is stable so that transactions with an equal number of
+// confirmations (e.g. several transactions in the same block or several
+// unconfirmed transactions) keep their relative order, giving the returned
+// page a deterministic order. Pagination (index_offset/max_transactions) is
+// applied by the wallet layer before this sort and is unaffected by it.
 func RPCTransactionDetails(txns []*lnwallet.TransactionDetail, firstIdx,
 	lastIdx uint64) *TransactionDetails {
 
@@ -130,12 +139,7 @@ func RPCTransactionDetails(txns []*lnwallet.TransactionDetail, firstIdx,
 		txDetails.Transactions[i] = RPCTransaction(tx)
 	}
 
-	// Sort transactions by number of confirmations rather than height so
-	// that unconfirmed transactions (height =0; confirmations =-1) will
-	// follow the most recently set of confirmed transactions. If we sort
-	// by height, unconfirmed transactions will follow our oldest
-	// transactions, because they have lower block heights.
-	sort.Slice(txDetails.Transactions, func(i, j int) bool {
+	sort.SliceStable(txDetails.Transactions, func(i, j int) bool {
 		return txDetails.Transactions[i].NumConfirmations <
 			txDetails.Transactions[j].NumConfirmations
 	})

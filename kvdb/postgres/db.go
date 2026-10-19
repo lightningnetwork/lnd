@@ -6,6 +6,7 @@ import (
 	"context"
 
 	"github.com/btcsuite/btcwallet/walletdb"
+	_ "github.com/jackc/pgx/v5/stdlib" // Register the PostgreSQL driver.
 	"github.com/lightningnetwork/lnd/kvdb/sqlbase"
 )
 

@@ -1,6 +1,7 @@
 package pmp
 
 import (
+	"errors"
 	"net"
 	"sync"
 	"testing"
@@ -52,10 +53,13 @@ func (s *fakeNATPMPServer) serve() {
 			return
 		default:
 		}
-		_ = s.conn.SetReadDeadline(time.Now().Add(100 * time.Millisecond))
+		_ = s.conn.SetReadDeadline(
+			time.Now().Add(100 * time.Millisecond),
+		)
 		n, addr, err := s.conn.ReadFromUDP(buf)
 		if err != nil {
-			if ne, ok := err.(net.Error); ok && ne.Timeout() {
+			var netErr net.Error
+			if errors.As(err, &netErr) && netErr.Timeout() {
 				continue
 			}
 			return
@@ -78,18 +82,17 @@ func (s *fakeNATPMPServer) Close() {
 
 // Port returns the server's bound UDP port.
 func (s *fakeNATPMPServer) Port() int {
-	return s.conn.LocalAddr().(*net.UDPAddr).Port
+	addr, ok := s.conn.LocalAddr().(*net.UDPAddr)
+	require.True(s.t, ok)
+
+	return addr.Port
 }
 
-// newClientForServer points a Client at the test server. We override the
-// well-known port 5351 by reusing the kernel-assigned port from the
-// listener — done by overriding the *Client.call low-level UDP target.
-//
-// To keep the production code path unchanged, the test instead uses a
-// custom-built client that dials the listener's exact address.
+// newClientForServer points a Client at the test server's ephemeral port.
 func newClientForServer(srv *fakeNATPMPServer) *Client {
 	return &Client{
 		gateway: srv.gateway,
+		port:    srv.Port(),
 		timeout: 2 * time.Second,
 	}
 }
@@ -113,18 +116,11 @@ func TestGetExternalAddress(t *testing.T) {
 		return resp
 	})
 
-	// Point the client at the server's actual ephemeral port by
-	// crafting an explicit call. We bypass the well-known 5351 port
-	// for the purposes of this test.
 	c := newClientForServer(srv)
-	resp, err := callExplicit(c, srv, []byte{0, 0}, 12)
+	resp, err := c.GetExternalAddress()
 	require.NoError(t, err)
-
-	require.Equal(t, byte(0), resp[0])
-	require.Equal(t, byte(0|0x80), resp[1])
-	require.Equal(t, uint32(12345678), beUint32(resp[4:8]))
-	require.Equal(t, [4]byte{203, 0, 113, 7},
-		[4]byte{resp[8], resp[9], resp[10], resp[11]})
+	require.Equal(t, uint32(12345678), resp.SecondsSinceStartOfEpoc)
+	require.Equal(t, [4]byte{203, 0, 113, 7}, resp.ExternalIPAddress)
 }
 
 // TestRPCRejectsUnexpectedOpcode confirms the RFC-mandated response-
@@ -141,8 +137,8 @@ func TestRPCRejectsUnexpectedOpcode(t *testing.T) {
 	})
 
 	c := newClientForServer(srv)
-	_, err := callExplicit(c, srv, []byte{0, 0}, 12)
-	require.Error(t, err)
+	_, err := c.GetExternalAddress()
+	require.ErrorContains(t, err, "unexpected opcode")
 }
 
 // TestRPCRejectsNonZeroResultCode covers the RFC failure path.
@@ -158,8 +154,8 @@ func TestRPCRejectsNonZeroResultCode(t *testing.T) {
 	})
 
 	c := newClientForServer(srv)
-	_, err := callExplicit(c, srv, []byte{0, 0}, 12)
-	require.Error(t, err)
+	_, err := c.GetExternalAddress()
+	require.ErrorContains(t, err, "non-zero result code")
 }
 
 // TestTimeoutOnSilentServer confirms the retry loop bottoms out when the
@@ -173,66 +169,9 @@ func TestTimeoutOnSilentServer(t *testing.T) {
 
 	c := &Client{
 		gateway: srv.gateway,
+		port:    srv.Port(),
 		timeout: 250 * time.Millisecond,
 	}
-	_, err := callExplicit(c, srv, []byte{0, 0}, 12)
-	require.Error(t, err)
+	_, err := c.GetExternalAddress()
+	require.ErrorContains(t, err, "timed out trying to contact gateway")
 }
-
-// callExplicit duplicates the *Client.call retry loop but dials the
-// fake server's ephemeral port instead of the hard-coded 5351. This lets
-// the tests exercise the protocol logic without requiring root or
-// fiddling with the privileged port.
-func callExplicit(c *Client, srv *fakeNATPMPServer, msg []byte,
-	resultSize int) ([]byte, error) {
-
-	conn, err := net.DialUDP("udp", nil, &net.UDPAddr{
-		IP:   srv.gateway,
-		Port: srv.Port(),
-	})
-	if err != nil {
-		return nil, err
-	}
-	defer conn.Close()
-
-	deadline := time.Now().Add(c.timeout)
-	_ = conn.SetDeadline(deadline)
-	if _, err := conn.Write(msg); err != nil {
-		return nil, err
-	}
-
-	buf := make([]byte, 64)
-	n, _, err := conn.ReadFromUDP(buf)
-	if err != nil {
-		return nil, err
-	}
-
-	// Run the same validation rpc() would.
-	resp := buf[:n]
-	if len(resp) != resultSize {
-		return nil, errSizeMismatch
-	}
-	if resp[0] != 0 {
-		return nil, errVersionMismatch
-	}
-	expectedOp := msg[1] | 0x80
-	if resp[1] != expectedOp {
-		return nil, errOpcodeMismatch
-	}
-	if rc := beUint16(resp[2:4]); rc != 0 {
-		return nil, errResultCode
-	}
-	return resp, nil
-}
-
-// Sentinel errors for the explicit-call helper.
-var (
-	errSizeMismatch    = &testErr{"size mismatch"}
-	errVersionMismatch = &testErr{"version mismatch"}
-	errOpcodeMismatch  = &testErr{"opcode mismatch"}
-	errResultCode      = &testErr{"non-zero result code"}
-)
-
-type testErr struct{ msg string }
-
-func (e *testErr) Error() string { return e.msg }

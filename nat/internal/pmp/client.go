@@ -13,6 +13,7 @@
 package pmp
 
 import (
+	"errors"
 	"fmt"
 	"net"
 	"time"
@@ -32,6 +33,7 @@ const (
 // Client is a NAT-PMP protocol client bound to a single gateway address.
 type Client struct {
 	gateway net.IP
+	port    int
 	timeout time.Duration
 }
 
@@ -39,7 +41,11 @@ type Client struct {
 // gateway. A zero timeout falls back to the RFC retry schedule (~128s
 // worst case).
 func NewClientWithTimeout(gateway net.IP, timeout time.Duration) *Client {
-	return &Client{gateway: gateway, timeout: timeout}
+	return &Client{
+		gateway: gateway,
+		port:    natPMPPort,
+		timeout: timeout,
+	}
 }
 
 // GetExternalAddressResult mirrors the fields lnd reads off a successful
@@ -136,7 +142,7 @@ func (c *Client) rpc(msg []byte, resultSize int) ([]byte, error) {
 // 3.1. The retry schedule doubles the deadline each attempt, capped at
 // the caller's overall timeout.
 func (c *Client) call(msg []byte) ([]byte, error) {
-	server := &net.UDPAddr{IP: c.gateway, Port: natPMPPort}
+	server := &net.UDPAddr{IP: c.gateway, Port: c.port}
 	conn, err := net.DialUDP("udp", nil, server)
 	if err != nil {
 		return nil, err
@@ -150,8 +156,8 @@ func (c *Client) call(msg []byte) ([]byte, error) {
 	}
 
 	needNewDeadline := true
-	for tries := uint(0); (tries < natRetries && finalDeadline.IsZero()) ||
-		time.Now().Before(finalDeadline); {
+	for tries := uint(0); tries < natRetries && (finalDeadline.IsZero() ||
+		time.Now().Before(finalDeadline)); {
 
 		if needNewDeadline {
 			next := time.Now().Add(
@@ -172,7 +178,8 @@ func (c *Client) call(msg []byte) ([]byte, error) {
 
 		n, remote, err := conn.ReadFromUDP(buf)
 		if err != nil {
-			if ne, ok := err.(net.Error); ok && ne.Timeout() {
+			var netErr net.Error
+			if errors.As(err, &netErr) && netErr.Timeout() {
 				tries++
 				needNewDeadline = true
 				continue
@@ -207,23 +214,26 @@ func minTime(a, b time.Time) time.Time {
 	return b
 }
 
-// beUint16 / beUint32 / beWriteUint16 / beWriteUint32 are inlined
-// big-endian helpers; using encoding/binary would pull a tiny extra
-// abstraction layer for two-byte and four-byte reads where the
-// hand-rolled version is clearer.
+// beUint16 reads a big-endian uint16.
 func beUint16(b []byte) uint16 {
 	return uint16(b[0])<<8 | uint16(b[1])
 }
+
+// beUint32 reads a big-endian uint32.
 
 func beUint32(b []byte) uint32 {
 	return uint32(b[0])<<24 | uint32(b[1])<<16 |
 		uint32(b[2])<<8 | uint32(b[3])
 }
 
+// beWriteUint16 writes a big-endian uint16.
+
 func beWriteUint16(b []byte, v uint16) {
 	b[0] = byte(v >> 8)
 	b[1] = byte(v)
 }
+
+// beWriteUint32 writes a big-endian uint32.
 
 func beWriteUint32(b []byte, v uint32) {
 	b[0] = byte(v >> 24)

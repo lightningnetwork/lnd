@@ -2,6 +2,7 @@ package chanstate_test
 
 import (
 	"bytes"
+	"encoding/binary"
 	"path/filepath"
 	"runtime"
 	"testing"
@@ -12,6 +13,102 @@ import (
 	"github.com/lightningnetwork/lnd/lnwire"
 	"github.com/stretchr/testify/require"
 )
+
+// TestCountFwdPkgs verifies that forwarding packages can be counted from the
+// height buckets without loading their contents.
+func TestCountFwdPkgs(t *testing.T) {
+	t.Parallel()
+
+	db := makeFwdPkgDB(t, "")
+	shortChanID := lnwire.NewShortChanIDFromInt(1)
+	packager := chanstate.NewChannelPackager(shortChanID)
+
+	countPkgs := func() (int, error) {
+		var count int
+		err := kvdb.View(db, func(tx kvdb.RTx) error {
+			var err error
+			count, err = packager.CountFwdPkgs(tx)
+
+			return err
+		}, func() {
+			count = 0
+		})
+
+		return count, err
+	}
+
+	count, err := countPkgs()
+	require.NoError(t, err)
+	require.Zero(t, count)
+
+	err = kvdb.Update(db, func(tx kvdb.RwTx) error {
+		for height := uint64(1); height <= 3; height++ {
+			pkg := chanstate.NewFwdPkg(
+				shortChanID, height, nil, nil,
+			)
+			if err := packager.AddFwdPkg(tx, pkg); err != nil {
+				return err
+			}
+		}
+
+		return nil
+	}, func() {})
+	require.NoError(t, err)
+
+	count, err = countPkgs()
+	require.NoError(t, err)
+	require.Equal(t, 3, count)
+
+	err = kvdb.Update(db, func(tx kvdb.RwTx) error {
+		return packager.RemovePkg(tx, 2)
+	}, func() {})
+	require.NoError(t, err)
+
+	count, err = countPkgs()
+	require.NoError(t, err)
+	require.Equal(t, 2, count)
+
+	err = kvdb.Update(db, func(tx kvdb.RwTx) error {
+		return packager.Wipe(tx)
+	}, func() {})
+	require.NoError(t, err)
+
+	count, err = countPkgs()
+	require.NoError(t, err)
+	require.Zero(t, count)
+
+	// Add a valid package followed by an unexpected leaf entry in the
+	// channel's source bucket. A leaf must not be counted as a package,
+	// including when its value is empty.
+	err = kvdb.Update(db, func(tx kvdb.RwTx) error {
+		pkg := chanstate.NewFwdPkg(shortChanID, 1, nil, nil)
+		return packager.AddFwdPkg(tx, pkg)
+	}, func() {})
+	require.NoError(t, err)
+
+	for _, value := range [][]byte{{1}, {}} {
+		err = kvdb.Update(db, func(tx kvdb.RwTx) error {
+			root := tx.ReadWriteBucket(
+				chanstate.FwdPackagesBucketKey(),
+			)
+			var sourceKey [8]byte
+			binary.BigEndian.PutUint64(
+				sourceKey[:], shortChanID.ToUint64(),
+			)
+			source := root.NestedReadWriteBucket(sourceKey[:])
+
+			var leafKey [8]byte
+			binary.BigEndian.PutUint64(leafKey[:], 99)
+
+			return source.Put(leafKey[:], value)
+		}, func() {})
+		require.NoError(t, err)
+
+		count, err = countPkgs()
+		require.ErrorIs(t, err, chanstate.ErrCorruptedFwdPkg)
+		require.Zero(t, count)
+	}
+}
 
 // TestPkgFilterBruteForce tests the behavior of a pkg filter up to size 1000,
 // which is greater than the number of HTLCs we permit on a commitment txn.

@@ -1530,6 +1530,23 @@ func (c *ChannelStateDB) LoadFwdPkgs(channel *OpenChannel) ([]*FwdPkg,
 	return fwdPkgs, nil
 }
 
+// CountFwdPkgs returns the number of forwarding packages without loading their
+// contents.
+func (c *ChannelStateDB) CountFwdPkgs(channel *OpenChannel) (int, error) {
+	var count int
+	err := kvdb.View(c.backend, func(tx kvdb.RTx) error {
+		var err error
+		packager := NewChannelPackager(channel.ShortChannelID)
+		count, err = packager.CountFwdPkgs(tx)
+
+		return err
+	}, func() {
+		count = 0
+	})
+
+	return count, err
+}
+
 // AckAddHtlcs updates the AckAddFilter containing any of the provided AddRefs
 // indicating that a response to this Add has been committed to the remote party.
 // Doing so will prevent these Add HTLCs from being reforwarded internally.

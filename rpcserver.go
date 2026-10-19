@@ -681,6 +681,54 @@ func newRPCServer(cfg *Config, interceptorChain *rpcperms.InterceptorChain,
 	}
 }
 
+// addPermissions adds the macaroon permissions of the main RPC server, of
+// the sub-servers and of the external subservers to the interceptor chain.
+func (r *rpcServer) addPermissions(macService *macaroons.Service,
+	subServerPerms []lnrpc.MacaroonPerms) error {
+
+	// We merge the set of sub server macaroon permissions with the main
+	// RPC server permissions so we can unite them under a single set of
+	// interceptors.
+	for m, ops := range MainRPCServerPermissions() {
+		err := r.interceptorChain.AddPermission(m, ops)
+		if err != nil {
+			return err
+		}
+	}
+
+	for _, subServerPerm := range subServerPerms {
+		for method, ops := range subServerPerm {
+			err := r.interceptorChain.AddPermission(method, ops)
+			if err != nil {
+				return err
+			}
+		}
+	}
+
+	// External subserver possibly need to register their own permissions
+	// and macaroon validator.
+	for method, ops := range r.implCfg.ExternalValidator.Permissions() {
+		err := r.interceptorChain.AddPermission(method, ops)
+		if err != nil {
+			return err
+		}
+
+		// Give the external subservers the possibility to also use
+		// their own validator to check any macaroons attached to calls
+		// to this method. This allows them to have their own root key
+		// ID database and permission entities.
+		err = macService.RegisterExternalValidator(
+			method, r.implCfg.ExternalValidator,
+		)
+		if err != nil {
+			return fmt.Errorf("could not register external "+
+				"macaroon validator: %v", err)
+		}
+	}
+
+	return nil
+}
+
 // addDeps populates all dependencies needed by the RPC server, and any
 // of the sub-servers that it maintains. When this is done, the RPC server can
 // be started, and start accepting RPC calls.
@@ -830,44 +878,9 @@ func (r *rpcServer) addDeps(ctx context.Context, s *server,
 		subServerPerms = append(subServerPerms, macPerms)
 	}
 
-	// Next, we need to merge the set of sub server macaroon permissions
-	// with the main RPC server permissions so we can unite them under a
-	// single set of interceptors.
-	for m, ops := range MainRPCServerPermissions() {
-		err := r.interceptorChain.AddPermission(m, ops)
-		if err != nil {
-			return err
-		}
-	}
-
-	for _, subServerPerm := range subServerPerms {
-		for method, ops := range subServerPerm {
-			err := r.interceptorChain.AddPermission(method, ops)
-			if err != nil {
-				return err
-			}
-		}
-	}
-
-	// External subserver possibly need to register their own permissions
-	// and macaroon validator.
-	for method, ops := range r.implCfg.ExternalValidator.Permissions() {
-		err := r.interceptorChain.AddPermission(method, ops)
-		if err != nil {
-			return err
-		}
-
-		// Give the external subservers the possibility to also use
-		// their own validator to check any macaroons attached to calls
-		// to this method. This allows them to have their own root key
-		// ID database and permission entities.
-		err = macService.RegisterExternalValidator(
-			method, r.implCfg.ExternalValidator,
-		)
-		if err != nil {
-			return fmt.Errorf("could not register external "+
-				"macaroon validator: %v", err)
-		}
+	err = r.addPermissions(macService, subServerPerms)
+	if err != nil {
+		return err
 	}
 
 	// Finally, with all the set up complete, add the last dependencies to

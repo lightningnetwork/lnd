@@ -9,7 +9,7 @@ import (
 	"time"
 
 	"github.com/Yawning/aez"
-	"github.com/kkdai/bstream"
+	"github.com/lightningnetwork/lnd/aezeed/internal/bstream"
 	"golang.org/x/crypto/scrypt"
 )
 

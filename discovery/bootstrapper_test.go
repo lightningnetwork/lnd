@@ -2,7 +2,9 @@ package discovery
 
 import (
 	"context"
+	"encoding/binary"
 	"fmt"
+	"io"
 	"net"
 	"testing"
 	"time"
@@ -10,8 +12,8 @@ import (
 	"github.com/btcsuite/btcd/btcec/v2"
 	"github.com/lightningnetwork/lnd/autopilot"
 	"github.com/lightningnetwork/lnd/tor"
-	"github.com/miekg/dns"
 	"github.com/stretchr/testify/require"
+	"golang.org/x/net/dns/dnsmessage"
 )
 
 // stubNode is a minimal autopilot.Node implementation used to drive
@@ -58,38 +60,139 @@ func (s *stubChannelGraph) ForEachNodesChannels(_ context.Context,
 	return nil
 }
 
-// fallbackNet is a tor.Net stub used to drive fallBackSRVLookup. LookupHost
-// returns shimAddrs and Dial serves a single DNS response, written by
-// serveResp, over an in-memory pipe so the fallback path can be exercised
-// without a real DNS server.
-type fallbackNet struct {
-	shimAddrs []string
-	serveResp func(question *dns.Msg) *dns.Msg
+// fallbackAnswer describes one resource record returned by fallbackNet.
+type fallbackAnswer struct {
+	typ    dnsmessage.Type
+	target string
+	port   uint16
+	ipv4   [4]byte
 }
 
-// Dial returns one end of an in-memory pipe and spins up a goroutine acting as
-// the DNS server on the other end, which reads the SRV query and writes back
-// the response produced by serveResp.
+// fallbackNet is a tor.Net stub used to drive fallBackSRVLookup. LookupHost
+// returns shimAddrs, and Dial serves one DNS response over an in-memory pipe.
+type fallbackNet struct {
+	shimAddrs []string
+	rcode     dnsmessage.RCode
+	answers   []fallbackAnswer
+}
+
+// Dial returns one end of an in-memory pipe and serves one DNS response on
+// the other end.
 func (n *fallbackNet) Dial(_, _ string,
 	_ time.Duration) (net.Conn, error) {
 
 	client, server := net.Pipe()
-
-	// Act as the DNS server on the far end of the pipe: read the SRV
-	// query, then write back the crafted response.
 	go func() {
-		srvConn := &dns.Conn{Conn: server}
-		defer srvConn.Close()
+		defer server.Close()
 
-		query, err := srvConn.ReadMsg()
+		query, err := readDNSFrame(server)
+		if err != nil {
+			return
+		}
+		response, err := n.buildResponse(query)
 		if err != nil {
 			return
 		}
 
-		_ = srvConn.WriteMsg(n.serveResp(query))
+		_ = writeDNSFrame(server, response)
 	}()
 
 	return client, nil
+}
+
+func readDNSFrame(conn net.Conn) ([]byte, error) {
+	var length [2]byte
+	if _, err := io.ReadFull(conn, length[:]); err != nil {
+		return nil, err
+	}
+
+	msg := make([]byte, binary.BigEndian.Uint16(length[:]))
+	_, err := io.ReadFull(conn, msg)
+	return msg, err
+}
+
+func writeDNSFrame(conn net.Conn, msg []byte) error {
+	frame := make([]byte, 2+len(msg))
+	binary.BigEndian.PutUint16(frame[:2], uint16(len(msg)))
+	copy(frame[2:], msg)
+
+	n, err := conn.Write(frame)
+	if err != nil {
+		return err
+	}
+	if n != len(frame) {
+		return io.ErrShortWrite
+	}
+
+	return nil
+}
+
+func (n *fallbackNet) buildResponse(query []byte) ([]byte, error) {
+	var parser dnsmessage.Parser
+	header, err := parser.Start(query)
+	if err != nil {
+		return nil, err
+	}
+	question, err := parser.Question()
+	if err != nil {
+		return nil, err
+	}
+
+	builder := dnsmessage.NewBuilder(nil, dnsmessage.Header{
+		ID:       header.ID,
+		Response: true,
+		RCode:    n.rcode,
+	})
+	if err := builder.StartQuestions(); err != nil {
+		return nil, err
+	}
+	if err := builder.Question(question); err != nil {
+		return nil, err
+	}
+	if err := builder.StartAnswers(); err != nil {
+		return nil, err
+	}
+
+	for _, answer := range n.answers {
+		rh := dnsmessage.ResourceHeader{
+			Name:  question.Name,
+			Type:  answer.typ,
+			Class: dnsmessage.ClassINET,
+		}
+		switch answer.typ {
+		case dnsmessage.TypeA:
+			err = builder.AResource(rh, dnsmessage.AResource{
+				A: answer.ipv4,
+			})
+
+		case dnsmessage.TypeCNAME:
+			target, nameErr := dnsmessage.NewName(answer.target)
+			if nameErr != nil {
+				return nil, nameErr
+			}
+			err = builder.CNAMEResource(rh, dnsmessage.CNAMEResource{
+				CNAME: target,
+			})
+
+		case dnsmessage.TypeSRV:
+			target, nameErr := dnsmessage.NewName(answer.target)
+			if nameErr != nil {
+				return nil, nameErr
+			}
+			err = builder.SRVResource(rh, dnsmessage.SRVResource{
+				Port:   answer.port,
+				Target: target,
+			})
+
+		default:
+			return nil, fmt.Errorf("unsupported DNS answer type %v", answer.typ)
+		}
+		if err != nil {
+			return nil, err
+		}
+	}
+
+	return builder.Finish()
 }
 
 // LookupHost returns the configured shim addresses used to reach the fallback
@@ -216,39 +319,17 @@ func TestFallBackSRVLookupSkipsNonSRV(t *testing.T) {
 
 	netStub := &fallbackNet{
 		shimAddrs: []string{"127.0.0.1"},
-		serveResp: func(q *dns.Msg) *dns.Msg {
-			resp := new(dns.Msg)
-			resp.SetReply(q)
-			resp.Rcode = dns.RcodeSuccess
-
-			// A hostile/malformed Answer section: an A record and a
-			// CNAME interleaved with a single valid SRV record.
-			resp.Answer = []dns.RR{
-				&dns.A{
-					Hdr: dns.RR_Header{
-						Name:   q.Question[0].Name,
-						Rrtype: dns.TypeA,
-					},
-					A: net.ParseIP("1.2.3.4"),
-				},
-				&dns.CNAME{
-					Hdr: dns.RR_Header{
-						Name:   q.Question[0].Name,
-						Rrtype: dns.TypeCNAME,
-					},
-					Target: "evil.example.",
-				},
-				&dns.SRV{
-					Hdr: dns.RR_Header{
-						Name:   q.Question[0].Name,
-						Rrtype: dns.TypeSRV,
-					},
-					Target: srvTarget,
-					Port:   9735,
-				},
-			}
-
-			return resp
+		rcode:     dnsmessage.RCodeSuccess,
+		// A hostile or malformed answer section contains an A record
+		// and a CNAME interleaved with one valid SRV record.
+		answers: []fallbackAnswer{
+			{typ: dnsmessage.TypeA, ipv4: [4]byte{1, 2, 3, 4}},
+			{typ: dnsmessage.TypeCNAME, target: "evil.example."},
+			{
+				typ:    dnsmessage.TypeSRV,
+				target: srvTarget,
+				port:   9735,
+			},
 		},
 	}
 
@@ -278,24 +359,11 @@ func TestFallBackSRVLookupNoSRVRecords(t *testing.T) {
 
 	netStub := &fallbackNet{
 		shimAddrs: []string{"127.0.0.1"},
-		serveResp: func(q *dns.Msg) *dns.Msg {
-			resp := new(dns.Msg)
-			resp.SetReply(q)
-			resp.Rcode = dns.RcodeSuccess
-
-			// Only a non-SRV record is present in the Answer
-			// section, leaving zero usable SRV targets.
-			resp.Answer = []dns.RR{
-				&dns.A{
-					Hdr: dns.RR_Header{
-						Name:   q.Question[0].Name,
-						Rrtype: dns.TypeA,
-					},
-					A: net.ParseIP("1.2.3.4"),
-				},
-			}
-
-			return resp
+		rcode:     dnsmessage.RCodeSuccess,
+		// Only a non-SRV record is present, leaving zero usable SRV
+		// targets.
+		answers: []fallbackAnswer{
+			{typ: dnsmessage.TypeA, ipv4: [4]byte{1, 2, 3, 4}},
 		},
 	}
 
@@ -321,16 +389,7 @@ func TestFallBackSRVLookupEmptyAnswer(t *testing.T) {
 
 	netStub := &fallbackNet{
 		shimAddrs: []string{"127.0.0.1"},
-		serveResp: func(q *dns.Msg) *dns.Msg {
-			resp := new(dns.Msg)
-			resp.SetReply(q)
-			resp.Rcode = dns.RcodeSuccess
-
-			// Leave the Answer section empty.
-			resp.Answer = nil
-
-			return resp
-		},
+		rcode:     dnsmessage.RCodeSuccess,
 	}
 
 	bs := NewDNSSeedBootstrapper(

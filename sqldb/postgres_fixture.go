@@ -1,4 +1,4 @@
-//go:build !js && !(windows && (arm || 386)) && !(linux && (ppc64 || mips || mipsle || mips64)) && !(netbsd || openbsd)
+//go:build test_db_postgres && !js && !(windows && (arm || 386)) && !(linux && (ppc64 || mips || mipsle || mips64)) && !(netbsd || openbsd)
 
 package sqldb
 
@@ -116,6 +116,19 @@ func (f *TestPgFixture) GetConfig(dbName string) *PostgresConfig {
 			testPgUser, testPgPass, f.host, f.port, dbName,
 		),
 	}
+}
+
+// CreateDatabase creates a temporary database and returns its name.
+func (f *TestPgFixture) CreateDatabase(t *testing.T) string {
+	t.Helper()
+
+	dbName := randomDBName(t)
+	_, err := f.db.ExecContext(
+		t.Context(), "CREATE DATABASE "+dbName,
+	)
+	require.NoError(t, err)
+
+	return dbName
 }
 
 // TearDown stops the underlying docker container.

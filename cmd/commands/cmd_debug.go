@@ -2,6 +2,7 @@ package commands
 
 import (
 	"bytes"
+	"compress/gzip"
 	"encoding/hex"
 	"encoding/json"
 	"fmt"
@@ -9,7 +10,6 @@ import (
 	"math"
 	"os"
 
-	"github.com/andybalholm/brotli"
 	"github.com/btcsuite/btcd/btcec/v2"
 	"github.com/lightningnetwork/lnd"
 	"github.com/lightningnetwork/lnd/lnencrypt"
@@ -17,6 +17,12 @@ import (
 	"github.com/urfave/cli"
 	"google.golang.org/protobuf/proto"
 )
+
+// gzipMagic is the two-byte RFC 1952 gzip header. We use it to
+// distinguish debug packages produced by lncli >= 0.21 (gzip) from
+// packages produced by older lncli versions (brotli) so the decrypt
+// command can surface a clear error instead of returning garbled bytes.
+var gzipMagic = []byte{0x1f, 0x8b}
 
 var getDebugInfoCommand = cli.Command{
 	Name:     "getdebuginfo",
@@ -170,16 +176,17 @@ func encryptDebugPackage(ctx *cli.Context) error {
 
 	// We've collected the information we want to send, but before
 	// encrypting it, we want to compress it as much as possible to reduce
-	// the size of the final payload.
-	var (
-		compressBuf bytes.Buffer
-		options     = brotli.WriterOptions{
-			Quality: brotli.BestCompression,
-		}
-		writer = brotli.NewWriterOptions(&compressBuf, options)
+	// the size of the final payload. gzip at BestCompression is roughly
+	// as good as brotli on the highly repetitive JSON we ship here, and
+	// it lets us avoid an external dependency.
+	var compressBuf bytes.Buffer
+	writer, err := gzip.NewWriterLevel(
+		&compressBuf, gzip.BestCompression,
 	)
-	_, err = writer.Write(payload)
 	if err != nil {
+		return fmt.Errorf("unable to init gzip writer: %w", err)
+	}
+	if _, err := writer.Write(payload); err != nil {
 		return fmt.Errorf("unable to compress payload: %w", err)
 	}
 	if err := writer.Close(); err != nil {
@@ -458,11 +465,29 @@ func decryptDebugPackage(ctx *cli.Context) error {
 		return fmt.Errorf("unable to decrypt payload: %w", err)
 	}
 
-	// Decompress the payload.
-	reader := brotli.NewReader(bytes.NewBuffer(decryptedPayload))
+	// Decompress the payload. Newer debug packages are gzip-encoded;
+	// older packages used brotli, which we no longer link in. We detect
+	// the format by sniffing the gzip magic so the user gets a clear
+	// hint instead of a generic decompression error.
+	if len(decryptedPayload) < len(gzipMagic) ||
+		!bytes.Equal(decryptedPayload[:len(gzipMagic)], gzipMagic) {
+
+		return fmt.Errorf("decrypted payload is not gzip-encoded; " +
+			"this is likely an older brotli-encoded debug " +
+			"package — decrypt it with an lncli built before " +
+			"the brotli dependency was removed")
+	}
+
+	reader, err := gzip.NewReader(bytes.NewReader(decryptedPayload))
+	if err != nil {
+		return fmt.Errorf("unable to init gzip reader: %w", err)
+	}
 	decompressedPayload, err := io.ReadAll(reader)
 	if err != nil {
 		return fmt.Errorf("unable to decompress payload: %w", err)
+	}
+	if err := reader.Close(); err != nil {
+		return fmt.Errorf("unable to close gzip reader: %w", err)
 	}
 
 	fmt.Println(string(decompressedPayload))

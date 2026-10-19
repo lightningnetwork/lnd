@@ -50,6 +50,21 @@ env:
   # `make lint` to see where else it needs to be updated as well).
   GO_VERSION: 1.27.1
 
+  # Pin the Go toolchain to whatever is installed on the runner. This prevents
+  # a malicious or accidental `toolchain` directive in any (transitive) module
+  # from causing the `go` command to silently download and execute a different
+  # Go binary. See https://go.dev/doc/toolchain.
+  GOTOOLCHAIN: local
+
+  # Force CI to use only the public Google-maintained, checksum-immortalized
+  # module proxy. The `,direct` fallback is intentionally omitted so a failed
+  # proxy lookup cannot silently fall through to a raw VCS fetch.
+  GOPROXY: https://proxy.golang.org
+
+  # Make CI builds fail loudly if anything tries to mutate go.mod / go.sum.
+  # The only sanctioned path for module updates is `make tidy-module`.
+  GOFLAGS: -mod=readonly
+
 jobs:
   ########################
   # CI gate: detect documentation-only changes
@@ -151,8 +166,19 @@ jobs:
       - name: Check code format
         run: make fmt-check
 
-      - name: Check go modules tidiness 
+      - name: Check go modules tidiness
         run: make tidy-module-check
+
+      ########################
+      # Supply-chain integrity checks.
+      ########################
+      #
+      # `go mod verify` re-hashes every module in the local module cache and
+      # compares against the hashes recorded in go.sum. This catches a
+      # tampered module cache that slipped past the proxy.
+      - name: Verify go module hashes
+        run: go mod verify
+
 
       - name: Lint proto files
         run: make protolint

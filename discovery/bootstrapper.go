@@ -16,11 +16,11 @@ import (
 	"github.com/btcsuite/btcd/address/v2/bech32"
 	"github.com/btcsuite/btcd/btcec/v2"
 	"github.com/lightningnetwork/lnd/autopilot"
-	"github.com/lightningnetwork/lnd/tor/dnsclient"
 	"github.com/lightningnetwork/lnd/lnutils"
 	"github.com/lightningnetwork/lnd/lnwire"
 	"github.com/lightningnetwork/lnd/routing/route"
 	"github.com/lightningnetwork/lnd/tor"
+	"github.com/lightningnetwork/lnd/tor/dnsclient"
 	"golang.org/x/net/dns/dnsmessage"
 )
 
@@ -395,10 +395,12 @@ func (d *DNSSeedBootstrapper) fallBackSRVLookup(soaShim string,
 	if err != nil {
 		return nil, err
 	}
-	_ = conn.SetDeadline(time.Now().Add(d.timeout))
+	defer conn.Close()
+	if err := conn.SetDeadline(time.Now().Add(d.timeout)); err != nil {
+		return nil, fmt.Errorf("set DNS query deadline: %w", err)
+	}
 
 	dnsHost := fmt.Sprintf("_nodes._tcp.%v.", targetEndPoint)
-	defer conn.Close()
 
 	// With the connection established, we'll craft our SRV query, write
 	// the request, then wait for the server to give our response.

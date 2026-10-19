@@ -1,18 +1,14 @@
-// Package asciitable renders a small ASCII-bordered table to an
-// io.Writer. It exists so cmd/commands no longer depends on
-// github.com/jedib0t/go-pretty/v6 for the single trackpayment table
-// (the only place lncli rendered one). Visual output matches
-// go-pretty's StyleDefault for the call surface we use: a single
+// Package asciitable renders a small ASCII-bordered table to an io.Writer.
+// It exists so cmd/commands no longer depends on github.com/jedib0t/go-pretty/v6
+// for the single trackpayment table, the only place lncli rendered one. Visual
+// output matches go-pretty's StyleDefault for the call surface we use: a single
 // header band, per-column alignment, and `+/-/|` box borders.
 //
-// We intentionally drop everything go-pretty supports that we don't
-// need: alternate styles (bold, double, rounded, ColoredBright,
-// etc.), HTML / CSV / Markdown renderers, ANSI coloring, automatic
-// text wrapping, captions, footers, page-break separators, sorting,
-// and runewidth-aware width counting. The trackpayment table is
-// pure ASCII (HTLC state strings, formatted decimals, integer chan
-// IDs, hex pubkey aliases joined by "->"), so `utf8.RuneCountInString`
-// is sufficient for column sizing.
+// We intentionally drop everything go-pretty supports that we don't need:
+// alternate styles, HTML, CSV, and Markdown renderers, captions, footers, page
+// separators, sorting, and automatic wrapping. The trackpayment route can
+// contain Unicode node aliases, so column sizing uses terminal display width
+// rather than byte or rune counts.
 package asciitable
 
 import (
@@ -20,7 +16,9 @@ import (
 	"io"
 	"reflect"
 	"strings"
-	"unicode/utf8"
+	"unicode"
+
+	"github.com/mattn/go-runewidth"
 )
 
 // Align controls horizontal alignment of cell contents within a
@@ -121,11 +119,11 @@ func (w *Writer) Render() {
 
 	widths := make([]int, cols)
 	for i := 0; i < cols && i < len(w.header); i++ {
-		widths[i] = utf8.RuneCountInString(format(w.header[i]))
+		widths[i] = runewidth.StringWidth(format(w.header[i]))
 	}
 	for _, r := range w.rows {
 		for i := 0; i < cols && i < len(r); i++ {
-			if n := utf8.RuneCountInString(format(r[i])); n > widths[i] {
+			if n := runewidth.StringWidth(format(r[i])); n > widths[i] {
 				widths[i] = n
 			}
 		}
@@ -207,7 +205,7 @@ func renderRow(r Row, widths []int, cfg []ColumnConfig,
 // the opposite side. Strings already at or above the width are
 // returned unchanged (we never truncate, matching upstream).
 func pad(s string, w int, a Align) string {
-	have := utf8.RuneCountInString(s)
+	have := runewidth.StringWidth(s)
 	if have >= w {
 		return s
 	}
@@ -236,18 +234,29 @@ func autoAlign(v interface{}) Align {
 	return AlignLeft
 }
 
-// format coerces an arbitrary cell value to its display string,
-// preferring fmt.Stringer over the default `%v` formatter when the
-// type implements it.
+// format coerces an arbitrary cell value to its display string, preferring
+// fmt.Stringer over the default `%v` formatter.
 func format(v interface{}) string {
-	if v == nil {
+	var value string
+	switch v := v.(type) {
+	case nil:
 		return ""
+
+	case string:
+		value = v
+
+	case fmt.Stringer:
+		value = v.String()
+
+	default:
+		value = fmt.Sprintf("%v", v)
 	}
-	if s, ok := v.(string); ok {
-		return s
-	}
-	if s, ok := v.(fmt.Stringer); ok {
-		return s.String()
-	}
-	return fmt.Sprintf("%v", v)
+
+	return strings.Map(func(r rune) rune {
+		if unicode.IsControl(r) {
+			return ' '
+		}
+
+		return r
+	}, value)
 }

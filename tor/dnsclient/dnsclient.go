@@ -43,7 +43,7 @@ const maxDNSMessageSize = 1 << 16
 func QuerySRV(conn net.Conn, name string) ([]*net.SRV,
 	dnsmessage.RCode, error) {
 
-	q, err := buildSRVQuery(name)
+	q, question, id, err := buildSRVQuery(name)
 	if err != nil {
 		return nil, 0, fmt.Errorf("build SRV query: %w", err)
 	}
@@ -57,58 +57,95 @@ func QuerySRV(conn net.Conn, name string) ([]*net.SRV,
 		return nil, 0, fmt.Errorf("read DNS response: %w", err)
 	}
 
-	return parseSRVResponse(respBytes)
+	return parseSRVResponse(respBytes, id, question)
 }
 
-// buildSRVQuery returns the wire-format bytes of a recursion-
-// desired SRV query for name with a random 16-bit transaction ID.
-func buildSRVQuery(name string) ([]byte, error) {
+// buildSRVQuery returns the wire-format bytes of a recursion-desired SRV query
+// for name, the question used to build it, and a random transaction ID.
+func buildSRVQuery(name string) ([]byte, dnsmessage.Question, uint16, error) {
 	dn, err := dnsmessage.NewName(name)
 	if err != nil {
-		return nil, fmt.Errorf("invalid DNS name %q: %w", name, err)
+		return nil, dnsmessage.Question{}, 0, fmt.Errorf(
+			"invalid DNS name %q: %w", name, err,
+		)
 	}
 
 	id, err := randomID()
 	if err != nil {
-		return nil, err
+		return nil, dnsmessage.Question{}, 0, err
 	}
 
+	question := dnsmessage.Question{
+		Name:  dn,
+		Type:  dnsmessage.TypeSRV,
+		Class: dnsmessage.ClassINET,
+	}
 	b := dnsmessage.NewBuilder(nil, dnsmessage.Header{
 		ID:               id,
 		RecursionDesired: true,
 	})
 	if err := b.StartQuestions(); err != nil {
-		return nil, err
+		return nil, dnsmessage.Question{}, 0, err
 	}
-	err = b.Question(dnsmessage.Question{
-		Name:  dn,
-		Type:  dnsmessage.TypeSRV,
-		Class: dnsmessage.ClassINET,
-	})
-	if err != nil {
-		return nil, err
+	if err := b.Question(question); err != nil {
+		return nil, dnsmessage.Question{}, 0, err
 	}
-	return b.Finish()
+
+	req, err := b.Finish()
+	return req, question, id, err
 }
 
-// parseSRVResponse walks msg, asserting that the response is in
-// fact for an SRV question, and returns every SRV record from the
-// answer section in arrival order.
-func parseSRVResponse(msg []byte) ([]*net.SRV, dnsmessage.RCode,
-	error) {
+// parseSRVResponse validates that msg answers the request identified by id and
+// question, then returns every SRV record from the answer section in arrival
+// order.
+func parseSRVResponse(msg []byte, id uint16, question dnsmessage.Question) (
+	[]*net.SRV, dnsmessage.RCode, error) {
 
 	var p dnsmessage.Parser
 	hdr, err := p.Start(msg)
 	if err != nil {
 		return nil, 0, fmt.Errorf("parse header: %w", err)
 	}
+	if !hdr.Response {
+		return nil, hdr.RCode, fmt.Errorf("DNS message is not a response")
+	}
+	if hdr.ID != id {
+		return nil, hdr.RCode, fmt.Errorf(
+			"unexpected DNS response ID: got %d, want %d", hdr.ID, id,
+		)
+	}
+	if hdr.OpCode != 0 {
+		return nil, hdr.RCode, fmt.Errorf(
+			"unexpected DNS response opcode: %d", hdr.OpCode,
+		)
+	}
+	if hdr.Truncated {
+		return nil, hdr.RCode, fmt.Errorf("truncated DNS response")
+	}
 
-	// Discard the question section; we do not validate the echoed
-	// question matches our query (miekg/dns does not either for
-	// our use case, and the soa-shim path intentionally queries
-	// one server for names under a different zone).
-	if err := p.SkipAllQuestions(); err != nil {
-		return nil, hdr.RCode, fmt.Errorf("skip questions: %w", err)
+	gotQuestion, err := p.Question()
+	if err != nil {
+		return nil, hdr.RCode, fmt.Errorf("read question: %w", err)
+	}
+	if gotQuestion != question {
+		return nil, hdr.RCode, fmt.Errorf(
+			"unexpected DNS response question: got %v, want %v",
+			gotQuestion, question,
+		)
+	}
+	_, err = p.Question()
+	switch err {
+	case dnsmessage.ErrSectionDone:
+
+	case nil:
+		return nil, hdr.RCode, fmt.Errorf(
+			"DNS response contains more than one question",
+		)
+
+	default:
+		return nil, hdr.RCode, fmt.Errorf(
+			"finish question section: %w", err,
+		)
 	}
 
 	var out []*net.SRV
@@ -147,22 +184,29 @@ func parseSRVResponse(msg []byte) ([]*net.SRV, dnsmessage.RCode,
 	return out, hdr.RCode, nil
 }
 
-// writeMessage emits a DNS message over conn using the TCP framing
-// from RFC 1035 §4.2.2: a 2-byte big-endian length prefix followed
-// by the raw message bytes.
+// writeMessage emits a DNS message over conn using the TCP framing from RFC
+// 1035 section 4.2.2: a 2-byte big-endian length prefix followed by the raw
+// message bytes.
 func writeMessage(conn net.Conn, msg []byte) error {
 	if len(msg) > maxDNSMessageSize-1 {
-		return fmt.Errorf("DNS message too large: %d bytes",
-			len(msg))
+		return fmt.Errorf("DNS message too large: %d bytes", len(msg))
 	}
 
-	var hdr [2]byte
-	binary.BigEndian.PutUint16(hdr[:], uint16(len(msg)))
-	if _, err := conn.Write(hdr[:]); err != nil {
-		return err
+	frame := make([]byte, 2+len(msg))
+	binary.BigEndian.PutUint16(frame[:2], uint16(len(msg)))
+	copy(frame[2:], msg)
+	for len(frame) > 0 {
+		n, err := conn.Write(frame)
+		if err != nil {
+			return err
+		}
+		if n == 0 {
+			return io.ErrUnexpectedEOF
+		}
+		frame = frame[n:]
 	}
-	_, err := conn.Write(msg)
-	return err
+
+	return nil
 }
 
 // readMessage reads a single TCP-framed DNS message from conn,

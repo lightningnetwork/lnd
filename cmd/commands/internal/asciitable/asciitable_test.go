@@ -119,6 +119,23 @@ func TestStringerValue(t *testing.T) {
 	require.Contains(t, buf.String(), "| hello |")
 }
 
+// TestPadUsesDisplayWidth covers wide and combining Unicode sequences that can
+// appear in node aliases.
+func TestPadUsesDisplayWidth(t *testing.T) {
+	t.Parallel()
+
+	require.Equal(t, "中", pad("中", 2, AlignLeft))
+	require.Equal(t, "e\u0301 ", pad("e\u0301", 2, AlignLeft))
+}
+
+// TestFormatNeutralizesControlCharacters keeps aliases from breaking table
+// rows or injecting terminal control sequences.
+func TestFormatNeutralizesControlCharacters(t *testing.T) {
+	t.Parallel()
+
+	require.Equal(t, "a b c  [31m", format("a\nb\tc\r\x1b[31m"))
+}
+
 type stringer struct{ s string }
 
 func (s stringer) String() string { return s.s }

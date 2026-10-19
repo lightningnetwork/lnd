@@ -1,6 +1,7 @@
 package dnsclient
 
 import (
+	"bytes"
 	"encoding/binary"
 	"io"
 	"net"
@@ -86,6 +87,72 @@ func TestQuerySRVInvalidName(t *testing.T) {
 	_, _, err := QuerySRV(nopConn{}, string(tooLong))
 	require.Error(t, err)
 	require.Contains(t, err.Error(), "build SRV query")
+}
+
+// TestParseSRVResponseValidatesEnvelope rejects replies that cannot belong to
+// the request, even when their answer section is otherwise well formed.
+func TestParseSRVResponseValidatesEnvelope(t *testing.T) {
+	t.Parallel()
+
+	req, question, id, err := buildSRVQuery("_nodes._tcp.example.com.")
+	require.NoError(t, err)
+	resp, err := (fakeServer{}).buildResponse(req)
+	require.NoError(t, err)
+
+	tests := []struct {
+		name   string
+		mutate func([]byte)
+	}{
+		{
+			name: "not a response",
+			mutate: func(msg []byte) {
+				msg[2] &^= 0x80
+			},
+		},
+		{
+			name: "wrong opcode",
+			mutate: func(msg []byte) {
+				msg[2] |= 0x08
+			},
+		},
+		{
+			name: "wrong transaction ID",
+			mutate: func(msg []byte) {
+				msg[1] ^= 0x01
+			},
+		},
+		{
+			name: "truncated response",
+			mutate: func(msg []byte) {
+				msg[2] |= 0x02
+			},
+		},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			mutated := append([]byte(nil), resp...)
+			test.mutate(mutated)
+			_, _, err := parseSRVResponse(mutated, id, question)
+			require.Error(t, err)
+		})
+	}
+
+	otherName, err := dnsmessage.NewName("_nodes._tcp.other.example.")
+	require.NoError(t, err)
+	question.Name = otherName
+	_, _, err = parseSRVResponse(resp, id, question)
+	require.ErrorContains(t, err, "unexpected DNS response question")
+}
+
+// TestWriteMessageHandlesShortWrites confirms TCP frames remain intact when a
+// net.Conn accepts only part of a write without returning an error.
+func TestWriteMessageHandlesShortWrites(t *testing.T) {
+	t.Parallel()
+
+	emitted := &shortWriteConn{max: 2}
+	msg := []byte{1, 2, 3, 4, 5}
+	require.NoError(t, writeMessage(emitted, msg))
+	require.Equal(t, []byte{0, 5, 1, 2, 3, 4, 5}, emitted.buf.Bytes())
 }
 
 // TestRCodeTextKnownAndUnknown covers both the populated map values
@@ -252,3 +319,18 @@ func (nopConn) RemoteAddr() net.Addr               { return nil }
 func (nopConn) SetDeadline(_ time.Time) error      { return nil }
 func (nopConn) SetReadDeadline(_ time.Time) error  { return nil }
 func (nopConn) SetWriteDeadline(_ time.Time) error { return nil }
+
+type shortWriteConn struct {
+	nopConn
+	buf bytes.Buffer
+	max int
+}
+
+func (c *shortWriteConn) Write(p []byte) (int, error) {
+	if len(p) > c.max {
+		p = p[:c.max]
+	}
+
+	n, _ := c.buf.Write(p)
+	return n, nil
+}

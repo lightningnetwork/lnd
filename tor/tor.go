@@ -148,6 +148,9 @@ func LookupSRV(service, proto, name, socksAddr,
 	}
 
 	defer conn.Close()
+	if err := conn.SetDeadline(time.Now().Add(timeout)); err != nil {
+		return "", nil, fmt.Errorf("set DNS query deadline: %w", err)
+	}
 
 	// Once connected, we'll construct the SRV request for the host
 	// following the format _service._proto.name. as described in RFC #2782.

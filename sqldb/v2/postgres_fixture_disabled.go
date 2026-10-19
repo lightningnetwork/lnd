@@ -3,6 +3,7 @@
 package sqldb
 
 import (
+	"database/sql"
 	"testing"
 	"time"
 )
@@ -29,6 +30,11 @@ func (f *TestPgFixture) GetConfig(_ string) *PostgresConfig {
 
 // TearDown is a no-op for the stub fixture.
 func (f *TestPgFixture) TearDown(_ testing.TB) {}
+
+// DB returns no database for the stub fixture.
+func (f *TestPgFixture) DB() *sql.DB {
+	return nil
+}
 
 // RandomDBName returns a constant identifier when the real fixture is not
 // compiled in. Tests that get this far should already have been skipped.

@@ -14,17 +14,6 @@ import (
 	"golang.org/x/net/proxy"
 )
 
-var (
-	// onionPrefixBytes is a special purpose IPv6 prefix to encode Onion v2
-	// addresses with. Because Neutrino uses the address manager of btcd
-	// which only understands net.IP addresses instead of net.Addr, we need
-	// to convert any .onion addresses into fake IPv6 addresses if we want
-	// to use a Tor hidden service as a Neutrino backend. This is the same
-	// range used by OnionCat, which is part part of the RFC4193 unique
-	// local IPv6 unicast address range.
-	onionPrefixBytes = []byte{0xfd, 0x87, 0xd8, 0x7e, 0xeb, 0x43}
-)
-
 // proxyConn is a wrapper around net.Conn that allows us to expose the actual
 // remote address we're dialing, rather than the proxy's address.
 type proxyConn struct {

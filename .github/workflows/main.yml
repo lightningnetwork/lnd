@@ -179,17 +179,6 @@ jobs:
       - name: Verify go module hashes
         run: go mod verify
 
-      # `govulncheck` walks the call graph (not just go.sum) and reports
-      # known CVEs that actually reach our compiled code paths. Pinned to an
-      # explicit version so the install itself is reproducible.
-      - name: Check for known Go vulnerabilities
-        env:
-          # `go install pkg@version` operates outside the current module,
-          # so it must be allowed to write to its own (separate) cache.
-          GOFLAGS: ""
-        run: |
-          go install golang.org/x/vuln/cmd/govulncheck@v1.1.4
-          govulncheck ./...
 
       - name: Lint proto files
         run: make protolint

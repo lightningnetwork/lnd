@@ -37,6 +37,15 @@ func (f *TestPgFixture) GetConfig(_ string) *PostgresConfig {
 	return &PostgresConfig{}
 }
 
+// CreateDatabase skips the test because the Postgres fixture is unavailable.
+func (f *TestPgFixture) CreateDatabase(t *testing.T) string {
+	t.Helper()
+	t.Skip("postgres test fixture not compiled in; rerun with " +
+		"-tags=test_db_postgres")
+
+	return ""
+}
+
 // TearDown is a no-op for the stub fixture.
 func (f *TestPgFixture) TearDown(_ testing.TB) {}
 

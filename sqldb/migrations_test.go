@@ -1,5 +1,3 @@
-//go:build test_db_postgres
-
 package sqldb
 
 import (
@@ -385,20 +383,11 @@ func TestCustomMigration(t *testing.T) {
 				fixture.TearDown(t)
 			})
 
-			dbName := randomDBName(t)
-
-			// Next instantiate the database and run the migrations
-			// including the custom migrations.
-			t.Logf("Creating new Postgres DB '%s' for testing "+
-				"migrations", dbName)
-
-			_, err := fixture.db.ExecContext(
-				t.Context(), "CREATE DATABASE "+dbName,
-			)
-			require.NoError(t, err)
+			dbName := fixture.CreateDatabase(t)
 
 			cfg := fixture.GetConfig(dbName)
 			var db *PostgresStore
+			var err error
 
 			// Run the migration 3 times to test that the migrations
 			// are idempotent.
@@ -560,20 +549,11 @@ func TestMigrationSucceedsAfterDirtyStateMigrationFailure19RC1(t *testing.T) {
 			fixture.TearDown(t)
 		})
 
-		dbName := randomDBName(t)
-
-		// Next instantiate the database and run the migrations
-		// including the custom migrations.
-		t.Logf("Creating new Postgres DB '%s' for testing "+
-			"migrations", dbName)
-
-		_, err := fixture.db.ExecContext(
-			t.Context(), "CREATE DATABASE "+dbName,
-		)
-		require.NoError(t, err)
+		dbName := fixture.CreateDatabase(t)
 
 		cfg := fixture.GetConfig(dbName)
 		var db *PostgresStore
+		var err error
 
 		cfg.SkipMigrations = false
 		db, err = NewPostgresStore(cfg)

@@ -118,6 +118,19 @@ func (f *TestPgFixture) GetConfig(dbName string) *PostgresConfig {
 	}
 }
 
+// CreateDatabase creates a temporary database and returns its name.
+func (f *TestPgFixture) CreateDatabase(t *testing.T) string {
+	t.Helper()
+
+	dbName := randomDBName(t)
+	_, err := f.db.ExecContext(
+		t.Context(), "CREATE DATABASE "+dbName,
+	)
+	require.NoError(t, err)
+
+	return dbName
+}
+
 // TearDown stops the underlying docker container.
 func (f *TestPgFixture) TearDown(t testing.TB) {
 	err := f.pool.Purge(f.resource)

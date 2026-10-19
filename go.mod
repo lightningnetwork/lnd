@@ -5,7 +5,7 @@ require (
 	github.com/Yawning/aez v0.0.0-20211027044916-e49e68abd344
 	github.com/andybalholm/brotli v1.0.4
 	github.com/btcsuite/btcd v0.24.3-0.20250318170759-4f4ea81776d6
-	github.com/btcsuite/btcd/btcec/v2 v2.3.4
+	github.com/btcsuite/btcd/btcec/v2 v2.5.0
 	github.com/btcsuite/btcd/btcutil v1.1.5
 	github.com/btcsuite/btcd/btcutil/psbt v1.1.8
 	github.com/btcsuite/btcd/chaincfg/chainhash v1.1.0
@@ -18,7 +18,7 @@ require (
 	github.com/btcsuite/btcwallet/wtxmgr v1.5.6
 	github.com/coreos/go-systemd v0.0.0-20190719114852-fd7a80b32e1f
 	github.com/davecgh/go-spew v1.1.1
-	github.com/decred/dcrd/dcrec/secp256k1/v4 v4.3.0
+	github.com/decred/dcrd/dcrec/secp256k1/v4 v4.4.0
 	github.com/gorilla/websocket v1.5.0
 	github.com/grpc-ecosystem/go-grpc-middleware v1.3.0
 	github.com/grpc-ecosystem/go-grpc-prometheus v1.2.0
@@ -41,7 +41,7 @@ require (
 	github.com/lightningnetwork/lnd/queue v1.1.1
 	github.com/lightningnetwork/lnd/sqldb v1.0.12-0.20260113193010-8565d12e40b1
 	github.com/lightningnetwork/lnd/ticker v1.1.1
-	github.com/lightningnetwork/lnd/tlv v1.3.2
+	github.com/lightningnetwork/lnd/tlv v1.4.1
 	github.com/lightningnetwork/lnd/tor v1.1.6
 	github.com/ltcsuite/ltcd v0.0.0-20190101042124-f37f8bf35796
 	github.com/miekg/dns v1.1.43
@@ -73,6 +73,8 @@ require (
 	github.com/aead/chacha20 v0.0.0-20180709150244-8b13a72661da // indirect
 	github.com/aead/siphash v1.0.1 // indirect
 	github.com/beorn7/perks v1.0.1 // indirect
+	github.com/btcsuite/btcd/chainhash/v2 v2.0.0 // indirect
+	github.com/btcsuite/btcd/wire/v2 v2.0.0 // indirect
 	github.com/btcsuite/btcwallet/wallet/txsizes v1.2.5 // indirect
 	github.com/btcsuite/go-socks v0.0.0-20170105172521-4720035b7bfd // indirect
 	github.com/btcsuite/websocket v0.0.0-20150119174127-31079b680792 // indirect
@@ -83,7 +85,7 @@ require (
 	github.com/coreos/go-semver v0.3.0 // indirect
 	github.com/coreos/go-systemd/v22 v22.3.2 // indirect
 	github.com/cpuguy83/go-md2man/v2 v2.0.4 // indirect
-	github.com/decred/dcrd/crypto/blake256 v1.0.1 // indirect
+	github.com/decred/dcrd/crypto/blake256 v1.1.0 // indirect
 	github.com/decred/dcrd/lru v1.1.2 // indirect
 	github.com/docker/cli v28.1.1+incompatible // indirect
 	github.com/docker/docker v28.1.1+incompatible // indirect
@@ -215,5 +217,3 @@ go 1.26.8
 retract v0.0.2
 
 replace github.com/lightningnetwork/lnd/fn/v2 => ./fn
-
-replace github.com/lightningnetwork/lnd/tlv => ./tlv

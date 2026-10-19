@@ -9,6 +9,18 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
+// socketPath returns a short temporary path that fits in sockaddr_un on
+// platforms with small sun_path fields.
+func socketPath(t *testing.T) string {
+	t.Helper()
+
+	dir, err := os.MkdirTemp("", "sdnotify-")
+	require.NoError(t, err)
+	t.Cleanup(func() { require.NoError(t, os.RemoveAll(dir)) })
+
+	return filepath.Join(dir, "n.sock")
+}
+
 // TestSdNotifyNoSocket asserts the common case where NOTIFY_SOCKET is
 // unset: the function must report "nothing sent, no error", matching the
 // upstream coreos/go-systemd contract that lnd's signal package relies on.
@@ -24,10 +36,7 @@ func TestSdNotifyNoSocket(t *testing.T) {
 // AF_UNIX/SOCK_DGRAM listener, pointing NOTIFY_SOCKET at it, calling
 // SdNotify, and reading the datagram off the socket.
 func TestSdNotifyDelivers(t *testing.T) {
-	// Place the socket in a tempdir; some systems impose a 108-byte
-	// length limit on unix socket paths, so keep this short.
-	dir := t.TempDir()
-	sockPath := filepath.Join(dir, "n.sock")
+	sockPath := socketPath(t)
 
 	conn, err := net.ListenUnixgram("unixgram", &net.UnixAddr{
 		Name: sockPath,
@@ -52,8 +61,7 @@ func TestSdNotifyDelivers(t *testing.T) {
 // clears NOTIFY_SOCKET after the call. Forked children should not inherit
 // the socket path.
 func TestSdNotifyUnsetEnvironment(t *testing.T) {
-	dir := t.TempDir()
-	sockPath := filepath.Join(dir, "n.sock")
+	sockPath := socketPath(t)
 
 	conn, err := net.ListenUnixgram("unixgram", &net.UnixAddr{
 		Name: sockPath,

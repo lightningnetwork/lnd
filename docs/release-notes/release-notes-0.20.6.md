@@ -21,6 +21,9 @@
 
 # Bug Fixes
 
+* Channel announcement validation [now requires the two advertised node
+  identities to be distinct](https://github.com/lightningnetwork/lnd/pull/11368).
+
 * Revocation processing now [orders its state-transition and key checks before
   their corresponding bookkeeping updates](https://github.com/lightningnetwork/lnd/pull/11330).
   The remote party's next revocation point now uses `fn.Option`, so callers

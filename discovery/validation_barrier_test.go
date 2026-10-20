@@ -313,3 +313,25 @@ func nodeIDFromInt(i uint64) [33]byte {
 	binary.BigEndian.PutUint64(nodeID[:8], i)
 	return nodeID
 }
+
+// TestValidationBarrierIdenticalNodeIDs tests that the validation barrier
+// handles a channel announcement with identical node IDs consistently.
+func TestValidationBarrierIdenticalNodeIDs(t *testing.T) {
+	t.Parallel()
+
+	quit := make(chan struct{})
+	defer close(quit)
+
+	barrier := NewValidationBarrier(1, quit)
+	nodeID := nodeIDFromInt(1)
+	ann := &lnwire.ChannelAnnouncement1{
+		ShortChannelID: lnwire.NewShortChanIDFromInt(1),
+		NodeID1:        nodeID,
+		NodeID2:        nodeID,
+	}
+
+	jobID, err := barrier.InitJobDependencies(ann)
+	require.NoError(t, err)
+	require.NoError(t, barrier.SignalDependents(ann, jobID))
+	barrier.CompleteJob()
+}

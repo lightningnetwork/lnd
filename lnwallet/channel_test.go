@@ -8423,18 +8423,22 @@ func TestChannelMaxFeeRate(t *testing.T) {
 func TestIdealCommitFeeRate(t *testing.T) {
 	t.Parallel()
 
-	// propertyTest tests that the validateFeeRate function always passes
-	// for the output returned by IdealCommitFeeRate for any valid random
-	// inputs fed to IdealCommitFeeRate.
+	// propertyTest checks that validateFeeRate passes for the output of
+	// IdealCommitFeeRate. The minimum relay fee is floored to match the
+	// value passed by the link.
 	propertyTest := func(c *LightningChannel) func(ma maxAlloc,
 		netFee, minRelayFee, maxAnchorFee fee) bool {
 
 		return func(ma maxAlloc, netFee, minRelayFee,
 			maxAnchorFee fee) bool {
 
+			minRelay := max(
+				chainfee.SatPerKWeight(minRelayFee),
+				chainfee.FeePerKwFloor,
+			)
 			idealFeeRate := c.IdealCommitFeeRate(
 				chainfee.SatPerKWeight(netFee),
-				chainfee.SatPerKWeight(minRelayFee),
+				minRelay,
 				chainfee.SatPerKWeight(maxAnchorFee),
 				float64(ma),
 			)
@@ -8740,6 +8744,70 @@ func TestChannelFeeRateFloor(t *testing.T) {
 		t.Fatalf("bob unable to process alice's new commitment: %v",
 			err)
 	}
+}
+
+// TestFeeUpdateRejectBelowFloor tests that a fee selected for a pre-existing
+// below-floor channel is rejected before it is added to the update log.
+func TestFeeUpdateRejectBelowFloor(t *testing.T) {
+	t.Parallel()
+
+	const (
+		channelCapacity = btcutil.Amount(500_000)
+		aliceBalance    = btcutil.Amount(5_045)
+	)
+
+	chanType := channeldb.SingleFunderTweaklessBit |
+		channeldb.AnchorOutputsBit | channeldb.ZeroHtlcTxFeeBit
+	feePerKw := chainfee.FeePerKwFloor - 3
+	commitFee := feePerKw.FeeForWeight(CommitWeight(chanType))
+	aliceBalanceBeforeFees := aliceBalance + commitFee + 2*AnchorSize
+
+	aliceChannel, _, err := createTestChannels(
+		t, chanType, channelCapacity, aliceBalanceBeforeFees, feePerKw,
+	)
+	require.NoError(t, err, "unable to create test channels")
+	localBalance := aliceChannel.channelState.LocalCommitment.LocalBalance
+	require.Equal(t, aliceBalance, localBalance.ToSatoshis())
+
+	absoluteMaxFee, _ := aliceChannel.MaxFeeRate(1)
+	require.Equal(t, chainfee.SatPerKWeight(251), absoluteMaxFee)
+
+	idealFeeRate := aliceChannel.IdealCommitFeeRate(
+		chainfee.FeePerKwFloor, chainfee.FeePerKwFloor, feePerKw, 0.5,
+	)
+	require.Equal(t, absoluteMaxFee, idealFeeRate)
+
+	initialLogIndex := aliceChannel.updateLogs.Local.logIndex
+	require.False(t, aliceChannel.OweCommitment())
+
+	err = aliceChannel.UpdateFee(idealFeeRate)
+	require.ErrorContains(t, err, "below fee floor")
+	require.Equal(t, initialLogIndex,
+		aliceChannel.updateLogs.Local.logIndex)
+	require.False(t, aliceChannel.OweCommitment())
+}
+
+// TestReceiveUpdateFeeRejectBelowFloor tests that an incoming fee update
+// below the floor is rejected before it is added to the remote update log.
+func TestReceiveUpdateFeeRejectBelowFloor(t *testing.T) {
+	t.Parallel()
+
+	_, bobChannel, err := CreateTestChannels(
+		t, channeldb.SingleFunderTweaklessBit,
+	)
+	require.NoError(t, err, "unable to create test channels")
+
+	initialLogIndex := bobChannel.updateLogs.Remote.logIndex
+
+	err = bobChannel.ReceiveUpdateFee(chainfee.FeePerKwFloor - 1)
+	require.ErrorContains(t, err, "below fee floor")
+	require.Equal(t, initialLogIndex,
+		bobChannel.updateLogs.Remote.logIndex)
+	require.Zero(t, bobChannel.updateLogs.Remote.Len())
+
+	// A fee update at the floor is still accepted.
+	require.NoError(t, bobChannel.ReceiveUpdateFee(chainfee.FeePerKwFloor))
+	require.Equal(t, 1, bobChannel.updateLogs.Remote.Len())
 }
 
 // TestFetchParent tests lookup of an entry's parent in the appropriate log.

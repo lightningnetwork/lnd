@@ -149,13 +149,12 @@ func TestReceiveUpdateFeeReplacement(t *testing.T) {
 	)
 	require.NoError(t, err)
 
+	// Start at the fee floor, since lower fee rates are rejected.
 	const numUpdates = 10_000
-	for i := 1; i <= numUpdates; i++ {
-		require.NoError(
-			t, bobChannel.ReceiveUpdateFee(
-				chainfee.SatPerKWeight(i),
-			),
-		)
+	const firstFeeRate = chainfee.FeePerKwFloor
+	const lastFeeRate = firstFeeRate + numUpdates - 1
+	for feeRate := firstFeeRate; feeRate <= lastFeeRate; feeRate++ {
+		require.NoError(t, bobChannel.ReceiveUpdateFee(feeRate))
 	}
 
 	require.Equal(t, uint64(1), bobChannel.updateLogs.Remote.logIndex)
@@ -172,7 +171,7 @@ func TestReceiveUpdateFeeReplacement(t *testing.T) {
 
 	require.Len(t, feeUpdates, 1)
 	require.Equal(
-		t, int64(numUpdates), int64(feeUpdates[0].Amount.ToSatoshis()),
+		t, int64(lastFeeRate), int64(feeUpdates[0].Amount.ToSatoshis()),
 	)
 	require.Zero(t, feeUpdates[0].LogIndex)
 }

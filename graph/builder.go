@@ -1012,7 +1012,7 @@ func (b *Builder) ApplyChannelUpdate(msg *lnwire.ChannelUpdate1) bool {
 	}
 
 	update, err := models.ChanEdgePolicyFromWire(
-		msg.ShortChannelID.ToUint64(), msg,
+		msg.ShortChannelID.ToUint64(), ch.Capacity, msg,
 	)
 	if err != nil {
 		log.Errorf("Unable to parse channel update: %v", err)

@@ -97,9 +97,13 @@ func NewCachedPolicy(policy *ChannelEdgePolicy) *CachedEdgePolicy {
 		}
 	}
 
+	// A gossip v2 policy carries no presence bit for htlc_maximum_msat.
+	// ChanEdgePolicyFromWire resolves the spec default when the sender
+	// omits the TLV, and the field is only left at zero when neither the
+	// TLV nor the channel capacity was known, which means no limit.
 	return &CachedEdgePolicy{
 		ChannelID:                 policy.ChannelID,
-		HasMaxHTLC:                true,
+		HasMaxHTLC:                policy.MaxHTLC != 0,
 		IsNode1:                   !policy.SecondPeer,
 		IsDisabled:                !policy.DisableFlags.IsEnabled(),
 		TimeLockDelta:             policy.TimeLockDelta,

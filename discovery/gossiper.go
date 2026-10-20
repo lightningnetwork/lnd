@@ -3441,7 +3441,7 @@ func (d *AuthenticatedGossiper) handleChanUpdate(ctx context.Context,
 	// signs a different SCID than the database SCID, but since there will
 	// only be a difference if AuthProof == nil, this is fine.
 	update, err := models.ChanEdgePolicyFromWire(
-		chanInfo.ChannelID, upd,
+		chanInfo.ChannelID, chanInfo.Capacity, upd,
 	)
 	if err != nil {
 		completeGossipResult(nMsg.errPromise, err)

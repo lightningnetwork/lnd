@@ -305,15 +305,26 @@ func validateChannelUpdate1Fields(capacity btcutil.Amount,
 func validateChannelUpdate2Fields(capacity btcutil.Amount,
 	c *lnwire.ChannelUpdate2) error {
 
-	maxHtlc := c.HTLCMaximumMsat.Val
-	if maxHtlc == 0 || maxHtlc < c.HTLCMinimumMsat.Val {
+	policy := c.ForwardingPolicy()
+	capacityMsat := lnwire.NewMSatFromSatoshis(capacity)
+
+	maxHtlcOpt := c.MaxHTLC(capacityMsat)
+	if maxHtlcOpt.IsNone() {
+		// None means the htlc_maximum_msat TLV is absent and the
+		// capacity is unknown, so there are no other constraints to
+		// check.
+		return nil
+	}
+	maxHtlc := maxHtlcOpt.UnwrapOr(0)
+
+	if maxHtlc == 0 || maxHtlc < policy.MinHTLC {
 		return fmt.Errorf("invalid max htlc for channel update %v",
 			lnutils.SpewLogClosure(c))
 	}
 
-	// Checking whether the MaxHTLC value respects the channel's capacity.
-	capacityMsat := lnwire.NewMSatFromSatoshis(capacity)
-	if maxHtlc > capacityMsat {
+	// For light clients the capacity is not set, so skip the check that
+	// MaxHTLC respects it, as validateChannelUpdate1Fields does.
+	if capacityMsat != 0 && maxHtlc > capacityMsat {
 		return fmt.Errorf("max_htlc (%v) for channel update greater "+
 			"than capacity (%v)", maxHtlc, capacityMsat)
 	}

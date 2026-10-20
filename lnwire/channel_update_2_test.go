@@ -2,11 +2,144 @@ package lnwire
 
 import (
 	"bytes"
+	"fmt"
+	"math"
 	"testing"
 
+	"github.com/btcsuite/btcd/chaincfg/v2"
+	"github.com/lightningnetwork/lnd/fn/v2"
 	"github.com/lightningnetwork/lnd/tlv"
 	"github.com/stretchr/testify/require"
 )
+
+// TestChanUpdate2FeeEncoding checks each fee against canonical tu32 vectors
+// and rejects non-minimal or oversized values received from peers.
+func TestChanUpdate2FeeEncoding(t *testing.T) {
+	t.Parallel()
+
+	// defaults holds the value each fee field takes when its TLV is
+	// absent.
+	defaults := map[uint64]uint32{
+		16: defaultFeeBaseMsat,
+		18: defaultFeeProportionalMillionths,
+		20: defaultInboundFeeBaseMsat,
+		22: defaultInboundFeeProportionalMillionths,
+	}
+
+	tests := []struct {
+		name  string
+		raw   []byte
+		value uint32
+
+		// wantErrIs is the sentinel the decode must report, and
+		// wantErrAs is set instead for an error that is a type rather
+		// than a sentinel. Both empty means the decode must succeed.
+		wantErrIs error
+		wantErrAs bool
+	}{
+		{name: "zero"},
+		{name: "one byte", raw: []byte{0xff}, value: 255},
+		{name: "two bytes", raw: []byte{1, 0}, value: 256},
+		{name: "three bytes", raw: []byte{1, 0, 0}, value: 65536},
+		{
+			name:  "four bytes",
+			raw:   []byte{0xff, 0xff, 0xff, 0xff},
+			value: math.MaxUint32,
+		},
+		{
+			name:      "non-minimal zero",
+			raw:       []byte{0},
+			wantErrIs: tlv.ErrTUintNotMinimal,
+		},
+		{
+			name:      "leading zero",
+			raw:       []byte{0, 1},
+			wantErrIs: tlv.ErrTUintNotMinimal,
+		},
+		{
+			name:      "oversized",
+			raw:       []byte{1, 0, 0, 0, 0},
+			wantErrAs: true,
+		},
+	}
+	for _, typ := range []uint64{16, 18, 20, 22} {
+		for _, test := range tests {
+			name := fmt.Sprintf("%d/%s", typ, test.name)
+			t.Run(name, func(t *testing.T) {
+				t.Parallel()
+
+				data, err := EncodeRecords(tlv.MapToRecords(
+					map[uint64][]byte{
+						2:   make([]byte, sciddirLen),
+						4:   make([]byte, 4),
+						240: make([]byte, 64),
+						typ: test.raw,
+					},
+				))
+				require.NoError(t, err)
+
+				var msg ChannelUpdate2
+				err = msg.Decode(bytes.NewReader(data), 0)
+				switch {
+				case test.wantErrIs != nil:
+					require.ErrorIs(t, err, test.wantErrIs)
+
+					return
+
+				case test.wantErrAs:
+					require.ErrorAs(
+						t, err,
+						&tlv.ErrTypeForDecoding{},
+					)
+
+					return
+				}
+				require.NoError(t, err)
+
+				// The TLV under test fills its own field. The
+				// other fee fields read as their defaults.
+				policy := msg.ForwardingPolicy()
+				inboundBase, inboundRate := msg.InboundFee()
+				fields := map[uint64]uint32{
+					16: uint32(policy.BaseFee),
+					18: uint32(policy.FeeRate),
+					20: inboundBase,
+					22: inboundRate,
+				}
+				for fieldType, got := range fields {
+					want := defaults[fieldType]
+					if fieldType == typ {
+						want = test.value
+					}
+					require.Equalf(
+						t, want, got, "fee TLV %d",
+						fieldType,
+					)
+				}
+
+				var found bool
+				for _, record := range msg.AllRecords() {
+					if uint64(record.Type()) != typ {
+						continue
+					}
+
+					found = true
+					var encoded bytes.Buffer
+					require.NoError(
+						t, record.Encode(&encoded),
+					)
+					require.Equal(
+						t, test.raw, encoded.Bytes(),
+					)
+				}
+
+				// The record is re-encoded because it was
+				// present, even when it holds the default.
+				require.True(t, found)
+			})
+		}
+	}
+}
 
 // TestChanUpdate2EncodeDecode tests the encoding and decoding of the
 // ChannelUpdate2 message using hardcoded byte slices.
@@ -24,10 +157,11 @@ func TestChanUpdate2EncodeDecode(t *testing.T) {
 		0x1, 0x1, 0x1, 0x1, 0x1, 0x1, 0x1, 0x1, 0x1, 0x1, 0x1, 0x1,
 		0x1, 0x1, 0x1, 0x1, 0x1, 0x1, 0x1, 0x1,
 
-		// ShortChannelID record.
+		// ShortChannelID record (sciddir form: dir byte + 8-byte scid).
 		0x2,                                    // type.
-		0x8,                                    // length.
-		0x0, 0x0, 0x1, 0x0, 0x0, 0x2, 0x0, 0x3, // value.
+		0x9,                                    // length.
+		0x1,                                    // dir byte: node_id_2.
+		0x0, 0x0, 0x1, 0x0, 0x0, 0x2, 0x0, 0x3, // scid value.
 
 		// BlockHeight record.
 		0x4,                // type.
@@ -38,10 +172,6 @@ func TestChanUpdate2EncodeDecode(t *testing.T) {
 		0x6, // type.
 		0x1, // length.
 		0x1, // value.
-
-		// SecondPeer record.
-		0x8, // type.
-		0x0, // length.
 
 		// Unknown odd-type TLV record.
 		0x9,        // type.
@@ -54,32 +184,42 @@ func TestChanUpdate2EncodeDecode(t *testing.T) {
 		0x0, 0x10, // value.
 
 		// HTLCMinimumMsat record.
-		0xc,                        // type.
-		0x5,                        // length.
-		0xfe, 0x0, 0xf, 0x42, 0x40, // value (BigSize: 1_000_000).
+		0xc,             // type.
+		0x3,             // length.
+		0xf, 0x42, 0x40, // value (tu64: 1_000_000).
 
 		// HTLCMaximumMsat record.
-		0xe,                        // type.
-		0x5,                        // length.
-		0xfe, 0x0, 0xf, 0x42, 0x40, // value (BigSize: 1_000_000).
+		0xe,             // type.
+		0x3,             // length.
+		0xf, 0x42, 0x40, // value (tu64: 1_000_000).
 
 		// FeeBaseMsat record.
-		0x10,               // type.
-		0x4,                // length.
-		0x0, 0x0, 0x1, 0x0, // value.
+		0x10,     // type.
+		0x2,      // length.
+		0x1, 0x0, // value.
 
 		// FeeProportionalMillionths record.
-		0x12,               // type.
-		0x4,                // length.
-		0x0, 0x0, 0x1, 0x0, // value.
+		0x12,     // type.
+		0x2,      // length.
+		0x1, 0x0, // value.
+
+		// InboundFeeBaseMsat record.
+		0x14, // type.
+		0x1,  // length.
+		0x5,  // value (5).
+
+		// InboundFeeProportionalMillionths record.
+		0x16, // type.
+		0x1,  // length.
+		0x3,  // value (3).
 
 		// Extra Opaque Data - Unknown Record.
-		0x14,       // type.
+		0x18,       // type.
 		0x2,        // length.
 		0x79, 0x79, // value.
 
 		// Signature.
-		0xa0, // type.
+		0xf0, // type.
 		0x40, // length.
 		0x0, 0x1, 0x2, 0x3, 0x4, 0x5, 0x6, 0x7, 0x8, 0x9, 0xa, 0xb,
 		0xc, 0xd, 0xe, 0xf, 0x10, 0x11, 0x12, 0x13, 0x14, 0x15, 0x16,
@@ -116,4 +256,154 @@ func TestChanUpdate2EncodeDecode(t *testing.T) {
 	// The re-encoded bytes should be exactly the same as the original raw
 	// bytes.
 	require.Equal(t, rawBytes, b.Bytes())
+}
+
+// TestGossipV2ExplicitDefaults tests that a gossip v2 message re-encodes to the
+// bytes that the sender signed, both when the sender omits a field that has a
+// default and when it encodes the default value explicitly.
+func TestGossipV2ExplicitDefaults(t *testing.T) {
+	t.Parallel()
+
+	mainnet := chaincfg.MainNetParams.GenesisHash[:]
+
+	// The compulsory records of each message, which every case includes.
+	compulsory := map[MessageType]map[uint64][]byte{
+		MsgChannelUpdate2: {
+			2:   make([]byte, sciddirLen),
+			4:   make([]byte, 4),
+			240: make([]byte, 64),
+		},
+		MsgChannelAnnouncement2: {
+			4:   make([]byte, 8),
+			6:   {1},
+			8:   make([]byte, 33),
+			10:  make([]byte, 33),
+			18:  make([]byte, 34),
+			240: make([]byte, 64),
+		},
+	}
+
+	tests := []struct {
+		name    string
+		msgType MessageType
+
+		// typ and value are the defaulted TLV that the sender encodes
+		// explicitly. A nil value leaves every defaulted TLV absent,
+		// and then typ is unused.
+		typ   uint64
+		value []byte
+	}{
+		{
+			name:    "update/all absent",
+			msgType: MsgChannelUpdate2,
+		},
+		{
+			name:    "update/chain_hash",
+			msgType: MsgChannelUpdate2,
+			typ:     0,
+			value:   mainnet,
+		},
+		{
+			name:    "update/disable_flags",
+			msgType: MsgChannelUpdate2,
+			typ:     6,
+			value:   []byte{0},
+		},
+		{
+			name:    "update/cltv_expiry_delta",
+			msgType: MsgChannelUpdate2,
+			typ:     10,
+			value:   []byte{0, 80},
+		},
+		{
+			name:    "update/htlc_minimum_msat",
+			msgType: MsgChannelUpdate2,
+			typ:     12,
+			value:   []byte{1},
+		},
+		{
+			name:    "update/fee_base_msat",
+			msgType: MsgChannelUpdate2,
+			typ:     16,
+			value:   []byte{3, 0xe8},
+		},
+		{
+			name:    "update/fee_proportional",
+			msgType: MsgChannelUpdate2,
+			typ:     18,
+			value:   []byte{1},
+		},
+		{
+			name:    "announcement/all absent",
+			msgType: MsgChannelAnnouncement2,
+		},
+		{
+			name:    "announcement/chain_hash",
+			msgType: MsgChannelAnnouncement2,
+			typ:     0,
+			value:   mainnet,
+		},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			t.Parallel()
+
+			var msg Message
+			switch test.msgType {
+			case MsgChannelUpdate2:
+				msg = &ChannelUpdate2{}
+
+			case MsgChannelAnnouncement2:
+				msg = &ChannelAnnouncement2{}
+
+			default:
+				t.Fatalf("unhandled message type %v",
+					test.msgType)
+			}
+
+			records := compulsory[test.msgType]
+			fields := make(map[uint64][]byte, len(records)+1)
+			for typ, value := range records {
+				fields[typ] = value
+			}
+
+			// A nil value leaves every defaulted field absent.
+			if test.value != nil {
+				fields[test.typ] = test.value
+			}
+			raw, err := EncodeRecords(tlv.MapToRecords(fields))
+			require.NoError(t, err)
+
+			require.NoError(t, msg.Decode(bytes.NewReader(raw), 0))
+
+			var b bytes.Buffer
+			require.NoError(t, msg.Encode(&b, 0))
+			require.Equal(t, raw, b.Bytes())
+		})
+	}
+}
+
+// TestChanUpdate2MaxHTLCLeavesRecordAbsent tests that deriving the spec
+// default for an absent htlc_maximum_msat does not add the record to the
+// message. The signature covers the records as the sender wrote them, so
+// materialising the default would invalidate it, and no round trip would
+// notice because the message is only re-encoded after a decode.
+//
+// The values MaxHTLC returns for each state are covered through
+// netann.TestValidateChannelUpdate2MaxHTLC.
+func TestChanUpdate2MaxHTLCLeavesRecordAbsent(t *testing.T) {
+	t.Parallel()
+
+	const capacityMsat = MilliSatoshi(1_000_000_000)
+
+	upd := &ChannelUpdate2{}
+	require.True(t, upd.HTLCMaximumMsat.IsNone())
+
+	// The limit is derived from the capacity the caller supplies, ...
+	require.Equal(
+		t, fn.Some(capacityMsat/2), upd.MaxHTLC(capacityMsat),
+	)
+
+	// ... but the record stays absent, so the signed bytes do not move.
+	require.True(t, upd.HTLCMaximumMsat.IsNone())
 }

@@ -6,6 +6,7 @@ import (
 	"encoding/binary"
 	"testing"
 
+	"github.com/lightningnetwork/lnd/tlv"
 	"github.com/stretchr/testify/require"
 )
 
@@ -122,12 +123,22 @@ func FuzzChannelAnnouncement2(f *testing.F) {
 			require.IsType(t, &ChannelAnnouncement2{}, y)
 			second, _ := y.(*ChannelAnnouncement2)
 
-			require.True(
-				t,
-				first.Features.Val.Equals(&second.Features.Val),
-			)
-			first.Features.Val = *NewRawFeatureVector()
-			second.Features.Val = *NewRawFeatureVector()
+			// The field is optional, so both sides must agree on
+			// whether it is present before comparing the vectors.
+			firstF := first.Features.ValOpt()
+			secondF := second.Features.ValOpt()
+			require.Equal(t, firstF.IsSome(), secondF.IsSome())
+			if firstF.IsSome() {
+				f := firstF.UnsafeFromSome()
+				s := secondF.UnsafeFromSome()
+				require.True(t, f.Equals(&s))
+			}
+
+			var noFeatures tlv.OptionalRecordT[
+				tlv.TlvType2, RawFeatureVector,
+			]
+			first.Features = noFeatures
+			second.Features = noFeatures
 
 			require.Equal(t, first, second)
 		}

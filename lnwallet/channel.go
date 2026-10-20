@@ -9451,10 +9451,26 @@ func (lc *LightningChannel) StateSnapshot() *channeldb.ChannelSnapshot {
 	return lc.channelState.Snapshot()
 }
 
-// validateFeeRate ensures that if the passed fee is applied to the channel,
-// and a new commitment is created (which evaluates this fee), then the
-// initiator of the channel does not dip below their reserve.
+// validateFeeRateFloor rejects a fee below the floor before it is added to an
+// update log. The same check in validateCommitmentSanity remains as defense in
+// depth.
+func validateFeeRateFloor(feePerKw chainfee.SatPerKWeight) error {
+	if feePerKw < chainfee.FeePerKwFloor {
+		return fmt.Errorf("commitment fee per kw %v below fee floor %v",
+			feePerKw, chainfee.FeePerKwFloor)
+	}
+
+	return nil
+}
+
+// validateFeeRate ensures that the passed fee meets the commitment fee floor
+// and that applying it to a new commitment does not make the initiator dip
+// below their reserve.
 func (lc *LightningChannel) validateFeeRate(feePerKw chainfee.SatPerKWeight) error {
+	if err := validateFeeRateFloor(feePerKw); err != nil {
+		return err
+	}
+
 	// We'll ensure that we can accommodate this new fee change, yet still
 	// be above our reserve balance. Otherwise, we'll reject the fee
 	// update.
@@ -9581,6 +9597,10 @@ func (lc *LightningChannel) ReceiveUpdateFee(feePerKw chainfee.SatPerKWeight) er
 	// fee update as initiator
 	if lc.channelState.IsInitiator {
 		return fmt.Errorf("received fee update as initiator")
+	}
+
+	if err := validateFeeRateFloor(feePerKw); err != nil {
+		return err
 	}
 
 	// TODO(roasbeef): or just modify to use the other balance?

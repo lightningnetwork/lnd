@@ -1,6 +1,6 @@
 # If you change this please also update GO_VERSION in Makefile (then run
 # `make lint` to see where else it needs to be updated as well).
-FROM golang:1.27.1-alpine as builder
+FROM golang:1.27.3-alpine as builder
 
 # Pass a tag, branch or a commit using build-arg.  This allows a docker
 # image to be built from a specified Git state.  The default image

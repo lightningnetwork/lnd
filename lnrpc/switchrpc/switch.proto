@@ -10,38 +10,30 @@ option go_package = "github.com/lightningnetwork/lnd/lnrpc/switchrpc";
 // subsystem of the daemon.
 service Switch {
     /*
-    SendOnion provides an idempotent API for dispatching a pre-formed onion
-    packet, which is the primary entry point for a remote router.
+    SendOnion dispatches a pre-formed onion packet. It is the primary entry
+    point for a remote router and is idempotent. A client can and should
+    retry it after a timeout or disconnection, reusing the same attempt_id so
+    the server recognises the retry rather than sending a second HTLC.
 
-    To safely handle network failures, a client can and should retry this RPC
-    after a timeout or disconnection. Retries MUST use the exact same
-    attempt_id to allow the server to correctly detect duplicate requests.
+    The outcome is carried in the response, never in a gRPC error. Exactly one
+    of Accepted, Rejected or Ambiguous is set, and each documents the action it
+    obliges the caller to take. An outcome the client does not recognise, or a
+    response with none set, MUST be treated as Ambiguous.
 
-    A client interacting with this RPC must handle four distinct categories
-    of outcomes, determined by the gRPC status code:
+    A gRPC error means the call failed rather than the HTLC. The cause may be
+    a malformed request, an auth failure, a transport problem, or a server not
+    running this sub-server. The error describes only that call, and an
+    earlier call with the same attempt_id may already have dispatched the
+    HTLC. After any gRPC error the client MUST NOT conclude that the HTLC was
+    not dispatched. It may retry the same attempt_id, or stop and alert, but
+    MUST NOT send a replacement under a new attempt_id until this one is
+    answered Rejected or TrackOnion reports it failed.
 
-    1. SUCCESS (gRPC code OK): A definitive confirmation that the HTLC has
-    been successfully dispatched. The client can proceed to track the
-    payment's final result via the TrackOnion RPC.
-
-    2. DUPLICATE ACKNOWLEDGMENT (gRPC code AlreadyExists): A definitive
-    acknowledgment that a request with the same attempt_id has already
-    been successfully processed. A retrying client should interpret this
-    as a success and proceed to tracking the payment's result.
-
-    3. INDEFINITE FAILURE (gRPC code Unavailable or DeadlineExceeded): The
-    state of the HTLC dispatch is unknown. The client MUST retry the exact
-    same request to resolve the ambiguity. A client MUST NOT treat this as
-    a definitive failure and move on to a new attempt ID; doing so risks a
-    duplicate in-flight HTLC.
-
-    4. DEFINITIVE FAILURE (gRPC code FailedPrecondition, InvalidArgument,
-    etc.): The HTLC was not and will not be dispatched. The client should
-    fail the attempt and may retry with a new route and/or attempt_id.
-
-    In the case of a FailedPrecondition or Unavailable failure, the gRPC
-    error may include a SendOnionFailureDetails message with additional
-    context for logging and pathfinding.
+    A malformed request is answered with InvalidArgument and the attempt is
+    recorded as failed. Retrying the same attempt_id is still safe, because the
+    server answers Accepted and TrackOnion returns the recorded failure. Only
+    once the attempt is known to have failed may the client send a corrected
+    request under a new attempt_id.
     */
     rpc SendOnion (SendOnionRequest) returns (SendOnionResponse);
 
@@ -154,61 +146,80 @@ message SendOnionRequest {
     optional bytes extra_data = 10;
 }
 
-// SendOnionResponse is an empty message. A gRPC status of OK or AlreadyExists
-// indicates a successful dispatch acknowledgment.
+// SendOnionResponse reports what the switch did with the attempt. Exactly one
+// outcome is always set.
+//
+// A gRPC error from SendOnion means the call itself failed, for example a
+// malformed request, an auth failure, a transport problem, or a server not
+// running this sub-server. It never describes what happened to an HTLC, which
+// an earlier call with the same attempt_id may already have dispatched. After
+// any gRPC error the caller MUST NOT conclude that the HTLC was not
+// dispatched, and MUST NOT send a replacement under a new attempt_id until
+// this one is answered Rejected or TrackOnion reports it failed.
+//
+// A caller that receives an outcome it does not recognise, or a response with
+// no outcome set at all, MUST treat it as Ambiguous and retry the same
+// attempt_id. It MUST NOT treat it as success, failure, or an empty response.
+// An unhandled gRPC error is loud, while an unhandled response field is
+// silent, so a caller built against an older version of this service could
+// otherwise misread a newer server's answer as "nothing happened". Treating
+// the unknown case as Ambiguous limits the cost of a misread to a wasted retry
+// rather than a lost or duplicated payment.
 message SendOnionResponse {
-}
-
-// SendOnionFailureDetails provides structured details for a dispatch failure
-// and is attached to a FailedPrecondition or Unavailable gRPC status.
-message SendOnionFailureDetails {
-    // A human-readable message for logging and debugging.
-    string error_message = 1;
-
-    // Structured detail for the dispatch failure, grouped by outcome. The
-    // gRPC status code determines the client's primary action
-    // (FailedPrecondition = definitive failure, Unavailable = retry). The
-    // detail within provides context for logging, pathfinding, and forward
-    // compatibility.
-    oneof failure_class {
-        DefiniteFailure definite_failure = 2;
-        IndefiniteFailure indefinite_failure = 3;
+    oneof outcome {
+        Accepted accepted = 1;
+        Rejected rejected = 2;
+        Ambiguous ambiguous = 3;
     }
 }
 
-// DefiniteFailure is a guarantee that the HTLC was not and will not be
-// dispatched. The client should fail the payment attempt and may retry with a
-// new route.
-message DefiniteFailure {
-    // A failure with a clear, unencrypted reason that occurred at our
-    // node before the HTLC was dispatched.
-    LocalFailure local_failure = 1;
+// Accepted means the switch has taken ownership of this attempt. Await the
+// result with TrackOnion.
+//
+// Do NOT conclude success or failure from this message. It reports who owns
+// the attempt, not how it ended.
+message Accepted {
+    // Set when the switch already held this attempt from an earlier call,
+    // either because the attempt was already registered or because a circuit
+    // for it already existed. Required behaviour is identical either way; this
+    // is diagnostic.
+    //
+    // A circuit without a registration should not occur in correct operation.
+    // It means the attempt_id is also in use by another dispatcher, such as
+    // lnd's own router, so the result later tracked may belong to that
+    // dispatcher's HTLC. Keep attempt_ids unique.
+    bool already_registered = 1;
 }
 
-// IndefiniteFailure indicates that the state of the HTLC dispatch is unknown.
-// This could be due to a transport-level failure or a server-side issue where
-// the idempotency record may or may not have been written. The client MUST
-// retry the exact same request to resolve the ambiguity. Clients can optionally
-// use this code to implement more nuanced behavior, such as logging or emitting
-// more detailed metrics.
-message IndefiniteFailure {
-    // A stable, machine-readable code for the indefinite failure.
-    IndefiniteFailureCode reason = 1;
+// Rejected means the switch declined the HTLC before taking ownership of it.
+// The HTLC provably never left this node, so no funds are at risk and the
+// caller MAY fail this attempt and try another route.
+message Rejected {
+    // The BOLT #4 wire failure explaining the rejection, including any
+    // channel update, as encoded by lnwire.EncodeFailure.
+    //
+    // This is always present and always decodable. A rejection the switch
+    // cannot describe is reported as Ambiguous, because a definite verdict
+    // the caller cannot act on is worse than admitting uncertainty. The caller
+    // would have nothing to give its router and nothing to penalise with.
+    bytes wire_failure = 1;
 }
 
-// IndefiniteFailureCode provides the specific reason for an indefinite failure.
-enum IndefiniteFailureCode {
-    // The reason is unknown. This is the default and is used for failures
-    // where the server could not classify the error, such as bare gRPC
-    // transport errors observed by the client.
-    REASON_UNKNOWN = 0;
-
-    // The server is in the process of shutting down.
-    SWITCH_EXITING = 1;
-
-    // A critical failure occurred when the server attempted to write the
-    // idempotency record for the payment attempt.
-    HTLC_INIT_FAILED = 2;
+// Ambiguous means the state of the dispatch is unknown. The switch may or may
+// not hold the attempt.
+//
+// The caller MUST retry the same attempt_id until it receives Accepted or
+// Rejected, and MUST NOT record a terminal outcome for the attempt in the
+// meantime. Retrying is safe because the switch recognises an attempt it
+// already holds and answers Accepted rather than dispatching a second HTLC.
+message Ambiguous {
+    // A human-readable reason that can be used for logging and metrics.
+    //
+    // Behaviour MUST NOT branch on this value. Every ambiguous outcome
+    // requires the same action, and a caller that treats one reason
+    // differently from another will eventually treat one of them unsafely.
+    // It is free text rather than an enum for exactly that reason.
+    string reason = 1;
 }
 
 message TrackOnionRequest {

@@ -4,7 +4,6 @@
 package switchrpc
 
 import (
-	"bytes"
 	"context"
 	"errors"
 	"testing"
@@ -18,6 +17,13 @@ import (
 	"github.com/stretchr/testify/require"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
+)
+
+// The SendOnion outcomes a test can expect, named for the response arm.
+const (
+	outcomeAccepted  = "accepted"
+	outcomeRejected  = "rejected"
+	outcomeAmbiguous = "ambiguous"
 )
 
 // TestSendOnion is a unit test that rigorously verifies the behavior of the
@@ -53,12 +59,28 @@ func TestSendOnion(t *testing.T) {
 		setup func(*testing.T, *Server, *SendOnionRequest)
 
 		// expectedErrCode is the gRPC error code we expect from the
-		// call.
+		// call. Only meaningful when expectedOutcome is empty.
 		expectedErrCode codes.Code
 
-		// checkFailureDetails is a function that asserts the contents
-		// of the SendOnionFailureDetails message.
-		checkFailureDetails func(*testing.T, *SendOnionFailureDetails)
+		// expectedOutcome is the response outcome we expect, one of
+		// outcomeAccepted, outcomeRejected or outcomeAmbiguous. When
+		// set, the call must succeed and carry that outcome.
+		expectedOutcome string
+
+		// wantAlreadyRegistered is the already_registered flag an
+		// Accepted outcome must carry.
+		wantAlreadyRegistered bool
+
+		// check, if set, makes further assertions on the server and
+		// the response once the call returns.
+		check func(*testing.T, *Server, *SendOnionResponse)
+
+		// wantFailCalls is the number of times the handler must move
+		// the attempt to a terminal failed state. Every validation
+		// failure and every non-duplicate dispatch error is terminal,
+		// because a pending record for an attempt that will never
+		// resolve would make TrackOnion hang.
+		wantFailCalls int
 	}{
 		{
 			name: "valid request",
@@ -70,7 +92,7 @@ func TestSendOnion(t *testing.T) {
 				require.True(t, ok)
 				payer.sendErr = nil
 			},
-			expectedErrCode: codes.OK,
+			expectedOutcome: outcomeAccepted,
 		},
 		{
 			name: "missing onion blob",
@@ -80,6 +102,7 @@ func TestSendOnion(t *testing.T) {
 				req.OnionBlob = nil
 			},
 			expectedErrCode: codes.InvalidArgument,
+			wantFailCalls:   1,
 		},
 		{
 			name: "invalid onion blob size",
@@ -89,6 +112,7 @@ func TestSendOnion(t *testing.T) {
 				req.OnionBlob = make([]byte, 1)
 			},
 			expectedErrCode: codes.InvalidArgument,
+			wantFailCalls:   1,
 		},
 		{
 			name: "missing payment hash",
@@ -98,6 +122,7 @@ func TestSendOnion(t *testing.T) {
 				req.PaymentHash = nil
 			},
 			expectedErrCode: codes.InvalidArgument,
+			wantFailCalls:   1,
 		},
 		{
 			name: "zero amount",
@@ -107,6 +132,7 @@ func TestSendOnion(t *testing.T) {
 				req.Amount = 0
 			},
 			expectedErrCode: codes.InvalidArgument,
+			wantFailCalls:   1,
 		},
 		{
 			name: "dispatcher internal error",
@@ -118,21 +144,16 @@ func TestSendOnion(t *testing.T) {
 				require.True(t, ok)
 				payer.sendErr = errors.New("internal error")
 			},
-			expectedErrCode: codes.Unavailable,
-			checkFailureDetails: func(t *testing.T,
-				details *SendOnionFailureDetails) {
-
-				require.Contains(t, details.ErrorMessage,
-					"internal error")
-			},
+			expectedOutcome: outcomeAmbiguous,
+			wantFailCalls:   1,
 		},
 		{
 			// The ErrPaymentIDAlreadyExists error is the means by
 			// which an rpc client is safe to retry the SendOnion
 			// RPC until an explicit acknowledgement of HTLC
 			// dispatch can be received from the server. The
-			// acknowledgement is expected to be signalled by a
-			// AlreadyExists grpc status code.
+			// acknowledgement is carried as an Accepted outcome
+			// with already_registered set.
 			name: "duplicate attempt initialization",
 			setup: func(t *testing.T, s *Server,
 				req *SendOnionRequest) {
@@ -143,7 +164,8 @@ func TestSendOnion(t *testing.T) {
 				require.True(t, ok)
 				store.initErr = htlcswitch.ErrPaymentIDAlreadyExists
 			},
-			expectedErrCode: codes.AlreadyExists,
+			expectedOutcome:       outcomeAccepted,
+			wantAlreadyRegistered: true,
 		},
 		{
 			// ErrDuplicateAdd from the switch/dispatcher is a
@@ -161,7 +183,119 @@ func TestSendOnion(t *testing.T) {
 				require.True(t, ok)
 				payer.sendErr = htlcswitch.ErrDuplicateAdd
 			},
-			expectedErrCode: codes.AlreadyExists,
+			expectedOutcome:       outcomeAccepted,
+			wantAlreadyRegistered: true,
+		},
+		{
+			// Recording the failure is best effort. If the store
+			// write fails, the response must still describe what
+			// happened to the HTLC: this rejection is still true.
+			name: "rejection when the failure cannot be recorded",
+			setup: func(t *testing.T, s *Server,
+				req *SendOnionRequest) {
+
+				linkErr := htlcswitch.NewLinkError(
+					lnwire.NewTemporaryChannelFailure(nil),
+				)
+				payer, ok := s.cfg.HtlcDispatcher.(*mockPayer)
+				require.True(t, ok)
+				payer.sendErr = linkErr
+
+				store, ok := s.cfg.AttemptStore.(*mockAttemptStore)
+				require.True(t, ok)
+				store.failErr = errors.New("store unavailable")
+			},
+			expectedOutcome: outcomeRejected,
+			wantFailCalls:   1,
+		},
+		{
+			name: "ambiguous when the failure cannot be recorded",
+			setup: func(t *testing.T, s *Server,
+				req *SendOnionRequest) {
+
+				payer, ok := s.cfg.HtlcDispatcher.(*mockPayer)
+				require.True(t, ok)
+				payer.sendErr = errors.New("internal error")
+
+				store, ok := s.cfg.AttemptStore.(*mockAttemptStore)
+				require.True(t, ok)
+				store.failErr = errors.New("store unavailable")
+			},
+			expectedOutcome: outcomeAmbiguous,
+			wantFailCalls:   1,
+		},
+		{
+			name: "first hop pubkey with an eligible channel",
+			setup: func(t *testing.T, s *Server,
+				req *SendOnionRequest) {
+
+				setFirstHopPubkey(t, req)
+				s.cfg.ChannelInfoAccessor = &mockChannelInfoAccessor{
+					links: []htlcswitch.ChannelInfoProvider{
+						&mockChannelLink{
+							scid:      lnwire.NewShortChanIDFromInt(1),
+							eligible:  true,
+							bandwidth: lnwire.MilliSatoshi(req.Amount),
+						},
+					},
+				}
+			},
+			expectedOutcome: outcomeAccepted,
+		},
+		{
+			// The peer has a channel, but it cannot carry the
+			// amount. The server hands it to the switch anyway, so
+			// the switch reports the precise failure for it.
+			name: "first hop pubkey with no channel that can carry the amount",
+			setup: func(t *testing.T, s *Server,
+				req *SendOnionRequest) {
+
+				setFirstHopPubkey(t, req)
+				s.cfg.ChannelInfoAccessor = &mockChannelInfoAccessor{
+					links: []htlcswitch.ChannelInfoProvider{
+						&mockChannelLink{
+							scid: lnwire.NewShortChanIDFromInt(7),
+						},
+					},
+				}
+
+				payer, ok := s.cfg.HtlcDispatcher.(*mockPayer)
+				require.True(t, ok)
+				payer.sendErr = htlcswitch.NewLinkError(
+					lnwire.NewTemporaryChannelFailure(nil),
+				)
+			},
+			expectedOutcome: outcomeRejected,
+			wantFailCalls:   1,
+			check: func(t *testing.T, s *Server,
+				resp *SendOnionResponse) {
+
+				payer, ok := s.cfg.HtlcDispatcher.(*mockPayer)
+				require.True(t, ok)
+				require.NotNil(t, payer.sentFirstHop)
+				require.Equal(t, lnwire.NewShortChanIDFromInt(7),
+					*payer.sentFirstHop)
+				requireRejectCode(t, resp, lnwire.CodeTemporaryChannelFailure)
+			},
+		},
+		{
+			name: "first hop pubkey with no channel to the peer",
+			setup: func(t *testing.T, s *Server,
+				req *SendOnionRequest) {
+
+				setFirstHopPubkey(t, req)
+				s.cfg.ChannelInfoAccessor = &mockChannelInfoAccessor{}
+			},
+			expectedOutcome: outcomeRejected,
+			wantFailCalls:   1,
+			check: func(t *testing.T, s *Server,
+				resp *SendOnionResponse) {
+
+				payer, ok := s.cfg.HtlcDispatcher.(*mockPayer)
+				require.True(t, ok)
+				require.Nil(t, payer.sentFirstHop)
+				requireRejectCode(t, resp, lnwire.CodeUnknownNextPeer)
+			},
 		},
 		{
 			name: "ambiguous attempt init error",
@@ -172,17 +306,7 @@ func TestSendOnion(t *testing.T) {
 				require.True(t, ok)
 				store.initErr = htlcswitch.ErrAmbiguousAttemptInit
 			},
-			expectedErrCode: codes.Unavailable,
-			checkFailureDetails: func(t *testing.T,
-				details *SendOnionFailureDetails) {
-
-				indefinite := details.GetIndefiniteFailure()
-				require.NotNil(t, indefinite)
-				require.Equal(t,
-					IndefiniteFailureCode_HTLC_INIT_FAILED,
-					indefinite.Reason,
-				)
-			},
+			expectedOutcome: outcomeAmbiguous,
 		},
 		{
 			name: "attempt init returns generic internal error",
@@ -196,17 +320,7 @@ func TestSendOnion(t *testing.T) {
 				require.True(t, ok)
 				store.initErr = errors.New("unexpected DB error")
 			},
-			expectedErrCode: codes.Unavailable,
-			checkFailureDetails: func(t *testing.T,
-				details *SendOnionFailureDetails) {
-
-				indefinite := details.GetIndefiniteFailure()
-				require.NotNil(t, indefinite)
-				require.Equal(t,
-					IndefiniteFailureCode_REASON_UNKNOWN,
-					indefinite.Reason,
-				)
-			},
+			expectedOutcome: outcomeAmbiguous,
 		},
 		{
 			name: "clear text error",
@@ -223,21 +337,8 @@ func TestSendOnion(t *testing.T) {
 				require.True(t, ok)
 				payer.sendErr = linkErr
 			},
-			expectedErrCode: codes.FailedPrecondition,
-			checkFailureDetails: func(t *testing.T,
-				details *SendOnionFailureDetails) {
-
-				definite := details.GetDefiniteFailure()
-				require.NotNil(t, definite)
-
-				failure := definite.GetLocalFailure()
-				require.NotNil(t, failure)
-
-				_, err := UnmarshallFailureMessage(
-					failure.WireMessage,
-				)
-				require.NoError(t, err)
-			},
+			expectedOutcome: outcomeRejected,
+			wantFailCalls:   1,
 		},
 	}
 
@@ -247,9 +348,10 @@ func TestSendOnion(t *testing.T) {
 
 			// Create a new server for each test case to ensure
 			// isolation.
+			store := &mockAttemptStore{}
 			server, _, err := New(&Config{
 				HtlcDispatcher: &mockPayer{},
-				AttemptStore:   &mockAttemptStore{},
+				AttemptStore:   store,
 			})
 			require.NoError(t, err)
 
@@ -262,54 +364,88 @@ func TestSendOnion(t *testing.T) {
 
 			resp, err := server.SendOnion(t.Context(), req)
 
-			// If we expected OK, assert a nil error and non-nil
-			// response.
-			if tc.expectedErrCode == codes.OK {
+			require.Equal(t, tc.wantFailCalls, store.failCalls,
+				"terminal records written")
+
+			// An expected outcome means the call itself succeeds
+			// and the outcome rides in the response body.
+			if tc.expectedOutcome != "" {
 				require.NoError(t, err)
 				require.NotNil(t, resp)
+				requireOutcome(t, resp, tc.expectedOutcome)
+				if tc.check != nil {
+					tc.check(t, server, resp)
+				}
+				if tc.expectedOutcome == outcomeAccepted {
+					accepted := resp.GetAccepted()
+					require.Equal(
+						t, tc.wantAlreadyRegistered,
+						accepted.AlreadyRegistered,
+					)
+				}
+
 				return
 			}
 
-			// Otherwise, we expect a gRPC status error.
+			// Otherwise the call itself failed, so we expect a
+			// gRPC status error carrying the code and nothing
+			// else, since outcomes are carried in the response.
 			require.Error(t, err)
 
-			// If we don't need to check details, we're done.
-			if tc.checkFailureDetails == nil {
-				s, ok := status.FromError(err)
-				require.True(t, ok)
-				require.Equal(t, tc.expectedErrCode, s.Code())
-
-				return
-			}
-
-			// Otherwise confirm the failure details are as
-			// expected.
-			details := requireSendOnionFailureDetails(
-				t, err, tc.expectedErrCode,
-			)
-			tc.checkFailureDetails(t, details)
+			s, ok := status.FromError(err)
+			require.True(t, ok)
+			require.Equal(t, tc.expectedErrCode, s.Code())
 		})
 	}
 }
 
-// requireSendOnionFailureDetails is a test helper that asserts a SendOnion call
-// failed with a specific gRPC status code and extracts the embedded
-// SendOnionFailureDetails message.
-func requireSendOnionFailureDetails(t *testing.T, err error,
-	expectedRPCCode codes.Code) *SendOnionFailureDetails {
+// requireOutcome asserts the response carries the named outcome.
+func requireOutcome(t *testing.T, resp *SendOnionResponse, want string) {
+	t.Helper()
 
-	s, ok := status.FromError(err)
-	require.True(t, ok, "expected gRPC status error")
-	require.Equal(t, expectedRPCCode, s.Code(),
-		"unexpected gRPC status code")
+	switch want {
+	case outcomeAccepted:
+		require.NotNil(t, resp.GetAccepted(), "want accepted")
 
-	details := s.Details()
-	require.Len(t, details, 1, "expected one failure detail")
+	case outcomeRejected:
+		rej := resp.GetRejected()
+		require.NotNil(t, rej, "want rejected")
+		require.NotEmpty(t, rej.WireFailure,
+			"a rejection must carry a wire failure")
 
-	failureDetails, ok := details[0].(*SendOnionFailureDetails)
-	require.True(t, ok, "expected SendOnionFailureDetails")
+	case outcomeAmbiguous:
+		require.NotNil(t, resp.GetAmbiguous(), "want ambiguous")
 
-	return failureDetails
+	default:
+		t.Fatalf("unknown outcome %q", want)
+	}
+}
+
+// setFirstHopPubkey makes req address its first hop by node public key
+// instead of by channel id.
+func setFirstHopPubkey(t *testing.T, req *SendOnionRequest) {
+	t.Helper()
+
+	priv, err := btcec.NewPrivateKey()
+	require.NoError(t, err)
+
+	req.FirstHopChanId = 0
+	req.FirstHopPubkey = priv.PubKey().SerializeCompressed()
+}
+
+// requireRejectCode asserts that resp is a rejection carrying a wire failure
+// with the given code.
+func requireRejectCode(t *testing.T, resp *SendOnionResponse,
+	want lnwire.FailCode) {
+
+	t.Helper()
+
+	rej := resp.GetRejected()
+	require.NotNil(t, rej)
+
+	failure, err := UnmarshallFailureMessage(rej.WireFailure)
+	require.NoError(t, err)
+	require.Equal(t, want, failure.Code())
 }
 
 // TestTrackOnion is a unit test that rigorously verifies the behavior of the
@@ -1300,231 +1436,60 @@ func TestBuildErrorDecryptor(t *testing.T) {
 	}
 }
 
-// TestMarshallDispatchFailure tests that the server-side marshalling of
-// internal htlcswitch errors into gRPC status errors with rich,
-// structurally-classified details is correct.
-func TestMarshallDispatchFailure(t *testing.T) {
+// TestMarshallDispatchOutcome pins the mapping from a non-duplicate SendHTLC
+// error onto the response a caller receives: a ClearTextError is a rejection
+// carrying its wire failure, and anything else is ambiguous.
+func TestMarshallDispatchOutcome(t *testing.T) {
 	t.Parallel()
 
 	wireMsg := lnwire.NewTemporaryChannelFailure(nil)
-	linkErr := htlcswitch.NewLinkError(wireMsg)
 
-	//nolint:ll
-	testCases := []struct {
-		name             string
-		err              error
-		expectedGRPCCode codes.Code
-		checkDetails     func(*testing.T, *SendOnionFailureDetails)
+	tests := []struct {
+		name   string
+		err    error
+		assert func(*testing.T, *SendOnionResponse)
 	}{
 		{
-			name:             "clear text error",
-			err:              linkErr,
-			expectedGRPCCode: codes.FailedPrecondition,
-			checkDetails: func(t *testing.T, d *SendOnionFailureDetails) {
-				definite := d.GetDefiniteFailure()
-				require.NotNil(t, definite)
-				require.Nil(t, d.GetIndefiniteFailure())
-
-				ctf := definite.GetLocalFailure()
-				require.NotNil(t, ctf)
-
-				decoded, err := UnmarshallFailureMessage(
-					ctf.WireMessage,
-				)
-				require.NoError(t, err)
-				require.Equal(t, wireMsg, decoded)
+			name: "link rejection is a rejection with a failure",
+			err:  htlcswitch.NewLinkError(wireMsg),
+			assert: func(t *testing.T, r *SendOnionResponse) {
+				rej := r.GetRejected()
+				require.NotNil(t, rej)
+				require.NotEmpty(t, rej.WireFailure)
 			},
 		},
 		{
-			name:             "switch exiting",
-			err:              htlcswitch.ErrSwitchExiting,
-			expectedGRPCCode: codes.Unavailable,
-			checkDetails: func(t *testing.T, d *SendOnionFailureDetails) {
-				indefinite := d.GetIndefiniteFailure()
-				require.NotNil(t, indefinite)
-				require.Nil(t, d.GetDefiniteFailure())
-				require.Equal(t,
-					IndefiniteFailureCode_SWITCH_EXITING,
-					indefinite.Reason,
-				)
+			name: "rejection without a wire failure is ambiguous",
+			err:  htlcswitch.NewLinkError(nil),
+			assert: func(t *testing.T, r *SendOnionResponse) {
+				require.NotNil(t, r.GetAmbiguous())
+				require.Nil(t, r.GetRejected())
 			},
 		},
 		{
-			name:             "ambiguous init",
-			err:              htlcswitch.ErrAmbiguousAttemptInit,
-			expectedGRPCCode: codes.Unavailable,
-			checkDetails: func(t *testing.T, d *SendOnionFailureDetails) {
-				indefinite := d.GetIndefiniteFailure()
-				require.NotNil(t, indefinite)
-				require.Nil(t, d.GetDefiniteFailure())
-				require.Equal(t,
-					IndefiniteFailureCode_HTLC_INIT_FAILED,
-					indefinite.Reason,
-				)
+			name: "switch exiting is ambiguous",
+			err:  htlcswitch.ErrSwitchExiting,
+			assert: func(t *testing.T, r *SendOnionResponse) {
+				amb := r.GetAmbiguous()
+				require.NotNil(t, amb)
+				require.NotEmpty(t, amb.Reason)
 			},
 		},
 		{
-			name:             "generic internal error",
-			err:              errors.New("generic error"),
-			expectedGRPCCode: codes.Unavailable,
-			checkDetails: func(t *testing.T, d *SendOnionFailureDetails) {
-				indefinite := d.GetIndefiniteFailure()
-				require.NotNil(t, indefinite)
-				require.Nil(t, d.GetDefiniteFailure())
-				require.Equal(t,
-					IndefiniteFailureCode_REASON_UNKNOWN,
-					indefinite.Reason,
-				)
+			name: "an unrecognised error is ambiguous",
+			err:  errors.New("something new"),
+			assert: func(t *testing.T, r *SendOnionResponse) {
+				require.NotNil(t, r.GetAmbiguous())
+				require.Nil(t, r.GetRejected())
 			},
 		},
 	}
 
-	for _, tc := range testCases {
+	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
-			// Marshall the error into a gRPC status error.
-			rpcErr := marshallDispatchFailure(tc.err)
+			t.Parallel()
 
-			// Assert the gRPC status code and extract the
-			// structured failure details.
-			details := requireSendOnionFailureDetails(
-				t, rpcErr, tc.expectedGRPCCode,
-			)
-			tc.checkDetails(t, details)
-		})
-	}
-}
-
-// TestGetSendOnionFailureDetails verifies the behavior of the
-// GetSendOnionFailureDetails helper.
-func TestGetSendOnionFailureDetails(t *testing.T) {
-	t.Parallel()
-
-	// Create a mock wire message and encode it.
-	wireMsg := lnwire.NewTemporaryChannelFailure(nil)
-	var buf bytes.Buffer
-	err := lnwire.EncodeFailure(&buf, wireMsg, 0)
-	require.NoError(t, err)
-
-	// Create mock SendOnionFailureDetails structs for expected outputs.
-	mockDefiniteDetails := &SendOnionFailureDetails{
-		ErrorMessage: "mock clear text error",
-		FailureClass: &SendOnionFailureDetails_DefiniteFailure{
-			DefiniteFailure: &DefiniteFailure{
-				LocalFailure: &LocalFailure{
-					WireMessage: buf.Bytes(),
-				},
-			},
-		},
-	}
-
-	mockIndefiniteDetails := &SendOnionFailureDetails{
-		ErrorMessage: "mock indefinite error",
-		FailureClass: &SendOnionFailureDetails_IndefiniteFailure{
-			IndefiniteFailure: &IndefiniteFailure{
-				Reason: IndefiniteFailureCode_REASON_UNKNOWN,
-			},
-		},
-	}
-
-	// Create gRPC status errors with the new mock details.
-	gRPCErrorWithDefiniteDetails, err := status.New(
-		codes.FailedPrecondition, "test error",
-	).WithDetails(mockDefiniteDetails)
-	require.NoError(t, err)
-
-	gRPCErrorWithIndefiniteDetails, err := status.New(
-		codes.Internal, "test error",
-	).WithDetails(mockIndefiniteDetails)
-	require.NoError(t, err)
-
-	// Create a gRPC status error without any details.
-	gRPCErrorWithoutDetails := status.Error(codes.Unavailable,
-		"generic gRPC error")
-
-	// Create a non-gRPC error.
-	nonGrpcError := errors.New("plain old error")
-
-	testCases := []struct {
-		name            string
-		err             error
-		expectedDetails *SendOnionFailureDetails
-	}{
-		{
-			name:            "gRPC error with definite details",
-			err:             gRPCErrorWithDefiniteDetails.Err(),
-			expectedDetails: mockDefiniteDetails,
-		},
-		{
-			name:            "gRPC error with indefinite details",
-			err:             gRPCErrorWithIndefiniteDetails.Err(),
-			expectedDetails: mockIndefiniteDetails,
-		},
-		{
-			name:            "gRPC error without details",
-			err:             gRPCErrorWithoutDetails,
-			expectedDetails: nil,
-		},
-		{
-			name:            "non-gRPC error",
-			err:             nonGrpcError,
-			expectedDetails: nil,
-		},
-		{
-			name:            "nil error",
-			err:             nil,
-			expectedDetails: nil,
-		},
-	}
-
-	for _, tc := range testCases {
-		t.Run(tc.name, func(t *testing.T) {
-			result := GetSendOnionFailureDetails(tc.err)
-
-			// If no details were expected, assert nil and return.
-			if tc.expectedDetails == nil {
-				require.Nil(t, result)
-				return
-			}
-
-			// Otherwise, confirm the top-level error message.
-			require.NotNil(t, result)
-			require.Equal(t, tc.expectedDetails.ErrorMessage,
-				result.ErrorMessage)
-
-			// Now, validate the oneof FailureClass field.
-			switch expectedClass := tc.expectedDetails.
-				FailureClass.(type) {
-			case *SendOnionFailureDetails_DefiniteFailure:
-				actualDefinite := result.GetDefiniteFailure()
-				require.NotNil(t, actualDefinite)
-				require.Nil(t, result.GetIndefiniteFailure())
-
-				// Validate nested LocalFailure.
-				expectedErr := expectedClass.DefiniteFailure.
-					GetLocalFailure()
-				actualErr := actualDefinite.
-					GetLocalFailure()
-
-				require.NotNil(t, actualErr)
-				require.Equal(t, expectedErr.WireMessage,
-					actualErr.WireMessage)
-
-			case *SendOnionFailureDetails_IndefiniteFailure:
-				actualIndefinite := result.
-					GetIndefiniteFailure()
-
-				require.NotNil(t, actualIndefinite)
-				require.Nil(t, result.GetDefiniteFailure())
-
-				// Validate nested IndefiniteFailureCode reason.
-				require.Equal(t, expectedClass.
-					IndefiniteFailure.Reason,
-					actualIndefinite.Reason)
-
-			default:
-				t.Fatalf("unexpected failure class type: %T",
-					expectedClass)
-			}
+			tc.assert(t, marshallDispatchOutcome(tc.err))
 		})
 	}
 }

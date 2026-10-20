@@ -125,7 +125,21 @@ func CreateTestChannels(t *testing.T, chanType channeldb.ChannelType,
 		return nil, nil, err
 	}
 
-	channelBal := channelCapacity / 2
+	return createTestChannels(
+		t, chanType, channelCapacity, channelCapacity/2, 6000,
+		dbModifiers...,
+	)
+}
+
+// createTestChannels creates a pair of test channels with a configurable
+// capacity, initiator balance before fees and commitment fee rate.
+func createTestChannels(t *testing.T, chanType channeldb.ChannelType,
+	channelCapacity, aliceBalanceBeforeFees btcutil.Amount,
+	feePerKw chainfee.SatPerKWeight,
+	dbModifiers ...channeldb.OptionModifier) (*LightningChannel,
+	*LightningChannel, error) {
+
+	bobBalance := channelCapacity - aliceBalanceBeforeFees
 	csvTimeoutAlice := uint32(5)
 	csvTimeoutBob := uint32(4)
 	isAliceInitiator := true
@@ -236,8 +250,9 @@ func CreateTestChannels(t *testing.T, chanType channeldb.ChannelType,
 	aliceCommitPoint := input.ComputeCommitmentPoint(aliceFirstRevoke[:])
 
 	aliceCommitTx, bobCommitTx, err := CreateCommitmentTxns(
-		channelBal, channelBal, &aliceCfg, &bobCfg, aliceCommitPoint,
-		bobCommitPoint, *fundingTxIn, chanType, isAliceInitiator, 0,
+		aliceBalanceBeforeFees, bobBalance, &aliceCfg, &bobCfg,
+		aliceCommitPoint, bobCommitPoint, *fundingTxIn, chanType,
+		isAliceInitiator, 0,
 	)
 	if err != nil {
 		return nil, nil, err
@@ -246,26 +261,21 @@ func CreateTestChannels(t *testing.T, chanType channeldb.ChannelType,
 	dbAlice := channeldb.OpenForTesting(t, t.TempDir(), dbModifiers...)
 	dbBob := channeldb.OpenForTesting(t, t.TempDir(), dbModifiers...)
 
-	estimator := chainfee.NewStaticEstimator(6000, 0)
-	feePerKw, err := estimator.EstimateFeePerKW(1)
-	if err != nil {
-		return nil, nil, err
-	}
-	commitFee := calcStaticFee(chanType, 0)
+	commitFee := feePerKw.FeeForWeight(CommitWeight(chanType))
 	var anchorAmt btcutil.Amount
 	if chanType.HasAnchors() {
 		anchorAmt += 2 * AnchorSize
 	}
 
 	aliceBalance := lnwire.NewMSatFromSatoshis(
-		channelBal - commitFee - anchorAmt,
+		aliceBalanceBeforeFees - commitFee - anchorAmt,
 	)
-	bobBalance := lnwire.NewMSatFromSatoshis(channelBal)
+	bobBalanceMSat := lnwire.NewMSatFromSatoshis(bobBalance)
 
 	aliceLocalCommit := channeldb.ChannelCommitment{
 		CommitHeight:  0,
 		LocalBalance:  aliceBalance,
-		RemoteBalance: bobBalance,
+		RemoteBalance: bobBalanceMSat,
 		CommitFee:     commitFee,
 		FeePerKw:      btcutil.Amount(feePerKw),
 		CommitTx:      aliceCommitTx,
@@ -274,7 +284,7 @@ func CreateTestChannels(t *testing.T, chanType channeldb.ChannelType,
 	aliceRemoteCommit := channeldb.ChannelCommitment{
 		CommitHeight:  0,
 		LocalBalance:  aliceBalance,
-		RemoteBalance: bobBalance,
+		RemoteBalance: bobBalanceMSat,
 		CommitFee:     commitFee,
 		FeePerKw:      btcutil.Amount(feePerKw),
 		CommitTx:      bobCommitTx,
@@ -282,7 +292,7 @@ func CreateTestChannels(t *testing.T, chanType channeldb.ChannelType,
 	}
 	bobLocalCommit := channeldb.ChannelCommitment{
 		CommitHeight:  0,
-		LocalBalance:  bobBalance,
+		LocalBalance:  bobBalanceMSat,
 		RemoteBalance: aliceBalance,
 		CommitFee:     commitFee,
 		FeePerKw:      btcutil.Amount(feePerKw),
@@ -291,7 +301,7 @@ func CreateTestChannels(t *testing.T, chanType channeldb.ChannelType,
 	}
 	bobRemoteCommit := channeldb.ChannelCommitment{
 		CommitHeight:  0,
-		LocalBalance:  bobBalance,
+		LocalBalance:  bobBalanceMSat,
 		RemoteBalance: aliceBalance,
 		CommitFee:     commitFee,
 		FeePerKw:      btcutil.Amount(feePerKw),

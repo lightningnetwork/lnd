@@ -439,9 +439,14 @@ func (v *ValidationBarrier) SignalDependents(job interface{}, id JobID) error {
 			return err
 		}
 
-		err = removeJob(route.Vertex(msg.NodeID2).String(), id, false)
-		if err != nil {
-			return err
+		// If both node IDs are equal, the entry was removed above.
+		if msg.NodeID1 != msg.NodeID2 {
+			err = removeJob(
+				route.Vertex(msg.NodeID2).String(), id, false,
+			)
+			if err != nil {
+				return err
+			}
 		}
 
 		return nil

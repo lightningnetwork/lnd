@@ -19,21 +19,37 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
+// TestValidateChannelAnn1IdenticalNodeIDs tests that a channel announcement
+// with identical node IDs is rejected.
+func TestValidateChannelAnn1IdenticalNodeIDs(t *testing.T) {
+	t.Parallel()
+
+	key := [33]byte{0x02}
+	ann := &lnwire.ChannelAnnouncement1{
+		NodeID1: key,
+		NodeID2: key,
+	}
+
+	err := ValidateChannelAnn(ann, nil)
+	require.ErrorContains(t, err, "identical NodeID1 and NodeID2")
+}
+
 func TestCreateChanAnnouncement(t *testing.T) {
 	t.Parallel()
 
 	key := [33]byte{0x1}
+	key2 := [33]byte{0x2}
 	var sig lnwire.Sig
 	features := lnwire.NewRawFeatureVector(lnwire.AnchorsRequired)
 	expChanAnn := &lnwire.ChannelAnnouncement1{
 		ChainHash:       chainhash.Hash{0x1},
 		ShortChannelID:  lnwire.ShortChannelID{BlockHeight: 1},
 		NodeID1:         key,
-		NodeID2:         key,
+		NodeID2:         key2,
 		NodeSig1:        sig,
 		NodeSig2:        sig,
 		BitcoinKey1:     key,
-		BitcoinKey2:     key,
+		BitcoinKey2:     key2,
 		BitcoinSig1:     sig,
 		BitcoinSig2:     sig,
 		Features:        features,
@@ -52,9 +68,9 @@ func TestCreateChanAnnouncement(t *testing.T) {
 		ChannelPoint:     wire.OutPoint{Index: 1},
 		Capacity:         btcutil.SatoshiPerBitcoin,
 		NodeKey1Bytes:    key,
-		NodeKey2Bytes:    key,
+		NodeKey2Bytes:    key2,
 		BitcoinKey1Bytes: key,
-		BitcoinKey2Bytes: key,
+		BitcoinKey2Bytes: key2,
 		Features: lnwire.NewFeatureVector(
 			features, lnwire.Features,
 		),

@@ -215,3 +215,5 @@ go 1.26.8
 retract v0.0.2
 
 replace github.com/lightningnetwork/lnd/fn/v2 => ./fn
+
+replace github.com/lightningnetwork/lnd/tlv => ./tlv

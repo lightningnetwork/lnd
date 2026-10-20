@@ -41,7 +41,7 @@ require (
 	github.com/lightningnetwork/lnd/actor v0.0.6
 	github.com/lightningnetwork/lnd/cert v1.2.2
 	github.com/lightningnetwork/lnd/clock v1.1.1
-	github.com/lightningnetwork/lnd/fn/v2 v2.0.9
+	github.com/lightningnetwork/lnd/fn/v2 v2.0.10
 	github.com/lightningnetwork/lnd/healthcheck v1.2.6
 	github.com/lightningnetwork/lnd/kvdb v1.5.1
 	github.com/lightningnetwork/lnd/queue v1.2.0
@@ -222,8 +222,6 @@ replace github.com/lightningnetwork/lnd/actor => ./actor
 replace github.com/lightningnetwork/lnd/cert => ./cert
 
 replace github.com/lightningnetwork/lnd/clock => ./clock
-
-replace github.com/lightningnetwork/lnd/fn/v2 => ./fn
 
 replace github.com/lightningnetwork/lnd/healthcheck => ./healthcheck
 

@@ -1166,7 +1166,7 @@ func TestPrematureAnnouncement(t *testing.T) {
 	require.NoError(t, err, "can't create channel announcement")
 
 	select {
-	case <-tCtx.gossiper.ProcessRemoteAnnouncement(ctx, ca, nodePeer):
+	case _ = <-tCtx.gossiper.ProcessRemoteAnnouncement(ctx, ca, nodePeer):
 	case <-time.After(time.Second):
 		t.Fatal("announcement was not processed")
 	}

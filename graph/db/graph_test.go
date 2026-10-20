@@ -2979,7 +2979,9 @@ func TestNodeUpdatesInHorizonEarlyTermination(t *testing.T) {
 			// Collect only up to stopAt nodes, breaking afterwards.
 			var collected []*models.Node
 			count := 0
-			for node := range iter {
+			for node, err := range iter {
+				require.NoError(t, err)
+
 				if count >= stopAt {
 					break
 				}

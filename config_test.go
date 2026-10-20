@@ -2,11 +2,14 @@ package lnd
 
 import (
 	"fmt"
+	"math"
 	"testing"
 
 	"github.com/lightningnetwork/lnd/chainreg"
 	"github.com/lightningnetwork/lnd/htlcswitch"
 	"github.com/lightningnetwork/lnd/lncfg"
+	"github.com/lightningnetwork/lnd/lnwallet"
+	"github.com/lightningnetwork/lnd/lnwallet/chainfee"
 	"github.com/lightningnetwork/lnd/routing"
 	"github.com/lightningnetwork/lnd/tor"
 	"github.com/stretchr/testify/require"
@@ -219,6 +222,67 @@ func TestValidateConfigTrickleDelay(t *testing.T) {
 			require.Equal(
 				t, tc.expectedDelay, cfg.TrickleDelay,
 				"TrickleDelay mismatch",
+			)
+		})
+	}
+}
+
+// TestClampMaxCommitFeeRateAnchors asserts that max-commit-fee-rate-anchors
+// is capped at the fee rate ceiling, so that converting it to sat/kw can't
+// overflow.
+func TestClampMaxCommitFeeRateAnchors(t *testing.T) {
+	t.Parallel()
+
+	maxFeeRate := uint64(lncfg.MaxAllowedFeeRate)
+	defaultFeeRate := uint64(
+		lnwallet.DefaultAnchorsCommitMaxFeeRateSatPerVByte,
+	)
+
+	tests := []struct {
+		name     string
+		feeRate  uint64
+		expected uint64
+	}{
+		{
+			name:     "minimum unchanged",
+			feeRate:  1,
+			expected: 1,
+		},
+		{
+			name:     "default unchanged",
+			feeRate:  defaultFeeRate,
+			expected: defaultFeeRate,
+		},
+		{
+			name:     "maximum unchanged",
+			feeRate:  maxFeeRate,
+			expected: maxFeeRate,
+		},
+		{
+			name:     "above maximum clamped",
+			feeRate:  maxFeeRate + 1,
+			expected: maxFeeRate,
+		},
+		{
+			name:     "overflowing value clamped",
+			feeRate:  math.MaxUint64,
+			expected: maxFeeRate,
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			feeRate := clampMaxCommitFeeRateAnchors(tc.feeRate)
+			require.Equal(t, tc.expected, feeRate)
+
+			// The clamped value must convert to a sat/kw fee rate
+			// within the ceiling.
+			feeRateKw := chainfee.SatPerVByte(
+				feeRate,
+			).FeePerKWeight()
+			require.Positive(t, feeRateKw)
+			require.LessOrEqual(
+				t, feeRateKw, chainfee.FeePerKwCeiling,
 			)
 		})
 	}

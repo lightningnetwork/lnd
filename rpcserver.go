@@ -4212,16 +4212,15 @@ func (r *rpcServer) fetchPendingForceCloseChannels() (pendingForceClose,
 				historical.ChanType,
 			)
 
-			// Get the number of forwarding packages from the
-			// historical channel.
-			fwdPkgs, err := historical.LoadFwdPkgs()
+			numFwdPkgs, err := historical.CountFwdPkgs()
 			if err != nil {
-				rpcsLog.Errorf("unable to load forwarding "+
+				rpcsLog.Errorf("unable to count forwarding "+
 					"packages for channel:%s, %v",
 					historical.ShortChannelID, err)
+
 				return nil, 0, err
 			}
-			channel.NumForwardingPackages = int64(len(fwdPkgs))
+			channel.NumForwardingPackages = int64(numFwdPkgs)
 
 			channel.RemoteBalance = int64(
 				historical.LocalCommitment.RemoteBalance.ToSatoshis(),
@@ -4411,11 +4410,12 @@ func (r *rpcServer) fetchWaitingCloseChannels(
 			)
 		}
 
-		fwdPkgs, err := waitingClose.LoadFwdPkgs()
+		numForwardingPackages, err := waitingClose.CountFwdPkgs()
 		if err != nil {
-			rpcsLog.Errorf("unable to load forwarding packages "+
+			rpcsLog.Errorf("unable to count forwarding packages "+
 				"for channel:%s, %v",
 				waitingClose.ShortChannelID, err)
+
 			return nil, 0, err
 		}
 
@@ -4460,7 +4460,7 @@ func (r *rpcServer) fetchWaitingCloseChannels(
 			CommitmentType: rpcCommitmentType(
 				waitingClose.ChanType,
 			),
-			NumForwardingPackages: int64(len(fwdPkgs)),
+			NumForwardingPackages: int64(numForwardingPackages),
 			ChanStatusFlags:       chanStatus.String(),
 			Private:               isPrivate(waitingClose),
 			Memo:                  string(waitingClose.Memo),

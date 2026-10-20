@@ -150,6 +150,21 @@ func (f subscriberFunc) SubscribeOnionMessages() (*subscribe.Client, error) {
 	return f()
 }
 
+// stubPeeler returns a reply path as it is, or fails with err.
+type stubPeeler struct {
+	err error
+}
+
+func (s *stubPeeler) PeelOwnHops(_ context.Context,
+	path *sphinx.BlindedPath) (*sphinx.BlindedPath, error) {
+
+	if s.err != nil {
+		return nil, s.err
+	}
+
+	return path, nil
+}
+
 // dispatchTest runs a started Handler on a subscribe.Server. It must be created
 // inside a synctest bubble.
 type dispatchTest struct {
@@ -158,6 +173,9 @@ type dispatchTest struct {
 	handler *Handler
 	replier *chanReplier
 	replies chan sentReply
+
+	// peeler is the hop peeler that the handler started with.
+	peeler *stubPeeler
 
 	// cancel ends the context that the handler started with.
 	cancel context.CancelFunc
@@ -207,9 +225,10 @@ func newDispatchTest(t *testing.T, maxInflight int,
 	// The test context ends with the test, which would hide a dispatch
 	// that ends too late. Only the test cancels this context.
 	ctx, cancel := context.WithCancel(context.WithoutCancel(t.Context()))
+	peeler := &stubPeeler{}
 	require.NoError(t, handler.Start(
 		ctx, subscriberFunc(server.Subscribe),
-		testIntroResolver(t, nodeKey),
+		testIntroResolver(t, nodeKey), peeler,
 	))
 
 	return &dispatchTest{
@@ -218,6 +237,7 @@ func newDispatchTest(t *testing.T, maxInflight int,
 		handler:  handler,
 		replier:  replier,
 		replies:  replies,
+		peeler:   peeler,
 		cancel:   cancel,
 		nodeKey:  nodeKey,
 		payerKey: payerKey,
@@ -324,6 +344,22 @@ func TestHandlerDispatch(t *testing.T) {
 			request.ReplyPath = &replyPath
 
 			d.send(&request)
+			d.requireNoReply()
+			d.stop()
+		})
+	})
+
+	t.Run("skips a reply path that ends here", func(t *testing.T) {
+		t.Parallel()
+
+		synctest.Test(t, func(t *testing.T) {
+			d := newDispatchTest(t, 1)
+
+			// The handler gets no peer to send the reply to, so
+			// it drops the request.
+			d.peeler.err = onionmessage.ErrPathEndsAtSelf
+			d.send(d.request)
+
 			d.requireNoReply()
 			d.stop()
 		})
@@ -472,7 +508,7 @@ func TestHandlerDispatch(t *testing.T) {
 			*subscribe.Client, error) {
 
 			return nil, errors.New("no subscription")
-		}), nil)
+		}), nil, nil)
 		require.ErrorContains(t, err, "no subscription")
 		handler.Stop()
 	})
@@ -497,7 +533,7 @@ func TestHandlerDispatch(t *testing.T) {
 			require.FailNow(t, "Start subscribed after Stop")
 
 			return nil, nil
-		}), nil)
+		}), nil, nil)
 		require.ErrorIs(t, err, errHandlerStopped)
 	})
 
@@ -521,7 +557,9 @@ func TestHandlerDispatch(t *testing.T) {
 
 		// The context error tells the caller why nothing started. The
 		// handler did not stop.
-		err = handler.Start(ctx, subscriberFunc(server.Subscribe), nil)
+		err = handler.Start(
+			ctx, subscriberFunc(server.Subscribe), nil, nil,
+		)
 		require.ErrorIs(t, err, context.Canceled)
 		handler.Stop()
 	})
@@ -549,6 +587,7 @@ func TestHandlerDispatch(t *testing.T) {
 				done <- handler.Start(
 					t.Context(),
 					subscriberFunc(server.Subscribe), nil,
+					nil,
 				)
 			}()
 			handler.Stop()

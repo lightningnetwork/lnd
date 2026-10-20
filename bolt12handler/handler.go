@@ -65,6 +65,10 @@ type Handler struct {
 	// Start sets it before the dispatch starts.
 	introResolver IntroNodeResolver
 
+	// hopPeeler removes the hops of this node at the start of a reply
+	// path. Start sets it before the dispatch starts.
+	hopPeeler HopPeeler
+
 	started atomic.Bool
 
 	// gm runs the dispatch and the invoice requests. Its Stop cancels them

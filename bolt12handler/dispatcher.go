@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 
+	sphinx "github.com/lightningnetwork/lightning-onion"
 	"github.com/lightningnetwork/lnd/lnwire"
 	"github.com/lightningnetwork/lnd/onionmessage"
 	"github.com/lightningnetwork/lnd/subscribe"
@@ -37,12 +38,23 @@ type OnionMessageSubscriber interface {
 // errHandlerStopped is returned by Start after Stop.
 var errHandlerStopped = errors.New("handler is stopped")
 
+// HopPeeler removes the hops of this node at the start of a reply
+// path, so that the reply goes to a peer.
+type HopPeeler interface {
+	// PeelOwnHops returns path without the hops of this node at its
+	// start, or path as it is when another node is its introduction node.
+	PeelOwnHops(ctx context.Context,
+		path *sphinx.BlindedPath) (*sphinx.BlindedPath, error)
+}
+
 // Start subscribes to onion messages and answers the invoice requests in
 // them until Stop or until ctx ends. The subscriber must already run. The
-// resolver finds the introduction node of a reply path in the sciddir form.
-// Start after Stop returns an error.
+// resolver finds the introduction node of a reply path in the sciddir form,
+// and the peeler removes the hops of this node at its start. Start after
+// Stop returns an error.
 func (h *Handler) Start(ctx context.Context,
-	subscriber OnionMessageSubscriber, resolver IntroNodeResolver) error {
+	subscriber OnionMessageSubscriber, resolver IntroNodeResolver,
+	peeler HopPeeler) error {
 
 	select {
 	case <-h.gm.Done():
@@ -60,6 +72,7 @@ func (h *Handler) Start(ctx context.Context,
 		return fmt.Errorf("subscribe to onion messages: %w", err)
 	}
 	h.introResolver = resolver
+	h.hopPeeler = peeler
 
 	started := h.gm.Go(ctx, func(ctx context.Context) {
 		h.dispatch(ctx, client)
@@ -213,6 +226,17 @@ func (h *Handler) answerInvoiceRequest(ctx context.Context,
 	sphinxReplyPath, err := replyPath.ToSphinx()
 	if err != nil {
 		log.Debugf("Failed to convert reply path: %v", err)
+
+		return
+	}
+
+	// A payer whose only peer is this node names this node as the
+	// introduction node, to hide its own node id.
+	sphinxReplyPath, err = h.hopPeeler.PeelOwnHops(
+		ctx, sphinxReplyPath,
+	)
+	if err != nil {
+		log.Debugf("Failed to peel own hops off reply path: %v", err)
 
 		return
 	}

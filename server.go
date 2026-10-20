@@ -2453,7 +2453,17 @@ func (s *server) Start(ctx context.Context) error {
 			resolver := bolt12handler.NewGraphIntroResolver(
 				s.graphDB,
 			)
-			err := s.bolt12Handler.Start(ctx, s, resolver)
+			ourPub := s.identityECDH.PubKey()
+			peeler := onionmessage.NewHopPeeler(
+				s.sphinxOnionMsg,
+				onionmessage.NewGraphNodeResolver(
+					s.graphDB, ourPub,
+				),
+				ourPub,
+			)
+			err := s.bolt12Handler.Start(
+				ctx, s, resolver, peeler,
+			)
 			if err != nil {
 				startErr = err
 				return

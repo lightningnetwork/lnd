@@ -677,6 +677,9 @@ func (l *LightningWallet) ResetReservations() {
 // ActiveReservations returns a slice of all the currently active
 // (non-canceled) reservations.
 func (l *LightningWallet) ActiveReservations() []*ChannelReservation {
+	l.limboMtx.RLock()
+	defer l.limboMtx.RUnlock()
+
 	reservations := make([]*ChannelReservation, 0, len(l.fundingLimbo))
 	for _, reservation := range l.fundingLimbo {
 		reservations = append(reservations, reservation)

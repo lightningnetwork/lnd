@@ -10,7 +10,7 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-func initHintCache(t *testing.T) *HeightHintCache {
+func initHintCache(t testing.TB) *HeightHintCache {
 	t.Helper()
 
 	defaultCfg := CacheConfig{
@@ -20,7 +20,7 @@ func initHintCache(t *testing.T) *HeightHintCache {
 	return initHintCacheWithConfig(t, defaultCfg)
 }
 
-func initHintCacheWithConfig(t *testing.T, cfg CacheConfig) *HeightHintCache {
+func initHintCacheWithConfig(t testing.TB, cfg CacheConfig) *HeightHintCache {
 	t.Helper()
 
 	db := OpenForTesting(t, t.TempDir())
@@ -169,4 +169,38 @@ func TestQueryDisable(t *testing.T) {
 	cachedSpendHeight, err := hintCache.QuerySpendHint(spendRequest)
 	require.Nil(t, err)
 	require.Equal(t, uint32(0), cachedSpendHeight)
+}
+
+// BenchmarkHeightHintCacheCommit measures the latency of committing a single
+// spend or confirm hint to a bolt-backed height hint cache. Hints are
+// committed one at a time, mirroring how the TxNotifier and the neutrino
+// rescan progress handler write them.
+func BenchmarkHeightHintCacheCommit(b *testing.B) {
+	b.Run("spend", func(b *testing.B) {
+		hintCache := initHintCache(b)
+		spendRequest := chainntnfs.SpendRequest{
+			OutPoint: wire.OutPoint{Index: 1},
+		}
+
+		var height uint32
+		for b.Loop() {
+			height++
+			err := hintCache.CommitSpendHint(height, spendRequest)
+			require.NoError(b, err)
+		}
+	})
+
+	b.Run("confirm", func(b *testing.B) {
+		hintCache := initHintCache(b)
+		confRequest := chainntnfs.ConfRequest{
+			TxID: chainhash.Hash{0x01},
+		}
+
+		var height uint32
+		for b.Loop() {
+			height++
+			err := hintCache.CommitConfirmHint(height, confRequest)
+			require.NoError(b, err)
+		}
+	})
 }

@@ -6,6 +6,7 @@ import (
 
 	"github.com/btcsuite/btcd/btcutil/v2"
 	"github.com/btcsuite/btcd/chainhash/v2"
+	"github.com/lightningnetwork/lnd/lnwallet/chainfee"
 	"github.com/lightningnetwork/lnd/lnwire"
 )
 
@@ -161,6 +162,17 @@ func ErrChanTooLarge(chanSize, maxChanSize btcutil.Amount) ReservationError {
 	return ReservationError{
 		fmt.Errorf("chan size of %v exceeds maximum chan size of %v",
 			chanSize, maxChanSize),
+	}
+}
+
+// ErrCommitFeeRateTooLow returns an error indicating that the commitment fee
+// rate proposed by the remote party is below the minimum we accept.
+func ErrCommitFeeRateTooLow(feeRate,
+	minFeeRate chainfee.SatPerKWeight) ReservationError {
+
+	return ReservationError{
+		fmt.Errorf("commitment fee rate of %v is below the minimum "+
+			"of %v", feeRate, minFeeRate),
 	}
 }
 

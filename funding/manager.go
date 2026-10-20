@@ -538,7 +538,9 @@ type Config struct {
 	EnableUpfrontShutdown bool
 
 	// MaxAnchorsCommitFeeRate is the max commitment fee rate we'll use as
-	// the initiator for channels of the anchor type.
+	// the initiator for channels of the anchor type. A value below
+	// chainfee.FeePerKwFloor acts as the floor, as we never propose a
+	// commitment fee rate below it.
 	MaxAnchorsCommitFeeRate chainfee.SatPerKWeight
 
 	// DeleteAliasEdge allows the Manager to delete an alias channel edge
@@ -1575,6 +1577,23 @@ func (f *Manager) fundeeProcessOpenChannel(peer lnpeer.Peer,
 		return
 	}
 
+	// Reject a commitment fee rate below the floor that the channel state
+	// machine enforces for every later commitment. We can't raise the rate
+	// ourselves, as both sides need to construct the same commitment
+	// transactions. The floor applies to every commitment type, and the
+	// channel acceptor can't change the rate, so we check it before
+	// consulting the acceptor.
+	commitFeePerKw := chainfee.SatPerKWeight(msg.FeePerKiloWeight)
+	if commitFeePerKw < chainfee.FeePerKwFloor {
+		f.failFundingFlow(
+			peer, cid, lnwallet.ErrCommitFeeRateTooLow(
+				commitFeePerKw, chainfee.FeePerKwFloor,
+			),
+		)
+
+		return
+	}
+
 	// Send the OpenChannel request to the ChannelAcceptor to determine
 	// whether this node will accept the channel.
 	chanReq := &chanacceptor.ChannelAcceptRequest{
@@ -1713,7 +1732,7 @@ func (f *Manager) fundeeProcessOpenChannel(peer lnpeer.Peer,
 		NodeAddr:         peer.Address(),
 		LocalFundingAmt:  0,
 		RemoteFundingAmt: amt,
-		CommitFeePerKw:   chainfee.SatPerKWeight(msg.FeePerKiloWeight),
+		CommitFeePerKw:   commitFeePerKw,
 		FundingFeePerKw:  0,
 		PushMSat:         msg.PushAmount,
 		Flags:            msg.ChannelFlags,
@@ -5015,6 +5034,10 @@ func (f *Manager) handleInitFundingMsg(msg *InitFundingMsg) {
 
 		commitFeePerKw = f.cfg.MaxAnchorsCommitFeeRate
 	}
+
+	// Never propose a commitment fee rate below the floor, as our peer
+	// would reject it. The floor takes precedence over a lower anchor cap.
+	commitFeePerKw = max(commitFeePerKw, chainfee.FeePerKwFloor)
 
 	var scidFeatureVal bool
 	if hasFeatures(

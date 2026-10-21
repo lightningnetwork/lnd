@@ -60,8 +60,9 @@
   propagate into fee-sensitive wallet operations. The API's
   `min_relay_feerate` is now clamped to the same bounds.
 
-* SQL key-value iteration now reports errors encountered while reading rows and
-  preserves the distinction between nested buckets and empty leaf values.
+* SQL key-value iteration now [reports errors encountered while reading
+  rows](https://github.com/lightningnetwork/lnd/pull/11327) and preserves the
+  distinction between nested buckets and empty leaf values.
 
 * [Fixed a deadlock](https://github.com/lightningnetwork/lnd/pull/11347) of
   the native SQL connection pool. When fetching invoices settled since a given

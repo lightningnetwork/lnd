@@ -41,6 +41,56 @@ var (
 	p2wshAddress = "bc1qrp33g0q5c5txsp9arysrx4k6zdkfs4nce4xj0gdcccefvpysxf3qccfmv3"
 )
 
+// stoppedHookUpdateHandler models a link whose event loop is reporting a
+// failure while the peer tries to register a close hook. The event loop only
+// stops after the failure report has left the link.
+type stoppedHookUpdateHandler struct {
+	*mockUpdateHandler
+
+	blockCommit     bool
+	hookStarted     chan struct{}
+	htlcManagerDone chan struct{}
+}
+
+func (s *stoppedHookUpdateHandler) waitForManager(
+	ctx context.Context) error {
+
+	close(s.hookStarted)
+
+	select {
+	case <-s.htlcManagerDone:
+		return htlcswitch.ErrLinkShuttingDown
+	case <-ctx.Done():
+		return ctx.Err()
+	}
+}
+
+func (s *stoppedHookUpdateHandler) OnCommitOnce(
+	ctx context.Context, _ htlcswitch.LinkDirection, hook func(),
+) error {
+	// The commit hook blocks on the manager until the test releases it.
+	if s.blockCommit {
+		return s.waitForManager(ctx)
+	}
+
+	hook()
+
+	return nil
+}
+
+func (s *stoppedHookUpdateHandler) OnFlushedOnce(
+	ctx context.Context, hook func(),
+) error {
+	// The flush hook mirrors commit blocking for the opposite case.
+	if !s.blockCommit {
+		return s.waitForManager(ctx)
+	}
+
+	hook()
+
+	return nil
+}
+
 // TestPeerChannelClosureShutdownResponseLinkRemoved tests the shutdown
 // response we get if the link for the channel can't be found in the
 // switch. This test was added due to a regression.
@@ -368,6 +418,99 @@ func TestPeerChannelClosureFlushDrivesNegotiation(t *testing.T) {
 	notifier.ConfChan <- &chainntnfs.TxConfirmation{}
 }
 
+// TestCloseHookRegistrationDoesNotBlockLinkFailure verifies that a link can
+// hand its failure to the peer while the peer is registering either legacy
+// close hook. The failure report must leave the link before its event loop can
+// stop, and stopping the event loop is what releases hook registration.
+func TestCloseHookRegistrationDoesNotBlockLinkFailure(t *testing.T) {
+	testCases := []struct {
+		name        string
+		blockCommit bool
+	}{
+		{name: "commit hook", blockCommit: true},
+		{name: "flush hook"},
+	}
+
+	for _, testCase := range testCases {
+		t.Run(testCase.name, func(t *testing.T) {
+			harness, err := createTestPeerWithChannel(t, noUpdate)
+			require.NoError(t, err)
+
+			alicePeer := harness.peer
+			chanPoint := harness.channel.ChannelPoint()
+			chanID := lnwire.NewChanIDFromOutPoint(chanPoint)
+			mockLink := &stoppedHookUpdateHandler{
+				mockUpdateHandler: newMockUpdateHandler(chanID),
+				blockCommit:       testCase.blockCommit,
+				hookStarted:       make(chan struct{}),
+				htlcManagerDone:   make(chan struct{}),
+			}
+			harness.mockSwitch.links = []htlcswitch.
+				ChannelUpdateHandler{
+				mockLink,
+			}
+
+			alicePeer.chanCloseMsgs <- &closeMsg{
+				cid: chanID,
+				msg: lnwire.NewShutdown(
+					chanID, genScript(t, p2wshAddress),
+				),
+			}
+
+			if !testCase.blockCommit {
+				select {
+				case out := <-alicePeer.outgoingQueue:
+					_, ok := out.msg.(*lnwire.Shutdown)
+					require.True(t, ok)
+				case <-time.After(timeout):
+					t.Fatal("shutdown was not queued")
+				}
+			}
+
+			select {
+			case <-mockLink.hookStarted:
+			case <-time.After(timeout):
+				t.Fatal("close hook registration did not start")
+			}
+
+			reported := make(chan struct{})
+			report := linkFailureReport{
+				chanPoint: chanPoint,
+				linkErr: htlcswitch.LinkFailureError{
+					FailureAction: htlcswitch.
+						LinkFailureForceNone,
+				},
+			}
+			go func() {
+				select {
+				case alicePeer.linkFailures.ChanIn() <- report:
+					close(reported)
+				case <-alicePeer.cg.Done():
+				}
+			}()
+
+			select {
+			case <-reported:
+				close(mockLink.htlcManagerDone)
+			case <-time.After(timeout):
+				t.Fatal("link failure remained blocked " +
+					"on peer manager")
+			}
+
+			select {
+			case out := <-alicePeer.outgoingQueue:
+				_, ok := out.msg.(*lnwire.Error)
+				require.Truef(t, ok, "expected Error, got %T",
+					out.msg)
+				out.errChan <- nil
+			case <-time.After(timeout):
+				t.Fatal("peer manager did not process " +
+					"link failure")
+			}
+		})
+	}
+}
+
 // TestLinkFailureRetiresRestoredLegacyCloser retires a restored closer after
 // link failure.
 func TestLinkFailureRetiresRestoredLegacyCloser(t *testing.T) {
@@ -471,15 +614,15 @@ func TestLinkFailureRetiresRestoredLegacyCloser(t *testing.T) {
 		reconnectedLink,
 	}
 
+	reconnectedPeer.linkFailures.Start()
 	reconnectedPeer.cg.WgAdd(1)
 	go reconnectedPeer.channelManager()
 	t.Cleanup(func() {
 		reconnectedPeer.Disconnect(errors.New("test complete"))
 		reconnectedPeer.cg.WgWait()
 	})
-	reconnectedPeer.linkFailures <- linkFailureReport{
+	reconnectedPeer.linkFailures.ChanIn() <- linkFailureReport{
 		chanPoint: chanPoint,
-		chanID:    chanID,
 		linkErr: htlcswitch.LinkFailureError{
 			FailureAction: htlcswitch.LinkFailureForceNone,
 		},
@@ -552,9 +695,8 @@ func TestLinkFailureNotifiesLocalCloseRequest(t *testing.T) {
 	case <-time.After(timeout):
 		t.Fatal("peer did not send Shutdown")
 	}
-	alicePeer.linkFailures <- linkFailureReport{
+	alicePeer.linkFailures.ChanIn() <- linkFailureReport{
 		chanPoint: chanPoint,
-		chanID:    chanID,
 		linkErr: htlcswitch.LinkFailureError{
 			FailureAction: htlcswitch.LinkFailureForceNone,
 		},

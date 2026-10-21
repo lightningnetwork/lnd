@@ -432,6 +432,11 @@ type channelLink struct {
 	// the result.
 	quiescenceReqs chan StfuReq
 
+	// htlcManagerDone is closed when the sole receiver for hook
+	// registrations exits. Callers use it to avoid waiting on a receiver
+	// that can no longer accept their request.
+	htlcManagerDone chan struct{}
+
 	// cg is a helper that encapsulates a wait group and quit channel and
 	// allows contexts that either block or cancel on those depending on
 	// the use case.
@@ -541,6 +546,7 @@ func NewChannelLink(cfg ChannelLinkConfig,
 		incomingCommitHooks: newHookMap(),
 		quiescer:            qsm,
 		quiescenceReqs:      quiescenceReqs,
+		htlcManagerDone:     make(chan struct{}),
 		cg:                  fn.NewContextGuard(),
 	}
 }
@@ -761,10 +767,19 @@ func (l *channelLink) IsFlushing(linkDirection LinkDirection) bool {
 // OnFlushedOnce adds a hook that will be called the next time the channel
 // state reaches zero htlcs. This hook will only ever be called once. If the
 // channel state already has zero htlcs, then this will be called immediately.
-func (l *channelLink) OnFlushedOnce(hook func()) {
+func (l *channelLink) OnFlushedOnce(ctx context.Context, hook func()) error {
 	select {
 	case l.flushHooks.newTransients <- hook:
+		return nil
+
+	case <-l.htlcManagerDone:
+		return ErrLinkShuttingDown
+
 	case <-l.cg.Done():
+		return ErrLinkShuttingDown
+
+	case <-ctx.Done():
+		return ctx.Err()
 	}
 }
 
@@ -772,7 +787,9 @@ func (l *channelLink) OnFlushedOnce(hook func()) {
 // message is sent in the argument's LinkDirection. This hook will only ever be
 // called once. If no CommitSig is owed in the argument's LinkDirection, then
 // we will call this hook be run immediately.
-func (l *channelLink) OnCommitOnce(direction LinkDirection, hook func()) {
+func (l *channelLink) OnCommitOnce(ctx context.Context, direction LinkDirection,
+	hook func()) error {
+
 	var queue chan func()
 
 	if direction == Outgoing {
@@ -783,7 +800,16 @@ func (l *channelLink) OnCommitOnce(direction LinkDirection, hook func()) {
 
 	select {
 	case queue <- hook:
+		return nil
+
+	case <-l.htlcManagerDone:
+		return ErrLinkShuttingDown
+
 	case <-l.cg.Done():
+		return ErrLinkShuttingDown
+
+	case <-ctx.Done():
+		return ctx.Err()
 	}
 }
 
@@ -1295,6 +1321,7 @@ func (l *channelLink) handleChanSyncErr(err error) {
 func (l *channelLink) htlcManager(ctx context.Context) {
 	defer func() {
 		l.cfg.BatchTicker.Stop()
+		close(l.htlcManagerDone)
 		l.cg.WgDone()
 		l.log.Infof("exited")
 	}()

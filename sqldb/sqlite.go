@@ -144,8 +144,9 @@ func NewSqliteStore(cfg *SqliteConfig, dbPath string) (*SqliteStore, error) {
 	s := &SqliteStore{
 		cfg: cfg,
 		BaseDB: &BaseDB{
-			DB:      db,
-			Queries: queries,
+			DB:          db,
+			Queries:     queries,
+			BackendType: BackendTypeSqlite,
 		},
 	}
 

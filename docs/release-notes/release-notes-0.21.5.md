@@ -60,6 +60,56 @@
   propagate into fee-sensitive wallet operations. The API's
   `min_relay_feerate` is now clamped to the same bounds.
 
+* SQL key-value iteration now reports errors encountered while reading rows and
+  preserves the distinction between nested buckets and empty leaf values.
+
+* [Fixed a deadlock](https://github.com/lightningnetwork/lnd/pull/11347) of
+  the native SQL connection pool. When fetching invoices settled since a given
+  index, AMP sub-invoices were queried through the connection pool instead of
+  the already open read transaction, so each call needed a second connection.
+  On SQLite nodes, two `SubscribeInvoices` calls with a non-zero
+  `settle_index` starting at the same time could take every pool connection
+  and block all other database access, including other RPCs and graph writes.
+
+* TLV decoding now [grows variable-length values as input
+  arrives](https://github.com/lightningnetwork/lnd/pull/11351) instead of
+  reserving the encoded length up front. Lengths outside the decoder's
+  supported range return errors, while larger non-P2P records remain
+  supported.
+
+* lnd [no longer proposes a commitment fee rate below 253
+  sat/kw](https://github.com/lightningnetwork/lnd/pull/11373), the minimum it
+  accepts for any commitment. This happened with
+  `max-commit-fee-rate-anchors=1`, which converts to 250 sat/kw, and with a
+  bitcoind or btcd backend that reported fee rates below the minimum. lnd now
+  also attempts to raise the commitment fee rate of channels it opened below
+  the minimum, and warns at startup if `max-commit-fee-rate-anchors` is below
+  it. If a pre-existing channel was opened below the minimum and cannot now
+  afford it, lnd [rejects the invalid fee
+  update](https://github.com/lightningnetwork/lnd/pull/11380) before adding or
+  sending it. lnd also rejects an incoming `update_fee` below the minimum
+  instead of force closing the channel on the next `commit_sig`.
+
+* lnd now [rejects an `open_channel` with a commitment fee rate below 253
+  sat/kw](https://github.com/lightningnetwork/lnd/pull/11373) instead of
+  accepting a channel that couldn't carry HTLCs. Nodes running an older lnd
+  with `max-commit-fee-rate-anchors=1` can't open anchor or taproot channels
+  to an upgraded node until they raise that setting or upgrade.
+
+* lnd now [clamps `max-commit-fee-rate-anchors` to 10000
+  sat/vbyte](https://github.com/lightningnetwork/lnd/pull/11380) and logs a
+  warning if it is set higher. Previously a huge value overflowed when
+  converted to sat/kw, which made lnd use the minimum relay fee for anchor
+  commitments instead of the configured cap.
+
+* Wallet synchronization now [handles matching block
+  disconnects](https://github.com/lightningnetwork/lnd/pull/11377) even before
+  the wallet finishes syncing. Orphaned transaction history is rolled back
+  while canonical records and their spend chains are preserved. The
+  transaction store also rejects conflicting block identities at the same
+  height, preventing new inconsistent history. This does not repair a
+  database whose history is already inconsistent.
+
 # New Features
 
 ## Functional Enhancements
@@ -87,6 +137,10 @@
   remote signing node with 255 key family accounts, `WalletBalance` issues
   ~60% fewer queries.
 
+* The `PendingChannels` RPC now [counts forwarding packages without loading
+  their contents](https://github.com/lightningnetwork/lnd/pull/11327), avoiding
+  excessive database queries for channels with many forwarding packages.
+
 ## Deprecations
 
 ### ⚠️ **Warning:** Deprecated fields in `lnrpc.Hop` will be removed in release version **0.22**
@@ -105,9 +159,18 @@
 
 ## Tooling and Documentation
 
+* A new [`txscope` linter](https://github.com/lightningnetwork/lnd/pull/11347)
+  reports database transaction callbacks that use the executor which started
+  the transaction instead of the transaction itself, preventing this class of
+  connection pool deadlocks.
+
 # Contributors (Alphabetical Order)
 
+* Andras Banki-Horvath
+* Boris Nagaev
+* Elle Mouton
 * George Tsagkarelis
+* Gijs van Dam
 * Kevin Cai
 * Olaoluwa Osuntokun
 * Pins

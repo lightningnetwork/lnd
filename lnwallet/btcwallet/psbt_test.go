@@ -625,3 +625,121 @@ func TestBip32DerivationFromAddress(t *testing.T) {
 		require.Equal(t, tc.expectedBip32Path, trD.Bip32Path)
 	}
 }
+
+// TestSignSegWitV0MissingSighashType asserts that a SegWit v0 input whose PSBT
+// entry carries no PSBT_IN_SIGHASH_TYPE field is signed with SIGHASH_ALL, as
+// BIP 174 prescribes, rather than with hash type zero. Hash type zero is only
+// meaningful for taproot, and a v0 signature carrying a 0x00 byte is rejected
+// by standardness rules, making the transaction unrelayable.
+func TestSignSegWitV0MissingSighashType(t *testing.T) {
+	t.Parallel()
+
+	testCases := []struct {
+		name   string
+		nested bool
+	}{{
+		name:   "p2wkh",
+		nested: false,
+	}, {
+		name:   "np2wkh",
+		nested: true,
+	}}
+
+	for _, tc := range testCases {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+
+			assertSignedWithSigHashAll(t, tc.nested)
+		})
+	}
+}
+
+// assertSignedWithSigHashAll signs a single v0 input that declares no sighash
+// type, then asserts both that SIGHASH_ALL was used and that the resulting
+// witness passes the standard verification flags a relaying node applies.
+func assertSignedWithSigHashAll(t *testing.T, nested bool) {
+	t.Helper()
+
+	privKey, err := btcec.NewPrivateKey()
+	require.NoError(t, err)
+
+	pubKey := privKey.PubKey().SerializeCompressed()
+	witnessAddr, err := address.NewAddressWitnessPubKeyHash(
+		address.Hash160(pubKey), netParams,
+	)
+	require.NoError(t, err)
+
+	witnessScript, err := txscript.PayToAddrScript(witnessAddr)
+	require.NoError(t, err)
+
+	// For a nested input the p2wkh script becomes the redeem script and
+	// the prevout pays to its hash instead.
+	pkScript := witnessScript
+	var redeemScript []byte
+	if nested {
+		redeemScript = witnessScript
+
+		nestedAddr, err := address.NewAddressScriptHash(
+			witnessScript, netParams,
+		)
+		require.NoError(t, err)
+
+		pkScript, err = txscript.PayToAddrScript(nestedAddr)
+		require.NoError(t, err)
+	}
+
+	prevOut := &wire.TxOut{Value: testValue, PkScript: pkScript}
+
+	refTx := wire.NewMsgTx(2)
+	refTx.AddTxIn(&wire.TxIn{})
+	refTx.AddTxOut(prevOut)
+
+	spendTx := wire.NewMsgTx(2)
+	spendTx.AddTxIn(&wire.TxIn{
+		PreviousOutPoint: wire.OutPoint{Hash: refTx.TxHash()},
+	})
+	spendTx.AddTxOut(&wire.TxOut{
+		Value:    testValue - 1000,
+		PkScript: pkScript,
+	})
+
+	// Deliberately leave SighashType at its zero value, which is how an
+	// absent PSBT_IN_SIGHASH_TYPE field is parsed.
+	in := &psbt.PInput{
+		WitnessUtxo:  prevOut,
+		RedeemScript: redeemScript,
+	}
+	require.Equal(t, txscript.SigHashDefault, in.SighashType)
+
+	fetcher := txscript.NewCannedPrevOutputFetcher(
+		prevOut.PkScript, prevOut.Value,
+	)
+	sigHashes := txscript.NewTxSigHashes(spendTx, fetcher)
+
+	require.NoError(t, signSegWitV0(in, spendTx, sigHashes, 0, privKey))
+	require.Len(t, in.PartialSigs, 1)
+
+	// The signature must be tagged SIGHASH_ALL, not hash type zero.
+	sig := in.PartialSigs[0].Signature
+	require.Equal(
+		t, byte(txscript.SigHashAll), sig[len(sig)-1],
+		"expected the signature to be tagged SIGHASH_ALL",
+	)
+
+	// Assemble the witness and confirm a relaying node would accept it.
+	spendTx.TxIn[0].Witness = wire.TxWitness{sig, pubKey}
+	if nested {
+		sigScript, err := txscript.NewScriptBuilder().
+			AddData(redeemScript).Script()
+		require.NoError(t, err)
+
+		spendTx.TxIn[0].SignatureScript = sigScript
+	}
+
+	vm, err := txscript.NewEngine(
+		prevOut.PkScript, spendTx, 0, txscript.StandardVerifyFlags,
+		nil, sigHashes, prevOut.Value, fetcher,
+	)
+	require.NoError(t, err)
+	require.NoError(t, vm.Execute())
+}

@@ -436,6 +436,30 @@ func EstimateInputWeight(in *psbt.PInput, w *input.TxWeightEstimator) error {
 	return nil
 }
 
+// SighashTypeForWitnessV0 returns the sighash type that should be used when
+// signing a SegWit v0 (p2wkh or np2wkh) input.
+//
+// BIP 174 states that a signer should assume SIGHASH_ALL when an input carries
+// no PSBT_IN_SIGHASH_TYPE field. Once a PSBT has been parsed, an absent field
+// is indistinguishable from an explicit zero, so we map zero onto SIGHASH_ALL
+// here. That mapping is only safe because zero is not a valid hash type for
+// SegWit v0 at all: it is meaningful solely for taproot, where it denotes
+// SIGHASH_DEFAULT. Signing a v0 input with hash type zero appends a 0x00 byte
+// to the signature, which standardness rules reject ("invalid hash type 0x0"),
+// so the resulting transaction cannot be relayed.
+//
+// NOTE: callers must not apply this to taproot inputs, as it would turn a
+// valid SIGHASH_DEFAULT into an explicit SIGHASH_ALL.
+func SighashTypeForWitnessV0(
+	sigHashType txscript.SigHashType) txscript.SigHashType {
+
+	if sigHashType == txscript.SigHashDefault {
+		return txscript.SigHashAll
+	}
+
+	return sigHashType
+}
+
 // SignSegWitV0 attempts to generate a signature for a SegWit version 0 input
 // and stores it in the PartialSigs (and FinalScriptSig for np2wkh addresses)
 // field.
@@ -455,7 +479,7 @@ func signSegWitV0(in *psbt.PInput, tx *wire.MsgTx,
 	// We have everything we need for signing the input now.
 	sig, err := txscript.RawTxInWitnessSignature(
 		tx, sigHashes, idx, in.WitnessUtxo.Value, subScript,
-		in.SighashType, privKey,
+		SighashTypeForWitnessV0(in.SighashType), privKey,
 	)
 	if err != nil {
 		return fmt.Errorf("error signing input %d: %w", idx, err)

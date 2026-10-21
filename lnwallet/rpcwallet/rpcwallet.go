@@ -306,13 +306,25 @@ func (r *RPCKeyRing) FinalizePsbt(packet *psbt.Packet, _ string) error {
 			continue
 		}
 		fullTx := utxo.PrevTx
+
+		// A PSBT input is not required to carry a sighash type, and an
+		// absent field parses as zero. Zero is only a valid hash type
+		// for taproot (where it means SIGHASH_DEFAULT), so for every
+		// other input type we fall back to SIGHASH_ALL as BIP 174
+		// prescribes. Signing a SegWit v0 input with hash type zero
+		// yields a signature that standardness rules reject.
+		hashType := in.SighashType
+		if !txscript.IsPayToTaproot(utxo.PkScript) {
+			hashType = btcwallet.SighashTypeForWitnessV0(hashType)
+		}
+
 		signDesc := &input.SignDescriptor{
 			KeyDesc: keychain.KeyDescriptor{},
 			Output: &wire.TxOut{
 				Value:    int64(utxo.Value),
 				PkScript: utxo.PkScript,
 			},
-			HashType:          in.SighashType,
+			HashType:          hashType,
 			SigHashes:         sigHashes,
 			InputIndex:        idx,
 			PrevOutputFetcher: prevOutFetcher,

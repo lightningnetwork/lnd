@@ -140,8 +140,8 @@ func TestValidationBarrierQuit(t *testing.T) {
 	select {
 	case <-time.After(timeout):
 		// Expected since no slots open.
-	case <-jobErrs:
-		t.Fatalf("job should not have been signaled")
+	case err := <-jobErrs:
+		t.Fatalf("job should not have been signaled: %v", err)
 	}
 
 	// Complete the first half of jobs, one at a time, verifying that they
@@ -244,7 +244,7 @@ func TestValidationBarrierParentJobsClear(t *testing.T) {
 	require.NoError(t, err)
 
 	run := func(vb *ValidationBarrier, childJobID JobID, job interface{},
-		resp chan error, start chan error) {
+		resp chan error, start chan struct{}) {
 
 		close(start)
 
@@ -254,8 +254,8 @@ func TestValidationBarrierParentJobsClear(t *testing.T) {
 
 	errChan := make(chan error, 2)
 
-	startChan1 := make(chan error, 1)
-	startChan2 := make(chan error, 1)
+	startChan1 := make(chan struct{})
+	startChan2 := make(chan struct{})
 
 	go run(barrier, childID1, upd1, errChan, startChan1)
 	go run(barrier, childID2, node1, errChan, startChan2)
@@ -295,13 +295,15 @@ func TestValidationBarrierParentJobsClear(t *testing.T) {
 	require.NoError(t, err)
 
 	select {
-	case <-errChan:
+	case err := <-errChan:
+		require.NoError(t, err)
 	case <-time.After(timeout):
 		t.Fatal("unexpected timeout waiting for first error signal")
 	}
 
 	select {
-	case <-errChan:
+	case err := <-errChan:
+		require.NoError(t, err)
 	case <-time.After(timeout):
 		t.Fatal("unexpected timeout waiting for second error signal")
 	}

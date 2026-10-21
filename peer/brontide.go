@@ -713,9 +713,11 @@ type Brontide struct {
 	// reachable here.
 	activeCloseReqs *closeReqRegistry
 
-	// linkFailures receives all reported channel failures from the switch,
-	// and instructs the channelManager to clean remaining channel state.
-	linkFailures chan linkFailureReport
+	// linkFailures decouples link failure producers from the channelManager
+	// that consumes them. Each link reports at most one failure, and the
+	// unbounded queue preserves every report without making a link wait for
+	// the manager to be ready.
+	linkFailures *fn.ConcurrentQueue[linkFailureReport]
 
 	// chanCloseMsgs is a channel that any message related to channel
 	// closures are sent over. This includes lnwire.Shutdown message as
@@ -809,7 +811,7 @@ func NewBrontide(cfg Config) *Brontide {
 		]{},
 		localCloseChanReqs: make(chan *htlcswitch.ChanClose),
 		activeCloseReqs:    newCloseReqRegistry(),
-		linkFailures:       make(chan linkFailureReport),
+		linkFailures:       fn.NewConcurrentQueue[linkFailureReport](1),
 		chanCloseMsgs:      make(chan *closeMsg),
 		chanCloseFlushed:   make(chan lnwire.ChannelID),
 		resentChanSyncMsg:  make(map[lnwire.ChannelID]struct{}),
@@ -1018,6 +1020,12 @@ func (p *Brontide) Start() error {
 	p.msgRouter.WhenSome(func(router msgmux.Router) {
 		router.Start(context.Background())
 	})
+
+	// Links are started while loading active channels below, and may
+	// report a failure immediately. Start their failure queue before any
+	// link can use it. Disconnect owns queue shutdown even if Start
+	// returns an error, as it does for the peer's other resources.
+	p.linkFailures.Start()
 
 	msgs, err := p.loadActiveChannels(activeChans)
 	if err != nil {
@@ -1571,19 +1579,18 @@ func (p *Brontide) addLink(chanPoint *wire.OutPoint,
 
 	// onChannelFailure will be called by the link in case the channel
 	// fails for some reason.
-	onChannelFailure := func(chanID lnwire.ChannelID,
+	onChannelFailure := func(_ lnwire.ChannelID,
 		shortChanID lnwire.ShortChannelID,
 		linkErr htlcswitch.LinkFailureError) {
 
 		failure := linkFailureReport{
 			chanPoint:   *chanPoint,
-			chanID:      chanID,
 			shortChanID: shortChanID,
 			linkErr:     linkErr,
 		}
 
 		select {
-		case p.linkFailures <- failure:
+		case p.linkFailures.ChanIn() <- failure:
 		case <-p.cg.Done():
 		case <-p.cfg.Quit:
 		}
@@ -1848,6 +1855,7 @@ func (p *Brontide) Disconnect(reason error) {
 	p.cfg.Conn.Close()
 
 	p.cg.Quit()
+	p.linkFailures.Stop()
 
 	// If our msg router isn't global (local to this instance), then we'll
 	// stop it. Otherwise, we'll leave it running.
@@ -3692,7 +3700,7 @@ out:
 		// We've received a link failure from a link that was added to
 		// the switch. This will initiate the teardown of the link, and
 		// initiate any on-chain closures if necessary.
-		case failure := <-p.linkFailures:
+		case failure := <-p.linkFailures.ChanOut():
 			p.handleLinkFailure(failure)
 
 		// We've received a new cooperative channel closure related
@@ -4303,11 +4311,14 @@ func (p *Brontide) initNegotiateChanCloser(req *htlcswitch.ChanClose,
 			"disabled: %v", link.ChanID())
 	}
 
-	link.OnCommitOnce(htlcswitch.Outgoing, func() {
+	ctx, cancel := p.cg.Create(context.Background())
+	defer cancel()
+
+	err = link.OnCommitOnce(ctx, htlcswitch.Outgoing, func() {
 		p.queueMsg(shutdownMsg, nil)
 	})
 
-	return nil
+	return err
 }
 
 // ChooseAddr returns the provided address if it is non-zero length, otherwise
@@ -4603,7 +4614,10 @@ func (p *Brontide) chanFlushEventSentinel(chanCloser *chancloser.RbfChanCloser,
 				// Request the link to send the event once the
 				// channel is flushed. We only need this event
 				// sent once, so we can exit now.
-				link.OnFlushedOnce(sendChanFlushed)
+				ctx, cancel := p.cg.Create(context.Background())
+				defer cancel()
+
+				_ = link.OnFlushedOnce(ctx, sendChanFlushed)
 
 				return
 			}
@@ -5142,7 +5156,6 @@ func (p *Brontide) handleLocalCloseReq(req *htlcswitch.ChanClose) {
 // force close if necessary.
 type linkFailureReport struct {
 	chanPoint   wire.OutPoint
-	chanID      lnwire.ChannelID
 	shortChanID lnwire.ShortChannelID
 	linkErr     htlcswitch.LinkFailureError
 }
@@ -5217,12 +5230,12 @@ func (p *Brontide) handleLinkFailure(failure linkFailureReport) {
 		var networkMsg lnwire.Message
 		if failure.linkErr.Warning {
 			networkMsg = &lnwire.Warning{
-				ChanID: failure.chanID,
+				ChanID: chanID,
 				Data:   data,
 			}
 		} else {
 			networkMsg = &lnwire.Error{
-				ChanID: failure.chanID,
+				ChanID: chanID,
 				Data:   data,
 			}
 		}
@@ -5855,6 +5868,9 @@ func (p *Brontide) handleCloseMsg(msg *closeMsg) {
 	// We'll either continue negotiation, or halt.
 	switch typed := msg.msg.(type) {
 	case *lnwire.Shutdown:
+		ctx, cancel := p.cg.Create(context.Background())
+		defer cancel()
+
 		// A missing link only proves the channel has flushed when the
 		// channel state is clean. Link removal also happens on paths
 		// that do not retire the closer, so the closer alone is not
@@ -5877,6 +5893,8 @@ func (p *Brontide) handleCloseMsg(msg *closeMsg) {
 			return
 		}
 
+		var hookErr error
+
 		oShutdown.WhenSome(func(msg lnwire.Shutdown) {
 			// If the link is nil it means we can immediately queue
 			// the Shutdown message since we don't have to wait for
@@ -5896,10 +5914,16 @@ func (p *Brontide) handleCloseMsg(msg *closeMsg) {
 			// When we have a Shutdown to send, we defer it till the
 			// next time we send a CommitSig to remain spec
 			// compliant.
-			link.OnCommitOnce(htlcswitch.Outgoing, func() {
-				p.queueMsg(&msg, nil)
-			})
+			hookErr = link.OnCommitOnce(
+				ctx, htlcswitch.Outgoing, func() {
+					p.queueMsg(&msg, nil)
+				},
+			)
 		})
+
+		if hookErr != nil {
+			return
+		}
 
 		// Without a link there's no commitment traffic left to drain,
 		// so the channel is already flushed as far as we're concerned.
@@ -5911,7 +5935,7 @@ func (p *Brontide) handleCloseMsg(msg *closeMsg) {
 
 		// Otherwise, we register a flush hook so we hear about it once
 		// the link finishes draining.
-		link.OnFlushedOnce(func() {
+		err = link.OnFlushedOnce(ctx, func() {
 			// Remove link in goroutine to prevent deadlock.
 			go p.cfg.Switch.RemoveLink(msg.cid)
 
@@ -5929,6 +5953,9 @@ func (p *Brontide) handleCloseMsg(msg *closeMsg) {
 				}
 			}()
 		})
+		if err != nil {
+			return
+		}
 
 	case *lnwire.ClosingSigned:
 		oClosingSigned, err := chanCloser.ReceiveClosingSigned(*typed)

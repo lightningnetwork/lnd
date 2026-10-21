@@ -1,0 +1,18 @@
+# This file maps the Git author names of contributors to the names listed in
+# the contributors section of the release notes, see
+# docs/release-notes/README.md. Each line maps all commits authored with the
+# given email to the given name, as reported by git log's %aN.
+#
+# Add a line here, rather than editing the generated contributor list, when
+# a contributor appears under several names or prefers a different one.
+elsirion <elsirion+bot@protonmail.com>
+hieblmi <hieblmi@protonmail.com>
+Kevin Cai <kevincai96@gmail.com>
+Oliver Gugger <gugger@gmail.com>
+Pins <mpinsdorf@gmail.com>
+Pins <pinsdorf@proton.me>
+Suheb <39208279+saubyk@users.noreply.github.com>
+Yong Yu <yong2452@gmail.com>
+Yong Yu <yy2452@columbia.edu>
+Ziggie <90319354+ziggie1984@users.noreply.github.com>
+Ziggie <ziggie1984@protonmail.com>

@@ -213,7 +213,13 @@ docker-release: docker-release-cache
 
 	# Run the actual compilation inside the docker image. We pass in all flags
 	# that we might want to overwrite in manual tests.
-	$(DOCKER_RELEASE_HELPER) make release tag="$(tag)" sys="$(sys)" COMMIT="$(COMMIT)" 
+	$(DOCKER_RELEASE_HELPER) make release tag="$(tag)" sys="$(sys)" COMMIT="$(COMMIT)"
+
+#? release-notes: Fold the release note fragments into the release notes of version=<major>.<minor>.<patch>, listing the contributors since from=<tag> (defaults to the newest release tag below version)
+release-notes:
+	@$(call print, "Folding release note fragments.")
+	if [ "$(version)" = "" ]; then echo "Must specify version=<major>.<minor>.<patch>!"; exit 1; fi
+	$(GOCC) run ./scripts/release-notes "$(version)" $(from)
 
 docker-tools:
 	@$(call print, "Building tools docker image.")

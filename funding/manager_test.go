@@ -1009,6 +1009,8 @@ func assertFundingMsgSent(t *testing.T, msgChan chan lnwire.Message,
 		ok      bool
 	)
 	switch msgType {
+	case "OpenChannel":
+		sentMsg, ok = msg.(*lnwire.OpenChannel)
 	case "AcceptChannel":
 		sentMsg, ok = msg.(*lnwire.AcceptChannel)
 	case "FundingCreated":
@@ -1904,6 +1906,49 @@ func testLocalCSVLimit(t *testing.T, aliceMaxCSV, bobRequiredCSV uint16) {
 	case <-time.After(time.Second * 5):
 		t.Fatal("funding flow was not failed")
 	}
+}
+
+// TestFundingManagerFundeeReservationCleanup checks that the fundee releases
+// its wallet reservation when it declines an open_channel message.
+func TestFundingManagerFundeeReservationCleanup(t *testing.T) {
+	t.Parallel()
+
+	alice, bob := setupFundingManagers(t)
+	t.Cleanup(func() {
+		tearDownFundingManagers(t, alice, bob)
+	})
+
+	// Make Bob require a CSV delay above Alice's maximum, so that Alice
+	// declines the channel.
+	alice.fundingMgr.cfg.MaxLocalCSVDelay = 400
+	bob.fundingMgr.cfg.RequiredRemoteDelay = func(_ btcutil.Amount) uint16 {
+		return 500
+	}
+
+	initReq := &InitFundingMsg{
+		Peer:            alice,
+		TargetPubkey:    alice.privKey.PubKey(),
+		ChainHash:       *fundingNetParams.GenesisHash,
+		LocalFundingAmt: 200000,
+		FundingFeePerKw: 1000,
+		Updates:         make(chan *lnrpc.OpenStatusUpdate),
+		Err:             make(chan error, 1),
+	}
+	bob.fundingMgr.InitFundingWorkflow(initReq)
+
+	openChannelReq, ok := assertFundingMsgSent(
+		t, bob.msgChan, "OpenChannel",
+	).(*lnwire.OpenChannel)
+	require.True(t, ok)
+
+	alice.fundingMgr.ProcessFundingMsg(openChannelReq, bob)
+	assertFundingMsgSent(t, alice.msgChan, "Error")
+
+	// Alice must not have any reservations left in her wallet.
+	wallet := alice.fundingMgr.cfg.Wallet
+	require.Eventually(t, func() bool {
+		return len(wallet.ActiveReservations()) == 0
+	}, 5*time.Second, 10*time.Millisecond)
 }
 
 func TestFundingManagerRestartBehavior(t *testing.T) {

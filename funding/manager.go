@@ -1722,6 +1722,19 @@ func (f *Manager) fundeeProcessOpenChannel(peer lnpeer.Peer,
 		return
 	}
 
+	// Until the reservation is added to activeReservations below, this
+	// function owns it and releases it when returning early.
+	reservationTracked := false
+	defer func() {
+		if reservationTracked {
+			return
+		}
+
+		if err := reservation.Cancel(); err != nil {
+			log.Errorf("Unable to cancel reservation: %v", err)
+		}
+	}()
+
 	log.Debugf("Initialized channel reservation: zeroConf=%v, psbt=%v, "+
 		"cannedShim=%v", reservation.IsZeroConf(),
 		reservation.IsPsbt(), reservation.IsCannedShim())
@@ -1896,6 +1909,7 @@ func (f *Manager) fundeeProcessOpenChannel(peer lnpeer.Peer,
 		peer:              peer,
 	}
 	f.activeReservations[peerIDKey][msg.PendingChannelID] = resCtx
+	reservationTracked = true
 	f.resMtx.Unlock()
 
 	// Update the timestamp once the fundingOpenMsg has been handled.

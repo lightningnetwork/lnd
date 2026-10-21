@@ -260,6 +260,22 @@ const (
 	defaultNoDisconnectOnPongFailure = false
 )
 
+// clampMaxCommitFeeRateAnchors caps the configured max commitment fee rate of
+// anchor channels, in sat/vbyte, at the largest fee rate we ever use. Fee
+// estimates are already capped at that ceiling, so a larger value behaves the
+// same, but converting a huge value to sat/kw would overflow.
+func clampMaxCommitFeeRateAnchors(feeRate uint64) uint64 {
+	maxFeeRate := uint64(lncfg.MaxAllowedFeeRate)
+	if feeRate <= maxFeeRate {
+		return feeRate
+	}
+
+	ltndLog.Warnf("max-commit-fee-rate-anchors=%d exceeds maximum (%d), "+
+		"clamping to maximum", feeRate, maxFeeRate)
+
+	return maxFeeRate
+}
+
 // validateMaxOutgoingCltvExpiry validates the configured maximum outgoing CLTV
 // expiry against the node's default time lock delta.
 func validateMaxOutgoingCltvExpiry(maxCltvExpiry, timeLockDelta uint32) error {
@@ -498,7 +514,7 @@ type Config struct {
 
 	MaxChannelFeeAllocation float64 `long:"max-channel-fee-allocation" description:"The maximum percentage of total funds that can be allocated to a channel's commitment fee. This only applies for the initiator of the channel. Valid values are within [0.1, 1]."`
 
-	MaxCommitFeeRateAnchors uint64 `long:"max-commit-fee-rate-anchors" description:"The maximum fee rate in sat/vbyte that will be used for commitments of channels of the anchors type. If this is below the minimum commitment fee rate of 253 sat/kw, the minimum is used instead."`
+	MaxCommitFeeRateAnchors uint64 `long:"max-commit-fee-rate-anchors" description:"The maximum fee rate in sat/vbyte that will be used for commitments of channels of the anchors type. If this is below the minimum commitment fee rate of 253 sat/kw, the minimum is used instead. Values above 10000 sat/vbyte are clamped to 10000."`
 
 	DryRunMigration bool `long:"dry-run-migration" description:"If true, lnd will abort committing a migration if it would otherwise have been successful. This leaves the database unmodified, and still compatible with the previously active version of lnd."`
 
@@ -1771,6 +1787,10 @@ func ValidateConfig(cfg Config, interceptor signal.Interceptor, fileParser,
 			"than %v", cfg.PendingCommitInterval,
 			maxPendingCommitInterval)
 	}
+
+	cfg.MaxCommitFeeRateAnchors = clampMaxCommitFeeRateAnchors(
+		cfg.MaxCommitFeeRateAnchors,
+	)
 
 	// The commitment fee floor takes precedence over a lower cap on the
 	// commitment fee rate of anchor channels, both when opening a channel

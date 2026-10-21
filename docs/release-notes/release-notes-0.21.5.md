@@ -26,15 +26,6 @@
   The remote party's next revocation point now uses `fn.Option`, so callers
   handle the optional state explicitly.
 
-* Taproot commitment signing and verification now [release transient MuSig2
-  signer sessions](https://github.com/lightningnetwork/lnd/pull/11246) once
-  the local node no longer needs them. Force-close and cooperative-close
-  signing continue to retain their sessions until signature combination, with
-  cooperative-close rounds releasing their session when the round completes
-  or is aborted. Invalid MuSig2 partial commitment signatures are now rejected
-  with the commitment height and transaction attached, and those debug details
-  are sent to the remote peer.
-
 * [Tightened the validation](https://github.com/lightningnetwork/lnd/pull/11068)
   of auxiliary HTLC signatures on taproot overlay channels. Their count is now
   checked against the number of HTLCs on the commitment, mirroring the check
@@ -47,6 +38,15 @@
   not be swept at force close time. They now force close the channel as soon as
   a commitment carries an HTLC. Peers running an older `tapd` with the aux
   signer attached are unaffected.
+
+* Taproot commitment signing and verification now [release transient MuSig2
+  signer sessions](https://github.com/lightningnetwork/lnd/pull/11246) once
+  the local node no longer needs them. Force-close and cooperative-close
+  signing continue to retain their sessions until signature combination, with
+  cooperative-close rounds releasing their session when the round completes
+  or is aborted. Invalid MuSig2 partial commitment signatures are now rejected
+  with the commitment height and transaction attached, and those debug details
+  are sent to the remote peer.
 
 * Native SQLite graph migrations [now accept policies with empty
   signatures](https://github.com/lightningnetwork/lnd/pull/11311) instead of

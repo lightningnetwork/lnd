@@ -61,6 +61,8 @@ jobs:
       # True when the PR only touches files under docs/ or markdown files.
       # Push and merge_group runs never set this.
       docs-only: ${{ steps.docs-only.outputs.docs-only }}
+      # Enforce replacement coverage before omitting normal SQL tests.
+      sql-race-required: ${{ steps.sql-race-required.outputs.sql-race-required }}
     steps:
       # Anything that isn't under docs/ or a markdown file counts as code and
       # runs full CI. Renamed files are checked under both their old and new
@@ -117,6 +119,34 @@ jobs:
             echo "${msg}" >> "$GITHUB_STEP_SUMMARY"
           fi
           echo "docs-only=${docs_only}" >> "$GITHUB_OUTPUT"
+
+      # Normal SQL contexts may be skipped only when their race replacements
+      # are required. Unreadable rules retain actual tests, not skip notices.
+      - name: SQL race prerequisites
+        id: sql-race-required
+        if: >-
+          github.event_name == 'pull_request' &&
+          github.event.pull_request.draft == false &&
+          steps.docs-only.outputs.docs-only != 'true'
+        env:
+          GH_TOKEN: ${{ github.token }}
+          BASE_REF: ${{ github.base_ref }}
+        run: |
+          required=false
+          branch=$(jq -rn --arg ref "$BASE_REF" '$ref | @uri')
+          if rules=$(gh api --paginate --slurp \
+            "repos/${GITHUB_REPOSITORY}/rules/branches/${branch}?per_page=100" \
+            2>/dev/null); then
+            # Collect all active rules, including organization rules and pages.
+            required=$(jq -er '
+              [.[][] | select(.type == "required_status_checks") |
+               .parameters.required_status_checks[]?.context] as $contexts |
+              ["Run unit tests (unit-race tags=\"test_db_sqlite\")",
+               "Run unit tests (unit-race tags=\"test_db_postgres\")"] |
+              all(. as $context | $contexts | index($context) != null)
+            ' <<< "$rules" 2>/dev/null) || required=false
+          fi
+          echo "sql-race-required=${required}" >> "$GITHUB_OUTPUT"
 
   static-checks:
     name: Static Checks
@@ -299,8 +329,19 @@ jobs:
     # counts as passed.
     if: ${{ !cancelled() }}
     env:
-      # Skipped for documentation-only changes; on draft PRs only the race legs are skipped.
-      SKIP: ${{ needs.ci-gate.outputs.docs-only == 'true' || (github.event.pull_request.draft == true && startsWith(matrix.unit_type, 'unit-race')) }}
+      # Documentation-only changes skip every leg. Draft PRs use normal SQL.
+      # Ready PRs skip normal SQL only if both race checks are required;
+      # unreadable rules retain real tests under existing required names.
+      # Keep each matrix leg instantiated when skipping its steps.
+      SKIP: >-
+        ${{ needs.ci-gate.outputs.docs-only == 'true' ||
+            (github.event.pull_request.draft == true &&
+             startsWith(matrix.unit_type, 'unit-race')) ||
+            (github.event_name == 'pull_request' &&
+             github.event.pull_request.draft == false &&
+             needs.ci-gate.outputs.sql-race-required == 'true' &&
+             (matrix.unit_type == 'unit tags="test_db_sqlite"' ||
+              matrix.unit_type == 'unit tags="test_db_postgres"')) }}
     name: Run unit tests
     runs-on: ubuntu-latest
     strategy:
@@ -321,7 +362,7 @@ jobs:
     steps:
       - name: Skip notice
         if: env.SKIP == 'true'
-        run: echo "::notice::Job auto-passed (documentation-only change or draft PR)"
+        run: echo "::notice::Job auto-passed (CI selection policy)"
 
       - name: Git checkout
         if: env.SKIP != 'true'

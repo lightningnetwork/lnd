@@ -498,8 +498,6 @@ jobs:
             args: backend=bitcoind dbbackend=postgres
           - name: bitcoind-postgres-nativesql
             args: backend=bitcoind dbbackend=postgres nativesql=true
-          - name: bitcoind-postgres-nativesql-experiment
-            args: backend=bitcoind dbbackend=postgres nativesql=true tags=test_native_sql
     steps:
       - name: Git checkout
         uses: actions/checkout@v5

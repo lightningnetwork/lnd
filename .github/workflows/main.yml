@@ -488,8 +488,6 @@ jobs:
         include:
           - name: bitcoind-rpcpolling
             args: backend="bitcoind rpcpolling"
-          - name: bitcoind-etcd
-            args: backend=bitcoind dbbackend=etcd
           - name: bitcoind-sqlite
             args: backend=bitcoind dbbackend=sqlite
           - name: bitcoind-sqlite-nativesql

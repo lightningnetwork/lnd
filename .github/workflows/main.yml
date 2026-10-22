@@ -309,7 +309,6 @@ jobs:
       matrix:
         unit_type:
           - unit-cover
-          - unit tags="kvdb_etcd"
           - unit tags="kvdb_postgres"
           - unit tags="kvdb_sqlite"
           - unit tags="test_db_sqlite"

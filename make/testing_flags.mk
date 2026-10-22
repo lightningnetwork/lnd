@@ -154,6 +154,60 @@ UNIT_DEBUG := $(GOLIST) | $(XARGS) env $(GOTEST) -v -tags="$(DEV_TAGS) $(RPC_TAG
 UNIT_RACE := $(UNIT) -race
 # NONE is a special value which selects no other tests but only executes the benchmark tests here.
 UNIT_BENCH := $(GOLIST) | $(XARGS) env $(GOTEST) -tags="$(DEV_TAGS) $(RPC_TAGS) $(LOG_TAGS)" -test.bench=. -test.run=NONE
+
+ifneq ($(filter test_db_sqlite test_db_postgres,$(tags)),)
+# These packages have identical source, test and dependency inputs under
+# the default and SQL test tags. Keep their race coverage in the default
+# job and omit the duplicate executions in the SQL variants.
+SQL_RACE_UNCHANGED_PACKAGES := \
+	actor \
+	aezeed \
+	amp \
+	blockcache \
+	bolt12 \
+	brontide \
+	buffer \
+	build \
+	cert \
+	clock \
+	feature \
+	fn/v2 \
+	graph/db/models \
+	healthcheck \
+	htlcswitch/hodl \
+	htlcswitch/hop \
+	internal/musig2v040 \
+	keychain \
+	lnencrypt \
+	lntypes \
+	lnutils \
+	lnwallet/chainfee \
+	lnwallet/chanfunding \
+	lnwallet/chanvalidate \
+	lnwire \
+	msgmux \
+	multimutex \
+	pool \
+	queue \
+	record \
+	reputation \
+	routing/route \
+	routing/shards \
+	shachain \
+	sqldb/sqlc \
+	subscribe \
+	ticker \
+	tlv \
+	tor \
+	zpay32
+
+# Match complete import paths so excluding a package cannot exclude its
+# SQL-sensitive children. Preserve the full-suite test tags and flags.
+UNIT_RACE := $(GOLIST) | \
+	grep -vFx $(addprefix -e $(PKG)/,$(SQL_RACE_UNCHANGED_PACKAGES)) | \
+	$(XARGS) env $(GOTEST) \
+	-tags="$(DEV_TAGS) $(RPC_TAGS) $(LOG_TAGS)" $(TEST_FLAGS) -race
+endif
 endif
 
 

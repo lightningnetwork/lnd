@@ -49,6 +49,7 @@ import (
 	"github.com/lightningnetwork/lnd/macaroons"
 	"github.com/lightningnetwork/lnd/sweep"
 	"google.golang.org/grpc"
+	"google.golang.org/protobuf/encoding/protowire"
 	"gopkg.in/macaroon-bakery.v2/bakery"
 )
 
@@ -57,6 +58,14 @@ import (
 const noExpiryLeaseDepth uint32 = 1
 
 var (
+	// errLeaseSpendConfsUnsupported prevents retired request parameters
+	// from silently choosing timed leases after their fields were removed.
+	errLeaseSpendConfsUnsupported = errors.New(
+		"release_after_spend_confs and " +
+			"input_release_after_spend_confs are no longer " +
+			"supported; use no_expiry or input_lease_no_expiry",
+	)
+
 	// errLeaseLifetimeConflict gives both handlers a stable identity for
 	// no-expiry requests that also select a competing duration.
 	errLeaseLifetimeConflict = errors.New("no-expiry cannot be combined " +
@@ -509,6 +518,14 @@ func (w *WalletKit) ListUnspent(ctx context.Context,
 func (w *WalletKit) LeaseOutput(ctx context.Context,
 	req *LeaseOutputRequest) (*LeaseOutputResponse, error) {
 
+	// Older clients still send reserved field 4 as unknown protobuf data.
+	// Fail before an unsupported policy can fall through to a timed lease.
+	if err := rejectRetiredLeaseSpendConfs(
+		req.ProtoReflect().GetUnknown(), 4,
+	); err != nil {
+		return nil, err
+	}
+
 	if len(req.Id) != 32 {
 		return nil, errors.New("id must be 32 random bytes")
 	}
@@ -596,6 +613,27 @@ func (w *WalletKit) LeaseOutput(ctx context.Context,
 		NoExpiry: releaseAfterSpendConfs ==
 			noExpiryLeaseDepth,
 	}, nil
+}
+
+// rejectRetiredLeaseSpendConfs checks preserved protobuf data for a removed
+// lifetime request so older clients receive an explicit migration error.
+func rejectRetiredLeaseSpendConfs(unknown []byte,
+	retiredField protowire.Number) error {
+
+	// Consume complete encoded fields using the codec's framing rules;
+	// unrelated unknown fields must not select or invalidate a lifetime.
+	for len(unknown) > 0 {
+		number, _, n := protowire.ConsumeField(unknown)
+		if n < 0 {
+			return protowire.ParseError(n)
+		}
+		if number == retiredField {
+			return errLeaseSpendConfsUnsupported
+		}
+		unknown = unknown[n:]
+	}
+
+	return nil
 }
 
 // storedLeaseDepth returns the wallet lifetime of an existing lease owned by
@@ -1728,6 +1766,14 @@ func (w *WalletKit) LabelTransaction(ctx context.Context,
 // an error on the caller's side.
 func (w *WalletKit) FundPsbt(_ context.Context,
 	req *FundPsbtRequest) (*FundPsbtResponse, error) {
+
+	// The removed input policy still arrives under field 15 from old
+	// protobuf clients. Reject it before funding can acquire timed leases.
+	if err := rejectRetiredLeaseSpendConfs(
+		req.ProtoReflect().GetUnknown(), 15,
+	); err != nil {
+		return nil, err
+	}
 
 	// Normalize the explicit no-timeout option once so every funding mode
 	// uses the existing capability, owner checks, and acquisition rollback.

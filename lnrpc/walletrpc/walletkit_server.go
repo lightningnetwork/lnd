@@ -52,7 +52,31 @@ import (
 	"gopkg.in/macaroon-bakery.v2/bakery"
 )
 
+// noExpiryLeaseDepth reuses the wallet's no-timeout lifetime with cleanup at
+// the first confirmed spend, without adding another persisted lease policy.
+const noExpiryLeaseDepth uint32 = 1
+
 var (
+	// errLeaseLifetimeConflict gives both handlers a stable identity for
+	// no-expiry requests that also select a competing duration.
+	errLeaseLifetimeConflict = errors.New("no-expiry cannot be combined " +
+		"with a duration")
+
+	// errMissingCustomLockID keeps missing-owner rejection independent of
+	// the diagnostic wording returned to RPC clients.
+	errMissingCustomLockID = errors.New("custom lock ID required for " +
+		"no-expiry input leases")
+
+	// errZeroCustomLockID keeps zero-owner rejection identifiable when its
+	// diagnostic wording changes.
+	errZeroCustomLockID = errors.New("custom lock ID must not be all " +
+		"zeros for no-expiry input leases")
+
+	// errReservedCustomLockID gives reserved-owner rejection a stable
+	// identity distinct from missing and zero owner IDs.
+	errReservedCustomLockID = errors.New("reserved custom lock ID cannot " +
+		"be used for no-expiry input leases")
+
 	// macaroonOps are the set of capabilities that our minted macaroon (if
 	// it doesn't already exist) will have.
 	macaroonOps = []bakery.Op{
@@ -476,6 +500,8 @@ func (w *WalletKit) ListUnspent(ctx context.Context,
 // lock's expiration is returned. The expiration of the lock can be extended by
 // successive invocations of this call. Outputs can be unlocked before their
 // expiration through `ReleaseOutput`.
+// NoExpiry instead reserves the unused output without a timeout until owner
+// release or its first confirmed spend.
 //
 // If the output is not known, wtxmgr.ErrUnknownOutput is returned. If the
 // output has already been locked to a different ID, then
@@ -510,7 +536,16 @@ func (w *WalletKit) LeaseOutput(ctx context.Context,
 	if req.ExpirationSeconds != 0 {
 		duration = time.Duration(req.ExpirationSeconds) * time.Second
 	}
-	releaseAfterSpendConfs := req.ReleaseAfterSpendConfs
+
+	// Only the explicit flag selects the wallet's depth-one no-timeout
+	// lifetime. Reject durations that imply an expiry for this mode.
+	var releaseAfterSpendConfs uint32
+	if req.NoExpiry {
+		if req.ExpirationSeconds != 0 {
+			return nil, errLeaseLifetimeConflict
+		}
+		releaseAfterSpendConfs = noExpiryLeaseDepth
+	}
 
 	// Acquire the global coin selection lock to ensure there aren't any
 	// other concurrent processes attempting to lease the same UTXO.
@@ -543,28 +578,28 @@ func (w *WalletKit) LeaseOutput(ctx context.Context,
 		return nil, err
 	}
 
-	// A zero-depth same-owner renewal preserves any existing confirmation
-	// depth. Read it after the lease succeeds so this informational field
-	// cannot prevent a legacy lease or extend the coin selection lock.
+	// A same-owner renewal preserves an existing no-expiry lifetime. Read
+	// it after success so informational readback cannot prevent acquisition
+	// or extend the coin selection lock.
 	if releaseAfterSpendConfs == 0 {
 		depth, err := storedLeaseDepth(w.cfg.Wallet, lockID, *op)
 		if err != nil {
-			log.Warnf("Unable to report retained confirmation "+
-				"depth for lease %v: %v", op, err)
+			log.Warnf("Unable to report no-expiry policy "+
+				"for lease %v: %v", op, err)
 		} else {
 			releaseAfterSpendConfs = depth
 		}
 	}
 
 	return &LeaseOutputResponse{
-		Expiration:             uint64(expiration.Unix()),
-		ReleaseAfterSpendConfs: releaseAfterSpendConfs,
+		Expiration: uint64(expiration.Unix()),
+		NoExpiry: releaseAfterSpendConfs ==
+			noExpiryLeaseDepth,
 	}, nil
 }
 
-// storedLeaseDepth returns the confirmation depth of an existing lease owned
-// by lockID. It lets a zero-depth renewal report the depth that the legacy
-// wallet lease method preserves.
+// storedLeaseDepth returns the wallet lifetime of an existing lease owned by
+// lockID so a renewal can acknowledge a preserved no-expiry reservation.
 func storedLeaseDepth(wallet lnwallet.WalletController, lockID wtxmgr.LockID,
 	op wire.OutPoint) (uint32, error) {
 
@@ -1694,6 +1729,16 @@ func (w *WalletKit) LabelTransaction(ctx context.Context,
 func (w *WalletKit) FundPsbt(_ context.Context,
 	req *FundPsbtRequest) (*FundPsbtResponse, error) {
 
+	// Normalize the explicit no-timeout option once so every funding mode
+	// uses the existing capability, owner checks, and acquisition rollback.
+	var releaseAfterSpendConfs uint32
+	if req.InputLeaseNoExpiry {
+		if req.LockExpirationSeconds != 0 {
+			return nil, errLeaseLifetimeConflict
+		}
+		releaseAfterSpendConfs = noExpiryLeaseDepth
+	}
+
 	var customLockID *wtxmgr.LockID
 	if len(req.CustomLockId) > 0 {
 		lockID := wtxmgr.LockID{}
@@ -1706,23 +1751,16 @@ func (w *WalletKit) FundPsbt(_ context.Context,
 		customLockID = &lockID
 	}
 
-	if req.InputReleaseAfterSpendConfs > 0 {
+	if releaseAfterSpendConfs > 0 {
 		switch {
 		case customLockID == nil:
-			return nil, errors.New("custom lock ID required for " +
-				"confirmation-controlled input leases")
+			return nil, errMissingCustomLockID
 
 		case *customLockID == (wtxmgr.LockID{}):
-			return nil, errors.New(
-				"custom lock ID must not be all zeros for " +
-					"confirmation-controlled input leases",
-			)
+			return nil, errZeroCustomLockID
 
 		case *customLockID == chanfunding.LndInternalLockID:
-			return nil, errors.New(
-				"reserved custom lock ID cannot be used for " +
-					"confirmation-controlled input leases",
-			)
+			return nil, errReservedCustomLockID
 		}
 	}
 
@@ -1809,7 +1847,7 @@ func (w *WalletKit) FundPsbt(_ context.Context,
 			account, keyScopeFromChangeAddressType(req.ChangeType),
 			packet, minConfs, feeSatPerKW, coinSelectionStrategy,
 			customLockID, customLockDuration,
-			req.InputReleaseAfterSpendConfs,
+			releaseAfterSpendConfs,
 		)
 
 	// The template is specified as a PSBT with the intention to perform
@@ -1902,7 +1940,7 @@ func (w *WalletKit) FundPsbt(_ context.Context,
 			account, changeIndex, packet, minConfs, changeType,
 			feeSatPerKW, coinSelectionStrategy, maxFeeRatio,
 			customLockID, customLockDuration,
-			req.InputReleaseAfterSpendConfs,
+			releaseAfterSpendConfs,
 		)
 
 	// The template is specified as a RPC message. We need to create a new
@@ -1961,7 +1999,7 @@ func (w *WalletKit) FundPsbt(_ context.Context,
 			account, keyScopeFromChangeAddressType(req.ChangeType),
 			packet, minConfs, feeSatPerKW, coinSelectionStrategy,
 			customLockID, customLockDuration,
-			req.InputReleaseAfterSpendConfs,
+			releaseAfterSpendConfs,
 		)
 
 	default:
@@ -2371,11 +2409,12 @@ func (w *WalletKit) lockAndCreateFundingResponse(packet *psbt.Packet,
 		return nil, fmt.Errorf("could not lock inputs: %w", err)
 	}
 
-	// Convert the lock leases to the RPC format.
-	rpcLocks := marshallLeases(locks)
-	for _, lock := range rpcLocks {
+	// Newly acquired results lack the configured depth. Populate it before
+	// marshalling so FundPsbt and ListLeases share one readback path.
+	for _, lock := range locks {
 		lock.ReleaseAfterSpendConfs = releaseAfterSpendConfs
 	}
+	rpcLocks := marshallLeases(locks)
 
 	return &FundPsbtResponse{
 		FundedPsbt:        buf.Bytes(),
@@ -2453,7 +2492,8 @@ func (w *WalletKit) handleChange(packet *psbt.Packet, changeIndex int32,
 	return newChangeIndex, nil
 }
 
-// marshallLeases converts the lock leases to the RPC format.
+// marshallLeases converts lease results to RPC metadata, acknowledging the
+// wallet's first-confirmed-spend lifetime through the no-expiry boolean.
 func marshallLeases(locks []*base.ListLeasedOutputResult) []*UtxoLease {
 	rpcLocks := make([]*UtxoLease, len(locks))
 	for idx, lock := range locks {
@@ -2463,11 +2503,12 @@ func marshallLeases(locks []*base.ListLeasedOutputResult) []*UtxoLease {
 			Outpoint: lnrpc.MarshalOutPoint(
 				&lock.Outpoint,
 			),
-			Expiration:             uint64(lock.Expiration.Unix()),
-			PkScript:               lock.PkScript,
-			Value:                  uint64(lock.Value),
-			ReleaseAfterSpendConfs: lock.ReleaseAfterSpendConfs,
-			ConfirmedSpendHeight:   lock.ConfirmedSpendHeight,
+			Expiration:           uint64(lock.Expiration.Unix()),
+			PkScript:             lock.PkScript,
+			Value:                uint64(lock.Value),
+			ConfirmedSpendHeight: lock.ConfirmedSpendHeight,
+			NoExpiry: lock.ReleaseAfterSpendConfs ==
+				noExpiryLeaseDepth,
 		}
 	}
 

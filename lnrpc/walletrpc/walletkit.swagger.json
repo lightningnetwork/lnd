@@ -1688,17 +1688,12 @@
         "custom_lock_id": {
           "type": "string",
           "format": "byte",
-          "description": "The custom lock ID to use for the inputs in the funded PSBT. The value\nif set must be exactly 32 bytes long. If empty, the default lock ID will\nbe used. This field is required when input_lease_no_expiry is true or\ninput_release_after_spend_confs is non-zero. In those modes it must not\nbe all zero or LND's reserved internal lock ID. Persist it before funding\nand use\nReleaseOutput to unlock an abandoned PSBT whose spend never confirms."
+          "description": "The custom lock ID to use for the inputs in the funded PSBT. The value\nif set must be exactly 32 bytes long. If empty, the default lock ID will\nbe used. This field is required when input_lease_no_expiry is true and\nmust not be all zero or LND's reserved internal lock ID. Persist it\nbefore funding and use ReleaseOutput to unlock an abandoned PSBT whose\nspend never confirms."
         },
         "lock_expiration_seconds": {
           "type": "string",
           "format": "uint64",
-          "description": "If set, then time-controlled input leases in the funded PSBT will be\nlocked for the specified duration in seconds. If not set, the default\nlock duration is used. A non-zero input_release_after_spend_confs makes\nthis deadline informational only."
-        },
-        "input_release_after_spend_confs": {
-          "type": "integer",
-          "format": "int64",
-          "description": "Keep each acquired input lease until its spending transaction reaches\nthis confirmation count or the owner explicitly releases it. A\nreorganization resets maturity progress. A non-zero value ignores\nlock_expiration_seconds; zero preserves time-controlled lease behavior."
+          "description": "If set, then time-controlled input leases in the funded PSBT will be\nlocked for the specified duration in seconds. If not set, the default\nlock duration is used. Cannot be combined with input_lease_no_expiry."
         },
         "input_lease_no_expiry": {
           "type": "boolean",
@@ -1903,16 +1898,11 @@
         "expiration_seconds": {
           "type": "string",
           "format": "uint64",
-          "description": "The time in seconds before a time-controlled lock expires. If set to\nzero, the default lock duration is used. A non-zero\nrelease_after_spend_confs makes this deadline informational only."
-        },
-        "release_after_spend_confs": {
-          "type": "integer",
-          "format": "int64",
-          "description": "Keep the lease until the transaction spending the output reaches this\nconfirmation count or the owner explicitly releases it. A reorganization\nthat disconnects the spending block resets maturity progress. A non-zero\nvalue ignores expiration_seconds; zero preserves the time-controlled\nlease behavior."
+          "description": "The time in seconds before a time-controlled lock expires. If set to\nzero, the default lock duration is used. Cannot be combined with\nno_expiry."
         },
         "no_expiry": {
           "type": "boolean",
-          "description": "Reserve the unused output without a timeout until owner release or its\nfirst confirmed spend. Cannot be combined with non-zero\nexpiration_seconds. Omission preserves\nthe existing lifetime; it does not convert the lease to a timed lease."
+          "description": "Reserve the unused output without a timeout until owner release or its\nfirst confirmed spend. Cannot be combined with a non-zero\nexpiration_seconds. Omission preserves the existing lifetime; it does\nnot convert the lease to a timed lease."
         }
       }
     },
@@ -1922,12 +1912,7 @@
         "expiration": {
           "type": "string",
           "format": "uint64",
-          "description": "The absolute expiration of a time-controlled output lease represented as a\nunix timestamp. Confirmation-controlled leases return the stored value for\ncompatibility but do not apply it."
-        },
-        "release_after_spend_confs": {
-          "type": "integer",
-          "format": "int64",
-          "description": "The effective persisted spend maturity depth. A zero-depth renewal\nreturns the retained non-zero depth of an existing\nconfirmation-controlled lease. If that informational lookup fails after\nthe lease succeeds, this field is zero and ListLeases can refresh it."
+          "description": "The absolute expiration of a time-controlled output lease represented as a\nunix timestamp. No-expiry leases do not use this timestamp."
         },
         "no_expiry": {
           "type": "boolean",
@@ -2425,7 +2410,7 @@
         "expiration": {
           "type": "string",
           "format": "uint64",
-          "description": "The absolute expiration of a time-controlled output lease represented as a\nunix timestamp. Confirmation-controlled leases retain this value for\ncompatibility but do not apply it."
+          "description": "The absolute expiration of a time-controlled output lease represented as a\nunix timestamp. No-expiry leases do not use this timestamp."
         },
         "pk_script": {
           "type": "string",
@@ -2436,11 +2421,6 @@
           "type": "string",
           "format": "uint64",
           "description": "The value of the leased output in satoshis."
-        },
-        "release_after_spend_confs": {
-          "type": "integer",
-          "format": "int64",
-          "description": "The spend maturity depth recorded for this lease. FundPsbt returns it\nonly after the wallet successfully applies the requested option."
         },
         "confirmed_spend_height": {
           "type": "integer",

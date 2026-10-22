@@ -2287,6 +2287,13 @@ var listChainTxnsCommand = cli.Command{
 				"all transactions",
 			Value: 0,
 		},
+		cli.BoolFlag{
+			Name: "reverse",
+			Usage: "if set, the transactions will be " +
+				"returned in reverse order, with the " +
+				"oldest confirmed transaction first and " +
+				"unconfirmed transactions last",
+		},
 	},
 	Description: `
 	List all transactions an address of the wallet was involved in.
@@ -2295,7 +2302,12 @@ var listChainTxnsCommand = cli.Command{
 	to an address our wallet controls, or spent utxos that we held.
 
 	By default, this call will get all transactions until the chain tip, 
-	including unconfirmed transactions (end_height=-1).`,
+	including unconfirmed transactions (end_height=-1).
+
+	The default ordering lists unconfirmed transactions first, followed by
+	the most recent confirmed transactions down to the oldest. Use the
+	reverse flag to list the oldest confirmed transaction first instead,
+	with unconfirmed transactions last.`,
 	Action: actionDecorator(listChainTxns),
 }
 
@@ -2337,6 +2349,7 @@ func listChainTxns(ctx *cli.Context) error {
 		MaxTransactions: uint32(ctx.Uint64("max_transactions")),
 		StartHeight:     startHeight,
 		EndHeight:       endHeight,
+		Reverse:         ctx.Bool("reverse"),
 	}
 
 	resp, err := client.GetTransactions(ctxc, req)

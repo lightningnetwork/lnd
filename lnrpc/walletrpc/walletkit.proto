@@ -471,6 +471,10 @@ message ListUnspentResponse {
 }
 
 message LeaseOutputRequest {
+    // Preserve the wire identity of the retired count-based lifetime option.
+    reserved 4;
+    reserved "release_after_spend_confs";
+
     /*
     An ID of 32 random bytes that must be unique for each distinct application
     using this RPC which will be used to bound the output lease to.
@@ -481,37 +485,27 @@ message LeaseOutputRequest {
     lnrpc.OutPoint outpoint = 2;
 
     // The time in seconds before a time-controlled lock expires. If set to
-    // zero, the default lock duration is used. A non-zero
-    // release_after_spend_confs makes this deadline informational only.
+    // zero, the default lock duration is used. Cannot be combined with
+    // no_expiry.
     uint64 expiration_seconds = 3;
 
-    // Keep the lease until the transaction spending the output reaches this
-    // confirmation count or the owner explicitly releases it. A reorganization
-    // that disconnects the spending block resets maturity progress. A non-zero
-    // value ignores expiration_seconds; zero preserves the time-controlled
-    // lease behavior.
-    uint32 release_after_spend_confs = 4;
-
     // Reserve the unused output without a timeout until owner release or its
-    // first confirmed spend. Cannot be combined with non-zero
-    // expiration_seconds. Omission preserves
-    // the existing lifetime; it does not convert the lease to a timed lease.
+    // first confirmed spend. Cannot be combined with a non-zero
+    // expiration_seconds. Omission preserves the existing lifetime; it does
+    // not convert the lease to a timed lease.
     bool no_expiry = 5;
 }
 
 message LeaseOutputResponse {
+    // Prevent reuse of the removed count-based policy readback.
+    reserved 2;
+    reserved "release_after_spend_confs";
+
     /*
     The absolute expiration of a time-controlled output lease represented as a
-    unix timestamp. Confirmation-controlled leases return the stored value for
-    compatibility but do not apply it.
+    unix timestamp. No-expiry leases do not use this timestamp.
     */
     uint64 expiration = 1;
-
-    // The effective persisted spend maturity depth. A zero-depth renewal
-    // returns the retained non-zero depth of an existing
-    // confirmation-controlled lease. If that informational lookup fails after
-    // the lease succeeds, this field is zero and ListLeases can refresh it.
-    uint32 release_after_spend_confs = 2;
 
     // The effective no-timeout policy with cleanup at the first confirmed
     // spend. If renewal readback fails, ListLeases can refresh this
@@ -1600,6 +1594,10 @@ enum ChangeAddressType {
 }
 
 message FundPsbtRequest {
+    // Preserve the wire identity of the retired count-based lifetime option.
+    reserved 15;
+    reserved "input_release_after_spend_confs";
+
     oneof template {
         /*
         Use an existing PSBT packet as the template for the funded PSBT.
@@ -1685,24 +1683,16 @@ message FundPsbtRequest {
 
     // The custom lock ID to use for the inputs in the funded PSBT. The value
     // if set must be exactly 32 bytes long. If empty, the default lock ID will
-    // be used. This field is required when input_lease_no_expiry is true or
-    // input_release_after_spend_confs is non-zero. In those modes it must not
-    // be all zero or LND's reserved internal lock ID. Persist it before funding
-    // and use
-    // ReleaseOutput to unlock an abandoned PSBT whose spend never confirms.
+    // be used. This field is required when input_lease_no_expiry is true and
+    // must not be all zero or LND's reserved internal lock ID. Persist it
+    // before funding and use ReleaseOutput to unlock an abandoned PSBT whose
+    // spend never confirms.
     bytes custom_lock_id = 13;
 
     // If set, then time-controlled input leases in the funded PSBT will be
     // locked for the specified duration in seconds. If not set, the default
-    // lock duration is used. A non-zero input_release_after_spend_confs makes
-    // this deadline informational only.
+    // lock duration is used. Cannot be combined with input_lease_no_expiry.
     uint64 lock_expiration_seconds = 14;
-
-    // Keep each acquired input lease until its spending transaction reaches
-    // this confirmation count or the owner explicitly releases it. A
-    // reorganization resets maturity progress. A non-zero value ignores
-    // lock_expiration_seconds; zero preserves time-controlled lease behavior.
-    uint32 input_release_after_spend_confs = 15;
 
     // Reserve each newly acquired input without a timeout until owner release
     // or its first confirmed spend. Requires a persisted custom_lock_id and
@@ -1780,6 +1770,10 @@ message PsbtCoinSelect {
 }
 
 message UtxoLease {
+    // Prevent reuse of the removed count-based policy readback.
+    reserved 6;
+    reserved "release_after_spend_confs";
+
     /*
     A 32 byte random ID that identifies the lease.
     */
@@ -1790,8 +1784,7 @@ message UtxoLease {
 
     /*
     The absolute expiration of a time-controlled output lease represented as a
-    unix timestamp. Confirmation-controlled leases retain this value for
-    compatibility but do not apply it.
+    unix timestamp. No-expiry leases do not use this timestamp.
     */
     uint64 expiration = 3;
 
@@ -1804,10 +1797,6 @@ message UtxoLease {
     The value of the leased output in satoshis.
     */
     uint64 value = 5;
-
-    // The spend maturity depth recorded for this lease. FundPsbt returns it
-    // only after the wallet successfully applies the requested option.
-    uint32 release_after_spend_confs = 6;
 
     // The block height where the spending transaction first confirmed. Zero
     // means no confirmed spend was observed. A negative value means a

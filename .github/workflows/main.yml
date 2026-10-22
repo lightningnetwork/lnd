@@ -4,10 +4,11 @@ on:
   pull_request:
     branches:
       - "*"
-    # ready_for_review and converted_to_draft are added so that changing the
-    # draft state of a PR triggers a new run: draft PRs only run a fast
-    # subset of the jobs, so the run has to be replaced whenever the state
-    # changes. The concurrency group below cancels the previous one.
+    # Ready events reuse shared checks only after verifying a successful code
+    # draft on this head. Missing evidence runs the normal ready selection.
+    # Distinct "Prior result: " names keep earlier real outcomes intact.
+    # Recover shared checks by rerunning individual jobs, never all jobs of
+    # an old draft run: its race/build notices could hide ready-run failures.
     types: [opened, synchronize, reopened, ready_for_review, converted_to_draft]
   merge_group:
     branches:
@@ -22,9 +23,11 @@ permissions:
   pull-requests: read
 
 concurrency:
-  # Cancel any previous workflows from the same PR or merge group.
+  # Let a running draft finish before verifying its results. A replaced
+  # pending draft fails verification and runs fresh checks on the ready event.
+  # Other events still cancel superseded work in this same group.
   group: ${{ github.event.pull_request.number || github.ref }}
-  cancel-in-progress: true
+  cancel-in-progress: ${{ github.event.action != 'ready_for_review' }}
 
 defaults:
   run:
@@ -60,6 +63,8 @@ jobs:
       docs-only: ${{ steps.docs-only.outputs.docs-only }}
       # Enforce replacement coverage before omitting normal SQL tests.
       sql-race-required: ${{ steps.sql-race-required.outputs.sql-race-required }}
+      # Reuse only completed, successful draft checks for this PR head.
+      reuse-shared: ${{ steps.reuse-shared.outputs.reuse-shared }}
     steps:
       # Anything that isn't under docs/ or a markdown file counts as code and
       # runs full CI. Renamed files are checked under both their old and new
@@ -72,7 +77,11 @@ jobs:
       # The latter is needed because a job-level condition is evaluated
       # before the matrix is expanded, so a skipped matrix job would never
       # report the per-leg check names that branch protection requires.
-      - name: Detect documentation-only changes
+      # Record the triggering PR in existing step metadata for safe reuse.
+      # Run associations may include other PRs sharing this head branch.
+      - name: >-
+          Detect documentation-only changes
+          (PR ${{ github.event.pull_request.number }})
         id: docs-only
         if: github.event_name == 'pull_request'
         env:
@@ -145,10 +154,67 @@ jobs:
           fi
           echo "sql-race-required=${required}" >> "$GITHUB_OUTPUT"
 
+      # Only a successful code draft proves shared work exists on this head.
+      # A replaced pending run or unavailable API must execute fresh checks.
+      - name: Verify draft results
+        id: reuse-shared
+        if: >-
+          github.event_name == 'pull_request' &&
+          github.event.action == 'ready_for_review' &&
+          steps.docs-only.outputs.docs-only != 'true'
+        env:
+          GH_TOKEN: ${{ github.token }}
+          HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+          HEAD_BRANCH: ${{ github.head_ref }}
+          HEAD_REPO_ID: ${{ github.event.pull_request.head.repo.id }}
+          PR_NUMBER: ${{ github.event.pull_request.number }}
+        run: |
+          reuse=false
+          if runs=$(gh api \
+            "repos/${GITHUB_REPOSITORY}/actions/workflows/main.yml/runs?head_sha=${HEAD_SHA}&event=pull_request&per_page=100" \
+            2>/dev/null); then
+            # Inspect the latest prior run, never an older convenient success.
+            previous=$(jq -er --arg sha "$HEAD_SHA" \
+              --arg branch "$HEAD_BRANCH" --argjson repo "$HEAD_REPO_ID" \
+              --argjson current "$GITHUB_RUN_ID" '
+              [.workflow_runs[] | select(.id != $current and
+                .head_sha == $sha and .head_branch == $branch and
+                .head_repository.id == $repo)] | max_by(.created_at) |
+              select(.status == "completed" and .conclusion == "success") | .id
+            ' <<< "$runs" 2>/dev/null) || previous=""
+            if [[ -n "$previous" ]] && jobs=$(gh api --paginate --slurp \
+              "repos/${GITHUB_REPOSITORY}/actions/runs/${previous}/jobs?filter=latest&per_page=100" \
+              2>/dev/null); then
+              # Actual cover excludes docs notices; a skipped default race
+              # identifies the draft selection. Whole-run success proves the
+              # other shared checks passed, including real normal SQL tests.
+              # The gate step identifies the triggering PR; older runs
+              # without that proof must execute fresh checks.
+              reuse=$(jq -er --arg pr "$PR_NUMBER" '
+                [.[] | .jobs[]] as $jobs |
+                any($jobs[]; .name == "CI gate" and
+                  .conclusion == "success" and any(.steps[];
+                    .name == "Detect documentation-only changes (PR \($pr))" and
+                    .conclusion == "success")) and
+                any($jobs[]; .name == "Run unit tests (unit-cover)" and
+                  .conclusion == "success" and any(.steps[];
+                    .name == "Run unit-cover" and .conclusion == "success")) and
+                any($jobs[]; .name == "Run unit tests (unit-race)" and
+                  .conclusion == "success" and any(.steps[];
+                    .name == "Run unit-race" and .conclusion == "skipped"))
+              ' <<< "$jobs" 2>/dev/null) || reuse=false
+            fi
+          fi
+          echo "reuse-shared=${reuse}" >> "$GITHUB_OUTPUT"
+
   static-checks:
-    name: Static Checks
+    name: >-
+      ${{ needs.ci-gate.outputs.reuse-shared == 'true' &&
+          'Prior result: Static Checks' || 'Static Checks' }}
     needs: ci-gate
-    if: ${{ !cancelled() && needs.ci-gate.outputs.docs-only != 'true' }}
+    if: >-
+      ${{ !cancelled() && needs.ci-gate.outputs.reuse-shared != 'true' &&
+          needs.ci-gate.outputs.docs-only != 'true' }}
     runs-on: ubuntu-latest
     steps:
       - name: Git checkout
@@ -214,8 +280,13 @@ jobs:
   # check commits
   ########################
   check-commits:
-    if: github.event_name == 'pull_request'
-    name: Check commits
+    needs: ci-gate
+    if: >-
+      !cancelled() && github.event_name == 'pull_request' &&
+      needs.ci-gate.outputs.reuse-shared != 'true'
+    name: >-
+      ${{ needs.ci-gate.outputs.reuse-shared == 'true' &&
+          'Prior result: Check commits' || 'Check commits' }}
     runs-on: ubuntu-latest
     steps:
       - name: git checkout
@@ -243,9 +314,13 @@ jobs:
   # lint code
   ########################
   lint:
-    name: Lint code
+    name: >-
+      ${{ needs.ci-gate.outputs.reuse-shared == 'true' &&
+          'Prior result: Lint code' || 'Lint code' }}
     needs: ci-gate
-    if: ${{ !cancelled() && needs.ci-gate.outputs.docs-only != 'true' }}
+    if: >-
+      ${{ !cancelled() && needs.ci-gate.outputs.reuse-shared != 'true' &&
+          needs.ci-gate.outputs.docs-only != 'true' }}
     runs-on: ubuntu-latest
     steps:
       - name: git checkout
@@ -330,11 +405,14 @@ jobs:
     if: ${{ !cancelled() }}
     env:
       # Documentation-only changes skip every leg. Draft PRs use normal SQL.
-      # Ready PRs skip normal SQL only if both race checks are required;
+      # Verified draft results let ready events reuse non-race checks.
+      # Otherwise, ready PRs skip normal SQL only if both races are required;
       # unreadable rules retain real tests under existing required names.
       # Keep each matrix leg instantiated when skipping its steps.
       SKIP: >-
         ${{ needs.ci-gate.outputs.docs-only == 'true' ||
+            (needs.ci-gate.outputs.reuse-shared == 'true' &&
+             !startsWith(matrix.unit_type, 'unit-race')) ||
             (github.event.pull_request.draft == true &&
              startsWith(matrix.unit_type, 'unit-race')) ||
             (github.event_name == 'pull_request' &&
@@ -342,7 +420,12 @@ jobs:
              needs.ci-gate.outputs.sql-race-required == 'true' &&
              (matrix.unit_type == 'unit tags="test_db_sqlite"' ||
               matrix.unit_type == 'unit tags="test_db_postgres"')) }}
-    name: Run unit tests
+    # A matrix reference disables automatic suffixes: spell out the full
+    # existing check name so required contexts stay exact on other events.
+    name: >-
+      ${{ needs.ci-gate.outputs.reuse-shared == 'true' &&
+          !startsWith(matrix.unit_type, 'unit-race') &&
+          'Prior result: ' || '' }}Run unit tests (${{ matrix.unit_type }})
     runs-on: ubuntu-latest
     strategy:
       # Allow other tests in the matrix to continue if one fails.
@@ -425,14 +508,19 @@ jobs:
   basic-integration-test:
     # Required check and part of the fast subset that runs on draft PRs. Kept
     # instantiated for documentation-only changes so the per-leg checks are
-    # reported; the steps are skipped instead. Runs even if the gate job
-    # failed: without a status function a failed dependency skips this job,
-    # and a skipped required check counts as passed.
+    # reported; the steps are skipped instead. Verified draft reuse retains
+    # per-leg results and skips this job under a distinct placeholder name.
+    # Otherwise run even if the gate failed, preserving required checks.
     needs: ci-gate
-    if: ${{ !cancelled() }}
+    if: ${{ !cancelled() && needs.ci-gate.outputs.reuse-shared != 'true' }}
     env:
       SKIP: ${{ needs.ci-gate.outputs.docs-only == 'true' }}
-    name: Run basic itests
+    # Expression names receive no automatic matrix suffix. Spell out each
+    # executing leg's identity so existing required contexts still report.
+    name: >-
+      ${{ needs.ci-gate.outputs.reuse-shared == 'true' &&
+          'Prior result: Run basic itests' ||
+          format('Run basic itests ({0}, {1})', matrix.name, matrix.args) }}
     runs-on: ubuntu-latest
     strategy:
       # Allow other tests in the matrix to continue if one fails.
@@ -715,12 +803,18 @@ jobs:
     needs: ci-gate
     # Run even if the gate job failed: without a status function a
     # failed dependency skips this job, and a skipped required check
-    # counts as passed.
-    if: ${{ !cancelled() }}
+    # counts as passed. Verified draft reuse retains per-leg results under
+    # their original names and skips this differently named placeholder.
+    if: ${{ !cancelled() && needs.ci-gate.outputs.reuse-shared != 'true' }}
     env:
       # Skipped for documentation-only changes.
       SKIP: ${{ needs.ci-gate.outputs.docs-only == 'true' }}
-    name: Check pinned dependencies
+    # Include the pinned module explicitly: expression names otherwise
+    # lose the matrix suffix that identifies the required dependency check.
+    name: >-
+      ${{ needs.ci-gate.outputs.reuse-shared == 'true' &&
+          'Prior result: Check pinned dependencies' ||
+          format('Check pinned dependencies ({0})', matrix.pinned_dep) }}
     runs-on: ubuntu-latest
     strategy:
       # Allow other tests in the matrix to continue if one fails.
@@ -751,7 +845,12 @@ jobs:
   # check PR updates release notes
   ########################
   milestone-check:
-    name: Check release notes updated
+    needs: ci-gate
+    name: >-
+      ${{ needs.ci-gate.outputs.reuse-shared == 'true' &&
+          'Prior result: Check release notes updated' ||
+          'Check release notes updated' }}
+    if: ${{ !cancelled() && needs.ci-gate.outputs.reuse-shared != 'true' }}
     runs-on: ubuntu-latest
     steps:
       - name: Git checkout
@@ -781,7 +880,12 @@ jobs:
   # check release notes are consistent with the fragments
   ########################
   release-notes-consistency:
-    name: Check release notes consistency
+    needs: ci-gate
+    name: >-
+      ${{ needs.ci-gate.outputs.reuse-shared == 'true' &&
+          'Prior result: Check release notes consistency' ||
+          'Check release notes consistency' }}
+    if: ${{ !cancelled() && needs.ci-gate.outputs.reuse-shared != 'true' }}
     runs-on: ubuntu-latest
     steps:
       - name: Git checkout
@@ -828,11 +932,15 @@ jobs:
   # Auto Cache Cleanup on Pull Requests
   #########################################
   auto-cleanup-cache:
-    name: Cache Cleanup
+    needs: ci-gate
+    name: >-
+      ${{ needs.ci-gate.outputs.reuse-shared == 'true' &&
+          'Prior result: Cache Cleanup' || 'Cache Cleanup' }}
     runs-on: ubuntu-latest
 
     # This condition checks for pull requests from authors with write access.
     if: >-
+      !cancelled() && needs.ci-gate.outputs.reuse-shared != 'true' &&
       contains('OWNER, MEMBER, COLLABORATOR', github.event.pull_request.author_association)
 
     steps:
@@ -864,10 +972,15 @@ jobs:
             fi
           done
 
-  # Notify about the completion of all coverage collecting jobs.
+  # Notify after fresh coverage collection. Verified draft reuse submits no
+  # new parallel coverage; fallback execution still needs its own finalizer.
   finish:
-    name: Send coverage report
-    if: ${{ !cancelled() && needs.ci-gate.outputs.docs-only != 'true' }}
+    name: >-
+      ${{ needs.ci-gate.outputs.reuse-shared == 'true' &&
+          'Prior result: Send coverage report' || 'Send coverage report' }}
+    if: >-
+      ${{ !cancelled() && needs.ci-gate.outputs.reuse-shared != 'true' &&
+          needs.ci-gate.outputs.docs-only != 'true' }}
     needs: [ci-gate, unit-test, basic-integration-test]
     runs-on: ubuntu-latest
     timeout-minutes: 5

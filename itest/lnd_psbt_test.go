@@ -2041,3 +2041,93 @@ func testFundPsbtCustomLock(ht *lntest.HarnessTest) {
 	leasesRespAfter := alice.RPC.ListLeases()
 	require.Empty(ht, leasesRespAfter.LockedUtxos)
 }
+
+// testFundPsbtNoExpiryLease verifies that an unused input stays reserved across
+// restart, can be owner-released, and needs no lease after its first spend.
+func testFundPsbtNoExpiryLease(ht *lntest.HarnessTest) {
+	// Arrange one confirmed input so its absence from eligible candidates
+	// proves reservation, and its reappearance proves owner cancellation.
+	alice := ht.NewNode("Alice", nil)
+	ht.FundNumCoins(alice, 1)
+	input := ht.AssertNumUTXOsConfirmed(alice, 1)[0].Outpoint
+	lockID := ht.Random32Bytes()
+	aliceAddr := alice.RPC.NewAddress(&lnrpc.NewAddressRequest{
+		Type: lnrpc.AddressType_WITNESS_PUBKEY_HASH,
+	})
+
+	// Act by funding without a timeout or a user-supplied confirmation
+	// count. The selected input remains unused until the later publication.
+	fundResp := alice.RPC.FundPsbt(&walletrpc.FundPsbtRequest{
+		Template: &walletrpc.FundPsbtRequest_Raw{
+			Raw: &walletrpc.TxTemplate{
+				Outputs: map[string]uint64{
+					aliceAddr.Address: 100_000,
+				},
+			},
+		},
+		Fees: &walletrpc.FundPsbtRequest_SatPerVbyte{
+			SatPerVbyte: 2,
+		},
+		MinConfs:           1,
+		CustomLockId:       lockID,
+		InputLeaseNoExpiry: true,
+	})
+
+	// Assert the funding response reports the explicit policy for U, and
+	// restarting before broadcast preserves both the policy and exclusion.
+	require.Len(ht, fundResp.LockedUtxos, 1)
+	require.True(ht, fundResp.LockedUtxos[0].NoExpiry)
+	require.Equal(
+		ht, lntest.LnrpcOutpointToStr(input),
+		lntest.LnrpcOutpointToStr(fundResp.LockedUtxos[0].Outpoint),
+	)
+	ht.RestartNode(alice)
+	leases := alice.RPC.ListLeases().LockedUtxos
+	require.Len(ht, leases, 1)
+	require.True(ht, leases[0].NoExpiry)
+	require.Equal(ht, lockID, leases[0].Id)
+	ht.AssertNumUTXOsConfirmed(alice, 0)
+
+	// Act through owner cancellation while U is still unspent. This must
+	// restore its eligibility without waiting for a block or a deadline.
+	_, err := alice.RPC.WalletKit.ReleaseOutput(
+		ht.Context(), &walletrpc.ReleaseOutputRequest{
+			Id:       lockID,
+			Outpoint: input,
+		},
+	)
+	require.NoError(ht, err)
+	ht.AssertUTXOInWallet(alice, input, "")
+	require.Empty(ht, alice.RPC.ListLeases().LockedUtxos)
+
+	// Reacquire U through the standalone flag before spending the original
+	// PSBT, covering both entry points without creating a second lifetime.
+	leaseResp, err := alice.RPC.WalletKit.LeaseOutput(
+		ht.Context(), &walletrpc.LeaseOutputRequest{
+			Id:       lockID,
+			Outpoint: input,
+			NoExpiry: true,
+		},
+	)
+	require.NoError(ht, err)
+	require.True(ht, leaseResp.NoExpiry)
+	ht.AssertNumUTXOsConfirmed(alice, 0)
+	finalizeResp := alice.RPC.FinalizePsbt(&walletrpc.FinalizePsbtRequest{
+		FundedPsbt: fundResp.FundedPsbt,
+	})
+	alice.RPC.PublishTransaction(&walletrpc.Transaction{
+		TxHex: finalizeResp.RawFinalTx,
+	})
+	ht.MineBlocksAndAssertNumTxes(1, 1)
+
+	// Assert after wallet synchronization that the first confirmed spend
+	// removes the lease. Only A's output and change are selectable; spent U
+	// is excluded by spend tracking without a retained reservation.
+	for _, utxo := range ht.AssertNumUTXOsConfirmed(alice, 2) {
+		require.NotEqual(
+			ht, lntest.LnrpcOutpointToStr(input),
+			lntest.LnrpcOutpointToStr(utxo.Outpoint),
+		)
+	}
+	require.Empty(ht, alice.RPC.ListLeases().LockedUtxos)
+}

@@ -492,8 +492,6 @@ jobs:
             args: backend=bitcoind dbbackend=sqlite
           - name: bitcoind-sqlite-nativesql
             args: backend=bitcoind dbbackend=sqlite nativesql=true
-          - name: bitcoind-sqlite=nativesql-experiment
-            args: backend=bitcoind dbbackend=sqlite nativesql=true tags=test_native_sql
           - name: bitcoind-postgres
             args: backend=bitcoind dbbackend=postgres
           - name: bitcoind-postgres-nativesql

@@ -315,6 +315,10 @@ var allTestCases = []*lntest.TestCase{
 		TestFunc: testFundPsbtCustomLock,
 	},
 	{
+		Name:     "fund psbt no expiry lease",
+		TestFunc: testFundPsbtNoExpiryLease,
+	},
+	{
 		Name:     "resolution handoff",
 		TestFunc: testResHandoff,
 	},

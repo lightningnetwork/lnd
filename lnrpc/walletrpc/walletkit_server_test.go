@@ -28,6 +28,8 @@ import (
 	"github.com/lightningnetwork/lnd/lnwallet/chanfunding"
 	testifymock "github.com/stretchr/testify/mock"
 	"github.com/stretchr/testify/require"
+	"google.golang.org/protobuf/encoding/protowire"
+	"google.golang.org/protobuf/proto"
 )
 
 // TestMarshallLeasesIncludesSpendProgress verifies that lease responses
@@ -233,6 +235,35 @@ func TestLeaseOutputRejectsNoExpiryConflicts(t *testing.T) {
 	// regression coverage do not depend on diagnostic wording.
 	require.ErrorIs(t, leaseErr, errLeaseLifetimeConflict)
 	require.ErrorIs(t, fundErr, errLeaseLifetimeConflict)
+}
+
+// TestLeaseOutputRejectsRetiredSpendConfs verifies old protobuf requests
+// fail explicitly at both lease entry points instead of selecting timed locks.
+func TestLeaseOutputRejectsRetiredSpendConfs(t *testing.T) {
+	t.Parallel()
+
+	// Arrange the old count value at each retired wire number. Ordinary
+	// decoding retains these bytes even though the fields are now reserved;
+	// no wallet is configured: rejection must need no acquisition.
+	leaseReq := &LeaseOutputRequest{}
+	leaseWire := protowire.AppendTag(nil, 4, protowire.VarintType)
+	leaseWire = protowire.AppendVarint(leaseWire, 3)
+	require.NoError(t, proto.Unmarshal(leaseWire, leaseReq))
+	fundReq := &FundPsbtRequest{}
+	fundWire := protowire.AppendTag(nil, 15, protowire.VarintType)
+	fundWire = protowire.AppendVarint(fundWire, 3)
+	require.NoError(t, proto.Unmarshal(fundWire, fundReq))
+	server := &WalletKit{cfg: &Config{}}
+
+	// Act through both public handlers with the decoded old requests, as
+	// gRPC would deliver them from clients using the removed parameters.
+	_, leaseErr := server.LeaseOutput(t.Context(), leaseReq)
+	_, fundErr := server.FundPsbt(t.Context(), fundReq)
+
+	// Assert the shared migration error before other validation or wallet
+	// work; error identity keeps this independent of diagnostic wording.
+	require.ErrorIs(t, leaseErr, errLeaseSpendConfsUnsupported)
+	require.ErrorIs(t, fundErr, errLeaseSpendConfsUnsupported)
 }
 
 // WithCoinSelectLock runs the callback and optionally returns a test error.

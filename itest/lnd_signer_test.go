@@ -3,6 +3,8 @@ package itest
 import (
 	"bytes"
 	"crypto/sha256"
+	"fmt"
+	"strings"
 
 	"github.com/btcsuite/btcd/address/v2"
 	"github.com/btcsuite/btcd/btcec/v2"
@@ -18,6 +20,242 @@ import (
 	"github.com/lightningnetwork/lnd/lntest/node"
 	"github.com/stretchr/testify/require"
 )
+
+// testDeriveAndStoreKey checks that the DeriveAndStoreKey endpoint records the
+// keys it derives in the wallet, which advances the key family's derivation
+// index past them, and that it refuses to derive an unbounded number of keys.
+func testDeriveAndStoreKey(ht *lntest.HarnessTest) {
+	alice := ht.NewNode("Alice", nil)
+
+	runDeriveAndStoreKey(ht, alice)
+}
+
+// runDeriveAndStoreKey checks that the DeriveAndStoreKey endpoint records the
+// keys it derives in the wallet of the given node, which advances the key
+// family's derivation index past them, and that it refuses to derive an
+// unbounded number of keys.
+func runDeriveAndStoreKey(ht *lntest.HarnessTest, hn *node.HarnessNode) {
+	// We use a key family of our own so that no other subsystem interferes
+	// with the derivation indexes we assert on below. The indexes are
+	// asserted relative to where the family starts out, since a watch-only
+	// wallet may already have addresses for it.
+	const testCustomKeyFamily = 55
+
+	startIndex := externalKeyCount(ht, hn, testCustomKeyFamily)
+	targetIndex := startIndex + 5
+
+	// Deriving a key without storing it must neither touch the family's
+	// derivation index nor make the key known to the wallet.
+	keyLoc := &signrpc.KeyLocator{
+		KeyFamily: testCustomKeyFamily,
+		KeyIndex:  int32(targetIndex),
+	}
+	unstoredDesc := hn.RPC.DeriveKey(keyLoc)
+	require.Equal(
+		ht, startIndex, externalKeyCount(ht, hn, testCustomKeyFamily),
+	)
+	assertKeyKnown(ht, hn, unstoredDesc, false)
+
+	// Storing the very same key returns the very same key, but now fills in
+	// every index up to it, so the family's next index moves past it.
+	storedDesc := hn.RPC.DeriveAndStoreKey(keyLoc)
+	require.Equal(ht, unstoredDesc.RawKeyBytes, storedDesc.RawKeyBytes)
+	require.Equal(
+		ht, targetIndex+1,
+		externalKeyCount(ht, hn, testCustomKeyFamily),
+	)
+
+	// And the wallet now knows the key, which is what allows it to sign
+	// with it later on.
+	assertKeyKnown(ht, hn, storedDesc, true)
+
+	// Moving the index also means the indexes we just consumed are not
+	// handed out again.
+	nextDesc := hn.RPC.DeriveNextKey(&walletrpc.KeyReq{
+		KeyFamily: testCustomKeyFamily,
+	})
+	require.EqualValues(ht, targetIndex+1, nextDesc.KeyLoc.KeyIndex)
+
+	// Storing a key at an index the family already advanced past leaves the
+	// index alone, it is never rewound.
+	hn.RPC.DeriveAndStoreKey(&signrpc.KeyLocator{
+		KeyFamily: testCustomKeyFamily,
+		KeyIndex:  int32(startIndex),
+	})
+	require.Equal(
+		ht, targetIndex+2,
+		externalKeyCount(ht, hn, testCustomKeyFamily),
+	)
+
+	// An index that is too far ahead is refused outright instead of
+	// deriving an unbounded number of keys, and leaves the family alone.
+	err := hn.RPC.DeriveAndStoreKeyErr(&signrpc.KeyLocator{
+		KeyFamily: testCustomKeyFamily,
+		KeyIndex: int32(targetIndex) + 2 +
+			keychain.MaxKeyIndexExtension,
+	})
+	require.ErrorContains(ht, err, "key index extension too large")
+	require.Equal(
+		ht, targetIndex+2,
+		externalKeyCount(ht, hn, testCustomKeyFamily),
+	)
+
+	// Neither a negative family nor a negative index can be mapped to the
+	// unsigned values the wallet uses, so both are rejected.
+	err = hn.RPC.DeriveAndStoreKeyErr(&signrpc.KeyLocator{
+		KeyFamily: -1,
+		KeyIndex:  0,
+	})
+	require.ErrorContains(ht, err, "key family must not be negative")
+
+	// The families lnd itself derives from cannot be advanced externally.
+	err = hn.RPC.DeriveAndStoreKeyErr(&signrpc.KeyLocator{
+		KeyFamily: int32(keychain.KeyFamilyNodeKey),
+		KeyIndex:  1,
+	})
+	require.ErrorContains(ht, err, "reserved by lnd")
+
+	err = hn.RPC.DeriveAndStoreKeyErr(&signrpc.KeyLocator{
+		KeyFamily: testCustomKeyFamily,
+		KeyIndex:  -1,
+	})
+	require.ErrorContains(ht, err, "key index must not be negative")
+}
+
+// runDeriveAndStoreKeySigning checks that a key derived at an arbitrary index
+// can only be signed with if it was stored in the wallet. Resolving a key
+// locator from a public key alone requires the wallet to know the key's
+// address, which is only the case for a stored key.
+//
+// NOTE: This is only meaningful against a watch-only node driving a remote
+// signer, since a node with a local wallet falls back to scanning a range of
+// key indexes when it is given a public key without a key locator.
+func runDeriveAndStoreKeySigning(ht *lntest.HarnessTest,
+	hn *node.HarnessNode) {
+
+	const (
+		testCustomKeyFamily = 56
+		targetIndex         = 7
+	)
+
+	keyLoc := &signrpc.KeyLocator{
+		KeyFamily: testCustomKeyFamily,
+		KeyIndex:  targetIndex,
+	}
+
+	// A key that is only derived, but not stored, cannot be signed with
+	// when it is referenced by its public key, since the wallet has no
+	// address to map it back to a key locator with.
+	unstoredDesc := hn.RPC.DeriveKey(keyLoc)
+	unstoredPubKey, err := btcec.ParsePubKey(unstoredDesc.RawKeyBytes)
+	require.NoError(ht, err)
+
+	targetAddr, err := address.NewAddressWitnessPubKeyHash(
+		address.Hash160(unstoredPubKey.SerializeCompressed()),
+		harnessNetParams,
+	)
+	require.NoError(ht, err)
+
+	targetScript, err := txscript.PayToAddrScript(targetAddr)
+	require.NoError(ht, err)
+
+	// The transaction we ask to sign never makes it to the chain, the key
+	// cannot even be resolved.
+	tx := wire.NewMsgTx(2)
+	tx.TxIn = []*wire.TxIn{{
+		PreviousOutPoint: wire.OutPoint{
+			Hash:  chainhash.Hash{1},
+			Index: 0,
+		},
+	}}
+	tx.TxOut = []*wire.TxOut{{
+		PkScript: targetScript,
+		Value:    799_800,
+	}}
+
+	var buf bytes.Buffer
+	require.NoError(ht, tx.Serialize(&buf))
+
+	err = hn.RPC.SignOutputRawErr(&signrpc.SignReq{
+		RawTxBytes: buf.Bytes(),
+		SignDescs: []*signrpc.SignDescriptor{{
+			Output: &signrpc.TxOut{
+				PkScript: targetScript,
+				Value:    800_000,
+			},
+			InputIndex: 0,
+			KeyDesc: &signrpc.KeyDescriptor{
+				RawKeyBytes: unstoredDesc.RawKeyBytes,
+			},
+			Sighash:       uint32(txscript.SigHashAll),
+			WitnessScript: targetScript,
+		}},
+	})
+	require.ErrorContains(ht, err, "error fetching address info")
+
+	// Storing the key makes it known to the wallet, so the very same
+	// reference by public key now resolves and produces a valid signature.
+	storedDesc := hn.RPC.DeriveAndStoreKey(keyLoc)
+	require.Equal(ht, unstoredDesc.RawKeyBytes, storedDesc.RawKeyBytes)
+
+	assertSignOutputRaw(
+		ht, hn, unstoredPubKey, &signrpc.KeyDescriptor{
+			RawKeyBytes: storedDesc.RawKeyBytes,
+		}, txscript.SigHashAll,
+	)
+}
+
+// externalKeyCount returns the number of external keys the given node's wallet
+// has derived for the given key family, which is also the index the next key
+// derived for that family will have.
+func externalKeyCount(ht *lntest.HarnessTest, hn *node.HarnessNode,
+	keyFam keychain.KeyFamily) uint32 {
+
+	accounts := hn.RPC.ListAccounts(&walletrpc.ListAccountsRequest{})
+
+	// The accounts of our key families are the ones under the BIP-0043
+	// purpose lnd uses, with the family as the last path element.
+	purpose := fmt.Sprintf("/%d'/", keychain.BIP0043Purpose)
+	suffix := fmt.Sprintf("/%d'", keyFam)
+	for _, account := range accounts.Accounts {
+		path := account.DerivationPath
+		if !strings.Contains(path, purpose) {
+			continue
+		}
+
+		if strings.HasSuffix(path, suffix) {
+			return account.ExternalKeyCount
+		}
+	}
+
+	return 0
+}
+
+// assertKeyKnown asserts whether the given node's wallet has a record of the
+// given key, which it needs in order to map the key back to its key locator.
+//
+// NOTE: For keys in lnd's own key scope, ListAddresses reports the public key
+// itself instead of an address, since those keys are not used as addresses.
+func assertKeyKnown(ht *lntest.HarnessTest, hn *node.HarnessNode,
+	desc *signrpc.KeyDescriptor, known bool) {
+
+	resp := hn.RPC.ListAddresses(&walletrpc.ListAddressesRequest{
+		ShowCustomAccounts: true,
+	})
+
+	var found bool
+	for _, account := range resp.AccountWithAddresses {
+		for _, walletAddr := range account.Addresses {
+			if bytes.Equal(walletAddr.PublicKey, desc.RawKeyBytes) {
+				found = true
+			}
+		}
+	}
+
+	require.Equalf(
+		ht, known, found, "key %x known to wallet", desc.RawKeyBytes,
+	)
+}
 
 // testDeriveSharedKey checks the ECDH performed by the endpoint
 // DeriveSharedKey. It creates an ephemeral private key, performing an ECDH with

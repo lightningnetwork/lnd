@@ -9,6 +9,7 @@ import (
 
 	"github.com/davecgh/go-spew/spew"
 	"github.com/lightningnetwork/lnd/channeldb"
+	"github.com/lightningnetwork/lnd/kvdb"
 	"github.com/lightningnetwork/lnd/lntypes"
 	"github.com/lightningnetwork/lnd/lnwire"
 	"github.com/stretchr/testify/require"
@@ -199,5 +200,80 @@ func TestNetworkResultStore(t *testing.T) {
 		if i >= 2 && err != ErrPaymentIDNotFound {
 			t.Fatalf("expected ErrPaymentIDNotFound, got %v", err)
 		}
+	}
+}
+
+// TestNetworkResultStoreCleanStore tests that cleanStore prunes the store down
+// to exactly the requested attempt IDs. It opens the store via
+// kvdb.GetTestBackend so that, under the postgres/sqlite build tags, the SQL
+// drop-and-recreate path is exercised (TestNetworkResultStore above goes
+// through channeldb.OpenForTesting, which always opens bbolt).
+func TestNetworkResultStoreCleanStore(t *testing.T) {
+	t.Parallel()
+
+	const numResults uint64 = 5
+
+	tests := []struct {
+		name string
+		keep map[uint64]struct{}
+	}{
+		{
+			name: "partial keep",
+			keep: map[uint64]struct{}{0: {}, 2: {}, 4: {}},
+		},
+		{
+			name: "empty keep",
+			keep: map[uint64]struct{}{},
+		},
+		{
+			name: "keep all",
+			keep: map[uint64]struct{}{
+				0: {}, 1: {}, 2: {}, 3: {}, 4: {},
+			},
+		},
+	}
+
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			t.Parallel()
+
+			// GetTestBackend keys its fixture off the unique temp
+			// dir, so parallel subtests get independent databases.
+			backend, cleanup, err := kvdb.GetTestBackend(
+				t.TempDir(), "db",
+			)
+			require.NoError(t, err)
+			t.Cleanup(cleanup)
+
+			store := newNetworkResultStore(backend)
+
+			// Store a result for every attempt ID.
+			for i := range numResults {
+				n := &networkResult{
+					msg:          &lnwire.UpdateAddHTLC{},
+					unencrypted:  true,
+					isResolution: true,
+				}
+				require.NoError(t, store.storeResult(i, n))
+			}
+
+			// Prune, keeping only the IDs in the keep set.
+			require.NoError(t, store.cleanStore(test.keep))
+
+			// Every kept ID must still be present; every other ID
+			// must have been removed.
+			for i := range numResults {
+				_, err := store.getResult(i)
+				if _, ok := test.keep[i]; ok {
+					require.NoErrorf(t, err,
+						"kept id %d missing", i)
+
+					continue
+				}
+
+				require.ErrorIsf(t, err, ErrPaymentIDNotFound,
+					"id %d not removed", i)
+			}
+		})
 	}
 }

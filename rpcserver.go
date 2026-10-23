@@ -6230,8 +6230,15 @@ func (r *rpcServer) DescribeGraph(ctx context.Context,
 	// Check to see if the cache is already populated, if so then we can
 	// just return it directly.
 	//
+	//
+	// The cache holds a single response, so it is only consulted and
+	// populated for the default request shape. Requests that ask for
+	// unannounced channels or auth proofs produce a different response and
+	// bypass the cache.
+	//
 	// TODO(roasbeef): move this to an interceptor level feature?
-	graphCacheActive := r.cfg.Caches.RPCGraphCacheDuration != 0
+	graphCacheActive := r.cfg.Caches.RPCGraphCacheDuration != 0 &&
+		!req.IncludeUnannounced && !req.IncludeAuthProof
 	if graphCacheActive {
 		r.graphCache.Lock()
 		defer r.graphCache.Unlock()

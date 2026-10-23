@@ -292,6 +292,12 @@ except by a crash, both sides agree, and every HTLC and every removal was
 forwarded exactly once across all the forwarding packages on disk.
 `TestDSTDeterminism` requires the same transcript for the same seed.
 
+**Lean proofs** in [`lean/`](lean/README.md) show, for every sequence of
+ledger operations with restarts anywhere in it, that the ledger never
+forwards an update twice, forwards only irrevocably committed updates, and
+forwards every one of them. A differential test ties the Lean model to the
+Go ledger.
+
 To run the randomized tests longer, or to replay a failure:
 
 ```sh

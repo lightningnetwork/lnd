@@ -1,0 +1,14 @@
+name = "chanfsm"
+version = "0.1.0"
+defaultTargets = ["ChanFSM", "chanfsm-lean"]
+
+# The library holds the model and every theorem about it. Building it is what
+# checks the proofs.
+[[lean_lib]]
+name = "ChanFSM"
+
+# The executable runs the model on line-oriented input, for the Go
+# differential test in lean_diff_test.go.
+[[lean_exe]]
+name = "chanfsm-lean"
+root = "Main"

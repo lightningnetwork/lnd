@@ -299,19 +299,20 @@ type OutboundClient struct {
 	gManager *fn.GoroutineManager
 }
 
-// NewOutboundClient creates a new instance of the remote signer client.
+// NewOutboundClient creates a new instance of the remote signer client used by
+// a signer node that dials the watch-only node.
 // The passed subServers need to include a walletrpc.WalletKitServer and a
 // signrpc.SignerServer, or the OutboundClient will be disabled.
-// Note that the client will only fully start if the configuration
-// enables an outbound remote signer.
+// Note that the client will only fully start if this node is configured to act
+// as a remote signer that dials out.
 func NewOutboundClient(walletServer walletrpc.WalletKitServer,
 	signerServer signrpc.SignerServer,
 	streamFeeder SignCoordinatorStreamFeeder,
 	requestTimeout time.Duration) (*OutboundClient, error) {
 
 	if walletServer == nil || signerServer == nil {
-		return nil, errors.New("sub-servers cannot be nil when using " +
-			"an outbound remote signer")
+		return nil, errors.New("sub-servers cannot be nil when acting " +
+			"as a remote signer that dials the watch-only node")
 	}
 
 	if streamFeeder == nil {

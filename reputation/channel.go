@@ -1,6 +1,10 @@
 package reputation
 
-import "time"
+import (
+	"time"
+
+	"github.com/lightningnetwork/lnd/lnwire"
+)
 
 // channelReputation holds all per-channel reputation state. A single channel
 // plays both roles: as an outgoing link it accrues reputation and holds the
@@ -35,6 +39,41 @@ func newChannelReputation(cfg Config,
 			cfg.RevenueWindow, cfg.RevenueWindowCount, start,
 		),
 		pendingHTLCs: make(map[htlcRef]*pendingHTLC),
+	}
+}
+
+// restoreChannelReputation rebuilds channel state from its persisted form, with
+// no pending HTLCs: those are replayed separately from the switch's in-flight
+// circuits.
+func restoreChannelReputation(cfg Config,
+	state ChannelState) *channelReputation {
+
+	return &channelReputation{
+		outgoingReputation: restoreDecayingAverage(
+			state.OutgoingReputation,
+			state.OutgoingReputationUpdatedAt,
+			cfg.reputationWindow(),
+		),
+		incomingRevenue: restoreAggregatedWindowAverage(
+			cfg.RevenueWindow, cfg.RevenueWindowCount,
+			state.IncomingRevenueStartedAt, state.IncomingRevenue,
+			state.IncomingRevenueUpdatedAt,
+		),
+		pendingHTLCs: make(map[htlcRef]*pendingHTLC),
+	}
+}
+
+// state returns the persistable form of this channel's averages.
+func (c *channelReputation) state(chanID lnwire.ChannelID) ChannelState {
+	rep, rev := c.outgoingReputation, c.incomingRevenue
+
+	return ChannelState{
+		ChanID:                      chanID,
+		OutgoingReputation:          rep.value.Int64(),
+		OutgoingReputationUpdatedAt: rep.lastUpdated,
+		IncomingRevenue:             rev.inner.value.Int64(),
+		IncomingRevenueUpdatedAt:    rev.inner.lastUpdated,
+		IncomingRevenueStartedAt:    rev.start,
 	}
 }
 

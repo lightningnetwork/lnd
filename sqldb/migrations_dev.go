@@ -10,8 +10,8 @@ package sqldb
 // migrations.go) with the next free versions when its schema is final.
 var migrationAdditions = []MigrationConfig{
 	{
-		Name:          "000016_offers",
-		Version:       19,
-		SchemaVersion: 16,
+		Name:          "000017_offers",
+		Version:       20,
+		SchemaVersion: 17,
 	},
 }

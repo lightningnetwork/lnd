@@ -35,6 +35,10 @@ var allTestCases = []*lntest.TestCase{
 		TestFunc: testDataLossProtection,
 	},
 	{
+		Name:     "breach conf hint isolated by script",
+		TestFunc: testBreachConfHintPoisonedByFakeFunding,
+	},
+	{
 		Name:     "send all coins",
 		TestFunc: testSendAllCoins,
 	},

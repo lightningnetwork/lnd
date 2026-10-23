@@ -8,6 +8,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/lightningnetwork/lnd/lncfg"
 	"github.com/lightningnetwork/lnd/lnrpc"
 	"github.com/lightningnetwork/lnd/lnrpc/signrpc"
 	"github.com/lightningnetwork/lnd/lnrpc/walletrpc"
@@ -730,4 +731,151 @@ func (m *mockSignerServer) InjectDependencies(
 	_ lnrpc.SubServerConfigDispatcher, _ bool) error {
 
 	return nil
+}
+
+// TestRemoteSignerClientBuilder tests that the RemoteSignerClientBuilder
+// returns the correct client for every combination of the watch-only node
+// configuration and the availability of the sub-servers that are required to
+// service signing requests.
+//
+// The case that matters most is a node that has been configured to act as a
+// remote signer while the required sub-servers are unavailable, i.e. lnd was
+// built without the signrpc and/or walletrpc build tags. That must be a loud
+// error, as a NoOpClient would leave the signer node running and reporting
+// healthy while never connecting to the watch-only node.
+func TestRemoteSignerClientBuilder(t *testing.T) {
+	t.Parallel()
+
+	var (
+		walletKitServer = &mockWalletKitServer{}
+		signerServer    = &mockSignerServer{}
+	)
+
+	tests := []struct {
+		name string
+
+		// isSignerNode indicates if the node has been configured to act
+		// as a remote signer node.
+		isSignerNode bool
+
+		// subServers are the sub-servers that are passed to the
+		// builder.
+		subServers []lnrpc.SubServer
+
+		// expectedClient is the type of client we expect the builder to
+		// return. It is nil if we expect the builder to error out.
+		expectedClient RemoteSignerClient
+
+		// expectedErrContains are substrings that the returned error
+		// must contain. It is empty if we expect no error.
+		expectedErrContains []string
+	}{
+		{
+			name:         "not a signer node, no sub-servers",
+			isSignerNode: false,
+			subServers:   nil,
+
+			// A node that isn't acting as a remote signer has no
+			// use for the sub-servers, so their absence is
+			// expected and must remain a no-op.
+			expectedClient: &NoOpClient{},
+		},
+		{
+			name:         "not a signer node, all sub-servers",
+			isSignerNode: false,
+			subServers: []lnrpc.SubServer{
+				walletKitServer, signerServer,
+			},
+			expectedClient: &NoOpClient{},
+		},
+		{
+			name:         "signer node, no sub-servers",
+			isSignerNode: true,
+			subServers:   nil,
+
+			// Both sub-servers are missing, so both build tags
+			// should be named in the error.
+			expectedErrContains: []string{
+				"unable to act as a remote signer node",
+				walletBuildTag,
+				signerBuildTag,
+			},
+		},
+		{
+			name:         "signer node, only the walletkit server",
+			isSignerNode: true,
+			subServers:   []lnrpc.SubServer{walletKitServer},
+
+			// Only the signer sub-server is missing, so only that
+			// build tag should be reported as missing.
+			expectedErrContains: []string{
+				"lnd was built without the " + signerBuildTag +
+					" sub-server(s)",
+			},
+		},
+		{
+			name:         "signer node, only the signer server",
+			isSignerNode: true,
+			subServers:   []lnrpc.SubServer{signerServer},
+			expectedErrContains: []string{
+				"lnd was built without the " + walletBuildTag +
+					" sub-server(s)",
+			},
+		},
+		{
+			name:         "signer node, all sub-servers",
+			isSignerNode: true,
+			subServers: []lnrpc.SubServer{
+				walletKitServer, signerServer,
+			},
+			expectedClient: &OutboundClient{},
+		},
+	}
+
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			t.Parallel()
+
+			cfg := lncfg.DefaultWatchOnlyNodeCfg()
+			cfg.ExperimentalEnable = test.isSignerNode
+
+			builder := NewRemoteSignerClientBuilder(cfg)
+
+			client, err := builder.Build(test.subServers)
+
+			if len(test.expectedErrContains) > 0 {
+				require.Error(t, err)
+				require.Nil(t, client)
+
+				for _, substr := range test.expectedErrContains {
+					require.ErrorContains(t, err, substr)
+				}
+
+				return
+			}
+
+			require.NoError(t, err)
+			require.IsType(t, test.expectedClient, client)
+		})
+	}
+}
+
+// TestRemoteSignerClientBuilderErrorNamesBuildInstructions tests that the error
+// returned when a signer node is missing its sub-servers tells the operator how
+// to fix it. The root cause is a missing build tag, which an operator has no
+// way of inferring from a bare "sub-server unavailable" message.
+func TestRemoteSignerClientBuilderErrorNamesBuildInstructions(t *testing.T) {
+	t.Parallel()
+
+	cfg := lncfg.DefaultWatchOnlyNodeCfg()
+	cfg.ExperimentalEnable = true
+
+	_, err := NewRemoteSignerClientBuilder(cfg).Build(nil)
+	require.Error(t, err)
+
+	// The error must name the build tags to enable, and point at a concrete
+	// way of producing a binary that has them.
+	require.ErrorContains(t, err, "build tags enabled")
+	require.ErrorContains(t, err, "make build rpc=1")
+	require.ErrorContains(t, err, "official release build")
 }

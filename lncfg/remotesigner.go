@@ -161,9 +161,20 @@ func DefaultWatchOnlyNodeCfg() *WatchOnlyNode {
 	}
 }
 
+// IsSignerNode returns true if the node has been configured to act as a remote
+// signer node that connects to a watch-only node.
+//
+// NOTE: This is the single place that decides whether the outbound remote
+// signer feature has been requested. Callers should use this rather than
+// reading the configuration fields directly, so that when the feature graduates
+// out of experimental mode only this function needs to change.
+func (w *WatchOnlyNode) IsSignerNode() bool {
+	return w.ExperimentalEnable
+}
+
 // Validate checks the values set in the WatchOnlyNode config are valid.
 func (w *WatchOnlyNode) Validate() error {
-	if !w.ExperimentalEnable {
+	if !w.IsSignerNode() {
 		return nil
 	}
 

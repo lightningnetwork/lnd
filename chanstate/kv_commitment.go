@@ -5,6 +5,7 @@ import (
 	"encoding/binary"
 	"fmt"
 	"io"
+	"math"
 
 	"github.com/btcsuite/btcd/btcec/v2"
 	"github.com/lightningnetwork/lnd/fn/v2"
@@ -513,6 +514,11 @@ func extractCommitTlvData(c *ChannelCommitment) commitTlvData {
 
 // SerializeLogUpdates serializes provided list of updates to a stream.
 func SerializeLogUpdates(w io.Writer, logUpdates []LogUpdate) error {
+	if len(logUpdates) > math.MaxUint16 {
+		return fmt.Errorf("too many log updates: %d exceeds %d",
+			len(logUpdates), math.MaxUint16)
+	}
+
 	numUpdates := uint16(len(logUpdates))
 	if err := binary.Write(w, byteOrder, numUpdates); err != nil {
 		return err

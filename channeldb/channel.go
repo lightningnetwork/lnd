@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"math"
 	"net"
 
 	"github.com/btcsuite/btcd/btcec/v2"
@@ -1120,8 +1121,35 @@ func serializeLogUpdates(w io.Writer, logUpdates []LogUpdate) error {
 }
 
 // deserializeLogUpdates deserializes a list of updates from a stream.
-func deserializeLogUpdates(r io.Reader) ([]LogUpdate, error) {
-	return cstate.DeserializeLogUpdates(r)
+func deserializeLogUpdates(r *bytes.Reader) ([]LogUpdate, error) {
+	updates, err := cstate.DeserializeLogUpdates(r)
+	if err != nil || r.Len() == 0 {
+		return updates, err
+	}
+
+	// Older versions wrote the complete list after a wrapped uint16 count.
+	// Recover those entries so a reconnect cannot silently drop a settle.
+	declaredCount := len(updates)
+	for r.Len() > 0 {
+		var update LogUpdate
+		if err := cstate.ReadElements(
+			r, &update.LogIndex, &update.UpdateMsg,
+		); err != nil {
+			return nil, fmt.Errorf("unable to read trailing log update: %w",
+				err)
+		}
+
+		updates = append(updates, update)
+	}
+
+	if len(updates) <= math.MaxUint16 ||
+		len(updates)%(math.MaxUint16+1) != declaredCount {
+
+		return nil, fmt.Errorf("log update count mismatch: declared %d, "+
+			"found %d", declaredCount, len(updates))
+	}
+
+	return updates, nil
 }
 
 // AppendRemoteCommitChain appends a new CommitDiff to the remote party's

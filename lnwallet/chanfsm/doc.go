@@ -1,11 +1,16 @@
-// Package chanfsm models the BOLT 2 commitment protocol of a channel.
+// Package chanfsm runs the BOLT 2 commitment protocol of a channel as a pure
+// state machine wrapped in an actor.
 //
-// A Ledger tracks both update logs and both commitment chains, and decides
-// whether each update, signature and revocation is allowed before the
-// channel applies it. In particular, a revoke_and_ack with no commitment of
-// the peer's outstanding is refused without changing anything.
+// The state machine decides, from an abstract ledger of both update logs and
+// both commitment chains, whether each command and peer message is allowed,
+// and only then authorizes the matching operation on the channel, which
+// builds, signs, verifies and persists the commitments. A message the
+// protocol does not allow never reaches the channel. In particular, a
+// revoke_and_ack is only ever applied in the AwaitingRevocation state, so a
+// peer that sends one with no commitment outstanding fails the channel
+// without changing it.
 //
-// A channel just loaded from disk is a RestoredLedger, which only the peer's
-// channel_reestablish turns into a Ledger, together with the SyncPlan of
-// what to retransmit.
+// Every connection starts from the channel as lnd loads it from disk, a
+// RestoredLedger, which only the peer's channel_reestablish turns into a
+// Ledger, together with the SyncPlan of what to retransmit.
 package chanfsm

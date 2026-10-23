@@ -1,0 +1,155 @@
+{
+  "version": 1,
+  "id": "happy-retry",
+  "config": {
+    "max_parts": 4,
+    "max_attempts": 3,
+    "hold_blocks": 40,
+    "recovery_blocks": 6,
+    "expiry_safety_blocks": 1,
+    "max_reorg_depth": 6
+  },
+  "relay": {
+    "expected_total_msat": 100,
+    "downstream_msat": 90,
+    "required_cltv": 600,
+    "start_height": 500
+  },
+  "invariants": [
+    "NoDuplicatePartResolution",
+    "NoValueCreation",
+    "FeeAndCLTVSafety",
+    "BoundedHoldsAndRetries",
+    "NoForwardAfterTerminal",
+    "ReplayIsIdempotent",
+    "TerminalResolvesAcceptedParts",
+    "TerminalLiveness"
+  ],
+  "events": [
+    {
+      "seq": 0,
+      "event": "add_part",
+      "payload": {
+        "channel_id": 2,
+        "htlc_id": 4,
+        "amount_msat": 40,
+        "cltv": 700
+      },
+      "expected": {
+        "state": "collecting",
+        "collected_msat": 40
+      }
+    },
+    {
+      "seq": 1,
+      "event": "add_part",
+      "payload": {
+        "channel_id": 2,
+        "htlc_id": 4,
+        "amount_msat": 40,
+        "cltv": 700
+      },
+      "expected": {
+        "state": "collecting",
+        "collected_msat": 40
+      }
+    },
+    {
+      "seq": 2,
+      "event": "add_part",
+      "payload": {
+        "channel_id": 1,
+        "htlc_id": 9,
+        "amount_msat": 60,
+        "cltv": 700
+      },
+      "expected": {
+        "state": "ready",
+        "collected_msat": 100,
+        "actions": [
+          {
+            "kind": "payment_ready",
+            "amount_msat": 100
+          }
+        ]
+      }
+    },
+    {
+      "seq": 3,
+      "event": "begin_attempt",
+      "expected": {
+        "state": "paying",
+        "attempts": 1,
+        "active_attempt": 1,
+        "actions": [
+          {
+            "kind": "start_downstream",
+            "attempt_id": 1,
+            "amount_msat": 90
+          }
+        ]
+      }
+    },
+    {
+      "seq": 4,
+      "event": "attempt_failure",
+      "payload": {
+        "attempt_id": 1,
+        "retryable": true
+      },
+      "expected": {
+        "state": "ready",
+        "attempts": 1,
+        "active_attempt": 0,
+        "actions": [
+          {
+            "kind": "retry_ready",
+            "attempt_id": 1
+          }
+        ]
+      }
+    },
+    {
+      "seq": 5,
+      "event": "begin_attempt",
+      "expected": {
+        "state": "paying",
+        "attempts": 2,
+        "active_attempt": 2,
+        "actions": [
+          {
+            "kind": "start_downstream",
+            "attempt_id": 2,
+            "amount_msat": 90
+          }
+        ]
+      }
+    },
+    {
+      "seq": 6,
+      "event": "attempt_success",
+      "payload": {
+        "attempt_id": 2
+      },
+      "expected": {
+        "state": "succeeded",
+        "attempts": 2,
+        "active_attempt": 0,
+        "actions": [
+          {
+            "kind": "fulfill_part",
+            "channel_id": 1,
+            "htlc_id": 9,
+            "amount_msat": 60
+          },
+          {
+            "kind": "fulfill_part",
+            "channel_id": 2,
+            "htlc_id": 4,
+            "amount_msat": 40
+          }
+        ]
+      }
+    }
+  ]
+}

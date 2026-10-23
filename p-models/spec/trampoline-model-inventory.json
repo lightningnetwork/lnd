@@ -1,0 +1,1488 @@
+{
+  "assertions": [
+    {
+      "file": "src/monitors.p",
+      "line": 8,
+      "text": "assert !(result.part_id in resolved),"
+    },
+    {
+      "file": "src/monitors.p",
+      "line": 32,
+      "text": "assert forward.downstream_msat <= forward.collected_msat,"
+    },
+    {
+      "file": "src/monitors.p",
+      "line": 34,
+      "text": "assert forward.collected_msat == accepted_msat,"
+    },
+    {
+      "file": "src/monitors.p",
+      "line": 42,
+      "text": "assert fulfilled_msat <= accepted_msat,"
+    },
+    {
+      "file": "src/monitors.p",
+      "line": 48,
+      "text": "assert amount <= accepted_msat,"
+    },
+    {
+      "file": "src/monitors.p",
+      "line": 57,
+      "text": "assert part.amount_msat > 0,"
+    },
+    {
+      "file": "src/monitors.p",
+      "line": 62,
+      "text": "assert forward.collected_msat >="
+    },
+    {
+      "file": "src/monitors.p",
+      "line": 65,
+      "text": "assert forward.incoming_cltv >="
+    },
+    {
+      "file": "src/monitors.p",
+      "line": 68,
+      "text": "assert forward.attempt > 0 &&"
+    },
+    {
+      "file": "src/monitors.p",
+      "line": 78,
+      "text": "assert update.attempts <= update.max_attempts,"
+    },
+    {
+      "file": "src/monitors.p",
+      "line": 81,
+      "text": "assert update.recovery_deadline <="
+    },
+    {
+      "file": "src/monitors.p",
+      "line": 91,
+      "text": "assert update.height < update.hold_deadline,"
+    },
+    {
+      "file": "src/monitors.p",
+      "line": 107,
+      "text": "assert !terminal,"
+    },
+    {
+      "file": "src/monitors.p",
+      "line": 112,
+      "text": "assert !terminal, \"relay became terminal more than once\";"
+    },
+    {
+      "file": "src/monitors.p",
+      "line": 123,
+      "text": "assert !(forward.attempt in started),"
+    },
+    {
+      "file": "src/monitors.p",
+      "line": 135,
+      "text": "assert !(dispatch in scheduled),"
+    },
+    {
+      "file": "src/monitors.p",
+      "line": 145,
+      "text": "assert !replay.mutated,"
+    },
+    {
+      "file": "src/monitors.p",
+      "line": 169,
+      "text": "assert part_id in resolved,"
+    },
+    {
+      "file": "src/trampoline.p",
+      "line": 38,
+      "text": "assert config.expected_total_msat > 0,"
+    },
+    {
+      "file": "src/trampoline.p",
+      "line": 40,
+      "text": "assert config.downstream_msat > 0 &&"
+    },
+    {
+      "file": "src/trampoline.p",
+      "line": 43,
+      "text": "assert config.max_parts > 0 && config.max_attempts > 0,"
+    },
+    {
+      "file": "src/trampoline.p",
+      "line": 45,
+      "text": "assert config.hold_deadline > 0 &&"
+    },
+    {
+      "file": "src/trampoline.p",
+      "line": 365,
+      "text": "assert terminal == Succeeded ||"
+    },
+    {
+      "file": "src/trampoline.p",
+      "line": 438,
+      "text": "assert count >= 0, \"block count cannot be negative\";"
+    },
+    {
+      "file": "src/trampoline.p",
+      "line": 448,
+      "text": "assert depth >= 0 && depth <= height,"
+    },
+    {
+      "file": "src/trampoline.p",
+      "line": 546,
+      "text": "assert !settled, \"recipient settled more than once\";"
+    }
+  ],
+  "components": [
+    {
+      "file": "src/monitors.p",
+      "kind": "spec",
+      "line": 3,
+      "name": "NoDuplicatePartResolution",
+      "states": [
+        {
+          "file": "src/monitors.p",
+          "kind": "start",
+          "line": 6,
+          "name": "Monitoring"
+        }
+      ],
+      "transitions": [
+        {
+          "action": "do",
+          "event": "ePartResolved",
+          "file": "src/monitors.p",
+          "line": 7,
+          "state": "Monitoring",
+          "target": "inline"
+        }
+      ]
+    },
+    {
+      "file": "src/monitors.p",
+      "kind": "spec",
+      "line": 15,
+      "name": "NoValueCreation",
+      "states": [
+        {
+          "file": "src/monitors.p",
+          "kind": "start",
+          "line": 21,
+          "name": "Monitoring"
+        }
+      ],
+      "transitions": [
+        {
+          "action": "do",
+          "event": "ePartAccepted",
+          "file": "src/monitors.p",
+          "line": 27,
+          "state": "Monitoring",
+          "target": "inline"
+        },
+        {
+          "action": "do",
+          "event": "eForwardStarted",
+          "file": "src/monitors.p",
+          "line": 31,
+          "state": "Monitoring",
+          "target": "inline"
+        },
+        {
+          "action": "do",
+          "event": "ePartResolved",
+          "file": "src/monitors.p",
+          "line": 38,
+          "state": "Monitoring",
+          "target": "inline"
+        },
+        {
+          "action": "do",
+          "event": "eRecipientSettlement",
+          "file": "src/monitors.p",
+          "line": 47,
+          "state": "Monitoring",
+          "target": "inline"
+        }
+      ]
+    },
+    {
+      "file": "src/monitors.p",
+      "kind": "spec",
+      "line": 54,
+      "name": "FeeAndCLTVSafety",
+      "states": [
+        {
+          "file": "src/monitors.p",
+          "kind": "start",
+          "line": 55,
+          "name": "Monitoring"
+        }
+      ],
+      "transitions": [
+        {
+          "action": "do",
+          "event": "ePartAccepted",
+          "file": "src/monitors.p",
+          "line": 56,
+          "state": "Monitoring",
+          "target": "inline"
+        },
+        {
+          "action": "do",
+          "event": "eForwardStarted",
+          "file": "src/monitors.p",
+          "line": 61,
+          "state": "Monitoring",
+          "target": "inline"
+        }
+      ]
+    },
+    {
+      "file": "src/monitors.p",
+      "kind": "spec",
+      "line": 75,
+      "name": "BoundedHoldsAndRetries",
+      "states": [
+        {
+          "file": "src/monitors.p",
+          "kind": "start",
+          "line": 76,
+          "name": "Monitoring"
+        }
+      ],
+      "transitions": [
+        {
+          "action": "do",
+          "event": "eRelayState",
+          "file": "src/monitors.p",
+          "line": 77,
+          "state": "Monitoring",
+          "target": "inline"
+        }
+      ]
+    },
+    {
+      "file": "src/monitors.p",
+      "kind": "spec",
+      "line": 98,
+      "name": "NoForwardAfterTerminal",
+      "states": [
+        {
+          "file": "src/monitors.p",
+          "kind": "start",
+          "line": 101,
+          "name": "Monitoring"
+        }
+      ],
+      "transitions": [
+        {
+          "action": "do",
+          "event": "eForwardStarted",
+          "file": "src/monitors.p",
+          "line": 106,
+          "state": "Monitoring",
+          "target": "inline"
+        },
+        {
+          "action": "do",
+          "event": "eRelayTerminal",
+          "file": "src/monitors.p",
+          "line": 111,
+          "state": "Monitoring",
+          "target": "inline"
+        }
+      ]
+    },
+    {
+      "file": "src/monitors.p",
+      "kind": "spec",
+      "line": 118,
+      "name": "NoDuplicateForwardAttempt",
+      "states": [
+        {
+          "file": "src/monitors.p",
+          "kind": "start",
+          "line": 121,
+          "name": "Monitoring"
+        }
+      ],
+      "transitions": [
+        {
+          "action": "do",
+          "event": "eForwardStarted",
+          "file": "src/monitors.p",
+          "line": 122,
+          "state": "Monitoring",
+          "target": "inline"
+        }
+      ]
+    },
+    {
+      "file": "src/monitors.p",
+      "kind": "spec",
+      "line": 130,
+      "name": "NoDuplicateDispatchSchedule",
+      "states": [
+        {
+          "file": "src/monitors.p",
+          "kind": "start",
+          "line": 133,
+          "name": "Monitoring"
+        }
+      ],
+      "transitions": [
+        {
+          "action": "do",
+          "event": "eDispatchScheduled",
+          "file": "src/monitors.p",
+          "line": 134,
+          "state": "Monitoring",
+          "target": "inline"
+        }
+      ]
+    },
+    {
+      "file": "src/monitors.p",
+      "kind": "spec",
+      "line": 142,
+      "name": "ReplayIsIdempotent",
+      "states": [
+        {
+          "file": "src/monitors.p",
+          "kind": "start",
+          "line": 143,
+          "name": "Monitoring"
+        }
+      ],
+      "transitions": [
+        {
+          "action": "do",
+          "event": "ePartReplay",
+          "file": "src/monitors.p",
+          "line": 144,
+          "state": "Monitoring",
+          "target": "inline"
+        }
+      ]
+    },
+    {
+      "file": "src/monitors.p",
+      "kind": "spec",
+      "line": 151,
+      "name": "TerminalResolvesAcceptedParts",
+      "states": [
+        {
+          "file": "src/monitors.p",
+          "kind": "start",
+          "line": 157,
+          "name": "Monitoring"
+        }
+      ],
+      "transitions": [
+        {
+          "action": "do",
+          "event": "ePartAccepted",
+          "file": "src/monitors.p",
+          "line": 158,
+          "state": "Monitoring",
+          "target": "inline"
+        },
+        {
+          "action": "do",
+          "event": "ePartResolved",
+          "file": "src/monitors.p",
+          "line": 162,
+          "state": "Monitoring",
+          "target": "inline"
+        },
+        {
+          "action": "do",
+          "event": "eRelayTerminal",
+          "file": "src/monitors.p",
+          "line": 166,
+          "state": "Monitoring",
+          "target": "inline"
+        }
+      ]
+    },
+    {
+      "file": "src/monitors.p",
+      "kind": "spec",
+      "line": 176,
+      "name": "TerminalLiveness",
+      "states": [
+        {
+          "file": "src/monitors.p",
+          "kind": "start",
+          "line": 177,
+          "name": "Idle"
+        },
+        {
+          "file": "src/monitors.p",
+          "kind": "hot",
+          "line": 189,
+          "name": "AwaitingTerminal"
+        }
+      ],
+      "transitions": [
+        {
+          "action": "do",
+          "event": "eRelayState",
+          "file": "src/monitors.p",
+          "line": 178,
+          "state": "Idle",
+          "target": "inline"
+        },
+        {
+          "action": "do",
+          "event": "eRelayState",
+          "file": "src/monitors.p",
+          "line": 190,
+          "state": "AwaitingTerminal",
+          "target": "inline"
+        }
+      ]
+    },
+    {
+      "file": "src/trampoline.p",
+      "kind": "machine",
+      "line": 5,
+      "name": "TrampolineRelay",
+      "states": [
+        {
+          "file": "src/trampoline.p",
+          "kind": "start",
+          "line": 22,
+          "name": "Running"
+        }
+      ],
+      "transitions": [
+        {
+          "action": "do",
+          "event": "eAddPart",
+          "file": "src/trampoline.p",
+          "line": 53,
+          "state": "Running",
+          "target": "inline"
+        },
+        {
+          "action": "do",
+          "event": "eNotifyReady",
+          "file": "src/trampoline.p",
+          "line": 104,
+          "state": "Running",
+          "target": "inline"
+        },
+        {
+          "action": "do",
+          "event": "eBeginAttempt",
+          "file": "src/trampoline.p",
+          "line": 117,
+          "state": "Running",
+          "target": "inline"
+        },
+        {
+          "action": "do",
+          "event": "eAttemptSuccess",
+          "file": "src/trampoline.p",
+          "line": 150,
+          "state": "Running",
+          "target": "inline"
+        },
+        {
+          "action": "do",
+          "event": "eAttemptFailure",
+          "file": "src/trampoline.p",
+          "line": 165,
+          "state": "Running",
+          "target": "inline"
+        },
+        {
+          "action": "do",
+          "event": "eCancel",
+          "file": "src/trampoline.p",
+          "line": 197,
+          "state": "Running",
+          "target": "inline"
+        },
+        {
+          "action": "do",
+          "event": "eRestart",
+          "file": "src/trampoline.p",
+          "line": 207,
+          "state": "Running",
+          "target": "inline"
+        },
+        {
+          "action": "do",
+          "event": "eReconcileSuccess",
+          "file": "src/trampoline.p",
+          "line": 252,
+          "state": "Running",
+          "target": "inline"
+        },
+        {
+          "action": "do",
+          "event": "eReconcileFailure",
+          "file": "src/trampoline.p",
+          "line": 261,
+          "state": "Running",
+          "target": "inline"
+        },
+        {
+          "action": "do",
+          "event": "eReconcilePending",
+          "file": "src/trampoline.p",
+          "line": 285,
+          "state": "Running",
+          "target": "inline"
+        },
+        {
+          "action": "do",
+          "event": "eObserveHeight",
+          "file": "src/trampoline.p",
+          "line": 294,
+          "state": "Running",
+          "target": "inline"
+        }
+      ]
+    },
+    {
+      "file": "src/trampoline.p",
+      "kind": "machine",
+      "line": 396,
+      "name": "TrampolineSender",
+      "states": [
+        {
+          "file": "src/trampoline.p",
+          "kind": "start",
+          "line": 401,
+          "name": "Sending"
+        }
+      ],
+      "transitions": [
+        {
+          "action": "do",
+          "event": "ePartResolved",
+          "file": "src/trampoline.p",
+          "line": 417,
+          "state": "Sending",
+          "target": "inline"
+        }
+      ]
+    },
+    {
+      "file": "src/trampoline.p",
+      "kind": "machine",
+      "line": 425,
+      "name": "ChainEnvironment",
+      "states": [
+        {
+          "file": "src/trampoline.p",
+          "kind": "start",
+          "line": 429,
+          "name": "Running"
+        }
+      ],
+      "transitions": [
+        {
+          "action": "do",
+          "event": "eMineBlocks",
+          "file": "src/trampoline.p",
+          "line": 435,
+          "state": "Running",
+          "target": "inline"
+        },
+        {
+          "action": "do",
+          "event": "eChainReorg",
+          "file": "src/trampoline.p",
+          "line": 447,
+          "state": "Running",
+          "target": "inline"
+        }
+      ]
+    },
+    {
+      "file": "src/trampoline.p",
+      "kind": "machine",
+      "line": 456,
+      "name": "DownstreamPayment",
+      "states": [
+        {
+          "file": "src/trampoline.p",
+          "kind": "start",
+          "line": 463,
+          "name": "Serving"
+        }
+      ],
+      "transitions": [
+        {
+          "action": "do",
+          "event": "eDownstreamPay",
+          "file": "src/trampoline.p",
+          "line": 472,
+          "state": "Serving",
+          "target": "inline"
+        },
+        {
+          "action": "do",
+          "event": "eDownstreamReconcile",
+          "file": "src/trampoline.p",
+          "line": 500,
+          "state": "Serving",
+          "target": "inline"
+        },
+        {
+          "action": "do",
+          "event": "eDownstreamCancel",
+          "file": "src/trampoline.p",
+          "line": 513,
+          "state": "Serving",
+          "target": "inline"
+        }
+      ]
+    },
+    {
+      "file": "src/trampoline.p",
+      "kind": "machine",
+      "line": 535,
+      "name": "TrampolineRecipient",
+      "states": [
+        {
+          "file": "src/trampoline.p",
+          "kind": "start",
+          "line": 539,
+          "name": "Receiving"
+        }
+      ],
+      "transitions": [
+        {
+          "action": "do",
+          "event": "eRecipientSettled",
+          "file": "src/trampoline.p",
+          "line": 545,
+          "state": "Receiving",
+          "target": "inline"
+        }
+      ]
+    },
+    {
+      "file": "test/trampoline_test.p",
+      "kind": "machine",
+      "line": 29,
+      "name": "TestTrampolineHappy",
+      "states": [
+        {
+          "file": "test/trampoline_test.p",
+          "kind": "start",
+          "line": 34,
+          "name": "Init"
+        }
+      ],
+      "transitions": [
+        {
+          "action": "do",
+          "event": "ePartResolved",
+          "file": "test/trampoline_test.p",
+          "line": 59,
+          "state": "Init",
+          "target": "inline"
+        }
+      ]
+    },
+    {
+      "file": "test/trampoline_test.p",
+      "kind": "machine",
+      "line": 64,
+      "name": "TestTrampolineRetry",
+      "states": [
+        {
+          "file": "test/trampoline_test.p",
+          "kind": "start",
+          "line": 69,
+          "name": "Init"
+        }
+      ],
+      "transitions": [
+        {
+          "action": "do",
+          "event": "ePartResolved",
+          "file": "test/trampoline_test.p",
+          "line": 87,
+          "state": "Init",
+          "target": "inline"
+        }
+      ]
+    },
+    {
+      "file": "test/trampoline_test.p",
+      "kind": "machine",
+      "line": 92,
+      "name": "TestTrampolineFailure",
+      "states": [
+        {
+          "file": "test/trampoline_test.p",
+          "kind": "start",
+          "line": 97,
+          "name": "Init"
+        }
+      ],
+      "transitions": [
+        {
+          "action": "do",
+          "event": "ePartResolved",
+          "file": "test/trampoline_test.p",
+          "line": 115,
+          "state": "Init",
+          "target": "inline"
+        }
+      ]
+    },
+    {
+      "file": "test/trampoline_test.p",
+      "kind": "machine",
+      "line": 120,
+      "name": "TestTrampolineCancel",
+      "states": [
+        {
+          "file": "test/trampoline_test.p",
+          "kind": "start",
+          "line": 125,
+          "name": "Init"
+        }
+      ],
+      "transitions": [
+        {
+          "action": "do",
+          "event": "ePartResolved",
+          "file": "test/trampoline_test.p",
+          "line": 144,
+          "state": "Init",
+          "target": "inline"
+        }
+      ]
+    },
+    {
+      "file": "test/trampoline_test.p",
+      "kind": "machine",
+      "line": 149,
+      "name": "TestTrampolineRestartTimeout",
+      "states": [
+        {
+          "file": "test/trampoline_test.p",
+          "kind": "start",
+          "line": 154,
+          "name": "Init"
+        }
+      ],
+      "transitions": [
+        {
+          "action": "do",
+          "event": "ePartResolved",
+          "file": "test/trampoline_test.p",
+          "line": 174,
+          "state": "Init",
+          "target": "inline"
+        }
+      ]
+    },
+    {
+      "file": "test/trampoline_test.p",
+      "kind": "machine",
+      "line": 179,
+      "name": "TestTrampolineCancelSettles",
+      "states": [
+        {
+          "file": "test/trampoline_test.p",
+          "kind": "start",
+          "line": 184,
+          "name": "Init"
+        }
+      ],
+      "transitions": [
+        {
+          "action": "do",
+          "event": "ePartResolved",
+          "file": "test/trampoline_test.p",
+          "line": 203,
+          "state": "Init",
+          "target": "inline"
+        }
+      ]
+    },
+    {
+      "file": "test/trampoline_test.p",
+      "kind": "machine",
+      "line": 208,
+      "name": "TestTrampolineReorgTimeout",
+      "states": [
+        {
+          "file": "test/trampoline_test.p",
+          "kind": "start",
+          "line": 214,
+          "name": "Init"
+        }
+      ],
+      "transitions": [
+        {
+          "action": "do",
+          "event": "ePartResolved",
+          "file": "test/trampoline_test.p",
+          "line": 237,
+          "state": "Init",
+          "target": "inline"
+        }
+      ]
+    },
+    {
+      "file": "test/trampoline_test.p",
+      "kind": "machine",
+      "line": 242,
+      "name": "TestTrampolineSenderFlow",
+      "states": [
+        {
+          "file": "test/trampoline_test.p",
+          "kind": "start",
+          "line": 247,
+          "name": "Init"
+        }
+      ],
+      "transitions": []
+    },
+    {
+      "file": "test/trampoline_test.p",
+      "kind": "machine",
+      "line": 263,
+      "name": "TestTrampolineReadyReplay",
+      "states": [
+        {
+          "file": "test/trampoline_test.p",
+          "kind": "start",
+          "line": 268,
+          "name": "Init"
+        }
+      ],
+      "transitions": [
+        {
+          "action": "do",
+          "event": "ePartResolved",
+          "file": "test/trampoline_test.p",
+          "line": 287,
+          "state": "Init",
+          "target": "inline"
+        }
+      ]
+    }
+  ],
+  "events": [
+    {
+      "file": "src/types.p",
+      "line": 117,
+      "name": "eAddPart",
+      "payload": "TrampolinePart"
+    },
+    {
+      "file": "src/types.p",
+      "line": 118,
+      "name": "eNotifyReady",
+      "payload": ""
+    },
+    {
+      "file": "src/types.p",
+      "line": 119,
+      "name": "eBeginAttempt",
+      "payload": ""
+    },
+    {
+      "file": "src/types.p",
+      "line": 120,
+      "name": "eAttemptSuccess",
+      "payload": "int"
+    },
+    {
+      "file": "src/types.p",
+      "line": 121,
+      "name": "eAttemptFailure",
+      "payload": "(attempt: int, retryable: bool)"
+    },
+    {
+      "file": "src/types.p",
+      "line": 122,
+      "name": "eCancel",
+      "payload": ""
+    },
+    {
+      "file": "src/types.p",
+      "line": 123,
+      "name": "eObserveHeight",
+      "payload": "int"
+    },
+    {
+      "file": "src/types.p",
+      "line": 124,
+      "name": "eRestart",
+      "payload": ""
+    },
+    {
+      "file": "src/types.p",
+      "line": 125,
+      "name": "eReconcileSuccess",
+      "payload": "int"
+    },
+    {
+      "file": "src/types.p",
+      "line": 126,
+      "name": "eReconcileFailure",
+      "payload": "int"
+    },
+    {
+      "file": "src/types.p",
+      "line": 127,
+      "name": "eReconcilePending",
+      "payload": "int"
+    },
+    {
+      "file": "src/types.p",
+      "line": 128,
+      "name": "eMineBlocks",
+      "payload": "int"
+    },
+    {
+      "file": "src/types.p",
+      "line": 129,
+      "name": "eChainReorg",
+      "payload": "int"
+    },
+    {
+      "file": "src/types.p",
+      "line": 131,
+      "name": "eDownstreamPay",
+      "payload": "DownstreamRequest"
+    },
+    {
+      "file": "src/types.p",
+      "line": 132,
+      "name": "eDownstreamReconcile",
+      "payload": "ReconcileRequest"
+    },
+    {
+      "file": "src/types.p",
+      "line": 133,
+      "name": "eDownstreamCancel",
+      "payload": "ReconcileRequest"
+    },
+    {
+      "file": "src/types.p",
+      "line": 134,
+      "name": "eRecipientSettled",
+      "payload": "int"
+    },
+    {
+      "file": "src/types.p",
+      "line": 135,
+      "name": "ePartResolved",
+      "payload": "PartResolutionEvent"
+    },
+    {
+      "file": "src/types.p",
+      "line": 137,
+      "name": "eRelayState",
+      "payload": "RelayStateEvent"
+    },
+    {
+      "file": "src/types.p",
+      "line": 138,
+      "name": "ePartAccepted",
+      "payload": "TrampolinePart"
+    },
+    {
+      "file": "src/types.p",
+      "line": 139,
+      "name": "ePartReplay",
+      "payload": "ReplayEvent"
+    },
+    {
+      "file": "src/types.p",
+      "line": 140,
+      "name": "eForwardStarted",
+      "payload": "ForwardEvent"
+    },
+    {
+      "file": "src/types.p",
+      "line": 141,
+      "name": "eDispatchScheduled",
+      "payload": "DispatchEvent"
+    },
+    {
+      "file": "src/types.p",
+      "line": 142,
+      "name": "eRelayTerminal",
+      "payload": "TrampolineRelayState"
+    },
+    {
+      "file": "src/types.p",
+      "line": 143,
+      "name": "eRecipientSettlement",
+      "payload": "int"
+    }
+  ],
+  "files": [
+    "src/monitors.p",
+    "src/trampoline.p",
+    "src/types.p",
+    "test/trampoline_test.p"
+  ],
+  "functions": [
+    {
+      "file": "src/trampoline.p",
+      "line": 331,
+      "name": "IsTerminal"
+    },
+    {
+      "file": "src/trampoline.p",
+      "line": 338,
+      "name": "BeginCancel"
+    },
+    {
+      "file": "src/trampoline.p",
+      "line": 348,
+      "name": "AnnounceState"
+    },
+    {
+      "file": "src/trampoline.p",
+      "line": 361,
+      "name": "ResolveAll"
+    },
+    {
+      "file": "test/trampoline_test.p",
+      "line": 3,
+      "name": "TestConfig"
+    },
+    {
+      "file": "test/trampoline_test.p",
+      "line": 17,
+      "name": "TestParts"
+    }
+  ],
+  "model_root": "/Users/roasbeef/gocode/src/github.com/lightningnetwork/lnd/p-models",
+  "schema": 1,
+  "sends": [
+    {
+      "component": "TrampolineRelay",
+      "event": "eNotifyReady",
+      "file": "src/trampoline.p",
+      "line": 100,
+      "state": "Running",
+      "target": "this"
+    },
+    {
+      "component": "TrampolineRelay",
+      "event": "eBeginAttempt",
+      "file": "src/trampoline.p",
+      "line": 114,
+      "state": "Running",
+      "target": "this"
+    },
+    {
+      "component": "TrampolineRelay",
+      "event": "eDownstreamPay",
+      "file": "src/trampoline.p",
+      "line": 142,
+      "state": "Running",
+      "target": "downstream"
+    },
+    {
+      "component": "TrampolineRelay",
+      "event": "eNotifyReady",
+      "file": "src/trampoline.p",
+      "line": 190,
+      "state": "Running",
+      "target": "this"
+    },
+    {
+      "component": "TrampolineRelay",
+      "event": "eNotifyReady",
+      "file": "src/trampoline.p",
+      "line": 211,
+      "state": "Running",
+      "target": "this"
+    },
+    {
+      "component": "TrampolineRelay",
+      "event": "eDownstreamReconcile",
+      "file": "src/trampoline.p",
+      "line": 217,
+      "state": "Running",
+      "target": "downstream"
+    },
+    {
+      "component": "TrampolineRelay",
+      "event": "eDownstreamReconcile",
+      "file": "src/trampoline.p",
+      "line": 231,
+      "state": "Running",
+      "target": "downstream"
+    },
+    {
+      "component": "TrampolineRelay",
+      "event": "eDownstreamReconcile",
+      "file": "src/trampoline.p",
+      "line": 236,
+      "state": "Running",
+      "target": "downstream"
+    },
+    {
+      "component": "TrampolineRelay",
+      "event": "eDownstreamCancel",
+      "file": "src/trampoline.p",
+      "line": 241,
+      "state": "Running",
+      "target": "downstream"
+    },
+    {
+      "component": "TrampolineRelay",
+      "event": "eDownstreamReconcile",
+      "file": "src/trampoline.p",
+      "line": 245,
+      "state": "Running",
+      "target": "downstream"
+    },
+    {
+      "component": "TrampolineRelay",
+      "event": "eNotifyReady",
+      "file": "src/trampoline.p",
+      "line": 278,
+      "state": "Running",
+      "target": "this"
+    },
+    {
+      "component": "TrampolineRelay",
+      "event": "eDownstreamCancel",
+      "file": "src/trampoline.p",
+      "line": 342,
+      "state": "Running",
+      "target": "downstream"
+    },
+    {
+      "component": "TrampolineRelay",
+      "event": "ePartResolved",
+      "file": "src/trampoline.p",
+      "line": 383,
+      "state": "Running",
+      "target": "controller"
+    },
+    {
+      "component": "TrampolineSender",
+      "event": "eAddPart",
+      "file": "src/trampoline.p",
+      "line": 412,
+      "state": "Sending",
+      "target": "relay"
+    },
+    {
+      "component": "ChainEnvironment",
+      "event": "eObserveHeight",
+      "file": "src/trampoline.p",
+      "line": 442,
+      "state": "Running",
+      "target": "relay"
+    },
+    {
+      "component": "ChainEnvironment",
+      "event": "eObserveHeight",
+      "file": "src/trampoline.p",
+      "line": 451,
+      "state": "Running",
+      "target": "relay"
+    },
+    {
+      "component": "DownstreamPayment",
+      "event": "eRecipientSettled",
+      "file": "src/trampoline.p",
+      "line": 482,
+      "state": "Serving",
+      "target": "recipient"
+    },
+    {
+      "component": "DownstreamPayment",
+      "event": "eAttemptSuccess",
+      "file": "src/trampoline.p",
+      "line": 485,
+      "state": "Serving",
+      "target": "request.relay"
+    },
+    {
+      "component": "DownstreamPayment",
+      "event": "eAttemptFailure",
+      "file": "src/trampoline.p",
+      "line": 488,
+      "state": "Serving",
+      "target": "request.relay"
+    },
+    {
+      "component": "DownstreamPayment",
+      "event": "eAttemptFailure",
+      "file": "src/trampoline.p",
+      "line": 493,
+      "state": "Serving",
+      "target": "request.relay"
+    },
+    {
+      "component": "DownstreamPayment",
+      "event": "eReconcileSuccess",
+      "file": "src/trampoline.p",
+      "line": 502,
+      "state": "Serving",
+      "target": "request.relay"
+    },
+    {
+      "component": "DownstreamPayment",
+      "event": "eReconcileFailure",
+      "file": "src/trampoline.p",
+      "line": 505,
+      "state": "Serving",
+      "target": "request.relay"
+    },
+    {
+      "component": "DownstreamPayment",
+      "event": "eReconcilePending",
+      "file": "src/trampoline.p",
+      "line": 508,
+      "state": "Serving",
+      "target": "request.relay"
+    },
+    {
+      "component": "DownstreamPayment",
+      "event": "eRecipientSettled",
+      "file": "src/trampoline.p",
+      "line": 517,
+      "state": "Serving",
+      "target": "recipient"
+    },
+    {
+      "component": "DownstreamPayment",
+      "event": "eAttemptSuccess",
+      "file": "src/trampoline.p",
+      "line": 520,
+      "state": "Serving",
+      "target": "request.relay"
+    },
+    {
+      "component": "DownstreamPayment",
+      "event": "eAttemptSuccess",
+      "file": "src/trampoline.p",
+      "line": 523,
+      "state": "Serving",
+      "target": "request.relay"
+    },
+    {
+      "component": "DownstreamPayment",
+      "event": "eAttemptFailure",
+      "file": "src/trampoline.p",
+      "line": 526,
+      "state": "Serving",
+      "target": "request.relay"
+    },
+    {
+      "component": "TestTrampolineHappy",
+      "event": "eAddPart",
+      "file": "test/trampoline_test.p",
+      "line": 47,
+      "state": "Init",
+      "target": "relay"
+    },
+    {
+      "component": "TestTrampolineHappy",
+      "event": "eAddPart",
+      "file": "test/trampoline_test.p",
+      "line": 50,
+      "state": "Init",
+      "target": "relay"
+    },
+    {
+      "component": "TestTrampolineHappy",
+      "event": "eAddPart",
+      "file": "test/trampoline_test.p",
+      "line": 53,
+      "state": "Init",
+      "target": "relay"
+    },
+    {
+      "component": "TestTrampolineHappy",
+      "event": "eBeginAttempt",
+      "file": "test/trampoline_test.p",
+      "line": 56,
+      "state": "Init",
+      "target": "relay"
+    },
+    {
+      "component": "TestTrampolineRetry",
+      "event": "eAddPart",
+      "file": "test/trampoline_test.p",
+      "line": 81,
+      "state": "Init",
+      "target": "relay"
+    },
+    {
+      "component": "TestTrampolineRetry",
+      "event": "eBeginAttempt",
+      "file": "test/trampoline_test.p",
+      "line": 84,
+      "state": "Init",
+      "target": "relay"
+    },
+    {
+      "component": "TestTrampolineFailure",
+      "event": "eAddPart",
+      "file": "test/trampoline_test.p",
+      "line": 109,
+      "state": "Init",
+      "target": "relay"
+    },
+    {
+      "component": "TestTrampolineFailure",
+      "event": "eBeginAttempt",
+      "file": "test/trampoline_test.p",
+      "line": 112,
+      "state": "Init",
+      "target": "relay"
+    },
+    {
+      "component": "TestTrampolineCancel",
+      "event": "eAddPart",
+      "file": "test/trampoline_test.p",
+      "line": 137,
+      "state": "Init",
+      "target": "relay"
+    },
+    {
+      "component": "TestTrampolineCancel",
+      "event": "eBeginAttempt",
+      "file": "test/trampoline_test.p",
+      "line": 140,
+      "state": "Init",
+      "target": "relay"
+    },
+    {
+      "component": "TestTrampolineCancel",
+      "event": "eCancel",
+      "file": "test/trampoline_test.p",
+      "line": 141,
+      "state": "Init",
+      "target": "relay"
+    },
+    {
+      "component": "TestTrampolineRestartTimeout",
+      "event": "eAddPart",
+      "file": "test/trampoline_test.p",
+      "line": 166,
+      "state": "Init",
+      "target": "relay"
+    },
+    {
+      "component": "TestTrampolineRestartTimeout",
+      "event": "eBeginAttempt",
+      "file": "test/trampoline_test.p",
+      "line": 169,
+      "state": "Init",
+      "target": "relay"
+    },
+    {
+      "component": "TestTrampolineRestartTimeout",
+      "event": "eRestart",
+      "file": "test/trampoline_test.p",
+      "line": 170,
+      "state": "Init",
+      "target": "relay"
+    },
+    {
+      "component": "TestTrampolineRestartTimeout",
+      "event": "eObserveHeight",
+      "file": "test/trampoline_test.p",
+      "line": 171,
+      "state": "Init",
+      "target": "relay"
+    },
+    {
+      "component": "TestTrampolineCancelSettles",
+      "event": "eAddPart",
+      "file": "test/trampoline_test.p",
+      "line": 196,
+      "state": "Init",
+      "target": "relay"
+    },
+    {
+      "component": "TestTrampolineCancelSettles",
+      "event": "eBeginAttempt",
+      "file": "test/trampoline_test.p",
+      "line": 199,
+      "state": "Init",
+      "target": "relay"
+    },
+    {
+      "component": "TestTrampolineCancelSettles",
+      "event": "eObserveHeight",
+      "file": "test/trampoline_test.p",
+      "line": 200,
+      "state": "Init",
+      "target": "relay"
+    },
+    {
+      "component": "TestTrampolineReorgTimeout",
+      "event": "eAddPart",
+      "file": "test/trampoline_test.p",
+      "line": 226,
+      "state": "Init",
+      "target": "relay"
+    },
+    {
+      "component": "TestTrampolineReorgTimeout",
+      "event": "eMineBlocks",
+      "file": "test/trampoline_test.p",
+      "line": 232,
+      "state": "Init",
+      "target": "chain"
+    },
+    {
+      "component": "TestTrampolineReorgTimeout",
+      "event": "eChainReorg",
+      "file": "test/trampoline_test.p",
+      "line": 233,
+      "state": "Init",
+      "target": "chain"
+    },
+    {
+      "component": "TestTrampolineReorgTimeout",
+      "event": "eMineBlocks",
+      "file": "test/trampoline_test.p",
+      "line": 234,
+      "state": "Init",
+      "target": "chain"
+    },
+    {
+      "component": "TestTrampolineReadyReplay",
+      "event": "eAddPart",
+      "file": "test/trampoline_test.p",
+      "line": 280,
+      "state": "Init",
+      "target": "relay"
+    },
+    {
+      "component": "TestTrampolineReadyReplay",
+      "event": "eNotifyReady",
+      "file": "test/trampoline_test.p",
+      "line": 283,
+      "state": "Init",
+      "target": "relay"
+    },
+    {
+      "component": "TestTrampolineReadyReplay",
+      "event": "eNotifyReady",
+      "file": "test/trampoline_test.p",
+      "line": 284,
+      "state": "Init",
+      "target": "relay"
+    }
+  ],
+  "source_sha256": "2e30a4919a9a4e93900daab37a3b425c56b875bcd2b027912e636739478e7e76"
+}

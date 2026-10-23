@@ -290,8 +290,8 @@ func (store *networkResultStore) cleanStore(keep map[uint64]struct{}) error {
 				return nil
 			}
 
-			// The key and value are only valid for the lifetime of
-			// the iteration, so copy them before stashing.
+			// The bucket is deleted below, so clone the retained
+			// entries before stashing them.
 			kept = append(kept, keptResult{
 				key:   bytes.Clone(k),
 				value: bytes.Clone(v),

@@ -209,27 +209,43 @@ func TestNetworkResultStore(t *testing.T) {
 // drop-and-recreate path is exercised (TestNetworkResultStore above goes
 // through channeldb.OpenForTesting, which always opens bbolt).
 func TestNetworkResultStoreCleanStore(t *testing.T) {
-	t.Parallel()
+	if kvdb.PostgresBackend {
+		stop, err := kvdb.StartEmbeddedPostgres()
+		require.NoError(t, err)
 
-	const numResults uint64 = 5
+		t.Cleanup(func() {
+			require.NoError(t, stop())
+		})
+	} else {
+		t.Parallel()
+	}
 
 	tests := []struct {
-		name string
-		keep map[uint64]struct{}
+		name       string
+		numResults uint64
+		keep       map[uint64]struct{}
 	}{
 		{
-			name: "partial keep",
-			keep: map[uint64]struct{}{0: {}, 2: {}, 4: {}},
+			name:       "partial keep",
+			numResults: 5,
+			keep:       map[uint64]struct{}{0: {}, 2: {}, 4: {}},
 		},
 		{
-			name: "empty keep",
-			keep: map[uint64]struct{}{},
+			name:       "empty keep",
+			numResults: 5,
+			keep:       map[uint64]struct{}{},
 		},
 		{
-			name: "keep all",
+			name:       "keep all",
+			numResults: 5,
 			keep: map[uint64]struct{}{
 				0: {}, 1: {}, 2: {}, 3: {}, 4: {},
 			},
+		},
+		{
+			name:       "empty store",
+			numResults: 0,
+			keep:       map[uint64]struct{}{0: {}},
 		},
 	}
 
@@ -248,9 +264,10 @@ func TestNetworkResultStoreCleanStore(t *testing.T) {
 			store := newNetworkResultStore(backend)
 
 			// Store a result for every attempt ID.
-			for i := range numResults {
+			for i := range test.numResults {
+				msg := &lnwire.UpdateAddHTLC{ID: i}
 				n := &networkResult{
-					msg:          &lnwire.UpdateAddHTLC{},
+					msg:          msg,
 					unencrypted:  true,
 					isResolution: true,
 				}
@@ -262,11 +279,15 @@ func TestNetworkResultStoreCleanStore(t *testing.T) {
 
 			// Every kept ID must still be present; every other ID
 			// must have been removed.
-			for i := range numResults {
-				_, err := store.getResult(i)
+			for i := range test.numResults {
+				result, err := store.getResult(i)
 				if _, ok := test.keep[i]; ok {
 					require.NoErrorf(t, err,
 						"kept id %d missing", i)
+					msg := result.msg
+					add, ok := msg.(*lnwire.UpdateAddHTLC)
+					require.True(t, ok)
+					require.Equal(t, i, add.ID)
 
 					continue
 				}

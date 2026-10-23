@@ -1,0 +1,15 @@
+FROM golang:1.27.3-alpine AS builder
+
+RUN apk add --no-cache alpine-sdk git make gcc
+WORKDIR /go/src/github.com/lightningnetwork/lnd
+COPY . .
+RUN --mount=type=cache,target=/go/pkg/mod \
+    --mount=type=cache,target=/root/.cache/go-build \
+    make release-install
+
+FROM alpine AS final
+
+RUN apk --no-cache add bash jq ca-certificates
+COPY --from=builder /go/bin/lncli /bin/lncli
+COPY --from=builder /go/bin/lnd /bin/lnd
+ENTRYPOINT ["lnd"]

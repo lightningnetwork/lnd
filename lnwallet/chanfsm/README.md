@@ -284,11 +284,20 @@ deliveries, reconnections, and a byzantine peer's injections. The worlds
 must agree byte for byte, except for the three named stricter rules, and
 the test fails if any rule is never reached.
 
+**Deterministic simulation** (`TestDSTChannel`) runs two real actors over
+real channels inside a `testing/synctest` bubble, with disconnections and
+crashes. A crash lands a write on disk but loses its result, as if the node
+died right after committing. After healing, it checks that nothing failed
+except by a crash, both sides agree, and every HTLC and every removal was
+forwarded exactly once across all the forwarding packages on disk.
+`TestDSTDeterminism` requires the same transcript for the same seed.
+
 To run the randomized tests longer, or to replay a failure:
 
 ```sh
-go test ./lnwallet/chanfsm/ -run TestDifferentialActorVsLegacy -rapid.checks=2000
-go test ./lnwallet/chanfsm/ -run TestLedgerMirrorsChannel -rapid.failfile=testdata/rapid/...
+go test ./lnwallet/chanfsm/ -run TestDSTChannel -rapid.checks=2000
+go test ./lnwallet/chanfsm/ -run TestDSTChannel -rapid.failfile=testdata/rapid/...
+go test ./lnwallet/chanfsm/ -run '^$' -fuzz FuzzDSTChannel
 ```
 
 The package path must come before rapid's flags, since `go test` stops

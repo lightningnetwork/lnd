@@ -8,6 +8,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"math"
 	"slices"
 	"sync"
 
@@ -3732,14 +3733,12 @@ func (lc *LightningChannel) createCommitDiff(newCommit *commitment,
 
 // getUnsignedAckedUpdates returns all remote log updates that we haven't
 // signed for yet ourselves.
-func (lc *LightningChannel) getUnsignedAckedUpdates() []channeldb.LogUpdate {
+func (lc *LightningChannel) getUnsignedAckedUpdates(
+	lastLocalCommitted uint64) []channeldb.LogUpdate {
+
 	// Fetch the last remote update that we have signed for.
 	lastRemoteCommitted :=
 		lc.commitChains.Remote.tail().messageIndices.Remote
-
-	// Fetch the last remote update that we have acked.
-	lastLocalCommitted :=
-		lc.commitChains.Local.tail().messageIndices.Remote
 
 	// We'll now run through the remote update log to locate the items that
 	// we haven't signed for yet. This will be the set of items we need to
@@ -5855,6 +5854,17 @@ func (lc *LightningChannel) RevokeCurrentCommitment() (*lnwire.RevokeAndAck,
 	lc.Lock()
 	defer lc.Unlock()
 
+	// Check the next tail before changing the in-memory commitment chain. A
+	// larger list cannot be written to the existing uint16 disk format.
+	lastLocalCommitted := lc.commitChains.Local.tip().messageIndices.Remote
+	unsignedAckedUpdates := lc.getUnsignedAckedUpdates(
+		lastLocalCommitted,
+	)
+	if len(unsignedAckedUpdates) > math.MaxUint16 {
+		return nil, nil, nil, fmt.Errorf("too many unsigned acked updates: "+
+			"%d exceeds %d", len(unsignedAckedUpdates), math.MaxUint16)
+	}
+
 	revocationMsg, err := lc.generateRevocation(lc.currentHeight)
 	if err != nil {
 		return nil, nil, nil, err
@@ -5872,11 +5882,6 @@ func (lc *LightningChannel) RevokeCurrentCommitment() (*lnwire.RevokeAndAck,
 	// persistent storage.
 	chainTail := lc.commitChains.Local.tail()
 	newCommitment := chainTail.toDiskCommit(lntypes.Local)
-
-	// Get the unsigned acked remotes updates that are currently in memory.
-	// We need them after a restart to sync our remote commitment with what
-	// is committed locally.
-	unsignedAckedUpdates := lc.getUnsignedAckedUpdates()
 
 	finalHtlcs, err := lc.channelState.UpdateCommitment(
 		newCommitment, unsignedAckedUpdates,

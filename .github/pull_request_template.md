@@ -5,6 +5,14 @@ Description of change / link to associated issue.
 Steps for reviewers to follow to test the change.
 
 ## Pull Request Checklist
+
+### Draft PR CI
+
+Draft pull requests skip CI by default. Check this box to request a full CI
+run without marking the pull request ready for review.
+
+- [ ] Run CI while this pull request is a draft.
+
 ### Testing
 - [ ] Your PR passes all CI checks.
 - [ ] Tests covering the positive and negative (error paths) are included.

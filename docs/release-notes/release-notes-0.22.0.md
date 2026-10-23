@@ -193,6 +193,13 @@
   migration for now, so a normal build does not change the database
   schema.
 
+* [BOLT 12 invoice request
+  handler](https://github.com/lightningnetwork/lnd/pull/11340): add the
+  experimental `protocol.bolt12-offers` flag, which exists only in a `dev`
+  build and needs native SQL. Add a handler that answers an invoice request
+  for a stored offer with a signed invoice and notifies invoice subscribers.
+  The node does not route invoice requests to the handler yet.
+
 ## Testing
 
 * [BOLT 12 spec test vectors](https://github.com/lightningnetwork/lnd/pull/11001):

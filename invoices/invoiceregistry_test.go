@@ -544,6 +544,10 @@ func TestInvoiceRegistry(t *testing.T) {
 			name: "ProcessingErrors",
 			test: testInvoiceRegistryProcessingErrors,
 		},
+		{
+			name: "Bolt12InvoiceNotification",
+			test: testBolt12InvoiceNotification,
+		},
 	}
 
 	makeKeyValueDB := func(t *testing.T) (invpkg.InvoiceDB,
@@ -611,6 +615,73 @@ func TestInvoiceRegistry(t *testing.T) {
 					return makeSQLDB(t, false)
 				})
 		})
+	}
+}
+
+// testBolt12InvoiceNotification verifies that an all-invoice subscriber gets
+// the Open event of a BOLT 12 invoice, which has no add index, and that the
+// event does not change the add index the registry records for the client.
+func testBolt12InvoiceNotification(t *testing.T,
+	makeDB func(t *testing.T) (invpkg.InvoiceDB, *clock.TestClock)) {
+
+	t.Parallel()
+
+	ctx := newTestContext(t, nil, makeDB)
+
+	// The client reports add index 1 as seen, so the registry must not
+	// send the stored invoice with that index.
+	ctxb := t.Context()
+	allSubscriptions, err := ctx.registry.SubscribeNotifications(ctxb, 1, 0)
+	require.NoError(t, err)
+	defer allSubscriptions.Cancel()
+
+	expectNew := func(isBolt12 bool, addIndex uint64) {
+		t.Helper()
+
+		select {
+		case inv := <-allSubscriptions.NewInvoices:
+			require.Equal(t, invpkg.ContractOpen, inv.State)
+			require.Equal(t, isBolt12, inv.IsBolt12)
+			require.Equal(t, addIndex, inv.AddIndex)
+
+		case <-time.After(testTimeout):
+			t.Fatal("no new invoice event received")
+		}
+	}
+
+	var preimage lntypes.Preimage
+	preimage[0] = 0x12
+
+	ctx.registry.NotifyNewBolt12Invoice(
+		preimage.Hash(), &invpkg.Invoice{
+			IsBolt12: true,
+			Terms: invpkg.ContractTerm{
+				PaymentPreimage: &preimage,
+				Value:           testInvoiceAmount,
+			},
+		},
+	)
+	expectNew(true, 0)
+
+	_, err = ctx.registry.AddInvoice(
+		ctxb, newInvoice(t, false, false), testInvoicePaymentHash,
+	)
+	require.NoError(t, err)
+
+	second := newInvoiceExpiryTestInvoice(
+		t, lntypes.Preimage{2}, testTime, 0,
+	)
+	_, err = ctx.registry.AddInvoice(
+		ctxb, second, second.Terms.PaymentPreimage.Hash(),
+	)
+	require.NoError(t, err)
+	expectNew(false, 2)
+
+	select {
+	case inv := <-allSubscriptions.NewInvoices:
+		t.Fatalf("unexpected event: %v", inv)
+
+	case <-time.After(100 * time.Millisecond):
 	}
 }
 

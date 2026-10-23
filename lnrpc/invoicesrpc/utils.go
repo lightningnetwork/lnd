@@ -17,12 +17,13 @@ import (
 // decodePayReq decodes the invoice payment request if present. This is needed,
 // because not all information is stored in dedicated invoice fields. If there
 // is no payment request present, a dummy request will be returned. This can
-// happen with just-in-time inserted keysend invoices.
+// happen with just-in-time inserted keysend invoices. A BOLT 12 invoice also
+// gets the dummy request, because zpay32 cannot decode its lni1 string.
 func decodePayReq(invoice *invoices.Invoice,
 	activeNetParams *chaincfg.Params) (*zpay32.Invoice, error) {
 
 	paymentRequest := string(invoice.PaymentRequest)
-	if paymentRequest == "" {
+	if paymentRequest == "" || invoice.IsBolt12 {
 		preimage := invoice.Terms.PaymentPreimage
 		if preimage == nil {
 			return &zpay32.Invoice{}, nil

@@ -47,6 +47,10 @@ type Config struct {
 	// payments.
 	NoKeysend bool
 
+	// EnableTrampoline sets trampoline routing in the init, node
+	// announcement, and invoice feature contexts.
+	EnableTrampoline bool
+
 	// NoOptionScidAlias unsets any bits signalling support for
 	// option_scid_alias. This also implicitly disables zero-conf channels.
 	NoOptionScidAlias bool
@@ -152,6 +156,8 @@ func newManager(cfg Config, desc setDesc) (*Manager, error) {
 			raw.Unset(lnwire.AMPRequired)
 			raw.Unset(lnwire.KeysendOptional)
 			raw.Unset(lnwire.KeysendRequired)
+			raw.Unset(lnwire.TrampolineRoutingOptional)
+			raw.Unset(lnwire.TrampolineRoutingRequired)
 		}
 		if cfg.NoStaticRemoteKey {
 			raw.Unset(lnwire.StaticRemoteKeyOptional)
@@ -187,6 +193,10 @@ func newManager(cfg Config, desc setDesc) (*Manager, error) {
 		if cfg.NoKeysend {
 			raw.Unset(lnwire.KeysendOptional)
 			raw.Unset(lnwire.KeysendRequired)
+		}
+		if !cfg.EnableTrampoline {
+			raw.Unset(lnwire.TrampolineRoutingOptional)
+			raw.Unset(lnwire.TrampolineRoutingRequired)
 		}
 		if cfg.NoOptionScidAlias {
 			raw.Unset(lnwire.ScidAliasOptional)

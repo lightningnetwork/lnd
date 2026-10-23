@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"crypto/rand"
+	"encoding/binary"
 	"encoding/hex"
 	"errors"
 	"fmt"
@@ -15,6 +16,7 @@ import (
 	"github.com/btcsuite/btcd/chaincfg/v2"
 	"github.com/btcsuite/btcd/wire/v2"
 	sphinx "github.com/lightningnetwork/lightning-onion"
+	"github.com/lightningnetwork/lnd/bolt12"
 	"github.com/lightningnetwork/lnd/channeldb"
 	"github.com/lightningnetwork/lnd/clock"
 	"github.com/lightningnetwork/lnd/feature"
@@ -27,6 +29,7 @@ import (
 	"github.com/lightningnetwork/lnd/record"
 	"github.com/lightningnetwork/lnd/routing"
 	"github.com/lightningnetwork/lnd/routing/route"
+	"github.com/lightningnetwork/lnd/routing/trampoline"
 	"github.com/lightningnetwork/lnd/subscribe"
 	"github.com/lightningnetwork/lnd/zpay32"
 	"google.golang.org/protobuf/proto"
@@ -51,6 +54,10 @@ type RouterBackend struct {
 	// SelfNode is the vertex of the node sending the payment.
 	SelfNode route.Vertex
 
+	// TrampolineRouting permits the experimental trampoline-specific sender
+	// fields exposed by SendPaymentRequest.
+	TrampolineRouting bool
+
 	// FetchChannelCapacity is a closure that we'll use the fetch the total
 	// capacity of a channel to populate in responses.
 	FetchChannelCapacity func(chanID uint64) (btcutil.Amount, error)
@@ -69,6 +76,14 @@ type RouterBackend struct {
 	// public channels), false otherwise. This means the node is a public
 	// node and should be reachable.
 	HasNode func(nodePub route.Vertex) (bool, error)
+
+	// FetchNodeFeatures returns the advertised feature vector for a node
+	// selected as a trampoline relay.
+	FetchNodeFeatures func(route.Vertex) (*lnwire.FeatureVector, error)
+
+	// CurrentHeight returns the best chain height used to convert relative
+	// invoice and relay CLTV deltas into authenticated absolute expiries.
+	CurrentHeight func() uint32
 
 	// FindRoute is a closure that abstracts away how we locate/query for
 	// routes.
@@ -722,6 +737,9 @@ func (r *RouterBackend) MarshallRoute(route *route.Route) (*lnrpc.Route, error) 
 			Metadata:      hop.Metadata,
 			EncryptedData: hop.EncryptedData,
 			TotalAmtMsat:  uint64(hop.TotalAmtMsat),
+			TrampolineOnion: append(
+				[]byte(nil), hop.TrampolineOnion...,
+			),
 		}
 
 		if hop.BlindingPoint != nil {
@@ -755,6 +773,7 @@ func UnmarshallHopWithPubkey(rpcHop *lnrpc.Hop, pubkey route.Vertex) (*route.Hop
 		return nil, err
 	}
 
+	trampolineOnion := append([]byte(nil), rpcHop.TrampolineOnion...)
 	hop := &route.Hop{
 		OutgoingTimeLock: rpcHop.Expiry,
 		AmtToForward:     lnwire.MilliSatoshi(rpcHop.AmtToForwardMsat),
@@ -766,6 +785,14 @@ func UnmarshallHopWithPubkey(rpcHop *lnrpc.Hop, pubkey route.Vertex) (*route.Hop
 		AMP:              amp,
 		EncryptedData:    rpcHop.EncryptedData,
 		TotalAmtMsat:     lnwire.MilliSatoshi(rpcHop.TotalAmtMsat),
+		TrampolineOnion:  trampolineOnion,
+	}
+	if len(hop.TrampolineOnion) != 0 {
+		if _, err := trampoline.DecodeOnionPacket(
+			hop.TrampolineOnion,
+		); err != nil {
+			return nil, fmt.Errorf("trampoline onion: %w", err)
+		}
 	}
 
 	haveBlindingPoint := len(rpcHop.BlindingPoint) != 0
@@ -839,6 +866,9 @@ func (r *RouterBackend) UnmarshallRoute(rpcroute *lnrpc.Route) (
 
 	hops := make([]*route.Hop, len(rpcroute.Hops))
 	for i, hop := range rpcroute.Hops {
+		if len(hop.TrampolineOnion) != 0 && !r.TrampolineRouting {
+			return nil, errors.New("trampoline routing is disabled")
+		}
 		// TotalAmtMsat is the sender-declared target for the blinded
 		// HTLC set. The final node checks that every part declares the
 		// same total and withholds fulfillment until the received parts
@@ -848,6 +878,12 @@ func (r *RouterBackend) UnmarshallRoute(rpcroute *lnrpc.Route) (
 		if hop.TotalAmtMsat != 0 && i != len(rpcroute.Hops)-1 {
 			return nil, errors.New("blinded total amount can " +
 				"only be provided for the final hop")
+		}
+		if len(hop.TrampolineOnion) != 0 &&
+			i != len(rpcroute.Hops)-1 {
+
+			return nil, errors.New("trampoline onion can only be " +
+				"provided for the final hop")
 		}
 
 		routeHop, err := r.UnmarshallHop(hop, prevNodePubKey)
@@ -879,7 +915,19 @@ func (r *RouterBackend) UnmarshallRoute(rpcroute *lnrpc.Route) (
 func (r *RouterBackend) extractIntentFromSendRequest(
 	rpcPayReq *SendPaymentRequest) (*routing.LightningPayment, error) {
 
+	usesTrampoline := len(rpcPayReq.TrampolineOnion) != 0 ||
+		len(rpcPayReq.TrampolineHops) != 0 ||
+		rpcPayReq.TrampolinePaddingBytes != 0 ||
+		len(rpcPayReq.Bolt12Invoice) != 0 ||
+		len(rpcPayReq.TrampolineErrorSessionKey) != 0 ||
+		len(rpcPayReq.TrampolineErrorPath) != 0
+	if usesTrampoline && !r.TrampolineRouting {
+		return nil, errors.New("trampoline routing is disabled")
+	}
+
 	payIntent := &routing.LightningPayment{}
+	var decodedPayReq *zpay32.Invoice
+	var decodedBolt12 *bolt12.Invoice
 
 	// Pass along time preference.
 	if rpcPayReq.TimePref < -1 || rpcPayReq.TimePref > 1 {
@@ -950,6 +998,92 @@ func (r *RouterBackend) extractIntentFromSendRequest(
 	}
 	payIntent.DestCustomRecords = customRecords
 
+	haveTrampolineErrorKey :=
+		len(rpcPayReq.TrampolineErrorSessionKey) != 0
+	haveTrampolineErrorPath := len(rpcPayReq.TrampolineErrorPath) != 0
+	if haveTrampolineErrorKey != haveTrampolineErrorPath {
+		return nil, errors.New("trampoline_error_session_key and " +
+			"trampoline_error_path must be supplied together")
+	}
+	if (haveTrampolineErrorKey || haveTrampolineErrorPath) &&
+		len(rpcPayReq.TrampolineOnion) == 0 {
+
+		return nil, errors.New("trampoline error metadata requires " +
+			"trampoline_onion")
+	}
+
+	if len(rpcPayReq.TrampolineOnion) != 0 {
+		if len(rpcPayReq.TrampolineHops) != 0 {
+			return nil, errors.New("trampoline_onion and " +
+				"trampoline_hops are mutually exclusive")
+		}
+		if _, err := trampoline.DecodeOnionPacket(
+			rpcPayReq.TrampolineOnion,
+		); err != nil {
+			return nil, fmt.Errorf("trampoline onion: %w", err)
+		}
+		if !haveTrampolineErrorKey {
+			return nil, errors.New("trampoline_onion requires " +
+				"trampoline_error_session_key and " +
+				"trampoline_error_path")
+		}
+		if rpcPayReq.PaymentRequest != "" {
+			return nil, errors.New(
+				"trampoline onion cannot be used with " +
+					"payment_request",
+			)
+		}
+		if len(rpcPayReq.Bolt12Invoice) != 0 {
+			return nil, errors.New(
+				"trampoline onion cannot be used with " +
+					"bolt12_invoice",
+			)
+		}
+		if len(rpcPayReq.PaymentAddr) != 32 {
+			return nil, errors.New(
+				"trampoline payment address must be " +
+					"exactly 32 bytes",
+			)
+		}
+		payIntent.TrampolineOnion = append(
+			[]byte(nil), rpcPayReq.TrampolineOnion...,
+		)
+
+		key, err := trampoline.ParseErrorSessionKey(
+			rpcPayReq.TrampolineErrorSessionKey,
+		)
+		if err != nil {
+			return nil, err
+		}
+		copy(
+			payIntent.TrampolineErrorSessionKey[:],
+			key.Serialize(),
+		)
+		payIntent.HasTrampolineErrorSessionKey = true
+
+		if len(rpcPayReq.TrampolineErrorPath) > sphinx.NumMaxHops {
+			return nil, fmt.Errorf(
+				"trampoline error path has %d hops, "+
+					"maximum is %d",
+				len(rpcPayReq.TrampolineErrorPath),
+				sphinx.NumMaxHops,
+			)
+		}
+		payIntent.TrampolineErrorPath = make(
+			[]*btcec.PublicKey, len(rpcPayReq.TrampolineErrorPath),
+		)
+		for i, encodedNode := range rpcPayReq.TrampolineErrorPath {
+			node, err := btcec.ParsePubKey(encodedNode)
+			if err != nil {
+				return nil, fmt.Errorf(
+					"trampoline error path hop %d: %w",
+					i, err,
+				)
+			}
+			payIntent.TrampolineErrorPath[i] = node
+		}
+	}
+
 	// Keysend payments do not support MPP payments.
 	//
 	// NOTE: There is no need to validate the `MaxParts` value here because
@@ -1008,7 +1142,90 @@ func (r *RouterBackend) extractIntentFromSendRequest(
 	// If the payment request field isn't blank, then the details of the
 	// invoice are encoded entirely within the encoded payReq.  So we'll
 	// attempt to decode it, populating the payment accordingly.
-	if rpcPayReq.PaymentRequest != "" {
+	switch {
+	case len(rpcPayReq.Bolt12Invoice) != 0:
+		switch {
+		case rpcPayReq.PaymentRequest != "":
+			return nil, errors.New(
+				"payment_request and bolt12_invoice cannot " +
+					"appear together",
+			)
+
+		case len(rpcPayReq.Dest) > 0:
+			return nil, errors.New(
+				"dest and bolt12_invoice cannot appear " +
+					"together",
+			)
+
+		case len(rpcPayReq.PaymentHash) > 0:
+			return nil, errors.New(
+				"payment_hash and bolt12_invoice cannot " +
+					"appear together",
+			)
+
+		case rpcPayReq.FinalCltvDelta != 0:
+			return nil, errors.New(
+				"final_cltv_delta and bolt12_invoice cannot " +
+					"appear together",
+			)
+
+		case reqAmt != 0:
+			return nil, errors.New(
+				"amount and bolt12_invoice cannot appear " +
+					"together",
+			)
+		}
+
+		invoice, err := bolt12.DecodeInvoice(rpcPayReq.Bolt12Invoice)
+		if err != nil {
+			return nil, fmt.Errorf(
+				"decode BOLT 12 invoice: %w", err,
+			)
+		}
+		var activeChain [32]byte
+		copy(activeChain[:], r.ActiveNetParams.GenesisHash[:])
+		// The public reader enforces the invoice's chain, signature,
+		// feature and expiry gates.
+		encodedInvoice, err := bolt12.EncodeInvoiceString(invoice)
+		if err != nil {
+			return nil, fmt.Errorf(
+				"validate BOLT 12 invoice: %w", err,
+			)
+		}
+		invoice, err = bolt12.DecodeInvoiceString(
+			encodedInvoice, r.Clock.Now(), activeChain,
+		)
+		if err != nil {
+			return nil, fmt.Errorf(
+				"validate BOLT 12 invoice: %w", err,
+			)
+		}
+		decodedBolt12 = invoice
+
+		amount := invoice.InvoiceAmount.ValOpt().UnwrapOr(0)
+		payIntent.Amount = lnwire.MilliSatoshi(amount)
+		hash := invoice.InvoicePaymentHash.ValOpt().UnwrapOr(
+			[32]byte{},
+		)
+		err = payIntent.SetPaymentHash(lntypes.Hash(hash))
+		if err != nil {
+			return nil, err
+		}
+		nodeID, err := invoice.InvoiceNodeID.ValOpt().UnwrapOrErr(
+			errors.New("BOLT 12 invoice node ID missing"),
+		)
+		if err != nil {
+			return nil, err
+		}
+		copy(payIntent.Target[:], nodeID.SerializeCompressed())
+
+		rawFeatures := invoice.InvoiceFeatures.ValOpt().UnwrapOr(
+			*lnwire.NewRawFeatureVector(),
+		)
+		payIntent.DestFeatures = lnwire.NewFeatureVector(
+			&rawFeatures, lnwire.Features,
+		)
+	case rpcPayReq.PaymentRequest != "":
 		switch {
 
 		case len(rpcPayReq.Dest) > 0:
@@ -1030,6 +1247,7 @@ func (r *RouterBackend) extractIntentFromSendRequest(
 		if err != nil {
 			return nil, err
 		}
+		decodedPayReq = payReq
 
 		// Next, we'll ensure that this payreq hasn't already expired.
 		err = ValidatePayReqExpiry(r.Clock, payReq)
@@ -1157,7 +1375,7 @@ func (r *RouterBackend) extractIntentFromSendRequest(
 				payIntent.DestFeatures = pathFeatures.Clone()
 			}
 		}
-	} else {
+	default:
 		// Otherwise, If the payment request field was not specified
 		// (and a custom route wasn't specified), construct the payment
 		// from the other fields.
@@ -1272,6 +1490,39 @@ func (r *RouterBackend) extractIntentFromSendRequest(
 		payIntent.DestFeatures = features
 	}
 
+	if len(payIntent.TrampolineOnion) != 0 {
+		firstErrorHop, err := route.NewVertexFromBytes(
+			payIntent.TrampolineErrorPath[0].SerializeCompressed(),
+		)
+		if err != nil {
+			return nil, err
+		}
+		if firstErrorHop != payIntent.Target {
+			return nil, errors.New(
+				"first trampoline error path hop must match " +
+					"the trampoline payment destination",
+			)
+		}
+	}
+
+	if decodedBolt12 != nil {
+		if err := r.applyBolt12Trampoline(
+			rpcPayReq, decodedBolt12, payIntent,
+		); err != nil {
+			return nil, err
+		}
+	} else if len(rpcPayReq.TrampolineHops) != 0 {
+		if decodedPayReq == nil {
+			return nil, errors.New("trampoline_hops requires " +
+				"payment_request")
+		}
+		if err := r.applyBolt11Trampoline(
+			rpcPayReq, decodedPayReq, payIntent,
+		); err != nil {
+			return nil, err
+		}
+	}
+
 	// Validate that the MPP parameters are compatible with the
 	// payment amount. In other words, the parameters are invalid if
 	// they do not permit sending the full payment amount.
@@ -1304,6 +1555,478 @@ func (r *RouterBackend) extractIntentFromSendRequest(
 	}
 
 	return payIntent, nil
+}
+
+// applyBolt11Trampoline converts a decoded BOLT 11 payment into an outer
+// payment to the first selected relay and builds the authenticated inner onion
+// by accumulating each relay's fee and CLTV budget from the recipient
+// backwards.
+//
+//nolint:funlen // Validation and onion construction form one atomic operation.
+func (r *RouterBackend) applyBolt11Trampoline(
+	request *SendPaymentRequest, invoice *zpay32.Invoice,
+	payment *routing.LightningPayment) error {
+
+	if invoice.PaymentHash == nil {
+		return errors.New("trampoline invoice has no payment hash")
+	}
+	if invoice.Features == nil ||
+		!invoice.Features.HasFeature(lnwire.TrampolineRoutingOptional) {
+
+		return fmt.Errorf("invoice: %w",
+			trampoline.ErrTrampolineFeatureMissing)
+	}
+	paymentSecret, err := invoice.PaymentAddr.UnwrapOrErr(
+		errors.New("trampoline invoice has no payment secret"),
+	)
+	if err != nil {
+		return err
+	}
+	if r.FetchNodeFeatures == nil {
+		return errors.New("trampoline node feature lookup unavailable")
+	}
+	if r.CurrentHeight == nil {
+		return errors.New("trampoline chain height unavailable")
+	}
+	if request.TrampolinePaddingBytes > math.MaxUint16 {
+		return fmt.Errorf("trampoline padding %d exceeds %d",
+			request.TrampolinePaddingBytes, math.MaxUint16)
+	}
+
+	relayCount := len(request.TrampolineHops)
+	hops := make([]trampoline.Bolt11Hop, relayCount+1)
+	relayVertices := make([]route.Vertex, relayCount)
+	for i, rpcHop := range request.TrampolineHops {
+		if rpcHop == nil {
+			return fmt.Errorf("trampoline hop %d is nil", i)
+		}
+		vertex, err := route.NewVertexFromBytes(rpcHop.PubKey)
+		if err != nil {
+			return fmt.Errorf("trampoline hop %d: %w", i, err)
+		}
+		features, err := r.FetchNodeFeatures(vertex)
+		if err != nil {
+			return fmt.Errorf("trampoline hop %d features: %w", i,
+				err)
+		}
+		if features == nil ||
+			!features.HasFeature(lnwire.TrampolineRoutingOptional) {
+
+			return fmt.Errorf("trampoline hop %d: %w", i,
+				trampoline.ErrTrampolineFeatureMissing)
+		}
+		nodeID, err := btcec.ParsePubKey(vertex[:])
+		if err != nil {
+			return fmt.Errorf("trampoline hop %d pubkey: %w", i,
+				err)
+		}
+		hops[i].NodeID = nodeID
+		hops[i].Features = features
+		relayVertices[i] = vertex
+	}
+
+	amounts := make([]uint64, relayCount+1)
+	expiries := make([]uint32, relayCount+1)
+	if payment.Amount <= 0 {
+		return errors.New("trampoline payment amount must be positive")
+	}
+	amounts[relayCount] = uint64(payment.Amount)
+
+	height := r.CurrentHeight()
+	finalExpiry := uint64(height) + uint64(payment.FinalCLTVDelta)
+	if finalExpiry > math.MaxUint32 {
+		return trampoline.ErrCLTVOverflow
+	}
+	expiries[relayCount] = uint32(finalExpiry)
+
+	for i := relayCount - 1; i >= 0; i-- {
+		amounts[i] = amounts[i+1]
+		expiries[i] = expiries[i+1]
+		if i+1 < relayCount {
+			next := request.TrampolineHops[i+1]
+			if amounts[i] > math.MaxUint64-next.FeeMsat {
+				return trampoline.ErrFeeOverflow
+			}
+			amounts[i] += next.FeeMsat
+			nextExpiry := uint64(expiries[i]) +
+				uint64(next.CltvExpiryDelta)
+			if nextExpiry > math.MaxUint32 {
+				return trampoline.ErrCLTVOverflow
+			}
+			expiries[i] = uint32(nextExpiry)
+		}
+	}
+
+	for i := range relayCount {
+		hops[i].AmountMsat = amounts[i]
+		hops[i].OutgoingCLTV = expiries[i]
+	}
+	hops[relayCount] = trampoline.Bolt11Hop{
+		NodeID:        invoice.Destination,
+		Features:      invoice.Features,
+		AmountMsat:    amounts[relayCount],
+		OutgoingCLTV:  expiries[relayCount],
+		PaymentSecret: &paymentSecret,
+		Metadata:      invoice.Metadata,
+	}
+
+	onionRequest := trampoline.Bolt11Request{
+		PaymentHash: invoice.PaymentHash[:],
+		Hops:        hops,
+		PaddingSize: uint16(
+			request.TrampolinePaddingBytes,
+		),
+	}
+	onion, err := trampoline.BuildBolt11Onion(onionRequest)
+	if err != nil {
+		return err
+	}
+
+	firstPolicy := request.TrampolineHops[0]
+	if amounts[0] > math.MaxUint64-firstPolicy.FeeMsat {
+		return trampoline.ErrFeeOverflow
+	}
+	outerAmount := amounts[0] + firstPolicy.FeeMsat
+	if outerAmount > math.MaxInt64 {
+		return trampoline.ErrFeeOverflow
+	}
+	outerExpiry := uint64(expiries[0]) +
+		uint64(firstPolicy.CltvExpiryDelta)
+	if outerExpiry > math.MaxUint32 {
+		return trampoline.ErrCLTVOverflow
+	}
+	outerDelta := outerExpiry - uint64(height)
+	if outerDelta > math.MaxUint16 {
+		return fmt.Errorf("outer trampoline cltv delta %d exceeds %d",
+			outerDelta, math.MaxUint16)
+	}
+
+	var outerSecret [32]byte
+	if _, err := rand.Read(outerSecret[:]); err != nil {
+		return fmt.Errorf("create outer trampoline payment secret: %w",
+			err)
+	}
+
+	payment.Target = relayVertices[0]
+	payment.Amount = lnwire.MilliSatoshi(outerAmount)
+	payment.FinalCLTVDelta = uint16(outerDelta)
+	payment.PaymentAddr = fn.Some(outerSecret)
+	payment.DestFeatures = hops[0].Features.Clone()
+	payment.RouteHints = nil
+	payment.BlindedPathSet = nil
+	payment.Metadata = nil
+	payment.TrampolineOnion = onion
+	payment.TrampolineOnionBuilder = func(
+		outerSession *btcec.PrivateKey) ([]byte, []*btcec.PublicKey,
+		error) {
+
+		innerSession, err := trampoline.DeriveSessionKey(
+			outerSession,
+		)
+		if err != nil {
+			return nil, nil, err
+		}
+
+		attemptRequest := onionRequest
+		attemptRequest.SessionKey = innerSession
+		attemptOnion, err := trampoline.BuildBolt11Onion(
+			attemptRequest,
+		)
+		if err != nil {
+			return nil, nil, err
+		}
+
+		errorPath := make([]*btcec.PublicKey, len(hops))
+		for i := range hops {
+			errorPath[i] = hops[i].NodeID
+		}
+
+		return attemptOnion, errorPath, nil
+	}
+
+	return nil
+}
+
+// applyBolt12Trampoline converts a raw BOLT 12 invoice into an outer payment
+// to the first clear relay or blinded introduction node.
+//
+//nolint:funlen // Validation and onion construction form one atomic operation.
+func (r *RouterBackend) applyBolt12Trampoline(
+	request *SendPaymentRequest, invoice *bolt12.Invoice,
+	payment *routing.LightningPayment) error {
+
+	if request.TrampolinePaddingBytes > math.MaxUint16 {
+		return fmt.Errorf("trampoline padding %d exceeds %d",
+			request.TrampolinePaddingBytes, math.MaxUint16)
+	}
+	if payment.DestFeatures == nil ||
+		!payment.DestFeatures.HasFeature(
+			lnwire.TrampolineRoutingOptional,
+		) {
+
+		return fmt.Errorf("BOLT 12 invoice: %w",
+			trampoline.ErrTrampolineFeatureMissing)
+	}
+	paths := invoice.UsablePaths(bolt12.Bolt12Features)
+	if len(paths) == 0 {
+		return errors.New("BOLT 12 invoice has no usable blinded path")
+	}
+	selected := paths[0]
+	introduction, err := r.resolveTrampolineIntroduction(
+		selected.Path.IntroductionNode,
+	)
+	if err != nil {
+		return err
+	}
+	if r.FetchNodeFeatures == nil {
+		return errors.New("trampoline node feature lookup unavailable")
+	}
+	introVertex := route.NewVertex(introduction)
+	introFeatures, err := r.FetchNodeFeatures(introVertex)
+	if err != nil {
+		return fmt.Errorf("blinded introduction features: %w", err)
+	}
+	if introFeatures == nil ||
+		!introFeatures.HasFeature(lnwire.TrampolineRoutingOptional) {
+
+		return fmt.Errorf("blinded introduction: %w",
+			trampoline.ErrTrampolineFeatureMissing)
+	}
+
+	if payment.Amount <= 0 {
+		return errors.New("BOLT 12 trampoline amount must be positive")
+	}
+	finalAmount := uint64(payment.Amount)
+	pathFee, err := trampoline.CalculateFee(
+		finalAmount, selected.PayInfo.FeeBaseMsat,
+		selected.PayInfo.FeeProportionalMillionths,
+	)
+	if err != nil {
+		return err
+	}
+	if finalAmount > math.MaxUint64-pathFee {
+		return trampoline.ErrFeeOverflow
+	}
+	pathAmount := finalAmount + pathFee
+	if pathAmount < selected.PayInfo.HtlcMinimumMsat ||
+		pathAmount > selected.PayInfo.HtlcMaximumMsat {
+
+		return fmt.Errorf("BOLT 12 blinded path amount %d outside "+
+			"[%d,%d]", pathAmount,
+			selected.PayInfo.HtlcMinimumMsat,
+			selected.PayInfo.HtlcMaximumMsat)
+	}
+
+	height := r.CurrentHeight()
+	pathExpiry := uint64(height) +
+		uint64(selected.PayInfo.CltvExpiryDelta)
+	if pathExpiry > math.MaxUint32 {
+		return trampoline.ErrCLTVOverflow
+	}
+
+	relayCount := len(request.TrampolineHops)
+	clearHops := make([]trampoline.Bolt11Hop, relayCount)
+	relayVertices := make([]route.Vertex, relayCount)
+	for i := range relayCount {
+		rpcHop := request.TrampolineHops[i]
+		if rpcHop == nil {
+			return fmt.Errorf("trampoline hop %d is nil", i)
+		}
+		if len(rpcHop.PubKey) != 33 {
+			return fmt.Errorf(
+				"trampoline hop %d pubkey must be 33 bytes", i,
+			)
+		}
+		vertex, err := route.NewVertexFromBytes(rpcHop.PubKey)
+		if err != nil {
+			return fmt.Errorf("trampoline hop %d: %w", i, err)
+		}
+		features, err := r.FetchNodeFeatures(vertex)
+		if err != nil {
+			return fmt.Errorf(
+				"trampoline hop %d features: %w", i, err,
+			)
+		}
+		if features == nil ||
+			!features.HasFeature(
+				lnwire.TrampolineRoutingOptional,
+			) {
+
+			return fmt.Errorf("trampoline hop %d: %w", i,
+				trampoline.ErrTrampolineFeatureMissing)
+		}
+		nodeID, err := btcec.ParsePubKey(vertex[:])
+		if err != nil {
+			return fmt.Errorf("trampoline hop %d pubkey: %w", i,
+				err)
+		}
+		clearHops[i].NodeID = nodeID
+		clearHops[i].Features = features
+		relayVertices[i] = vertex
+	}
+
+	amounts := make([]uint64, relayCount+1)
+	expiries := make([]uint32, relayCount+1)
+	amounts[relayCount] = pathAmount
+	expiries[relayCount] = uint32(pathExpiry)
+	for i := relayCount - 1; i >= 0; i-- {
+		amounts[i] = amounts[i+1]
+		expiries[i] = expiries[i+1]
+		if i+1 < relayCount {
+			next := request.TrampolineHops[i+1]
+			if amounts[i] > math.MaxUint64-next.FeeMsat {
+				return trampoline.ErrFeeOverflow
+			}
+			amounts[i] += next.FeeMsat
+			nextExpiry := uint64(expiries[i]) +
+				uint64(next.CltvExpiryDelta)
+			if nextExpiry > math.MaxUint32 {
+				return trampoline.ErrCLTVOverflow
+			}
+			expiries[i] = uint32(nextExpiry)
+		}
+	}
+	for i := range clearHops {
+		clearHops[i].AmountMsat = amounts[i]
+		clearHops[i].OutgoingCLTV = expiries[i]
+	}
+
+	paymentHash := payment.Identifier()
+	onionRequest := trampoline.Bolt12Request{
+		PaymentHash:      paymentHash[:],
+		ClearHops:        clearHops,
+		IntroductionNode: introduction,
+		BlindedPath:      selected.Path,
+		BlindedFeatures:  payment.DestFeatures,
+		AmountMsat:       finalAmount,
+		OutgoingCLTV:     height,
+		TotalMsat:        finalAmount,
+		PaddingSize: uint16(
+			request.TrampolinePaddingBytes,
+		),
+	}
+	onion, err := trampoline.BuildBolt12Onion(onionRequest)
+	if err != nil {
+		return err
+	}
+
+	outerAmount := pathAmount
+	outerExpiry := pathExpiry
+	target := introVertex
+	targetFeatures := introFeatures
+	if relayCount != 0 {
+		firstPolicy := request.TrampolineHops[0]
+		if amounts[0] > math.MaxUint64-firstPolicy.FeeMsat {
+			return trampoline.ErrFeeOverflow
+		}
+		outerAmount = amounts[0] + firstPolicy.FeeMsat
+		outerExpiry = uint64(expiries[0]) +
+			uint64(firstPolicy.CltvExpiryDelta)
+		target = relayVertices[0]
+		targetFeatures = clearHops[0].Features
+	}
+	if outerAmount > math.MaxInt64 {
+		return trampoline.ErrFeeOverflow
+	}
+	if outerExpiry > math.MaxUint32 {
+		return trampoline.ErrCLTVOverflow
+	}
+	outerDelta := outerExpiry - uint64(height)
+	if outerDelta > math.MaxUint16 {
+		return fmt.Errorf("outer trampoline cltv delta %d exceeds %d",
+			outerDelta, math.MaxUint16)
+	}
+
+	var outerSecret [32]byte
+	if _, err := rand.Read(outerSecret[:]); err != nil {
+		return fmt.Errorf("create outer trampoline payment secret: %w",
+			err)
+	}
+
+	payment.Target = target
+	payment.Amount = lnwire.MilliSatoshi(outerAmount)
+	payment.FinalCLTVDelta = uint16(outerDelta)
+	payment.PaymentAddr = fn.Some(outerSecret)
+	payment.DestFeatures = targetFeatures.Clone()
+	payment.RouteHints = nil
+	payment.BlindedPathSet = nil
+	payment.Metadata = nil
+	payment.TrampolineOnion = onion
+	payment.TrampolineOnionBuilder = func(
+		outerSession *btcec.PrivateKey) ([]byte, []*btcec.PublicKey,
+		error) {
+
+		innerSession, err := trampoline.DeriveSessionKey(
+			outerSession,
+		)
+		if err != nil {
+			return nil, nil, err
+		}
+
+		attemptRequest := onionRequest
+		attemptRequest.SessionKey = innerSession
+		attemptOnion, err := trampoline.BuildBolt12Onion(
+			attemptRequest,
+		)
+		if err != nil {
+			return nil, nil, err
+		}
+
+		errorPath := make(
+			[]*btcec.PublicKey, 0,
+			len(clearHops)+len(selected.Path.Hops),
+		)
+		for i := range clearHops {
+			errorPath = append(errorPath, clearHops[i].NodeID)
+		}
+		for i := range selected.Path.Hops {
+			node := selected.Path.Hops[i].BlindedNodeID
+			if i == 0 {
+				node = introduction
+			}
+			errorPath = append(errorPath, node)
+		}
+
+		return attemptOnion, errorPath, nil
+	}
+
+	return nil
+}
+
+func (r *RouterBackend) resolveTrampolineIntroduction(
+	introduction lnwire.IntroductionNode) (*btcec.PublicKey, error) {
+
+	switch node := introduction.(type) {
+	case lnwire.PubkeyIntro:
+		return node.Pubkey, nil
+
+	case *lnwire.PubkeyIntro:
+		return node.Pubkey, nil
+
+	case lnwire.SciddirIntro:
+		if r.FetchChannelEndpoints == nil {
+			return nil, errors.New(
+				"trampoline introduction resolver unavailable",
+			)
+		}
+		scid := binary.BigEndian.Uint64(node.SCID[:])
+		node1, node2, err := r.FetchChannelEndpoints(scid)
+		if err != nil {
+			return nil, err
+		}
+		vertex := node1
+		if node.Direction == 1 {
+			vertex = node2
+		}
+
+		return btcec.ParsePubKey(vertex[:])
+
+	default:
+		return nil, fmt.Errorf(
+			"unsupported trampoline introduction node %T",
+			introduction,
+		)
+	}
 }
 
 // BuildBlindedPathSet marshals a set of zpay32.BlindedPaymentPath and uses
@@ -1579,6 +2302,12 @@ func marshallHtlcFailure(failure *paymentsdb.HTLCFailInfo) (*lnrpc.Failure,
 	case paymentsdb.HTLCFailInternal:
 		rpcFailure.Code = lnrpc.Failure_INTERNAL_FAILURE
 
+	case paymentsdb.HTLCFailTrampoline:
+		// A relay cannot decrypt the nested failure packet. Only the
+		// original payment sender can identify its source and wire
+		// message.
+		rpcFailure.Code = lnrpc.Failure_UNREADABLE_FAILURE
+
 	case paymentsdb.HTLCFailMessage:
 		err := marshallWireError(failure.Message, rpcFailure)
 		if err != nil {
@@ -1741,6 +2470,21 @@ func marshallWireError(msg lnwire.FailureMessage,
 	case *lnwire.FailInvalidBlinding:
 		response.Code = lnrpc.Failure_INVALID_ONION_BLINDING
 		response.OnionSha_256 = onionErr.OnionSHA256[:]
+
+	case *lnwire.FailTemporaryTrampolineFailure:
+		response.Code = lnrpc.Failure_TEMPORARY_TRAMPOLINE_FAILURE
+
+	case *lnwire.FailTrampolineFeeOrExpiryInsufficient:
+		response.Code = lnrpc.
+			Failure_TRAMPOLINE_FEE_OR_EXPIRY_INSUFFICIENT
+		response.TrampolineFeeBaseMsat = onionErr.FeeBaseMsat
+		response.TrampolineFeeProportionalMillionths =
+			onionErr.FeeProportionalMillionths
+		response.TrampolineCltvExpiryDelta =
+			uint32(onionErr.CltvExpiryDelta)
+
+	case *lnwire.FailUnknownNextTrampoline:
+		response.Code = lnrpc.Failure_UNKNOWN_NEXT_TRAMPOLINE
 
 	case nil:
 		response.Code = lnrpc.Failure_UNKNOWN_FAILURE

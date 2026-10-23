@@ -3,19 +3,433 @@ package routerrpc
 import (
 	"bytes"
 	"encoding/hex"
+	"math"
 	"testing"
 	"time"
 
+	"github.com/btcsuite/btcd/btcec/v2"
 	"github.com/btcsuite/btcd/btcutil/v2"
 	"github.com/btcsuite/btcd/chaincfg/v2"
+	sphinx "github.com/lightningnetwork/lightning-onion"
+	"github.com/lightningnetwork/lnd/bolt12"
+	"github.com/lightningnetwork/lnd/fn/v2"
 	"github.com/lightningnetwork/lnd/lnmock"
 	"github.com/lightningnetwork/lnd/lnrpc"
+	"github.com/lightningnetwork/lnd/lntypes"
 	"github.com/lightningnetwork/lnd/lnwire"
+	paymentsdb "github.com/lightningnetwork/lnd/payments/db"
 	"github.com/lightningnetwork/lnd/record"
 	"github.com/lightningnetwork/lnd/routing"
 	"github.com/lightningnetwork/lnd/routing/route"
+	"github.com/lightningnetwork/lnd/routing/trampoline"
+	"github.com/lightningnetwork/lnd/tlv"
+	"github.com/lightningnetwork/lnd/zpay32"
 	"github.com/stretchr/testify/require"
+	"google.golang.org/protobuf/proto"
 )
+
+// TestMarshallOpaqueTrampolineFailure verifies a relay-local nested failure is
+// not exposed as a decoded wire message through the payment RPC.
+func TestMarshallOpaqueTrampolineFailure(t *testing.T) {
+	t.Parallel()
+
+	failure, err := marshallHtlcFailure(&paymentsdb.HTLCFailInfo{
+		Reason: paymentsdb.HTLCFailTrampoline,
+	})
+	require.NoError(t, err)
+	require.Equal(t, lnrpc.Failure_UNREADABLE_FAILURE, failure.Code)
+}
+
+// TestTrampolineOnionRPC verifies that the explicit type-20 field round trips
+// through route RPC conversion and rejects malformed or intermediate use.
+func TestTrampolineOnionRPC(t *testing.T) {
+	t.Parallel()
+
+	key, _ := btcec.PrivKeyFromBytes(bytes.Repeat([]byte{0x31}, 32))
+	packet := &sphinx.OnionPacket{
+		EphemeralKey: key.PubKey(),
+		RoutingInfo:  bytes.Repeat([]byte{0x17}, 97),
+	}
+	onion, err := trampoline.EncodeOnionPacket(packet)
+	require.NoError(t, err)
+
+	hop, err := UnmarshallHopWithPubkey(&lnrpc.Hop{
+		TrampolineOnion: onion,
+	}, node1)
+	require.NoError(t, err)
+	require.Equal(t, onion, hop.TrampolineOnion)
+
+	backend := &RouterBackend{
+		SelfNode:          sourceKey,
+		TrampolineRouting: true,
+	}
+	rpcRoute := &lnrpc.Route{
+		TotalAmtMsat:  1_000,
+		TotalTimeLock: 120,
+		Hops: []*lnrpc.Hop{{
+			PubKey:           hex.EncodeToString(node1[:]),
+			AmtToForwardMsat: 1_000,
+			Expiry:           110,
+			TrampolineOnion:  onion,
+		}},
+	}
+	unmarshalled, err := backend.UnmarshallRoute(rpcRoute)
+	require.NoError(t, err)
+	require.Equal(t, onion, unmarshalled.Hops[0].TrampolineOnion)
+	disabled := &RouterBackend{SelfNode: sourceKey}
+	_, err = disabled.UnmarshallRoute(rpcRoute)
+	require.ErrorContains(t, err, "trampoline routing is disabled")
+
+	marshalled, err := backend.MarshallRoute(unmarshalled)
+	require.NoError(t, err)
+	require.Equal(t, onion, marshalled.Hops[0].TrampolineOnion)
+
+	rpcRoute.Hops = append(rpcRoute.Hops, &lnrpc.Hop{
+		PubKey:           hex.EncodeToString(node2[:]),
+		AmtToForwardMsat: 1_000,
+		Expiry:           110,
+	})
+	_, err = backend.UnmarshallRoute(rpcRoute)
+	require.ErrorContains(t, err, "only be provided for the final hop")
+
+	_, err = UnmarshallHopWithPubkey(&lnrpc.Hop{
+		TrampolineOnion: []byte{1, 2, 3},
+	}, node1)
+	require.ErrorContains(t, err, "trampoline onion")
+}
+
+// TestMarshallTrampolineFailures verifies that callers can inspect every
+// trampoline failure and the fee and expiry quote carried by the budget
+// failure.
+func TestMarshallTrampolineFailures(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name     string
+		failure  lnwire.FailureMessage
+		expected *lnrpc.Failure
+	}{
+		{
+			name:    "temporary",
+			failure: &lnwire.FailTemporaryTrampolineFailure{},
+			expected: &lnrpc.Failure{
+				Code: lnrpc.
+					Failure_TEMPORARY_TRAMPOLINE_FAILURE,
+			},
+		},
+		{
+			name: "fee and expiry",
+			failure: &lnwire.FailTrampolineFeeOrExpiryInsufficient{
+				FeeBaseMsat:               1_000,
+				FeeProportionalMillionths: 2_500,
+				CltvExpiryDelta:           144,
+			},
+			expected: &lnrpc.Failure{
+				Code: lnrpc.
+					Failure_TRAMPOLINE_FEE_OR_EXPIRY_INSUFFICIENT, //nolint:ll
+				TrampolineFeeBaseMsat:               1_000,
+				TrampolineFeeProportionalMillionths: 2_500,
+				TrampolineCltvExpiryDelta:           144,
+			},
+		},
+		{
+			name:    "unknown next trampoline",
+			failure: &lnwire.FailUnknownNextTrampoline{},
+			expected: &lnrpc.Failure{
+				Code: lnrpc.Failure_UNKNOWN_NEXT_TRAMPOLINE,
+			},
+		},
+	}
+
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			t.Parallel()
+
+			response := &lnrpc.Failure{}
+			err := marshallWireError(test.failure, response)
+			require.NoError(t, err)
+			require.Equal(t, test.expected, response)
+		})
+	}
+}
+
+// TestApplyBolt11Trampoline verifies that the automatic RPC path accumulates
+// relay policies backwards, uses a fresh outer secret, and builds the complete
+// authenticated inner onion.
+func TestApplyBolt11Trampoline(t *testing.T) {
+	t.Parallel()
+
+	bobKey, _ := btcec.PrivKeyFromBytes(bytes.Repeat([]byte{0x51}, 32))
+	carolKey, _ := btcec.PrivKeyFromBytes(bytes.Repeat([]byte{0x52}, 32))
+	daveKey, _ := btcec.PrivKeyFromBytes(bytes.Repeat([]byte{0x53}, 32))
+	hash := [32]byte{1, 2, 3}
+	invoiceSecret := [32]byte{4, 5, 6}
+	features := lnwire.NewFeatureVector(
+		lnwire.NewRawFeatureVector(
+			lnwire.TLVOnionPayloadOptional,
+			lnwire.TrampolineRoutingOptional,
+		), lnwire.Features,
+	)
+	invoice := &zpay32.Invoice{
+		PaymentHash: &hash,
+		PaymentAddr: fn.Some(invoiceSecret),
+		Destination: daveKey.PubKey(),
+		Features:    features,
+		Metadata:    []byte{7, 8},
+	}
+	featureByNode := map[route.Vertex]*lnwire.FeatureVector{
+		route.NewVertex(bobKey.PubKey()):   features,
+		route.NewVertex(carolKey.PubKey()): features,
+	}
+	backend := &RouterBackend{
+		FetchNodeFeatures: func(node route.Vertex) (
+			*lnwire.FeatureVector, error) {
+
+			return featureByNode[node], nil
+		},
+		CurrentHeight: func() uint32 {
+			return 500
+		},
+	}
+	request := &SendPaymentRequest{
+		TrampolineHops: []*TrampolineHop{
+			{
+				PubKey: bobKey.PubKey().
+					SerializeCompressed(),
+				FeeMsat:         100,
+				CltvExpiryDelta: 40,
+			},
+			{
+				PubKey: carolKey.PubKey().
+					SerializeCompressed(),
+				FeeMsat:         200,
+				CltvExpiryDelta: 30,
+			},
+		},
+		TrampolinePaddingBytes: 19,
+	}
+	payment := &routing.LightningPayment{
+		Amount:         100_000,
+		FinalCLTVDelta: 80,
+		PaymentAddr:    fn.Some(invoiceSecret),
+		Metadata:       []byte{7, 8},
+	}
+
+	err := backend.applyBolt11Trampoline(request, invoice, payment)
+	require.NoError(t, err)
+	require.Equal(t, route.NewVertex(bobKey.PubKey()), payment.Target)
+	require.Equal(t, lnwire.MilliSatoshi(100_300), payment.Amount)
+	require.Equal(t, uint16(150), payment.FinalCLTVDelta)
+	require.NotEqual(
+		t, invoiceSecret, payment.PaymentAddr.UnsafeFromSome(),
+	)
+	require.Nil(t, payment.Metadata)
+
+	packet, err := trampoline.DecodeOnionPacket(payment.TrampolineOnion)
+	require.NoError(t, err)
+	bobRouter := sphinx.NewRouter(
+		&sphinx.PrivKeyECDH{PrivKey: bobKey},
+		sphinx.NewNoOpReplayLog(),
+	)
+	processed, err := bobRouter.ProcessOnionPacket(packet, hash[:], 0)
+	require.NoError(t, err)
+	payload, _, err := trampoline.DecodePayload(bytes.NewReader(
+		processed.Payload.Payload,
+	))
+	require.NoError(t, err)
+	require.Equal(t, uint64(100_200), *payload.AmountToForward)
+	require.Equal(t, uint32(610), *payload.OutgoingCLTV)
+	require.Equal(t, carolKey.PubKey(), payload.OutgoingNodeID)
+
+	carolRouter := sphinx.NewRouter(
+		&sphinx.PrivKeyECDH{PrivKey: carolKey},
+		sphinx.NewNoOpReplayLog(),
+	)
+	processed, err = carolRouter.ProcessOnionPacket(
+		processed.NextPacket, hash[:], 0,
+	)
+	require.NoError(t, err)
+	payload, _, err = trampoline.DecodePayload(bytes.NewReader(
+		processed.Payload.Payload,
+	))
+	require.NoError(t, err)
+	require.Equal(t, uint64(100_000), *payload.AmountToForward)
+	require.Equal(t, uint32(580), *payload.OutgoingCLTV)
+	require.Equal(t, daveKey.PubKey(), payload.OutgoingNodeID)
+}
+
+// TestApplyBolt12Trampoline verifies automatic path policy accumulation and
+// construction of a clear relay followed by a real blinded trampoline path.
+func TestApplyBolt12Trampoline(t *testing.T) {
+	t.Parallel()
+
+	relayKey, _ := btcec.PrivKeyFromBytes(bytes.Repeat([]byte{0x61}, 32))
+	introKey, _ := btcec.PrivKeyFromBytes(bytes.Repeat([]byte{0x62}, 32))
+	finalKey, _ := btcec.PrivKeyFromBytes(bytes.Repeat([]byte{0x63}, 32))
+	blindingSession, _ := btcec.PrivKeyFromBytes(
+		bytes.Repeat([]byte{0x64}, 32),
+	)
+	hash := lntypes.Hash{1, 2, 3}
+	pathID := bytes.Repeat([]byte{0x65}, 32)
+
+	introData, err := record.EncodeBlindedRouteData(
+		record.NewDummyHopRouteData(
+			finalKey.PubKey(),
+			record.PaymentRelayInfo{
+				CltvExpiryDelta: 10,
+				BaseFee:         100,
+			},
+			record.PaymentConstraints{
+				MaxCltvExpiry:   600,
+				HtlcMinimumMsat: 1,
+			},
+		),
+	)
+	require.NoError(t, err)
+	finalData, err := record.EncodeBlindedRouteData(
+		record.NewFinalHopBlindedRouteData(nil, pathID),
+	)
+	require.NoError(t, err)
+	blinded, err := sphinx.BuildBlindedPath(
+		blindingSession, []*sphinx.HopInfo{
+			{NodePub: introKey.PubKey(), PlainText: introData},
+			{NodePub: finalKey.PubKey(), PlainText: finalData},
+		},
+	)
+	require.NoError(t, err)
+	introduction, err := lnwire.NewPubkeyIntro(introKey.PubKey())
+	require.NoError(t, err)
+	wirePath := lnwire.BlindedPath{
+		IntroductionNode: introduction,
+		BlindingPoint:    blinded.Path.BlindingPoint,
+		Hops: make(
+			[]lnwire.BlindedHop, len(blinded.Path.BlindedHops),
+		),
+	}
+	for i := range blinded.Path.BlindedHops {
+		hop := blinded.Path.BlindedHops[i]
+		wirePath.Hops[i] = lnwire.BlindedHop{
+			BlindedNodeID: hop.BlindedNodePub,
+			EncryptedData: hop.CipherText,
+		}
+	}
+
+	features := lnwire.NewFeatureVector(
+		lnwire.NewRawFeatureVector(
+			lnwire.TLVOnionPayloadOptional,
+			lnwire.PaymentAddrOptional,
+			lnwire.MPPOptional,
+			lnwire.TrampolineRoutingOptional,
+		), lnwire.Features,
+	)
+	invoice := &bolt12.Invoice{
+		InvoicePaths: tlv.SomeRecordT(
+			tlv.NewRecordT[tlv.TlvType160, lnwire.BlindedPaths](
+				lnwire.BlindedPaths{
+					Paths: []lnwire.BlindedPath{
+						wirePath, wirePath,
+					},
+				},
+			),
+		),
+		InvoiceBlindedPay: tlv.SomeRecordT(
+			tlv.NewRecordT[
+				tlv.TlvType162, bolt12.BlindedPayInfos,
+			](bolt12.BlindedPayInfos{
+				Infos: []bolt12.BlindedPayInfo{{
+					// AMP is known globally but unsupported
+					// here. Select the supported path.
+					Features: *lnwire.NewRawFeatureVector(
+						lnwire.AMPRequired,
+					),
+					FeeBaseMsat:     9_000,
+					CltvExpiryDelta: 20,
+					HtlcMaximumMsat: 10_000,
+				}, {
+					FeeBaseMsat:     100,
+					CltvExpiryDelta: 20,
+					HtlcMaximumMsat: 10_000,
+				}},
+			}),
+		),
+	}
+	featureByNode := map[route.Vertex]*lnwire.FeatureVector{
+		route.NewVertex(relayKey.PubKey()): features,
+		route.NewVertex(introKey.PubKey()): features,
+	}
+	backend := &RouterBackend{
+		FetchNodeFeatures: func(node route.Vertex) (
+			*lnwire.FeatureVector, error) {
+
+			return featureByNode[node], nil
+		},
+		CurrentHeight: func() uint32 {
+			return 500
+		},
+	}
+	request := &SendPaymentRequest{
+		TrampolineHops: []*TrampolineHop{{
+			PubKey: relayKey.PubKey().
+				SerializeCompressed(),
+			FeeMsat:         50,
+			CltvExpiryDelta: 10,
+		}},
+	}
+	payment := &routing.LightningPayment{
+		Amount:       1_000,
+		DestFeatures: features,
+	}
+	require.NoError(t, payment.SetPaymentHash(hash))
+	oversized, ok := proto.Clone(request).(*SendPaymentRequest)
+	require.True(t, ok)
+	oversized.TrampolinePaddingBytes = math.MaxUint16 + 1
+	err = backend.applyBolt12Trampoline(oversized, invoice, payment)
+	require.ErrorContains(t, err, "trampoline padding")
+	nilHop, ok := proto.Clone(request).(*SendPaymentRequest)
+	require.True(t, ok)
+	nilHop.TrampolineHops = []*TrampolineHop{nil}
+	err = backend.applyBolt12Trampoline(nilHop, invoice, payment)
+	require.ErrorContains(t, err, "trampoline hop 0 is nil")
+
+	err = backend.applyBolt12Trampoline(request, invoice, payment)
+	require.NoError(t, err)
+	require.Equal(t, route.NewVertex(relayKey.PubKey()), payment.Target)
+	require.Equal(t, lnwire.MilliSatoshi(1_150), payment.Amount)
+	require.Equal(t, uint16(30), payment.FinalCLTVDelta)
+	require.NotEmpty(t, payment.TrampolineOnion)
+
+	packet, err := trampoline.DecodeOnionPacket(payment.TrampolineOnion)
+	require.NoError(t, err)
+	relayRouter := sphinx.NewRouter(
+		&sphinx.PrivKeyECDH{PrivKey: relayKey},
+		sphinx.NewNoOpReplayLog(),
+	)
+	processed, err := relayRouter.ProcessOnionPacket(packet, hash[:], 0)
+	require.NoError(t, err)
+	payload, _, err := trampoline.DecodePayload(bytes.NewReader(
+		processed.Payload.Payload,
+	))
+	require.NoError(t, err)
+	require.Equal(t, uint64(1_100), *payload.AmountToForward)
+	require.Equal(t, uint32(520), *payload.OutgoingCLTV)
+	require.Equal(t, introKey.PubKey(), payload.OutgoingNodeID)
+
+	introRouter := sphinx.NewRouter(
+		&sphinx.PrivKeyECDH{PrivKey: introKey},
+		sphinx.NewNoOpReplayLog(),
+	)
+	processed, err = introRouter.ProcessOnionPacket(
+		processed.NextPacket, hash[:], 0,
+	)
+	require.NoError(t, err)
+	payload, _, err = trampoline.DecodePayload(bytes.NewReader(
+		processed.Payload.Payload,
+	))
+	require.NoError(t, err)
+	require.Equal(
+		t, blinded.Path.BlindingPoint, payload.CurrentPathKey,
+	)
+}
 
 const (
 	destKey       = "0286098b97bc843372b4426d4b276cea9aa2f48f0428d6f5b66ae101befc14f8b4"
@@ -623,6 +1037,42 @@ func TestExtractIntentFromSendRequest(t *testing.T) {
 	mockClock := &lnmock.MockClock{}
 	mockClock.On("Now").Return(time.Date(2025, 3, 1, 13, 0, 0, 0, time.UTC))
 
+	innerKey, _ := btcec.PrivKeyFromBytes(bytes.Repeat([]byte{0x35}, 32))
+	innerPacket := &sphinx.OnionPacket{
+		EphemeralKey: innerKey.PubKey(),
+		RoutingInfo:  bytes.Repeat([]byte{0x19}, 97),
+	}
+	explicitOnion, err := trampoline.EncodeOnionPacket(innerPacket)
+	require.NoError(t, err)
+	validExplicitRequest := func() *SendPaymentRequest {
+		return &SendPaymentRequest{
+			Dest:                      bytes.Clone(destNodeBytes),
+			Amt:                       int64(paymentAmount),
+			PaymentHash:               make([]byte, 32),
+			PaymentAddr:               make([]byte, 32),
+			TrampolineOnion:           bytes.Clone(explicitOnion),
+			TrampolineErrorSessionKey: innerKey.Serialize(),
+			TrampolineErrorPath: [][]byte{
+				bytes.Clone(destNodeBytes),
+			},
+			DestFeatures: []lnrpc.FeatureBit{
+				lnrpc.FeatureBit_TLV_ONION_OPT,
+				lnrpc.FeatureBit_PAYMENT_ADDR_OPT,
+				lnrpc.FeatureBit_MPP_OPT,
+				lnrpc.FeatureBit_TRAMPOLINE_ROUTING_OPT,
+			},
+		}
+	}
+	validExplicitBackend := func() *RouterBackend {
+		return &RouterBackend{
+			MaxTotalTimelock:  1000,
+			TrampolineRouting: true,
+			ShouldSetExpAccountability: func() bool {
+				return false
+			},
+		}
+	}
+
 	testCases := []extractIntentTestCase{
 		{
 			name:    "Time preference out of range",
@@ -685,6 +1135,98 @@ func TestExtractIntentFromSendRequest(t *testing.T) {
 			},
 			valid:            false,
 			expectedErrorMsg: "amount cannot be negative",
+		},
+		{
+			name:    "Malformed trampoline onion",
+			backend: &RouterBackend{TrampolineRouting: true},
+			sendReq: &SendPaymentRequest{
+				TrampolineOnion: []byte{1, 2, 3},
+			},
+			valid:            false,
+			expectedErrorMsg: "trampoline onion",
+		},
+		{
+			name:    "Trampoline routing disabled",
+			backend: &RouterBackend{},
+			sendReq: &SendPaymentRequest{
+				TrampolineHops: []*TrampolineHop{{}},
+			},
+			valid:            false,
+			expectedErrorMsg: "trampoline routing is disabled",
+		},
+		{
+			name: "Explicit trampoline onion missing " +
+				"error metadata",
+			backend: validExplicitBackend(),
+			sendReq: func() *SendPaymentRequest {
+				req := validExplicitRequest()
+				req.TrampolineErrorSessionKey = nil
+				req.TrampolineErrorPath = nil
+
+				return req
+			}(),
+			valid: false,
+			expectedErrorMsg: "trampoline_onion requires " +
+				"trampoline_error_session_key",
+		},
+		{
+			name: "Explicit trampoline error metadata " +
+				"incomplete",
+			backend: validExplicitBackend(),
+			sendReq: func() *SendPaymentRequest {
+				req := validExplicitRequest()
+				req.TrampolineErrorPath = nil
+
+				return req
+			}(),
+			valid:            false,
+			expectedErrorMsg: "must be supplied together",
+		},
+		{
+			name:    "Explicit trampoline error key invalid",
+			backend: validExplicitBackend(),
+			sendReq: func() *SendPaymentRequest {
+				req := validExplicitRequest()
+				req.TrampolineErrorSessionKey = make([]byte, 32)
+
+				return req
+			}(),
+			valid: false,
+			expectedErrorMsg: "invalid trampoline error " +
+				"session key",
+		},
+		{
+			name:    "Explicit trampoline error path invalid",
+			backend: validExplicitBackend(),
+			sendReq: func() *SendPaymentRequest {
+				req := validExplicitRequest()
+				req.TrampolineErrorPath = [][]byte{{1}}
+
+				return req
+			}(),
+			valid:            false,
+			expectedErrorMsg: "trampoline error path hop 0",
+		},
+		{
+			name:    "Explicit trampoline error path mismatch",
+			backend: validExplicitBackend(),
+			sendReq: func() *SendPaymentRequest {
+				req := validExplicitRequest()
+				req.TrampolineErrorPath = [][]byte{
+					innerKey.PubKey().SerializeCompressed(),
+				}
+
+				return req
+			}(),
+			valid: false,
+			expectedErrorMsg: "first trampoline error path hop " +
+				"must match",
+		},
+		{
+			name:    "Valid explicit trampoline error metadata",
+			backend: validExplicitBackend(),
+			sendReq: validExplicitRequest(),
+			valid:   true,
 		},
 		{
 			name: "Dest custom records with type below minimum" +

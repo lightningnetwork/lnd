@@ -390,6 +390,10 @@ type Config struct {
 	// invoice-related logic.
 	Invoices *invoices.InvoiceRegistry
 
+	// TrampolineRegistry handles final outer hops containing an embedded
+	// trampoline onion. A nil value disables trampoline relay handling.
+	TrampolineRegistry htlcswitch.TrampolineRegistry
+
 	// ChannelNotifier is used by the link to notify other sub-systems about
 	// channel-related events and by the Brontide to subscribe to
 	// ActiveLinkEvents.
@@ -1605,6 +1609,7 @@ func (p *Brontide) addLink(chanPoint *wire.OutPoint,
 		FetchLastChannelUpdate: p.cfg.FetchLastChanUpdate,
 		HodlMask:               p.cfg.Hodl.Mask(),
 		Registry:               p.cfg.Invoices,
+		TrampolineRegistry:     p.cfg.TrampolineRegistry,
 		BestHeight:             p.cfg.Switch.BestHeight,
 		Circuits:               p.cfg.Switch.CircuitModifier(),
 		ForwardPackets:         p.cfg.InterceptSwitch.ForwardPackets,

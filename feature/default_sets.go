@@ -71,6 +71,11 @@ var defaultSetDesc = setDesc{
 	lnwire.KeysendOptional: {
 		SetNodeAnn: {}, // N
 	},
+	lnwire.TrampolineRoutingOptional: {
+		SetInit:    {}, // I
+		SetNodeAnn: {}, // N
+		SetInvoice: {}, // 9
+	},
 	lnwire.ScriptEnforcedLeaseOptional: {
 		SetInit:    {}, // I
 		SetNodeAnn: {}, // N

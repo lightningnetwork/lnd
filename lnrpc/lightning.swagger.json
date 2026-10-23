@@ -1400,7 +1400,9 @@
                 "ROUTE_BLINDING_REQUIRED",
                 "ROUTE_BLINDING_OPTIONAL",
                 "AMP_REQ",
-                "AMP_OPT"
+                "AMP_OPT",
+                "TRAMPOLINE_ROUTING_REQ",
+                "TRAMPOLINE_ROUTING_OPT"
               ]
             },
             "collectionFormat": "multi"
@@ -3053,6 +3055,9 @@
         "MPP_TIMEOUT",
         "INVALID_ONION_PAYLOAD",
         "INVALID_ONION_BLINDING",
+        "TEMPORARY_TRAMPOLINE_FAILURE",
+        "TRAMPOLINE_FEE_OR_EXPIRY_INSUFFICIENT",
+        "UNKNOWN_NEXT_TRAMPOLINE",
         "INTERNAL_FAILURE",
         "UNKNOWN_FAILURE",
         "UNREADABLE_FAILURE"
@@ -5024,6 +5029,21 @@
           "type": "integer",
           "format": "int64",
           "description": "A failure type-dependent block height."
+        },
+        "trampoline_fee_base_msat": {
+          "type": "integer",
+          "format": "int64",
+          "description": "A trampoline relay's quoted base fee in millisatoshis."
+        },
+        "trampoline_fee_proportional_millionths": {
+          "type": "integer",
+          "format": "int64",
+          "description": "A trampoline relay's quoted proportional fee in millionths."
+        },
+        "trampoline_cltv_expiry_delta": {
+          "type": "integer",
+          "format": "int64",
+          "description": "A trampoline relay's quoted CLTV expiry delta."
         }
       }
     },
@@ -5070,7 +5090,9 @@
         "ROUTE_BLINDING_REQUIRED",
         "ROUTE_BLINDING_OPTIONAL",
         "AMP_REQ",
-        "AMP_OPT"
+        "AMP_OPT",
+        "TRAMPOLINE_ROUTING_REQ",
+        "TRAMPOLINE_ROUTING_OPT"
       ],
       "default": "DATALOSS_PROTECT_REQ"
     },
@@ -5690,6 +5712,11 @@
           "type": "string",
           "format": "uint64",
           "description": "The total amount that is sent to the recipient (possibly across multiple\nHTLCs), as specified by the sender when making a payment to a blinded path.\nThis value is only set in the final hop payload of a blinded payment. This\nvalue is analogous to the MPPRecord that is used for regular (non-blinded)\nMPP payments."
+        },
+        "trampoline_onion": {
+          "type": "string",
+          "format": "byte",
+          "description": "The complete variable-sized trampoline onion encoded as BOLT 4 TLV type\n20. This field is valid only on the final hop of the outer route."
         }
       }
     },

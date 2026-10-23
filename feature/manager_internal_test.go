@@ -71,6 +71,47 @@ func TestManager(t *testing.T) {
 	}
 }
 
+// TestTrampolineFeatureSets verifies opt-in advertisement in exactly the
+// BOLT 9 IN9 contexts and suppression when TLV onions are disabled.
+func TestTrampolineFeatureSets(t *testing.T) {
+	t.Parallel()
+
+	disabled, err := NewManager(Config{})
+	require.NoError(t, err)
+	for set := SetInit; set < setSentinel; set++ {
+		require.False(t, disabled.GetRaw(set).IsSet(
+			lnwire.TrampolineRoutingOptional,
+		))
+	}
+
+	enabled, err := NewManager(Config{
+		EnableTrampoline: true,
+	})
+	require.NoError(t, err)
+	for _, set := range []Set{SetInit, SetNodeAnn, SetInvoice} {
+		require.True(t, enabled.GetRaw(set).IsSet(
+			lnwire.TrampolineRoutingOptional,
+		))
+	}
+	for _, set := range []Set{SetLegacyGlobal, SetInvoiceAmp} {
+		require.False(t, enabled.GetRaw(set).IsSet(
+			lnwire.TrampolineRoutingOptional,
+		))
+	}
+
+	legacy, err := NewManager(Config{
+		EnableTrampoline: true,
+		NoTLVOnion:       true,
+		NoTaprootOverlay: true,
+	})
+	require.NoError(t, err)
+	for set := SetInit; set < setSentinel; set++ {
+		require.False(t, legacy.GetRaw(set).IsSet(
+			lnwire.TrampolineRoutingOptional,
+		))
+	}
+}
+
 func testManager(t *testing.T, test managerTest) {
 	m, err := newManager(test.cfg, testSetDesc)
 	require.NoError(t, err, "unable to create feature manager")

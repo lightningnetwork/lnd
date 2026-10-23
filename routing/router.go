@@ -851,6 +851,30 @@ type LightningPayment struct {
 	// Metadata is additional data that is sent along with the payment to
 	// the payee.
 	Metadata []byte
+
+	// TrampolineOnion is the peeled trampoline packet that must be placed
+	// in the final hop's type 20 record.
+	TrampolineOnion []byte
+
+	// TrampolineOnionBuilder replaces an automatically constructed onion
+	// with one derived from each persisted payment attempt session key.
+	TrampolineOnionBuilder route.TrampolineOnionBuilder
+
+	// TrampolineErrorPath contains the ordered inner onion path supplied
+	// alongside an explicitly constructed trampoline onion.
+	TrampolineErrorPath []*btcec.PublicKey
+
+	// TrampolineErrorSessionKey is the inner onion session key supplied
+	// alongside an explicitly constructed trampoline onion.
+	TrampolineErrorSessionKey [btcec.PrivKeyBytesLen]byte
+
+	// HasTrampolineErrorSessionKey distinguishes an explicit error key from
+	// the attempt-derived key used by automatically constructed onions.
+	HasTrampolineErrorSessionKey bool
+
+	// TrampolinePathKey is the current path key that the next trampoline
+	// hop needs to peel a blinded embedded onion.
+	TrampolinePathKey *btcec.PublicKey
 }
 
 // AMPOptions houses information that must be known in order to send an AMP

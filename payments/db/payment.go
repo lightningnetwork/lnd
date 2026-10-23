@@ -2,6 +2,7 @@ package paymentsdb
 
 import (
 	"bytes"
+	"crypto/sha256"
 	"errors"
 	"fmt"
 	"time"
@@ -262,6 +263,11 @@ type HTLCSettleInfo struct {
 // HTLCFailReason is the reason an htlc failed.
 type HTLCFailReason byte
 
+// TrampolineFailurePacketSize is the fixed size of an authenticated BOLT 4
+// failure packet persisted by an intermediate trampoline relay.
+const TrampolineFailurePacketSize = sha256.Size +
+	lnwire.FailureMessageLength + 4
+
 const (
 	// HTLCFailUnknown is recorded for htlcs that failed with an unknown
 	// reason.
@@ -278,6 +284,11 @@ const (
 	// HTLCFailMessage is recorded for htlcs that failed with a network
 	// failure message.
 	HTLCFailMessage HTLCFailReason = 3
+
+	// HTLCFailTrampoline is recorded by a trampoline relay after the
+	// ordinary outer error path has been peeled, but before the nested
+	// trampoline error can be decrypted by the payment origin.
+	HTLCFailTrampoline HTLCFailReason = 4
 )
 
 // HTLCFailInfo encapsulates the information that augments an HTLCAttempt in the
@@ -292,6 +303,11 @@ type HTLCFailInfo struct {
 
 	// Reason is the failure reason for this HTLC.
 	Reason HTLCFailReason
+
+	// TrampolineReason is the authenticated nested failure packet that a
+	// trampoline relay must return unchanged to the preceding trampoline
+	// hop. It is populated when Reason is HTLCFailTrampoline.
+	TrampolineReason [TrampolineFailurePacketSize]byte
 
 	// The position in the path of the intermediate or final node that
 	// generated the failure message. Position zero is the sender node. This

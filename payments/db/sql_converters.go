@@ -11,6 +11,7 @@ import (
 	"github.com/lightningnetwork/lnd/lnwire"
 	"github.com/lightningnetwork/lnd/record"
 	"github.com/lightningnetwork/lnd/routing/route"
+	"github.com/lightningnetwork/lnd/routing/trampoline"
 	"github.com/lightningnetwork/lnd/sqldb/sqlc"
 	"github.com/lightningnetwork/lnd/tlv"
 )
@@ -128,16 +129,36 @@ func dbAttemptToHTLCAttempt(dbAttempt sqlc.FetchHtlcAttemptsForPaymentsRow,
 			)
 		}
 
+		if failure.Reason == HTLCFailTrampoline &&
+			len(dbAttempt.FailureMsg) !=
+				TrampolineFailurePacketSize {
+
+			return nil, fmt.Errorf(
+				"invalid trampoline failure size: %d",
+				len(dbAttempt.FailureMsg),
+			)
+		}
+
 		// Decode the failure message if present.
 		if len(dbAttempt.FailureMsg) > 0 {
-			msg, err := lnwire.DecodeFailureMessage(
-				bytes.NewReader(dbAttempt.FailureMsg), 0,
-			)
-			if err != nil {
-				return nil, fmt.Errorf("failed to decode "+
-					"failure message: %w", err)
+			if failure.Reason == HTLCFailTrampoline {
+				copy(
+					failure.TrampolineReason[:],
+					dbAttempt.FailureMsg,
+				)
+			} else {
+				failureMsg := dbAttempt.FailureMsg
+				failureReader := bytes.NewReader(failureMsg)
+				msg, err := lnwire.DecodeFailureMessage(
+					failureReader, 0,
+				)
+				if err != nil {
+					return nil, fmt.Errorf(
+						"decode failure: %w", err,
+					)
+				}
+				failure.Message = msg
 			}
-			failure.Message = msg
 		}
 
 		attempt.Failure = failure
@@ -265,9 +286,72 @@ func dbDataToRoute(hops []sqlc.FetchHopsForAttemptsRow,
 				record.CustomSet,
 			)
 			for _, rec := range records {
+				if uint64(rec.Key) ==
+					uint64(trampoline.OnionPacketType) {
+
+					packet, err :=
+						trampoline.DecodeOnionPacket(
+							rec.Value,
+						)
+					if err != nil {
+						return nil, err
+					}
+					routeHop.TrampolineOnion, err =
+						trampoline.EncodeOnionPacket(
+							packet,
+						)
+					if err != nil {
+						return nil, err
+					}
+
+					continue
+				}
+
+				if uint64(rec.Key) ==
+					uint64(trampoline.ErrorPathDBType) {
+
+					path := &routeHop.TrampolineErrorPath
+					pathRecord := trampoline.
+						NewErrorPathRecord(path)
+					if err := pathRecord.Decode(
+						bytes.NewReader(rec.Value),
+						uint64(len(rec.Value)),
+					); err != nil {
+						return nil, err
+					}
+
+					continue
+				}
+
+				if uint64(rec.Key) == uint64(
+					trampoline.ErrorSessionKeyDBType,
+				) {
+
+					key := &routeHop.
+						TrampolineErrorSessionKey
+					keyRecord := trampoline.
+						NewErrorSessionKeyRecord(key)
+					if err := keyRecord.Decode(
+						bytes.NewReader(rec.Value),
+						uint64(len(rec.Value)),
+					); err != nil {
+						return nil, err
+					}
+					routeHop.HasTrampolineErrorSessionKey =
+						true
+
+					continue
+				}
+
 				routeHop.CustomRecords[uint64(rec.Key)] =
 					rec.Value
 			}
+		}
+		if routeHop.HasTrampolineErrorSessionKey &&
+			len(routeHop.TrampolineErrorPath) == 0 {
+
+			return nil, fmt.Errorf("trampoline error session key " +
+				"requires an error path")
 		}
 
 		// Add metadata if present.

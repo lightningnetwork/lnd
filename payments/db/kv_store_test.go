@@ -12,13 +12,16 @@ import (
 	"testing"
 	"time"
 
+	"github.com/btcsuite/btcd/btcec/v2"
 	"github.com/btcsuite/btcd/btcec/v2/ecdsa"
 	"github.com/btcsuite/btcd/wire/v2"
 	"github.com/btcsuite/btcwallet/walletdb"
+	sphinx "github.com/lightningnetwork/lightning-onion"
 	"github.com/lightningnetwork/lnd/kvdb"
 	"github.com/lightningnetwork/lnd/lntypes"
 	"github.com/lightningnetwork/lnd/lnwire"
 	"github.com/lightningnetwork/lnd/routing/route"
+	"github.com/lightningnetwork/lnd/routing/trampoline"
 	"github.com/lightningnetwork/lnd/tlv"
 	"github.com/stretchr/testify/require"
 )
@@ -140,7 +143,7 @@ func makeFakeInfo(t *testing.T) (*PaymentCreationInfo,
 	}
 
 	a, err := NewHtlcAttempt(
-		44, priv, testRoute, time.Unix(100, 0), &hash,
+		44, priv, *testRoute.Copy(), time.Unix(100, 0), &hash,
 	)
 	require.NoError(t, err)
 
@@ -195,6 +198,23 @@ func TestSentPaymentSerialization(t *testing.T) {
 	s.Route.FirstHopWireCustomRecords = lnwire.CustomRecords{
 		lnwire.MinCustomRecordsTlvType + 3: []byte{4, 5, 6},
 	}
+	trampolineOnion, err := trampoline.EncodeOnionPacket(
+		&sphinx.OnionPacket{
+			EphemeralKey: priv.PubKey(),
+			RoutingInfo:  []byte{1, 2, 3},
+		},
+	)
+	require.NoError(t, err)
+	s.Route.FinalHop().TrampolineOnion = trampolineOnion
+	s.Route.FinalHop().TrampolineErrorPath = []*btcec.PublicKey{
+		priv.PubKey(),
+	}
+	copy(
+		s.Route.FinalHop().TrampolineErrorSessionKey[:],
+		priv.Serialize(),
+	)
+	s.Route.FinalHop().HasTrampolineErrorSessionKey = true
+	require.NoError(t, s.attachOnionBlobAndCircuit())
 	require.NoError(t, serializeHTLCAttemptInfo(&b, s), "serialize")
 
 	newWireInfo, err = deserializeHTLCAttemptInfo(&b)
@@ -816,4 +836,25 @@ func TestDeserializeHTLCFailInfoInvalidTLV(t *testing.T) {
 	// TLV data in the failure message.
 	require.Nil(t, deserializedFailInfo.Message,
 		"Message should be nil when TLV parsing fails")
+}
+
+// TestTrampolineHTLCFailInfoRoundTrip verifies an authenticated nested error
+// packet is preserved exactly across the KV attempt-failure encoding.
+func TestTrampolineHTLCFailInfoRoundTrip(t *testing.T) {
+	t.Parallel()
+
+	failInfo := &HTLCFailInfo{
+		FailTime: time.Unix(456, 0),
+		Reason:   HTLCFailTrampoline,
+	}
+	for i := range failInfo.TrampolineReason {
+		failInfo.TrampolineReason[i] = byte(i)
+	}
+
+	var encoded bytes.Buffer
+	require.NoError(t, serializeHTLCFailInfo(&encoded, failInfo))
+
+	decoded, err := deserializeHTLCFailInfo(&encoded)
+	require.NoError(t, err)
+	require.Equal(t, failInfo, decoded)
 }

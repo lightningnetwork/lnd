@@ -262,6 +262,26 @@ var resultTestCases = []resultTestCase{
 		},
 	},
 
+	// A trampoline policy quote is terminal for the current payment, but
+	// proves that the outer route reached the selected relay.
+	{
+		name:          "trampoline policy quote",
+		route:         routeOneHop,
+		failureSrcIdx: 1,
+		failure: &lnwire.FailTrampolineFeeOrExpiryInsufficient{
+			FeeBaseMsat:               1000,
+			FeeProportionalMillionths: 1,
+			CltvExpiryDelta:           80,
+		},
+
+		expectedResult: &interpretedResult{
+			pairResults: map[DirectedNodePair]pairResult{
+				getTestPair(0, 1): successPairResult(100),
+			},
+			finalFailureReason: &reasonError,
+		},
+	},
+
 	// Tests a successful direct payment.
 	{
 		name:    "success direct",

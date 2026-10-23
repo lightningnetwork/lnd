@@ -20,6 +20,7 @@ import (
 	"github.com/lightningnetwork/lnd/lnwire"
 	"github.com/lightningnetwork/lnd/record"
 	"github.com/lightningnetwork/lnd/routing/route"
+	"github.com/lightningnetwork/lnd/routing/trampoline"
 	"github.com/lightningnetwork/lnd/tlv"
 )
 
@@ -1781,6 +1782,35 @@ func serializeHop(w io.Writer, h *route.Hop) error {
 		)
 	}
 
+	if h.TrampolineOnion != nil {
+		packet, err := trampoline.DecodeOnionPacket(h.TrampolineOnion)
+		if err != nil {
+			return err
+		}
+		records = append(
+			records, trampoline.NewOnionPacketRecord(&packet),
+		)
+	}
+
+	if len(h.TrampolineErrorPath) != 0 {
+		records = append(
+			records,
+			trampoline.NewErrorPathRecord(&h.TrampolineErrorPath),
+		)
+	}
+
+	if h.HasTrampolineErrorSessionKey {
+		if len(h.TrampolineErrorPath) == 0 {
+			return errors.New(
+				"trampoline error session key requires an " +
+					"error path",
+			)
+		}
+		records = append(records, trampoline.NewErrorSessionKeyRecord(
+			&h.TrampolineErrorSessionKey,
+		))
+	}
+
 	// Final sanity check to absolutely rule out custom records that are not
 	// custom and write into the standard range.
 	if err := h.CustomRecords.Validate(); err != nil {
@@ -1821,7 +1851,7 @@ func serializeHop(w io.Writer, h *route.Hop) error {
 
 // maxOnionPayloadSize is the largest Sphinx payload possible, so we don't need
 // to read/write a TLV stream larger than this.
-const maxOnionPayloadSize = 1300
+const maxOnionPayloadSize = trampoline.MaxOnionPacketSize
 
 func deserializeHop(r io.Reader) (*route.Hop, error) {
 	h := &route.Hop{}
@@ -1959,6 +1989,56 @@ func deserializeHop(r io.Reader) (*route.Hop, error) {
 		h.TotalAmtMsat = lnwire.MilliSatoshi(totalAmtMsatInt)
 	}
 
+	trampolineType := uint64(trampoline.OnionPacketType)
+	if trampolineOnion, ok := tlvMap[trampolineType]; ok {
+		delete(tlvMap, trampolineType)
+
+		packet, err := trampoline.DecodeOnionPacket(trampolineOnion)
+		if err != nil {
+			return nil, err
+		}
+		h.TrampolineOnion, err = trampoline.EncodeOnionPacket(packet)
+		if err != nil {
+			return nil, err
+		}
+	}
+
+	errorPathType := uint64(trampoline.ErrorPathDBType)
+	if encodedPath, ok := tlvMap[errorPathType]; ok {
+		delete(tlvMap, errorPathType)
+
+		pathRecord := trampoline.NewErrorPathRecord(
+			&h.TrampolineErrorPath,
+		)
+		if err := pathRecord.Decode(
+			bytes.NewReader(encodedPath), uint64(len(encodedPath)),
+		); err != nil {
+			return nil, err
+		}
+	}
+
+	errorKeyType := uint64(trampoline.ErrorSessionKeyDBType)
+	if encodedKey, ok := tlvMap[errorKeyType]; ok {
+		delete(tlvMap, errorKeyType)
+
+		keyRecord := trampoline.NewErrorSessionKeyRecord(
+			&h.TrampolineErrorSessionKey,
+		)
+		if err := keyRecord.Decode(
+			bytes.NewReader(encodedKey), uint64(len(encodedKey)),
+		); err != nil {
+			return nil, err
+		}
+		h.HasTrampolineErrorSessionKey = true
+	}
+	if h.HasTrampolineErrorSessionKey &&
+		len(h.TrampolineErrorPath) == 0 {
+
+		return nil, errors.New(
+			"trampoline error session key requires an error path",
+		)
+	}
+
 	h.CustomRecords = tlvMap
 
 	return h, nil
@@ -2061,7 +2141,13 @@ func serializeHTLCFailInfo(w io.Writer, f *HTLCFailInfo) error {
 	// Write failure. If there is no failure message, write an empty
 	// byte slice.
 	var messageBytes bytes.Buffer
-	if f.Message != nil {
+	if f.Reason == HTLCFailTrampoline {
+		if _, err := messageBytes.Write(
+			f.TrampolineReason[:],
+		); err != nil {
+			return err
+		}
+	} else if f.Message != nil {
 		err := lnwire.EncodeFailureMessage(&messageBytes, f.Message, 0)
 		if err != nil {
 			return err
@@ -2091,31 +2177,41 @@ func deserializeHTLCFailInfo(r io.Reader) (*HTLCFailInfo, error) {
 	if err != nil {
 		return nil, err
 	}
-	if len(failureBytes) > 0 {
-		f.Message, err = lnwire.DecodeFailureMessage(
-			bytes.NewReader(failureBytes), 0,
-		)
-		if err != nil &&
-			!errors.Is(err, lnwire.ErrParsingExtraTLVBytes) {
-
-			return nil, err
-		}
-
-		// In case we have an invalid TLV stream regarding the extra
-		// tlv data we still continue with the decoding of the
-		// HTLCFailInfo.
-		if errors.Is(err, lnwire.ErrParsingExtraTLVBytes) {
-			log.Warnf("Failed to decode extra TLV bytes for "+
-				"failure message: %v", err)
-		}
-	}
-
 	var reason byte
 	err = ReadElements(r, &reason, &f.FailureSourceIndex)
 	if err != nil {
 		return nil, err
 	}
 	f.Reason = HTLCFailReason(reason)
+
+	if f.Reason == HTLCFailTrampoline {
+		if len(failureBytes) != TrampolineFailurePacketSize {
+			return nil, fmt.Errorf(
+				"invalid trampoline failure size: %d",
+				len(failureBytes),
+			)
+		}
+		copy(f.TrampolineReason[:], failureBytes)
+
+		return f, nil
+	}
+	if len(failureBytes) == 0 {
+		return f, nil
+	}
+
+	f.Message, err = lnwire.DecodeFailureMessage(
+		bytes.NewReader(failureBytes), 0,
+	)
+	if err != nil && !errors.Is(err, lnwire.ErrParsingExtraTLVBytes) {
+		return nil, err
+	}
+
+	// In case we have an invalid TLV stream regarding the extra TLV data,
+	// we still continue with the decoding of the HTLCFailInfo.
+	if errors.Is(err, lnwire.ErrParsingExtraTLVBytes) {
+		log.Warnf("Failed to decode extra TLV bytes for failure "+
+			"message: %v", err)
+	}
 
 	return f, nil
 }

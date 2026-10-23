@@ -10,6 +10,7 @@ import (
 	"sort"
 	"time"
 
+	"github.com/btcsuite/btcd/btcec/v2"
 	"github.com/btcsuite/btcd/btcutil/v2"
 	sphinx "github.com/lightningnetwork/lightning-onion"
 	"github.com/lightningnetwork/lnd/feature"
@@ -117,6 +118,12 @@ type finalHopParams struct {
 	// metadata is additional data that is sent along with the payment to
 	// the payee.
 	metadata []byte
+
+	// trampolineOnion is the peeled trampoline packet for the final hop.
+	trampolineOnion []byte
+
+	// trampolinePathKey is the path key for a blinded embedded onion.
+	trampolinePathKey *btcec.PublicKey
 }
 
 // newRoute constructs a route using the provided path and final hop constraints.
@@ -212,6 +219,8 @@ func newRoute(sourceVertex route.Vertex,
 			customRecords       record.CustomSet
 			mpp                 *record.MPP
 			metadata            []byte
+			trampolineOnion     []byte
+			trampolinePathKey   *btcec.PublicKey
 		)
 
 		// Define a helper function that checks this edge's feature
@@ -266,6 +275,8 @@ func newRoute(sourceVertex route.Vertex,
 			})
 
 			metadata = finalHop.metadata
+			trampolineOnion = finalHop.trampolineOnion
+			trampolinePathKey = finalHop.trampolinePathKey
 
 			if blindedPathSet != nil {
 				totalAmtMsatBlinded = finalHop.totalAmt
@@ -314,6 +325,8 @@ func newRoute(sourceVertex route.Vertex,
 			MPP:              mpp,
 			Metadata:         metadata,
 			TotalAmtMsat:     totalAmtMsatBlinded,
+			TrampolineOnion:  trampolineOnion,
+			BlindingPoint:    trampolinePathKey,
 		}
 
 		hops = append([]*route.Hop{currentHop}, hops...)
@@ -477,6 +490,12 @@ type RestrictParams struct {
 	// Metadata is additional data that is sent along with the payment to
 	// the payee.
 	Metadata []byte
+
+	// TrampolineOnion is the peeled trampoline packet for the final hop.
+	TrampolineOnion []byte
+
+	// TrampolinePathKey is the path key for a blinded embedded onion.
+	TrampolinePathKey *btcec.PublicKey
 
 	// BlindedPaymentPathSet is necessary to determine the hop size of the
 	// last/exit hop.
@@ -1626,6 +1645,8 @@ func lastHopPayloadSize(r *RestrictParams, finalHtlcExpiry int32,
 		MPP:              mpp,
 		AMP:              amp,
 		Metadata:         r.Metadata,
+		TrampolineOnion:  r.TrampolineOnion,
+		BlindingPoint:    r.TrampolinePathKey,
 	}
 
 	// The final hop does not have a short chanID set.

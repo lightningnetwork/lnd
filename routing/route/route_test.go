@@ -6,8 +6,10 @@ import (
 	"testing"
 
 	"github.com/btcsuite/btcd/btcec/v2"
+	sphinx "github.com/lightningnetwork/lightning-onion"
 	"github.com/lightningnetwork/lnd/lnwire"
 	"github.com/lightningnetwork/lnd/record"
+	"github.com/lightningnetwork/lnd/routing/trampoline"
 	"github.com/lightningnetwork/lnd/tlv"
 	"github.com/stretchr/testify/require"
 )
@@ -118,6 +120,55 @@ func TestMPPHop(t *testing.T) {
 	if err != nil {
 		t.Fatalf("expected err: %v, got: %v", nil, err)
 	}
+}
+
+// TestTrampolineHop asserts that type 20 is encoded only in a final payload
+// and is included in route payload-size accounting.
+func TestTrampolineHop(t *testing.T) {
+	t.Parallel()
+
+	onion, err := trampoline.EncodeOnionPacket(&sphinx.OnionPacket{
+		EphemeralKey: testPubKey,
+		RoutingInfo:  []byte{1, 2, 3},
+	})
+	require.NoError(t, err)
+
+	hop := Hop{
+		OutgoingTimeLock: 44,
+		AmtToForward:     testAmt,
+		TrampolineOnion:  onion,
+	}
+
+	var payload bytes.Buffer
+	err = hop.PackHopPayload(&payload, 2, false)
+	require.ErrorIs(t, err, ErrIntermediateTrampolineOnion)
+
+	payload.Reset()
+	err = hop.PackHopPayload(&payload, 0, true)
+	require.NoError(t, err)
+
+	var (
+		amount uint64
+		cltv   uint32
+		packet *sphinx.OnionPacket
+	)
+	stream, err := tlv.NewStream(
+		record.NewAmtToFwdRecord(&amount),
+		record.NewLockTimeRecord(&cltv),
+		trampoline.NewOnionPacketRecord(&packet),
+	)
+	require.NoError(t, err)
+	_, err = stream.DecodeWithParsedTypesP2P(
+		bytes.NewReader(payload.Bytes()),
+	)
+	require.NoError(t, err)
+	require.Equal(t, uint64(testAmt), amount)
+	require.Equal(t, uint32(44), cltv)
+
+	decoded, err := trampoline.EncodeOnionPacket(packet)
+	require.NoError(t, err)
+	require.Equal(t, onion, decoded)
+	require.Greater(t, hop.PayloadSize(0), uint64(len(onion)))
 }
 
 // TestAMPHop asserts that a Hop will encode a non-nil AMP to final nodes of an

@@ -291,6 +291,8 @@ func (p *paymentSession) RequestRoute(maxAmt, feeLimit lnwire.MilliSatoshi,
 		PaymentAddr:           p.payment.PaymentAddr,
 		Amp:                   p.payment.amp,
 		Metadata:              p.payment.Metadata,
+		TrampolineOnion:       p.payment.TrampolineOnion,
+		TrampolinePathKey:     p.payment.TrampolinePathKey,
 		FirstHopCustomRecords: firstHopCustomRecords,
 	}
 
@@ -442,16 +444,41 @@ func (p *paymentSession) RequestRoute(maxAmt, feeLimit lnwire.MilliSatoshi,
 		route, err := newRoute(
 			p.selfNode, path, height,
 			finalHopParams{
-				amt:         maxAmt,
-				totalAmt:    p.payment.Amount,
-				cltvDelta:   finalCltvDelta,
-				records:     p.payment.DestCustomRecords,
-				paymentAddr: p.payment.PaymentAddr,
-				metadata:    p.payment.Metadata,
+				amt:             maxAmt,
+				totalAmt:        p.payment.Amount,
+				cltvDelta:       finalCltvDelta,
+				records:         p.payment.DestCustomRecords,
+				paymentAddr:     p.payment.PaymentAddr,
+				metadata:        p.payment.Metadata,
+				trampolineOnion: p.payment.TrampolineOnion,
+				trampolinePathKey: p.payment.
+					TrampolinePathKey,
 			}, p.payment.BlindedPathSet,
 		)
 		if err != nil {
 			return nil, err
+		}
+
+		route.FinalHop().TrampolineOnionBuilder =
+			p.payment.TrampolineOnionBuilder
+		route.FinalHop().TrampolineErrorSessionKey =
+			p.payment.TrampolineErrorSessionKey
+		route.FinalHop().HasTrampolineErrorSessionKey =
+			p.payment.HasTrampolineErrorSessionKey
+		if len(p.payment.TrampolineErrorPath) != 0 {
+			route.FinalHop().TrampolineErrorPath = make(
+				[]*btcec.PublicKey,
+				len(p.payment.TrampolineErrorPath),
+			)
+			for i, node := range p.payment.TrampolineErrorPath {
+				if node == nil {
+					continue
+				}
+
+				copyNode := *node
+				route.FinalHop().TrampolineErrorPath[i] =
+					&copyNode
+			}
 		}
 
 		return route, err

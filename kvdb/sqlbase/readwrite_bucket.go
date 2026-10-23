@@ -487,8 +487,9 @@ func (b *readWriteBucket) ForAll(cb func(k, v []byte) error) error {
 			return err
 		}
 
-		// SQLite decodes an empty BLOB into nil. Preserve the distinction
-		// between empty leaf values and the SQL NULL used for buckets.
+		// SQLite decodes an empty BLOB into nil. Preserve the
+		// distinction between empty leaf values and the SQL NULL used
+		// for buckets.
 		if isBucket == 0 && value == nil {
 			value = []byte{}
 		}

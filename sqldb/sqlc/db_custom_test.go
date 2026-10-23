@@ -28,7 +28,7 @@ func BenchmarkMakeQueryParams(b *testing.B) {
 			c.listArgs,
 		)
 		b.Run(name, func(b *testing.B) {
-			for i := 0; i < b.N; i++ {
+			for range b.N {
 				_ = makeQueryParams(
 					c.totalArgs, c.listArgs,
 				)

@@ -218,6 +218,7 @@ func (c *Controller) prepareKeyparam(cfg AddOnionConfig) (string, error) {
 			if !bytes.HasPrefix(
 				privateKey, []byte(V3KeyParam+":"),
 			) {
+
 				return "", ErrNonV3OnionKey
 			}
 			keyParam = string(privateKey)

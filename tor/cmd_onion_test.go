@@ -194,8 +194,9 @@ func TestPrepareAddOnion(t *testing.T) {
 			name:            "empty target IP and ports",
 			targetIPAddress: "",
 			cfg:             AddOnionConfig{VirtualPort: 9735},
-			expectedCmd:     "ADD_ONION NEW:ED25519-V3 Port=9735,9735 ",
-			expectedErr:     nil,
+			expectedCmd: "ADD_ONION NEW:ED25519-V3 " +
+				"Port=9735,9735 ",
+			expectedErr: nil,
 		},
 		{
 			name:            "specified target IP and empty ports",

@@ -87,6 +87,7 @@ func (b *echoBehavior) GetLastMsgData() (string, bool) {
 		return "", false
 	}
 	data, ok := val.(string)
+
 	return data, ok
 }
 
@@ -106,30 +107,6 @@ func (b *errorBehavior) Receive(_ context.Context,
 	_ *testMsg) fn.Result[string] {
 
 	return fn.Err[string](b.err)
-}
-
-// blockingBehavior is an actor behavior that blocks until its actorCtx is done.
-type blockingBehavior struct{}
-
-// Receive blocks until the actor's context is cancelled, then returns the
-// context's error.
-func (b *blockingBehavior) Receive(actorCtx context.Context,
-	_ *testMsg) fn.Result[string] {
-
-	<-actorCtx.Done()
-	return fn.Err[string](actorCtx.Err())
-}
-
-// deadLetterTestMsg is a distinct message type used for testing DLO
-// interactions.
-type deadLetterTestMsg struct {
-	BaseMessage
-	id string
-}
-
-// MessageType returns the type name of the message.
-func (m *deadLetterTestMsg) MessageType() string {
-	return "deadLetterTestMsg"
 }
 
 // deadLetterObserverBehavior is a behavior for a test Dead Letter Office actor.
@@ -235,6 +212,7 @@ func (h *actorTestHarness) assertDLOMessage(expectedMsg Message) {
 				return true
 			}
 		}
+
 		return false
 	}, time.Second, 10*time.Millisecond,
 		"dLO did not receive expected message: %v", expectedMsg,
@@ -284,13 +262,16 @@ func TestActorStartStop(t *testing.T) {
 	msgData := "hello"
 	replyChan := make(chan string, 1)
 	actor.Ref().Tell(
-		context.Background(), newTestMsgWithReply(msgData, replyChan),
+		t.Context(), newTestMsgWithReply(msgData, replyChan),
 	)
 
 	received, err := fn.RecvOrTimeout(replyChan, 100*time.Millisecond)
-	require.NoError(t, err, "timed out waiting for actor to process message")
+	require.NoError(
+		t, err, "timed out waiting for actor to process message",
+	)
 	require.Equal(
-		t, msgData, received, "actor did not process message before stop",
+		t, msgData, received,
+		"actor did not process message before stop",
 	)
 
 	actor.Stop()
@@ -301,7 +282,7 @@ func TestActorStartStop(t *testing.T) {
 	msgDataAfterStop := "message-after-stop"
 	replyChanAfterStop := make(chan string, 1)
 	actor.Ref().Tell(
-		context.Background(),
+		t.Context(),
 		newTestMsgWithReply(msgDataAfterStop, replyChanAfterStop),
 	)
 
@@ -330,13 +311,18 @@ func TestActorTellBasic(t *testing.T) {
 	msgData := "tell-message"
 	replyChan := make(chan string, 1)
 	actor.Ref().Tell(
-		context.Background(), newTestMsgWithReply(msgData, replyChan),
+		t.Context(), newTestMsgWithReply(msgData, replyChan),
 	)
 
-	receivedTell, errTell := fn.RecvOrTimeout(replyChan, 100*time.Millisecond)
-	require.NoError(t, errTell, "timed out waiting for Tell message processing")
+	receivedTell, errTell := fn.RecvOrTimeout(
+		replyChan, 100*time.Millisecond,
+	)
+	require.NoError(
+		t, errTell, "timed out waiting for Tell message processing",
+	)
 	require.Equal(
-		t, msgData, receivedTell, "behavior did not receive Tell message data",
+		t, msgData, receivedTell,
+		"behavior did not receive Tell message data",
 	)
 
 	lastData, ok := beh.GetLastMsgData()
@@ -355,10 +341,12 @@ func TestActorAskSuccess(t *testing.T) {
 	actor := h.newActor("test-actor-ask-success", beh, 1)
 
 	msgData := "ask-message"
-	future := actor.Ref().Ask(context.Background(), newTestMsg(msgData))
+	future := actor.Ref().Ask(t.Context(), newTestMsg(msgData))
 
-	result := future.Await(context.Background())
-	require.False(t, result.IsErr(), "ask returned an error: %v", result.Err())
+	result := future.Await(t.Context())
+	require.False(
+		t, result.IsErr(), "ask returned an error: %v", result.Err(),
+	)
 
 	result.WhenOk(func(val string) {
 		expectedReply := fmt.Sprintf("echo: %s", msgData)
@@ -382,10 +370,10 @@ func TestActorAskErrorBehavior(t *testing.T) {
 	actor := h.newActor("test-actor-ask-error", beh, 1)
 
 	future := actor.Ref().Ask(
-		context.Background(), newTestMsg("ask-error-test"),
+		t.Context(), newTestMsg("ask-error-test"),
 	)
 
-	result := future.Await(context.Background())
+	result := future.Await(t.Context())
 	require.True(t, result.IsErr(), "ask should have returned an error")
 	require.ErrorIs(t, result.Err(), expectedErr, "ask error mismatch")
 
@@ -411,9 +399,9 @@ func TestFunctionBehaviorFromSimple(t *testing.T) {
 		actor := h.newActor("test-simple-success", beh, 1)
 
 		future := actor.Ref().Ask(
-			context.Background(), newTestMsg("hello"),
+			t.Context(), newTestMsg("hello"),
 		)
-		result := future.Await(context.Background())
+		result := future.Await(t.Context())
 		require.False(
 			t, result.IsErr(),
 			"expected success, got: %v", result.Err(),
@@ -437,9 +425,9 @@ func TestFunctionBehaviorFromSimple(t *testing.T) {
 		actor := h.newActor("test-simple-error", beh, 1)
 
 		future := actor.Ref().Ask(
-			context.Background(), newTestMsg("hello"),
+			t.Context(), newTestMsg("hello"),
 		)
-		result := future.Await(context.Background())
+		result := future.Await(t.Context())
 		require.True(t, result.IsErr())
 		require.ErrorIs(t, result.Err(), expectedErr)
 	})

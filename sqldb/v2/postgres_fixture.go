@@ -3,7 +3,6 @@
 package sqldb
 
 import (
-	"context"
 	"crypto/rand"
 	"database/sql"
 	"encoding/hex"
@@ -186,7 +185,7 @@ func NewTestPostgresDB(t testing.TB, fixture *TestPgFixture,
 	t.Logf("Creating new Postgres DB '%s' for testing", dbName)
 
 	_, err := fixture.db.ExecContext(
-		context.Background(), "CREATE DATABASE "+dbName,
+		t.Context(), "CREATE DATABASE "+dbName,
 	)
 	require.NoError(t, err)
 
@@ -215,7 +214,7 @@ func NewTestPostgresDBWithVersion(t testing.TB, fixture *TestPgFixture,
 
 	dbName := RandomDBName(t)
 	_, err := fixture.db.ExecContext(
-		context.Background(), "CREATE DATABASE "+dbName,
+		t.Context(), "CREATE DATABASE "+dbName,
 	)
 	require.NoError(t, err)
 

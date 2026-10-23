@@ -18,28 +18,32 @@ func TestEnsureRequiredSSLMode(t *testing.T) {
 		expected   string
 	}{
 		{
-			name:       "ssl disabled",
-			dsn:        "postgres://user:pass@localhost/db?sslmode=disable",
+			name: "ssl disabled",
+			dsn: "postgres://user:pass@localhost/db?" +
+				"sslmode=disable",
 			requireSSL: true,
-			expected:   "postgres://user:pass@localhost/db?sslmode=require",
+			expected: "postgres://user:pass@localhost/db?" +
+				"sslmode=require",
 		},
 		{
-			name:       "ssl not requested",
-			dsn:        "postgres://user:pass@localhost/db?sslmode=disable",
+			name: "ssl not requested",
+			dsn: "postgres://user:pass@localhost/db?" +
+				"sslmode=disable",
 			requireSSL: false,
-			expected:   "postgres://user:pass@localhost/db?sslmode=disable",
+			expected: "postgres://user:pass@localhost/db?" +
+				"sslmode=disable",
 		},
 		{
-			name:       "strict mode preserved",
-			dsn:        "postgres://user:pass@localhost/db?sslmode=verify-full",
+			name: "strict mode preserved",
+			dsn: "postgres://user:pass@localhost/db?" +
+				"sslmode=verify-full",
 			requireSSL: true,
-			expected:   "postgres://user:pass@localhost/db?sslmode=verify-full",
+			expected: "postgres://user:pass@localhost/db?" +
+				"sslmode=verify-full",
 		},
 	}
 
 	for _, testCase := range testCases {
-		testCase := testCase
-
 		t.Run(testCase.name, func(t *testing.T) {
 			t.Parallel()
 

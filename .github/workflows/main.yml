@@ -239,6 +239,9 @@ jobs:
       - name: lint
         run: GOGC=50 make lint
 
+      - name: lint submodules
+        run: GOGC=50 make lint-module
+
   ########################
   # cross compilation
   ########################

@@ -298,9 +298,13 @@ func calcCoopCloseFee(chanType channeldb.ChannelType,
 		weightEstimator.AddTxOutput(extraOutput)
 	}
 
-	totalWeight := weightEstimator.Weight()
+	// Relay policy is enforced on the virtual size of the transaction,
+	// which rounds the weight up to whole vbytes, so the fee needs to
+	// cover that size. Deriving the fee from the raw weight can otherwise
+	// fall a satoshi short of the relay floor.
+	vSize := lntypes.VByte(weightEstimator.VSize())
 
-	return idealFeeRate.FeeForWeight(totalWeight)
+	return idealFeeRate.FeeForVByte(vSize)
 }
 
 // SimpleCoopFeeEstimator is the default co-op close fee estimator. It assumes

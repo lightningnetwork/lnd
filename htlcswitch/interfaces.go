@@ -3,8 +3,10 @@ package htlcswitch
 import (
 	"context"
 
+	"github.com/btcsuite/btcd/btcec/v2"
 	"github.com/btcsuite/btcd/btcutil/v2"
 	"github.com/btcsuite/btcd/wire/v2"
+	sphinx "github.com/lightningnetwork/lightning-onion"
 	"github.com/lightningnetwork/lnd/channeldb"
 	"github.com/lightningnetwork/lnd/chanstate"
 	"github.com/lightningnetwork/lnd/fn/v2"
@@ -18,6 +20,33 @@ import (
 	"github.com/lightningnetwork/lnd/routing/route"
 	"github.com/lightningnetwork/lnd/tlv"
 )
+
+// TrampolineHtlc contains the authenticated outer-hop fields needed to hold
+// and relay an embedded trampoline payment.
+type TrampolineHtlc struct {
+	PaymentHash    lntypes.Hash
+	Amount         lnwire.MilliSatoshi
+	Expiry         uint32
+	CurrentHeight  int32
+	CircuitKey     models.CircuitKey
+	HodlChan       chan<- interface{}
+	Onion          *sphinx.OnionPacket
+	MPP            *record.MPP
+	CurrentPathKey *btcec.PublicKey
+}
+
+// TrampolineRegistry owns incoming trampoline aggregation and downstream
+// payment execution.
+type TrampolineRegistry interface {
+	// NotifyTrampolineHtlc accepts, immediately resolves, or holds an
+	// incoming trampoline HTLC.
+	NotifyTrampolineHtlc(TrampolineHtlc) (
+		invoices.HtlcResolution, error)
+
+	// HodlUnsubscribeAll removes every pending resolution for a link-owned
+	// hodl queue.
+	HodlUnsubscribeAll(chan<- interface{})
+}
 
 // InvoiceDatabase is an interface which represents the persistent subsystem
 // which may search, lookup and settle invoices.

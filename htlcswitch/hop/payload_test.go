@@ -7,9 +7,11 @@ import (
 	"testing"
 
 	"github.com/btcsuite/btcd/btcec/v2"
+	sphinx "github.com/lightningnetwork/lightning-onion"
 	"github.com/lightningnetwork/lnd/htlcswitch/hop"
 	"github.com/lightningnetwork/lnd/lnwire"
 	"github.com/lightningnetwork/lnd/record"
+	"github.com/lightningnetwork/lnd/routing/trampoline"
 	"github.com/lightningnetwork/lnd/tlv"
 	"github.com/stretchr/testify/require"
 )
@@ -831,4 +833,82 @@ func TestValidatePayloadWithBlinded(t *testing.T) {
 			}
 		})
 	}
+}
+
+// TestOuterPayloadTrampolineOnion verifies that type 20 is decoded as a
+// trampoline onion on final outer hops and rejected on intermediate hops.
+func TestOuterPayloadTrampolineOnion(t *testing.T) {
+	t.Parallel()
+
+	keyBytes := bytes.Repeat([]byte{0x31}, 32)
+	key, _ := btcec.PrivKeyFromBytes(keyBytes)
+	packet := &sphinx.OnionPacket{
+		Version:      0,
+		EphemeralKey: key.PubKey(),
+		RoutingInfo:  bytes.Repeat([]byte{0x17}, 97),
+	}
+	copy(packet.HeaderMAC[:], bytes.Repeat([]byte{0x29}, sphinx.HMACSize))
+
+	amount := uint64(100_000)
+	cltv := uint32(800_000)
+	stream, err := tlv.NewStream(
+		record.NewAmtToFwdRecord(&amount),
+		record.NewLockTimeRecord(&cltv),
+		trampoline.NewOnionPacketRecord(&packet),
+	)
+	require.NoError(t, err)
+
+	var encoded bytes.Buffer
+	require.NoError(t, stream.Encode(&encoded))
+
+	payload, parsed, err := hop.ParseTLVPayload(
+		bytes.NewReader(encoded.Bytes()),
+	)
+	require.NoError(t, err)
+	require.NotNil(t, payload.TrampolineOnion())
+
+	reencoded, err := trampoline.EncodeOnionPacket(
+		payload.TrampolineOnion(),
+	)
+	require.NoError(t, err)
+	expected, err := trampoline.EncodeOnionPacket(packet)
+	require.NoError(t, err)
+	require.Equal(t, expected, reencoded)
+
+	require.NoError(t, hop.ValidateTLVPayload(parsed, true, false))
+	intermediate := make(tlv.TypeMap, len(parsed)+1)
+	for typ, value := range parsed {
+		intermediate[typ] = value
+	}
+	intermediate[record.NextHopOnionType] = nil
+	require.Equal(t, hop.ErrInvalidPayload{
+		Type:      trampoline.OnionPacketType,
+		Violation: hop.IncludedViolation,
+		FinalHop:  false,
+	}, hop.ValidateTLVPayload(intermediate, false, false))
+
+	require.NoError(t, hop.ValidatePayloadWithBlinded(true, parsed))
+	require.Error(t, hop.ValidatePayloadWithBlinded(false, parsed))
+
+	pathKey := key.PubKey()
+	pathKeyStream, err := tlv.NewStream(
+		record.NewAmtToFwdRecord(&amount),
+		record.NewLockTimeRecord(&cltv),
+		record.NewBlindingPointRecord(&pathKey),
+		trampoline.NewOnionPacketRecord(&packet),
+	)
+	require.NoError(t, err)
+	encoded.Reset()
+	require.NoError(t, pathKeyStream.Encode(&encoded))
+	pathPayload, pathParsed, err := hop.ParseTLVPayload(
+		bytes.NewReader(encoded.Bytes()),
+	)
+	require.NoError(t, err)
+	require.Equal(t, pathKey, pathPayload.BlindingPoint())
+	require.NoError(t, hop.ValidateTLVPayload(pathParsed, true, false))
+	require.Equal(t, hop.ErrInvalidPayload{
+		Type:      record.BlindingPointOnionType,
+		Violation: hop.IncludedViolation,
+		FinalHop:  true,
+	}, hop.ValidateTLVPayload(pathParsed, true, true))
 }

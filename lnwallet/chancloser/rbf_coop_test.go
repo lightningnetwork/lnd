@@ -845,6 +845,18 @@ func (r *rbfCloserTestHarness) assertSingleRemoteRbfIteration(
 		r.chanCloser.SendEvent(ctx, initEvent)
 	}
 
+	r.assertRemoteRbfIterationResult(
+		balanceAfterClose, expectExtraTransition,
+	)
+}
+
+// assertRemoteRbfIterationResult asserts the state transitions and final state
+// of a remote RBF iteration. The mock expectations must already have been
+// registered by the caller (see expectRemoteCloseFinalized) before the event
+// that triggers the iteration is sent.
+func (r *rbfCloserTestHarness) assertRemoteRbfIterationResult(
+	balanceAfterClose btcutil.Amount, expectExtraTransition bool) {
+
 	// Our outer state should transition to ClosingNegotiation state.
 	// When restarting from ClosePending or CloseErr, the internal
 	// requeue produces two ClosingNegotiation transitions. We consume
@@ -1978,16 +1990,20 @@ func TestRbfChannelFlushingTransitions(t *testing.T) {
 		// ChannelFlushing state.
 		closeHarness.assertStateTransitions(&ChannelFlushing{})
 
-		sequence := uint32(mempool.MaxRBFSequence)
-
 		// Now we'll send in the channel flushed event, and assert that
 		// this triggers a remote RBF iteration (we process their early
 		// offer and send our sig).
-		closeHarness.chanCloser.SendEvent(ctx, &flushEvent)
-		closeHarness.assertSingleRemoteRbfIteration(
-			remoteOffer, absoluteFee, absoluteFee, sequence, true,
-			false,
+		//
+		// The mock expectations must be registered before the flush
+		// event is sent, as the state machine is already running and
+		// would otherwise race with the registration.
+		closeHarness.expectRemoteCloseFinalized(
+			&localSig, &remoteSig, remoteOffer.SigMsg.CloseeScript,
+			remoteOffer.SigMsg.CloserScript, absoluteFee,
+			absoluteFee, false,
 		)
+		closeHarness.chanCloser.SendEvent(ctx, &flushEvent)
+		closeHarness.assertRemoteRbfIterationResult(absoluteFee, true)
 	})
 
 	// Any other event should be ignored.

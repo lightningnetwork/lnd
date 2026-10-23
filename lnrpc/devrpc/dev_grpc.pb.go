@@ -28,6 +28,11 @@ type DevClient interface {
 	//RPC is for testing purposes only. The commit that adds it will be removed
 	//once interop is confirmed.
 	Quiesce(ctx context.Context, in *QuiescenceRequest, opts ...grpc.CallOption) (*QuiescenceResponse, error)
+	// lncli: `createoffer`
+	//CreateOffer creates a new BOLT 12 offer. The offer is persisted in the
+	//offer store and the encoded offer string (lno1...) is returned. The node
+	//must run with --protocol.bolt12-offers.
+	CreateOffer(ctx context.Context, in *CreateOfferRequest, opts ...grpc.CallOption) (*CreateOfferResponse, error)
 }
 
 type devClient struct {
@@ -56,6 +61,15 @@ func (c *devClient) Quiesce(ctx context.Context, in *QuiescenceRequest, opts ...
 	return out, nil
 }
 
+func (c *devClient) CreateOffer(ctx context.Context, in *CreateOfferRequest, opts ...grpc.CallOption) (*CreateOfferResponse, error) {
+	out := new(CreateOfferResponse)
+	err := c.cc.Invoke(ctx, "/devrpc.Dev/CreateOffer", in, out, opts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
 // DevServer is the server API for Dev service.
 // All implementations must embed UnimplementedDevServer
 // for forward compatibility
@@ -69,6 +83,11 @@ type DevServer interface {
 	//RPC is for testing purposes only. The commit that adds it will be removed
 	//once interop is confirmed.
 	Quiesce(context.Context, *QuiescenceRequest) (*QuiescenceResponse, error)
+	// lncli: `createoffer`
+	//CreateOffer creates a new BOLT 12 offer. The offer is persisted in the
+	//offer store and the encoded offer string (lno1...) is returned. The node
+	//must run with --protocol.bolt12-offers.
+	CreateOffer(context.Context, *CreateOfferRequest) (*CreateOfferResponse, error)
 	mustEmbedUnimplementedDevServer()
 }
 
@@ -81,6 +100,9 @@ func (UnimplementedDevServer) ImportGraph(context.Context, *lnrpc.ChannelGraph) 
 }
 func (UnimplementedDevServer) Quiesce(context.Context, *QuiescenceRequest) (*QuiescenceResponse, error) {
 	return nil, status.Errorf(codes.Unimplemented, "method Quiesce not implemented")
+}
+func (UnimplementedDevServer) CreateOffer(context.Context, *CreateOfferRequest) (*CreateOfferResponse, error) {
+	return nil, status.Errorf(codes.Unimplemented, "method CreateOffer not implemented")
 }
 func (UnimplementedDevServer) mustEmbedUnimplementedDevServer() {}
 
@@ -131,6 +153,24 @@ func _Dev_Quiesce_Handler(srv interface{}, ctx context.Context, dec func(interfa
 	return interceptor(ctx, in, info, handler)
 }
 
+func _Dev_CreateOffer_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(CreateOfferRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(DevServer).CreateOffer(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: "/devrpc.Dev/CreateOffer",
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(DevServer).CreateOffer(ctx, req.(*CreateOfferRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
 // Dev_ServiceDesc is the grpc.ServiceDesc for Dev service.
 // It's only intended for direct use with grpc.RegisterService,
 // and not to be introspected or modified (even as a copy)
@@ -145,6 +185,10 @@ var Dev_ServiceDesc = grpc.ServiceDesc{
 		{
 			MethodName: "Quiesce",
 			Handler:    _Dev_Quiesce_Handler,
+		},
+		{
+			MethodName: "CreateOffer",
+			Handler:    _Dev_CreateOffer_Handler,
 		},
 	},
 	Streams:  []grpc.StreamDesc{},

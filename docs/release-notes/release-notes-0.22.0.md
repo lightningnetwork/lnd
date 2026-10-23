@@ -193,6 +193,20 @@
   migration for now, so a normal build does not change the database
   schema.
 
+* [BOLT 12 invoice request
+  handler](https://github.com/lightningnetwork/lnd/pull/11340): add the
+  experimental `protocol.bolt12-offers` flag, which exists only in a `dev`
+  build and needs native SQL. Add a handler that answers an invoice request
+  for a stored offer with a signed invoice and notifies invoice subscribers.
+
+* BOLT 12 offer creation and invoice request dispatch: add the `CreateOffer`
+  RPC to the `devrpc` sub-server, with the `POST /v2/dev/createoffer` REST
+  route and the `lncli createoffer` command, which create and store an offer.
+  Like the rest of `devrpc`, they exist only in a `dev` build. The node sends
+  each invoice request that it receives to the handler and sends the invoice
+  over the reply path of the request. A failed request gets no
+  `invoice_error` reply yet.
+
 ## Testing
 
 * [BOLT 12 spec test vectors](https://github.com/lightningnetwork/lnd/pull/11001):

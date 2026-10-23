@@ -30,6 +30,7 @@ import (
 	"github.com/lightningnetwork/lnd/actor"
 	"github.com/lightningnetwork/lnd/aliasmgr"
 	"github.com/lightningnetwork/lnd/autopilot"
+	"github.com/lightningnetwork/lnd/bolt12handler"
 	"github.com/lightningnetwork/lnd/brontide"
 	"github.com/lightningnetwork/lnd/chainio"
 	"github.com/lightningnetwork/lnd/chainreg"
@@ -69,6 +70,7 @@ import (
 	"github.com/lightningnetwork/lnd/lnwire"
 	"github.com/lightningnetwork/lnd/nat"
 	"github.com/lightningnetwork/lnd/netann"
+	"github.com/lightningnetwork/lnd/offers"
 	"github.com/lightningnetwork/lnd/onionmessage"
 	paymentsdb "github.com/lightningnetwork/lnd/payments/db"
 	"github.com/lightningnetwork/lnd/peer"
@@ -461,6 +463,13 @@ type server struct {
 	// limiting is disabled (e.g. when onion messaging itself is
 	// turned off).
 	onionLimiter onionmessage.IngressLimiter
+
+	// bolt12Handler handles incoming BOLT 12 invoice requests and
+	// generates signed invoices in response.
+	bolt12Handler *bolt12handler.Handler
+
+	// offerStore persists and queries BOLT 12 offers.
+	offerStore offers.Store
 
 	// txPublisher is a publisher with fee-bumping capability.
 	txPublisher *sweep.TxPublisher
@@ -856,6 +865,8 @@ func newServer(ctx context.Context, cfg *Config, listenAddrs []net.Addr,
 
 		onionMessageServer: subscribe.NewServer(),
 
+		offerStore: dbs.OfferDB,
+
 		actorSystem: actor.NewActorSystem(),
 
 		tlsManager: tlsManager,
@@ -879,6 +890,25 @@ func newServer(ctx context.Context, cfg *Config, listenAddrs []net.Addr,
 	s.invoices = invoices.NewRegistry(
 		dbs.InvoiceDB, expiryWatcher, &registryConfig,
 	)
+
+	// BOLT 12 needs native SQL, so set it up only with the offer store.
+	if s.offerStore != nil {
+		signer := bolt12handler.NewKeyRingSigner(
+			cc.KeyRing, nodeKeyDesc.KeyLocator,
+			nodeKeyECDH.PubKey(),
+		)
+		replier := bolt12handler.NewServerOnionReplier(s)
+
+		// Use the final CLTV delta of BOLT 11 invoices.
+		s.bolt12Handler, err = bolt12handler.NewHandler(
+			s.offerStore, s.invoices, replier, signer, nil,
+			*s.cfg.ActiveNetParams.GenesisHash,
+			uint16(cfg.Bitcoin.TimeLockDelta),
+		)
+		if err != nil {
+			return nil, err
+		}
+	}
 
 	s.htlcNotifier = htlcswitch.NewHtlcNotifier(time.Now)
 
@@ -2375,6 +2405,18 @@ func (s *server) Start(ctx context.Context) error {
 			return
 		}
 
+		if s.bolt12Handler != nil {
+			cleanup = cleanup.add(func() error {
+				s.bolt12Handler.Stop()
+
+				return nil
+			})
+			if err := s.bolt12Handler.Start(ctx, s); err != nil {
+				startErr = err
+				return
+			}
+		}
+
 		if s.hostAnn != nil {
 			cleanup = cleanup.add(s.hostAnn.Stop)
 			if err := s.hostAnn.Start(); err != nil {
@@ -2901,6 +2943,9 @@ func (s *server) Stop() error {
 		}
 		if err := s.sphinxPayment.Stop(); err != nil {
 			srvrLog.Warnf("failed to stop sphinx: %v", err)
+		}
+		if s.bolt12Handler != nil {
+			s.bolt12Handler.Stop()
 		}
 		if err := s.invoices.Stop(); err != nil {
 			srvrLog.Warnf("failed to stop invoices: %v", err)
@@ -4537,6 +4582,37 @@ func (s *server) SubscribeCustomMessages() (*subscribe.Client, error) {
 // SubscribeOnionMessages subscribes to a stream of incoming onion messages.
 func (s *server) SubscribeOnionMessages() (*subscribe.Client, error) {
 	return s.onionMessageServer.Subscribe()
+}
+
+// CreateOffer creates a new BOLT 12 offer, persists it in the offer
+// store, and returns the encoded offer string and offer hash. The caller
+// checks that the offer store is set.
+func (s *server) CreateOffer(ctx context.Context,
+	description string, amountMsat uint64,
+	absoluteExpiry uint64,
+	quantityMax fn.Option[uint64]) (*offers.CreateOfferResult, error) {
+
+	identity := fn.NewLeft[
+		*btcec.PublicKey, []lnwire.BlindedPath,
+	](s.identityECDH.PubKey())
+
+	// Include the active chain hash so other implementations can
+	// validate the offer on non-mainnet networks. The spec defaults
+	// to Bitcoin mainnet when offer_chains is absent.
+	genesisHash := *s.cfg.ActiveNetParams.GenesisHash
+	chains := [][32]byte{genesisHash}
+
+	return offers.CreateOffer(
+		ctx, s.offerStore, clock.NewDefaultClock(),
+		offers.CreateOfferParams{
+			Identity:       identity,
+			Description:    description,
+			AmountMsat:     amountMsat,
+			AbsoluteExpiry: absoluteExpiry,
+			QuantityMax:    quantityMax,
+			Chains:         chains,
+		},
+	)
 }
 
 // notifyOpenChannelPeerEvent updates the access manager's maps and then calls

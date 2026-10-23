@@ -389,6 +389,11 @@ func (i *InvoiceRegistry) dispatchToSingleClients(event *invoiceEvent) {
 func (i *InvoiceRegistry) dispatchToClients(event *invoiceEvent) {
 	invoice := event.invoice
 
+	// A BOLT 12 invoice has no database row and so no add index. Its
+	// event skips the add index checks and must not move the add index of
+	// a client back to zero, which would replay later events.
+	unindexedBolt12 := invoice.IsBolt12 && invoice.AddIndex == 0
+
 	clients := i.copyClients()
 	for clientID, client := range clients {
 		// Before we dispatch this event, we'll check
@@ -399,6 +404,8 @@ func (i *InvoiceRegistry) dispatchToClients(event *invoiceEvent) {
 		// TODO(joostjager): Refactor switches.
 		state := event.invoice.State
 		switch {
+		case unindexedBolt12:
+
 		// If we've already sent this settle event to
 		// the client, then we can skip this.
 		case state == ContractSettled &&
@@ -456,6 +463,8 @@ func (i *InvoiceRegistry) dispatchToClients(event *invoiceEvent) {
 		// event is added while we're catching up a new client.
 		invState := event.invoice.State
 		switch {
+		case unindexedBolt12:
+
 		case invState == ContractSettled:
 			client.settleIndex = invoice.SettleIndex
 
@@ -1565,6 +1574,15 @@ func (i *InvoiceRegistry) notifyClients(hash lntypes.Hash,
 	case i.invoiceEvents <- event:
 	case <-i.quit:
 	}
+}
+
+// NotifyNewBolt12Invoice sends an Open event for a new BOLT 12 invoice to the
+// connected subscribers. The invoice has no database row, so a subscriber that
+// connects later does not get the event.
+func (i *InvoiceRegistry) NotifyNewBolt12Invoice(hash lntypes.Hash,
+	invoice *Invoice) {
+
+	i.notifyClients(hash, invoice, nil)
 }
 
 // invoiceSubscriptionKit defines that are common to both all invoice

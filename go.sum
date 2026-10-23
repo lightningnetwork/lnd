@@ -10,7 +10,6 @@ github.com/Azure/go-ansiterm v0.0.0-20230124172434-306776ec8161 h1:L/gRVlceqvL25
 github.com/Azure/go-ansiterm v0.0.0-20230124172434-306776ec8161/go.mod h1:xomTg63KZ2rFqZQzSB4Vz2SUXa1BpHTVz9L5PTmPC4E=
 github.com/BurntSushi/toml v0.3.1 h1:WXkYYl6Yr3qBf1K79EBnL4mak0OimBfB0XUf9Vl28OQ=
 github.com/BurntSushi/toml v0.3.1/go.mod h1:xHWCNGjB5oqiDr8zfno3MHue2Ht5sIBksp03qcyfWMU=
-github.com/Masterminds/semver/v3 v3.1.1 h1:hLg3sBzpNErnxhQtUy/mmLR2I9foDujNK030IGemrRc=
 github.com/Masterminds/semver/v3 v3.1.1/go.mod h1:VPu/7SZ7ePZ3QOrcuXROw5FAcLl4a0cBrbBpGY/8hQs=
 github.com/Microsoft/go-winio v0.6.1 h1:9/kr64B9VUZrLm5YYwbGtUJnMgqWVOdUAXu6Migciow=
 github.com/Microsoft/go-winio v0.6.1/go.mod h1:LRdKpFKfdobln8UmuiYcKPot9D2v6svN5+sAH+4kjUM=
@@ -177,8 +176,8 @@ github.com/go-logr/stdr v1.2.2/go.mod h1:mMo/vtBO5dYbehREoey6XUKy/eSumjCCveDpRre
 github.com/go-sql-driver/mysql v1.6.0 h1:BCTh4TKNUYmOmMUcQ3IipzF5prigylS7XXjEkfCHuOE=
 github.com/go-sql-driver/mysql v1.6.0/go.mod h1:DCzpHaOWr8IXmIStZouvnhqoel9Qv2LBy8hT2VhHyBg=
 github.com/go-stack/stack v1.8.0/go.mod h1:v0f6uXyyMGvRgIKkXu+yp6POWl0qKG85gN/melR3HDY=
-github.com/go-viper/mapstructure/v2 v2.3.0 h1:27XbWsHIqhbdR5TIC911OfYvgSaW93HM+dX7970Q7jk=
-github.com/go-viper/mapstructure/v2 v2.3.0/go.mod h1:oJDH3BJKyqBA2TXFhDsKDGDTlndYOZ6rGS0BRZIxGhM=
+github.com/go-viper/mapstructure/v2 v2.4.0 h1:EBsztssimR/CONLSZZ04E8qAkxNYq4Qp9LvH92wZUgs=
+github.com/go-viper/mapstructure/v2 v2.4.0/go.mod h1:oJDH3BJKyqBA2TXFhDsKDGDTlndYOZ6rGS0BRZIxGhM=
 github.com/godbus/dbus/v5 v5.0.4/go.mod h1:xhWf0FNVPg57R7Z0UbKHbJfkEywrmjJnf7w5xrFpKfA=
 github.com/gofrs/uuid v4.0.0+incompatible h1:1SD/1F5pU8p29ybwgQSwpQk+mwdRrXCYuPhW6m+TnJw=
 github.com/gofrs/uuid v4.0.0+incompatible/go.mod h1:b2aQJv3Z4Fp6yNu3cdSllBxTCLRxnplIgP/c0N/04lM=
@@ -381,12 +380,12 @@ github.com/lightningnetwork/lnd/fn/v2 v2.0.10 h1:8GiXDXmF9QPnphLVxcn0KAgDTfRsyQo
 github.com/lightningnetwork/lnd/fn/v2 v2.0.10/go.mod h1:wg3OyJ9eS14Az8HAZMMxqVjJ+nkKw97uPF/45ICOvs4=
 github.com/lightningnetwork/lnd/healthcheck v1.2.6 h1:1sWhqr93GdkWy4+6U7JxBfcyZIE78MhIHTJZfPx7qqI=
 github.com/lightningnetwork/lnd/healthcheck v1.2.6/go.mod h1:Mu02um4CWY/zdTOvFje7WJgJcHyX2zq/FG3MhOAiGaQ=
-github.com/lightningnetwork/lnd/kvdb v1.4.16 h1:9BZgWdDfjmHRHLS97cz39bVuBAqMc4/p3HX1xtUdbDI=
-github.com/lightningnetwork/lnd/kvdb v1.4.16/go.mod h1:HW+bvwkxNaopkz3oIgBV6NEnV4jCEZCACFUcNg4xSjM=
-github.com/lightningnetwork/lnd/queue v1.1.1 h1:99ovBlpM9B0FRCGYJo6RSFDlt8/vOkQQZznVb18iNMI=
-github.com/lightningnetwork/lnd/queue v1.1.1/go.mod h1:7A6nC1Qrm32FHuhx/mi1cieAiBZo5O6l8IBIoQxvkz4=
-github.com/lightningnetwork/lnd/sqldb v1.0.12-0.20260113193010-8565d12e40b1 h1:PkEppKL17cZh0Dr9h/T9BEVJUbd/p2tjJ/x8ffG3R0M=
-github.com/lightningnetwork/lnd/sqldb v1.0.12-0.20260113193010-8565d12e40b1/go.mod h1:tB2jlqu79TIOR9uhAZOmPxpVFUhB2s+oxKnqRRL1oc0=
+github.com/lightningnetwork/lnd/kvdb v1.4.18 h1:vGlJaOxkhze/xecdGvLuVO0wfSC3FNIg0gbqexmyKG0=
+github.com/lightningnetwork/lnd/kvdb v1.4.18/go.mod h1:jVEEqMWOBIjZmw6eMN7359tPk6PLcHvjFvwq6RIl09U=
+github.com/lightningnetwork/lnd/queue v1.2.1 h1:51M3axuVk/Fu7YzpcsZ1WA1JRlbop/6NnuT+B2KD0VQ=
+github.com/lightningnetwork/lnd/queue v1.2.1/go.mod h1:KxEQGFi10Y+fM32d8pIQif775dqIbZbyy2JhfSojilw=
+github.com/lightningnetwork/lnd/sqldb v1.0.12-0.20261023132928-0e627ffc75cf h1:UP9Kx68LgcSmCvUhizC7P7Ru1M5/HDneUv29DHn8+rU=
+github.com/lightningnetwork/lnd/sqldb v1.0.12-0.20261023132928-0e627ffc75cf/go.mod h1:qDp4Dtd/I304iPi8J5sUAtHkgktJGV2HXnLARsIgjR0=
 github.com/lightningnetwork/lnd/ticker v1.1.1 h1:J/b6N2hibFtC7JLV77ULQp++QLtCwT6ijJlbdiZFbSM=
 github.com/lightningnetwork/lnd/ticker v1.1.1/go.mod h1:waPTRAAcwtu7Ji3+3k+u/xH5GHovTsCoSVpho0KDvdA=
 github.com/lightningnetwork/lnd/tlv v1.4.1 h1:cCx8H4mC6TZ2Pc0aNEYxTqdZoRQA7+XNJa95gciKXNU=

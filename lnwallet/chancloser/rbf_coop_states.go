@@ -1,6 +1,7 @@
 package chancloser
 
 import (
+	"context"
 	"fmt"
 
 	"github.com/btcsuite/btcd/btcec/v2"
@@ -378,9 +379,9 @@ func (e *Environment) IsTaproot() bool {
 
 // CloseStateTransition is the StateTransition type specific to the coop close
 // state machine.
-//
-//nolint:ll
-type CloseStateTransition = protofsm.StateTransition[ProtocolEvent, *Environment]
+type CloseStateTransition = protofsm.StateTransition[
+	ProtocolEvent, protofsm.DaemonEvent, *Environment,
+]
 
 // ProtocolState is our sum-type ish interface that represents the current
 // protocol state.
@@ -394,7 +395,8 @@ type ProtocolState interface {
 
 	// ProcessEvent takes a protocol event, and implements a state
 	// transition for the state.
-	ProcessEvent(ProtocolEvent, *Environment) (*CloseStateTransition, error)
+	ProcessEvent(context.Context, ProtocolEvent, *Environment) (
+		*CloseStateTransition, error)
 
 	// String returns the name of the state.
 	String() string
@@ -994,11 +996,21 @@ func (c *CloseErr) IsTerminal() bool {
 
 // RbfChanCloser is a state machine that handles the RBF-enabled cooperative
 // channel close protocol.
-type RbfChanCloser = protofsm.StateMachine[ProtocolEvent, *Environment]
+type RbfChanCloser = protofsm.StateMachine[
+	ProtocolEvent, protofsm.DaemonEvent, *Environment,
+]
 
 // RbfChanCloserCfg is a configuration struct that is used to initialize a new
 // RBF chan closer state machine.
-type RbfChanCloserCfg = protofsm.StateMachineCfg[ProtocolEvent, *Environment]
+type RbfChanCloserCfg = protofsm.StateMachineCfg[
+	ProtocolEvent, protofsm.DaemonEvent, *Environment,
+]
+
+// RbfOutboxHandler is a type alias for the handler that executes the daemon
+// events emitted by the RBF chan closer.
+type RbfOutboxHandler = protofsm.OutboxHandler[
+	ProtocolEvent, protofsm.DaemonEvent,
+]
 
 // RbfSpendMapper is a type used to map the generic spend event to one specific
 // to this package.
@@ -1016,14 +1028,18 @@ func SpendMapper(spendEvent *chainntnfs.SpendDetail) ProtocolEvent {
 type RbfMsgMapperT = protofsm.MsgMapper[ProtocolEvent]
 
 // RbfState is a type alias for the state of the RBF channel closer.
-type RbfState = protofsm.State[ProtocolEvent, *Environment]
+type RbfState = protofsm.State[
+	ProtocolEvent, protofsm.DaemonEvent, *Environment,
+]
 
 // RbfEvent is a type alias for the event type of the RBF channel closer.
-type RbfEvent = protofsm.EmittedEvent[ProtocolEvent]
+type RbfEvent = protofsm.EmittedEvent[ProtocolEvent, protofsm.DaemonEvent]
 
 // RbfStateSub is a type alias for the state subscription type of the RBF chan
 // closer.
-type RbfStateSub = protofsm.StateSubscriber[ProtocolEvent, *Environment]
+type RbfStateSub = protofsm.StateSubscriber[
+	ProtocolEvent, protofsm.DaemonEvent, *Environment,
+]
 
 // ChanCloserActorMsg is an adapter to enable the state machine executor that
 // runs this state machine to be passed around as an actor.

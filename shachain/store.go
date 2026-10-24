@@ -47,7 +47,7 @@ type RevocationStore struct {
 	// buckets is an array of elements from which we may derive all
 	// previous elements, each bucket corresponds to the element with the
 	// particular number of trailing zeros.
-	buckets [maxHeight]element
+	buckets [maxHeight + 1]element
 
 	// index is an available index which will be assigned to the new
 	// element.

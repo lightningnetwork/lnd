@@ -795,7 +795,14 @@ message Transaction {
 message GetTransactionsRequest {
     /*
     The height from which to list transactions, inclusive. If this value is
-    greater than end_height, transactions will be read in reverse.
+    greater than end_height, the wallet reads the blocks in reverse, so
+    pagination (index_offset/max_transactions) walks the result set starting
+    from the newest transaction rather than the oldest. For this comparison
+    an end_height of -1 counts as the chain tip, not as a negative height,
+    so start_height=0 with end_height=-1 (or an omitted end_height) walks
+    the result set from the oldest transaction. The ordering of the
+    transactions within the response is governed by the reverse flag either
+    way.
     */
     int32 start_height = 1;
 
@@ -804,7 +811,9 @@ message GetTransactionsRequest {
     unconfirmed transactions, this value should be set to -1, which will
     return transactions from start_height until the current chain tip and
     unconfirmed transactions. If no end_height is provided, the call will
-    default to this option.
+    default to this option. A value of -1 is treated as the chain tip when
+    determining the read direction described for start_height, so it never
+    causes the blocks to be read in reverse on its own.
     */
     int32 end_height = 2;
 
@@ -822,6 +831,26 @@ message GetTransactionsRequest {
     This value should be set to 0 to return all transactions.
     */
     uint32 max_transactions = 5;
+
+    /*
+    If set, the transactions will be returned in reverse order, with the
+    oldest transaction first and unconfirmed transactions last. Otherwise,
+    the default ordering is used, which lists unconfirmed transactions
+    first, followed by the most recent confirmed transactions down to the
+    oldest. Transactions with the same number of confirmations (e.g. several
+    transactions in the same block, or several unconfirmed transactions)
+    keep the order produced by the wallet in both modes, so the reverse
+    ordering is not an exact mirror of the default one for such ties.
+
+    This flag does not affect which transactions are selected: pagination
+    (index_offset/max_transactions) walks the result set starting from the
+    oldest transaction (or from the newest when start_height is greater
+    than end_height), regardless of this flag, so the same page is selected
+    either way; only the order of the transactions within the response
+    changes. This flag only applies to GetTransactions and is ignored by
+    SubscribeTransactions.
+    */
+    bool reverse = 6;
 }
 
 message TransactionDetails {

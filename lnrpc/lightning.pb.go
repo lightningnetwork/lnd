@@ -2399,14 +2399,23 @@ type GetTransactionsRequest struct {
 	state protoimpl.MessageState `protogen:"open.v1"`
 	//
 	//The height from which to list transactions, inclusive. If this value is
-	//greater than end_height, transactions will be read in reverse.
+	//greater than end_height, the wallet reads the blocks in reverse, so
+	//pagination (index_offset/max_transactions) walks the result set starting
+	//from the newest transaction rather than the oldest. For this comparison
+	//an end_height of -1 counts as the chain tip, not as a negative height,
+	//so start_height=0 with end_height=-1 (or an omitted end_height) walks
+	//the result set from the oldest transaction. The ordering of the
+	//transactions within the response is governed by the reverse flag either
+	//way.
 	StartHeight int32 `protobuf:"varint,1,opt,name=start_height,json=startHeight,proto3" json:"start_height,omitempty"`
 	//
 	//The height until which to list transactions, inclusive. To include
 	//unconfirmed transactions, this value should be set to -1, which will
 	//return transactions from start_height until the current chain tip and
 	//unconfirmed transactions. If no end_height is provided, the call will
-	//default to this option.
+	//default to this option. A value of -1 is treated as the chain tip when
+	//determining the read direction described for start_height, so it never
+	//causes the blocks to be read in reverse on its own.
 	EndHeight int32 `protobuf:"varint,2,opt,name=end_height,json=endHeight,proto3" json:"end_height,omitempty"`
 	// An optional filter to only include transactions relevant to an account.
 	Account string `protobuf:"bytes,3,opt,name=account,proto3" json:"account,omitempty"`
@@ -2418,8 +2427,26 @@ type GetTransactionsRequest struct {
 	//The maximal number of transactions returned in the response to this query.
 	//This value should be set to 0 to return all transactions.
 	MaxTransactions uint32 `protobuf:"varint,5,opt,name=max_transactions,json=maxTransactions,proto3" json:"max_transactions,omitempty"`
-	unknownFields   protoimpl.UnknownFields
-	sizeCache       protoimpl.SizeCache
+	//
+	//If set, the transactions will be returned in reverse order, with the
+	//oldest transaction first and unconfirmed transactions last. Otherwise,
+	//the default ordering is used, which lists unconfirmed transactions
+	//first, followed by the most recent confirmed transactions down to the
+	//oldest. Transactions with the same number of confirmations (e.g. several
+	//transactions in the same block, or several unconfirmed transactions)
+	//keep the order produced by the wallet in both modes, so the reverse
+	//ordering is not an exact mirror of the default one for such ties.
+	//
+	//This flag does not affect which transactions are selected: pagination
+	//(index_offset/max_transactions) walks the result set starting from the
+	//oldest transaction (or from the newest when start_height is greater
+	//than end_height), regardless of this flag, so the same page is selected
+	//either way; only the order of the transactions within the response
+	//changes. This flag only applies to GetTransactions and is ignored by
+	//SubscribeTransactions.
+	Reverse       bool `protobuf:"varint,6,opt,name=reverse,proto3" json:"reverse,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
 }
 
 func (x *GetTransactionsRequest) Reset() {
@@ -2485,6 +2512,13 @@ func (x *GetTransactionsRequest) GetMaxTransactions() uint32 {
 		return x.MaxTransactions
 	}
 	return 0
+}
+
+func (x *GetTransactionsRequest) GetReverse() bool {
+	if x != nil {
+		return x.Reverse
+	}
+	return false
 }
 
 type TransactionDetails struct {
@@ -18944,14 +18978,15 @@ const file_lightning_proto_rawDesc = "" +
 	"raw_tx_hex\x18\t \x01(\tR\brawTxHex\x12\x14\n" +
 	"\x05label\x18\n" +
 	" \x01(\tR\x05label\x12F\n" +
-	"\x12previous_outpoints\x18\f \x03(\v2\x17.lnrpc.PreviousOutPointR\x11previousOutpoints\"\xc2\x01\n" +
+	"\x12previous_outpoints\x18\f \x03(\v2\x17.lnrpc.PreviousOutPointR\x11previousOutpoints\"\xdc\x01\n" +
 	"\x16GetTransactionsRequest\x12!\n" +
 	"\fstart_height\x18\x01 \x01(\x05R\vstartHeight\x12\x1d\n" +
 	"\n" +
 	"end_height\x18\x02 \x01(\x05R\tendHeight\x12\x18\n" +
 	"\aaccount\x18\x03 \x01(\tR\aaccount\x12!\n" +
 	"\findex_offset\x18\x04 \x01(\rR\vindexOffset\x12)\n" +
-	"\x10max_transactions\x18\x05 \x01(\rR\x0fmaxTransactions\"\x8c\x01\n" +
+	"\x10max_transactions\x18\x05 \x01(\rR\x0fmaxTransactions\x12\x18\n" +
+	"\areverse\x18\x06 \x01(\bR\areverse\"\x8c\x01\n" +
 	"\x12TransactionDetails\x126\n" +
 	"\ftransactions\x18\x01 \x03(\v2\x12.lnrpc.TransactionR\ftransactions\x12\x1d\n" +
 	"\n" +

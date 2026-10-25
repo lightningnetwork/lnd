@@ -1,5 +1,9 @@
 name: Docker image build
 
+# The Docker credential job should not receive repository write authority.
+permissions:
+  contents: read
+
 on:
   push:
     tags:
@@ -41,13 +45,13 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - name: Set up QEMU
-        uses: lightninglabs/gh-actions/setup-qemu-action@2021.01.25.00
+        uses: lightninglabs/gh-actions/setup-qemu-action@39555064b3ae5c6d5c71a8ab304355faeaf3f4d4
 
       - name: Set up Docker Buildx
-        uses: lightninglabs/gh-actions/setup-buildx-action@2021.01.25.00
+        uses: lightninglabs/gh-actions/setup-buildx-action@39555064b3ae5c6d5c71a8ab304355faeaf3f4d4
 
       - name: Login to DockerHub
-        uses: lightninglabs/gh-actions/login-action@2021.01.25.00
+        uses: lightninglabs/gh-actions/login-action@39555064b3ae5c6d5c71a8ab304355faeaf3f4d4
         with:
           username: ${{ secrets.DOCKER_USERNAME }}
           password: ${{ secrets.DOCKER_API_KEY }}
@@ -65,7 +69,7 @@ jobs:
 
       - name: Build and push
         id: docker_build
-        uses: lightninglabs/gh-actions/build-push-action@2021.01.25.00
+        uses: lightninglabs/gh-actions/build-push-action@39555064b3ae5c6d5c71a8ab304355faeaf3f4d4
         with:
           push: true
           platforms: linux/amd64,linux/arm64

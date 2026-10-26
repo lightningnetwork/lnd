@@ -93,6 +93,51 @@ func TestParseLeaseOutputRequest(t *testing.T) {
 	}
 }
 
+// TestParseFundLeaseFlags verifies that both fund commands forward the input
+// lease flags to the FundPsbt request.
+func TestParseFundLeaseFlags(t *testing.T) {
+	t.Parallel()
+
+	lockID := bytes.Repeat([]byte{0x02}, 32)
+	lockIDHex := strings.Repeat("02", 32)
+
+	commands := []cli.Command{fundPsbtCommand, fundTemplatePsbtCommand}
+	for _, cmd := range commands {
+		t.Run(cmd.Name, func(t *testing.T) {
+			t.Parallel()
+
+			// Without lease flags the request keeps the defaults.
+			req := &walletrpc.FundPsbtRequest{}
+			ctx := newFlagContext(t, cmd.Flags, nil)
+			require.NoError(t, parseFundLeaseFlags(ctx, req))
+			require.Empty(t, req.CustomLockId)
+			require.Zero(t, req.LockExpirationSeconds)
+			require.False(t, req.InputLeaseNoExpiry)
+
+			// All lease flags are forwarded unchanged; the server
+			// validates their combination.
+			req = &walletrpc.FundPsbtRequest{}
+			ctx = newFlagContext(t, cmd.Flags, []string{
+				"--lockid", lockIDHex, "--lock_expiry", "30",
+				"--no_expiry",
+			})
+			require.NoError(t, parseFundLeaseFlags(ctx, req))
+			require.Equal(t, lockID, req.CustomLockId)
+			require.Equal(t, uint64(30), req.LockExpirationSeconds)
+			require.True(t, req.InputLeaseNoExpiry)
+
+			// A lock ID that is not hex is rejected locally.
+			ctx = newFlagContext(t, cmd.Flags, []string{
+				"--lockid", "not-hex",
+			})
+			err := parseFundLeaseFlags(
+				ctx, &walletrpc.FundPsbtRequest{},
+			)
+			require.ErrorContains(t, err, "error parsing lockid")
+		})
+	}
+}
+
 // TestMarshallLocksNoExpiry verifies that the JSON lease output reports the
 // no-expiry policy.
 func TestMarshallLocksNoExpiry(t *testing.T) {

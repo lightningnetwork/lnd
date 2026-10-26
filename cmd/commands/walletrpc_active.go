@@ -907,6 +907,51 @@ type fundPsbtResponse struct {
 	Locks             []*utxoLease `json:"locks"`
 }
 
+var (
+	fundLockIDFlag = cli.StringFlag{
+		Name: "lockid",
+		Usage: "(optional) the hex-encoded 32-byte app lock ID used " +
+			"to lease the selected inputs; required with " +
+			"--no_expiry. If not set, lnd's internal lock ID " +
+			"is used",
+	}
+
+	fundLockExpiryFlag = cli.Uint64Flag{
+		Name: "lock_expiry",
+		Usage: "(optional) the lease duration in seconds for the " +
+			"selected inputs. If not set, the default lock " +
+			"duration is used",
+	}
+
+	fundNoExpiryFlag = cli.BoolFlag{
+		Name: "no_expiry",
+		Usage: "(optional) lease the selected inputs without a " +
+			"timeout until they are released with 'lncli wallet " +
+			"releaseoutput' or their spend first confirms; " +
+			"requires --lockid and cannot be combined with " +
+			"--lock_expiry",
+	}
+)
+
+// parseFundLeaseFlags applies the input lease flags shared by the fund and
+// fundtemplate commands to the request. The server validates the combination.
+func parseFundLeaseFlags(ctx *cli.Context,
+	req *walletrpc.FundPsbtRequest) error {
+
+	if ctx.IsSet(fundLockIDFlag.Name) {
+		lockID, err := hex.DecodeString(ctx.String(fundLockIDFlag.Name))
+		if err != nil {
+			return fmt.Errorf("error parsing lockid: %w", err)
+		}
+		req.CustomLockId = lockID
+	}
+
+	req.LockExpirationSeconds = ctx.Uint64(fundLockExpiryFlag.Name)
+	req.InputLeaseNoExpiry = ctx.Bool(fundNoExpiryFlag.Name)
+
+	return nil
+}
+
 var fundTemplatePsbtCommand = cli.Command{
 	Name: "fundtemplate",
 	Usage: "Fund a Partially Signed Bitcoin Transaction (PSBT) from a " +
@@ -944,9 +989,11 @@ var fundTemplatePsbtCommand = cli.Command{
 	selected again by the coin selection algorithm.
 
 	After verifying and possibly adding new inputs, all input UTXOs added by
-	the command are locked with an internal app ID. Inputs already present
-	in the template are NOT locked, as they must already be locked when
-	invoking the command.
+	the command are locked with an internal app ID, or with the one given by
+	'--lockid'. Inputs already present in the template are NOT locked, as
+	they must already be locked when invoking the command. With
+	'--no_expiry' the new leases have no timeout: release an abandoned
+	PSBT's inputs with 'lncli wallet releaseoutput' using the same lock ID.
 
 	The '--change_output_index' flag can be used to specify the index of the
 	output in the PSBT that should be used as the change output. If '-1' is
@@ -1022,6 +1069,9 @@ var fundTemplatePsbtCommand = cli.Command{
 			Value: -1,
 		},
 		coinSelectionStrategyFlag,
+		fundLockIDFlag,
+		fundLockExpiryFlag,
+		fundNoExpiryFlag,
 	},
 	Action: actionDecorator(fundTemplatePsbt),
 }
@@ -1236,6 +1286,10 @@ func fundTemplatePsbt(ctx *cli.Context) error {
 		}
 	}
 
+	if err := parseFundLeaseFlags(ctx, req); err != nil {
+		return err
+	}
+
 	walletClient, cleanUp := getWalletClient(ctx)
 	defer cleanUp()
 
@@ -1276,7 +1330,9 @@ var fundPsbtCommand = cli.Command{
 	returned.
 
 	After either selecting or verifying the inputs, all input UTXOs are
-	locked with an internal app ID.
+	locked with an internal app ID, or with the one given by '--lockid'.
+	With '--no_expiry' the leases have no timeout: release an abandoned
+	PSBT's inputs with 'lncli wallet releaseoutput' using the same lock ID.
 
 	The 'outputs' flag decodes addresses and the amount to send respectively
 	in the following JSON format:
@@ -1359,6 +1415,9 @@ var fundPsbtCommand = cli.Command{
 				"that this psbt should adhere to",
 			Value: chanfunding.DefaultMaxFeeRatio,
 		},
+		fundLockIDFlag,
+		fundLockExpiryFlag,
+		fundNoExpiryFlag,
 	},
 	Action: actionDecorator(fundPsbt),
 }
@@ -1498,6 +1557,10 @@ func fundPsbt(ctx *cli.Context) error {
 	}
 
 	req.MaxFeeRatio = ctx.Float64("max_fee_ratio")
+
+	if err := parseFundLeaseFlags(ctx, req); err != nil {
+		return err
+	}
 
 	walletClient, cleanUp := getWalletClient(ctx)
 	defer cleanUp()

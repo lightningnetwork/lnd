@@ -267,32 +267,72 @@ func (store *networkResultStore) cleanStore(keep map[uint64]struct{}) error {
 			return err
 		}
 
-		// Iterate through the bucket, deleting all items not in the
-		// keep map.
-		var toClean [][]byte
-		if err := networkResults.ForEach(func(k, _ []byte) error {
+		// Snapshot the entries we want to keep (the results of still
+		// in-flight attempts) and count the rest. The store is only
+		// pruned here at startup, so it can hold one entry per resolved
+		// HTLC attempt and grow very large. Deleting those one key at a
+		// time is O(N) round-trips on a SQL backend; since the keep set
+		// is small, we instead read the keepers with a single streaming
+		// query, drop the whole bucket in one cascading delete, and
+		// re-insert the keepers.
+		type keptResult struct {
+			key   []byte
+			value []byte
+		}
+		var (
+			kept    []keptResult
+			removed int
+		)
+		if err := kvdb.ForAll(networkResults, func(k, v []byte) error {
 			pid := binary.BigEndian.Uint64(k)
-			if _, ok := keep[pid]; ok {
+			if _, ok := keep[pid]; !ok {
+				removed++
 				return nil
 			}
 
-			toClean = append(toClean, k)
+			// The bucket is deleted below, so clone the retained
+			// entries before stashing them.
+			kept = append(kept, keptResult{
+				key:   bytes.Clone(k),
+				value: bytes.Clone(v),
+			})
+
 			return nil
 		}); err != nil {
 			return err
 		}
 
-		for _, k := range toClean {
-			err := networkResults.Delete(k)
+		// If there is nothing to remove, avoid dropping and recreating
+		// the bucket.
+		if removed == 0 {
+			return nil
+		}
+
+		// Drop the whole bucket in a single query (on the SQL backend
+		// this cascades to every row), then recreate it and restore the
+		// entries we are keeping.
+		if err := tx.DeleteTopLevelBucket(
+			networkResultStoreBucketKey,
+		); err != nil {
+			return err
+		}
+
+		networkResults, err = tx.CreateTopLevelBucket(
+			networkResultStoreBucketKey,
+		)
+		if err != nil {
+			return err
+		}
+
+		for _, r := range kept {
+			err := networkResults.Put(r.key, r.value)
 			if err != nil {
 				return err
 			}
 		}
 
-		if len(toClean) > 0 {
-			log.Infof("Removed %d stale entries from network "+
-				"result store", len(toClean))
-		}
+		log.Infof("Removed %d stale entries from network result store",
+			removed)
 
 		return nil
 	}, func() {})

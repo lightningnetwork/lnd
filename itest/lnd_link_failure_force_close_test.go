@@ -5,8 +5,10 @@ package itest
 import (
 	"bytes"
 	"fmt"
+	"slices"
 
 	"github.com/btcsuite/btcd/btcutil/v2"
+	"github.com/btcsuite/btcd/wire/v2"
 	"github.com/lightningnetwork/lnd/lnrpc"
 	"github.com/lightningnetwork/lnd/lnrpc/routerrpc"
 	"github.com/lightningnetwork/lnd/lntest"
@@ -90,30 +92,29 @@ func testLinkFailureForceClose(ht *lntest.HarnessTest) {
 	require.Greater(ht, expiry, currentHeight)
 	ht.MineEmptyBlocks(int(expiry - currentHeight - 1))
 
-	// The expiry block drives Alice's arbitrator to chain. Verify that the
-	// resulting transaction spends the channel funding output, rather than
-	// accepting an unrelated transaction from the mempool.
+	// The expiry block drives Alice's arbitrator to publish the commitment
+	// and the sweeper to publish its anchor spend.
 	ht.MineEmptyBlocks(1)
-	closeTx := ht.GetNumTxsFromMempool(1)[0]
-	require.Equal(ht, htlcPoint, closeTx.TxIn[0].PreviousOutPoint)
+	closeTx := ht.AssertOutpointInMempool(htlcPoint)
 	ht.AssertConnected(alice, mallory)
+	ht.MineBlockAndAssertOutpointSpent(2, htlcPoint)
 
-	// Confirm the commitment. Once that confirmation reaches the
-	// sweeper, it must publish the outgoing HTLC timeout transaction.
-	// Checking the
-	// child's input makes this an explicit sweep/publication assertion,
-	// rather than only observing that Alice learned the next chain
-	// height.
-	ht.MineBlocksAndAssertNumTxes(1, 1)
-	htlcTimeoutTx := ht.GetNumTxsFromMempool(1)[0]
-	require.Equal(
-		ht, closeTx.TxHash(),
-		htlcTimeoutTx.TxIn[0].PreviousOutPoint.Hash,
+	// Once the commitment confirms, the sweeper must publish a timeout
+	// transaction spending the outgoing HTLC output. This is the only
+	// HTLC on the commitment, so its amount identifies the output.
+	htlcIndex := slices.IndexFunc(
+		closeTx.TxOut, func(out *wire.TxOut) bool {
+			return out.Value == int64(htlcAmt)
+		},
 	)
+	require.GreaterOrEqual(ht, htlcIndex, 0, "missing HTLC output")
+	htlcOutpoint := wire.OutPoint{
+		Hash:  closeTx.TxHash(),
+		Index: uint32(htlcIndex),
+	}
+	ht.MineBlockAndAssertOutpointSpent(1, htlcOutpoint)
 
-	// Confirm the timeout transaction, then prove the dispatcher continues
-	// through another blockbeat.
-	ht.MineBlocksAndAssertNumTxes(1, 1)
+	// Prove the dispatcher continues through another blockbeat.
 	ht.MineEmptyBlocks(1)
 	ht.WaitForNodeBlockHeight(alice, int32(ht.CurrentHeight()))
 }

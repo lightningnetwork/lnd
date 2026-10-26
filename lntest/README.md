@@ -104,9 +104,9 @@ the tests. They are summarized as followings,
 1. `funding.checkPeerChannelReadyInterval`, which is used when we wait for the
    peer to send us `ChannelReady`. This value is 1 second in `lnd`, and 10
    milliseconds in `lntest`.
-2. `lncfg.ProtocolOptions`, which is used to specify protocol flags. In `lnd`,
-   anchor and script enforced lease are enabled by default, while in `lntest`,
-   they are disabled by default.
+2. `lncfg.ProtocolOptions`, which is used to specify protocol flags. Script
+   enforced lease commitments are enabled by default in `lnd` and disabled by
+   default in `lntest`.
 3. Reduced scrypt parameters are used in `lntest`. In `lnd`, the parameters N,
    R, and P are imported from `snacl`, while in `lntest` they are replaced with
    `waddrmgr.FastScryptOptions`. Both `macaroon` and `aezeed` are affected.

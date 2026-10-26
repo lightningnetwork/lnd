@@ -154,25 +154,20 @@ func CommitTypeHasAnchors(commitType lnrpc.CommitmentType) bool {
 	}
 }
 
-// NodeArgsForCommitType returns the command line flag to supply to enable this
+// NodeArgsForCommitType returns the command line flags needed for this
 // commitment type.
 func NodeArgsForCommitType(commitType lnrpc.CommitmentType) []string {
 	switch commitType {
 	case lnrpc.CommitmentType_STATIC_REMOTE_KEY:
-		return []string{}
+		return []string{"--protocol.no-anchors"}
 	case lnrpc.CommitmentType_ANCHORS:
-		return []string{"--protocol.anchors"}
+		return []string{}
 	case lnrpc.CommitmentType_SCRIPT_ENFORCED_LEASE:
-		return []string{
-			"--protocol.anchors",
-			"--protocol.script-enforced-lease",
-		}
+		return []string{"--protocol.script-enforced-lease"}
 	case lnrpc.CommitmentType_SIMPLE_TAPROOT,
 		lnrpc.CommitmentType_SIMPLE_TAPROOT_FINAL:
-		return []string{
-			"--protocol.anchors",
-			"--protocol.simple-taproot-chans",
-		}
+
+		return []string{"--protocol.simple-taproot-chans"}
 	}
 
 	return nil

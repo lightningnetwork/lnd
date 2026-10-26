@@ -92,6 +92,14 @@
   converted to sat/kw, which made lnd use the minimum relay fee for anchor
   commitments instead of the configured cap.
 
+* [Fixed slow startup cleanup on SQL-backed
+  nodes](https://github.com/lightningnetwork/lnd/pull/11413): pruning the
+  switch's network result store at startup issued one database round-trip per
+  stored entry. The store accumulates one entry per locally initiated outbound
+  HTLC attempt, so cleanup on a busy node using remote Postgres could take
+  hours. The store is now pruned with a single streamed read and one cascading
+  delete instead of a round-trip per entry.
+
 # New Features
 
 ## Functional Enhancements
@@ -137,9 +145,11 @@
 
 # Contributors (Alphabetical Order)
 
+* Alex Akselrod
 * Boris Nagaev
 * Elle Mouton
 * Gijs van Dam
 * Olaoluwa Osuntokun
 * Pins
 * Ziggie
+* ZZiigguurraatt

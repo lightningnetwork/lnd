@@ -1,13 +1,80 @@
 package lnd
 
 import (
+	"errors"
 	"net"
 	"testing"
 	"time"
 
+	"github.com/btcsuite/btcd/wire"
+	"github.com/lightningnetwork/lnd/aliasmgr"
+	graphdb "github.com/lightningnetwork/lnd/graph/db"
+	models "github.com/lightningnetwork/lnd/graph/db/models"
+	"github.com/lightningnetwork/lnd/lnwire"
 	"github.com/lightningnetwork/lnd/tor"
 	"github.com/stretchr/testify/require"
 )
+
+func TestValidatePeerAlias(t *testing.T) {
+	t.Parallel()
+
+	channelPoint := wire.OutPoint{Index: 1}
+	otherChannelPoint := wire.OutPoint{Index: 2}
+	alias := lnwire.ShortChannelID{BlockHeight: 10}
+	reservedAlias := aliasmgr.StartingAlias
+
+	lookup := func(point wire.OutPoint, err error) chanAliasLookup {
+		return func(lnwire.ShortChannelID) (
+			*models.ChannelEdgeInfo,
+			*models.ChannelEdgePolicy,
+			*models.ChannelEdgePolicy,
+			error,
+		) {
+			// The lookup closure returns the prepared edge info
+			// for the alias, or the configured lookup error.
+			if err != nil {
+				return nil, nil, nil, err
+			}
+
+			return &models.ChannelEdgeInfo{
+				ChannelPoint: point,
+			}, nil, nil, nil
+		}
+	}
+
+	tests := []struct {
+		name    string
+		alias   lnwire.ShortChannelID
+		point   wire.OutPoint
+		err     error
+		wantErr bool
+	}{
+		{name: "same channel edge", point: channelPoint, alias: alias},
+		{name: "different channel edge",
+			point: otherChannelPoint, alias: alias, wantErr: true},
+		{name: "reserved range alias collides with another channel",
+			point: otherChannelPoint, alias: reservedAlias},
+		{name: "unknown alias", err: graphdb.ErrEdgeNotFound,
+			alias: alias},
+		{name: "lookup failure",
+			err:   errors.New("database unavailable"),
+			alias: alias, wantErr: true},
+	}
+
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			err := validatePeerAlias(
+				channelPoint, test.alias,
+				lookup(test.point, test.err),
+			)
+			if test.wantErr {
+				require.Error(t, err)
+				return
+			}
+			require.NoError(t, err)
+		})
+	}
+}
 
 // TestNodeAnnouncementTimestampComparison tests the timestamp comparison
 // logic used in setSelfNode to ensure node announcements have strictly

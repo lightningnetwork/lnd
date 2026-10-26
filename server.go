@@ -1203,6 +1203,7 @@ func newServer(ctx context.Context, cfg *Config, listenAddrs []net.Addr,
 		MaxChannelUpdateBurst:   cfg.Gossip.MaxChannelUpdateBurst,
 		ChannelUpdateInterval:   cfg.Gossip.ChannelUpdateInterval,
 		IsAlias:                 aliasmgr.IsAlias,
+		ValidatePeerAlias:       s.validatePeerAlias,
 		SignAliasUpdate:         s.signAliasUpdate,
 		FindBaseByAlias:         s.aliasMgr.FindBaseSCID,
 		GetAlias:                s.aliasMgr.GetPeerAlias,
@@ -1751,6 +1752,7 @@ func newServer(ctx context.Context, cfg *Config, listenAddrs []net.Addr,
 			s.cfg.MaxCommitFeeRateAnchors * 1000).FeePerKWeight(),
 		DeleteAliasEdge:      deleteAliasEdge,
 		AliasManager:         s.aliasMgr,
+		ValidatePeerAlias:    s.validatePeerAlias,
 		IsSweeperOutpoint:    s.sweeper.IsSweeperOutpoint,
 		AuxFundingController: implCfg.AuxFundingController,
 		AuxSigner:            implCfg.AuxSigner,
@@ -5463,6 +5465,62 @@ func (s *server) fetchLastChanUpdate() func(lnwire.ShortChannelID) (
 	}
 }
 
+// validatePeerAlias prevents a peer from naming an unrelated channel in its
+// channel_ready alias. Callers repeat this check before signing because the
+// graph can gain an edge after the alias is first received. Aliases inside
+// the reserved alias range are exempt, since nodes allocate aliases from
+// that range independently and equal aliases across peers are legitimate.
+func (s *server) validatePeerAlias(outpoint wire.OutPoint,
+	alias lnwire.ShortChannelID) error {
+
+	return validatePeerAlias(
+		outpoint, alias, s.graphBuilder.GetChannelByID,
+	)
+}
+
+type chanAliasLookup func(lnwire.ShortChannelID) (
+	*models.ChannelEdgeInfo,
+	*models.ChannelEdgePolicy,
+	*models.ChannelEdgePolicy,
+	error,
+)
+
+func validatePeerAlias(outpoint wire.OutPoint,
+	alias lnwire.ShortChannelID, lookup chanAliasLookup,
+) error {
+
+	// Aliases inside the reserved alias range are always accepted: each
+	// node allocates its own aliases from that range independently, so
+	// two peers can legitimately use the same alias SCID. Only a collision
+	// with a channel SCID outside that range is rejected, since a real
+	// channel SCID can never fall inside the alias range, and a peer
+	// claiming one names a channel it doesn't own.
+	if aliasmgr.IsAlias(alias) {
+		return nil
+	}
+
+	info, _, _, err := lookup(alias)
+	if errors.Is(err, graphdb.ErrEdgeNotFound) ||
+		errors.Is(err, graphdb.ErrGraphNoEdgesFound) ||
+		errors.Is(err, graphdb.ErrGraphNotFound) {
+
+		return nil
+	}
+	if err != nil {
+		return fmt.Errorf(
+			"lookup peer alias %v: %w", alias, err,
+		)
+	}
+	if info.ChannelPoint != outpoint {
+		return fmt.Errorf(
+			"peer alias %v collides with channel %v",
+			alias, info.ChannelPoint,
+		)
+	}
+
+	return nil
+}
+
 // applyChannelUpdate applies the channel update to the different sub-systems of
 // the server. The useAlias boolean denotes whether or not to send an alias in
 // place of the real SCID.
@@ -5481,6 +5539,11 @@ func (s *server) applyChannelUpdate(update *lnwire.ChannelUpdate1,
 	if useAlias {
 		foundAlias, _ := s.aliasMgr.GetPeerAlias(chanID)
 		if foundAlias != defaultAlias {
+			if err := s.validatePeerAlias(
+				*op, foundAlias,
+			); err != nil {
+				return err
+			}
 			peerAlias = &foundAlias
 		}
 	}

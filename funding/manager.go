@@ -550,6 +550,9 @@ type Config struct {
 	// abstracts away the handling of many alias functions.
 	AliasManager aliasHandler
 
+	// ValidatePeerAlias rejects an alias that names a different channel.
+	ValidatePeerAlias func(wire.OutPoint, lnwire.ShortChannelID) error
+
 	// IsSweeperOutpoint queries the sweeper store for successfully
 	// published sweeps. This is useful to decide for the internal wallet
 	// backed funding flow to not use utxos still being swept by the sweeper
@@ -4144,6 +4147,21 @@ func (f *Manager) handleChannelReady(peer lnpeer.Peer,
 		// AliasScid. The peer may resend channel_ready to rotate or
 		// update their alias for invoice route hints.
 		if channel.NegotiatedAliasFeature() && msg.AliasScid != nil {
+			if f.cfg.ValidatePeerAlias != nil {
+				err := f.cfg.ValidatePeerAlias(
+					channel.FundingOutpoint, *msg.AliasScid,
+				)
+				if err != nil {
+					log.Errorf("rejecting peer "+
+						"alias: %v", err)
+					f.handleChannelReadyBarriers.Delete(
+						msg.ChanID,
+					)
+
+					return
+				}
+			}
+
 			err := f.cfg.AliasManager.PutPeerAlias(
 				chanID, *msg.AliasScid,
 			)
@@ -4172,6 +4190,102 @@ func (f *Manager) handleChannelReady(peer lnpeer.Peer,
 
 		f.processChannelReady(peer, msg)
 	}()
+}
+
+// handleChannelReadyAlias handles the alias fields of a channel_ready
+// message. It validates and stores the peer's alias, and creates a local alias
+// with a channel_ready reply when the channel doesn't have one yet. It returns
+// false when a step fails and channel_ready handling should stop.
+func (f *Manager) handleChannelReadyAlias(peer lnpeer.Peer,
+	channel *channeldb.OpenChannel, msg *lnwire.ChannelReady,
+	firstVerNonce *musig2.Nonces) bool {
+
+	chanID := msg.ChanID
+
+	if !channel.NegotiatedAliasFeature() {
+		return true
+	}
+
+	// If the AliasScid field is nil, we must fail out. We will most
+	// likely not be able to route through the peer.
+	if msg.AliasScid == nil {
+		log.Debugf("Consider closing ChannelID(%v), peer does not "+
+			"implement the option-scid-alias feature properly",
+			chanID)
+
+		return false
+	}
+
+	if f.cfg.ValidatePeerAlias != nil {
+		err := f.cfg.ValidatePeerAlias(
+			channel.FundingOutpoint, *msg.AliasScid,
+		)
+		if err != nil {
+			log.Errorf("rejecting peer alias: %v", err)
+			return false
+		}
+	}
+
+	// We'll store the AliasScid so that invoice creation can use it.
+	err := f.cfg.AliasManager.PutPeerAlias(chanID, *msg.AliasScid)
+	if err != nil {
+		log.Errorf("unable to store peer's alias: %v", err)
+		return false
+	}
+
+	// If we do not have an alias stored, we'll create one now. This is
+	// only used in the upgrade case where a user toggles the
+	// option-scid-alias feature-bit to on. We'll also send the
+	// channel_ready message here in case the link is created before
+	// sendChannelReady is called.
+	aliases := f.cfg.AliasManager.GetAliases(
+		channel.ShortChannelID,
+	)
+	if len(aliases) != 0 {
+		return true
+	}
+
+	// No aliases were found so we'll request and store an alias and use
+	// it in the channel_ready message.
+	alias, err := f.cfg.AliasManager.RequestAlias()
+	if err != nil {
+		log.Errorf("unable to request alias: %v", err)
+		return false
+	}
+
+	err = f.cfg.AliasManager.AddLocalAlias(
+		alias, channel.ShortChannelID, false, false,
+	)
+	if err != nil {
+		log.Errorf("unable to add local alias: %v", err)
+		return false
+	}
+
+	secondPoint, err := channel.SecondCommitmentPoint()
+	if err != nil {
+		log.Errorf("unable to fetch second commitment point: %v",
+			err)
+		return false
+	}
+
+	channelReadyMsg := lnwire.NewChannelReady(
+		chanID, secondPoint,
+	)
+	channelReadyMsg.AliasScid = &alias
+
+	if firstVerNonce != nil {
+		channelReadyMsg.NextLocalNonce = lnwire.SomeMusig2Nonce( //nolint:ll
+			firstVerNonce.PubNonce,
+		)
+	}
+
+	err = peer.SendMessage(true, channelReadyMsg)
+	if err != nil {
+		log.Errorf("unable to send channel_ready: %v", err)
+		return false
+	}
+
+	return true
 }
 
 // processChannelReady completes the channel_ready handling after any required
@@ -4228,75 +4342,8 @@ func (f *Manager) processChannelReady(peer lnpeer.Peer,
 	// call to InsertNextRevocation in case the call to PutPeerAlias fails.
 	// If it were to fail on the first call to processChannelReady, we
 	// wouldn't want the channel to be usable yet.
-	if channel.NegotiatedAliasFeature() {
-		// If the AliasScid field is nil, we must fail out. We will
-		// most likely not be able to route through the peer.
-		if msg.AliasScid == nil {
-			log.Debugf("Consider closing ChannelID(%v), peer "+
-				"does not implement the option-scid-alias "+
-				"feature properly", chanID)
-			return
-		}
-
-		// We'll store the AliasScid so that invoice creation can use
-		// it.
-		err = f.cfg.AliasManager.PutPeerAlias(chanID, *msg.AliasScid)
-		if err != nil {
-			log.Errorf("unable to store peer's alias: %v", err)
-			return
-		}
-
-		// If we do not have an alias stored, we'll create one now.
-		// This is only used in the upgrade case where a user toggles
-		// the option-scid-alias feature-bit to on. We'll also send the
-		// channel_ready message here in case the link is created
-		// before sendChannelReady is called.
-		aliases := f.cfg.AliasManager.GetAliases(
-			channel.ShortChannelID,
-		)
-		if len(aliases) == 0 {
-			// No aliases were found so we'll request and store an
-			// alias and use it in the channel_ready message.
-			alias, err := f.cfg.AliasManager.RequestAlias()
-			if err != nil {
-				log.Errorf("unable to request alias: %v", err)
-				return
-			}
-
-			err = f.cfg.AliasManager.AddLocalAlias(
-				alias, channel.ShortChannelID, false, false,
-			)
-			if err != nil {
-				log.Errorf("unable to add local alias: %v",
-					err)
-				return
-			}
-
-			secondPoint, err := channel.SecondCommitmentPoint()
-			if err != nil {
-				log.Errorf("unable to fetch second "+
-					"commitment point: %v", err)
-				return
-			}
-
-			channelReadyMsg := lnwire.NewChannelReady(
-				chanID, secondPoint,
-			)
-			channelReadyMsg.AliasScid = &alias
-
-			if firstVerNonce != nil {
-				channelReadyMsg.NextLocalNonce = lnwire.SomeMusig2Nonce( //nolint:ll
-					firstVerNonce.PubNonce,
-				)
-			}
-
-			err = peer.SendMessage(true, channelReadyMsg)
-			if err != nil {
-				log.Errorf("unable to send channel_ready: %v",
-					err)
-				return
-			}
-		}
+	if !f.handleChannelReadyAlias(peer, channel, msg, firstVerNonce) {
+		return
 	}
 
 	// If the RemoteNextRevocation is set, it means that we have

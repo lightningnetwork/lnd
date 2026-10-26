@@ -152,7 +152,9 @@ func (m *mockChanFunder) ProvisionChannel(r *chanfunding.Request) (
 	return shimIntent, nil
 }
 
-type mockAliasMgr struct{}
+type mockAliasMgr struct {
+	peerAliasWrites atomic.Int32
+}
 
 func (m *mockAliasMgr) RequestAlias() (lnwire.ShortChannelID, error) {
 	return alias, nil
@@ -161,6 +163,7 @@ func (m *mockAliasMgr) RequestAlias() (lnwire.ShortChannelID, error) {
 func (m *mockAliasMgr) PutPeerAlias(lnwire.ChannelID,
 	lnwire.ShortChannelID) error {
 
+	m.peerAliasWrites.Add(1)
 	return nil
 }
 
@@ -5064,12 +5067,95 @@ func testZeroConf(t *testing.T, chanType *lnwire.ChannelType) {
 	require.NotNil(t, aliceChannelReady.AliasScid)
 	require.Equal(t, *aliceChannelReady.AliasScid, alias)
 
-	// Exchange the channel_ready messages.
+	aliasMgr, ok := alice.fundingMgr.cfg.AliasManager.(*mockAliasMgr)
+	require.True(t, ok)
+	var rejectAlias atomic.Bool
+	var validationCalls atomic.Int32
+	rejectAlias.Store(true)
+	alice.fundingMgr.cfg.ValidatePeerAlias = func(
+		wire.OutPoint, lnwire.ShortChannelID) error {
+
+		validationCalls.Add(1)
+		if rejectAlias.Load() {
+			return errors.New("peer alias collision")
+		}
+
+		return nil
+	}
+
+	// Reject the initial peer alias before the funding manager stores it.
 	alice.fundingMgr.ProcessFundingMsg(bobChannelReady, bob)
+	require.NoError(t, wait.NoError(func() error {
+		if validationCalls.Load() != 1 {
+			return errors.New("alias validation not called")
+		}
+
+		return nil
+	}, time.Second))
+	require.NoError(t, wait.NoError(func() error {
+		_, loaded := alice.fundingMgr.handleChannelReadyBarriers.
+			Load(chanID)
+		if loaded {
+			return errors.New(
+				"rejected channel_ready handler still active")
+		}
+
+		return nil
+	}, time.Second))
+	require.EqualValues(t, 0, aliasMgr.peerAliasWrites.Load())
+
+	// Retry with a valid alias so the channel can finish opening.
+	rejectAlias.Store(false)
+	alice.fundingMgr.ProcessFundingMsg(bobChannelReady, bob)
+	require.NoError(t, wait.NoError(func() error {
+		if aliasMgr.peerAliasWrites.Load() != 1 {
+			return errors.New("peer alias not stored")
+		}
+
+		return nil
+	}, time.Second))
+
+	// Send Alice's channel_ready message to Bob. Alice already accepted
+	// Bob's message during the validated retry above.
 	bob.fundingMgr.ProcessFundingMsg(aliceChannelReady, alice)
 
 	// We'll assert that they both create new links.
 	assertHandleChannelReady(t, alice, bob)
+	require.NoError(t, wait.NoError(func() error {
+		_, loaded := alice.fundingMgr.handleChannelReadyBarriers.
+			Load(chanID)
+		if loaded {
+			return errors.New("channel_ready handler still active")
+		}
+
+		return nil
+	}, time.Second))
+
+	// Reject an alias rotation after the channel is established. The peer
+	// alias stored by the successful retry must remain unchanged.
+	rotatedAlias := alias
+	rotatedAlias.TxIndex++
+	bobChannelReady.AliasScid = &rotatedAlias
+	rejectAlias.Store(true)
+	alice.fundingMgr.ProcessFundingMsg(bobChannelReady, bob)
+	require.NoError(t, wait.NoError(func() error {
+		if validationCalls.Load() != 3 {
+			return errors.New("rotated alias validation not called")
+		}
+
+		return nil
+	}, time.Second))
+	require.NoError(t, wait.NoError(func() error {
+		_, loaded := alice.fundingMgr.handleChannelReadyBarriers.
+			Load(chanID)
+		if loaded {
+			return errors.New(
+				"rejected alias rotation still active")
+		}
+
+		return nil
+	}, time.Second))
+	require.EqualValues(t, 1, aliasMgr.peerAliasWrites.Load())
 
 	// We'll now assert that both sides send ChannelAnnouncement and
 	// ChannelUpdate messages.

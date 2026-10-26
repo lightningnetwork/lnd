@@ -364,6 +364,9 @@ type Config struct {
 	// option_scid_alias channels.
 	IsAlias func(scid lnwire.ShortChannelID) bool
 
+	// ValidatePeerAlias rejects a peer alias that names another channel.
+	ValidatePeerAlias func(wire.OutPoint, lnwire.ShortChannelID) error
+
 	// SignAliasUpdate is used to re-sign a channel update using the
 	// remote's alias if the option-scid-alias feature bit was negotiated.
 	SignAliasUpdate func(u *lnwire.ChannelUpdate1) (*ecdsa.Signature,
@@ -2007,6 +2010,18 @@ func (d *AuthenticatedGossiper) processChanPolicyUpdate(ctx context.Context,
 			var defaultAlias lnwire.ShortChannelID
 			foundAlias, _ := d.cfg.GetAlias(chanID)
 			if foundAlias != defaultAlias {
+				if d.cfg.ValidatePeerAlias != nil {
+					err := d.cfg.ValidatePeerAlias(
+						edgeInfo.Info.ChannelPoint,
+						foundAlias,
+					)
+					if err != nil {
+						log.Errorf("peer alias "+
+							"collision: %v", err)
+
+						continue
+					}
+				}
 				chanUpdate.ShortChannelID = foundAlias
 
 				sig, err := d.cfg.SignAliasUpdate(chanUpdate)
@@ -3482,6 +3497,23 @@ func (d *AuthenticatedGossiper) handleChanUpdate(ctx context.Context,
 		if nMsg.optionalMsgFields != nil {
 			remoteAlias := nMsg.optionalMsgFields.remoteAlias
 			if remoteAlias != nil {
+				if d.cfg.ValidatePeerAlias != nil {
+					err := d.cfg.ValidatePeerAlias(
+						chanInfo.ChannelPoint,
+						*remoteAlias,
+					)
+					if err != nil {
+						log.Errorf("peer alias "+
+							"collision: %v", err)
+
+						completeGossipResult(
+							nMsg.errPromise, err,
+						)
+
+						return nil, false
+					}
+				}
+
 				// The remoteAlias field was specified, meaning
 				// that we should replace the SCID in the
 				// update with the remote's alias. We'll also

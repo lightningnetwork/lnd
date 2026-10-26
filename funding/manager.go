@@ -1771,8 +1771,10 @@ func (f *Manager) fundeeProcessOpenChannel(peer lnpeer.Peer,
 
 	// If the zero-conf channel type wasn't negotiated and the fundee still
 	// wants a zero-conf channel, perform more checks. Require that both
-	// sides have the scid-alias feature bit set. We don't require anchors
-	// here - this is for compatibility with LDK.
+	// sides have the scid-alias feature bit set. Commitment type
+	// negotiation has already restricted new channels to anchor or newer
+	// commitment types, so only the scid-alias feature needs checking
+	// here.
 	if !zeroConf && acceptorResp.ZeroConf {
 		if !scidFeatureVal {
 			// Fail the funding flow.

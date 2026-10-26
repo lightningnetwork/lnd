@@ -1,9 +1,6 @@
 name: CI
 
 on:
-  push:
-    branches:
-      - "master"
   pull_request:
     branches:
       - "*"
@@ -25,7 +22,7 @@ permissions:
   pull-requests: read
 
 concurrency:
-  # Cancel any previous workflows if they are from a PR or push.
+  # Cancel any previous workflows from the same PR or merge group.
   group: ${{ github.event.pull_request.number || github.ref }}
   cancel-in-progress: true
 

@@ -518,7 +518,7 @@ func runChanRestoreScenarioBasic(ht *lntest.HarnessTest,
 
 	// Create a new restore scenario.
 	crs := newChanRestoreScenario(
-		ht, lnrpc.CommitmentType_UNKNOWN_COMMITMENT_TYPE, false,
+		ht, lnrpc.CommitmentType_ANCHORS, false,
 	)
 	carol, dave := crs.carol, crs.dave
 
@@ -559,7 +559,7 @@ func testChannelBackupRestoreUnconfirmed(ht *lntest.HarnessTest) {
 func runChanRestoreScenarioUnConfirmed(ht *lntest.HarnessTest, useFile bool) {
 	// Create a new restore scenario.
 	crs := newChanRestoreScenario(
-		ht, lnrpc.CommitmentType_UNKNOWN_COMMITMENT_TYPE, false,
+		ht, lnrpc.CommitmentType_ANCHORS, false,
 	)
 	carol, dave := crs.carol, crs.dave
 
@@ -686,7 +686,7 @@ func runChanRestoreScenarioCommitTypes(ht *lntest.HarnessTest,
 func testChannelBackupRestoreLegacy(ht *lntest.HarnessTest) {
 	// Create a new restore scenario.
 	crs := newChanRestoreScenario(
-		ht, lnrpc.CommitmentType_UNKNOWN_COMMITMENT_TYPE, false,
+		ht, lnrpc.CommitmentType_ANCHORS, false,
 	)
 	carol, dave := crs.carol, crs.dave
 
@@ -1289,7 +1289,7 @@ func testDataLossProtection(ht *lntest.HarnessTest) {
 	// on chain, and both of them properly carry out the DLP protocol.
 	assertDLPExecuted(
 		ht, carol, carolStartingBalance, dave,
-		daveStartingBalance, lnrpc.CommitmentType_STATIC_REMOTE_KEY,
+		daveStartingBalance, lnrpc.CommitmentType_ANCHORS,
 	)
 
 	// As a second part of this test, we will test the scenario where a
@@ -1304,8 +1304,16 @@ func testDataLossProtection(ht *lntest.HarnessTest) {
 	carolBalResp = carol.RPC.WalletBalance()
 	carolStartingBalance = carolBalResp.ConfirmedBalance
 
-	// Now let Carol force close the channel while Dave is offline.
-	ht.ForceCloseChannel(carol, chanPoint2)
+	// Now let Carol force close the channel while Dave is offline. The
+	// first half of the test can leave uneconomical anchor sweeps pending,
+	// so use the anchor-aware assertions instead of the non-anchor cleanup
+	// helper.
+	stream, _ := ht.CloseChannelAssertPending(carol, chanPoint2, true)
+	ht.AssertStreamChannelForceClosed(carol, chanPoint2, true, stream)
+	ht.MineEmptyBlocks(node.DefaultCSV - 1)
+	ht.AssertAtLeastNumPendingSweeps(carol, 1)
+	ht.MineBlocksAndAssertNumTxes(1, 1)
+	ht.AssertNumPendingForceClose(carol, 0)
 
 	// Make sure Carol got her balance back.
 	carolBalResp = carol.RPC.WalletBalance()
@@ -1331,8 +1339,8 @@ func testDataLossProtection(ht *lntest.HarnessTest) {
 	// Make sure Dave still has the pending force close channel.
 	ht.AssertNumPendingForceClose(dave, 1)
 
-	// Dave should have a pending sweep.
-	ht.AssertNumPendingSweeps(dave, 1)
+	// Dave should have a pending sweep for his funds and anchor output.
+	ht.AssertAtLeastNumPendingSweeps(dave, 2)
 
 	// Dave should sweep his funds.
 	ht.AssertNumTxsInMempool(1)

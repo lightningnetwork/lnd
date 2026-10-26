@@ -893,6 +893,10 @@ type utxoLease struct {
 	Expiration uint64       `json:"expiration"`
 	PkScript   []byte       `json:"pk_script"`
 	Value      uint64       `json:"value"`
+
+	// NoExpiry is true for leases without a timeout. Their expiration is
+	// not enforced.
+	NoExpiry bool `json:"no_expiry"`
 }
 
 // fundPsbtResponse is a struct that contains JSON annotations for nice result
@@ -1527,6 +1531,7 @@ func marshallLocks(lockedUtxos []*walletrpc.UtxoLease) []*utxoLease {
 			Expiration: lock.Expiration,
 			PkScript:   lock.PkScript,
 			Value:      lock.Value,
+			NoExpiry:   lock.NoExpiry,
 		}
 	}
 

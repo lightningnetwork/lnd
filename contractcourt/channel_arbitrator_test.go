@@ -3593,6 +3593,8 @@ func TestChannelArbitratorStartForceCloseFail(t *testing.T) {
 		expectedState ArbitratorState
 
 		expectedStartup bool
+
+		synchronousRestart bool
 	}{
 		{
 			name: "Commitment is rejected because of low mempool " +
@@ -3621,14 +3623,19 @@ func TestChannelArbitratorStartForceCloseFail(t *testing.T) {
 			expectedStartup: true,
 		},
 
-		// We started after the DLP was triggered, and try to force
-		// close. This is rejected as we can't force close with local
-		// data loss. We should still be able to start up however.
+		// A restored channel restarts after its force-close state was
+		// persisted. The restored shell returns the local-data-loss sentinel
+		// because it has no commitment to broadcast. Startup must leave the
+		// arbitrator waiting for the remote close.
 		{
-			name:            "ignore force close local data loss",
-			forceCloseErr:   lnwallet.ErrForceCloseLocalDataLoss,
-			expectedState:   StateBroadcastCommit,
-			expectedStartup: true,
+			name: "restored channel waits for remote close after restart",
+			forceCloseErr: fmt.Errorf(
+				"restored channel: %w",
+				lnwallet.ErrForceCloseLocalDataLoss,
+			),
+			expectedState:      StateBroadcastCommit,
+			expectedStartup:    true,
+			synchronousRestart: true,
 		},
 	}
 
@@ -3662,6 +3669,14 @@ func TestChannelArbitratorStartForceCloseFail(t *testing.T) {
 			)
 
 			chanArb := chanArbCtx.chanArb
+
+			if test.synchronousRestart {
+				chanArb.state = test.expectedState
+				err = chanArb.progressStateMachineAfterRestart(0, nil)
+				require.NoError(t, err)
+				chanArbCtx.AssertState(test.expectedState)
+				return
+			}
 
 			// Customize the PublishTx function of the arbitrator.
 			chanArb.cfg.PublishTx = func(*wire.MsgTx,

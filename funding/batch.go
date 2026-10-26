@@ -182,7 +182,7 @@ type Batcher struct {
 	channels    []*batchChannel
 	lockedUTXOs []*walletrpc.UtxoLease
 
-	didPublish bool
+	publishAttempted bool
 }
 
 // NewBatcher returns a new batch channel funding helper.
@@ -427,13 +427,15 @@ func (b *Batcher) BatchFund(ctx context.Context,
 			"negotiation failed: %v", err)
 	}
 
-	// Great, we're now finally ready to publish the transaction.
+	// Once publication is attempted, an error may not tell us whether
+	// the transaction reached the network. Preserve pending channel state
+	// rather than abandoning channels that may already be funded.
+	b.publishAttempted = true
 	err = b.cfg.Wallet.PublishTransaction(finalTx, label)
 	if err != nil {
 		return nil, fmt.Errorf("error publishing final batch "+
 			"transaction: %v", err)
 	}
-	b.didPublish = true
 
 	rpcPoints := make([]*lnrpc.PendingUpdate, len(b.channels))
 	for idx, channel := range b.channels {
@@ -484,9 +486,9 @@ func (b *Batcher) waitForUpdate(channel *batchChannel, firstUpdate bool) error {
 // cleanup tries to remove any pending state or UTXO locks in case we had to
 // abort before finalizing and publishing the funding transaction.
 func (b *Batcher) cleanup(ctx context.Context) {
-	// Did we publish a transaction? Then there's nothing to clean up since
-	// we succeeded.
-	if b.didPublish {
+	// Once publication has been attempted, its outcome may be ambiguous.
+	// Keep pending channels and locked outputs for the chain watcher.
+	if b.publishAttempted {
 		return
 	}
 

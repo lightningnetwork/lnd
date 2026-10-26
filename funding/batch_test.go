@@ -271,11 +271,10 @@ func (h *testHarness) PsbtFundingFinalize(pid [32]byte, _ *psbt.Packet,
 }
 
 func (h *testHarness) PublishTransaction(*wire.MsgTx, string) error {
+	h.txPublished = true
 	if h.failPublish {
 		return errFundingFailed
 	}
-
-	h.txPublished = true
 
 	return nil
 }
@@ -330,7 +329,7 @@ func TestBatchFund(t *testing.T) {
 		}},
 		expectedErr: "final negotiation failed",
 	}, {
-		name:        "publish failure",
+		name:        "ambiguous publish failure",
 		failPublish: true,
 		channels: []*lnrpc.BatchOpenChannel{{
 			NodePubkey:         testPubKey1Bytes,
@@ -399,23 +398,12 @@ func TestBatchFund(t *testing.T) {
 			}
 
 			if tc.failPublish {
-				require.Len(t, h.releasedUTXOs, 1)
+				require.Len(t, h.releasedUTXOs, 0)
 				require.Len(t, h.intentsCreated, 2)
+				require.True(t, h.txPublished)
 
 				require.Len(t, h.intentsCanceled, 0)
-				require.Len(t, h.abandonedChannels, 2)
-				require.Contains(
-					t, h.abandonedChannels, wire.OutPoint{
-						Hash:  hash,
-						Index: 1,
-					},
-				)
-				require.Contains(
-					t, h.abandonedChannels, wire.OutPoint{
-						Hash:  hash,
-						Index: 2,
-					},
-				)
+				require.Len(t, h.abandonedChannels, 0)
 			}
 		})
 	}

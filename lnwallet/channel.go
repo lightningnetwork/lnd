@@ -8432,7 +8432,8 @@ func (lc *LightningChannel) ForceClose(opts ...ForceCloseOpt) (
 	// If we've detected local data loss for this channel, then we won't
 	// allow a force close, as it may be the case that we have a dated
 	// version of the commitment, or this is actually a channel shell.
-	if lc.channelState.HasChanStatus(channeldb.ChanStatusLocalDataLoss) {
+	if lc.channelState.HasChanStatus(channeldb.ChanStatusLocalDataLoss) ||
+		lc.channelState.HasChanStatus(channeldb.ChanStatusRestored) {
 		return nil, fmt.Errorf("%w: channel_state=%v",
 			ErrForceCloseLocalDataLoss,
 			lc.channelState.ChanStatus())

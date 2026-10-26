@@ -8442,6 +8442,25 @@ func TestForceCloseFailLocalDataLoss(t *testing.T) {
 	require.ErrorIs(t, err, ErrForceCloseLocalDataLoss)
 }
 
+// TestForceCloseRestoredChannel verifies that a channel restored from an SCB
+// cannot enter the local force-close path without a local commitment.
+func TestForceCloseRestoredChannel(t *testing.T) {
+	t.Parallel()
+
+	aliceChannel, _, err := CreateTestChannels(
+		t, channeldb.SingleFunderBit,
+	)
+	require.NoError(t, err)
+
+	err = aliceChannel.channelState.ApplyChanStatus(
+		channeldb.ChanStatusRestored,
+	)
+	require.NoError(t, err)
+
+	_, err = aliceChannel.ForceClose()
+	require.ErrorIs(t, err, ErrForceCloseLocalDataLoss)
+}
+
 // TestForceCloseBorkedState tests that once we force close a channel, it's
 // marked as borked in the database. Additionally, all calls to mutate channel
 // state should also fail.

@@ -1710,8 +1710,13 @@ var leaseOutputCommand = cli.Command{
 	The leaseoutput command locks an output, making it unavailable
 	for coin selection.
 
-	An app lock ID and expiration duration must be specified when locking
-	the output.
+	An app lock ID and either an expiration duration or --no_expiry must be
+	specified when locking the output.
+
+	A lease created with --no_expiry has no timeout. It is removed when the
+	output's spend first confirms, or when the owner releases it with
+	'lncli wallet releaseoutput'. Renewing an existing no-expiry lease with
+	--expiry keeps it without a timeout; check the returned no_expiry field.
 	`,
 	Flags: []cli.Flag{
 		cli.StringFlag{
@@ -1726,6 +1731,11 @@ var leaseOutputCommand = cli.Command{
 			Name:  "expiry",
 			Usage: "expiration duration in seconds",
 		},
+		cli.BoolFlag{
+			Name: "no_expiry",
+			Usage: "lease the output without a timeout; cannot " +
+				"be combined with --expiry",
+		},
 	},
 	Action: actionDecorator(leaseOutput),
 }
@@ -1739,30 +1749,9 @@ func leaseOutput(ctx *cli.Context) error {
 		return cli.ShowCommandHelp(ctx, "leaseoutput")
 	}
 
-	outpointStr := ctx.String("outpoint")
-	outpoint, err := lnd.NewProtoOutPoint(outpointStr)
+	req, err := parseLeaseOutputRequest(ctx)
 	if err != nil {
-		return fmt.Errorf("error parsing outpoint: %w", err)
-	}
-
-	lockIDStr := ctx.String("lockid")
-	if lockIDStr == "" {
-		return errors.New("lockid not specified")
-	}
-	lockID, err := hex.DecodeString(lockIDStr)
-	if err != nil {
-		return fmt.Errorf("error parsing lockid: %w", err)
-	}
-
-	expiry := ctx.Uint64("expiry")
-	if expiry == 0 {
-		return errors.New("expiry not specified or invalid")
-	}
-
-	req := &walletrpc.LeaseOutputRequest{
-		Outpoint:          outpoint,
-		Id:                lockID,
-		ExpirationSeconds: expiry,
+		return err
 	}
 
 	walletClient, cleanUp := getWalletClient(ctx)
@@ -1776,6 +1765,45 @@ func leaseOutput(ctx *cli.Context) error {
 	printRespJSON(response)
 
 	return nil
+}
+
+// parseLeaseOutputRequest builds a LeaseOutput request from the leaseoutput
+// flags. Exactly one of --expiry and --no_expiry selects the lease lifetime.
+func parseLeaseOutputRequest(ctx *cli.Context) (*walletrpc.LeaseOutputRequest,
+	error) {
+
+	outpointStr := ctx.String("outpoint")
+	outpoint, err := lnd.NewProtoOutPoint(outpointStr)
+	if err != nil {
+		return nil, fmt.Errorf("error parsing outpoint: %w", err)
+	}
+
+	lockIDStr := ctx.String("lockid")
+	if lockIDStr == "" {
+		return nil, errors.New("lockid not specified")
+	}
+	lockID, err := hex.DecodeString(lockIDStr)
+	if err != nil {
+		return nil, fmt.Errorf("error parsing lockid: %w", err)
+	}
+
+	expiry := ctx.Uint64("expiry")
+	noExpiry := ctx.Bool("no_expiry")
+	switch {
+	case noExpiry && expiry != 0:
+		return nil, errors.New("expiry cannot be combined with " +
+			"no_expiry")
+
+	case !noExpiry && expiry == 0:
+		return nil, errors.New("expiry not specified or invalid")
+	}
+
+	return &walletrpc.LeaseOutputRequest{
+		Outpoint:          outpoint,
+		Id:                lockID,
+		ExpirationSeconds: expiry,
+		NoExpiry:          noExpiry,
+	}, nil
 }
 
 var releaseOutputCommand = cli.Command{

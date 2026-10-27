@@ -56,6 +56,20 @@ func TestBOLT11Vectors(t *testing.T) {
 	require.NoError(t, json.Unmarshal(jsonData, &vectors))
 	require.NotEmpty(t, vectors)
 
+	// Every key in the two maps must name a vector, so a reworded
+	// description in a later resync fails here instead of silently
+	// dropping its stricter check.
+	descriptions := make(map[string]struct{}, len(vectors))
+	for _, v := range vectors {
+		descriptions[v.Description] = struct{}{}
+	}
+	for desc := range paymentLayerVectors {
+		require.Contains(t, descriptions, desc)
+	}
+	for desc := range expectedVectorErrors {
+		require.Contains(t, descriptions, desc)
+	}
+
 	for _, v := range vectors {
 		t.Run(v.Description, func(t *testing.T) {
 			t.Parallel()

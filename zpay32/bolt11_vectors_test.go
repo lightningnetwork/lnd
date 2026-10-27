@@ -32,6 +32,20 @@ var paymentLayerVectors = map[string]string{
 	"Missing required `s` field": "payment address checked by the router",
 }
 
+// expectedVectorErrors maps invalid vectors to the error Decode must return
+// for them, so a vector rejected for the wrong reason fails the test.
+var expectedVectorErrors = map[string]error{
+	"Same, but with an `n` field of invalid length":        ErrInvalidFixedFieldLength, //nolint:ll
+	"Two distinct p fields in an otherwise valid invoice":  ErrDuplicatePaymentHash,    //nolint:ll
+	"The same p field twice in an otherwise valid invoice": ErrDuplicatePaymentHash,    //nolint:ll
+	"Two distinct s fields in an otherwise valid invoice":  ErrDuplicatePaymentAddr,    //nolint:ll
+
+	// The spec's high-S vector also repeats its `s` field, so it's
+	// rejected as a duplicate before the signature is checked. The low-S
+	// check itself is covered by TestDecodeHighSWithDestination.
+	"Non canonical signature (high-S) with 'n' field defined": ErrDuplicatePaymentAddr, //nolint:ll
+}
+
 // TestBOLT11Vectors runs every invoice test vector from the spec through
 // Decode. Unknown required feature bits are rejected through the
 // WithErrorOnUnknownFeatureBit option, as by default they're left for
@@ -70,8 +84,14 @@ func TestBOLT11Vectors(t *testing.T) {
 
 			if v.Valid {
 				require.NoError(t, err)
-			} else {
-				require.Error(t, err)
+
+				return
+			}
+
+			require.Error(t, err)
+			wantErr, ok := expectedVectorErrors[v.Description]
+			if ok {
+				require.ErrorIs(t, err, wantErr)
 			}
 		})
 	}

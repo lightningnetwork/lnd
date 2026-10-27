@@ -801,6 +801,14 @@ func TestParseTaggedFields(t *testing.T) {
 		&distinctPaymentHashes, fieldTypeP, secondPaymentHash,
 	))
 
+	var distinctPaymentAddrs bytes.Buffer
+	require.NoError(t, writeBytes32(
+		&distinctPaymentAddrs, fieldTypeS, testPaymentHash,
+	))
+	require.NoError(t, writeBytes32(
+		&distinctPaymentAddrs, fieldTypeS, secondPaymentHash,
+	))
+
 	tests := []struct {
 		name    string
 		data    []byte
@@ -841,6 +849,11 @@ func TestParseTaggedFields(t *testing.T) {
 			name:    "distinct payment hashes",
 			data:    distinctPaymentHashes.Bytes(),
 			wantErr: ErrDuplicatePaymentHash,
+		},
+		{
+			name:    "distinct payment addresses",
+			data:    distinctPaymentAddrs.Bytes(),
+			wantErr: ErrDuplicatePaymentAddr,
 		},
 		{
 			name:    "only type specified",

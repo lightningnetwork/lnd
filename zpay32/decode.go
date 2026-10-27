@@ -347,8 +347,9 @@ func parseTaggedFields(invoice *Invoice, fields []byte, net *chaincfg.Params) er
 
 		case fieldTypeN:
 			if invoice.Destination != nil {
-				// We skip the field if we have already seen a
-				// supported one.
+				// BOLT 11 only requires exactly one `p` and
+				// one `s` field, so for a repeated field we
+				// keep the first one we saw.
 				continue
 			}
 
@@ -356,8 +357,9 @@ func parseTaggedFields(invoice *Invoice, fields []byte, net *chaincfg.Params) er
 
 		case fieldTypeH:
 			if invoice.DescriptionHash != nil {
-				// We skip the field if we have already seen a
-				// supported one.
+				// BOLT 11 only requires exactly one `p` and
+				// one `s` field, so for a repeated field we
+				// keep the first one we saw.
 				continue
 			}
 

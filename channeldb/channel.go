@@ -1426,20 +1426,17 @@ func (c *ChannelStateDB) AdvanceCommitChainTail(channel *OpenChannel,
 		}
 
 		// Persist the unsigned acked updates that are not included
-		// in their new commitment.
+		// in their new commitment. None are stored until we first
+		// revoke a commitment of our own, so a new channel has none,
+		// but we must still go on to persist the local updates below.
+		var unsignedUpdates []LogUpdate
 		updateBytes := chanBucket.Get(unsignedAckedUpdatesKey)
-		if updateBytes == nil {
-			// This shouldn't normally happen as we always store
-			// the number of updates, but could still be
-			// encountered by nodes that are upgrading.
-			newRemoteCommit = &newCommit.Commitment
-			return nil
-		}
-
-		r := bytes.NewReader(updateBytes)
-		unsignedUpdates, err := deserializeLogUpdates(r)
-		if err != nil {
-			return err
+		if updateBytes != nil {
+			r := bytes.NewReader(updateBytes)
+			unsignedUpdates, err = deserializeLogUpdates(r)
+			if err != nil {
+				return err
+			}
 		}
 
 		var validUpdates []LogUpdate

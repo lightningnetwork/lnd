@@ -35,15 +35,11 @@ var paymentLayerVectors = map[string]string{
 // expectedVectorErrors maps invalid vectors to the error Decode must return
 // for them, so a vector rejected for the wrong reason fails the test.
 var expectedVectorErrors = map[string]error{
-	"Same, but with an `n` field of invalid length":        ErrInvalidFixedFieldLength, //nolint:ll
-	"Two distinct p fields in an otherwise valid invoice":  ErrDuplicatePaymentHash,    //nolint:ll
-	"The same p field twice in an otherwise valid invoice": ErrDuplicatePaymentHash,    //nolint:ll
-	"Two distinct s fields in an otherwise valid invoice":  ErrDuplicatePaymentAddr,    //nolint:ll
-
-	// The spec's high-S vector also repeats its `s` field, so it's
-	// rejected as a duplicate before the signature is checked. The low-S
-	// check itself is covered by TestDecodeHighSWithDestination.
-	"Non canonical signature (high-S) with 'n' field defined": ErrDuplicatePaymentAddr, //nolint:ll
+	"Same, but with an `n` field of invalid length":           ErrInvalidFixedFieldLength, //nolint:ll
+	"Two distinct p fields in an otherwise valid invoice":     ErrDuplicatePaymentHash,    //nolint:ll
+	"The same p field twice in an otherwise valid invoice":    ErrDuplicatePaymentHash,    //nolint:ll
+	"Two distinct s fields in an otherwise valid invoice":     ErrDuplicatePaymentAddr,    //nolint:ll
+	"Non canonical signature (high-S) with 'n' field defined": ErrHighSSignature,          //nolint:ll
 }
 
 // TestBOLT11Vectors runs every invoice test vector from the spec through

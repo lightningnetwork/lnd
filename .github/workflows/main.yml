@@ -7,11 +7,17 @@ on:
   pull_request:
     branches:
       - "*"
-    # ready_for_review and converted_to_draft are added so that changing the
-    # draft state of a PR triggers a new run: draft PRs only run a fast
-    # subset of the jobs, so the run has to be replaced whenever the state
-    # changes. The concurrency group below cancels the previous one.
-    types: [opened, synchronize, reopened, ready_for_review, converted_to_draft]
+    # Draft PRs skip CI unless the author opts in through the PR checklist.
+    # The edited event starts or stops CI when that checkbox changes, while
+    # ready_for_review and converted_to_draft handle draft state changes. The
+    # concurrency group below cancels the previous run.
+    types:
+      - opened
+      - synchronize
+      - reopened
+      - edited
+      - ready_for_review
+      - converted_to_draft
   merge_group:
     branches:
       - "master"
@@ -26,7 +32,12 @@ permissions:
 
 concurrency:
   # Cancel any previous workflows if they are from a PR or push.
-  group: ${{ github.event.pull_request.number || github.ref }}
+  # Metadata-only edits to ready PRs use a separate group. This prevents an
+  # edited event that does no CI work from cancelling a running CI workflow.
+  group: >-
+    ${{ github.event.pull_request.number || github.ref }}-${{
+    github.event.action == 'edited' &&
+    github.event.pull_request.draft != true && 'metadata' || 'ci' }}
   cancel-in-progress: true
 
 defaults:
@@ -52,16 +63,54 @@ env:
 
 jobs:
   ########################
-  # CI gate: detect documentation-only changes
+  # CI gate: determine whether CI should run and detect documentation-only
+  # changes.
   ########################
   ci-gate:
     name: CI gate
     runs-on: ubuntu-latest
     outputs:
+      # Draft PRs only run CI when the author checks the opt-in box in the PR
+      # body. Push and merge_group runs always run CI.
+      run-ci: ${{ steps.run-ci.outputs.run-ci }}
       # True when the PR only touches files under docs/ or markdown files.
       # Push and merge_group runs never set this.
       docs-only: ${{ steps.docs-only.outputs.docs-only }}
     steps:
+      - name: Determine whether CI should run
+        id: run-ci
+        env:
+          EVENT_NAME: ${{ github.event_name }}
+          EVENT_ACTION: ${{ github.event.action }}
+          IS_DRAFT: ${{ github.event.pull_request.draft }}
+          PREVIOUS_BASE: ${{ github.event.changes.base.ref.from }}
+          PR_BODY: ${{ github.event.pull_request.body }}
+        run: |
+          run_ci=true
+          opt_in='- [x] Run CI while this pull request is a draft.'
+
+          if [[ "$EVENT_NAME" == "pull_request" ]]; then
+            if [[ "$IS_DRAFT" == "true" ]]; then
+              run_ci=false
+              if grep -Fqi -- "$opt_in" <<< "$PR_BODY"; then
+                run_ci=true
+                echo "::notice::Running CI at the draft PR author's request"
+              else
+                echo "::notice::CI skipped for draft PR"
+                echo "Add and check the draft CI box in the PR body to run CI." \
+                  >> "$GITHUB_STEP_SUMMARY"
+              fi
+            elif [[ "$EVENT_ACTION" == "edited" && \
+                    -z "$PREVIOUS_BASE" ]]; then
+              # Title and body edits do not change the tested revision. The
+              # edited event is only needed for draft opt-ins and base branch
+              # changes.
+              run_ci=false
+            fi
+          fi
+
+          echo "run-ci=${run_ci}" >> "$GITHUB_OUTPUT"
+
       # Anything that isn't under docs/ or a markdown file counts as code and
       # runs full CI. Renamed files are checked under both their old and new
       # name so that moving a source file into docs/ doesn't count as a
@@ -75,7 +124,9 @@ jobs:
       # report the per-leg check names that branch protection requires.
       - name: Detect documentation-only changes
         id: docs-only
-        if: github.event_name == 'pull_request'
+        if: >-
+          github.event_name == 'pull_request' &&
+          steps.run-ci.outputs.run-ci == 'true'
         env:
           GH_TOKEN: ${{ github.token }}
           PR_NUMBER: ${{ github.event.pull_request.number }}
@@ -121,7 +172,9 @@ jobs:
   static-checks:
     name: Static Checks
     needs: ci-gate
-    if: ${{ !cancelled() && needs.ci-gate.outputs.docs-only != 'true' }}
+    if: >-
+      ${{ !cancelled() && needs.ci-gate.outputs.run-ci == 'true' &&
+      needs.ci-gate.outputs.docs-only != 'true' }}
     runs-on: ubuntu-latest
     steps:
       - name: Git checkout
@@ -187,7 +240,10 @@ jobs:
   # check commits
   ########################
   check-commits:
-    if: github.event_name == 'pull_request'
+    needs: ci-gate
+    if: >-
+      ${{ needs.ci-gate.outputs.run-ci == 'true' &&
+      github.event_name == 'pull_request' }}
     name: Check commits
     runs-on: ubuntu-latest
     steps:
@@ -218,7 +274,9 @@ jobs:
   lint:
     name: Lint code
     needs: ci-gate
-    if: ${{ !cancelled() && needs.ci-gate.outputs.docs-only != 'true' }}
+    if: >-
+      ${{ !cancelled() && needs.ci-gate.outputs.run-ci == 'true' &&
+      needs.ci-gate.outputs.docs-only != 'true' }}
     runs-on: ubuntu-latest
     steps:
       - name: git checkout
@@ -250,10 +308,11 @@ jobs:
     # Run even if the gate job failed: without a status function a
     # failed dependency skips this job, and a skipped required check
     # counts as passed.
-    if: ${{ !cancelled() }}
+    if: >-
+      ${{ !cancelled() && needs.ci-gate.outputs.run-ci == 'true' }}
     env:
-      # Skipped for documentation-only changes and on draft PRs.
-      SKIP: ${{ needs.ci-gate.outputs.docs-only == 'true' || github.event.pull_request.draft == true }}
+      # Skipped for documentation-only changes.
+      SKIP: ${{ needs.ci-gate.outputs.docs-only == 'true' }}
     name: Cross compilation
     runs-on: ubuntu-latest
     strategy:
@@ -270,7 +329,7 @@ jobs:
     steps:
       - name: Skip notice
         if: env.SKIP == 'true'
-        run: echo "::notice::Job auto-passed (documentation-only change or draft PR)"
+        run: echo "::notice::Job auto-passed (documentation-only change)"
 
       - name: Git checkout
         if: env.SKIP != 'true'
@@ -300,10 +359,11 @@ jobs:
     # Run even if the gate job failed: without a status function a
     # failed dependency skips this job, and a skipped required check
     # counts as passed.
-    if: ${{ !cancelled() }}
+    if: >-
+      ${{ !cancelled() && needs.ci-gate.outputs.run-ci == 'true' }}
     env:
-      # Skipped for documentation-only changes; on draft PRs only the race legs are skipped.
-      SKIP: ${{ needs.ci-gate.outputs.docs-only == 'true' || (github.event.pull_request.draft == true && startsWith(matrix.unit_type, 'unit-race')) }}
+      # Skipped for documentation-only changes.
+      SKIP: ${{ needs.ci-gate.outputs.docs-only == 'true' }}
     name: Run unit tests
     runs-on: ubuntu-latest
     strategy:
@@ -325,7 +385,7 @@ jobs:
     steps:
       - name: Skip notice
         if: env.SKIP == 'true'
-        run: echo "::notice::Job auto-passed (documentation-only change or draft PR)"
+        run: echo "::notice::Job auto-passed (documentation-only change)"
 
       - name: Git checkout
         if: env.SKIP != 'true'
@@ -386,13 +446,13 @@ jobs:
   # run integration tests with TRANCHES
   ########################
   basic-integration-test:
-    # Required check and part of the fast subset that runs on draft PRs. Kept
-    # instantiated for documentation-only changes so the per-leg checks are
-    # reported; the steps are skipped instead. Runs even if the gate job
-    # failed: without a status function a failed dependency skips this job,
-    # and a skipped required check counts as passed.
+    # Required check. Kept instantiated for documentation-only changes so the
+    # per-leg checks are reported; the steps are skipped instead. Runs even if
+    # the gate job failed: without a status function a failed dependency skips
+    # this job, and a skipped required check counts as passed.
     needs: ci-gate
-    if: ${{ !cancelled() }}
+    if: >-
+      ${{ !cancelled() && needs.ci-gate.outputs.run-ci == 'true' }}
     env:
       SKIP: ${{ needs.ci-gate.outputs.docs-only == 'true' }}
     name: Run basic itests
@@ -480,10 +540,11 @@ jobs:
   ########################
   integration-test:
     name: Run itests
-    # Not a required check, so it can be skipped at the job level. Draft PRs
-    # only run the fast subset (see the unit-test and basic itest jobs).
+    # Not a required check, so it can be skipped at the job level.
     needs: ci-gate
-    if: ${{ !cancelled() && needs.ci-gate.outputs.docs-only != 'true' && github.event.pull_request.draft != true }}
+    if: >-
+      ${{ !cancelled() && needs.ci-gate.outputs.run-ci == 'true' &&
+      needs.ci-gate.outputs.docs-only != 'true' }}
     runs-on: ubuntu-latest
     strategy:
       # Allow other tests in the matrix to continue if one fails.
@@ -575,10 +636,11 @@ jobs:
   ########################
   windows-integration-test:
     name: Run windows itest
-    # Not a required check, so it can be skipped at the job level. Draft PRs
-    # only run the fast subset (see the unit-test and basic itest jobs).
+    # Not a required check, so it can be skipped at the job level.
     needs: ci-gate
-    if: ${{ !cancelled() && needs.ci-gate.outputs.docs-only != 'true' && github.event.pull_request.draft != true }}
+    if: >-
+      ${{ !cancelled() && needs.ci-gate.outputs.run-ci == 'true' &&
+      needs.ci-gate.outputs.docs-only != 'true' }}
     runs-on: windows-latest
     steps:
       - name: Git checkout
@@ -631,10 +693,11 @@ jobs:
   ########################
   macos-integration-test:
     name: Run macOS itest
-    # Not a required check, so it can be skipped at the job level. Draft PRs
-    # only run the fast subset (see the unit-test and basic itest jobs).
+    # Not a required check, so it can be skipped at the job level.
     needs: ci-gate
-    if: ${{ !cancelled() && needs.ci-gate.outputs.docs-only != 'true' && github.event.pull_request.draft != true }}
+    if: >-
+      ${{ !cancelled() && needs.ci-gate.outputs.run-ci == 'true' &&
+      needs.ci-gate.outputs.docs-only != 'true' }}
     runs-on: macos-14
     steps:
       - name: Git checkout
@@ -685,7 +748,8 @@ jobs:
     # Run even if the gate job failed: without a status function a
     # failed dependency skips this job, and a skipped required check
     # counts as passed.
-    if: ${{ !cancelled() }}
+    if: >-
+      ${{ !cancelled() && needs.ci-gate.outputs.run-ci == 'true' }}
     env:
       # Skipped for documentation-only changes.
       SKIP: ${{ needs.ci-gate.outputs.docs-only == 'true' }}
@@ -721,6 +785,8 @@ jobs:
   ########################
   milestone-check:
     name: Check release notes updated
+    needs: ci-gate
+    if: ${{ needs.ci-gate.outputs.run-ci == 'true' }}
     runs-on: ubuntu-latest
     steps:
       - name: Git checkout
@@ -751,6 +817,8 @@ jobs:
   ########################
   release-notes-consistency:
     name: Check release notes consistency
+    needs: ci-gate
+    if: ${{ needs.ci-gate.outputs.run-ci == 'true' }}
     runs-on: ubuntu-latest
     steps:
       - name: Git checkout
@@ -770,10 +838,11 @@ jobs:
   ########################
   backwards-compatibility-test:
     name: Backwards compatibility test
-    # Not a required check, so it can be skipped at the job level. Draft PRs
-    # only run the fast subset (see the unit-test and basic itest jobs).
+    # Not a required check, so it can be skipped at the job level.
     needs: ci-gate
-    if: ${{ !cancelled() && needs.ci-gate.outputs.docs-only != 'true' && github.event.pull_request.draft != true }}
+    if: >-
+      ${{ !cancelled() && needs.ci-gate.outputs.run-ci == 'true' &&
+      needs.ci-gate.outputs.docs-only != 'true' }}
     runs-on: ubuntu-latest
     steps:
       - name: Git checkout
@@ -798,11 +867,14 @@ jobs:
   #########################################
   auto-cleanup-cache:
     name: Cache Cleanup
+    needs: ci-gate
     runs-on: ubuntu-latest
 
     # This condition checks for pull requests from authors with write access.
     if: >-
-      contains('OWNER, MEMBER, COLLABORATOR', github.event.pull_request.author_association)
+      needs.ci-gate.outputs.run-ci == 'true' &&
+      contains('OWNER, MEMBER, COLLABORATOR',
+      github.event.pull_request.author_association)
 
     steps:
       - name: Checkout repository
@@ -836,7 +908,9 @@ jobs:
   # Notify about the completion of all coverage collecting jobs.
   finish:
     name: Send coverage report
-    if: ${{ !cancelled() && needs.ci-gate.outputs.docs-only != 'true' }}
+    if: >-
+      ${{ !cancelled() && needs.ci-gate.outputs.run-ci == 'true' &&
+      needs.ci-gate.outputs.docs-only != 'true' }}
     needs: [ci-gate, unit-test, basic-integration-test]
     runs-on: ubuntu-latest
     timeout-minutes: 5

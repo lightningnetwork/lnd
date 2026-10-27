@@ -1404,8 +1404,16 @@ func (c *chainWatcher) finalizeCoopClose(aux AuxChanCloser,
 		}
 	}
 
+	// The fee of the close transaction is what the channel capacity
+	// doesn't pay out.
+	closeFee := chanState.Capacity
+	for _, out := range closeTx.TxOut {
+		closeFee -= btcutil.Amount(out.Value)
+	}
+
 	desc := types.AuxCloseDesc{
 		AuxShutdownReq:    req,
+		CloseFee:          closeFee,
 		LocalCloseOutput:  localCloseOutput,
 		RemoteCloseOutput: remoteCloseOutput,
 	}

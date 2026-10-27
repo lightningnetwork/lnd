@@ -57,12 +57,12 @@ type clusterGroup map[int32][]SweeperInput
 
 // ClusterInputs creates a list of input sets from pending inputs.
 // 1. filter out inputs whose budget cannot cover min relay fee.
-// 2. filter a list of exclusive inputs.
+// 2. filter a list of inputs that must be swept separately.
 // 3. group the inputs into clusters based on their deadline height.
 // 4. sort the inputs in each cluster by their budget.
 // 5. optionally split a cluster if it exceeds the max input limit.
 // 6. create input sets from each of the clusters.
-// 7. create input sets for each of the exclusive inputs.
+// 7. create an input set for each input that must be swept separately.
 func (b *BudgetAggregator) ClusterInputs(inputs InputsMap) []InputSet {
 	// Filter out inputs that have a budget below min relay fee.
 	filteredInputs := b.filterInputs(inputs)
@@ -70,11 +70,10 @@ func (b *BudgetAggregator) ClusterInputs(inputs InputsMap) []InputSet {
 	// Create clusters to group inputs based on their deadline height.
 	clusters := make(clusterGroup, len(filteredInputs))
 
-	// exclusiveInputs is a set of inputs that are not to be included in
-	// any cluster. These inputs can only be swept independently as there's
-	// no guarantee which input will be confirmed first, which means
-	// grouping exclusive inputs may jeopardize non-exclusive inputs.
-	exclusiveInputs := make(map[wire.OutPoint]clusterGroup)
+	// separateInputs is a set of inputs that are not to be included in any
+	// cluster. An input is swept separately either because it belongs to an
+	// exclusive group, or because its own policy disables input batching.
+	separateInputs := make(map[wire.OutPoint]clusterGroup)
 
 	// Iterate all the inputs and group them based on their specified
 	// deadline heights.
@@ -83,10 +82,13 @@ func (b *BudgetAggregator) ClusterInputs(inputs InputsMap) []InputSet {
 		// height if it's not set.
 		height := input.DeadlineHeight
 
-		// Put exclusive inputs in their own set.
-		if input.params.ExclusiveGroup != nil {
-			log.Tracef("Input %v is exclusive", input.OutPoint())
-			exclusiveInputs[input.OutPoint()] = clusterGroup{
+		// Put exclusive and non-batchable inputs in their own sets.
+		if input.params.ExclusiveGroup != nil ||
+			input.params.NoInputBatch {
+
+			log.Tracef("Input %v is swept separately",
+				input.OutPoint())
+			separateInputs[input.OutPoint()] = clusterGroup{
 				height: []SweeperInput{*input},
 			}
 
@@ -121,8 +123,8 @@ func (b *BudgetAggregator) ClusterInputs(inputs InputsMap) []InputSet {
 		}
 	}
 
-	// Create input sets from the exclusive inputs.
-	for _, cluster := range exclusiveInputs {
+	// Create input sets from inputs that must be swept separately.
+	for _, cluster := range separateInputs {
 		for height, input := range cluster {
 			sets := b.createInputSets(input, height)
 			inputSets = append(inputSets, sets...)

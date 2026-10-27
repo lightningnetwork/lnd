@@ -44,10 +44,17 @@ var (
 
 // Params contains the parameters that control the sweeping process.
 type Params struct {
-	// ExclusiveGroup is an identifier that, if set, ensures this input is
-	// swept in a transaction by itself, and not batched with any other
-	// inputs.
+	// ExclusiveGroup identifies mutually exclusive inputs. Each member is
+	// swept in a transaction by itself. Spending one member excludes all
+	// other members from the sweeper. Use NoInputBatch when an independent
+	// input only needs transaction isolation.
 	ExclusiveGroup *uint64
+
+	// NoInputBatch prevents this input from being batched with other sweep
+	// inputs. Wallet inputs may still be added to fund the sweep. Unlike an
+	// exclusive group, this does not create a relationship with any other
+	// input, so spending it never excludes another input.
+	NoInputBatch bool
 
 	// DeadlineHeight specifies an absolute block height that this input
 	// should be confirmed by. This value is used by the fee bumper to
@@ -81,8 +88,9 @@ func (p Params) String() string {
 	}
 
 	return fmt.Sprintf("startingFeeRate=%v, immediate=%v, "+
-		"exclusive_group=%v, budget=%v, deadline=%v", p.StartingFeeRate,
-		p.Immediate, exclusiveGroup, p.Budget, deadline)
+		"exclusive_group=%v, no_input_batch=%v, budget=%v, "+
+		"deadline=%v", p.StartingFeeRate, p.Immediate, exclusiveGroup,
+		p.NoInputBatch, p.Budget, deadline)
 }
 
 // SweepState represents the current state of a pending input.
@@ -1114,7 +1122,8 @@ func (s *UtxoSweeper) handlePendingSweepsReq(
 // UtxoSweeper. This function can be used to provide an updated fee preference
 // and force flag that will be used for a new sweep transaction of the input
 // that will act as a replacement transaction (RBF) of the original sweeping
-// transaction, if any. The exclusive group is left unchanged.
+// transaction, if any. The input grouping policy (`ExclusiveGroup` and
+// `NoInputBatch`) is left unchanged.
 //
 // NOTE: This currently doesn't do any fee rate validation to ensure that a bump
 // is actually successful. The responsibility of doing so should be handled by
@@ -1165,14 +1174,16 @@ func (s *UtxoSweeper) handleUpdateReq(req *updateReq) (
 		return nil, lnwallet.ErrNotMine
 	}
 
-	// Create the updated parameters struct. Leave the exclusive group
-	// unchanged.
+	// Create the updated parameters struct. Leave the input grouping policy
+	// unchanged. Group membership and batching isolation are properties of
+	// the input, not fee-bump preferences.
 	newParams := Params{
 		StartingFeeRate: req.params.StartingFeeRate,
 		Immediate:       req.params.Immediate,
 		Budget:          req.params.Budget,
 		DeadlineHeight:  req.params.DeadlineHeight,
 		ExclusiveGroup:  sweeperInput.params.ExclusiveGroup,
+		NoInputBatch:    sweeperInput.params.NoInputBatch,
 	}
 
 	log.Debugf("Updating parameters for %v(state=%v) from (%v) to (%v)",

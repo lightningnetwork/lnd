@@ -34,6 +34,11 @@ type OnionMessageUpdate struct {
 	// first leg up to the introduction point.
 	EncryptedRecipientData []byte
 
+	// PathID is the path_id in the recipient data of the final hop. It is
+	// set only for a delivered message that arrived on a blinded path whose
+	// creator set one. Only the creator of the path can check it.
+	PathID []byte
+
 	// Delivered is true when this node is the final hop of the message.
 	// For a forwarded message, CustomRecords and ReplyPath come from the
 	// payload of this hop, and BOLT 4 tells a forwarding node to ignore

@@ -3,6 +3,7 @@ package btcwallet
 import (
 	"encoding/binary"
 	"fmt"
+	"math"
 	"testing"
 	"time"
 
@@ -169,6 +170,98 @@ func BenchmarkPostgresListAccounts(b *testing.B) {
 				for range b.N {
 					_, err := bw.ListAccounts("", &scope)
 					require.NoError(b, err)
+				}
+			},
+		)
+
+		require.NoError(b, backend.Close())
+		cleanup()
+	}
+}
+
+// oldWalletBalance replicates the pre-single-pass WalletBalance work: it scans
+// the unspent outputs twice per account (once for the total, once for the
+// confirmed balance). ConfirmedBalance scans the full unspent set on every
+// call regardless of the account filter, so this reproduces the 2*accounts
+// scans the old loop performed.
+func oldWalletBalance(b *testing.B, bw *BtcWallet, numAccounts int) {
+	b.Helper()
+
+	for range numAccounts {
+		_, err := bw.ConfirmedBalance(0, "")
+		require.NoError(b, err)
+
+		_, err = bw.ConfirmedBalance(1, "")
+		require.NoError(b, err)
+	}
+}
+
+// newWalletBalance performs the single-pass equivalent: one listing of the
+// unspent outputs, bucketed by account.
+func newWalletBalance(b *testing.B, bw *BtcWallet) {
+	b.Helper()
+
+	utxos, err := bw.ListUnspentWitness(0, math.MaxInt32, "")
+	require.NoError(b, err)
+
+	balances := make(map[string]int64)
+	for _, utxo := range utxos {
+		balances[utxo.Account] += int64(utxo.Value)
+	}
+}
+
+// BenchmarkPostgresWalletBalance measures how computing wallet balances scales
+// with the number of accounts. Before the single-pass change the balance was
+// computed by scanning the unspent outputs twice per account, so the work grew
+// with the account count; the single pass lists the unspent outputs once and
+// buckets them by account, so its cost is independent of the account count.
+func BenchmarkPostgresWalletBalance(b *testing.B) {
+	if !kvdb.PostgresBackend {
+		b.Skip("requires the kvdb_postgres build tag")
+	}
+
+	stop, err := kvdb.StartEmbeddedPostgres()
+	require.NoError(b, err)
+	b.Cleanup(func() {
+		require.NoError(b, stop())
+	})
+
+	// Fix the unspent-output count and vary the number of accounts, the
+	// factor the old per-account scanning grew with.
+	const numUTXOs = 1_000
+
+	for _, numAccounts := range []int{1, 4, 16} {
+		backend, cleanup, err := kvdb.GetTestBackend(
+			b.TempDir(), "wallet",
+		)
+		require.NoError(b, err)
+
+		w := benchWallet(b, backend)
+		injectCredits(b, w, numUTXOs)
+
+		bw := &BtcWallet{
+			wallet: w,
+			cfg: &Config{
+				NetParams: &chaincfg.RegressionNetParams,
+				CoinType: chaincfg.RegressionNetParams.
+					HDCoinType,
+			},
+		}
+
+		b.Run(fmt.Sprintf("accounts=%d/old_perAccount", numAccounts),
+			func(b *testing.B) {
+				b.ReportAllocs()
+				for range b.N {
+					oldWalletBalance(b, bw, numAccounts)
+				}
+			},
+		)
+
+		b.Run(fmt.Sprintf("accounts=%d/new_singlePass", numAccounts),
+			func(b *testing.B) {
+				b.ReportAllocs()
+				for range b.N {
+					newWalletBalance(b, bw)
 				}
 			},
 		)

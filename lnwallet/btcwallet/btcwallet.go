@@ -1312,6 +1312,7 @@ func (b *BtcWallet) ListUnspentWitness(minConfs, maxConfs int32,
 					Index: output.Vout,
 				},
 				Confirmations: output.Confirmations,
+				Account:       output.Account,
 			}
 			witnessOutputs = append(witnessOutputs, utxo)
 		}

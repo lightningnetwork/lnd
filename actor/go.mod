@@ -5,7 +5,7 @@ go 1.26.10
 require (
 	github.com/btcsuite/btclog/v2 v2.0.1-0.20250602222548-9967d19bb084
 	github.com/lightningnetwork/lnd/fn/v2 v2.0.8
-	github.com/lightningnetwork/lnd/queue v1.1.1
+	github.com/lightningnetwork/lnd/queue v1.2.1
 	github.com/stretchr/testify v1.8.1
 	pgregory.net/rapid v1.2.0
 )

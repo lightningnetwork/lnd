@@ -18,91 +18,96 @@ const _ = grpc.SupportPackageIsVersion7
 //
 // For semantics around ctx use and closing/ending streaming RPCs, please refer to https://pkg.go.dev/google.golang.org/grpc/?tab=doc#ClientConn.NewStream.
 type SwitchClient interface {
-	// SendOnion provides an idempotent API for dispatching a pre-formed onion
-	// packet, which is the primary entry point for a remote router.
 	//
-	// To safely handle network failures, a client can and should retry this RPC
-	// after a timeout or disconnection. Retries MUST use the exact same
-	// attempt_id to allow the server to correctly detect duplicate requests.
+	//SendOnion provides an idempotent API for dispatching a pre-formed onion
+	//packet, which is the primary entry point for a remote router.
 	//
-	// A client interacting with this RPC must handle four distinct categories
-	// of outcomes, determined by the gRPC status code:
+	//To safely handle network failures, a client can and should retry this RPC
+	//after a timeout or disconnection. Retries MUST use the exact same
+	//attempt_id to allow the server to correctly detect duplicate requests.
 	//
-	// 1. SUCCESS (gRPC code OK): A definitive confirmation that the HTLC has
-	// been successfully dispatched. The client can proceed to track the
-	// payment's final result via the TrackOnion RPC.
+	//A client interacting with this RPC must handle four distinct categories
+	//of outcomes, determined by the gRPC status code:
 	//
-	// 2. DUPLICATE ACKNOWLEDGMENT (gRPC code AlreadyExists): A definitive
-	// acknowledgment that a request with the same attempt_id has already
-	// been successfully processed. A retrying client should interpret this
-	// as a success and proceed to tracking the payment's result.
+	//1. SUCCESS (gRPC code OK): A definitive confirmation that the HTLC has
+	//been successfully dispatched. The client can proceed to track the
+	//payment's final result via the TrackOnion RPC.
 	//
-	// 3. INDEFINITE FAILURE (gRPC code Unavailable or DeadlineExceeded): The
-	// state of the HTLC dispatch is unknown. The client MUST retry the exact
-	// same request to resolve the ambiguity. A client MUST NOT treat this as
-	// a definitive failure and move on to a new attempt ID; doing so risks a
-	// duplicate in-flight HTLC.
+	//2. DUPLICATE ACKNOWLEDGMENT (gRPC code AlreadyExists): A definitive
+	//acknowledgment that a request with the same attempt_id has already
+	//been successfully processed. A retrying client should interpret this
+	//as a success and proceed to tracking the payment's result.
 	//
-	// 4. DEFINITIVE FAILURE (gRPC code FailedPrecondition, InvalidArgument,
-	// etc.): The HTLC was not and will not be dispatched. The client should
-	// fail the attempt and may retry with a new route and/or attempt_id.
+	//3. INDEFINITE FAILURE (gRPC code Unavailable or DeadlineExceeded): The
+	//state of the HTLC dispatch is unknown. The client MUST retry the exact
+	//same request to resolve the ambiguity. A client MUST NOT treat this as
+	//a definitive failure and move on to a new attempt ID; doing so risks a
+	//duplicate in-flight HTLC.
 	//
-	// In the case of a FailedPrecondition or Unavailable failure, the gRPC
-	// error may include a SendOnionFailureDetails message with additional
-	// context for logging and pathfinding.
+	//4. DEFINITIVE FAILURE (gRPC code FailedPrecondition, InvalidArgument,
+	//etc.): The HTLC was not and will not be dispatched. The client should
+	//fail the attempt and may retry with a new route and/or attempt_id.
+	//
+	//In the case of a FailedPrecondition or Unavailable failure, the gRPC
+	//error may include a SendOnionFailureDetails message with additional
+	//context for logging and pathfinding.
 	SendOnion(ctx context.Context, in *SendOnionRequest, opts ...grpc.CallOption) (*SendOnionResponse, error)
-	// TrackOnion allows callers to query whether or not a payment dispatched via
-	// SendOnion succeeded or failed.
 	//
-	// This RPC is designed to be called after a successful dispatch has been
-	// explicitly confirmed via the SendOnion RPC. It should not be used to
-	// determine whether an HTLC dispatch was received in an ambiguous network
-	// scenario. That ambiguity must be resolved by retrying the idempotent
-	// SendOnion RPC until a definitive acknowledgement is received from the Switch
-	// RPC server.
+	//TrackOnion allows callers to query whether or not a payment dispatched via
+	//SendOnion succeeded or failed.
 	//
-	// Once dispatch is confirmed, TrackOnion provides the mechanism to wait for
-	// the result of the in-flight HTLC. A client must handle three distinct
-	// categories of outcomes:
+	//This RPC is designed to be called after a successful dispatch has been
+	//explicitly confirmed via the SendOnion RPC. It should not be used to
+	//determine whether an HTLC dispatch was received in an ambiguous network
+	//scenario. That ambiguity must be resolved by retrying the idempotent
+	//SendOnion RPC until a definitive acknowledgement is received from the Switch
+	//RPC server.
 	//
-	// 1. PAYMENT SUCCESS (gRPC code OK, preimage set): The payment settled
-	// successfully. The response contains the payment preimage.
+	//Once dispatch is confirmed, TrackOnion provides the mechanism to wait for
+	//the result of the in-flight HTLC. A client must handle three distinct
+	//categories of outcomes:
 	//
-	// 2. PAYMENT FAILURE (gRPC code OK, failure_details set): The payment failed
-	// at the application level. The failure_details oneof describes the specific
-	// failure type: a ForwardingFailure from a remote hop, a LocalFailure
-	// from the local node, an UnreadableFailure if the error could not be
-	// decoded, or a SwitchError for other switch-level failures. When
-	// encrypted_error_data is populated, the client may perform its own
-	// decryption.
+	//1. PAYMENT SUCCESS (gRPC code OK, preimage set): The payment settled
+	//successfully. The response contains the payment preimage.
 	//
-	// 3. QUERY FAILURE (gRPC error status): The query itself could not be
-	// completed. NotFound indicates the payment ID is unknown. Unavailable
-	// signals the switch is shutting down. Canceled or DeadlineExceeded
-	// reflects client-side timeouts. These are safe to retry.
+	//2. PAYMENT FAILURE (gRPC code OK, failure_details set): The payment failed
+	//at the application level. The failure_details oneof describes the specific
+	//failure type: a ForwardingFailure from a remote hop, a LocalFailure
+	//from the local node, an UnreadableFailure if the error could not be
+	//decoded, or a SwitchError for other switch-level failures. When
+	//encrypted_error_data is populated, the client may perform its own
+	//decryption.
+	//
+	//3. QUERY FAILURE (gRPC error status): The query itself could not be
+	//completed. NotFound indicates the payment ID is unknown. Unavailable
+	//signals the switch is shutting down. Canceled or DeadlineExceeded
+	//reflects client-side timeouts. These are safe to retry.
 	TrackOnion(ctx context.Context, in *TrackOnionRequest, opts ...grpc.CallOption) (*TrackOnionResponse, error)
-	// BuildOnion attempts to build an onion packet for the specified route.
+	//
+	//BuildOnion attempts to build an onion packet for the specified route.
 	BuildOnion(ctx context.Context, in *BuildOnionRequest, opts ...grpc.CallOption) (*BuildOnionResponse, error)
-	// DeleteAttempts removes terminal (settled or failed) payment attempt records
-	// from the server's attempt store. The client explicitly names the attempt
-	// IDs to delete, enabling online garbage collection of completed attempt
-	// data.
 	//
-	// The server processes each attempt ID independently and reports per-ID
-	// results. Pending (in-flight) attempts are never deleted; they are reported
-	// with a DELETION_PENDING status. Unknown attempt IDs are reported with
-	// DELETION_NOT_FOUND. Unprocessable records are reported with
-	// DELETION_FAILED. The overall RPC succeeds (gRPC OK) as long as the
-	// request could be processed, even if individual attempts were not deleted.
+	//DeleteAttempts removes terminal (settled or failed) payment attempt records
+	//from the server's attempt store. The client explicitly names the attempt
+	//IDs to delete, enabling online garbage collection of completed attempt
+	//data.
 	//
-	// Clients MUST only delete attempts whose outcome (settled or failed) has
-	// been durably recorded and will never need to be retried. Deleting an
-	// attempt removes the server's idempotency protection for that attempt ID.
+	//The server processes each attempt ID independently and reports per-ID
+	//results. Pending (in-flight) attempts are never deleted; they are reported
+	//with a DELETION_PENDING status. Unknown attempt IDs are reported with
+	//DELETION_NOT_FOUND. Unprocessable records are reported with
+	//DELETION_FAILED. The overall RPC succeeds (gRPC OK) as long as the
+	//request could be processed, even if individual attempts were not deleted.
+	//
+	//Clients MUST only delete attempts whose outcome (settled or failed) has
+	//been durably recorded and will never need to be retried. Deleting an
+	//attempt removes the server's idempotency protection for that attempt ID.
 	DeleteAttempts(ctx context.Context, in *DeleteAttemptsRequest, opts ...grpc.CallOption) (*DeleteAttemptsResponse, error)
-	// DisableRemoteRouter marks the database as no longer being used by a remote
-	// router. This is useful for migrating from a remote router setup back to the
-	// default embedded router. This RPC will fail if there are any attempt entries
-	// remaining in the network result store.
+	//
+	//DisableRemoteRouter marks the database as no longer being used by a remote
+	//router. This is useful for migrating from a remote router setup back to the
+	//default embedded router. This RPC will fail if there are any attempt entries
+	//remaining in the network result store.
 	DisableRemoteRouter(ctx context.Context, in *DisableRemoteRouterRequest, opts ...grpc.CallOption) (*DisableRemoteRouterResponse, error)
 }
 
@@ -163,91 +168,96 @@ func (c *switchClient) DisableRemoteRouter(ctx context.Context, in *DisableRemot
 // All implementations must embed UnimplementedSwitchServer
 // for forward compatibility
 type SwitchServer interface {
-	// SendOnion provides an idempotent API for dispatching a pre-formed onion
-	// packet, which is the primary entry point for a remote router.
 	//
-	// To safely handle network failures, a client can and should retry this RPC
-	// after a timeout or disconnection. Retries MUST use the exact same
-	// attempt_id to allow the server to correctly detect duplicate requests.
+	//SendOnion provides an idempotent API for dispatching a pre-formed onion
+	//packet, which is the primary entry point for a remote router.
 	//
-	// A client interacting with this RPC must handle four distinct categories
-	// of outcomes, determined by the gRPC status code:
+	//To safely handle network failures, a client can and should retry this RPC
+	//after a timeout or disconnection. Retries MUST use the exact same
+	//attempt_id to allow the server to correctly detect duplicate requests.
 	//
-	// 1. SUCCESS (gRPC code OK): A definitive confirmation that the HTLC has
-	// been successfully dispatched. The client can proceed to track the
-	// payment's final result via the TrackOnion RPC.
+	//A client interacting with this RPC must handle four distinct categories
+	//of outcomes, determined by the gRPC status code:
 	//
-	// 2. DUPLICATE ACKNOWLEDGMENT (gRPC code AlreadyExists): A definitive
-	// acknowledgment that a request with the same attempt_id has already
-	// been successfully processed. A retrying client should interpret this
-	// as a success and proceed to tracking the payment's result.
+	//1. SUCCESS (gRPC code OK): A definitive confirmation that the HTLC has
+	//been successfully dispatched. The client can proceed to track the
+	//payment's final result via the TrackOnion RPC.
 	//
-	// 3. INDEFINITE FAILURE (gRPC code Unavailable or DeadlineExceeded): The
-	// state of the HTLC dispatch is unknown. The client MUST retry the exact
-	// same request to resolve the ambiguity. A client MUST NOT treat this as
-	// a definitive failure and move on to a new attempt ID; doing so risks a
-	// duplicate in-flight HTLC.
+	//2. DUPLICATE ACKNOWLEDGMENT (gRPC code AlreadyExists): A definitive
+	//acknowledgment that a request with the same attempt_id has already
+	//been successfully processed. A retrying client should interpret this
+	//as a success and proceed to tracking the payment's result.
 	//
-	// 4. DEFINITIVE FAILURE (gRPC code FailedPrecondition, InvalidArgument,
-	// etc.): The HTLC was not and will not be dispatched. The client should
-	// fail the attempt and may retry with a new route and/or attempt_id.
+	//3. INDEFINITE FAILURE (gRPC code Unavailable or DeadlineExceeded): The
+	//state of the HTLC dispatch is unknown. The client MUST retry the exact
+	//same request to resolve the ambiguity. A client MUST NOT treat this as
+	//a definitive failure and move on to a new attempt ID; doing so risks a
+	//duplicate in-flight HTLC.
 	//
-	// In the case of a FailedPrecondition or Unavailable failure, the gRPC
-	// error may include a SendOnionFailureDetails message with additional
-	// context for logging and pathfinding.
+	//4. DEFINITIVE FAILURE (gRPC code FailedPrecondition, InvalidArgument,
+	//etc.): The HTLC was not and will not be dispatched. The client should
+	//fail the attempt and may retry with a new route and/or attempt_id.
+	//
+	//In the case of a FailedPrecondition or Unavailable failure, the gRPC
+	//error may include a SendOnionFailureDetails message with additional
+	//context for logging and pathfinding.
 	SendOnion(context.Context, *SendOnionRequest) (*SendOnionResponse, error)
-	// TrackOnion allows callers to query whether or not a payment dispatched via
-	// SendOnion succeeded or failed.
 	//
-	// This RPC is designed to be called after a successful dispatch has been
-	// explicitly confirmed via the SendOnion RPC. It should not be used to
-	// determine whether an HTLC dispatch was received in an ambiguous network
-	// scenario. That ambiguity must be resolved by retrying the idempotent
-	// SendOnion RPC until a definitive acknowledgement is received from the Switch
-	// RPC server.
+	//TrackOnion allows callers to query whether or not a payment dispatched via
+	//SendOnion succeeded or failed.
 	//
-	// Once dispatch is confirmed, TrackOnion provides the mechanism to wait for
-	// the result of the in-flight HTLC. A client must handle three distinct
-	// categories of outcomes:
+	//This RPC is designed to be called after a successful dispatch has been
+	//explicitly confirmed via the SendOnion RPC. It should not be used to
+	//determine whether an HTLC dispatch was received in an ambiguous network
+	//scenario. That ambiguity must be resolved by retrying the idempotent
+	//SendOnion RPC until a definitive acknowledgement is received from the Switch
+	//RPC server.
 	//
-	// 1. PAYMENT SUCCESS (gRPC code OK, preimage set): The payment settled
-	// successfully. The response contains the payment preimage.
+	//Once dispatch is confirmed, TrackOnion provides the mechanism to wait for
+	//the result of the in-flight HTLC. A client must handle three distinct
+	//categories of outcomes:
 	//
-	// 2. PAYMENT FAILURE (gRPC code OK, failure_details set): The payment failed
-	// at the application level. The failure_details oneof describes the specific
-	// failure type: a ForwardingFailure from a remote hop, a LocalFailure
-	// from the local node, an UnreadableFailure if the error could not be
-	// decoded, or a SwitchError for other switch-level failures. When
-	// encrypted_error_data is populated, the client may perform its own
-	// decryption.
+	//1. PAYMENT SUCCESS (gRPC code OK, preimage set): The payment settled
+	//successfully. The response contains the payment preimage.
 	//
-	// 3. QUERY FAILURE (gRPC error status): The query itself could not be
-	// completed. NotFound indicates the payment ID is unknown. Unavailable
-	// signals the switch is shutting down. Canceled or DeadlineExceeded
-	// reflects client-side timeouts. These are safe to retry.
+	//2. PAYMENT FAILURE (gRPC code OK, failure_details set): The payment failed
+	//at the application level. The failure_details oneof describes the specific
+	//failure type: a ForwardingFailure from a remote hop, a LocalFailure
+	//from the local node, an UnreadableFailure if the error could not be
+	//decoded, or a SwitchError for other switch-level failures. When
+	//encrypted_error_data is populated, the client may perform its own
+	//decryption.
+	//
+	//3. QUERY FAILURE (gRPC error status): The query itself could not be
+	//completed. NotFound indicates the payment ID is unknown. Unavailable
+	//signals the switch is shutting down. Canceled or DeadlineExceeded
+	//reflects client-side timeouts. These are safe to retry.
 	TrackOnion(context.Context, *TrackOnionRequest) (*TrackOnionResponse, error)
-	// BuildOnion attempts to build an onion packet for the specified route.
+	//
+	//BuildOnion attempts to build an onion packet for the specified route.
 	BuildOnion(context.Context, *BuildOnionRequest) (*BuildOnionResponse, error)
-	// DeleteAttempts removes terminal (settled or failed) payment attempt records
-	// from the server's attempt store. The client explicitly names the attempt
-	// IDs to delete, enabling online garbage collection of completed attempt
-	// data.
 	//
-	// The server processes each attempt ID independently and reports per-ID
-	// results. Pending (in-flight) attempts are never deleted; they are reported
-	// with a DELETION_PENDING status. Unknown attempt IDs are reported with
-	// DELETION_NOT_FOUND. Unprocessable records are reported with
-	// DELETION_FAILED. The overall RPC succeeds (gRPC OK) as long as the
-	// request could be processed, even if individual attempts were not deleted.
+	//DeleteAttempts removes terminal (settled or failed) payment attempt records
+	//from the server's attempt store. The client explicitly names the attempt
+	//IDs to delete, enabling online garbage collection of completed attempt
+	//data.
 	//
-	// Clients MUST only delete attempts whose outcome (settled or failed) has
-	// been durably recorded and will never need to be retried. Deleting an
-	// attempt removes the server's idempotency protection for that attempt ID.
+	//The server processes each attempt ID independently and reports per-ID
+	//results. Pending (in-flight) attempts are never deleted; they are reported
+	//with a DELETION_PENDING status. Unknown attempt IDs are reported with
+	//DELETION_NOT_FOUND. Unprocessable records are reported with
+	//DELETION_FAILED. The overall RPC succeeds (gRPC OK) as long as the
+	//request could be processed, even if individual attempts were not deleted.
+	//
+	//Clients MUST only delete attempts whose outcome (settled or failed) has
+	//been durably recorded and will never need to be retried. Deleting an
+	//attempt removes the server's idempotency protection for that attempt ID.
 	DeleteAttempts(context.Context, *DeleteAttemptsRequest) (*DeleteAttemptsResponse, error)
-	// DisableRemoteRouter marks the database as no longer being used by a remote
-	// router. This is useful for migrating from a remote router setup back to the
-	// default embedded router. This RPC will fail if there are any attempt entries
-	// remaining in the network result store.
+	//
+	//DisableRemoteRouter marks the database as no longer being used by a remote
+	//router. This is useful for migrating from a remote router setup back to the
+	//default embedded router. This RPC will fail if there are any attempt entries
+	//remaining in the network result store.
 	DisableRemoteRouter(context.Context, *DisableRemoteRouterRequest) (*DisableRemoteRouterResponse, error)
 	mustEmbedUnimplementedSwitchServer()
 }

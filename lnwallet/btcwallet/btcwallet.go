@@ -59,6 +59,13 @@ const (
 )
 
 var (
+	// waddrmgrNamespaceKey is the top-level bucket key under which the
+	// address manager (waddrmgr) stores its state. It mirrors the
+	// unexported key used by the btcwallet wallet package and lets us open
+	// the address manager namespace directly for cheap, balance-free
+	// account enumeration.
+	waddrmgrNamespaceKey = []byte("waddrmgr")
+
 	// lightningAddrSchema is the scope addr schema for all keys that we
 	// derive. We'll treat them all as p2wkh addresses, as atm we must
 	// specify a particular type.
@@ -655,37 +662,68 @@ func (b *BtcWallet) ListAccounts(name string,
 	// Only the key scope filter was provided, so we'll return all accounts
 	// matching it.
 	case name == "" && keyScope != nil:
-		accounts, err := b.wallet.Accounts(*keyScope)
+		props, err := b.accountProperties(*keyScope)
 		if err != nil {
 			return nil, err
 		}
-		for _, account := range accounts.Accounts {
-			res = append(res, &account.AccountProperties)
-		}
+		res = append(res, props...)
 
 	// Neither of the filters were provided, so return all accounts for our
 	// supported key scopes.
 	case name == "" && keyScope == nil:
 		for _, defaultScope := range LndDefaultKeyScopes {
-			accounts, err := b.wallet.Accounts(defaultScope)
+			props, err := b.accountProperties(defaultScope)
 			if err != nil {
 				return nil, err
 			}
-			for _, account := range accounts.Accounts {
-				res = append(res, &account.AccountProperties)
-			}
+			res = append(res, props...)
 		}
 
-		accounts, err := b.wallet.Accounts(waddrmgr.KeyScope{
+		props, err := b.accountProperties(waddrmgr.KeyScope{
 			Purpose: keychain.BIP0043Purpose,
 			Coin:    b.cfg.CoinType,
 		})
 		if err != nil {
 			return nil, err
 		}
-		for _, account := range accounts.Accounts {
-			res = append(res, &account.AccountProperties)
-		}
+		res = append(res, props...)
+	}
+
+	return res, nil
+}
+
+// accountProperties enumerates all accounts within the given key scope and
+// returns their properties without computing any balances. Unlike
+// base.Wallet.Accounts, it does not scan the set of unspent outputs or map
+// each output back to an account, so it issues only the handful of queries
+// needed to read the stored account metadata. This matters on remote SQL
+// wallet backends, where a full UTXO scan per key scope would otherwise
+// dominate the call.
+func (b *BtcWallet) accountProperties(
+	scope waddrmgr.KeyScope) ([]*waddrmgr.AccountProperties, error) {
+
+	manager, err := b.wallet.AddrManager().FetchScopedKeyManager(scope)
+	if err != nil {
+		return nil, err
+	}
+
+	var res []*waddrmgr.AccountProperties
+	db := b.wallet.Database()
+	err = walletdb.View(db, func(tx walletdb.ReadTx) error {
+		ns := tx.ReadBucket(waddrmgrNamespaceKey)
+
+		return manager.ForEachAccount(ns, func(account uint32) error {
+			props, err := manager.AccountProperties(ns, account)
+			if err != nil {
+				return err
+			}
+			res = append(res, props)
+
+			return nil
+		})
+	})
+	if err != nil {
+		return nil, err
 	}
 
 	return res, nil

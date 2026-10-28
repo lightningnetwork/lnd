@@ -35,6 +35,13 @@ type ActorConfig[M Message, R any] struct {
 	// MailboxFactory is an optional factory for creating the actor's
 	// mailbox. If nil, a default ChannelMailbox will be used.
 	MailboxFactory MailboxFactory[M, R]
+
+	// MailboxOverflowLimit is the hard cap on the default mailbox's
+	// overflow queue, which absorbs sends made from inside a receive turn
+	// when the mailbox is full. A send that would exceed it fails with
+	// ErrMailboxOverflow. Zero selects DefaultMailboxOverflowLimit. It has
+	// no effect when MailboxFactory is set.
+	MailboxOverflowLimit int
 }
 
 // envelope wraps a message with its associated promise. This allows the sender
@@ -117,7 +124,11 @@ func NewActor[M Message, R any](cfg ActorConfig[M, R]) (*Actor[M, R],
 	if cfg.MailboxFactory != nil {
 		mailbox = cfg.MailboxFactory(ctx, mailboxCapacity)
 	} else {
-		mailbox = NewChannelMailbox[M, R](ctx, mailboxCapacity)
+		mailbox = NewChannelMailbox[M, R](
+			ctx, mailboxCapacity,
+			WithMailboxID(cfg.ID),
+			WithOverflowLimit(cfg.MailboxOverflowLimit),
+		)
 	}
 
 	actor := &Actor[M, R]{
@@ -152,7 +163,11 @@ func (a *Actor[M, R]) Start() {
 func (a *Actor[M, R]) process() {
 	// Use the new iterator pattern for receiving messages.
 	for env := range a.mailbox.Receive(a.ctx) {
-		result := a.behavior.Receive(a.ctx, env.message)
+		// Mark the context as this actor's receive turn, so sends the
+		// behavior makes with it never park on a full mailbox.
+		turnCtx, endTurn := beginTurn(a.ctx, a.id)
+		result := a.behavior.Receive(turnCtx, env.message)
+		endTurn()
 
 		// If a promise was provided (i.e., it was an "ask"
 		// operation), complete the promise with the result from
@@ -210,6 +225,24 @@ func (ref *actorRefImpl[M, R]) Tell(ctx context.Context, msg M) {
 
 	env := envelope[M, R]{message: msg, promise: nil}
 
+	// A send made from inside a receive turn must not park the sending
+	// actor, so it takes the mailbox's non-blocking in-turn path.
+	if sender, ok := ref.inTurnSender(ctx); ok {
+		if err := sender.SendInTurn(env); err != nil {
+			if ref.actor.ctx.Err() != nil {
+				ref.trySendToDLO(msg)
+				return
+			}
+
+			// Tell has no way to report the failure, so make it
+			// loud. A sender that needs the signal can use TryTell.
+			log.Errorf("Actor %s: in-turn Tell of %s dropped: %v",
+				ref.actor.id, msg.MessageType(), err)
+		}
+
+		return
+	}
+
 	// Use mailbox Send method which internally checks both contexts.
 	if !ref.actor.mailbox.Send(ctx, env) {
 		// Failed to send - check if actor terminated.
@@ -249,6 +282,19 @@ func (ref *actorRefImpl[M, R]) Ask(ctx context.Context, msg M) Future[R] {
 
 	env := envelope[M, R]{message: msg, promise: promise}
 
+	// As with Tell, a send from inside a receive turn never parks.
+	if sender, ok := ref.inTurnSender(ctx); ok {
+		if err := sender.SendInTurn(env); err != nil {
+			if ref.actor.ctx.Err() != nil {
+				err = ErrActorTerminated
+			}
+
+			promise.Complete(fn.Err[R](err))
+		}
+
+		return promise.Future()
+	}
+
 	// Use mailbox Send method which internally checks both contexts.
 	if !ref.actor.mailbox.Send(ctx, env) {
 		// Determine the error based on what failed.
@@ -267,6 +313,20 @@ func (ref *actorRefImpl[M, R]) Ask(ctx context.Context, msg M) Future[R] {
 	// Return the future associated with the promise, allowing the caller to
 	// await the response.
 	return promise.Future()
+}
+
+// inTurnSender returns the mailbox's non-blocking send path if ctx belongs to
+// an active receive turn and the mailbox supports one.
+func (ref *actorRefImpl[M, R]) inTurnSender(
+	ctx context.Context) (inTurnSender[M, R], bool) {
+
+	if _, ok := activeTurn(ctx); !ok {
+		return nil, false
+	}
+
+	sender, ok := ref.actor.mailbox.(inTurnSender[M, R])
+
+	return sender, ok
 }
 
 // TryTell enqueues a message only if the mailbox can take it immediately,

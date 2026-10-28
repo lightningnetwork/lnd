@@ -623,6 +623,17 @@ func (l *LightningWallet) ListUnspentWitnessFromDefaultAccount(
 	)
 }
 
+// InternalAddressType returns the address type that should be used for the
+// addresses the wallet generates to pay itself, such as change, sweep and
+// cooperative close outputs. If no type was configured, P2TR is used.
+func (l *LightningWallet) InternalAddressType() AddressType {
+	if l.Cfg.InternalAddressType == UnknownAddressType {
+		return TaprootPubkey
+	}
+
+	return l.Cfg.InternalAddressType
+}
+
 // LockedOutpoints returns a list of all currently locked outpoint.
 func (l *LightningWallet) LockedOutpoints() []*wire.OutPoint {
 	outPoints := make([]*wire.OutPoint, 0, len(l.lockedOutPoints))
@@ -951,6 +962,10 @@ func (l *LightningWallet) handleFundingReserveRequest(req *InitFundingReserveMsg
 				input.P2WSHSize,
 			),
 			CoinSelectionStrategy: l.Cfg.CoinSelectionStrategy,
+			ChangeAddressType:     chanfunding.P2TRChangeAddress,
+		}
+		if l.InternalAddressType() == WitnessPubKey {
+			cfg.ChangeAddressType = chanfunding.P2WKHChangeAddress
 		}
 		req.ChanFunder = chanfunding.NewWalletAssembler(cfg)
 	} else {
@@ -1025,7 +1040,8 @@ func (l *LightningWallet) handleFundingReserveRequest(req *InitFundingReserveMsg
 			FeeRate:      req.FundingFeePerKw,
 			ChangeAddr: func() (address.Address, error) {
 				return l.NewAddress(
-					TaprootPubkey, true, DefaultAccountName,
+					l.InternalAddressType(), true,
+					DefaultAccountName,
 				)
 			},
 			Musig2: req.CommitType.IsTaproot(),

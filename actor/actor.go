@@ -85,6 +85,11 @@ type Actor[M Message, R any] struct {
 
 	// ref is the cached ActorRef for this actor.
 	ref ActorRef[M, R]
+
+	// done is closed once the actor's processing goroutine has exited, or
+	// when Stop is called on an actor that was never started. After it is
+	// closed no Receive is running or will run.
+	done chan struct{}
 }
 
 // NewActor creates a new actor instance with the given ID and behavior.
@@ -138,6 +143,7 @@ func NewActor[M Message, R any](cfg ActorConfig[M, R]) (*Actor[M, R],
 		ctx:      ctx,
 		cancel:   cancel,
 		dlo:      cfg.DLO,
+		done:     make(chan struct{}),
 	}
 
 	// Create and cache the actor's own reference.
@@ -161,6 +167,9 @@ func (a *Actor[M, R]) Start() {
 // process is the main event loop for the actor. It continuously monitors its
 // mailbox for incoming messages and its context for cancellation signals.
 func (a *Actor[M, R]) process() {
+	// Signal the join only once the loop and the drain below are finished.
+	defer close(a.done)
+
 	// Use the new iterator pattern for receiving messages.
 	for env := range a.mailbox.Receive(a.ctx) {
 		// Mark the context as this actor's receive turn, so sends the
@@ -203,7 +212,41 @@ func (a *Actor[M, R]) Stop() {
 		log.Infof("Actor %s: stopping", a.id)
 
 		a.cancel()
+
+		// An actor that was never started has no goroutine to join,
+		// and can no longer be started, so release its waiters here.
+		a.startOnce.Do(func() {
+			close(a.done)
+		})
 	})
+}
+
+// Done returns a channel that is closed once the actor has fully stopped: its
+// processing goroutine has exited, so no Receive is running and none will
+// run again, and every message left in its mailbox has been drained to the
+// DLO or failed. It is closed only after Stop, or a closed mailbox, ends the
+// loop.
+func (a *Actor[M, R]) Done() <-chan struct{} {
+	return a.done
+}
+
+// StopAndWait stops the actor and blocks until it has fully stopped or ctx is
+// done. A nil error is a join: the behavior's last Receive has returned and
+// no other will start, so the owner may close resources the behavior uses.
+// If ctx expires first, the error is ctx's and nothing is implied about
+// whether a Receive is still running. A Receive blocked on something other
+// than the context it was passed keeps the actor from stopping, so behaviors
+// must watch that context.
+func (a *Actor[M, R]) StopAndWait(ctx context.Context) error {
+	a.Stop()
+
+	select {
+	case <-a.done:
+		return nil
+
+	case <-ctx.Done():
+		return ctx.Err()
+	}
 }
 
 // actorRefImpl provides a concrete implementation of the ActorRef interface. It

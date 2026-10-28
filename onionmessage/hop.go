@@ -31,12 +31,16 @@ type forwardAction struct {
 }
 
 // deliverAction contains the information needed to deliver the payload to any
-// subscribers. Since we only support forwarding onion messages, this is only
-// needed in itest to verify correct handling and behavior.
+// subscribers.
 type deliverAction struct {
 	// payload contains the decoded payload for this hop, which may include
 	// custom records and routing information.
 	payload *lnwire.OnionMessagePayload
+
+	// pathID is the path_id in the recipient data of this hop. The creator
+	// of the blinded path sets it, so it is set only when the message
+	// arrived on a path that has one.
+	pathID []byte
 }
 
 type routingAction = fn.Either[forwardAction, deliverAction]
@@ -162,8 +166,14 @@ func createRoutingAction(ctx context.Context, resolver NodeIDResolver,
 		}), nil
 	}
 
+	var pathID []byte
+	routeData.PathID.WhenSome(func(r tlv.RecordT[tlv.TlvType6, []byte]) {
+		pathID = r.Val
+	})
+
 	return fn.NewRight[forwardAction](deliverAction{
 		payload: payload,
+		pathID:  pathID,
 	}), nil
 }
 

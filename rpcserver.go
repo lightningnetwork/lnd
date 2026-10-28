@@ -5699,6 +5699,7 @@ func (r *rpcServer) SubscribeChannelEvents(req *lnrpc.ChannelEventSubscription,
 			if errors.Is(updateStream.Context().Err(), context.Canceled) {
 				return nil
 			}
+
 			return updateStream.Context().Err()
 
 		case <-r.quit:
@@ -6137,6 +6138,7 @@ func (r *rpcServer) SubscribeInvoices(req *lnrpc.InvoiceSubscription,
 			if errors.Is(updateStream.Context().Err(), context.Canceled) {
 				return nil
 			}
+
 			return updateStream.Context().Err()
 
 		case <-r.quit:
@@ -6180,6 +6182,7 @@ func (r *rpcServer) SubscribeTransactions(req *lnrpc.GetTransactionsRequest,
 			if errors.Is(updateStream.Context().Err(), context.Canceled) {
 				return nil
 			}
+
 			return updateStream.Context().Err()
 
 		case <-r.quit:
@@ -6884,6 +6887,7 @@ func (r *rpcServer) SubscribeChannelGraph(req *lnrpc.GraphTopologySubscription,
 			if errors.Is(updateStream.Context().Err(), context.Canceled) {
 				return nil
 			}
+
 			return updateStream.Context().Err()
 
 		// The server is quitting, so we'll exit immediately. Returning
@@ -8143,6 +8147,7 @@ func (r *rpcServer) SubscribeChannelBackups(req *lnrpc.ChannelBackupSubscription
 			if errors.Is(updateStream.Context().Err(), context.Canceled) {
 				return nil
 			}
+
 			return updateStream.Context().Err()
 
 		case <-r.quit:

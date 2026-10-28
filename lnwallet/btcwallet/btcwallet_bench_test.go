@@ -270,3 +270,97 @@ func BenchmarkPostgresWalletBalance(b *testing.B) {
 		cleanup()
 	}
 }
+
+// oldWalletBalanceFull replicates the full pre-change WalletBalance work: the
+// old account enumeration (one base.Wallet.Accounts scan per key scope) plus
+// the old per-account balance computation (two ConfirmedBalance scans per
+// account).
+func oldWalletBalanceFull(b *testing.B, w *base.Wallet, bw *BtcWallet,
+	numAccounts int) {
+
+	b.Helper()
+
+	for i := range LndDefaultKeyScopes {
+		_, err := w.Accounts(LndDefaultKeyScopes[i])
+		require.NoError(b, err)
+	}
+
+	oldWalletBalance(b, bw, numAccounts)
+}
+
+// newWalletBalanceFull performs the single-pass equivalent: metadata-only
+// account enumeration plus one unspent-output listing bucketed by account.
+func newWalletBalanceFull(b *testing.B, bw *BtcWallet) {
+	b.Helper()
+
+	for i := range LndDefaultKeyScopes {
+		_, err := bw.ListAccounts("", &LndDefaultKeyScopes[i])
+		require.NoError(b, err)
+	}
+
+	newWalletBalance(b, bw)
+}
+
+// BenchmarkPostgresWalletBalanceCombined measures the full WalletBalance path
+// end to end -- account enumeration plus balance computation -- as the account
+// count grows, combining both wallet-side changes. The old path scans the
+// unspent set once per key scope to list accounts and twice per account for the
+// balances; the new path reads account metadata without a scan and lists the
+// unspent outputs a single time. It walks lnd's three default key scopes (the
+// real call also touches a custom scope, so this slightly understates the old
+// cost).
+func BenchmarkPostgresWalletBalanceCombined(b *testing.B) {
+	if !kvdb.PostgresBackend {
+		b.Skip("requires the kvdb_postgres build tag")
+	}
+
+	stop, err := kvdb.StartEmbeddedPostgres()
+	require.NoError(b, err)
+	b.Cleanup(func() {
+		require.NoError(b, stop())
+	})
+
+	const numUTXOs = 1_000
+
+	for _, numAccounts := range []int{1, 4, 16} {
+		backend, cleanup, err := kvdb.GetTestBackend(
+			b.TempDir(), "wallet",
+		)
+		require.NoError(b, err)
+
+		w := benchWallet(b, backend)
+		injectCredits(b, w, numUTXOs)
+
+		bw := &BtcWallet{
+			wallet: w,
+			cfg: &Config{
+				NetParams: &chaincfg.RegressionNetParams,
+				CoinType: chaincfg.RegressionNetParams.
+					HDCoinType,
+			},
+		}
+
+		b.Run(fmt.Sprintf("accounts=%d/old_full", numAccounts),
+			func(b *testing.B) {
+				b.ReportAllocs()
+				for range b.N {
+					oldWalletBalanceFull(
+						b, w, bw, numAccounts,
+					)
+				}
+			},
+		)
+
+		b.Run(fmt.Sprintf("accounts=%d/new_full", numAccounts),
+			func(b *testing.B) {
+				b.ReportAllocs()
+				for range b.N {
+					newWalletBalanceFull(b, bw)
+				}
+			},
+		)
+
+		require.NoError(b, backend.Close())
+		cleanup()
+	}
+}

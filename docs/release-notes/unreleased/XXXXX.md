@@ -16,3 +16,12 @@
   twice per account. On remote SQL (PostgreSQL) wallet backends this removes
   database round trips proportional to the number of accounts.
   ([#XXXXX](https://github.com/lightningnetwork/lnd/pull/XXXXX))
+
+* `channeldb`: counting the public anchor channels the wallet keeps a reserve
+  for (computed inside `WalletBalance` for the reserved-anchor balance, and
+  when checking the reserved value during channel opens) now reads only each
+  channel's info record instead of fully deserializing its commitments and
+  revocation state. On remote SQL (PostgreSQL) backends this cuts the
+  per-channel reads the count performs, for both the open and the
+  pending-close channels it visits.
+  ([#XXXXX](https://github.com/lightningnetwork/lnd/pull/XXXXX))

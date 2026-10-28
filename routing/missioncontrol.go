@@ -615,6 +615,23 @@ func (m *MissionControl) GetFeeLevel(node route.Vertex) uint64 {
 	return min(level, m.interpretCfg.FeeLevelMax)
 }
 
+// GetFeeLevels returns a copy of the fee levels of all nodes, decayed to the
+// current time and capped at the fee level max.
+func (m *MissionControl) GetFeeLevels() map[route.Vertex]FeeLevel {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+
+	levels := m.state.getFeeLevels(
+		m.cfg.clock.Now(), m.interpretCfg.FeeLevelDecay,
+	)
+	for node, level := range levels {
+		level.FeeRate = min(level.FeeRate, m.interpretCfg.FeeLevelMax)
+		levels[node] = level
+	}
+
+	return levels
+}
+
 // GetHistorySnapshot takes a snapshot from the current mission control state
 // and actual probability estimates.
 func (m *MissionControl) GetHistorySnapshot() *MissionControlSnapshot {

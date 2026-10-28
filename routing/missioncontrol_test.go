@@ -2,6 +2,7 @@ package routing
 
 import (
 	"os"
+	"sync"
 	"testing"
 	"time"
 
@@ -308,6 +309,57 @@ func TestMissionControlFeeLevelReplay(t *testing.T) {
 	require.EqualValues(t, 100, ctx.mc.GetFeeLevel(mcTestNode2))
 }
 
+// TestMissionControlGetFeeLevels tests that GetFeeLevels returns a decayed
+// copy, which is safe to read while results come in.
+func TestMissionControlGetFeeLevels(t *testing.T) {
+	ctx := createMcTestContext(t)
+	ctx.clock.setTime(testTime)
+
+	ctx.reportFailure(1000, lnwire.NewTemporaryChannelFailure(nil))
+
+	// After one half-life the copy holds the decayed value and the time of
+	// the last delta.
+	ctx.clock.setTime(testTime.Add(feeLevelDecay))
+	levels := ctx.mc.GetFeeLevels()
+	require.EqualValues(t, 50, levels[mcTestNode2].FeeRate)
+	require.Equal(t, testTime, levels[mcTestNode2].LastUpdate.UTC())
+
+	// A change to the copy does not change mission control.
+	delete(levels, mcTestNode2)
+	require.EqualValues(t, 50, ctx.mc.GetFeeLevel(mcTestNode2))
+
+	// Read the fee levels while results come in. The race detector reports
+	// a shared map.
+	var wg sync.WaitGroup
+	wg.Add(1)
+	go func() {
+		defer wg.Done()
+
+		for range 100 {
+			for range ctx.mc.GetFeeLevels() {
+			}
+		}
+	}()
+	for range 100 {
+		ctx.reportFailure(1000, lnwire.NewTemporaryChannelFailure(nil))
+	}
+	wg.Wait()
+}
+
+// TestMissionControlFeeLevelPrune tests that a processed result removes the fee
+// levels that have decayed to zero.
+func TestMissionControlFeeLevelPrune(t *testing.T) {
+	ctx := createMcTestContext(t)
+	ctx.clock.setTime(testTime)
+
+	ctx.reportFailure(1000, lnwire.NewTemporaryChannelFailure(nil))
+	require.NotEmpty(t, ctx.mc.GetFeeLevels())
+
+	ctx.clock.setTime(testTime.Add(30 * feeLevelDecay))
+	ctx.reportSuccess()
+	require.Empty(t, ctx.mc.GetFeeLevels())
+}
+
 // TestMissionControlFeeLevelSetConfig tests that a decay change at run time
 // applies to the fee levels, and that SetConfig does not change its argument.
 func TestMissionControlFeeLevelSetConfig(t *testing.T) {
@@ -374,6 +426,7 @@ func TestMissionControlFeeLevelMax(t *testing.T) {
 	cfg.InterpretCfg.FeeLevelMax = 40
 	require.NoError(t, ctx.mc.SetConfig(cfg))
 	require.EqualValues(t, 40, ctx.mc.GetFeeLevel(mcTestNode2))
+	require.EqualValues(t, 40, ctx.mc.GetFeeLevels()[mcTestNode2].FeeRate)
 }
 
 // TestMissionControlChannelUpdate tests that the first channel update is not

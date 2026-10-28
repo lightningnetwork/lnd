@@ -89,6 +89,22 @@ func (f *missionControlState) getFeeLevel(now time.Time, node route.Vertex,
 	return feeLevel.decayed(now, halfLife)
 }
 
+// getFeeLevels returns a copy of the fee levels of all nodes. Each fee rate is
+// decayed to now, and LastUpdate stays the time of the last delta.
+func (f *missionControlState) getFeeLevels(now time.Time,
+	halfLife time.Duration) map[route.Vertex]FeeLevel {
+
+	levels := make(map[route.Vertex]FeeLevel, len(f.feeLevels))
+	for node, level := range f.feeLevels {
+		levels[node] = FeeLevel{
+			FeeRate:    f.getFeeLevel(now, node, halfLife),
+			LastUpdate: level.LastUpdate,
+		}
+	}
+
+	return levels
+}
+
 // ResetHistory resets the history of missionControlState returning it to a
 // state as if no payment attempts have been made.
 func (m *missionControlState) resetHistory() {

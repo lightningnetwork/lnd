@@ -1431,6 +1431,51 @@ func (c *ChannelStateDB) countOpenPublicAnchorChannels() (int, error) {
 	return count, nil
 }
 
+// deserializeClosePending reads only the channel point and pending-close marker
+// from a serialized close summary, skipping its expensive trailing fields.
+func deserializeClosePending(v []byte) (wire.OutPoint, bool, error) {
+	return chanstate.DeserializeCloseSummaryPending(bytes.NewReader(v))
+}
+
+// fetchPendingCloseChanPoints returns the channel points of the pending-close
+// channels -- the pending-only subset FetchClosedChannels(true) returns -- but
+// reads only the leading fields of each closed-channel summary rather than
+// deserializing it in full. On a node with many closed channels this skips the
+// summary's revocation state, channel config, and last-sync-message decoding,
+// which dominate the cost of scanning the closed bucket.
+func (c *ChannelStateDB) fetchPendingCloseChanPoints() ([]wire.OutPoint,
+	error) {
+
+	var chanPoints []wire.OutPoint
+
+	err := kvdb.View(c.backend, func(tx kvdb.RTx) error {
+		closeBucket := tx.ReadBucket(closedChannelBucket)
+		if closeBucket == nil {
+			return ErrNoClosedChannels
+		}
+
+		return closeBucket.ForEach(func(_, v []byte) error {
+			chanPoint, isPending, err := deserializeClosePending(v)
+			if err != nil {
+				return err
+			}
+
+			if isPending {
+				chanPoints = append(chanPoints, chanPoint)
+			}
+
+			return nil
+		})
+	}, func() {
+		chanPoints = nil
+	})
+	if err != nil {
+		return nil, err
+	}
+
+	return chanPoints, nil
+}
+
 // CountPublicAnchorChannels returns the number of public anchor channels that
 // are open, pending open, waiting close, or pending close. It mirrors the set
 // that FetchAllChannels plus the pending-close historical lookup return, but
@@ -1443,9 +1488,10 @@ func (c *ChannelStateDB) CountPublicAnchorChannels() (int, error) {
 		return 0, err
 	}
 
-	// Pending-close channels live in the historical bucket, so include
-	// them the same way the full count would.
-	pendingClose, err := c.FetchClosedChannels(true)
+	// Pending-close channels live in the historical bucket. Enumerate just
+	// their channel points with a light scan that skips the expensive
+	// close-summary fields, then read each one's info record below.
+	pendingClose, err := c.fetchPendingCloseChanPoints()
 	if err != nil {
 		return 0, err
 	}
@@ -1462,17 +1508,16 @@ func (c *ChannelStateDB) CountPublicAnchorChannels() (int, error) {
 	// there rather than add onto the open-channel total again.
 	var pendingCloseCount int
 	err = kvdb.View(c.backend, func(tx kvdb.RTx) error {
-		for _, summary := range pendingClose {
+		for _, chanPoint := range pendingClose {
 			chanBucket, err := fetchHistoricalChanBucket(
-				tx, &summary.ChanPoint,
+				tx, &chanPoint,
 			)
 			if err != nil {
 				// Not every channel is guaranteed to be in the
 				// historical bucket, so skip the ones we can't
 				// read, as CurrentNumAnchorChans did.
 				log.Warnf("Unable to fetch historical "+
-					"channel %v: %v", summary.ChanPoint,
-					err)
+					"channel %v: %v", chanPoint, err)
 
 				continue
 			}
@@ -1480,8 +1525,7 @@ func (c *ChannelStateDB) CountPublicAnchorChannels() (int, error) {
 			isAnchor, err := chanInfoIsPublicAnchor(chanBucket)
 			if err != nil {
 				log.Warnf("Unable to read historical "+
-					"channel %v: %v", summary.ChanPoint,
-					err)
+					"channel %v: %v", chanPoint, err)
 
 				continue
 			}

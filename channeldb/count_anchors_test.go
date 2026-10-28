@@ -6,6 +6,7 @@ import (
 	"testing"
 
 	"github.com/btcsuite/btcd/btcutil/v2"
+	"github.com/btcsuite/btcd/wire/v2"
 	"github.com/lightningnetwork/lnd/fn/v2"
 	"github.com/lightningnetwork/lnd/kvdb"
 	"github.com/lightningnetwork/lnd/lnwire"
@@ -148,6 +149,42 @@ func TestCountPublicAnchorChannels(t *testing.T) {
 	)
 }
 
+// TestFetchPendingCloseChanPoints verifies that the light scan returns exactly
+// the pending-close channel points that the full FetchClosedChannels(true)
+// returns, and excludes fully-closed channels.
+func TestFetchPendingCloseChanPoints(t *testing.T) {
+	fullDB, err := MakeTestDB(t)
+	require.NoError(t, err, "unable to make test database")
+
+	cdb := fullDB.ChannelStateDB()
+
+	// Three pending-close channels (IsPending), and two fully-closed ones
+	// that must be excluded.
+	for range 3 {
+		makeCountAnchorChannel(t, cdb, true, true, true)
+	}
+	for range 2 {
+		createTestChannel(
+			t, cdb, openChannelOption(), closedChannelOption(),
+		)
+	}
+
+	got, err := cdb.fetchPendingCloseChanPoints()
+	require.NoError(t, err)
+
+	// The oracle: the channel points of FetchClosedChannels(true).
+	pending, err := cdb.FetchClosedChannels(true)
+	require.NoError(t, err)
+
+	want := make([]wire.OutPoint, 0, len(pending))
+	for _, summary := range pending {
+		want = append(want, summary.ChanPoint)
+	}
+
+	require.Len(t, got, 3)
+	require.ElementsMatch(t, want, got)
+}
+
 // BenchmarkPostgresCountPublicAnchorChannels measures how counting the public
 // anchor channels scales with the number of channels. The old path fully
 // deserialized every channel (commitments and revocation state included); the
@@ -192,6 +229,62 @@ func BenchmarkPostgresCountPublicAnchorChannels(b *testing.B) {
 				count := cdb.CountPublicAnchorChannels
 				for range b.N {
 					_, err := count()
+					require.NoError(b, err)
+				}
+			},
+		)
+
+		require.NoError(b, fullDB.Close())
+		cleanup()
+	}
+}
+
+// BenchmarkPostgresPendingCloseScan measures scanning the closed-channel bucket
+// to find the pending-close channels as the number of closed channels grows.
+// The old path (FetchClosedChannels) fully deserializes every close summary --
+// including its channel config and last-sync message -- while the new light
+// scan reads only each summary's leading fields (channel point and pending
+// marker), so it avoids the bulk of the per-summary decode work.
+func BenchmarkPostgresPendingCloseScan(b *testing.B) {
+	if !kvdb.PostgresBackend {
+		b.Skip("requires the kvdb_postgres build tag")
+	}
+
+	for _, numClosed := range []int{100, 1000} {
+		backend, cleanup, err := kvdb.GetTestBackend(b.TempDir(), "cdb")
+		require.NoError(b, err)
+
+		fullDB, err := CreateWithBackend(backend)
+		require.NoError(b, err)
+
+		cdb := fullDB.ChannelStateDB()
+
+		// Fill the closed bucket with fully-closed channels; both paths
+		// still have to scan every one of them to find pending-close
+		// channels, so this is the cost the light scan trims.
+		for range numClosed {
+			createTestChannel(
+				b, cdb, openChannelOption(),
+				closedChannelOption(),
+			)
+		}
+
+		b.Run(fmt.Sprintf("closed=%d/old_fullScan", numClosed),
+			func(b *testing.B) {
+				b.ReportAllocs()
+				for range b.N {
+					_, err := cdb.FetchClosedChannels(true)
+					require.NoError(b, err)
+				}
+			},
+		)
+
+		b.Run(fmt.Sprintf("closed=%d/new_lightScan", numClosed),
+			func(b *testing.B) {
+				b.ReportAllocs()
+				scan := cdb.fetchPendingCloseChanPoints
+				for range b.N {
+					_, err := scan()
 					require.NoError(b, err)
 				}
 			},

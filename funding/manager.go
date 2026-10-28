@@ -5614,13 +5614,15 @@ func (f *Manager) deleteChannelOpeningState(chanPoint *wire.OutPoint) error {
 }
 
 // selectShutdownScript selects the shutdown script we should send to the peer.
-// If we can use taproot, then we prefer that, otherwise we'll use a p2wkh
-// script.
+// If we can use taproot and the wallet is configured to use taproot addresses
+// for its own outputs, then we prefer that, otherwise we'll use a p2wkh script.
 func (f *Manager) selectShutdownScript(taprootOK bool,
 ) (lnwire.DeliveryAddress, error) {
 
 	addrType := lnwallet.WitnessPubKey
-	if taprootOK {
+	if taprootOK &&
+		f.cfg.Wallet.InternalAddressType() == lnwallet.TaprootPubkey {
+
 		addrType = lnwallet.TaprootPubkey
 	}
 

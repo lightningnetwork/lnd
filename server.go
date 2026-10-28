@@ -5678,15 +5678,15 @@ func (s *server) SendToPeer(pubKey [33]byte,
 
 // newSweepPkScriptGen creates closure that generates a new public key script
 // which should be used to sweep any funds into the on-chain wallet.
-// Specifically, the script generated is a version 0, pay-to-witness-pubkey-hash
-// (p2wkh) output.
+// The type of the generated script is the wallet's internal address type, which
+// is a version 1, pay-to-taproot (p2tr) output by default.
 func newSweepPkScriptGen(
-	wallet lnwallet.WalletController,
+	wallet *lnwallet.LightningWallet,
 	netParams *chaincfg.Params) func() fn.Result[lnwallet.AddrWithKey] {
 
 	return func() fn.Result[lnwallet.AddrWithKey] {
 		sweepAddr, err := wallet.NewAddress(
-			lnwallet.TaprootPubkey, false,
+			wallet.InternalAddressType(), false,
 			lnwallet.DefaultAccountName,
 		)
 		if err != nil {

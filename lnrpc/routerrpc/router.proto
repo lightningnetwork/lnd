@@ -482,6 +482,9 @@ message QueryMissionControlResponse {
 
     // Node pair-level mission control state.
     repeated PairHistory pairs = 2;
+
+    // Per node fee levels.
+    repeated FeeLevel fee_levels = 3;
 }
 
 message XImportMissionControlRequest {
@@ -536,6 +539,18 @@ message PairData {
 
     // Highest amount that we could successfully forward in millisats.
     int64 success_amt_msat = 7;
+}
+
+message FeeLevel {
+    // The node for the fee level.
+    bytes node = 1;
+
+    // The node's fee level in parts per million, decayed to the time of the
+    // query.
+    uint64 fee_level = 2;
+
+    // The Unix time in seconds of the last fee level change for the node.
+    int64 last_update = 3;
 }
 
 message GetMissionControlConfigRequest {

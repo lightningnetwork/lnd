@@ -1505,6 +1505,26 @@
       ],
       "default": "UNKNOWN"
     },
+    "routerrpcFeeLevel": {
+      "type": "object",
+      "properties": {
+        "node": {
+          "type": "string",
+          "format": "byte",
+          "description": "The node for the fee level."
+        },
+        "fee_level": {
+          "type": "string",
+          "format": "uint64",
+          "description": "The node's fee level in parts per million, decayed to the time of the\nquery."
+        },
+        "last_update": {
+          "type": "string",
+          "format": "int64",
+          "description": "The Unix time in seconds of the last fee level change for the node."
+        }
+      }
+    },
     "routerrpcFeeLevelParameters": {
       "type": "object",
       "properties": {
@@ -1919,6 +1939,14 @@
             "$ref": "#/definitions/routerrpcPairHistory"
           },
           "description": "Node pair-level mission control state."
+        },
+        "fee_levels": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "$ref": "#/definitions/routerrpcFeeLevel"
+          },
+          "description": "Per node fee levels."
         }
       },
       "description": "QueryMissionControlResponse contains mission control state."

@@ -1352,8 +1352,20 @@ func (s *Server) QueryMissionControl(_ context.Context,
 		rpcPairs = append(rpcPairs, &rpcPair)
 	}
 
+	feeLevels := s.cfg.RouterBackend.MissionControl.GetFeeLevels()
+
+	rpcFeeLevels := make([]*FeeLevel, 0, len(feeLevels))
+	for node, feeLevel := range feeLevels {
+		rpcFeeLevels = append(rpcFeeLevels, &FeeLevel{
+			Node:       node[:],
+			FeeLevel:   feeLevel.FeeRate,
+			LastUpdate: feeLevel.LastUpdate.Unix(),
+		})
+	}
+
 	response := QueryMissionControlResponse{
-		Pairs: rpcPairs,
+		Pairs:     rpcPairs,
+		FeeLevels: rpcFeeLevels,
 	}
 
 	return &response, nil

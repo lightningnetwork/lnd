@@ -173,6 +173,10 @@ type MissionControl interface {
 	// million.
 	GetFeeLevel(node route.Vertex) uint64
 
+	// GetFeeLevels returns the fee levels for all nodes in the mission
+	// control.
+	GetFeeLevels() map[route.Vertex]routing.FeeLevel
+
 	// ResetHistory resets the history of MissionControl returning it to a
 	// state as if no payment attempts have been made.
 	ResetHistory() error

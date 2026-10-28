@@ -4106,6 +4106,36 @@ message Invoice {
     Note: Output only, don't specify for creating an invoice.
     */
     bool preimage_released = 31;
+
+    /*
+    BOLT 12-specific invoice context, set only for an invoice that the
+    node made with the BOLT 12 offer protocol. A client checks that it is
+    set to find a BOLT 12 invoice. Contains offer identity, payer identity,
+    and negotiation parameters that have no BOLT 11 equivalent. Old callers
+    can safely ignore this field.
+
+    The node stores a received BOLT 12 invoice when its first HTLC arrives,
+    and it does not keep the signed lni1... invoice. So payment_request is
+    empty, and no RPC returns the lni1... invoice. SubscribeInvoices sends
+    the Open event when the first HTLC is accepted or settled. If the
+    payment then times out, the node deletes the invoice and sends no other
+    event for it.
+    Note: Output only, don't specify for creating an invoice.
+    */
+    OfferInvoiceDetail bolt12_detail = 32;
+}
+
+message OfferInvoiceDetail {
+    // The 32-byte hash of the offer this invoice answers.
+    bytes offer_hash = 1;
+
+    // The 33-byte compressed ephemeral payer pubkey from the invoice
+    // request (invreq_payer_id, TLV type 88).
+    bytes invreq_payer_id = 2;
+
+    // The number of items requested (invreq_quantity, TLV type 86). Zero
+    // if the offer does not support a quantity.
+    uint64 quantity = 3;
 }
 
 message BlindedPathConfig {

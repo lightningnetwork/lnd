@@ -744,6 +744,10 @@
         "preimage_released": {
           "type": "boolean",
           "description": "Whether lnd committed to releasing the preimage for this ordinary invoice,\nincluding when collection later failed. This is derived from the invoice\nand HTLC states, not from whether lnd knows the preimage. It does not prove\nthe payer received the preimage, and false does not guarantee the secret\nis unknown elsewhere. Clients must not infer preimage privacy from\nCANCELED alone when refunding a counterpart payment or reusing a hash.\nThis field is not supported for AMP invoices and is false for them.\nNote: Output only, don't specify for creating an invoice."
+        },
+        "bolt12_detail": {
+          "$ref": "#/definitions/lnrpcOfferInvoiceDetail",
+          "description": "BOLT 12-specific invoice context, set only for an invoice that the\nnode made with the BOLT 12 offer protocol. A client checks that it is\nset to find a BOLT 12 invoice. Contains offer identity, payer identity,\nand negotiation parameters that have no BOLT 11 equivalent. Old callers\ncan safely ignore this field.\n\nThe node stores a received BOLT 12 invoice when its first HTLC arrives,\nand it does not keep the signed lni1... invoice. So payment_request is\nempty, and no RPC returns the lni1... invoice. SubscribeInvoices sends\nthe Open event when the first HTLC is accepted or settled. If the\npayment then times out, the node deletes the invoice and sends no other\nevent for it.\nNote: Output only, don't specify for creating an invoice."
         }
       }
     },
@@ -825,6 +829,26 @@
       ],
       "default": "ACCEPTED",
       "description": " - SETTLED: An ordinary HTLC settled irrevocably. AMP retains its existing\npreimage-release settlement semantics.\n - PENDING_SETTLE: An ordinary HTLC released its preimage but its outcome is not final yet.\nIt becomes SETTLED on final success or FAILED if the payer reclaims it.\n - FAILED: An ordinary HTLC whose preimage was released but was not collected. This\ndiffers from CANCELED, which failed before preimage release."
+    },
+    "lnrpcOfferInvoiceDetail": {
+      "type": "object",
+      "properties": {
+        "offer_hash": {
+          "type": "string",
+          "format": "byte",
+          "description": "The 32-byte hash of the offer this invoice answers."
+        },
+        "invreq_payer_id": {
+          "type": "string",
+          "format": "byte",
+          "description": "The 33-byte compressed ephemeral payer pubkey from the invoice\nrequest (invreq_payer_id, TLV type 88)."
+        },
+        "quantity": {
+          "type": "string",
+          "format": "uint64",
+          "description": "The number of items requested (invreq_quantity, TLV type 86). Zero\nif the offer does not support a quantity."
+        }
+      }
     },
     "lnrpcRouteHint": {
       "type": "object",

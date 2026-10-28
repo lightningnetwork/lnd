@@ -225,6 +225,11 @@ func CreateRPCInvoice(invoice *invoices.Invoice,
 		IsAmp:       isAMP,
 		IsBlinded:   invoice.IsBlinded(),
 	}
+
+	if invoice.IsBolt12 {
+		rpcInvoice.Bolt12Detail = marshalBolt12Detail(invoice)
+	}
+
 	rpcInvoice.PreimageReleased = preimageReleased
 
 	rpcInvoice.AmpInvoiceState = make(map[string]*lnrpc.AMPInvoiceState)
@@ -264,6 +269,16 @@ func CreateRPCInvoice(invoice *invoices.Invoice,
 	}
 
 	return rpcInvoice, nil
+}
+
+// marshalBolt12Detail maps the offer hash, payer id and quantity of a BOLT 12
+// invoice to its RPC detail.
+func marshalBolt12Detail(invoice *invoices.Invoice) *lnrpc.OfferInvoiceDetail {
+	return &lnrpc.OfferInvoiceDetail{
+		OfferHash:     invoice.OfferHash,
+		InvreqPayerId: invoice.InvreqPayerID,
+		Quantity:      invoice.InvreqQuantity,
+	}
 }
 
 // CreateRPCFeatures maps a feature vector into a list of lnrpc.Features.

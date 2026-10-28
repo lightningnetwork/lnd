@@ -147,6 +147,37 @@ func (r *Router[M, R]) Ask(ctx context.Context, msg M) Future[R] {
 	return selectedActor.Ask(ctx, msg)
 }
 
+// TryTell forwards a non-blocking send to one of the actors managed by the
+// router. If no actor is available, ErrNoActorsAvailable is returned and, when
+// a DLO is configured, the message is forwarded there.
+func (r *Router[M, R]) TryTell(ctx context.Context, msg M) error {
+	selectedActor, err := r.getActor()
+	if err != nil {
+		if errors.Is(err, ErrNoActorsAvailable) && r.dlo != nil {
+			r.dlo.Tell(context.Background(), msg)
+		}
+
+		return err
+	}
+
+	return selectedActor.TryTell(ctx, msg)
+}
+
+// TryAsk forwards a non-blocking ask to one of the actors managed by the
+// router. Failure to select an actor completes the returned Future with the
+// selection error.
+func (r *Router[M, R]) TryAsk(ctx context.Context, msg M) Future[R] {
+	selectedActor, err := r.getActor()
+	if err != nil {
+		promise := NewPromise[R]()
+		promise.Complete(fn.Err[R](err))
+
+		return promise.Future()
+	}
+
+	return selectedActor.TryAsk(ctx, msg)
+}
+
 // ID provides an identifier for the router. Since a router isn't an actor
 // itself but a dispatcher for a service, its ID can be based on the service
 // key.

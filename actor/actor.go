@@ -2,6 +2,7 @@ package actor
 
 import (
 	"context"
+	"errors"
 	"sync"
 
 	"github.com/lightningnetwork/lnd/fn/v2"
@@ -266,6 +267,77 @@ func (ref *actorRefImpl[M, R]) Ask(ctx context.Context, msg M) Future[R] {
 	// Return the future associated with the promise, allowing the caller to
 	// await the response.
 	return promise.Future()
+}
+
+// TryTell enqueues a message only if the mailbox can take it immediately,
+// returning ErrMailboxFull rather than waiting for room. Unlike Tell it never
+// blocks, whichever goroutine calls it.
+func (ref *actorRefImpl[M, R]) TryTell(ctx context.Context, msg M) error {
+	// A caller that has already given up shouldn't have its message
+	// enqueued. TrySend never waits, so this is the only way the context
+	// participates.
+	if err := ctx.Err(); err != nil {
+		return err
+	}
+
+	env := envelope[M, R]{message: msg, promise: nil}
+	if err := ref.trySend(env); err != nil {
+		// A terminated actor will never drain its mailbox, so the
+		// message is dead and belongs in the DLO. A full mailbox is
+		// transient and stays the caller's problem.
+		if errors.Is(err, ErrActorTerminated) {
+			ref.trySendToDLO(msg)
+		}
+
+		return err
+	}
+
+	return nil
+}
+
+// TryAsk is the non-blocking form of Ask. If the mailbox can't take the
+// message immediately, the returned Future is already completed with the
+// reason, so the caller never waits to learn that the send failed.
+func (ref *actorRefImpl[M, R]) TryAsk(ctx context.Context,
+	msg M) Future[R] {
+
+	promise := NewPromise[R]()
+
+	if err := ctx.Err(); err != nil {
+		promise.Complete(fn.Err[R](err))
+		return promise.Future()
+	}
+
+	env := envelope[M, R]{message: msg, promise: promise}
+	if err := ref.trySend(env); err != nil {
+		promise.Complete(fn.Err[R](err))
+	}
+
+	return promise.Future()
+}
+
+// trySend makes a single non-blocking delivery attempt and classifies a
+// failure. The mailbox reports only whether it accepted the envelope, so the
+// reason is recovered from the actor and mailbox state afterwards.
+func (ref *actorRefImpl[M, R]) trySend(env envelope[M, R]) error {
+	if ref.actor.ctx.Err() != nil {
+		return ErrActorTerminated
+	}
+
+	if ref.actor.mailbox.TrySend(env) {
+		return nil
+	}
+
+	switch {
+	case ref.actor.ctx.Err() != nil:
+		return ErrActorTerminated
+
+	case ref.actor.mailbox.IsClosed():
+		return ErrMailboxClosed
+
+	default:
+		return ErrMailboxFull
+	}
 }
 
 // trySendToDLO attempts to send the message to the actor's DLO if configured.

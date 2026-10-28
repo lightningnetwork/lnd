@@ -16,6 +16,15 @@ var ErrActorTerminated = fmt.Errorf("actor terminated")
 // backpressure mechanism (e.g., RED-style load shedding).
 var ErrMessageDropped = errors.New("message dropped by backpressure")
 
+// ErrMailboxFull indicates that a non-blocking send (TryTell or TryAsk) found
+// the target's mailbox without room. Nothing was enqueued, so the message
+// remains in the caller's hands and the send may be retried or dropped.
+var ErrMailboxFull = errors.New("mailbox full")
+
+// ErrMailboxClosed indicates that a non-blocking send found the target's
+// mailbox closed.
+var ErrMailboxClosed = errors.New("mailbox closed")
+
 // ErrEmptyActorID is returned when an actor is created with an empty ID.
 var ErrEmptyActorID = fmt.Errorf("actor ID must not be empty")
 
@@ -97,6 +106,14 @@ type TellOnlyRef[M Message] interface {
 	// mailbox, the message may be dropped.
 	Tell(ctx context.Context, msg M)
 
+	// TryTell enqueues a message only if the target's mailbox can accept
+	// it immediately. It never blocks, from any goroutine, and ignores
+	// the context except to refuse a send whose context is already done.
+	// It returns ErrMailboxFull if there is no room, ErrMailboxClosed if
+	// the mailbox is closed, and ErrActorTerminated if the actor has
+	// stopped. On any error nothing was enqueued.
+	TryTell(ctx context.Context, msg M) error
+
 	// ID returns the unique identifier for this actor.
 	ID() string
 }
@@ -111,6 +128,14 @@ type ActorRef[M Message, R any] interface {
 	// The Future will be completed with the actor's reply or an error
 	// if the operation fails (e.g., context cancellation before send).
 	Ask(ctx context.Context, msg M) Future[R]
+
+	// TryAsk is the non-blocking form of Ask. It never blocks, from any
+	// goroutine. If the message can't be enqueued immediately, the
+	// returned Future is already completed with the reason: ErrMailboxFull,
+	// ErrMailboxClosed, ErrActorTerminated, or the context's error. When
+	// the message is accepted, the Future completes with the actor's
+	// reply as for Ask.
+	TryAsk(ctx context.Context, msg M) Future[R]
 }
 
 // ActorBehavior defines the logic for how an actor processes incoming messages.

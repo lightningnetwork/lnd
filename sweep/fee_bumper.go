@@ -680,8 +680,12 @@ func (t *TxPublisher) createAndCheckTx(r *monitorRecord) (*sweepTxCtx, error) {
 		log.Debugf("Tx %v missing inputs, it's likely the input has "+
 			"been spent by others", sweepCtx.tx.TxHash())
 
-		// Make sure to update the record with the latest attempt.
-		t.updateRecord(r, sweepCtx)
+		// Initial missing-input attribution needs its candidate
+		// context. A rejected replacement must leave the accepted
+		// record intact.
+		if r.tx == nil {
+			t.updateRecord(r, sweepCtx)
+		}
 
 		return sweepCtx, ErrInputMissing
 	}
@@ -2296,14 +2300,24 @@ func (t *TxPublisher) handleReplacementTxError(r *monitorRecord,
 		return fn.None[BumpResult]()
 	}
 
-	// At least one of the inputs is missing, which means it has already
-	// been spent by another tx and confirmed. In this case we will handle
-	// it by returning a TxUnknownSpend bump result.
-	if errors.Is(err, ErrInputMissing) {
-		log.Warnf("Fail to fee bump tx %v: %v", oldTx.TxHash(), err)
-		bumpResult := t.handleMissingInputs(r)
+	// Rejection did not displace oldTx. Keep its existing monitoring and
+	// rebroadcast instead of diagnosing standalone probes against it.
+	if errors.Is(err, errMempoolRejected) {
+		return fn.None[BumpResult]()
+	}
 
-		return fn.Some(*bumpResult)
+	if errors.Is(err, ErrInputMissing) {
+		// Empty historical delivery is inconclusive for an accepted tx.
+		// Existing block processing will observe a later actual spend.
+		spends := t.getSpentInputs(r)
+		if len(spends) == 0 {
+			return fn.None[BumpResult]()
+		}
+		r.spentInputs = spends
+		result := t.createUnknownSpentBumpResult(r)
+		result.Tx = oldTx
+
+		return fn.Some(*result)
 	}
 
 	// Return a failed event to retry the sweep.

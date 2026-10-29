@@ -1169,7 +1169,8 @@ func TestHandleBumpEventTxPublished(t *testing.T) {
 // TestMonitorFeeBumpResult checks that the fee bump monitor loop correctly
 // exits when the sweeper is stopped, the tx is confirmed or failed.
 func TestMonitorFeeBumpResult(t *testing.T) {
-	// Create a mock store.
+	// Arrange terminal and ongoing publisher events with cancellation
+	// expectations for the accepted transaction in each terminal case.
 	store := &MockSweeperStore{}
 	defer store.AssertExpectations(t)
 
@@ -1254,6 +1255,53 @@ func TestMonitorFeeBumpResult(t *testing.T) {
 			shouldExit: true,
 		},
 		{
+			name: "tx fatal",
+			setupResultChan: func() <-chan *BumpResult {
+				resultChan := make(chan *BumpResult, 1)
+				resultChan <- &BumpResult{
+					Tx:    tx,
+					Event: TxFatal,
+					Err:   errDummy,
+				}
+				wallet.On(
+					"CancelRebroadcast", tx.TxHash(),
+				).Once()
+
+				return resultChan
+			},
+			shouldExit: true,
+		},
+		{
+			name: "tx unknown spend",
+			setupResultChan: func() <-chan *BumpResult {
+				resultChan := make(chan *BumpResult, 1)
+				resultChan <- &BumpResult{
+					Tx:    tx,
+					Event: TxUnknownSpend,
+					Err:   ErrUnknownSpent,
+				}
+				wallet.On(
+					"CancelRebroadcast", tx.TxHash(),
+				).Once()
+
+				return resultChan
+			},
+			shouldExit: true,
+		},
+		{
+			name: "tx fatal before creation",
+			setupResultChan: func() <-chan *BumpResult {
+				resultChan := make(chan *BumpResult, 1)
+				resultChan <- &BumpResult{
+					Event: TxFatal,
+					Err:   errDummy,
+				}
+
+				return resultChan
+			},
+			shouldExit: true,
+		},
+		{
 			// When processing non-confirmed events, the monitor
 			// should not exit.
 			name: "no exit on normal event",
@@ -1285,6 +1333,7 @@ func TestMonitorFeeBumpResult(t *testing.T) {
 		},
 	}
 
+	// Act by delivering each selected publisher result to its monitor.
 	for _, tc := range testCases {
 
 		t.Run(tc.name, func(t *testing.T) {
@@ -1304,6 +1353,9 @@ func TestMonitorFeeBumpResult(t *testing.T) {
 			// The monitor is expected to exit, we check it's done
 			// in one second or fail.
 			if tc.shouldExit {
+				// Assert that the selected event controls
+				// monitor termination while fixture cleanup
+				// verifies transaction cancellation.
 				select {
 				case <-done:
 				case <-time.After(1 * time.Second):

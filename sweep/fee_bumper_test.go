@@ -1981,6 +1981,110 @@ func TestInitialConflictWithUntestableFunding(t *testing.T) {
 	require.Nil(t, result.BadInput)
 }
 
+// TestReplacementRejectionKeepsOldTx checks that rejected candidates preserve
+// accepted monitoring until an actual attributed spend ends the request.
+func TestReplacementRejectionKeepsOldTx(t *testing.T) {
+	t.Parallel()
+
+	// Arrange singleton/multi-input rejection and pending/ready historical
+	// delivery through the real replacement path, without diagnostic
+	// probes.
+	testCases := []struct {
+		name   string
+		inputs int
+		reject error
+		spent  bool
+	}{
+		{
+			name:   "singleton script rejection",
+			inputs: 1,
+			reject: chain.ErrScriptVerifyFlag,
+		},
+		{
+			name:   "multi-input script rejection",
+			inputs: 2,
+			reject: chain.ErrScriptVerifyFlag,
+		},
+		{
+			name:   "pending historical spend",
+			inputs: 2,
+			reject: chain.ErrMissingInputs,
+		},
+		{
+			name:   "attributed historical spend",
+			inputs: 2,
+			reject: chain.ErrMissingInputs,
+			spent:  true,
+		},
+	}
+	for _, testCase := range testCases {
+		t.Run(testCase.name, func(t *testing.T) {
+			tp, m := createTestPublisherNoAux(t)
+			req := createBadInputTestRequest(testCase.inputs)
+			record, _ := createBadInputTestRecord(
+				tp, req, m.feeFunc,
+			)
+			oldTx := &wire.MsgTx{LockTime: 1}
+			record.tx = oldTx
+			feeRateCall := m.feeFunc.On("FeeRate").Return(
+				chainfee.SatPerKWeight(1000),
+			).Once()
+			if testCase.spent {
+				feeRateCall.Twice()
+				m.feeFunc.On("Increment").Return(
+					true, nil,
+				).Once()
+			}
+			m.signer.On(
+				"ComputeInputScript", mock.Anything,
+				mock.Anything,
+			).Return(&input.Script{}, nil).Times(testCase.inputs)
+			m.wallet.On(
+				"CheckMempoolAcceptance", mock.Anything,
+			).Return(testCase.reject).Once()
+			if errors.Is(testCase.reject, chain.ErrMissingInputs) {
+				for i, inp := range req.Inputs {
+					spendChan := make(
+						chan *chainntnfs.SpendDetail, 1,
+					)
+					event := &chainntnfs.SpendEvent{
+						Spend:  spendChan,
+						Cancel: func() {},
+					}
+					if testCase.spent && i == 0 {
+						event = createTestSpendEvent(
+							&wire.MsgTx{
+								LockTime: 2,
+							},
+						)
+					}
+					op := inp.OutPoint()
+					m.notifier.On(
+						"RegisterSpendNtfn", &op,
+						mock.Anything, mock.Anything,
+					).Return(event, nil).Once()
+				}
+			}
+
+			// Act by rejecting an actual rebuilt replacement
+			// transaction.
+			result := tp.createAndPublishTx(record)
+
+			// Assert that rejection alone preserves the accepted
+			// record, while actual spend cleanup identifies oldTx
+			// rather than its candidate.
+			require.Same(t, oldTx, record.tx)
+			if testCase.spent {
+				value := result.UnwrapOrFail(t)
+				require.Equal(t, TxUnknownSpend, value.Event)
+				require.Same(t, oldTx, value.Tx)
+			} else {
+				require.True(t, result.IsNone())
+			}
+		})
+	}
+}
+
 // TestTxPublisherBroadcast checks the internal `broadcast` method behaves as
 // expected.
 func TestTxPublisherBroadcast(t *testing.T) {

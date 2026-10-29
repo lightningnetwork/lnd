@@ -231,19 +231,9 @@ type Config struct {
 	// forwarding packages, and ack settles and fails contained within them.
 	SwitchPackager chanstate.FwdOperator
 
-	// CheckFwdResponse reports whether a persisted off-chain response
-	// exists for the given outgoing circuit key.
-	CheckFwdResponse func(outKey *CircuitKey) error
-
-	// FetchFwdResponses returns all persisted off-chain responses.
-	FetchFwdResponses func() ([]*fwdresponse.Response, error)
-
-	// DeleteFwdResponse removes a persisted response from the store.
-	// Startup replay is its only caller; it reaps records whose circuit is
-	// already gone. Delivery itself does not delete the record. A delivered
-	// record is collected on the next startup, after its circuit has been
-	// torn down.
-	DeleteFwdResponse func(outKey *CircuitKey) error
+	// FwdResponseStore persists off-chain settle and fail messages until the
+	// switch can safely replay or reap them.
+	FwdResponseStore fwdresponse.Store
 
 	// ExtractErrorEncrypter is an interface allowing switch to reextract
 	// error encrypters stored in the circuit map on restarts, since they
@@ -444,17 +434,10 @@ type Switch struct {
 
 // New creates the new instance of htlc switch.
 func New(cfg Config, currentHeight uint32) (*Switch, error) {
-	// These are dereferenced unconditionally during startup, so a missing
+	// The store is dereferenced unconditionally during startup, so a missing
 	// one must fail here rather than panic mid-recovery.
-	switch {
-	case cfg.CheckFwdResponse == nil:
-		return nil, errors.New("forwarding response checker is nil")
-
-	case cfg.FetchFwdResponses == nil:
-		return nil, errors.New("forwarding response fetcher is nil")
-
-	case cfg.DeleteFwdResponse == nil:
-		return nil, errors.New("forwarding response deleter is nil")
+	if cfg.FwdResponseStore == nil {
+		return nil, errors.New("forwarding response store is nil")
 	}
 
 	resStore := newResolutionStore(cfg.DB)
@@ -465,7 +448,7 @@ func New(cfg Config, currentHeight uint32) (*Switch, error) {
 		FetchClosedChannels:   cfg.FetchClosedChannels,
 		ExtractErrorEncrypter: cfg.ExtractErrorEncrypter,
 		CheckResolutionMsg:    resStore.checkResolutionMsg,
-		CheckFwdResponse:      cfg.CheckFwdResponse,
+		CheckFwdResponse:      cfg.FwdResponseStore.CheckFwdResponse,
 	})
 	if err != nil {
 		return nil, err
@@ -1930,7 +1913,7 @@ func fwdResponsePacket(response *fwdresponse.Response) *htlcPacket {
 // Entries without an open circuit are reaped in the same way as orphaned
 // resolution messages.
 func (s *Switch) reforwardFwdResponses() error {
-	responses, err := s.cfg.FetchFwdResponses()
+	responses, err := s.cfg.FwdResponseStore.FetchFwdResponses()
 
 	// A decode or index error leaves recovery state uncertain. Abort
 	// startup rather than mistaking corruption for an empty response set.
@@ -1946,7 +1929,7 @@ func (s *Switch) reforwardFwdResponses() error {
 			log.Debugf("Reaping persisted response with no open "+
 				"circuit: %v", outKey)
 
-			err := s.cfg.DeleteFwdResponse(&outKey)
+			err := s.cfg.FwdResponseStore.DeleteFwdResponse(&outKey)
 			if err != nil {
 				return fmt.Errorf("reap response %v: %w",
 					outKey, err)

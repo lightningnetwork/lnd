@@ -941,9 +941,7 @@ func newServer(ctx context.Context, cfg *Config, listenAddrs []net.Addr,
 		FetchAllOpenChannels: s.channelStore.FetchAllOpenChannels,
 		FetchAllChannels:     s.channelStore.FetchAllChannels,
 		FetchClosedChannels:  s.channelStore.FetchClosedChannels,
-		CheckFwdResponse:     fwdResponseStore.CheckFwdResponse,
-		FetchFwdResponses:    fwdResponseStore.FetchFwdResponses,
-		DeleteFwdResponse:    fwdResponseStore.DeleteFwdResponse,
+		FwdResponseStore:     fwdResponseStore,
 		LocalChannelClose: func(pubKey []byte,
 			request *htlcswitch.ChanClose) {
 

@@ -181,9 +181,7 @@ func initSwitchWithDB(startingHeight uint32, db *channeldb.DB) (*Switch, error) 
 		FetchAllOpenChannels: channelStateStore.FetchAllOpenChannels,
 		FetchAllChannels:     channelStateStore.FetchAllChannels,
 		FetchClosedChannels:  channelStateStore.FetchClosedChannels,
-		CheckFwdResponse:     db.FwdResponseStore().CheckFwdResponse,
-		FetchFwdResponses:    db.FwdResponseStore().FetchFwdResponses,
-		DeleteFwdResponse:    db.FwdResponseStore().DeleteFwdResponse,
+		FwdResponseStore:     db.FwdResponseStore(),
 		SwitchPackager:       chanstate.NewSwitchPackager(),
 		FwdingLog: &mockForwardingLog{
 			events: make(map[time.Time]channeldb.ForwardingEvent),

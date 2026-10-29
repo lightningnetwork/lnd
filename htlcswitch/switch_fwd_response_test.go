@@ -31,6 +31,8 @@ type testFwdResponseSource struct {
 	fetchErr error
 }
 
+var _ fwdresponse.Store = (*testFwdResponseSource)(nil)
+
 // newTestFwdResponseSource constructs a source holding the given responses.
 func newTestFwdResponseSource(
 	responses ...*fwdresponse.Response) *testFwdResponseSource {
@@ -45,8 +47,11 @@ func newTestFwdResponseSource(
 	return source
 }
 
-// fetch returns the current response set or an injected storage error.
-func (s *testFwdResponseSource) fetch() ([]*fwdresponse.Response, error) {
+// FetchFwdResponses returns the current response set or an injected storage
+// error.
+func (s *testFwdResponseSource) FetchFwdResponses() (
+	[]*fwdresponse.Response, error) {
+
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
@@ -62,8 +67,21 @@ func (s *testFwdResponseSource) fetch() ([]*fwdresponse.Response, error) {
 	return responses, nil
 }
 
-// remove reaps a record the switch could not deliver.
-func (s *testFwdResponseSource) remove(outKey *CircuitKey) error {
+// CheckFwdResponse reports whether a response exists for the outgoing circuit
+// key.
+func (s *testFwdResponseSource) CheckFwdResponse(outKey *CircuitKey) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	if _, ok := s.responses[*outKey]; !ok {
+		return fwdresponse.ErrNotFound
+	}
+
+	return nil
+}
+
+// DeleteFwdResponse reaps a record the switch could not deliver.
+func (s *testFwdResponseSource) DeleteFwdResponse(outKey *CircuitKey) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
@@ -82,8 +100,7 @@ func (s *testFwdResponseSource) len() int {
 
 // attach points a switch at this source.
 func (s *testFwdResponseSource) attach(sw *Switch) {
-	sw.cfg.FetchFwdResponses = s.fetch
-	sw.cfg.DeleteFwdResponse = s.remove
+	sw.cfg.FwdResponseStore = s
 }
 
 // TestSwitchReforwardFwdResponses asserts that a persisted response is replayed

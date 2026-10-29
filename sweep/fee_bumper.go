@@ -47,6 +47,10 @@ var (
 	// ErrInputMissing is returned when a given input no longer exists,
 	// e.g., spending from an orphan tx.
 	ErrInputMissing = errors.New("input no longer exists")
+
+	// errMempoolRejected separates backend rejection of a constructed
+	// candidate from failures that cannot provide diagnostic evidence.
+	errMempoolRejected = errors.New("mempool rejected tx")
 )
 
 var (
@@ -647,7 +651,7 @@ func (t *TxPublisher) createAndCheckTx(r *monitorRecord) (*sweepTxCtx, error) {
 	req.ExtraTxOut = sweepCtx.extraTxOut
 
 	// Validate the tx's mempool acceptance.
-	err = t.cfg.Wallet.CheckMempoolAcceptance(sweepCtx.tx)
+	err = t.checkMempoolAcceptance(sweepCtx)
 
 	// Exit early if the tx is valid.
 	if err == nil {
@@ -671,7 +675,7 @@ func (t *TxPublisher) createAndCheckTx(r *monitorRecord) (*sweepTxCtx, error) {
 
 	// If the inputs are spent by another tx, we will exit with the latest
 	// sweepCtx and an error.
-	if errors.Is(err, chain.ErrMissingInputs) {
+	if errors.Is(err, ErrInputMissing) {
 		log.Debugf("Tx %v missing inputs, it's likely the input has "+
 			"been spent by others", sweepCtx.tx.TxHash())
 
@@ -679,6 +683,74 @@ func (t *TxPublisher) createAndCheckTx(r *monitorRecord) (*sweepTxCtx, error) {
 		t.updateRecord(r, sweepCtx)
 
 		return sweepCtx, ErrInputMissing
+	}
+
+	return sweepCtx, fmt.Errorf("%w: tx=%v failed mempool check: %w",
+		errMempoolRejected, sweepCtx.tx.TxHash(), err)
+}
+
+// shouldDiagnoseBadInputs returns true if a mempool rejection should be
+// isolated with no-broadcast subset probes.
+func (t *TxPublisher) shouldDiagnoseBadInputs(r *monitorRecord,
+	err error) bool {
+
+	// Bad-input probes must use the same fee rate as the rejected tx. A
+	// record can be missing its fee function if tx initialization failed
+	// before fee selection completed, which means any probe tx would use a
+	// made-up feerate. Skip diagnosis and let handleBadInputs keep the
+	// original error as a whole-set failure.
+	if r.feeFunction == nil {
+		return false
+	}
+
+	// Only a concrete mempool rejection proves the fully constructed tx was
+	// invalid under mempool policy. Construction, signing and fee-selection
+	// errors do not have a candidate tx to bisect, so handleBadInputs keeps
+	// them on the existing whole-set fatal path instead of probing subsets.
+	if !errors.Is(err, errMempoolRejected) &&
+		!errors.Is(err, ErrInputMissing) {
+
+		return false
+	}
+
+	// A singleton rejection already identifies the only input in the batch.
+	// There is no subset left to probe, so the caller preserves existing
+	// singleton fatal behavior.
+	if len(r.req.Inputs) <= 1 {
+		return false
+	}
+
+	// Aux sweepers may derive addresses or other sweep details from the
+	// complete input set. Subset probes would bypass that logic and could
+	// misattribute aux failures, so keep them on the whole-set path.
+	if t.cfg.AuxSweeper.IsSome() {
+		log.Infof("Skipping bad-input diagnosis for requestID=%v: aux "+
+			"sweeper is active", r.requestID)
+
+		return false
+	}
+
+	return true
+}
+
+// checkMempoolAcceptance checks a candidate without publishing or recording it,
+// preserving the same backend classification for full candidates and probes.
+func (t *TxPublisher) checkMempoolAcceptance(sweepCtx *sweepTxCtx) error {
+	err := t.cfg.Wallet.CheckMempoolAcceptance(sweepCtx.tx)
+	// Unsupported checks must reach the initial-candidate bypass unchanged
+	// and unlogged, including every Neutrino sweep attempt.
+	if err == nil || errors.Is(err, chain.ErrUnimplemented) ||
+		errors.Is(err, rpcclient.ErrBackendVersion) {
+
+		return err
+	}
+
+	// Missing-input failures use a dedicated sentinel so callers can run
+	// spend attribution instead of treating them as script failures.
+	if errors.Is(err, chain.ErrMissingInputs) {
+		log.Debugf("Tx %v missing inputs", sweepCtx.tx.TxHash())
+
+		return ErrInputMissing
 	}
 
 	// Unknown backend errors, including transport failures, do not prove an
@@ -689,8 +761,21 @@ func (t *TxPublisher) createAndCheckTx(r *monitorRecord) (*sweepTxCtx, error) {
 		err = fmt.Errorf("%w: %w", chain.ErrUndefined, err)
 	}
 
-	return sweepCtx, fmt.Errorf("tx=%v failed mempool check: %w",
-		sweepCtx.tx.TxHash(), err)
+	log.Infof("Tx=%v with %v inputs failed mempool check: %v",
+		sweepCtx.tx.TxHash(), len(sweepCtx.tx.TxIn), err)
+
+	return err
+}
+
+// isTransientMempoolError shares the existing initial-attempt retry policy with
+// diagnosis so a temporary backend failure cannot permanently discard inputs.
+func isTransientMempoolError(err error) bool {
+	return errors.Is(err, chain.ErrUndefined) ||
+		errors.Is(err, chain.ErrMempoolFull) ||
+		errors.Is(err, chain.ErrMempoolChainTooLong) ||
+		errors.Is(err, chain.ErrTooManyReplacements) ||
+		errors.Is(err, chain.ErrReplacementAddsUnconfirmed) ||
+		errors.Is(err, chain.ErrMempoolConflict)
 }
 
 // handleMissingInputs handles the case when the chain backend reports back a
@@ -1135,12 +1220,7 @@ func (t *TxPublisher) handleInitialTxError(r *monitorRecord, err error) {
 	// re-clustering does not restart at the same insufficient rate.
 	case errors.Is(err, ErrNotEnoughInputs),
 		errors.Is(err, ErrNotEnoughBudget),
-		errors.Is(err, chain.ErrUndefined),
-		errors.Is(err, chain.ErrMempoolFull),
-		errors.Is(err, chain.ErrMempoolChainTooLong),
-		errors.Is(err, chain.ErrTooManyReplacements),
-		errors.Is(err, chain.ErrReplacementAddsUnconfirmed),
-		errors.Is(err, chain.ErrMempoolConflict):
+		isTransientMempoolError(err):
 
 		result.Event = TxFailed
 

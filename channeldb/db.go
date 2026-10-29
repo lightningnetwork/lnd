@@ -488,7 +488,7 @@ var dbTopLevelBuckets = [][]byte{
 	payAddrIndexBucket,
 	setIDIndexBucket,
 	peersBucket,
-	nodeInfoBucket,
+	linknode.NodeInfoBucket,
 	metaBucket,
 	closeSummaryBucket,
 	outpointBucket,

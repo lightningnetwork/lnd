@@ -1138,6 +1138,16 @@ func (t *TxPublisher) handleMissingInputs(r *monitorRecord) *BumpResult {
 	// Attach the spending txns.
 	r.spentInputs = spends
 
+	// Empty historical channels do not establish that the whole batch is
+	// orphaned. Probe multi-input membership before classifying it.
+	if len(spends) == 0 &&
+		t.shouldDiagnoseBadInputs(r, ErrInputMissing) {
+
+		return t.resultForDiagnosis(
+			r, ErrInputMissing, t.diagnoseInputSet(r),
+		)
+	}
+
 	// If there are no spending txns found and the input is missing, the
 	// input is referencing an orphan tx that's no longer valid, e.g., the
 	// spending the anchor output from the remote commitment after the local
@@ -1588,6 +1598,20 @@ func (t *TxPublisher) createUnchangedSetRetryResult(r *monitorRecord,
 	}
 }
 
+// handleBadInputs handles a non-fee mempool rejection by trying to identify a
+// single input that fails mempool acceptance by itself.
+func (t *TxPublisher) handleBadInputs(r *monitorRecord,
+	err error) *BumpResult {
+
+	if !t.shouldDiagnoseBadInputs(r, err) {
+		return t.resultForDiagnosis(r, err, inputDiagnosis{
+			outcome: diagnosisSkipped,
+		})
+	}
+
+	return t.resultForDiagnosis(r, err, t.diagnoseInputSet(r))
+}
+
 // handleInitialTxError maps initialization failures to retry or terminal
 // results. Backend uncertainty retains inputs and the next retry fee.
 func (t *TxPublisher) handleInitialTxError(r *monitorRecord, err error) {
@@ -1609,6 +1633,15 @@ func (t *TxPublisher) handleInitialTxError(r *monitorRecord, err error) {
 	// so these inputs can be retried in the next block.
 	case errors.Is(err, ErrZeroFeeRateDelta):
 		result.Event = TxFailed
+
+	// Diagnose eligible conflicts before the generic retry arm so their
+	// healthy siblings can progress as a separate set.
+	case errors.Is(err, chain.ErrMempoolConflict) &&
+		t.shouldDiagnoseBadInputs(r, err):
+
+		result = t.resultForDiagnosis(
+			r, err, t.diagnoseInputSet(r),
+		)
 
 	// When the error is due to budget being used up, we'll send a TxFailed
 	// so these inputs can be retried with a different group in the next
@@ -1641,14 +1674,10 @@ func (t *TxPublisher) handleInitialTxError(r *monitorRecord, err error) {
 	case errors.Is(err, ErrInputMissing):
 		result = t.handleMissingInputs(r)
 
-	// Known non-retryable rejections and local construction errors retain
-	// terminal handling. Only acceptance errors normalized above can enter
-	// the unknown-backend retry case.
-	//
-	// TODO(yy): Find out which input is causing the failure and fail that
-	// one only.
+	// Concrete mempool rejections can identify individual failures;
+	// diagnosis keeps permanent evidence separate from transient conflicts.
 	default:
-		result.Event = TxFatal
+		result = t.handleBadInputs(r, err)
 	}
 
 	t.handleResult(result)

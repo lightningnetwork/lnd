@@ -1,6 +1,9 @@
 package models
 
 import (
+	"math"
+	"math/bits"
+
 	"github.com/lightningnetwork/lnd/fn/v2"
 	"github.com/lightningnetwork/lnd/lnwire"
 	"github.com/lightningnetwork/lnd/routing/route"
@@ -74,7 +77,27 @@ type CachedEdgePolicy struct {
 func (c *CachedEdgePolicy) ComputeFee(
 	amt lnwire.MilliSatoshi) lnwire.MilliSatoshi {
 
-	return c.FeeBaseMSat + (amt*c.FeeProportionalMillionths)/feeRateParts
+	return computeFee(c.FeeBaseMSat, c.FeeProportionalMillionths, amt)
+}
+
+// computeFee returns base + amt * rate / feeRateParts. The product is computed
+// in 128 bits so that it can't wrap around, and the result saturates at the
+// largest MilliSatoshi if it doesn't fit.
+func computeFee(base, rate, amt lnwire.MilliSatoshi) lnwire.MilliSatoshi {
+	hi, lo := bits.Mul64(uint64(amt), uint64(rate))
+
+	// bits.Div64 panics if the quotient doesn't fit in 64 bits.
+	if hi >= feeRateParts {
+		return math.MaxUint64
+	}
+	proportional, _ := bits.Div64(hi, lo, feeRateParts)
+
+	fee, carry := bits.Add64(uint64(base), proportional, 0)
+	if carry != 0 {
+		return math.MaxUint64
+	}
+
+	return lnwire.MilliSatoshi(fee)
 }
 
 // NewCachedPolicy turns a full policy into a minimal one that can be cached.

@@ -209,7 +209,7 @@ func (c *ChannelEdgePolicy) IsDisabled() bool {
 func (c *ChannelEdgePolicy) ComputeFee(
 	amt lnwire.MilliSatoshi) lnwire.MilliSatoshi {
 
-	return c.FeeBaseMSat + (amt*c.FeeProportionalMillionths)/feeRateParts
+	return computeFee(c.FeeBaseMSat, c.FeeProportionalMillionths, amt)
 }
 
 // String returns a human-readable version of the channel edge policy.

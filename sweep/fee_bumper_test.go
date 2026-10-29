@@ -901,6 +901,50 @@ func TestProbeInputSetFundsRequiredOutput(t *testing.T) {
 	}
 }
 
+// TestFindBadInputContinuesAfterConstructionError checks that an
+// unconstructible subset falls back to singleton probes across the full set.
+func TestFindBadInputContinuesAfterConstructionError(t *testing.T) {
+	t.Parallel()
+
+	// Arrange an unconstructible half and valid early singletons, with a
+	// bad input at the end that the construction failure must not hide.
+	tp, m := createTestPublisherNoAux(t)
+	req := createBadInputTestRequest(4)
+	record := &monitorRecord{
+		requestID:   1,
+		req:         req,
+		feeFunction: m.feeFunc,
+	}
+
+	m.feeFunc.On("FeeRate").Return(chainfee.SatPerKWeight(1000)).Times(5)
+	m.signer.On(
+		"ComputeInputScript", mock.Anything, mock.Anything,
+	).Return(nil, errDummy).Once()
+	m.signer.On(
+		"ComputeInputScript", mock.Anything, mock.Anything,
+	).Return(&input.Script{}, nil).Times(4)
+
+	inputs := req.Inputs
+	for _, inp := range inputs[:3] {
+		m.wallet.On(
+			"CheckMempoolAcceptance",
+			mock.MatchedBy(txSpendsInputs(inp)),
+		).Return(nil).Once()
+	}
+	m.wallet.On(
+		"CheckMempoolAcceptance",
+		mock.MatchedBy(txSpendsInputs(inputs[3])),
+	).Return(chain.ErrScriptVerifyFlag).Once()
+
+	// Act by searching for a single independently rejected input.
+	badInput, err := tp.findBadInputInSet(record, req.Inputs)
+
+	// Assert that the last singleton is identified despite the earlier
+	// construction failure, allowing unrelated members to remain retryable.
+	require.ErrorIs(t, err, chain.ErrScriptVerifyFlag)
+	require.Equal(t, inputs[3].OutPoint(), badInput)
+}
+
 // TestTxPublisherBroadcast checks the internal `broadcast` method behaves as
 // expected.
 func TestTxPublisherBroadcast(t *testing.T) {

@@ -5,6 +5,7 @@ import (
 
 	"github.com/btcsuite/btcd/chainhash/v2"
 	"github.com/lightningnetwork/lnd/channeldb"
+	"github.com/lightningnetwork/lnd/chanstate"
 	"github.com/lightningnetwork/lnd/lnwire"
 	"github.com/stretchr/testify/require"
 )
@@ -34,7 +35,7 @@ type revokeModifier func(*lnwire.RevokeAndAck)
 // transition to generate a RevokeAndAck message, optionally modifies it, and
 // processes it. Returns the revocation message and channels for further
 // testing.
-func generateAndProcessRevocation(t *testing.T, chanType channeldb.ChannelType,
+func generateAndProcessRevocation(t *testing.T, chanType chanstate.ChannelType,
 	modifier revokeModifier) (
 	*lnwire.RevokeAndAck, *LightningChannel, *LightningChannel, error) {
 

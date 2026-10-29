@@ -83,7 +83,7 @@ func assertOutputExistsByValue(t *testing.T, commitTx *wire.MsgTx,
 // testAddSettleWorkflow tests a simple channel scenario where Alice and Bob
 // add, the settle an HTLC between themselves.
 func testAddSettleWorkflow(t *testing.T, tweakless bool,
-	chanTypeModifier channeldb.ChannelType,
+	chanTypeModifier chanstate.ChannelType,
 	storeFinalHtlcResolutions bool) {
 
 	// Create a test channel which will be used for the duration of this
@@ -819,7 +819,7 @@ func TestCooperativeChannelClosure(t *testing.T) {
 }
 
 type coopCloseTestCase struct {
-	chanType  channeldb.ChannelType
+	chanType  chanstate.ChannelType
 	anchorAmt btcutil.Amount
 
 	customPayer fn.Option[lntypes.ChannelParty]
@@ -1001,7 +1001,7 @@ func TestForceClose(t *testing.T) {
 }
 
 type forceCloseTestCase struct {
-	chanType             channeldb.ChannelType
+	chanType             chanstate.ChannelType
 	expectedCommitWeight lntypes.WeightUnit
 	anchorAmt            btcutil.Amount
 }
@@ -3272,7 +3272,7 @@ func restartChannel(channelOld *LightningChannel) (*LightningChannel, error) {
 // to re-send the CommitDiff. After the diff has been sent, both nodes should
 // resynchronize and be able to complete the dangling commit.
 func testChanSyncOweCommitment(t *testing.T,
-	chanType channeldb.ChannelType, noop bool) {
+	chanType chanstate.ChannelType, noop bool) {
 
 	// Create a test channel which will be used for the duration of this
 	// unittest. The channel will be funded evenly with Alice having 5 BTC,
@@ -3792,7 +3792,7 @@ func TestChanSyncOweCommitment(t *testing.T) {
 
 	testCases := []struct {
 		name     string
-		chanType channeldb.ChannelType
+		chanType chanstate.ChannelType
 		noop     bool
 	}{
 		{
@@ -4077,7 +4077,7 @@ func TestQuitDuringSignNextCommitment(t *testing.T) {
 }
 
 func testChanSyncOweCommitmentPendingRemote(t *testing.T,
-	chanType channeldb.ChannelType) {
+	chanType chanstate.ChannelType) {
 
 	// Create a test channel which will be used for the duration of this
 	// unittest.
@@ -4209,7 +4209,7 @@ func TestChanSyncOweCommitmentPendingRemote(t *testing.T) {
 
 	testCases := []struct {
 		name     string
-		chanType channeldb.ChannelType
+		chanType chanstate.ChannelType
 	}{
 		{
 			name:     "tweakless",
@@ -4244,7 +4244,7 @@ func TestChanSyncOweCommitmentPendingRemote(t *testing.T) {
 // testChanSyncOweRevocation is the internal version of
 // TestChanSyncOweRevocation that is parameterized based on the type of channel
 // being used in the test.
-func testChanSyncOweRevocation(t *testing.T, chanType channeldb.ChannelType) {
+func testChanSyncOweRevocation(t *testing.T, chanType chanstate.ChannelType) {
 	// Create a test channel which will be used for the duration of this
 	// unittest. The channel will be funded evenly with Alice having 5 BTC,
 	// and Bob having 5 BTC.
@@ -4447,7 +4447,7 @@ func TestChanSyncOweRevocation(t *testing.T) {
 }
 
 func testChanSyncOweRevocationAndCommit(t *testing.T,
-	chanType channeldb.ChannelType) {
+	chanType chanstate.ChannelType) {
 
 	// Create a test channel which will be used for the duration of this
 	// unittest. The channel will be funded evenly with Alice having 5 BTC,
@@ -4651,7 +4651,7 @@ func TestChanSyncOweRevocationAndCommit(t *testing.T) {
 }
 
 func testChanSyncOweRevocationAndCommitForceTransition(t *testing.T,
-	chanType channeldb.ChannelType) {
+	chanType chanstate.ChannelType) {
 
 	// Create a test channel which will be used for the duration of this
 	// unittest. The channel will be funded evenly with Alice having 5 BTC,
@@ -6116,7 +6116,7 @@ func TestReceiveRevocationInvalidState(t *testing.T) {
 
 	testCases := []struct {
 		name     string
-		chanType channeldb.ChannelType
+		chanType chanstate.ChannelType
 
 		// dropNextPoint clears Alice's copy of Bob's next revocation
 		// point.
@@ -6207,7 +6207,7 @@ func TestReceiveRevocationWrongSecret(t *testing.T) {
 
 	testCases := []struct {
 		name     string
-		chanType channeldb.ChannelType
+		chanType chanstate.ChannelType
 	}{
 		{
 			name:     "tweakless",
@@ -10225,7 +10225,7 @@ func TestChannelGetDustSum(t *testing.T) {
 	})
 }
 
-func testGetDustSum(t *testing.T, chantype channeldb.ChannelType) {
+func testGetDustSum(t *testing.T, chantype chanstate.ChannelType) {
 	t.Parallel()
 
 	// This makes a channel with Alice's dust limit set to 200sats and
@@ -10815,7 +10815,7 @@ func TestNewBreachRetribution(t *testing.T) {
 
 // testNewBreachRetribution takes a channel type and tests the function
 // `NewBreachRetribution`.
-func testNewBreachRetribution(t *testing.T, chanType channeldb.ChannelType) {
+func testNewBreachRetribution(t *testing.T, chanType chanstate.ChannelType) {
 	t.Parallel()
 
 	aliceChannel, bobChannel, err := CreateTestChannels(t, chanType)
@@ -12407,7 +12407,7 @@ func addAuxHtlc(t *testing.T, aliceChannel, bobChannel *LightningChannel,
 // given number of HTLCs offered by Alice and received by Bob. The HTLCs are
 // well above the dust limit, so each of them gets its own commitment output
 // and therefore its own signature.
-func createAuxHtlcChannels(t *testing.T, chanType channeldb.ChannelType,
+func createAuxHtlcChannels(t *testing.T, chanType chanstate.ChannelType,
 	numHtlcs int) (*LightningChannel, *LightningChannel) {
 
 	aliceChannel, bobChannel, err := CreateTestChannels(t, chanType)

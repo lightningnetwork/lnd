@@ -595,7 +595,7 @@ func (c *ChannelArbitrator) progressStateMachineAfterRestart(bestHeight int32,
 // for taproot channels. This ensures that all the resolvers have the latest
 // resolution, which may also include data such as the control block and tap
 // tweaks.
-func maybeAugmentTaprootResolvers(chanType channeldb.ChannelType,
+func maybeAugmentTaprootResolvers(chanType chanstate.ChannelType,
 	resolver ContractResolver,
 	contractResolutions *ContractResolutions) {
 
@@ -2535,7 +2535,7 @@ func (c *ChannelArbitrator) prepContractResolutions(
 
 	// Determine the channel type once before the resolution loop so we
 	// don't repeat the nil check on every iteration.
-	var chanType channeldb.ChannelType
+	var chanType chanstate.ChannelType
 	if chanState != nil {
 		chanType = chanState.ChanType
 	}

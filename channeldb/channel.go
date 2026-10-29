@@ -77,10 +77,6 @@ var (
 	ErrOnionBlobLength = cstate.ErrOnionBlobLength
 )
 
-// ChannelType is an enum-like type that describes one of several possible
-// channel types.
-type ChannelType = cstate.ChannelType
-
 const (
 	// SingleFunderBit represents a channel wherein one party solely funds
 	// the entire capacity of the channel.

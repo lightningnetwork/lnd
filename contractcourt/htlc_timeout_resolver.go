@@ -52,7 +52,7 @@ type htlcTimeoutResolver struct {
 	htlc chanstate.HTLC
 
 	// chanType denotes the type of channel the HTLC belongs to.
-	chanType channeldb.ChannelType
+	chanType chanstate.ChannelType
 
 	// currentReport stores the current state of the resolver for reporting
 	// over the rpc interface. This should only be reported in case we have
@@ -76,7 +76,7 @@ type htlcTimeoutResolver struct {
 // newTimeoutResolver instantiates a new timeout htlc resolver.
 func newTimeoutResolver(res lnwallet.OutgoingHtlcResolution,
 	broadcastHeight uint32, htlc chanstate.HTLC,
-	chanType channeldb.ChannelType,
+	chanType chanstate.ChannelType,
 	resCfg ResolverConfig) *htlcTimeoutResolver {
 
 	h := &htlcTimeoutResolver{

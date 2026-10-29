@@ -4,7 +4,6 @@ import (
 	"github.com/btcsuite/btcd/btcutil/v2"
 	"github.com/btcsuite/btcd/chainhash/v2"
 	"github.com/btcsuite/btcd/wire/v2"
-	"github.com/lightningnetwork/lnd/channeldb"
 	"github.com/lightningnetwork/lnd/chanstate"
 	"github.com/lightningnetwork/lnd/fn/v2"
 	"github.com/lightningnetwork/lnd/input"
@@ -60,7 +59,7 @@ type CommitAuxLeaves struct {
 // is copied over to prevent accidental mutation of the original channel state.
 type AuxChanState struct {
 	// ChanType denotes which type of channel this is.
-	ChanType channeldb.ChannelType
+	ChanType chanstate.ChannelType
 
 	// FundingOutpoint is the outpoint of the final funding transaction.
 	// This value uniquely and globally identifies the channel within the

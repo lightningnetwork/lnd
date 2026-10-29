@@ -4,7 +4,6 @@ import (
 	"github.com/btcsuite/btcd/btcec/v2/schnorr/musig2"
 	"github.com/btcsuite/btcd/btcutil/v2"
 	"github.com/btcsuite/btcd/wire/v2"
-	"github.com/lightningnetwork/lnd/channeldb"
 	"github.com/lightningnetwork/lnd/chanstate"
 	"github.com/lightningnetwork/lnd/fn/v2"
 	"github.com/lightningnetwork/lnd/input"
@@ -23,7 +22,7 @@ type CoopFeeEstimator interface {
 	// channel type, and ideal fee rate. If a passed TxOut is nil, then
 	// that indicates that an output is dust on the co-op close transaction
 	// _before_ fees are accounted for.
-	EstimateFee(chanType channeldb.ChannelType,
+	EstimateFee(chanType chanstate.ChannelType,
 		localTxOut, remoteTxOut *wire.TxOut,
 		extraTxOuts []*wire.TxOut,
 		idealFeeRate chainfee.SatPerKWeight) btcutil.Amount
@@ -62,7 +61,7 @@ type Channel interface { //nolint:interfacebloat
 	ShortChanID() lnwire.ShortChannelID
 
 	// ChanType returns the channel type of the channel.
-	ChanType() channeldb.ChannelType
+	ChanType() chanstate.ChannelType
 
 	// FundingTxOut returns the funding output of the channel.
 	FundingTxOut() *wire.TxOut

@@ -138,7 +138,7 @@ func (c *chanDBRestorer) openChannelShell(backup chanbackup.Single) (
 
 	shaChainProducer := shachain.NewRevocationProducer(*revRoot)
 
-	var chanType channeldb.ChannelType
+	var chanType chanstate.ChannelType
 	switch backup.Version {
 	case chanbackup.DefaultSingleVersion:
 		chanType = channeldb.SingleFunderBit

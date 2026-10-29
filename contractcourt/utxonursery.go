@@ -404,7 +404,7 @@ func (u *UtxoNursery) Stop() error {
 type IncubateConfig struct {
 	// chanType is the channel type, used to determine which witness type
 	// to select for taproot channels.
-	chanType fn.Option[channeldb.ChannelType]
+	chanType fn.Option[chanstate.ChannelType]
 }
 
 // IncubateOption is a functional option that can be used to modify the behavior
@@ -414,7 +414,7 @@ type IncubateOption func(*IncubateConfig)
 // WithChanType returns an IncubateOption that sets the channel type for the
 // incubation request, enabling correct witness type selection for production
 // taproot channels.
-func WithChanType(ct channeldb.ChannelType) IncubateOption {
+func WithChanType(ct chanstate.ChannelType) IncubateOption {
 	return func(cfg *IncubateConfig) {
 		cfg.chanType = fn.Some(ct)
 	}

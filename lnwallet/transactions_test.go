@@ -204,7 +204,7 @@ func TestCommitmentAndHTLCTransactions(t *testing.T) {
 	vectorSets := []struct {
 		name     string
 		jsonFile string
-		chanType channeldb.ChannelType
+		chanType chanstate.ChannelType
 	}{
 		{
 			name:     "legacy",
@@ -300,7 +300,7 @@ func addTestHtlcs(t *testing.T, remote, local *LightningChannel,
 // testVectors executes a commit dance to end up with the commitment transaction
 // that is described in the test vectors and then asserts that all values are
 // correct.
-func testVectors(t *testing.T, chanType channeldb.ChannelType, test testCase) {
+func testVectors(t *testing.T, chanType chanstate.ChannelType, test testCase) {
 	tc := newTestContext(t)
 
 	// Determine which htlc set to use.
@@ -807,7 +807,7 @@ func (p *mockProducer) Encode(w io.Writer) error {
 
 // createTestChannelsForVectors creates two LightningChannel instances for the
 // test channel that is used to verify the test vectors.
-func createTestChannelsForVectors(tc *testContext, chanType channeldb.ChannelType,
+func createTestChannelsForVectors(tc *testContext, chanType chanstate.ChannelType,
 	feeRate btcutil.Amount, remoteBalance, localBalance btcutil.Amount) (
 	*LightningChannel, *LightningChannel) {
 

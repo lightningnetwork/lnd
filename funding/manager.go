@@ -4596,7 +4596,7 @@ func (f *Manager) newChanAnnouncement(localPubKey,
 	remoteFundingKey *btcec.PublicKey, shortChanID lnwire.ShortChannelID,
 	chanID lnwire.ChannelID, fwdMinHTLC, fwdMaxHTLC lnwire.MilliSatoshi,
 	ourPolicy *models.ChannelEdgePolicy,
-	chanType channeldb.ChannelType) (*chanAnnouncement, error) {
+	chanType chanstate.ChannelType) (*chanAnnouncement, error) {
 
 	chainHash := *f.cfg.Wallet.Cfg.NetParams.GenesisHash
 
@@ -4802,7 +4802,7 @@ func (f *Manager) newChanAnnouncement(localPubKey,
 func (f *Manager) announceChannel(localIDKey, remoteIDKey *btcec.PublicKey,
 	localFundingKey *keychain.KeyDescriptor,
 	remoteFundingKey *btcec.PublicKey, shortChanID lnwire.ShortChannelID,
-	chanID lnwire.ChannelID, chanType channeldb.ChannelType) error {
+	chanID lnwire.ChannelID, chanType chanstate.ChannelType) error {
 
 	// First, we'll create the batch of announcements to be sent upon
 	// initial channel creation. This includes the channel announcement

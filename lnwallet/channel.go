@@ -320,7 +320,7 @@ func locateOutputIndex(p *paymentDescriptor, tx *wire.MsgTx,
 // we need to keep track of the indexes of each HTLC in order to properly write
 // the current state to disk, and also to locate the paymentDescriptor
 // corresponding to HTLC outputs in the commitment transaction.
-func (c *commitment) populateHtlcIndexes(chanType channeldb.ChannelType,
+func (c *commitment) populateHtlcIndexes(chanType chanstate.ChannelType,
 	cltvs []uint32) error {
 
 	// First, we'll set up some state to allow us to locate the output
@@ -2098,7 +2098,7 @@ type BreachRetribution struct {
 	// ChanType is the channel type of the breached channel, used to
 	// determine whether production taproot scripts should be used when
 	// constructing justice transactions.
-	ChanType channeldb.ChannelType
+	ChanType chanstate.ChannelType
 }
 
 // NewBreachRetribution creates a new fully populated BreachRetribution for the
@@ -2751,7 +2751,7 @@ func createBreachRetributionLegacy(revokedLog *chanstate.ChannelCommitment,
 // required as we currently used second-level HTLC transactions as off-chain
 // covenants. Depending on the two bits, we'll either be using a timeout or
 // success transaction which have different weights.
-func HtlcIsDust(chanType channeldb.ChannelType,
+func HtlcIsDust(chanType chanstate.ChannelType,
 	incoming bool, whoseCommit lntypes.ChannelParty,
 	feePerKw chainfee.SatPerKWeight, htlcAmt, dustLimit btcutil.Amount,
 ) bool {
@@ -7495,7 +7495,7 @@ func newOutgoingHtlcResolution(signer input.Signer,
 	commitTxHeight uint32, htlc *chanstate.HTLC, keyRing *CommitmentKeyRing,
 	feePerKw chainfee.SatPerKWeight, csvDelay, leaseExpiry uint32,
 	whoseCommit lntypes.ChannelParty, isCommitFromInitiator bool,
-	chanType channeldb.ChannelType, chanState *chanstate.OpenChannel,
+	chanType chanstate.ChannelType, chanState *chanstate.OpenChannel,
 	auxLeaves fn.Option[CommitAuxLeaves],
 	auxResolver fn.Option[AuxContractResolver],
 ) (*OutgoingHtlcResolution, error) {
@@ -7869,7 +7869,7 @@ func newIncomingHtlcResolution(signer input.Signer,
 	commitTxHeight uint32, htlc *chanstate.HTLC, keyRing *CommitmentKeyRing,
 	feePerKw chainfee.SatPerKWeight, csvDelay, leaseExpiry uint32,
 	whoseCommit lntypes.ChannelParty, isCommitFromInitiator bool,
-	chanType channeldb.ChannelType, chanState *chanstate.OpenChannel,
+	chanType chanstate.ChannelType, chanState *chanstate.OpenChannel,
 	auxLeaves fn.Option[CommitAuxLeaves],
 	auxResolver fn.Option[AuxContractResolver],
 ) (*IncomingHtlcResolution, error) {
@@ -8253,7 +8253,7 @@ func extractHtlcResolutions(feePerKw chainfee.SatPerKWeight,
 	htlcs []chanstate.HTLC, keyRing *CommitmentKeyRing,
 	localChanCfg, remoteChanCfg *chanstate.ChannelConfig,
 	commitTx *wire.MsgTx, commitTxHeight uint32,
-	chanType channeldb.ChannelType, isCommitFromInitiator bool,
+	chanType chanstate.ChannelType, isCommitFromInitiator bool,
 	leaseExpiry uint32, chanState *chanstate.OpenChannel,
 	auxLeaves fn.Option[CommitAuxLeaves],
 	auxResolver fn.Option[AuxContractResolver]) (*HtlcResolutions, error) {
@@ -10392,7 +10392,7 @@ func (lc *LightningChannel) InitRemoteMusigNonces(remoteNonce *musig2.Nonces,
 }
 
 // ChanType returns the channel type.
-func (lc *LightningChannel) ChanType() channeldb.ChannelType {
+func (lc *LightningChannel) ChanType() chanstate.ChannelType {
 	lc.RLock()
 	defer lc.RUnlock()
 
@@ -10480,7 +10480,7 @@ func (lc *LightningChannel) ZeroConfRealScid() fn.Option[lnwire.ShortChannelID] 
 // HTLC to the channel. If the channel has a tapscript root and the HTLC carries
 // the NoOp bit in the custom records then we'll convert this to a NoOp add.
 func (lc *LightningChannel) entryTypeForHtlc(records lnwire.CustomRecords,
-	chanType channeldb.ChannelType) updateType {
+	chanType chanstate.ChannelType) updateType {
 
 	noopTLV := uint64(NoOpHtlcTLVEntry.TypeVal())
 	_, noopFlag := records[noopTLV]

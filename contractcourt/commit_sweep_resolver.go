@@ -61,7 +61,7 @@ type commitSweepResolver struct {
 	leaseExpiry uint32
 
 	// chanType denotes the type of channel the contract belongs to.
-	chanType channeldb.ChannelType
+	chanType chanstate.ChannelType
 
 	// currentReport stores the current state of the resolver for reporting
 	// over the rpc interface.

@@ -43,7 +43,7 @@ type htlcIncomingContestResolver struct {
 // newIncomingContestResolver instantiates a new incoming htlc contest resolver.
 func newIncomingContestResolver(
 	res lnwallet.IncomingHtlcResolution, broadcastHeight uint32,
-	htlc chanstate.HTLC, chanType channeldb.ChannelType,
+	htlc chanstate.HTLC, chanType chanstate.ChannelType,
 	resCfg ResolverConfig) *htlcIncomingContestResolver {
 
 	success := newSuccessResolver(

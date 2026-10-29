@@ -393,7 +393,7 @@ func NewChannelReservation(capacity, localFundingAmt btcutil.Amount,
 
 	// Next we'll set the channel type based on what we can ascertain about
 	// the balances/push amount within the channel.
-	var chanType channeldb.ChannelType
+	var chanType chanstate.ChannelType
 
 	// If either of the balances are zero at this point, or we have a
 	// non-zero push amt (there's no pushing for dual funder), then this is

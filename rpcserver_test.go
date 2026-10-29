@@ -6,6 +6,7 @@ import (
 	"time"
 
 	"github.com/lightningnetwork/lnd/channeldb"
+	"github.com/lightningnetwork/lnd/chanstate"
 	"github.com/lightningnetwork/lnd/fn/v2"
 	"github.com/lightningnetwork/lnd/lnrpc"
 	"github.com/lightningnetwork/lnd/signal"
@@ -109,7 +110,7 @@ func TestStopDaemonBeforeRPCStartup(t *testing.T) {
 func TestRpcCommitmentType(t *testing.T) {
 	tests := []struct {
 		name     string
-		chanType channeldb.ChannelType
+		chanType chanstate.ChannelType
 		want     lnrpc.CommitmentType
 	}{
 		{

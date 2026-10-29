@@ -127,7 +127,7 @@ func SetTestChannelDBRegistrar(registrar func(*chanstate.OpenChannel,
 // allocated to each side. Within the channel, Alice is the initiator. If
 // tweaklessCommits is true, then the commits within the channels will use the
 // new format, otherwise the legacy format.
-func CreateTestChannels(t *testing.T, chanType channeldb.ChannelType,
+func CreateTestChannels(t *testing.T, chanType chanstate.ChannelType,
 	dbModifiers ...channeldb.OptionModifier) (*LightningChannel,
 	*LightningChannel, error) {
 
@@ -144,7 +144,7 @@ func CreateTestChannels(t *testing.T, chanType channeldb.ChannelType,
 
 // createTestChannels creates a pair of test channels with a configurable
 // capacity, initiator balance before fees and commitment fee rate.
-func createTestChannels(t *testing.T, chanType channeldb.ChannelType,
+func createTestChannels(t *testing.T, chanType chanstate.ChannelType,
 	channelCapacity, aliceBalanceBeforeFees btcutil.Amount,
 	feePerKw chainfee.SatPerKWeight,
 	dbModifiers ...channeldb.OptionModifier) (*LightningChannel,
@@ -563,7 +563,7 @@ func txFromHex(txHex string) (*btcutil.Tx, error) {
 // calculations into account.
 //
 // TODO(bvu): Refactor when dynamic fee estimation is added.
-func calcStaticFee(chanType channeldb.ChannelType, numHTLCs int) btcutil.Amount {
+func calcStaticFee(chanType chanstate.ChannelType, numHTLCs int) btcutil.Amount {
 	const (
 		htlcWeight = 172
 		feePerKw   = btcutil.Amount(24/4) * 1000

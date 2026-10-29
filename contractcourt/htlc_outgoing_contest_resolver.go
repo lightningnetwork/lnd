@@ -4,7 +4,6 @@ import (
 	"io"
 
 	"github.com/btcsuite/btcd/btcutil/v2"
-	"github.com/lightningnetwork/lnd/channeldb"
 	"github.com/lightningnetwork/lnd/chanstate"
 	"github.com/lightningnetwork/lnd/fn/v2"
 	"github.com/lightningnetwork/lnd/lnwallet"
@@ -25,7 +24,7 @@ type htlcOutgoingContestResolver struct {
 // resolver.
 func newOutgoingContestResolver(res lnwallet.OutgoingHtlcResolution,
 	broadcastHeight uint32, htlc chanstate.HTLC,
-	chanType channeldb.ChannelType,
+	chanType chanstate.ChannelType,
 	resCfg ResolverConfig) *htlcOutgoingContestResolver {
 
 	timeout := newTimeoutResolver(

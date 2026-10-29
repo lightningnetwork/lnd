@@ -62,7 +62,7 @@ type htlcSuccessResolver struct {
 	htlc chanstate.HTLC
 
 	// chanType denotes the type of channel the HTLC belongs to.
-	chanType channeldb.ChannelType
+	chanType chanstate.ChannelType
 
 	// currentReport stores the current state of the resolver for reporting
 	// over the rpc interface. This should only be reported in case we have
@@ -81,7 +81,7 @@ type htlcSuccessResolver struct {
 // newSuccessResolver instanties a new htlc success resolver.
 func newSuccessResolver(res lnwallet.IncomingHtlcResolution,
 	broadcastHeight uint32, htlc chanstate.HTLC,
-	chanType channeldb.ChannelType,
+	chanType chanstate.ChannelType,
 	resCfg ResolverConfig) *htlcSuccessResolver {
 
 	h := &htlcSuccessResolver{

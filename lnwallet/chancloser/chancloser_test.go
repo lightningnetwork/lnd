@@ -145,7 +145,7 @@ type mockChannel struct {
 	chanPoint wire.OutPoint
 	initiator bool
 	scid      lnwire.ShortChannelID
-	chanType  channeldb.ChannelType
+	chanType  chanstate.ChannelType
 	localKey  keychain.KeyDescriptor
 	remoteKey keychain.KeyDescriptor
 
@@ -235,7 +235,7 @@ func (m *mockChannel) CommitFee() btcutil.Amount {
 	return 0
 }
 
-func (m *mockChannel) ChanType() channeldb.ChannelType {
+func (m *mockChannel) ChanType() chanstate.ChannelType {
 	return m.chanType
 }
 
@@ -361,7 +361,7 @@ type mockCoopFeeEstimator struct {
 	targetFee btcutil.Amount
 }
 
-func (m *mockCoopFeeEstimator) EstimateFee(chanType channeldb.ChannelType,
+func (m *mockCoopFeeEstimator) EstimateFee(chanType chanstate.ChannelType,
 	localTxOut, remoteTxOut *wire.TxOut, extraTxOuts []*wire.TxOut,
 	idealFeeRate chainfee.SatPerKWeight) btcutil.Amount {
 

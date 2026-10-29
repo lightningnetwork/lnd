@@ -1556,7 +1556,7 @@ func TestIncubateConfigWitnessTypeSelection(t *testing.T) {
 		pkScript []byte
 
 		// chanType to pass via WithChanType.
-		chanType channeldb.ChannelType
+		chanType chanstate.ChannelType
 
 		// Expected witness types for incoming and outgoing-remote.
 		expectedIncoming input.StandardWitnessType

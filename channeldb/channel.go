@@ -253,22 +253,6 @@ const (
 	Abandoned = cstate.Abandoned
 )
 
-func serializeChannelCloseSummary(w io.Writer,
-	cs *cstate.ChannelCloseSummary) error {
-
-	return cstate.SerializeChannelCloseSummary(w, cs)
-}
-
-func deserializeCloseChannelSummary(r io.Reader) (
-	*cstate.ChannelCloseSummary, error) {
-
-	return cstate.DeserializeCloseChannelSummary(r)
-}
-
-func serializeChanCommit(w io.Writer, c *cstate.ChannelCommitment) error {
-	return cstate.SerializeChanCommit(w, c)
-}
-
 // makeLogKey converts a uint64 into an 8 byte array.
 //
 // TODO(chanstate): remove together with the deprecated revocation log

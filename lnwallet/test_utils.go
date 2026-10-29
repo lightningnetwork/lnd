@@ -563,7 +563,9 @@ func txFromHex(txHex string) (*btcutil.Tx, error) {
 // calculations into account.
 //
 // TODO(bvu): Refactor when dynamic fee estimation is added.
-func calcStaticFee(chanType chanstate.ChannelType, numHTLCs int) btcutil.Amount {
+func calcStaticFee(
+	chanType chanstate.ChannelType, numHTLCs int) btcutil.Amount {
+
 	const (
 		htlcWeight = 172
 		feePerKw   = btcutil.Amount(24/4) * 1000

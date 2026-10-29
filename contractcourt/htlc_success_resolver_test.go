@@ -1339,7 +1339,9 @@ func testHtlcSuccess(t *testing.T, resolution lnwallet.IncomingHtlcResolution,
 	for i := range checkpointedState {
 		cp := bytes.NewReader(checkpointedState[i])
 		ctx := newHtlcResolverTestContext(t,
-			func(htlc chanstate.HTLC, cfg ResolverConfig) ContractResolver {
+			func(htlc chanstate.HTLC,
+				cfg ResolverConfig) ContractResolver {
+
 				resolver, err := newSuccessResolverFromReader(cp, cfg)
 				if err != nil {
 					t.Fatal(err)

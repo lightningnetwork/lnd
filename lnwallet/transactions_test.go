@@ -807,7 +807,8 @@ func (p *mockProducer) Encode(w io.Writer) error {
 
 // createTestChannelsForVectors creates two LightningChannel instances for the
 // test channel that is used to verify the test vectors.
-func createTestChannelsForVectors(tc *testContext, chanType chanstate.ChannelType,
+func createTestChannelsForVectors(
+	tc *testContext, chanType chanstate.ChannelType,
 	feeRate btcutil.Amount, remoteBalance, localBalance btcutil.Amount) (
 	*LightningChannel, *LightningChannel) {
 

@@ -454,10 +454,12 @@ func createNurseryTestContext(t *testing.T,
 		Notifier: notifier,
 		FetchClosedChannels: func(pendingOnly bool) (
 			[]*chanstate.ChannelCloseSummary, error) {
+
 			return []*chanstate.ChannelCloseSummary{}, nil
 		},
 		FetchClosedChannel: func(chanID *wire.OutPoint) (
 			*chanstate.ChannelCloseSummary, error) {
+
 			return &chanstate.ChannelCloseSummary{
 				CloseHeight: 0,
 			}, nil

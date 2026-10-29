@@ -1285,9 +1285,9 @@ func (lc *LightningChannel) logUpdateToPayDesc(logUpdate *chanstate.LogUpdate,
 // commitment is expected to be provided and we restore all log update entries
 // with this height, even though the real height may be lower. In the way these
 // fields are used elsewhere, this doesn't change anything.
-func (lc *LightningChannel) localLogUpdateToPayDesc(logUpdate *chanstate.LogUpdate,
-	remoteUpdateLog *updateLog, commitHeight uint64) (*paymentDescriptor,
-	error) {
+func (lc *LightningChannel) localLogUpdateToPayDesc(
+	logUpdate *chanstate.LogUpdate, remoteUpdateLog *updateLog,
+	commitHeight uint64) (*paymentDescriptor, error) {
 
 	// Since Add updates aren't saved to disk under this key, the update will
 	// never be an Add.
@@ -1380,9 +1380,9 @@ func (lc *LightningChannel) localLogUpdateToPayDesc(logUpdate *chanstate.LogUpda
 // log update entries with this height, even though the real commitment height
 // may be lower. In the way these fields are used elsewhere, this doesn't change
 // anything.
-func (lc *LightningChannel) remoteLogUpdateToPayDesc(logUpdate *chanstate.LogUpdate,
-	localUpdateLog *updateLog, commitHeight uint64) (*paymentDescriptor,
-	error) {
+func (lc *LightningChannel) remoteLogUpdateToPayDesc(
+	logUpdate *chanstate.LogUpdate, localUpdateLog *updateLog,
+	commitHeight uint64) (*paymentDescriptor, error) {
 
 	switch wireMsg := logUpdate.UpdateMsg.(type) {
 	case *lnwire.UpdateAddHTLC:
@@ -1502,7 +1502,8 @@ func (lc *LightningChannel) remoteLogUpdateToPayDesc(logUpdate *chanstate.LogUpd
 // to re-sync states with the remote party, and also verify/extend new proposed
 // commitment states.
 func (lc *LightningChannel) restoreCommitState(
-	localCommitState, remoteCommitState *chanstate.ChannelCommitment) error {
+	localCommitState *chanstate.ChannelCommitment,
+	remoteCommitState *chanstate.ChannelCommitment) error {
 
 	// In order to reconstruct the pkScripts on each of the pending HTLC
 	// outputs (if any) we'll need to regenerate the current revocation for
@@ -1859,7 +1860,8 @@ func (lc *LightningChannel) restorePendingRemoteUpdates(
 
 // restorePeerLocalUpdates restores the acked local log updates the peer still
 // needs to sign for.
-func (lc *LightningChannel) restorePeerLocalUpdates(updates []chanstate.LogUpdate,
+func (lc *LightningChannel) restorePeerLocalUpdates(
+	updates []chanstate.LogUpdate,
 	remoteCommitmentHeight uint64) error {
 
 	lc.log.Debugf("Restoring %v local updates that the peer should sign",

@@ -1477,7 +1477,9 @@ func (s *Switch) closeCircuit(pkt *htlcPacket) (*PaymentCircuit, error) {
 // forwarding package of the outgoing link for a payment circuit. We do this if
 // we're the originator of the payment, so the link stops attempting to
 // re-broadcast.
-func (s *Switch) ackSettleFail(settleFailRefs ...chanstate.SettleFailRef) error {
+func (s *Switch) ackSettleFail(
+	settleFailRefs ...chanstate.SettleFailRef) error {
+
 	return kvdb.Batch(s.cfg.DB, func(tx kvdb.RwTx) error {
 		return s.cfg.SwitchPackager.AckSettleFails(tx, settleFailRefs...)
 	})
@@ -2071,7 +2073,8 @@ func (s *Switch) reforwardResponses() error {
 
 // loadChannelFwdPkgs loads all forwarding packages owned by the `source` short
 // channel identifier.
-func (s *Switch) loadChannelFwdPkgs(source lnwire.ShortChannelID) ([]*chanstate.FwdPkg, error) {
+func (s *Switch) loadChannelFwdPkgs(source lnwire.ShortChannelID) (
+	[]*chanstate.FwdPkg, error) {
 
 	var fwdPkgs []*chanstate.FwdPkg
 	if err := kvdb.View(s.cfg.DB, func(tx kvdb.RTx) error {

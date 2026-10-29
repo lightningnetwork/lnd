@@ -2734,7 +2734,8 @@ func TestRemoteCloseInitiator(t *testing.T) {
 						TxOut: []*wire.TxOut{},
 					},
 				},
-				ChannelCloseSummary: chanstate.ChannelCloseSummary{
+				ChannelCloseSummary: chanstate.
+					ChannelCloseSummary{
 					ChanPoint:         channel.FundingOutpoint,
 					RemotePub:         channel.IdentityPub,
 					SettledBalance:    btcutil.Amount(500),

@@ -767,7 +767,9 @@ func TestCommitSetStorage(t *testing.T) {
 		for _, confType := range confTypes {
 			commitSet := &CommitSet{
 				ConfCommitKey: fn.Some(confType),
-				HtlcSets:      make(map[HtlcSetKey][]chanstate.HTLC),
+				HtlcSets: make(
+					map[HtlcSetKey][]chanstate.HTLC,
+				),
 			}
 			commitSet.HtlcSets[LocalHtlcSet] = activeHTLCs
 			commitSet.HtlcSets[RemoteHtlcSet] = activeHTLCs

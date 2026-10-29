@@ -1428,7 +1428,9 @@ func testHtlcTimeout(t *testing.T, resolution lnwallet.OutgoingHtlcResolution,
 	for i := range checkpointedState {
 		cp := bytes.NewReader(checkpointedState[i])
 		ctx := newHtlcResolverTestContextFromReader(t,
-			func(htlc chanstate.HTLC, cfg ResolverConfig) ContractResolver {
+			func(htlc chanstate.HTLC,
+				cfg ResolverConfig) ContractResolver {
+
 				resolver, err := newTimeoutResolverFromReader(cp, cfg)
 				if err != nil {
 					t.Fatal(err)

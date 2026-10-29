@@ -33,47 +33,12 @@ var (
 	ErrOutputIndexTooBig = cstate.ErrOutputIndexTooBig
 )
 
-// putRevocationLog uses the fields `CommitTx` and `Htlcs` from a
-// ChannelCommitment to construct a revocation log entry and saves them to
-// disk. It also saves our output index and their output index, which are
-// useful when creating breach retribution.
-func putRevocationLog(bucket kvdb.RwBucket, commit *cstate.ChannelCommitment,
-	ourOutputIndex, theirOutputIndex uint32, noAmtData bool) error {
-
-	return cstate.PutRevocationLog(
-		bucket, commit, ourOutputIndex, theirOutputIndex, noAmtData,
-	)
-}
-
 // fetchRevocationLog queries the revocation log bucket to find an log entry.
 // Return an error if not found.
 func fetchRevocationLog(log kvdb.RBucket,
 	updateNum uint64) (cstate.RevocationLog, error) {
 
 	return cstate.FetchRevocationLog(log, updateNum)
-}
-
-// serializeRevocationLog serializes a RevocationLog record based on tlv
-// format.
-func serializeRevocationLog(w io.Writer, rl *cstate.RevocationLog) error {
-	return cstate.SerializeRevocationLog(w, rl)
-}
-
-// serializeHTLCEntries serializes a list of HTLCEntry records based on tlv
-// format.
-func serializeHTLCEntries(w io.Writer, htlcs []*cstate.HTLCEntry) error {
-	return cstate.SerializeHTLCEntries(w, htlcs)
-}
-
-// deserializeRevocationLog deserializes a RevocationLog based on tlv format.
-func deserializeRevocationLog(r io.Reader) (cstate.RevocationLog, error) {
-	return cstate.DeserializeRevocationLog(r)
-}
-
-// deserializeHTLCEntries deserializes a list of HTLC entries based on tlv
-// format.
-func deserializeHTLCEntries(r io.Reader) ([]*cstate.HTLCEntry, error) {
-	return cstate.DeserializeHTLCEntries(r)
 }
 
 // writeTlvStream is a helper function that encodes the tlv stream into the

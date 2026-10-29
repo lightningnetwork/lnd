@@ -104,9 +104,11 @@ type CommitmentKeyRing struct {
 // and commitment point. The keys are derived differently depending on the type
 // of channel, and whether the commitment transaction is ours or the remote
 // peer's.
-func DeriveCommitmentKeys(commitPoint *btcec.PublicKey,
-	whoseCommit lntypes.ChannelParty, chanType chanstate.ChannelType,
-	localChanCfg, remoteChanCfg *chanstate.ChannelConfig) *CommitmentKeyRing {
+func DeriveCommitmentKeys(
+	commitPoint *btcec.PublicKey, whoseCommit lntypes.ChannelParty,
+	chanType chanstate.ChannelType,
+	localChanCfg, remoteChanCfg *chanstate.ChannelConfig,
+) *CommitmentKeyRing {
 
 	tweaklessCommit := chanType.IsTweakless()
 
@@ -388,8 +390,10 @@ func HtlcSigHashType(chanType chanstate.ChannelType) txscript.SigHashType {
 
 // HtlcSignDetails converts the passed parameters to a SignDetails valid for
 // this channel type. For non-anchor channels this will return nil.
-func HtlcSignDetails(chanType chanstate.ChannelType, signDesc input.SignDescriptor,
-	sigHash txscript.SigHashType, peerSig input.Signature) *input.SignDetails {
+func HtlcSignDetails(
+	chanType chanstate.ChannelType, signDesc input.SignDescriptor,
+	sigHash txscript.SigHashType,
+	peerSig input.Signature) *input.SignDetails {
 
 	// Non-anchor channels don't need sign details, as the HTLC second
 	// level cannot be altered.

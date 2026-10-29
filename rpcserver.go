@@ -4961,6 +4961,7 @@ func rpcCommitmentType(chanType chanstate.ChannelType) lnrpc.CommitmentType {
 // *Channeldb.ChannelConfig.
 func createChannelConstraint(
 	chanCfg *chanstate.ChannelConfig) *lnrpc.ChannelConstraints {
+
 	return &lnrpc.ChannelConstraints{
 		CsvDelay:          uint32(chanCfg.CsvDelay),
 		ChanReserveSat:    uint64(chanCfg.ChanReserve),

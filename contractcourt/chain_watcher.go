@@ -1294,7 +1294,7 @@ func (c *chainWatcher) toSelfAmount(tx *wire.MsgTx) btcutil.Amount {
 	// coop-close cases can be identified in the following manner:
 	shutdown, _ := c.cfg.chanState.ShutdownInfo()
 	oDeliveryAddr := fn.MapOption(
-		func(i channeldb.ShutdownInfo) lnwire.DeliveryAddress {
+		func(i chanstate.ShutdownInfo) lnwire.DeliveryAddress {
 			return i.DeliveryScript.Val
 		})(shutdown)
 
@@ -1379,7 +1379,7 @@ func (c *chainWatcher) finalizeCoopClose(aux AuxChanCloser,
 
 	// Get the delivery scripts for the local party.
 	var localDeliveryScript lnwire.DeliveryAddress
-	shutdown.WhenSome(func(s channeldb.ShutdownInfo) {
+	shutdown.WhenSome(func(s chanstate.ShutdownInfo) {
 		localDeliveryScript = s.DeliveryScript.Val
 	})
 

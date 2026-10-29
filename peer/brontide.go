@@ -1453,7 +1453,7 @@ func (p *Brontide) loadActiveChannels(chans []*chanstate.OpenChannel) (
 			shutdownMsg     fn.Option[lnwire.Shutdown]
 			shutdownInfoErr error
 		)
-		shutdownInfo.WhenSome(func(info channeldb.ShutdownInfo) {
+		shutdownInfo.WhenSome(func(info chanstate.ShutdownInfo) {
 			// If we can use the new RBF close feature for this
 			// channel, we don't need to create the legacy closer.
 			if p.rbfCoopCloseAllowed(dbChan.ChanType) {
@@ -1554,7 +1554,7 @@ func (p *Brontide) loadActiveChannels(chans []*chanstate.OpenChannel) (
 		// If the shutdown info isn't blank, then we should kick things
 		// off by sending a shutdown message to the remote party to
 		// continue the old shutdown flow.
-		restartShutdown := func(s channeldb.ShutdownInfo) error {
+		restartShutdown := func(s chanstate.ShutdownInfo) error {
 			return p.startRbfChanCloser(
 				newRestartShutdownInit(s),
 				lnChan.ChannelPoint(),
@@ -4107,7 +4107,7 @@ func (p *Brontide) restartCoopClose(lnChan *lnwallet.LightningChannel) (
 	// We have previously stored the delivery script that we need to use
 	// in the shutdown message. Re-use this script.
 	case err == nil:
-		shutdownInfo.WhenSome(func(info channeldb.ShutdownInfo) {
+		shutdownInfo.WhenSome(func(info chanstate.ShutdownInfo) {
 			deliveryScript = info.DeliveryScript.Val
 		})
 
@@ -4796,14 +4796,14 @@ func (p *Brontide) initRbfChanCloser(
 // party (for w/e reason), but crashed before the close was complete.
 //
 //nolint:ll
-type shutdownInit = fn.Option[fn.Either[*htlcswitch.ChanClose, channeldb.ShutdownInfo]]
+type shutdownInit = fn.Option[fn.Either[*htlcswitch.ChanClose, chanstate.ShutdownInfo]]
 
 // shutdownStartFeeRate returns the fee rate that should be used for the
 // shutdown.  This returns a doubly wrapped option as the shutdown info might
 // be none, and the fee rate is only defined for the user initiated shutdown.
 func shutdownStartFeeRate(s shutdownInit) fn.Option[chainfee.SatPerKWeight] {
 	feeRateOpt := fn.MapOption(func(init fn.Either[*htlcswitch.ChanClose,
-		channeldb.ShutdownInfo]) fn.Option[chainfee.SatPerKWeight] {
+		chanstate.ShutdownInfo]) fn.Option[chainfee.SatPerKWeight] {
 
 		var feeRate fn.Option[chainfee.SatPerKWeight]
 		init.WhenLeft(func(req *htlcswitch.ChanClose) {
@@ -4821,7 +4821,7 @@ func shutdownStartFeeRate(s shutdownInit) fn.Option[chainfee.SatPerKWeight] {
 // restarted, and the user didn't initiate one either, then None is returned.
 func shutdownStartAddr(s shutdownInit) fn.Option[lnwire.DeliveryAddress] {
 	addrOpt := fn.MapOption(func(init fn.Either[*htlcswitch.ChanClose,
-		channeldb.ShutdownInfo]) fn.Option[lnwire.DeliveryAddress] {
+		chanstate.ShutdownInfo]) fn.Option[lnwire.DeliveryAddress] {
 
 		var addr fn.Option[lnwire.DeliveryAddress]
 		init.WhenLeft(func(req *htlcswitch.ChanClose) {
@@ -4829,7 +4829,7 @@ func shutdownStartAddr(s shutdownInit) fn.Option[lnwire.DeliveryAddress] {
 				addr = fn.Some(req.DeliveryScript)
 			}
 		})
-		init.WhenRight(func(info channeldb.ShutdownInfo) {
+		init.WhenRight(func(info chanstate.ShutdownInfo) {
 			addr = fn.Some(info.DeliveryScript.Val)
 		})
 
@@ -4843,7 +4843,7 @@ func shutdownStartAddr(s shutdownInit) fn.Option[lnwire.DeliveryAddress] {
 // type is and RPC request.
 func whenRPCShutdown(s shutdownInit, f func(r *htlcswitch.ChanClose)) {
 	s.WhenSome(func(init fn.Either[*htlcswitch.ChanClose,
-		channeldb.ShutdownInfo]) {
+		chanstate.ShutdownInfo]) {
 
 		init.WhenLeft(f)
 	})
@@ -4851,7 +4851,7 @@ func whenRPCShutdown(s shutdownInit, f func(r *htlcswitch.ChanClose)) {
 
 // newRestartShutdownInit creates a new shutdownInit for the case where we need
 // to restart the shutdown flow after a restart.
-func newRestartShutdownInit(info channeldb.ShutdownInfo) shutdownInit {
+func newRestartShutdownInit(info chanstate.ShutdownInfo) shutdownInit {
 	return fn.Some(fn.NewRight[*htlcswitch.ChanClose](info))
 }
 
@@ -4859,7 +4859,7 @@ func newRestartShutdownInit(info channeldb.ShutdownInfo) shutdownInit {
 // initiated the shutdown via an RPC client.
 func newRPCShutdownInit(req *htlcswitch.ChanClose) shutdownInit {
 	return fn.Some(
-		fn.NewLeft[*htlcswitch.ChanClose, channeldb.ShutdownInfo](req),
+		fn.NewLeft[*htlcswitch.ChanClose, chanstate.ShutdownInfo](req),
 	)
 }
 

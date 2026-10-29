@@ -325,13 +325,9 @@ func DKeyLocator(r io.Reader, val interface{}, buf *[8]byte, l uint64) error {
 	return cstate.DKeyLocator(r, val, buf, l)
 }
 
-// ShutdownInfo contains various info about the shutdown initiation of a
-// channel.
-type ShutdownInfo = cstate.ShutdownInfo
-
 // NewShutdownInfo constructs a new ShutdownInfo object.
 func NewShutdownInfo(deliveryScript lnwire.DeliveryAddress,
-	locallyInitiated bool) *ShutdownInfo {
+	locallyInitiated bool) *cstate.ShutdownInfo {
 
 	return cstate.NewShutdownInfo(deliveryScript, locallyInitiated)
 }

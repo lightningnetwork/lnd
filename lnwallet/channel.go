@@ -10231,7 +10231,7 @@ func (lc *LightningChannel) MarkCoopBroadcasted(tx *wire.MsgTx,
 // ShutdownInfo represents the fact that the Shutdown message has been sent by
 // us and so should be re-sent on re-establish.
 func (lc *LightningChannel) MarkShutdownSent(
-	info *channeldb.ShutdownInfo) error {
+	info *chanstate.ShutdownInfo) error {
 
 	lc.Lock()
 	defer lc.Unlock()

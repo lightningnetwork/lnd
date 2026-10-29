@@ -8,7 +8,6 @@ import (
 
 	"github.com/btcsuite/btcd/btcutil/v2"
 	"github.com/btcsuite/btcd/wire/v2"
-	"github.com/lightningnetwork/lnd/channeldb"
 	"github.com/lightningnetwork/lnd/chanstate"
 	"github.com/lightningnetwork/lnd/fwdresponse"
 	"github.com/lightningnetwork/lnd/htlcswitch"
@@ -458,7 +457,7 @@ func serializeChannelCloseSummary(
 	w io.Writer,
 	cs *chanstate.ChannelCloseSummary) error {
 
-	err := channeldb.WriteElements(
+	err := chanstate.WriteElements(
 		w,
 		cs.ChanPoint, cs.ShortChanID, cs.ChainHash, cs.ClosingTXID,
 		cs.CloseHeight, cs.RemotePub, cs.Capacity, cs.SettledBalance,
@@ -471,7 +470,7 @@ func serializeChannelCloseSummary(
 	// If this is a close channel summary created before the addition of
 	// the new fields, then we can exit here.
 	if cs.RemoteCurrentRevocation == nil {
-		return channeldb.WriteElements(w, false)
+		return chanstate.WriteElements(w, false)
 	}
 
 	return nil

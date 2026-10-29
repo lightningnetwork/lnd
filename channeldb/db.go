@@ -370,12 +370,12 @@ type DB struct {
 	// and link-node metadata.
 	channelLifecycle chanlifecycle.ChannelLifecycle
 
-	// linkNodeMaintainer owns link-node repair and pruning operations derived
-	// from channel state.
+	// linkNodeMaintainer owns link-node repair and pruning operations
+	// derived from channel state.
 	linkNodeMaintainer chanlifecycle.LinkNodeMaintainer
 
-	// fwdResponseStore persists off-chain settle and fail messages until the
-	// switch can safely replay or reap them.
+	// fwdResponseStore persists off-chain settle and fail messages until
+	// the switch can safely replay or reap them.
 	fwdResponseStore *fwdresponse.KVStore
 
 	// channelStateDB separates all DB operations on channel state. It is a

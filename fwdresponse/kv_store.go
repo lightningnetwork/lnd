@@ -2,6 +2,7 @@ package fwdresponse
 
 import (
 	"bytes"
+	"errors"
 	"fmt"
 	"io"
 
@@ -35,7 +36,7 @@ func NewKVStore(backend kvdb.Backend) *KVStore {
 // exposing the store's bucket layout.
 func (s *KVStore) Wipe(tx kvdb.RwTx) error {
 	err := tx.DeleteTopLevelBucket(kvStoreBucketKey)
-	if err == kvdb.ErrBucketNotFound {
+	if errors.Is(err, kvdb.ErrBucketNotFound) {
 		return nil
 	}
 
@@ -113,7 +114,6 @@ func putFwdResponse(tx kvdb.RwTx, outKey *models.CircuitKey,
 // FetchFwdResponses returns every response retained for a closed channel. The
 // switch calls this on start-up to replay them to their incoming links.
 func (s *KVStore) FetchFwdResponses() ([]*Response, error) {
-
 	var responses []*Response
 
 	err := kvdb.View(s.backend, func(tx kvdb.RTx) error {

@@ -42,12 +42,12 @@ func TestFinalHtlcs(t *testing.T) {
 	const offchainHtlcID = 1
 
 	err = kvdb.Update(backend, func(tx kvdb.RwTx) error {
-		bucket, err := fetchFinalHtlcsBucketRw(
+		bucket, err := FetchFinalHtlcsBucketRw(
 			tx, chanID,
 		)
 		require.NoError(t, err)
 
-		return putFinalHtlc(
+		return PutFinalHtlc(
 			bucket, offchainHtlcID, FinalHtlcInfo{
 				Settled:  true,
 				Offchain: true,

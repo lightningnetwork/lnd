@@ -667,14 +667,6 @@ func serializeChanCommit(w io.Writer, c *ChannelCommitment) error {
 	return cstate.SerializeChanCommit(w, c)
 }
 
-func fetchThawHeight(chanBucket kvdb.RBucket) (uint32, error) {
-	return cstate.FetchThawHeight(chanBucket)
-}
-
-func storeThawHeight(chanBucket kvdb.RwBucket, height uint32) error {
-	return cstate.StoreThawHeight(chanBucket, height)
-}
-
 // makeLogKey converts a uint64 into an 8 byte array.
 //
 // TODO(chanstate): remove together with the deprecated revocation log

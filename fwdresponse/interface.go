@@ -37,8 +37,9 @@ type Store interface {
 	// FetchFwdResponses returns every persisted forwarding response.
 	FetchFwdResponses() ([]*Response, error)
 
-	// CheckFwdResponse returns nil if a response exists for the outgoing
-	// circuit key, ErrNotFound if it is absent, and storage errors unchanged.
+	// CheckFwdResponse returns nil if a response exists for the
+	// outgoing circuit key, ErrNotFound if it is absent, and storage
+	// errors unchanged.
 	CheckFwdResponse(outKey *models.CircuitKey) error
 
 	// DeleteFwdResponse removes the response for the outgoing circuit key.

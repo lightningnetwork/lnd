@@ -234,8 +234,9 @@ func findMissingLinkNodes(tx kvdb.RTx,
 		}
 
 		if !errors.Is(err, ErrNodeNotFound) {
-			return nil, fmt.Errorf("unable to check link node for "+
-				"peer %x: %w", pubKey.SerializeCompressed(), err)
+			return nil, fmt.Errorf("unable to check link node "+
+				"for peer %x: %w",
+				pubKey.SerializeCompressed(), err)
 		}
 
 		missing = append(missing, pubKey)
@@ -262,8 +263,8 @@ func createLinkNodes(tx kvdb.RwTx, linkNodes []*LinkNode) error {
 		if err != nil {
 			pubKey := linkNode.IdentityPub.SerializeCompressed()
 
-			return fmt.Errorf("unable to create link node for peer "+
-				"%x: %w", pubKey, err)
+			return fmt.Errorf("unable to create link node for "+
+				"peer %x: %w", pubKey, err)
 		}
 	}
 
@@ -484,7 +485,7 @@ func deserializeLinkNode(r io.Reader) (*LinkNode, error) {
 	numAddrs := byteOrder.Uint32(buf[:4])
 
 	node.Addresses = make([]net.Addr, numAddrs)
-	for i := uint32(0); i < numAddrs; i++ {
+	for i := range numAddrs {
 		addr, err := graphdb.DeserializeAddr(r)
 		if err != nil {
 			return nil, err

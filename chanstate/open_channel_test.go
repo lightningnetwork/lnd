@@ -99,7 +99,7 @@ func createTestChannelState(t *testing.T, store *KVStore) *OpenChannel {
 	producer, err := shachain.NewRevocationProducerFromBytes(key[:])
 	require.NoError(t, err, "could not get producer")
 	storeRevocation := shachain.NewRevocationStore()
-	for i := 0; i < 1; i++ {
+	for i := range 1 {
 		preImage, err := producer.AtIndex(uint64(i))
 		if err != nil {
 			t.Fatalf("could not get "+

@@ -74,7 +74,8 @@ func TestCloseChannelPersistsResponses(t *testing.T) {
 				require.Empty(t, fwdPkgs)
 			}
 
-			responses, err := fullDB.FwdResponseStore().FetchFwdResponses()
+			responses, err := fullDB.FwdResponseStore().
+				FetchFwdResponses()
 			require.NoError(t, err)
 			require.Len(t, responses, 1)
 			response := responses[0]

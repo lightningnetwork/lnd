@@ -516,16 +516,16 @@ func (c *ChannelArbitrator) progressStateMachineAfterRestart(bestHeight int32,
 		case StateCommitmentBroadcasted:
 			switch c.cfg.CloseType {
 
-			case channeldb.CooperativeClose:
+			case chanstate.CooperativeClose:
 				trigger = coopCloseTrigger
 
-			case channeldb.BreachClose:
+			case chanstate.BreachClose:
 				trigger = breachCloseTrigger
 
-			case channeldb.LocalForceClose:
+			case chanstate.LocalForceClose:
 				trigger = localCloseTrigger
 
-			case channeldb.RemoteForceClose:
+			case chanstate.RemoteForceClose:
 				trigger = remoteCloseTrigger
 			}
 
@@ -3535,7 +3535,7 @@ func (c *ChannelArbitrator) handleCoopCloseEvent(
 
 	err := c.cfg.MarkChannelClosed(
 		closeInfo.ChannelCloseSummary,
-		channeldb.ChanStatusCoopBroadcasted,
+		chanstate.ChanStatusCoopBroadcasted,
 	)
 	if err != nil {
 		return fmt.Errorf("unable to mark channel closed: %w", err)
@@ -3610,7 +3610,7 @@ func (c *ChannelArbitrator) handleLocalForceCloseEvent(
 	// channel.
 	err = c.cfg.MarkChannelClosed(
 		closeInfo.ChannelCloseSummary,
-		channeldb.ChanStatusLocalCloseInitiator,
+		chanstate.ChanStatusLocalCloseInitiator,
 	)
 	if err != nil {
 		return fmt.Errorf("unable to mark channel closed: %w", err)
@@ -3673,7 +3673,7 @@ func (c *ChannelArbitrator) handleRemoteForceCloseEvent(
 	closeSummary := &closeInfo.ChannelCloseSummary
 	err = c.cfg.MarkChannelClosed(
 		closeSummary,
-		channeldb.ChanStatusRemoteCloseInitiator,
+		chanstate.ChanStatusRemoteCloseInitiator,
 	)
 	if err != nil {
 		return fmt.Errorf("unable to mark channel closed: %w", err)
@@ -3727,7 +3727,7 @@ func (c *ChannelArbitrator) handleContractBreach(
 	// BreachArbitrator and channel arbitrator have persisted the relevant
 	// states.
 	err = c.cfg.MarkChannelClosed(
-		closeSummary, channeldb.ChanStatusRemoteCloseInitiator,
+		closeSummary, chanstate.ChanStatusRemoteCloseInitiator,
 	)
 	if err != nil {
 		return fmt.Errorf("unable to mark channel closed: %w", err)

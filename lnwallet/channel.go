@@ -4555,7 +4555,7 @@ func (lc *LightningChannel) ProcessChanSyncMsg(ctx context.Context,
 	// portion of the verification, as we already know that we're unable to
 	// proceed with any updates.
 	isRestoredChan := lc.channelState.HasChanStatus(
-		channeldb.ChanStatusRestored,
+		chanstate.ChanStatusRestored,
 	)
 
 	// Take note of our current commit chain heights before we begin adding
@@ -7331,7 +7331,7 @@ func NewUnilateralCloseSummary(chanState *chanstate.OpenChannel,
 		RemotePub:               chanState.IdentityPub,
 		Capacity:                chanState.Capacity,
 		SettledBalance:          btcutil.Amount(localBalance),
-		CloseType:               channeldb.RemoteForceClose,
+		CloseType:               chanstate.RemoteForceClose,
 		IsPending:               true,
 		RemoteCurrentRevocation: chanState.RemoteCurrentRevocation,
 		RemoteNextRevocation:    chanState.RemoteNextRevocation,
@@ -8431,7 +8431,7 @@ func (lc *LightningChannel) ForceClose(opts ...ForceCloseOpt) (
 	// If we've detected local data loss for this channel, then we won't
 	// allow a force close, as it may be the case that we have a dated
 	// version of the commitment, or this is actually a channel shell.
-	if lc.channelState.HasChanStatus(channeldb.ChanStatusLocalDataLoss) {
+	if lc.channelState.HasChanStatus(chanstate.ChanStatusLocalDataLoss) {
 		return nil, fmt.Errorf("%w: channel_state=%v",
 			ErrForceCloseLocalDataLoss,
 			lc.channelState.ChanStatus())

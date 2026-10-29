@@ -1054,7 +1054,7 @@ func (c *chainWatcher) handleKnownLocalState(
 
 	// If the channel is recovered, we won't have a local commit to check
 	// against, so immediately return.
-	if c.cfg.chanState.HasChanStatus(channeldb.ChanStatusRestored) {
+	if c.cfg.chanState.HasChanStatus(chanstate.ChanStatusRestored) {
 		return false, nil
 	}
 
@@ -1088,7 +1088,7 @@ func (c *chainWatcher) handleKnownRemoteState(
 
 	// If the channel is recovered, we won't have any remote commit to
 	// check against, so imemdiately return.
-	if c.cfg.chanState.HasChanStatus(channeldb.ChanStatusRestored) {
+	if c.cfg.chanState.HasChanStatus(chanstate.ChanStatusRestored) {
 		return false, nil
 	}
 
@@ -1504,7 +1504,7 @@ func (c *chainWatcher) buildCoopCloseSummary(
 		Capacity:                c.cfg.chanState.Capacity,
 		CloseHeight:             uint32(commitSpend.SpendingHeight),
 		SettledBalance:          localAmt,
-		CloseType:               channeldb.CooperativeClose,
+		CloseType:               chanstate.CooperativeClose,
 		ShortChanID:             c.cfg.chanState.ShortChanID(),
 		IsPending:               true,
 		RemoteCurrentRevocation: c.cfg.chanState.RemoteCurrentRevocation,
@@ -1599,7 +1599,7 @@ func (c *chainWatcher) dispatchLocalForceClose(
 		ClosingTXID:             forceClose.CloseTx.TxHash(),
 		RemotePub:               &chanSnapshot.RemoteIdentity,
 		Capacity:                chanSnapshot.Capacity,
-		CloseType:               channeldb.LocalForceClose,
+		CloseType:               chanstate.LocalForceClose,
 		IsPending:               true,
 		ShortChanID:             c.cfg.chanState.ShortChanID(),
 		CloseHeight:             uint32(commitSpend.SpendingHeight),
@@ -1754,7 +1754,7 @@ func (c *chainWatcher) dispatchContractBreach(spendEvent *chainntnfs.SpendDetail
 		RemotePub:               c.cfg.chanState.IdentityPub,
 		Capacity:                c.cfg.chanState.Capacity,
 		SettledBalance:          settledBalance,
-		CloseType:               channeldb.BreachClose,
+		CloseType:               chanstate.BreachClose,
 		IsPending:               true,
 		ShortChanID:             c.cfg.chanState.ShortChanID(),
 		RemoteCurrentRevocation: c.cfg.chanState.RemoteCurrentRevocation,

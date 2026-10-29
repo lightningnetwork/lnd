@@ -4,7 +4,6 @@ import (
 	"io"
 
 	cstate "github.com/lightningnetwork/lnd/chanstate"
-	"github.com/lightningnetwork/lnd/lnwire"
 	"github.com/lightningnetwork/lnd/tlv"
 )
 
@@ -129,39 +128,6 @@ const (
 )
 
 var (
-	// ChanStatusDefault is the normal state of an open channel.
-	ChanStatusDefault = cstate.ChanStatusDefault
-
-	// ChanStatusBorked indicates that the channel has entered an
-	// irreconcilable state.
-	ChanStatusBorked = cstate.ChanStatusBorked
-
-	// ChanStatusCommitBroadcasted indicates that a commitment for this
-	// channel has been broadcasted.
-	ChanStatusCommitBroadcasted = cstate.ChanStatusCommitBroadcasted
-
-	// ChanStatusLocalDataLoss indicates that we have lost channel state
-	// for this channel.
-	ChanStatusLocalDataLoss = cstate.ChanStatusLocalDataLoss
-
-	// ChanStatusRestored signals that the channel has been restored and
-	// doesn't have all fields a typical channel will have.
-	ChanStatusRestored = cstate.ChanStatusRestored
-
-	// ChanStatusCoopBroadcasted indicates that a cooperative close for this
-	// channel has been broadcasted.
-	ChanStatusCoopBroadcasted = cstate.ChanStatusCoopBroadcasted
-
-	// ChanStatusLocalCloseInitiator indicates that we initiated closing the
-	// channel.
-	ChanStatusLocalCloseInitiator = cstate.ChanStatusLocalCloseInitiator
-
-	// ChanStatusRemoteCloseInitiator indicates that the remote node
-	// initiated closing the channel.
-	ChanStatusRemoteCloseInitiator = cstate.ChanStatusRemoteCloseInitiator
-)
-
-var (
 	// DeriveMusig2Shachain derives a shachain producer for the taproot
 	// channel from normal shachain revocation root.
 	DeriveMusig2Shachain = cstate.DeriveMusig2Shachain
@@ -210,32 +176,6 @@ func DeserializeHtlcs(r io.Reader) ([]cstate.HTLC, error) {
 	return cstate.DeserializeHtlcs(r)
 }
 
-const (
-	// CooperativeClose indicates that a channel has been closed
-	// cooperatively.
-	CooperativeClose = cstate.CooperativeClose
-
-	// LocalForceClose indicates that we have unilaterally broadcast our
-	// current commitment state on-chain.
-	LocalForceClose = cstate.LocalForceClose
-
-	// RemoteForceClose indicates that the remote peer has unilaterally
-	// broadcast their current commitment state on-chain.
-	RemoteForceClose = cstate.RemoteForceClose
-
-	// BreachClose indicates that the remote peer attempted to broadcast a
-	// prior revoked channel state.
-	BreachClose = cstate.BreachClose
-
-	// FundingCanceled indicates that the channel never was fully opened
-	// before it was marked as closed in the database.
-	FundingCanceled = cstate.FundingCanceled
-
-	// Abandoned indicates that the channel state was removed without any
-	// further actions.
-	Abandoned = cstate.Abandoned
-)
-
 // makeLogKey converts a uint64 into an 8 byte array.
 //
 // TODO(chanstate): remove together with the deprecated revocation log
@@ -255,11 +195,4 @@ func EKeyLocator(w io.Writer, val interface{}, buf *[8]byte) error {
 // DKeyLocator is a decoder for keychain.KeyLocator.
 func DKeyLocator(r io.Reader, val interface{}, buf *[8]byte, l uint64) error {
 	return cstate.DKeyLocator(r, val, buf, l)
-}
-
-// NewShutdownInfo constructs a new ShutdownInfo object.
-func NewShutdownInfo(deliveryScript lnwire.DeliveryAddress,
-	locallyInitiated bool) *cstate.ShutdownInfo {
-
-	return cstate.NewShutdownInfo(deliveryScript, locallyInitiated)
 }

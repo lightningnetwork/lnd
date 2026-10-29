@@ -244,38 +244,38 @@ func TestShouldSuppressClosedChannelNotify(t *testing.T) {
 	}{
 		{
 			name:            "coop close with early dispatch",
-			closeType:       channeldb.CooperativeClose,
+			closeType:       chanstate.CooperativeClose,
 			earlyDispatched: true,
 			wantSuppress:    true,
 		},
 		{
 			name: "coop close without early dispatch " +
 				"(fast path or no watcher)",
-			closeType:       channeldb.CooperativeClose,
+			closeType:       chanstate.CooperativeClose,
 			earlyDispatched: false,
 			wantSuppress:    false,
 		},
 		{
 			name:            "local force close",
-			closeType:       channeldb.LocalForceClose,
+			closeType:       chanstate.LocalForceClose,
 			earlyDispatched: true,
 			wantSuppress:    false,
 		},
 		{
 			name:            "remote force close",
-			closeType:       channeldb.RemoteForceClose,
+			closeType:       chanstate.RemoteForceClose,
 			earlyDispatched: true,
 			wantSuppress:    false,
 		},
 		{
 			name:            "breach close",
-			closeType:       channeldb.BreachClose,
+			closeType:       chanstate.BreachClose,
 			earlyDispatched: true,
 			wantSuppress:    false,
 		},
 		{
 			name:            "abandoned close",
-			closeType:       channeldb.Abandoned,
+			closeType:       chanstate.Abandoned,
 			earlyDispatched: true,
 			wantSuppress:    false,
 		},

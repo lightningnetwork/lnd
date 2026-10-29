@@ -2618,7 +2618,7 @@ func (f *Manager) fundeeProcessFundingCreated(peer lnpeer.Peer,
 			ChanPoint:               completeChan.FundingOutpoint,
 			ChainHash:               completeChan.ChainHash,
 			RemotePub:               completeChan.IdentityPub,
-			CloseType:               channeldb.FundingCanceled,
+			CloseType:               chanstate.FundingCanceled,
 			Capacity:                completeChan.Capacity,
 			SettledBalance:          localBalance,
 			RemoteCurrentRevocation: completeChan.RemoteCurrentRevocation,
@@ -2629,7 +2629,7 @@ func (f *Manager) fundeeProcessFundingCreated(peer lnpeer.Peer,
 		// Close the channel with us as the initiator because we are
 		// deciding to exit the funding flow due to an internal error.
 		if err := completeChan.CloseChannel(
-			closeInfo, channeldb.ChanStatusLocalCloseInitiator,
+			closeInfo, chanstate.ChanStatusLocalCloseInitiator,
 		); err != nil {
 			log.Errorf("Failed closing channel %v: %v",
 				completeChan.FundingOutpoint, err)
@@ -2990,7 +2990,7 @@ func (f *Manager) fundingTimeout(c *chanstate.OpenChannel,
 		RemotePub:               c.IdentityPub,
 		Capacity:                c.Capacity,
 		SettledBalance:          localBalance,
-		CloseType:               channeldb.FundingCanceled,
+		CloseType:               chanstate.FundingCanceled,
 		RemoteCurrentRevocation: c.RemoteCurrentRevocation,
 		RemoteNextRevocation:    c.RemoteNextRevocation,
 		LocalChanConfig:         c.LocalChanCfg,
@@ -2999,7 +2999,7 @@ func (f *Manager) fundingTimeout(c *chanstate.OpenChannel,
 	// Close the channel with us as the initiator because we are timing the
 	// channel out.
 	if err := c.CloseChannel(
-		closeInfo, channeldb.ChanStatusLocalCloseInitiator,
+		closeInfo, chanstate.ChanStatusLocalCloseInitiator,
 	); err != nil {
 		return fmt.Errorf("failed closing channel %v: %w",
 			c.FundingOutpoint, err)

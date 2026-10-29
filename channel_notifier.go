@@ -125,7 +125,7 @@ func (c *channelNotifier) SubscribeChans(ctx context.Context,
 					// want to remove the crucial info we
 					// need for sweeping that time locked
 					// output before we've actually done so.
-					if closeType == channeldb.LocalForceClose {
+					if closeType == chanstate.LocalForceClose {
 						ltndLog.Debugf("Channel %v "+
 							"was force closed by "+
 							"us, not removing "+

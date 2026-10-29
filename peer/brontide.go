@@ -1330,8 +1330,8 @@ func (p *Brontide) loadActiveChannels(chans []*chanstate.OpenChannel) (
 
 		// Skip adding any permanently irreconcilable channels to the
 		// htlcswitch.
-		if !dbChan.HasChanStatus(channeldb.ChanStatusDefault) &&
-			!dbChan.HasChanStatus(channeldb.ChanStatusRestored) {
+		if !dbChan.HasChanStatus(chanstate.ChanStatusDefault) &&
+			!dbChan.HasChanStatus(chanstate.ChanStatusRestored) {
 
 			p.log.Warnf("ChannelPoint(%v) has status %v, won't "+
 				"start.", chanPoint, dbChan.ChanStatus())
@@ -1356,7 +1356,7 @@ func (p *Brontide) loadActiveChannels(chans []*chanstate.OpenChannel) (
 			// close process restarted. If so, we'll need to send
 			// the Shutdown message that is returned.
 			if dbChan.HasChanStatus(
-				channeldb.ChanStatusCoopBroadcasted,
+				chanstate.ChanStatusCoopBroadcasted,
 			) {
 
 				shutdownMsg, err := p.restartCoopClose(lnChan)
@@ -4162,7 +4162,7 @@ func (p *Brontide) restartCoopClose(lnChan *lnwallet.LightningChannel) (
 	// Determine whether we or the peer are the initiator of the coop
 	// close attempt by looking at the channel's status.
 	closingParty := lntypes.Remote
-	if c.HasChanStatus(channeldb.ChanStatusLocalCloseInitiator) {
+	if c.HasChanStatus(chanstate.ChanStatusLocalCloseInitiator) {
 		closingParty = lntypes.Local
 	}
 

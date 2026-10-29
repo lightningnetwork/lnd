@@ -22,7 +22,7 @@ import (
 	"github.com/btcsuite/btcd/txscript/v2"
 	"github.com/btcsuite/btcd/wire/v2"
 	"github.com/davecgh/go-spew/spew"
-	"github.com/lightningnetwork/lnd/channeldb"
+	"github.com/lightningnetwork/lnd/chanstate"
 	"github.com/lightningnetwork/lnd/lnrpc"
 	"github.com/lightningnetwork/lnd/lnrpc/invoicesrpc"
 	"github.com/lightningnetwork/lnd/lnrpc/routerrpc"
@@ -733,7 +733,7 @@ func (h *HarnessTest) AssertStreamChannelCoopClosed(hn *node.HarnessNode,
 
 	// Assert that the channel is in coop broadcasted.
 	require.Contains(h, resp.Channel.ChanStatusFlags,
-		channeldb.ChanStatusCoopBroadcasted.String(),
+		chanstate.ChanStatusCoopBroadcasted.String(),
 		"channel not coop broadcasted")
 
 	// We'll now, generate a single block, wait for the final close status
@@ -781,7 +781,7 @@ func (h *HarnessTest) AssertStreamChannelForceClosed(hn *node.HarnessNode,
 
 	// Assert that the channel is in local force broadcasted.
 	require.Contains(h, resp.Channel.ChanStatusFlags,
-		channeldb.ChanStatusLocalCloseInitiator.String(),
+		chanstate.ChanStatusLocalCloseInitiator.String(),
 		"channel not coop broadcasted")
 
 	// Get the closing txid.

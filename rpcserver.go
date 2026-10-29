@@ -2794,8 +2794,8 @@ func (r *rpcServer) CloseChannel(in *lnrpc.CloseChannelRequest,
 	// ChanStatusLocalDataLoss after connecting to its peer. But if no
 	// connection can be established, the channel arbitrator doesn't know it
 	// can't be force closed yet.
-	if channel.HasChanStatus(channeldb.ChanStatusRestored) ||
-		channel.HasChanStatus(channeldb.ChanStatusLocalDataLoss) {
+	if channel.HasChanStatus(chanstate.ChanStatusRestored) ||
+		channel.HasChanStatus(chanstate.ChanStatusLocalDataLoss) {
 
 		return fmt.Errorf("cannot close channel with state: %v",
 			channel.ChanStatus())
@@ -4257,7 +4257,7 @@ func (r *rpcServer) fetchPendingForceCloseChannels() (pendingForceClose,
 		// middle of a their channel confirming, it will be in this
 		// state. We log a warning that the channel will not be included
 		// in the now deprecated pending close channels field.
-		case channeldb.CooperativeClose:
+		case chanstate.CooperativeClose:
 			rpcsLog.Warnf("channel %v cooperatively closed and "+
 				"in pending close state",
 				pendingClose.ChanPoint)
@@ -4265,7 +4265,7 @@ func (r *rpcServer) fetchPendingForceCloseChannels() (pendingForceClose,
 		// If the channel was force closed, then we'll need to query
 		// the utxoNursery for additional information.
 		// TODO(halseth): distinguish remote and local case?
-		case channeldb.LocalForceClose, channeldb.RemoteForceClose:
+		case chanstate.LocalForceClose, chanstate.RemoteForceClose:
 			forceClose := &lnrpc.PendingChannelsResponse_ForceClosedChannel{
 				Channel:     channel,
 				ClosingTxid: closeTXID,
@@ -4756,27 +4756,27 @@ func (r *rpcServer) ClosedChannels(ctx context.Context,
 		}
 
 		switch dbChannel.CloseType {
-		case channeldb.CooperativeClose:
+		case chanstate.CooperativeClose:
 			if filterResults && !in.Cooperative {
 				continue
 			}
-		case channeldb.LocalForceClose:
+		case chanstate.LocalForceClose:
 			if filterResults && !in.LocalForce {
 				continue
 			}
-		case channeldb.RemoteForceClose:
+		case chanstate.RemoteForceClose:
 			if filterResults && !in.RemoteForce {
 				continue
 			}
-		case channeldb.BreachClose:
+		case chanstate.BreachClose:
 			if filterResults && !in.Breach {
 				continue
 			}
-		case channeldb.FundingCanceled:
+		case chanstate.FundingCanceled:
 			if filterResults && !in.FundingCanceled {
 				continue
 			}
-		case channeldb.Abandoned:
+		case chanstate.Abandoned:
 			if filterResults && !in.Abandoned {
 				continue
 			}
@@ -5307,17 +5307,17 @@ func (r *rpcServer) createRPCClosedChannel(
 
 	// Convert the close type to rpc type.
 	switch dbChannel.CloseType {
-	case channeldb.CooperativeClose:
+	case chanstate.CooperativeClose:
 		closeType = lnrpc.ChannelCloseSummary_COOPERATIVE_CLOSE
-	case channeldb.LocalForceClose:
+	case chanstate.LocalForceClose:
 		closeType = lnrpc.ChannelCloseSummary_LOCAL_FORCE_CLOSE
-	case channeldb.RemoteForceClose:
+	case chanstate.RemoteForceClose:
 		closeType = lnrpc.ChannelCloseSummary_REMOTE_FORCE_CLOSE
-	case channeldb.BreachClose:
+	case chanstate.BreachClose:
 		closeType = lnrpc.ChannelCloseSummary_BREACH_CLOSE
-	case channeldb.FundingCanceled:
+	case chanstate.FundingCanceled:
 		closeType = lnrpc.ChannelCloseSummary_FUNDING_CANCELED
-	case channeldb.Abandoned:
+	case chanstate.Abandoned:
 		closeType = lnrpc.ChannelCloseSummary_ABANDONED
 	}
 
@@ -5519,11 +5519,11 @@ func (r *rpcServer) getInitiators(chanPoint *wire.OutPoint) (
 	}
 
 	localInit := histChan.HasChanStatus(
-		channeldb.ChanStatusLocalCloseInitiator,
+		chanstate.ChanStatusLocalCloseInitiator,
 	)
 
 	remoteInit := histChan.HasChanStatus(
-		channeldb.ChanStatusRemoteCloseInitiator,
+		chanstate.ChanStatusRemoteCloseInitiator,
 	)
 
 	switch {

@@ -2,7 +2,6 @@ package peer
 
 import (
 	"github.com/btcsuite/btcd/wire/v2"
-	"github.com/lightningnetwork/lnd/channeldb"
 	"github.com/lightningnetwork/lnd/chanstate"
 	"github.com/lightningnetwork/lnd/fn/v2"
 	"github.com/lightningnetwork/lnd/htlcswitch"
@@ -134,7 +133,7 @@ func (l *chanObserver) MarkCoopBroadcasted(tx *wire.MsgTx, local bool) error {
 func (l *chanObserver) MarkShutdownSent(deliveryAddr []byte,
 	isInitiator bool) error {
 
-	shutdownInfo := channeldb.NewShutdownInfo(deliveryAddr, isInitiator)
+	shutdownInfo := chanstate.NewShutdownInfo(deliveryAddr, isInitiator)
 	return l.chanView.MarkShutdownSent(shutdownInfo)
 }
 

@@ -11,7 +11,6 @@ import (
 	"github.com/btcsuite/btcd/chaincfg/v2"
 	"github.com/btcsuite/btcd/txscript/v2"
 	"github.com/btcsuite/btcd/wire/v2"
-	"github.com/lightningnetwork/lnd/channeldb"
 	"github.com/lightningnetwork/lnd/chanstate"
 	"github.com/lightningnetwork/lnd/fn/v2"
 	"github.com/lightningnetwork/lnd/htlcswitch"
@@ -535,7 +534,7 @@ func (c *ChanCloser) initChanShutdown() (*lnwire.Shutdown, error) {
 	// At this point, we persist any relevant info regarding the Shutdown
 	// message we are about to send in order to ensure that if a
 	// re-establish occurs then we will re-send the same Shutdown message.
-	shutdownInfo := channeldb.NewShutdownInfo(
+	shutdownInfo := chanstate.NewShutdownInfo(
 		c.localDeliveryScript, c.closer.IsLocal(),
 	)
 	err = c.cfg.Channel.MarkShutdownSent(shutdownInfo)

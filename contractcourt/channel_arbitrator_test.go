@@ -556,7 +556,7 @@ func TestChannelArbitratorCooperativeClose(t *testing.T) {
 
 	select {
 	case c := <-closeInfos:
-		if c.CloseType != channeldb.CooperativeClose {
+		if c.CloseType != chanstate.CooperativeClose {
 			t.Fatalf("expected cooperative close, got %v", c.CloseType)
 		}
 	case <-time.After(defaultTimeout):
@@ -1695,7 +1695,7 @@ func TestChannelArbitratorForceCloseBreachedChannel(t *testing.T) {
 	chanArbCtx, err = chanArbCtx.Restart(func(c *chanArbTestCtx) {
 		c.chanArb.cfg.IsPendingClose = true
 		c.chanArb.cfg.ClosingHeight = 100
-		c.chanArb.cfg.CloseType = channeldb.BreachClose
+		c.chanArb.cfg.CloseType = chanstate.BreachClose
 	})
 	require.NoError(t, err, "unable to create ChannelArbitrator")
 	defer chanArbCtx.CleanUp()
@@ -1741,7 +1741,7 @@ func TestChannelArbitratorCommitFailure(t *testing.T) {
 		expectedStates []ArbitratorState
 	}{
 		{
-			closeType: channeldb.CooperativeClose,
+			closeType: chanstate.CooperativeClose,
 			sendEvent: func(chanArb *ChannelArbitrator) {
 				closeInfo := &CooperativeCloseInfo{
 					&chanstate.ChannelCloseSummary{},
@@ -1751,7 +1751,7 @@ func TestChannelArbitratorCommitFailure(t *testing.T) {
 			expectedStates: []ArbitratorState{StateFullyResolved},
 		},
 		{
-			closeType: channeldb.RemoteForceClose,
+			closeType: chanstate.RemoteForceClose,
 			sendEvent: func(chanArb *ChannelArbitrator) {
 				commitSpend := &chainntnfs.SpendDetail{
 					SpenderTxHash: &chainhash.Hash{},
@@ -1768,7 +1768,7 @@ func TestChannelArbitratorCommitFailure(t *testing.T) {
 			expectedStates: []ArbitratorState{StateContractClosed, StateFullyResolved},
 		},
 		{
-			closeType: channeldb.LocalForceClose,
+			closeType: chanstate.LocalForceClose,
 			//nolint:ll
 			sendEvent: func(chanArb *ChannelArbitrator) {
 				chanArb.cfg.ChainEvents.LocalUnilateralClosure <- &LocalUnilateralCloseInfo{
@@ -1887,7 +1887,7 @@ func TestChannelArbitratorEmptyResolutions(t *testing.T) {
 	chanArb := chanArbCtx.chanArb
 	chanArb.cfg.IsPendingClose = true
 	chanArb.cfg.ClosingHeight = 100
-	chanArb.cfg.CloseType = channeldb.RemoteForceClose
+	chanArb.cfg.CloseType = chanstate.RemoteForceClose
 
 	beat := newBeatFromHeight(100)
 	if err := chanArb.Start(nil, beat); err != nil {
@@ -2855,7 +2855,7 @@ func TestRemoteCloseInitiator(t *testing.T) {
 
 			// Check that alice has the status we expect.
 			if !alice.State().HasChanStatus(
-				channeldb.ChanStatusRemoteCloseInitiator,
+				chanstate.ChanStatusRemoteCloseInitiator,
 			) {
 
 				t.Fatalf("expected remote close initiator, "+

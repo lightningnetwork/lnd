@@ -5011,13 +5011,13 @@ func TestChanSyncFailure(t *testing.T) {
 	// state for our test scenarios.
 	clearBorkedState := func() {
 		err = aliceChannel.channelState.ClearChanStatus(
-			channeldb.ChanStatusLocalDataLoss | channeldb.ChanStatusBorked,
+			chanstate.ChanStatusLocalDataLoss | chanstate.ChanStatusBorked,
 		)
 		if err != nil {
 			t.Fatalf("unable to update channel state: %v", err)
 		}
 		err = bobChannel.channelState.ClearChanStatus(
-			channeldb.ChanStatusLocalDataLoss | channeldb.ChanStatusBorked,
+			chanstate.ChanStatusLocalDataLoss | chanstate.ChanStatusBorked,
 		)
 		if err != nil {
 			t.Fatalf("unable to update channel state: %v", err)
@@ -8423,7 +8423,7 @@ func TestForceCloseFailLocalDataLoss(t *testing.T) {
 	// Now that we have our set of channels, we'll modify the channel state
 	// to have a non-default channel flag.
 	err = aliceChannel.channelState.ApplyChanStatus(
-		channeldb.ChanStatusLocalDataLoss,
+		chanstate.ChanStatusLocalDataLoss,
 	)
 	require.NoError(t, err, "unable to apply channel state")
 
@@ -8467,13 +8467,13 @@ func TestForceCloseBorkedState(t *testing.T) {
 
 	// Next we'll mark the channel as borked before we proceed.
 	err = aliceChannel.channelState.ApplyChanStatus(
-		channeldb.ChanStatusBorked,
+		chanstate.ChanStatusBorked,
 	)
 	require.NoError(t, err, "unable to apply chan status")
 
 	// The on-disk state should indicate that the channel is now borked.
 	if !aliceChannel.channelState.HasChanStatus(
-		channeldb.ChanStatusBorked,
+		chanstate.ChanStatusBorked,
 	) {
 		t.Fatalf("chan status not updated as borked")
 	}

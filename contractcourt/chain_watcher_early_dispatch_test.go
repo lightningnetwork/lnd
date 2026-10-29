@@ -4,7 +4,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/lightningnetwork/lnd/channeldb"
+	"github.com/lightningnetwork/lnd/chanstate"
 	"github.com/stretchr/testify/require"
 )
 
@@ -36,7 +36,7 @@ func TestEarlyDispatchCoopClose(t *testing.T) {
 	earlySummary := harness.earlyCoopCloseAt(0)
 	require.True(t, earlySummary.IsPending,
 		"early dispatched summary must have IsPending=true")
-	require.Equal(t, channeldb.CooperativeClose, earlySummary.CloseType)
+	require.Equal(t, chanstate.CooperativeClose, earlySummary.CloseType)
 	require.Equal(t, tx.TxHash(), earlySummary.ClosingTXID)
 	require.Equal(t, harness.aliceChannel.State().FundingOutpoint,
 		earlySummary.ChanPoint)

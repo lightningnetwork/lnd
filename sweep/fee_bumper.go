@@ -1062,8 +1062,8 @@ type inputDiagnosis struct {
 	outcome  inputDiagnosisOutcome
 	badInput wire.OutPoint
 
-	// probeErr preserves whether attribution or an abort came from a
-	// transient conflict, which must never permanently fail an input.
+	// probeErr preserves reversible backend failures on abort, as well as
+	// attribution causes, so uncertainty cannot permanently fail inputs.
 	probeErr error
 }
 
@@ -1092,6 +1092,47 @@ func (t *TxPublisher) diagnoseInputSet(r *monitorRecord) inputDiagnosis {
 	default:
 		return inputDiagnosis{outcome: diagnosisAborted, probeErr: err}
 	}
+}
+
+// resultForDiagnosis converts explicit diagnosis metadata into retry policy.
+func (t *TxPublisher) resultForDiagnosis(r *monitorRecord, err error,
+	diagnosis inputDiagnosis) *BumpResult {
+
+	result := &BumpResult{
+		Event:     TxFatal,
+		Err:       err,
+		requestID: r.requestID,
+	}
+	// Changed membership restarts survivors without the aggregate fee.
+	if diagnosis.outcome == diagnosisAttributed {
+		result.Event = TxFailed
+		result.BadInput = &diagnosis.badInput
+		// The singleton's rejection describes this input; the aggregate
+		// may have failed for a different reason before probing.
+		result.Err = diagnosis.probeErr
+
+		return result
+	}
+
+	// Backend or fee uncertainty cannot identify an input. Keep an earlier
+	// conflict too: an inconclusive check does not prove it has cleared.
+	if isTransientMempoolError(diagnosis.probeErr) ||
+		isMempoolFeeError(diagnosis.probeErr) {
+
+		if errors.Is(err, chain.ErrMempoolConflict) {
+			diagnosis.probeErr = fmt.Errorf("%w: %w", err,
+				diagnosis.probeErr)
+		}
+
+		return t.createUnchangedSetRetryResult(r, diagnosis.probeErr)
+	}
+	if errors.Is(err, chain.ErrMempoolConflict) ||
+		diagnosis.outcome == diagnosisAborted {
+
+		return t.createUnchangedSetRetryResult(r, err)
+	}
+
+	return result
 }
 
 // handleMissingInputs handles the case when the chain backend reports back a
@@ -1523,6 +1564,61 @@ func (t *TxPublisher) handleTxConfirmed(r *monitorRecord) {
 
 	// Notify that this tx is confirmed and remove the record from the map.
 	t.handleResult(result)
+}
+
+// createUnchangedSetRetryResult preserves backend and fee retries at the cap
+// while bounding other diagnosis retries. The gate supplies a fee function.
+func (t *TxPublisher) createUnchangedSetRetryResult(r *monitorRecord,
+	err error) *BumpResult {
+
+	result := &BumpResult{
+		Event:     TxFailed,
+		Err:       err,
+		requestID: r.requestID,
+	}
+
+	// A higher fee cannot displace a non-replaceable conflicting spend.
+	// Leave ordinary initialization and zero-delta retry policy intact.
+	if errors.Is(err, chain.ErrMempoolConflict) {
+		if r.feeFunction != nil {
+			result.FeeRate = r.feeFunction.FeeRate()
+		}
+
+		return result
+	}
+
+	// Backend or fee uncertainty follows ordinary retries: keep the current
+	// rate usable at the cap instead of failing unproven batch members.
+	if isTransientMempoolError(err) ||
+		isMempoolFeeError(err) {
+
+		feeRate, feeErr := t.calculateRetryFeeRate(r)
+		result.FeeRate = feeRate
+		if feeErr != nil {
+			result.Event = TxFatal
+			result.Err = feeErr
+		}
+
+		return result
+	}
+
+	// Only inconclusive non-conflict diagnosis requires actual advancement.
+	// Keep this ceiling policy out of the generic budget/RBF retry helper.
+	for {
+		increased, feeErr := r.feeFunction.Increment()
+		if feeErr != nil {
+			result.Event = TxFatal
+			result.Err = feeErr
+			result.FeeRate = r.feeFunction.FeeRate()
+
+			return result
+		}
+		if increased {
+			result.FeeRate = r.feeFunction.FeeRate()
+
+			return result
+		}
+	}
 }
 
 // handleInitialTxError maps initialization failures to retry or terminal

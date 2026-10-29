@@ -7,6 +7,7 @@ import (
 	"github.com/btcsuite/btcd/wire/v2"
 	"github.com/lightningnetwork/lnd/chainntnfs"
 	"github.com/lightningnetwork/lnd/channeldb"
+	"github.com/lightningnetwork/lnd/chanstate"
 	"github.com/lightningnetwork/lnd/fn/v2"
 	"github.com/lightningnetwork/lnd/graph/db/models"
 	"github.com/lightningnetwork/lnd/input"
@@ -227,7 +228,7 @@ func newOutgoingResolverTestContext(t *testing.T) *outgoingResolverTestContext {
 		htlcTimeoutResolver: &htlcTimeoutResolver{
 			contractResolverKit: *newContractResolverKit(cfg),
 			htlcResolution:      outgoingRes,
-			htlc: channeldb.HTLC{
+			htlc: chanstate.HTLC{
 				Amt:       lnwire.MilliSatoshi(testHtlcAmount),
 				RHash:     testResHash,
 				OnionBlob: lnmock.MockOnion(),

@@ -544,7 +544,7 @@ func newActiveChannelArbitrator(channel *chanstate.OpenChannel,
 			)
 		},
 		FindOutgoingHTLCDeadline: func(
-			htlc channeldb.HTLC) fn.Option[int32] {
+			htlc chanstate.HTLC) fn.Option[int32] {
 
 			return c.FindOutgoingHTLCDeadline(
 				channel.ShortChanID(), htlc,
@@ -1044,7 +1044,7 @@ type ContractUpdate struct {
 
 	// Htlcs are the of active HTLCs on the commitment identified by the
 	// above HtlcKey.
-	Htlcs []channeldb.HTLC
+	Htlcs []chanstate.HTLC
 }
 
 // ContractSignals is used by outside subsystems to notify a channel arbitrator
@@ -1285,7 +1285,7 @@ func (c *ChainArbitrator) SubscribeChannelEvents(
 // expiry height the that remote peer can spend his/her outgoing HTLC via the
 // timeout path.
 func (c *ChainArbitrator) FindOutgoingHTLCDeadline(scid lnwire.ShortChannelID,
-	outgoingHTLC channeldb.HTLC) fn.Option[int32] {
+	outgoingHTLC chanstate.HTLC) fn.Option[int32] {
 
 	// Find the outgoing HTLC's corresponding incoming HTLC in the circuit
 	// map.
@@ -1479,7 +1479,7 @@ func (c *ChainArbitrator) loadPendingCloseChannels() error {
 				return c.channelStore.FetchHistoricalChannel(&chanPoint)
 			},
 			FindOutgoingHTLCDeadline: func(
-				htlc channeldb.HTLC) fn.Option[int32] {
+				htlc chanstate.HTLC) fn.Option[int32] {
 
 				return c.FindOutgoingHTLCDeadline(
 					closeChanInfo.ShortChanID, htlc,

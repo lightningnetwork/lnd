@@ -143,7 +143,7 @@ type CommitSet struct {
 
 	// HtlcSets stores the set of all known active HTLC for each active
 	// commitment at the time of channel closure.
-	HtlcSets map[HtlcSetKey][]channeldb.HTLC
+	HtlcSets map[HtlcSetKey][]chanstate.HTLC
 }
 
 // IsEmpty returns true if there are no HTLCs at all within all commitments
@@ -689,7 +689,7 @@ func newChainSet(chanState *chanstate.OpenChannel) (*chainSet, error) {
 	// CommitSet the ChannelArbitrator will need in order to carry out its
 	// duty.
 	commitSet := CommitSet{
-		HtlcSets: map[HtlcSetKey][]channeldb.HTLC{
+		HtlcSets: map[HtlcSetKey][]chanstate.HTLC{
 			LocalHtlcSet:  localCommit.Htlcs,
 			RemoteHtlcSet: remoteCommit.Htlcs,
 		},

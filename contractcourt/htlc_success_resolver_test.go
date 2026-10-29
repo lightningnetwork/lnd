@@ -56,7 +56,7 @@ type htlcResolverTestContext struct {
 }
 
 func newHtlcResolverTestContextFromReader(t *testing.T,
-	newResolver func(htlc channeldb.HTLC,
+	newResolver func(htlc chanstate.HTLC,
 		cfg ResolverConfig) ContractResolver) *htlcResolverTestContext {
 
 	ctx := newHtlcResolverTestContext(t, newResolver)
@@ -65,7 +65,7 @@ func newHtlcResolverTestContextFromReader(t *testing.T,
 }
 
 func newHtlcResolverTestContext(t *testing.T,
-	newResolver func(htlc channeldb.HTLC,
+	newResolver func(htlc chanstate.HTLC,
 		cfg ResolverConfig) ContractResolver) *htlcResolverTestContext {
 
 	notifier := &mock.ChainNotifier{
@@ -149,7 +149,7 @@ func newHtlcResolverTestContext(t *testing.T,
 		Checkpoint:              checkpointFunc,
 	}
 
-	htlc := channeldb.HTLC{
+	htlc := chanstate.HTLC{
 		HtlcIndex: testCircuitKey.HtlcID,
 		RHash:     testResHash,
 		OnionBlob: lnmock.MockOnion(),
@@ -501,7 +501,7 @@ func TestHtlcSuccessSingleStageClassification(t *testing.T) {
 
 	wrongPreimage := make([]byte, 32)
 	wrongPreimage[0] = 1
-	ctx := newHtlcResolverTestContext(t, func(htlc channeldb.HTLC,
+	ctx := newHtlcResolverTestContext(t, func(htlc chanstate.HTLC,
 		cfg ResolverConfig) ContractResolver {
 
 		return newSuccessResolver(resolution, 0, htlc, 0, cfg)
@@ -656,7 +656,7 @@ func TestHtlcSuccessMatchSecondLevelOutput(t *testing.T) {
 func TestHtlcSuccessSkipsForeignSuccessOutput(t *testing.T) {
 	commitOutpoint := wire.OutPoint{Index: 2}
 	resolution := newSuccessTestResolution(commitOutpoint)
-	ctx := newHtlcResolverTestContext(t, func(htlc channeldb.HTLC,
+	ctx := newHtlcResolverTestContext(t, func(htlc chanstate.HTLC,
 		cfg ResolverConfig) ContractResolver {
 
 		return newSuccessResolver(resolution, 0, htlc, 0, cfg)
@@ -688,7 +688,7 @@ func TestHtlcSuccessSkipsForeignSuccessOutput(t *testing.T) {
 func TestHtlcSuccessRejectsMalformedRestoredSpend(t *testing.T) {
 	commitOutpoint := wire.OutPoint{Index: 2}
 	resolution := newSuccessTestResolution(commitOutpoint)
-	ctx := newHtlcResolverTestContext(t, func(htlc channeldb.HTLC,
+	ctx := newHtlcResolverTestContext(t, func(htlc chanstate.HTLC,
 		cfg ResolverConfig) ContractResolver {
 
 		return newSuccessResolver(resolution, 0, htlc, 0, cfg)
@@ -749,7 +749,7 @@ func TestHtlcSuccessForeignSpend(t *testing.T) {
 		t.Run(testCase.name, func(t *testing.T) {
 			defer timeout()()
 			ctx := newHtlcResolverTestContext(
-				t, func(htlc channeldb.HTLC,
+				t, func(htlc chanstate.HTLC,
 					cfg ResolverConfig) ContractResolver {
 
 					resolver := newSuccessResolver(
@@ -844,7 +844,7 @@ func TestHtlcSuccessForeignSpendCheckpointError(t *testing.T) {
 	commitOutpoint := wire.OutPoint{Index: 4}
 	resolution := newSuccessTestResolution(commitOutpoint)
 	var resolverCfg ResolverConfig
-	ctx := newHtlcResolverTestContext(t, func(htlc channeldb.HTLC,
+	ctx := newHtlcResolverTestContext(t, func(htlc chanstate.HTLC,
 		cfg ResolverConfig) ContractResolver {
 
 		resolverCfg = cfg
@@ -1012,7 +1012,7 @@ func TestHtlcSuccessCheckpointClaim(t *testing.T) {
 	}
 
 	ctx := newHtlcResolverTestContext(
-		t, func(htlc channeldb.HTLC,
+		t, func(htlc chanstate.HTLC,
 			cfg ResolverConfig) ContractResolver {
 
 			return newSuccessResolver(resolution, 0, htlc, 0, cfg)
@@ -1320,7 +1320,7 @@ func testHtlcSuccess(t *testing.T, resolution lnwallet.IncomingHtlcResolution,
 	// checkpointed at every expected stage. We store the checkpointed data
 	// for the next portion of the test.
 	ctx := newHtlcResolverTestContext(t,
-		func(htlc channeldb.HTLC, cfg ResolverConfig) ContractResolver {
+		func(htlc chanstate.HTLC, cfg ResolverConfig) ContractResolver {
 			r := &htlcSuccessResolver{
 				contractResolverKit: *newContractResolverKit(cfg),
 				htlc:                htlc,
@@ -1339,7 +1339,7 @@ func testHtlcSuccess(t *testing.T, resolution lnwallet.IncomingHtlcResolution,
 	for i := range checkpointedState {
 		cp := bytes.NewReader(checkpointedState[i])
 		ctx := newHtlcResolverTestContext(t,
-			func(htlc channeldb.HTLC, cfg ResolverConfig) ContractResolver {
+			func(htlc chanstate.HTLC, cfg ResolverConfig) ContractResolver {
 				resolver, err := newSuccessResolverFromReader(cp, cfg)
 				if err != nil {
 					t.Fatal(err)

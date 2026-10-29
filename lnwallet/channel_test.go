@@ -10765,7 +10765,7 @@ func TestCreateBreachRetributionLegacyDustHtlcs(t *testing.T) {
 	// below the remote party's dust limit.
 	dustLimit := chanState.RemoteChanCfg.DustLimit
 	nonDustAmt := dustLimit + 1000
-	revokedLog.Htlcs = []channeldb.HTLC{
+	revokedLog.Htlcs = []chanstate.HTLC{
 		{
 			Incoming:    true,
 			Amt:         lnwire.NewMSatFromSatoshis(dustLimit - 1),
@@ -10937,19 +10937,19 @@ func TestExtractPayDescs(t *testing.T) {
 	require.NoError(t, err)
 
 	// Create two incoming HTLCs.
-	incomings := []channeldb.HTLC{
+	incomings := []chanstate.HTLC{
 		createRandomHTLC(t, true),
 		createRandomHTLC(t, true),
 	}
 
 	// Create two outgoing HTLCs.
-	outgoings := []channeldb.HTLC{
+	outgoings := []chanstate.HTLC{
 		createRandomHTLC(t, false),
 		createRandomHTLC(t, false),
 	}
 
 	// Concatenate incomings and outgoings into a single slice.
-	htlcs := []channeldb.HTLC{}
+	htlcs := []chanstate.HTLC{}
 	htlcs = append(htlcs, incomings...)
 	htlcs = append(htlcs, outgoings...)
 
@@ -10976,10 +10976,10 @@ func TestExtractPayDescs(t *testing.T) {
 	}
 }
 
-// assertPayDescMatchHTLC compares a paymentDescriptor to a channeldb.HTLC and
+// assertPayDescMatchHTLC compares a paymentDescriptor to a chanstate.HTLC and
 // asserts that the fields are matched.
 func assertPayDescMatchHTLC(t *testing.T, pd paymentDescriptor,
-	htlc channeldb.HTLC) {
+	htlc chanstate.HTLC) {
 
 	require := require.New(t)
 
@@ -10993,7 +10993,7 @@ func assertPayDescMatchHTLC(t *testing.T, pd paymentDescriptor,
 
 // createRandomHTLC creates an HTLC that has random value in every field except
 // the `Incoming`.
-func createRandomHTLC(t *testing.T, incoming bool) channeldb.HTLC {
+func createRandomHTLC(t *testing.T, incoming bool) chanstate.HTLC {
 	var onionBlob [lnwire.OnionPacketSize]byte
 	_, err := crand.Read(onionBlob[:])
 	require.NoError(t, err)
@@ -11018,7 +11018,7 @@ func createRandomHTLC(t *testing.T, incoming bool) channeldb.HTLC {
 	)
 	require.NoError(t, err)
 
-	return channeldb.HTLC{
+	return chanstate.HTLC{
 		Signature:     sig,
 		RHash:         rHash,
 		Amt:           lnwire.MilliSatoshi(rand.Uint64()),

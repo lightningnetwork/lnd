@@ -431,7 +431,7 @@ func (c *commitment) toDiskCommit(
 		FeePerKw:        btcutil.Amount(c.feePerKw),
 		CommitTx:        c.txn,
 		CommitSig:       c.sig,
-		Htlcs:           make([]channeldb.HTLC, 0, numHtlcs),
+		Htlcs:           make([]chanstate.HTLC, 0, numHtlcs),
 		CustomBlob:      c.customBlob,
 	}
 
@@ -441,7 +441,7 @@ func (c *commitment) toDiskCommit(
 			outputIndex = htlc.remoteOutputIndex
 		}
 
-		h := channeldb.HTLC{
+		h := chanstate.HTLC{
 			RHash:         htlc.RHash,
 			Amt:           htlc.Amount,
 			RefundTimeout: htlc.Timeout,
@@ -467,7 +467,7 @@ func (c *commitment) toDiskCommit(
 			outputIndex = htlc.remoteOutputIndex
 		}
 
-		h := channeldb.HTLC{
+		h := chanstate.HTLC{
 			RHash:         htlc.RHash,
 			Amt:           htlc.Amount,
 			RefundTimeout: htlc.Timeout,
@@ -495,7 +495,7 @@ func (c *commitment) toDiskCommit(
 // restore commitment state written to disk back into memory once we need to
 // restart a channel session.
 func (lc *LightningChannel) diskHtlcToPayDesc(feeRate chainfee.SatPerKWeight,
-	htlc *channeldb.HTLC, commitKeys lntypes.Dual[*CommitmentKeyRing],
+	htlc *chanstate.HTLC, commitKeys lntypes.Dual[*CommitmentKeyRing],
 	whoseCommit lntypes.ChannelParty,
 	auxLeaf input.AuxTapLeaf) (paymentDescriptor, error) {
 
@@ -596,7 +596,7 @@ func (lc *LightningChannel) diskHtlcToPayDesc(feeRate chainfee.SatPerKWeight,
 // these payment descriptors can be re-inserted into the in-memory updateLog
 // for each side.
 func (lc *LightningChannel) extractPayDescs(feeRate chainfee.SatPerKWeight,
-	htlcs []channeldb.HTLC, commitKeys lntypes.Dual[*CommitmentKeyRing],
+	htlcs []chanstate.HTLC, commitKeys lntypes.Dual[*CommitmentKeyRing],
 	whoseCommit lntypes.ChannelParty,
 	auxLeaves fn.Option[CommitAuxLeaves]) ([]paymentDescriptor,
 	[]paymentDescriptor, error) {
@@ -4137,7 +4137,7 @@ type NewCommitState struct {
 
 	// PendingHTLCs is the set of new/pending HTLCs produced by this
 	// commitment state.
-	PendingHTLCs []channeldb.HTLC
+	PendingHTLCs []chanstate.HTLC
 }
 
 // SignNextCommitment signs a new commitment which includes any previous
@@ -5848,7 +5848,7 @@ func (lc *LightningChannel) NumPendingUpdates(whoseUpdates lntypes.ChannelParty,
 // transaction and the htlcs the were resolved. This return value allows callers
 // to act once an HTLC has been locked into our commitment transaction.
 func (lc *LightningChannel) RevokeCurrentCommitment() (*lnwire.RevokeAndAck,
-	[]channeldb.HTLC, map[uint64]bool, error) {
+	[]chanstate.HTLC, map[uint64]bool, error) {
 
 	lc.Lock()
 	defer lc.Unlock()
@@ -5948,7 +5948,7 @@ func extractRevokeAndAckNonce(revMsg *lnwire.RevokeAndAck,
 //  2. The set of HTLCs present on the current valid commitment transaction
 //     for the remote party.
 func (lc *LightningChannel) ReceiveRevocation(revMsg *lnwire.RevokeAndAck) (
-	*chanstate.FwdPkg, []channeldb.HTLC, error) {
+	*chanstate.FwdPkg, []chanstate.HTLC, error) {
 
 	lc.Lock()
 	defer lc.Unlock()
@@ -7492,7 +7492,7 @@ type HtlcResolutions struct {
 // the remote party's commitment transaction.
 func newOutgoingHtlcResolution(signer input.Signer,
 	localChanCfg *chanstate.ChannelConfig, commitTx *wire.MsgTx,
-	commitTxHeight uint32, htlc *channeldb.HTLC, keyRing *CommitmentKeyRing,
+	commitTxHeight uint32, htlc *chanstate.HTLC, keyRing *CommitmentKeyRing,
 	feePerKw chainfee.SatPerKWeight, csvDelay, leaseExpiry uint32,
 	whoseCommit lntypes.ChannelParty, isCommitFromInitiator bool,
 	chanType channeldb.ChannelType, chanState *chanstate.OpenChannel,
@@ -7866,7 +7866,7 @@ func newOutgoingHtlcResolution(signer input.Signer,
 // TODO(roasbeef) consolidate code with above func
 func newIncomingHtlcResolution(signer input.Signer,
 	localChanCfg *chanstate.ChannelConfig, commitTx *wire.MsgTx,
-	commitTxHeight uint32, htlc *channeldb.HTLC, keyRing *CommitmentKeyRing,
+	commitTxHeight uint32, htlc *chanstate.HTLC, keyRing *CommitmentKeyRing,
 	feePerKw chainfee.SatPerKWeight, csvDelay, leaseExpiry uint32,
 	whoseCommit lntypes.ChannelParty, isCommitFromInitiator bool,
 	chanType channeldb.ChannelType, chanState *chanstate.OpenChannel,
@@ -8250,7 +8250,7 @@ func (r *OutgoingHtlcResolution) HtlcPoint() wire.OutPoint {
 // used in two cases: force close, or a unilateral close.
 func extractHtlcResolutions(feePerKw chainfee.SatPerKWeight,
 	whoseCommit lntypes.ChannelParty, signer input.Signer,
-	htlcs []channeldb.HTLC, keyRing *CommitmentKeyRing,
+	htlcs []chanstate.HTLC, keyRing *CommitmentKeyRing,
 	localChanCfg, remoteChanCfg *chanstate.ChannelConfig,
 	commitTx *wire.MsgTx, commitTxHeight uint32,
 	chanType channeldb.ChannelType, isCommitFromInitiator bool,
@@ -10251,7 +10251,7 @@ func (lc *LightningChannel) MarkDataLoss(commitPoint *btcec.PublicKey) error {
 
 // ActiveHtlcs returns a slice of HTLC's which are currently active on *both*
 // commitment transactions.
-func (lc *LightningChannel) ActiveHtlcs() []channeldb.HTLC {
+func (lc *LightningChannel) ActiveHtlcs() []chanstate.HTLC {
 	lc.RLock()
 	defer lc.RUnlock()
 

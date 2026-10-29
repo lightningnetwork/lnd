@@ -77,11 +77,6 @@ var (
 	ErrOnionBlobLength = cstate.ErrOnionBlobLength
 )
 
-type (
-	// HTLC is the on-disk representation of a hash time-locked contract.
-	HTLC = cstate.HTLC
-)
-
 // ChannelType is an enum-like type that describes one of several possible
 // channel types.
 type ChannelType = cstate.ChannelType
@@ -211,7 +206,7 @@ var (
 //
 // NOTE: This API is NOT stable, the on-disk format will likely change in the
 // future.
-func SerializeHtlcs(b io.Writer, htlcs ...HTLC) error {
+func SerializeHtlcs(b io.Writer, htlcs ...cstate.HTLC) error {
 	return cstate.SerializeHtlcs(b, htlcs...)
 }
 
@@ -232,7 +227,7 @@ func SerializeHtlcs(b io.Writer, htlcs ...HTLC) error {
 //
 // NOTE: This API is NOT stable, the on-disk format will likely change in the
 // future.
-func DeserializeHtlcs(r io.Reader) ([]HTLC, error) {
+func DeserializeHtlcs(r io.Reader) ([]cstate.HTLC, error) {
 	return cstate.DeserializeHtlcs(r)
 }
 

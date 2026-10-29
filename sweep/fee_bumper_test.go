@@ -1077,6 +1077,62 @@ func TestProbeInputSetFundsRequiredOutput(t *testing.T) {
 	}
 }
 
+// TestIsInputScriptFailure checks that only input script or standardness errors
+// are treated as identifying bad inputs.
+func TestIsInputScriptFailure(t *testing.T) {
+	t.Parallel()
+
+	// Arrange the existing script sentinels and fee/unknown controls so
+	// broad backend failures cannot masquerade as input evidence.
+	testCases := []struct {
+		err      error
+		expected bool
+	}{
+		{
+			err:      chain.ErrScriptVerifyFlag,
+			expected: true,
+		},
+		{
+			err:      chain.ErrNonMandatoryScriptVerifyFlag,
+			expected: true,
+		},
+		{
+			err:      chain.ErrBadWitnessNonStandard,
+			expected: true,
+		},
+		{
+			err:      chain.ErrScriptSigNotPushOnly,
+			expected: true,
+		},
+		{
+			err:      chain.ErrScriptSigSize,
+			expected: true,
+		},
+		{
+			err:      chain.ErrNonStandardInputs,
+			expected: true,
+		},
+		{
+			err:      chain.ErrInsufficientFee,
+			expected: false,
+		},
+		{
+			err:      errDummy,
+			expected: false,
+		},
+	}
+
+	for _, testCase := range testCases {
+		// Act by classifying each backend rejection without a
+		// transaction.
+		actual := isInputScriptFailure(testCase.err)
+
+		// Assert that only input-specific rejections permit
+		// attribution.
+		require.Equal(t, testCase.expected, actual)
+	}
+}
+
 // TestTxPublisherBroadcast checks the internal `broadcast` method behaves as
 // expected.
 func TestTxPublisherBroadcast(t *testing.T) {

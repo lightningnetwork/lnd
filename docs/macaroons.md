@@ -80,8 +80,11 @@ methods. This means a few important things:
 
 You can also run `lnd` with the `--no-macaroons` option, which skips the
 creation of the macaroon files and all macaroon checks within the RPC server.
-This means you can still pass a macaroon to the RPC server with a client, but
-it won't be checked for validity. Note that disabling authentication of a server
+Any reachable gRPC or REST client can call RPCs without macaroon authorization.
+A client can still pass a macaroon, but it won't be checked for validity.
+Private or container networks are not authentication boundaries, and TLS alone
+does not authenticate clients. Restrict network access and use an authenticated
+ingress when disabling macaroons. Note that disabling authentication of a server
 that's listening on a public interface is not allowed. This means the
 `--no-macaroons` option is only permitted when the RPC server is in a private
 network. In CIDR notation, the following IPs are considered private,

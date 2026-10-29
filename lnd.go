@@ -185,6 +185,12 @@ func Main(cfg *Config, lisCfg ListenerCfg, implCfg *ImplementationCfg,
 		return fmt.Errorf(fmtStr, params...)
 	}
 
+	if cfg.NoMacaroons {
+		ltndLog.Warn("Macaroon authentication is disabled: any " +
+			"reachable gRPC or REST client can call RPCs without " +
+			"macaroon authorization")
+	}
+
 	// Show version at startup.
 	ltndLog.InfoS(ctx, "Version Info",
 		slog.String("version", build.Version()),

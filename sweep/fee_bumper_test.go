@@ -390,8 +390,11 @@ type mockers struct {
 	feeFunc *MockFeeFunction
 }
 
-// createTestPublisher creates a new tx publisher using the provided mockers.
-func createTestPublisher(t *testing.T) (*TxPublisher, *mockers) {
+// createTestPublisherWithAux creates a new tx publisher using the provided
+// mockers and aux sweeper option.
+func createTestPublisherWithAux(t *testing.T,
+	auxSweeper fn.Option[AuxSweeper]) (*TxPublisher, *mockers) {
+
 	// Create a mock fee estimator.
 	estimator := &chainfee.MockEstimator{}
 
@@ -429,17 +432,30 @@ func createTestPublisher(t *testing.T) (*TxPublisher, *mockers) {
 		Signer:     m.signer,
 		Wallet:     m.wallet,
 		Notifier:   m.notifier,
-		AuxSweeper: fn.Some[AuxSweeper](&MockAuxSweeper{}),
+		AuxSweeper: auxSweeper,
 	})
 
 	return tp, m
+}
+
+// createTestPublisher creates a new tx publisher using the provided mockers.
+func createTestPublisher(t *testing.T) (*TxPublisher, *mockers) {
+	return createTestPublisherWithAux(
+		t, fn.Some[AuxSweeper](&MockAuxSweeper{}),
+	)
+}
+
+// createTestPublisherNoAux creates a new tx publisher without an aux sweeper.
+func createTestPublisherNoAux(t *testing.T) (*TxPublisher, *mockers) {
+	return createTestPublisherWithAux(t, fn.None[AuxSweeper]())
 }
 
 // TestCreateAndCheckTx checks `createAndCheckTx` behaves as expected.
 func TestCreateAndCheckTx(t *testing.T) {
 	t.Parallel()
 
-	// Create a test request.
+	// Arrange a funded input and ordered backend verdicts so the table
+	// distinguishes construction budget failure from mempool rejection.
 	inp := createTestInput(1000, input.WitnessKeyHash)
 
 	// Create a publisher using the mocks.
@@ -447,7 +463,7 @@ func TestCreateAndCheckTx(t *testing.T) {
 
 	// Create a test feerate and return it from the mock fee function.
 	feerate := chainfee.SatPerKWeight(1000)
-	m.feeFunc.On("FeeRate").Return(feerate)
+	m.feeFunc.On("FeeRate").Return(feerate).Times(3)
 
 	// Mock the wallet to fail on testmempoolaccept on the first call, and
 	// succeed on the second.
@@ -461,13 +477,15 @@ func TestCreateAndCheckTx(t *testing.T) {
 	// this is fine to be mocked. This behaves essentially as skipping the
 	// Signer check and always assume the tx has a valid sig.
 	script := &input.Script{}
-	m.signer.On("ComputeInputScript", mock.Anything,
-		mock.Anything).Return(script, nil)
+	m.signer.On(
+		"ComputeInputScript", mock.Anything, mock.Anything,
+	).Return(script, nil).Times(3)
 
 	testCases := []struct {
-		name        string
-		req         *BumpRequest
-		expectedErr error
+		name                string
+		req                 *BumpRequest
+		expectedErr         error
+		expectedWrappedErrs []error
 	}{
 		{
 			// When the budget cannot cover the fee, an error
@@ -488,7 +506,8 @@ func TestCreateAndCheckTx(t *testing.T) {
 				Inputs:          []input.Input{&inp},
 				Budget:          btcutil.Amount(1000),
 			},
-			expectedErr: errDummy,
+			expectedErr:         errDummy,
+			expectedWrappedErrs: []error{errMempoolRejected},
 		},
 		{
 			// When the mempool accepts the transaction, no error
@@ -512,11 +531,17 @@ func TestCreateAndCheckTx(t *testing.T) {
 		}
 
 		t.Run(tc.name, func(t *testing.T) {
-			// Call the method under test.
+			// Act by constructing and testing the candidate for
+			// this budget.
 			_, err := tp.createAndCheckTx(r)
 
-			// Check the result is as expected.
+			// Assert both the underlying rejection and the
+			// eligibility marker used to distinguish a constructed
+			// candidate from a build failure.
 			require.ErrorIs(t, err, tc.expectedErr)
+			for _, expectedErr := range tc.expectedWrappedErrs {
+				require.ErrorIs(t, err, expectedErr)
+			}
 		})
 	}
 }
@@ -704,6 +729,24 @@ func TestCreateRBFCompliantTx(t *testing.T) {
 			require.NotEmpty(t, rec.tx)
 			require.NotEmpty(t, rec.fee)
 		})
+	}
+}
+
+// createBadInputTestRequest creates a bump request with the given number of
+// inputs and enough budget for subset probes.
+func createBadInputTestRequest(numInputs int) *BumpRequest {
+	// Uniform, well-funded inputs let diagnosis tests vary membership and
+	// rejection evidence without introducing independent funding failures.
+	inputs := make([]input.Input, 0, numInputs)
+	for range numInputs {
+		inp := createTestInput(10_000, input.WitnessKeyHash)
+		inputs = append(inputs, &inp)
+	}
+
+	return &BumpRequest{
+		DeliveryAddress: changePkScript,
+		Inputs:          inputs,
+		Budget:          btcutil.Amount(10_000),
 	}
 }
 

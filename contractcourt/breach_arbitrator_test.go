@@ -1615,7 +1615,7 @@ func testBreachSpends(t *testing.T, test breachTest) {
 	}
 
 	state := alice.State()
-	err = state.CloseChannel(&channeldb.ChannelCloseSummary{
+	err = state.CloseChannel(&chanstate.ChannelCloseSummary{
 		ChanPoint:               state.FundingOutpoint,
 		ChainHash:               state.ChainHash,
 		RemotePub:               state.IdentityPub,
@@ -1831,7 +1831,7 @@ func TestBreachDelayedJusticeConfirmation(t *testing.T) {
 	}
 
 	state := alice.State()
-	err = state.CloseChannel(&channeldb.ChannelCloseSummary{
+	err = state.CloseChannel(&chanstate.ChannelCloseSummary{
 		ChanPoint:               state.FundingOutpoint,
 		ChainHash:               state.ChainHash,
 		RemotePub:               state.IdentityPub,

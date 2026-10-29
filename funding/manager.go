@@ -2614,7 +2614,7 @@ func (f *Manager) fundeeProcessFundingCreated(peer lnpeer.Peer,
 	// from the database.
 	deleteFromDatabase := func() {
 		localBalance := completeChan.LocalCommitment.LocalBalance.ToSatoshis()
-		closeInfo := &channeldb.ChannelCloseSummary{
+		closeInfo := &chanstate.ChannelCloseSummary{
 			ChanPoint:               completeChan.FundingOutpoint,
 			ChainHash:               completeChan.ChainHash,
 			RemotePub:               completeChan.IdentityPub,
@@ -2984,7 +2984,7 @@ func (f *Manager) fundingTimeout(c *chanstate.OpenChannel,
 	// was initiated reaches MaxWaitNumBlocksFundingConf and we are not the
 	// channel initiator.
 	localBalance := c.LocalCommitment.LocalBalance.ToSatoshis()
-	closeInfo := &channeldb.ChannelCloseSummary{
+	closeInfo := &chanstate.ChannelCloseSummary{
 		ChainHash:               c.ChainHash,
 		ChanPoint:               c.FundingOutpoint,
 		RemotePub:               c.IdentityPub,

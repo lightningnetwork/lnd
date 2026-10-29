@@ -53,7 +53,7 @@ type AuxChanCloser interface {
 type LocalUnilateralCloseInfo struct {
 	*chainntnfs.SpendDetail
 	*lnwallet.LocalForceCloseSummary
-	*channeldb.ChannelCloseSummary
+	*chanstate.ChannelCloseSummary
 
 	// CommitSet is the set of known valid commitments at the time the
 	// remote party's commitment hit the chain.
@@ -63,7 +63,7 @@ type LocalUnilateralCloseInfo struct {
 // CooperativeCloseInfo encapsulates all the information we need to act on a
 // cooperative close that gets confirmed.
 type CooperativeCloseInfo struct {
-	*channeldb.ChannelCloseSummary
+	*chanstate.ChannelCloseSummary
 }
 
 // RemoteUnilateralCloseInfo wraps the normal UnilateralCloseSummary to couple
@@ -96,7 +96,7 @@ type BreachCloseInfo struct {
 
 	// CloseSummary gives the recipient of the BreachCloseInfo information
 	// to mark the channel closed in the database.
-	CloseSummary channeldb.ChannelCloseSummary
+	CloseSummary chanstate.ChannelCloseSummary
 }
 
 // spendConfirmationState represents the state of spend confirmation tracking
@@ -290,7 +290,7 @@ type chainWatcherConfig struct {
 	// dispatch was introduced. The follow-up state transition (DB persist
 	// + state machine advance + FULLY_RESOLVED_CHANNEL) still waits for
 	// the full required confirmation depth via the existing async path.
-	notifyEarlyCoopClose func(*channeldb.ChannelCloseSummary)
+	notifyEarlyCoopClose func(*chanstate.ChannelCloseSummary)
 }
 
 // chainWatcher is a system that's assigned to every active channel. The duty
@@ -1491,12 +1491,12 @@ func (c *chainWatcher) maybeDispatchEarlyCoopClose(
 // persist) and the post-N-conf dispatch path so both surfaces produce
 // equivalent summaries.
 func (c *chainWatcher) buildCoopCloseSummary(
-	commitSpend *chainntnfs.SpendDetail) *channeldb.ChannelCloseSummary {
+	commitSpend *chainntnfs.SpendDetail) *chanstate.ChannelCloseSummary {
 
 	broadcastTx := commitSpend.SpendingTx
 	localAmt := c.toSelfAmount(broadcastTx)
 
-	summary := &channeldb.ChannelCloseSummary{
+	summary := &chanstate.ChannelCloseSummary{
 		ChanPoint:               c.cfg.chanState.FundingOutpoint,
 		ChainHash:               c.cfg.chanState.ChainHash,
 		ClosingTXID:             *commitSpend.SpenderTxHash,
@@ -1593,7 +1593,7 @@ func (c *chainWatcher) dispatchLocalForceClose(
 	// As we've detected that the channel has been closed, immediately
 	// creating a close summary for future usage by related sub-systems.
 	chanSnapshot := forceClose.ChanSnapshot
-	closeSummary := &channeldb.ChannelCloseSummary{
+	closeSummary := &chanstate.ChannelCloseSummary{
 		ChanPoint:               chanSnapshot.ChannelPoint,
 		ChainHash:               chanSnapshot.ChainHash,
 		ClosingTXID:             forceClose.CloseTx.TxHash(),
@@ -1746,7 +1746,7 @@ func (c *chainWatcher) dispatchContractBreach(spendEvent *chainntnfs.SpendDetail
 		}))
 
 	settledBalance := chainSet.remoteCommit.LocalBalance.ToSatoshis()
-	closeSummary := channeldb.ChannelCloseSummary{
+	closeSummary := chanstate.ChannelCloseSummary{
 		ChanPoint:               c.cfg.chanState.FundingOutpoint,
 		ChainHash:               c.cfg.chanState.ChainHash,
 		ClosingTXID:             *spendEvent.SpenderTxHash,

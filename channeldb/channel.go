@@ -164,10 +164,6 @@ type CommitmentParams = cstate.CommitmentParams
 // ChannelConfig houses the channel configuration for one side of a channel.
 type ChannelConfig = cstate.ChannelConfig
 
-// ChannelStatus is a bit vector used to indicate whether an OpenChannel is in
-// the default usable state, or a state where it shouldn't be used.
-type ChannelStatus = cstate.ChannelStatus
-
 var (
 	// ChanStatusDefault is the normal state of an open channel.
 	ChanStatusDefault = cstate.ChanStatusDefault
@@ -289,18 +285,18 @@ const (
 	Abandoned = cstate.Abandoned
 )
 
-// ChannelCloseSummary contains the final state of a channel at the point it
-// was closed.
-type ChannelCloseSummary = cstate.ChannelCloseSummary
-
 // ChannelSnapshot is a frozen snapshot of the current channel state.
 type ChannelSnapshot = cstate.ChannelSnapshot
 
-func serializeChannelCloseSummary(w io.Writer, cs *ChannelCloseSummary) error {
+func serializeChannelCloseSummary(w io.Writer,
+	cs *cstate.ChannelCloseSummary) error {
+
 	return cstate.SerializeChannelCloseSummary(w, cs)
 }
 
-func deserializeCloseChannelSummary(r io.Reader) (*ChannelCloseSummary, error) {
+func deserializeCloseChannelSummary(r io.Reader) (
+	*cstate.ChannelCloseSummary, error) {
+
 	return cstate.DeserializeCloseChannelSummary(r)
 }
 

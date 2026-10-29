@@ -5282,9 +5282,9 @@ func createRPCOpenChannel(ctx context.Context, r *rpcServer,
 }
 
 // createRPCClosedChannel creates an *lnrpc.ClosedChannelSummary from a
-// *channeldb.ChannelCloseSummary.
+// *chanstate.ChannelCloseSummary.
 func (r *rpcServer) createRPCClosedChannel(
-	dbChannel *channeldb.ChannelCloseSummary) (*lnrpc.ChannelCloseSummary,
+	dbChannel *chanstate.ChannelCloseSummary) (*lnrpc.ChannelCloseSummary,
 	error) {
 
 	nodePub := dbChannel.RemotePub

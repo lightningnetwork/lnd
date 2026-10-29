@@ -319,8 +319,8 @@ type testChanArbOption func(cfg *testChanArbOpts)
 
 // remoteInitiatorOption sets the MarkChannelClosed function in the Channel
 // Arbitrator's config.
-func withMarkClosed(markClosed func(*channeldb.ChannelCloseSummary,
-	...channeldb.ChannelStatus) error) testChanArbOption {
+func withMarkClosed(markClosed func(*chanstate.ChannelCloseSummary,
+	...chanstate.ChannelStatus) error) testChanArbOption {
 
 	return func(cfg *testChanArbOpts) {
 		cfg.arbCfg.MarkChannelClosed = markClosed
@@ -435,8 +435,8 @@ func createTestChannelArbitrator(t *testing.T, log ArbitratorLog,
 
 			return nil
 		},
-		MarkChannelClosed: func(*channeldb.ChannelCloseSummary,
-			...channeldb.ChannelStatus) error {
+		MarkChannelClosed: func(*chanstate.ChannelCloseSummary,
+			...chanstate.ChannelStatus) error {
 
 			return nil
 		},
@@ -538,10 +538,10 @@ func TestChannelArbitratorCooperativeClose(t *testing.T) {
 	chanArbCtx.AssertState(StateDefault)
 
 	// We set up a channel to detect when MarkChannelClosed is called.
-	closeInfos := make(chan *channeldb.ChannelCloseSummary)
+	closeInfos := make(chan *chanstate.ChannelCloseSummary)
 	chanArbCtx.chanArb.cfg.MarkChannelClosed = func(
-		closeInfo *channeldb.ChannelCloseSummary,
-		statuses ...channeldb.ChannelStatus) error {
+		closeInfo *chanstate.ChannelCloseSummary,
+		statuses ...chanstate.ChannelStatus) error {
 
 		closeInfos <- closeInfo
 		return nil
@@ -550,7 +550,7 @@ func TestChannelArbitratorCooperativeClose(t *testing.T) {
 	// Cooperative close should do trigger a MarkChannelClosed +
 	// NotifyChannelResolved.
 	closeInfo := &CooperativeCloseInfo{
-		&channeldb.ChannelCloseSummary{},
+		&chanstate.ChannelCloseSummary{},
 	}
 	chanArbCtx.chanArb.cfg.ChainEvents.CooperativeClosure <- closeInfo
 
@@ -811,7 +811,7 @@ func TestChannelArbitratorLocalForceClose(t *testing.T) {
 				HtlcResolutions: &lnwallet.HtlcResolutions{},
 			}),
 		},
-		ChannelCloseSummary: &channeldb.ChannelCloseSummary{},
+		ChannelCloseSummary: &chanstate.ChannelCloseSummary{},
 	}
 
 	// It should transition StateContractClosed -> StateFullyResolved.
@@ -1115,7 +1115,7 @@ func TestChannelArbitratorLocalForceClosePendingHtlc(t *testing.T) {
 				},
 			}),
 		},
-		ChannelCloseSummary: &channeldb.ChannelCloseSummary{},
+		ChannelCloseSummary: &chanstate.ChannelCloseSummary{},
 		CommitSet: CommitSet{
 			ConfCommitKey: fn.Some(LocalHtlcSet),
 			HtlcSets: map[HtlcSetKey][]channeldb.HTLC{
@@ -1538,8 +1538,8 @@ func TestChannelArbitratorPersistence(t *testing.T) {
 	// Now we make the log succeed writing the resolutions, but fail when
 	// attempting to close the channel.
 	log.failLog = false
-	chanArb.cfg.MarkChannelClosed = func(*channeldb.ChannelCloseSummary,
-		...channeldb.ChannelStatus) error {
+	chanArb.cfg.MarkChannelClosed = func(*chanstate.ChannelCloseSummary,
+		...chanstate.ChannelStatus) error {
 
 		return fmt.Errorf("intentional close error")
 	}
@@ -1744,7 +1744,7 @@ func TestChannelArbitratorCommitFailure(t *testing.T) {
 			closeType: channeldb.CooperativeClose,
 			sendEvent: func(chanArb *ChannelArbitrator) {
 				closeInfo := &CooperativeCloseInfo{
-					&channeldb.ChannelCloseSummary{},
+					&chanstate.ChannelCloseSummary{},
 				}
 				chanArb.cfg.ChainEvents.CooperativeClosure <- closeInfo
 			},
@@ -1779,7 +1779,7 @@ func TestChannelArbitratorCommitFailure(t *testing.T) {
 							HtlcResolutions: &lnwallet.HtlcResolutions{},
 						}),
 					},
-					ChannelCloseSummary: &channeldb.ChannelCloseSummary{},
+					ChannelCloseSummary: &chanstate.ChannelCloseSummary{},
 				}
 			},
 			expectedStates: []ArbitratorState{StateContractClosed, StateFullyResolved},
@@ -1814,8 +1814,8 @@ func TestChannelArbitratorCommitFailure(t *testing.T) {
 
 		closed := make(chan struct{})
 		chanArb.cfg.MarkChannelClosed = func(
-			*channeldb.ChannelCloseSummary,
-			...channeldb.ChannelStatus) error {
+			*chanstate.ChannelCloseSummary,
+			...chanstate.ChannelStatus) error {
 
 			close(closed)
 			return nil
@@ -2118,7 +2118,7 @@ func TestChannelArbitratorDanglingCommitForceClose(t *testing.T) {
 						HtlcResolutions: &lnwallet.HtlcResolutions{},
 					}),
 				},
-				ChannelCloseSummary: &channeldb.ChannelCloseSummary{},
+				ChannelCloseSummary: &chanstate.ChannelCloseSummary{},
 				CommitSet: CommitSet{
 					ConfCommitKey: fn.Some(
 						testCase.confCommit,
@@ -2272,7 +2272,7 @@ func TestChannelArbitratorDustOnConfirmedCommit(t *testing.T) {
 				HtlcResolutions: &lnwallet.HtlcResolutions{},
 			}),
 		},
-		ChannelCloseSummary: &channeldb.ChannelCloseSummary{},
+		ChannelCloseSummary: &chanstate.ChannelCloseSummary{},
 		CommitSet: CommitSet{
 			ConfCommitKey: fn.Some(RemoteHtlcSet),
 			HtlcSets: map[HtlcSetKey][]channeldb.HTLC{
@@ -2489,7 +2489,7 @@ func TestChannelArbitratorDustPendingCommitConfirms(t *testing.T) {
 				HtlcResolutions: &lnwallet.HtlcResolutions{},
 			}),
 		},
-		ChannelCloseSummary: &channeldb.ChannelCloseSummary{},
+		ChannelCloseSummary: &chanstate.ChannelCloseSummary{},
 		CommitSet: CommitSet{
 			ConfCommitKey: fn.Some(RemotePendingHtlcSet),
 			HtlcSets: map[HtlcSetKey][]channeldb.HTLC{
@@ -2606,7 +2606,7 @@ func TestChannelArbitratorDustOnLocalLiveOnRemote(t *testing.T) {
 				HtlcResolutions: &lnwallet.HtlcResolutions{},
 			}),
 		},
-		ChannelCloseSummary: &channeldb.ChannelCloseSummary{},
+		ChannelCloseSummary: &chanstate.ChannelCloseSummary{},
 		CommitSet: CommitSet{
 			ConfCommitKey: fn.Some(LocalHtlcSet),
 			HtlcSets: map[HtlcSetKey][]channeldb.HTLC{
@@ -2734,7 +2734,7 @@ func TestRemoteCloseInitiator(t *testing.T) {
 						TxOut: []*wire.TxOut{},
 					},
 				},
-				ChannelCloseSummary: channeldb.ChannelCloseSummary{
+				ChannelCloseSummary: chanstate.ChannelCloseSummary{
 					ChanPoint:         channel.FundingOutpoint,
 					RemotePub:         channel.IdentityPub,
 					SettledBalance:    btcutil.Amount(500),
@@ -2804,8 +2804,8 @@ func TestRemoteCloseInitiator(t *testing.T) {
 
 			// Mock marking the channel as closed, we only care
 			// about setting of channel status.
-			mockMarkClosed := func(_ *channeldb.ChannelCloseSummary,
-				statuses ...channeldb.ChannelStatus) error {
+			mockMarkClosed := func(_ *chanstate.ChannelCloseSummary,
+				statuses ...chanstate.ChannelStatus) error {
 
 				for _, status := range statuses {
 					err := alice.State().ApplyChanStatus(status)
@@ -3505,7 +3505,7 @@ func TestChannelArbitratorAnchors(t *testing.T) {
 				AnchorResolution: anchorResolution,
 			}),
 		},
-		ChannelCloseSummary: &channeldb.ChannelCloseSummary{},
+		ChannelCloseSummary: &chanstate.ChannelCloseSummary{},
 		CommitSet: CommitSet{
 			ConfCommitKey: fn.Some(LocalHtlcSet),
 			HtlcSets:      map[HtlcSetKey][]channeldb.HTLC{},

@@ -179,7 +179,7 @@ type ChainArbitratorConfig struct {
 	// the same depth it did before the multi-confirmation reorg-aware
 	// dispatch was introduced. The follow-up persist + state advance still
 	// waits for the full required confirmation count.
-	NotifyEarlyClosedChannel func(*channeldb.ChannelCloseSummary)
+	NotifyEarlyClosedChannel func(*chanstate.ChannelCloseSummary)
 
 	// NotifyFullyResolvedChannel is a function closure that the
 	// ChainArbitrator will use to notify the ChannelNotifier about a newly
@@ -490,8 +490,8 @@ func newActiveChannelArbitrator(channel *chanstate.OpenChannel,
 		ShortChanID: channel.ShortChanID(),
 
 		MarkCommitmentBroadcasted: channel.MarkCommitmentBroadcasted,
-		MarkChannelClosed: func(summary *channeldb.ChannelCloseSummary,
-			statuses ...channeldb.ChannelStatus) error {
+		MarkChannelClosed: func(summary *chanstate.ChannelCloseSummary,
+			statuses ...chanstate.ChannelStatus) error {
 
 			err := channel.CloseChannel(summary, statuses...)
 			if err != nil {
@@ -932,7 +932,7 @@ func (c *ChainArbitrator) republishClosingTxs(
 // NOTE: There is no risk to calling this method if the channel isn't in either
 // CommitmentBroadcasted or CoopBroadcasted, but the logs will be misleading.
 func (c *ChainArbitrator) rebroadcast(channel *chanstate.OpenChannel,
-	state channeldb.ChannelStatus) error {
+	state chanstate.ChannelStatus) error {
 
 	chanPoint := channel.FundingOutpoint
 

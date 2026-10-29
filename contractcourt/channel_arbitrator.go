@@ -139,8 +139,8 @@ type ChannelArbitratorConfig struct {
 	// be able to recover from a failure without getting the close event
 	// again. It takes an optional channel status which will update the
 	// channel status in the record that we keep of historical channels.
-	MarkChannelClosed func(*channeldb.ChannelCloseSummary,
-		...channeldb.ChannelStatus) error
+	MarkChannelClosed func(*chanstate.ChannelCloseSummary,
+		...chanstate.ChannelStatus) error
 
 	// IsPendingClose is a boolean indicating whether the channel is marked
 	// as pending close in the database.

@@ -7118,7 +7118,7 @@ type UnilateralCloseSummary struct {
 
 	// ChannelCloseSummary is a struct describing the final state of the
 	// channel and in which state is was closed.
-	channeldb.ChannelCloseSummary
+	chanstate.ChannelCloseSummary
 
 	// CommitResolution contains all the data required to sweep the output
 	// to ourselves. If this is our commitment transaction, then we'll need
@@ -7321,7 +7321,7 @@ func NewUnilateralCloseSummary(chanState *chanstate.OpenChannel,
 		commitResolution.ResolutionBlob = resolveBlob.OkToSome()
 	}
 
-	closeSummary := channeldb.ChannelCloseSummary{
+	closeSummary := chanstate.ChannelCloseSummary{
 		ChanPoint:               chanState.FundingOutpoint,
 		ChainHash:               chanState.ChainHash,
 		ClosingTXID:             *commitSpend.SpenderTxHash,

@@ -84,10 +84,10 @@ type AuxChanState struct {
 	Capacity btcutil.Amount
 
 	// LocalChanCfg is the channel configuration for the local node.
-	LocalChanCfg channeldb.ChannelConfig
+	LocalChanCfg chanstate.ChannelConfig
 
 	// RemoteChanCfg is the channel configuration for the remote node.
-	RemoteChanCfg channeldb.ChannelConfig
+	RemoteChanCfg chanstate.ChannelConfig
 
 	// ThawHeight is the height when a frozen channel once again becomes a
 	// normal channel. If this is zero, then there're no restrictions on

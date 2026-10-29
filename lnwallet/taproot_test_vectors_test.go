@@ -880,8 +880,8 @@ func createTaprootTestChannelsForVectors(tc *taprootTestContext,
 	chanType := taprootChanType
 
 	// Channel configurations using all deterministic keys.
-	remoteCfg := channeldb.ChannelConfig{
-		ChannelStateBounds: channeldb.ChannelStateBounds{
+	remoteCfg := chanstate.ChannelConfig{
+		ChannelStateBounds: chanstate.ChannelStateBounds{
 			MaxPendingAmount: lnwire.NewMSatFromSatoshis(
 				tc.fundingAmount,
 			),
@@ -889,7 +889,7 @@ func createTaprootTestChannelsForVectors(tc *taprootTestContext,
 			MinHTLC:          0,
 			MaxAcceptedHtlcs: input.MaxHTLCNumber / 2,
 		},
-		CommitmentParams: channeldb.CommitmentParams{
+		CommitmentParams: chanstate.CommitmentParams{
 			DustLimit: tc.dustLimit,
 			CsvDelay:  tc.localCsvDelay,
 		},
@@ -909,8 +909,8 @@ func createTaprootTestChannelsForVectors(tc *taprootTestContext,
 			PubKey: tc.remoteRevocationBasepointSecret.PubKey(),
 		},
 	}
-	localCfg := channeldb.ChannelConfig{
-		ChannelStateBounds: channeldb.ChannelStateBounds{
+	localCfg := chanstate.ChannelConfig{
+		ChannelStateBounds: chanstate.ChannelStateBounds{
 			MaxPendingAmount: lnwire.NewMSatFromSatoshis(
 				tc.fundingAmount,
 			),
@@ -918,7 +918,7 @@ func createTaprootTestChannelsForVectors(tc *taprootTestContext,
 			MinHTLC:          0,
 			MaxAcceptedHtlcs: input.MaxHTLCNumber / 2,
 		},
-		CommitmentParams: channeldb.CommitmentParams{
+		CommitmentParams: chanstate.CommitmentParams{
 			DustLimit: tc.dustLimit,
 			CsvDelay:  tc.localCsvDelay,
 		},

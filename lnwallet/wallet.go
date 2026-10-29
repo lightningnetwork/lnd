@@ -1573,7 +1573,7 @@ type CreateCommitOpt func(*createCommitOpts)
 // remote party's commitment transaction, and verify the signature for their
 // version of the commitment transaction.
 func CreateCommitmentTxns(localBalance, remoteBalance btcutil.Amount,
-	ourChanCfg, theirChanCfg *channeldb.ChannelConfig,
+	ourChanCfg, theirChanCfg *chanstate.ChannelConfig,
 	localCommitPoint, remoteCommitPoint *btcec.PublicKey,
 	fundingTxIn wire.TxIn, chanType channeldb.ChannelType, initiator bool,
 	leaseExpiry uint32, opts ...CreateCommitOpt) (*wire.MsgTx, *wire.MsgTx,

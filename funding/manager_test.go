@@ -3525,7 +3525,7 @@ func TestFundingManagerCustomChannelParameters(t *testing.T) {
 	// Helper method for checking that the aux funding controller received
 	// the negotiated channel configs of both parties.
 	assertAuxChanState := func(localCfg,
-		remoteCfg channeldb.ChannelConfig) {
+		remoteCfg chanstate.ChannelConfig) {
 
 		t.Helper()
 

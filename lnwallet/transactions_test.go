@@ -605,15 +605,15 @@ func testSpendValidation(t *testing.T, tweakless bool) {
 	// Calculate the dust limit we'll use for the test.
 	dustLimit := DustLimitForSize(input.UnknownWitnessSize)
 
-	aliceChanCfg := &channeldb.ChannelConfig{
-		CommitmentParams: channeldb.CommitmentParams{
+	aliceChanCfg := &chanstate.ChannelConfig{
+		CommitmentParams: chanstate.CommitmentParams{
 			DustLimit: dustLimit,
 			CsvDelay:  csvTimeout,
 		},
 	}
 
-	bobChanCfg := &channeldb.ChannelConfig{
-		CommitmentParams: channeldb.CommitmentParams{
+	bobChanCfg := &chanstate.ChannelConfig{
+		CommitmentParams: chanstate.CommitmentParams{
 			DustLimit: dustLimit,
 			CsvDelay:  csvTimeout,
 		},
@@ -836,8 +836,8 @@ func createTestChannelsForVectors(tc *testContext, chanType channeldb.ChannelTyp
 	}
 
 	// Define channel configurations.
-	remoteCfg := channeldb.ChannelConfig{
-		ChannelStateBounds: channeldb.ChannelStateBounds{
+	remoteCfg := chanstate.ChannelConfig{
+		ChannelStateBounds: chanstate.ChannelStateBounds{
 			MaxPendingAmount: lnwire.NewMSatFromSatoshis(
 				tc.fundingAmount,
 			),
@@ -845,7 +845,7 @@ func createTestChannelsForVectors(tc *testContext, chanType channeldb.ChannelTyp
 			MinHTLC:          0,
 			MaxAcceptedHtlcs: input.MaxHTLCNumber / 2,
 		},
-		CommitmentParams: channeldb.CommitmentParams{
+		CommitmentParams: chanstate.CommitmentParams{
 			DustLimit: tc.dustLimit,
 			CsvDelay:  tc.localCsvDelay,
 		},
@@ -865,8 +865,8 @@ func createTestChannelsForVectors(tc *testContext, chanType channeldb.ChannelTyp
 			PubKey: tc.remoteRevocationBasepointSecret.PubKey(),
 		},
 	}
-	localCfg := channeldb.ChannelConfig{
-		ChannelStateBounds: channeldb.ChannelStateBounds{
+	localCfg := chanstate.ChannelConfig{
+		ChannelStateBounds: chanstate.ChannelStateBounds{
 			MaxPendingAmount: lnwire.NewMSatFromSatoshis(
 				tc.fundingAmount,
 			),
@@ -874,7 +874,7 @@ func createTestChannelsForVectors(tc *testContext, chanType channeldb.ChannelTyp
 			MinHTLC:          0,
 			MaxAcceptedHtlcs: input.MaxHTLCNumber / 2,
 		},
-		CommitmentParams: channeldb.CommitmentParams{
+		CommitmentParams: chanstate.CommitmentParams{
 			DustLimit: tc.dustLimit,
 			CsvDelay:  tc.localCsvDelay,
 		},

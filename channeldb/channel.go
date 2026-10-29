@@ -148,18 +148,6 @@ const (
 	TaprootFinalBit = cstate.TaprootFinalBit
 )
 
-// ChannelStateBounds are the parameters from OpenChannel and AcceptChannel
-// that bound the abstract channel state.
-type ChannelStateBounds = cstate.ChannelStateBounds
-
-// CommitmentParams are the parameters from OpenChannel and AcceptChannel that
-// are required to render an abstract channel state to a concrete commitment
-// transaction.
-type CommitmentParams = cstate.CommitmentParams
-
-// ChannelConfig houses the channel configuration for one side of a channel.
-type ChannelConfig = cstate.ChannelConfig
-
 var (
 	// ChanStatusDefault is the normal state of an open channel.
 	ChanStatusDefault = cstate.ChanStatusDefault

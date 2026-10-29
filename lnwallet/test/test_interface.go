@@ -37,6 +37,7 @@ import (
 	"github.com/lightningnetwork/lnd/chainntnfs"
 	"github.com/lightningnetwork/lnd/chainntnfs/btcdnotify"
 	"github.com/lightningnetwork/lnd/channeldb"
+	"github.com/lightningnetwork/lnd/chanstate"
 	"github.com/lightningnetwork/lnd/fn/v2"
 	"github.com/lightningnetwork/lnd/input"
 	"github.com/lightningnetwork/lnd/keychain"
@@ -446,13 +447,13 @@ func testDualFundingReservationWorkflow(miner *rpctest.Harness,
 	aliceChanReservation, err := alice.InitChannelReservation(aliceReq)
 	require.NoError(t, err, "unable to initialize funding reservation")
 	aliceChanReservation.SetNumConfsRequired(numReqConfs)
-	bounds := &channeldb.ChannelStateBounds{
+	bounds := &chanstate.ChannelStateBounds{
 		ChanReserve:      fundingAmount / 100,
 		MaxPendingAmount: lnwire.NewMSatFromSatoshis(fundingAmount),
 		MinHTLC:          1,
 		MaxAcceptedHtlcs: input.MaxHTLCNumber / 2,
 	}
-	commitParams := &channeldb.CommitmentParams{
+	commitParams := &chanstate.CommitmentParams{
 		DustLimit: lnwallet.DustLimitUnknownWitness(),
 		CsvDelay:  csvDelay,
 	}
@@ -853,13 +854,13 @@ func testSingleFunderReservationWorkflow(miner *rpctest.Harness,
 	aliceChanReservation, err := alice.InitChannelReservation(aliceReq)
 	require.NoError(t, err, "unable to init channel reservation")
 	aliceChanReservation.SetNumConfsRequired(numReqConfs)
-	bounds := &channeldb.ChannelStateBounds{
+	bounds := &chanstate.ChannelStateBounds{
 		ChanReserve:      fundingAmt / 100,
 		MaxPendingAmount: lnwire.NewMSatFromSatoshis(fundingAmt),
 		MinHTLC:          1,
 		MaxAcceptedHtlcs: input.MaxHTLCNumber / 2,
 	}
-	commitParams := &channeldb.CommitmentParams{
+	commitParams := &chanstate.CommitmentParams{
 		DustLimit: lnwallet.DustLimitUnknownWitness(),
 		CsvDelay:  csvDelay,
 	}

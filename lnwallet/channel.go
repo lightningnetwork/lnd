@@ -4042,7 +4042,7 @@ func (lc *LightningChannel) validateCommitmentSanity(theirLogCounter,
 	// validateUpdates take a set of updates, and validates them against
 	// the passed channel constraints.
 	validateUpdates := func(updates []*paymentDescriptor,
-		constraints *channeldb.ChannelConfig) error {
+		constraints *chanstate.ChannelConfig) error {
 
 		// We keep track of the number of HTLCs in flight for the
 		// commitment, and the amount in flight.
@@ -7491,7 +7491,7 @@ type HtlcResolutions struct {
 // allowing the caller to sweep an outgoing HTLC present on either their, or
 // the remote party's commitment transaction.
 func newOutgoingHtlcResolution(signer input.Signer,
-	localChanCfg *channeldb.ChannelConfig, commitTx *wire.MsgTx,
+	localChanCfg *chanstate.ChannelConfig, commitTx *wire.MsgTx,
 	commitTxHeight uint32, htlc *channeldb.HTLC, keyRing *CommitmentKeyRing,
 	feePerKw chainfee.SatPerKWeight, csvDelay, leaseExpiry uint32,
 	whoseCommit lntypes.ChannelParty, isCommitFromInitiator bool,
@@ -7865,7 +7865,7 @@ func newOutgoingHtlcResolution(signer input.Signer,
 //
 // TODO(roasbeef) consolidate code with above func
 func newIncomingHtlcResolution(signer input.Signer,
-	localChanCfg *channeldb.ChannelConfig, commitTx *wire.MsgTx,
+	localChanCfg *chanstate.ChannelConfig, commitTx *wire.MsgTx,
 	commitTxHeight uint32, htlc *channeldb.HTLC, keyRing *CommitmentKeyRing,
 	feePerKw chainfee.SatPerKWeight, csvDelay, leaseExpiry uint32,
 	whoseCommit lntypes.ChannelParty, isCommitFromInitiator bool,
@@ -8251,7 +8251,7 @@ func (r *OutgoingHtlcResolution) HtlcPoint() wire.OutPoint {
 func extractHtlcResolutions(feePerKw chainfee.SatPerKWeight,
 	whoseCommit lntypes.ChannelParty, signer input.Signer,
 	htlcs []channeldb.HTLC, keyRing *CommitmentKeyRing,
-	localChanCfg, remoteChanCfg *channeldb.ChannelConfig,
+	localChanCfg, remoteChanCfg *chanstate.ChannelConfig,
 	commitTx *wire.MsgTx, commitTxHeight uint32,
 	chanType channeldb.ChannelType, isCommitFromInitiator bool,
 	leaseExpiry uint32, chanState *chanstate.OpenChannel,

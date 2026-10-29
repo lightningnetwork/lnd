@@ -106,7 +106,7 @@ type CommitmentKeyRing struct {
 // peer's.
 func DeriveCommitmentKeys(commitPoint *btcec.PublicKey,
 	whoseCommit lntypes.ChannelParty, chanType channeldb.ChannelType,
-	localChanCfg, remoteChanCfg *channeldb.ChannelConfig) *CommitmentKeyRing {
+	localChanCfg, remoteChanCfg *chanstate.ChannelConfig) *CommitmentKeyRing {
 
 	tweaklessCommit := chanType.IsTweakless()
 
@@ -547,7 +547,7 @@ func HtlcSuccessFee(chanType channeldb.ChannelType,
 // CommitScriptAnchors return the scripts to use for the local and remote
 // anchor.
 func CommitScriptAnchors(chanType channeldb.ChannelType,
-	localChanCfg, remoteChanCfg *channeldb.ChannelConfig,
+	localChanCfg, remoteChanCfg *chanstate.ChannelConfig,
 	keyRing *CommitmentKeyRing) (
 	input.ScriptDescriptor, input.ScriptDescriptor, error) {
 
@@ -555,7 +555,7 @@ func CommitScriptAnchors(chanType channeldb.ChannelType,
 		anchorScript func(
 			key *btcec.PublicKey) (input.ScriptDescriptor, error)
 
-		keySelector func(*channeldb.ChannelConfig,
+		keySelector func(*chanstate.ChannelConfig,
 			bool) *btcec.PublicKey
 	)
 
@@ -570,7 +570,7 @@ func CommitScriptAnchors(chanType channeldb.ChannelType,
 			return input.NewAnchorScriptTree(key)
 		}
 
-		keySelector = func(cfg *channeldb.ChannelConfig,
+		keySelector = func(cfg *chanstate.ChannelConfig,
 			local bool) *btcec.PublicKey {
 
 			if local {
@@ -606,7 +606,7 @@ func CommitScriptAnchors(chanType channeldb.ChannelType,
 
 		// For the existing channels, we'll always select the multi-sig
 		// key from the party's channel config.
-		keySelector = func(cfg *channeldb.ChannelConfig,
+		keySelector = func(cfg *chanstate.ChannelConfig,
 			_ bool) *btcec.PublicKey {
 
 			return cfg.MultiSigKey.PubKey
@@ -964,7 +964,7 @@ func (cb *CommitmentBuilder) createUnsignedCommitmentTx(ourBalance,
 // should correspond to the owner of the commitment transaction we are creating.
 func CreateCommitTx(chanType channeldb.ChannelType,
 	fundingOutput wire.TxIn, keyRing *CommitmentKeyRing,
-	localChanCfg, remoteChanCfg *channeldb.ChannelConfig,
+	localChanCfg, remoteChanCfg *chanstate.ChannelConfig,
 	amountToLocal, amountToRemote btcutil.Amount,
 	numHTLCs int64, initiator bool, leaseExpiry uint32,
 	auxLeaves fn.Option[CommitAuxLeaves]) (*wire.MsgTx, error) {

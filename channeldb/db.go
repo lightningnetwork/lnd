@@ -429,9 +429,7 @@ func CreateWithBackend(backend kvdb.Backend, modifiers ...OptionModifier) (*DB,
 		chanstate.WithTombstoneClosedChannels(
 			opts.tombstoneClosedChannels,
 		),
-		chanstate.WithExtractFwdResponses(
-			fwdResponseStore.ExtractFwdResponses,
-		),
+		chanstate.WithFwdResponseExtractor(fwdResponseStore),
 	)
 	chanDB := &DB{
 		Backend:          backend,

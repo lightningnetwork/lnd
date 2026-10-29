@@ -3,6 +3,7 @@ package fwdresponse
 import (
 	"errors"
 
+	"github.com/lightningnetwork/lnd/chanstate"
 	"github.com/lightningnetwork/lnd/graph/db/models"
 	"github.com/lightningnetwork/lnd/kvdb"
 	"github.com/lightningnetwork/lnd/lnwire"
@@ -55,9 +56,8 @@ type Store interface {
 type KVStore interface {
 	Store
 
-	// ExtractFwdResponses copies eligible settle and fail messages from a
-	// channel's forwarding packages into the forwarding-response store.
-	ExtractFwdResponses(tx kvdb.RwTx, source lnwire.ShortChannelID) error
+	// KVFwdResponseExtractor participates in atomic channel cleanup.
+	chanstate.KVFwdResponseExtractor
 
 	// Wipe removes all forwarding responses in the transaction.
 	Wipe(tx kvdb.RwTx) error

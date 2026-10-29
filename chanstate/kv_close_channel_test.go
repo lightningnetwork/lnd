@@ -231,6 +231,26 @@ func extractTestSettleResponses(
 	return settles
 }
 
+type testFwdResponseExtractor struct {
+	extracted *[]*lnwire.UpdateFulfillHTLC
+}
+
+var _ KVFwdResponseExtractor = (*testFwdResponseExtractor)(nil)
+
+func (e *testFwdResponseExtractor) ExtractFwdResponses(tx kvdb.RwTx,
+	source lnwire.ShortChannelID) error {
+
+	pkgs, err := NewChannelPackager(source).LoadFwdPkgs(tx)
+	if err != nil {
+		return err
+	}
+
+	settles := extractTestSettleResponses(pkgs)
+	*e.extracted = append(*e.extracted, settles...)
+
+	return nil
+}
+
 // TestCloseChannelExtractsFwdResponses asserts that both channel-close
 // strategies invoke forwarding-response extraction while the forwarding
 // package is still readable in the close transaction. The synchronous path
@@ -254,25 +274,14 @@ func TestCloseChannelExtractsFwdResponses(t *testing.T) {
 			t.Cleanup(cleanup)
 
 			var extracted []*lnwire.UpdateFulfillHTLC
-			extract := func(tx kvdb.RwTx,
-				source lnwire.ShortChannelID) error {
-
-				packager := NewChannelPackager(source)
-				pkgs, err := packager.LoadFwdPkgs(tx)
-				if err != nil {
-					return err
-				}
-
-				settles := extractTestSettleResponses(pkgs)
-				extracted = append(extracted, settles...)
-
-				return nil
+			extractor := &testFwdResponseExtractor{
+				extracted: &extracted,
 			}
 
 			store := NewKVStore(
 				backend,
 				WithTombstoneClosedChannels(test.tombstone),
-				WithExtractFwdResponses(extract),
+				WithFwdResponseExtractor(extractor),
 			)
 			ch := createTestOpenChannel(t, store)
 			settle := writeTestChannelResponse(t, store, ch)

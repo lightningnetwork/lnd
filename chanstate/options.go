@@ -1,10 +1,5 @@
 package chanstate
 
-import (
-	"github.com/lightningnetwork/lnd/kvdb"
-	"github.com/lightningnetwork/lnd/lnwire"
-)
-
 // StoreOptions holds parameters for the KVStore.
 type StoreOptions struct {
 	// StoreFinalHtlcResolutions determines whether to persistently store
@@ -20,19 +15,15 @@ type StoreOptions struct {
 	// outpoint-index flip to mark the channel as closed.
 	TombstoneClosedChannels bool
 
-	// ExtractFwdResponses persists forwarding responses before their
+	// FwdResponseExtractor persists forwarding responses before their
 	// forwarding packages are removed during channel cleanup.
-	ExtractFwdResponses func(kvdb.RwTx, lnwire.ShortChannelID) error
+	FwdResponseExtractor KVFwdResponseExtractor
 }
 
 // DefaultOptions returns a StoreOptions populated with default values.
 func DefaultOptions() *StoreOptions {
 	return &StoreOptions{
-		ExtractFwdResponses: func(kvdb.RwTx,
-			lnwire.ShortChannelID) error {
-
-			return nil
-		},
+		FwdResponseExtractor: noOpFwdResponseExtractor{},
 	}
 }
 
@@ -65,12 +56,12 @@ func WithTombstoneClosedChannels(enabled bool) OptionModifier {
 	}
 }
 
-// WithExtractFwdResponses configures the forwarding-response persistence step
-// performed during channel cleanup.
-func WithExtractFwdResponses(
-	extract func(kvdb.RwTx, lnwire.ShortChannelID) error) OptionModifier {
+// WithFwdResponseExtractor configures the forwarding-response persistence
+// capability used during channel cleanup.
+func WithFwdResponseExtractor(
+	extractor KVFwdResponseExtractor) OptionModifier {
 
 	return func(o *StoreOptions) {
-		o.ExtractFwdResponses = extract
+		o.FwdResponseExtractor = extractor
 	}
 }

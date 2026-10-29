@@ -184,7 +184,7 @@ func (s *KVStore) closeChannelSync(channel *OpenChannel,
 		// Persist eligible responses before cleaning up the channel's
 		// packages. Both updates share a transaction so their state
 		// transition is atomic.
-		if err := s.extractFwdResponses(
+		if err := s.fwdResponseExtractor.ExtractFwdResponses(
 			tx, chanState.ShortChannelID,
 		); err != nil {
 			return err
@@ -247,7 +247,7 @@ func (s *KVStore) closeChannelTombstone(channel *OpenChannel,
 			return err
 		}
 
-		if err := s.extractFwdResponses(
+		if err := s.fwdResponseExtractor.ExtractFwdResponses(
 			tx, chanState.ShortChannelID,
 		); err != nil {
 			return err

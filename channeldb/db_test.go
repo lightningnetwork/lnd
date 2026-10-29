@@ -85,7 +85,7 @@ func TestWipe(t *testing.T) {
 		t.Fatalf("unable to wipe channeldb: %v", err)
 	}
 
-	cdb := fullDB.ChannelStateDB()
+	cdb := fullDB.ChannelStateStore()
 
 	// Check correct errors are returned
 	openChannels, err := cdb.FetchAllOpenChannels()
@@ -124,7 +124,7 @@ func TestMultiSourceAddrsForNode(t *testing.T) {
 	// Next, we'll make a link node with the same pubkey, but with an
 	// additional address.
 	linkNode := NewLinkNode(
-		fullDB.channelStateDB.linkNodeDB, wire.MainNet, nodePub,
+		fullDB.linkNodeDB, wire.MainNet, nodePub,
 		anotherAddr,
 	)
 	require.NoError(t, linkNode.Sync())

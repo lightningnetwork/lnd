@@ -2,15 +2,9 @@ package channeldb
 
 import (
 	"io"
-	"net"
 
-	"github.com/btcsuite/btcd/btcec/v2"
-	"github.com/btcsuite/btcd/wire/v2"
 	cstate "github.com/lightningnetwork/lnd/chanstate"
-	"github.com/lightningnetwork/lnd/fn/v2"
-	"github.com/lightningnetwork/lnd/lntypes"
 	"github.com/lightningnetwork/lnd/lnwire"
-	"github.com/lightningnetwork/lnd/shachain"
 	"github.com/lightningnetwork/lnd/tlv"
 )
 
@@ -229,72 +223,6 @@ const (
 	FinalHtlcOffchainBit = cstate.FinalHtlcOffchainBit
 )
 
-// RefreshChannel updates the in-memory channel state using the latest state
-// observed on disk.
-func (c *ChannelStateDB) RefreshChannel(channel *OpenChannel) error {
-	return c.kvStore.RefreshChannel(channel)
-}
-
-// MarkChannelConfirmationHeight updates the channel's confirmation height once
-// the channel opening transaction receives one confirmation.
-func (c *ChannelStateDB) MarkChannelConfirmationHeight(channel *OpenChannel,
-	height uint32) error {
-
-	return c.kvStore.MarkChannelConfirmationHeight(channel, height)
-}
-
-// MarkChannelCloseConfirmationHeight updates the channel's close confirmation
-// height when the closing transaction is first detected in a block.
-func (c *ChannelStateDB) MarkChannelCloseConfirmationHeight(
-	channel *OpenChannel, height fn.Option[uint32]) error {
-
-	return c.kvStore.MarkChannelCloseConfirmationHeight(channel, height)
-}
-
-// MarkChannelOpen marks a channel as fully open given a locator that uniquely
-// describes its location within the chain.
-func (c *ChannelStateDB) MarkChannelOpen(channel *OpenChannel,
-	openLoc lnwire.ShortChannelID) error {
-
-	return c.kvStore.MarkChannelOpen(channel, openLoc)
-}
-
-// MarkChannelRealScid marks the zero-conf channel's confirmed ShortChannelID.
-func (c *ChannelStateDB) MarkChannelRealScid(channel *OpenChannel,
-	realScid lnwire.ShortChannelID) error {
-
-	return c.kvStore.MarkChannelRealScid(channel, realScid)
-}
-
-// MarkChannelScidAliasNegotiated adds ScidAliasFeatureBit to ChanType in the
-// database.
-func (c *ChannelStateDB) MarkChannelScidAliasNegotiated(
-	channel *OpenChannel) error {
-
-	return c.kvStore.MarkChannelScidAliasNegotiated(channel)
-}
-
-// MarkChannelDataLoss marks the channel as local-data-loss and stores the
-// commit point needed if the remote force closes.
-func (c *ChannelStateDB) MarkChannelDataLoss(channel *OpenChannel,
-	commitPoint *btcec.PublicKey) error {
-
-	return c.kvStore.MarkChannelDataLoss(channel, commitPoint)
-}
-
-// FetchChannelDataLossCommitPoint retrieves the commit point stored when the
-// channel was marked as local-data-loss.
-func (c *ChannelStateDB) FetchChannelDataLossCommitPoint(
-	channel *OpenChannel) (*btcec.PublicKey, error) {
-
-	return c.kvStore.FetchChannelDataLossCommitPoint(channel)
-}
-
-// MarkChannelBorked marks the channel as irreconcilable.
-func (c *ChannelStateDB) MarkChannelBorked(channel *OpenChannel) error {
-	return c.kvStore.MarkChannelBorked(channel)
-}
-
 var (
 	// DeriveMusig2Shachain derives a shachain producer for the taproot
 	// channel from normal shachain revocation root.
@@ -304,92 +232,6 @@ var (
 	// for another musig2 session.
 	NewMusigVerificationNonce = cstate.NewMusigVerificationNonce
 )
-
-// StoreChannelShutdownInfo persists the ShutdownInfo for the target channel.
-func (c *ChannelStateDB) StoreChannelShutdownInfo(channel *OpenChannel,
-	info *ShutdownInfo) error {
-
-	return c.kvStore.StoreChannelShutdownInfo(channel, info)
-}
-
-// FetchChannelShutdownInfo fetches the persisted ShutdownInfo for the target
-// channel.
-func (c *ChannelStateDB) FetchChannelShutdownInfo(
-	channel *OpenChannel) (fn.Option[ShutdownInfo], error) {
-
-	return c.kvStore.FetchChannelShutdownInfo(channel)
-}
-
-// MarkChannelCommitmentBroadcasted marks the channel as having a commitment
-// transaction broadcast.
-func (c *ChannelStateDB) MarkChannelCommitmentBroadcasted(
-	channel *OpenChannel, closeTx *wire.MsgTx,
-	closer lntypes.ChannelParty) error {
-
-	return c.kvStore.MarkChannelCommitmentBroadcasted(
-		channel, closeTx, closer,
-	)
-}
-
-// MarkChannelCoopBroadcasted marks the channel as having a cooperative close
-// transaction broadcast.
-func (c *ChannelStateDB) MarkChannelCoopBroadcasted(channel *OpenChannel,
-	closeTx *wire.MsgTx, closer lntypes.ChannelParty) error {
-
-	return c.kvStore.MarkChannelCoopBroadcasted(channel, closeTx, closer)
-}
-
-// FetchChannelBroadcastedCommitment fetches the stored unilateral closing
-// transaction.
-func (c *ChannelStateDB) FetchChannelBroadcastedCommitment(
-	channel *OpenChannel) (*wire.MsgTx, error) {
-
-	return c.kvStore.FetchChannelBroadcastedCommitment(channel)
-}
-
-// FetchChannelBroadcastedCooperative fetches the stored cooperative closing
-// transaction.
-func (c *ChannelStateDB) FetchChannelBroadcastedCooperative(
-	channel *OpenChannel) (*wire.MsgTx, error) {
-
-	return c.kvStore.FetchChannelBroadcastedCooperative(channel)
-}
-
-// ApplyChannelStatus adds the target status to the channel's persisted status
-// bit field.
-func (c *ChannelStateDB) ApplyChannelStatus(channel *OpenChannel,
-	status ChannelStatus) error {
-
-	return c.kvStore.ApplyChannelStatus(channel, status)
-}
-
-// ClearChannelStatus clears the target status from the channel's persisted
-// status bit field.
-func (c *ChannelStateDB) ClearChannelStatus(channel *OpenChannel,
-	status ChannelStatus) error {
-
-	return c.kvStore.ClearChannelStatus(channel, status)
-}
-
-// SyncPendingChannel writes a pending channel to the store and records the
-// funding broadcast height.
-func (c *ChannelStateDB) SyncPendingChannel(channel *OpenChannel,
-	addr net.Addr, pendingHeight uint32) error {
-
-	return c.channelLifecycle.SyncPendingChannel(
-		channel, addr, pendingHeight,
-	)
-}
-
-// UpdateChannelCommitment updates the local commitment state.
-func (c *ChannelStateDB) UpdateChannelCommitment(channel *OpenChannel,
-	newCommitment *ChannelCommitment,
-	unsignedAckedUpdates []LogUpdate) (map[uint64]bool, error) {
-
-	return c.kvStore.UpdateChannelCommitment(
-		channel, newCommitment, unsignedAckedUpdates,
-	)
-}
 
 // SerializeHtlcs writes out the passed set of HTLC's into the passed writer
 // using the current default on-disk serialization format.
@@ -430,153 +272,8 @@ func DeserializeHtlcs(r io.Reader) ([]HTLC, error) {
 	return cstate.DeserializeHtlcs(r)
 }
 
-// AppendRemoteCommitChain appends a new CommitDiff to the remote party's
-// commitment chain.
-func (c *ChannelStateDB) AppendRemoteCommitChain(channel *OpenChannel,
-	diff *CommitDiff) error {
-
-	return c.kvStore.AppendRemoteCommitChain(channel, diff)
-}
-
-// RemoteCommitChainTip returns the "tip" of the current remote commitment
-// chain.
-func (c *ChannelStateDB) RemoteCommitChainTip(channel *OpenChannel) (
-	*CommitDiff, error) {
-
-	return c.kvStore.RemoteCommitChainTip(channel)
-}
-
-// UnsignedAckedUpdates retrieves the persisted unsigned acked remote log
-// updates that still need to be signed for.
-func (c *ChannelStateDB) UnsignedAckedUpdates(channel *OpenChannel) (
-	[]LogUpdate, error) {
-
-	return c.kvStore.UnsignedAckedUpdates(channel)
-}
-
-// RemoteUnsignedLocalUpdates retrieves the persisted, unsigned local log
-// updates that the remote still needs to sign for.
-func (c *ChannelStateDB) RemoteUnsignedLocalUpdates(channel *OpenChannel) (
-	[]LogUpdate, error) {
-
-	return c.kvStore.RemoteUnsignedLocalUpdates(channel)
-}
-
-// InsertNextRevocation inserts the next commitment point into the persisted
-// channel state.
-func (c *ChannelStateDB) InsertNextRevocation(channel *OpenChannel,
-	revKey btcec.PublicKey) error {
-
-	return c.kvStore.InsertNextRevocation(channel, revKey)
-}
-
-// AdvanceCommitChainTail records the new state transition within the
-// revocation log and promotes the pending remote commitment to the current
-// remote commitment.
-func (c *ChannelStateDB) AdvanceCommitChainTail(channel *OpenChannel,
-	fwdPkg *FwdPkg, updates []LogUpdate, ourOutputIndex,
-	theirOutputIndex uint32) error {
-
-	return c.kvStore.AdvanceCommitChainTail(
-		channel, fwdPkg, updates, ourOutputIndex, theirOutputIndex,
-	)
-}
-
 // FinalHtlcInfo contains information about the final outcome of an htlc.
 type FinalHtlcInfo = cstate.FinalHtlcInfo
-
-// LoadFwdPkgs scans the forwarding log for any packages that haven't been
-// processed, and returns their deserialized log updates in map indexed by the
-// remote commitment height at which the updates were locked in.
-func (c *ChannelStateDB) LoadFwdPkgs(channel *OpenChannel) ([]*FwdPkg,
-	error) {
-
-	return c.kvStore.LoadFwdPkgs(channel)
-}
-
-// CountFwdPkgs returns the number of forwarding packages without loading their
-// contents.
-func (c *ChannelStateDB) CountFwdPkgs(channel *OpenChannel) (int, error) {
-	return c.kvStore.CountFwdPkgs(channel)
-}
-
-// AckAddHtlcs updates the AckAddFilter containing any of the provided AddRefs
-// indicating that a response to this Add has been committed to the remote
-// party. Doing so will prevent these Add HTLCs from being reforwarded
-// internally.
-func (c *ChannelStateDB) AckAddHtlcs(channel *OpenChannel,
-	addRefs ...AddRef) error {
-
-	return c.kvStore.AckAddHtlcs(channel, addRefs...)
-}
-
-// AckSettleFails updates the SettleFailFilter containing any of the provided
-// SettleFailRefs, indicating that the response has been delivered to the
-// incoming link, corresponding to a particular AddRef. Doing so will prevent
-// the responses from being retransmitted internally.
-func (c *ChannelStateDB) AckSettleFails(channel *OpenChannel,
-	settleFailRefs ...SettleFailRef) error {
-
-	return c.kvStore.AckSettleFails(channel, settleFailRefs...)
-}
-
-// SetFwdFilter atomically sets the forwarding filter for the forwarding package
-// identified by `height`.
-func (c *ChannelStateDB) SetFwdFilter(channel *OpenChannel, height uint64,
-	fwdFilter *PkgFilter) error {
-
-	return c.kvStore.SetFwdFilter(channel, height, fwdFilter)
-}
-
-// RemoveFwdPkgs atomically removes forwarding packages specified by the remote
-// commitment heights. If one of the intermediate RemovePkg calls fails, then
-// the later packages won't be removed.
-//
-// NOTE: This method should only be called on packages marked
-// FwdStateCompleted.
-func (c *ChannelStateDB) RemoveFwdPkgs(channel *OpenChannel,
-	heights ...uint64) error {
-
-	return c.kvStore.RemoveFwdPkgs(channel, heights...)
-}
-
-// RevocationLogTailCommitHeight returns the commit height at the end of the
-// revocation log.
-func (c *ChannelStateDB) RevocationLogTailCommitHeight(
-	channel *OpenChannel) (uint64, error) {
-
-	return c.kvStore.RevocationLogTailCommitHeight(channel)
-}
-
-// revocationLogTailCommitHeight is retained for channeldb tests that exercise
-// the compatibility facade directly.
-func (c *ChannelStateDB) revocationLogTailCommitHeight(
-	channel *OpenChannel) (uint64, error) {
-
-	return c.RevocationLogTailCommitHeight(channel)
-}
-
-// CommitmentHeight returns the current commitment height. The commitment
-// height represents the number of updates to the commitment state to date.
-// This value is always monotonically increasing. This method is provided in
-// order to allow multiple instances of a particular open channel to obtain a
-// consistent view of the number of channel updates to date.
-func (c *ChannelStateDB) CommitmentHeight(channel *OpenChannel) (
-	uint64, error) {
-
-	return c.kvStore.CommitmentHeight(channel)
-}
-
-// FindPreviousState scans through the append-only log in an attempt to recover
-// the previous channel state indicated by the update number. This method is
-// intended to be used for obtaining the relevant data needed to claim all
-// funds rightfully spendable in the case of an on-chain broadcast of the
-// commitment transaction.
-func (c *ChannelStateDB) FindPreviousState(channel *OpenChannel,
-	updateNum uint64) (*RevocationLog, *ChannelCommitment, error) {
-
-	return c.kvStore.FindPreviousState(channel, updateNum)
-}
 
 // ClosureType is an enum like structure that details exactly how a channel was
 // closed.
@@ -612,40 +309,8 @@ const (
 // was closed.
 type ChannelCloseSummary = cstate.ChannelCloseSummary
 
-// CloseChannel closes the supplied channel via the strategy selected at DB
-// construction. On synchronous backends the channel's nested state — the
-// revocation log, the per-channel forwarding-package bucket, and the
-// chanBucket itself — is deleted inline. On tombstone-enabled backends none
-// of the bulk state is touched; the outpointBucket flip to outpointClosed
-// signals that the channel is logically closed.
-func (c *ChannelStateDB) CloseChannel(channel *OpenChannel,
-	summary *ChannelCloseSummary, statuses ...ChannelStatus) error {
-
-	return c.kvStore.CloseChannel(channel, summary, statuses...)
-}
-
 // ChannelSnapshot is a frozen snapshot of the current channel state.
 type ChannelSnapshot = cstate.ChannelSnapshot
-
-// LatestCommitments returns the two latest commitments for both the local and
-// remote party. These commitments are read from disk to ensure that only the
-// latest fully committed state is returned. The first commitment returned is
-// the local commitment, and the second returned is the remote commitment.
-func (c *ChannelStateDB) LatestCommitments(channel *OpenChannel) (
-	*ChannelCommitment, *ChannelCommitment, error) {
-
-	return c.kvStore.LatestCommitments(channel)
-}
-
-// RemoteRevocationStore returns the most up to date commitment version of the
-// revocation storage tree for the remote party. This method can be used when
-// acting on a possible contract breach to ensure, that the caller has the most
-// up to date information required to deliver justice.
-func (c *ChannelStateDB) RemoteRevocationStore(channel *OpenChannel) (
-	shachain.Store, error) {
-
-	return c.kvStore.RemoteRevocationStore(channel)
-}
 
 func serializeChannelCloseSummary(w io.Writer, cs *ChannelCloseSummary) error {
 	return cstate.SerializeChannelCloseSummary(w, cs)

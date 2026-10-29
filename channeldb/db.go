@@ -10,7 +10,6 @@ import (
 	"testing"
 
 	"github.com/btcsuite/btcd/btcec/v2"
-	"github.com/btcsuite/btcd/wire/v2"
 	"github.com/lightningnetwork/lnd/chanlifecycle"
 	mig "github.com/lightningnetwork/lnd/channeldb/migration"
 	"github.com/lightningnetwork/lnd/channeldb/migration12"
@@ -37,7 +36,6 @@ import (
 	"github.com/lightningnetwork/lnd/invoices"
 	"github.com/lightningnetwork/lnd/kvdb"
 	"github.com/lightningnetwork/lnd/linknode"
-	"github.com/lightningnetwork/lnd/lnwire"
 	"github.com/stretchr/testify/require"
 )
 
@@ -358,9 +356,7 @@ var (
 type DB struct {
 	kvdb.Backend
 
-	// chanStateStore owns channel-state persistence. It is kept on DB so
-	// callers can depend on the channel-state interface instead of the
-	// ChannelStateDB compatibility facade.
+	// chanStateStore owns channel-state persistence.
 	chanStateStore chanstate.Store
 
 	// linkNodeDB separates all DB operations on LinkNodes.
@@ -377,11 +373,6 @@ type DB struct {
 	// fwdResponseStore persists off-chain settle and fail messages until
 	// the switch can safely replay or reap them.
 	fwdResponseStore *fwdresponse.KVStore
-
-	// channelStateDB separates all DB operations on channel state. It is a
-	// temporary compatibility facade while callers migrate to the store
-	// interfaces above.
-	channelStateDB *ChannelStateDB
 
 	dbPath string
 	clock  clock.Clock
@@ -465,15 +456,6 @@ func CreateWithBackend(backend kvdb.Backend, modifiers ...OptionModifier) (*DB,
 	chanDB.linkNodeMaintainer = chanlifecycle.NewKVLinkNodeMaintainer(
 		backend, linkNodeDB,
 	)
-	chanDB.channelStateDB = &ChannelStateDB{
-		linkNodeDB:              linkNodeDB,
-		kvStore:                 kvStore,
-		backend:                 backend,
-		channelLifecycle:        chanDB.channelLifecycle,
-		linkNodeMaintainer:      chanDB.linkNodeMaintainer,
-		tombstoneClosedChannels: opts.tombstoneClosedChannels,
-	}
-
 	// Synchronize the version of database and apply migrations if needed.
 	if !opts.NoMigration {
 		if err := chanDB.syncVersions(dbVersions); err != nil {
@@ -598,212 +580,12 @@ func fileExists(path string) bool {
 	return true
 }
 
-// ChannelStateDB is a compatibility facade for callers that still depend on
-// the legacy channeldb channel-state API. New call sites should depend on the
-// chanstate and chanlifecycle interfaces exposed by DB instead.
-type ChannelStateDB struct {
-	// linkNodeDB separates all DB operations on LinkNodes.
-	linkNodeDB *linknode.LinkNodeDB
-
-	// backend points to the actual backend holding the channel state
-	// database. This may be a real backend or a cache middleware.
-	backend kvdb.Backend
-
-	// kvStore is the chanstate-owned persistence implementation.
-	// ChannelStateDB keeps compatibility wrappers while callers still
-	// import channeldb.
-	kvStore chanstate.Store
-
-	// channelLifecycle owns cross-domain channel lifecycle operations while
-	// ChannelStateDB keeps compatibility wrappers for legacy callers.
-	channelLifecycle chanlifecycle.ChannelLifecycle
-
-	// linkNodeMaintainer owns link-node repair and pruning operations while
-	// ChannelStateDB keeps compatibility wrappers for legacy callers.
-	linkNodeMaintainer chanlifecycle.LinkNodeMaintainer
-
-	// tombstoneClosedChannels is set by OptionTombstoneClosedChannels.
-	// When true, CloseChannel skips deleting nested per-channel state and
-	// relies on the outpointBucket flip to outpointClosed as the
-	// authoritative closed-channel signal.
-	tombstoneClosedChannels bool
-}
-
-// LinkNodeDB returns the current instance of the link node database.
-func (c *ChannelStateDB) LinkNodeDB() *LinkNodeDB {
-	return c.linkNodeDB
-}
-
-// FetchOpenChannels starts a new database transaction and returns all stored
-// currently active/open channels associated with the target nodeID. In the case
-// that no active channels are known to have been created with this node, then a
-// zero-length slice is returned.
-func (c *ChannelStateDB) FetchOpenChannels(nodeID *btcec.PublicKey) (
-	[]*OpenChannel, error) {
-
-	channels, err := c.kvStore.FetchOpenChannels(nodeID)
-	if err != nil {
-		return nil, err
-	}
-
-	return channels, nil
-}
-
-// FetchChannel attempts to locate a channel specified by the passed channel
-// point. If the channel cannot be found, then an error will be returned.
-func (c *ChannelStateDB) FetchChannel(chanPoint wire.OutPoint) (*OpenChannel,
-	error) {
-
-	channel, err := c.kvStore.FetchChannel(chanPoint)
-	if err != nil {
-		return nil, err
-	}
-
-	return channel, nil
-}
-
-// FetchChannelByID attempts to locate a channel specified by the passed channel
-// ID. If the channel cannot be found, then an error will be returned.
-func (c *ChannelStateDB) FetchChannelByID(id lnwire.ChannelID) (*OpenChannel,
-	error) {
-
-	channel, err := c.kvStore.FetchChannelByID(id)
-	if err != nil {
-		return nil, err
-	}
-
-	return channel, nil
-}
-
 // ChanCount is used by the server in determining access control.
 type ChanCount = chanstate.ChanCount
-
-// FetchPermAndTempPeers returns a map where the key is the remote node's
-// public key and the value is a struct that has a tally of the pending-open
-// channels and whether the peer has an open or closed channel with us.
-func (c *ChannelStateDB) FetchPermAndTempPeers(
-	chainHash []byte) (map[string]ChanCount, error) {
-
-	return c.kvStore.FetchPermAndTempPeers(chainHash)
-}
-
-// FetchAllChannels attempts to retrieve all open channels currently stored
-// within the database, including pending open, fully open and channels waiting
-// for a closing transaction to confirm.
-func (c *ChannelStateDB) FetchAllChannels() ([]*OpenChannel, error) {
-	channels, err := c.kvStore.FetchAllChannels()
-	if err != nil {
-		return nil, err
-	}
-
-	return channels, nil
-}
-
-// FetchAllOpenChannels will return all channels that have the funding
-// transaction confirmed, and is not waiting for a closing transaction to be
-// confirmed.
-func (c *ChannelStateDB) FetchAllOpenChannels() ([]*OpenChannel, error) {
-	channels, err := c.kvStore.FetchAllOpenChannels()
-	if err != nil {
-		return nil, err
-	}
-
-	return channels, nil
-}
-
-// FetchPendingChannels will return channels that have completed the process of
-// generating and broadcasting funding transactions, but whose funding
-// transactions have yet to be confirmed on the blockchain.
-func (c *ChannelStateDB) FetchPendingChannels() ([]*OpenChannel, error) {
-	channels, err := c.kvStore.FetchPendingChannels()
-	if err != nil {
-		return nil, err
-	}
-
-	return channels, nil
-}
-
-// FetchWaitingCloseChannels will return all channels that have been opened,
-// but are now waiting for a closing transaction to be confirmed.
-//
-// NOTE: This includes channels that are also pending to be opened.
-func (c *ChannelStateDB) FetchWaitingCloseChannels() ([]*OpenChannel, error) {
-	channels, err := c.kvStore.FetchWaitingCloseChannels()
-	if err != nil {
-		return nil, err
-	}
-
-	return channels, nil
-}
-
-// FetchClosedChannels attempts to fetch all closed channels from the database.
-// The pendingOnly bool toggles if channels that aren't yet fully closed should
-// be returned in the response or not. When a channel was cooperatively closed,
-// it becomes fully closed after a single confirmation.  When a channel was
-// forcibly closed, it will become fully closed after _all_ the pending funds
-// (if any) have been swept.
-func (c *ChannelStateDB) FetchClosedChannels(pendingOnly bool) (
-	[]*ChannelCloseSummary, error) {
-
-	return c.kvStore.FetchClosedChannels(pendingOnly)
-}
-
-// FetchClosedChannel queries for a channel close summary using the channel
-// point of the channel in question.
-func (c *ChannelStateDB) FetchClosedChannel(chanID *wire.OutPoint) (
-	*ChannelCloseSummary, error) {
-
-	return c.kvStore.FetchClosedChannel(chanID)
-}
-
-// FetchClosedChannelForID queries for a channel close summary using the
-// channel ID of the channel in question.
-func (c *ChannelStateDB) FetchClosedChannelForID(cid lnwire.ChannelID) (
-	*ChannelCloseSummary, error) {
-
-	return c.kvStore.FetchClosedChannelForID(cid)
-}
-
-// MarkChanFullyClosed marks a channel as fully closed within the database. A
-// channel should be marked as fully closed if the channel was initially
-// cooperatively closed and it's reached a single confirmation, or after all
-// the pending funds in a channel that has been forcibly closed have been
-// swept.
-func (c *ChannelStateDB) MarkChanFullyClosed(chanPoint *wire.OutPoint) error {
-	return c.channelLifecycle.MarkChanFullyClosed(chanPoint)
-}
-
-// PruneLinkNodes attempts to prune all link nodes found within the database
-// with whom we no longer have any open channels with.
-func (c *ChannelStateDB) PruneLinkNodes() error {
-	return c.linkNodeMaintainer.PruneLinkNodes()
-}
-
-// RepairLinkNodes scans all channels in the database and ensures that a
-// link node exists for each remote peer. This should be called on startup to
-// ensure that our database is consistent.
-//
-// NOTE: This function is designed to repair database inconsistencies that may
-// have occurred due to the race condition in link node pruning (where link
-// nodes could be incorrectly deleted while channels still existed). This can
-// be removed once we move to native sql.
-func (c *ChannelStateDB) RepairLinkNodes(network wire.BitcoinNet) error {
-	return c.linkNodeMaintainer.RepairLinkNodes(network)
-}
 
 // ChannelShell is a shell of a channel that is meant to be used for channel
 // recovery purposes.
 type ChannelShell = chanstate.ChannelShell
-
-// RestoreChannelShells is a method that allows the caller to reconstruct the
-// state of an OpenChannel from the ChannelShell. We'll attempt to write the
-// new channel to disk, create a LinkNode instance with the passed node
-// addresses, and finally create an edge within the graph for the channel as
-// well. This method is idempotent, so repeated calls with the same set of
-// channel shells won't modify the database after the initial call.
-func (c *ChannelStateDB) RestoreChannelShells(channelShells ...*ChannelShell) error {
-	return c.channelLifecycle.RestoreChannelShells(channelShells...)
-}
 
 // AddrsForNode consults the channel database for all addresses known to the
 // passed node public key. The returned boolean indicates if the given node is
@@ -814,38 +596,6 @@ func (d *DB) AddrsForNode(ctx context.Context, nodePub *btcec.PublicKey) (bool,
 	[]net.Addr, error) {
 
 	return d.linkNodeDB.AddrsForNode(ctx, nodePub)
-}
-
-// AbandonChannel attempts to remove the target channel from the open channel
-// database. If the channel was already removed (has a closed channel entry),
-// then we'll return a nil error. Otherwise, we'll insert a new close summary
-// into the database.
-func (c *ChannelStateDB) AbandonChannel(chanPoint *wire.OutPoint,
-	bestHeight uint32) error {
-
-	return c.kvStore.AbandonChannel(chanPoint, bestHeight)
-}
-
-// SaveChannelOpeningState saves the serialized channel state for the provided
-// chanPoint to the channelOpeningStateBucket.
-func (c *ChannelStateDB) SaveChannelOpeningState(outPoint,
-	serializedState []byte) error {
-
-	return c.kvStore.SaveChannelOpeningState(outPoint, serializedState)
-}
-
-// GetChannelOpeningState fetches the serialized channel state for the provided
-// outPoint from the database, or returns ErrChannelNotFound if the channel
-// is not found.
-func (c *ChannelStateDB) GetChannelOpeningState(outPoint []byte) ([]byte,
-	error) {
-
-	return c.kvStore.GetChannelOpeningState(outPoint)
-}
-
-// DeleteChannelOpeningState removes any state for outPoint from the database.
-func (c *ChannelStateDB) DeleteChannelOpeningState(outPoint []byte) error {
-	return c.kvStore.DeleteChannelOpeningState(outPoint)
 }
 
 // syncVersions function is used for safe db version synchronization. It
@@ -1037,12 +787,6 @@ func (d *DB) applyOptionalVersions(cfg OptionalMiragtionConfig) error {
 	return nil
 }
 
-// ChannelStateDB returns the sub database that is concerned with the channel
-// state.
-func (d *DB) ChannelStateDB() *ChannelStateDB {
-	return d.channelStateDB
-}
-
 // ChannelStateStore returns the channel-state persistence store.
 func (d *DB) ChannelStateStore() chanstate.Store {
 	return d.chanStateStore
@@ -1098,31 +842,7 @@ func getMigrationsToApply(versions []mandatoryVersion,
 	return migrations, migrationVersions
 }
 
-// FetchHistoricalChannel fetches open channel data from the historical channel
-// bucket.
-func (c *ChannelStateDB) FetchHistoricalChannel(outPoint *wire.OutPoint) (
-	*OpenChannel, error) {
-
-	return c.kvStore.FetchHistoricalChannel(outPoint)
-}
-
 var ErrHtlcUnknown = chanstate.ErrHtlcUnknown
-
-// LookupFinalHtlc retrieves a final htlc resolution from the database. If the
-// htlc has no final resolution yet, ErrHtlcUnknown is returned.
-func (c *ChannelStateDB) LookupFinalHtlc(chanID lnwire.ShortChannelID,
-	htlcIndex uint64) (*FinalHtlcInfo, error) {
-
-	return c.kvStore.LookupFinalHtlc(chanID, htlcIndex)
-}
-
-// PutOnchainFinalHtlcOutcome stores the final on-chain outcome of an htlc in
-// the database.
-func (c *ChannelStateDB) PutOnchainFinalHtlcOutcome(
-	chanID lnwire.ShortChannelID, htlcID uint64, settled bool) error {
-
-	return c.kvStore.PutOnchainFinalHtlcOutcome(chanID, htlcID, settled)
-}
 
 // MakeTestInvoiceDB is used to create a test invoice database for testing
 // purposes. It simply calls into MakeTestDB so the same modifiers can be used.

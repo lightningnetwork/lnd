@@ -762,7 +762,7 @@ func createTestPeer(t *testing.T) *peerTestCtx {
 		Switch:            mockSwitch,
 		ChanActiveTimeout: chanActiveTimeout,
 		InterceptSwitch:   interceptableSwitch,
-		ChannelStateStore: dbAliceChannel.ChannelStateDB(),
+		ChannelStateStore: dbAliceChannel.ChannelStateStore(),
 		FeeEstimator:      estimator,
 		Wallet:            wallet,
 		ChainNotifier:     notifier,

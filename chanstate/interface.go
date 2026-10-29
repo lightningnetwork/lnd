@@ -10,15 +10,8 @@ import (
 	"github.com/lightningnetwork/lnd/shachain"
 )
 
-// Store is the persistence contract for the channel-state subsystem. Consumers
-// depend on this interface rather than the concrete
-// channeldb.ChannelStateDB so the underlying storage can be swapped without
-// touching call sites.
-//
-// NOTE: This is named Store instead of DB to avoid confusion with the existing
-// concrete channeldb.ChannelStateDB type during the migration. Once the channel
-// state implementation moves into this package and the old concrete type is no
-// longer part of consumer-facing code, this name can be revisited.
+// Store is the backend-independent persistence contract for the channel-state
+// subsystem.
 type Store interface { //nolint:interfacebloat
 	// OpenChannelStore owns open-channel records.
 	OpenChannelStore

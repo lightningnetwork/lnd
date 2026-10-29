@@ -6,8 +6,6 @@ import (
 )
 
 // KVStore is the KV-backed implementation of the channel-state store facets.
-// Store facets are moved onto this type incrementally while channeldb keeps
-// compatibility wrappers for callers that still depend on the old package.
 type KVStore struct {
 	backend                   kvdb.Backend
 	noRevLogAmtData           bool

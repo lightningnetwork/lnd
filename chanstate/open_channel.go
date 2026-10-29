@@ -223,11 +223,8 @@ type OpenChannel struct {
 	// immutable.
 	CustomBlob fn.Option[tlv.Blob]
 
-	// Db persists channel state through the Store contract. This field
-	// intentionally keeps the existing name while callers still construct
-	// channels through the channeldb compatibility alias. The store
-	// interface keeps receiver methods backend independent while the KV
-	// implementation is moved into chanstate.
+	// Db persists channel state through the backend-independent Store
+	// contract.
 	Db Store
 
 	// TODO(roasbeef): just need to store local and remote HTLC's?

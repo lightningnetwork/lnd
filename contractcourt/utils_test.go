@@ -106,7 +106,7 @@ func copyChannelState(t *testing.T, state *chanstate.OpenChannel) (
 
 	newDB := channeldb.OpenForTesting(t, tempDbPath)
 
-	chans, err := newDB.ChannelStateDB().FetchAllChannels()
+	chans, err := newDB.ChannelStateStore().FetchAllChannels()
 	if err != nil {
 		return nil, err
 	}

@@ -363,7 +363,7 @@ type DB struct {
 
 	// fwdResponseStore persists off-chain settle and fail messages until the
 	// switch can safely replay or reap them.
-	fwdResponseStore *kvFwdResponseStore
+	fwdResponseStore *fwdresponse.KVStore
 
 	dbPath string
 	clock  clock.Clock
@@ -417,7 +417,7 @@ func CreateWithBackend(backend kvdb.Backend, modifiers ...OptionModifier) (*DB,
 		}
 	}
 
-	fwdResponseStore := newKVFwdResponseStore(backend)
+	fwdResponseStore := fwdresponse.NewKVStore(backend)
 	chanDB := &DB{
 		Backend:          backend,
 		fwdResponseStore: fwdResponseStore,
@@ -437,7 +437,7 @@ func CreateWithBackend(backend kvdb.Backend, modifiers ...OptionModifier) (*DB,
 					opts.tombstoneClosedChannels,
 				),
 				chanstate.WithExtractFwdResponses(
-					fwdResponseStore.extractFwdResponses,
+					fwdResponseStore.ExtractFwdResponses,
 				),
 			),
 			backend:                 backend,
@@ -476,7 +476,6 @@ func (d *DB) Path() string {
 
 var dbTopLevelBuckets = [][]byte{
 	openChannelBucket,
-	fwdResponseBucketKey,
 	closedChannelBucket,
 	forwardingLogBucket,
 	fwdPackagesKey,
@@ -497,6 +496,10 @@ var dbTopLevelBuckets = [][]byte{
 // operation is fully atomic.
 func (d *DB) Wipe() error {
 	err := kvdb.Update(d, func(tx kvdb.RwTx) error {
+		if err := d.fwdResponseStore.Wipe(tx); err != nil {
+			return err
+		}
+
 		for _, tlb := range dbTopLevelBuckets {
 			err := tx.DeleteTopLevelBucket(tlb)
 			if err != nil && err != kvdb.ErrBucketNotFound {

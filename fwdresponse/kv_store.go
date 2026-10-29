@@ -1,4 +1,4 @@
-package channeldb
+package fwdresponse
 
 import (
 	"bytes"
@@ -6,35 +6,46 @@ import (
 	"io"
 
 	"github.com/lightningnetwork/lnd/chanstate"
-	"github.com/lightningnetwork/lnd/fwdresponse"
 	"github.com/lightningnetwork/lnd/graph/db/models"
 	"github.com/lightningnetwork/lnd/kvdb"
 	"github.com/lightningnetwork/lnd/lnwire"
 )
 
 var (
-	// fwdResponseBucketKey is the root level bucket that stores the
+	// kvStoreBucketKey is the root level bucket that stores the
 	// outgoing CircuitKey -> settle/fail message mapping independently
 	// of per-channel forwarding packages.
-	fwdResponseBucketKey = []byte("fwd-response-store-bucket-key")
+	kvStoreBucketKey = []byte("fwd-response-store-bucket-key")
 )
 
-// kvFwdResponseStore is the KV implementation of fwdresponse.Store.
-type kvFwdResponseStore struct {
+// KVStore is the KV implementation of Store.
+type KVStore struct {
 	backend kvdb.Backend
 }
 
-var _ fwdresponse.Store = (*kvFwdResponseStore)(nil)
+var _ Store = (*KVStore)(nil)
 
-// newKVFwdResponseStore creates a KV-backed forwarding-response store.
-func newKVFwdResponseStore(backend kvdb.Backend) *kvFwdResponseStore {
-	return &kvFwdResponseStore{backend: backend}
+// NewKVStore creates a KV-backed forwarding-response store.
+func NewKVStore(backend kvdb.Backend) *KVStore {
+	return &KVStore{backend: backend}
 }
 
-// extractFwdResponses copies eligible settle and fail messages into the
+// Wipe removes all forwarding responses in the transaction. This lets the
+// database owner include the store in an atomic full-database wipe without
+// exposing the store's bucket layout.
+func (s *KVStore) Wipe(tx kvdb.RwTx) error {
+	err := tx.DeleteTopLevelBucket(kvStoreBucketKey)
+	if err == kvdb.ErrBucketNotFound {
+		return nil
+	}
+
+	return err
+}
+
+// ExtractFwdResponses copies eligible settle and fail messages into the
 // forwarding response store. It runs in the package-cleanup transaction so the
 // two persistence updates remain atomic.
-func (s *kvFwdResponseStore) extractFwdResponses(tx kvdb.RwTx,
+func (s *KVStore) ExtractFwdResponses(tx kvdb.RwTx,
 	source lnwire.ShortChannelID) error {
 
 	packager := chanstate.NewChannelPackager(source)
@@ -53,7 +64,6 @@ func (s *kvFwdResponseStore) extractFwdResponses(tx kvdb.RwTx,
 			}
 
 			// Only settles and fails are supported.
-			// Log any unexpected update type.
 			var htlcID uint64
 			switch msg := update.UpdateMsg.(type) {
 			case *lnwire.UpdateFulfillHTLC:
@@ -63,11 +73,6 @@ func (s *kvFwdResponseStore) extractFwdResponses(tx kvdb.RwTx,
 				htlcID = msg.ID
 
 			default:
-				log.Warnf("Skipping unsupported response "+
-					"during close: type=%T, source=%v, "+
-					"height=%d, index=%d", update.UpdateMsg,
-					fwdPkg.Source, fwdPkg.Height, i)
-
 				continue
 			}
 
@@ -97,7 +102,7 @@ func putFwdResponse(tx kvdb.RwTx, outKey *models.CircuitKey,
 		return err
 	}
 
-	bucket, err := tx.CreateTopLevelBucket(fwdResponseBucketKey)
+	bucket, err := tx.CreateTopLevelBucket(kvStoreBucketKey)
 	if err != nil {
 		return err
 	}
@@ -107,13 +112,12 @@ func putFwdResponse(tx kvdb.RwTx, outKey *models.CircuitKey,
 
 // FetchFwdResponses returns every response retained for a closed channel. The
 // switch calls this on start-up to replay them to their incoming links.
-func (s *kvFwdResponseStore) FetchFwdResponses() (
-	[]*fwdresponse.Response, error) {
+func (s *KVStore) FetchFwdResponses() ([]*Response, error) {
 
-	var responses []*fwdresponse.Response
+	var responses []*Response
 
 	err := kvdb.View(s.backend, func(tx kvdb.RTx) error {
-		bucket := tx.ReadBucket(fwdResponseBucketKey)
+		bucket := tx.ReadBucket(kvStoreBucketKey)
 		if bucket == nil {
 			return nil
 		}
@@ -132,7 +136,7 @@ func (s *kvFwdResponseStore) FetchFwdResponses() (
 					outKey, err)
 			}
 
-			responses = append(responses, &fwdresponse.Response{
+			responses = append(responses, &Response{
 				OutKey:  outKey,
 				Message: msg,
 			})
@@ -153,17 +157,17 @@ func (s *kvFwdResponseStore) FetchFwdResponses() (
 // outgoing circuit key, fwdresponse.ErrNotFound if it is cleanly absent, and
 // any database error unchanged. Closed-channel circuit cleanup relies on that
 // distinction to avoid deleting the circuit a retained response needs.
-func (s *kvFwdResponseStore) CheckFwdResponse(
+func (s *KVStore) CheckFwdResponse(
 	outKey *models.CircuitKey) error {
 
 	return kvdb.View(s.backend, func(tx kvdb.RTx) error {
-		bucket := tx.ReadBucket(fwdResponseBucketKey)
+		bucket := tx.ReadBucket(kvStoreBucketKey)
 		if bucket == nil {
-			return fwdresponse.ErrNotFound
+			return ErrNotFound
 		}
 
 		if bucket.Get(outKey.Bytes()) == nil {
-			return fwdresponse.ErrNotFound
+			return ErrNotFound
 		}
 
 		return nil
@@ -175,11 +179,11 @@ func (s *kvFwdResponseStore) CheckFwdResponse(
 // whose circuit no longer exists. Records that were delivered successfully
 // are not deleted at delivery time; they are reaped on the next startup, once
 // their circuit has been torn down.
-func (s *kvFwdResponseStore) DeleteFwdResponse(
+func (s *KVStore) DeleteFwdResponse(
 	outKey *models.CircuitKey) error {
 
 	return kvdb.Update(s.backend, func(tx kvdb.RwTx) error {
-		bucket := tx.ReadWriteBucket(fwdResponseBucketKey)
+		bucket := tx.ReadWriteBucket(kvStoreBucketKey)
 		if bucket == nil {
 			return nil
 		}
@@ -196,7 +200,7 @@ func serializeFwdResponse(w *bytes.Buffer, msg lnwire.Message) error {
 	case *lnwire.UpdateFulfillHTLC, *lnwire.UpdateFailHTLC:
 
 	default:
-		return fmt.Errorf("%w: %T", fwdresponse.ErrUnknownType, msg)
+		return fmt.Errorf("%w: %T", ErrUnknownType, msg)
 	}
 
 	_, err := lnwire.WriteMessage(w, msg, 0)
@@ -216,6 +220,6 @@ func deserializeFwdResponse(r io.Reader) (lnwire.Message, error) {
 		return msg, nil
 
 	default:
-		return nil, fmt.Errorf("%w: %T", fwdresponse.ErrUnknownType, msg)
+		return nil, fmt.Errorf("%w: %T", ErrUnknownType, msg)
 	}
 }

@@ -10,6 +10,7 @@ import (
 	"github.com/btcsuite/btcd/btcutil/v2"
 	"github.com/btcsuite/btcd/txscript/v2"
 	"github.com/lightningnetwork/lnd/channeldb"
+	"github.com/lightningnetwork/lnd/chanstate"
 	"github.com/lightningnetwork/lnd/fn/v2"
 	"github.com/lightningnetwork/lnd/graph/db/models"
 	"github.com/lightningnetwork/lnd/htlcswitch/hop"
@@ -70,7 +71,7 @@ func (h *htlcIncomingContestResolver) processFinalHtlcFail() error {
 			ChanID: h.ShortChanID,
 			HtlcID: h.htlc.HtlcIndex,
 		},
-		channeldb.FinalHtlcInfo{
+		chanstate.FinalHtlcInfo{
 			Settled:  false,
 			Offchain: false,
 		},

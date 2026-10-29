@@ -1202,6 +1202,6 @@ func (h *mockHTLCNotifier) NotifySettleEvent(key HtlcKey,
 }
 
 func (h *mockHTLCNotifier) NotifyFinalHtlcEvent(key models.CircuitKey,
-	info channeldb.FinalHtlcInfo) {
+	info chanstate.FinalHtlcInfo) {
 
 }

@@ -4479,7 +4479,7 @@ func (l *channelLink) processRemoteCommitSig(ctx context.Context,
 				ChanID: l.ShortChanID(),
 				HtlcID: id,
 			},
-			channeldb.FinalHtlcInfo{
+			chanstate.FinalHtlcInfo{
 				Settled:  settled,
 				Offchain: true,
 			},

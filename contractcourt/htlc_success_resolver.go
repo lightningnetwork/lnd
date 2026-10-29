@@ -293,7 +293,7 @@ func (h *htlcSuccessResolver) checkpointClaim(claimOutpoint wire.OutPoint,
 			ChanID: h.ShortChanID,
 			HtlcID: h.htlc.HtlcIndex,
 		},
-		channeldb.FinalHtlcInfo{
+		chanstate.FinalHtlcInfo{
 			Settled:  true,
 			Offchain: false,
 		},
@@ -392,7 +392,7 @@ func (h *htlcSuccessResolver) checkpointForeignSpend(
 			ChanID: h.ShortChanID,
 			HtlcID: h.htlc.HtlcIndex,
 		},
-		channeldb.FinalHtlcInfo{
+		chanstate.FinalHtlcInfo{
 			Settled:  false,
 			Offchain: false,
 		},

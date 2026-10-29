@@ -3443,7 +3443,7 @@ func (c *ChannelArbitrator) failIncomingDust(
 		// Send notification.
 		chainArbCfg.HtlcNotifier.NotifyFinalHtlcEvent(
 			key,
-			channeldb.FinalHtlcInfo{
+			chanstate.FinalHtlcInfo{
 				Settled:  false,
 				Offchain: false,
 			},

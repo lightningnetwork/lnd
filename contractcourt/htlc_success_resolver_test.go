@@ -16,6 +16,7 @@ import (
 	"github.com/davecgh/go-spew/spew"
 	"github.com/lightningnetwork/lnd/chainntnfs"
 	"github.com/lightningnetwork/lnd/channeldb"
+	"github.com/lightningnetwork/lnd/chanstate"
 	"github.com/lightningnetwork/lnd/fn/v2"
 	"github.com/lightningnetwork/lnd/graph/db/models"
 	"github.com/lightningnetwork/lnd/input"
@@ -820,7 +821,7 @@ func TestHtlcSuccessForeignSpend(t *testing.T) {
 			}}, reports)
 			require.Equal(t, []finalHtlcEvent{{
 				key: testCircuitKey,
-				info: channeldb.FinalHtlcInfo{
+				info: chanstate.FinalHtlcInfo{
 					Settled: false,
 				},
 			}}, ctx.htlcNotifier.finalHtlcEvents)
@@ -903,7 +904,7 @@ func TestHtlcSuccessForeignSpendCheckpointError(t *testing.T) {
 	require.Zero(t, resolver.currentReport.RecoveredBalance)
 	require.Equal(t, []finalHtlcEvent{{
 		key: testCircuitKey,
-		info: channeldb.FinalHtlcInfo{
+		info: chanstate.FinalHtlcInfo{
 			Settled: false,
 		},
 	}}, ctx.htlcNotifier.finalHtlcEvents)
@@ -1058,7 +1059,7 @@ func TestHtlcSuccessCheckpointClaim(t *testing.T) {
 	}, reports)
 	require.Equal(t, []finalHtlcEvent{{
 		key: testCircuitKey,
-		info: channeldb.FinalHtlcInfo{
+		info: chanstate.FinalHtlcInfo{
 			Settled: true,
 		},
 	}}, ctx.htlcNotifier.finalHtlcEvents)
@@ -1476,7 +1477,7 @@ func runFromCheckpoint(t *testing.T, ctx *htlcResolverTestContext,
 			expectedSettled := finalCheckpoint.finalHtlcSettled
 			require.Equal(t, []finalHtlcEvent{{
 				key: testCircuitKey,
-				info: channeldb.FinalHtlcInfo{
+				info: chanstate.FinalHtlcInfo{
 					Settled: expectedSettled,
 				},
 			}}, ctx.htlcNotifier.finalHtlcEvents)

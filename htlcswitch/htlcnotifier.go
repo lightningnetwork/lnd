@@ -6,7 +6,7 @@ import (
 	"sync"
 	"time"
 
-	"github.com/lightningnetwork/lnd/channeldb"
+	"github.com/lightningnetwork/lnd/chanstate"
 	"github.com/lightningnetwork/lnd/graph/db/models"
 	"github.com/lightningnetwork/lnd/htlcswitch/hop"
 	"github.com/lightningnetwork/lnd/lntypes"
@@ -402,7 +402,7 @@ func (h *HtlcNotifier) NotifySettleEvent(key HtlcKey,
 //
 // Note this is part of the htlcNotifier interface.
 func (h *HtlcNotifier) NotifyFinalHtlcEvent(key models.CircuitKey,
-	info channeldb.FinalHtlcInfo) {
+	info chanstate.FinalHtlcInfo) {
 
 	event := &FinalHtlcEvent{
 		CircuitKey: key,

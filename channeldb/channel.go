@@ -256,9 +256,6 @@ func DeserializeHtlcs(r io.Reader) ([]HTLC, error) {
 	return cstate.DeserializeHtlcs(r)
 }
 
-// FinalHtlcInfo contains information about the final outcome of an htlc.
-type FinalHtlcInfo = cstate.FinalHtlcInfo
-
 const (
 	// CooperativeClose indicates that a channel has been closed
 	// cooperatively.

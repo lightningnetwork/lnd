@@ -3798,7 +3798,7 @@ func (s *server) establishPersistentConnections(ctx context.Context) error {
 	// attempt to connect to based on our set of previous connections. Set
 	// the reconnection port to the default peer port.
 	linkNodes, err := s.linkNodeDB.FetchAllLinkNodes()
-	if err != nil && !errors.Is(err, channeldb.ErrLinkNodesNotFound) {
+	if err != nil && !errors.Is(err, linknode.ErrLinkNodesNotFound) {
 		return fmt.Errorf("failed to fetch all link nodes: %w", err)
 	}
 

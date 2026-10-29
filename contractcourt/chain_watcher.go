@@ -20,7 +20,6 @@ import (
 	"github.com/davecgh/go-spew/spew"
 	"github.com/lightningnetwork/lnd/chainio"
 	"github.com/lightningnetwork/lnd/chainntnfs"
-	"github.com/lightningnetwork/lnd/channeldb"
 	"github.com/lightningnetwork/lnd/chanstate"
 	"github.com/lightningnetwork/lnd/fn/v2"
 	"github.com/lightningnetwork/lnd/input"
@@ -1177,7 +1176,7 @@ func (c *chainWatcher) handlePossibleBreach(commitSpend *chainntnfs.SpendDetail,
 	// If we had no log entry at this height, this was not a revoked state.
 	case errors.Is(err, chanstate.ErrLogEntryNotFound):
 		return false, nil
-	case err == channeldb.ErrNoPastDeltas:
+	case err == chanstate.ErrNoPastDeltas:
 		return false, nil
 
 	case err != nil:

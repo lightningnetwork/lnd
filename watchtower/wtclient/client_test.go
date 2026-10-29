@@ -17,7 +17,6 @@ import (
 	"github.com/btcsuite/btcd/txscript/v2"
 	"github.com/btcsuite/btcd/wire/v2"
 	"github.com/lightningnetwork/lnd/chainntnfs"
-	"github.com/lightningnetwork/lnd/channeldb"
 	"github.com/lightningnetwork/lnd/channelnotifier"
 	"github.com/lightningnetwork/lnd/chanstate"
 	"github.com/lightningnetwork/lnd/fn/v2"
@@ -520,7 +519,7 @@ func newHarness(t *testing.T, cfg harnessCfg) *testHarness {
 
 		height, ok := h.closedChannels[id]
 		if !ok {
-			return nil, channeldb.ErrClosedChannelNotFound
+			return nil, chanstate.ErrClosedChannelNotFound
 		}
 
 		return &chanstate.ChannelCloseSummary{CloseHeight: height}, nil

@@ -302,7 +302,7 @@ func testAddSettleWorkflow(t *testing.T, tweakless bool,
 			require.True(t, finalInfo.Offchain)
 			require.True(t, finalInfo.Settled)
 		} else {
-			require.ErrorIs(t, err, channeldb.ErrHtlcUnknown)
+			require.ErrorIs(t, err, chanstate.ErrHtlcUnknown)
 		}
 	}
 
@@ -10838,7 +10838,7 @@ func testNewBreachRetribution(t *testing.T, chanType chanstate.ChannelType) {
 		fn.Some[AuxLeafStore](&MockAuxLeafStore{}),
 		fn.Some[AuxContractResolver](&MockAuxContractResolver{}),
 	)
-	require.ErrorIs(t, err, channeldb.ErrNoPastDeltas)
+	require.ErrorIs(t, err, chanstate.ErrNoPastDeltas)
 
 	// We also check that the same error is returned if no breach tx is
 	// provided.
@@ -10847,7 +10847,7 @@ func testNewBreachRetribution(t *testing.T, chanType chanstate.ChannelType) {
 		fn.Some[AuxLeafStore](&MockAuxLeafStore{}),
 		fn.Some[AuxContractResolver](&MockAuxContractResolver{}),
 	)
-	require.ErrorIs(t, err, channeldb.ErrNoPastDeltas)
+	require.ErrorIs(t, err, chanstate.ErrNoPastDeltas)
 
 	// We now force a state transition which will give us a revocation log
 	// at height 0.

@@ -1235,12 +1235,12 @@ func assertDatabaseState(t *testing.T, node *testNode,
 		}
 		state, _, err = node.fundingMgr.getChannelOpeningState(
 			fundingOutPoint)
-		if err != nil && err != channeldb.ErrChannelNotFound {
+		if err != nil && err != chanstate.ErrChannelNotFound {
 			t.Fatalf("unable to get channel state: %v", err)
 		}
 
 		// If we found the channel, check if it had the expected state.
-		if !errors.Is(err, channeldb.ErrChannelNotFound) &&
+		if !errors.Is(err, chanstate.ErrChannelNotFound) &&
 			state == expectedState {
 
 			// Got expected state, return with success.
@@ -1518,7 +1518,7 @@ func assertErrChannelNotFound(t *testing.T, node *testNode,
 		}
 		state, _, err = node.fundingMgr.getChannelOpeningState(
 			fundingOutPoint)
-		if err == channeldb.ErrChannelNotFound {
+		if err == chanstate.ErrChannelNotFound {
 			// Got expected state, return with success.
 			return
 		} else if err != nil {
@@ -1537,7 +1537,7 @@ func assertInitialFwdingPolicyNotFound(t *testing.T, node *testNode,
 
 	err := wait.NoError(func() error {
 		_, err := node.fundingMgr.getInitialForwardingPolicy(*chanID)
-		if errors.Is(err, channeldb.ErrChannelNotFound) {
+		if errors.Is(err, chanstate.ErrChannelNotFound) {
 			return nil
 		}
 

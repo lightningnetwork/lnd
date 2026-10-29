@@ -3346,7 +3346,7 @@ func (r *rpcServer) AbandonChannel(_ context.Context,
 	switch {
 	// If the channel isn't found in the set of open channels, then we can
 	// continue on as it can't be loaded into the link/peer.
-	case err == channeldb.ErrChannelNotFound:
+	case err == chanstate.ErrChannelNotFound:
 		break
 
 	// If the channel is still known to be open, then before we modify any
@@ -4209,8 +4209,8 @@ func (r *rpcServer) fetchPendingForceCloseChannels() (pendingForceClose,
 		switch err {
 		// If the channel was closed in a version that did not record
 		// historical channels, ignore the error.
-		case channeldb.ErrNoHistoricalBucket:
-		case channeldb.ErrChannelNotFound:
+		case chanstate.ErrNoHistoricalBucket:
+		case chanstate.ErrChannelNotFound:
 
 		case nil:
 			channel.Initiator = rpcInitiator(historical.IsInitiator)
@@ -4819,7 +4819,7 @@ func (r *rpcServer) LookupHtlcResolution(
 
 	info, err := r.server.channelStore.LookupFinalHtlc(chanID, in.HtlcIndex)
 	switch {
-	case errors.Is(err, channeldb.ErrHtlcUnknown):
+	case errors.Is(err, chanstate.ErrHtlcUnknown):
 		return nil, status.Error(codes.NotFound, err.Error())
 
 	case err != nil:
@@ -5356,8 +5356,8 @@ func (r *rpcServer) createRPCClosedChannel(
 	switch err {
 	// The channel was closed in a pre-historic version of lnd. Ignore the
 	// error.
-	case channeldb.ErrNoHistoricalBucket:
-	case channeldb.ErrChannelNotFound:
+	case chanstate.ErrNoHistoricalBucket:
+	case chanstate.ErrChannelNotFound:
 
 	case nil:
 		if histChan.IsZeroConf() && histChan.ZeroConfConfirmed() {
@@ -5488,7 +5488,7 @@ func (r *rpcServer) getInitiators(chanPoint *wire.OutPoint) (
 	// The node has upgraded from a version where we did not store
 	// historical channels, and has not closed a channel since. Do
 	// not return an error, initiator values are unknown.
-	case err == channeldb.ErrNoHistoricalBucket:
+	case err == chanstate.ErrNoHistoricalBucket:
 		return openInitiator, closeInitiator, nil
 
 	// The channel was either closed before we started storing
@@ -5497,7 +5497,7 @@ func (r *rpcServer) getInitiators(chanPoint *wire.OutPoint) (
 	// CLOSED_CHANNEL event for a coop close that hasn't reached its
 	// full confirmation depth. Try the open channel bucket so the
 	// early dispatch still carries close-initiator info.
-	case err == channeldb.ErrChannelNotFound:
+	case err == chanstate.ErrChannelNotFound:
 		openChan, openErr := r.server.channelStore.FetchChannel(
 			*chanPoint,
 		)

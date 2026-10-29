@@ -22,7 +22,6 @@ import (
 	"github.com/lightningnetwork/lnd/actor"
 	"github.com/lightningnetwork/lnd/chainntnfs"
 	"github.com/lightningnetwork/lnd/chanacceptor"
-	"github.com/lightningnetwork/lnd/channeldb"
 	"github.com/lightningnetwork/lnd/chanstate"
 	"github.com/lightningnetwork/lnd/discovery"
 	"github.com/lightningnetwork/lnd/fn/v2"
@@ -1142,7 +1141,7 @@ func (f *Manager) advanceFundingState(channel *chanstate.OpenChannel,
 		channelState, shortChanID, err := f.getChannelOpeningState(
 			&channel.FundingOutpoint,
 		)
-		if err == channeldb.ErrChannelNotFound {
+		if err == chanstate.ErrChannelNotFound {
 			// Channel not in fundingManager's opening database,
 			// meaning it was successfully announced to the
 			// network.
@@ -4691,7 +4690,7 @@ func (f *Manager) newChanAnnouncement(localPubKey,
 	// values are found, then we will use the default policy values in the
 	// channel announcement.
 	storedFwdingPolicy, err := f.getInitialForwardingPolicy(chanID)
-	if err != nil && !errors.Is(err, channeldb.ErrChannelNotFound) {
+	if err != nil && !errors.Is(err, chanstate.ErrChannelNotFound) {
 		return nil, fmt.Errorf("unable to generate channel "+
 			"update announcement: %w", err)
 	}

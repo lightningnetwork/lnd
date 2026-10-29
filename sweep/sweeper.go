@@ -9,6 +9,7 @@ import (
 	"github.com/btcsuite/btcd/btcutil/v2"
 	"github.com/btcsuite/btcd/chainhash/v2"
 	"github.com/btcsuite/btcd/wire/v2"
+	"github.com/btcsuite/btcwallet/chain"
 	"github.com/lightningnetwork/lnd/chainio"
 	"github.com/lightningnetwork/lnd/chainntnfs"
 	"github.com/lightningnetwork/lnd/fn/v2"
@@ -123,6 +124,7 @@ const (
 	// state won't be retried. This could happen,
 	// - when a pending input has too many failed publish attempts;
 	// - the input has been spent by another party;
+	// - a singleton mempool probe isolated an input-attributable failure;
 	// - unknown broadcast error is returned.
 	Fatal
 )
@@ -970,11 +972,12 @@ func (s *UtxoSweeper) markInputsPublished(tr *TxRecord, set InputSet) error {
 
 // markInputsPublishFailed marks the list of inputs as failed to be published.
 func (s *UtxoSweeper) markInputsPublishFailed(set InputSet,
-	feeRate chainfee.SatPerKWeight) {
+	startingFeeRate fn.Option[chainfee.SatPerKWeight]) {
 
 	// Reschedule sweep.
 	for _, inp := range set.Inputs() {
 		op := inp.OutPoint()
+
 		pi, ok := s.inputs[op]
 		if !ok {
 			// It could be that this input is an additional wallet
@@ -1001,12 +1004,11 @@ func (s *UtxoSweeper) markInputsPublishFailed(set InputSet,
 
 		log.Debugf("Input(%v): updating params: starting fee rate "+
 			"[%v -> %v]", op, pi.params.StartingFeeRate,
-			feeRate)
+			startingFeeRate)
 
-		// Update the input using the fee rate specified from the
-		// BumpResult, which should be the starting fee rate to use for
-		// the next sweeping attempt.
-		pi.params.StartingFeeRate = fn.Some(feeRate)
+		// Unchanged sets keep their retry fee. Survivor sets restart
+		// because their aggregate weight and budget changed.
+		pi.params.StartingFeeRate = startingFeeRate
 	}
 }
 
@@ -1720,13 +1722,75 @@ func (s *UtxoSweeper) handleBumpEventTxFailed(resp *bumpResp) {
 			err)
 	}
 
+	// A diagnosed bad input means the publisher isolated one input via
+	// no-broadcast probes. Handle it separately so the bad input becomes
+	// fatal while the rest of the set can be retried.
+	if r.BadInput != nil {
+		s.handleBumpEventBadInputs(resp)
+		return
+	}
+
 	// NOTE: When marking the inputs as failed, we are using the input set
 	// instead of the inputs found in the tx. This is fine for current
 	// version of the sweeper because we always create a tx using ALL of
 	// the inputs specified by the set.
 	//
 	// TODO(yy): should we also remove the failed tx from db?
-	s.markInputsPublishFailed(resp.set, resp.result.FeeRate)
+	s.markInputsPublishFailed(resp.set, fn.Some(resp.result.FeeRate))
+}
+
+// handleBumpEventBadInputs handles a failed tx after the fee bumper diagnosed a
+// singleton bad input using no-broadcast mempool probes.
+func (s *UtxoSweeper) handleBumpEventBadInputs(resp *bumpResp) {
+	r := resp.result
+	inputs := resp.set.Inputs()
+
+	log.Warnf("Fee bump attempt failed for requestID=%v after "+
+		"bad-input diagnosis: %v; inputs:\n%v", r.requestID, r.Err,
+		inputTypeSummary(inputs))
+
+	badInput := *r.BadInput
+	s.markInputsPublishFailed(resp.set, fn.None[chainfee.SatPerKWeight]())
+
+	// An unconfirmed spend is reversible. Keep its subscription and state
+	// retryable, but let valid siblings progress without sharing its batch.
+	if errors.Is(r.Err, chain.ErrMempoolConflict) {
+		inputs := s.updateSweeperInputs()
+		delete(inputs, badInput)
+
+		// Wallet selection is synchronous on this event loop. Exclude
+		// the conflict only during resubmission, preserving any prior
+		// quarantine.
+		if !s.excludedWalletInputs.Contains(badInput) {
+			s.excludedWalletInputs.Add(badInput)
+			defer s.excludedWalletInputs.Remove(badInput)
+		}
+		if len(inputs) != 0 {
+			s.sweepPendingInputs(inputs)
+		}
+
+		return
+	}
+
+	// Wallet inputs are added only to the transient input set. Quarantine a
+	// diagnosed wallet UTXO so coin selection cannot recreate the same
+	// rejected batch every block.
+	pi, ok := s.inputs[badInput]
+	if !ok {
+		s.excludedWalletInputs.Add(badInput)
+		log.Warnf("Quarantined diagnosed wallet input %v", badInput)
+
+		return
+	}
+
+	if pi.terminated() {
+		log.Errorf("Skipped marking bad input=%v as fatal due to "+
+			"unexpected state=%v", badInput, pi.state)
+
+		return
+	}
+
+	s.markInputFatal(pi, nil, r.Err)
 }
 
 // handleBumpEventTxReplaced handles the case where the sweeping tx has been
@@ -1977,7 +2041,7 @@ func (s *UtxoSweeper) handleUnknownSpendTx(inp *SweeperInput, tx *wire.MsgTx) {
 func (s *UtxoSweeper) handleBumpEventTxUnknownSpend(r *bumpResp) {
 	// Mark the inputs as publish failed, which means they will be retried
 	// later.
-	s.markInputsPublishFailed(r.set, r.result.FeeRate)
+	s.markInputsPublishFailed(r.set, fn.Some(r.result.FeeRate))
 
 	// Get all the inputs that are not spent in the current sweeping tx.
 	spentInputs := r.result.SpentInputs

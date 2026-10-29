@@ -4,13 +4,6 @@ import (
 	"io"
 
 	cstate "github.com/lightningnetwork/lnd/chanstate"
-	"github.com/lightningnetwork/lnd/tlv"
-)
-
-const (
-	// HTLCBlindingPointTLV is the tlv type used for storing blinding
-	// points with HTLCs.
-	HTLCBlindingPointTLV tlv.Type = 0
 )
 
 var (
@@ -116,25 +109,4 @@ func SerializeHtlcs(b io.Writer, htlcs ...cstate.HTLC) error {
 // future.
 func DeserializeHtlcs(r io.Reader) ([]cstate.HTLC, error) {
 	return cstate.DeserializeHtlcs(r)
-}
-
-// makeLogKey converts a uint64 into an 8 byte array.
-//
-// TODO(chanstate): remove together with the deprecated revocation log
-// bucket. chanstate owns the forwarding and revocation key helpers now,
-// and fetchOldRevocationLog is the only caller left here.
-func makeLogKey(updateNum uint64) [8]byte {
-	var key [8]byte
-	byteOrder.PutUint64(key[:], updateNum)
-	return key
-}
-
-// EKeyLocator is an encoder for keychain.KeyLocator.
-func EKeyLocator(w io.Writer, val interface{}, buf *[8]byte) error {
-	return cstate.EKeyLocator(w, val, buf)
-}
-
-// DKeyLocator is a decoder for keychain.KeyLocator.
-func DKeyLocator(r io.Reader, val interface{}, buf *[8]byte, l uint64) error {
-	return cstate.DKeyLocator(r, val, buf, l)
 }

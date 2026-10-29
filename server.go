@@ -957,7 +957,7 @@ func newServer(ctx context.Context, cfg *Config, listenAddrs []net.Addr,
 			peer.HandleLocalCloseChanReqs(request)
 		},
 		FwdingLog:              dbs.ChanStateDB.ForwardingLog(),
-		SwitchPackager:         chanstate.NewSwitchPackager(),
+		FwdPackageStore:        s.channelStore,
 		ExtractErrorEncrypter:  s.sphinxPayment.ExtractErrorEncrypter,
 		FetchLastChannelUpdate: s.fetchLastChanUpdate(),
 		Notifier:               s.cc.ChainNotifier,

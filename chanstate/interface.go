@@ -41,6 +41,10 @@ type Store interface { //nolint:interfacebloat
 	// channel records.
 	OpenChannelFwdPkgStore
 
+	// FwdPackageStore owns switch-facing access to active-channel
+	// forwarding packages.
+	FwdPackageStore
+
 	// ClosedChannelStore owns closed-channel summaries and lifecycle
 	// mutations.
 	ClosedChannelStore

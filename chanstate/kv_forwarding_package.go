@@ -115,61 +115,12 @@ func (f *PkgFilter) Decode(r io.Reader) error {
 	return err
 }
 
-// SettleFailAcker is a generic interface providing the ability to acknowledge
-// settle/fail HTLCs stored in forwarding packages.
-type SettleFailAcker interface {
+// KVSettleFailAcker acknowledges settle and fail HTLCs within a caller-owned
+// KV transaction.
+type KVSettleFailAcker interface {
 	// AckSettleFails atomically updates the settle-fail filters in *other*
 	// channels' forwarding packages.
 	AckSettleFails(tx kvdb.RwTx, settleFailRefs ...SettleFailRef) error
-}
-
-// GlobalFwdPkgReader is an interface used to retrieve the forwarding packages
-// of any active channel.
-type GlobalFwdPkgReader interface {
-	// LoadChannelFwdPkgs loads all known forwarding packages for the given
-	// channel.
-	LoadChannelFwdPkgs(tx kvdb.RTx,
-		source lnwire.ShortChannelID) ([]*FwdPkg, error)
-}
-
-// FwdOperator defines the interfaces for managing forwarding packages that are
-// external to a particular channel. This interface is used by the switch to
-// read forwarding packages from arbitrary channels, and acknowledge settles and
-// fails for locally-sourced payments.
-type FwdOperator interface {
-	// GlobalFwdPkgReader provides read access to all known forwarding
-	// packages
-	GlobalFwdPkgReader
-
-	// SettleFailAcker grants the ability to acknowledge settles or fails
-	// residing in arbitrary forwarding packages.
-	SettleFailAcker
-}
-
-// SwitchPackager is a concrete implementation of the FwdOperator interface.
-// A SwitchPackager offers the ability to read any forwarding package, and ack
-// arbitrary settle and fail HTLCs.
-type SwitchPackager struct{}
-
-// NewSwitchPackager instantiates a new SwitchPackager.
-func NewSwitchPackager() *SwitchPackager {
-	return &SwitchPackager{}
-}
-
-// AckSettleFails atomically updates the settle-fail filters in *other*
-// channels' forwarding packages, to mark that the switch has received a settle
-// or fail residing in the forwarding package of a link.
-func (*SwitchPackager) AckSettleFails(tx kvdb.RwTx,
-	settleFailRefs ...SettleFailRef) error {
-
-	return ackSettleFails(tx, settleFailRefs)
-}
-
-// LoadChannelFwdPkgs loads all forwarding packages for a particular channel.
-func (*SwitchPackager) LoadChannelFwdPkgs(tx kvdb.RTx,
-	source lnwire.ShortChannelID) ([]*FwdPkg, error) {
-
-	return loadChannelFwdPkgs(tx, source)
 }
 
 // FwdPackager supports all operations required to modify fwd packages, such as
@@ -192,9 +143,9 @@ type FwdPackager interface {
 	// received from the remote party.
 	AckAddHtlcs(tx kvdb.RwTx, addRefs ...AddRef) error
 
-	// SettleFailAcker allows a link to acknowledge settle/fail HTLCs
+	// KVSettleFailAcker allows a link to acknowledge settle/fail HTLCs
 	// belonging to other channels.
-	SettleFailAcker
+	KVSettleFailAcker
 
 	// LoadFwdPkgs loads all known forwarding packages owned by this
 	// channel.
@@ -932,7 +883,3 @@ func forwardingLogKey(updateNum uint64) [8]byte {
 // Compile-time constraint to ensure that ChannelPackager implements the public
 // FwdPackager interface.
 var _ FwdPackager = (*ChannelPackager)(nil)
-
-// Compile-time constraint to ensure that SwitchPackager implements the public
-// FwdOperator interface.
-var _ FwdOperator = (*SwitchPackager)(nil)

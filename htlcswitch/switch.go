@@ -226,10 +226,10 @@ type Config struct {
 	FetchClosedChannels func(
 		pendingOnly bool) ([]*chanstate.ChannelCloseSummary, error)
 
-	// SwitchPackager provides access to the forwarding packages of all
+	// FwdPackageStore provides access to the forwarding packages of all
 	// active channels. This gives the switch the ability to read arbitrary
 	// forwarding packages, and ack settles and fails contained within them.
-	SwitchPackager chanstate.FwdOperator
+	FwdPackageStore chanstate.FwdPackageStore
 
 	// FwdResponseStore persists off-chain settle and fail messages until the
 	// switch can safely replay or reap them.
@@ -438,6 +438,9 @@ func New(cfg Config, currentHeight uint32) (*Switch, error) {
 	// one must fail here rather than panic mid-recovery.
 	if cfg.FwdResponseStore == nil {
 		return nil, errors.New("forwarding response store is nil")
+	}
+	if cfg.FwdPackageStore == nil {
+		return nil, errors.New("forwarding package store is nil")
 	}
 
 	resStore := newResolutionStore(cfg.DB)
@@ -1463,9 +1466,7 @@ func (s *Switch) closeCircuit(pkt *htlcPacket) (*PaymentCircuit, error) {
 func (s *Switch) ackSettleFail(
 	settleFailRefs ...chanstate.SettleFailRef) error {
 
-	return kvdb.Batch(s.cfg.DB, func(tx kvdb.RwTx) error {
-		return s.cfg.SwitchPackager.AckSettleFails(tx, settleFailRefs...)
-	})
+	return s.cfg.FwdPackageStore.AckSettleFailRefs(settleFailRefs...)
 }
 
 // teardownCircuit removes a pending or open circuit from the switch's circuit
@@ -2059,20 +2060,7 @@ func (s *Switch) reforwardResponses() error {
 func (s *Switch) loadChannelFwdPkgs(source lnwire.ShortChannelID) (
 	[]*chanstate.FwdPkg, error) {
 
-	var fwdPkgs []*chanstate.FwdPkg
-	if err := kvdb.View(s.cfg.DB, func(tx kvdb.RTx) error {
-		var err error
-		fwdPkgs, err = s.cfg.SwitchPackager.LoadChannelFwdPkgs(
-			tx, source,
-		)
-		return err
-	}, func() {
-		fwdPkgs = nil
-	}); err != nil {
-		return nil, err
-	}
-
-	return fwdPkgs, nil
+	return s.cfg.FwdPackageStore.LoadChannelFwdPkgs(source)
 }
 
 // reforwardSettleFails parses the Settle and Fail HTLCs from the list of

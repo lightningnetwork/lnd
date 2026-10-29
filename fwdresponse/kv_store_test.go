@@ -17,7 +17,7 @@ var testFwdSource = lnwire.NewShortChanIDFromInt(42)
 
 // addTestFwdPkg writes a forwarding package holding the given settle/fail
 // updates for the test source channel and returns it.
-func addTestFwdPkg(t *testing.T, store *KVStore, height uint64,
+func addTestFwdPkg(t *testing.T, backend kvdb.Backend, height uint64,
 	settleFails []chanstate.LogUpdate) *chanstate.FwdPkg {
 
 	t.Helper()
@@ -25,7 +25,7 @@ func addTestFwdPkg(t *testing.T, store *KVStore, height uint64,
 	fwdPkg := chanstate.NewFwdPkg(testFwdSource, height, nil, settleFails)
 
 	packager := chanstate.NewChannelPackager(testFwdSource)
-	err := kvdb.Update(store.backend, func(tx kvdb.RwTx) error {
+	err := kvdb.Update(backend, func(tx kvdb.RwTx) error {
 		return packager.AddFwdPkg(tx, fwdPkg)
 	}, func() {})
 	require.NoError(t, err, "unable to add fwd pkg")
@@ -34,10 +34,11 @@ func addTestFwdPkg(t *testing.T, store *KVStore, height uint64,
 }
 
 // extractTestFwdResponses runs the extraction for the test source channel.
-func extractTestFwdResponses(t *testing.T, store *KVStore) {
+func extractTestFwdResponses(t *testing.T, backend kvdb.Backend,
+	store KVStore) {
 	t.Helper()
 
-	err := kvdb.Update(store.backend, func(tx kvdb.RwTx) error {
+	err := kvdb.Update(backend, func(tx kvdb.RwTx) error {
 		return store.ExtractFwdResponses(tx, testFwdSource)
 	}, func() {})
 	require.NoError(t, err, "unable to extract responses")
@@ -77,12 +78,12 @@ func TestFwdResponseStoreRoundTrip(t *testing.T) {
 	require.NoError(t, serializeFwdResponse(&settleWire, settle))
 	require.NoError(t, serializeFwdResponse(&failWire, fail))
 
-	addTestFwdPkg(t, store, 1, []chanstate.LogUpdate{
+	addTestFwdPkg(t, backend, 1, []chanstate.LogUpdate{
 		{LogIndex: 0, UpdateMsg: settle},
 		{LogIndex: 1, UpdateMsg: fail},
 	})
 
-	extractTestFwdResponses(t, store)
+	extractTestFwdResponses(t, backend, store)
 
 	responses, err := store.FetchFwdResponses()
 	require.NoError(t, err)
@@ -150,14 +151,14 @@ func TestFwdResponseStoreSkipsAcked(t *testing.T) {
 	acked := &lnwire.UpdateFulfillHTLC{ID: 1}
 	pending := &lnwire.UpdateFulfillHTLC{ID: 2}
 
-	fwdPkg := addTestFwdPkg(t, store, 1, []chanstate.LogUpdate{
+	fwdPkg := addTestFwdPkg(t, backend, 1, []chanstate.LogUpdate{
 		{LogIndex: 0, UpdateMsg: acked},
 		{LogIndex: 1, UpdateMsg: pending},
 	})
 
 	// Ack the first response the same way the incoming link would.
 	packager := chanstate.NewChannelPackager(testFwdSource)
-	err = kvdb.Update(store.backend, func(tx kvdb.RwTx) error {
+	err = kvdb.Update(backend, func(tx kvdb.RwTx) error {
 		return packager.AckSettleFails(tx, chanstate.SettleFailRef{
 			Source: testFwdSource,
 			Height: fwdPkg.Height,
@@ -166,7 +167,7 @@ func TestFwdResponseStoreSkipsAcked(t *testing.T) {
 	}, func() {})
 	require.NoError(t, err)
 
-	extractTestFwdResponses(t, store)
+	extractTestFwdResponses(t, backend, store)
 
 	responses, err := store.FetchFwdResponses()
 	require.NoError(t, err)
@@ -186,11 +187,11 @@ func TestFwdResponseStoreSkipsUnknownUpdate(t *testing.T) {
 
 	// An Add in the settle/fail list resolves nothing and must not be
 	// mistaken for a response.
-	addTestFwdPkg(t, store, 1, []chanstate.LogUpdate{
+	addTestFwdPkg(t, backend, 1, []chanstate.LogUpdate{
 		{LogIndex: 0, UpdateMsg: &lnwire.UpdateAddHTLC{ID: 1}},
 	})
 
-	extractTestFwdResponses(t, store)
+	extractTestFwdResponses(t, backend, store)
 
 	responses, err := store.FetchFwdResponses()
 	require.NoError(t, err)
@@ -218,7 +219,7 @@ func TestFetchFwdResponsesRejectsUnknownMessage(t *testing.T) {
 	store := NewKVStore(backend)
 
 	outKey := models.CircuitKey{ChanID: testFwdSource, HtlcID: 3}
-	err = kvdb.Update(store.backend, func(tx kvdb.RwTx) error {
+	err = kvdb.Update(backend, func(tx kvdb.RwTx) error {
 		var raw bytes.Buffer
 		_, err := lnwire.WriteMessage(
 			&raw, &lnwire.UpdateAddHTLC{}, 0,
@@ -247,7 +248,7 @@ func TestFetchFwdResponsesRejectsInvalidKey(t *testing.T) {
 	store := NewKVStore(backend)
 
 	outKey := models.CircuitKey{ChanID: testFwdSource, HtlcID: 4}
-	err = kvdb.Update(store.backend, func(tx kvdb.RwTx) error {
+	err = kvdb.Update(backend, func(tx kvdb.RwTx) error {
 		var raw bytes.Buffer
 		err := serializeFwdResponse(
 			&raw, &lnwire.UpdateFulfillHTLC{ID: 4},

@@ -4,6 +4,7 @@ import (
 	"errors"
 
 	"github.com/lightningnetwork/lnd/graph/db/models"
+	"github.com/lightningnetwork/lnd/kvdb"
 	"github.com/lightningnetwork/lnd/lnwire"
 )
 
@@ -44,4 +45,20 @@ type Store interface {
 
 	// DeleteFwdResponse removes the response for the outgoing circuit key.
 	DeleteFwdResponse(outKey *models.CircuitKey) error
+}
+
+// KVStore extends the backend-independent forwarding-response store with the
+// operations that must participate in a caller-owned KV transaction. Keeping
+// these operations separate prevents runtime consumers from depending on KV
+// transaction types while allowing channel cleanup and database wipes to
+// remain atomic.
+type KVStore interface {
+	Store
+
+	// ExtractFwdResponses copies eligible settle and fail messages from a
+	// channel's forwarding packages into the forwarding-response store.
+	ExtractFwdResponses(tx kvdb.RwTx, source lnwire.ShortChannelID) error
+
+	// Wipe removes all forwarding responses in the transaction.
+	Wipe(tx kvdb.RwTx) error
 }

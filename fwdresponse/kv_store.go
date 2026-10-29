@@ -19,22 +19,22 @@ var (
 	kvStoreBucketKey = []byte("fwd-response-store-bucket-key")
 )
 
-// KVStore is the KV implementation of Store.
-type KVStore struct {
+// kvStore is the KV implementation of KVStore.
+type kvStore struct {
 	backend kvdb.Backend
 }
 
-var _ Store = (*KVStore)(nil)
+var _ KVStore = (*kvStore)(nil)
 
 // NewKVStore creates a KV-backed forwarding-response store.
-func NewKVStore(backend kvdb.Backend) *KVStore {
-	return &KVStore{backend: backend}
+func NewKVStore(backend kvdb.Backend) KVStore {
+	return &kvStore{backend: backend}
 }
 
 // Wipe removes all forwarding responses in the transaction. This lets the
 // database owner include the store in an atomic full-database wipe without
 // exposing the store's bucket layout.
-func (s *KVStore) Wipe(tx kvdb.RwTx) error {
+func (s *kvStore) Wipe(tx kvdb.RwTx) error {
 	err := tx.DeleteTopLevelBucket(kvStoreBucketKey)
 	if errors.Is(err, kvdb.ErrBucketNotFound) {
 		return nil
@@ -46,7 +46,7 @@ func (s *KVStore) Wipe(tx kvdb.RwTx) error {
 // ExtractFwdResponses copies eligible settle and fail messages into the
 // forwarding response store. It runs in the package-cleanup transaction so the
 // two persistence updates remain atomic.
-func (s *KVStore) ExtractFwdResponses(tx kvdb.RwTx,
+func (s *kvStore) ExtractFwdResponses(tx kvdb.RwTx,
 	source lnwire.ShortChannelID) error {
 
 	packager := chanstate.NewChannelPackager(source)
@@ -113,7 +113,7 @@ func putFwdResponse(tx kvdb.RwTx, outKey *models.CircuitKey,
 
 // FetchFwdResponses returns every response retained for a closed channel. The
 // switch calls this on start-up to replay them to their incoming links.
-func (s *KVStore) FetchFwdResponses() ([]*Response, error) {
+func (s *kvStore) FetchFwdResponses() ([]*Response, error) {
 	var responses []*Response
 
 	err := kvdb.View(s.backend, func(tx kvdb.RTx) error {
@@ -157,7 +157,7 @@ func (s *KVStore) FetchFwdResponses() ([]*Response, error) {
 // outgoing circuit key, fwdresponse.ErrNotFound if it is cleanly absent, and
 // any database error unchanged. Closed-channel circuit cleanup relies on that
 // distinction to avoid deleting the circuit a retained response needs.
-func (s *KVStore) CheckFwdResponse(
+func (s *kvStore) CheckFwdResponse(
 	outKey *models.CircuitKey) error {
 
 	return kvdb.View(s.backend, func(tx kvdb.RTx) error {
@@ -179,7 +179,7 @@ func (s *KVStore) CheckFwdResponse(
 // whose circuit no longer exists. Records that were delivered successfully
 // are not deleted at delivery time; they are reaped on the next startup, once
 // their circuit has been torn down.
-func (s *KVStore) DeleteFwdResponse(
+func (s *kvStore) DeleteFwdResponse(
 	outKey *models.CircuitKey) error {
 
 	return kvdb.Update(s.backend, func(tx kvdb.RwTx) error {

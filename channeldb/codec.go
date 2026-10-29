@@ -1,9 +1,32 @@
 package channeldb
 
 import (
+	"encoding/binary"
 	"io"
 	"time"
 )
+
+// writeElements writes fixed-size database primitives in big-endian order.
+func writeElements(w io.Writer, elements ...interface{}) error {
+	for _, element := range elements {
+		if err := binary.Write(w, byteOrder, element); err != nil {
+			return err
+		}
+	}
+
+	return nil
+}
+
+// readElements reads fixed-size database primitives in big-endian order.
+func readElements(r io.Reader, elements ...interface{}) error {
+	for _, element := range elements {
+		if err := binary.Read(r, byteOrder, element); err != nil {
+			return err
+		}
+	}
+
+	return nil
+}
 
 // deserializeTime deserializes time as unix nanoseconds.
 func deserializeTime(r io.Reader) (time.Time, error) {

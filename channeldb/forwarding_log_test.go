@@ -8,7 +8,6 @@ import (
 	"time"
 
 	"github.com/davecgh/go-spew/spew"
-	"github.com/lightningnetwork/lnd/chanstate"
 	"github.com/lightningnetwork/lnd/fn/v2"
 	"github.com/lightningnetwork/lnd/kvdb"
 	"github.com/lightningnetwork/lnd/lnwire"
@@ -460,9 +459,10 @@ func writeOldFormatEvents(db *DB, events []ForwardingEvent) error {
 
 			// Write only the original fields without incoming and
 			// outgoing htlc indices.
-			if err := chanstate.WriteElements(
-				eventBuf, event.IncomingChanID,
-				event.OutgoingChanID, event.AmtIn, event.AmtOut,
+			if err := writeElements(
+				eventBuf, event.IncomingChanID.ToUint64(),
+				event.OutgoingChanID.ToUint64(),
+				uint64(event.AmtIn), uint64(event.AmtOut),
 			); err != nil {
 				return err
 			}

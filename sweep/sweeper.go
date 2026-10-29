@@ -1723,6 +1723,8 @@ func (s *UtxoSweeper) handleBumpEventTxFailed(resp *bumpResp) {
 	switch {
 	case errors.Is(r.Err, errSpendCheckFailed):
 		feeRate = fn.None[fn.Option[chainfee.SatPerKWeight]]()
+	case errors.Is(r.Err, errStartingFeeRateTooHigh):
+		feeRate = fn.Some(fn.None[chainfee.SatPerKWeight]())
 	}
 	s.markInputsPublishFailed(resp.set, feeRate)
 }

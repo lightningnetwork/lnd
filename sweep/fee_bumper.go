@@ -1126,9 +1126,10 @@ func (t *TxPublisher) handleInitialTxError(r *monitorRecord, err error) {
 	case errors.Is(err, ErrTxNoOutput):
 		result.Event = TxFailed
 
-	// When the error is due to zero fee rate delta, we'll send a TxFailed
-	// so these inputs can be retried in the next block.
-	case errors.Is(err, ErrZeroFeeRateDelta):
+	// An infeasible starting rate or zero fee rate delta is retryable.
+	// Do not try to initialize the same fee function again here.
+	case errors.Is(err, ErrZeroFeeRateDelta),
+		errors.Is(err, errStartingFeeRateTooHigh):
 		result.Event = TxFailed
 
 	// When the error is due to budget being used up, we'll send a TxFailed
@@ -1935,13 +1936,15 @@ func (t *TxPublisher) calculateRetryFeeRate(
 	// the fee rate data so the sweeper can pick up where we left off.
 	if feeFunc == nil {
 		f, err := t.initializeFeeFunction(r.req)
+		if errors.Is(err, errStartingFeeRateTooHigh) {
+			// Retry using an estimated rate without modifying the
+			// monitored record's request.
+			req := *r.req
+			req.StartingFeeRate = fn.None[chainfee.SatPerKWeight]()
+			f, err = t.initializeFeeFunction(&req)
+		}
 
-		// TODO(yy): The only error we would receive here is when the
-		// pkScript is not recognized by the weightEstimator. What we
-		// should do instead is to check the pkScript immediately after
-		// receiving a sweep request so we don't need to check it again,
-		// which will also save us from error checking from several
-		// callsites.
+		// Propagate any remaining initialization error to the caller.
 		if err != nil {
 			log.Errorf("Failed to create fee func for record %v: "+
 				"%v", r.requestID, err)

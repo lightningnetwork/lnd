@@ -17,6 +17,12 @@ var (
 
 	// ErrZeroFeeRateDelta is returned when the fee rate delta is zero.
 	ErrZeroFeeRateDelta = errors.New("fee rate delta is zero")
+
+	// errStartingFeeRateTooHigh indicates the initial rate exceeds the
+	// budget.
+	errStartingFeeRateTooHigh = errors.New(
+		"starting fee rate exceeds budget",
+	)
 )
 
 // mSatPerKWeight represents a fee rate in msat/kw.
@@ -152,6 +158,14 @@ func NewLinearFeeFunction(maxFeeRate chainfee.SatPerKWeight,
 		})
 	if err != nil {
 		return nil, fmt.Errorf("estimate initial fee rate: %w", err)
+	}
+
+	// A starting fee above the budget cannot produce an increasing curve.
+	if start > l.endingFeeRate {
+		return nil, fmt.Errorf(
+			"%w: starting fee rate %v exceeds maximum %v",
+			errStartingFeeRateTooHigh, start, l.endingFeeRate,
+		)
 	}
 
 	// Calculate how much fee rate should be increased per block.
@@ -293,9 +307,9 @@ func (l *LinearFeeFunction) estimateFeeRate(
 	}
 
 	// If the conf target is greater or equal to the max allowed value
-	// (1008), we will use the min relay fee instead.
+	// (1008), use the min relay fee capped by the budget.
 	if confTarget >= chainfee.MaxBlockTarget {
-		minFeeRate := l.estimator.RelayFeePerKW()
+		minFeeRate := min(l.estimator.RelayFeePerKW(), l.endingFeeRate)
 		log.Infof("Conf target %v is greater than max block target, "+
 			"using min relay fee rate %v", confTarget, minFeeRate)
 

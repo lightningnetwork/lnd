@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"testing"
 
+	"github.com/lightningnetwork/lnd/fwdresponse"
 	"github.com/lightningnetwork/lnd/graph/db/models"
 	"github.com/lightningnetwork/lnd/kvdb"
 	"github.com/lightningnetwork/lnd/lnwire"
@@ -16,7 +17,7 @@ var testFwdSource = lnwire.NewShortChanIDFromInt(42)
 
 // addTestFwdPkg writes a forwarding package holding the given settle/fail
 // updates for the test source channel and returns it.
-func addTestFwdPkg(t *testing.T, cdb *ChannelStateDB, height uint64,
+func addTestFwdPkg(t *testing.T, store *kvFwdResponseStore, height uint64,
 	settleFails []LogUpdate) *FwdPkg {
 
 	t.Helper()
@@ -24,7 +25,7 @@ func addTestFwdPkg(t *testing.T, cdb *ChannelStateDB, height uint64,
 	fwdPkg := NewFwdPkg(testFwdSource, height, nil, settleFails)
 
 	packager := NewChannelPackager(testFwdSource)
-	err := kvdb.Update(cdb.backend, func(tx kvdb.RwTx) error {
+	err := kvdb.Update(store.backend, func(tx kvdb.RwTx) error {
 		return packager.AddFwdPkg(tx, fwdPkg)
 	}, func() {})
 	require.NoError(t, err, "unable to add fwd pkg")
@@ -33,11 +34,11 @@ func addTestFwdPkg(t *testing.T, cdb *ChannelStateDB, height uint64,
 }
 
 // extractTestFwdResponses runs the extraction for the test source channel.
-func extractTestFwdResponses(t *testing.T, cdb *ChannelStateDB) {
+func extractTestFwdResponses(t *testing.T, store *kvFwdResponseStore) {
 	t.Helper()
 
-	err := kvdb.Update(cdb.backend, func(tx kvdb.RwTx) error {
-		return extractFwdResponses(tx, testFwdSource)
+	err := kvdb.Update(store.backend, func(tx kvdb.RwTx) error {
+		return store.extractFwdResponses(tx, testFwdSource)
 	}, func() {})
 	require.NoError(t, err, "unable to extract responses")
 }
@@ -50,7 +51,7 @@ func TestFwdResponseStoreRoundTrip(t *testing.T) {
 
 	fullDB, err := MakeTestDB(t)
 	require.NoError(t, err)
-	cdb := fullDB.ChannelStateDB()
+	store := fullDB.fwdResponseStore
 
 	// The settle carries a custom record, and the fail carries a specific
 	// reason. Both must survive: a reconstructed response would lose them.
@@ -75,20 +76,20 @@ func TestFwdResponseStoreRoundTrip(t *testing.T) {
 	require.NoError(t, serializeFwdResponse(&settleWire, settle))
 	require.NoError(t, serializeFwdResponse(&failWire, fail))
 
-	addTestFwdPkg(t, cdb, 1, []LogUpdate{
+	addTestFwdPkg(t, store, 1, []LogUpdate{
 		{LogIndex: 0, UpdateMsg: settle},
 		{LogIndex: 1, UpdateMsg: fail},
 	})
 
-	extractTestFwdResponses(t, cdb)
+	extractTestFwdResponses(t, store)
 
-	responses, err := cdb.FetchFwdResponses()
+	responses, err := store.FetchFwdResponses()
 	require.NoError(t, err)
 	require.Len(t, responses, 2)
 
 	// Index the results by HTLC ID so the assertions do not depend on the
 	// store's iteration order.
-	byID := make(map[uint64]*FwdResponse)
+	byID := make(map[uint64]*fwdresponse.Response)
 	for _, response := range responses {
 		require.Equal(t, testFwdSource, response.OutKey.ChanID)
 		byID[response.OutKey.HtlcID] = response
@@ -114,22 +115,22 @@ func TestFwdResponseStoreRoundTrip(t *testing.T) {
 		ChanID: testFwdSource,
 		HtlcID: settle.ID,
 	}
-	require.NoError(t, cdb.CheckFwdResponse(&settleKey))
+	require.NoError(t, store.CheckFwdResponse(&settleKey))
 
 	unknownKey := models.CircuitKey{
 		ChanID: testFwdSource,
 		HtlcID: 1000,
 	}
 	require.ErrorIs(
-		t, cdb.CheckFwdResponse(&unknownKey), ErrFwdResponseNotFound,
+		t, store.CheckFwdResponse(&unknownKey), fwdresponse.ErrNotFound,
 	)
 
-	require.NoError(t, cdb.DeleteFwdResponse(&settleKey))
+	require.NoError(t, store.DeleteFwdResponse(&settleKey))
 	require.ErrorIs(
-		t, cdb.CheckFwdResponse(&settleKey), ErrFwdResponseNotFound,
+		t, store.CheckFwdResponse(&settleKey), fwdresponse.ErrNotFound,
 	)
 
-	responses, err = cdb.FetchFwdResponses()
+	responses, err = store.FetchFwdResponses()
 	require.NoError(t, err)
 	require.Len(t, responses, 1)
 	require.Equal(t, fail.ID, responses[0].OutKey.HtlcID)
@@ -142,19 +143,19 @@ func TestFwdResponseStoreSkipsAcked(t *testing.T) {
 
 	fullDB, err := MakeTestDB(t)
 	require.NoError(t, err)
-	cdb := fullDB.ChannelStateDB()
+	store := fullDB.fwdResponseStore
 
 	acked := &lnwire.UpdateFulfillHTLC{ID: 1}
 	pending := &lnwire.UpdateFulfillHTLC{ID: 2}
 
-	fwdPkg := addTestFwdPkg(t, cdb, 1, []LogUpdate{
+	fwdPkg := addTestFwdPkg(t, store, 1, []LogUpdate{
 		{LogIndex: 0, UpdateMsg: acked},
 		{LogIndex: 1, UpdateMsg: pending},
 	})
 
 	// Ack the first response the same way the incoming link would.
 	packager := NewChannelPackager(testFwdSource)
-	err = kvdb.Update(cdb.backend, func(tx kvdb.RwTx) error {
+	err = kvdb.Update(store.backend, func(tx kvdb.RwTx) error {
 		return packager.AckSettleFails(tx, SettleFailRef{
 			Source: testFwdSource,
 			Height: fwdPkg.Height,
@@ -163,9 +164,9 @@ func TestFwdResponseStoreSkipsAcked(t *testing.T) {
 	}, func() {})
 	require.NoError(t, err)
 
-	extractTestFwdResponses(t, cdb)
+	extractTestFwdResponses(t, store)
 
-	responses, err := cdb.FetchFwdResponses()
+	responses, err := store.FetchFwdResponses()
 	require.NoError(t, err)
 	require.Len(t, responses, 1)
 	require.Equal(t, pending.ID, responses[0].OutKey.HtlcID)
@@ -178,17 +179,17 @@ func TestFwdResponseStoreSkipsUnknownUpdate(t *testing.T) {
 
 	fullDB, err := MakeTestDB(t)
 	require.NoError(t, err)
-	cdb := fullDB.ChannelStateDB()
+	store := fullDB.fwdResponseStore
 
 	// An Add in the settle/fail list resolves nothing and must not be
 	// mistaken for a response.
-	addTestFwdPkg(t, cdb, 1, []LogUpdate{
+	addTestFwdPkg(t, store, 1, []LogUpdate{
 		{LogIndex: 0, UpdateMsg: &lnwire.UpdateAddHTLC{ID: 1}},
 	})
 
-	extractTestFwdResponses(t, cdb)
+	extractTestFwdResponses(t, store)
 
-	responses, err := cdb.FetchFwdResponses()
+	responses, err := store.FetchFwdResponses()
 	require.NoError(t, err)
 	require.Empty(t, responses)
 }
@@ -200,7 +201,7 @@ func TestSerializeFwdResponseRejectsUnknown(t *testing.T) {
 
 	var buf bytes.Buffer
 	err := serializeFwdResponse(&buf, &lnwire.UpdateAddHTLC{})
-	require.ErrorIs(t, err, ErrUnknownFwdResponse)
+	require.ErrorIs(t, err, fwdresponse.ErrUnknownType)
 }
 
 // TestFetchFwdResponsesRejectsUnknownMessage asserts that an unexpected
@@ -210,10 +211,10 @@ func TestFetchFwdResponsesRejectsUnknownMessage(t *testing.T) {
 
 	fullDB, err := MakeTestDB(t)
 	require.NoError(t, err)
-	cdb := fullDB.ChannelStateDB()
+	store := fullDB.fwdResponseStore
 
 	outKey := models.CircuitKey{ChanID: testFwdSource, HtlcID: 3}
-	err = kvdb.Update(cdb.backend, func(tx kvdb.RwTx) error {
+	err = kvdb.Update(store.backend, func(tx kvdb.RwTx) error {
 		var raw bytes.Buffer
 		_, err := lnwire.WriteMessage(
 			&raw, &lnwire.UpdateAddHTLC{}, 0,
@@ -227,8 +228,8 @@ func TestFetchFwdResponsesRejectsUnknownMessage(t *testing.T) {
 	}, func() {})
 	require.NoError(t, err)
 
-	_, err = cdb.FetchFwdResponses()
-	require.ErrorIs(t, err, ErrUnknownFwdResponse)
+	_, err = store.FetchFwdResponses()
+	require.ErrorIs(t, err, fwdresponse.ErrUnknownType)
 }
 
 // TestFetchFwdResponsesRejectsInvalidKey asserts that a malformed key is
@@ -238,10 +239,10 @@ func TestFetchFwdResponsesRejectsInvalidKey(t *testing.T) {
 
 	fullDB, err := MakeTestDB(t)
 	require.NoError(t, err)
-	cdb := fullDB.ChannelStateDB()
+	store := fullDB.fwdResponseStore
 
 	outKey := models.CircuitKey{ChanID: testFwdSource, HtlcID: 4}
-	err = kvdb.Update(cdb.backend, func(tx kvdb.RwTx) error {
+	err = kvdb.Update(store.backend, func(tx kvdb.RwTx) error {
 		var raw bytes.Buffer
 		err := serializeFwdResponse(
 			&raw, &lnwire.UpdateFulfillHTLC{ID: 4},
@@ -257,7 +258,7 @@ func TestFetchFwdResponsesRejectsInvalidKey(t *testing.T) {
 	}, func() {})
 	require.NoError(t, err)
 
-	_, err = cdb.FetchFwdResponses()
+	_, err = store.FetchFwdResponses()
 	require.ErrorIs(t, err, models.ErrInvalidCircuitKeyLen)
 }
 
@@ -327,7 +328,7 @@ func TestCloseChannelPersistsResponses(t *testing.T) {
 				require.Empty(t, fwdPkgs)
 			}
 
-			responses, err := cdb.FetchFwdResponses()
+			responses, err := fullDB.FwdResponseStore().FetchFwdResponses()
 			require.NoError(t, err)
 			require.Len(t, responses, 1)
 			response := responses[0]

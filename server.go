@@ -901,9 +901,8 @@ func newServer(ctx context.Context, cfg *Config, listenAddrs []net.Addr,
 		return nil, err
 	}
 
-	// Forwarding responses live in the channel state database, which the
-	// switch reaches through the concrete store.
-	chanStateStore := dbs.ChanStateDB.ChannelStateDB()
+	// Forwarding responses use their own backend-neutral store.
+	fwdResponseStore := dbs.ChanStateDB.FwdResponseStore()
 
 	// Construct the read-only local reputation subsystem, which is enabled
 	// by default. It only observes HTLC forwarding to compute and log
@@ -934,9 +933,9 @@ func newServer(ctx context.Context, cfg *Config, listenAddrs []net.Addr,
 		FetchAllOpenChannels: s.chanStateDB.FetchAllOpenChannels,
 		FetchAllChannels:     s.chanStateDB.FetchAllChannels,
 		FetchClosedChannels:  s.chanStateDB.FetchClosedChannels,
-		CheckFwdResponse:     chanStateStore.CheckFwdResponse,
-		FetchFwdResponses:    chanStateStore.FetchFwdResponses,
-		DeleteFwdResponse:    chanStateStore.DeleteFwdResponse,
+		CheckFwdResponse:     fwdResponseStore.CheckFwdResponse,
+		FetchFwdResponses:    fwdResponseStore.FetchFwdResponses,
+		DeleteFwdResponse:    fwdResponseStore.DeleteFwdResponse,
 		LocalChannelClose: func(pubKey []byte,
 			request *htlcswitch.ChanClose) {
 

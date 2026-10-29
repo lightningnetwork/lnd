@@ -20,6 +20,7 @@ import (
 	"github.com/lightningnetwork/lnd/clock"
 	"github.com/lightningnetwork/lnd/contractcourt"
 	"github.com/lightningnetwork/lnd/fn/v2"
+	"github.com/lightningnetwork/lnd/fwdresponse"
 	"github.com/lightningnetwork/lnd/graph/db/models"
 	"github.com/lightningnetwork/lnd/htlcswitch/hop"
 	"github.com/lightningnetwork/lnd/kvdb"
@@ -235,7 +236,7 @@ type Config struct {
 	CheckFwdResponse func(outKey *CircuitKey) error
 
 	// FetchFwdResponses returns all persisted off-chain responses.
-	FetchFwdResponses func() ([]*channeldb.FwdResponse, error)
+	FetchFwdResponses func() ([]*fwdresponse.Response, error)
 
 	// DeleteFwdResponse removes a persisted response from the store.
 	// Startup replay is its only caller; it reaps records whose circuit is
@@ -1915,7 +1916,7 @@ func (s *Switch) Start() error {
 // fwdResponsePacket converts a persisted response into the packet shape
 // consumed by ForwardPackets. The packet has no destination reference because
 // package acknowledgement is handled by the persistence transition.
-func fwdResponsePacket(response *channeldb.FwdResponse) *htlcPacket {
+func fwdResponsePacket(response *fwdresponse.Response) *htlcPacket {
 	return &htlcPacket{
 		outgoingChanID: response.OutKey.ChanID,
 		outgoingHTLCID: response.OutKey.HtlcID,

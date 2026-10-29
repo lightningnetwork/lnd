@@ -109,7 +109,7 @@ func newCircuitMap(t *testing.T, resMsg bool) (*htlcswitch.CircuitMapConfig,
 		FetchAllOpenChannels:  db.ChannelStateDB().FetchAllOpenChannels,
 		FetchClosedChannels:   db.ChannelStateDB().FetchClosedChannels,
 		ExtractErrorEncrypter: onionProcessor.ExtractErrorEncrypter,
-		CheckFwdResponse:      db.ChannelStateDB().CheckFwdResponse,
+		CheckFwdResponse:      db.FwdResponseStore().CheckFwdResponse,
 	}
 
 	if resMsg {
@@ -648,7 +648,7 @@ func restartCircuitMap(t *testing.T, cfg *htlcswitch.CircuitMapConfig) (
 		FetchClosedChannels:   db.ChannelStateDB().FetchClosedChannels,
 		ExtractErrorEncrypter: cfg.ExtractErrorEncrypter,
 		CheckResolutionMsg:    cfg.CheckResolutionMsg,
-		CheckFwdResponse:      db.ChannelStateDB().CheckFwdResponse,
+		CheckFwdResponse:      db.FwdResponseStore().CheckFwdResponse,
 	}
 	cm2, err := htlcswitch.NewCircuitMap(cfg2)
 	require.NoError(t, err, "unable to recreate persistent circuit map")

@@ -33,6 +33,7 @@ import (
 	"github.com/lightningnetwork/lnd/channeldb/migration_01_to_11"
 	"github.com/lightningnetwork/lnd/chanstate"
 	"github.com/lightningnetwork/lnd/clock"
+	"github.com/lightningnetwork/lnd/fwdresponse"
 	graphdb "github.com/lightningnetwork/lnd/graph/db"
 	"github.com/lightningnetwork/lnd/invoices"
 	"github.com/lightningnetwork/lnd/kvdb"
@@ -360,6 +361,10 @@ type DB struct {
 	// channelStateDB separates all DB operations on channel state.
 	channelStateDB *ChannelStateDB
 
+	// fwdResponseStore persists off-chain settle and fail messages until the
+	// switch can safely replay or reap them.
+	fwdResponseStore *kvFwdResponseStore
+
 	dbPath string
 	clock  clock.Clock
 	dryRun bool
@@ -412,8 +417,10 @@ func CreateWithBackend(backend kvdb.Backend, modifiers ...OptionModifier) (*DB,
 		}
 	}
 
+	fwdResponseStore := newKVFwdResponseStore(backend)
 	chanDB := &DB{
-		Backend: backend,
+		Backend:          backend,
+		fwdResponseStore: fwdResponseStore,
 		channelStateDB: &ChannelStateDB{
 			linkNodeDB: &LinkNodeDB{
 				backend: backend,
@@ -430,7 +437,7 @@ func CreateWithBackend(backend kvdb.Backend, modifiers ...OptionModifier) (*DB,
 					opts.tombstoneClosedChannels,
 				),
 				chanstate.WithExtractFwdResponses(
-					extractFwdResponses,
+					fwdResponseStore.extractFwdResponses,
 				),
 			),
 			backend:                 backend,
@@ -1307,6 +1314,11 @@ func (d *DB) applyOptionalVersions(cfg OptionalMiragtionConfig) error {
 // state.
 func (d *DB) ChannelStateDB() *ChannelStateDB {
 	return d.channelStateDB
+}
+
+// FwdResponseStore returns the forwarding-response persistence store.
+func (d *DB) FwdResponseStore() fwdresponse.Store {
+	return d.fwdResponseStore
 }
 
 // LatestDBVersion returns the number of the latest database version currently

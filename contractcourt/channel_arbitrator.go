@@ -737,9 +737,9 @@ func (c *ChannelArbitrator) relaunchResolvers(commitSet *CommitSet,
 	// If we don't find this channel, then it may be the case that it
 	// was closed before we started to retain the final state
 	// information for open channels.
-	case err == chanstate.ErrNoHistoricalBucket:
+	case errors.Is(err, chanstate.ErrNoHistoricalBucket):
 		fallthrough
-	case err == chanstate.ErrChannelNotFound:
+	case errors.Is(err, chanstate.ErrChannelNotFound):
 		log.Warnf("ChannelArbitrator(%v): unable to fetch historical "+
 			"state", c.cfg.ChanPoint)
 
@@ -2469,9 +2469,9 @@ func (c *ChannelArbitrator) prepContractResolutions(
 	// If we don't find this channel, then it may be the case that it
 	// was closed before we started to retain the final state
 	// information for open channels.
-	case err == chanstate.ErrNoHistoricalBucket:
+	case errors.Is(err, chanstate.ErrNoHistoricalBucket):
 		fallthrough
-	case err == chanstate.ErrChannelNotFound:
+	case errors.Is(err, chanstate.ErrChannelNotFound):
 		log.Warnf("ChannelArbitrator(%v): unable to fetch historical "+
 			"state", c.cfg.ChanPoint)
 

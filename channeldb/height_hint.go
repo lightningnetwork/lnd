@@ -239,7 +239,9 @@ func (c *HeightHintCache) QueryConfirmHint(
 			return chainntnfs.ErrConfirmHintNotFound
 		}
 
-		return binary.Read(bytes.NewReader(confirmHint), byteOrder, &hint)
+		return binary.Read(
+			bytes.NewReader(confirmHint), byteOrder, &hint,
+		)
 	}, func() {
 		hint = 0
 	})

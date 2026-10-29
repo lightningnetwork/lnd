@@ -1,6 +1,7 @@
 package chanbackup
 
 import (
+	"errors"
 	"net"
 
 	"github.com/btcsuite/btcd/btcec/v2"
@@ -55,7 +56,7 @@ func Recover(backups []Single, restorer ChannelRestorer,
 		// just continue. No reason to fail a whole set of multi backups
 		// for example. This allows resume of a restore in case another
 		// error happens.
-		if err == chanstate.ErrChanAlreadyExists {
+		if errors.Is(err, chanstate.ErrChanAlreadyExists) {
 			continue
 		}
 		if err != nil {

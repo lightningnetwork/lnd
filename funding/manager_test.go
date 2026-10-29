@@ -1235,7 +1235,7 @@ func assertDatabaseState(t *testing.T, node *testNode,
 		}
 		state, _, err = node.fundingMgr.getChannelOpeningState(
 			fundingOutPoint)
-		if err != nil && err != chanstate.ErrChannelNotFound {
+		if err != nil && !errors.Is(err, chanstate.ErrChannelNotFound) {
 			t.Fatalf("unable to get channel state: %v", err)
 		}
 
@@ -1518,7 +1518,7 @@ func assertErrChannelNotFound(t *testing.T, node *testNode,
 		}
 		state, _, err = node.fundingMgr.getChannelOpeningState(
 			fundingOutPoint)
-		if err == chanstate.ErrChannelNotFound {
+		if errors.Is(err, chanstate.ErrChannelNotFound) {
 			// Got expected state, return with success.
 			return
 		} else if err != nil {

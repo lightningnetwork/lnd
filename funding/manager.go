@@ -1141,7 +1141,7 @@ func (f *Manager) advanceFundingState(channel *chanstate.OpenChannel,
 		channelState, shortChanID, err := f.getChannelOpeningState(
 			&channel.FundingOutpoint,
 		)
-		if err == chanstate.ErrChannelNotFound {
+		if errors.Is(err, chanstate.ErrChannelNotFound) {
 			// Channel not in fundingManager's opening database,
 			// meaning it was successfully announced to the
 			// network.

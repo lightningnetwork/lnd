@@ -775,7 +775,7 @@ func (u *UtxoNursery) reloadPreschool() error {
 
 		// Load the close summary for this output's channel point.
 		closeSummary, err := u.cfg.FetchClosedChannel(chanPoint)
-		if err == chanstate.ErrClosedChannelNotFound {
+		if errors.Is(err, chanstate.ErrClosedChannelNotFound) {
 			// This should never happen since the close summary
 			// should only be removed after the channel has been
 			// swept completely.

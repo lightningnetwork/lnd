@@ -75,7 +75,8 @@ func (d *DB) WriteFlapCounts(flapCounts map[route.Vertex]*FlapCount) error {
 				return err
 			}
 
-			if err = writeElements(&b, flapCount.Count); err != nil {
+			err = writeElements(&b, flapCount.Count)
+			if err != nil {
 				return err
 			}
 

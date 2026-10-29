@@ -238,7 +238,8 @@ func (d DB) FetchChannelReports(chainHash chainhash.Hash,
 			// Once we have read our values out, set the outpoint
 			// on the report using the key.
 			r = bytes.NewReader(k)
-			if err := graphdb.ReadOutpoint(r, &report.OutPoint); err != nil {
+			err = graphdb.ReadOutpoint(r, &report.OutPoint)
+			if err != nil {
 				return err
 			}
 

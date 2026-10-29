@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"errors"
 	"fmt"
+	"io"
 	"net"
 	"sync"
 	"time"
@@ -326,7 +327,9 @@ func (s *Server) readMessage(peer Peer) (wtwire.Message, error) {
 	}
 
 	msgReader := bytes.NewReader(rawMsg)
-	msg, err := wtwire.ReadMessage(msgReader, 0)
+	msg, err := wtwire.ReadMessage(
+		io.LimitReader(msgReader, int64(len(rawMsg))), 0,
+	)
 	if err != nil {
 		err = fmt.Errorf("unable to parse message: %w", err)
 		return nil, err

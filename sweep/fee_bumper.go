@@ -1078,6 +1078,16 @@ func (t *TxPublisher) handleMissingInputs(r *monitorRecord) *BumpResult {
 	// Attach the spending txns.
 	r.spentInputs = spends
 
+	// Empty historical channels do not establish that the whole batch is
+	// orphaned. Probe multi-input membership before classifying it.
+	if len(spends) == 0 && len(r.req.Inputs) > 1 &&
+		r.feeFunction != nil && !t.cfg.AuxSweeper.IsSome() {
+
+		return t.resultForDiagnosis(
+			r, ErrInputMissing, t.diagnoseInputSet(r),
+		)
+	}
+
 	// If there are no spending txns found and the input is missing, the
 	// input is referencing an orphan tx that's no longer valid, e.g., the
 	// spending the anchor output from the remote commitment after the local
@@ -1520,6 +1530,20 @@ func (t *TxPublisher) createUnchangedSetRetryResult(r *monitorRecord,
 	}
 }
 
+// handleBadInputs handles a non-fee mempool rejection by trying to identify a
+// single input that fails mempool acceptance by itself.
+func (t *TxPublisher) handleBadInputs(r *monitorRecord,
+	err error) *BumpResult {
+
+	if !t.shouldDiagnoseBadInputs(r, err) {
+		return t.resultForDiagnosis(r, err, inputDiagnosis{
+			outcome: diagnosisSkipped,
+		})
+	}
+
+	return t.resultForDiagnosis(r, err, t.diagnoseInputSet(r))
+}
+
 // handleInitialTxError takes the error from `initializeTx` and decides the
 // bump event. It will construct a BumpResult and handles it.
 func (t *TxPublisher) handleInitialTxError(r *monitorRecord, err error) {
@@ -1572,15 +1596,10 @@ func (t *TxPublisher) handleInitialTxError(r *monitorRecord, err error) {
 	case errors.Is(err, ErrInputMissing):
 		result = t.handleMissingInputs(r)
 
-	// Otherwise this is not a fee-related error and the tx cannot be
-	// retried. In that case we will fail ALL the inputs in this tx, which
-	// means they will be removed from the sweeper and never be tried
-	// again.
-	//
-	// TODO(yy): Find out which input is causing the failure and fail that
-	// one only.
+	// Concrete mempool rejections can identify individual failures;
+	// diagnosis keeps permanent evidence separate from transient conflicts.
 	default:
-		result.Event = TxFatal
+		result = t.handleBadInputs(r, err)
 	}
 
 	t.handleResult(result)

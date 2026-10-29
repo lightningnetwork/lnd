@@ -47,6 +47,10 @@ var (
 	// ErrInputMissing is returned when a given input no longer exists,
 	// e.g., spending from an orphan tx.
 	ErrInputMissing = errors.New("input no longer exists")
+
+	// errMempoolRejected separates backend rejection of a constructed
+	// candidate from failures that cannot provide diagnostic evidence.
+	errMempoolRejected = errors.New("mempool rejected tx")
 )
 
 var (
@@ -673,8 +677,50 @@ func (t *TxPublisher) createAndCheckTx(r *monitorRecord) (*sweepTxCtx, error) {
 		return sweepCtx, ErrInputMissing
 	}
 
-	return sweepCtx, fmt.Errorf("tx=%v failed mempool check: %w",
-		sweepCtx.tx.TxHash(), err)
+	return sweepCtx, fmt.Errorf("%w: tx=%v failed mempool check: %w",
+		errMempoolRejected, sweepCtx.tx.TxHash(), err)
+}
+
+// shouldDiagnoseBadInputs returns true if a mempool rejection should be
+// isolated with no-broadcast subset probes.
+func (t *TxPublisher) shouldDiagnoseBadInputs(r *monitorRecord,
+	err error) bool {
+
+	// Bad-input probes must use the same fee rate as the rejected tx. A
+	// record can be missing its fee function if tx initialization failed
+	// before fee selection completed, which means any probe tx would use a
+	// made-up feerate. Skip diagnosis and let handleBadInputs keep the
+	// original error as a whole-set failure.
+	if r.feeFunction == nil {
+		return false
+	}
+
+	// Only a concrete mempool rejection proves the fully constructed tx was
+	// invalid under mempool policy. Construction, signing and fee-selection
+	// errors do not have a candidate tx to bisect, so handleBadInputs keeps
+	// them on the existing whole-set fatal path instead of probing subsets.
+	if !errors.Is(err, errMempoolRejected) {
+		return false
+	}
+
+	// A singleton rejection already identifies the only input in the batch.
+	// There is no subset left to probe, so the caller preserves existing
+	// singleton fatal behavior.
+	if len(r.req.Inputs) <= 1 {
+		return false
+	}
+
+	// Aux sweepers may derive addresses or other sweep details from the
+	// complete input set. Subset probes would bypass that logic and could
+	// misattribute aux failures, so keep them on the whole-set path.
+	if t.cfg.AuxSweeper.IsSome() {
+		log.Infof("Skipping bad-input diagnosis for requestID=%v: aux "+
+			"sweeper is active", r.requestID)
+
+		return false
+	}
+
+	return true
 }
 
 // handleMissingInputs handles the case when the chain backend reports back a

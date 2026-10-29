@@ -1260,6 +1260,95 @@ func TestFindBadInputContinuesAfterConstructionError(t *testing.T) {
 	require.Equal(t, inputs[3].OutPoint(), badInput)
 }
 
+// TestDiagnoseInputSetMetadata checks the evidence carried by attribution and
+// distinguishes a completed search from inconclusive backend policy.
+func TestDiagnoseInputSetMetadata(t *testing.T) {
+	t.Parallel()
+
+	// Arrange the existing completed/aborted/script outcomes and a
+	// transient conflict, whose identity must survive attribution without
+	// becoming fatal.
+	testCases := []struct {
+		name     string
+		probeErr error
+		outcome  inputDiagnosisOutcome
+		probes   int
+	}{
+		{
+			name:     "script attribution",
+			probeErr: chain.ErrScriptVerifyFlag,
+			outcome:  diagnosisAttributed,
+			probes:   1,
+		},
+		{
+			name:     "conflict attribution",
+			probeErr: chain.ErrMempoolConflict,
+			outcome:  diagnosisAttributed,
+			probes:   1,
+		},
+		{
+			name:    "completed",
+			outcome: diagnosisCompleted,
+			probes:  2,
+		},
+		{
+			name:     "aborted",
+			probeErr: chain.ErrInsufficientFee,
+			outcome:  diagnosisAborted,
+			probes:   1,
+		},
+	}
+	for _, testCase := range testCases {
+		t.Run(testCase.name, func(t *testing.T) {
+			tp, m := createTestPublisherNoAux(t)
+			req := createBadInputTestRequest(2)
+			record := &monitorRecord{
+				req:         req,
+				feeFunction: m.feeFunc,
+			}
+			m.feeFunc.On("FeeRate").Return(
+				chainfee.SatPerKWeight(1000),
+			).Times(testCase.probes)
+			m.signer.On(
+				"ComputeInputScript", mock.Anything,
+				mock.Anything,
+			).Return(&input.Script{}, nil).Times(testCase.probes)
+			m.wallet.On(
+				"CheckMempoolAcceptance", mock.Anything,
+			).Return(testCase.probeErr).Times(testCase.probes)
+
+			// Act by diagnosing two inputs through actual subset
+			// probes.
+			diagnosis := tp.diagnoseInputSet(record)
+
+			// Assert that attributed membership and its rejection
+			// kind survive; transaction-policy aborts must carry no
+			// attributable outpoint.
+			require.Equal(t, testCase.outcome, diagnosis.outcome)
+			if testCase.outcome == diagnosisAttributed {
+				require.Equal(
+					t, req.Inputs[0].OutPoint(),
+					diagnosis.badInput,
+				)
+			} else {
+				require.Equal(
+					t, wire.OutPoint{}, diagnosis.badInput,
+				)
+			}
+			if errors.Is(
+				testCase.probeErr, chain.ErrMempoolConflict,
+			) ||
+				testCase.outcome == diagnosisAborted {
+
+				require.ErrorIs(
+					t, diagnosis.probeErr,
+					testCase.probeErr,
+				)
+			}
+		})
+	}
+}
+
 // TestTxPublisherBroadcast checks the internal `broadcast` method behaves as
 // expected.
 func TestTxPublisherBroadcast(t *testing.T) {

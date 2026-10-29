@@ -8481,7 +8481,7 @@ func TestForceCloseBorkedState(t *testing.T) {
 	// At this point, all channel mutating methods should now fail as they
 	// shouldn't be able to proceed if the channel is borked.
 	_, _, err = aliceChannel.ReceiveRevocation(revokeMsg)
-	if err != channeldb.ErrChanBorked {
+	if err != chanstate.ErrChanBorked {
 		t.Fatalf("advance commitment tail should have failed")
 	}
 
@@ -8489,11 +8489,11 @@ func TestForceCloseBorkedState(t *testing.T) {
 	// ReceiveRevocation call will fail before it's actually advanced.
 	aliceChannel.commitChains.Remote.advanceTail()
 	_, err = aliceChannel.SignNextCommitment(ctxb)
-	if err != channeldb.ErrChanBorked {
+	if err != chanstate.ErrChanBorked {
 		t.Fatalf("sign commitment should have failed: %v", err)
 	}
 	_, _, _, err = aliceChannel.RevokeCurrentCommitment()
-	if err != channeldb.ErrChanBorked {
+	if err != chanstate.ErrChanBorked {
 		t.Fatalf("append remove chain tail should have failed")
 	}
 }

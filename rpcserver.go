@@ -4347,7 +4347,7 @@ func (r *rpcServer) fetchWaitingCloseChannels(
 
 		// If the error returned is not ErrNoCloseTx, something
 		// unexpected happened and we will return the error.
-		if err != channeldb.ErrNoCloseTx {
+		if err != chanstate.ErrNoCloseTx {
 			return nil, err
 		}
 
@@ -4358,7 +4358,7 @@ func (r *rpcServer) fetchWaitingCloseChannels(
 		}
 
 		// Return the error if it's not ErrNoCloseTx.
-		if err != channeldb.ErrNoCloseTx {
+		if err != chanstate.ErrNoCloseTx {
 			return nil, err
 		}
 
@@ -4400,7 +4400,7 @@ func (r *rpcServer) fetchWaitingCloseChannels(
 
 		switch {
 		// Don't set hash if there is no pending remote commit.
-		case err == channeldb.ErrNoPendingCommit:
+		case err == chanstate.ErrNoPendingCommit:
 
 		// An unexpected error occurred.
 		case err != nil:

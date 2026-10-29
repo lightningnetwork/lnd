@@ -679,7 +679,7 @@ func newChainSet(chanState *chanstate.OpenChannel) (*chainSet, error) {
 	// their pending commitment chain tip if it exists.
 	remoteStateNum := remoteCommit.CommitHeight
 	remoteChainTip, err := chanState.RemoteCommitChainTip()
-	if err != nil && err != channeldb.ErrNoPendingCommit {
+	if err != nil && err != chanstate.ErrNoPendingCommit {
 		return nil, fmt.Errorf("unable to obtain chain tip for "+
 			"ChannelPoint(%v): %v",
 			chanState.FundingOutpoint, err)

@@ -4063,7 +4063,7 @@ func (f *Manager) waitForZeroConfChannel(c *chanstate.OpenChannel) error {
 func genFirstStateMusigNonce(channel *chanstate.OpenChannel,
 ) (*musig2.Nonces, error) {
 
-	musig2ShaChain, err := channeldb.DeriveMusig2Shachain(
+	musig2ShaChain, err := chanstate.DeriveMusig2Shachain(
 		channel.RevocationProducer,
 	)
 	if err != nil {
@@ -4073,7 +4073,7 @@ func genFirstStateMusigNonce(channel *chanstate.OpenChannel,
 
 	// We use the _next_ commitment height here as we need to generate the
 	// nonce for the next state the remote party will sign for us.
-	verNonce, err := channeldb.NewMusigVerificationNonce(
+	verNonce, err := chanstate.NewMusigVerificationNonce(
 		channel.LocalChanCfg.MultiSigKey.PubKey,
 		channel.LocalCommitment.CommitHeight+1,
 		musig2ShaChain,

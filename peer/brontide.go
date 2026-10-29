@@ -23,7 +23,6 @@ import (
 	"github.com/lightningnetwork/lnd/brontide"
 	"github.com/lightningnetwork/lnd/buffer"
 	"github.com/lightningnetwork/lnd/chainntnfs"
-	"github.com/lightningnetwork/lnd/channeldb"
 	"github.com/lightningnetwork/lnd/channelnotifier"
 	"github.com/lightningnetwork/lnd/chanstate"
 	"github.com/lightningnetwork/lnd/contractcourt"
@@ -1445,7 +1444,7 @@ func (p *Brontide) loadActiveChannels(chans []*chanstate.OpenChannel) (
 		}
 
 		shutdownInfo, err := lnChan.State().ShutdownInfo()
-		if err != nil && !errors.Is(err, channeldb.ErrNoShutdownInfo) {
+		if err != nil && !errors.Is(err, chanstate.ErrNoShutdownInfo) {
 			return nil, err
 		}
 
@@ -4088,7 +4087,7 @@ func (p *Brontide) restartCoopClose(lnChan *lnwallet.LightningChannel) (
 	_, err := c.BroadcastedCooperative()
 
 	// Any error other than "no close tx" is a real failure.
-	if err != nil && !errors.Is(err, channeldb.ErrNoCloseTx) {
+	if err != nil && !errors.Is(err, chanstate.ErrNoCloseTx) {
 		return nil, err
 	}
 
@@ -4112,10 +4111,10 @@ func (p *Brontide) restartCoopClose(lnChan *lnwallet.LightningChannel) (
 		})
 
 	// An error other than ErrNoShutdownInfo was returned
-	case !errors.Is(err, channeldb.ErrNoShutdownInfo):
+	case !errors.Is(err, chanstate.ErrNoShutdownInfo):
 		return nil, err
 
-	case errors.Is(err, channeldb.ErrNoShutdownInfo):
+	case errors.Is(err, chanstate.ErrNoShutdownInfo):
 		deliveryScript = c.LocalShutdownScript
 		if len(deliveryScript) == 0 {
 			var err error

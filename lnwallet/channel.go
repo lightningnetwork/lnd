@@ -23,7 +23,6 @@ import (
 	"github.com/btcsuite/btcd/wire/v2"
 	"github.com/btcsuite/btclog/v2"
 	"github.com/lightningnetwork/lnd/chainntnfs"
-	"github.com/lightningnetwork/lnd/channeldb"
 	"github.com/lightningnetwork/lnd/chanstate"
 	"github.com/lightningnetwork/lnd/fn/v2"
 	"github.com/lightningnetwork/lnd/graph/db/models"
@@ -988,7 +987,7 @@ func NewLightningChannel(signer input.Signer,
 
 	logPrefix := fmt.Sprintf("ChannelPoint(%v):", state.FundingOutpoint)
 
-	taprootNonceProducer, err := channeldb.DeriveMusig2Shachain(
+	taprootNonceProducer, err := chanstate.DeriveMusig2Shachain(
 		state.RevocationProducer,
 	)
 	if err != nil {
@@ -1555,7 +1554,7 @@ func (lc *LightningChannel) restoreCommitState(
 	// Next, we'll check to see if we have an un-acked commitment state we
 	// extended to the remote party but which was never ACK'd.
 	pendingRemoteCommitDiff, err = lc.channelState.RemoteCommitChainTip()
-	if err != nil && err != channeldb.ErrNoPendingCommit {
+	if err != nil && err != chanstate.ErrNoPendingCommit {
 		return err
 	}
 
@@ -6959,7 +6958,7 @@ func GetSignedCommitTx(inputs SignedCommitTxInputs,
 		// the remote party to create this musig session. We pass in
 		// the same height here as we're generating the nonce needed
 		// for the _current_ state.
-		localNonce, err := channeldb.NewMusigVerificationNonce(
+		localNonce, err := chanstate.NewMusigVerificationNonce(
 			inputs.OurKey.PubKey, taproot.CommitHeight,
 			taproot.TaprootNonceProducer,
 		)
@@ -9099,7 +9098,7 @@ func (lc *LightningChannel) NewAnchorResolutions() (*AnchorResolutions,
 
 	// Add anchor for remote pending commitment tx, if any.
 	remotePendingCommit, err := lc.channelState.RemoteCommitChainTip()
-	if err != nil && err != channeldb.ErrNoPendingCommit {
+	if err != nil && err != chanstate.ErrNoPendingCommit {
 		return nil, err
 	}
 
@@ -9660,7 +9659,7 @@ func (lc *LightningChannel) generateRevocation(height uint64) (*lnwire.RevokeAnd
 	// If this is a taproot channel, then we also need to generate the
 	// verification nonce for this target state.
 	if lc.channelState.ChanType.IsTaproot() {
-		nextVerificationNonce, err := channeldb.NewMusigVerificationNonce( //nolint:ll
+		nextVerificationNonce, err := chanstate.NewMusigVerificationNonce( //nolint:ll
 			lc.channelState.LocalChanCfg.MultiSigKey.PubKey,
 			revHeight, lc.taprootNonceProducer,
 		)
@@ -10331,7 +10330,7 @@ func (lc *LightningChannel) GenMusigNonces() (*musig2.Nonces, error) {
 	// We pass in the current height+1 as this'll be the set of
 	// verification nonces we'll send to the party to create our _next_
 	// state.
-	lc.pendingVerificationNonce, err = channeldb.NewMusigVerificationNonce(
+	lc.pendingVerificationNonce, err = chanstate.NewMusigVerificationNonce(
 		lc.channelState.LocalChanCfg.MultiSigKey.PubKey,
 		lc.currentHeight+1, lc.taprootNonceProducer,
 	)

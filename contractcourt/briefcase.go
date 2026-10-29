@@ -1040,7 +1040,7 @@ func (b *boltArbitratorLog) FetchChainActions() (ChainActionMap, error) {
 			chainAction := ChainAction(action[0])
 
 			htlcReader := bytes.NewReader(htlcBytes)
-			htlcs, err := channeldb.DeserializeHtlcs(htlcReader)
+			htlcs, err := chanstate.DeserializeHtlcs(htlcReader)
 			if err != nil {
 				return err
 			}
@@ -1515,7 +1515,7 @@ func encodeCommitSet(w io.Writer, c *CommitSet) error {
 			return err
 		}
 
-		if err := channeldb.SerializeHtlcs(w, htlcs...); err != nil {
+		if err := chanstate.SerializeHtlcs(w, htlcs...); err != nil {
 			return err
 		}
 	}
@@ -1554,7 +1554,7 @@ func decodeCommitSet(r io.Reader) (*CommitSet, error) {
 			return nil, err
 		}
 
-		htlcs, err := channeldb.DeserializeHtlcs(r)
+		htlcs, err := chanstate.DeserializeHtlcs(r)
 		if err != nil {
 			return nil, err
 		}

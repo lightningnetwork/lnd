@@ -575,7 +575,7 @@ func newActiveChannelArbitrator(channel *chanstate.OpenChannel,
 	htlcSets[RemoteHtlcSet] = newHtlcSet(channel.RemoteCommitment.Htlcs)
 
 	pendingRemoteCommitment, err := channel.RemoteCommitChainTip()
-	if err != nil && err != channeldb.ErrNoPendingCommit {
+	if err != nil && err != chanstate.ErrNoPendingCommit {
 		return nil, err
 	}
 	if pendingRemoteCommitment != nil {
@@ -957,7 +957,7 @@ func (c *ChainArbitrator) rebroadcast(channel *chanstate.OpenChannel,
 	switch {
 	// This can happen for channels that had their closing tx published
 	// before we started storing it to disk.
-	case err == channeldb.ErrNoCloseTx:
+	case err == chanstate.ErrNoCloseTx:
 		log.Warnf("Channel %v is in state %v, but no %s closing tx "+
 			"to re-publish...", chanPoint, state, kind)
 		return nil

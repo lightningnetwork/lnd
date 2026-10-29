@@ -580,9 +580,6 @@ func fileExists(path string) bool {
 	return true
 }
 
-// ChanCount is used by the server in determining access control.
-type ChanCount = chanstate.ChanCount
-
 // AddrsForNode consults the channel database for all addresses known to the
 // passed node public key. The returned boolean indicates if the given node is
 // unknown to the channel DB or not.

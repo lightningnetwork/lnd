@@ -1273,7 +1273,7 @@ func newServer(ctx context.Context, cfg *Config, listenAddrs []net.Addr,
 	}, nodeKeyDesc)
 
 	accessCfg := &accessManConfig{
-		initAccessPerms: func() (map[string]channeldb.ChanCount,
+		initAccessPerms: func() (map[string]chanstate.ChanCount,
 			error) {
 
 			genesisHash := *s.cfg.ActiveNetParams.GenesisHash

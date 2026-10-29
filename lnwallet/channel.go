@@ -1547,7 +1547,7 @@ func (lc *LightningChannel) restoreCommitState(
 
 	var (
 		pendingRemoteCommit     *commitment
-		pendingRemoteCommitDiff *channeldb.CommitDiff
+		pendingRemoteCommitDiff *chanstate.CommitDiff
 		pendingRemoteKeyChain   *CommitmentKeyRing
 	)
 
@@ -1624,7 +1624,7 @@ func (lc *LightningChannel) restoreCommitState(
 // in-memory state of the state machine with that read from persistent storage.
 func (lc *LightningChannel) restoreStateLogs(
 	localCommitment, remoteCommitment, pendingRemoteCommit *commitment,
-	pendingRemoteCommitDiff *channeldb.CommitDiff,
+	pendingRemoteCommitDiff *chanstate.CommitDiff,
 	pendingRemoteKeys *CommitmentKeyRing,
 	unsignedAckedUpdates,
 	remoteUnsignedLocalUpdates []chanstate.LogUpdate) error {
@@ -1894,7 +1894,7 @@ func (lc *LightningChannel) restorePeerLocalUpdates(updates []chanstate.LogUpdat
 // restorePendingLocalUpdates restores the local log updates leading up to the
 // given pending remote commitment.
 func (lc *LightningChannel) restorePendingLocalUpdates(
-	pendingRemoteCommitDiff *channeldb.CommitDiff,
+	pendingRemoteCommitDiff *chanstate.CommitDiff,
 	pendingRemoteKeys *CommitmentKeyRing) error {
 
 	pendingCommit := pendingRemoteCommitDiff.Commitment
@@ -3592,7 +3592,7 @@ func genRemoteHtlcSigJobs(keyRing *CommitmentKeyRing,
 // information necessary for retransmission.
 func (lc *LightningChannel) createCommitDiff(newCommit *commitment,
 	commitSig lnwire.Sig, htlcSigs []lnwire.Sig,
-	auxSigs []fn.Option[tlv.Blob]) (*channeldb.CommitDiff, error) {
+	auxSigs []fn.Option[tlv.Blob]) (*chanstate.CommitDiff, error) {
 
 	var (
 		logUpdates        []chanstate.LogUpdate
@@ -3717,7 +3717,7 @@ func (lc *LightningChannel) createCommitDiff(newCommit *commitment,
 
 	commitSigMsg.CustomRecords = auxCustomRecords
 
-	return &channeldb.CommitDiff{
+	return &chanstate.CommitDiff{
 		Commitment:        *diskCommit,
 		CommitSig:         commitSigMsg,
 		LogUpdates:        logUpdates,
@@ -8355,7 +8355,7 @@ type LocalForceCloseSummary struct {
 
 	// ChanSnapshot is a snapshot of the final state of the channel at the
 	// time the summary was created.
-	ChanSnapshot channeldb.ChannelSnapshot
+	ChanSnapshot chanstate.ChannelSnapshot
 
 	// ContractResolutions contains all the data required for resolving the
 	// different output types of a commitment transaction.
@@ -9444,7 +9444,7 @@ func (lc *LightningChannel) availableCommitmentBalance(view *HtlcView,
 
 // StateSnapshot returns a snapshot of the current fully committed state within
 // the channel.
-func (lc *LightningChannel) StateSnapshot() *channeldb.ChannelSnapshot {
+func (lc *LightningChannel) StateSnapshot() *chanstate.ChannelSnapshot {
 	lc.RLock()
 	defer lc.RUnlock()
 

@@ -84,10 +84,6 @@ type (
 
 	// HTLC is the on-disk representation of a hash time-locked contract.
 	HTLC = cstate.HTLC
-
-	// CommitDiff represents the delta needed to apply the state
-	// transition between two subsequent commitment states.
-	CommitDiff = cstate.CommitDiff
 )
 
 // ChannelType is an enum-like type that describes one of several possible
@@ -281,9 +277,6 @@ const (
 	// further actions.
 	Abandoned = cstate.Abandoned
 )
-
-// ChannelSnapshot is a frozen snapshot of the current channel state.
-type ChannelSnapshot = cstate.ChannelSnapshot
 
 func serializeChannelCloseSummary(w io.Writer,
 	cs *cstate.ChannelCloseSummary) error {

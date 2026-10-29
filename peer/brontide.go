@@ -3604,9 +3604,9 @@ func (p *Brontide) queue(priority bool, msg lnwire.Message,
 
 // ChannelSnapshots returns a slice of channel snapshots detailing all
 // currently active channels maintained with the remote peer.
-func (p *Brontide) ChannelSnapshots() []*channeldb.ChannelSnapshot {
+func (p *Brontide) ChannelSnapshots() []*chanstate.ChannelSnapshot {
 	snapshots := make(
-		[]*channeldb.ChannelSnapshot, 0, p.activeChannels.Len(),
+		[]*chanstate.ChannelSnapshot, 0, p.activeChannels.Len(),
 	)
 
 	p.activeChannels.ForEach(func(_ lnwire.ChannelID,

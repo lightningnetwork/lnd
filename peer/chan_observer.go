@@ -29,7 +29,7 @@ type channelView interface {
 
 	// StateSnapshot returns a snapshot of the current fully committed
 	// state within the channel.
-	StateSnapshot() *channeldb.ChannelSnapshot
+	StateSnapshot() *chanstate.ChannelSnapshot
 
 	// MarkShutdownSent persists the given ShutdownInfo. The existence of
 	// the ShutdownInfo represents the fact that the Shutdown message has

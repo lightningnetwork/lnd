@@ -14,13 +14,6 @@ const (
 	HTLCBlindingPointTLV tlv.Type = 0
 )
 
-const (
-	// AbsoluteThawHeightThreshold is the threshold at which a thaw height
-	// begins to be interpreted as an absolute block height, rather than a
-	// relative one.
-	AbsoluteThawHeightThreshold = cstate.AbsoluteThawHeightThreshold
-)
-
 var (
 	closedChannelBucket     = cstate.ClosedChannelBucketKey()
 	openChannelBucket       = cstate.OpenChannelBucketKey()
@@ -166,16 +159,6 @@ var (
 	// ChanStatusRemoteCloseInitiator indicates that the remote node
 	// initiated closing the channel.
 	ChanStatusRemoteCloseInitiator = cstate.ChanStatusRemoteCloseInitiator
-)
-
-const (
-	// FinalHtlcSettledBit is the bit that encodes whether the htlc was
-	// settled or failed.
-	FinalHtlcSettledBit = cstate.FinalHtlcSettledBit
-
-	// FinalHtlcOffchainBit is the bit that encodes whether the htlc was
-	// resolved offchain or onchain.
-	FinalHtlcOffchainBit = cstate.FinalHtlcOffchainBit
 )
 
 var (

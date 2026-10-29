@@ -12,13 +12,6 @@ var (
 	// query for all open channels pertaining to the node by exploring each
 	// node's sub-bucket within the openChanBucket.
 	nodeInfoBucket = linknode.NodeInfoBucket
-
-	// NewLinkNode creates a new LinkNode from the provided parameters,
-	// which is backed by an instance of a link node DB.
-	NewLinkNode = linknode.NewLinkNode
-
-	// NewLinkNodeDB creates a new link node database.
-	NewLinkNodeDB = linknode.NewDB
 )
 
 // putLinkNode serializes then writes the encoded version of the passed link

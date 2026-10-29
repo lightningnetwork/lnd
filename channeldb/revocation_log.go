@@ -14,9 +14,6 @@ const (
 )
 
 var (
-	// NewSparsePayHash creates a new SparsePayHash from a 32 byte array.
-	NewSparsePayHash = cstate.NewSparsePayHash
-
 	// NewHTLCEntryFromHTLC creates a new HTLCEntry from an HTLC.
 	NewHTLCEntryFromHTLC = cstate.NewHTLCEntryFromHTLC
 

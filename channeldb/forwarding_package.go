@@ -22,10 +22,6 @@ var (
 	// remains in this package.
 	fwdPackagesKey = cstate.FwdPackagesBucketKey()
 
-	// NewPkgFilter initializes an empty PkgFilter supporting `count`
-	// elements.
-	NewPkgFilter = cstate.NewPkgFilter
-
 	// NewFwdPkg initializes a new forwarding package in FwdStateLockedIn.
 	NewFwdPkg = cstate.NewFwdPkg
 
@@ -35,7 +31,4 @@ var (
 
 	// NewSwitchPackager instantiates a new SwitchPackager.
 	NewSwitchPackager = cstate.NewSwitchPackager
-
-	// NewChannelPackager creates a new packager for a single channel.
-	NewChannelPackager = cstate.NewChannelPackager
 )

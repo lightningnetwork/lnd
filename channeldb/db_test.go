@@ -12,6 +12,7 @@ import (
 	"github.com/btcsuite/btcd/wire/v2"
 	"github.com/lightningnetwork/lnd/graph/db/models"
 	"github.com/lightningnetwork/lnd/kvdb"
+	"github.com/lightningnetwork/lnd/linknode"
 	"github.com/lightningnetwork/lnd/lnwire"
 	"github.com/lightningnetwork/lnd/routing/route"
 	"github.com/stretchr/testify/require"
@@ -123,7 +124,7 @@ func TestMultiSourceAddrsForNode(t *testing.T) {
 
 	// Next, we'll make a link node with the same pubkey, but with an
 	// additional address.
-	linkNode := NewLinkNode(
+	linkNode := linknode.NewLinkNode(
 		fullDB.linkNodeDB, wire.MainNet, nodePub,
 		anotherAddr,
 	)

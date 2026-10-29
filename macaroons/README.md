@@ -88,6 +88,14 @@ be found in `constraints.go`:
   This constraint can be set by adding the parameter `--macaroonip a.b.c.d` to
   the `lncli` command.
 
+IP caveats compare the immediate gRPC peer address observed by `lnd`, not
+necessarily the original client address. A REST gateway, NAT, or a terminating
+proxy can replace that address. A caveat for a shared gateway therefore
+constrains the gateway hop, not individual users. Authenticate and restrict
+clients at ingress, use ingress allowlists and TLS, and restrict access to the
+backend so clients cannot bypass ingress. Do not blindly trust `Forwarded` or
+`X-Forwarded-For` headers as proof of a client address.
+
 ## Bakery
 
 As of lnd `v0.9.0-beta` there is a macaroon bakery available through gRPC and

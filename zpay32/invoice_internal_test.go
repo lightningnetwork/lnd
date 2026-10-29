@@ -128,6 +128,45 @@ func TestDecodeAmount(t *testing.T) {
 			valid:  true,
 			result: 2100000000000000000, // mSat
 		},
+
+		// The largest amount of each unit that fits in a uint64 of
+		// millisatoshis is accepted, one more is rejected.
+		{
+			amount: "184467440737m", // mBTC
+			valid:  true,
+			result: 18446744073700000000, // mSat
+		},
+		{
+			amount: "184467440738m", // mBTC
+			valid:  false,           // overflows
+		},
+		{
+			amount: "184467440737095u", // uBTC
+			valid:  true,
+			result: 18446744073709500000, // mSat
+		},
+		{
+			amount: "184467440737096u", // uBTC
+			valid:  false,              // overflows
+		},
+		{
+			amount: "184467440737095516n", // nBTC
+			valid:  true,
+			result: 18446744073709551600, // mSat
+		},
+		{
+			amount: "184467440737095517n", // nBTC
+			valid:  false,                 // overflows
+		},
+		{
+			amount: "184467440", // BTC
+			valid:  true,
+			result: 18446744000000000000, // mSat
+		},
+		{
+			amount: "184467441", // BTC
+			valid:  false,       // overflows
+		},
 	}
 
 	for i, test := range tests {

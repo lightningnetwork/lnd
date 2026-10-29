@@ -115,33 +115,33 @@ func TestRpcCommitmentType(t *testing.T) {
 	}{
 		{
 			name: "tapscript overlay",
-			chanType: channeldb.SimpleTaprootFeatureBit |
-				channeldb.TapscriptRootBit,
+			chanType: chanstate.SimpleTaprootFeatureBit |
+				chanstate.TapscriptRootBit,
 			want: lnrpc.CommitmentType_SIMPLE_TAPROOT_OVERLAY,
 		},
 		{
 			name:     "simple taproot",
-			chanType: channeldb.SimpleTaprootFeatureBit,
+			chanType: chanstate.SimpleTaprootFeatureBit,
 			want:     lnrpc.CommitmentType_SIMPLE_TAPROOT,
 		},
 		{
 			name:     "lease expiration",
-			chanType: channeldb.LeaseExpirationBit,
+			chanType: chanstate.LeaseExpirationBit,
 			want:     lnrpc.CommitmentType_SCRIPT_ENFORCED_LEASE,
 		},
 		{
 			name:     "anchors",
-			chanType: channeldb.AnchorOutputsBit,
+			chanType: chanstate.AnchorOutputsBit,
 			want:     lnrpc.CommitmentType_ANCHORS,
 		},
 		{
 			name:     "tweakless",
-			chanType: channeldb.SingleFunderTweaklessBit,
+			chanType: chanstate.SingleFunderTweaklessBit,
 			want:     lnrpc.CommitmentType_STATIC_REMOTE_KEY,
 		},
 		{
 			name:     "legacy",
-			chanType: channeldb.SingleFunderBit,
+			chanType: chanstate.SingleFunderBit,
 			want:     lnrpc.CommitmentType_LEGACY,
 		},
 	}

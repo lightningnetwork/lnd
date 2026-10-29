@@ -11,7 +11,6 @@ import (
 	"github.com/btcsuite/btcd/chainhash/v2"
 	"github.com/btcsuite/btcd/txscript/v2"
 	"github.com/btcsuite/btcd/wire/v2"
-	"github.com/lightningnetwork/lnd/channeldb"
 	"github.com/lightningnetwork/lnd/chanstate"
 	"github.com/lightningnetwork/lnd/fn/v2"
 	"github.com/lightningnetwork/lnd/input"
@@ -32,8 +31,8 @@ import (
 func TestRemoteCloseStartTaprootIntegration(t *testing.T) {
 	t.Parallel()
 
-	chanType := channeldb.SingleFunderTweaklessBit |
-		channeldb.AnchorOutputsBit | channeldb.SimpleTaprootFeatureBit
+	chanType := chanstate.SingleFunderTweaklessBit |
+		chanstate.AnchorOutputsBit | chanstate.SimpleTaprootFeatureBit
 
 	aliceChan, bobChan, err := lnwallet.CreateTestChannels(t, chanType)
 	require.NoError(t, err)

@@ -89,9 +89,9 @@ func testAddSettleWorkflow(t *testing.T, tweakless bool,
 	// Create a test channel which will be used for the duration of this
 	// unittest. The channel will be funded evenly with Alice having 5 BTC,
 	// and Bob having 5 BTC.
-	chanType := channeldb.SingleFunderTweaklessBit
+	chanType := chanstate.SingleFunderTweaklessBit
 	if !tweakless {
-		chanType = channeldb.SingleFunderBit
+		chanType = chanstate.SingleFunderBit
 	}
 
 	if chanTypeModifier != 0 {
@@ -397,20 +397,20 @@ func TestSimpleAddSettleWorkflow(t *testing.T) {
 	t.Run("anchors", func(t *testing.T) {
 		testAddSettleWorkflow(
 			t, true,
-			channeldb.AnchorOutputsBit|channeldb.ZeroHtlcTxFeeBit,
+			chanstate.AnchorOutputsBit|chanstate.ZeroHtlcTxFeeBit,
 			false,
 		)
 	})
 
 	t.Run("taproot", func(t *testing.T) {
 		testAddSettleWorkflow(
-			t, true, channeldb.SimpleTaprootFeatureBit, false,
+			t, true, chanstate.SimpleTaprootFeatureBit, false,
 		)
 	})
 
 	t.Run("taproot with tapscript root", func(t *testing.T) {
-		flags := channeldb.SimpleTaprootFeatureBit |
-			channeldb.TapscriptRootBit
+		flags := chanstate.SimpleTaprootFeatureBit |
+			chanstate.TapscriptRootBit
 		testAddSettleWorkflow(t, true, flags, false)
 	})
 
@@ -446,7 +446,7 @@ func TestChannelZeroAddLocalHeight(t *testing.T) {
 
 	// Create a test channel so that we can test the buggy behavior.
 	aliceChannel, bobChannel, err := CreateTestChannels(
-		t, channeldb.SingleFunderTweaklessBit,
+		t, chanstate.SingleFunderTweaklessBit,
 	)
 	require.NoError(t, err)
 
@@ -543,7 +543,7 @@ func TestCheckCommitTxSize(t *testing.T) {
 	// unittest. The channel will be funded evenly with Alice having 5 BTC,
 	// and Bob having 5 BTC.
 	aliceChannel, bobChannel, err := CreateTestChannels(
-		t, channeldb.SingleFunderTweaklessBit,
+		t, chanstate.SingleFunderTweaklessBit,
 	)
 	require.NoError(t, err, "unable to create test channels")
 
@@ -605,7 +605,7 @@ func TestCommitHTLCSigTieBreak(t *testing.T) {
 
 func testCommitHTLCSigTieBreak(t *testing.T, restart bool) {
 	aliceChannel, bobChannel, err := CreateTestChannels(
-		t, channeldb.SingleFunderTweaklessBit,
+		t, chanstate.SingleFunderTweaklessBit,
 	)
 	if err != nil {
 		t.Fatalf("unable to create test channels; %v", err)
@@ -709,8 +709,8 @@ func testCommitHTLCSigTieBreak(t *testing.T, restart bool) {
 // a commitment_signed message are properly limited in size.
 func TestCommitHTLCSigCustomRecordSize(t *testing.T) {
 	aliceChannel, bobChannel, err := CreateTestChannels(
-		t, channeldb.SimpleTaprootFeatureBit|
-			channeldb.TapscriptRootBit,
+		t, chanstate.SimpleTaprootFeatureBit|
+			chanstate.TapscriptRootBit,
 	)
 	require.NoError(t, err, "unable to create test channels")
 
@@ -781,22 +781,22 @@ func TestCooperativeChannelClosure(t *testing.T) {
 		{
 			name: "tweakless",
 			closeCase: coopCloseTestCase{
-				chanType: channeldb.SingleFunderTweaklessBit,
+				chanType: chanstate.SingleFunderTweaklessBit,
 			},
 		},
 		{
 			name: "anchors",
 			closeCase: coopCloseTestCase{
-				chanType: channeldb.SingleFunderTweaklessBit |
-					channeldb.AnchorOutputsBit,
+				chanType: chanstate.SingleFunderTweaklessBit |
+					chanstate.AnchorOutputsBit,
 				anchorAmt: AnchorSize * 2,
 			},
 		},
 		{
 			name: "anchors local pay",
 			closeCase: coopCloseTestCase{
-				chanType: channeldb.SingleFunderTweaklessBit |
-					channeldb.AnchorOutputsBit,
+				chanType: chanstate.SingleFunderTweaklessBit |
+					chanstate.AnchorOutputsBit,
 				anchorAmt:   AnchorSize * 2,
 				customPayer: fn.Some(lntypes.Local),
 			},
@@ -804,8 +804,8 @@ func TestCooperativeChannelClosure(t *testing.T) {
 		{
 			name: "anchors remote pay",
 			closeCase: coopCloseTestCase{
-				chanType: channeldb.SingleFunderTweaklessBit |
-					channeldb.AnchorOutputsBit,
+				chanType: chanstate.SingleFunderTweaklessBit |
+					chanstate.AnchorOutputsBit,
 				anchorAmt:   AnchorSize * 2,
 				customPayer: fn.Some(lntypes.Remote),
 			},
@@ -967,33 +967,33 @@ func testCoopClose(t *testing.T, testCase coopCloseTestCase) {
 func TestForceClose(t *testing.T) {
 	t.Run("tweakless", func(t *testing.T) {
 		testForceClose(t, &forceCloseTestCase{
-			chanType:             channeldb.SingleFunderTweaklessBit,
+			chanType:             chanstate.SingleFunderTweaklessBit,
 			expectedCommitWeight: input.CommitWeight,
 		})
 	})
 	t.Run("anchors", func(t *testing.T) {
 		testForceClose(t, &forceCloseTestCase{
-			chanType: channeldb.SingleFunderTweaklessBit |
-				channeldb.AnchorOutputsBit,
+			chanType: chanstate.SingleFunderTweaklessBit |
+				chanstate.AnchorOutputsBit,
 			expectedCommitWeight: input.AnchorCommitWeight,
 			anchorAmt:            AnchorSize * 2,
 		})
 	})
 	t.Run("taproot", func(t *testing.T) {
 		testForceClose(t, &forceCloseTestCase{
-			chanType: channeldb.SingleFunderTweaklessBit |
-				channeldb.AnchorOutputsBit |
-				channeldb.SimpleTaprootFeatureBit,
+			chanType: chanstate.SingleFunderTweaklessBit |
+				chanstate.AnchorOutputsBit |
+				chanstate.SimpleTaprootFeatureBit,
 			expectedCommitWeight: input.TaprootCommitWeight,
 			anchorAmt:            AnchorSize * 2,
 		})
 	})
 	t.Run("taproot with tapscript root", func(t *testing.T) {
 		testForceClose(t, &forceCloseTestCase{
-			chanType: channeldb.SingleFunderTweaklessBit |
-				channeldb.AnchorOutputsBit |
-				channeldb.SimpleTaprootFeatureBit |
-				channeldb.TapscriptRootBit,
+			chanType: chanstate.SingleFunderTweaklessBit |
+				chanstate.AnchorOutputsBit |
+				chanstate.SimpleTaprootFeatureBit |
+				chanstate.TapscriptRootBit,
 			expectedCommitWeight: input.TaprootCommitWeight,
 			anchorAmt:            AnchorSize * 2,
 		})
@@ -1371,7 +1371,7 @@ func TestForceCloseDustOutput(t *testing.T) {
 	// unittest. The channel will be funded evenly with Alice having 5 BTC,
 	// and Bob having 5 BTC.
 	aliceChannel, bobChannel, err := CreateTestChannels(
-		t, channeldb.SingleFunderTweaklessBit,
+		t, chanstate.SingleFunderTweaklessBit,
 	)
 	require.NoError(t, err, "unable to create test channels")
 
@@ -1479,7 +1479,7 @@ func TestDustHTLCFees(t *testing.T) {
 	// unittest. The channel will be funded evenly with Alice having 5 BTC,
 	// and Bob having 5 BTC.
 	aliceChannel, bobChannel, err := CreateTestChannels(
-		t, channeldb.SingleFunderTweaklessBit,
+		t, chanstate.SingleFunderTweaklessBit,
 	)
 	require.NoError(t, err, "unable to create test channels")
 
@@ -1516,7 +1516,7 @@ func TestDustHTLCFees(t *testing.T) {
 
 	// The commitment fee paid should be the same, as there have been no
 	// new material outputs added.
-	defaultFee := calcStaticFee(channeldb.SingleFunderTweaklessBit, 0)
+	defaultFee := calcStaticFee(chanstate.SingleFunderTweaklessBit, 0)
 	if aliceChannel.channelState.LocalCommitment.CommitFee != defaultFee {
 		t.Fatalf("dust htlc amounts not subtracted from commitment fee "+
 			"expected %v, got %v", defaultFee,
@@ -1550,7 +1550,7 @@ func TestHTLCDustLimit(t *testing.T) {
 	// unittest. The channel will be funded evenly with Alice having 5 BTC,
 	// and Bob having 5 BTC.
 	aliceChannel, bobChannel, err := CreateTestChannels(
-		t, channeldb.SingleFunderTweaklessBit,
+		t, chanstate.SingleFunderTweaklessBit,
 	)
 	require.NoError(t, err, "unable to create test channels")
 
@@ -1587,7 +1587,7 @@ func TestHTLCDustLimit(t *testing.T) {
 		t.Fatalf("incorrect # of outputs: expected %v, got %v",
 			2, len(bobCommitment.txn.TxOut))
 	}
-	defaultFee := calcStaticFee(channeldb.SingleFunderTweaklessBit, 0)
+	defaultFee := calcStaticFee(chanstate.SingleFunderTweaklessBit, 0)
 	if bobChannel.channelState.LocalCommitment.CommitFee != defaultFee {
 		t.Fatalf("dust htlc amount was subtracted from commitment fee "+
 			"expected %v, got %v", defaultFee,
@@ -1632,7 +1632,7 @@ func TestHTLCSigNumber(t *testing.T) {
 		// and Bob having 5 BTC. Alice's dustlimit is 200 sat, while
 		// Bob has 1300 sat.
 		aliceChannel, bobChannel, err := CreateTestChannels(
-			t, channeldb.SingleFunderTweaklessBit,
+			t, chanstate.SingleFunderTweaklessBit,
 		)
 		if err != nil {
 			t.Fatalf("unable to create test channels: %v", err)
@@ -1655,10 +1655,10 @@ func TestHTLCSigNumber(t *testing.T) {
 	require.NoError(t, err, "unable to get fee")
 
 	belowDust := btcutil.Amount(500) + HtlcTimeoutFee(
-		channeldb.SingleFunderTweaklessBit, feePerKw,
+		chanstate.SingleFunderTweaklessBit, feePerKw,
 	)
 	aboveDust := btcutil.Amount(1400) + HtlcSuccessFee(
-		channeldb.SingleFunderTweaklessBit, feePerKw,
+		chanstate.SingleFunderTweaklessBit, feePerKw,
 	)
 
 	// ===================================================================
@@ -1786,7 +1786,7 @@ func TestChannelBalanceDustLimit(t *testing.T) {
 	// unittest. The channel will be funded evenly with Alice having 5 BTC,
 	// and Bob having 5 BTC.
 	aliceChannel, bobChannel, err := CreateTestChannels(
-		t, channeldb.SingleFunderTweaklessBit,
+		t, chanstate.SingleFunderTweaklessBit,
 	)
 	require.NoError(t, err, "unable to create test channels")
 
@@ -1798,7 +1798,7 @@ func TestChannelBalanceDustLimit(t *testing.T) {
 	// This amount should leave an amount larger than Alice's dust limit
 	// once fees have been subtracted, but smaller than Bob's dust limit.
 	// We account in fees for the HTLC we will be adding.
-	defaultFee := calcStaticFee(channeldb.SingleFunderTweaklessBit, 1)
+	defaultFee := calcStaticFee(chanstate.SingleFunderTweaklessBit, 1)
 	aliceBalance := aliceChannel.channelState.LocalCommitment.LocalBalance.ToSatoshis()
 	htlcSat := aliceBalance - defaultFee
 	htlcSat += HtlcSuccessFee(
@@ -1853,7 +1853,7 @@ func TestStateUpdatePersistence(t *testing.T) {
 	// unittest. The channel will be funded evenly with Alice having 5 BTC,
 	// and Bob having 5 BTC.
 	aliceChannel, bobChannel, err := CreateTestChannels(
-		t, channeldb.SingleFunderTweaklessBit,
+		t, chanstate.SingleFunderTweaklessBit,
 	)
 	require.NoError(t, err, "unable to create test channels")
 
@@ -2183,7 +2183,7 @@ func TestCancelHTLC(t *testing.T) {
 	// unittest. The channel will be funded evenly with Alice having 5 BTC,
 	// and Bob having 5 BTC.
 	aliceChannel, bobChannel, err := CreateTestChannels(
-		t, channeldb.SingleFunderTweaklessBit,
+		t, chanstate.SingleFunderTweaklessBit,
 	)
 	require.NoError(t, err, "unable to create test channels")
 
@@ -2210,7 +2210,7 @@ func TestCancelHTLC(t *testing.T) {
 	// With the HTLC committed, Alice's balance should reflect the clearing
 	// of the new HTLC.
 	aliceExpectedBalance := btcutil.Amount(btcutil.SatoshiPerBitcoin*4) -
-		calcStaticFee(channeldb.SingleFunderTweaklessBit, 1)
+		calcStaticFee(chanstate.SingleFunderTweaklessBit, 1)
 	if aliceChannel.channelState.LocalCommitment.LocalBalance.ToSatoshis() !=
 		aliceExpectedBalance {
 		t.Fatalf("Alice's balance is wrong: expected %v, got %v",
@@ -2255,7 +2255,7 @@ func TestCancelHTLC(t *testing.T) {
 	}
 
 	expectedBalance := btcutil.Amount(btcutil.SatoshiPerBitcoin * 5)
-	staticFee := calcStaticFee(channeldb.SingleFunderTweaklessBit, 0)
+	staticFee := calcStaticFee(chanstate.SingleFunderTweaklessBit, 0)
 	if aliceChannel.channelState.LocalCommitment.LocalBalance.ToSatoshis() !=
 		expectedBalance-staticFee {
 
@@ -2293,7 +2293,7 @@ func TestCooperativeCloseDustAdherence(t *testing.T) {
 	// unittest. The channel will be funded evenly with Alice having 5 BTC,
 	// and Bob having 5 BTC.
 	aliceChannel, bobChannel, err := CreateTestChannels(
-		t, channeldb.SingleFunderTweaklessBit,
+		t, chanstate.SingleFunderTweaklessBit,
 	)
 	require.NoError(t, err, "unable to create test channels")
 
@@ -2459,7 +2459,7 @@ func TestCooperativeCloseOpReturn(t *testing.T) {
 	// unittest. The channel will be funded evenly with Alice having 5 BTC,
 	// and Bob having 5 BTC.
 	aliceChannel, bobChannel, err := CreateTestChannels(
-		t, channeldb.SingleFunderTweaklessBit,
+		t, chanstate.SingleFunderTweaklessBit,
 	)
 	require.NoError(t, err, "unable to create test channels")
 
@@ -2521,7 +2521,7 @@ func TestUpdateFeeAdjustments(t *testing.T) {
 	t.Parallel()
 
 	aliceChannel, bobChannel, err := CreateTestChannels(
-		t, channeldb.SingleFunderTweaklessBit,
+		t, chanstate.SingleFunderTweaklessBit,
 	)
 	require.NoError(t, err, "unable to create test channels")
 
@@ -2575,7 +2575,7 @@ func TestUpdateFeeFail(t *testing.T) {
 	t.Parallel()
 
 	aliceChannel, bobChannel, err := CreateTestChannels(
-		t, channeldb.SingleFunderTweaklessBit,
+		t, chanstate.SingleFunderTweaklessBit,
 	)
 	require.NoError(t, err, "unable to create test channels")
 
@@ -2606,7 +2606,7 @@ func TestUpdateFeeConcurrentSig(t *testing.T) {
 	t.Parallel()
 
 	aliceChannel, bobChannel, err := CreateTestChannels(
-		t, channeldb.SingleFunderTweaklessBit,
+		t, chanstate.SingleFunderTweaklessBit,
 	)
 	require.NoError(t, err, "unable to create test channels")
 
@@ -2676,7 +2676,7 @@ func TestUpdateFeeSenderCommits(t *testing.T) {
 	// unittest. The channel will be funded evenly with Alice having 5 BTC,
 	// and Bob having 5 BTC.
 	aliceChannel, bobChannel, err := CreateTestChannels(
-		t, channeldb.SingleFunderTweaklessBit,
+		t, chanstate.SingleFunderTweaklessBit,
 	)
 	require.NoError(t, err, "unable to create test channels")
 
@@ -2780,7 +2780,7 @@ func TestUpdateFeeReceiverCommits(t *testing.T) {
 	// unittest. The channel will be funded evenly with Alice having 5 BTC,
 	// and Bob having 5 BTC.
 	aliceChannel, bobChannel, err := CreateTestChannels(
-		t, channeldb.SingleFunderTweaklessBit,
+		t, chanstate.SingleFunderTweaklessBit,
 	)
 	require.NoError(t, err, "unable to create test channels")
 
@@ -2903,7 +2903,7 @@ func TestUpdateFeeReceiverSendsUpdate(t *testing.T) {
 	// unittest. The channel will be funded evenly with Alice having 5 BTC,
 	// and Bob having 5 BTC.
 	aliceChannel, bobChannel, err := CreateTestChannels(
-		t, channeldb.SingleFunderTweaklessBit,
+		t, chanstate.SingleFunderTweaklessBit,
 	)
 	require.NoError(t, err, "unable to create test channels")
 
@@ -2931,7 +2931,7 @@ func TestUpdateFeeMultipleUpdates(t *testing.T) {
 	// unittest. The channel will be funded evenly with Alice having 5 BTC,
 	// and Bob having 5 BTC.
 	aliceChannel, bobChannel, err := CreateTestChannels(
-		t, channeldb.SingleFunderTweaklessBit,
+		t, chanstate.SingleFunderTweaklessBit,
 	)
 	require.NoError(t, err, "unable to create test channels")
 
@@ -3041,7 +3041,7 @@ func TestAddHTLCNegativeBalance(t *testing.T) {
 	// We'll kick off the test by creating our channels which both are
 	// loaded with 5 BTC each.
 	aliceChannel, _, err := CreateTestChannels(
-		t, channeldb.SingleFunderTweaklessBit,
+		t, chanstate.SingleFunderTweaklessBit,
 	)
 	require.NoError(t, err, "unable to create test channels")
 
@@ -3163,7 +3163,7 @@ func TestChanSyncFullySynced(t *testing.T) {
 	// unittest. The channel will be funded evenly with Alice having 5 BTC,
 	// and Bob having 5 BTC.
 	aliceChannel, bobChannel, err := CreateTestChannels(
-		t, channeldb.SingleFunderTweaklessBit,
+		t, chanstate.SingleFunderTweaklessBit,
 	)
 	require.NoError(t, err, "unable to create test channels")
 
@@ -3614,7 +3614,7 @@ func TestChanSyncTaprootLocalNonces(t *testing.T) {
 	t.Run(
 		"staging channel populates LocalNonce",
 		func(t *testing.T) {
-			chanType := channeldb.SimpleTaprootFeatureBit
+			chanType := chanstate.SimpleTaprootFeatureBit
 			aliceChannel, bobChannel, err := CreateTestChannels(
 				t, chanType,
 			)
@@ -3639,8 +3639,8 @@ func TestChanSyncTaprootLocalNonces(t *testing.T) {
 
 	// Final taproot channels use the map-based nonce field.
 	t.Run("final channel populates LocalNonces", func(t *testing.T) {
-		chanType := channeldb.SimpleTaprootFeatureBit |
-			channeldb.TaprootFinalBit
+		chanType := chanstate.SimpleTaprootFeatureBit |
+			chanstate.TaprootFinalBit
 		aliceChannel, _, err := CreateTestChannels(t, chanType)
 		require.NoError(t, err)
 
@@ -3656,8 +3656,8 @@ func TestChanSyncTaprootLocalNonces(t *testing.T) {
 	})
 
 	t.Run("sync with final channel LocalNonces", func(t *testing.T) {
-		chanType := channeldb.SimpleTaprootFeatureBit |
-			channeldb.TaprootFinalBit
+		chanType := chanstate.SimpleTaprootFeatureBit |
+			chanstate.TaprootFinalBit
 		aliceChannel, bobChannel, err := CreateTestChannels(
 			t, chanType,
 		)
@@ -3687,7 +3687,7 @@ func TestChanSyncTaprootLocalNonces(t *testing.T) {
 	})
 
 	t.Run("sync with only legacy LocalNonce field", func(t *testing.T) {
-		chanType := channeldb.SimpleTaprootFeatureBit
+		chanType := chanstate.SimpleTaprootFeatureBit
 		aliceChan, bobChan, err := CreateTestChannels(t, chanType)
 		require.NoError(t, err)
 
@@ -3716,7 +3716,7 @@ func TestChanSyncTaprootLocalNonces(t *testing.T) {
 	})
 
 	t.Run("error when LocalNonces missing txid", func(t *testing.T) {
-		chanType := channeldb.SimpleTaprootFeatureBit
+		chanType := chanstate.SimpleTaprootFeatureBit
 		aliceChan, bobChan, err := CreateTestChannels(t, chanType)
 		require.NoError(t, err)
 
@@ -3757,7 +3757,7 @@ func TestChanSyncTaprootLocalNonces(t *testing.T) {
 	})
 
 	t.Run("error when both fields missing", func(t *testing.T) {
-		chanType := channeldb.SimpleTaprootFeatureBit
+		chanType := chanstate.SimpleTaprootFeatureBit
 		aliceChan, _, err := CreateTestChannels(t, chanType)
 		require.NoError(t, err)
 
@@ -3797,32 +3797,32 @@ func TestChanSyncOweCommitment(t *testing.T) {
 	}{
 		{
 			name:     "tweakless",
-			chanType: channeldb.SingleFunderTweaklessBit,
+			chanType: chanstate.SingleFunderTweaklessBit,
 		},
 		{
 			name: "anchors",
-			chanType: channeldb.SingleFunderTweaklessBit |
-				channeldb.AnchorOutputsBit,
+			chanType: chanstate.SingleFunderTweaklessBit |
+				chanstate.AnchorOutputsBit,
 		},
 		{
 			name: "taproot",
-			chanType: channeldb.SingleFunderTweaklessBit |
-				channeldb.AnchorOutputsBit |
-				channeldb.SimpleTaprootFeatureBit,
+			chanType: chanstate.SingleFunderTweaklessBit |
+				chanstate.AnchorOutputsBit |
+				chanstate.SimpleTaprootFeatureBit,
 		},
 		{
 			name: "taproot with tapscript root",
-			chanType: channeldb.SingleFunderTweaklessBit |
-				channeldb.AnchorOutputsBit |
-				channeldb.SimpleTaprootFeatureBit |
-				channeldb.TapscriptRootBit,
+			chanType: chanstate.SingleFunderTweaklessBit |
+				chanstate.AnchorOutputsBit |
+				chanstate.SimpleTaprootFeatureBit |
+				chanstate.TapscriptRootBit,
 		},
 		{
 			name: "tapscript root with noop",
-			chanType: channeldb.SingleFunderTweaklessBit |
-				channeldb.AnchorOutputsBit |
-				channeldb.SimpleTaprootFeatureBit |
-				channeldb.TapscriptRootBit,
+			chanType: chanstate.SingleFunderTweaklessBit |
+				chanstate.AnchorOutputsBit |
+				chanstate.SimpleTaprootFeatureBit |
+				chanstate.TapscriptRootBit,
 			noop: true,
 		},
 	}
@@ -3846,9 +3846,9 @@ func TestChanSyncOweCommitmentAuxSigner(t *testing.T) {
 	// Create a test channel which will be used for the duration of this
 	// unittest. The channel will be funded evenly with Alice having 5 BTC,
 	// and Bob having 5 BTC.
-	chanType := channeldb.SingleFunderTweaklessBit |
-		channeldb.AnchorOutputsBit | channeldb.SimpleTaprootFeatureBit |
-		channeldb.TapscriptRootBit
+	chanType := chanstate.SingleFunderTweaklessBit |
+		chanstate.AnchorOutputsBit | chanstate.SimpleTaprootFeatureBit |
+		chanstate.TapscriptRootBit
 
 	aliceChannel, bobChannel, err := CreateTestChannels(t, chanType)
 	require.NoError(t, err, "unable to create test channels")
@@ -3936,7 +3936,7 @@ func TestAuxSignerShutdown(t *testing.T) {
 	// We'll kick off the test by creating our channels which both are
 	// loaded with 5 BTC each.
 	aliceChannel, bobChannel, err := CreateTestChannels(
-		t, channeldb.SingleFunderTweaklessBit,
+		t, chanstate.SingleFunderTweaklessBit,
 	)
 	require.NoError(t, err, "unable to create test channels")
 
@@ -4015,7 +4015,7 @@ func TestQuitDuringSignNextCommitment(t *testing.T) {
 	// We'll kick off the test by creating our channels which both are
 	// loaded with 5 BTC each.
 	aliceChannel, bobChannel, err := CreateTestChannels(
-		t, channeldb.SingleFunderTweaklessBit,
+		t, chanstate.SingleFunderTweaklessBit,
 	)
 	require.NoError(t, err, "unable to create test channels")
 
@@ -4213,25 +4213,25 @@ func TestChanSyncOweCommitmentPendingRemote(t *testing.T) {
 	}{
 		{
 			name:     "tweakless",
-			chanType: channeldb.SingleFunderTweaklessBit,
+			chanType: chanstate.SingleFunderTweaklessBit,
 		},
 		{
 			name: "anchors",
-			chanType: channeldb.SingleFunderTweaklessBit |
-				channeldb.AnchorOutputsBit,
+			chanType: chanstate.SingleFunderTweaklessBit |
+				chanstate.AnchorOutputsBit,
 		},
 		{
 			name: "taproot",
-			chanType: channeldb.SingleFunderTweaklessBit |
-				channeldb.AnchorOutputsBit |
-				channeldb.SimpleTaprootFeatureBit,
+			chanType: chanstate.SingleFunderTweaklessBit |
+				chanstate.AnchorOutputsBit |
+				chanstate.SimpleTaprootFeatureBit,
 		},
 		{
 			name: "taproot with tapscript root",
-			chanType: channeldb.SingleFunderTweaklessBit |
-				channeldb.AnchorOutputsBit |
-				channeldb.SimpleTaprootFeatureBit |
-				channeldb.TapscriptRootBit,
+			chanType: chanstate.SingleFunderTweaklessBit |
+				chanstate.AnchorOutputsBit |
+				chanstate.SimpleTaprootFeatureBit |
+				chanstate.TapscriptRootBit,
 		},
 	}
 	for _, tc := range testCases {
@@ -4425,22 +4425,22 @@ func TestChanSyncOweRevocation(t *testing.T) {
 	t.Parallel()
 
 	t.Run("tweakless", func(t *testing.T) {
-		testChanSyncOweRevocation(t, channeldb.SingleFunderTweaklessBit)
+		testChanSyncOweRevocation(t, chanstate.SingleFunderTweaklessBit)
 	})
 	t.Run("taproot", func(t *testing.T) {
-		taprootBits := channeldb.SimpleTaprootFeatureBit |
-			channeldb.AnchorOutputsBit |
-			channeldb.ZeroHtlcTxFeeBit |
-			channeldb.SingleFunderTweaklessBit
+		taprootBits := chanstate.SimpleTaprootFeatureBit |
+			chanstate.AnchorOutputsBit |
+			chanstate.ZeroHtlcTxFeeBit |
+			chanstate.SingleFunderTweaklessBit
 
 		testChanSyncOweRevocation(t, taprootBits)
 	})
 	t.Run("taproot with tapscript root", func(t *testing.T) {
-		taprootBits := channeldb.SimpleTaprootFeatureBit |
-			channeldb.AnchorOutputsBit |
-			channeldb.ZeroHtlcTxFeeBit |
-			channeldb.SingleFunderTweaklessBit |
-			channeldb.TapscriptRootBit
+		taprootBits := chanstate.SimpleTaprootFeatureBit |
+			chanstate.AnchorOutputsBit |
+			chanstate.ZeroHtlcTxFeeBit |
+			chanstate.SingleFunderTweaklessBit |
+			chanstate.TapscriptRootBit
 
 		testChanSyncOweRevocation(t, taprootBits)
 	})
@@ -4628,23 +4628,23 @@ func TestChanSyncOweRevocationAndCommit(t *testing.T) {
 
 	t.Run("tweakless", func(t *testing.T) {
 		testChanSyncOweRevocationAndCommit(
-			t, channeldb.SingleFunderTweaklessBit,
+			t, chanstate.SingleFunderTweaklessBit,
 		)
 	})
 	t.Run("taproot", func(t *testing.T) {
-		taprootBits := channeldb.SimpleTaprootFeatureBit |
-			channeldb.AnchorOutputsBit |
-			channeldb.ZeroHtlcTxFeeBit |
-			channeldb.SingleFunderTweaklessBit
+		taprootBits := chanstate.SimpleTaprootFeatureBit |
+			chanstate.AnchorOutputsBit |
+			chanstate.ZeroHtlcTxFeeBit |
+			chanstate.SingleFunderTweaklessBit
 
 		testChanSyncOweRevocationAndCommit(t, taprootBits)
 	})
 	t.Run("taproot with tapscript root", func(t *testing.T) {
-		taprootBits := channeldb.SimpleTaprootFeatureBit |
-			channeldb.AnchorOutputsBit |
-			channeldb.ZeroHtlcTxFeeBit |
-			channeldb.SingleFunderTweaklessBit |
-			channeldb.TapscriptRootBit
+		taprootBits := chanstate.SimpleTaprootFeatureBit |
+			chanstate.AnchorOutputsBit |
+			chanstate.ZeroHtlcTxFeeBit |
+			chanstate.SingleFunderTweaklessBit |
+			chanstate.TapscriptRootBit
 
 		testChanSyncOweRevocationAndCommit(t, taprootBits)
 	})
@@ -4871,25 +4871,25 @@ func TestChanSyncOweRevocationAndCommitForceTransition(t *testing.T) {
 
 	t.Run("tweakless", func(t *testing.T) {
 		testChanSyncOweRevocationAndCommitForceTransition(
-			t, channeldb.SingleFunderTweaklessBit,
+			t, chanstate.SingleFunderTweaklessBit,
 		)
 	})
 	t.Run("taproot", func(t *testing.T) {
-		taprootBits := channeldb.SimpleTaprootFeatureBit |
-			channeldb.AnchorOutputsBit |
-			channeldb.ZeroHtlcTxFeeBit |
-			channeldb.SingleFunderTweaklessBit
+		taprootBits := chanstate.SimpleTaprootFeatureBit |
+			chanstate.AnchorOutputsBit |
+			chanstate.ZeroHtlcTxFeeBit |
+			chanstate.SingleFunderTweaklessBit
 
 		testChanSyncOweRevocationAndCommitForceTransition(
 			t, taprootBits,
 		)
 	})
 	t.Run("taproot with tapscript root", func(t *testing.T) {
-		taprootBits := channeldb.SimpleTaprootFeatureBit |
-			channeldb.AnchorOutputsBit |
-			channeldb.ZeroHtlcTxFeeBit |
-			channeldb.SingleFunderTweaklessBit |
-			channeldb.TapscriptRootBit
+		taprootBits := chanstate.SimpleTaprootFeatureBit |
+			chanstate.AnchorOutputsBit |
+			chanstate.ZeroHtlcTxFeeBit |
+			chanstate.SingleFunderTweaklessBit |
+			chanstate.TapscriptRootBit
 
 		testChanSyncOweRevocationAndCommitForceTransition(
 			t, taprootBits,
@@ -4907,7 +4907,7 @@ func TestChanSyncFailure(t *testing.T) {
 	// unittest. The channel will be funded evenly with Alice having 5 BTC,
 	// and Bob having 5 BTC.
 	aliceChannel, bobChannel, err := CreateTestChannels(
-		t, channeldb.SingleFunderBit,
+		t, chanstate.SingleFunderBit,
 	)
 	require.NoError(t, err, "unable to create test channels")
 
@@ -5135,7 +5135,7 @@ func TestFeeUpdateRejectInsaneFee(t *testing.T) {
 	// unittest. The channel will be funded evenly with Alice having 5 BTC,
 	// and Bob having 5 BTC.
 	aliceChannel, _, err := CreateTestChannels(
-		t, channeldb.SingleFunderTweaklessBit,
+		t, chanstate.SingleFunderTweaklessBit,
 	)
 	require.NoError(t, err, "unable to create test channels")
 
@@ -5162,7 +5162,7 @@ func TestChannelRetransmissionFeeUpdate(t *testing.T) {
 	// unittest. The channel will be funded evenly with Alice having 5 BTC,
 	// and Bob having 5 BTC.
 	aliceChannel, bobChannel, err := CreateTestChannels(
-		t, channeldb.SingleFunderTweaklessBit,
+		t, chanstate.SingleFunderTweaklessBit,
 	)
 	require.NoError(t, err, "unable to create test channels")
 
@@ -5322,7 +5322,7 @@ func TestFeeUpdateOldDiskFormat(t *testing.T) {
 	// unittest. The channel will be funded evenly with Alice having 5 BTC,
 	// and Bob having 5 BTC.
 	aliceChannel, bobChannel, err := CreateTestChannels(
-		t, channeldb.SingleFunderTweaklessBit,
+		t, chanstate.SingleFunderTweaklessBit,
 	)
 	require.NoError(t, err, "unable to create test channels")
 
@@ -5523,7 +5523,7 @@ func TestChanSyncUnableToSync(t *testing.T) {
 	// unittest. The channel will be funded evenly with Alice having 5 BTC,
 	// and Bob having 5 BTC.
 	aliceChannel, bobChannel, err := CreateTestChannels(
-		t, channeldb.SingleFunderBit,
+		t, chanstate.SingleFunderBit,
 	)
 	require.NoError(t, err, "unable to create test channels")
 
@@ -5559,7 +5559,7 @@ func TestChanSyncInvalidLastSecret(t *testing.T) {
 	// unittest. The channel will be funded evenly with Alice having 5 BTC,
 	// and Bob having 5 BTC.
 	aliceChannel, bobChannel, err := CreateTestChannels(
-		t, channeldb.SingleFunderBit,
+		t, chanstate.SingleFunderBit,
 	)
 	require.NoError(t, err, "unable to create test channels")
 
@@ -5631,13 +5631,13 @@ func TestChanSyncInvalidLastSecret(t *testing.T) {
 func TestChanAvailableBandwidth(t *testing.T) {
 	t.Parallel()
 
-	cType := channeldb.SingleFunderTweaklessBit
+	cType := chanstate.SingleFunderTweaklessBit
 
 	// Create a test channel which will be used for the duration of this
 	// unittest. The channel will be funded evenly with Alice having 5 BTC,
 	// and Bob having 5 BTC.
 	aliceChannel, bobChannel, err := CreateTestChannels(
-		t, channeldb.SingleFunderTweaklessBit,
+		t, chanstate.SingleFunderTweaklessBit,
 	)
 	require.NoError(t, err, "unable to create test channels")
 
@@ -5767,7 +5767,7 @@ func TestChanAvailableBalanceNearHtlcFee(t *testing.T) {
 	// Create a test channel which will be used for the duration of this
 	// unittest. The channel will be funded evenly with Alice having 5 BTC,
 	// and Bob having 5 BTC.
-	cType := channeldb.SingleFunderTweaklessBit
+	cType := chanstate.SingleFunderTweaklessBit
 	aliceChannel, bobChannel, err := CreateTestChannels(
 		t, cType,
 	)
@@ -5960,7 +5960,7 @@ func TestChanCommitWeightDustHtlcs(t *testing.T) {
 	// unittest. The channel will be funded evenly with Alice having 5 BTC,
 	// and Bob having 5 BTC.
 	aliceChannel, bobChannel, err := CreateTestChannels(
-		t, channeldb.SingleFunderTweaklessBit,
+		t, chanstate.SingleFunderTweaklessBit,
 	)
 	require.NoError(t, err, "unable to create test channels")
 
@@ -6090,7 +6090,7 @@ func TestSignCommitmentFailNotLockedIn(t *testing.T) {
 	// unittest. The channel will be funded evenly with Alice having 5 BTC,
 	// and Bob having 5 BTC.
 	aliceChannel, _, err := CreateTestChannels(
-		t, channeldb.SingleFunderTweaklessBit,
+		t, chanstate.SingleFunderTweaklessBit,
 	)
 	require.NoError(t, err, "unable to create test channels")
 
@@ -6124,24 +6124,24 @@ func TestReceiveRevocationInvalidState(t *testing.T) {
 	}{
 		{
 			name:     "tweakless",
-			chanType: channeldb.SingleFunderTweaklessBit,
+			chanType: chanstate.SingleFunderTweaklessBit,
 		},
 		{
 			name:          "tweakless no next point",
-			chanType:      channeldb.SingleFunderTweaklessBit,
+			chanType:      chanstate.SingleFunderTweaklessBit,
 			dropNextPoint: true,
 		},
 		{
 			name: "taproot",
-			chanType: channeldb.SimpleTaprootFeatureBit |
-				channeldb.SingleFunderTweaklessBit |
-				channeldb.AnchorOutputsBit,
+			chanType: chanstate.SimpleTaprootFeatureBit |
+				chanstate.SingleFunderTweaklessBit |
+				chanstate.AnchorOutputsBit,
 		},
 		{
 			name: "taproot no next point",
-			chanType: channeldb.SimpleTaprootFeatureBit |
-				channeldb.SingleFunderTweaklessBit |
-				channeldb.AnchorOutputsBit,
+			chanType: chanstate.SimpleTaprootFeatureBit |
+				chanstate.SingleFunderTweaklessBit |
+				chanstate.AnchorOutputsBit,
 			dropNextPoint: true,
 		},
 	}
@@ -6211,13 +6211,13 @@ func TestReceiveRevocationWrongSecret(t *testing.T) {
 	}{
 		{
 			name:     "tweakless",
-			chanType: channeldb.SingleFunderTweaklessBit,
+			chanType: chanstate.SingleFunderTweaklessBit,
 		},
 		{
 			name: "taproot",
-			chanType: channeldb.SimpleTaprootFeatureBit |
-				channeldb.SingleFunderTweaklessBit |
-				channeldb.AnchorOutputsBit,
+			chanType: chanstate.SimpleTaprootFeatureBit |
+				chanstate.SingleFunderTweaklessBit |
+				chanstate.AnchorOutputsBit,
 		},
 	}
 
@@ -6292,7 +6292,7 @@ func TestLockedInHtlcForwardingSkipAfterRestart(t *testing.T) {
 
 	// First, we'll make a channel between Alice and Bob.
 	aliceChannel, bobChannel, err := CreateTestChannels(
-		t, channeldb.SingleFunderTweaklessBit,
+		t, chanstate.SingleFunderTweaklessBit,
 	)
 	require.NoError(t, err, "unable to create test channels")
 
@@ -6601,7 +6601,7 @@ func TestInvalidCommitSigError(t *testing.T) {
 
 	// First, we'll make a channel between Alice and Bob.
 	aliceChannel, bobChannel, err := CreateTestChannels(
-		t, channeldb.SingleFunderTweaklessBit,
+		t, chanstate.SingleFunderTweaklessBit,
 	)
 	require.NoError(t, err, "unable to create test channels")
 
@@ -6646,9 +6646,9 @@ func TestInvalidPartialCommitSigError(t *testing.T) {
 
 	// First, we'll make a taproot channel between Alice and Bob.
 	aliceChannel, bobChannel, err := CreateTestChannels(
-		t, channeldb.SingleFunderTweaklessBit|
-			channeldb.AnchorOutputsBit|
-			channeldb.SimpleTaprootFeatureBit,
+		t, chanstate.SingleFunderTweaklessBit|
+			chanstate.AnchorOutputsBit|
+			chanstate.SimpleTaprootFeatureBit,
 	)
 	require.NoError(t, err, "unable to create test channels")
 
@@ -6696,7 +6696,7 @@ func TestChannelUnilateralCloseHtlcResolution(t *testing.T) {
 	// unittest. The channel will be funded evenly with Alice having 5 BTC,
 	// and Bob having 5 BTC.
 	aliceChannel, bobChannel, err := CreateTestChannels(
-		t, channeldb.SingleFunderTweaklessBit,
+		t, chanstate.SingleFunderTweaklessBit,
 	)
 	require.NoError(t, err, "unable to create test channels")
 
@@ -6843,7 +6843,7 @@ func TestChannelUnilateralClosePendingCommit(t *testing.T) {
 	// unittest. The channel will be funded evenly with Alice having 5 BTC,
 	// and Bob having 5 BTC.
 	aliceChannel, bobChannel, err := CreateTestChannels(
-		t, channeldb.SingleFunderBit,
+		t, chanstate.SingleFunderBit,
 	)
 	require.NoError(t, err, "unable to create test channels")
 
@@ -6963,7 +6963,7 @@ func TestDesyncHTLCs(t *testing.T) {
 	// We'll kick off the test by creating our channels which both are
 	// loaded with 5 BTC each.
 	aliceChannel, bobChannel, err := CreateTestChannels(
-		t, channeldb.SingleFunderTweaklessBit,
+		t, chanstate.SingleFunderTweaklessBit,
 	)
 	require.NoError(t, err, "unable to create test channels")
 
@@ -7021,7 +7021,7 @@ func TestMaxAcceptedHTLCs(t *testing.T) {
 	// We'll kick off the test by creating our channels which both are
 	// loaded with 5 BTC each.
 	aliceChannel, bobChannel, err := CreateTestChannels(
-		t, channeldb.SingleFunderTweaklessBit,
+		t, chanstate.SingleFunderTweaklessBit,
 	)
 	require.NoError(t, err, "unable to create test channels")
 
@@ -7138,7 +7138,7 @@ func TestMaxAsynchronousHtlcs(t *testing.T) {
 	// We'll kick off the test by creating our channels which both are
 	// loaded with 5 BTC each.
 	aliceChannel, bobChannel, err := CreateTestChannels(
-		t, channeldb.SingleFunderTweaklessBit,
+		t, chanstate.SingleFunderTweaklessBit,
 	)
 	require.NoError(t, err, "unable to create test channels")
 
@@ -7235,7 +7235,7 @@ func TestMaxPendingAmount(t *testing.T) {
 	// We'll kick off the test by creating our channels which both are
 	// loaded with 5 BTC each.
 	aliceChannel, bobChannel, err := CreateTestChannels(
-		t, channeldb.SingleFunderTweaklessBit,
+		t, chanstate.SingleFunderTweaklessBit,
 	)
 	require.NoError(t, err, "unable to create test channels")
 
@@ -7312,7 +7312,7 @@ func TestChanReserve(t *testing.T) {
 		// We'll kick off the test by creating our channels which both
 		// are loaded with 5 BTC each.
 		aliceChannel, bobChannel, err := CreateTestChannels(
-			t, channeldb.SingleFunderTweaklessBit,
+			t, chanstate.SingleFunderTweaklessBit,
 		)
 		if err != nil {
 			t.Fatalf("unable to create test channels: %v", err)
@@ -7487,7 +7487,7 @@ func TestChanReserveRemoteInitiator(t *testing.T) {
 
 	// We start out with a channel where both parties have 5 BTC.
 	aliceChannel, bobChannel, err := CreateTestChannels(
-		t, channeldb.SingleFunderTweaklessBit,
+		t, chanstate.SingleFunderTweaklessBit,
 	)
 	if err != nil {
 		t.Fatal(err)
@@ -7532,7 +7532,7 @@ func TestChanReserveLocalInitiatorDustHtlc(t *testing.T) {
 	t.Parallel()
 
 	aliceChannel, bobChannel, err := CreateTestChannels(
-		t, channeldb.SingleFunderTweaklessBit,
+		t, chanstate.SingleFunderTweaklessBit,
 	)
 	if err != nil {
 		t.Fatal(err)
@@ -7576,7 +7576,7 @@ func TestMinHTLC(t *testing.T) {
 	// We'll kick off the test by creating our channels which both are
 	// loaded with 5 BTC each.
 	aliceChannel, bobChannel, err := CreateTestChannels(
-		t, channeldb.SingleFunderTweaklessBit,
+		t, chanstate.SingleFunderTweaklessBit,
 	)
 	require.NoError(t, err, "unable to create test channels")
 
@@ -7620,7 +7620,7 @@ func TestInvalidHTLCAmt(t *testing.T) {
 	// We'll kick off the test by creating our channels which both are
 	// loaded with 5 BTC each.
 	aliceChannel, bobChannel, err := CreateTestChannels(
-		t, channeldb.SingleFunderTweaklessBit,
+		t, chanstate.SingleFunderTweaklessBit,
 	)
 	require.NoError(t, err, "unable to create test channels")
 
@@ -7655,7 +7655,7 @@ func TestNewBreachRetributionSkipsDustHtlcs(t *testing.T) {
 	// We'll kick off the test by creating our channels which both are
 	// loaded with 5 BTC each.
 	aliceChannel, bobChannel, err := CreateTestChannels(
-		t, channeldb.SingleFunderTweaklessBit,
+		t, chanstate.SingleFunderTweaklessBit,
 	)
 	require.NoError(t, err, "unable to create test channels")
 
@@ -7827,7 +7827,7 @@ func TestChannelRestoreUpdateLogs(t *testing.T) {
 	t.Parallel()
 
 	aliceChannel, bobChannel, err := CreateTestChannels(
-		t, channeldb.SingleFunderTweaklessBit,
+		t, chanstate.SingleFunderTweaklessBit,
 	)
 	require.NoError(t, err, "unable to create test channels")
 
@@ -7969,7 +7969,7 @@ func TestChannelRestoreUpdateLogsFailedHTLC(t *testing.T) {
 	t.Parallel()
 
 	aliceChannel, bobChannel, err := CreateTestChannels(
-		t, channeldb.SingleFunderTweaklessBit,
+		t, chanstate.SingleFunderTweaklessBit,
 	)
 	require.NoError(t, err, "unable to create test channels")
 
@@ -8071,7 +8071,7 @@ func TestDuplicateFailRejection(t *testing.T) {
 	t.Parallel()
 
 	aliceChannel, bobChannel, err := CreateTestChannels(
-		t, channeldb.SingleFunderTweaklessBit,
+		t, chanstate.SingleFunderTweaklessBit,
 	)
 	require.NoError(t, err, "unable to create test channels")
 
@@ -8134,7 +8134,7 @@ func TestDuplicateSettleRejection(t *testing.T) {
 	t.Parallel()
 
 	aliceChannel, bobChannel, err := CreateTestChannels(
-		t, channeldb.SingleFunderTweaklessBit,
+		t, chanstate.SingleFunderTweaklessBit,
 	)
 	require.NoError(t, err, "unable to create test channels")
 
@@ -8196,7 +8196,7 @@ func TestChannelRestoreCommitHeight(t *testing.T) {
 	t.Parallel()
 
 	aliceChannel, bobChannel, err := CreateTestChannels(
-		t, channeldb.SingleFunderTweaklessBit,
+		t, chanstate.SingleFunderTweaklessBit,
 	)
 	require.NoError(t, err, "unable to create test channels")
 
@@ -8416,7 +8416,7 @@ func TestForceCloseFailLocalDataLoss(t *testing.T) {
 	t.Parallel()
 
 	aliceChannel, _, err := CreateTestChannels(
-		t, channeldb.SingleFunderBit,
+		t, chanstate.SingleFunderBit,
 	)
 	require.NoError(t, err, "unable to create test channels")
 
@@ -8441,7 +8441,7 @@ func TestForceCloseBorkedState(t *testing.T) {
 	t.Parallel()
 
 	aliceChannel, bobChannel, err := CreateTestChannels(
-		t, channeldb.SingleFunderBit,
+		t, chanstate.SingleFunderBit,
 	)
 	require.NoError(t, err, "unable to create test channels")
 
@@ -8517,13 +8517,13 @@ func TestChannelMaxFeeRate(t *testing.T) {
 
 	// Create a non-anchor and an anchor channel setup.
 	nonAnchorChannel, _, err := CreateTestChannels(
-		t, channeldb.SingleFunderTweaklessBit,
+		t, chanstate.SingleFunderTweaklessBit,
 	)
 	require.NoError(t, err, "unable to create test channels")
 
 	anchorChannel, _, err := CreateTestChannels(
-		t, channeldb.SingleFunderTweaklessBit|
-			channeldb.AnchorOutputsBit|channeldb.ZeroHtlcTxFeeBit,
+		t, chanstate.SingleFunderTweaklessBit|
+			chanstate.AnchorOutputsBit|chanstate.ZeroHtlcTxFeeBit,
 	)
 	require.NoError(t, err, "unable to create test channels")
 
@@ -8673,16 +8673,16 @@ func TestIdealCommitFeeRate(t *testing.T) {
 
 	// Create a non-anchor channel and an anchor test channel.
 	nonAnchorChannel, _, err := CreateTestChannels(
-		t, channeldb.SingleFunderTweaklessBit,
+		t, chanstate.SingleFunderTweaklessBit,
 	)
 	if err != nil {
 		t.Fatalf("unable to create test channels: %v", err)
 	}
 
 	anchorChannel, _, err := CreateTestChannels(
-		t, channeldb.SingleFunderTweaklessBit|
-			channeldb.AnchorOutputsBit|
-			channeldb.ZeroHtlcTxFeeBit,
+		t, chanstate.SingleFunderTweaklessBit|
+			chanstate.AnchorOutputsBit|
+			chanstate.ZeroHtlcTxFeeBit,
 	)
 	if err != nil {
 		t.Fatalf("unable to create test channels: %v", err)
@@ -8943,7 +8943,7 @@ func TestChannelFeeRateFloor(t *testing.T) {
 	t.Parallel()
 
 	alice, bob, err := CreateTestChannels(
-		t, channeldb.SingleFunderTweaklessBit,
+		t, chanstate.SingleFunderTweaklessBit,
 	)
 	require.NoError(t, err, "unable to create test channels")
 
@@ -8980,8 +8980,8 @@ func TestFeeUpdateRejectBelowFloor(t *testing.T) {
 		aliceBalance    = btcutil.Amount(5_045)
 	)
 
-	chanType := channeldb.SingleFunderTweaklessBit |
-		channeldb.AnchorOutputsBit | channeldb.ZeroHtlcTxFeeBit
+	chanType := chanstate.SingleFunderTweaklessBit |
+		chanstate.AnchorOutputsBit | chanstate.ZeroHtlcTxFeeBit
 	feePerKw := chainfee.FeePerKwFloor - 3
 	commitFee := feePerKw.FeeForWeight(CommitWeight(chanType))
 	aliceBalanceBeforeFees := aliceBalance + commitFee + 2*AnchorSize
@@ -9017,7 +9017,7 @@ func TestReceiveUpdateFeeRejectBelowFloor(t *testing.T) {
 	t.Parallel()
 
 	_, bobChannel, err := CreateTestChannels(
-		t, channeldb.SingleFunderTweaklessBit,
+		t, chanstate.SingleFunderTweaklessBit,
 	)
 	require.NoError(t, err, "unable to create test channels")
 
@@ -9753,7 +9753,7 @@ func TestChannelUnsignedAckedFailure(t *testing.T) {
 
 	// Create a test channel so that we can test the buggy behavior.
 	aliceChannel, bobChannel, err := CreateTestChannels(
-		t, channeldb.SingleFunderTweaklessBit,
+		t, chanstate.SingleFunderTweaklessBit,
 	)
 	require.NoError(t, err)
 
@@ -9857,7 +9857,7 @@ func TestChannelLocalUnsignedUpdatesFailure(t *testing.T) {
 
 	// Create a test channel so that we can test the buggy behavior.
 	aliceChannel, bobChannel, err := CreateTestChannels(
-		t, channeldb.SingleFunderTweaklessBit,
+		t, chanstate.SingleFunderTweaklessBit,
 	)
 	require.NoError(t, err)
 
@@ -9941,7 +9941,7 @@ func TestChannelSignedAckRegression(t *testing.T) {
 
 	// Create test channels to test out this state transition.
 	aliceChannel, bobChannel, err := CreateTestChannels(
-		t, channeldb.SingleFunderTweaklessBit,
+		t, chanstate.SingleFunderTweaklessBit,
 	)
 	require.NoError(t, err)
 
@@ -10038,7 +10038,7 @@ func TestMayAddOutgoingHtlc(t *testing.T) {
 	// has a MinHTLC value of zero, so we don't need to do anything here
 	// other than create it.
 	aliceChannel, bobChannel, err := CreateTestChannels(
-		t, channeldb.SingleFunderTweaklessBit,
+		t, chanstate.SingleFunderTweaklessBit,
 	)
 	require.NoError(t, err)
 
@@ -10074,7 +10074,7 @@ func TestIsChannelClean(t *testing.T) {
 	t.Parallel()
 
 	aliceChannel, bobChannel, err := CreateTestChannels(
-		t, channeldb.ZeroHtlcTxFeeBit,
+		t, chanstate.ZeroHtlcTxFeeBit,
 	)
 	require.NoError(t, err)
 
@@ -10215,12 +10215,12 @@ func assertCleanOrDirty(clean bool, alice, bob *LightningChannel,
 // sum for the local and remote commitments.
 func TestChannelGetDustSum(t *testing.T) {
 	t.Run("dust sum tweakless", func(t *testing.T) {
-		testGetDustSum(t, channeldb.SingleFunderTweaklessBit)
+		testGetDustSum(t, chanstate.SingleFunderTweaklessBit)
 	})
 	t.Run("dust sum anchors zero htlc fee", func(t *testing.T) {
-		testGetDustSum(t, channeldb.SingleFunderTweaklessBit|
-			channeldb.AnchorOutputsBit|
-			channeldb.ZeroHtlcTxFeeBit,
+		testGetDustSum(t, chanstate.SingleFunderTweaklessBit|
+			chanstate.AnchorOutputsBit|
+			chanstate.ZeroHtlcTxFeeBit,
 		)
 	})
 }
@@ -10407,7 +10407,7 @@ func TestCreateHtlcRetribution(t *testing.T) {
 
 	// Create a test channel.
 	aliceChannel, _, err := CreateTestChannels(
-		t, channeldb.ZeroHtlcTxFeeBit,
+		t, chanstate.ZeroHtlcTxFeeBit,
 	)
 	require.NoError(t, err)
 
@@ -10466,7 +10466,7 @@ func TestCreateBreachRetribution(t *testing.T) {
 
 	// Create a test channel.
 	aliceChannel, _, err := CreateTestChannels(
-		t, channeldb.ZeroHtlcTxFeeBit,
+		t, chanstate.ZeroHtlcTxFeeBit,
 	)
 	require.NoError(t, err)
 
@@ -10663,7 +10663,7 @@ func TestCreateBreachRetributionLegacy(t *testing.T) {
 
 	// Create a test channel.
 	aliceChannel, _, err := CreateTestChannels(
-		t, channeldb.ZeroHtlcTxFeeBit,
+		t, chanstate.ZeroHtlcTxFeeBit,
 	)
 	require.NoError(t, err)
 
@@ -10733,7 +10733,7 @@ func TestCreateBreachRetributionLegacyDustHtlcs(t *testing.T) {
 
 	// Create a test channel.
 	aliceChannel, _, err := CreateTestChannels(
-		t, channeldb.ZeroHtlcTxFeeBit,
+		t, chanstate.ZeroHtlcTxFeeBit,
 	)
 	require.NoError(t, err)
 
@@ -10804,11 +10804,11 @@ func TestCreateBreachRetributionLegacyDustHtlcs(t *testing.T) {
 // behaves as expected.
 func TestNewBreachRetribution(t *testing.T) {
 	t.Run("non-anchor", func(t *testing.T) {
-		testNewBreachRetribution(t, channeldb.ZeroHtlcTxFeeBit)
+		testNewBreachRetribution(t, chanstate.ZeroHtlcTxFeeBit)
 	})
 	t.Run("anchor", func(t *testing.T) {
-		chanType := channeldb.SingleFunderTweaklessBit |
-			channeldb.AnchorOutputsBit
+		chanType := chanstate.SingleFunderTweaklessBit |
+			chanstate.AnchorOutputsBit
 		testNewBreachRetribution(t, chanType)
 	})
 }
@@ -10932,7 +10932,7 @@ func TestExtractPayDescs(t *testing.T) {
 
 	// Create a testing LightningChannel.
 	lnChan, _, err := CreateTestChannels(
-		t, channeldb.SingleFunderTweaklessBit,
+		t, chanstate.SingleFunderTweaklessBit,
 	)
 	require.NoError(t, err)
 
@@ -11068,7 +11068,7 @@ func TestApplyCommitmentFee(t *testing.T) {
 	// Create test channels so that we can use the `applyCommitFee`
 	// function.
 	aliceChannel, bobChannel, err := CreateTestChannels(
-		t, channeldb.SingleFunderTweaklessBit,
+		t, chanstate.SingleFunderTweaklessBit,
 	)
 	require.NoError(t, err)
 
@@ -11180,7 +11180,7 @@ func TestAsynchronousSendingContraint(t *testing.T) {
 	// capactiy is 10 BTC with every side having 5 BTC at start. The fee
 	// rate is static and 6000 sats/kw.
 	aliceChannel, bobChannel, err := CreateTestChannels(
-		t, channeldb.SingleFunderTweaklessBit,
+		t, chanstate.SingleFunderTweaklessBit,
 	)
 	require.NoError(t, err)
 
@@ -11215,7 +11215,7 @@ func TestAsynchronousSendingContraint(t *testing.T) {
 
 	// |<----add-------
 	// make sure this htlc is non-dust for alice.
-	htlcFee := HtlcSuccessFee(channeldb.SingleFunderTweaklessBit, feePerKw)
+	htlcFee := HtlcSuccessFee(chanstate.SingleFunderTweaklessBit, feePerKw)
 	// We need to take the remote dustlimit amount, because it the greater
 	// one.
 	htlcAmt2 := lnwire.NewMSatFromSatoshis(
@@ -11313,7 +11313,7 @@ func TestAsynchronousSendingWithFeeBuffer(t *testing.T) {
 	// capactiy is 10 BTC with every side having 5 BTC at start. The fee
 	// rate is static and 6000 sats/kw.
 	aliceChannel, bobChannel, err := CreateTestChannels(
-		t, channeldb.SingleFunderTweaklessBit,
+		t, chanstate.SingleFunderTweaklessBit,
 	)
 	require.NoError(t, err)
 
@@ -11349,7 +11349,7 @@ func TestAsynchronousSendingWithFeeBuffer(t *testing.T) {
 	// commitment as well.
 	// |<----add-------
 	// make sure this htlc is non-dust for alice.
-	htlcFee := HtlcSuccessFee(channeldb.SingleFunderTweaklessBit, feePerKw)
+	htlcFee := HtlcSuccessFee(chanstate.SingleFunderTweaklessBit, feePerKw)
 	htlcAmt2 := lnwire.NewMSatFromSatoshis(
 		aliceChannel.channelState.LocalChanCfg.DustLimit + htlcFee,
 	)
@@ -11433,7 +11433,7 @@ func TestAsynchronousSendingWithFeeBuffer(t *testing.T) {
 	//	---------------	|-----sig------>
 	//	<----rev-------	|---------------
 	// Update the non-dust amount because we updated the fee by 100%.
-	htlcFee = HtlcSuccessFee(channeldb.SingleFunderTweaklessBit, feePerKw*2)
+	htlcFee = HtlcSuccessFee(chanstate.SingleFunderTweaklessBit, feePerKw*2)
 	htlcAmt3 := lnwire.NewMSatFromSatoshis(
 		aliceChannel.channelState.LocalChanCfg.DustLimit + htlcFee,
 	)
@@ -11504,7 +11504,7 @@ func TestEnforceFeeBuffer(t *testing.T) {
 	// capactiy is 10 BTC with every side having 5 BTC at start. The fee
 	// rate is static and 6000 sats/kw.
 	aliceChannel, bobChannel, err := CreateTestChannels(
-		t, channeldb.SingleFunderTweaklessBit,
+		t, chanstate.SingleFunderTweaklessBit,
 	)
 	require.NoError(t, err)
 
@@ -11604,7 +11604,7 @@ func TestBlindingPointPersistence(t *testing.T) {
 	// test. The channel will be funded evenly with Alice having 5 BTC,
 	// and Bob having 5 BTC.
 	aliceChannel, bobChannel, err := CreateTestChannels(
-		t, channeldb.SingleFunderTweaklessBit,
+		t, chanstate.SingleFunderTweaklessBit,
 	)
 	require.NoError(t, err, "unable to create test channels")
 
@@ -11974,9 +11974,9 @@ func TestNoopAddSettle(t *testing.T) {
 	// Create a test channel which will be used for the duration of this
 	// unittest. The channel will be funded evenly with Alice having 5 BTC,
 	// and Bob having 5 BTC.
-	chanType := channeldb.SimpleTaprootFeatureBit |
-		channeldb.AnchorOutputsBit | channeldb.ZeroHtlcTxFeeBit |
-		channeldb.SingleFunderTweaklessBit | channeldb.TapscriptRootBit
+	chanType := chanstate.SimpleTaprootFeatureBit |
+		chanstate.AnchorOutputsBit | chanstate.ZeroHtlcTxFeeBit |
+		chanstate.SingleFunderTweaklessBit | chanstate.TapscriptRootBit
 	aliceChannel, bobChannel, err := CreateTestChannels(
 		t, chanType,
 	)
@@ -12028,9 +12028,9 @@ func TestNoopAddBelowReserve(t *testing.T) {
 	// Create a test channel which will be used for the duration of this
 	// unittest. The channel will be funded evenly with Alice having 5 BTC,
 	// and Bob having 5 BTC.
-	chanType := channeldb.SimpleTaprootFeatureBit |
-		channeldb.AnchorOutputsBit | channeldb.ZeroHtlcTxFeeBit |
-		channeldb.SingleFunderTweaklessBit | channeldb.TapscriptRootBit
+	chanType := chanstate.SimpleTaprootFeatureBit |
+		chanstate.AnchorOutputsBit | chanstate.ZeroHtlcTxFeeBit |
+		chanstate.SingleFunderTweaklessBit | chanstate.TapscriptRootBit
 	aliceChan, bobChan, err := CreateTestChannels(t, chanType)
 	require.NoError(t, err, "unable to create test channels")
 
@@ -12321,9 +12321,9 @@ func TestEvaluateNoOpHtlc(t *testing.T) {
 		},
 	}
 
-	chanType := channeldb.SimpleTaprootFeatureBit |
-		channeldb.AnchorOutputsBit | channeldb.ZeroHtlcTxFeeBit |
-		channeldb.SingleFunderTweaklessBit | channeldb.TapscriptRootBit
+	chanType := chanstate.SimpleTaprootFeatureBit |
+		chanstate.AnchorOutputsBit | chanstate.ZeroHtlcTxFeeBit |
+		chanstate.SingleFunderTweaklessBit | chanstate.TapscriptRootBit
 	aliceChan, _, err := CreateTestChannels(t, chanType)
 	require.NoError(t, err, "unable to create test channels")
 
@@ -12359,9 +12359,9 @@ func TestEvaluateNoOpHtlc(t *testing.T) {
 // taprootOverlayChanType is the channel type of a taproot overlay channel. The
 // tapscript root bit is what marks it as one, and therefore as a channel whose
 // peer owes us an aux signature for every HTLC.
-var taprootOverlayChanType = channeldb.SingleFunderTweaklessBit |
-	channeldb.AnchorOutputsBit | channeldb.SimpleTaprootFeatureBit |
-	channeldb.TapscriptRootBit
+var taprootOverlayChanType = chanstate.SingleFunderTweaklessBit |
+	chanstate.AnchorOutputsBit | chanstate.SimpleTaprootFeatureBit |
+	chanstate.TapscriptRootBit
 
 // auxHtlcAmt is the amount of the HTLCs added by createAuxHtlcChannels. It is
 // well above both channels' dust limit, so each such HTLC gets its own
@@ -12590,7 +12590,7 @@ func TestAuxSigNotRequiredOnPlainChannel(t *testing.T) {
 
 	// The same channel type as the overlay one, minus the tapscript root
 	// bit, which is the only thing that marks a channel as an overlay.
-	plainChanType := taprootOverlayChanType &^ channeldb.TapscriptRootBit
+	plainChanType := taprootOverlayChanType &^ chanstate.TapscriptRootBit
 	aliceChannel, bobChannel := createAuxHtlcChannels(t, plainChanType, 1)
 
 	mockAuxSignerWithSigs(bobChannel, 0)

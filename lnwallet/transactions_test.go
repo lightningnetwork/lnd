@@ -208,20 +208,20 @@ func TestCommitmentAndHTLCTransactions(t *testing.T) {
 	}{
 		{
 			name:     "legacy",
-			chanType: channeldb.SingleFunderBit,
+			chanType: chanstate.SingleFunderBit,
 			jsonFile: "test_vectors_legacy.json",
 		},
 		{
 			name: "anchors",
-			chanType: channeldb.SingleFunderTweaklessBit |
-				channeldb.AnchorOutputsBit,
+			chanType: chanstate.SingleFunderTweaklessBit |
+				chanstate.AnchorOutputsBit,
 			jsonFile: "test_vectors_anchors.json",
 		},
 		{
 			name: "zero fee htlc tx",
-			chanType: channeldb.SingleFunderTweaklessBit |
-				channeldb.AnchorOutputsBit |
-				channeldb.ZeroHtlcTxFeeBit,
+			chanType: chanstate.SingleFunderTweaklessBit |
+				chanstate.AnchorOutputsBit |
+				chanstate.ZeroHtlcTxFeeBit,
 			jsonFile: "test_vectors_zero_fee_htlc_tx.json",
 		},
 	}
@@ -589,10 +589,10 @@ func testSpendValidation(t *testing.T, tweakless bool) {
 	// our commitments, if it's tweakless, his key will just be his regular
 	// pubkey.
 	bobPayKey := input.TweakPubKey(bobKeyPub, commitPoint)
-	channelType := channeldb.SingleFunderBit
+	channelType := chanstate.SingleFunderBit
 	if tweakless {
 		bobPayKey = bobKeyPub
-		channelType = channeldb.SingleFunderTweaklessBit
+		channelType = chanstate.SingleFunderTweaklessBit
 	}
 
 	remoteCommitTweak := input.SingleTweakBytes(commitPoint, aliceKeyPub)

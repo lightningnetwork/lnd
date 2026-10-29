@@ -1579,10 +1579,10 @@ func TestIncubateConfigWitnessTypeSelection(t *testing.T) {
 		{
 			name:     "production taproot incoming+outgoing",
 			pkScript: taprootPkScript,
-			chanType: channeldb.SimpleTaprootFeatureBit |
-				channeldb.AnchorOutputsBit |
-				channeldb.SingleFunderTweaklessBit |
-				channeldb.TaprootFinalBit,
+			chanType: chanstate.SimpleTaprootFeatureBit |
+				chanstate.AnchorOutputsBit |
+				chanstate.SingleFunderTweaklessBit |
+				chanstate.TaprootFinalBit,
 			expectedIncoming: input.TaprootHtlcAcceptedSuccessSecondLevelFinal, //nolint:ll
 			expectedOutgoing: input.TaprootHtlcOfferedRemoteTimeoutFinal,       //nolint:ll
 		},

@@ -2272,7 +2272,7 @@ func createInitChannels(t *testing.T) (
 
 	aliceCommitTx, bobCommitTx, err := lnwallet.CreateCommitmentTxns(
 		channelBal, channelBal, &aliceCfg, &bobCfg, aliceCommitPoint,
-		bobCommitPoint, *fundingTxIn, channeldb.SingleFunderTweaklessBit,
+		bobCommitPoint, *fundingTxIn, chanstate.SingleFunderTweaklessBit,
 		false, 0,
 	)
 	if err != nil {
@@ -2325,7 +2325,7 @@ func createInitChannels(t *testing.T) (
 		IdentityPub:             aliceKeyPub,
 		FundingOutpoint:         *prevOut,
 		ShortChannelID:          shortChanID,
-		ChanType:                channeldb.SingleFunderTweaklessBit,
+		ChanType:                chanstate.SingleFunderTweaklessBit,
 		IsInitiator:             true,
 		Capacity:                channelCapacity,
 		RemoteCurrentRevocation: bobCommitPoint,
@@ -2342,7 +2342,7 @@ func createInitChannels(t *testing.T) (
 		IdentityPub:             bobKeyPub,
 		FundingOutpoint:         *prevOut,
 		ShortChannelID:          shortChanID,
-		ChanType:                channeldb.SingleFunderTweaklessBit,
+		ChanType:                chanstate.SingleFunderTweaklessBit,
 		IsInitiator:             false,
 		Capacity:                channelCapacity,
 		RemoteCurrentRevocation: aliceCommitPoint,
@@ -2490,8 +2490,8 @@ func TestNewRetributionInfoTaprootFinalWitnessTypes(t *testing.T) {
 	// outputs present and auxiliary blobs attached.
 	settledBlob := tlv.Blob("settled-blob")
 	breachedBlob := tlv.Blob("breached-blob")
-	chanType := channeldb.SimpleTaprootFeatureBit |
-		channeldb.TaprootFinalBit
+	chanType := chanstate.SimpleTaprootFeatureBit |
+		chanstate.TaprootFinalBit
 
 	breachInfo := &lnwallet.BreachRetribution{
 		LocalOutpoint:        wire.OutPoint{Index: 1},
@@ -2543,7 +2543,7 @@ func TestNewRetributionInfoSkipsBlankHtlc(t *testing.T) {
 	breachInfo := &lnwallet.BreachRetribution{
 		LocalOutpoint:       wire.OutPoint{Index: 1},
 		LocalOutputSignDesc: signDesc,
-		ChanType:            channeldb.SimpleTaprootFeatureBit,
+		ChanType:            chanstate.SimpleTaprootFeatureBit,
 		HtlcRetributions: []lnwallet.HtlcRetribution{
 			{},
 			{

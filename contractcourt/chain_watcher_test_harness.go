@@ -8,7 +8,6 @@ import (
 	"github.com/btcsuite/btcd/chainhash/v2"
 	"github.com/btcsuite/btcd/wire/v2"
 	"github.com/lightningnetwork/lnd/chainntnfs"
-	"github.com/lightningnetwork/lnd/channeldb"
 	"github.com/lightningnetwork/lnd/chanstate"
 	"github.com/lightningnetwork/lnd/fn/v2"
 	lnmock "github.com/lightningnetwork/lnd/lntest/mock"
@@ -197,7 +196,7 @@ func newChainWatcherTestHarnessFromReporter(t *testing.T,
 
 	// Create test channels.
 	aliceChannel, bobChannel, err := lnwallet.CreateTestChannels(
-		t, channeldb.SingleFunderTweaklessBit,
+		t, chanstate.SingleFunderTweaklessBit,
 	)
 	if err != nil {
 		reporter.Fatalf("unable to create test channels: %v", err)

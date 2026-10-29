@@ -4,7 +4,6 @@ import (
 	"testing"
 
 	"github.com/btcsuite/btcd/chainhash/v2"
-	"github.com/lightningnetwork/lnd/channeldb"
 	"github.com/lightningnetwork/lnd/chanstate"
 	"github.com/lightningnetwork/lnd/lnwire"
 	"github.com/stretchr/testify/require"
@@ -75,7 +74,7 @@ func generateAndProcessRevocation(t *testing.T, chanType chanstate.ChannelType,
 func TestRevokeAndAckTaprootLocalNonces(t *testing.T) {
 	t.Parallel()
 
-	chanType := channeldb.SimpleTaprootFeatureBit
+	chanType := chanstate.SimpleTaprootFeatureBit
 
 	t.Run("legacy nonce type only populates LocalNonce",
 		func(t *testing.T) {

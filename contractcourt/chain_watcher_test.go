@@ -11,7 +11,6 @@ import (
 	"github.com/btcsuite/btcd/wire/v2"
 	"github.com/lightningnetwork/lnd/chainio"
 	"github.com/lightningnetwork/lnd/chainntnfs"
-	"github.com/lightningnetwork/lnd/channeldb"
 	"github.com/lightningnetwork/lnd/chanstate"
 	"github.com/lightningnetwork/lnd/fn/v2"
 	"github.com/lightningnetwork/lnd/input"
@@ -30,7 +29,7 @@ func TestChainWatcherRemoteUnilateralClose(t *testing.T) {
 	// First, we'll create two channels which already have established a
 	// commitment contract between themselves.
 	aliceChannel, bobChannel, err := lnwallet.CreateTestChannels(
-		t, channeldb.SingleFunderTweaklessBit,
+		t, chanstate.SingleFunderTweaklessBit,
 	)
 	require.NoError(t, err, "unable to create test channels")
 
@@ -147,7 +146,7 @@ func TestChainWatcherRemoteUnilateralClosePendingCommit(t *testing.T) {
 	// First, we'll create two channels which already have established a
 	// commitment contract between themselves.
 	aliceChannel, bobChannel, err := lnwallet.CreateTestChannels(
-		t, channeldb.SingleFunderTweaklessBit,
+		t, chanstate.SingleFunderTweaklessBit,
 	)
 	require.NoError(t, err, "unable to create test channels")
 
@@ -321,7 +320,7 @@ func TestChainWatcherDataLossProtect(t *testing.T) {
 		// First, we'll create two channels which already have
 		// established a commitment contract between themselves.
 		aliceChannel, bobChannel, err := lnwallet.CreateTestChannels(
-			t, channeldb.SingleFunderBit,
+			t, chanstate.SingleFunderBit,
 		)
 		if err != nil {
 			t.Fatalf("unable to create test channels: %v", err)
@@ -525,7 +524,7 @@ func TestChainWatcherLocalForceCloseDetect(t *testing.T) {
 		// First, we'll create two channels which already have
 		// established a commitment contract between themselves.
 		aliceChannel, bobChannel, err := lnwallet.CreateTestChannels(
-			t, channeldb.SingleFunderBit,
+			t, chanstate.SingleFunderBit,
 		)
 		if err != nil {
 			t.Fatalf("unable to create test channels: %v", err)

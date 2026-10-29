@@ -834,11 +834,11 @@ func (tc *taprootTestContext) generateScriptVectors() ScriptVectors {
 // ---------------------------------------------------------------------------
 
 // taprootChanType is the channel type used for taproot test vectors.
-var taprootChanType = channeldb.SingleFunderTweaklessBit |
-	channeldb.AnchorOutputsBit |
-	channeldb.ZeroHtlcTxFeeBit |
-	channeldb.SimpleTaprootFeatureBit |
-	channeldb.TaprootFinalBit
+var taprootChanType = chanstate.SingleFunderTweaklessBit |
+	chanstate.AnchorOutputsBit |
+	chanstate.ZeroHtlcTxFeeBit |
+	chanstate.SimpleTaprootFeatureBit |
+	chanstate.TaprootFinalBit
 
 // createTaprootTestChannelsForVectors creates a pair of LightningChannel
 // instances configured for taproot test vector generation. All keys are

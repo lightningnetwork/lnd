@@ -11,7 +11,6 @@ import (
 	"github.com/btcsuite/btcd/btcutil/v2"
 	"github.com/btcsuite/btcd/chainhash/v2"
 	"github.com/btcsuite/btcd/wire/v2"
-	"github.com/lightningnetwork/lnd/channeldb"
 	"github.com/lightningnetwork/lnd/chanstate"
 	"github.com/lightningnetwork/lnd/fn/v2"
 	"github.com/lightningnetwork/lnd/input"
@@ -402,9 +401,9 @@ func NewChannelReservation(capacity, localFundingAmt btcutil.Amount,
 		// Both the tweakless type and the anchor type is tweakless,
 		// hence set the bit.
 		if req.CommitType.HasStaticRemoteKey() {
-			chanType |= channeldb.SingleFunderTweaklessBit
+			chanType |= chanstate.SingleFunderTweaklessBit
 		} else {
-			chanType |= channeldb.SingleFunderBit
+			chanType |= chanstate.SingleFunderBit
 		}
 
 		switch a := req.ChanFunder.(type) {
@@ -413,7 +412,7 @@ func NewChannelReservation(capacity, localFundingAmt btcutil.Amount,
 		// completed. Only the last channel of a batch should publish.
 		case chanfunding.ConditionalPublishAssembler:
 			if !a.ShouldPublishFundingTx() {
-				chanType |= channeldb.NoFundingTxBit
+				chanType |= chanstate.NoFundingTxBit
 			}
 
 		// Normal funding flow, the assembler creates a TX from the
@@ -425,20 +424,20 @@ func NewChannelReservation(capacity, localFundingAmt btcutil.Amount,
 		// funding transaction, then we'll set the chanType bit to
 		// signal that we don't have access to one.
 		default:
-			chanType |= channeldb.NoFundingTxBit
+			chanType |= chanstate.NoFundingTxBit
 		}
 	} else {
 		// Otherwise, this is a dual funder channel, and no side is
 		// technically the "initiator"
 		initiator = false
-		chanType |= channeldb.DualFunderBit
+		chanType |= chanstate.DualFunderBit
 	}
 
 	// We are adding anchor outputs to our commitment. We only support this
 	// in combination with zero-fee second-levels HTLCs.
 	if req.CommitType.HasAnchors() {
-		chanType |= channeldb.AnchorOutputsBit
-		chanType |= channeldb.ZeroHtlcTxFeeBit
+		chanType |= chanstate.AnchorOutputsBit
+		chanType |= chanstate.ZeroHtlcTxFeeBit
 	}
 
 	// Set the appropriate LeaseExpiration/Frozen bit based on the
@@ -448,30 +447,30 @@ func NewChannelReservation(capacity, localFundingAmt btcutil.Amount,
 			return nil, errors.New("missing absolute expiration " +
 				"for script enforced lease commitment type")
 		}
-		chanType |= channeldb.LeaseExpirationBit
+		chanType |= chanstate.LeaseExpirationBit
 	} else if thawHeight > 0 {
-		chanType |= channeldb.FrozenBit
+		chanType |= chanstate.FrozenBit
 	}
 
 	if req.CommitType.IsTaproot() {
-		chanType |= channeldb.SimpleTaprootFeatureBit
+		chanType |= chanstate.SimpleTaprootFeatureBit
 
 		// Set the final bit if this is the production taproot version.
 		if req.CommitType == CommitmentTypeSimpleTaprootFinal {
-			chanType |= channeldb.TaprootFinalBit
+			chanType |= chanstate.TaprootFinalBit
 		}
 	}
 
 	if req.ZeroConf {
-		chanType |= channeldb.ZeroConfBit
+		chanType |= chanstate.ZeroConfBit
 	}
 
 	if req.OptionScidAlias {
-		chanType |= channeldb.ScidAliasChanBit
+		chanType |= chanstate.ScidAliasChanBit
 	}
 
 	if req.ScidAliasFeature {
-		chanType |= channeldb.ScidAliasFeatureBit
+		chanType |= chanstate.ScidAliasFeatureBit
 	}
 
 	taprootOverlay := req.CommitType == CommitmentTypeSimpleTaprootOverlay
@@ -483,7 +482,7 @@ func NewChannelReservation(capacity, localFundingAmt btcutil.Amount,
 			"with tapscript root")
 
 	case taprootOverlay && req.TapscriptRoot.IsSome():
-		chanType |= channeldb.TapscriptRootBit
+		chanType |= chanstate.TapscriptRootBit
 	}
 
 	return &ChannelReservation{

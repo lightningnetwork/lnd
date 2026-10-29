@@ -11,7 +11,6 @@ import (
 	"github.com/btcsuite/btcd/chainhash/v2"
 	"github.com/btcsuite/btcd/txscript/v2"
 	"github.com/btcsuite/btcd/wire/v2"
-	"github.com/lightningnetwork/lnd/channeldb"
 	"github.com/lightningnetwork/lnd/chanstate"
 	"github.com/lightningnetwork/lnd/input"
 	"github.com/lightningnetwork/lnd/keychain"
@@ -1705,7 +1704,7 @@ func genSuccessTx(t *testing.T, chanType chanstate.ChannelType) *wire.MsgTx {
 		},
 	}
 
-	sigHashType := lnwallet.HtlcSigHashType(channeldb.SingleFunderBit)
+	sigHashType := lnwallet.HtlcSigHashType(chanstate.SingleFunderBit)
 
 	var successWitness [][]byte
 
@@ -1743,14 +1742,14 @@ var txSizeTests = []txSizeTest{
 		name:      "htlc timeout regular",
 		expWeight: input.HtlcTimeoutWeight,
 		genTx: func(t *testing.T) *wire.MsgTx {
-			return genTimeoutTx(t, channeldb.SingleFunderBit)
+			return genTimeoutTx(t, chanstate.SingleFunderBit)
 		},
 	},
 	{
 		name:      "htlc timeout confirmed",
 		expWeight: input.HtlcTimeoutWeightConfirmed,
 		genTx: func(t *testing.T) *wire.MsgTx {
-			return genTimeoutTx(t, channeldb.AnchorOutputsBit)
+			return genTimeoutTx(t, chanstate.AnchorOutputsBit)
 		},
 	},
 	{
@@ -1758,7 +1757,7 @@ var txSizeTests = []txSizeTest{
 		expWeight: input.TaprootHtlcTimeoutWeight,
 		genTx: func(t *testing.T) *wire.MsgTx {
 			return genTimeoutTx(
-				t, channeldb.SimpleTaprootFeatureBit,
+				t, chanstate.SimpleTaprootFeatureBit,
 			)
 		},
 	},
@@ -1768,7 +1767,7 @@ var txSizeTests = []txSizeTest{
 		// okay since we overestimate the weight.
 		expWeight: input.HtlcSuccessWeight - 1,
 		genTx: func(t *testing.T) *wire.MsgTx {
-			return genSuccessTx(t, channeldb.SingleFunderBit)
+			return genSuccessTx(t, chanstate.SingleFunderBit)
 		},
 	},
 	{
@@ -1777,7 +1776,7 @@ var txSizeTests = []txSizeTest{
 		// okay since we overestimate the weight.
 		expWeight: input.HtlcSuccessWeightConfirmed - 1,
 		genTx: func(t *testing.T) *wire.MsgTx {
-			return genSuccessTx(t, channeldb.AnchorOutputsBit)
+			return genSuccessTx(t, chanstate.AnchorOutputsBit)
 		},
 	},
 	{
@@ -1785,7 +1784,7 @@ var txSizeTests = []txSizeTest{
 		expWeight: input.TaprootHtlcSuccessWeight,
 		genTx: func(t *testing.T) *wire.MsgTx {
 			return genSuccessTx(
-				t, channeldb.SimpleTaprootFeatureBit,
+				t, chanstate.SimpleTaprootFeatureBit,
 			)
 		},
 	},

@@ -11,7 +11,6 @@ import (
 	"github.com/btcsuite/btcd/wire/v2"
 	"github.com/lightningnetwork/lnd/chanbackup"
 	"github.com/lightningnetwork/lnd/chanlifecycle"
-	"github.com/lightningnetwork/lnd/channeldb"
 	"github.com/lightningnetwork/lnd/chanstate"
 	"github.com/lightningnetwork/lnd/contractcourt"
 	"github.com/lightningnetwork/lnd/keychain"
@@ -141,45 +140,45 @@ func (c *chanDBRestorer) openChannelShell(backup chanbackup.Single) (
 	var chanType chanstate.ChannelType
 	switch backup.Version {
 	case chanbackup.DefaultSingleVersion:
-		chanType = channeldb.SingleFunderBit
+		chanType = chanstate.SingleFunderBit
 
 	case chanbackup.TweaklessCommitVersion:
-		chanType = channeldb.SingleFunderTweaklessBit
+		chanType = chanstate.SingleFunderTweaklessBit
 
 	case chanbackup.AnchorsCommitVersion:
-		chanType = channeldb.AnchorOutputsBit
-		chanType |= channeldb.SingleFunderTweaklessBit
+		chanType = chanstate.AnchorOutputsBit
+		chanType |= chanstate.SingleFunderTweaklessBit
 
 	case chanbackup.AnchorsZeroFeeHtlcTxCommitVersion:
-		chanType = channeldb.ZeroHtlcTxFeeBit
-		chanType |= channeldb.AnchorOutputsBit
-		chanType |= channeldb.SingleFunderTweaklessBit
+		chanType = chanstate.ZeroHtlcTxFeeBit
+		chanType |= chanstate.AnchorOutputsBit
+		chanType |= chanstate.SingleFunderTweaklessBit
 
 	case chanbackup.ScriptEnforcedLeaseVersion:
-		chanType = channeldb.LeaseExpirationBit
-		chanType |= channeldb.ZeroHtlcTxFeeBit
-		chanType |= channeldb.AnchorOutputsBit
-		chanType |= channeldb.SingleFunderTweaklessBit
+		chanType = chanstate.LeaseExpirationBit
+		chanType |= chanstate.ZeroHtlcTxFeeBit
+		chanType |= chanstate.AnchorOutputsBit
+		chanType |= chanstate.SingleFunderTweaklessBit
 
 	case chanbackup.SimpleTaprootVersion:
-		chanType = channeldb.ZeroHtlcTxFeeBit
-		chanType |= channeldb.AnchorOutputsBit
-		chanType |= channeldb.SingleFunderTweaklessBit
-		chanType |= channeldb.SimpleTaprootFeatureBit
+		chanType = chanstate.ZeroHtlcTxFeeBit
+		chanType |= chanstate.AnchorOutputsBit
+		chanType |= chanstate.SingleFunderTweaklessBit
+		chanType |= chanstate.SimpleTaprootFeatureBit
 
 	case chanbackup.TapscriptRootVersion:
-		chanType = channeldb.ZeroHtlcTxFeeBit
-		chanType |= channeldb.AnchorOutputsBit
-		chanType |= channeldb.SingleFunderTweaklessBit
-		chanType |= channeldb.SimpleTaprootFeatureBit
-		chanType |= channeldb.TapscriptRootBit
+		chanType = chanstate.ZeroHtlcTxFeeBit
+		chanType |= chanstate.AnchorOutputsBit
+		chanType |= chanstate.SingleFunderTweaklessBit
+		chanType |= chanstate.SimpleTaprootFeatureBit
+		chanType |= chanstate.TapscriptRootBit
 
 	case chanbackup.SimpleTaprootFinalVersion:
-		chanType = channeldb.ZeroHtlcTxFeeBit
-		chanType |= channeldb.AnchorOutputsBit
-		chanType |= channeldb.SingleFunderTweaklessBit
-		chanType |= channeldb.SimpleTaprootFeatureBit
-		chanType |= channeldb.TaprootFinalBit
+		chanType = chanstate.ZeroHtlcTxFeeBit
+		chanType |= chanstate.AnchorOutputsBit
+		chanType |= chanstate.SingleFunderTweaklessBit
+		chanType |= chanstate.SimpleTaprootFeatureBit
+		chanType |= chanstate.TaprootFinalBit
 
 	default:
 		return nil, fmt.Errorf("unknown Single version: %w", err)

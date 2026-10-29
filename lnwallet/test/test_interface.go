@@ -1008,7 +1008,7 @@ func testSingleFunderReservationWorkflow(miner *rpctest.Harness,
 	}
 	if !aliceChannels[0].ChanType.IsSingleFunder() {
 		t.Fatalf("channel type is incorrect, expected %v instead got %v",
-			channeldb.SingleFunderBit, aliceChannels[0].ChanType)
+			chanstate.SingleFunderBit, aliceChannels[0].ChanType)
 	}
 
 	bobChannels, err := bob.Cfg.ChannelStore.FetchOpenChannels(alicePub)
@@ -1026,7 +1026,7 @@ func testSingleFunderReservationWorkflow(miner *rpctest.Harness,
 	}
 	if !bobChannels[0].ChanType.IsSingleFunder() {
 		t.Fatalf("channel type is incorrect, expected %v instead got %v",
-			channeldb.SingleFunderBit, bobChannels[0].ChanType)
+			chanstate.SingleFunderBit, bobChannels[0].ChanType)
 	}
 
 	// Let Alice publish the funding transaction.

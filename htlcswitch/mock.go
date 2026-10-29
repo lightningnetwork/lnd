@@ -851,7 +851,7 @@ func (f *mockChannelLink) getFeeRate() chainfee.SatPerKWeight {
 func (f *mockChannelLink) getDustClosure() dustClosure {
 	dustLimit := btcutil.Amount(400)
 	return dustHelper(
-		channeldb.SingleFunderTweaklessBit, dustLimit, dustLimit,
+		chanstate.SingleFunderTweaklessBit, dustLimit, dustLimit,
 	)
 }
 

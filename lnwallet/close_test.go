@@ -5,7 +5,6 @@ import (
 	"testing"
 
 	"github.com/btcsuite/btcd/btcutil/v2"
-	"github.com/lightningnetwork/lnd/channeldb"
 	"github.com/lightningnetwork/lnd/chanstate"
 	"github.com/lightningnetwork/lnd/fn/v2"
 	"github.com/lightningnetwork/lnd/lntypes"
@@ -38,18 +37,18 @@ func genChannelType(t *rapid.T) chanstate.ChannelType {
 
 	// For each bit, decide randomly if it should be set.
 	bits := []chanstate.ChannelType{
-		channeldb.DualFunderBit,
-		channeldb.SingleFunderTweaklessBit,
-		channeldb.NoFundingTxBit,
-		channeldb.AnchorOutputsBit,
-		channeldb.FrozenBit,
-		channeldb.ZeroHtlcTxFeeBit,
-		channeldb.LeaseExpirationBit,
-		channeldb.ZeroConfBit,
-		channeldb.ScidAliasChanBit,
-		channeldb.ScidAliasFeatureBit,
-		channeldb.SimpleTaprootFeatureBit,
-		channeldb.TapscriptRootBit,
+		chanstate.DualFunderBit,
+		chanstate.SingleFunderTweaklessBit,
+		chanstate.NoFundingTxBit,
+		chanstate.AnchorOutputsBit,
+		chanstate.FrozenBit,
+		chanstate.ZeroHtlcTxFeeBit,
+		chanstate.LeaseExpirationBit,
+		chanstate.ZeroConfBit,
+		chanstate.ScidAliasChanBit,
+		chanstate.ScidAliasFeatureBit,
+		chanstate.SimpleTaprootFeatureBit,
+		chanstate.TapscriptRootBit,
 	}
 
 	// Helper to bias towards setting specific bits more frequently.
@@ -64,28 +63,28 @@ func genChannelType(t *rapid.T) chanstate.ChannelType {
 	// We want to ensure good coverage of anchor outputs since they affect
 	// the balance calculation directly. We'll set the anchor bit with a 50%
 	// chance.
-	setBit(channeldb.AnchorOutputsBit, 50)
+	setBit(chanstate.AnchorOutputsBit, 50)
 
 	// For other bits, use varying probabilities to ensure good
 	// distribution.
 	for _, bit := range bits {
 		// The anchor bit was already set above so we can skip it here.
-		if bit == channeldb.AnchorOutputsBit {
+		if bit == chanstate.AnchorOutputsBit {
 			continue
 		}
 
 		// Some bits are related, so we'll make sure we capture that
 		// dep.
 		switch bit {
-		case channeldb.TapscriptRootBit:
+		case chanstate.TapscriptRootBit:
 			// If we have TapscriptRootBit, we must have
 			// SimpleTaprootFeatureBit.
-			if chanType&channeldb.SimpleTaprootFeatureBit != 0 {
+			if chanType&chanstate.SimpleTaprootFeatureBit != 0 {
 				// 70% chance if taproot is enabled.
 				setBit(bit, 70)
 			}
 
-		case channeldb.DualFunderBit:
+		case chanstate.DualFunderBit:
 			// 40% chance of dual funding.
 			setBit(bit, 40)
 

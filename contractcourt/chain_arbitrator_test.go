@@ -30,7 +30,7 @@ func TestChainArbitratorRepublishCloses(t *testing.T) {
 	var channels []*chanstate.OpenChannel
 	for i := 0; i < numChans; i++ {
 		lChannel, _, err := lnwallet.CreateTestChannels(
-			t, channeldb.SingleFunderTweaklessBit,
+			t, chanstate.SingleFunderTweaklessBit,
 		)
 		if err != nil {
 			t.Fatal(err)
@@ -142,7 +142,7 @@ func TestResolveContract(t *testing.T) {
 	// With the DB created, we'll make a new channel, and mark it as
 	// pending open within the database.
 	newChannel, _, err := lnwallet.CreateTestChannels(
-		t, channeldb.SingleFunderTweaklessBit,
+		t, chanstate.SingleFunderTweaklessBit,
 	)
 	require.NoError(t, err, "unable to make new test channel")
 	channel := newChannel.State()

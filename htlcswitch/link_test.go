@@ -24,7 +24,6 @@ import (
 	"github.com/davecgh/go-spew/spew"
 	sphinx "github.com/lightningnetwork/lightning-onion"
 	"github.com/lightningnetwork/lnd/build"
-	"github.com/lightningnetwork/lnd/channeldb"
 	cstate "github.com/lightningnetwork/lnd/chanstate"
 	"github.com/lightningnetwork/lnd/contractcourt"
 	"github.com/lightningnetwork/lnd/fn/v2"
@@ -2479,7 +2478,7 @@ func TestChannelLinkBandwidthConsistency(t *testing.T) {
 		coreLink     *channelLink
 		aliceMsgs    chan lnwire.Message
 		chanAmtMSat  = lnwire.NewMSatFromSatoshis(chanAmt)
-		cType        = channeldb.SingleFunderTweaklessBit
+		cType        = cstate.SingleFunderTweaklessBit
 		commitWeight = lnwallet.CommitWeight(cType)
 	)
 
@@ -2970,7 +2969,7 @@ func TestChannelLinkTrimCircuitsPending(t *testing.T) {
 
 	var (
 		chanAmtMSat  = lnwire.NewMSatFromSatoshis(chanAmt)
-		cType        = channeldb.SingleFunderTweaklessBit
+		cType        = cstate.SingleFunderTweaklessBit
 		commitWeight = lnwallet.CommitWeight(cType)
 	)
 
@@ -3253,7 +3252,7 @@ func TestChannelLinkTrimCircuitsNoCommit(t *testing.T) {
 
 	var (
 		chanAmtMSat  = lnwire.NewMSatFromSatoshis(chanAmt)
-		cType        = channeldb.SingleFunderTweaklessBit
+		cType        = cstate.SingleFunderTweaklessBit
 		commitWeight = lnwallet.CommitWeight(cType)
 	)
 
@@ -3536,7 +3535,7 @@ func TestChannelLinkTrimCircuitsRemoteCommit(t *testing.T) {
 
 	var (
 		chanAmtMSat  = lnwire.NewMSatFromSatoshis(chanAmt)
-		cType        = channeldb.SingleFunderTweaklessBit
+		cType        = cstate.SingleFunderTweaklessBit
 		commitWeight = lnwallet.CommitWeight(cType)
 	)
 
@@ -3703,7 +3702,7 @@ func TestChannelLinkBandwidthChanReserve(t *testing.T) {
 		aliceMsgs       chan lnwire.Message
 		chanAmtMSat     = lnwire.NewMSatFromSatoshis(chanAmt)
 		chanReserveMSat = lnwire.NewMSatFromSatoshis(chanReserve)
-		cType           = channeldb.SingleFunderTweaklessBit
+		cType           = cstate.SingleFunderTweaklessBit
 		commitWeight    = lnwallet.CommitWeight(cType)
 	)
 

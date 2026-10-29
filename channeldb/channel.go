@@ -69,64 +69,6 @@ var (
 	ErrOnionBlobLength = cstate.ErrOnionBlobLength
 )
 
-const (
-	// SingleFunderBit represents a channel wherein one party solely funds
-	// the entire capacity of the channel.
-	SingleFunderBit = cstate.SingleFunderBit
-
-	// DualFunderBit represents a channel wherein both parties contribute
-	// funds towards the total capacity of the channel.
-	DualFunderBit = cstate.DualFunderBit
-
-	// SingleFunderTweaklessBit is similar to the basic SingleFunder channel
-	// type, but it omits the tweak for one's key.
-	SingleFunderTweaklessBit = cstate.SingleFunderTweaklessBit
-
-	// NoFundingTxBit denotes if we have the funding transaction locally on
-	// disk.
-	NoFundingTxBit = cstate.NoFundingTxBit
-
-	// AnchorOutputsBit indicates that the channel makes use of anchor
-	// outputs to bump the commitment transaction's effective feerate.
-	AnchorOutputsBit = cstate.AnchorOutputsBit
-
-	// FrozenBit indicates that the channel is a frozen channel, meaning
-	// that only the responder can decide to cooperatively close the
-	// channel.
-	FrozenBit = cstate.FrozenBit
-
-	// ZeroHtlcTxFeeBit indicates that the channel should use zero-fee
-	// second-level HTLC transactions.
-	ZeroHtlcTxFeeBit = cstate.ZeroHtlcTxFeeBit
-
-	// LeaseExpirationBit indicates that the channel has been leased for a
-	// period of time.
-	LeaseExpirationBit = cstate.LeaseExpirationBit
-
-	// ZeroConfBit indicates that the channel is a zero-conf channel.
-	ZeroConfBit = cstate.ZeroConfBit
-
-	// ScidAliasChanBit indicates that the channel has negotiated the
-	// scid-alias channel type.
-	ScidAliasChanBit = cstate.ScidAliasChanBit
-
-	// ScidAliasFeatureBit indicates that the scid-alias feature bit was
-	// negotiated during the lifetime of this channel.
-	ScidAliasFeatureBit = cstate.ScidAliasFeatureBit
-
-	// SimpleTaprootFeatureBit indicates that the simple-taproot-chans
-	// feature bit was negotiated during the lifetime of the channel.
-	SimpleTaprootFeatureBit = cstate.SimpleTaprootFeatureBit
-
-	// TapscriptRootBit indicates that this is a MuSig2 channel with a top
-	// level tapscript commitment.
-	TapscriptRootBit = cstate.TapscriptRootBit
-
-	// TaprootFinalBit indicates that this is a MuSig2 channel using the
-	// final/production taproot scripts and feature bits 80/81.
-	TaprootFinalBit = cstate.TaprootFinalBit
-)
-
 var (
 	// DeriveMusig2Shachain derives a shachain producer for the taproot
 	// channel from normal shachain revocation root.

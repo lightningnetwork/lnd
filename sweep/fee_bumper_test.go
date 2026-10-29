@@ -14,6 +14,7 @@ import (
 	"github.com/btcsuite/btcd/chaincfg/chainhash"
 	"github.com/btcsuite/btcd/wire"
 	"github.com/btcsuite/btcwallet/chain"
+	btcwallet "github.com/btcsuite/btcwallet/wallet"
 	"github.com/lightningnetwork/lnd/chainntnfs"
 	"github.com/lightningnetwork/lnd/fn/v2"
 	"github.com/lightningnetwork/lnd/input"
@@ -1430,6 +1431,467 @@ func TestInitialConflictWithUntestableFunding(t *testing.T) {
 			require.ErrorIs(t, result.Err, tc.probeErr)
 			require.Equal(t, feeRate, result.FeeRate)
 			require.Nil(t, result.BadInput)
+		})
+	}
+}
+
+// TestReplacementRejectionKeepsOldTx checks that rejected candidates preserve
+// accepted monitoring until an actual spend or conclusive exclusion ends it.
+func TestReplacementRejectionKeepsOldTx(t *testing.T) {
+	t.Parallel()
+
+	// Arrange singleton/multi-input rejection and pending/ready historical
+	// delivery through the real replacement path, without diagnostic
+	// probes.
+	testCases := []struct {
+		name      string
+		inputs    int
+		reject    error
+		spent     bool
+		excluded  bool
+		checkCap  bool
+		removed   bool
+		winner    bool
+		ungrouped bool
+	}{
+		{
+			name:   "singleton script rejection",
+			inputs: 1,
+			reject: chain.ErrScriptVerifyFlag,
+		},
+		{
+			name:   "multi-input script rejection",
+			inputs: 2,
+			reject: chain.ErrScriptVerifyFlag,
+		},
+		{
+			name:     "pending historical spend",
+			inputs:   2,
+			reject:   chain.ErrMissingInputs,
+			checkCap: true,
+		},
+		{
+			name:   "attributed historical spend",
+			inputs: 2,
+			reject: chain.ErrMissingInputs,
+			spent:  true,
+		},
+		{
+			name:     "confirmed alternative after removal",
+			inputs:   2,
+			reject:   chain.ErrMissingInputs,
+			excluded: true,
+			checkCap: true,
+		},
+		{
+			name:     "legacy fee retention after exclusion",
+			inputs:   2,
+			reject:   chain.ErrInsufficientFee,
+			excluded: true,
+			checkCap: true,
+		},
+		{
+			name:     "removed local alternative after fee update",
+			inputs:   2,
+			reject:   chain.ErrMissingInputs,
+			excluded: true,
+			checkCap: true,
+			removed:  true,
+		},
+		{
+			name:     "confirmed request input",
+			inputs:   2,
+			reject:   chain.ErrScriptVerifyFlag,
+			excluded: true,
+			checkCap: true,
+			winner:   true,
+		},
+		{
+			name:      "unrelated ungrouped request",
+			inputs:    2,
+			reject:    chain.ErrScriptVerifyFlag,
+			excluded:  true,
+			checkCap:  true,
+			ungrouped: true,
+		},
+	}
+	for _, testCase := range testCases {
+		t.Run(testCase.name, func(t *testing.T) {
+			tp, m := createTestPublisherNoAux(t)
+			req := createBadInputTestRequest(testCase.inputs)
+			// Arrange every accepted attempt at the same real cap;
+			// exclusion must work after fee growth has stopped.
+			req.DeadlineHeight = 1
+			feeFunc, err := NewLinearFeeFunction(
+				1000, 1, m.estimator,
+				fn.Some(chainfee.SatPerKWeight(1000)),
+			)
+			require.NoError(t, err)
+			var record *monitorRecord
+			var subscriber <-chan *BumpResult
+			if !testCase.removed {
+				var results chan *BumpResult
+				record, results = createBadInputTestRecord(
+					tp, req, feeFunc,
+				)
+				subscriber = results
+			}
+			// Arrange the real capped curve and the two speculative
+			// anchors in one group. Remove the remote anchor before
+			// the confirmed resolver offers it again.
+			var s *UtxoSweeper
+			var confirmed input.BaseInput
+			groupID := uint64(7)
+			if testCase.excluded {
+				anchor := createTestInput(
+					330, input.CommitmentAnchor,
+				)
+				op := anchor.OutPoint()
+				pending := input.MakeBaseInput(
+					&op, anchor.WitnessType(),
+					anchor.SignDesc(), 1,
+					&input.TxInfo{Fee: 1000, Weight: 1000},
+				)
+				req.Inputs[0] = &pending
+				confirmed = createTestInput(
+					330, input.CommitmentAnchor,
+				)
+				remoteOp := confirmed.OutPoint()
+				remote := input.MakeBaseInput(
+					&remoteOp, confirmed.WitnessType(),
+					confirmed.SignDesc(), 1,
+					pending.UnconfParent(),
+				)
+				store := &MockSweeperStore{}
+				defer store.AssertExpectations(t)
+				s = New(&UtxoSweeperConfig{
+					Publisher: tp,
+					Wallet:    m.wallet,
+					Notifier:  m.notifier,
+					Store:     store,
+				})
+				// Buffer the queue for delivery without
+				// another test goroutine.
+				s.newInputs = make(chan *sweepInputMessage, 1)
+				t.Cleanup(func() {
+					close(s.quit)
+					s.wg.Wait()
+				})
+				params := Params{ExclusiveGroup: &groupID}
+				if !testCase.ungrouped {
+					req.ExclusiveGroup = &groupID
+				}
+				localParams := params
+				if testCase.ungrouped {
+					localParams.ExclusiveGroup = nil
+				}
+				s.inputs[op] = &SweeperInput{
+					Input:  &pending,
+					state:  Published,
+					params: localParams,
+				}
+				remotePI := &SweeperInput{
+					Input:  &remote,
+					state:  PendingPublish,
+					params: params,
+				}
+				s.inputs[remoteOp] = remotePI
+				remoteReq := &BumpRequest{
+					Inputs: []input.Input{
+						&remote, req.Inputs[1],
+					},
+					DeliveryAddress: changePkScript,
+				}
+				mockNoInputSpends(m, remoteReq.Inputs)
+				// Initial publication needs both signatures
+				// before its replacement is rejected.
+				computeCalls, rawCalls := 3, 2
+				if testCase.removed {
+					computeCalls++
+					rawCalls++
+				}
+				m.signer.On(
+					"ComputeInputScript", mock.Anything,
+					mock.Anything,
+				).Return(&input.Script{}, nil).Times(
+					computeCalls,
+				)
+				m.signer.On(
+					"SignOutputRaw", mock.Anything,
+					mock.Anything,
+				).Return(&ecdsa.Signature{}, nil).Times(
+					rawCalls,
+				)
+				m.wallet.On(
+					"CheckMempoolAcceptance",
+					mock.MatchedBy(txSpendsInputs(
+						remoteReq.Inputs...,
+					)),
+				).Return(chain.ErrMissingInputs).Once()
+				m.wallet.On(
+					"CheckMempoolAcceptance",
+					mock.MatchedBy(txSpendsInputs(
+						req.Inputs[1],
+					)),
+				).Return(chain.ErrInsufficientFee).Once()
+				if !testCase.removed && !testCase.winner &&
+					!testCase.ungrouped {
+
+					// Live alternatives reach the existing
+					// wallet cleanup may fail separately.
+					staleTx := chainhash.Hash{99}
+					store.On("ListSweeps").Return(
+						[]chainhash.Hash{staleTx}, nil,
+					).Once()
+					m.wallet.On("FetchTx", staleTx).Return(
+						(*wire.MsgTx)(nil),
+						btcwallet.ErrNoTx,
+					).Once()
+				}
+				if !testCase.winner {
+					mockNoInputSpends(
+						m, []input.Input{&confirmed},
+					)
+				}
+
+				// Act through diagnosis and removal before the
+				// remote commitment confirms.
+				remoteRecord := &monitorRecord{
+					req:         remoteReq,
+					feeFunction: feeFunc,
+				}
+				diagnosed := tp.handleMissingInputs(
+					remoteRecord,
+				)
+				require.ErrorIs(
+					t, diagnosed.Err, ErrInputMissing,
+				)
+				require.NotNil(t, diagnosed.BadInput)
+				s.handleBumpEventBadInputs(&bumpResp{
+					set: &BudgetInputSet{
+						inputs: []*SweeperInput{
+							remotePI,
+						},
+					},
+					result: diagnosed,
+				})
+				s.updateSweeperInputs()
+				require.NotContains(t, s.inputs, remoteOp)
+				if testCase.winner {
+					confirmed = input.MakeBaseInput(
+						&op, pending.WitnessType(),
+						pending.SignDesc(), 1, nil,
+					)
+				}
+			} else {
+				m.signer.On(
+					"ComputeInputScript", mock.Anything,
+					mock.Anything,
+				).Return(&input.Script{}, nil).Times(
+					testCase.inputs,
+				)
+			}
+
+			// Arrange the local replacement after remote diagnosis;
+			// only the accepted local request remains monitored.
+			oldTx := &wire.MsgTx{LockTime: 1}
+			if testCase.removed {
+				// Arrange the accepted public request and
+				// its subsequent missing replacement.
+				req.MaxFeeRate = 1000
+				req.StartingFeeRate = fn.Some(
+					chainfee.SatPerKWeight(1000),
+				)
+				req.Immediate = true
+				m.wallet.On(
+					"CheckMempoolAcceptance",
+					mock.MatchedBy(txSpendsInputs(
+						req.Inputs...,
+					)),
+				).Return(nil).Once()
+				m.wallet.On(
+					"PublishTransaction", mock.Anything,
+					mock.Anything,
+				).Return(nil).Once()
+			} else {
+				record.tx = oldTx
+			}
+			m.wallet.On(
+				"CheckMempoolAcceptance", mock.Anything,
+			).Return(testCase.reject).Once()
+			if errors.Is(testCase.reject, chain.ErrMissingInputs) {
+				for i, inp := range req.Inputs {
+					spendChan := make(
+						chan *chainntnfs.SpendDetail, 1,
+					)
+					event := &chainntnfs.SpendEvent{
+						Spend:  spendChan,
+						Cancel: func() {},
+					}
+					if testCase.spent && i == 0 {
+						event = createTestSpendEvent(
+							&wire.MsgTx{
+								LockTime: 2,
+							},
+						)
+					}
+					op := inp.OutPoint()
+					m.notifier.On(
+						"RegisterSpendNtfn", &op,
+						mock.Anything, mock.Anything,
+					).Return(event, nil).Once()
+				}
+			}
+
+			if testCase.removed {
+				// Act through public publication to obtain the
+				// actual accepted publisher record.
+				subscriber = tp.Broadcast(req)
+				require.Equal(
+					t, TxPublished, (<-subscriber).Event,
+				)
+				var ok bool
+				record, ok = tp.records.Load(
+					tp.requestCounter.Load(),
+				)
+				require.True(t, ok)
+				oldTx = record.tx
+			}
+
+			// Act by rejecting an actual rebuilt replacement
+			// transaction.
+			result := tp.createAndPublishTx(record)
+
+			// Assert that rejection alone preserves the accepted
+			// record, while actual spend cleanup identifies oldTx
+			// rather than its candidate.
+			require.Same(t, oldTx, record.tx)
+			if testCase.spent {
+				value := result.UnwrapOrFail(t)
+				require.Equal(t, TxUnknownSpend, value.Event)
+				require.Same(t, oldTx, value.Tx)
+			} else {
+				require.True(t, result.IsNone())
+			}
+			if testCase.removed {
+				// Arrange another funder for the fee retry.
+				// its initial failure must remove the tracked
+				// anchor without touching the older request.
+				funder := createTestInput(
+					10_000, input.WitnessKeyHash,
+				)
+				retry := *req
+				retry.Inputs = []input.Input{
+					req.Inputs[0], &funder,
+				}
+				mockNoInputSpends(m, retry.Inputs)
+				m.signer.On(
+					"ComputeInputScript", mock.Anything,
+					mock.Anything,
+				).Return(&input.Script{}, nil).Times(3)
+				m.signer.On(
+					"SignOutputRaw", mock.Anything,
+					mock.Anything,
+				).Return(&ecdsa.Signature{}, nil).Twice()
+				m.wallet.On(
+					"CheckMempoolAcceptance",
+					mock.MatchedBy(txSpendsInputs(
+						retry.Inputs...,
+					)),
+				).Return(chain.ErrMissingInputs).Twice()
+				m.wallet.On(
+					"CheckMempoolAcceptance",
+					mock.MatchedBy(txSpendsInputs(&funder)),
+				).Return(chain.ErrInsufficientFee).Once()
+				op := req.Inputs[0].OutPoint()
+				set := &BudgetInputSet{
+					inputs: []*SweeperInput{
+						s.inputs[op],
+						{
+							Input: &funder,
+						},
+					},
+				}
+
+				// Act through the existing fee update and the
+				// real initial diagnosis and consumer.
+				_, err := s.handleUpdateReq(&updateReq{
+					input: op,
+					params: Params{
+						Budget:    req.Budget,
+						Immediate: true,
+					},
+				})
+				require.NoError(t, err)
+				s.markInputsPendingPublish(set)
+				failed := <-tp.Broadcast(&retry)
+				require.Equal(t, TxFailed, failed.Event)
+				require.ErrorIs(t, failed.Err, ErrInputMissing)
+				require.NotNil(t, failed.BadInput)
+				require.NoError(t, s.handleBumpEvent(&bumpResp{
+					set: set, result: failed,
+				}))
+				s.updateSweeperInputs()
+				require.NotContains(t, s.inputs, op)
+			}
+
+			if testCase.excluded {
+				// Act through the confirmed anchor's NEW offer,
+				// exercising the real input consumer.
+				_, err := s.SweepInput(&confirmed, Params{
+					Budget: 330, ExclusiveGroup: &groupID,
+					ParentConfirmed: true,
+				})
+				require.NoError(t, err)
+				require.NoError(
+					t, s.handleNewInput(<-s.newInputs),
+				)
+			}
+			if testCase.checkCap {
+				// Act at the ceiling, where fee growth stops.
+				// Retirement must use the confirmed exclusion.
+				tp.wg.Add(1)
+				tp.handleFeeBumpTx(record, 0)
+
+				// Assert that introduced retention retires and
+				// live/legacy requests keep their monitoring.
+				retired := testCase.excluded && errors.Is(
+					testCase.reject, chain.ErrMissingInputs,
+				)
+				id := record.requestID
+				_, monitored := tp.records.Load(id)
+				_, subscribed := tp.subscriberChans.Load(id)
+				require.Equal(t, !retired, monitored)
+				require.Equal(t, !retired, subscribed)
+				if retired {
+					terminal := <-subscriber
+					require.Equal(
+						t, TxFailed, terminal.Event,
+					)
+					require.ErrorIs(
+						t, terminal.Err,
+						ErrExclusiveGroupSpend,
+					)
+					require.Same(t, oldTx, terminal.Tx)
+					require.Nil(t, terminal.BadInput)
+					require.EqualValues(
+						t, 1000, terminal.FeeRate,
+					)
+					op := req.Inputs[0].OutPoint()
+					if testCase.removed {
+						require.NotContains(
+							t, s.inputs, op,
+						)
+					} else {
+						require.Equal(
+							t, Excluded,
+							s.inputs[op].state,
+						)
+					}
+				} else {
+					require.Empty(t, subscriber)
+				}
+			}
 		})
 	}
 }

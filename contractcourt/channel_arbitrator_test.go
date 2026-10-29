@@ -29,6 +29,8 @@ import (
 	"github.com/lightningnetwork/lnd/lnwallet"
 	"github.com/lightningnetwork/lnd/lnwire"
 	"github.com/lightningnetwork/lnd/record"
+	"github.com/lightningnetwork/lnd/sweep"
+	testifymock "github.com/stretchr/testify/mock"
 	"github.com/stretchr/testify/require"
 )
 
@@ -3335,6 +3337,25 @@ func TestSweepLocalAnchor(t *testing.T) {
 	)
 }
 
+// anchorSweeperMock checks confirmation evidence while reusing the existing
+// sweeper fixture's delivery and results for the channel state transitions.
+type anchorSweeperMock struct {
+	testifymock.Mock
+	*mockSweeper
+}
+
+// SweepInput verifies the caller's evidence before forwarding to the fixture.
+func (s *anchorSweeperMock) SweepInput(inp input.Input,
+	params sweep.Params) (chan sweep.Result, error) {
+
+	s.Called(inp, params)
+
+	return s.mockSweeper.SweepInput(inp, params)
+}
+
+// The embedded fixture supplies the other contractcourt sweep operations.
+var _ UtxoSweeper = (*anchorSweeperMock)(nil)
+
 // TestChannelArbitratorAnchors asserts that the commitment tx anchor is swept.
 func TestChannelArbitratorAnchors(t *testing.T) {
 	log := &mockArbitratorLog{
@@ -3344,6 +3365,27 @@ func TestChannelArbitratorAnchors(t *testing.T) {
 
 	chanArbCtx, err := createTestChannelArbitrator(t, log)
 	require.NoError(t, err, "unable to create ChannelArbitrator")
+
+	// Arrange exact expectations for the two speculative anchors and the
+	// resolver's confirmed anchor. This checks the evidence producer rather
+	// than supplying confirmation directly to a sweeper-side regression.
+	sweeper := &anchorSweeperMock{
+		mockSweeper: chanArbCtx.sweeper,
+	}
+	sweeper.On("SweepInput", testifymock.Anything, testifymock.MatchedBy(
+		func(params sweep.Params) bool {
+			return !params.ParentConfirmed
+		},
+	)).Return().Twice()
+	sweeper.On("SweepInput", testifymock.Anything, testifymock.MatchedBy(
+		func(params sweep.Params) bool {
+			return params.ParentConfirmed
+		},
+	)).Return().Once()
+	t.Cleanup(func() {
+		sweeper.AssertExpectations(t)
+	})
+	chanArbCtx.chanArb.cfg.Sweeper = sweeper
 
 	// Replace our mocked put report function with one which will push
 	// reports into a channel for us to consume. We update this function
@@ -3475,7 +3517,8 @@ func TestChannelArbitratorAnchors(t *testing.T) {
 		t.Fatalf("no response received")
 	}
 
-	// Now notify about the local force close getting confirmed.
+	// Act by confirming the close so the real anchor resolver must offer
+	// the confirmed parent, after the speculative pre-confirmation offers.
 	closeTx := &wire.MsgTx{
 		TxIn: []*wire.TxIn{
 			{
@@ -3559,6 +3602,8 @@ func TestChannelArbitratorAnchors(t *testing.T) {
 
 	assertResolverReport(t, reports, expectedReport)
 
+	// Assert the existing deadlines and completion; cleanup also verifies
+	// the exact confirmation evidence on all three real SweepInput calls.
 	// We expect two anchor inputs, the local and the remote to be swept.
 	// Thus we should expect there are two deadlines used, both are equal
 	// to htlcWithPreimage's CLTV.

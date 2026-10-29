@@ -580,6 +580,15 @@ func (x *TrackOnionRequest) GetHopPubkeys() [][]byte {
 	return nil
 }
 
+// TrackOnionResponse reports how a dispatched attempt ended. A preimage means
+// the HTLC settled. failure_details means the HTLC failed and is no longer in
+// flight, so the caller MAY fail the attempt.
+//
+// NOTE: A response with no result set, or a result the caller does not
+// recognise, means the attempt may still be live. The caller MUST keep
+// tracking it and MUST NOT treat it as failed. A gRPC error means the call
+// failed, not the attempt, with one exception. NotFound means the server holds
+// no record for this attempt_id, and retrying will not change that.
 type TrackOnionResponse struct {
 	state protoimpl.MessageState `protogen:"open.v1"`
 	// The final result of the payment attempt, which is either a preimage
@@ -835,6 +844,9 @@ func (*FailureDetails_SwitchError) isFailureDetails_Failure() {}
 // ForwardingFailure represents an HTLC failure that occurred at a remote node
 // in the payment route. The onion error was successfully decrypted, revealing
 // the failing hop.
+//
+// An empty wire_message means the failing hop at failure_source_index is
+// known but its failure message could not be decoded.
 type ForwardingFailure struct {
 	state protoimpl.MessageState `protogen:"open.v1"`
 	// failure_source_index is the 0-based index of the node within the payment

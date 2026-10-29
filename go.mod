@@ -36,7 +36,7 @@ require (
 	github.com/jrick/logrotate v1.1.2
 	github.com/kkdai/bstream v1.0.0
 	github.com/klauspost/compress v1.18.0
-	github.com/lightninglabs/neutrino v0.18.1-0.20261028090955-e1d9714c87a0
+	github.com/lightninglabs/neutrino v0.18.1-0.20261029225123-91b71d964579
 	github.com/lightninglabs/neutrino/cache v1.1.4
 	github.com/lightningnetwork/lightning-onion v1.4.0
 	github.com/lightningnetwork/lnd/actor v0.0.6
@@ -238,4 +238,4 @@ replace github.com/lightningnetwork/lnd/queue => ./queue
 
 replace github.com/lightningnetwork/lnd/ticker => ./ticker
 
-replace github.com/btcsuite/btcwallet => github.com/Roasbeef/btcwallet v0.11.1-0.20261028181915-77f988896c05
+replace github.com/btcsuite/btcwallet => github.com/Roasbeef/btcwallet v0.11.1-0.20261029225415-726a6f83a486

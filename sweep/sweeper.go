@@ -965,7 +965,7 @@ func (s *UtxoSweeper) markInputsPublished(tr *TxRecord, set InputSet) error {
 
 // markInputsPublishFailed marks the list of inputs as failed to be published.
 func (s *UtxoSweeper) markInputsPublishFailed(set InputSet,
-	feeRate chainfee.SatPerKWeight) {
+	feeRate fn.Option[fn.Option[chainfee.SatPerKWeight]]) {
 
 	// Reschedule sweep.
 	for _, inp := range set.Inputs() {
@@ -994,14 +994,14 @@ func (s *UtxoSweeper) markInputsPublishFailed(set InputSet,
 		// Update the input's state.
 		pi.state = PublishFailed
 
-		log.Debugf("Input(%v): updating params: starting fee rate "+
-			"[%v -> %v]", op, pi.params.StartingFeeRate,
-			feeRate)
-
-		// Update the input using the fee rate specified from the
-		// BumpResult, which should be the starting fee rate to use for
-		// the next sweeping attempt.
-		pi.params.StartingFeeRate = fn.Some(feeRate)
+		// An absent update preserves the rate. A present update may
+		// clear it so that the next attempt uses the estimator.
+		feeRate.WhenSome(func(rate fn.Option[chainfee.SatPerKWeight]) {
+			log.Debugf("Input(%v): updating starting fee rate "+
+				"[%v -> %v]", op,
+				pi.params.StartingFeeRate, rate)
+			pi.params.StartingFeeRate = rate
+		})
 	}
 }
 
@@ -1719,7 +1719,12 @@ func (s *UtxoSweeper) handleBumpEventTxFailed(resp *bumpResp) {
 	// the inputs specified by the set.
 	//
 	// TODO(yy): should we also remove the failed tx from db?
-	s.markInputsPublishFailed(resp.set, resp.result.FeeRate)
+	feeRate := fn.Some(fn.Some(r.FeeRate))
+	switch {
+	case errors.Is(r.Err, errSpendCheckFailed):
+		feeRate = fn.None[fn.Option[chainfee.SatPerKWeight]]()
+	}
+	s.markInputsPublishFailed(resp.set, feeRate)
 }
 
 // handleBumpEventTxReplaced handles the case where the sweeping tx has been
@@ -1970,7 +1975,7 @@ func (s *UtxoSweeper) handleUnknownSpendTx(inp *SweeperInput, tx *wire.MsgTx) {
 func (s *UtxoSweeper) handleBumpEventTxUnknownSpend(r *bumpResp) {
 	// Mark the inputs as publish failed, which means they will be retried
 	// later.
-	s.markInputsPublishFailed(r.set, r.result.FeeRate)
+	s.markInputsPublishFailed(r.set, fn.Some(fn.Some(r.result.FeeRate)))
 
 	// Get all the inputs that are not spent in the current sweeping tx.
 	spentInputs := r.result.SpentInputs

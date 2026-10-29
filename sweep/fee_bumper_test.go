@@ -2080,13 +2080,63 @@ func TestHasInputsSpent(t *testing.T) {
 	}
 
 	// Call the method under test.
-	result := tp.getSpentInputs(record)
+	result, err := tp.getSpentInputs(record)
+	require.NoError(t, err)
 
 	// Assert the expected map is created.
 	expected := map[wire.OutPoint]*wire.MsgTx{
 		op1: spendingTx1,
 	}
 	require.Equal(t, expected, result)
+}
+
+// TestSpendNotificationFailure ensures failed checks never classify inputs.
+func TestSpendNotificationFailure(t *testing.T) {
+	for _, tc := range []struct {
+		name   string
+		err    error
+		closed bool
+	}{
+		{name: "registration", err: fmt.Errorf("registration failed")},
+		{
+			name: "shutdown",
+			err:  chainntnfs.ErrChainNotifierShuttingDown,
+		},
+		{
+			name: "closed", closed: true,
+			err: chainntnfs.ErrChainNotifierShuttingDown,
+		},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			tp, m := createTestPublisher(t)
+			req := createTestBumpRequest()
+			op := req.Inputs[0].OutPoint()
+			var event *chainntnfs.SpendEvent
+			err := tc.err
+			if tc.closed {
+				spends := make(chan *chainntnfs.SpendDetail)
+				close(spends)
+				event = &chainntnfs.SpendEvent{
+					Spend: spends, Cancel: func() {},
+				}
+				err = nil
+			}
+			m.notifier.On("RegisterSpendNtfn", &op, mock.Anything,
+				mock.Anything).Return(event, err).Twice()
+			r := &monitorRecord{requestID: 1, req: req}
+			result := tp.handleMissingInputs(r)
+			require.Equal(t, TxFailed, result.Event)
+			if tc.closed {
+				require.ErrorContains(t, result.Err, "closed")
+			} else {
+				require.ErrorIs(t, result.Err, tc.err)
+			}
+			tp.records.Store(r.requestID, r)
+			tp.processRecords()
+			_, found := tp.records.Load(r.requestID)
+			require.True(t, found)
+		})
+	}
 }
 
 // createTestSpendEvent creates a SpendEvent which places the specified tx in

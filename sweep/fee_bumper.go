@@ -47,6 +47,9 @@ var (
 	// ErrInputMissing is returned when a given input no longer exists,
 	// e.g., spending from an orphan tx.
 	ErrInputMissing = errors.New("input no longer exists")
+
+	// errSpendCheckFailed identifies an inconclusive spend check.
+	errSpendCheckFailed = errors.New("spend check failed")
 )
 
 var (
@@ -682,9 +685,20 @@ func (t *TxPublisher) createAndCheckTx(r *monitorRecord) (*sweepTxCtx, error) {
 // in another tx, or the input is referencing an orphan. When the input is
 // spent, it will be handled via the TxUnknownSpend flow by creating a
 // TxUnknownSpend bump result, otherwise, a TxFatal bump result is returned.
+// A failed spend check yields a retryable TxFailed result.
 func (t *TxPublisher) handleMissingInputs(r *monitorRecord) *BumpResult {
 	// Get the spending txns.
-	spends := t.getSpentInputs(r)
+	spends, err := t.getSpentInputs(r)
+	if err != nil {
+		return &BumpResult{
+			Event:     TxFailed,
+			Tx:        r.tx,
+			requestID: r.requestID,
+			Err: fmt.Errorf(
+				"%w: %w", errSpendCheckFailed, err,
+			),
+		}
+	}
 
 	// Attach the spending txns.
 	r.spentInputs = spends
@@ -980,7 +994,12 @@ func (t *TxPublisher) processRecords() {
 		log.Tracef("Checking monitor recordID=%v", requestID)
 
 		// Check whether the inputs have already been spent.
-		spends := t.getSpentInputs(r)
+		spends, err := t.getSpentInputs(r)
+		if err != nil {
+			log.Errorf("Unable to check spends for record %v: %v",
+				requestID, err)
+			return nil
+		}
 
 		// If the any of the inputs has been spent, the record will be
 		// marked as failed or confirmed.
@@ -1395,9 +1414,10 @@ func (t *TxPublisher) isUnknownSpent(r *monitorRecord,
 
 // getSpentInputs performs a non-blocking read on the spending subscriptions to
 // see whether any of the monitored inputs has been spent. A map of inputs with
-// their spending txns are returned if found.
+// their spending txns are returned if found. An error indicates that the
+// inputs could not be checked reliably.
 func (t *TxPublisher) getSpentInputs(
-	r *monitorRecord) map[wire.OutPoint]*wire.MsgTx {
+	r *monitorRecord) (map[wire.OutPoint]*wire.MsgTx, error) {
 
 	// Create a slice to record the inputs spent.
 	spentInputs := make(map[wire.OutPoint]*wire.MsgTx, len(r.req.Inputs))
@@ -1425,10 +1445,10 @@ func (t *TxPublisher) getSpentInputs(
 			&op, inp.SignDesc().Output.PkScript, heightHint,
 		)
 		if err != nil {
-			log.Criticalf("Failed to register spend ntfn for "+
-				"input=%v: %v", op, err)
-
-			return nil
+			return nil, fmt.Errorf(
+				"register spend notification for %v: %w",
+				op, err,
+			)
 		}
 
 		// Remove the subscription when exit.
@@ -1438,9 +1458,9 @@ func (t *TxPublisher) getSpentInputs(
 		select {
 		case spend, ok := <-spendEvent.Spend:
 			if !ok {
-				log.Debugf("Spend ntfn for %v canceled", op)
-
-				continue
+				return nil, fmt.Errorf(
+					"spend notification for %v closed", op,
+				)
 			}
 
 			spendingTx := spend.SpendingTx
@@ -1456,7 +1476,7 @@ func (t *TxPublisher) getSpentInputs(
 		}
 	}
 
-	return spentInputs
+	return spentInputs, nil
 }
 
 // calcCurrentConfTarget calculates the current confirmation target based on

@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"github.com/lightningnetwork/lnd/channeldb"
+	"github.com/lightningnetwork/lnd/chanstate"
 	"github.com/lightningnetwork/lnd/fwdresponse"
 	"github.com/lightningnetwork/lnd/htlcswitch/hop"
 	"github.com/lightningnetwork/lnd/lnwire"
@@ -293,7 +294,7 @@ func commitFwdResponseTestCircuit(t *testing.T, s *Switch, inKey,
 
 	hash := sha256.Sum256([]byte(inKey.String()))
 	circuit := &PaymentCircuit{
-		AddRef: channeldb.AddRef{
+		AddRef: chanstate.AddRef{
 			Height: 4,
 			Index:  2,
 		},

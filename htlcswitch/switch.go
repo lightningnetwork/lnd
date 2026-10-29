@@ -419,7 +419,7 @@ type Switch struct {
 	// pendingSettleFails is the set of settle/fail entries that we need to
 	// ack in the forwarding package of the outgoing link. This was added to
 	// make pipelining settles more efficient.
-	pendingSettleFails []channeldb.SettleFailRef
+	pendingSettleFails []chanstate.SettleFailRef
 
 	// resMsgStore is used to store the set of ResolutionMsg that come from
 	// contractcourt. This is used so the Switch can properly forward them,
@@ -1477,7 +1477,7 @@ func (s *Switch) closeCircuit(pkt *htlcPacket) (*PaymentCircuit, error) {
 // forwarding package of the outgoing link for a payment circuit. We do this if
 // we're the originator of the payment, so the link stops attempting to
 // re-broadcast.
-func (s *Switch) ackSettleFail(settleFailRefs ...channeldb.SettleFailRef) error {
+func (s *Switch) ackSettleFail(settleFailRefs ...chanstate.SettleFailRef) error {
 	return kvdb.Batch(s.cfg.DB, func(tx kvdb.RwTx) error {
 		return s.cfg.SwitchPackager.AckSettleFails(tx, settleFailRefs...)
 	})
@@ -2071,9 +2071,9 @@ func (s *Switch) reforwardResponses() error {
 
 // loadChannelFwdPkgs loads all forwarding packages owned by the `source` short
 // channel identifier.
-func (s *Switch) loadChannelFwdPkgs(source lnwire.ShortChannelID) ([]*channeldb.FwdPkg, error) {
+func (s *Switch) loadChannelFwdPkgs(source lnwire.ShortChannelID) ([]*chanstate.FwdPkg, error) {
 
-	var fwdPkgs []*channeldb.FwdPkg
+	var fwdPkgs []*chanstate.FwdPkg
 	if err := kvdb.View(s.cfg.DB, func(tx kvdb.RTx) error {
 		var err error
 		fwdPkgs, err = s.cfg.SwitchPackager.LoadChannelFwdPkgs(
@@ -2096,7 +2096,7 @@ func (s *Switch) loadChannelFwdPkgs(source lnwire.ShortChannelID) ([]*channeldb.
 // outgoing link never comes back online.
 //
 // NOTE: This should mimic the behavior processRemoteSettleFails.
-func (s *Switch) reforwardSettleFails(fwdPkgs []*channeldb.FwdPkg) {
+func (s *Switch) reforwardSettleFails(fwdPkgs []*chanstate.FwdPkg) {
 	for _, fwdPkg := range fwdPkgs {
 		switchPackets := make([]*htlcPacket, 0, len(fwdPkg.SettleFails))
 		for i, update := range fwdPkg.SettleFails {
@@ -2140,7 +2140,7 @@ func (s *Switch) reforwardSettleFails(fwdPkgs []*channeldb.FwdPkg) {
 				failPacket := &htlcPacket{
 					outgoingChanID: fwdPkg.Source,
 					outgoingHTLCID: msg.ID,
-					destRef: &channeldb.SettleFailRef{
+					destRef: &chanstate.SettleFailRef{
 						Source: fwdPkg.Source,
 						Height: fwdPkg.Height,
 						Index:  uint16(i),

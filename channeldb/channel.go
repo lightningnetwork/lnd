@@ -85,10 +85,6 @@ type (
 	// HTLC is the on-disk representation of a hash time-locked contract.
 	HTLC = cstate.HTLC
 
-	// LogUpdate represents a pending update to the remote commitment
-	// chain.
-	LogUpdate = cstate.LogUpdate
-
 	// CommitDiff represents the delta needed to apply the state
 	// transition between two subsequent commitment states.
 	CommitDiff = cstate.CommitDiff

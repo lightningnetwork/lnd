@@ -4,19 +4,6 @@ import (
 	cstate "github.com/lightningnetwork/lnd/chanstate"
 )
 
-type (
-	// AddRef is used to identify a particular Add in a FwdPkg.
-	AddRef = cstate.AddRef
-
-	// SettleFailRef is used to locate a Settle/Fail in another channel's
-	// FwdPkg.
-	SettleFailRef = cstate.SettleFailRef
-
-	// FwdPkg records all adds, settles, and fails that were locked in as a
-	// result of the remote peer sending us a revocation.
-	FwdPkg = cstate.FwdPkg
-)
-
 const (
 	// FwdStateLockedIn is the starting state for all forwarding packages.
 	FwdStateLockedIn = cstate.FwdStateLockedIn

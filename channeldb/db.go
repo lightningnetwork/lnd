@@ -55,14 +55,6 @@ var (
 	// ErrDryRunMigrationOK signals that a migration executed successful,
 	// but we intentionally did not commit the result.
 	ErrDryRunMigrationOK = errors.New("dry run migration successful")
-
-	// ErrFinalHtlcsBucketNotFound signals that the top-level final htlcs
-	// bucket does not exist.
-	ErrFinalHtlcsBucketNotFound = chanstate.ErrFinalHtlcsBucketNotFound
-
-	// ErrFinalChannelBucketNotFound signals that the channel bucket for
-	// final htlc outcomes does not exist.
-	ErrFinalChannelBucketNotFound = chanstate.ErrFinalChannelBucketNotFound
 )
 
 // migration is a function which takes a prior outdated version of the database
@@ -834,8 +826,6 @@ func getMigrationsToApply(versions []mandatoryVersion,
 
 	return migrations, migrationVersions
 }
-
-var ErrHtlcUnknown = chanstate.ErrHtlcUnknown
 
 // MakeTestInvoiceDB is used to create a test invoice database for testing
 // purposes. It simply calls into MakeTestDB so the same modifiers can be used.

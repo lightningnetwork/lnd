@@ -87,6 +87,10 @@ type Bumper interface {
 	// returns a chan that the caller can use to receive updates about the
 	// broadcast result and potential RBF attempts.
 	Broadcast(req *BumpRequest) <-chan *BumpResult
+
+	// NotifyExclusiveGroup excludes alternatives to the winning input,
+	// including requests whose tracked input has already been removed.
+	NotifyExclusiveGroup(uint64, wire.OutPoint)
 }
 
 // BumpEvent represents the event of a fee bumping attempt.
@@ -494,6 +498,8 @@ func (t *TxPublisher) storeInitialRecord(req *BumpRequest) *monitorRecord {
 func (t *TxPublisher) updateRecord(r *monitorRecord,
 	sweepCtx *sweepTxCtx) *monitorRecord {
 
+	// A valid candidate ends the rejected-replacement retention phase.
+	r.retainedReplacement.Store(false)
 	r.tx = sweepCtx.tx
 	r.fee = sweepCtx.fee
 	r.outpointToTxIndex = sweepCtx.outpointToTxIndex
@@ -502,6 +508,30 @@ func (t *TxPublisher) updateRecord(r *monitorRecord,
 	t.records.Store(r.requestID, r)
 
 	return r
+}
+
+// NotifyExclusiveGroup records conclusive exclusion using request membership,
+// independent of the sweeper's live inputs. The winning request stays valid.
+func (t *TxPublisher) NotifyExclusiveGroup(group uint64,
+	winner wire.OutPoint) {
+
+	t.records.ForEach(func(_ uint64, r *monitorRecord) error {
+		if r.req.ExclusiveGroup == nil ||
+			*r.req.ExclusiveGroup != group {
+
+			return nil
+		}
+
+		for _, inp := range r.req.Inputs {
+			if inp.OutPoint() == winner {
+				return nil
+			}
+		}
+
+		r.inputExcluded.Store(true)
+
+		return nil
+	})
 }
 
 // Name returns the name of the transaction publisher consumer.
@@ -702,8 +732,12 @@ func (t *TxPublisher) createAndCheckTx(r *monitorRecord) (*sweepTxCtx, error) {
 		log.Debugf("Tx %v missing inputs, it's likely the input has "+
 			"been spent by others", sweepCtx.tx.TxHash())
 
-		// Make sure to update the record with the latest attempt.
-		t.updateRecord(r, sweepCtx)
+		// Initial missing-input attribution needs its candidate
+		// context. A rejected replacement must leave the accepted
+		// record intact.
+		if r.tx == nil {
+			t.updateRecord(r, sweepCtx)
+		}
 
 		return sweepCtx, ErrInputMissing
 	}
@@ -1366,6 +1400,14 @@ type monitorRecord struct {
 	// spentInputs are the inputs spent by another tx which caused the
 	// current tx failed.
 	spentInputs map[wire.OutPoint]*wire.MsgTx
+
+	// retainedReplacement limits exclusion cleanup to the rejection
+	// retention introduced here, preserving legacy fee-only monitoring.
+	retainedReplacement atomic.Bool
+
+	// inputExcluded carries the sweeper's conclusive decision across
+	// goroutines, regardless of which fact arrives first.
+	inputExcluded atomic.Bool
 }
 
 // Start starts the publisher by subscribing to block epoch updates and kicking
@@ -1790,6 +1832,20 @@ func (t *TxPublisher) handleInitialBroadcast(r *monitorRecord) {
 // NOTE: Must be run as a goroutine to avoid blocking on sending the result.
 func (t *TxPublisher) handleFeeBumpTx(r *monitorRecord, currentHeight int32) {
 	defer t.wg.Done()
+
+	// Confirmed exclusive-group evidence retires rejected retained attempts
+	// even when fee growth has stopped. Bare rejection cannot do so.
+	if r.retainedReplacement.Load() && r.inputExcluded.Load() {
+		t.handleResult(&BumpResult{
+			Event:     TxFailed,
+			Tx:        r.tx,
+			Err:       ErrExclusiveGroupSpend,
+			FeeRate:   r.feeFunction.FeeRate(),
+			requestID: r.requestID,
+		})
+
+		return
+	}
 
 	log.Debugf("Attempting to fee bump tx=%v in record %v", r.tx.TxHash(),
 		r.requestID)
@@ -2432,14 +2488,26 @@ func (t *TxPublisher) handleReplacementTxError(r *monitorRecord,
 		return fn.None[BumpResult]()
 	}
 
-	// At least one of the inputs is missing, which means it has already
-	// been spent by another tx and confirmed. In this case we will handle
-	// it by returning a TxUnknownSpend bump result.
-	if errors.Is(err, ErrInputMissing) {
-		log.Warnf("Fail to fee bump tx %v: %v", oldTx.TxHash(), err)
-		bumpResult := t.handleMissingInputs(r)
+	// Rejection did not displace oldTx. Keep its existing monitoring and
+	// rebroadcast instead of diagnosing standalone probes against it.
+	if errors.Is(err, errMempoolRejected) {
+		r.retainedReplacement.Store(true)
+		return fn.None[BumpResult]()
+	}
 
-		return fn.Some(*bumpResult)
+	if errors.Is(err, ErrInputMissing) {
+		// An inconclusive check cannot displace the accepted tx.
+		// Existing block processing will observe a later actual spend.
+		spends, spendErr := t.getSpentInputs(r)
+		if spendErr != nil || len(spends) == 0 {
+			r.retainedReplacement.Store(true)
+			return fn.None[BumpResult]()
+		}
+		r.spentInputs = spends
+		result := t.createUnknownSpentBumpResult(r)
+		result.Tx = oldTx
+
+		return fn.Some(*result)
 	}
 
 	// Return a failed event to retry the sweep.

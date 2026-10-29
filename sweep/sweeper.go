@@ -52,6 +52,11 @@ type Params struct {
 	// isolation.
 	ExclusiveGroup *uint64
 
+	// ParentConfirmed records caller-known parent confirmation. For an
+	// exclusive group, it excludes alternatives even if this input was
+	// previously removed and is now offered as new.
+	ParentConfirmed bool
+
 	// NoInputBatch prevents this input from being batched with other sweep
 	// inputs. Wallet inputs may still be added to fund the sweep. Unlike an
 	// exclusive group, this does not create a relationship with any other
@@ -762,6 +767,10 @@ func (s *UtxoSweeper) collector() {
 // future sweep transactions that would fail. In addition sweep transactions of
 // those inputs will be removed from the wallet.
 func (s *UtxoSweeper) removeExclusiveGroup(group uint64, op wire.OutPoint) {
+	// Publisher requests can outlive their tracked inputs. Deliver the
+	// exclusion even when no alternative remains in the live input map.
+	s.cfg.Publisher.NotifyExclusiveGroup(group, op)
+
 	for outpoint, input := range s.inputs {
 
 		// Skip the input that caused the exclusive group to be removed.
@@ -1284,6 +1293,12 @@ func (s *UtxoSweeper) handleNewInput(input *sweepInputMessage) error {
 		s.handleExistingInput(input, pi)
 
 		return nil
+	}
+
+	// Diagnosis may have removed this anchor before its parent confirmed.
+	// The resolver's explicit confirmation still excludes alternatives.
+	if input.params.ParentConfirmed && input.params.ExclusiveGroup != nil {
+		s.removeExclusiveGroup(*input.params.ExclusiveGroup, outpoint)
 	}
 
 	// This is a new input, and we want to query the mempool to see if this

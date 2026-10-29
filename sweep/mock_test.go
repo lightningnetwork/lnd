@@ -295,6 +295,12 @@ func (m *MockBumper) Broadcast(req *BumpRequest) <-chan *BumpResult {
 	return args.Get(0).(chan *BumpResult)
 }
 
+// NotifyExclusiveGroup verifies conclusive group decisions forwarded to the
+// publisher, including when no tracked alternative remains.
+func (m *MockBumper) NotifyExclusiveGroup(group uint64, winner wire.OutPoint) {
+	m.Called(group, winner)
+}
+
 // MockFeeFunction is a mock implementation of the FeeFunction interface.
 type MockFeeFunction struct {
 	mock.Mock

@@ -243,6 +243,10 @@ func (c *anchorResolver) Launch() error {
 			// Use the chan id as the exclusive group. This prevents
 			// any of the anchors from being batched together.
 			ExclusiveGroup: &exclusiveGroup,
+
+			// Confirmation invalidates alternative commitments even
+			// if this anchor was removed from the sweeper earlier.
+			ParentConfirmed: true,
 		},
 	)
 

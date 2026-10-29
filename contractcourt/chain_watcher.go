@@ -1174,7 +1174,7 @@ func (c *chainWatcher) handlePossibleBreach(commitSpend *chainntnfs.SpendDetail,
 
 	switch {
 	// If we had no log entry at this height, this was not a revoked state.
-	case err == channeldb.ErrLogEntryNotFound:
+	case err == chanstate.ErrLogEntryNotFound:
 		return false, nil
 	case err == channeldb.ErrNoPastDeltas:
 		return false, nil

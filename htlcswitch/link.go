@@ -15,7 +15,6 @@ import (
 	"github.com/btcsuite/btcd/btcutil/v2"
 	"github.com/btcsuite/btcd/wire/v2"
 	"github.com/btcsuite/btclog/v2"
-	"github.com/lightningnetwork/lnd/channeldb"
 	"github.com/lightningnetwork/lnd/chanstate"
 	"github.com/lightningnetwork/lnd/contractcourt"
 	"github.com/lightningnetwork/lnd/fn/v2"
@@ -1149,7 +1148,7 @@ func (l *channelLink) resolveFwdPkgs(ctx context.Context) error {
 // collection on the package.
 func (l *channelLink) resolveFwdPkg(fwdPkg *chanstate.FwdPkg) error {
 	// Remove any completed packages to clear up space.
-	if fwdPkg.State == channeldb.FwdStateCompleted {
+	if fwdPkg.State == chanstate.FwdStateCompleted {
 		l.log.Debugf("removing completed fwd pkg for height=%d",
 			fwdPkg.Height)
 
@@ -1233,7 +1232,7 @@ func (l *channelLink) loadAndRemove() error {
 
 	var removeHeights []uint64
 	for _, fwdPkg := range fwdPkgs {
-		if fwdPkg.State != channeldb.FwdStateCompleted {
+		if fwdPkg.State != chanstate.FwdStateCompleted {
 			continue
 		}
 
@@ -2923,7 +2922,7 @@ func (l *channelLink) processRemoteSettleFails(fwdPkg *chanstate.FwdPkg) {
 	}
 
 	// Exit early if the fwdPkg is already processed.
-	if fwdPkg.State == channeldb.FwdStateCompleted {
+	if fwdPkg.State == chanstate.FwdStateCompleted {
 		l.log.Debugf("skipped processing completed fwdPkg %v", fwdPkg)
 
 		return
@@ -3035,7 +3034,7 @@ func (l *channelLink) processRemoteSettleFails(fwdPkg *chanstate.FwdPkg) {
 //nolint:funlen
 func (l *channelLink) processRemoteAdds(fwdPkg *chanstate.FwdPkg) {
 	// Exit early if the fwdPkg is already processed.
-	if fwdPkg.State == channeldb.FwdStateCompleted {
+	if fwdPkg.State == chanstate.FwdStateCompleted {
 		l.log.Debugf("skipped processing completed fwdPkg %v", fwdPkg)
 
 		return
@@ -3058,7 +3057,7 @@ func (l *channelLink) processRemoteAdds(fwdPkg *chanstate.FwdPkg) {
 		// committed by one of our commitment txns. ADDs in this state
 		// are waiting for the rest of the fwding package to get acked
 		// before being garbage collected.
-		if fwdPkg.State == channeldb.FwdStateProcessed &&
+		if fwdPkg.State == chanstate.FwdStateProcessed &&
 			fwdPkg.AckFilter.Contains(uint16(i)) {
 
 			continue
@@ -3086,7 +3085,7 @@ func (l *channelLink) processRemoteAdds(fwdPkg *chanstate.FwdPkg) {
 
 	// If the fwdPkg has already been processed, it means we are
 	// reforwarding the packets again, which happens only on a restart.
-	reforward := fwdPkg.State == channeldb.FwdStateProcessed
+	reforward := fwdPkg.State == chanstate.FwdStateProcessed
 
 	// Atomically decode the incoming htlcs, simultaneously checking for
 	// replay attempts. A particular index in the returned, spare list of
@@ -3275,7 +3274,7 @@ func (l *channelLink) processRemoteAdds(fwdPkg *chanstate.FwdPkg) {
 			)
 
 			switch fwdPkg.State {
-			case channeldb.FwdStateProcessed:
+			case chanstate.FwdStateProcessed:
 				// This add was not forwarded on the previous
 				// processing phase, run it through our
 				// validation pipeline to reproduce an error.
@@ -3392,7 +3391,7 @@ func (l *channelLink) processRemoteAdds(fwdPkg *chanstate.FwdPkg) {
 			// the packet had previously been forwarded, it would
 			// have been added to switchPackets at the top of this
 			// section.
-			if fwdPkg.State == channeldb.FwdStateLockedIn {
+			if fwdPkg.State == chanstate.FwdStateLockedIn {
 				inboundFee := l.cfg.FwrdingPolicy.InboundFee
 
 				//nolint:ll
@@ -3422,7 +3421,7 @@ func (l *channelLink) processRemoteAdds(fwdPkg *chanstate.FwdPkg) {
 
 	// Commit the htlcs we are intending to forward if this package has not
 	// been fully processed.
-	if fwdPkg.State == channeldb.FwdStateLockedIn {
+	if fwdPkg.State == chanstate.FwdStateLockedIn {
 		err := l.channel.SetFwdFilter(fwdPkg.Height, fwdPkg.FwdFilter)
 		if err != nil {
 			l.failf(LinkFailureError{code: ErrInternalError},

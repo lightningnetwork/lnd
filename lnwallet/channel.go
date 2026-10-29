@@ -2566,7 +2566,7 @@ func createBreachRetribution(revokedLog *chanstate.RevocationLog,
 	ourOutpoint := wire.OutPoint{
 		Hash: commitHash.Val,
 	}
-	if revokedLog.OurOutputIndex.Val != channeldb.OutputIndexEmpty {
+	if revokedLog.OurOutputIndex.Val != chanstate.OutputIndexEmpty {
 		ourOutpoint.Index = uint32(revokedLog.OurOutputIndex.Val)
 
 		// If the spend transaction is provided, then we use it to get
@@ -2605,7 +2605,7 @@ func createBreachRetribution(revokedLog *chanstate.RevocationLog,
 	theirOutpoint := wire.OutPoint{
 		Hash: commitHash.Val,
 	}
-	if revokedLog.TheirOutputIndex.Val != channeldb.OutputIndexEmpty {
+	if revokedLog.TheirOutputIndex.Val != chanstate.OutputIndexEmpty {
 		theirOutpoint.Index = uint32(revokedLog.TheirOutputIndex.Val)
 
 		// If the spend transaction is provided, then we use it to get
@@ -2716,7 +2716,7 @@ func createBreachRetributionLegacy(revokedLog *chanstate.ChannelCommitment,
 			continue
 		}
 
-		entry, err := channeldb.NewHTLCEntryFromHTLC(htlc)
+		entry, err := chanstate.NewHTLCEntryFromHTLC(htlc)
 		if err != nil {
 			return nil, 0, 0, err
 		}
@@ -6119,7 +6119,7 @@ func (lc *LightningChannel) ReceiveRevocation(revMsg *lnwire.RevokeAndAck) (
 	// Now that we have gathered the set of HTLCs to forward, separated by
 	// type, construct a forwarding package using the height that the remote
 	// commitment chain will be extended after persisting the revocation.
-	fwdPkg := channeldb.NewFwdPkg(
+	fwdPkg := chanstate.NewFwdPkg(
 		source, remoteChainTail, addUpdatesToForward,
 		settleFailUpdatesToForward,
 	)

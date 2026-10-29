@@ -10489,7 +10489,7 @@ func TestCreateBreachRetribution(t *testing.T) {
 	// Create a dummy revocation log.
 	ourAmtMsat := lnwire.MilliSatoshi(ourAmt * 1000)
 	theirAmtMsat := lnwire.MilliSatoshi(theirAmt * 1000)
-	revokedLog := channeldb.NewRevocationLog(
+	revokedLog := chanstate.NewRevocationLog(
 		uint16(localIndex), uint16(remoteIndex), commitHash,
 		fn.Some(ourAmtMsat), fn.Some(theirAmtMsat),
 		[]*chanstate.HTLCEntry{htlc}, fn.None[tlv.Blob](),
@@ -10497,11 +10497,11 @@ func TestCreateBreachRetribution(t *testing.T) {
 
 	// Create a log with an empty local output index.
 	revokedLogNoLocal := revokedLog
-	revokedLogNoLocal.OurOutputIndex.Val = channeldb.OutputIndexEmpty
+	revokedLogNoLocal.OurOutputIndex.Val = chanstate.OutputIndexEmpty
 
 	// Create a log with an empty remote output index.
 	revokedLogNoRemote := revokedLog
-	revokedLogNoRemote.TheirOutputIndex.Val = channeldb.OutputIndexEmpty
+	revokedLogNoRemote.TheirOutputIndex.Val = chanstate.OutputIndexEmpty
 
 	testCases := []struct {
 		name             string
@@ -10913,7 +10913,7 @@ func testNewBreachRetribution(t *testing.T, chanType chanstate.ChannelType) {
 		fn.Some[AuxLeafStore](&MockAuxLeafStore{}),
 		fn.Some[AuxContractResolver](&MockAuxContractResolver{}),
 	)
-	require.ErrorIs(t, err, channeldb.ErrLogEntryNotFound)
+	require.ErrorIs(t, err, chanstate.ErrLogEntryNotFound)
 
 	// Once again, repeat the check for the case when no breach tx is
 	// provided.
@@ -10922,7 +10922,7 @@ func testNewBreachRetribution(t *testing.T, chanType chanstate.ChannelType) {
 		fn.Some[AuxLeafStore](&MockAuxLeafStore{}),
 		fn.Some[AuxContractResolver](&MockAuxContractResolver{}),
 	)
-	require.ErrorIs(t, err, channeldb.ErrLogEntryNotFound)
+	require.ErrorIs(t, err, chanstate.ErrLogEntryNotFound)
 }
 
 // TestExtractPayDescs asserts that `extractPayDescs` can correctly turn a

@@ -10,7 +10,6 @@ import (
 	"github.com/btcsuite/btcd/chainhash/v2"
 	"github.com/btcsuite/btcd/txscript/v2"
 	"github.com/btcsuite/btcd/wire/v2"
-	"github.com/lightningnetwork/lnd/channeldb"
 	"github.com/lightningnetwork/lnd/chanstate"
 	"github.com/lightningnetwork/lnd/fn/v2"
 	"github.com/lightningnetwork/lnd/input"
@@ -1331,8 +1330,8 @@ func findOutputIndexesFromRemote(revocationPreimage *chainhash.Hash,
 	leafStore fn.Option[AuxLeafStore]) (uint32, uint32, error) {
 
 	// Init the output indexes as empty.
-	ourIndex := uint32(channeldb.OutputIndexEmpty)
-	theirIndex := uint32(channeldb.OutputIndexEmpty)
+	ourIndex := uint32(chanstate.OutputIndexEmpty)
+	theirIndex := uint32(chanstate.OutputIndexEmpty)
 
 	chanCommit := chanState.RemoteCommitment
 	_, commitmentPoint := btcec.PrivKeyFromBytes(revocationPreimage[:])

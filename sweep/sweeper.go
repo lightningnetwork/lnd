@@ -1724,6 +1724,12 @@ func (s *UtxoSweeper) handleBumpEventTxFailed(resp *bumpResp) {
 	switch {
 	case errors.Is(r.Err, errSpendCheckFailed):
 		feeRate = fn.None[fn.Option[chainfee.SatPerKWeight]]()
+	case errors.Is(r.Err, errStartingFeeRateTooHigh):
+		log.Warnf("Requested starting fee rate can't be paid from "+
+			"the budget, using the fee estimator instead: %v",
+			r.Err)
+
+		feeRate = fn.Some(fn.None[chainfee.SatPerKWeight]())
 	}
 	s.markInputsPublishFailed(resp.set, feeRate)
 }

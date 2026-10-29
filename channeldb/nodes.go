@@ -14,13 +14,6 @@ var (
 	nodeInfoBucket = linknode.NodeInfoBucket
 )
 
-// putLinkNode serializes then writes the encoded version of the passed link
-// node into the nodeMetaBucket. This function is provided in order to allow
-// the ability to re-use a database transaction across many operations.
-func putLinkNode(nodeMetaBucket kvdb.RwBucket, l *linknode.LinkNode) error {
-	return linknode.PutLinkNode(nodeMetaBucket, l)
-}
-
 func deleteLinkNode(tx kvdb.RwTx, identity *btcec.PublicKey) error {
 	return linknode.DeleteLinkNodeTx(tx, identity)
 }

@@ -200,8 +200,8 @@ func createTestPeerWithChannel(t *testing.T, updateChan func(a,
 
 	aliceCommitTx, bobCommitTx, err := lnwallet.CreateCommitmentTxns(
 		channelBal, channelBal, &aliceCfg, &bobCfg, aliceCommitPoint,
-		bobCommitPoint, *fundingTxIn, chanstate.SingleFunderTweaklessBit,
-		isAliceInitiator, 0,
+		bobCommitPoint, *fundingTxIn,
+		chanstate.SingleFunderTweaklessBit, isAliceInitiator, 0,
 	)
 	if err != nil {
 		return nil, err

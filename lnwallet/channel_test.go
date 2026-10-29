@@ -966,8 +966,9 @@ func testCoopClose(t *testing.T, testCase coopCloseTestCase) {
 // incoming and outgoing HTLC's.
 func TestForceClose(t *testing.T) {
 	t.Run("tweakless", func(t *testing.T) {
+		chanType := chanstate.SingleFunderTweaklessBit
 		testForceClose(t, &forceCloseTestCase{
-			chanType:             chanstate.SingleFunderTweaklessBit,
+			chanType:             chanType,
 			expectedCommitWeight: input.CommitWeight,
 		})
 	})
@@ -5010,14 +5011,17 @@ func TestChanSyncFailure(t *testing.T) {
 	// do this in order to be able to continue to update the commitment
 	// state for our test scenarios.
 	clearBorkedState := func() {
+		borkedStatus := chanstate.ChanStatusLocalDataLoss |
+			chanstate.ChanStatusBorked
+
 		err = aliceChannel.channelState.ClearChanStatus(
-			chanstate.ChanStatusLocalDataLoss | chanstate.ChanStatusBorked,
+			borkedStatus,
 		)
 		if err != nil {
 			t.Fatalf("unable to update channel state: %v", err)
 		}
 		err = bobChannel.channelState.ClearChanStatus(
-			chanstate.ChanStatusLocalDataLoss | chanstate.ChanStatusBorked,
+			borkedStatus,
 		)
 		if err != nil {
 			t.Fatalf("unable to update channel state: %v", err)
@@ -8481,7 +8485,7 @@ func TestForceCloseBorkedState(t *testing.T) {
 	// At this point, all channel mutating methods should now fail as they
 	// shouldn't be able to proceed if the channel is borked.
 	_, _, err = aliceChannel.ReceiveRevocation(revokeMsg)
-	if err != chanstate.ErrChanBorked {
+	if !errors.Is(err, chanstate.ErrChanBorked) {
 		t.Fatalf("advance commitment tail should have failed")
 	}
 
@@ -8489,11 +8493,11 @@ func TestForceCloseBorkedState(t *testing.T) {
 	// ReceiveRevocation call will fail before it's actually advanced.
 	aliceChannel.commitChains.Remote.advanceTail()
 	_, err = aliceChannel.SignNextCommitment(ctxb)
-	if err != chanstate.ErrChanBorked {
+	if !errors.Is(err, chanstate.ErrChanBorked) {
 		t.Fatalf("sign commitment should have failed: %v", err)
 	}
 	_, _, _, err = aliceChannel.RevokeCurrentCommitment()
-	if err != chanstate.ErrChanBorked {
+	if !errors.Is(err, chanstate.ErrChanBorked) {
 		t.Fatalf("append remove chain tail should have failed")
 	}
 }

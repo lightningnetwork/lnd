@@ -2,6 +2,7 @@ package contractcourt
 
 import (
 	"bytes"
+	"errors"
 	"fmt"
 	"slices"
 	"sync"
@@ -679,7 +680,7 @@ func newChainSet(chanState *chanstate.OpenChannel) (*chainSet, error) {
 	// their pending commitment chain tip if it exists.
 	remoteStateNum := remoteCommit.CommitHeight
 	remoteChainTip, err := chanState.RemoteCommitChainTip()
-	if err != nil && err != chanstate.ErrNoPendingCommit {
+	if err != nil && !errors.Is(err, chanstate.ErrNoPendingCommit) {
 		return nil, fmt.Errorf("unable to obtain chain tip for "+
 			"ChannelPoint(%v): %v",
 			chanState.FundingOutpoint, err)
@@ -1174,7 +1175,7 @@ func (c *chainWatcher) handlePossibleBreach(commitSpend *chainntnfs.SpendDetail,
 
 	switch {
 	// If we had no log entry at this height, this was not a revoked state.
-	case err == chanstate.ErrLogEntryNotFound:
+	case errors.Is(err, chanstate.ErrLogEntryNotFound):
 		return false, nil
 	case err == channeldb.ErrNoPastDeltas:
 		return false, nil

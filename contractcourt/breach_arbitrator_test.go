@@ -2272,8 +2272,8 @@ func createInitChannels(t *testing.T) (
 
 	aliceCommitTx, bobCommitTx, err := lnwallet.CreateCommitmentTxns(
 		channelBal, channelBal, &aliceCfg, &bobCfg, aliceCommitPoint,
-		bobCommitPoint, *fundingTxIn, chanstate.SingleFunderTweaklessBit,
-		false, 0,
+		bobCommitPoint, *fundingTxIn,
+		chanstate.SingleFunderTweaklessBit, false, 0,
 	)
 	if err != nil {
 		return nil, nil, err

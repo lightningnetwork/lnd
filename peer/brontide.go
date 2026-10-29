@@ -4795,7 +4795,9 @@ func (p *Brontide) initRbfChanCloser(
 // party (for w/e reason), but crashed before the close was complete.
 //
 //nolint:ll
-type shutdownInit = fn.Option[fn.Either[*htlcswitch.ChanClose, chanstate.ShutdownInfo]]
+type shutdownResult = fn.Either[*htlcswitch.ChanClose, chanstate.ShutdownInfo]
+
+type shutdownInit = fn.Option[shutdownResult]
 
 // shutdownStartFeeRate returns the fee rate that should be used for the
 // shutdown.  This returns a doubly wrapped option as the shutdown info might

@@ -973,7 +973,7 @@ func createTaprootTestChannelsForVectors(tc *taprootTestContext,
 
 	var commitHeight = tc.commitHeight - 1
 
-	remoteCommit := channeldb.ChannelCommitment{
+	remoteCommit := chanstate.ChannelCommitment{
 		CommitHeight: commitHeight,
 		LocalBalance: lnwire.NewMSatFromSatoshis(remoteBalance),
 		RemoteBalance: lnwire.NewMSatFromSatoshis(
@@ -984,7 +984,7 @@ func createTaprootTestChannelsForVectors(tc *taprootTestContext,
 		CommitTx:  remoteCommitTx,
 		CommitSig: testSigBytes,
 	}
-	localCommit := channeldb.ChannelCommitment{
+	localCommit := chanstate.ChannelCommitment{
 		CommitHeight: commitHeight,
 		LocalBalance: lnwire.NewMSatFromSatoshis(
 			localBalance - commitFee - anchorAmt,

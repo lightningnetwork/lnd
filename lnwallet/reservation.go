@@ -502,13 +502,13 @@ func NewChannelReservation(capacity, localFundingAmt btcutil.Amount,
 			IsInitiator:  initiator,
 			ChannelFlags: req.Flags,
 			Capacity:     capacity,
-			LocalCommitment: channeldb.ChannelCommitment{
+			LocalCommitment: chanstate.ChannelCommitment{
 				LocalBalance:  ourBalance,
 				RemoteBalance: theirBalance,
 				FeePerKw:      btcutil.Amount(req.CommitFeePerKw),
 				CommitFee:     commitFee,
 			},
-			RemoteCommitment: channeldb.ChannelCommitment{
+			RemoteCommitment: chanstate.ChannelCommitment{
 				LocalBalance:  ourBalance,
 				RemoteBalance: theirBalance,
 				FeePerKw:      btcutil.Amount(req.CommitFeePerKw),

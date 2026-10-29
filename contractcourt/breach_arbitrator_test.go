@@ -2291,7 +2291,7 @@ func createInitChannels(t *testing.T) (
 	commitFee := feePerKw.FeeForWeight(input.CommitWeight)
 
 	// TODO(roasbeef): need to factor in commit fee?
-	aliceCommit := channeldb.ChannelCommitment{
+	aliceCommit := chanstate.ChannelCommitment{
 		CommitHeight:  0,
 		LocalBalance:  lnwire.NewMSatFromSatoshis(channelBal - commitFee),
 		RemoteBalance: lnwire.NewMSatFromSatoshis(channelBal),
@@ -2300,7 +2300,7 @@ func createInitChannels(t *testing.T) (
 		CommitTx:      aliceCommitTx,
 		CommitSig:     bytes.Repeat([]byte{1}, 71),
 	}
-	bobCommit := channeldb.ChannelCommitment{
+	bobCommit := chanstate.ChannelCommitment{
 		CommitHeight:  0,
 		LocalBalance:  lnwire.NewMSatFromSatoshis(channelBal),
 		RemoteBalance: lnwire.NewMSatFromSatoshis(channelBal - commitFee),

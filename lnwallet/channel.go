@@ -415,11 +415,11 @@ func (c *commitment) populateHtlcIndexes(chanType channeldb.ChannelType,
 // toDiskCommit converts the target commitment into a format suitable to be
 // written to disk after an accepted state transition.
 func (c *commitment) toDiskCommit(
-	whoseCommit lntypes.ChannelParty) *channeldb.ChannelCommitment {
+	whoseCommit lntypes.ChannelParty) *chanstate.ChannelCommitment {
 
 	numHtlcs := len(c.outgoingHTLCs) + len(c.incomingHTLCs)
 
-	commit := &channeldb.ChannelCommitment{
+	commit := &chanstate.ChannelCommitment{
 		CommitHeight:    c.height,
 		LocalLogIndex:   c.messageIndices.Local,
 		LocalHtlcIndex:  c.ourHtlcIndex,
@@ -647,7 +647,7 @@ func (lc *LightningChannel) extractPayDescs(feeRate chainfee.SatPerKWeight,
 // channel operations after a restart.
 func (lc *LightningChannel) diskCommitToMemCommit(
 	whoseCommit lntypes.ChannelParty,
-	diskCommit *channeldb.ChannelCommitment, localCommitPoint,
+	diskCommit *chanstate.ChannelCommitment, localCommitPoint,
 	remoteCommitPoint *btcec.PublicKey) (*commitment, error) {
 
 	// First, we'll need to re-derive the commitment key ring for each
@@ -1502,7 +1502,7 @@ func (lc *LightningChannel) remoteLogUpdateToPayDesc(logUpdate *chanstate.LogUpd
 // to re-sync states with the remote party, and also verify/extend new proposed
 // commitment states.
 func (lc *LightningChannel) restoreCommitState(
-	localCommitState, remoteCommitState *channeldb.ChannelCommitment) error {
+	localCommitState, remoteCommitState *chanstate.ChannelCommitment) error {
 
 	// In order to reconstruct the pkScripts on each of the pending HTLC
 	// outputs (if any) we'll need to regenerate the current revocation for
@@ -2653,7 +2653,7 @@ func createBreachRetribution(revokedLog *chanstate.RevocationLog,
 // createBreachRetributionLegacy creates a partially initiated
 // BreachRetribution using a ChannelCommitment. Returns the constructed
 // retribution, our amount, their amount, and a possible non-nil error.
-func createBreachRetributionLegacy(revokedLog *channeldb.ChannelCommitment,
+func createBreachRetributionLegacy(revokedLog *chanstate.ChannelCommitment,
 	chanState *chanstate.OpenChannel, keyRing *CommitmentKeyRing,
 	commitmentSecret *btcec.PrivateKey,
 	ourScript, theirScript input.ScriptDescriptor,
@@ -7135,7 +7135,7 @@ type UnilateralCloseSummary struct {
 
 	// RemoteCommit is the exact commitment state that the remote party
 	// broadcast.
-	RemoteCommit channeldb.ChannelCommitment
+	RemoteCommit chanstate.ChannelCommitment
 
 	// AnchorResolution contains the data required to sweep our anchor
 	// output. If the channel type doesn't include anchors, the value of
@@ -7156,7 +7156,7 @@ type UnilateralCloseSummary struct {
 // commitPoint.
 func NewUnilateralCloseSummary(chanState *chanstate.OpenChannel,
 	signer input.Signer, commitSpend *chainntnfs.SpendDetail,
-	remoteCommit channeldb.ChannelCommitment, commitPoint *btcec.PublicKey,
+	remoteCommit chanstate.ChannelCommitment, commitPoint *btcec.PublicKey,
 	leafStore fn.Option[AuxLeafStore],
 	auxResolver fn.Option[AuxContractResolver]) (*UnilateralCloseSummary,
 	error) {

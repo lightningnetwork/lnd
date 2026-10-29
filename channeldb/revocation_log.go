@@ -37,7 +37,7 @@ var (
 // ChannelCommitment to construct a revocation log entry and saves them to
 // disk. It also saves our output index and their output index, which are
 // useful when creating breach retribution.
-func putRevocationLog(bucket kvdb.RwBucket, commit *ChannelCommitment,
+func putRevocationLog(bucket kvdb.RwBucket, commit *cstate.ChannelCommitment,
 	ourOutputIndex, theirOutputIndex uint32, noAmtData bool) error {
 
 	return cstate.PutRevocationLog(
@@ -88,6 +88,14 @@ func readTlvStream(r io.Reader, s *tlv.Stream) (tlv.TypeMap, error) {
 	return cstate.ReadTlvStream(r, s)
 }
 
+// fetchOldRevocationLog finds the revocation log from the deprecated
+// sub-bucket.
+func fetchOldRevocationLog(log kvdb.RBucket,
+	updateNum uint64) (cstate.ChannelCommitment, error) {
+
+	return cstate.FetchOldRevocationLog(log, updateNum)
+}
+
 // fetchRevocationLogCompatible finds the revocation log from both the
 // revocationLogBucket and revocationLogBucketDeprecated for compatibility
 // concern. It returns three values,
@@ -97,7 +105,8 @@ func readTlvStream(r io.Reader, s *tlv.Stream) (tlv.TypeMap, error) {
 //     old bucket.
 //   - error, this can happen if the log cannot be found in neither buckets.
 func fetchRevocationLogCompatible(chanBucket kvdb.RBucket,
-	updateNum uint64) (*cstate.RevocationLog, *ChannelCommitment, error) {
+	updateNum uint64) (*cstate.RevocationLog, *cstate.ChannelCommitment,
+	error) {
 
 	return cstate.FetchRevocationLogCompatible(chanBucket, updateNum)
 }

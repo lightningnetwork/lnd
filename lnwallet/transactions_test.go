@@ -941,7 +941,7 @@ func createTestChannelsForVectors(tc *testContext, chanType channeldb.ChannelTyp
 	// to get to the right test point.
 	var commitHeight = tc.commitHeight - 1
 
-	remoteCommit := channeldb.ChannelCommitment{
+	remoteCommit := chanstate.ChannelCommitment{
 		CommitHeight:  commitHeight,
 		LocalBalance:  lnwire.NewMSatFromSatoshis(remoteBalance),
 		RemoteBalance: lnwire.NewMSatFromSatoshis(localBalance - commitFee - anchorAmt),
@@ -950,7 +950,7 @@ func createTestChannelsForVectors(tc *testContext, chanType channeldb.ChannelTyp
 		CommitTx:      remoteCommitTx,
 		CommitSig:     testSigBytes,
 	}
-	localCommit := channeldb.ChannelCommitment{
+	localCommit := chanstate.ChannelCommitment{
 		CommitHeight:  commitHeight,
 		LocalBalance:  lnwire.NewMSatFromSatoshis(localBalance - commitFee - anchorAmt),
 		RemoteBalance: lnwire.NewMSatFromSatoshis(remoteBalance),

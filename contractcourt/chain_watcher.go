@@ -646,15 +646,15 @@ type chainSet struct {
 	commitSet CommitSet
 
 	// remoteCommit is the current commitment of the remote party.
-	remoteCommit channeldb.ChannelCommitment
+	remoteCommit chanstate.ChannelCommitment
 
 	// localCommit is our current commitment.
-	localCommit channeldb.ChannelCommitment
+	localCommit chanstate.ChannelCommitment
 
 	// remotePendingCommit points to the dangling commitment of the remote
 	// party, if it exists. If there's no dangling commitment, then this
 	// pointer will be nil.
-	remotePendingCommit *channeldb.ChannelCommitment
+	remotePendingCommit *chanstate.ChannelCommitment
 }
 
 // newChainSet creates a new chainSet given the current up to date channel
@@ -695,7 +695,7 @@ func newChainSet(chanState *chanstate.OpenChannel) (*chainSet, error) {
 		},
 	}
 
-	var remotePendingCommit *channeldb.ChannelCommitment
+	var remotePendingCommit *chanstate.ChannelCommitment
 	if remoteChainTip != nil {
 		remotePendingCommit = &remoteChainTip.Commitment
 		log.Tracef("ChannelPoint(%v): remote_pending_commit_type=%v, "+
@@ -1269,7 +1269,7 @@ func (c *chainWatcher) handleUnknownRemoteState(
 	// TODO(halseth): can we try to recover some HTLCs?
 	chainSet.commitSet.ConfCommitKey = fn.Some(RemoteHtlcSet)
 	err := c.dispatchRemoteForceClose(
-		commitSpend, channeldb.ChannelCommitment{},
+		commitSpend, chanstate.ChannelCommitment{},
 		chainSet.commitSet, commitPoint,
 	)
 	if err != nil {
@@ -1679,7 +1679,7 @@ func (c *chainWatcher) dispatchLocalForceClose(
 // commitPoint.
 func (c *chainWatcher) dispatchRemoteForceClose(
 	commitSpend *chainntnfs.SpendDetail,
-	remoteCommit channeldb.ChannelCommitment,
+	remoteCommit chanstate.ChannelCommitment,
 	commitSet CommitSet, commitPoint *btcec.PublicKey) error {
 
 	log.Infof("Unilateral close of ChannelPoint(%v) "+

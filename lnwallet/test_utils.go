@@ -283,7 +283,7 @@ func createTestChannels(t *testing.T, chanType channeldb.ChannelType,
 	)
 	bobBalanceMSat := lnwire.NewMSatFromSatoshis(bobBalance)
 
-	aliceLocalCommit := channeldb.ChannelCommitment{
+	aliceLocalCommit := chanstate.ChannelCommitment{
 		CommitHeight:  0,
 		LocalBalance:  aliceBalance,
 		RemoteBalance: bobBalanceMSat,
@@ -292,7 +292,7 @@ func createTestChannels(t *testing.T, chanType channeldb.ChannelType,
 		CommitTx:      aliceCommitTx,
 		CommitSig:     testSigBytes,
 	}
-	aliceRemoteCommit := channeldb.ChannelCommitment{
+	aliceRemoteCommit := chanstate.ChannelCommitment{
 		CommitHeight:  0,
 		LocalBalance:  aliceBalance,
 		RemoteBalance: bobBalanceMSat,
@@ -301,7 +301,7 @@ func createTestChannels(t *testing.T, chanType channeldb.ChannelType,
 		CommitTx:      bobCommitTx,
 		CommitSig:     testSigBytes,
 	}
-	bobLocalCommit := channeldb.ChannelCommitment{
+	bobLocalCommit := chanstate.ChannelCommitment{
 		CommitHeight:  0,
 		LocalBalance:  bobBalanceMSat,
 		RemoteBalance: aliceBalance,
@@ -310,7 +310,7 @@ func createTestChannels(t *testing.T, chanType channeldb.ChannelType,
 		CommitTx:      bobCommitTx,
 		CommitSig:     testSigBytes,
 	}
-	bobRemoteCommit := channeldb.ChannelCommitment{
+	bobRemoteCommit := chanstate.ChannelCommitment{
 		CommitHeight:  0,
 		LocalBalance:  bobBalanceMSat,
 		RemoteBalance: aliceBalance,

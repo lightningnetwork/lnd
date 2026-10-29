@@ -78,10 +78,6 @@ var (
 )
 
 type (
-	// ChannelCommitment is a snapshot of the commitment state at a
-	// particular point in the commitment chain.
-	ChannelCommitment = cstate.ChannelCommitment
-
 	// HTLC is the on-disk representation of a hash time-locked contract.
 	HTLC = cstate.HTLC
 )
@@ -278,7 +274,7 @@ func deserializeCloseChannelSummary(r io.Reader) (
 	return cstate.DeserializeCloseChannelSummary(r)
 }
 
-func serializeChanCommit(w io.Writer, c *ChannelCommitment) error {
+func serializeChanCommit(w io.Writer, c *cstate.ChannelCommitment) error {
 	return cstate.SerializeChanCommit(w, c)
 }
 

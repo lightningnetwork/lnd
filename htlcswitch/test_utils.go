@@ -301,7 +301,7 @@ func createTestChannel(t *testing.T, alicePrivKey, bobPrivKey []byte,
 		Port: 18556,
 	}
 
-	aliceCommit := channeldb.ChannelCommitment{
+	aliceCommit := chanstate.ChannelCommitment{
 		CommitHeight:  0,
 		LocalBalance:  lnwire.NewMSatFromSatoshis(aliceAmount - commitFee),
 		RemoteBalance: lnwire.NewMSatFromSatoshis(bobAmount),
@@ -310,7 +310,7 @@ func createTestChannel(t *testing.T, alicePrivKey, bobPrivKey []byte,
 		CommitTx:      aliceCommitTx,
 		CommitSig:     bytes.Repeat([]byte{1}, 71),
 	}
-	bobCommit := channeldb.ChannelCommitment{
+	bobCommit := chanstate.ChannelCommitment{
 		CommitHeight:  0,
 		LocalBalance:  lnwire.NewMSatFromSatoshis(bobAmount),
 		RemoteBalance: lnwire.NewMSatFromSatoshis(aliceAmount - commitFee),

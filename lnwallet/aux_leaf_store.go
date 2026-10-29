@@ -186,7 +186,7 @@ type AuxLeafStore interface {
 	// correspond to the passed aux blob, and an existing channel
 	// commitment.
 	FetchLeavesFromCommit(chanState AuxChanState,
-		commit channeldb.ChannelCommitment, keyRing CommitmentKeyRing,
+		commit chanstate.ChannelCommitment, keyRing CommitmentKeyRing,
 		whoseCommit lntypes.ChannelParty) fn.Result[CommitDiffAuxResult]
 
 	// FetchLeavesFromRevocation attempts to fetch the auxiliary leaves

@@ -231,7 +231,7 @@ var (
 			// Create a top level bucket which holds outpoint
 			// information.
 			number:    19,
-			migration: mig.CreateTLB(outpointBucket),
+			migration: mig.CreateTLB(chanstate.OutpointBucketKey()),
 		},
 		{
 			// Migrate some data to the outpoint index.
@@ -279,7 +279,7 @@ var (
 		},
 		{
 			number:    28,
-			migration: mig.CreateTLB(chanIDBucket),
+			migration: mig.CreateTLB(chanstate.ChanIDBucketKey()),
 		},
 		{
 			number:    29,
@@ -472,10 +472,10 @@ func (d *DB) Path() string {
 }
 
 var dbTopLevelBuckets = [][]byte{
-	openChannelBucket,
-	closedChannelBucket,
+	chanstate.OpenChannelBucketKey(),
+	chanstate.ClosedChannelBucketKey(),
 	forwardingLogBucket,
-	fwdPackagesKey,
+	chanstate.FwdPackagesBucketKey(),
 	invoiceBucket,
 	payAddrIndexBucket,
 	setIDIndexBucket,
@@ -483,9 +483,9 @@ var dbTopLevelBuckets = [][]byte{
 	linknode.NodeInfoBucket,
 	metaBucket,
 	closeSummaryBucket,
-	outpointBucket,
-	chanIDBucket,
-	historicalChannelBucket,
+	chanstate.OutpointBucketKey(),
+	chanstate.ChanIDBucketKey(),
+	chanstate.HistoricalChannelBucketKey(),
 }
 
 // Wipe completely deletes all saved state within all used buckets within the

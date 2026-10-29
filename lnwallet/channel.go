@@ -2413,7 +2413,7 @@ func NewBreachRetribution(chanState *chanstate.OpenChannel, stateNum uint64,
 func createHtlcRetribution(chanState *chanstate.OpenChannel,
 	keyRing *CommitmentKeyRing, commitHash chainhash.Hash,
 	commitmentSecret *btcec.PrivateKey, leaseExpiry uint32,
-	htlc *channeldb.HTLCEntry,
+	htlc *chanstate.HTLCEntry,
 	auxLeaves fn.Option[CommitAuxLeaves]) (HtlcRetribution, error) {
 
 	var emptyRetribution HtlcRetribution
@@ -2536,7 +2536,7 @@ func createHtlcRetribution(chanState *chanstate.OpenChannel,
 // to-remote output amounts. Otherwise, the RevocationLog will be checked to
 // see if these fields are present there. If they are not, then
 // ErrRevLogDataMissing is returned.
-func createBreachRetribution(revokedLog *channeldb.RevocationLog,
+func createBreachRetribution(revokedLog *chanstate.RevocationLog,
 	spendTx *wire.MsgTx, chanState *chanstate.OpenChannel,
 	keyRing *CommitmentKeyRing, commitmentSecret *btcec.PrivateKey,
 	leaseExpiry uint32,

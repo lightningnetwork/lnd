@@ -13,17 +13,6 @@ const (
 	OutputIndexEmpty = cstate.OutputIndexEmpty
 )
 
-type (
-	// HTLCEntry specifies the minimal info needed to be stored on disk for
-	// ALL the historical HTLCs, which is useful for constructing
-	// RevocationLog when a breach is detected.
-	HTLCEntry = cstate.HTLCEntry
-
-	// RevocationLog stores the info needed to construct a breach
-	// retribution.
-	RevocationLog = cstate.RevocationLog
-)
-
 var (
 	// NewSparsePayHash creates a new SparsePayHash from a 32 byte array.
 	NewSparsePayHash = cstate.NewSparsePayHash
@@ -59,31 +48,31 @@ func putRevocationLog(bucket kvdb.RwBucket, commit *ChannelCommitment,
 // fetchRevocationLog queries the revocation log bucket to find an log entry.
 // Return an error if not found.
 func fetchRevocationLog(log kvdb.RBucket,
-	updateNum uint64) (RevocationLog, error) {
+	updateNum uint64) (cstate.RevocationLog, error) {
 
 	return cstate.FetchRevocationLog(log, updateNum)
 }
 
 // serializeRevocationLog serializes a RevocationLog record based on tlv
 // format.
-func serializeRevocationLog(w io.Writer, rl *RevocationLog) error {
+func serializeRevocationLog(w io.Writer, rl *cstate.RevocationLog) error {
 	return cstate.SerializeRevocationLog(w, rl)
 }
 
 // serializeHTLCEntries serializes a list of HTLCEntry records based on tlv
 // format.
-func serializeHTLCEntries(w io.Writer, htlcs []*HTLCEntry) error {
+func serializeHTLCEntries(w io.Writer, htlcs []*cstate.HTLCEntry) error {
 	return cstate.SerializeHTLCEntries(w, htlcs)
 }
 
 // deserializeRevocationLog deserializes a RevocationLog based on tlv format.
-func deserializeRevocationLog(r io.Reader) (RevocationLog, error) {
+func deserializeRevocationLog(r io.Reader) (cstate.RevocationLog, error) {
 	return cstate.DeserializeRevocationLog(r)
 }
 
 // deserializeHTLCEntries deserializes a list of HTLC entries based on tlv
 // format.
-func deserializeHTLCEntries(r io.Reader) ([]*HTLCEntry, error) {
+func deserializeHTLCEntries(r io.Reader) ([]*cstate.HTLCEntry, error) {
 	return cstate.DeserializeHTLCEntries(r)
 }
 
@@ -108,7 +97,7 @@ func readTlvStream(r io.Reader, s *tlv.Stream) (tlv.TypeMap, error) {
 //     old bucket.
 //   - error, this can happen if the log cannot be found in neither buckets.
 func fetchRevocationLogCompatible(chanBucket kvdb.RBucket,
-	updateNum uint64) (*RevocationLog, *ChannelCommitment, error) {
+	updateNum uint64) (*cstate.RevocationLog, *ChannelCommitment, error) {
 
 	return cstate.FetchRevocationLogCompatible(chanBucket, updateNum)
 }

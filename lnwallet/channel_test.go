@@ -10417,7 +10417,7 @@ func TestCreateHtlcRetribution(t *testing.T) {
 	leaseExpiry, keyRing, commitHash := deriveDummyRetributionParams(
 		aliceChannel.channelState,
 	)
-	htlc := &channeldb.HTLCEntry{
+	htlc := &chanstate.HTLCEntry{
 		Amt: tlv.NewRecordT[tlv.TlvType4](
 			tlv.NewBigSizeT(testAmt),
 		),
@@ -10476,7 +10476,7 @@ func TestCreateBreachRetribution(t *testing.T) {
 	leaseExpiry, keyRing, commitHash := deriveDummyRetributionParams(
 		aliceChannel.channelState,
 	)
-	htlc := &channeldb.HTLCEntry{
+	htlc := &chanstate.HTLCEntry{
 		Amt: tlv.NewRecordT[tlv.TlvType4](
 			tlv.NewBigSizeT(btcutil.Amount(testAmt)),
 		),
@@ -10492,7 +10492,7 @@ func TestCreateBreachRetribution(t *testing.T) {
 	revokedLog := channeldb.NewRevocationLog(
 		uint16(localIndex), uint16(remoteIndex), commitHash,
 		fn.Some(ourAmtMsat), fn.Some(theirAmtMsat),
-		[]*channeldb.HTLCEntry{htlc}, fn.None[tlv.Blob](),
+		[]*chanstate.HTLCEntry{htlc}, fn.None[tlv.Blob](),
 	)
 
 	// Create a log with an empty local output index.
@@ -10505,7 +10505,7 @@ func TestCreateBreachRetribution(t *testing.T) {
 
 	testCases := []struct {
 		name             string
-		revocationLog    *channeldb.RevocationLog
+		revocationLog    *chanstate.RevocationLog
 		expectedErr      error
 		expectedOurAmt   int64
 		expectedTheirAmt int64
@@ -10530,7 +10530,7 @@ func TestCreateBreachRetribution(t *testing.T) {
 		},
 		{
 			name: "fail due to our index too big",
-			revocationLog: &channeldb.RevocationLog{
+			revocationLog: &chanstate.RevocationLog{
 				//nolint:ll
 				OurOutputIndex: tlv.NewPrimitiveRecord[tlv.TlvType0](
 					uint16(htlcIndex + 1),
@@ -10540,7 +10540,7 @@ func TestCreateBreachRetribution(t *testing.T) {
 		},
 		{
 			name: "fail due to their index too big",
-			revocationLog: &channeldb.RevocationLog{
+			revocationLog: &chanstate.RevocationLog{
 				//nolint:ll
 				TheirOutputIndex: tlv.NewPrimitiveRecord[tlv.TlvType1](
 					uint16(htlcIndex + 1),

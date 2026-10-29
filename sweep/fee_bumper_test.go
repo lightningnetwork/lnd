@@ -1038,6 +1038,89 @@ func TestIsInputScriptFailure(t *testing.T) {
 	}
 }
 
+// TestFindBadInputStopsOnPolicyProbeError checks that a policy error found
+// during probing aborts diagnosis instead of marking the singleton input bad.
+func TestFindBadInputStopsOnPolicyProbeError(t *testing.T) {
+	t.Parallel()
+
+	// Arrange an accepted half followed by a fee-policy rejection;
+	// transaction policy must stop diagnosis without blaming an input.
+	tp, m := createTestPublisherNoAux(t)
+	req := createBadInputTestRequest(4)
+	record := &monitorRecord{
+		requestID:   1,
+		req:         req,
+		feeFunction: m.feeFunc,
+	}
+
+	m.feeFunc.On("FeeRate").Return(chainfee.SatPerKWeight(1000)).Times(2)
+	m.signer.On(
+		"ComputeInputScript", mock.Anything, mock.Anything,
+	).Return(&input.Script{}, nil).Times(3)
+
+	inputs := req.Inputs
+	m.wallet.On(
+		"CheckMempoolAcceptance",
+		mock.MatchedBy(txSpendsInputs(inputs[0], inputs[1])),
+	).Return(nil).Once()
+	m.wallet.On(
+		"CheckMempoolAcceptance",
+		mock.MatchedBy(txSpendsInputs(inputs[2])),
+	).Return(chain.ErrInsufficientFee).Once()
+
+	// Act by searching for a single independently rejected input.
+	badInput, err := tp.findBadInputInSet(record, req.Inputs)
+
+	// Assert that fee policy aborts attribution with a zero outpoint; it
+	// cannot establish that any input is permanently invalid.
+	require.ErrorIs(t, err, chain.ErrInsufficientFee)
+	require.Equal(t, wire.OutPoint{}, badInput)
+}
+
+// TestFindBadInputContinuesAfterConstructionError checks that an
+// unconstructible subset falls back to singleton probes across the full set.
+func TestFindBadInputContinuesAfterConstructionError(t *testing.T) {
+	t.Parallel()
+
+	// Arrange an unconstructible half and valid early singletons, with a
+	// bad input at the end that the construction failure must not hide.
+	tp, m := createTestPublisherNoAux(t)
+	req := createBadInputTestRequest(4)
+	record := &monitorRecord{
+		requestID:   1,
+		req:         req,
+		feeFunction: m.feeFunc,
+	}
+
+	m.feeFunc.On("FeeRate").Return(chainfee.SatPerKWeight(1000)).Times(5)
+	m.signer.On(
+		"ComputeInputScript", mock.Anything, mock.Anything,
+	).Return(nil, errDummy).Once()
+	m.signer.On(
+		"ComputeInputScript", mock.Anything, mock.Anything,
+	).Return(&input.Script{}, nil).Times(4)
+
+	inputs := req.Inputs
+	for _, inp := range inputs[:3] {
+		m.wallet.On(
+			"CheckMempoolAcceptance",
+			mock.MatchedBy(txSpendsInputs(inp)),
+		).Return(nil).Once()
+	}
+	m.wallet.On(
+		"CheckMempoolAcceptance",
+		mock.MatchedBy(txSpendsInputs(inputs[3])),
+	).Return(chain.ErrScriptVerifyFlag).Once()
+
+	// Act by searching for a single independently rejected input.
+	badInput, err := tp.findBadInputInSet(record, req.Inputs)
+
+	// Assert that the last singleton is identified despite the earlier
+	// construction failure, allowing unrelated members to remain retryable.
+	require.NoError(t, err)
+	require.Equal(t, inputs[3].OutPoint(), badInput)
+}
+
 // TestTxPublisherBroadcast checks the internal `broadcast` method behaves as
 // expected.
 func TestTxPublisherBroadcast(t *testing.T) {

@@ -51,6 +51,11 @@ var (
 	// errMempoolRejected separates backend rejection of a constructed
 	// candidate from failures that cannot provide diagnostic evidence.
 	errMempoolRejected = errors.New("mempool rejected tx")
+
+	// errProbeTxConstruction means the selected inputs cannot supply an
+	// independently testable probe, so rejection cannot identify its
+	// target.
+	errProbeTxConstruction = errors.New("unable to construct probe tx")
 )
 
 var (
@@ -721,6 +726,121 @@ func (t *TxPublisher) shouldDiagnoseBadInputs(r *monitorRecord,
 	}
 
 	return true
+}
+
+// checkProbeTx tests a probe transaction without publishing, storing, or
+// monitoring it.
+func (t *TxPublisher) checkProbeTx(sweepCtx *sweepTxCtx) error {
+	err := t.cfg.Wallet.CheckMempoolAcceptance(sweepCtx.tx)
+	if err == nil {
+		return nil
+	}
+
+	// Missing-input failures use a dedicated sentinel so callers can run
+	// spend attribution instead of treating them as script failures.
+	if errors.Is(err, chain.ErrMissingInputs) {
+		log.Debugf("Probe tx %v missing inputs", sweepCtx.tx.TxHash())
+
+		return ErrInputMissing
+	}
+
+	log.Infof("Probe tx=%v with %v inputs failed mempool check: %v",
+		sweepCtx.tx.TxHash(), len(sweepCtx.tx.TxIn), err)
+
+	return err
+}
+
+// probeInputSet tests a subset without publishing, storing, or monitoring it.
+// Underfunded subsets borrow normal companions to pay the same attempt fee.
+func (t *TxPublisher) probeInputSet(r *monitorRecord,
+	inputs []input.Input) error {
+
+	// Keep construction policy identical to the rejected candidate. These
+	// temporary contexts never update the publisher's real monitor record.
+	feeRate := r.feeFunction.FeeRate()
+	createProbe := func(probeInputs []input.Input) (*sweepTxCtx, error) {
+		return t.createSweepTx(
+			probeInputs, r.req.DeliveryAddress, feeRate,
+		)
+	}
+	sweepCtx, err := createProbe(inputs)
+	if err == nil {
+		return t.checkProbeTx(sweepCtx)
+	}
+
+	// Small anchors and required outputs may need borrowed funding. Other
+	// construction failures cannot be resolved by adding companion value.
+	if !errors.Is(err, ErrNotEnoughInputs) &&
+		!errors.Is(err, ErrTxNoOutput) {
+
+		return fmt.Errorf("%w: %w", errProbeTxConstruction, err)
+	}
+
+	selected := fn.NewSet[wire.OutPoint]()
+	for _, inp := range inputs {
+		selected.Add(inp.OutPoint())
+	}
+	probeInputs := append([]input.Input(nil), inputs...)
+	var companions []input.Input
+	for _, companion := range r.req.Inputs {
+		if companion.RequiredTxOut() != nil ||
+			selected.Contains(companion.OutPoint()) {
+
+			continue
+		}
+
+		// Small companions can fund a target collectively even if none
+		// can create a standalone output. Stop at the first built
+		// probe.
+		companions = append(companions, companion)
+		probeInputs = append(probeInputs, companion)
+		sweepCtx, err = createProbe(probeInputs)
+		if err != nil {
+			continue
+		}
+		probeErr := t.checkProbeTx(sweepCtx)
+		if probeErr == nil {
+			return nil
+		}
+
+		// A combined rejection could come from a newly spent funder.
+		// Test the funding group separately after that rejection.
+		fundingCtx, fundingErr := createProbe(companions)
+		if fundingErr == nil {
+			fundingErr = t.checkProbeTx(fundingCtx)
+		}
+		// Input lookup precedes fee policy in both RPC backends. A
+		// funding fee rejection proves availability only, so use it
+		// solely to attribute a combined missing-input rejection.
+		if errors.Is(probeErr, ErrInputMissing) &&
+			errors.Is(fundingErr, chain.ErrInsufficientFee) {
+
+			return probeErr
+		}
+		// A combined conflict stays reversible when funding cannot
+		// independently establish which input caused that rejection.
+		if fundingErr != nil &&
+			errors.Is(probeErr, chain.ErrMempoolConflict) {
+
+			fundingErr = probeErr
+		}
+		if errors.Is(fundingErr, chain.ErrMempoolConflict) {
+			// Retain a transient cause without attributing its
+			// funder rejection to the selected target.
+			return fmt.Errorf("%w: %w", errProbeTxConstruction,
+				fundingErr)
+		}
+		if fundingErr != nil {
+			// Do not expose a funder's script/missing sentinel as
+			// rejection evidence for the target singleton.
+			log.Debugf("Inconclusive probe funding: %v", fundingErr)
+			return errProbeTxConstruction
+		}
+
+		return probeErr
+	}
+
+	return fmt.Errorf("%w: %w", errProbeTxConstruction, err)
 }
 
 // handleMissingInputs handles the case when the chain backend reports back a

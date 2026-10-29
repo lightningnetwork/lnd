@@ -1,6 +1,8 @@
 package sweep
 
 import (
+	"encoding/binary"
+	"errors"
 	"fmt"
 	"sync/atomic"
 	"testing"
@@ -36,12 +38,14 @@ var (
 	testInputCount atomic.Uint64
 )
 
+// createTestInput builds a funded input with a unique test outpoint.
 func createTestInput(value int64,
 	witnessType input.WitnessType) input.BaseInput {
 
-	hash := chainhash.Hash{0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
-		0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
-		byte(testInputCount.Add(1))}
+	// Preserve the full counter so repeated and parallel probe tests cannot
+	// wrap a single hash byte to the empty outpoint.
+	var hash chainhash.Hash
+	binary.LittleEndian.PutUint64(hash[:], testInputCount.Add(1))
 
 	input := input.MakeBaseInput(
 		&wire.OutPoint{
@@ -448,6 +452,30 @@ func createTestPublisherNoAux(t *testing.T) (*TxPublisher, *mockers) {
 	return createTestPublisherWithAux(t, fn.None[AuxSweeper]())
 }
 
+// txSpendsInputs returns a matcher that checks that a tx spends the exact input
+// set, regardless of ordering.
+func txSpendsInputs(inputs ...input.Input) func(*wire.MsgTx) bool {
+	// Membership, rather than input order, identifies a rebuilt probe.
+	want := make(map[wire.OutPoint]struct{}, len(inputs))
+	for _, inp := range inputs {
+		want[inp.OutPoint()] = struct{}{}
+	}
+
+	return func(tx *wire.MsgTx) bool {
+		if tx == nil || len(tx.TxIn) != len(want) {
+			return false
+		}
+
+		for _, txIn := range tx.TxIn {
+			if _, ok := want[txIn.PreviousOutPoint]; !ok {
+				return false
+			}
+		}
+
+		return true
+	}
+}
+
 // TestCreateAndCheckTx checks `createAndCheckTx` behaves as expected.
 func TestCreateAndCheckTx(t *testing.T) {
 	t.Parallel()
@@ -828,6 +856,223 @@ func TestShouldDiagnoseBadInputs(t *testing.T) {
 			// Assert that only the eligible multi-input rejection
 			// permits probing.
 			require.Equal(t, testCase.diagnose, diagnose)
+		})
+	}
+}
+
+// TestProbeInputSetScriptFailure checks that probe script failures stay
+// concrete so findBadInput owns bad-input attribution.
+func TestProbeInputSetScriptFailure(t *testing.T) {
+	t.Parallel()
+
+	// Arrange a constructible probe rejected for its input script, using
+	// fixture cleanup to verify its sole acceptance call.
+	tp, m := createTestPublisherNoAux(t)
+	req := createBadInputTestRequest(2)
+	record := &monitorRecord{
+		requestID:   1,
+		req:         req,
+		feeFunction: m.feeFunc,
+	}
+
+	inputs := req.Inputs
+	m.feeFunc.On("FeeRate").Return(chainfee.SatPerKWeight(1000)).Once()
+	m.signer.On(
+		"ComputeInputScript", mock.Anything, mock.Anything,
+	).Return(&input.Script{}, nil).Times(2)
+	m.wallet.On(
+		"CheckMempoolAcceptance",
+		mock.MatchedBy(txSpendsInputs(inputs...)),
+	).Return(chain.ErrScriptVerifyFlag).Once()
+
+	// Act by building and checking the subset without publication.
+	err := tp.probeInputSet(record, inputs)
+
+	// Assert that the concrete error remains distinguishable to diagnosis.
+	require.ErrorIs(t, err, chain.ErrScriptVerifyFlag)
+	require.NotErrorIs(t, err, errMempoolRejected)
+}
+
+// TestProbeInputSetPolicyError checks that non-script mempool failures remain
+// concrete errors and are not treated as bad-input probe failures.
+func TestProbeInputSetPolicyError(t *testing.T) {
+	t.Parallel()
+
+	// Arrange a constructible probe rejected by transaction fee policy so a
+	// valid input is not blamed for an unrelated rejection.
+	tp, m := createTestPublisherNoAux(t)
+	req := createBadInputTestRequest(2)
+	record := &monitorRecord{
+		requestID:   1,
+		req:         req,
+		feeFunction: m.feeFunc,
+	}
+
+	inputs := req.Inputs
+	m.feeFunc.On("FeeRate").Return(chainfee.SatPerKWeight(1000)).Once()
+	m.signer.On(
+		"ComputeInputScript", mock.Anything, mock.Anything,
+	).Return(&input.Script{}, nil).Times(2)
+	m.wallet.On(
+		"CheckMempoolAcceptance",
+		mock.MatchedBy(txSpendsInputs(inputs...)),
+	).Return(chain.ErrInsufficientFee).Once()
+
+	// Act by building and checking the subset without publication.
+	err := tp.probeInputSet(record, inputs)
+
+	// Assert that the concrete error remains distinguishable to diagnosis.
+	require.ErrorIs(t, err, chain.ErrInsufficientFee)
+	require.NotErrorIs(t, err, errMempoolRejected)
+}
+
+// TestProbeInputSetConstructionError checks that failures before mempool
+// acceptance remain distinguishable from policy rejections.
+func TestProbeInputSetConstructionError(t *testing.T) {
+	t.Parallel()
+
+	// Arrange a signer failure before any candidate reaches the backend; no
+	// acceptance call is expected for a transaction that cannot be built.
+	tp, m := createTestPublisherNoAux(t)
+	req := createBadInputTestRequest(1)
+	record := &monitorRecord{
+		requestID:   1,
+		req:         req,
+		feeFunction: m.feeFunc,
+	}
+
+	m.feeFunc.On("FeeRate").Return(chainfee.SatPerKWeight(1000)).Once()
+	m.signer.On(
+		"ComputeInputScript", mock.Anything, mock.Anything,
+	).Return(nil, errDummy).Once()
+
+	// Act by building and checking the subset without publication.
+	err := tp.probeInputSet(record, req.Inputs)
+
+	// Assert that the concrete error remains distinguishable to diagnosis.
+	require.ErrorIs(t, err, errProbeTxConstruction)
+	require.ErrorIs(t, err, errDummy)
+}
+
+// TestProbeInputSetFundsRequiredOutput checks collective funding and prevents
+// rejection of the funding group from becoming evidence against the target.
+func TestProbeInputSetFundsRequiredOutput(t *testing.T) {
+	t.Parallel()
+
+	// Arrange target and funding verdicts for one committed output.
+	// Funding fee policy proves availability only; it cannot establish that
+	// the funder's script is valid for a combined script rejection.
+	testCases := []struct {
+		name        string
+		probeErr    error
+		fundingErr  error
+		expectedErr error
+	}{
+		{
+			name:        "accepted funding",
+			probeErr:    chain.ErrMissingInputs,
+			expectedErr: ErrInputMissing,
+		},
+		{
+			name:        "spent funding",
+			probeErr:    chain.ErrMissingInputs,
+			fundingErr:  chain.ErrMissingInputs,
+			expectedErr: errProbeTxConstruction,
+		},
+		{
+			name:        "conflicted funding",
+			probeErr:    chain.ErrMissingInputs,
+			fundingErr:  chain.ErrMempoolConflict,
+			expectedErr: errProbeTxConstruction,
+		},
+		{
+			name:        "fee-rejected funding",
+			probeErr:    chain.ErrMissingInputs,
+			fundingErr:  chain.ErrInsufficientFee,
+			expectedErr: ErrInputMissing,
+		},
+		{
+			name:        "script target with fee-rejected funding",
+			probeErr:    chain.ErrScriptVerifyFlag,
+			fundingErr:  chain.ErrInsufficientFee,
+			expectedErr: errProbeTxConstruction,
+		},
+	}
+	for _, testCase := range testCases {
+		t.Run(testCase.name, func(t *testing.T) {
+			tp, m := createTestPublisherNoAux(t)
+			requiredBase := createTestInput(
+				10_000, input.WitnessKeyHash,
+			)
+			required := &input.MockInput{}
+			defer required.AssertExpectations(t)
+			required.On("OutPoint").Return(
+				requiredBase.OutPoint(),
+			).Times(7)
+			required.On("SignDesc").Return(
+				requiredBase.SignDesc(),
+			).Times(4)
+			required.On("RequiredTxOut").Return(&wire.TxOut{
+				Value: 10_000,
+			}).Times(16)
+			required.On("RequiredLockTime").Return(
+				uint32(0), false,
+			).Times(3)
+			required.On("UnconfParent").Return(nil).Times(3)
+			required.On("WitnessType").Return(
+				input.WitnessKeyHash,
+			).Times(7)
+			required.On("BlocksToMaturity").Return(uint32(0)).Once()
+			required.On(
+				"CraftInputScript", mock.Anything,
+				mock.Anything, mock.Anything, mock.Anything,
+				mock.Anything,
+			).Return(&input.Script{}, nil).Once()
+			base1 := createTestInput(700, input.WitnessKeyHash)
+			base2 := createTestInput(700, input.WitnessKeyHash)
+			record := &monitorRecord{
+				req: &BumpRequest{
+					DeliveryAddress: changePkScript,
+					Inputs: []input.Input{
+						required, &base1, &base2,
+					},
+				},
+				feeFunction: m.feeFunc,
+			}
+			m.feeFunc.On("FeeRate").Return(
+				chainfee.SatPerKWeight(1000),
+			).Once()
+			m.signer.On(
+				"ComputeInputScript", mock.Anything,
+				mock.Anything,
+			).Return(&input.Script{}, nil).Times(4)
+			m.wallet.On("CheckMempoolAcceptance", mock.MatchedBy(
+				txSpendsInputs(required, &base1, &base2),
+			)).Return(testCase.probeErr).Once()
+			m.wallet.On("CheckMempoolAcceptance", mock.MatchedBy(
+				txSpendsInputs(&base1, &base2),
+			)).Return(testCase.fundingErr).Once()
+
+			// Act by probing the target with companions that are
+			// individually insufficient; only their combined value
+			// can pay its fee.
+			err := tp.probeInputSet(record, []input.Input{required})
+
+			// Assert that funding availability suffices only for
+			// missing-target evidence; script or ambiguous funding
+			// failures cannot identify the target.
+			require.ErrorIs(t, err, testCase.expectedErr)
+			if errors.Is(err, errProbeTxConstruction) {
+				require.NotErrorIs(t, err, ErrInputMissing)
+			}
+			if errors.Is(
+				testCase.fundingErr, chain.ErrMempoolConflict,
+			) {
+
+				require.ErrorIs(
+					t, err, chain.ErrMempoolConflict,
+				)
+			}
 		})
 	}
 }

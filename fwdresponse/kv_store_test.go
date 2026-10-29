@@ -36,6 +36,7 @@ func addTestFwdPkg(t *testing.T, backend kvdb.Backend, height uint64,
 // extractTestFwdResponses runs the extraction for the test source channel.
 func extractTestFwdResponses(t *testing.T, backend kvdb.Backend,
 	store KVStore) {
+
 	t.Helper()
 
 	err := kvdb.Update(backend, func(tx kvdb.RwTx) error {

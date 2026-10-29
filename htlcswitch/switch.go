@@ -231,8 +231,8 @@ type Config struct {
 	// forwarding packages, and ack settles and fails contained within them.
 	FwdPackageStore chanstate.FwdPackageStore
 
-	// FwdResponseStore persists off-chain settle and fail messages until the
-	// switch can safely replay or reap them.
+	// FwdResponseStore persists off-chain settle and fail messages until
+	// the switch can safely replay or reap them.
 	FwdResponseStore fwdresponse.Store
 
 	// ExtractErrorEncrypter is an interface allowing switch to reextract
@@ -434,8 +434,8 @@ type Switch struct {
 
 // New creates the new instance of htlc switch.
 func New(cfg Config, currentHeight uint32) (*Switch, error) {
-	// The store is dereferenced unconditionally during startup, so a missing
-	// one must fail here rather than panic mid-recovery.
+	// The store is dereferenced unconditionally during startup, so a
+	// missing one must fail here rather than panic mid-recovery.
 	if cfg.FwdResponseStore == nil {
 		return nil, errors.New("forwarding response store is nil")
 	}

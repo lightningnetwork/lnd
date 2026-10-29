@@ -1028,6 +1028,44 @@ func (t *TxPublisher) diagnoseInputSet(r *monitorRecord) inputDiagnosis {
 	}
 }
 
+// resultForDiagnosis converts explicit diagnosis metadata into retry policy.
+func (t *TxPublisher) resultForDiagnosis(r *monitorRecord, err error,
+	diagnosis inputDiagnosis) *BumpResult {
+
+	result := &BumpResult{
+		Event:     TxFatal,
+		Err:       err,
+		requestID: r.requestID,
+	}
+	// Changed membership restarts survivors without the aggregate fee.
+	if diagnosis.outcome == diagnosisAttributed {
+		result.Event = TxFailed
+		result.BadInput = &diagnosis.badInput
+		if errors.Is(diagnosis.probeErr, chain.ErrMempoolConflict) {
+			result.Err = diagnosis.probeErr
+		} else if errors.Is(err, chain.ErrMempoolConflict) {
+			// Independent script evidence can identify a permanent
+			// failure even when the full batch first hit a
+			// conflict.
+			result.Err = errMempoolRejected
+		}
+
+		return result
+	}
+
+	// Unattributed conflicts remain reversible even at the fee ceiling.
+	if errors.Is(diagnosis.probeErr, chain.ErrMempoolConflict) {
+		return t.createUnchangedSetRetryResult(r, diagnosis.probeErr)
+	}
+	if errors.Is(err, chain.ErrMempoolConflict) ||
+		diagnosis.outcome == diagnosisAborted {
+
+		return t.createUnchangedSetRetryResult(r, err)
+	}
+
+	return result
+}
+
 // handleMissingInputs handles the case when the chain backend reports back a
 // missing inputs error, which could happen when one of the input has been spent
 // in another tx, or the input is referencing an orphan. When the input is
@@ -1439,6 +1477,47 @@ func (t *TxPublisher) handleTxConfirmed(r *monitorRecord) {
 
 	// Notify that this tx is confirmed and remove the record from the map.
 	t.handleResult(result)
+}
+
+// createUnchangedSetRetryResult preserves conflicts and bounds diagnosis
+// retries. Non-conflict callers have a known fee function from the diagnosis
+// gate.
+func (t *TxPublisher) createUnchangedSetRetryResult(r *monitorRecord,
+	err error) *BumpResult {
+
+	result := &BumpResult{
+		Event:     TxFailed,
+		Err:       err,
+		requestID: r.requestID,
+	}
+
+	// A higher fee cannot displace a non-replaceable conflicting spend.
+	// Leave ordinary initialization and zero-delta retry policy intact.
+	if errors.Is(err, chain.ErrMempoolConflict) {
+		if r.feeFunction != nil {
+			result.FeeRate = r.feeFunction.FeeRate()
+		}
+
+		return result
+	}
+
+	// Only inconclusive non-conflict diagnosis requires actual advancement.
+	// Keep this ceiling policy out of the generic budget/RBF retry helper.
+	for {
+		increased, feeErr := r.feeFunction.Increment()
+		if feeErr != nil {
+			result.Event = TxFatal
+			result.Err = feeErr
+			result.FeeRate = r.feeFunction.FeeRate()
+
+			return result
+		}
+		if increased {
+			result.FeeRate = r.feeFunction.FeeRate()
+
+			return result
+		}
+	}
 }
 
 // handleInitialTxError takes the error from `initializeTx` and decides the

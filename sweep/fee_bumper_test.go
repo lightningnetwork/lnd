@@ -2388,6 +2388,9 @@ func TestProcessRecordsConfirmed(t *testing.T) {
 func TestProcessRecordsSpent(t *testing.T) {
 	t.Parallel()
 
+	// Arrange a monitored input with a confirmed third-party spend and the
+	// existing next fee, which survivors need to continue their fee line.
+
 	// Create a publisher using the mocks.
 	tp, m := createTestPublisher(t)
 
@@ -2418,14 +2421,12 @@ func TestProcessRecordsSpent(t *testing.T) {
 	tp.subscriberChans.Store(requestID, subscriber)
 	tp.records.Store(requestID, recordConfirmed)
 
-	// Mock the fee function to increase feerate.
 	m.feeFunc.On("Increment").Return(true, nil).Once()
+	feeRate := chainfee.SatPerKWeight(1000)
+	m.feeFunc.On("FeeRate").Return(feeRate).Once()
 
-	// Create a test feerate and return it from the mock fee function.
-	feerate := chainfee.SatPerKWeight(1000)
-	m.feeFunc.On("FeeRate").Return(feerate)
-
-	// Call processRecords and expect the results are notified back.
+	// Act by processing the spend and delivering its scoped publisher
+	// result.
 	tp.processRecords()
 
 	// Check the unknown tx result.
@@ -2434,12 +2435,12 @@ func TestProcessRecordsSpent(t *testing.T) {
 		t.Fatal("timeout waiting for subscriber")
 
 	case result := <-subscriber:
-		// We expect the result to be TxUnknownSpend.
+		// Assert that the confirmed spend retains its transaction and
+		// next fee so survivor retries preserve the existing fee line.
 		require.Equal(t, TxUnknownSpend, result.Event)
 		require.Equal(t, tx, result.Tx)
 
-		// We expect the fee rate to be updated.
-		require.Equal(t, feerate, result.FeeRate)
+		require.Equal(t, feeRate, result.FeeRate)
 
 		// No error should be set.
 		require.ErrorIs(t, result.Err, ErrUnknownSpent)

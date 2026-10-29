@@ -49,7 +49,7 @@ var (
 	ErrRewardExceedsInputs = errors.New("reward amount exceeds input value")
 
 	// ErrCreatesDust signals that the session's policy would create a dust
-	// output for the victim.
+	// output.
 	ErrCreatesDust = errors.New("justice transaction creates dust at fee rate")
 
 	// ErrAltruistReward signals that the policy is invalid because it
@@ -204,7 +204,8 @@ func (p *Policy) ComputeAltruistOutput(
 // ComputeRewardOutputs splits the total funds in a breaching commitment
 // transaction between the victim and the tower, according to the sweep fee rate
 // and reward rate. The reward to he tower is subtracted first, before
-// splitting the remaining balance amongst the victim and fees.
+// splitting the remaining balance amongst the victim and fees. It validates
+// the reward output; the caller must validate the sweep output's dust limit.
 func (p *Policy) ComputeRewardOutputs(totalAmt btcutil.Amount,
 	txWeight lntypes.WeightUnit,
 	rewardScript []byte) (btcutil.Amount, btcutil.Amount, error) {
@@ -225,9 +226,8 @@ func (p *Policy) ComputeRewardOutputs(totalAmt btcutil.Amount,
 	// input value.
 	sweepAmt := totalAmt - rewardAmt - txFee
 
-	// Check that the created outputs won't be dusty. We'll base the dust
-	// computation on the type of the script itself.
-	if sweepAmt < lnwallet.DustLimitForSize(len(rewardScript)) {
+	// Check the reward output against its own script's dust limit.
+	if rewardAmt < lnwallet.DustLimitForSize(len(rewardScript)) {
 		return 0, 0, ErrCreatesDust
 	}
 
@@ -291,6 +291,11 @@ func (p *Policy) ComputeJusticeTxOuts(
 		)
 		if err != nil {
 			return nil, err
+		}
+
+		// Check the sweep output against its own script's dust limit.
+		if sweepAmt < lnwallet.DustLimitForSize(len(sweepPkScript)) {
+			return nil, ErrCreatesDust
 		}
 
 		// Add the sweep and reward outputs to the list of txouts.

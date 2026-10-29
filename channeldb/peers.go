@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"time"
 
+	"github.com/lightningnetwork/lnd/chanstate"
 	"github.com/lightningnetwork/lnd/kvdb"
 	"github.com/lightningnetwork/lnd/routing/route"
 )
@@ -75,7 +76,7 @@ func (d *DB) WriteFlapCounts(flapCounts map[route.Vertex]*FlapCount) error {
 				return err
 			}
 
-			if err = WriteElement(&b, flapCount.Count); err != nil {
+			if err = chanstate.WriteElement(&b, flapCount.Count); err != nil {
 				return err
 			}
 
@@ -118,7 +119,7 @@ func (d *DB) ReadFlapCount(pubkey route.Vertex) (*FlapCount, error) {
 			return err
 		}
 
-		return ReadElements(r, &flapCount.Count)
+		return chanstate.ReadElements(r, &flapCount.Count)
 	}, func() {
 		flapCount = FlapCount{}
 	}); err != nil {

@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"github.com/btcsuite/btcwallet/walletdb"
+	"github.com/lightningnetwork/lnd/chanstate"
 	"github.com/lightningnetwork/lnd/fn/v2"
 	"github.com/lightningnetwork/lnd/kvdb"
 	"github.com/lightningnetwork/lnd/lnwire"
@@ -121,7 +122,7 @@ func encodeForwardingEvent(w io.Writer, f *ForwardingEvent) error {
 		return err
 	}
 
-	return WriteElements(
+	return chanstate.WriteElements(
 		w, f.IncomingChanID, f.OutgoingChanID, f.AmtIn, f.AmtOut,
 		incomingID, outgoingID,
 	)
@@ -133,7 +134,7 @@ func encodeForwardingEvent(w io.Writer, f *ForwardingEvent) error {
 // structure of the forwarding log.
 func decodeForwardingEvent(r io.Reader, f *ForwardingEvent) error {
 	// Decode the original fields of the forwarding event.
-	err := ReadElements(
+	err := chanstate.ReadElements(
 		r, &f.IncomingChanID, &f.OutgoingChanID, &f.AmtIn, &f.AmtOut,
 	)
 	if err != nil {
@@ -144,7 +145,7 @@ func decodeForwardingEvent(r io.Reader, f *ForwardingEvent) error {
 	// with older records that don't have these fields, we handle EOF by
 	// setting the ID to nil. Any other error is treated as a read failure.
 	var incomingHtlcID, outgoingHtlcID uint64
-	err = ReadElements(r, &incomingHtlcID, &outgoingHtlcID)
+	err = chanstate.ReadElements(r, &incomingHtlcID, &outgoingHtlcID)
 	switch {
 	case err == nil:
 		f.IncomingHtlcID = fn.Some(incomingHtlcID)

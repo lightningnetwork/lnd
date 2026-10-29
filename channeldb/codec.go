@@ -3,44 +3,7 @@ package channeldb
 import (
 	"io"
 	"time"
-
-	cstate "github.com/lightningnetwork/lnd/chanstate"
 )
-
-// NewUnknownElementType creates a new UnknownElementType error from the passed
-// method name and element.
-func NewUnknownElementType(method string,
-	el interface{}) cstate.UnknownElementType {
-
-	return cstate.NewUnknownElementType(method, el)
-}
-
-// WriteElement is a one-stop shop to write the big endian representation of
-// any element which is to be serialized for storage on disk. The passed
-// io.Writer should be backed by an appropriately sized byte slice, or be able
-// to dynamically expand to accommodate additional data.
-func WriteElement(w io.Writer, element interface{}) error {
-	return cstate.WriteElement(w, element)
-}
-
-// WriteElements is writes each element in the elements slice to the passed
-// io.Writer using WriteElement.
-func WriteElements(w io.Writer, elements ...interface{}) error {
-	return cstate.WriteElements(w, elements...)
-}
-
-// ReadElement is a one-stop utility function to deserialize any datastructure
-// encoded using the serialization format of the database.
-func ReadElement(r io.Reader, element interface{}) error {
-	return cstate.ReadElement(r, element)
-}
-
-// ReadElements deserializes a variable number of elements into the passed
-// io.Reader, with each element being deserialized according to the ReadElement
-// function.
-func ReadElements(r io.Reader, elements ...interface{}) error {
-	return cstate.ReadElements(r, elements...)
-}
 
 // deserializeTime deserializes time as unix nanoseconds.
 func deserializeTime(r io.Reader) (time.Time, error) {

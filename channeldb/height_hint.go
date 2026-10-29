@@ -4,6 +4,7 @@ import (
 	"bytes"
 
 	"github.com/lightningnetwork/lnd/chainntnfs"
+	"github.com/lightningnetwork/lnd/chanstate"
 	"github.com/lightningnetwork/lnd/kvdb"
 )
 
@@ -86,7 +87,7 @@ func (c *HeightHintCache) CommitSpendHint(height uint32,
 		}
 
 		var hint bytes.Buffer
-		if err := WriteElement(&hint, height); err != nil {
+		if err := chanstate.WriteElement(&hint, height); err != nil {
 			return err
 		}
 
@@ -132,7 +133,7 @@ func (c *HeightHintCache) QuerySpendHint(
 			return chainntnfs.ErrSpendHintNotFound
 		}
 
-		return ReadElement(bytes.NewReader(spendHint), &hint)
+		return chanstate.ReadElement(bytes.NewReader(spendHint), &hint)
 	}, func() {
 		hint = 0
 	})
@@ -191,7 +192,7 @@ func (c *HeightHintCache) CommitConfirmHint(height uint32,
 		}
 
 		var hint bytes.Buffer
-		if err := WriteElement(&hint, height); err != nil {
+		if err := chanstate.WriteElement(&hint, height); err != nil {
 			return err
 		}
 
@@ -237,7 +238,7 @@ func (c *HeightHintCache) QueryConfirmHint(
 			return chainntnfs.ErrConfirmHintNotFound
 		}
 
-		return ReadElement(bytes.NewReader(confirmHint), &hint)
+		return chanstate.ReadElement(bytes.NewReader(confirmHint), &hint)
 	}, func() {
 		hint = 0
 	})
@@ -287,7 +288,7 @@ func confHintKey(r *chainntnfs.ConfRequest) ([]byte, error) {
 	}
 
 	var txid bytes.Buffer
-	if err := WriteElement(&txid, r.TxID); err != nil {
+	if err := chanstate.WriteElement(&txid, r.TxID); err != nil {
 		return nil, err
 	}
 
@@ -302,7 +303,7 @@ func spendHintKey(r *chainntnfs.SpendRequest) ([]byte, error) {
 	}
 
 	var outpoint bytes.Buffer
-	err := WriteElement(&outpoint, r.OutPoint)
+	err := chanstate.WriteElement(&outpoint, r.OutPoint)
 	if err != nil {
 		return nil, err
 	}

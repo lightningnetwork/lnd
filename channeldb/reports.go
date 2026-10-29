@@ -8,6 +8,7 @@ import (
 	"github.com/btcsuite/btcd/btcutil/v2"
 	"github.com/btcsuite/btcd/chainhash/v2"
 	"github.com/btcsuite/btcd/wire/v2"
+	"github.com/lightningnetwork/lnd/chanstate"
 	graphdb "github.com/lightningnetwork/lnd/graph/db"
 	"github.com/lightningnetwork/lnd/kvdb"
 	"github.com/lightningnetwork/lnd/tlv"
@@ -189,7 +190,7 @@ func serializeReport(w io.Writer, report *ResolverReport) error {
 	// If our spend txid is non-nil, we add a tlv entry for it.
 	if report.SpendTxID != nil {
 		var spendBuf bytes.Buffer
-		err := WriteElement(&spendBuf, *report.SpendTxID)
+		err := chanstate.WriteElement(&spendBuf, *report.SpendTxID)
 		if err != nil {
 			return err
 		}
@@ -243,7 +244,7 @@ func (d DB) FetchChannelReports(chainHash chainhash.Hash,
 			// Once we have read our values out, set the outpoint
 			// on the report using the key.
 			r = bytes.NewReader(k)
-			if err := ReadElement(r, &report.OutPoint); err != nil {
+			if err := chanstate.ReadElement(r, &report.OutPoint); err != nil {
 				return err
 			}
 

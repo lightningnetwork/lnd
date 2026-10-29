@@ -2665,7 +2665,7 @@
         "parameters": [
           {
             "name": "start_height",
-            "description": "The height from which to list transactions, inclusive. If this value is\ngreater than end_height, transactions will be read in reverse.",
+            "description": "The height from which to list transactions, inclusive. If this value is\ngreater than end_height, the wallet reads the blocks in reverse, so\npagination (index_offset/max_transactions) walks the result set starting\nfrom the newest transaction rather than the oldest. For this comparison\nan end_height of -1 counts as the chain tip, not as a negative height,\nso start_height=0 with end_height=-1 (or an omitted end_height) walks\nthe result set from the oldest transaction. The ordering of the\ntransactions within the response is governed by the reverse flag either\nway.",
             "in": "query",
             "required": false,
             "type": "integer",
@@ -2673,7 +2673,7 @@
           },
           {
             "name": "end_height",
-            "description": "The height until which to list transactions, inclusive. To include\nunconfirmed transactions, this value should be set to -1, which will\nreturn transactions from start_height until the current chain tip and\nunconfirmed transactions. If no end_height is provided, the call will\ndefault to this option.",
+            "description": "The height until which to list transactions, inclusive. To include\nunconfirmed transactions, this value should be set to -1, which will\nreturn transactions from start_height until the current chain tip and\nunconfirmed transactions. If no end_height is provided, the call will\ndefault to this option. A value of -1 is treated as the chain tip when\ndetermining the read direction described for start_height, so it never\ncauses the blocks to be read in reverse on its own.",
             "in": "query",
             "required": false,
             "type": "integer",
@@ -2701,6 +2701,13 @@
             "required": false,
             "type": "integer",
             "format": "int64"
+          },
+          {
+            "name": "reverse",
+            "description": "If set, the transactions will be returned in reverse order, with the\noldest transaction first and unconfirmed transactions last. Otherwise,\nthe default ordering is used, which lists unconfirmed transactions\nfirst, followed by the most recent confirmed transactions down to the\noldest. Transactions with the same number of confirmations (e.g. several\ntransactions in the same block, or several unconfirmed transactions)\nkeep the order produced by the wallet in both modes, so the reverse\nordering is not an exact mirror of the default one for such ties.\n\nThis flag does not affect which transactions are selected: pagination\n(index_offset/max_transactions) walks the result set starting from the\noldest transaction (or from the newest when start_height is greater\nthan end_height), regardless of this flag, so the same page is selected\neither way; only the order of the transactions within the response\nchanges. This flag only applies to GetTransactions and is ignored by\nSubscribeTransactions.",
+            "in": "query",
+            "required": false,
+            "type": "boolean"
           }
         ],
         "tags": [
@@ -2871,7 +2878,7 @@
         "parameters": [
           {
             "name": "start_height",
-            "description": "The height from which to list transactions, inclusive. If this value is\ngreater than end_height, transactions will be read in reverse.",
+            "description": "The height from which to list transactions, inclusive. If this value is\ngreater than end_height, the wallet reads the blocks in reverse, so\npagination (index_offset/max_transactions) walks the result set starting\nfrom the newest transaction rather than the oldest. For this comparison\nan end_height of -1 counts as the chain tip, not as a negative height,\nso start_height=0 with end_height=-1 (or an omitted end_height) walks\nthe result set from the oldest transaction. The ordering of the\ntransactions within the response is governed by the reverse flag either\nway.",
             "in": "query",
             "required": false,
             "type": "integer",
@@ -2879,7 +2886,7 @@
           },
           {
             "name": "end_height",
-            "description": "The height until which to list transactions, inclusive. To include\nunconfirmed transactions, this value should be set to -1, which will\nreturn transactions from start_height until the current chain tip and\nunconfirmed transactions. If no end_height is provided, the call will\ndefault to this option.",
+            "description": "The height until which to list transactions, inclusive. To include\nunconfirmed transactions, this value should be set to -1, which will\nreturn transactions from start_height until the current chain tip and\nunconfirmed transactions. If no end_height is provided, the call will\ndefault to this option. A value of -1 is treated as the chain tip when\ndetermining the read direction described for start_height, so it never\ncauses the blocks to be read in reverse on its own.",
             "in": "query",
             "required": false,
             "type": "integer",
@@ -2907,6 +2914,13 @@
             "required": false,
             "type": "integer",
             "format": "int64"
+          },
+          {
+            "name": "reverse",
+            "description": "If set, the transactions will be returned in reverse order, with the\noldest transaction first and unconfirmed transactions last. Otherwise,\nthe default ordering is used, which lists unconfirmed transactions\nfirst, followed by the most recent confirmed transactions down to the\noldest. Transactions with the same number of confirmations (e.g. several\ntransactions in the same block, or several unconfirmed transactions)\nkeep the order produced by the wallet in both modes, so the reverse\nordering is not an exact mirror of the default one for such ties.\n\nThis flag does not affect which transactions are selected: pagination\n(index_offset/max_transactions) walks the result set starting from the\noldest transaction (or from the newest when start_height is greater\nthan end_height), regardless of this flag, so the same page is selected\neither way; only the order of the transactions within the response\nchanges. This flag only applies to GetTransactions and is ignored by\nSubscribeTransactions.",
+            "in": "query",
+            "required": false,
+            "type": "boolean"
           }
         ],
         "tags": [

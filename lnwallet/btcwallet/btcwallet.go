@@ -1758,13 +1758,19 @@ func transactionDetailsPage(txDetails []*lnwallet.TransactionDetail,
 }
 
 // ListTransactionDetails returns a list of all transactions which are relevant
-// to the wallet over [startHeight;endHeight]. If start height is greater than
-// end height, the transactions will be retrieved in reverse order. To include
-// unconfirmed transactions, endHeight should be set to the special value -1.
-// This will return transactions from the tip of the chain until the start
-// height (inclusive) and unconfirmed transactions. The account parameter serves
-// as a filter to retrieve the transactions relevant to a specific account. When
+// to the wallet over [startHeight;endHeight]. To include unconfirmed
+// transactions, endHeight should be set to the special value -1. This will
+// return transactions from the tip of the chain until the start height
+// (inclusive) and unconfirmed transactions. The account parameter serves as
+// a filter to retrieve the transactions relevant to a specific account. When
 // empty, transactions of all wallet accounts are returned.
+//
+// The returned confirmed transactions are ordered from the oldest to the
+// newest when startHeight is not greater than endHeight. If startHeight is
+// greater than endHeight, the blocks are read in reverse and the confirmed
+// transactions are ordered from the newest to the oldest instead. Unconfirmed
+// transactions always come last. Pagination (indexOffset/maxTransactions) is
+// applied over this ordering. Any presentation ordering is left to the caller.
 //
 // This is a part of the WalletController interface.
 func (b *BtcWallet) ListTransactionDetails(startHeight, endHeight int32,

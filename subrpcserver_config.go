@@ -417,6 +417,7 @@ func (s *subRPCServerConfigs) PopulateDependencies(cfg *Config,
 	s.RouterRPC.MacService = macService
 	s.RouterRPC.Router = chanRouter
 	s.RouterRPC.RouterBackend = routerBackend
+	s.RouterRPC.EnableLocalPaymentDispatch = cfg.EnableLocalPaymentDispatch
 
 	return nil
 }

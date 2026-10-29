@@ -78,11 +78,22 @@ func processOnionMessage(ctx context.Context, router OnionRouter,
 	}
 
 	payload := lnwire.NewOnionMessagePayload()
-	_, err = payload.Decode(
+	parsedTypes, err := payload.Decode(
 		bytes.NewReader(processedPkt.Payload.Payload),
 	)
 	if err != nil {
 		return fn.Err[routingAction](err)
+	}
+
+	// Intermediate hops may carry only encrypted recipient data. Check the
+	// parsed types so unknown odd and empty records are included.
+	if isForwarding(processedPkt) {
+		if len(parsedTypes) != 1 {
+			return fn.Err[routingAction](ErrInvalidForwardPayload)
+		}
+		if _, ok := parsedTypes[4]; !ok {
+			return fn.Err[routingAction](ErrMissingEncryptedData)
+		}
 	}
 
 	// Create a shallow copy of the payload but deep copy the EncryptedData
@@ -103,6 +114,10 @@ func processOnionMessage(ctx context.Context, router OnionRouter,
 	)
 	if err != nil {
 		return fn.Err[routingAction](err)
+	}
+
+	if isForwarding(processedPkt) && routeData.PathID.IsSome() {
+		return fn.Err[routingAction](ErrForwardPathID)
 	}
 
 	nextPathKey := deriveNextPathKey(router, msg.PathKey,

@@ -98,6 +98,8 @@ const (
 	// Retry can regroup inputs or adjust fees within the budget. A supplied
 	// retry fee rate applies to the next attempt. Initialization can still
 	// reject a zero rate delta and trigger re-estimation.
+	// BadInput scopes an attributable failure; a mempool conflict keeps
+	// that input retryable instead of terminal.
 	//
 	// TODO(yy): Remove the above usage once we remove sweeping non-CPFP
 	// anchors.
@@ -123,6 +125,7 @@ const (
 	// TxFatal is sent when an error prevents retrying the inputs, such as a
 	// known non-retryable rejection or a local initialization failure.
 	// Unknown and transient mempool acceptance errors use TxFailed.
+	// Per-input outcomes instead use TxFailed with BadInput set.
 	TxFatal
 
 	// sentinelEvent is used to check if an event is unknown.
@@ -294,6 +297,12 @@ type BumpResult struct {
 	// SpentInputs are the inputs spent by another tx which caused the
 	// current tx to be failed.
 	SpentInputs map[wire.OutPoint]*wire.MsgTx
+
+	// BadInput identifies a singleton rejected by a diagnostic probe. When
+	// Err is a mempool conflict it remains retryable; other attributable
+	// failures are terminal or quarantined. Nil means no input was
+	// isolated.
+	BadInput *wire.OutPoint
 
 	// requestID is the ID of the request that created this record.
 	requestID uint64
@@ -1018,6 +1027,53 @@ func (t *TxPublisher) findBadInputBySingleton(r *monitorRecord,
 	}
 
 	return wire.OutPoint{}, errBadInputNotFound
+}
+
+// inputDiagnosisOutcome describes whether diagnosis changed the input set or
+// left it unchanged, and whether an unchanged result is conclusive.
+type inputDiagnosisOutcome uint8
+
+const (
+	diagnosisSkipped inputDiagnosisOutcome = iota
+	diagnosisCompleted
+	diagnosisAborted
+	diagnosisAttributed
+)
+
+// inputDiagnosis carries the explicit result of singleton attribution.
+type inputDiagnosis struct {
+	outcome  inputDiagnosisOutcome
+	badInput wire.OutPoint
+
+	// probeErr preserves whether attribution or an abort came from a
+	// transient conflict, which must never permanently fail an input.
+	probeErr error
+}
+
+// diagnoseInputSet runs singleton attribution and classifies its outcome.
+func (t *TxPublisher) diagnoseInputSet(r *monitorRecord) inputDiagnosis {
+	badInput, err := t.findBadInputInSet(r, r.req.Inputs)
+	switch {
+	// An untestable funded probe must remain inconclusive even if its cause
+	// would identify an input in an independently tested singleton.
+	case errors.Is(err, errProbeTxConstruction):
+		return inputDiagnosis{outcome: diagnosisAborted, probeErr: err}
+
+	case err == nil, errors.Is(err, ErrInputMissing),
+		errors.Is(err, chain.ErrMempoolConflict):
+		return inputDiagnosis{
+			outcome:  diagnosisAttributed,
+			badInput: badInput,
+			probeErr: err,
+		}
+
+	// A completed search differs from an interrupted one for retry policy.
+	case errors.Is(err, errBadInputNotFound):
+		return inputDiagnosis{outcome: diagnosisCompleted}
+
+	default:
+		return inputDiagnosis{outcome: diagnosisAborted, probeErr: err}
+	}
 }
 
 // handleMissingInputs handles the case when the chain backend reports back a

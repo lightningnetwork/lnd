@@ -51,6 +51,11 @@ var (
 	// errMempoolRejected separates backend rejection of a constructed
 	// candidate from failures that cannot provide diagnostic evidence.
 	errMempoolRejected = errors.New("mempool rejected tx")
+
+	// errProbeTxConstruction means the selected inputs cannot supply an
+	// independently testable probe, so rejection cannot identify its
+	// target.
+	errProbeTxConstruction = errors.New("unable to construct probe tx")
 )
 
 var (
@@ -776,6 +781,106 @@ func isTransientMempoolError(err error) bool {
 		errors.Is(err, chain.ErrTooManyReplacements) ||
 		errors.Is(err, chain.ErrReplacementAddsUnconfirmed) ||
 		errors.Is(err, chain.ErrMempoolConflict)
+}
+
+// probeInputSet tests a subset without publishing, storing, or monitoring it.
+// Underfunded subsets borrow normal companions to pay the same attempt fee.
+func (t *TxPublisher) probeInputSet(r *monitorRecord,
+	inputs []input.Input) error {
+
+	// Keep construction policy identical to the rejected candidate. These
+	// temporary contexts never update the publisher's real monitor record.
+	feeRate := r.feeFunction.FeeRate()
+	createProbe := func(probeInputs []input.Input) (*sweepTxCtx, error) {
+		return t.createSweepTx(
+			probeInputs, r.req.DeliveryAddress, feeRate,
+		)
+	}
+	sweepCtx, err := createProbe(inputs)
+	if err == nil {
+		return t.checkMempoolAcceptance(sweepCtx)
+	}
+
+	// Small anchors and required outputs may need borrowed funding. Other
+	// construction failures cannot be resolved by adding companion value.
+	if !errors.Is(err, ErrNotEnoughInputs) &&
+		!errors.Is(err, ErrTxNoOutput) {
+
+		return fmt.Errorf("%w: %w", errProbeTxConstruction, err)
+	}
+
+	selected := fn.NewSet[wire.OutPoint]()
+	for _, inp := range inputs {
+		selected.Add(inp.OutPoint())
+	}
+	probeInputs := append([]input.Input(nil), inputs...)
+	var companions []input.Input
+	for _, companion := range r.req.Inputs {
+		if companion.RequiredTxOut() != nil ||
+			selected.Contains(companion.OutPoint()) {
+
+			continue
+		}
+
+		// Small companions can fund a target collectively even if none
+		// can create a standalone output. Stop at the first built
+		// probe.
+		companions = append(companions, companion)
+		probeInputs = append(probeInputs, companion)
+		sweepCtx, err = createProbe(probeInputs)
+		if err != nil {
+			continue
+		}
+		probeErr := t.checkMempoolAcceptance(sweepCtx)
+		if probeErr == nil {
+			return nil
+		}
+
+		// A combined rejection could come from a newly spent funder.
+		// Test the funding group separately after that rejection.
+		fundingCtx, fundingErr := createProbe(companions)
+		if fundingErr == nil {
+			fundingErr = t.checkMempoolAcceptance(fundingCtx)
+		}
+		// Input lookup precedes fee policy in both RPC backends. A
+		// funding fee rejection proves availability only, so use it
+		// solely to attribute a combined missing-input rejection.
+		if errors.Is(probeErr, ErrInputMissing) &&
+			errors.Is(fundingErr, chain.ErrInsufficientFee) {
+
+			return probeErr
+		}
+		// A combined transient failure stays reversible when funding
+		// cannot independently establish which input caused rejection.
+		if fundingErr != nil &&
+			isTransientMempoolError(probeErr) {
+
+			// A failed RPC cannot clear an independently observed
+			// funding conflict or justify escalating its retry fee.
+			if errors.Is(fundingErr, chain.ErrMempoolConflict) {
+				fundingErr = fmt.Errorf("%w: %w", fundingErr,
+					probeErr)
+			} else {
+				fundingErr = probeErr
+			}
+		}
+		if isTransientMempoolError(fundingErr) {
+			// Retain a transient cause without attributing its
+			// funder rejection to the selected target.
+			return fmt.Errorf("%w: %w", errProbeTxConstruction,
+				fundingErr)
+		}
+		if fundingErr != nil {
+			// Do not expose a funder's script/missing sentinel as
+			// rejection evidence for the target singleton.
+			log.Debugf("Inconclusive probe funding: %v", fundingErr)
+			return errProbeTxConstruction
+		}
+
+		return probeErr
+	}
+
+	return fmt.Errorf("%w: %w", errProbeTxConstruction, err)
 }
 
 // handleMissingInputs handles the case when the chain backend reports back a

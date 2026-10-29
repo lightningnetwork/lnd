@@ -56,6 +56,10 @@ var (
 	// independently testable probe, so rejection cannot identify its
 	// target.
 	errProbeTxConstruction = errors.New("unable to construct probe tx")
+
+	// errBadInputNotFound distinguishes a completed search with no
+	// attributable singleton from a probe that could not be tested.
+	errBadInputNotFound = errors.New("bad input not found")
 )
 
 var (
@@ -609,10 +613,6 @@ func (t *TxPublisher) createRBFCompliantTx(
 				}
 			}
 
-		// TODO(yy): suppose there's only one bad input, we can do a
-		// binary search to find out which input is causing this error
-		// by recreating a tx using half of the inputs and check its
-		// mempool acceptance.
 		default:
 			log.Debugf("Failed to create RBF-compliant tx: %v", err)
 			return nil, err
@@ -854,6 +854,127 @@ func isInputScriptFailure(err error) bool {
 		errors.Is(err, chain.ErrScriptSigNotPushOnly) ||
 		errors.Is(err, chain.ErrScriptSigSize) ||
 		errors.Is(err, chain.ErrNonStandardInputs)
+}
+
+// findBadInput locates a singleton input that fails a no-broadcast probe.
+func (t *TxPublisher) findBadInput(r *monitorRecord) (wire.OutPoint, error) {
+	return t.findBadInputInSet(r, r.req.Inputs)
+}
+
+// findBadInputInSet searches the given input set for a single input that fails
+// mempool acceptance by itself.
+func (t *TxPublisher) findBadInputInSet(r *monitorRecord,
+	inputs []input.Input) (wire.OutPoint, error) {
+
+	// Halving a rejected subset makes progress without publishing a probe.
+	// Only a concrete singleton rejection can identify its input.
+	if len(inputs) > 1 {
+		mid := len(inputs) / 2
+		left := inputs[:mid]
+
+		err := t.probeInputSet(r, left)
+		switch {
+		case err == nil:
+			// An accepted left half leaves only the right half to
+			// inspect.
+			return t.findBadInputInSet(r, inputs[mid:])
+
+		case errors.Is(err, errProbeTxConstruction):
+			// An untestable half cannot hide a rejected later
+			// singleton.
+			return t.findBadInputBySingleton(r, inputs)
+
+		case errors.Is(err, ErrInputMissing),
+			errors.Is(err, chain.ErrMempoolConflict):
+			if len(left) == 1 {
+				return left[0].OutPoint(), err
+			}
+
+			// Preserve whether narrowing found a permanent missing
+			// input or a reversible conflict; consumers apply
+			// different policies.
+			return t.findBadInputInSet(r, left)
+
+		case isInputScriptFailure(err):
+			if len(left) == 1 {
+				return left[0].OutPoint(), nil
+			}
+
+			return t.findBadInputInSet(r, left)
+
+		default:
+			return wire.OutPoint{}, err
+		}
+	}
+
+	if len(inputs) == 0 {
+		return wire.OutPoint{}, errBadInputNotFound
+	}
+
+	err := t.probeInputSet(r, inputs)
+	switch {
+	case err == nil:
+		return wire.OutPoint{}, errBadInputNotFound
+
+	// A failed funding group never identifies the target singleton, even
+	// when its wrapped cause is a transient conflict.
+	case errors.Is(err, errProbeTxConstruction):
+		return wire.OutPoint{}, err
+
+	case errors.Is(err, ErrInputMissing),
+		errors.Is(err, chain.ErrMempoolConflict):
+		return inputs[0].OutPoint(), err
+
+	case isInputScriptFailure(err):
+		return inputs[0].OutPoint(), nil
+
+	default:
+		return wire.OutPoint{}, err
+	}
+}
+
+// findBadInputBySingleton scans candidates after a subset cannot be built.
+func (t *TxPublisher) findBadInputBySingleton(r *monitorRecord,
+	inputs []input.Input) (wire.OutPoint, error) {
+
+	// Keep scanning after untestable candidates so a later independently
+	// rejected singleton can still release unrelated valid inputs.
+	var constructionErr error
+	for _, inp := range inputs {
+		err := t.probeInputSet(r, []input.Input{inp})
+		switch {
+		case err == nil:
+			continue
+
+		case errors.Is(err, errProbeTxConstruction):
+			// Keep later conflict evidence over an earlier generic
+			// construction failure so input ordering cannot make it
+			// fatal.
+			if constructionErr == nil ||
+				errors.Is(err, chain.ErrMempoolConflict) {
+
+				constructionErr = err
+			}
+
+			continue
+
+		case errors.Is(err, ErrInputMissing),
+			errors.Is(err, chain.ErrMempoolConflict):
+			return inp.OutPoint(), err
+
+		case isInputScriptFailure(err):
+			return inp.OutPoint(), nil
+
+		default:
+			return wire.OutPoint{}, err
+		}
+	}
+
+	if constructionErr != nil {
+		return wire.OutPoint{}, constructionErr
+	}
+
+	return wire.OutPoint{}, errBadInputNotFound
 }
 
 // handleMissingInputs handles the case when the chain backend reports back a

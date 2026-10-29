@@ -7,6 +7,7 @@ import (
 	"github.com/btcsuite/btcd/wire/v2"
 	graphdb "github.com/lightningnetwork/lnd/graph/db"
 	"github.com/lightningnetwork/lnd/kvdb"
+	"github.com/lightningnetwork/lnd/lnwire"
 	"github.com/lightningnetwork/lnd/tlv"
 	"github.com/stretchr/testify/require"
 )
@@ -187,6 +188,104 @@ func closeChannelForTest(t *testing.T, store *KVStore, ch *OpenChannel) {
 		CloseType:   CooperativeClose,
 	}
 	require.NoError(t, store.CloseChannel(ch, summary))
+}
+
+// writeTestChannelResponse writes one unacknowledged settle into a forwarding
+// package owned by the channel.
+func writeTestChannelResponse(t *testing.T, store *KVStore,
+	ch *OpenChannel) *lnwire.UpdateFulfillHTLC {
+
+	t.Helper()
+
+	settle := &lnwire.UpdateFulfillHTLC{
+		ID:              3,
+		PaymentPreimage: [32]byte{9},
+	}
+	packager := NewChannelPackager(ch.ShortChanID())
+	err := kvdb.Update(store.backend, func(tx kvdb.RwTx) error {
+		pkg := NewFwdPkg(ch.ShortChanID(), 0, nil, []LogUpdate{
+			{LogIndex: 0, UpdateMsg: settle},
+		})
+
+		return packager.AddFwdPkg(tx, pkg)
+	}, func() {})
+	require.NoError(t, err)
+
+	return settle
+}
+
+// TestCloseChannelExtractsFwdResponses asserts that both channel-close
+// strategies invoke forwarding-response extraction while the forwarding
+// package is still readable in the close transaction. The synchronous path
+// must then remove the package, while the tombstone path retains it.
+func TestCloseChannelExtractsFwdResponses(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name      string
+		tombstone bool
+	}{
+		{name: "synchronous"},
+		{name: "tombstone", tombstone: true},
+	}
+
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			t.Parallel()
+
+			backend, cleanup := makeTestBackend(t)
+			t.Cleanup(cleanup)
+
+			var extracted []*lnwire.UpdateFulfillHTLC
+			extract := func(tx kvdb.RwTx,
+				source lnwire.ShortChannelID) error {
+
+				pkgs, err := NewChannelPackager(source).LoadFwdPkgs(tx)
+				if err != nil {
+					return err
+				}
+
+				for _, pkg := range pkgs {
+					for _, update := range pkg.SettleFails {
+						settle, ok := update.UpdateMsg.(*lnwire.UpdateFulfillHTLC)
+						if ok {
+							extracted = append(extracted, settle)
+						}
+					}
+				}
+
+				return nil
+			}
+
+			store := NewKVStore(
+				backend,
+				WithTombstoneClosedChannels(test.tombstone),
+				WithExtractFwdResponses(extract),
+			)
+			ch := createTestOpenChannel(t, store)
+			settle := writeTestChannelResponse(t, store, ch)
+
+			closeChannelForTest(t, store, ch)
+
+			require.Len(t, extracted, 1)
+			require.Equal(t, settle, extracted[0])
+
+			packager := NewChannelPackager(ch.ShortChanID())
+			var fwdPkgs []*FwdPkg
+			err := kvdb.View(backend, func(tx kvdb.RTx) error {
+				var err error
+				fwdPkgs, err = packager.LoadFwdPkgs(tx)
+
+				return err
+			}, func() {})
+			require.NoError(t, err)
+			if test.tombstone {
+				require.Len(t, fwdPkgs, 1)
+			} else {
+				require.Empty(t, fwdPkgs)
+			}
+		})
+	}
 }
 
 // TestCloseChannelTombstoneWritePath verifies the on-disk artefacts the

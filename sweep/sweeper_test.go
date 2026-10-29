@@ -611,7 +611,8 @@ func TestMarkInputFailed(t *testing.T) {
 func TestSweepPendingInputs(t *testing.T) {
 	t.Parallel()
 
-	// Create a mock wallet and aggregator.
+	// Arrange clusters with and without wallet funding to exercise
+	// selection.
 	wallet := &MockWallet{}
 	defer wallet.AssertExpectations(t)
 
@@ -644,7 +645,9 @@ func TestSweepPendingInputs(t *testing.T) {
 
 	// Mock this set to ask for wallet input.
 	setNeedWallet.On("NeedWalletInput").Return(true).Once()
-	setNeedWallet.On("AddWalletInputs", wallet).Return(nil).Once()
+	setNeedWallet.On(
+		"AddWalletInputs", wallet, s.excludedWalletInputs,
+	).Return(nil).Once()
 
 	// Mock the wallet to require the lock once.
 	wallet.On("WithCoinSelectLock", mock.Anything).Return(nil).Once()
@@ -657,13 +660,13 @@ func TestSweepPendingInputs(t *testing.T) {
 
 	// Mock the methods used in `sweep`. This is not important for this
 	// unit test.
-	setNeedWallet.On("Inputs").Return(nil).Maybe()
+	setNeedWallet.On("Inputs").Return(nil).Times(2)
 	setNeedWallet.On("DeadlineHeight").Return(testHeight).Once()
 	setNeedWallet.On("Budget").Return(btcutil.Amount(1)).Once()
 	setNeedWallet.On("StartingFeeRate").Return(
 		fn.None[chainfee.SatPerKWeight]()).Once()
 	setNeedWallet.On("Immediate").Return(false).Once()
-	normalSet.On("Inputs").Return(nil).Maybe()
+	normalSet.On("Inputs").Return(nil).Times(2)
 	normalSet.On("DeadlineHeight").Return(testHeight).Once()
 	normalSet.On("Budget").Return(btcutil.Amount(1)).Once()
 	normalSet.On("StartingFeeRate").Return(
@@ -677,13 +680,15 @@ func TestSweepPendingInputs(t *testing.T) {
 	// Mock the aggregator to return the mocked input sets.
 	aggregator.On("ClusterInputs", pis).Return([]InputSet{
 		setNeedWallet, normalSet,
-	})
+	}).Once()
 
 	// Mock `Broadcast` to return a result.
 	publisher.On("Broadcast", mock.Anything).Return(nil).Twice()
 
-	// Call the method under test.
+	// Act by sweeping the clusters through their configured publisher.
 	s.sweepPendingInputs(pis)
+
+	// Assert the publication and funding calls through fixture cleanup.
 }
 
 // TestHandleBumpEventTxFailed checks that the sweeper correctly handles the

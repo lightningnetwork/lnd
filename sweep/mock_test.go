@@ -232,9 +232,10 @@ func (m *MockInputSet) FeeRate() chainfee.SatPerKWeight {
 
 // AddWalletInputs adds wallet inputs to the set until its budget is covered.
 func (m *MockInputSet) AddWalletInputs(wallet Wallet,
-	relayFeeRate chainfee.SatPerKWeight) error {
+	relayFeeRate chainfee.SatPerKWeight,
+	excludedInputs fn.Set[wire.OutPoint]) error {
 
-	args := m.Called(wallet, relayFeeRate)
+	args := m.Called(wallet, relayFeeRate, excludedInputs)
 
 	return args.Error(0)
 }

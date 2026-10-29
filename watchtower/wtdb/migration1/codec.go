@@ -5,6 +5,7 @@ import (
 	"io"
 
 	"github.com/lightningnetwork/lnd/channeldb"
+	cstate "github.com/lightningnetwork/lnd/chanstate"
 	"github.com/lightningnetwork/lnd/lnwallet/chainfee"
 	"github.com/lightningnetwork/lnd/watchtower/blob"
 	"github.com/lightningnetwork/lnd/watchtower/wtpolicy"
@@ -13,8 +14,8 @@ import (
 // SessionIDSize is 33-bytes; it is a serialized, compressed public key.
 const SessionIDSize = 33
 
-// UnknownElementType is an alias for channeldb.UnknownElementType.
-type UnknownElementType = channeldb.UnknownElementType
+// UnknownElementType is an alias for chanstate.UnknownElementType.
+type UnknownElementType = cstate.UnknownElementType
 
 // SessionID is created from the remote public key of a client, and serves as a
 // unique identifier and authentication for sending state updates.

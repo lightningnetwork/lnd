@@ -21,17 +21,10 @@ var (
 	NewLinkNodeDB = linknode.NewDB
 )
 
-// LinkNode stores metadata related to node's that we have/had a direct
-// channel open with.
-type LinkNode = linknode.LinkNode
-
-// LinkNodeDB is a database that keeps track of all link nodes.
-type LinkNodeDB = linknode.LinkNodeDB
-
 // putLinkNode serializes then writes the encoded version of the passed link
 // node into the nodeMetaBucket. This function is provided in order to allow
 // the ability to re-use a database transaction across many operations.
-func putLinkNode(nodeMetaBucket kvdb.RwBucket, l *LinkNode) error {
+func putLinkNode(nodeMetaBucket kvdb.RwBucket, l *linknode.LinkNode) error {
 	return linknode.PutLinkNode(nodeMetaBucket, l)
 }
 

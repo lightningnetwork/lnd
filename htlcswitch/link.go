@@ -4247,13 +4247,64 @@ func (l *channelLink) processRemoteUpdateFulfillHTLC(
 	return nil
 }
 
+// unknownMalformedFailure retains the received code and onion hash when the
+// code is not recognized locally.
+type unknownMalformedFailure struct {
+	lnwire.FailInvalidOnionKey
+	code lnwire.FailCode
+}
+
+func (f *unknownMalformedFailure) Code() lnwire.FailCode {
+	return f.code
+}
+
+func (f *unknownMalformedFailure) Error() string {
+	return fmt.Sprintf("unknown malformed onion failure: %v", f.code)
+}
+
 // processRemoteUpdateFailMalformedHTLC takes an `UpdateFailMalformedHTLC` msg
 // sent from the remote and processes it.
 func (l *channelLink) processRemoteUpdateFailMalformedHTLC(
 	msg *lnwire.UpdateFailMalformedHTLC) error {
 
-	// Convert the failure type encoded within the HTLC fail message to the
-	// proper generic lnwire error code.
+	if msg.FailureCode&lnwire.FlagBadOnion == 0 {
+		err := fmt.Errorf("malformed HTLC failure code %v lacks "+
+			"BADONION", msg.FailureCode)
+		l.failf(LinkFailureError{
+			code:          ErrInvalidUpdate,
+			FailureAction: LinkFailureForceClose,
+		}, "%v", err)
+
+		return err
+	}
+
+	failure := malformedFailure(msg)
+
+	// With the error parsed, we'll convert the into it's opaque form.
+	var b bytes.Buffer
+	if err := lnwire.EncodeFailure(&b, failure, 0); err != nil {
+		return fmt.Errorf("unable to encode malformed error: %w", err)
+	}
+
+	// If remote side have been unable to parse the onion blob we have sent
+	// to it, than we should transform the malformed HTLC message to the
+	// usual HTLC fail message.
+	err := l.channel.ReceiveFailHTLC(msg.ID, b.Bytes())
+	if err != nil {
+		l.failf(LinkFailureError{code: ErrInvalidUpdate},
+			"unable to handle upstream fail HTLC: %v", err)
+
+		return err
+	}
+
+	return nil
+}
+
+// malformedFailure preserves the received failure code and onion hash.
+func malformedFailure(
+	msg *lnwire.UpdateFailMalformedHTLC,
+) lnwire.FailureMessage {
+
 	var failure lnwire.FailureMessage
 	switch msg.FailureCode {
 	case lnwire.CodeInvalidOnionVersion:
@@ -4282,40 +4333,15 @@ func (l *channelLink) processRemoteUpdateFailMalformedHTLC(
 		}
 
 	default:
-		l.log.Warnf("unexpected failure code received in "+
-			"UpdateFailMailformedHTLC: %v", msg.FailureCode)
-
-		// We don't just pass back the error we received from our
-		// successor. Otherwise we might report a failure that penalizes
-		// us more than needed. If the onion that we forwarded was
-		// correct, the node should have been able to send back its own
-		// failure. The node did not send back its own failure, so we
-		// assume there was a problem with the onion and report that
-		// back. We reuse the invalid onion key failure because there is
-		// no specific error for this case.
-		failure = &lnwire.FailInvalidOnionKey{
-			OnionSHA256: msg.ShaOnionBlob,
+		failure = &unknownMalformedFailure{
+			FailInvalidOnionKey: lnwire.FailInvalidOnionKey{
+				OnionSHA256: msg.ShaOnionBlob,
+			},
+			code: msg.FailureCode,
 		}
 	}
 
-	// With the error parsed, we'll convert the into it's opaque form.
-	var b bytes.Buffer
-	if err := lnwire.EncodeFailure(&b, failure, 0); err != nil {
-		return fmt.Errorf("unable to encode malformed error: %w", err)
-	}
-
-	// If remote side have been unable to parse the onion blob we have sent
-	// to it, than we should transform the malformed HTLC message to the
-	// usual HTLC fail message.
-	err := l.channel.ReceiveFailHTLC(msg.ID, b.Bytes())
-	if err != nil {
-		l.failf(LinkFailureError{code: ErrInvalidUpdate},
-			"unable to handle upstream fail HTLC: %v", err)
-
-		return err
-	}
-
-	return nil
+	return failure
 }
 
 // processRemoteUpdateFailHTLC takes an `UpdateFailHTLC` msg sent from the

@@ -464,7 +464,7 @@ func (a *arbChannel) ForceCloseChan() (*wire.MsgTx, error) {
 // cooperative-close path is gated; force, breach, and abandon closes never
 // take the early-dispatch path, so their NotifyClosedChannel must always
 // fire from MarkChannelClosed.
-func shouldSuppressClosedChannelNotify(closeType channeldb.ClosureType,
+func shouldSuppressClosedChannelNotify(closeType chanstate.ClosureType,
 	earlyDispatched bool) bool {
 
 	return closeType == channeldb.CooperativeClose && earlyDispatched

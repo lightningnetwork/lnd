@@ -33,7 +33,7 @@ const (
 
 // chanDBRestorer is an implementation of the chanbackup.ChannelRestorer
 // interface that is able to properly map a Single backup, into a
-// channeldb.ChannelShell which is required to fully restore a channel. We also
+// chanstate.ChannelShell which is required to fully restore a channel. We also
 // need the secret key chain in order obtain the prior shachain root so we can
 // verify the DLP protocol as initiated by the remote node.
 type chanDBRestorer struct {
@@ -51,7 +51,7 @@ type chanDBRestorer struct {
 // to continue to use the channel, only the minimal amount of information to
 // insert this shell channel back into the database.
 func (c *chanDBRestorer) openChannelShell(backup chanbackup.Single) (
-	*channeldb.ChannelShell, error) {
+	*chanstate.ChannelShell, error) {
 
 	var err error
 
@@ -188,7 +188,7 @@ func (c *chanDBRestorer) openChannelShell(backup chanbackup.Single) (
 	ltndLog.Infof("SCB Recovery: created channel shell for ChannelPoint"+
 		"(%v), chan_type=%v", backup.FundingOutpoint, chanType)
 
-	chanShell := channeldb.ChannelShell{
+	chanShell := chanstate.ChannelShell{
 		NodeAddrs: backup.Addresses,
 		Chan: &chanstate.OpenChannel{
 			ChanType:                chanType,
@@ -218,7 +218,7 @@ func (c *chanDBRestorer) openChannelShell(backup chanbackup.Single) (
 //
 // NOTE: Part of the chanbackup.ChannelRestorer interface.
 func (c *chanDBRestorer) RestoreChansFromSingles(backups ...chanbackup.Single) error {
-	channelShells := make([]*channeldb.ChannelShell, 0, len(backups))
+	channelShells := make([]*chanstate.ChannelShell, 0, len(backups))
 	firstChanHeight := uint32(math.MaxUint32)
 	for _, backup := range backups {
 		chanShell, err := c.openChannelShell(backup)

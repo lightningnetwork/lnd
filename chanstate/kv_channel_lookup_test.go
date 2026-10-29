@@ -25,7 +25,7 @@ func TestFetchClosedChannelForID(t *testing.T) {
 	store := NewKVStore(backend)
 
 	channel := createTestChannelState(t, store)
-	for i := uint32(0); i < numChans; i++ {
+	for i := range uint32(numChans) {
 		chanPoint := channel.FundingOutpoint
 		chanPoint.Index = i
 
@@ -41,7 +41,7 @@ func TestFetchClosedChannelForID(t *testing.T) {
 		require.NoError(t, openChannel.CloseChannel(closeSummary))
 	}
 
-	for i := uint32(0); i < numChans; i++ {
+	for i := range uint32(numChans) {
 		chanPoint := channel.FundingOutpoint
 		chanPoint.Index = i
 

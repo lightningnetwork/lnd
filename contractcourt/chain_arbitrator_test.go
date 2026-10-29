@@ -238,7 +238,7 @@ func TestShouldSuppressClosedChannelNotify(t *testing.T) {
 
 	cases := []struct {
 		name            string
-		closeType       channeldb.ClosureType
+		closeType       chanstate.ClosureType
 		earlyDispatched bool
 		wantSuppress    bool
 	}{

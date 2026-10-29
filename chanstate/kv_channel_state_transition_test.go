@@ -82,7 +82,7 @@ func TestChannelStateTransition(t *testing.T) {
 		htlcs   []HTLC
 		htlcAmt lnwire.MilliSatoshi
 	)
-	for i := uint32(0); i < 10; i++ {
+	for i := range uint32(10) {
 		incoming := i > 5
 		htlc := HTLC{
 			Signature:     testSig.Serialize(),

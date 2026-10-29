@@ -78,10 +78,6 @@ var (
 )
 
 type (
-	// OpenChannel encapsulates the persistent and dynamic state of an open
-	// channel with a remote node.
-	OpenChannel = cstate.OpenChannel
-
 	// ChannelCommitment is a snapshot of the commitment state at a
 	// particular point in the commitment chain.
 	ChannelCommitment = cstate.ChannelCommitment
@@ -270,10 +266,6 @@ func DeserializeHtlcs(r io.Reader) ([]HTLC, error) {
 
 // FinalHtlcInfo contains information about the final outcome of an htlc.
 type FinalHtlcInfo = cstate.FinalHtlcInfo
-
-// ClosureType is an enum like structure that details exactly how a channel was
-// closed.
-type ClosureType = cstate.ClosureType
 
 const (
 	// CooperativeClose indicates that a channel has been closed

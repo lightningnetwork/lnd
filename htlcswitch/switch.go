@@ -229,7 +229,7 @@ type Config struct {
 	// SwitchPackager provides access to the forwarding packages of all
 	// active channels. This gives the switch the ability to read arbitrary
 	// forwarding packages, and ack settles and fails contained within them.
-	SwitchPackager channeldb.FwdOperator
+	SwitchPackager chanstate.FwdOperator
 
 	// CheckFwdResponse reports whether a persisted off-chain response
 	// exists for the given outgoing circuit key.

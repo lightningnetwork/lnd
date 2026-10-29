@@ -12,17 +12,9 @@ type (
 	// FwdPkg.
 	SettleFailRef = cstate.SettleFailRef
 
-	// PkgFilter is used to compactly represent a particular subset of the
-	// Adds in a forwarding package.
-	PkgFilter = cstate.PkgFilter
-
 	// FwdPkg records all adds, settles, and fails that were locked in as a
 	// result of the remote peer sending us a revocation.
 	FwdPkg = cstate.FwdPkg
-
-	// FwdOperator defines the interfaces for managing forwarding packages
-	// that are external to a particular channel.
-	FwdOperator = cstate.FwdOperator
 )
 
 const (

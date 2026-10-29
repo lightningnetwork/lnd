@@ -6,6 +6,7 @@ import (
 	"github.com/btcsuite/btcd/btcec/v2"
 	"github.com/btcsuite/btcd/btcutil/v2"
 	"github.com/lightningnetwork/lnd/channeldb"
+	"github.com/lightningnetwork/lnd/chanstate"
 	"github.com/lightningnetwork/lnd/lnwire"
 	"github.com/stretchr/testify/require"
 )
@@ -49,7 +50,7 @@ func TestReservationAuxChanStatePopulatesNegotiatedConfigs(t *testing.T) {
 		theirContribution: &ChannelContribution{
 			ChannelConfig: remoteCfg,
 		},
-		partialState: &channeldb.OpenChannel{
+		partialState: &chanstate.OpenChannel{
 			IdentityPub: peerPub,
 		},
 	}

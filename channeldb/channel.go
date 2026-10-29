@@ -209,10 +209,6 @@ var (
 	ChanStatusRemoteCloseInitiator = cstate.ChanStatusRemoteCloseInitiator
 )
 
-// FinalHtlcByte is a type alias for a byte that encodes information about the
-// final htlc resolution.
-type FinalHtlcByte = cstate.FinalHtlcByte
-
 const (
 	// FinalHtlcSettledBit is the bit that encodes whether the htlc was
 	// settled or failed.

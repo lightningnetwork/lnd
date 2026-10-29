@@ -14,18 +14,6 @@ const (
 )
 
 type (
-	// BigSizeAmount is a type alias for a TLV record of a btcutil.Amount.
-	BigSizeAmount = cstate.BigSizeAmount
-
-	// BigSizeMilliSatoshi is a type alias for a TLV record of a
-	// lnwire.MilliSatoshi.
-	BigSizeMilliSatoshi = cstate.BigSizeMilliSatoshi
-
-	// SparsePayHash is a type alias for a 32 byte array, which when
-	// serialized is able to save some space by not including an empty
-	// payment hash on disk.
-	SparsePayHash = cstate.SparsePayHash
-
 	// HTLCEntry specifies the minimal info needed to be stored on disk for
 	// ALL the historical HTLCs, which is useful for constructing
 	// RevocationLog when a breach is detected.

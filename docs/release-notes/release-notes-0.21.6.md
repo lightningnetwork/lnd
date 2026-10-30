@@ -18,41 +18,51 @@
     - [Code Health](#code-health)
     - [Tooling and Documentation](#tooling-and-documentation)
 
-### ⚠️ **Action required for Linux operators:** disable MPTCP in the kernel
+### ⚠️ Action required for Linux operators: CVE-2026-98432
 
-**If you run lnd on Linux, we strongly urge you to switch off MPTCP at the
-kernel level in addition to upgrading to this release.**
+[CVE-2026-98432](https://nvd.nist.gov/vuln/detail/CVE-2026-98432) is a Linux
+kernel vulnerability. The [demonstrated remote
+exploit](https://www.openwall.com/lists/oss-security/2026/10/30/1) requires a
+Multipath TCP (MPTCP) listener, which Go 1.24+ enables by default and which lnd
+0.21.x therefore exposed on its peer, gRPC and REST ports. Windows and macOS
+are not affected.
 
-This release [stops lnd from accepting MPTCP
-connections](https://github.com/lightningnetwork/lnd/pull/11456), which closes
-the demonstrated CVE-2026-98432 exploit path through lnd. This is a mitigation,
-not a fix: the vulnerability lives in the Linux kernel itself, so every other
-MPTCP-capable service on the same machine remains exposed. Unless you
-knowingly depend on MPTCP, there is no reason to keep it enabled.
+Do all three, in order:
 
-Disable MPTCP right away:
+1. **Upgrade to this release.** lnd no longer opens MPTCP listeners, which
+   closes the demonstrated exploit path through lnd.
+2. **Disable MPTCP on the host.** This release does not protect other
+   services on the same machine. Run:
+   ```shell
+   sudo sysctl -w net.mptcp.enabled=0
+   echo 'net.mptcp.enabled = 0' | sudo tee /etc/sysctl.d/90-disable-mptcp.conf
+   ```
+   If the command reports that the key does not exist, your kernel has no
+   MPTCP support and is not exposed through this path. The setting is per
+   network namespace: if lnd runs in Docker, pass
+   `--sysctl net.mptcp.enabled=0` to the container, or use the firewall rule
+   in [issue 11455](https://github.com/lightningnetwork/lnd/issues/11455),
+   which covers all namespaces.
+3. **Install a patched kernel** as soon as your distribution ships one.
+   Disabling MPTCP closes the demonstrated exploit only; the kernel bug is not
+   specific to MPTCP, and the kernel patch is the only fix.
 
-```shell
-sudo sysctl -w net.mptcp.enabled=0
-```
-
-Keep it disabled across reboots:
-
-```shell
-echo 'net.mptcp.enabled = 0' | sudo tee /etc/sysctl.d/90-disable-mptcp.conf
-```
-
-Install a patched kernel as soon as your distribution ships one. Until then, do
-not re-enable MPTCP for lnd with `GODEBUG=multipathtcp=1`.
+Verify with `sudo ss -Mlnp | grep lnd`, which should print nothing. If you
+cannot upgrade yet, start the existing binary with `GODEBUG=multipathtcp=0`
+instead; see the [pinned
+mitigation](https://github.com/lightningnetwork/lnd/issues/11455#issuecomment-6523668359).
+Do not re-enable MPTCP with `GODEBUG=multipathtcp=1` until your kernel is
+patched.
 
 # Bug Fixes
 
 * lnd binaries now [disable MPTCP listeners by
   default](https://github.com/lightningnetwork/lnd/pull/11456), restoring plain
   TCP as the default transport and mitigating the demonstrated
-  CVE-2026-98432 exploit path on vulnerable Linux kernels. Operators can opt
-  in to MPTCP with `GODEBUG=multipathtcp=1`; upgrading to a patched kernel is
-  still required to fix the underlying vulnerability.
+  CVE-2026-98432 exploit path on vulnerable Linux kernels. Upgrading to a
+  patched kernel is still required to fix the underlying vulnerability. Once
+  the kernel is patched, operators can opt in to MPTCP again with
+  `GODEBUG=multipathtcp=1`.
 
 # New Features
 

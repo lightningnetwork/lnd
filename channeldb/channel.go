@@ -2,7 +2,6 @@ package channeldb
 
 import (
 	"bytes"
-	"errors"
 	"fmt"
 	"io"
 	"net"
@@ -365,17 +364,7 @@ var (
 func (c *ChannelStateDB) StoreChannelShutdownInfo(channel *OpenChannel,
 	info *ShutdownInfo) error {
 
-	return kvdb.Update(c.backend, func(tx kvdb.RwTx) error {
-		chanBucket, err := fetchChanBucketRw(
-			tx, channel.IdentityPub, &channel.FundingOutpoint,
-			channel.ChainHash,
-		)
-		if err != nil {
-			return err
-		}
-
-		return cstate.PutChannelShutdownInfo(chanBucket, info)
-	}, func() {})
+	return c.kvStore.StoreChannelShutdownInfo(channel, info)
 }
 
 // FetchChannelShutdownInfo fetches the persisted ShutdownInfo for the target
@@ -383,34 +372,7 @@ func (c *ChannelStateDB) StoreChannelShutdownInfo(channel *OpenChannel,
 func (c *ChannelStateDB) FetchChannelShutdownInfo(
 	channel *OpenChannel) (fn.Option[ShutdownInfo], error) {
 
-	var shutdownInfo *ShutdownInfo
-	err := kvdb.View(c.backend, func(tx kvdb.RTx) error {
-		chanBucket, err := fetchChanBucket(
-			tx, channel.IdentityPub, &channel.FundingOutpoint,
-			channel.ChainHash,
-		)
-		switch {
-		case err == nil:
-		case errors.Is(err, ErrNoChanDBExists),
-			errors.Is(err, ErrNoActiveChannels),
-			errors.Is(err, ErrChannelNotFound):
-
-			return ErrNoShutdownInfo
-		default:
-			return err
-		}
-
-		shutdownInfo, err = cstate.FetchChannelShutdownInfo(chanBucket)
-
-		return err
-	}, func() {
-		shutdownInfo = nil
-	})
-	if err != nil {
-		return fn.None[ShutdownInfo](), err
-	}
-
-	return fn.Some[ShutdownInfo](*shutdownInfo), nil
+	return c.kvStore.FetchChannelShutdownInfo(channel)
 }
 
 // isChannelBorked returns true if the channel has been marked as borked in the

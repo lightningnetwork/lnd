@@ -18,35 +18,6 @@ import (
 	"github.com/lightningnetwork/lnd/tlv"
 )
 
-// PutChannelDataLossCommitPoint stores the data-loss commit point in the
-// target channel bucket.
-func PutChannelDataLossCommitPoint(chanBucket kvdb.RwBucket,
-	commitPoint *btcec.PublicKey) error {
-
-	return chanBucket.Put(
-		dataLossCommitPointKey, commitPoint.SerializeCompressed(),
-	)
-}
-
-// FetchChannelDataLossCommitPoint retrieves the data-loss commit point from the
-// target channel bucket.
-func FetchChannelDataLossCommitPoint(
-	chanBucket kvdb.RBucket) (*btcec.PublicKey, error) {
-
-	bs := chanBucket.Get(dataLossCommitPointKey)
-	if bs == nil {
-		return nil, ErrNoCommitPoint
-	}
-
-	var b [btcec.PubKeyBytesLenCompressed]byte
-	r := bytes.NewReader(bs)
-	if _, err := io.ReadFull(r, b[:]); err != nil {
-		return nil, err
-	}
-
-	return btcec.ParsePubKey(b[:])
-}
-
 var (
 	// openChannelBucket stores all the currently open channels. This bucket
 	// has a second, nested bucket which is keyed by a node's ID. Within
@@ -931,6 +902,186 @@ func (s *KVStore) MarkChannelScidAliasNegotiated(
 
 		return PutOpenChannel(chanBucket, diskChannel)
 	}, func() {})
+}
+
+// ApplyChannelStatus adds the target status to the channel's persisted status
+// bit field.
+func (s *KVStore) ApplyChannelStatus(channel *OpenChannel,
+	status ChannelStatus) error {
+
+	return s.putChanStatus(channel, status)
+}
+
+// putChannelDataLossCommitPoint stores the data-loss commit point in the
+// target channel bucket.
+func putChannelDataLossCommitPoint(chanBucket kvdb.RwBucket,
+	commitPoint *btcec.PublicKey) error {
+
+	return chanBucket.Put(
+		dataLossCommitPointKey, commitPoint.SerializeCompressed(),
+	)
+}
+
+// fetchChannelDataLossCommitPoint retrieves the data-loss commit point from the
+// target channel bucket.
+func fetchChannelDataLossCommitPoint(
+	chanBucket kvdb.RBucket) (*btcec.PublicKey, error) {
+
+	bs := chanBucket.Get(dataLossCommitPointKey)
+	if bs == nil {
+		return nil, ErrNoCommitPoint
+	}
+
+	var b [btcec.PubKeyBytesLenCompressed]byte
+	r := bytes.NewReader(bs)
+	if _, err := io.ReadFull(r, b[:]); err != nil {
+		return nil, err
+	}
+
+	return btcec.ParsePubKey(b[:])
+}
+
+// MarkChannelDataLoss marks the channel as local-data-loss and stores the
+// commit point needed if the remote force closes.
+func (s *KVStore) MarkChannelDataLoss(channel *OpenChannel,
+	commitPoint *btcec.PublicKey) error {
+
+	putCommitPoint := func(chanBucket kvdb.RwBucket) error {
+		return putChannelDataLossCommitPoint(chanBucket, commitPoint)
+	}
+
+	return s.putChanStatus(
+		channel, ChanStatusLocalDataLoss, putCommitPoint,
+	)
+}
+
+// FetchChannelDataLossCommitPoint retrieves the commit point stored when the
+// channel was marked as local-data-loss.
+func (s *KVStore) FetchChannelDataLossCommitPoint(
+	channel *OpenChannel) (*btcec.PublicKey, error) {
+
+	var commitPoint *btcec.PublicKey
+
+	err := kvdb.View(s.backend, func(tx kvdb.RTx) error {
+		chanBucket, err := FetchChanBucket(
+			tx, channel.IdentityPub, &channel.FundingOutpoint,
+			channel.ChainHash,
+		)
+		switch {
+		case err == nil:
+		case errors.Is(err, ErrNoChanDBExists),
+			errors.Is(err, ErrNoActiveChannels),
+			errors.Is(err, ErrChannelNotFound):
+
+			return ErrNoCommitPoint
+		default:
+			return err
+		}
+
+		commitPoint, err = fetchChannelDataLossCommitPoint(chanBucket)
+
+		return err
+	}, func() {
+		commitPoint = nil
+	})
+	if err != nil {
+		return nil, err
+	}
+
+	return commitPoint, nil
+}
+
+// MarkChannelBorked marks the channel as irreconcilable.
+func (s *KVStore) MarkChannelBorked(channel *OpenChannel) error {
+	return s.ApplyChannelStatus(channel, ChanStatusBorked)
+}
+
+// putChanStatus appends the given status to the channel. fs is an optional
+// list of closures that are given the chanBucket in order to atomically add
+// extra information together with the new status.
+func (s *KVStore) putChanStatus(channel *OpenChannel,
+	status ChannelStatus, fs ...func(kvdb.RwBucket) error) error {
+
+	if err := kvdb.Update(s.backend, func(tx kvdb.RwTx) error {
+		chanBucket, err := FetchChanBucketRw(
+			tx, channel.IdentityPub, &channel.FundingOutpoint,
+			channel.ChainHash,
+		)
+		if err != nil {
+			return err
+		}
+
+		diskChannel, err := FetchOpenChannel(
+			chanBucket, &channel.FundingOutpoint,
+		)
+		if err != nil {
+			return err
+		}
+
+		// Add this status to the existing bitvector found in the DB.
+		status = diskChannel.ChannelStatusForStore() | status
+		diskChannel.SetChannelStatusForStore(status)
+
+		if err := PutOpenChannel(chanBucket, diskChannel); err != nil {
+			return err
+		}
+
+		for _, f := range fs {
+			// Skip execution of nil closures.
+			if f == nil {
+				continue
+			}
+
+			if err := f(chanBucket); err != nil {
+				return err
+			}
+		}
+
+		return nil
+	}, func() {}); err != nil {
+		return err
+	}
+
+	// Update the in-memory representation to keep it in sync with the DB.
+	channel.SetChannelStatusForStore(status)
+
+	return nil
+}
+
+// ClearChannelStatus clears the target status from the channel's persisted
+// status bit field.
+func (s *KVStore) ClearChannelStatus(channel *OpenChannel,
+	status ChannelStatus) error {
+
+	if err := kvdb.Update(s.backend, func(tx kvdb.RwTx) error {
+		chanBucket, err := FetchChanBucketRw(
+			tx, channel.IdentityPub, &channel.FundingOutpoint,
+			channel.ChainHash,
+		)
+		if err != nil {
+			return err
+		}
+
+		diskChannel, err := FetchOpenChannel(
+			chanBucket, &channel.FundingOutpoint,
+		)
+		if err != nil {
+			return err
+		}
+
+		// Unset this bit in the bitvector on disk.
+		status = diskChannel.ChannelStatusForStore() & ^status
+		diskChannel.SetChannelStatusForStore(status)
+
+		return PutOpenChannel(chanBucket, diskChannel)
+	}, func() {}); err != nil {
+		return err
+	}
+
+	// Update the in-memory representation to keep it in sync with the DB.
+	channel.SetChannelStatusForStore(status)
+
+	return nil
 }
 
 // openChannelTlvData houses the new data fields that are stored for each

@@ -15,3 +15,5 @@ func NewKVStore(backend kvdb.Backend) *KVStore {
 		backend: backend,
 	}
 }
+
+var _ OpenChannelStatusStore = (*KVStore)(nil)

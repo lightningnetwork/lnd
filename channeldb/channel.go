@@ -335,13 +335,7 @@ func (c *ChannelStateDB) MarkChannelScidAliasNegotiated(
 func (c *ChannelStateDB) MarkChannelDataLoss(channel *OpenChannel,
 	commitPoint *btcec.PublicKey) error {
 
-	putCommitPoint := func(chanBucket kvdb.RwBucket) error {
-		return cstate.PutChannelDataLossCommitPoint(
-			chanBucket, commitPoint,
-		)
-	}
-
-	return c.putChanStatus(channel, ChanStatusLocalDataLoss, putCommitPoint)
+	return c.kvStore.MarkChannelDataLoss(channel, commitPoint)
 }
 
 // FetchChannelDataLossCommitPoint retrieves the commit point stored when the
@@ -349,42 +343,12 @@ func (c *ChannelStateDB) MarkChannelDataLoss(channel *OpenChannel,
 func (c *ChannelStateDB) FetchChannelDataLossCommitPoint(
 	channel *OpenChannel) (*btcec.PublicKey, error) {
 
-	var commitPoint *btcec.PublicKey
-
-	err := kvdb.View(c.backend, func(tx kvdb.RTx) error {
-		chanBucket, err := fetchChanBucket(
-			tx, channel.IdentityPub, &channel.FundingOutpoint,
-			channel.ChainHash,
-		)
-		switch {
-		case err == nil:
-		case errors.Is(err, ErrNoChanDBExists),
-			errors.Is(err, ErrNoActiveChannels),
-			errors.Is(err, ErrChannelNotFound):
-
-			return ErrNoCommitPoint
-		default:
-			return err
-		}
-
-		commitPoint, err = cstate.FetchChannelDataLossCommitPoint(
-			chanBucket,
-		)
-
-		return err
-	}, func() {
-		commitPoint = nil
-	})
-	if err != nil {
-		return nil, err
-	}
-
-	return commitPoint, nil
+	return c.kvStore.FetchChannelDataLossCommitPoint(channel)
 }
 
 // MarkChannelBorked marks the channel as irreconcilable.
 func (c *ChannelStateDB) MarkChannelBorked(channel *OpenChannel) error {
-	return c.ApplyChannelStatus(channel, ChanStatusBorked)
+	return c.kvStore.MarkChannelBorked(channel)
 }
 
 var (
@@ -574,7 +538,7 @@ func (c *ChannelStateDB) getClosingTx(channel *OpenChannel,
 func (c *ChannelStateDB) ApplyChannelStatus(channel *OpenChannel,
 	status ChannelStatus) error {
 
-	return c.putChanStatus(channel, status)
+	return c.kvStore.ApplyChannelStatus(channel, status)
 }
 
 // putChanStatus appends the given status to the channel. fs is an optional list
@@ -634,35 +598,7 @@ func (c *ChannelStateDB) putChanStatus(channel *OpenChannel,
 func (c *ChannelStateDB) ClearChannelStatus(channel *OpenChannel,
 	status ChannelStatus) error {
 
-	if err := kvdb.Update(c.backend, func(tx kvdb.RwTx) error {
-		chanBucket, err := fetchChanBucketRw(
-			tx, channel.IdentityPub, &channel.FundingOutpoint,
-			channel.ChainHash,
-		)
-		if err != nil {
-			return err
-		}
-
-		diskChannel, err := fetchOpenChannel(
-			chanBucket, &channel.FundingOutpoint,
-		)
-		if err != nil {
-			return err
-		}
-
-		// Unset this bit in the bitvector on disk.
-		status = diskChannel.ChannelStatusForStore() & ^status
-		diskChannel.SetChannelStatusForStore(status)
-
-		return putOpenChannel(chanBucket, diskChannel)
-	}, func() {}); err != nil {
-		return err
-	}
-
-	// Update the in-memory representation to keep it in sync with the DB.
-	channel.SetChannelStatusForStore(status)
-
-	return nil
+	return c.kvStore.ClearChannelStatus(channel, status)
 }
 
 // putOpenChannel serializes, and stores the current state of the channel in its

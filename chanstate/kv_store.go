@@ -1,6 +1,9 @@
 package chanstate
 
-import "github.com/lightningnetwork/lnd/kvdb"
+import (
+	"github.com/lightningnetwork/lnd/kvdb"
+	"github.com/lightningnetwork/lnd/lnwire"
+)
 
 // KVStore is the KV-backed implementation of the channel-state store facets.
 // Store facets are moved onto this type incrementally while channeldb keeps
@@ -9,18 +12,24 @@ type KVStore struct {
 	backend                   kvdb.Backend
 	noRevLogAmtData           bool
 	storeFinalHtlcResolutions bool
+	tombstoneClosedChannels   bool
+	extractFwdResponses       func(kvdb.RwTx, lnwire.ShortChannelID) error
 }
 
 // NewKVStore creates a KV-backed channel-state store.
 func NewKVStore(
 	backend kvdb.Backend,
-	storeFinalHtlcResolutions, noRevLogAmtData bool,
+	storeFinalHtlcResolutions, noRevLogAmtData,
+	tombstoneClosedChannels bool,
+	extractFwdResponses func(kvdb.RwTx, lnwire.ShortChannelID) error,
 ) *KVStore {
 
 	return &KVStore{
 		backend:                   backend,
 		noRevLogAmtData:           noRevLogAmtData,
 		storeFinalHtlcResolutions: storeFinalHtlcResolutions,
+		tombstoneClosedChannels:   tombstoneClosedChannels,
+		extractFwdResponses:       extractFwdResponses,
 	}
 }
 

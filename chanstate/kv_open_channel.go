@@ -140,10 +140,10 @@ func PutOpenOutpointIndex(opBucket kvdb.RwBucket, chanKey []byte) error {
 	return putOutpointIndexStatus(opBucket, chanKey, OutpointOpen)
 }
 
-// UpdateClosedOutpointIndex flips the outpoint index entry for chanKey from
+// updateClosedOutpointIndex flips the outpoint index entry for chanKey from
 // open to closed. The index entry must already exist; it was placed there when
 // the channel was opened.
-func UpdateClosedOutpointIndex(tx kvdb.RwTx, chanKey []byte) error {
+func updateClosedOutpointIndex(tx kvdb.RwTx, chanKey []byte) error {
 	opBucket := tx.ReadWriteBucket(outpointBucket)
 	if opBucket == nil {
 		return ErrNoChanDBExists

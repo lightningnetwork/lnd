@@ -7,6 +7,7 @@ import (
 	"github.com/btcsuite/btcd/btcutil/v2"
 	graphdb "github.com/lightningnetwork/lnd/graph/db"
 	"github.com/lightningnetwork/lnd/graph/db/models"
+	"github.com/lightningnetwork/lnd/internal/fee"
 	"github.com/lightningnetwork/lnd/lnwire"
 	"github.com/lightningnetwork/lnd/routing/route"
 )
@@ -383,6 +384,24 @@ func (u *edgeUnifier) getEdgeNetwork(netAmtReceived lnwire.MilliSatoshi,
 			continue
 		}
 
+		outboundFee, err := fee.Outbound(
+			uint64(amt), uint64(edge.policy.FeeBaseMSat),
+			uint64(edge.policy.FeeProportionalMillionths),
+		).Unpack()
+		if err != nil || outboundFee > math.MaxInt64 ||
+			uint64(amt) > math.MaxUint64-outboundFee {
+
+			continue
+		}
+		combinedFee := int64(outboundFee)
+		if inboundFee > 0 && combinedFee > math.MaxInt64-inboundFee {
+			continue
+		}
+		if inboundFee < 0 && combinedFee < math.MinInt64-inboundFee {
+			continue
+		}
+		combinedFee += inboundFee
+
 		// Track the maximal capacity for usable channels. If we don't
 		// know the capacity, we fall back to MaxHTLC.
 		capMsat := lnwire.NewMSatFromSatoshis(edge.capacity)
@@ -399,19 +418,16 @@ func (u *edgeUnifier) getEdgeNetwork(netAmtReceived lnwire.MilliSatoshi,
 		// candidate for non-strict forwarding at the routing node.
 		maxTimelock = max(maxTimelock, edge.policy.TimeLockDelta)
 
-		outboundFee := int64(edge.policy.ComputeFee(amt))
-		fee := outboundFee + inboundFee
-
 		// Use the policy that results in the highest fee for this
 		// specific amount.
-		if fee < maxFee {
+		if combinedFee < maxFee {
 			log.Debugf("Skipped edge %v due to it produces less "+
 				"fee: fee=%v, maxFee=%v",
-				edge.policy.ChannelID, fee, maxFee)
+				edge.policy.ChannelID, combinedFee, maxFee)
 
 			continue
 		}
-		maxFee = fee
+		maxFee = combinedFee
 
 		bestPolicy = newUnifiedEdge(
 			edge.policy, 0, edge.inboundFees, nil,

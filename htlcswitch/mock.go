@@ -869,6 +869,12 @@ func (f *mockChannelLink) AdvertisedFee(
 
 	return f.advertisedFee
 }
+func (f *mockChannelLink) advertisedFeeChecked(
+	_ lnwire.MilliSatoshi) fn.Result[uint64] {
+
+	return fn.Ok(uint64(f.advertisedFee))
+}
+
 func (f *mockChannelLink) CheckHtlcForward([32]byte, lnwire.MilliSatoshi,
 	lnwire.MilliSatoshi, uint32, uint32, models.InboundFee, uint32,
 	lnwire.ShortChannelID, lnwire.CustomRecords) *LinkError {

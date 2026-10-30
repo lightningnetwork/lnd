@@ -2,6 +2,7 @@ package models
 
 import (
 	"github.com/lightningnetwork/lnd/fn/v2"
+	"github.com/lightningnetwork/lnd/internal/fee"
 	"github.com/lightningnetwork/lnd/lnwire"
 	"github.com/lightningnetwork/lnd/routing/route"
 )
@@ -70,11 +71,20 @@ type CachedEdgePolicy struct {
 
 // ComputeFee computes the fee to forward an HTLC of `amt` milli-satoshis over
 // the passed active payment channel. This value is currently computed as
-// specified in BOLT07, but will likely change in the near future.
+// specified in BOLT07, but will likely change in the near future. It panics if
+// the fee cannot be represented as a uint64.
 func (c *CachedEdgePolicy) ComputeFee(
 	amt lnwire.MilliSatoshi) lnwire.MilliSatoshi {
 
-	return c.FeeBaseMSat + (amt*c.FeeProportionalMillionths)/feeRateParts
+	value, err := fee.Outbound(
+		uint64(amt), uint64(c.FeeBaseMSat),
+		uint64(c.FeeProportionalMillionths),
+	).Unpack()
+	if err != nil {
+		panic(err)
+	}
+
+	return lnwire.MilliSatoshi(value)
 }
 
 // NewCachedPolicy turns a full policy into a minimal one that can be cached.

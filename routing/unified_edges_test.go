@@ -10,6 +10,47 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
+func TestNetworkEdgeRejectsInvalidFeeBeforeAggregation(t *testing.T) {
+	valid := &unifiedEdge{
+		policy: &models.CachedEdgePolicy{
+			ChannelID: 1, TimeLockDelta: 10,
+		},
+		capacity: 1,
+	}
+	invalid := &unifiedEdge{
+		policy: &models.CachedEdgePolicy{
+			ChannelID: 2, TimeLockDelta: 100,
+			FeeBaseMSat: lnwire.MilliSatoshi(^uint64(0)),
+		},
+		capacity: 2,
+	}
+	u := edgeUnifier{edges: []*unifiedEdge{valid, invalid}}
+	edge := u.getEdgeNetwork(1, 0)
+	require.NotNil(t, edge)
+	require.Equal(t, uint64(1), edge.policy.ChannelID)
+	require.Equal(t, uint16(10), edge.policy.TimeLockDelta)
+	require.Equal(t, btcutil.Amount(1), edge.capacity)
+
+	u.edges = []*unifiedEdge{invalid}
+	require.Nil(t, u.getEdgeNetwork(1, 0))
+
+	valid = &unifiedEdge{
+		policy: &models.CachedEdgePolicy{
+			ChannelID: 3, TimeLockDelta: 10,
+		},
+	}
+	overflowing := &unifiedEdge{
+		policy: &models.CachedEdgePolicy{
+			ChannelID: 4, TimeLockDelta: 100, FeeBaseMSat: 2,
+		},
+	}
+	u.edges = []*unifiedEdge{valid, overflowing}
+	edge = u.getEdgeNetwork(lnwire.MilliSatoshi(^uint64(0)-1), 0)
+	require.NotNil(t, edge)
+	require.Equal(t, uint64(3), edge.policy.ChannelID)
+	require.Equal(t, uint16(10), edge.policy.TimeLockDelta)
+}
+
 // TestNodeEdgeUnifier tests the composition of unified edges for nodes that
 // have multiple channels between them.
 func TestNodeEdgeUnifier(t *testing.T) {

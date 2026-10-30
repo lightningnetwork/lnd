@@ -16,6 +16,7 @@ import (
 	"github.com/lightningnetwork/lnd/fn/v2"
 	graphdb "github.com/lightningnetwork/lnd/graph/db"
 	"github.com/lightningnetwork/lnd/graph/db/models"
+	feeMath "github.com/lightningnetwork/lnd/internal/fee"
 	"github.com/lightningnetwork/lnd/lnutils"
 	"github.com/lightningnetwork/lnd/lnwire"
 	"github.com/lightningnetwork/lnd/record"
@@ -280,9 +281,21 @@ func newRoute(sourceVertex route.Vertex,
 			// and its policy for the outgoing channel. This policy
 			// is stored as part of the incoming channel of
 			// the next hop.
-			outboundFee := pathEdges[i+1].policy.ComputeFee(
-				amtToForward,
-			)
+			policy := pathEdges[i+1].policy
+			outbound, err := feeMath.Outbound(
+				uint64(amtToForward),
+				uint64(policy.FeeBaseMSat),
+				uint64(policy.FeeProportionalMillionths),
+			).Unpack()
+			if err != nil || outbound > math.MaxInt64 {
+				return nil, fmt.Errorf("outbound fee overflow")
+			}
+			outboundFee := lnwire.MilliSatoshi(outbound)
+			if uint64(amtToForward) > math.MaxUint64-outbound {
+				return nil, fmt.Errorf(
+					"outbound amount overflow",
+				)
+			}
 
 			inboundFee := pathEdges[i].inboundFees.CalcFee(
 				amtToForward + outboundFee,
@@ -858,9 +871,17 @@ func findPath(g *graphParams, r *RestrictParams, cfg *PathFindingConfig,
 		)
 
 		if fromVertex != source {
-			outboundFee = int64(
-				edge.policy.ComputeFee(amountToSend),
-			)
+			outbound, err := feeMath.Outbound(
+				uint64(amountToSend),
+				uint64(edge.policy.FeeBaseMSat),
+				uint64(edge.policy.FeeProportionalMillionths),
+			).Unpack()
+			if err != nil || outbound > math.MaxInt64 ||
+				uint64(amountToSend) > math.MaxUint64-outbound {
+
+				return
+			}
+			outboundFee = int64(outbound)
 			timeLockDelta = edge.policy.TimeLockDelta
 		}
 

@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"math"
 	"math/big"
+	"math/bits"
 	"sort"
 	"sync"
 	"sync/atomic"
@@ -18,6 +19,7 @@ import (
 	"github.com/lightningnetwork/lnd/fn/v2"
 	"github.com/lightningnetwork/lnd/graph/db/models"
 	"github.com/lightningnetwork/lnd/htlcswitch"
+	"github.com/lightningnetwork/lnd/internal/fee"
 	"github.com/lightningnetwork/lnd/lntypes"
 	"github.com/lightningnetwork/lnd/lnutils"
 	"github.com/lightningnetwork/lnd/lnwallet"
@@ -1746,11 +1748,20 @@ func senderAmtBackwardPass(unifiers []*edgeUnifier,
 		// The outbound fee paid to the current end node B is based on
 		// the amount that the next hop forwards and B's policy for that
 		// hop.
-		outboundFee := unifiedEdges[i+1].policy.ComputeFee(
-			incomingAmt,
-		)
-
-		netAmount := incomingAmt + outboundFee
+		nextPolicy := unifiedEdges[i+1].policy
+		outFee, err := fee.Outbound(
+			uint64(incomingAmt), uint64(nextPolicy.FeeBaseMSat),
+			uint64(nextPolicy.FeeProportionalMillionths),
+		).Unpack()
+		if err != nil {
+			return nil, 0, ErrNoChannel{position: i}
+		}
+		net, carry := bits.Add64(uint64(incomingAmt), outFee, 0)
+		if carry != 0 {
+			return nil, 0, ErrNoChannel{position: i}
+		}
+		outboundFee := lnwire.MilliSatoshi(outFee)
+		netAmount := lnwire.MilliSatoshi(net)
 
 		// We need to select an edge that can forward the requested
 		// amount.

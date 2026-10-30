@@ -2047,10 +2047,6 @@ func deserializeCloseChannelSummary(r io.Reader) (*ChannelCloseSummary, error) {
 	return cstate.DeserializeCloseChannelSummary(r)
 }
 
-func writeChanConfig(b io.Writer, c *ChannelConfig) error {
-	return cstate.WriteChanConfig(b, c)
-}
-
 func putChanInfo(chanBucket kvdb.RwBucket, channel *OpenChannel) error {
 	return cstate.PutChanInfo(chanBucket, channel)
 }
@@ -2065,16 +2061,8 @@ func putChanCommitment(chanBucket kvdb.RwBucket, c *ChannelCommitment,
 	return cstate.PutChanCommitment(chanBucket, c, local)
 }
 
-func putChanCommitments(chanBucket kvdb.RwBucket, channel *OpenChannel) error {
-	return cstate.PutChanCommitments(chanBucket, channel)
-}
-
 func putChanRevocationState(chanBucket kvdb.RwBucket, channel *OpenChannel) error {
 	return cstate.PutChanRevocationState(chanBucket, channel)
-}
-
-func readChanConfig(b io.Reader, c *ChannelConfig) error {
-	return cstate.ReadChanConfig(b, c)
 }
 
 func fetchChanInfo(chanBucket kvdb.RBucket, channel *OpenChannel) error {

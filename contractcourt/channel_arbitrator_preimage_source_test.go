@@ -3,7 +3,7 @@ package contractcourt
 import (
 	"testing"
 
-	"github.com/lightningnetwork/lnd/channeldb"
+	"github.com/lightningnetwork/lnd/chanstate"
 	"github.com/lightningnetwork/lnd/fn/v2"
 	"github.com/lightningnetwork/lnd/invoices"
 	"github.com/lightningnetwork/lnd/lntypes"
@@ -52,7 +52,7 @@ func TestIncomingRegistryPreimageGoesToChain(t *testing.T) {
 	chanArb := ctx.chanArb
 
 	const refundTimeout = 100
-	incomingHTLC := channeldb.HTLC{
+	incomingHTLC := chanstate.HTLC{
 		Incoming:      true,
 		HtlcIndex:     3,
 		RHash:         payHash,
@@ -60,7 +60,7 @@ func TestIncomingRegistryPreimageGoesToChain(t *testing.T) {
 		RefundTimeout: refundTimeout,
 		OutputIndex:   0,
 	}
-	htlcs := newHtlcSet([]channeldb.HTLC{incomingHTLC})
+	htlcs := newHtlcSet([]chanstate.HTLC{incomingHTLC})
 
 	// One block before the broadcast cutoff there is nothing to do yet.
 	height := uint32(refundTimeout) - chanArb.cfg.IncomingBroadcastDelta
@@ -77,7 +77,7 @@ func TestIncomingRegistryPreimageGoesToChain(t *testing.T) {
 	)
 	require.NoError(t, err)
 	require.Equal(
-		t, []channeldb.HTLC{incomingHTLC},
+		t, []chanstate.HTLC{incomingHTLC},
 		actions[HtlcIncomingWatchAction],
 	)
 
@@ -120,13 +120,13 @@ func TestDanglingRegistryPreimageFails(t *testing.T) {
 	)
 	chanArb := ctx.chanArb
 
-	danglingHTLC := channeldb.HTLC{
+	danglingHTLC := chanstate.HTLC{
 		Incoming:    false,
 		HtlcIndex:   77,
 		RHash:       payHash,
 		OutputIndex: 0,
 	}
-	htlcSets := map[HtlcSetKey][]channeldb.HTLC{
+	htlcSets := map[HtlcSetKey][]chanstate.HTLC{
 		LocalHtlcSet:         {},
 		RemoteHtlcSet:        {danglingHTLC},
 		RemotePendingHtlcSet: {},
@@ -161,7 +161,7 @@ func TestDanglingRegistryPreimageFails(t *testing.T) {
 			require.NoError(t, err)
 			require.Empty(t, actions[HtlcSettleDanglingAction])
 			require.Equal(
-				t, []channeldb.HTLC{danglingHTLC},
+				t, []chanstate.HTLC{danglingHTLC},
 				actions[HtlcFailDanglingAction],
 			)
 		})
@@ -174,7 +174,7 @@ func TestDanglingRegistryPreimageFails(t *testing.T) {
 		delivered = append(delivered, msgs...)
 		return nil
 	}
-	err := chanArb.settleForwards([]channeldb.HTLC{danglingHTLC})
+	err := chanArb.settleForwards([]chanstate.HTLC{danglingHTLC})
 	require.Error(t, err)
 	require.Empty(t, delivered)
 }

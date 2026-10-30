@@ -30,7 +30,7 @@ func TestChainArbitratorRepublishCloses(t *testing.T) {
 	var channels []*chanstate.OpenChannel
 	for i := 0; i < numChans; i++ {
 		lChannel, _, err := lnwallet.CreateTestChannels(
-			t, channeldb.SingleFunderTweaklessBit,
+			t, chanstate.SingleFunderTweaklessBit,
 		)
 		if err != nil {
 			t.Fatal(err)
@@ -40,13 +40,16 @@ func TestChainArbitratorRepublishCloses(t *testing.T) {
 
 		// We manually set the db here to make sure all channels are
 		// synced to the same db.
-		channel.Db = db.ChannelStateDB()
+		channel.Db = db.ChannelStateStore()
 
 		addr := &net.TCPAddr{
 			IP:   net.ParseIP("127.0.0.1"),
 			Port: 18556,
 		}
-		if err := channel.SyncPending(addr, 101); err != nil {
+		err = db.ChannelLifecycle().SyncPendingChannel(
+			channel, addr, 101,
+		)
+		if err != nil {
 			t.Fatal(err)
 		}
 
@@ -139,16 +142,17 @@ func TestResolveContract(t *testing.T) {
 	// With the DB created, we'll make a new channel, and mark it as
 	// pending open within the database.
 	newChannel, _, err := lnwallet.CreateTestChannels(
-		t, channeldb.SingleFunderTweaklessBit,
+		t, chanstate.SingleFunderTweaklessBit,
 	)
 	require.NoError(t, err, "unable to make new test channel")
 	channel := newChannel.State()
-	channel.Db = db.ChannelStateDB()
+	channel.Db = db.ChannelStateStore()
 	addr := &net.TCPAddr{
 		IP:   net.ParseIP("127.0.0.1"),
 		Port: 18556,
 	}
-	if err := channel.SyncPending(addr, 101); err != nil {
+	err = db.ChannelLifecycle().SyncPendingChannel(channel, addr, 101)
+	if err != nil {
 		t.Fatalf("unable to write channel to db: %v", err)
 	}
 
@@ -187,7 +191,7 @@ func TestResolveContract(t *testing.T) {
 
 	// While the resolver are active, we'll now remove the channel from the
 	// database (mark is as closed).
-	err = db.ChannelStateDB().AbandonChannel(&channel.FundingOutpoint, 4)
+	err = db.ChannelStateStore().AbandonChannel(&channel.FundingOutpoint, 4)
 	require.NoError(t, err, "unable to remove channel")
 
 	// With the channel removed, we'll now manually call ResolveContract.
@@ -234,44 +238,44 @@ func TestShouldSuppressClosedChannelNotify(t *testing.T) {
 
 	cases := []struct {
 		name            string
-		closeType       channeldb.ClosureType
+		closeType       chanstate.ClosureType
 		earlyDispatched bool
 		wantSuppress    bool
 	}{
 		{
 			name:            "coop close with early dispatch",
-			closeType:       channeldb.CooperativeClose,
+			closeType:       chanstate.CooperativeClose,
 			earlyDispatched: true,
 			wantSuppress:    true,
 		},
 		{
 			name: "coop close without early dispatch " +
 				"(fast path or no watcher)",
-			closeType:       channeldb.CooperativeClose,
+			closeType:       chanstate.CooperativeClose,
 			earlyDispatched: false,
 			wantSuppress:    false,
 		},
 		{
 			name:            "local force close",
-			closeType:       channeldb.LocalForceClose,
+			closeType:       chanstate.LocalForceClose,
 			earlyDispatched: true,
 			wantSuppress:    false,
 		},
 		{
 			name:            "remote force close",
-			closeType:       channeldb.RemoteForceClose,
+			closeType:       chanstate.RemoteForceClose,
 			earlyDispatched: true,
 			wantSuppress:    false,
 		},
 		{
 			name:            "breach close",
-			closeType:       channeldb.BreachClose,
+			closeType:       chanstate.BreachClose,
 			earlyDispatched: true,
 			wantSuppress:    false,
 		},
 		{
 			name:            "abandoned close",
-			closeType:       channeldb.Abandoned,
+			closeType:       chanstate.Abandoned,
 			earlyDispatched: true,
 			wantSuppress:    false,
 		},

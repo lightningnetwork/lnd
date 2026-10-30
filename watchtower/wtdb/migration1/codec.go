@@ -4,7 +4,7 @@ import (
 	"encoding/binary"
 	"io"
 
-	"github.com/lightningnetwork/lnd/channeldb"
+	cstate "github.com/lightningnetwork/lnd/chanstate"
 	"github.com/lightningnetwork/lnd/lnwallet/chainfee"
 	"github.com/lightningnetwork/lnd/watchtower/blob"
 	"github.com/lightningnetwork/lnd/watchtower/wtpolicy"
@@ -13,8 +13,8 @@ import (
 // SessionIDSize is 33-bytes; it is a serialized, compressed public key.
 const SessionIDSize = 33
 
-// UnknownElementType is an alias for channeldb.UnknownElementType.
-type UnknownElementType = channeldb.UnknownElementType
+// UnknownElementType is an alias for chanstate.UnknownElementType.
+type UnknownElementType = cstate.UnknownElementType
 
 // SessionID is created from the remote public key of a client, and serves as a
 // unique identifier and authentication for sending state updates.
@@ -128,9 +128,9 @@ func WriteElements(w io.Writer, elements ...interface{}) error {
 
 // WriteElement serializes a single element into the provided io.Writer.
 func WriteElement(w io.Writer, element interface{}) error {
-	err := channeldb.WriteElement(w, element)
+	err := cstate.WriteElement(w, element)
 	switch {
-	// Known to channeldb codec.
+	// Known to chanstate codec.
 	case err == nil:
 		return nil
 
@@ -154,7 +154,7 @@ func WriteElement(w io.Writer, element interface{}) error {
 		}
 
 	case wtpolicy.Policy:
-		return channeldb.WriteElements(w,
+		return cstate.WriteElements(w,
 			uint16(e.BlobType),
 			e.MaxUpdates,
 			e.RewardBase,
@@ -164,7 +164,7 @@ func WriteElement(w io.Writer, element interface{}) error {
 
 	// Type is still unknown to wtdb extensions, fail.
 	default:
-		return channeldb.NewUnknownElementType(
+		return cstate.NewUnknownElementType(
 			"WriteElement", element,
 		)
 	}
@@ -186,9 +186,9 @@ func ReadElements(r io.Reader, elements ...interface{}) error {
 
 // ReadElement deserializes a single element from the provided io.Reader.
 func ReadElement(r io.Reader, element interface{}) error {
-	err := channeldb.ReadElement(r, element)
+	err := cstate.ReadElement(r, element)
 	switch {
-	// Known to channeldb codec.
+	// Known to chanstate codec.
 	case err == nil:
 		return nil
 
@@ -216,7 +216,7 @@ func ReadElement(r io.Reader, element interface{}) error {
 			blobType     uint16
 			sweepFeeRate uint64
 		)
-		err := channeldb.ReadElements(r,
+		err := cstate.ReadElements(r,
 			&blobType,
 			&e.MaxUpdates,
 			&e.RewardBase,
@@ -232,7 +232,7 @@ func ReadElement(r io.Reader, element interface{}) error {
 
 	// Type is still unknown to wtdb extensions, fail.
 	default:
-		return channeldb.NewUnknownElementType(
+		return cstate.NewUnknownElementType(
 			"ReadElement", element,
 		)
 	}

@@ -6,6 +6,7 @@ import (
 	"time"
 
 	"github.com/lightningnetwork/lnd/channeldb"
+	"github.com/lightningnetwork/lnd/chanstate"
 	"github.com/lightningnetwork/lnd/fn/v2"
 	"github.com/lightningnetwork/lnd/lnrpc"
 	"github.com/lightningnetwork/lnd/signal"
@@ -47,7 +48,7 @@ func TestAuxDataParser(t *testing.T) {
 
 	r := &rpcServer{
 		server: &server{
-			chanStateDB: cdb.ChannelStateDB(),
+			channelStore: cdb.ChannelStateStore(),
 			implCfg: &ImplementationCfg{
 				AuxComponents: AuxComponents{
 					AuxDataParser: fn.Some[AuxDataParser](
@@ -109,38 +110,38 @@ func TestStopDaemonBeforeRPCStartup(t *testing.T) {
 func TestRpcCommitmentType(t *testing.T) {
 	tests := []struct {
 		name     string
-		chanType channeldb.ChannelType
+		chanType chanstate.ChannelType
 		want     lnrpc.CommitmentType
 	}{
 		{
 			name: "tapscript overlay",
-			chanType: channeldb.SimpleTaprootFeatureBit |
-				channeldb.TapscriptRootBit,
+			chanType: chanstate.SimpleTaprootFeatureBit |
+				chanstate.TapscriptRootBit,
 			want: lnrpc.CommitmentType_SIMPLE_TAPROOT_OVERLAY,
 		},
 		{
 			name:     "simple taproot",
-			chanType: channeldb.SimpleTaprootFeatureBit,
+			chanType: chanstate.SimpleTaprootFeatureBit,
 			want:     lnrpc.CommitmentType_SIMPLE_TAPROOT,
 		},
 		{
 			name:     "lease expiration",
-			chanType: channeldb.LeaseExpirationBit,
+			chanType: chanstate.LeaseExpirationBit,
 			want:     lnrpc.CommitmentType_SCRIPT_ENFORCED_LEASE,
 		},
 		{
 			name:     "anchors",
-			chanType: channeldb.AnchorOutputsBit,
+			chanType: chanstate.AnchorOutputsBit,
 			want:     lnrpc.CommitmentType_ANCHORS,
 		},
 		{
 			name:     "tweakless",
-			chanType: channeldb.SingleFunderTweaklessBit,
+			chanType: chanstate.SingleFunderTweaklessBit,
 			want:     lnrpc.CommitmentType_STATIC_REMOTE_KEY,
 		},
 		{
 			name:     "legacy",
-			chanType: channeldb.SingleFunderBit,
+			chanType: chanstate.SingleFunderBit,
 			want:     lnrpc.CommitmentType_LEGACY,
 		},
 	}

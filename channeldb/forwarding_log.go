@@ -121,8 +121,9 @@ func encodeForwardingEvent(w io.Writer, f *ForwardingEvent) error {
 		return err
 	}
 
-	return WriteElements(
-		w, f.IncomingChanID, f.OutgoingChanID, f.AmtIn, f.AmtOut,
+	return writeElements(
+		w, f.IncomingChanID.ToUint64(), f.OutgoingChanID.ToUint64(),
+		uint64(f.AmtIn), uint64(f.AmtOut),
 		incomingID, outgoingID,
 	)
 }
@@ -133,18 +134,23 @@ func encodeForwardingEvent(w io.Writer, f *ForwardingEvent) error {
 // structure of the forwarding log.
 func decodeForwardingEvent(r io.Reader, f *ForwardingEvent) error {
 	// Decode the original fields of the forwarding event.
-	err := ReadElements(
-		r, &f.IncomingChanID, &f.OutgoingChanID, &f.AmtIn, &f.AmtOut,
+	var incomingChanID, outgoingChanID, amtIn, amtOut uint64
+	err := readElements(
+		r, &incomingChanID, &outgoingChanID, &amtIn, &amtOut,
 	)
 	if err != nil {
 		return err
 	}
+	f.IncomingChanID = lnwire.NewShortChanIDFromInt(incomingChanID)
+	f.OutgoingChanID = lnwire.NewShortChanIDFromInt(outgoingChanID)
+	f.AmtIn = lnwire.MilliSatoshi(amtIn)
+	f.AmtOut = lnwire.MilliSatoshi(amtOut)
 
 	// Decode the incoming and outgoing htlc IDs. For backward compatibility
 	// with older records that don't have these fields, we handle EOF by
 	// setting the ID to nil. Any other error is treated as a read failure.
 	var incomingHtlcID, outgoingHtlcID uint64
-	err = ReadElements(r, &incomingHtlcID, &outgoingHtlcID)
+	err = readElements(r, &incomingHtlcID, &outgoingHtlcID)
 	switch {
 	case err == nil:
 		f.IncomingHtlcID = fn.Some(incomingHtlcID)

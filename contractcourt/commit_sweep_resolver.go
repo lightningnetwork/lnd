@@ -33,7 +33,7 @@ type commitSweepResolver struct {
 	// localChanCfg is used to provide the resolver with the keys required
 	// to identify whether the commitment transaction was broadcast by the
 	// local or remote party.
-	localChanCfg channeldb.ChannelConfig
+	localChanCfg chanstate.ChannelConfig
 
 	// commitResolution contains all data required to successfully sweep
 	// this HTLC on-chain.
@@ -61,7 +61,7 @@ type commitSweepResolver struct {
 	leaseExpiry uint32
 
 	// chanType denotes the type of channel the contract belongs to.
-	chanType channeldb.ChannelType
+	chanType chanstate.ChannelType
 
 	// currentReport stores the current state of the resolver for reporting
 	// over the rpc interface.

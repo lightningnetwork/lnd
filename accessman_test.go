@@ -4,7 +4,7 @@ import (
 	"testing"
 
 	"github.com/btcsuite/btcd/btcec/v2"
-	"github.com/lightningnetwork/lnd/channeldb"
+	"github.com/lightningnetwork/lnd/chanstate"
 	"github.com/stretchr/testify/require"
 )
 
@@ -69,8 +69,8 @@ func TestAccessManRestrictedSlots(t *testing.T) {
 		peer3PendingCount = 1
 	)
 
-	initPerms := func() (map[string]channeldb.ChanCount, error) {
-		return map[string]channeldb.ChanCount{
+	initPerms := func() (map[string]chanstate.ChanCount, error) {
+		return map[string]chanstate.ChanCount{
 			peerKeySer1: {
 				HasOpenOrClosedChan: true,
 				PendingOpenCount:    uint64(peer1PendingCount),
@@ -202,7 +202,7 @@ func TestAssignPeerPerms(t *testing.T) {
 	var testCases = []struct {
 		name             string
 		peerPub          *btcec.PublicKey
-		chanCount        channeldb.ChanCount
+		chanCount        chanstate.ChanCount
 		shouldDisconnect func(*btcec.PublicKey) (bool, error)
 		numRestricted    int
 
@@ -214,7 +214,7 @@ func TestAssignPeerPerms(t *testing.T) {
 		{
 			name:    "peer with channels",
 			peerPub: genPeerPub(),
-			chanCount: channeldb.ChanCount{
+			chanCount: chanstate.ChanCount{
 				HasOpenOrClosedChan: true,
 			},
 			shouldDisconnect: noDisconnect,
@@ -226,7 +226,7 @@ func TestAssignPeerPerms(t *testing.T) {
 		{
 			name:    "peer with channels and pending channels",
 			peerPub: genPeerPub(),
-			chanCount: channeldb.ChanCount{
+			chanCount: chanstate.ChanCount{
 				HasOpenOrClosedChan: true,
 				PendingOpenCount:    1,
 			},
@@ -239,7 +239,7 @@ func TestAssignPeerPerms(t *testing.T) {
 		{
 			name:    "peer with pending channels",
 			peerPub: genPeerPub(),
-			chanCount: channeldb.ChanCount{
+			chanCount: chanstate.ChanCount{
 				HasOpenOrClosedChan: false,
 				PendingOpenCount:    1,
 			},
@@ -252,7 +252,7 @@ func TestAssignPeerPerms(t *testing.T) {
 		{
 			name:    "peer with no channels",
 			peerPub: genPeerPub(),
-			chanCount: channeldb.ChanCount{
+			chanCount: chanstate.ChanCount{
 				HasOpenOrClosedChan: false,
 				PendingOpenCount:    0,
 			},
@@ -267,7 +267,7 @@ func TestAssignPeerPerms(t *testing.T) {
 		{
 			name:    "peer with no channels and banned",
 			peerPub: genPeerPub(),
-			chanCount: channeldb.ChanCount{
+			chanCount: chanstate.ChanCount{
 				HasOpenOrClosedChan: false,
 				PendingOpenCount:    0,
 			},
@@ -281,7 +281,7 @@ func TestAssignPeerPerms(t *testing.T) {
 		{
 			name:    "peer with no channels and restricted",
 			peerPub: genPeerPub(),
-			chanCount: channeldb.ChanCount{
+			chanCount: chanstate.ChanCount{
 				HasOpenOrClosedChan: false,
 				PendingOpenCount:    0,
 			},
@@ -299,10 +299,10 @@ func TestAssignPeerPerms(t *testing.T) {
 
 			peerStr := string(tc.peerPub.SerializeCompressed())
 
-			initPerms := func() (map[string]channeldb.ChanCount,
+			initPerms := func() (map[string]chanstate.ChanCount,
 				error) {
 
-				return map[string]channeldb.ChanCount{
+				return map[string]chanstate.ChanCount{
 					peerStr: tc.chanCount,
 				}, nil
 			}
@@ -349,7 +349,7 @@ func TestAssignPeerPermsBypassRestriction(t *testing.T) {
 	var testCases = []struct {
 		name           string
 		peerPub        *btcec.PublicKey
-		chanCount      channeldb.ChanCount
+		chanCount      chanstate.ChanCount
 		expectedStatus peerAccessStatus
 	}{
 		// peer1 has a channel with us, and we expect it to have a
@@ -357,7 +357,7 @@ func TestAssignPeerPermsBypassRestriction(t *testing.T) {
 		{
 			name:    "peer with channels",
 			peerPub: genPeerPub(),
-			chanCount: channeldb.ChanCount{
+			chanCount: chanstate.ChanCount{
 				HasOpenOrClosedChan: true,
 			},
 			expectedStatus: peerStatusProtected,
@@ -367,7 +367,7 @@ func TestAssignPeerPermsBypassRestriction(t *testing.T) {
 		{
 			name:    "peer with channels and pending channels",
 			peerPub: genPeerPub(),
-			chanCount: channeldb.ChanCount{
+			chanCount: chanstate.ChanCount{
 				HasOpenOrClosedChan: true,
 				PendingOpenCount:    1,
 			},
@@ -378,7 +378,7 @@ func TestAssignPeerPermsBypassRestriction(t *testing.T) {
 		{
 			name:    "peer with pending channels",
 			peerPub: genPeerPub(),
-			chanCount: channeldb.ChanCount{
+			chanCount: chanstate.ChanCount{
 				HasOpenOrClosedChan: false,
 				PendingOpenCount:    1,
 			},
@@ -392,10 +392,10 @@ func TestAssignPeerPermsBypassRestriction(t *testing.T) {
 
 			peerStr := string(tc.peerPub.SerializeCompressed())
 
-			initPerms := func() (map[string]channeldb.ChanCount,
+			initPerms := func() (map[string]chanstate.ChanCount,
 				error) {
 
-				return map[string]channeldb.ChanCount{
+				return map[string]chanstate.ChanCount{
 					peerStr: tc.chanCount,
 				}, nil
 			}
@@ -445,8 +445,8 @@ func TestAssignPeerPermsBypassExisting(t *testing.T) {
 	peer3 := genPeerPub()
 
 	// Create params to init the accessman.
-	initPerms := func() (map[string]channeldb.ChanCount, error) {
-		return map[string]channeldb.ChanCount{
+	initPerms := func() (map[string]chanstate.ChanCount, error) {
+		return map[string]chanstate.ChanCount{
 			peer1Str: {},
 		}, nil
 	}
@@ -493,27 +493,27 @@ func TestHasPeer(t *testing.T) {
 
 	// Create a testing accessMan.
 	a := &accessMan{
-		peerChanInfo: make(map[string]channeldb.ChanCount),
+		peerChanInfo: make(map[string]chanstate.ChanCount),
 		peerScores:   make(map[string]peerSlotStatus),
 	}
 
 	// peer1 exists with an open channel.
 	peer1 := "peer1"
-	a.peerChanInfo[peer1] = channeldb.ChanCount{
+	a.peerChanInfo[peer1] = chanstate.ChanCount{
 		HasOpenOrClosedChan: true,
 	}
 	peer1Access := peerStatusProtected
 
 	// peer2 exists with a pending channel.
 	peer2 := "peer2"
-	a.peerChanInfo[peer2] = channeldb.ChanCount{
+	a.peerChanInfo[peer2] = chanstate.ChanCount{
 		PendingOpenCount: 1,
 	}
 	peer2Access := peerStatusTemporary
 
 	// peer3 exists without any channels.
 	peer3 := "peer3"
-	a.peerChanInfo[peer3] = channeldb.ChanCount{}
+	a.peerChanInfo[peer3] = chanstate.ChanCount{}
 	peer3Access := peerStatusRestricted
 
 	// peer4 exists with a score.
@@ -559,7 +559,7 @@ func TestAddPeerAccessInbound(t *testing.T) {
 
 	// Create a testing accessMan.
 	a := &accessMan{
-		peerChanInfo: make(map[string]channeldb.ChanCount),
+		peerChanInfo: make(map[string]chanstate.ChanCount),
 		peerScores:   make(map[string]peerSlotStatus),
 	}
 
@@ -597,7 +597,7 @@ func TestAddPeerAccessInbound(t *testing.T) {
 
 	// Reset the accessMan.
 	a = &accessMan{
-		peerChanInfo: make(map[string]channeldb.ChanCount),
+		peerChanInfo: make(map[string]chanstate.ChanCount),
 		peerScores:   make(map[string]peerSlotStatus),
 	}
 
@@ -630,7 +630,7 @@ func TestAddPeerAccessOutbound(t *testing.T) {
 
 	// Create a testing accessMan.
 	a := &accessMan{
-		peerChanInfo: make(map[string]channeldb.ChanCount),
+		peerChanInfo: make(map[string]chanstate.ChanCount),
 		peerScores:   make(map[string]peerSlotStatus),
 	}
 
@@ -677,7 +677,7 @@ func TestAddPeerAccessOutbound(t *testing.T) {
 
 	// Reset the accessMan.
 	a = &accessMan{
-		peerChanInfo: make(map[string]channeldb.ChanCount),
+		peerChanInfo: make(map[string]chanstate.ChanCount),
 		peerScores:   make(map[string]peerSlotStatus),
 	}
 
@@ -711,7 +711,7 @@ func TestRemovePeerAccess(t *testing.T) {
 
 	// Create a testing accessMan.
 	a := &accessMan{
-		peerChanInfo: make(map[string]channeldb.ChanCount),
+		peerChanInfo: make(map[string]chanstate.ChanCount),
 		peerScores:   make(map[string]peerSlotStatus),
 	}
 
@@ -722,7 +722,7 @@ func TestRemovePeerAccess(t *testing.T) {
 	// peer1 exists with an open channel, which should not be removed. Since
 	// it has protected status, the numRestricted should stay unchanged.
 	peer1 := "peer1"
-	a.peerChanInfo[peer1] = channeldb.ChanCount{
+	a.peerChanInfo[peer1] = chanstate.ChanCount{
 		HasOpenOrClosedChan: true,
 	}
 	peer1Access := peerStatusProtected
@@ -732,7 +732,7 @@ func TestRemovePeerAccess(t *testing.T) {
 	// Since it has temporary status, the numRestricted should stay
 	// unchanged.
 	peer2 := "peer2"
-	a.peerChanInfo[peer2] = channeldb.ChanCount{
+	a.peerChanInfo[peer2] = chanstate.ChanCount{
 		PendingOpenCount: 1,
 	}
 	peer2Access := peerStatusTemporary
@@ -741,7 +741,7 @@ func TestRemovePeerAccess(t *testing.T) {
 	// peer3 exists without any channels, which will be removed. Since it
 	// has restricted status, the numRestricted should be decremented.
 	peer3 := "peer3"
-	a.peerChanInfo[peer3] = channeldb.ChanCount{}
+	a.peerChanInfo[peer3] = chanstate.ChanCount{}
 	peer3Access := peerStatusRestricted
 	a.peerScores[peer3] = peerSlotStatus{state: peer3Access}
 	numRestrictedExpected--

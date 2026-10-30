@@ -6,8 +6,8 @@ import (
 	"fmt"
 	"sync"
 
-	"github.com/lightningnetwork/lnd/channeldb"
 	"github.com/lightningnetwork/lnd/chanstate"
+	"github.com/lightningnetwork/lnd/fwdresponse"
 	"github.com/lightningnetwork/lnd/htlcswitch/hop"
 	"github.com/lightningnetwork/lnd/kvdb"
 	"github.com/lightningnetwork/lnd/lnutils"
@@ -222,7 +222,7 @@ type CircuitMapConfig struct {
 
 	// CheckFwdResponse checks whether a persisted off-chain response exists
 	// for the passed CircuitKey. It returns nil when found,
-	// channeldb.ErrFwdResponseNotFound when absent, and any storage error
+	// fwdresponse.ErrNotFound when absent, and any storage error
 	// unchanged.
 	CheckFwdResponse func(outKey *CircuitKey) error
 }
@@ -250,7 +250,7 @@ func (cm *circuitMap) responsePending(outKey *CircuitKey) (bool, error) {
 	case err == nil:
 		return true, nil
 
-	case !errors.Is(err, channeldb.ErrFwdResponseNotFound):
+	case !errors.Is(err, fwdresponse.ErrNotFound):
 		return false, fmt.Errorf("check forwarding response for "+
 			"%v: %w", outKey, err)
 	}

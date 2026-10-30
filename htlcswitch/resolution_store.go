@@ -5,7 +5,7 @@ import (
 	"errors"
 	"io"
 
-	"github.com/lightningnetwork/lnd/channeldb"
+	"github.com/lightningnetwork/lnd/chanstate"
 	"github.com/lightningnetwork/lnd/contractcourt"
 	"github.com/lightningnetwork/lnd/kvdb"
 	"github.com/lightningnetwork/lnd/lnwire"
@@ -158,7 +158,7 @@ func serializeResolutionMsg(w io.Writer,
 
 	isFail := resMsg.Failure != nil
 
-	if err := channeldb.WriteElement(w, isFail); err != nil {
+	if err := chanstate.WriteElement(w, isFail); err != nil {
 		return err
 	}
 
@@ -168,7 +168,7 @@ func serializeResolutionMsg(w io.Writer,
 	}
 
 	// Else this is a settle message, and we need to write the preimage.
-	return channeldb.WriteElement(w, *resMsg.PreImage)
+	return chanstate.WriteElement(w, *resMsg.PreImage)
 }
 
 // deserializeResolutionMsg reads part of a ResolutionMsg from the passed
@@ -179,7 +179,7 @@ func deserializeResolutionMsg(r io.Reader) (*contractcourt.ResolutionMsg,
 	resMsg := &contractcourt.ResolutionMsg{}
 	var isFail bool
 
-	if err := channeldb.ReadElements(r, &isFail); err != nil {
+	if err := chanstate.ReadElements(r, &isFail); err != nil {
 		return nil, err
 	}
 
@@ -194,7 +194,7 @@ func deserializeResolutionMsg(r io.Reader) (*contractcourt.ResolutionMsg,
 	resMsg.PreImage = &preimage
 
 	// Else this is a settle resolution msg and we will read the preimage.
-	if err := channeldb.ReadElement(r, resMsg.PreImage); err != nil {
+	if err := chanstate.ReadElement(r, resMsg.PreImage); err != nil {
 		return nil, err
 	}
 

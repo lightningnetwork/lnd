@@ -7,7 +7,7 @@ import (
 	"github.com/btcsuite/btcd/btcec/v2"
 	"github.com/btcsuite/btcd/btcutil/v2"
 	"github.com/btcsuite/btcd/wire/v2"
-	"github.com/lightningnetwork/lnd/channeldb"
+	"github.com/lightningnetwork/lnd/chanstate"
 	"github.com/lightningnetwork/lnd/input"
 )
 
@@ -49,7 +49,7 @@ var (
 // In order to spend the segwit v1 (taproot) HTLC output, the witness for the
 // passed transaction should be:
 //   - <sender sig> <receiver sig> <preimage> <success_script> <control_block>
-func CreateHtlcSuccessTx(chanType channeldb.ChannelType, initiator bool,
+func CreateHtlcSuccessTx(chanType chanstate.ChannelType, initiator bool,
 	htlcOutput wire.OutPoint, htlcAmt btcutil.Amount, csvDelay,
 	leaseExpiry uint32, revocationKey, delayKey *btcec.PublicKey,
 	auxLeaf input.AuxTapLeaf) (*wire.MsgTx, error) {
@@ -108,7 +108,7 @@ func CreateHtlcSuccessTx(chanType channeldb.ChannelType, initiator bool,
 // NOTE: The passed amount for the HTLC should take into account the required
 // fee rate at the time the HTLC was created. The fee should be able to
 // entirely pay for this (tiny: 1-in 1-out) transaction.
-func CreateHtlcTimeoutTx(chanType channeldb.ChannelType, initiator bool,
+func CreateHtlcTimeoutTx(chanType chanstate.ChannelType, initiator bool,
 	htlcOutput wire.OutPoint, htlcAmt btcutil.Amount,
 	cltvExpiry, csvDelay, leaseExpiry uint32,
 	revocationKey, delayKey *btcec.PublicKey,

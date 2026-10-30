@@ -13,7 +13,7 @@ import (
 	"github.com/btcsuite/btcd/chainhash/v2"
 	"github.com/btcsuite/btcd/txscript/v2"
 	"github.com/btcsuite/btcd/wire/v2"
-	"github.com/lightningnetwork/lnd/channeldb"
+	"github.com/lightningnetwork/lnd/chanstate"
 	"github.com/lightningnetwork/lnd/fn/v2"
 	"github.com/lightningnetwork/lnd/input"
 	"github.com/lightningnetwork/lnd/keychain"
@@ -144,7 +144,7 @@ type mockChannel struct {
 	chanPoint wire.OutPoint
 	initiator bool
 	scid      lnwire.ShortChannelID
-	chanType  channeldb.ChannelType
+	chanType  chanstate.ChannelType
 	localKey  keychain.KeyDescriptor
 	remoteKey keychain.KeyDescriptor
 
@@ -171,7 +171,7 @@ func (m *mockChannel) MarkCoopBroadcasted(tx *wire.MsgTx,
 	return nil
 }
 
-func (m *mockChannel) MarkShutdownSent(*channeldb.ShutdownInfo) error {
+func (m *mockChannel) MarkShutdownSent(*chanstate.ShutdownInfo) error {
 	return nil
 }
 
@@ -234,7 +234,7 @@ func (m *mockChannel) CommitFee() btcutil.Amount {
 	return 0
 }
 
-func (m *mockChannel) ChanType() channeldb.ChannelType {
+func (m *mockChannel) ChanType() chanstate.ChannelType {
 	return m.chanType
 }
 
@@ -249,10 +249,10 @@ func (m *mockChannel) MultiSigKeys() (
 }
 
 func newMockTaprootChan(t *testing.T, initiator bool) *mockChannel {
-	taprootBits := channeldb.SimpleTaprootFeatureBit |
-		channeldb.AnchorOutputsBit |
-		channeldb.ZeroHtlcTxFeeBit |
-		channeldb.SingleFunderTweaklessBit
+	taprootBits := chanstate.SimpleTaprootFeatureBit |
+		chanstate.AnchorOutputsBit |
+		chanstate.ZeroHtlcTxFeeBit |
+		chanstate.SingleFunderTweaklessBit
 
 	localKey, err := btcec.NewPrivateKey()
 	require.NoError(t, err)
@@ -360,7 +360,7 @@ type mockCoopFeeEstimator struct {
 	targetFee btcutil.Amount
 }
 
-func (m *mockCoopFeeEstimator) EstimateFee(chanType channeldb.ChannelType,
+func (m *mockCoopFeeEstimator) EstimateFee(chanType chanstate.ChannelType,
 	localTxOut, remoteTxOut *wire.TxOut, extraTxOuts []*wire.TxOut,
 	idealFeeRate chainfee.SatPerKWeight) btcutil.Amount {
 

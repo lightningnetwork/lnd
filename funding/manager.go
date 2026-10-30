@@ -22,7 +22,6 @@ import (
 	"github.com/lightningnetwork/lnd/actor"
 	"github.com/lightningnetwork/lnd/chainntnfs"
 	"github.com/lightningnetwork/lnd/chanacceptor"
-	"github.com/lightningnetwork/lnd/channeldb"
 	"github.com/lightningnetwork/lnd/chanstate"
 	"github.com/lightningnetwork/lnd/discovery"
 	"github.com/lightningnetwork/lnd/fn/v2"
@@ -385,9 +384,9 @@ type Config struct {
 	// so that the channel creation process can be completed.
 	Notifier chainntnfs.ChainNotifier
 
-	// ChannelDB is the database that keeps track of channel state used by
-	// the funding flow.
-	ChannelDB chanstate.Store
+	// ChannelStateStore is the channel-state persistence surface used
+	// by the funding flow.
+	ChannelStateStore channelStateStore
 
 	// SignMessage signs an arbitrary message with a given public key. The
 	// actual digest signed is the double sha-256 of the message. In the
@@ -586,6 +585,13 @@ type Config struct {
 	ShutdownScript fn.Option[lnwire.DeliveryAddress]
 }
 
+// channelStateStore is the narrow channel-state persistence surface needed
+// by the funding manager.
+type channelStateStore interface {
+	chanstate.OpenChannelStore
+	chanstate.ChannelSetupStore
+}
+
 // Manager acts as an orchestrator/bridge between the wallet's
 // 'ChannelReservation' workflow, and the wire protocol's funding initiation
 // messages. Any requests to initiate the funding workflow for a channel,
@@ -741,7 +747,7 @@ func (f *Manager) start() error {
 	// down.
 	// TODO(roasbeef): store height that funding finished?
 	//  * would then replace call below
-	allChannels, err := f.cfg.ChannelDB.FetchAllChannels()
+	allChannels, err := f.cfg.ChannelStateStore.FetchAllChannels()
 	if err != nil {
 		return err
 	}
@@ -1135,7 +1141,7 @@ func (f *Manager) advanceFundingState(channel *chanstate.OpenChannel,
 		channelState, shortChanID, err := f.getChannelOpeningState(
 			&channel.FundingOutpoint,
 		)
-		if err == channeldb.ErrChannelNotFound {
+		if errors.Is(err, chanstate.ErrChannelNotFound) {
 			// Channel not in fundingManager's opening database,
 			// meaning it was successfully announced to the
 			// network.
@@ -1518,7 +1524,7 @@ func (f *Manager) fundeeProcessOpenChannel(peer lnpeer.Peer,
 
 	// Also count the channels that are already pending. There we don't know
 	// the underlying intent anymore, unfortunately.
-	channels, err := f.cfg.ChannelDB.FetchOpenChannels(peerPubKey)
+	channels, err := f.cfg.ChannelStateStore.FetchOpenChannels(peerPubKey)
 	if err != nil {
 		f.failFundingFlow(peer, cid, err)
 		return
@@ -1545,7 +1551,7 @@ func (f *Manager) fundeeProcessOpenChannel(peer lnpeer.Peer,
 	}
 
 	// Ensure that the pendingChansLimit is respected.
-	pendingChans, err := f.cfg.ChannelDB.FetchPendingChannels()
+	pendingChans, err := f.cfg.ChannelStateStore.FetchPendingChannels()
 	if err != nil {
 		f.failFundingFlow(peer, cid, err)
 		return
@@ -1802,13 +1808,13 @@ func (f *Manager) fundeeProcessOpenChannel(peer lnpeer.Peer,
 
 	// We'll also validate and apply all the constraints the initiating
 	// party is attempting to dictate for our commitment transaction.
-	stateBounds := &channeldb.ChannelStateBounds{
+	stateBounds := &chanstate.ChannelStateBounds{
 		ChanReserve:      msg.ChannelReserve,
 		MaxPendingAmount: msg.MaxValueInFlight,
 		MinHTLC:          msg.HtlcMinimum,
 		MaxAcceptedHtlcs: msg.MaxAcceptedHTLCs,
 	}
-	commitParams := &channeldb.CommitmentParams{
+	commitParams := &chanstate.CommitmentParams{
 		DustLimit: msg.DustLimit,
 		CsvDelay:  msg.CsvDelay,
 	}
@@ -1956,14 +1962,14 @@ func (f *Manager) fundeeProcessOpenChannel(peer lnpeer.Peer,
 	// Update the timestamp once the fundingOpenMsg has been handled.
 	defer resCtx.updateTimestamp()
 
-	cfg := channeldb.ChannelConfig{
-		ChannelStateBounds: channeldb.ChannelStateBounds{
+	cfg := chanstate.ChannelConfig{
+		ChannelStateBounds: chanstate.ChannelStateBounds{
 			MaxPendingAmount: remoteMaxValue,
 			ChanReserve:      chanReserve,
 			MinHTLC:          minHtlc,
 			MaxAcceptedHtlcs: maxHtlcs,
 		},
-		CommitmentParams: channeldb.CommitmentParams{
+		CommitmentParams: chanstate.CommitmentParams{
 			DustLimit: msg.DustLimit,
 			CsvDelay:  remoteCsvDelay,
 		},
@@ -2173,13 +2179,13 @@ func (f *Manager) funderProcessAcceptChannel(peer lnpeer.Peer,
 	// required confirmations, and also the set of channel constraints
 	// they've specified for commitment states we can create.
 	resCtx.reservation.SetNumConfsRequired(uint16(minDepth))
-	bounds := channeldb.ChannelStateBounds{
+	bounds := chanstate.ChannelStateBounds{
 		ChanReserve:      msg.ChannelReserve,
 		MaxPendingAmount: msg.MaxValueInFlight,
 		MinHTLC:          msg.HtlcMinimum,
 		MaxAcceptedHtlcs: msg.MaxAcceptedHTLCs,
 	}
-	commitParams := channeldb.CommitmentParams{
+	commitParams := chanstate.CommitmentParams{
 		DustLimit: msg.DustLimit,
 		CsvDelay:  msg.CsvDelay,
 	}
@@ -2192,14 +2198,14 @@ func (f *Manager) funderProcessAcceptChannel(peer lnpeer.Peer,
 		return
 	}
 
-	cfg := channeldb.ChannelConfig{
-		ChannelStateBounds: channeldb.ChannelStateBounds{
+	cfg := chanstate.ChannelConfig{
+		ChannelStateBounds: chanstate.ChannelStateBounds{
 			MaxPendingAmount: resCtx.remoteMaxValue,
 			ChanReserve:      resCtx.remoteChanReserve,
 			MinHTLC:          resCtx.remoteMinHtlc,
 			MaxAcceptedHtlcs: resCtx.remoteMaxHtlcs,
 		},
-		CommitmentParams: channeldb.CommitmentParams{
+		CommitmentParams: chanstate.CommitmentParams{
 			DustLimit: msg.DustLimit,
 			CsvDelay:  resCtx.remoteCsvDelay,
 		},
@@ -2607,11 +2613,11 @@ func (f *Manager) fundeeProcessFundingCreated(peer lnpeer.Peer,
 	// from the database.
 	deleteFromDatabase := func() {
 		localBalance := completeChan.LocalCommitment.LocalBalance.ToSatoshis()
-		closeInfo := &channeldb.ChannelCloseSummary{
+		closeInfo := &chanstate.ChannelCloseSummary{
 			ChanPoint:               completeChan.FundingOutpoint,
 			ChainHash:               completeChan.ChainHash,
 			RemotePub:               completeChan.IdentityPub,
-			CloseType:               channeldb.FundingCanceled,
+			CloseType:               chanstate.FundingCanceled,
 			Capacity:                completeChan.Capacity,
 			SettledBalance:          localBalance,
 			RemoteCurrentRevocation: completeChan.RemoteCurrentRevocation,
@@ -2622,7 +2628,7 @@ func (f *Manager) fundeeProcessFundingCreated(peer lnpeer.Peer,
 		// Close the channel with us as the initiator because we are
 		// deciding to exit the funding flow due to an internal error.
 		if err := completeChan.CloseChannel(
-			closeInfo, channeldb.ChanStatusLocalCloseInitiator,
+			closeInfo, chanstate.ChanStatusLocalCloseInitiator,
 		); err != nil {
 			log.Errorf("Failed closing channel %v: %v",
 				completeChan.FundingOutpoint, err)
@@ -2977,13 +2983,13 @@ func (f *Manager) fundingTimeout(c *chanstate.OpenChannel,
 	// was initiated reaches MaxWaitNumBlocksFundingConf and we are not the
 	// channel initiator.
 	localBalance := c.LocalCommitment.LocalBalance.ToSatoshis()
-	closeInfo := &channeldb.ChannelCloseSummary{
+	closeInfo := &chanstate.ChannelCloseSummary{
 		ChainHash:               c.ChainHash,
 		ChanPoint:               c.FundingOutpoint,
 		RemotePub:               c.IdentityPub,
 		Capacity:                c.Capacity,
 		SettledBalance:          localBalance,
-		CloseType:               channeldb.FundingCanceled,
+		CloseType:               chanstate.FundingCanceled,
 		RemoteCurrentRevocation: c.RemoteCurrentRevocation,
 		RemoteNextRevocation:    c.RemoteNextRevocation,
 		LocalChanConfig:         c.LocalChanCfg,
@@ -2992,7 +2998,7 @@ func (f *Manager) fundingTimeout(c *chanstate.OpenChannel,
 	// Close the channel with us as the initiator because we are timing the
 	// channel out.
 	if err := c.CloseChannel(
-		closeInfo, channeldb.ChanStatusLocalCloseInitiator,
+		closeInfo, chanstate.ChanStatusLocalCloseInitiator,
 	); err != nil {
 		return fmt.Errorf("failed closing channel %v: %w",
 			c.FundingOutpoint, err)
@@ -4056,7 +4062,7 @@ func (f *Manager) waitForZeroConfChannel(c *chanstate.OpenChannel) error {
 func genFirstStateMusigNonce(channel *chanstate.OpenChannel,
 ) (*musig2.Nonces, error) {
 
-	musig2ShaChain, err := channeldb.DeriveMusig2Shachain(
+	musig2ShaChain, err := chanstate.DeriveMusig2Shachain(
 		channel.RevocationProducer,
 	)
 	if err != nil {
@@ -4066,7 +4072,7 @@ func genFirstStateMusigNonce(channel *chanstate.OpenChannel,
 
 	// We use the _next_ commitment height here as we need to generate the
 	// nonce for the next state the remote party will sign for us.
-	verNonce, err := channeldb.NewMusigVerificationNonce(
+	verNonce, err := chanstate.NewMusigVerificationNonce(
 		channel.LocalChanCfg.MultiSigKey.PubKey,
 		channel.LocalCommitment.CommitHeight+1,
 		musig2ShaChain,
@@ -4589,7 +4595,7 @@ func (f *Manager) newChanAnnouncement(localPubKey,
 	remoteFundingKey *btcec.PublicKey, shortChanID lnwire.ShortChannelID,
 	chanID lnwire.ChannelID, fwdMinHTLC, fwdMaxHTLC lnwire.MilliSatoshi,
 	ourPolicy *models.ChannelEdgePolicy,
-	chanType channeldb.ChannelType) (*chanAnnouncement, error) {
+	chanType chanstate.ChannelType) (*chanAnnouncement, error) {
 
 	chainHash := *f.cfg.Wallet.Cfg.NetParams.GenesisHash
 
@@ -4684,7 +4690,7 @@ func (f *Manager) newChanAnnouncement(localPubKey,
 	// values are found, then we will use the default policy values in the
 	// channel announcement.
 	storedFwdingPolicy, err := f.getInitialForwardingPolicy(chanID)
-	if err != nil && !errors.Is(err, channeldb.ErrChannelNotFound) {
+	if err != nil && !errors.Is(err, chanstate.ErrChannelNotFound) {
 		return nil, fmt.Errorf("unable to generate channel "+
 			"update announcement: %w", err)
 	}
@@ -4795,7 +4801,7 @@ func (f *Manager) newChanAnnouncement(localPubKey,
 func (f *Manager) announceChannel(localIDKey, remoteIDKey *btcec.PublicKey,
 	localFundingKey *keychain.KeyDescriptor,
 	remoteFundingKey *btcec.PublicKey, shortChanID lnwire.ShortChannelID,
-	chanID lnwire.ChannelID, chanType channeldb.ChannelType) error {
+	chanID lnwire.ChannelID, chanType chanstate.ChannelType) error {
 
 	// First, we'll create the batch of announcements to be sent upon
 	// initial channel creation. This includes the channel announcement
@@ -5235,13 +5241,13 @@ func (f *Manager) handleInitFundingMsg(msg *InitFundingMsg) {
 	defer resCtx.updateTimestamp()
 
 	// Check the sanity of the selected channel constraints.
-	bounds := &channeldb.ChannelStateBounds{
+	bounds := &chanstate.ChannelStateBounds{
 		ChanReserve:      chanReserve,
 		MaxPendingAmount: maxValue,
 		MinHTLC:          minHtlcIn,
 		MaxAcceptedHtlcs: maxHtlcs,
 	}
-	commitParams := &channeldb.CommitmentParams{
+	commitParams := &chanstate.CommitmentParams{
 		DustLimit: ourDustLimit,
 		CsvDelay:  remoteCsvDelay,
 	}
@@ -5521,7 +5527,7 @@ func copyPubKey(pub *btcec.PublicKey) *btcec.PublicKey {
 // defaultForwardingPolicy returns the default forwarding policy based on the
 // default routing policy and our local channel constraints.
 func (f *Manager) defaultForwardingPolicy(
-	bounds channeldb.ChannelStateBounds) *models.ForwardingPolicy {
+	bounds chanstate.ChannelStateBounds) *models.ForwardingPolicy {
 
 	return &models.ForwardingPolicy{
 		MinHTLCOut:    bounds.MinHTLC,
@@ -5537,7 +5543,7 @@ func (f *Manager) defaultForwardingPolicy(
 func (f *Manager) saveInitialForwardingPolicy(chanID lnwire.ChannelID,
 	forwardingPolicy *models.ForwardingPolicy) error {
 
-	return f.cfg.ChannelDB.SaveInitialForwardingPolicy(
+	return f.cfg.ChannelStateStore.SaveInitialForwardingPolicy(
 		chanID, forwardingPolicy,
 	)
 }
@@ -5548,13 +5554,13 @@ func (f *Manager) saveInitialForwardingPolicy(chanID lnwire.ChannelID,
 func (f *Manager) getInitialForwardingPolicy(
 	chanID lnwire.ChannelID) (*models.ForwardingPolicy, error) {
 
-	return f.cfg.ChannelDB.GetInitialForwardingPolicy(chanID)
+	return f.cfg.ChannelStateStore.GetInitialForwardingPolicy(chanID)
 }
 
 // deleteInitialForwardingPolicy removes channel fees for this chanID from
 // the database.
 func (f *Manager) deleteInitialForwardingPolicy(chanID lnwire.ChannelID) error {
-	return f.cfg.ChannelDB.DeleteInitialForwardingPolicy(chanID)
+	return f.cfg.ChannelStateStore.DeleteInitialForwardingPolicy(chanID)
 }
 
 // saveChannelOpeningState saves the channelOpeningState for the provided
@@ -5573,7 +5579,7 @@ func (f *Manager) saveChannelOpeningState(chanPoint *wire.OutPoint,
 	byteOrder.PutUint16(scratch[:2], uint16(state))
 	byteOrder.PutUint64(scratch[2:], shortChanID.ToUint64())
 
-	return f.cfg.ChannelDB.SaveChannelOpeningState(
+	return f.cfg.ChannelStateStore.SaveChannelOpeningState(
 		outpointBytes.Bytes(), scratch,
 	)
 }
@@ -5589,7 +5595,7 @@ func (f *Manager) getChannelOpeningState(chanPoint *wire.OutPoint) (
 		return 0, nil, err
 	}
 
-	value, err := f.cfg.ChannelDB.GetChannelOpeningState(
+	value, err := f.cfg.ChannelStateStore.GetChannelOpeningState(
 		outpointBytes.Bytes(),
 	)
 	if err != nil {
@@ -5608,7 +5614,7 @@ func (f *Manager) deleteChannelOpeningState(chanPoint *wire.OutPoint) error {
 		return err
 	}
 
-	return f.cfg.ChannelDB.DeleteChannelOpeningState(
+	return f.cfg.ChannelStateStore.DeleteChannelOpeningState(
 		outpointBytes.Bytes(),
 	)
 }

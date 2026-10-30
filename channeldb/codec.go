@@ -1,47 +1,31 @@
 package channeldb
 
 import (
+	"encoding/binary"
 	"io"
 	"time"
-
-	cstate "github.com/lightningnetwork/lnd/chanstate"
 )
 
-// UnknownElementType is an error returned when the codec is unable to encode or
-// decode a particular type.
-type UnknownElementType = cstate.UnknownElementType
+// writeElements writes fixed-size database primitives in big-endian order.
+func writeElements(w io.Writer, elements ...interface{}) error {
+	for _, element := range elements {
+		if err := binary.Write(w, byteOrder, element); err != nil {
+			return err
+		}
+	}
 
-// NewUnknownElementType creates a new UnknownElementType error from the passed
-// method name and element.
-func NewUnknownElementType(method string, el interface{}) UnknownElementType {
-	return cstate.NewUnknownElementType(method, el)
+	return nil
 }
 
-// WriteElement is a one-stop shop to write the big endian representation of
-// any element which is to be serialized for storage on disk. The passed
-// io.Writer should be backed by an appropriately sized byte slice, or be able
-// to dynamically expand to accommodate additional data.
-func WriteElement(w io.Writer, element interface{}) error {
-	return cstate.WriteElement(w, element)
-}
+// readElements reads fixed-size database primitives in big-endian order.
+func readElements(r io.Reader, elements ...interface{}) error {
+	for _, element := range elements {
+		if err := binary.Read(r, byteOrder, element); err != nil {
+			return err
+		}
+	}
 
-// WriteElements is writes each element in the elements slice to the passed
-// io.Writer using WriteElement.
-func WriteElements(w io.Writer, elements ...interface{}) error {
-	return cstate.WriteElements(w, elements...)
-}
-
-// ReadElement is a one-stop utility function to deserialize any datastructure
-// encoded using the serialization format of the database.
-func ReadElement(r io.Reader, element interface{}) error {
-	return cstate.ReadElement(r, element)
-}
-
-// ReadElements deserializes a variable number of elements into the passed
-// io.Reader, with each element being deserialized according to the ReadElement
-// function.
-func ReadElements(r io.Reader, elements ...interface{}) error {
-	return cstate.ReadElements(r, elements...)
+	return nil
 }
 
 // deserializeTime deserializes time as unix nanoseconds.

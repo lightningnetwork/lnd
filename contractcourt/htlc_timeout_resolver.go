@@ -49,10 +49,10 @@ type htlcTimeoutResolver struct {
 	broadcastHeight uint32
 
 	// htlc contains information on the htlc that we are resolving on-chain.
-	htlc channeldb.HTLC
+	htlc chanstate.HTLC
 
 	// chanType denotes the type of channel the HTLC belongs to.
-	chanType channeldb.ChannelType
+	chanType chanstate.ChannelType
 
 	// currentReport stores the current state of the resolver for reporting
 	// over the rpc interface. This should only be reported in case we have
@@ -75,8 +75,8 @@ type htlcTimeoutResolver struct {
 
 // newTimeoutResolver instantiates a new timeout htlc resolver.
 func newTimeoutResolver(res lnwallet.OutgoingHtlcResolution,
-	broadcastHeight uint32, htlc channeldb.HTLC,
-	chanType channeldb.ChannelType,
+	broadcastHeight uint32, htlc chanstate.HTLC,
+	chanType chanstate.ChannelType,
 	resCfg ResolverConfig) *htlcTimeoutResolver {
 
 	h := &htlcTimeoutResolver{
@@ -783,7 +783,7 @@ func newTimeoutResolverFromReader(r io.Reader, resCfg ResolverConfig) (
 // before Resolve() is called.
 //
 // NOTE: Part of the htlcContractResolver interface.
-func (h *htlcTimeoutResolver) Supplement(htlc channeldb.HTLC) {
+func (h *htlcTimeoutResolver) Supplement(htlc chanstate.HTLC) {
 	h.htlc = htlc
 }
 

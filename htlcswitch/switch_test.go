@@ -18,6 +18,7 @@ import (
 	"github.com/lightningnetwork/lnd/actor"
 	"github.com/lightningnetwork/lnd/chainntnfs"
 	"github.com/lightningnetwork/lnd/channeldb"
+	"github.com/lightningnetwork/lnd/chanstate"
 	"github.com/lightningnetwork/lnd/contractcourt"
 	"github.com/lightningnetwork/lnd/fn/v2"
 	"github.com/lightningnetwork/lnd/graph/db/models"
@@ -5790,7 +5791,7 @@ func testSwitchHandlePacketForward(t *testing.T, zeroConf, private,
 	// If this is an option-scid-alias feature-bit non-zero-conf channel,
 	// we'll mark the channel as such.
 	if optionFeature {
-		aliceChannelState.ChanType |= channeldb.ScidAliasFeatureBit
+		aliceChannelState.ChanType |= chanstate.ScidAliasFeatureBit
 	}
 
 	// This is the ShortChannelID field in the OpenChannel struct.
@@ -5801,7 +5802,7 @@ func testSwitchHandlePacketForward(t *testing.T, zeroConf, private,
 		err = aliceChannelState.MarkRealScid(aliceScid)
 		require.NoError(t, err)
 
-		aliceChannelState.ChanType |= channeldb.ZeroConfBit
+		aliceChannelState.ChanType |= chanstate.ZeroConfBit
 	}
 
 	err = s.AddLink(aliceLink)

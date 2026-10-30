@@ -459,9 +459,10 @@ func writeOldFormatEvents(db *DB, events []ForwardingEvent) error {
 
 			// Write only the original fields without incoming and
 			// outgoing htlc indices.
-			if err := WriteElements(
-				eventBuf, event.IncomingChanID,
-				event.OutgoingChanID, event.AmtIn, event.AmtOut,
+			if err := writeElements(
+				eventBuf, event.IncomingChanID.ToUint64(),
+				event.OutgoingChanID.ToUint64(),
+				uint64(event.AmtIn), uint64(event.AmtOut),
 			); err != nil {
 				return err
 			}

@@ -10,7 +10,6 @@ import (
 	"github.com/btcsuite/btcd/btcec/v2"
 	"github.com/btcsuite/btcd/chainhash/v2"
 	"github.com/lightningnetwork/lnd/chainntnfs"
-	"github.com/lightningnetwork/lnd/channeldb"
 	"github.com/lightningnetwork/lnd/channelnotifier"
 	"github.com/lightningnetwork/lnd/chanstate"
 	"github.com/lightningnetwork/lnd/fn/v2"
@@ -92,7 +91,7 @@ type Config struct {
 
 	// FetchClosedChannel can be used to fetch the info about a closed
 	// channel. If the channel is not found or not yet closed then
-	// channeldb.ErrClosedChannelNotFound will be returned.
+	// chanstate.ErrClosedChannelNotFound will be returned.
 	FetchClosedChannel func(cid lnwire.ChannelID) (
 		*chanstate.ChannelCloseSummary, error)
 
@@ -721,7 +720,7 @@ func (m *Manager) isChannelClosed(id lnwire.ChannelID) (bool, uint32,
 	error) {
 
 	chanSum, err := m.cfg.FetchClosedChannel(id)
-	if errors.Is(err, channeldb.ErrClosedChannelNotFound) {
+	if errors.Is(err, chanstate.ErrClosedChannelNotFound) {
 		return false, 0, nil
 	} else if err != nil {
 		return false, 0, err

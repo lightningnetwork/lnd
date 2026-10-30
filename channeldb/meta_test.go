@@ -8,6 +8,7 @@ import (
 	"testing"
 
 	"github.com/btcsuite/btcwallet/walletdb"
+	"github.com/lightningnetwork/lnd/chanstate"
 	"github.com/lightningnetwork/lnd/kvdb"
 	"github.com/lightningnetwork/lnd/lnwire"
 	"github.com/stretchr/testify/require"
@@ -673,7 +674,8 @@ func TestInitChannelDBCreatesMissingTopLevelBuckets(t *testing.T) {
 	require.NoError(t, err)
 
 	err = kvdb.View(backend, func(tx kvdb.RTx) error {
-		require.Nil(t, tx.ReadBucket(historicalChannelBucket))
+		historicalKey := chanstate.HistoricalChannelBucketKey()
+		require.Nil(t, tx.ReadBucket(historicalKey))
 
 		return nil
 	}, func() {})
@@ -682,7 +684,8 @@ func TestInitChannelDBCreatesMissingTopLevelBuckets(t *testing.T) {
 	require.NoError(t, initChannelDB(backend))
 
 	err = kvdb.View(backend, func(tx kvdb.RTx) error {
-		require.NotNil(t, tx.ReadBucket(historicalChannelBucket))
+		historicalKey := chanstate.HistoricalChannelBucketKey()
+		require.NotNil(t, tx.ReadBucket(historicalKey))
 
 		return nil
 	}, func() {})

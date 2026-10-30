@@ -1088,48 +1088,23 @@ func putFinalHtlc(finalHtlcsBucket kvdb.RwBucket, id uint64,
 func (c *ChannelStateDB) LoadFwdPkgs(channel *OpenChannel) ([]*FwdPkg,
 	error) {
 
-	var fwdPkgs []*FwdPkg
-	if err := kvdb.View(c.backend, func(tx kvdb.RTx) error {
-		var err error
-		packager := NewChannelPackager(channel.ShortChannelID)
-		fwdPkgs, err = packager.LoadFwdPkgs(tx)
-		return err
-	}, func() {
-		fwdPkgs = nil
-	}); err != nil {
-		return nil, err
-	}
-
-	return fwdPkgs, nil
+	return c.kvStore.LoadFwdPkgs(channel)
 }
 
 // CountFwdPkgs returns the number of forwarding packages without loading their
 // contents.
 func (c *ChannelStateDB) CountFwdPkgs(channel *OpenChannel) (int, error) {
-	var count int
-	err := kvdb.View(c.backend, func(tx kvdb.RTx) error {
-		var err error
-		packager := NewChannelPackager(channel.ShortChannelID)
-		count, err = packager.CountFwdPkgs(tx)
-
-		return err
-	}, func() {
-		count = 0
-	})
-
-	return count, err
+	return c.kvStore.CountFwdPkgs(channel)
 }
 
 // AckAddHtlcs updates the AckAddFilter containing any of the provided AddRefs
-// indicating that a response to this Add has been committed to the remote party.
-// Doing so will prevent these Add HTLCs from being reforwarded internally.
+// indicating that a response to this Add has been committed to the remote
+// party. Doing so will prevent these Add HTLCs from being reforwarded
+// internally.
 func (c *ChannelStateDB) AckAddHtlcs(channel *OpenChannel,
 	addRefs ...AddRef) error {
 
-	return kvdb.Update(c.backend, func(tx kvdb.RwTx) error {
-		packager := NewChannelPackager(channel.ShortChannelID)
-		return packager.AckAddHtlcs(tx, addRefs...)
-	}, func() {})
+	return c.kvStore.AckAddHtlcs(channel, addRefs...)
 }
 
 // AckSettleFails updates the SettleFailFilter containing any of the provided
@@ -1139,10 +1114,7 @@ func (c *ChannelStateDB) AckAddHtlcs(channel *OpenChannel,
 func (c *ChannelStateDB) AckSettleFails(channel *OpenChannel,
 	settleFailRefs ...SettleFailRef) error {
 
-	return kvdb.Update(c.backend, func(tx kvdb.RwTx) error {
-		packager := NewChannelPackager(channel.ShortChannelID)
-		return packager.AckSettleFails(tx, settleFailRefs...)
-	}, func() {})
+	return c.kvStore.AckSettleFails(channel, settleFailRefs...)
 }
 
 // SetFwdFilter atomically sets the forwarding filter for the forwarding package
@@ -1150,32 +1122,19 @@ func (c *ChannelStateDB) AckSettleFails(channel *OpenChannel,
 func (c *ChannelStateDB) SetFwdFilter(channel *OpenChannel, height uint64,
 	fwdFilter *PkgFilter) error {
 
-	return kvdb.Update(c.backend, func(tx kvdb.RwTx) error {
-		packager := NewChannelPackager(channel.ShortChannelID)
-		return packager.SetFwdFilter(tx, height, fwdFilter)
-	}, func() {})
+	return c.kvStore.SetFwdFilter(channel, height, fwdFilter)
 }
 
 // RemoveFwdPkgs atomically removes forwarding packages specified by the remote
-// commitment heights. If one of the intermediate RemovePkg calls fails, then the
-// later packages won't be removed.
+// commitment heights. If one of the intermediate RemovePkg calls fails, then
+// the later packages won't be removed.
 //
-// NOTE: This method should only be called on packages marked FwdStateCompleted.
+// NOTE: This method should only be called on packages marked
+// FwdStateCompleted.
 func (c *ChannelStateDB) RemoveFwdPkgs(channel *OpenChannel,
 	heights ...uint64) error {
 
-	return kvdb.Update(c.backend, func(tx kvdb.RwTx) error {
-		packager := NewChannelPackager(channel.ShortChannelID)
-
-		for _, height := range heights {
-			err := packager.RemovePkg(tx, height)
-			if err != nil {
-				return err
-			}
-		}
-
-		return nil
-	}, func() {})
+	return c.kvStore.RemoveFwdPkgs(channel, heights...)
 }
 
 // revocationLogTailCommitHeight returns the commit height at the end of the

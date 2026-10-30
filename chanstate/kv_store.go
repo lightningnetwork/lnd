@@ -16,6 +16,7 @@ func NewKVStore(backend kvdb.Backend) *KVStore {
 	}
 }
 
+var _ OpenChannelFwdPkgStore = (*KVStore)(nil)
 var _ OpenChannelShutdownStore = (*KVStore)(nil)
 var _ OpenChannelCloseTxStore = (*KVStore)(nil)
 var _ OpenChannelStatusStore = (*KVStore)(nil)

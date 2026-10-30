@@ -3,7 +3,7 @@ package lnwallet
 import (
 	"crypto/sha256"
 
-	"github.com/lightningnetwork/lnd/channeldb"
+	"github.com/lightningnetwork/lnd/chanstate"
 	"github.com/lightningnetwork/lnd/graph/db/models"
 	"github.com/lightningnetwork/lnd/input"
 	"github.com/lightningnetwork/lnd/lntypes"
@@ -124,7 +124,7 @@ type paymentDescriptor struct {
 	//
 	// NOTE: This field will only be populated if EntryType is Fail or
 	// Settle.
-	SourceRef *channeldb.AddRef
+	SourceRef *chanstate.AddRef
 
 	// DestRef points to a Fail/Settle update in another link's forwarding
 	// package.
@@ -132,7 +132,7 @@ type paymentDescriptor struct {
 	// NOTE: This field will only be populated if EntryType is Fail or
 	// Settle, and the forwarded Add successfully included in an outgoing
 	// link's commitment txn.
-	DestRef *channeldb.SettleFailRef
+	DestRef *chanstate.SettleFailRef
 
 	// OpenCircuitKey references the incoming Chan/HTLC ID of an Add HTLC
 	// packet delivered by the switch.
@@ -252,7 +252,7 @@ type paymentDescriptor struct {
 // This operation is lossy and will forget some extra information tracked by the
 // paymentDescriptor but the function is total in that all paymentDescriptors
 // can be converted back to LogUpdates.
-func (pd *paymentDescriptor) toLogUpdate() channeldb.LogUpdate {
+func (pd *paymentDescriptor) toLogUpdate() chanstate.LogUpdate {
 	var msg lnwire.Message
 	switch pd.EntryType {
 	case Add, NoOpAdd:
@@ -295,7 +295,7 @@ func (pd *paymentDescriptor) toLogUpdate() channeldb.LogUpdate {
 		}
 	}
 
-	return channeldb.LogUpdate{
+	return chanstate.LogUpdate{
 		LogIndex:  pd.LogIndex,
 		UpdateMsg: msg,
 	}

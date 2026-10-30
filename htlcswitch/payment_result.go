@@ -7,7 +7,7 @@ import (
 	"io"
 	"sync"
 
-	"github.com/lightningnetwork/lnd/channeldb"
+	"github.com/lightningnetwork/lnd/chanstate"
 	"github.com/lightningnetwork/lnd/kvdb"
 	"github.com/lightningnetwork/lnd/lnwire"
 	"github.com/lightningnetwork/lnd/multimutex"
@@ -61,14 +61,14 @@ type networkResult struct {
 
 // serializeNetworkResult serializes the networkResult.
 func serializeNetworkResult(w io.Writer, n *networkResult) error {
-	return channeldb.WriteElements(w, n.msg, n.unencrypted, n.isResolution)
+	return chanstate.WriteElements(w, n.msg, n.unencrypted, n.isResolution)
 }
 
 // deserializeNetworkResult deserializes the networkResult.
 func deserializeNetworkResult(r io.Reader) (*networkResult, error) {
 	n := &networkResult{}
 
-	if err := channeldb.ReadElements(r,
+	if err := chanstate.ReadElements(r,
 		&n.msg, &n.unencrypted, &n.isResolution,
 	); err != nil {
 		return nil, err

@@ -11,7 +11,6 @@ import (
 	"github.com/btcsuite/btcd/chaincfg/v2"
 	"github.com/btcsuite/btcd/chainhash/v2"
 	"github.com/btcsuite/btcd/wire/v2"
-	"github.com/lightningnetwork/lnd/channeldb"
 	"github.com/lightningnetwork/lnd/chanstate"
 	"github.com/lightningnetwork/lnd/discovery"
 	"github.com/lightningnetwork/lnd/funding"
@@ -144,7 +143,7 @@ func TestManager(t *testing.T) {
 
 		if chanPoint == chanPointMissing {
 			return &chanstate.OpenChannel{},
-				channeldb.ErrChannelNotFound
+				chanstate.ErrChannelNotFound
 		}
 
 		bounds := chanstate.ChannelStateBounds{

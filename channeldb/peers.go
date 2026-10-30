@@ -75,7 +75,8 @@ func (d *DB) WriteFlapCounts(flapCounts map[route.Vertex]*FlapCount) error {
 				return err
 			}
 
-			if err = WriteElement(&b, flapCount.Count); err != nil {
+			err = writeElements(&b, flapCount.Count)
+			if err != nil {
 				return err
 			}
 
@@ -118,7 +119,7 @@ func (d *DB) ReadFlapCount(pubkey route.Vertex) (*FlapCount, error) {
 			return err
 		}
 
-		return ReadElements(r, &flapCount.Count)
+		return readElements(r, &flapCount.Count)
 	}, func() {
 		flapCount = FlapCount{}
 	}); err != nil {

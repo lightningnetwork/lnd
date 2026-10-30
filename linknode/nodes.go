@@ -1,7 +1,9 @@
-package channeldb
+package linknode
 
 import (
 	"bytes"
+	"context"
+	"encoding/binary"
 	"errors"
 	"fmt"
 	"io"
@@ -15,12 +17,54 @@ import (
 )
 
 var (
-	// nodeInfoBucket stores metadata pertaining to nodes that we've had
+	// byteOrder is the preferred byte order used for serializing node
+	// metadata.
+	byteOrder = binary.BigEndian
+
+	// NodeInfoBucket stores metadata pertaining to nodes that we've had
 	// direct channel-based correspondence with. This bucket allows one to
 	// query for all open channels pertaining to the node by exploring each
 	// node's sub-bucket within the openChanBucket.
-	nodeInfoBucket = []byte("nib")
+	NodeInfoBucket = []byte("nib")
+
+	// ErrLinkNodesNotFound is returned when node info bucket hasn't been
+	// created.
+	ErrLinkNodesNotFound = fmt.Errorf("no link nodes exist")
+
+	// ErrNodeNotFound is returned when node bucket exists, but node with
+	// specific identity can't be found.
+	ErrNodeNotFound = fmt.Errorf("link node with target identity not found")
 )
+
+// Store is the persistence contract for link nodes.
+type Store interface {
+	// UpdateLinkNode persists the current state of a link node.
+	UpdateLinkNode(linkNode *LinkNode) error
+
+	// FindMissingLinkNodes checks which of the provided public keys do not
+	// have corresponding link nodes in the database.
+	FindMissingLinkNodes(pubKeys []*btcec.PublicKey) (
+		[]*btcec.PublicKey, error)
+
+	// CreateLinkNodes creates multiple link nodes.
+	CreateLinkNodes(linkNodes []*LinkNode) error
+
+	// DeleteLinkNode removes the link node with the given identity from
+	// the database.
+	DeleteLinkNode(identity *btcec.PublicKey) error
+
+	// FetchLinkNode attempts to lookup the data for a LinkNode based on a
+	// target identity public key.
+	FetchLinkNode(identity *btcec.PublicKey) (*LinkNode, error)
+
+	// FetchAllLinkNodes starts a new database transaction to fetch all
+	// nodes with whom we have active channels with.
+	FetchAllLinkNodes() ([]*LinkNode, error)
+
+	// AddrsForNode returns all addresses known for the target node.
+	AddrsForNode(ctx context.Context, nodePub *btcec.PublicKey) (bool,
+		[]net.Addr, error)
+}
 
 // LinkNode stores metadata related to node's that we have/had a direct
 // channel open with. Information such as the Bitcoin network the node
@@ -59,14 +103,13 @@ type LinkNode struct {
 	// authenticated connection for the stored identity public key.
 	Addresses []net.Addr
 
-	// db is the database instance this node was fetched from. This is used
-	// to sync back the node's state if it is updated.
-	db *LinkNodeDB
+	// store persists this node when its state is updated.
+	store Store
 }
 
 // NewLinkNode creates a new LinkNode from the provided parameters, which is
-// backed by an instance of a link node DB.
-func NewLinkNode(db *LinkNodeDB, bitNet wire.BitcoinNet, pub *btcec.PublicKey,
+// backed by a link-node store.
+func NewLinkNode(store Store, bitNet wire.BitcoinNet, pub *btcec.PublicKey,
 	addrs ...net.Addr) *LinkNode {
 
 	return &LinkNode{
@@ -74,7 +117,7 @@ func NewLinkNode(db *LinkNodeDB, bitNet wire.BitcoinNet, pub *btcec.PublicKey,
 		IdentityPub: pub,
 		LastSeen:    time.Now(),
 		Addresses:   addrs,
-		db:          db,
+		store:       store,
 	}
 }
 
@@ -103,22 +146,13 @@ func (l *LinkNode) AddAddress(addr net.Addr) error {
 // Sync performs a full database sync which writes the current up-to-date data
 // within the struct to the database.
 func (l *LinkNode) Sync() error {
-	// Finally update the database by storing the link node and updating
-	// any relevant indexes.
-	return kvdb.Update(l.db.backend, func(tx kvdb.RwTx) error {
-		nodeMetaBucket := tx.ReadWriteBucket(nodeInfoBucket)
-		if nodeMetaBucket == nil {
-			return ErrLinkNodesNotFound
-		}
-
-		return putLinkNode(nodeMetaBucket, l)
-	}, func() {})
+	return l.store.UpdateLinkNode(l)
 }
 
-// putLinkNode serializes then writes the encoded version of the passed link
+// PutLinkNode serializes then writes the encoded version of the passed link
 // node into the nodeMetaBucket. This function is provided in order to allow
 // the ability to re-use a database transaction across many operations.
-func putLinkNode(nodeMetaBucket kvdb.RwBucket, l *LinkNode) error {
+func PutLinkNode(nodeMetaBucket kvdb.RwBucket, l *LinkNode) error {
 	// First serialize the LinkNode into its raw-bytes encoding.
 	var b bytes.Buffer
 	if err := serializeLinkNode(&b, l); err != nil {
@@ -128,6 +162,7 @@ func putLinkNode(nodeMetaBucket kvdb.RwBucket, l *LinkNode) error {
 	// Finally insert the link-node into the node metadata bucket keyed
 	// according to the its pubkey serialized in compressed form.
 	nodePub := l.IdentityPub.SerializeCompressed()
+
 	return nodeMetaBucket.Put(nodePub, b.Bytes())
 }
 
@@ -136,117 +171,133 @@ type LinkNodeDB struct {
 	backend kvdb.Backend
 }
 
+// NewDB creates a new link node database.
+func NewDB(backend kvdb.Backend) *LinkNodeDB {
+	return &LinkNodeDB{
+		backend: backend,
+	}
+}
+
+var _ Store = (*LinkNodeDB)(nil)
+
+// UpdateLinkNode persists the current state of a link node.
+func (l *LinkNodeDB) UpdateLinkNode(linkNode *LinkNode) error {
+	return kvdb.Update(l.backend, func(tx kvdb.RwTx) error {
+		nodeMetaBucket := tx.ReadWriteBucket(NodeInfoBucket)
+		if nodeMetaBucket == nil {
+			return ErrLinkNodesNotFound
+		}
+
+		return PutLinkNode(nodeMetaBucket, linkNode)
+	}, func() {})
+}
+
 // FindMissingLinkNodes checks which of the provided public keys do not have
-// corresponding link nodes in the database. If tx is nil, a new read
-// transaction will be created. Otherwise, the provided transaction is used,
-// allowing this to be part of a larger batch operation.
-func (l *LinkNodeDB) FindMissingLinkNodes(tx kvdb.RTx,
+// corresponding link nodes in the database.
+func (l *LinkNodeDB) FindMissingLinkNodes(
 	pubKeys []*btcec.PublicKey) ([]*btcec.PublicKey, error) {
 
 	var missing []*btcec.PublicKey
+	err := kvdb.View(l.backend, func(tx kvdb.RTx) error {
+		var err error
+		missing, err = findMissingLinkNodes(tx, pubKeys)
 
-	findMissing := func(readTx kvdb.RTx) error {
-		nodeMetaBucket := readTx.ReadBucket(nodeInfoBucket)
-		if nodeMetaBucket == nil {
-			// If the bucket doesn't exist, all peers are missing.
-			missing = pubKeys
-			return nil
-		}
-
-		for _, pubKey := range pubKeys {
-			_, err := fetchLinkNode(readTx, pubKey)
-			if err == nil {
-				// Link node exists.
-				continue
-			}
-
-			if !errors.Is(err, ErrNodeNotFound) {
-				return fmt.Errorf("unable to check link node "+
-					"for peer %x: %w",
-					pubKey.SerializeCompressed(), err)
-			}
-
-			// Link node doesn't exist.
-			missing = append(missing, pubKey)
-		}
-
-		return nil
-	}
-
-	// If no transaction provided, create our own.
-	if tx == nil {
-		err := kvdb.View(l.backend, findMissing, func() {
-			missing = nil
-		})
-
-		return missing, err
-	}
-
-	// Use the provided transaction.
-	err := findMissing(tx)
+		return err
+	}, func() {
+		missing = nil
+	})
 
 	return missing, err
 }
 
-// CreateLinkNodes creates multiple link nodes. If tx is nil, a new write
-// transaction will be created. Otherwise, the provided transaction is used,
-// allowing this to be part of a larger batch operation.
-func (l *LinkNodeDB) CreateLinkNodes(tx kvdb.RwTx,
-	linkNodes []*LinkNode) error {
+// FindMissingLinkNodesTx checks which public keys do not have corresponding
+// link nodes using a caller-owned KV transaction.
+func FindMissingLinkNodesTx(tx kvdb.RTx,
+	pubKeys []*btcec.PublicKey) ([]*btcec.PublicKey, error) {
 
-	createNodes := func(writeTx kvdb.RwTx) error {
-		nodeMetaBucket, err := writeTx.CreateTopLevelBucket(
-			nodeInfoBucket,
-		)
+	return findMissingLinkNodes(tx, pubKeys)
+}
+
+func findMissingLinkNodes(tx kvdb.RTx,
+	pubKeys []*btcec.PublicKey) ([]*btcec.PublicKey, error) {
+
+	nodeMetaBucket := tx.ReadBucket(NodeInfoBucket)
+	if nodeMetaBucket == nil {
+		return pubKeys, nil
+	}
+
+	var missing []*btcec.PublicKey
+	for _, pubKey := range pubKeys {
+		_, err := fetchLinkNode(tx, pubKey)
+		if err == nil {
+			continue
+		}
+
+		if !errors.Is(err, ErrNodeNotFound) {
+			return nil, fmt.Errorf("unable to check link node "+
+				"for peer %x: %w",
+				pubKey.SerializeCompressed(), err)
+		}
+
+		missing = append(missing, pubKey)
+	}
+
+	return missing, nil
+}
+
+// CreateLinkNodes creates multiple link nodes.
+func (l *LinkNodeDB) CreateLinkNodes(linkNodes []*LinkNode) error {
+	return kvdb.Update(l.backend, func(tx kvdb.RwTx) error {
+		return createLinkNodes(tx, linkNodes)
+	}, func() {})
+}
+
+func createLinkNodes(tx kvdb.RwTx, linkNodes []*LinkNode) error {
+	nodeMetaBucket, err := tx.CreateTopLevelBucket(NodeInfoBucket)
+	if err != nil {
+		return err
+	}
+
+	for _, linkNode := range linkNodes {
+		err := PutLinkNode(nodeMetaBucket, linkNode)
 		if err != nil {
-			return err
+			pubKey := linkNode.IdentityPub.SerializeCompressed()
+
+			return fmt.Errorf("unable to create link node for "+
+				"peer %x: %w", pubKey, err)
 		}
-
-		for _, linkNode := range linkNodes {
-			err := putLinkNode(nodeMetaBucket, linkNode)
-			if err != nil {
-				pubKey := linkNode.IdentityPub.
-					SerializeCompressed()
-
-				return fmt.Errorf("unable to create link "+
-					"node for peer %x: %w", pubKey, err)
-			}
-		}
-
-		return nil
 	}
 
-	// If no transaction provided, create our own.
-	if tx == nil {
-		return kvdb.Update(l.backend, createNodes, func() {})
-	}
-
-	// Use the provided transaction.
-	return createNodes(tx)
+	return nil
 }
 
 // DeleteLinkNode removes the link node with the given identity from the
 // database.
 func (l *LinkNodeDB) DeleteLinkNode(identity *btcec.PublicKey) error {
 	return kvdb.Update(l.backend, func(tx kvdb.RwTx) error {
-		return deleteLinkNode(tx, identity)
+		return DeleteLinkNodeTx(tx, identity)
 	}, func() {})
 }
 
-func deleteLinkNode(tx kvdb.RwTx, identity *btcec.PublicKey) error {
-	nodeMetaBucket := tx.ReadWriteBucket(nodeInfoBucket)
+// DeleteLinkNodeTx removes the link node with the given identity using an
+// existing write transaction.
+func DeleteLinkNodeTx(tx kvdb.RwTx, identity *btcec.PublicKey) error {
+	nodeMetaBucket := tx.ReadWriteBucket(NodeInfoBucket)
 	if nodeMetaBucket == nil {
 		return ErrLinkNodesNotFound
 	}
 
 	pubKey := identity.SerializeCompressed()
+
 	return nodeMetaBucket.Delete(pubKey)
 }
 
 // FetchLinkNode attempts to lookup the data for a LinkNode based on a target
 // identity public key. If a particular LinkNode for the passed identity public
 // key cannot be found, then ErrNodeNotFound if returned.
-func (l *LinkNodeDB) FetchLinkNode(identity *btcec.PublicKey) (*LinkNode, error) {
+func (l *LinkNodeDB) FetchLinkNode(identity *btcec.PublicKey) (
+	*LinkNode, error) {
+
 	var linkNode *LinkNode
 	err := kvdb.View(l.backend, func(tx kvdb.RTx) error {
 		node, err := fetchLinkNode(tx, identity)
@@ -255,6 +306,8 @@ func (l *LinkNodeDB) FetchLinkNode(identity *btcec.PublicKey) (*LinkNode, error)
 		}
 
 		linkNode = node
+		linkNode.store = l
+
 		return nil
 	}, func() {
 		linkNode = nil
@@ -263,10 +316,30 @@ func (l *LinkNodeDB) FetchLinkNode(identity *btcec.PublicKey) (*LinkNode, error)
 	return linkNode, err
 }
 
+// AddrsForNode consults the link node database for all addresses known to the
+// passed node public key. The returned boolean indicates if the given node is
+// known to the link node DB or not.
+func (l *LinkNodeDB) AddrsForNode(_ context.Context,
+	nodePub *btcec.PublicKey) (bool, []net.Addr, error) {
+
+	linkNode, err := l.FetchLinkNode(nodePub)
+	// Only if the error is something other than ErrNodeNotFound do we
+	// return it.
+	switch {
+	case err != nil && !errors.Is(err, ErrNodeNotFound):
+		return false, nil, err
+
+	case errors.Is(err, ErrNodeNotFound):
+		return false, nil, nil
+	}
+
+	return true, linkNode.Addresses, nil
+}
+
 func fetchLinkNode(tx kvdb.RTx, targetPub *btcec.PublicKey) (*LinkNode, error) {
 	// First fetch the bucket for storing node metadata, bailing out early
 	// if it hasn't been created yet.
-	nodeMetaBucket := tx.ReadBucket(nodeInfoBucket)
+	nodeMetaBucket := tx.ReadBucket(NodeInfoBucket)
 	if nodeMetaBucket == nil {
 		return nil, ErrLinkNodesNotFound
 	}
@@ -282,6 +355,7 @@ func fetchLinkNode(tx kvdb.RTx, targetPub *btcec.PublicKey) (*LinkNode, error) {
 	// Finally, decode and allocate a fresh LinkNode object to be returned
 	// to the caller.
 	nodeReader := bytes.NewReader(nodeBytes)
+
 	return deserializeLinkNode(nodeReader)
 }
 
@@ -298,6 +372,10 @@ func (l *LinkNodeDB) FetchAllLinkNodes() ([]*LinkNode, error) {
 		}
 
 		linkNodes = nodes
+		for _, linkNode := range linkNodes {
+			linkNode.store = l
+		}
+
 		return nil
 	}, func() {
 		linkNodes = nil
@@ -312,7 +390,7 @@ func (l *LinkNodeDB) FetchAllLinkNodes() ([]*LinkNode, error) {
 // fetchAllLinkNodes uses an existing database transaction to fetch all nodes
 // with whom we have active channels with.
 func fetchAllLinkNodes(tx kvdb.RTx) ([]*LinkNode, error) {
-	nodeMetaBucket := tx.ReadBucket(nodeInfoBucket)
+	nodeMetaBucket := tx.ReadBucket(NodeInfoBucket)
 	if nodeMetaBucket == nil {
 		return nil, ErrLinkNodesNotFound
 	}
@@ -330,6 +408,7 @@ func fetchAllLinkNodes(tx kvdb.RTx) ([]*LinkNode, error) {
 		}
 
 		linkNodes = append(linkNodes, linkNode)
+
 		return nil
 	})
 	if err != nil {
@@ -406,7 +485,7 @@ func deserializeLinkNode(r io.Reader) (*LinkNode, error) {
 	numAddrs := byteOrder.Uint32(buf[:4])
 
 	node.Addresses = make([]net.Addr, numAddrs)
-	for i := uint32(0); i < numAddrs; i++ {
+	for i := range numAddrs {
 		addr, err := graphdb.DeserializeAddr(r)
 		if err != nil {
 			return nil, err

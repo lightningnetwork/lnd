@@ -2,8 +2,10 @@ package channeldb
 
 import (
 	"bytes"
+	"encoding/binary"
 
 	"github.com/lightningnetwork/lnd/chainntnfs"
+	graphdb "github.com/lightningnetwork/lnd/graph/db"
 	"github.com/lightningnetwork/lnd/kvdb"
 )
 
@@ -86,7 +88,7 @@ func (c *HeightHintCache) CommitSpendHint(height uint32,
 		}
 
 		var hint bytes.Buffer
-		if err := WriteElement(&hint, height); err != nil {
+		if err := binary.Write(&hint, byteOrder, height); err != nil {
 			return err
 		}
 
@@ -132,7 +134,7 @@ func (c *HeightHintCache) QuerySpendHint(
 			return chainntnfs.ErrSpendHintNotFound
 		}
 
-		return ReadElement(bytes.NewReader(spendHint), &hint)
+		return binary.Read(bytes.NewReader(spendHint), byteOrder, &hint)
 	}, func() {
 		hint = 0
 	})
@@ -191,7 +193,7 @@ func (c *HeightHintCache) CommitConfirmHint(height uint32,
 		}
 
 		var hint bytes.Buffer
-		if err := WriteElement(&hint, height); err != nil {
+		if err := binary.Write(&hint, byteOrder, height); err != nil {
 			return err
 		}
 
@@ -237,7 +239,9 @@ func (c *HeightHintCache) QueryConfirmHint(
 			return chainntnfs.ErrConfirmHintNotFound
 		}
 
-		return ReadElement(bytes.NewReader(confirmHint), &hint)
+		return binary.Read(
+			bytes.NewReader(confirmHint), byteOrder, &hint,
+		)
 	}, func() {
 		hint = 0
 	})
@@ -286,12 +290,7 @@ func confHintKey(r *chainntnfs.ConfRequest) ([]byte, error) {
 		return r.PkScript.Script(), nil
 	}
 
-	var txid bytes.Buffer
-	if err := WriteElement(&txid, r.TxID); err != nil {
-		return nil, err
-	}
-
-	return txid.Bytes(), nil
+	return r.TxID[:], nil
 }
 
 // spendHintKey returns the key that will be used to index the spend request's
@@ -302,7 +301,7 @@ func spendHintKey(r *chainntnfs.SpendRequest) ([]byte, error) {
 	}
 
 	var outpoint bytes.Buffer
-	err := WriteElement(&outpoint, r.OutPoint)
+	err := graphdb.WriteOutpoint(&outpoint, &r.OutPoint)
 	if err != nil {
 		return nil, err
 	}

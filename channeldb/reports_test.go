@@ -124,7 +124,7 @@ func TestFetchChannelReadBucket(t *testing.T) {
 // retrieving the reports bucket.
 func TestFetchChannelWriteBucket(t *testing.T) {
 	createReportsBucket := func(tx kvdb.RwTx) (kvdb.RwBucket, error) {
-		return tx.CreateTopLevelBucket(closedChannelBucket)
+		return tx.CreateTopLevelBucket(closeSummaryBucket)
 	}
 
 	createChainHashBucket := func(reports kvdb.RwBucket) (kvdb.RwBucket,

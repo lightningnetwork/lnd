@@ -23,7 +23,6 @@ import (
 	"github.com/lightningnetwork/lnd/brontide"
 	"github.com/lightningnetwork/lnd/buffer"
 	"github.com/lightningnetwork/lnd/chainntnfs"
-	"github.com/lightningnetwork/lnd/channeldb"
 	"github.com/lightningnetwork/lnd/channelnotifier"
 	"github.com/lightningnetwork/lnd/chanstate"
 	"github.com/lightningnetwork/lnd/contractcourt"
@@ -231,6 +230,14 @@ type TimestampedError struct {
 	Timestamp time.Time
 }
 
+// channelStateStore is the narrow channel-state persistence surface needed by
+// the peer.
+type channelStateStore interface {
+	chanstate.OpenChannelStore
+	chanstate.ClosedChannelStore
+	chanstate.ChannelSetupStore
+}
+
 // Config defines configuration fields that are necessary for a peer object
 // to function.
 type Config struct {
@@ -294,8 +301,8 @@ type Config struct {
 	// ChannelLinkConfig.
 	InterceptSwitch *htlcswitch.InterceptableSwitch
 
-	// ChannelDB is used to fetch channel state needed by the peer.
-	ChannelDB chanstate.Store
+	// ChannelStateStore is used to fetch channel state needed by the peer.
+	ChannelStateStore channelStateStore
 
 	// ChannelGraph is a pointer to the channel graph which is used to
 	// query information about the set of known active channels.
@@ -921,7 +928,7 @@ func (p *Brontide) Start() error {
 
 	// Fetch and then load all the active channels we have with this remote
 	// peer from the database.
-	activeChans, err := p.cfg.ChannelDB.FetchOpenChannels(
+	activeChans, err := p.cfg.ChannelStateStore.FetchOpenChannels(
 		p.cfg.Addr.IdentityKey,
 	)
 	if err != nil {
@@ -1322,8 +1329,8 @@ func (p *Brontide) loadActiveChannels(chans []*chanstate.OpenChannel) (
 
 		// Skip adding any permanently irreconcilable channels to the
 		// htlcswitch.
-		if !dbChan.HasChanStatus(channeldb.ChanStatusDefault) &&
-			!dbChan.HasChanStatus(channeldb.ChanStatusRestored) {
+		if !dbChan.HasChanStatus(chanstate.ChanStatusDefault) &&
+			!dbChan.HasChanStatus(chanstate.ChanStatusRestored) {
 
 			p.log.Warnf("ChannelPoint(%v) has status %v, won't "+
 				"start.", chanPoint, dbChan.ChanStatus())
@@ -1348,7 +1355,7 @@ func (p *Brontide) loadActiveChannels(chans []*chanstate.OpenChannel) (
 			// close process restarted. If so, we'll need to send
 			// the Shutdown message that is returned.
 			if dbChan.HasChanStatus(
-				channeldb.ChanStatusCoopBroadcasted,
+				chanstate.ChanStatusCoopBroadcasted,
 			) {
 
 				shutdownMsg, err := p.restartCoopClose(lnChan)
@@ -1437,7 +1444,7 @@ func (p *Brontide) loadActiveChannels(chans []*chanstate.OpenChannel) (
 		}
 
 		shutdownInfo, err := lnChan.State().ShutdownInfo()
-		if err != nil && !errors.Is(err, channeldb.ErrNoShutdownInfo) {
+		if err != nil && !errors.Is(err, chanstate.ErrNoShutdownInfo) {
 			return nil, err
 		}
 
@@ -1445,7 +1452,7 @@ func (p *Brontide) loadActiveChannels(chans []*chanstate.OpenChannel) (
 			shutdownMsg     fn.Option[lnwire.Shutdown]
 			shutdownInfoErr error
 		)
-		shutdownInfo.WhenSome(func(info channeldb.ShutdownInfo) {
+		shutdownInfo.WhenSome(func(info chanstate.ShutdownInfo) {
 			// If we can use the new RBF close feature for this
 			// channel, we don't need to create the legacy closer.
 			if p.rbfCoopCloseAllowed(dbChan.ChanType) {
@@ -1546,7 +1553,7 @@ func (p *Brontide) loadActiveChannels(chans []*chanstate.OpenChannel) (
 		// If the shutdown info isn't blank, then we should kick things
 		// off by sending a shutdown message to the remote party to
 		// continue the old shutdown flow.
-		restartShutdown := func(s channeldb.ShutdownInfo) error {
+		restartShutdown := func(s chanstate.ShutdownInfo) error {
 			return p.startRbfChanCloser(
 				newRestartShutdownInit(s),
 				lnChan.ChannelPoint(),
@@ -3596,9 +3603,9 @@ func (p *Brontide) queue(priority bool, msg lnwire.Message,
 
 // ChannelSnapshots returns a slice of channel snapshots detailing all
 // currently active channels maintained with the remote peer.
-func (p *Brontide) ChannelSnapshots() []*channeldb.ChannelSnapshot {
+func (p *Brontide) ChannelSnapshots() []*chanstate.ChannelSnapshot {
 	snapshots := make(
-		[]*channeldb.ChannelSnapshot, 0, p.activeChannels.Len(),
+		[]*chanstate.ChannelSnapshot, 0, p.activeChannels.Len(),
 	)
 
 	p.activeChannels.ForEach(func(_ lnwire.ChannelID,
@@ -4080,7 +4087,7 @@ func (p *Brontide) restartCoopClose(lnChan *lnwallet.LightningChannel) (
 	_, err := c.BroadcastedCooperative()
 
 	// Any error other than "no close tx" is a real failure.
-	if err != nil && !errors.Is(err, channeldb.ErrNoCloseTx) {
+	if err != nil && !errors.Is(err, chanstate.ErrNoCloseTx) {
 		return nil, err
 	}
 
@@ -4099,15 +4106,15 @@ func (p *Brontide) restartCoopClose(lnChan *lnwallet.LightningChannel) (
 	// We have previously stored the delivery script that we need to use
 	// in the shutdown message. Re-use this script.
 	case err == nil:
-		shutdownInfo.WhenSome(func(info channeldb.ShutdownInfo) {
+		shutdownInfo.WhenSome(func(info chanstate.ShutdownInfo) {
 			deliveryScript = info.DeliveryScript.Val
 		})
 
 	// An error other than ErrNoShutdownInfo was returned
-	case !errors.Is(err, channeldb.ErrNoShutdownInfo):
+	case !errors.Is(err, chanstate.ErrNoShutdownInfo):
 		return nil, err
 
-	case errors.Is(err, channeldb.ErrNoShutdownInfo):
+	case errors.Is(err, chanstate.ErrNoShutdownInfo):
 		deliveryScript = c.LocalShutdownScript
 		if len(deliveryScript) == 0 {
 			var err error
@@ -4154,7 +4161,7 @@ func (p *Brontide) restartCoopClose(lnChan *lnwallet.LightningChannel) (
 	// Determine whether we or the peer are the initiator of the coop
 	// close attempt by looking at the channel's status.
 	closingParty := lntypes.Remote
-	if c.HasChanStatus(channeldb.ChanStatusLocalCloseInitiator) {
+	if c.HasChanStatus(chanstate.ChanStatusLocalCloseInitiator) {
 		closingParty = lntypes.Local
 	}
 
@@ -4788,14 +4795,16 @@ func (p *Brontide) initRbfChanCloser(
 // party (for w/e reason), but crashed before the close was complete.
 //
 //nolint:ll
-type shutdownInit = fn.Option[fn.Either[*htlcswitch.ChanClose, channeldb.ShutdownInfo]]
+type shutdownResult = fn.Either[*htlcswitch.ChanClose, chanstate.ShutdownInfo]
+
+type shutdownInit = fn.Option[shutdownResult]
 
 // shutdownStartFeeRate returns the fee rate that should be used for the
 // shutdown.  This returns a doubly wrapped option as the shutdown info might
 // be none, and the fee rate is only defined for the user initiated shutdown.
 func shutdownStartFeeRate(s shutdownInit) fn.Option[chainfee.SatPerKWeight] {
 	feeRateOpt := fn.MapOption(func(init fn.Either[*htlcswitch.ChanClose,
-		channeldb.ShutdownInfo]) fn.Option[chainfee.SatPerKWeight] {
+		chanstate.ShutdownInfo]) fn.Option[chainfee.SatPerKWeight] {
 
 		var feeRate fn.Option[chainfee.SatPerKWeight]
 		init.WhenLeft(func(req *htlcswitch.ChanClose) {
@@ -4813,7 +4822,7 @@ func shutdownStartFeeRate(s shutdownInit) fn.Option[chainfee.SatPerKWeight] {
 // restarted, and the user didn't initiate one either, then None is returned.
 func shutdownStartAddr(s shutdownInit) fn.Option[lnwire.DeliveryAddress] {
 	addrOpt := fn.MapOption(func(init fn.Either[*htlcswitch.ChanClose,
-		channeldb.ShutdownInfo]) fn.Option[lnwire.DeliveryAddress] {
+		chanstate.ShutdownInfo]) fn.Option[lnwire.DeliveryAddress] {
 
 		var addr fn.Option[lnwire.DeliveryAddress]
 		init.WhenLeft(func(req *htlcswitch.ChanClose) {
@@ -4821,7 +4830,7 @@ func shutdownStartAddr(s shutdownInit) fn.Option[lnwire.DeliveryAddress] {
 				addr = fn.Some(req.DeliveryScript)
 			}
 		})
-		init.WhenRight(func(info channeldb.ShutdownInfo) {
+		init.WhenRight(func(info chanstate.ShutdownInfo) {
 			addr = fn.Some(info.DeliveryScript.Val)
 		})
 
@@ -4835,7 +4844,7 @@ func shutdownStartAddr(s shutdownInit) fn.Option[lnwire.DeliveryAddress] {
 // type is and RPC request.
 func whenRPCShutdown(s shutdownInit, f func(r *htlcswitch.ChanClose)) {
 	s.WhenSome(func(init fn.Either[*htlcswitch.ChanClose,
-		channeldb.ShutdownInfo]) {
+		chanstate.ShutdownInfo]) {
 
 		init.WhenLeft(f)
 	})
@@ -4843,7 +4852,7 @@ func whenRPCShutdown(s shutdownInit, f func(r *htlcswitch.ChanClose)) {
 
 // newRestartShutdownInit creates a new shutdownInit for the case where we need
 // to restart the shutdown flow after a restart.
-func newRestartShutdownInit(info channeldb.ShutdownInfo) shutdownInit {
+func newRestartShutdownInit(info chanstate.ShutdownInfo) shutdownInit {
 	return fn.Some(fn.NewRight[*htlcswitch.ChanClose](info))
 }
 
@@ -4851,7 +4860,7 @@ func newRestartShutdownInit(info channeldb.ShutdownInfo) shutdownInit {
 // initiated the shutdown via an RPC client.
 func newRPCShutdownInit(req *htlcswitch.ChanClose) shutdownInit {
 	return fn.Some(
-		fn.NewLeft[*htlcswitch.ChanClose, channeldb.ShutdownInfo](req),
+		fn.NewLeft[*htlcswitch.ChanClose, chanstate.ShutdownInfo](req),
 	)
 }
 
@@ -5568,7 +5577,7 @@ func (p *Brontide) resendChanSyncMsg(cid lnwire.ChannelID) error {
 	}
 
 	// Check if we have any channel sync messages stored for this channel.
-	c, err := p.cfg.ChannelDB.FetchClosedChannelForID(cid)
+	c, err := p.cfg.ChannelStateStore.FetchClosedChannelForID(cid)
 	if err != nil {
 		return fmt.Errorf("unable to fetch channel sync messages for "+
 			"peer %v: %v", p, err)
@@ -6270,7 +6279,8 @@ func (p *Brontide) addActiveChannel(c *lnpeer.NewChannel) error {
 
 	// We'll query the channel DB for the new channel's initial forwarding
 	// policies to determine the policy we start out with.
-	initialPolicy, err := p.cfg.ChannelDB.GetInitialForwardingPolicy(chanID)
+	initialPolicy, err := p.cfg.ChannelStateStore.
+		GetInitialForwardingPolicy(chanID)
 	if err != nil {
 		return fmt.Errorf("unable to query for initial forwarding "+
 			"policy: %v", err)

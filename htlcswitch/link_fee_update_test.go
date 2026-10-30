@@ -9,7 +9,7 @@ import (
 	"time"
 
 	"github.com/btcsuite/btclog/v2"
-	"github.com/lightningnetwork/lnd/channeldb"
+	"github.com/lightningnetwork/lnd/chanstate"
 	"github.com/lightningnetwork/lnd/lnpeer"
 	"github.com/lightningnetwork/lnd/lnwallet"
 	"github.com/lightningnetwork/lnd/lnwire"
@@ -72,7 +72,7 @@ func TestProcessRemoteUpdateFeeRoleValidation(t *testing.T) {
 	t.Parallel()
 
 	aliceChannel, bobChannel, err := lnwallet.CreateTestChannels(
-		t, channeldb.SingleFunderTweaklessBit,
+		t, chanstate.SingleFunderTweaklessBit,
 	)
 	require.NoError(t, err)
 
@@ -118,7 +118,7 @@ func TestProcessRemoteUpdateFeeExposureError(t *testing.T) {
 	t.Parallel()
 
 	_, bobChannel, err := lnwallet.CreateTestChannels(
-		t, channeldb.SingleFunderTweaklessBit,
+		t, chanstate.SingleFunderTweaklessBit,
 	)
 	require.NoError(t, err)
 
@@ -144,7 +144,7 @@ func TestLinkLogDeduplication(t *testing.T) {
 	t.Parallel()
 
 	aliceChannel, _, err := lnwallet.CreateTestChannels(
-		t, channeldb.SingleFunderTweaklessBit,
+		t, chanstate.SingleFunderTweaklessBit,
 	)
 	require.NoError(t, err)
 
@@ -179,7 +179,7 @@ func TestChannelMessageAdmissionError(t *testing.T) {
 	t.Parallel()
 
 	aliceChannel, _, err := lnwallet.CreateTestChannels(
-		t, channeldb.SingleFunderTweaklessBit,
+		t, chanstate.SingleFunderTweaklessBit,
 	)
 	require.NoError(t, err)
 
@@ -216,7 +216,7 @@ func TestChannelMessageAdmissionFailureLatch(t *testing.T) {
 	t.Parallel()
 
 	aliceChannel, _, err := lnwallet.CreateTestChannels(
-		t, channeldb.SingleFunderTweaklessBit,
+		t, chanstate.SingleFunderTweaklessBit,
 	)
 	require.NoError(t, err)
 
@@ -267,7 +267,7 @@ func TestChannelMessageSizeAdmissionError(t *testing.T) {
 	t.Parallel()
 
 	aliceChannel, _, err := lnwallet.CreateTestChannels(
-		t, channeldb.SingleFunderTweaklessBit,
+		t, chanstate.SingleFunderTweaklessBit,
 	)
 	require.NoError(t, err)
 

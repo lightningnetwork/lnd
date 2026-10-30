@@ -20,7 +20,7 @@ import (
 	"github.com/btcsuite/btcwallet/wallet/txauthor"
 	"github.com/btcsuite/btcwallet/wtxmgr"
 	"github.com/lightningnetwork/lnd/chainntnfs"
-	"github.com/lightningnetwork/lnd/channeldb"
+	"github.com/lightningnetwork/lnd/chanstate"
 	"github.com/lightningnetwork/lnd/fn/v2"
 	"github.com/lightningnetwork/lnd/lntypes"
 	"github.com/lightningnetwork/lnd/lnwallet/chainfee"
@@ -452,7 +452,7 @@ func (*MockAuxLeafStore) FetchLeavesFromView(
 // correspond to the passed aux blob, and an existing channel
 // commitment.
 func (*MockAuxLeafStore) FetchLeavesFromCommit(_ AuxChanState,
-	_ channeldb.ChannelCommitment, _ CommitmentKeyRing,
+	_ chanstate.ChannelCommitment, _ CommitmentKeyRing,
 	_ lntypes.ChannelParty) fn.Result[CommitDiffAuxResult] {
 
 	return fn.Ok(CommitDiffAuxResult{})
@@ -461,7 +461,7 @@ func (*MockAuxLeafStore) FetchLeavesFromCommit(_ AuxChanState,
 // FetchLeavesFromRevocation attempts to fetch the auxiliary leaves
 // from a channel revocation that stores balance + blob information.
 func (*MockAuxLeafStore) FetchLeavesFromRevocation(
-	_ *channeldb.RevocationLog) fn.Result[CommitDiffAuxResult] {
+	_ *chanstate.RevocationLog) fn.Result[CommitDiffAuxResult] {
 
 	return fn.Ok(CommitDiffAuxResult{})
 }

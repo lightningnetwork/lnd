@@ -10,7 +10,6 @@ import (
 
 	"github.com/btcsuite/btcd/btcec/v2"
 	"github.com/btcsuite/btcd/wire/v2"
-	"github.com/lightningnetwork/lnd/channeldb"
 	"github.com/lightningnetwork/lnd/chanstate"
 	"github.com/lightningnetwork/lnd/discovery"
 	"github.com/lightningnetwork/lnd/fn/v2"
@@ -171,7 +170,7 @@ func (r *Manager) UpdatePolicy(ctx context.Context,
 	for chanPoint := range unprocessedChans {
 		channel, err := r.FetchChannel(chanPoint)
 		switch {
-		case errors.Is(err, channeldb.ErrChannelNotFound):
+		case errors.Is(err, chanstate.ErrChannelNotFound):
 			failedUpdates = append(failedUpdates,
 				makeFailureItem(chanPoint,
 					lnrpc.UpdateFailure_UPDATE_FAILURE_NOT_FOUND,

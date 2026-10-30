@@ -1,10 +1,11 @@
 package chanbackup
 
 import (
+	"errors"
 	"net"
 
 	"github.com/btcsuite/btcd/btcec/v2"
-	"github.com/lightningnetwork/lnd/channeldb"
+	"github.com/lightningnetwork/lnd/chanstate"
 	"github.com/lightningnetwork/lnd/keychain"
 	"github.com/lightningnetwork/lnd/lnutils"
 )
@@ -55,7 +56,7 @@ func Recover(backups []Single, restorer ChannelRestorer,
 		// just continue. No reason to fail a whole set of multi backups
 		// for example. This allows resume of a restore in case another
 		// error happens.
-		if err == channeldb.ErrChanAlreadyExists {
+		if errors.Is(err, chanstate.ErrChanAlreadyExists) {
 			continue
 		}
 		if err != nil {

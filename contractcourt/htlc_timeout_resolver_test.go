@@ -14,6 +14,7 @@ import (
 	"github.com/btcsuite/btcd/wire/v2"
 	"github.com/lightningnetwork/lnd/chainntnfs"
 	"github.com/lightningnetwork/lnd/channeldb"
+	"github.com/lightningnetwork/lnd/chanstate"
 	"github.com/lightningnetwork/lnd/fn/v2"
 	"github.com/lightningnetwork/lnd/graph/db/models"
 	"github.com/lightningnetwork/lnd/htlcswitch/hop"
@@ -46,7 +47,7 @@ func newMockWitnessBeacon() *mockWitnessBeacon {
 }
 
 func (m *mockWitnessBeacon) SubscribeUpdates(
-	chanID lnwire.ShortChannelID, htlc *channeldb.HTLC,
+	chanID lnwire.ShortChannelID, htlc *chanstate.HTLC,
 	payload *hop.Payload,
 	nextHopOnionBlob []byte) (*WitnessSubscription, error) {
 
@@ -357,7 +358,7 @@ func testHtlcTimeoutResolver(t *testing.T, testCase htlcTimeoutTestCase) {
 		// The hash has to correspond to the preimage the spending
 		// witnesses reveal, since a claim is only accepted when the
 		// revealed preimage actually opens this HTLC.
-		htlc: channeldb.HTLC{
+		htlc: chanstate.HTLC{
 			Amt:   testHtlcAmt,
 			RHash: testResHash,
 		},
@@ -1406,7 +1407,7 @@ func testHtlcTimeout(t *testing.T, resolution lnwallet.OutgoingHtlcResolution,
 	// checkpointed at every expected stage. We store the checkpointed data
 	// for the next portion of the test.
 	ctx := newHtlcResolverTestContext(t,
-		func(htlc channeldb.HTLC, cfg ResolverConfig) ContractResolver {
+		func(htlc chanstate.HTLC, cfg ResolverConfig) ContractResolver {
 			r := &htlcTimeoutResolver{
 				contractResolverKit: *newContractResolverKit(cfg),
 				htlc:                htlc,
@@ -1427,7 +1428,9 @@ func testHtlcTimeout(t *testing.T, resolution lnwallet.OutgoingHtlcResolution,
 	for i := range checkpointedState {
 		cp := bytes.NewReader(checkpointedState[i])
 		ctx := newHtlcResolverTestContextFromReader(t,
-			func(htlc channeldb.HTLC, cfg ResolverConfig) ContractResolver {
+			func(htlc chanstate.HTLC,
+				cfg ResolverConfig) ContractResolver {
+
 				resolver, err := newTimeoutResolverFromReader(cp, cfg)
 				if err != nil {
 					t.Fatal(err)
@@ -1664,7 +1667,7 @@ func TestClaimCleanUpTaprootBreachAnnex(t *testing.T) {
 				TxIn: []*wire.TxIn{{}},
 			},
 		},
-		htlc: channeldb.HTLC{RHash: testResHash},
+		htlc: chanstate.HTLC{RHash: testResHash},
 	}
 
 	// A key spend carrying an annex. The annex is preimage sized, so
@@ -1708,7 +1711,7 @@ func TestClaimCleanUpPreimageMismatch(t *testing.T) {
 				Output: &wire.TxOut{},
 			},
 		},
-		htlc: channeldb.HTLC{RHash: otherHash},
+		htlc: chanstate.HTLC{RHash: otherHash},
 	}
 
 	// A remote-commitment success spend on a legacy channel, carrying a

@@ -9,7 +9,7 @@ import (
 	"github.com/btcsuite/btcd/chainhash/v2"
 	"github.com/btcsuite/btcd/wire/v2"
 	"github.com/lightningnetwork/lnd/chainntnfs"
-	"github.com/lightningnetwork/lnd/channeldb"
+	"github.com/lightningnetwork/lnd/chanstate"
 	"github.com/lightningnetwork/lnd/fn/v2"
 	"github.com/lightningnetwork/lnd/input"
 	"github.com/lightningnetwork/lnd/lnwallet"
@@ -88,7 +88,7 @@ type mockFeeEstimator struct {
 	mock.Mock
 }
 
-func (m *mockFeeEstimator) EstimateFee(chanType channeldb.ChannelType,
+func (m *mockFeeEstimator) EstimateFee(chanType chanstate.ChannelType,
 	localTxOut, remoteTxOut *wire.TxOut, extraTxOuts []*wire.TxOut,
 	idealFeeRate chainfee.SatPerKWeight) btcutil.Amount {
 

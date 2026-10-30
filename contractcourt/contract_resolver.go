@@ -84,7 +84,7 @@ type htlcContractResolver interface {
 
 	// Supplement adds additional information to the resolver that is
 	// required before Resolve() is called.
-	Supplement(htlc channeldb.HTLC)
+	Supplement(htlc chanstate.HTLC)
 
 	// SupplementDeadline gives the deadline height for the HTLC output.
 	// This is only useful for outgoing HTLCs.

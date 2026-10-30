@@ -8,6 +8,8 @@ import (
 	"time"
 
 	"github.com/lightningnetwork/lnd/channeldb"
+	"github.com/lightningnetwork/lnd/chanstate"
+	"github.com/lightningnetwork/lnd/fwdresponse"
 	"github.com/lightningnetwork/lnd/htlcswitch/hop"
 	"github.com/lightningnetwork/lnd/lnwire"
 	"github.com/stretchr/testify/require"
@@ -23,18 +25,20 @@ type testFwdResponseSource struct {
 	mu sync.Mutex
 
 	// responses holds persisted records by outgoing circuit key.
-	responses map[CircuitKey]*channeldb.FwdResponse
+	responses map[CircuitKey]*fwdresponse.Response
 
 	// fetchErr is returned instead of the stored response set.
 	fetchErr error
 }
 
+var _ fwdresponse.Store = (*testFwdResponseSource)(nil)
+
 // newTestFwdResponseSource constructs a source holding the given responses.
 func newTestFwdResponseSource(
-	responses ...*channeldb.FwdResponse) *testFwdResponseSource {
+	responses ...*fwdresponse.Response) *testFwdResponseSource {
 
 	source := &testFwdResponseSource{
-		responses: make(map[CircuitKey]*channeldb.FwdResponse),
+		responses: make(map[CircuitKey]*fwdresponse.Response),
 	}
 	for _, response := range responses {
 		source.responses[response.OutKey] = response
@@ -43,8 +47,11 @@ func newTestFwdResponseSource(
 	return source
 }
 
-// fetch returns the current response set or an injected storage error.
-func (s *testFwdResponseSource) fetch() ([]*channeldb.FwdResponse, error) {
+// FetchFwdResponses returns the current response set or an injected storage
+// error.
+func (s *testFwdResponseSource) FetchFwdResponses() (
+	[]*fwdresponse.Response, error) {
+
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
@@ -52,7 +59,7 @@ func (s *testFwdResponseSource) fetch() ([]*channeldb.FwdResponse, error) {
 		return nil, s.fetchErr
 	}
 
-	responses := make([]*channeldb.FwdResponse, 0, len(s.responses))
+	responses := make([]*fwdresponse.Response, 0, len(s.responses))
 	for _, response := range s.responses {
 		responses = append(responses, response)
 	}
@@ -60,8 +67,21 @@ func (s *testFwdResponseSource) fetch() ([]*channeldb.FwdResponse, error) {
 	return responses, nil
 }
 
-// remove reaps a record the switch could not deliver.
-func (s *testFwdResponseSource) remove(outKey *CircuitKey) error {
+// CheckFwdResponse reports whether a response exists for the outgoing circuit
+// key.
+func (s *testFwdResponseSource) CheckFwdResponse(outKey *CircuitKey) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	if _, ok := s.responses[*outKey]; !ok {
+		return fwdresponse.ErrNotFound
+	}
+
+	return nil
+}
+
+// DeleteFwdResponse reaps a record the switch could not deliver.
+func (s *testFwdResponseSource) DeleteFwdResponse(outKey *CircuitKey) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
@@ -80,8 +100,7 @@ func (s *testFwdResponseSource) len() int {
 
 // attach points a switch at this source.
 func (s *testFwdResponseSource) attach(sw *Switch) {
-	sw.cfg.FetchFwdResponses = s.fetch
-	sw.cfg.DeleteFwdResponse = s.remove
+	sw.cfg.FwdResponseStore = s
 }
 
 // TestSwitchReforwardFwdResponses asserts that a persisted response is replayed
@@ -103,7 +122,7 @@ func TestSwitchReforwardFwdResponses(t *testing.T) {
 	circuit := commitFwdResponseTestCircuit(t, s1, inKey, outKey)
 
 	preimage := [32]byte{7}
-	responses := newTestFwdResponseSource(&channeldb.FwdResponse{
+	responses := newTestFwdResponseSource(&fwdresponse.Response{
 		OutKey: outKey,
 		Message: &lnwire.UpdateFulfillHTLC{
 			ID:              outKey.HtlcID,
@@ -151,7 +170,7 @@ func TestSwitchReapsOrphanedFwdResponses(t *testing.T) {
 		ChanID: lnwire.NewShortChanIDFromInt(9300),
 		HtlcID: 5,
 	}
-	responses := newTestFwdResponseSource(&channeldb.FwdResponse{
+	responses := newTestFwdResponseSource(&fwdresponse.Response{
 		OutKey: outKey,
 		Message: &lnwire.UpdateFulfillHTLC{
 			ID:              outKey.HtlcID,
@@ -206,7 +225,7 @@ func TestSwitchReforwardFwdResponseLocalPayment(t *testing.T) {
 	circuit := commitFwdResponseTestCircuit(t, s1, inKey, outKey)
 
 	preimage := [32]byte{4}
-	responses := newTestFwdResponseSource(&channeldb.FwdResponse{
+	responses := newTestFwdResponseSource(&fwdresponse.Response{
 		OutKey: outKey,
 		Message: &lnwire.UpdateFulfillHTLC{
 			ID:              outKey.HtlcID,
@@ -292,7 +311,7 @@ func commitFwdResponseTestCircuit(t *testing.T, s *Switch, inKey,
 
 	hash := sha256.Sum256([]byte(inKey.String()))
 	circuit := &PaymentCircuit{
-		AddRef: channeldb.AddRef{
+		AddRef: chanstate.AddRef{
 			Height: 4,
 			Index:  2,
 		},

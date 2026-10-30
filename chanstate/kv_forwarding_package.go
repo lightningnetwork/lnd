@@ -85,24 +85,6 @@ func FwdPackagesBucketKey() []byte {
 	return fwdPackagesKey
 }
 
-// Encode serializes the AddRef to the given io.Writer.
-func (a *AddRef) Encode(w io.Writer) error {
-	if err := binary.Write(w, binary.BigEndian, a.Height); err != nil {
-		return err
-	}
-
-	return binary.Write(w, binary.BigEndian, a.Index)
-}
-
-// Decode deserializes the AddRef from the given io.Reader.
-func (a *AddRef) Decode(r io.Reader) error {
-	if err := binary.Read(r, binary.BigEndian, &a.Height); err != nil {
-		return err
-	}
-
-	return binary.Read(r, binary.BigEndian, &a.Index)
-}
-
 // Size returns number of bytes produced when the PkgFilter is serialized.
 func (f *PkgFilter) Size() uint16 {
 	// 2 bytes for uint16 `count`, then round up number of bytes required to
@@ -133,61 +115,12 @@ func (f *PkgFilter) Decode(r io.Reader) error {
 	return err
 }
 
-// SettleFailAcker is a generic interface providing the ability to acknowledge
-// settle/fail HTLCs stored in forwarding packages.
-type SettleFailAcker interface {
+// KVSettleFailAcker acknowledges settle and fail HTLCs within a caller-owned
+// KV transaction.
+type KVSettleFailAcker interface {
 	// AckSettleFails atomically updates the settle-fail filters in *other*
 	// channels' forwarding packages.
 	AckSettleFails(tx kvdb.RwTx, settleFailRefs ...SettleFailRef) error
-}
-
-// GlobalFwdPkgReader is an interface used to retrieve the forwarding packages
-// of any active channel.
-type GlobalFwdPkgReader interface {
-	// LoadChannelFwdPkgs loads all known forwarding packages for the given
-	// channel.
-	LoadChannelFwdPkgs(tx kvdb.RTx,
-		source lnwire.ShortChannelID) ([]*FwdPkg, error)
-}
-
-// FwdOperator defines the interfaces for managing forwarding packages that are
-// external to a particular channel. This interface is used by the switch to
-// read forwarding packages from arbitrary channels, and acknowledge settles and
-// fails for locally-sourced payments.
-type FwdOperator interface {
-	// GlobalFwdPkgReader provides read access to all known forwarding
-	// packages
-	GlobalFwdPkgReader
-
-	// SettleFailAcker grants the ability to acknowledge settles or fails
-	// residing in arbitrary forwarding packages.
-	SettleFailAcker
-}
-
-// SwitchPackager is a concrete implementation of the FwdOperator interface.
-// A SwitchPackager offers the ability to read any forwarding package, and ack
-// arbitrary settle and fail HTLCs.
-type SwitchPackager struct{}
-
-// NewSwitchPackager instantiates a new SwitchPackager.
-func NewSwitchPackager() *SwitchPackager {
-	return &SwitchPackager{}
-}
-
-// AckSettleFails atomically updates the settle-fail filters in *other*
-// channels' forwarding packages, to mark that the switch has received a settle
-// or fail residing in the forwarding package of a link.
-func (*SwitchPackager) AckSettleFails(tx kvdb.RwTx,
-	settleFailRefs ...SettleFailRef) error {
-
-	return ackSettleFails(tx, settleFailRefs)
-}
-
-// LoadChannelFwdPkgs loads all forwarding packages for a particular channel.
-func (*SwitchPackager) LoadChannelFwdPkgs(tx kvdb.RTx,
-	source lnwire.ShortChannelID) ([]*FwdPkg, error) {
-
-	return loadChannelFwdPkgs(tx, source)
 }
 
 // FwdPackager supports all operations required to modify fwd packages, such as
@@ -210,9 +143,9 @@ type FwdPackager interface {
 	// received from the remote party.
 	AckAddHtlcs(tx kvdb.RwTx, addRefs ...AddRef) error
 
-	// SettleFailAcker allows a link to acknowledge settle/fail HTLCs
+	// KVSettleFailAcker allows a link to acknowledge settle/fail HTLCs
 	// belonging to other channels.
-	SettleFailAcker
+	KVSettleFailAcker
 
 	// LoadFwdPkgs loads all known forwarding packages owned by this
 	// channel.
@@ -255,6 +188,106 @@ func NewChannelPackager(source lnwire.ShortChannelID) *ChannelPackager {
 // in channeldb and can no longer reach the unexported source field.
 func (p *ChannelPackager) Source() lnwire.ShortChannelID {
 	return p.source
+}
+
+func newChannelPackager(channel *OpenChannel) *ChannelPackager {
+	return NewChannelPackager(channel.ShortChannelID)
+}
+
+// LoadFwdPkgs scans the forwarding log for any packages that haven't been
+// processed, and returns their deserialized log updates in map indexed by the
+// remote commitment height at which the updates were locked in.
+func (s *KVStore) LoadFwdPkgs(channel *OpenChannel) ([]*FwdPkg,
+	error) {
+
+	var fwdPkgs []*FwdPkg
+	if err := kvdb.View(s.backend, func(tx kvdb.RTx) error {
+		var err error
+		fwdPkgs, err = newChannelPackager(channel).LoadFwdPkgs(tx)
+		return err
+	}, func() {
+		fwdPkgs = nil
+	}); err != nil {
+		return nil, err
+	}
+
+	return fwdPkgs, nil
+}
+
+// CountFwdPkgs returns the number of forwarding packages without loading their
+// contents.
+func (s *KVStore) CountFwdPkgs(channel *OpenChannel) (int, error) {
+	var count int
+	err := kvdb.View(s.backend, func(tx kvdb.RTx) error {
+		var err error
+		count, err = newChannelPackager(channel).CountFwdPkgs(tx)
+
+		return err
+	}, func() {
+		count = 0
+	})
+
+	return count, err
+}
+
+// AckAddHtlcs updates the AckAddFilter containing any of the provided AddRefs
+// indicating that a response to this Add has been committed to the remote
+// party. Doing so will prevent these Add HTLCs from being reforwarded
+// internally.
+func (s *KVStore) AckAddHtlcs(channel *OpenChannel,
+	addRefs ...AddRef) error {
+
+	return kvdb.Update(s.backend, func(tx kvdb.RwTx) error {
+		return newChannelPackager(channel).AckAddHtlcs(tx, addRefs...)
+	}, func() {})
+}
+
+// AckSettleFails updates the SettleFailFilter containing any of the provided
+// SettleFailRefs, indicating that the response has been delivered to the
+// incoming link, corresponding to a particular AddRef. Doing so will prevent
+// the responses from being retransmitted internally.
+func (s *KVStore) AckSettleFails(channel *OpenChannel,
+	settleFailRefs ...SettleFailRef) error {
+
+	return kvdb.Update(s.backend, func(tx kvdb.RwTx) error {
+		return newChannelPackager(channel).AckSettleFails(
+			tx, settleFailRefs...,
+		)
+	}, func() {})
+}
+
+// SetFwdFilter atomically sets the forwarding filter for the forwarding package
+// identified by `height`.
+func (s *KVStore) SetFwdFilter(channel *OpenChannel, height uint64,
+	fwdFilter *PkgFilter) error {
+
+	return kvdb.Update(s.backend, func(tx kvdb.RwTx) error {
+		return newChannelPackager(channel).SetFwdFilter(
+			tx, height, fwdFilter,
+		)
+	}, func() {})
+}
+
+// RemoveFwdPkgs atomically removes forwarding packages specified by the remote
+// commitment heights. If one of the intermediate RemovePkg calls fails, then
+// the later packages won't be removed.
+//
+// NOTE: This method should only be called on packages marked FwdStateCompleted.
+func (s *KVStore) RemoveFwdPkgs(channel *OpenChannel,
+	heights ...uint64) error {
+
+	return kvdb.Update(s.backend, func(tx kvdb.RwTx) error {
+		packager := newChannelPackager(channel)
+
+		for _, height := range heights {
+			err := packager.RemovePkg(tx, height)
+			if err != nil {
+				return err
+			}
+		}
+
+		return nil
+	}, func() {})
 }
 
 // AddFwdPkg writes a newly locked in forwarding package to disk.
@@ -850,7 +883,3 @@ func forwardingLogKey(updateNum uint64) [8]byte {
 // Compile-time constraint to ensure that ChannelPackager implements the public
 // FwdPackager interface.
 var _ FwdPackager = (*ChannelPackager)(nil)
-
-// Compile-time constraint to ensure that SwitchPackager implements the public
-// FwdOperator interface.
-var _ FwdOperator = (*SwitchPackager)(nil)

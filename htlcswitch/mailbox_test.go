@@ -10,7 +10,6 @@ import (
 	"github.com/btcsuite/btcd/btcec/v2"
 	"github.com/btcsuite/btcd/btcutil/v2"
 	"github.com/davecgh/go-spew/spew"
-	"github.com/lightningnetwork/lnd/channeldb"
 	"github.com/lightningnetwork/lnd/chanstate"
 	"github.com/lightningnetwork/lnd/clock"
 	"github.com/lightningnetwork/lnd/fn/v2"
@@ -689,12 +688,12 @@ func TestMailBoxDuplicateAddPacket(t *testing.T) {
 // SetDustClosure.
 func TestMailBoxDustHandling(t *testing.T) {
 	t.Run("tweakless mailbox dust", func(t *testing.T) {
-		testMailBoxDust(t, channeldb.SingleFunderTweaklessBit)
+		testMailBoxDust(t, chanstate.SingleFunderTweaklessBit)
 	})
 	t.Run("zero htlc fee anchors mailbox dust", func(t *testing.T) {
-		testMailBoxDust(t, channeldb.SingleFunderTweaklessBit|
-			channeldb.AnchorOutputsBit|
-			channeldb.ZeroHtlcTxFeeBit,
+		testMailBoxDust(t, chanstate.SingleFunderTweaklessBit|
+			chanstate.AnchorOutputsBit|
+			chanstate.ZeroHtlcTxFeeBit,
 		)
 	})
 }

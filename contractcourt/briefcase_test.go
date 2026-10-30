@@ -14,6 +14,7 @@ import (
 	"github.com/btcsuite/btcd/wire/v2"
 	"github.com/davecgh/go-spew/spew"
 	"github.com/lightningnetwork/lnd/channeldb"
+	"github.com/lightningnetwork/lnd/chanstate"
 	"github.com/lightningnetwork/lnd/fn/v2"
 	"github.com/lightningnetwork/lnd/input"
 	"github.com/lightningnetwork/lnd/kvdb"
@@ -313,7 +314,7 @@ func TestContractInsertionRetrieval(t *testing.T) {
 		},
 		outputIncubating: true,
 		broadcastHeight:  102,
-		htlc: channeldb.HTLC{
+		htlc: chanstate.HTLC{
 			HtlcIndex: 12,
 		},
 	}
@@ -329,7 +330,7 @@ func TestContractInsertionRetrieval(t *testing.T) {
 		},
 		outputIncubating: true,
 		broadcastHeight:  109,
-		htlc: channeldb.HTLC{
+		htlc: chanstate.HTLC{
 			RHash: testPreimage,
 		},
 	}
@@ -449,7 +450,7 @@ func TestContractResolution(t *testing.T) {
 		},
 		outputIncubating: true,
 		broadcastHeight:  192,
-		htlc: channeldb.HTLC{
+		htlc: chanstate.HTLC{
 			HtlcIndex: 9912,
 		},
 	}
@@ -502,7 +503,7 @@ func TestContractSwapping(t *testing.T) {
 		},
 		outputIncubating: true,
 		broadcastHeight:  102,
-		htlc: channeldb.HTLC{
+		htlc: chanstate.HTLC{
 			HtlcIndex: 12,
 		},
 	}
@@ -751,7 +752,7 @@ func TestCommitSetStorage(t *testing.T) {
 	)
 	require.NoError(t, err, "unable to create test log")
 
-	activeHTLCs := []channeldb.HTLC{
+	activeHTLCs := []chanstate.HTLC{
 		{
 			Amt:       1000,
 			OnionBlob: lnmock.MockOnion(),
@@ -766,7 +767,9 @@ func TestCommitSetStorage(t *testing.T) {
 		for _, confType := range confTypes {
 			commitSet := &CommitSet{
 				ConfCommitKey: fn.Some(confType),
-				HtlcSets:      make(map[HtlcSetKey][]channeldb.HTLC),
+				HtlcSets: make(
+					map[HtlcSetKey][]chanstate.HTLC,
+				),
 			}
 			commitSet.HtlcSets[LocalHtlcSet] = activeHTLCs
 			commitSet.HtlcSets[RemoteHtlcSet] = activeHTLCs

@@ -20,6 +20,7 @@ import (
 	"github.com/lightningnetwork/lnd/clock"
 	"github.com/lightningnetwork/lnd/contractcourt"
 	"github.com/lightningnetwork/lnd/fn/v2"
+	"github.com/lightningnetwork/lnd/fwdresponse"
 	"github.com/lightningnetwork/lnd/graph/db/models"
 	"github.com/lightningnetwork/lnd/htlcswitch/hop"
 	"github.com/lightningnetwork/lnd/kvdb"
@@ -225,24 +226,14 @@ type Config struct {
 	FetchClosedChannels func(
 		pendingOnly bool) ([]*chanstate.ChannelCloseSummary, error)
 
-	// SwitchPackager provides access to the forwarding packages of all
+	// FwdPackageStore provides access to the forwarding packages of all
 	// active channels. This gives the switch the ability to read arbitrary
 	// forwarding packages, and ack settles and fails contained within them.
-	SwitchPackager channeldb.FwdOperator
+	FwdPackageStore chanstate.FwdPackageStore
 
-	// CheckFwdResponse reports whether a persisted off-chain response
-	// exists for the given outgoing circuit key.
-	CheckFwdResponse func(outKey *CircuitKey) error
-
-	// FetchFwdResponses returns all persisted off-chain responses.
-	FetchFwdResponses func() ([]*channeldb.FwdResponse, error)
-
-	// DeleteFwdResponse removes a persisted response from the store.
-	// Startup replay is its only caller; it reaps records whose circuit is
-	// already gone. Delivery itself does not delete the record. A delivered
-	// record is collected on the next startup, after its circuit has been
-	// torn down.
-	DeleteFwdResponse func(outKey *CircuitKey) error
+	// FwdResponseStore persists off-chain settle and fail messages until
+	// the switch can safely replay or reap them.
+	FwdResponseStore fwdresponse.Store
 
 	// ExtractErrorEncrypter is an interface allowing switch to reextract
 	// error encrypters stored in the circuit map on restarts, since they
@@ -418,7 +409,7 @@ type Switch struct {
 	// pendingSettleFails is the set of settle/fail entries that we need to
 	// ack in the forwarding package of the outgoing link. This was added to
 	// make pipelining settles more efficient.
-	pendingSettleFails []channeldb.SettleFailRef
+	pendingSettleFails []chanstate.SettleFailRef
 
 	// resMsgStore is used to store the set of ResolutionMsg that come from
 	// contractcourt. This is used so the Switch can properly forward them,
@@ -443,17 +434,13 @@ type Switch struct {
 
 // New creates the new instance of htlc switch.
 func New(cfg Config, currentHeight uint32) (*Switch, error) {
-	// These are dereferenced unconditionally during startup, so a missing
-	// one must fail here rather than panic mid-recovery.
-	switch {
-	case cfg.CheckFwdResponse == nil:
-		return nil, errors.New("forwarding response checker is nil")
-
-	case cfg.FetchFwdResponses == nil:
-		return nil, errors.New("forwarding response fetcher is nil")
-
-	case cfg.DeleteFwdResponse == nil:
-		return nil, errors.New("forwarding response deleter is nil")
+	// The store is dereferenced unconditionally during startup, so a
+	// missing one must fail here rather than panic mid-recovery.
+	if cfg.FwdResponseStore == nil {
+		return nil, errors.New("forwarding response store is nil")
+	}
+	if cfg.FwdPackageStore == nil {
+		return nil, errors.New("forwarding package store is nil")
 	}
 
 	resStore := newResolutionStore(cfg.DB)
@@ -464,7 +451,7 @@ func New(cfg Config, currentHeight uint32) (*Switch, error) {
 		FetchClosedChannels:   cfg.FetchClosedChannels,
 		ExtractErrorEncrypter: cfg.ExtractErrorEncrypter,
 		CheckResolutionMsg:    resStore.checkResolutionMsg,
-		CheckFwdResponse:      cfg.CheckFwdResponse,
+		CheckFwdResponse:      cfg.FwdResponseStore.CheckFwdResponse,
 	})
 	if err != nil {
 		return nil, err
@@ -1476,10 +1463,10 @@ func (s *Switch) closeCircuit(pkt *htlcPacket) (*PaymentCircuit, error) {
 // forwarding package of the outgoing link for a payment circuit. We do this if
 // we're the originator of the payment, so the link stops attempting to
 // re-broadcast.
-func (s *Switch) ackSettleFail(settleFailRefs ...channeldb.SettleFailRef) error {
-	return kvdb.Batch(s.cfg.DB, func(tx kvdb.RwTx) error {
-		return s.cfg.SwitchPackager.AckSettleFails(tx, settleFailRefs...)
-	})
+func (s *Switch) ackSettleFail(
+	settleFailRefs ...chanstate.SettleFailRef) error {
+
+	return s.cfg.FwdPackageStore.AckSettleFailRefs(settleFailRefs...)
 }
 
 // teardownCircuit removes a pending or open circuit from the switch's circuit
@@ -1915,7 +1902,7 @@ func (s *Switch) Start() error {
 // fwdResponsePacket converts a persisted response into the packet shape
 // consumed by ForwardPackets. The packet has no destination reference because
 // package acknowledgement is handled by the persistence transition.
-func fwdResponsePacket(response *channeldb.FwdResponse) *htlcPacket {
+func fwdResponsePacket(response *fwdresponse.Response) *htlcPacket {
 	return &htlcPacket{
 		outgoingChanID: response.OutKey.ChanID,
 		outgoingHTLCID: response.OutKey.HtlcID,
@@ -1927,7 +1914,7 @@ func fwdResponsePacket(response *channeldb.FwdResponse) *htlcPacket {
 // Entries without an open circuit are reaped in the same way as orphaned
 // resolution messages.
 func (s *Switch) reforwardFwdResponses() error {
-	responses, err := s.cfg.FetchFwdResponses()
+	responses, err := s.cfg.FwdResponseStore.FetchFwdResponses()
 
 	// A decode or index error leaves recovery state uncertain. Abort
 	// startup rather than mistaking corruption for an empty response set.
@@ -1943,7 +1930,7 @@ func (s *Switch) reforwardFwdResponses() error {
 			log.Debugf("Reaping persisted response with no open "+
 				"circuit: %v", outKey)
 
-			err := s.cfg.DeleteFwdResponse(&outKey)
+			err := s.cfg.FwdResponseStore.DeleteFwdResponse(&outKey)
 			if err != nil {
 				return fmt.Errorf("reap response %v: %w",
 					outKey, err)
@@ -2070,22 +2057,10 @@ func (s *Switch) reforwardResponses() error {
 
 // loadChannelFwdPkgs loads all forwarding packages owned by the `source` short
 // channel identifier.
-func (s *Switch) loadChannelFwdPkgs(source lnwire.ShortChannelID) ([]*channeldb.FwdPkg, error) {
+func (s *Switch) loadChannelFwdPkgs(source lnwire.ShortChannelID) (
+	[]*chanstate.FwdPkg, error) {
 
-	var fwdPkgs []*channeldb.FwdPkg
-	if err := kvdb.View(s.cfg.DB, func(tx kvdb.RTx) error {
-		var err error
-		fwdPkgs, err = s.cfg.SwitchPackager.LoadChannelFwdPkgs(
-			tx, source,
-		)
-		return err
-	}, func() {
-		fwdPkgs = nil
-	}); err != nil {
-		return nil, err
-	}
-
-	return fwdPkgs, nil
+	return s.cfg.FwdPackageStore.LoadChannelFwdPkgs(source)
 }
 
 // reforwardSettleFails parses the Settle and Fail HTLCs from the list of
@@ -2095,7 +2070,7 @@ func (s *Switch) loadChannelFwdPkgs(source lnwire.ShortChannelID) ([]*channeldb.
 // outgoing link never comes back online.
 //
 // NOTE: This should mimic the behavior processRemoteSettleFails.
-func (s *Switch) reforwardSettleFails(fwdPkgs []*channeldb.FwdPkg) {
+func (s *Switch) reforwardSettleFails(fwdPkgs []*chanstate.FwdPkg) {
 	for _, fwdPkg := range fwdPkgs {
 		switchPackets := make([]*htlcPacket, 0, len(fwdPkg.SettleFails))
 		for i, update := range fwdPkg.SettleFails {
@@ -2139,7 +2114,7 @@ func (s *Switch) reforwardSettleFails(fwdPkgs []*channeldb.FwdPkg) {
 				failPacket := &htlcPacket{
 					outgoingChanID: fwdPkg.Source,
 					outgoingHTLCID: msg.ID,
-					destRef: &channeldb.SettleFailRef{
+					destRef: &chanstate.SettleFailRef{
 						Source: fwdPkg.Source,
 						Height: fwdPkg.Height,
 						Index:  uint16(i),

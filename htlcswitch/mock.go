@@ -175,15 +175,14 @@ func initSwitchWithDB(startingHeight uint32, db *channeldb.DB) (*Switch, error) 
 		return testSig, nil
 	}
 
+	channelStateStore := db.ChannelStateStore()
 	cfg := Config{
 		DB:                   db,
-		FetchAllOpenChannels: db.ChannelStateDB().FetchAllOpenChannels,
-		FetchAllChannels:     db.ChannelStateDB().FetchAllChannels,
-		FetchClosedChannels:  db.ChannelStateDB().FetchClosedChannels,
-		CheckFwdResponse:     db.ChannelStateDB().CheckFwdResponse,
-		FetchFwdResponses:    db.ChannelStateDB().FetchFwdResponses,
-		DeleteFwdResponse:    db.ChannelStateDB().DeleteFwdResponse,
-		SwitchPackager:       channeldb.NewSwitchPackager(),
+		FetchAllOpenChannels: channelStateStore.FetchAllOpenChannels,
+		FetchAllChannels:     channelStateStore.FetchAllChannels,
+		FetchClosedChannels:  channelStateStore.FetchClosedChannels,
+		FwdResponseStore:     db.FwdResponseStore(),
+		FwdPackageStore:      channelStateStore,
 		FwdingLog: &mockForwardingLog{
 			events: make(map[time.Time]channeldb.ForwardingEvent),
 		},
@@ -850,7 +849,7 @@ func (f *mockChannelLink) getFeeRate() chainfee.SatPerKWeight {
 func (f *mockChannelLink) getDustClosure() dustClosure {
 	dustLimit := btcutil.Amount(400)
 	return dustHelper(
-		channeldb.SingleFunderTweaklessBit, dustLimit, dustLimit,
+		chanstate.SingleFunderTweaklessBit, dustLimit, dustLimit,
 	)
 }
 
@@ -1201,6 +1200,6 @@ func (h *mockHTLCNotifier) NotifySettleEvent(key HtlcKey,
 }
 
 func (h *mockHTLCNotifier) NotifyFinalHtlcEvent(key models.CircuitKey,
-	info channeldb.FinalHtlcInfo) {
+	info chanstate.FinalHtlcInfo) {
 
 }

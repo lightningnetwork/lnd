@@ -59,10 +59,10 @@ type htlcSuccessResolver struct {
 	broadcastHeight uint32
 
 	// htlc contains information on the htlc that we are resolving on-chain.
-	htlc channeldb.HTLC
+	htlc chanstate.HTLC
 
 	// chanType denotes the type of channel the HTLC belongs to.
-	chanType channeldb.ChannelType
+	chanType chanstate.ChannelType
 
 	// currentReport stores the current state of the resolver for reporting
 	// over the rpc interface. This should only be reported in case we have
@@ -80,8 +80,8 @@ type htlcSuccessResolver struct {
 
 // newSuccessResolver instanties a new htlc success resolver.
 func newSuccessResolver(res lnwallet.IncomingHtlcResolution,
-	broadcastHeight uint32, htlc channeldb.HTLC,
-	chanType channeldb.ChannelType,
+	broadcastHeight uint32, htlc chanstate.HTLC,
+	chanType chanstate.ChannelType,
 	resCfg ResolverConfig) *htlcSuccessResolver {
 
 	h := &htlcSuccessResolver{
@@ -293,7 +293,7 @@ func (h *htlcSuccessResolver) checkpointClaim(claimOutpoint wire.OutPoint,
 			ChanID: h.ShortChanID,
 			HtlcID: h.htlc.HtlcIndex,
 		},
-		channeldb.FinalHtlcInfo{
+		chanstate.FinalHtlcInfo{
 			Settled:  true,
 			Offchain: false,
 		},
@@ -392,7 +392,7 @@ func (h *htlcSuccessResolver) checkpointForeignSpend(
 			ChanID: h.ShortChanID,
 			HtlcID: h.htlc.HtlcIndex,
 		},
-		channeldb.FinalHtlcInfo{
+		chanstate.FinalHtlcInfo{
 			Settled:  false,
 			Offchain: false,
 		},
@@ -536,7 +536,7 @@ func newSuccessResolverFromReader(r io.Reader, resCfg ResolverConfig) (
 // before Resolve() is called.
 //
 // NOTE: Part of the htlcContractResolver interface.
-func (h *htlcSuccessResolver) Supplement(htlc channeldb.HTLC) {
+func (h *htlcSuccessResolver) Supplement(htlc chanstate.HTLC) {
 	h.htlc = htlc
 }
 

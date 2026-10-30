@@ -209,6 +209,20 @@ type InvoiceSequence struct {
 	CurrentValue int64
 }
 
+type LiquidityInterval struct {
+	Scid          []byte
+	FromNode      []byte
+	ToNode        []byte
+	LowerOkMsat   int64
+	UpperFailMsat int64
+	EstimateMsat  int64
+	ConfidencePpm int64
+	Successes     int64
+	Failures      int64
+	LiquidityMode int32
+	UpdatedAt     time.Time
+}
+
 type MigrationTracker struct {
 	Version       int32
 	MigrationTime time.Time

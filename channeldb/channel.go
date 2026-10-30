@@ -2,12 +2,10 @@ package channeldb
 
 import (
 	"bytes"
-	"fmt"
 	"io"
 	"net"
 
 	"github.com/btcsuite/btcd/btcec/v2"
-	"github.com/btcsuite/btcd/chainhash/v2"
 	"github.com/btcsuite/btcd/wire/v2"
 	cstate "github.com/lightningnetwork/lnd/chanstate"
 	"github.com/lightningnetwork/lnd/fn/v2"
@@ -264,17 +262,6 @@ func (c *ChannelStateDB) RefreshChannel(channel *OpenChannel) error {
 	return c.kvStore.RefreshChannel(channel)
 }
 
-// fetchChanBucketRw is a helper function that returns the bucket where a
-// channel's data resides in given: the public key for the node, the outpoint,
-// and the chainhash that the channel resides on. This differs from
-// fetchChanBucket in that it returns a writeable bucket.
-func fetchChanBucketRw(tx kvdb.RwTx, nodeKey *btcec.PublicKey,
-	outPoint *wire.OutPoint, chainHash chainhash.Hash) (kvdb.RwBucket,
-	error) {
-
-	return cstate.FetchChanBucketRw(tx, nodeKey, outPoint, chainHash)
-}
-
 func fetchFinalHtlcsBucketRw(tx kvdb.RwTx,
 	chanID lnwire.ShortChannelID) (kvdb.RwBucket, error) {
 
@@ -364,24 +351,6 @@ func (c *ChannelStateDB) FetchChannelShutdownInfo(
 	channel *OpenChannel) (fn.Option[ShutdownInfo], error) {
 
 	return c.kvStore.FetchChannelShutdownInfo(channel)
-}
-
-// isChannelBorked returns true if the channel has been marked as borked in the
-// database. This requires an existing database transaction to already be
-// active.
-//
-// NOTE: The primary mutex should already be held before this method is called.
-func isChannelBorked(channel *OpenChannel, chanBucket kvdb.RBucket) (
-	bool, error) {
-
-	diskChannel, err := fetchOpenChannel(
-		chanBucket, &channel.FundingOutpoint,
-	)
-	if err != nil {
-		return false, err
-	}
-
-	return diskChannel.ChannelStatusForStore() != ChanStatusDefault, nil
 }
 
 // MarkChannelCommitmentBroadcasted marks the channel as having a commitment
@@ -501,142 +470,9 @@ func (c *ChannelStateDB) UpdateChannelCommitment(channel *OpenChannel,
 	newCommitment *ChannelCommitment,
 	unsignedAckedUpdates []LogUpdate) (map[uint64]bool, error) {
 
-	var finalHtlcs = make(map[uint64]bool)
-
-	err := kvdb.Update(c.backend, func(tx kvdb.RwTx) error {
-		chanBucket, err := fetchChanBucketRw(
-			tx, channel.IdentityPub, &channel.FundingOutpoint,
-			channel.ChainHash,
-		)
-		if err != nil {
-			return err
-		}
-
-		// If the channel is marked as borked, then for safety reasons,
-		// we shouldn't attempt any further updates.
-		isBorked, err := isChannelBorked(channel, chanBucket)
-		if err != nil {
-			return err
-		}
-		if isBorked {
-			return ErrChanBorked
-		}
-
-		if err = putChanInfo(chanBucket, channel); err != nil {
-			return fmt.Errorf("unable to store chan info: %w", err)
-		}
-
-		// With the proper bucket fetched, we'll now write the latest
-		// commitment state to disk for the target party.
-		err = putChanCommitment(
-			chanBucket, newCommitment, true,
-		)
-		if err != nil {
-			return fmt.Errorf("unable to store chan "+
-				"revocations: %v", err)
-		}
-
-		// Persist unsigned but acked remote updates that need to be
-		// restored after a restart.
-		var b bytes.Buffer
-		err = serializeLogUpdates(&b, unsignedAckedUpdates)
-		if err != nil {
-			return err
-		}
-
-		err = chanBucket.Put(unsignedAckedUpdatesKey, b.Bytes())
-		if err != nil {
-			return fmt.Errorf("unable to store dangline remote "+
-				"updates: %v", err)
-		}
-
-		// Since we have just sent the counterparty a revocation, store true
-		// under lastWasRevokeKey.
-		var b2 bytes.Buffer
-		if err := WriteElements(&b2, true); err != nil {
-			return err
-		}
-
-		if err := chanBucket.Put(lastWasRevokeKey, b2.Bytes()); err != nil {
-			return err
-		}
-
-		// Persist the remote unsigned local updates that are not included
-		// in our new commitment.
-		updateBytes := chanBucket.Get(remoteUnsignedLocalUpdatesKey)
-		if updateBytes == nil {
-			return nil
-		}
-
-		r := bytes.NewReader(updateBytes)
-		updates, err := deserializeLogUpdates(r)
-		if err != nil {
-			return err
-		}
-
-		// Get the bucket where settled htlcs are recorded if the user
-		// opted in to storing this information.
-		var finalHtlcsBucket kvdb.RwBucket
-		if c.parent.storeFinalHtlcResolutions {
-			bucket, err := fetchFinalHtlcsBucketRw(
-				tx, channel.ShortChannelID,
-			)
-			if err != nil {
-				return err
-			}
-
-			finalHtlcsBucket = bucket
-		}
-
-		var unsignedUpdates []LogUpdate
-		for _, upd := range updates {
-			// Gather updates that are not on our local commitment.
-			if upd.LogIndex >= newCommitment.LocalLogIndex {
-				unsignedUpdates = append(unsignedUpdates, upd)
-
-				continue
-			}
-
-			// The update was locked in. If the update was a
-			// resolution, then store it in the database.
-			err := processFinalHtlc(
-				finalHtlcsBucket, upd, finalHtlcs,
-			)
-			if err != nil {
-				return err
-			}
-		}
-
-		var b3 bytes.Buffer
-		err = serializeLogUpdates(&b3, unsignedUpdates)
-		if err != nil {
-			return fmt.Errorf("unable to serialize log updates: %w",
-				err)
-		}
-
-		err = chanBucket.Put(remoteUnsignedLocalUpdatesKey, b3.Bytes())
-		if err != nil {
-			return fmt.Errorf("unable to restore chanbucket: %w",
-				err)
-		}
-
-		return nil
-	}, func() {
-		finalHtlcs = make(map[uint64]bool)
-	})
-	if err != nil {
-		return nil, err
-	}
-
-	return finalHtlcs, nil
-}
-
-// processFinalHtlc stores a final htlc outcome in the database if signaled via
-// the supplied log update. An in-memory htlcs map is updated too.
-func processFinalHtlc(finalHtlcsBucket kvdb.RwBucket, upd LogUpdate,
-	finalHtlcs map[uint64]bool) error {
-
-	return cstate.ProcessFinalHtlc(finalHtlcsBucket, upd, finalHtlcs)
+	return c.kvStore.UpdateChannelCommitment(
+		channel, newCommitment, unsignedAckedUpdates,
+	)
 }
 
 // SerializeHtlcs writes out the passed set of HTLC's into the passed writer
@@ -676,16 +512,6 @@ func SerializeHtlcs(b io.Writer, htlcs ...HTLC) error {
 // future.
 func DeserializeHtlcs(r io.Reader) ([]HTLC, error) {
 	return cstate.DeserializeHtlcs(r)
-}
-
-// serializeLogUpdates serializes provided list of updates to a stream.
-func serializeLogUpdates(w io.Writer, logUpdates []LogUpdate) error {
-	return cstate.SerializeLogUpdates(w, logUpdates)
-}
-
-// deserializeLogUpdates deserializes a list of updates from a stream.
-func deserializeLogUpdates(r io.Reader) ([]LogUpdate, error) {
-	return cstate.DeserializeLogUpdates(r)
 }
 
 // AppendRemoteCommitChain appends a new CommitDiff to the remote party's
@@ -1128,18 +954,8 @@ func deserializeCloseChannelSummary(r io.Reader) (*ChannelCloseSummary, error) {
 	return cstate.DeserializeCloseChannelSummary(r)
 }
 
-func putChanInfo(chanBucket kvdb.RwBucket, channel *OpenChannel) error {
-	return cstate.PutChanInfo(chanBucket, channel)
-}
-
 func serializeChanCommit(w io.Writer, c *ChannelCommitment) error {
 	return cstate.SerializeChanCommit(w, c)
-}
-
-func putChanCommitment(chanBucket kvdb.RwBucket, c *ChannelCommitment,
-	local bool) error {
-
-	return cstate.PutChanCommitment(chanBucket, c, local)
 }
 
 func deleteOpenChannel(chanBucket kvdb.RwBucket) error {

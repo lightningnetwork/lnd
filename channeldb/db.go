@@ -361,10 +361,9 @@ type DB struct {
 	// channelStateDB separates all DB operations on channel state.
 	channelStateDB *ChannelStateDB
 
-	dbPath                    string
-	clock                     clock.Clock
-	dryRun                    bool
-	storeFinalHtlcResolutions bool
+	dbPath string
+	clock  clock.Clock
+	dryRun bool
 
 	// noRevLogAmtData if true, means that commitment transaction amount
 	// data should not be stored in the revocation log.
@@ -428,10 +427,9 @@ func CreateWithBackend(backend kvdb.Backend, modifiers ...OptionModifier) (*DB,
 			backend:                 backend,
 			tombstoneClosedChannels: opts.tombstoneClosedChannels,
 		},
-		clock:                     opts.clock,
-		dryRun:                    opts.dryRun,
-		storeFinalHtlcResolutions: opts.storeFinalHtlcResolutions,
-		noRevLogAmtData:           opts.NoRevLogAmtData,
+		clock:           opts.clock,
+		dryRun:          opts.dryRun,
+		noRevLogAmtData: opts.NoRevLogAmtData,
 	}
 
 	// Set the parent pointer (only used in tests).

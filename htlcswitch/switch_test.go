@@ -6592,3 +6592,58 @@ func TestOnChainResolutionFailure(t *testing.T) {
 		})
 	}
 }
+
+// TestSwitchGetAttemptResultWithContext asserts that cancelling the context
+// passed to GetAttemptResultWithContext closes the result channel and removes
+// the store subscription, while a concurrent GetAttemptResult caller for the
+// same attempt still receives the result.
+func TestSwitchGetAttemptResultWithContext(t *testing.T) {
+	t.Parallel()
+
+	s, err := initSwitchWithTempDB(t, 0)
+	require.NoError(t, err)
+	require.NoError(t, s.Start())
+	t.Cleanup(func() { require.NoError(t, s.Stop()) })
+
+	store, ok := s.attemptStore.(*networkResultStore)
+	require.True(t, ok)
+
+	const attemptID = 1
+	require.NoError(t, s.attemptStore.InitAttempt(attemptID))
+
+	ctx, cancel := context.WithCancel(t.Context())
+	abandoned, err := s.GetAttemptResultWithContext(
+		ctx, attemptID, lntypes.Hash{}, nil,
+	)
+	require.NoError(t, err)
+
+	active, err := s.GetAttemptResult(attemptID, lntypes.Hash{}, nil)
+	require.NoError(t, err)
+	require.Equal(t, 2, numSubscribers(store, attemptID))
+
+	// Cancelling the context closes the channel without a value, which
+	// is the goroutine's last action, and releases its subscription.
+	cancel()
+	select {
+	case res, ok := <-abandoned:
+		require.False(t, ok, "unexpected result %v", res)
+	case <-time.After(5 * time.Second):
+		t.Fatalf("abandoned wait did not exit")
+	}
+	require.Equal(t, 1, numSubscribers(store, attemptID))
+
+	// The remaining caller still receives the result.
+	err = s.attemptStore.FailPendingAttempt(attemptID, NewLinkError(
+		&lnwire.FailTemporaryNodeFailure{},
+	))
+	require.NoError(t, err)
+
+	select {
+	case res, ok := <-active:
+		require.True(t, ok)
+		require.Error(t, res.Error)
+	case <-time.After(5 * time.Second):
+		t.Fatalf("active caller did not receive result")
+	}
+	require.Zero(t, numSubscribers(store, attemptID))
+}

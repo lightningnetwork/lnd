@@ -5,7 +5,7 @@ import (
 	"testing"
 
 	"github.com/btcsuite/btcd/txscript/v2"
-	"github.com/lightningnetwork/lnd/channeldb"
+	"github.com/lightningnetwork/lnd/chanstate"
 	"github.com/lightningnetwork/lnd/input"
 	"github.com/lightningnetwork/lnd/lnwallet"
 	"github.com/lightningnetwork/lnd/lnwallet/chainfee"
@@ -37,8 +37,8 @@ func newDeliveryScript(prefix byte) []byte {
 func TestMusigChanCloserCompletedRoundCleanup(t *testing.T) {
 	t.Parallel()
 
-	chanType := channeldb.SingleFunderTweaklessBit |
-		channeldb.AnchorOutputsBit | channeldb.SimpleTaprootFeatureBit
+	chanType := chanstate.SingleFunderTweaklessBit |
+		chanstate.AnchorOutputsBit | chanstate.SimpleTaprootFeatureBit
 
 	aliceChan, bobChan, err := lnwallet.CreateTestChannels(t, chanType)
 	require.NoError(t, err, "unable to create test channels")

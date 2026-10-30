@@ -535,7 +535,7 @@ type htlcNotifier interface {
 	// NotifyFinalHtlcEvent notifies the HtlcNotifier that the final outcome
 	// for an htlc has been determined.
 	NotifyFinalHtlcEvent(key models.CircuitKey,
-		info channeldb.FinalHtlcInfo)
+		info chanstate.FinalHtlcInfo)
 }
 
 // ReputationManager is the read-only seam through which the switch feeds HTLC

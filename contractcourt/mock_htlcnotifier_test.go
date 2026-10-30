@@ -1,7 +1,7 @@
 package contractcourt
 
 import (
-	"github.com/lightningnetwork/lnd/channeldb"
+	"github.com/lightningnetwork/lnd/chanstate"
 	"github.com/lightningnetwork/lnd/graph/db/models"
 )
 
@@ -13,11 +13,11 @@ type mockHTLCNotifier struct {
 
 type finalHtlcEvent struct {
 	key  models.CircuitKey
-	info channeldb.FinalHtlcInfo
+	info chanstate.FinalHtlcInfo
 }
 
 func (m *mockHTLCNotifier) NotifyFinalHtlcEvent(key models.CircuitKey,
-	info channeldb.FinalHtlcInfo) {
+	info chanstate.FinalHtlcInfo) {
 
 	m.finalHtlcEvents = append(m.finalHtlcEvents, finalHtlcEvent{
 		key:  key,

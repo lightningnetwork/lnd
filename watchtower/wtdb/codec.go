@@ -4,13 +4,14 @@ import (
 	"io"
 
 	"github.com/lightningnetwork/lnd/channeldb"
+	cstate "github.com/lightningnetwork/lnd/chanstate"
 	"github.com/lightningnetwork/lnd/lnwallet/chainfee"
 	"github.com/lightningnetwork/lnd/watchtower/blob"
 	"github.com/lightningnetwork/lnd/watchtower/wtpolicy"
 )
 
-// UnknownElementType is an alias for channeldb.UnknownElementType.
-type UnknownElementType = channeldb.UnknownElementType
+// UnknownElementType is an alias for chanstate.UnknownElementType.
+type UnknownElementType = cstate.UnknownElementType
 
 // ReadElement deserializes a single element from the provided io.Reader.
 func ReadElement(r io.Reader, element interface{}) error {

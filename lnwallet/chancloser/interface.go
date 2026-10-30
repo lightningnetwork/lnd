@@ -4,7 +4,7 @@ import (
 	"github.com/btcsuite/btcd/btcec/v2/schnorr/musig2"
 	"github.com/btcsuite/btcd/btcutil/v2"
 	"github.com/btcsuite/btcd/wire/v2"
-	"github.com/lightningnetwork/lnd/channeldb"
+	"github.com/lightningnetwork/lnd/chanstate"
 	"github.com/lightningnetwork/lnd/fn/v2"
 	"github.com/lightningnetwork/lnd/input"
 	"github.com/lightningnetwork/lnd/lntypes"
@@ -22,7 +22,7 @@ type CoopFeeEstimator interface {
 	// channel type, and ideal fee rate. If a passed TxOut is nil, then
 	// that indicates that an output is dust on the co-op close transaction
 	// _before_ fees are accounted for.
-	EstimateFee(chanType channeldb.ChannelType,
+	EstimateFee(chanType chanstate.ChannelType,
 		localTxOut, remoteTxOut *wire.TxOut,
 		extraTxOuts []*wire.TxOut,
 		idealFeeRate chainfee.SatPerKWeight) btcutil.Amount
@@ -52,7 +52,7 @@ type Channel interface { //nolint:interfacebloat
 	// MarkShutdownSent persists the given ShutdownInfo. The existence of
 	// the ShutdownInfo represents the fact that the Shutdown message has
 	// been sent by us and so should be re-sent on re-establish.
-	MarkShutdownSent(info *channeldb.ShutdownInfo) error
+	MarkShutdownSent(info *chanstate.ShutdownInfo) error
 
 	// IsInitiator returns true we are the initiator of the channel.
 	IsInitiator() bool
@@ -61,7 +61,7 @@ type Channel interface { //nolint:interfacebloat
 	ShortChanID() lnwire.ShortChannelID
 
 	// ChanType returns the channel type of the channel.
-	ChanType() channeldb.ChannelType
+	ChanType() chanstate.ChannelType
 
 	// FundingTxOut returns the funding output of the channel.
 	FundingTxOut() *wire.TxOut

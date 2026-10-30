@@ -2,6 +2,7 @@ package contractcourt
 
 import (
 	"bytes"
+	"errors"
 	"fmt"
 	"slices"
 	"sync"
@@ -53,7 +54,7 @@ type AuxChanCloser interface {
 type LocalUnilateralCloseInfo struct {
 	*chainntnfs.SpendDetail
 	*lnwallet.LocalForceCloseSummary
-	*channeldb.ChannelCloseSummary
+	*chanstate.ChannelCloseSummary
 
 	// CommitSet is the set of known valid commitments at the time the
 	// remote party's commitment hit the chain.
@@ -63,7 +64,7 @@ type LocalUnilateralCloseInfo struct {
 // CooperativeCloseInfo encapsulates all the information we need to act on a
 // cooperative close that gets confirmed.
 type CooperativeCloseInfo struct {
-	*channeldb.ChannelCloseSummary
+	*chanstate.ChannelCloseSummary
 }
 
 // RemoteUnilateralCloseInfo wraps the normal UnilateralCloseSummary to couple
@@ -96,7 +97,7 @@ type BreachCloseInfo struct {
 
 	// CloseSummary gives the recipient of the BreachCloseInfo information
 	// to mark the channel closed in the database.
-	CloseSummary channeldb.ChannelCloseSummary
+	CloseSummary chanstate.ChannelCloseSummary
 }
 
 // spendConfirmationState represents the state of spend confirmation tracking
@@ -143,7 +144,7 @@ type CommitSet struct {
 
 	// HtlcSets stores the set of all known active HTLC for each active
 	// commitment at the time of channel closure.
-	HtlcSets map[HtlcSetKey][]channeldb.HTLC
+	HtlcSets map[HtlcSetKey][]chanstate.HTLC
 }
 
 // IsEmpty returns true if there are no HTLCs at all within all commitments
@@ -290,7 +291,7 @@ type chainWatcherConfig struct {
 	// dispatch was introduced. The follow-up state transition (DB persist
 	// + state machine advance + FULLY_RESOLVED_CHANNEL) still waits for
 	// the full required confirmation depth via the existing async path.
-	notifyEarlyCoopClose func(*channeldb.ChannelCloseSummary)
+	notifyEarlyCoopClose func(*chanstate.ChannelCloseSummary)
 }
 
 // chainWatcher is a system that's assigned to every active channel. The duty
@@ -646,15 +647,15 @@ type chainSet struct {
 	commitSet CommitSet
 
 	// remoteCommit is the current commitment of the remote party.
-	remoteCommit channeldb.ChannelCommitment
+	remoteCommit chanstate.ChannelCommitment
 
 	// localCommit is our current commitment.
-	localCommit channeldb.ChannelCommitment
+	localCommit chanstate.ChannelCommitment
 
 	// remotePendingCommit points to the dangling commitment of the remote
 	// party, if it exists. If there's no dangling commitment, then this
 	// pointer will be nil.
-	remotePendingCommit *channeldb.ChannelCommitment
+	remotePendingCommit *chanstate.ChannelCommitment
 }
 
 // newChainSet creates a new chainSet given the current up to date channel
@@ -679,7 +680,7 @@ func newChainSet(chanState *chanstate.OpenChannel) (*chainSet, error) {
 	// their pending commitment chain tip if it exists.
 	remoteStateNum := remoteCommit.CommitHeight
 	remoteChainTip, err := chanState.RemoteCommitChainTip()
-	if err != nil && err != channeldb.ErrNoPendingCommit {
+	if err != nil && !errors.Is(err, chanstate.ErrNoPendingCommit) {
 		return nil, fmt.Errorf("unable to obtain chain tip for "+
 			"ChannelPoint(%v): %v",
 			chanState.FundingOutpoint, err)
@@ -689,13 +690,13 @@ func newChainSet(chanState *chanstate.OpenChannel) (*chainSet, error) {
 	// CommitSet the ChannelArbitrator will need in order to carry out its
 	// duty.
 	commitSet := CommitSet{
-		HtlcSets: map[HtlcSetKey][]channeldb.HTLC{
+		HtlcSets: map[HtlcSetKey][]chanstate.HTLC{
 			LocalHtlcSet:  localCommit.Htlcs,
 			RemoteHtlcSet: remoteCommit.Htlcs,
 		},
 	}
 
-	var remotePendingCommit *channeldb.ChannelCommitment
+	var remotePendingCommit *chanstate.ChannelCommitment
 	if remoteChainTip != nil {
 		remotePendingCommit = &remoteChainTip.Commitment
 		log.Tracef("ChannelPoint(%v): remote_pending_commit_type=%v, "+
@@ -1054,7 +1055,7 @@ func (c *chainWatcher) handleKnownLocalState(
 
 	// If the channel is recovered, we won't have a local commit to check
 	// against, so immediately return.
-	if c.cfg.chanState.HasChanStatus(channeldb.ChanStatusRestored) {
+	if c.cfg.chanState.HasChanStatus(chanstate.ChanStatusRestored) {
 		return false, nil
 	}
 
@@ -1088,7 +1089,7 @@ func (c *chainWatcher) handleKnownRemoteState(
 
 	// If the channel is recovered, we won't have any remote commit to
 	// check against, so imemdiately return.
-	if c.cfg.chanState.HasChanStatus(channeldb.ChanStatusRestored) {
+	if c.cfg.chanState.HasChanStatus(chanstate.ChanStatusRestored) {
 		return false, nil
 	}
 
@@ -1174,7 +1175,7 @@ func (c *chainWatcher) handlePossibleBreach(commitSpend *chainntnfs.SpendDetail,
 
 	switch {
 	// If we had no log entry at this height, this was not a revoked state.
-	case err == channeldb.ErrLogEntryNotFound:
+	case errors.Is(err, chanstate.ErrLogEntryNotFound):
 		return false, nil
 	case err == channeldb.ErrNoPastDeltas:
 		return false, nil
@@ -1269,7 +1270,7 @@ func (c *chainWatcher) handleUnknownRemoteState(
 	// TODO(halseth): can we try to recover some HTLCs?
 	chainSet.commitSet.ConfCommitKey = fn.Some(RemoteHtlcSet)
 	err := c.dispatchRemoteForceClose(
-		commitSpend, channeldb.ChannelCommitment{},
+		commitSpend, chanstate.ChannelCommitment{},
 		chainSet.commitSet, commitPoint,
 	)
 	if err != nil {
@@ -1294,7 +1295,7 @@ func (c *chainWatcher) toSelfAmount(tx *wire.MsgTx) btcutil.Amount {
 	// coop-close cases can be identified in the following manner:
 	shutdown, _ := c.cfg.chanState.ShutdownInfo()
 	oDeliveryAddr := fn.MapOption(
-		func(i channeldb.ShutdownInfo) lnwire.DeliveryAddress {
+		func(i chanstate.ShutdownInfo) lnwire.DeliveryAddress {
 			return i.DeliveryScript.Val
 		})(shutdown)
 
@@ -1379,7 +1380,7 @@ func (c *chainWatcher) finalizeCoopClose(aux AuxChanCloser,
 
 	// Get the delivery scripts for the local party.
 	var localDeliveryScript lnwire.DeliveryAddress
-	shutdown.WhenSome(func(s channeldb.ShutdownInfo) {
+	shutdown.WhenSome(func(s chanstate.ShutdownInfo) {
 		localDeliveryScript = s.DeliveryScript.Val
 	})
 
@@ -1491,12 +1492,12 @@ func (c *chainWatcher) maybeDispatchEarlyCoopClose(
 // persist) and the post-N-conf dispatch path so both surfaces produce
 // equivalent summaries.
 func (c *chainWatcher) buildCoopCloseSummary(
-	commitSpend *chainntnfs.SpendDetail) *channeldb.ChannelCloseSummary {
+	commitSpend *chainntnfs.SpendDetail) *chanstate.ChannelCloseSummary {
 
 	broadcastTx := commitSpend.SpendingTx
 	localAmt := c.toSelfAmount(broadcastTx)
 
-	summary := &channeldb.ChannelCloseSummary{
+	summary := &chanstate.ChannelCloseSummary{
 		ChanPoint:               c.cfg.chanState.FundingOutpoint,
 		ChainHash:               c.cfg.chanState.ChainHash,
 		ClosingTXID:             *commitSpend.SpenderTxHash,
@@ -1504,7 +1505,7 @@ func (c *chainWatcher) buildCoopCloseSummary(
 		Capacity:                c.cfg.chanState.Capacity,
 		CloseHeight:             uint32(commitSpend.SpendingHeight),
 		SettledBalance:          localAmt,
-		CloseType:               channeldb.CooperativeClose,
+		CloseType:               chanstate.CooperativeClose,
 		ShortChanID:             c.cfg.chanState.ShortChanID(),
 		IsPending:               true,
 		RemoteCurrentRevocation: c.cfg.chanState.RemoteCurrentRevocation,
@@ -1593,13 +1594,13 @@ func (c *chainWatcher) dispatchLocalForceClose(
 	// As we've detected that the channel has been closed, immediately
 	// creating a close summary for future usage by related sub-systems.
 	chanSnapshot := forceClose.ChanSnapshot
-	closeSummary := &channeldb.ChannelCloseSummary{
+	closeSummary := &chanstate.ChannelCloseSummary{
 		ChanPoint:               chanSnapshot.ChannelPoint,
 		ChainHash:               chanSnapshot.ChainHash,
 		ClosingTXID:             forceClose.CloseTx.TxHash(),
 		RemotePub:               &chanSnapshot.RemoteIdentity,
 		Capacity:                chanSnapshot.Capacity,
-		CloseType:               channeldb.LocalForceClose,
+		CloseType:               chanstate.LocalForceClose,
 		IsPending:               true,
 		ShortChanID:             c.cfg.chanState.ShortChanID(),
 		CloseHeight:             uint32(commitSpend.SpendingHeight),
@@ -1679,7 +1680,7 @@ func (c *chainWatcher) dispatchLocalForceClose(
 // commitPoint.
 func (c *chainWatcher) dispatchRemoteForceClose(
 	commitSpend *chainntnfs.SpendDetail,
-	remoteCommit channeldb.ChannelCommitment,
+	remoteCommit chanstate.ChannelCommitment,
 	commitSet CommitSet, commitPoint *btcec.PublicKey) error {
 
 	log.Infof("Unilateral close of ChannelPoint(%v) "+
@@ -1746,7 +1747,7 @@ func (c *chainWatcher) dispatchContractBreach(spendEvent *chainntnfs.SpendDetail
 		}))
 
 	settledBalance := chainSet.remoteCommit.LocalBalance.ToSatoshis()
-	closeSummary := channeldb.ChannelCloseSummary{
+	closeSummary := chanstate.ChannelCloseSummary{
 		ChanPoint:               c.cfg.chanState.FundingOutpoint,
 		ChainHash:               c.cfg.chanState.ChainHash,
 		ClosingTXID:             *spendEvent.SpenderTxHash,
@@ -1754,7 +1755,7 @@ func (c *chainWatcher) dispatchContractBreach(spendEvent *chainntnfs.SpendDetail
 		RemotePub:               c.cfg.chanState.IdentityPub,
 		Capacity:                c.cfg.chanState.Capacity,
 		SettledBalance:          settledBalance,
-		CloseType:               channeldb.BreachClose,
+		CloseType:               chanstate.BreachClose,
 		IsPending:               true,
 		ShortChanID:             c.cfg.chanState.ShortChanID(),
 		RemoteCurrentRevocation: c.cfg.chanState.RemoteCurrentRevocation,

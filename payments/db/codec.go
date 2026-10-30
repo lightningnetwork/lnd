@@ -7,14 +7,15 @@ import (
 	"time"
 
 	"github.com/lightningnetwork/lnd/channeldb"
+	cstate "github.com/lightningnetwork/lnd/chanstate"
 )
 
 // Big endian is the preferred byte order, due to cursor scans over
 // integer keys iterating in order.
 var byteOrder = binary.BigEndian
 
-// UnknownElementType is an alias for channeldb.UnknownElementType.
-type UnknownElementType = channeldb.UnknownElementType
+// UnknownElementType is an alias for chanstate.UnknownElementType.
+type UnknownElementType = cstate.UnknownElementType
 
 // ReadElement deserializes a single element from the provided io.Reader.
 func ReadElement(r io.Reader, element interface{}) error {

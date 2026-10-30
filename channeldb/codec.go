@@ -7,13 +7,11 @@ import (
 	cstate "github.com/lightningnetwork/lnd/chanstate"
 )
 
-// UnknownElementType is an error returned when the codec is unable to encode or
-// decode a particular type.
-type UnknownElementType = cstate.UnknownElementType
-
 // NewUnknownElementType creates a new UnknownElementType error from the passed
 // method name and element.
-func NewUnknownElementType(method string, el interface{}) UnknownElementType {
+func NewUnknownElementType(method string,
+	el interface{}) cstate.UnknownElementType {
+
 	return cstate.NewUnknownElementType(method, el)
 }
 

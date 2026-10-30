@@ -77,7 +77,7 @@ type WitnessSubscription struct {
 type WitnessBeacon interface {
 	// SubscribeUpdates returns a channel that will be sent upon *each* time
 	// a new preimage is discovered.
-	SubscribeUpdates(chanID lnwire.ShortChannelID, htlc *channeldb.HTLC,
+	SubscribeUpdates(chanID lnwire.ShortChannelID, htlc *chanstate.HTLC,
 		payload *hop.Payload,
 		nextHopOnionBlob []byte) (*WitnessSubscription, error)
 
@@ -139,8 +139,8 @@ type ChannelArbitratorConfig struct {
 	// be able to recover from a failure without getting the close event
 	// again. It takes an optional channel status which will update the
 	// channel status in the record that we keep of historical channels.
-	MarkChannelClosed func(*channeldb.ChannelCloseSummary,
-		...channeldb.ChannelStatus) error
+	MarkChannelClosed func(*chanstate.ChannelCloseSummary,
+		...chanstate.ChannelStatus) error
 
 	// IsPendingClose is a boolean indicating whether the channel is marked
 	// as pending close in the database.
@@ -152,7 +152,7 @@ type ChannelArbitratorConfig struct {
 
 	// CloseType is the type of the close event in case IsPendingClose is
 	// true. Otherwise this value is unset.
-	CloseType channeldb.ClosureType
+	CloseType chanstate.ClosureType
 
 	// NotifyChannelResolved is used by the channel arbitrator to signal
 	// that a given channel has been resolved.
@@ -174,7 +174,7 @@ type ChannelArbitratorConfig struct {
 	// deadline is defined by the timeout height of its corresponding
 	// incoming HTLC - this is the expiry height the that remote peer can
 	// spend his/her outgoing HTLC via the timeout path.
-	FindOutgoingHTLCDeadline func(htlc channeldb.HTLC) fn.Option[int32]
+	FindOutgoingHTLCDeadline func(htlc chanstate.HTLC) fn.Option[int32]
 
 	ChainArbitratorConfig
 }
@@ -251,18 +251,18 @@ type htlcSet struct {
 	// incomingHTLCs is a map of all incoming HTLCs on the target
 	// commitment transaction. We may potentially go onchain to claim the
 	// funds sent to us within this set.
-	incomingHTLCs map[uint64]channeldb.HTLC
+	incomingHTLCs map[uint64]chanstate.HTLC
 
 	// outgoingHTLCs is a map of all outgoing HTLCs on the target
 	// commitment transaction. We may potentially go onchain to reclaim the
 	// funds that are currently in limbo.
-	outgoingHTLCs map[uint64]channeldb.HTLC
+	outgoingHTLCs map[uint64]chanstate.HTLC
 }
 
 // newHtlcSet constructs a new HTLC set from a slice of HTLC's.
-func newHtlcSet(htlcs []channeldb.HTLC) htlcSet {
-	outHTLCs := make(map[uint64]channeldb.HTLC)
-	inHTLCs := make(map[uint64]channeldb.HTLC)
+func newHtlcSet(htlcs []chanstate.HTLC) htlcSet {
+	outHTLCs := make(map[uint64]chanstate.HTLC)
+	inHTLCs := make(map[uint64]chanstate.HTLC)
 	for _, htlc := range htlcs {
 		if htlc.Incoming {
 			inHTLCs[htlc.HtlcIndex] = htlc
@@ -516,16 +516,16 @@ func (c *ChannelArbitrator) progressStateMachineAfterRestart(bestHeight int32,
 		case StateCommitmentBroadcasted:
 			switch c.cfg.CloseType {
 
-			case channeldb.CooperativeClose:
+			case chanstate.CooperativeClose:
 				trigger = coopCloseTrigger
 
-			case channeldb.BreachClose:
+			case chanstate.BreachClose:
 				trigger = breachCloseTrigger
 
-			case channeldb.LocalForceClose:
+			case chanstate.LocalForceClose:
 				trigger = localCloseTrigger
 
-			case channeldb.RemoteForceClose:
+			case chanstate.RemoteForceClose:
 				trigger = remoteCloseTrigger
 			}
 
@@ -595,7 +595,7 @@ func (c *ChannelArbitrator) progressStateMachineAfterRestart(bestHeight int32,
 // for taproot channels. This ensures that all the resolvers have the latest
 // resolution, which may also include data such as the control block and tap
 // tweaks.
-func maybeAugmentTaprootResolvers(chanType channeldb.ChannelType,
+func maybeAugmentTaprootResolvers(chanType chanstate.ChannelType,
 	resolver ContractResolver,
 	contractResolutions *ContractResolutions) {
 
@@ -693,7 +693,7 @@ func (c *ChannelArbitrator) relaunchResolvers(commitSet *CommitSet,
 	// upgrade), then we'll use the chain action information in place. The
 	// chain actions may exclude some information, but we cannot recover it
 	// for these older nodes at the moment.
-	var confirmedHTLCs []channeldb.HTLC
+	var confirmedHTLCs []chanstate.HTLC
 	if commitSet != nil && commitSet.ConfCommitKey.IsSome() {
 		confCommitKey, err := commitSet.ConfCommitKey.UnwrapOrErr(
 			fmt.Errorf("no commitKey available"),
@@ -719,7 +719,7 @@ func (c *ChannelArbitrator) relaunchResolvers(commitSet *CommitSet,
 	// is stored as part of the resolver in the log. This is a workaround
 	// to prevent a db migration. We use all available htlc sets here in
 	// order to ensure we have complete coverage.
-	htlcMap := make(map[wire.OutPoint]*channeldb.HTLC)
+	htlcMap := make(map[wire.OutPoint]*chanstate.HTLC)
 	for _, htlc := range confirmedHTLCs {
 		outpoint := wire.OutPoint{
 			Hash:  commitHash,
@@ -1005,7 +1005,7 @@ func (c *ChannelArbitrator) stateStep(
 				"HTLCs backwards", c.cfg.ChanPoint,
 				len(dustHTLCs))
 
-			getIdx := func(htlc channeldb.HTLC) uint64 {
+			getIdx := func(htlc chanstate.HTLC) uint64 {
 				return htlc.HtlcIndex
 			}
 			dustHTLCSet := fn.NewSet(fn.Map(dustHTLCs, getIdx)...)
@@ -1321,7 +1321,7 @@ func (c *ChannelArbitrator) stateStep(
 			// has no output to resolve on chain. Sending a
 			// duplicate resolution message is safe, as the switch
 			// processes them idempotently.
-			getIdx := func(htlc channeldb.HTLC) uint64 {
+			getIdx := func(htlc chanstate.HTLC) uint64 {
 				return htlc.HtlcIndex
 			}
 			remoteDangling := fn.NewSet(fn.Map(
@@ -1809,7 +1809,7 @@ func (c ChainAction) String() string {
 
 // ChainActionMap is a map of a chain action, to the set of HTLC's that need to
 // be acted upon for a given action type. The channel
-type ChainActionMap map[ChainAction][]channeldb.HTLC
+type ChainActionMap map[ChainAction][]chanstate.HTLC
 
 // Merge merges the passed chain actions with the target chain action map.
 func (c ChainActionMap) Merge(actions ChainActionMap) {
@@ -1823,7 +1823,7 @@ func (c ChainActionMap) Merge(actions ChainActionMap) {
 // we should go on chain to claim.  We do this rather than waiting up until the
 // last minute as we want to ensure that when we *need* (HTLC is timed out) to
 // sweep, the commitment is already confirmed.
-func (c *ChannelArbitrator) shouldGoOnChain(htlc channeldb.HTLC,
+func (c *ChannelArbitrator) shouldGoOnChain(htlc chanstate.HTLC,
 	broadcastDelta, currentHeight uint32) bool {
 
 	// We'll calculate the broadcast cut off for this HTLC. This is the
@@ -2170,7 +2170,7 @@ func (c *ChannelArbitrator) checkLocalChainActions(
 func (c *ChannelArbitrator) deferDustHTLCsLiveOnRemote(actions ChainActionMap,
 	liveOnRemote fn.Set[uint64]) {
 
-	var dustHTLCs []channeldb.HTLC
+	var dustHTLCs []chanstate.HTLC
 	for _, htlc := range actions[HtlcFailDustAction] {
 		if !liveOnRemote.Contains(htlc.HtlcIndex) {
 			dustHTLCs = append(dustHTLCs, htlc)
@@ -2207,9 +2207,9 @@ func (c *ChannelArbitrator) checkRemoteDanglingActions(
 	liveOnRemote fn.Set[uint64], commitsConfirmed bool) ChainActionMap {
 
 	var (
-		pendingRemoteHTLCs []channeldb.HTLC
+		pendingRemoteHTLCs []chanstate.HTLC
 		localHTLCs         = make(map[uint64]struct{})
-		remoteHTLCs        = make(map[uint64]channeldb.HTLC)
+		remoteHTLCs        = make(map[uint64]chanstate.HTLC)
 		actionMap          = make(ChainActionMap)
 	)
 
@@ -2535,7 +2535,7 @@ func (c *ChannelArbitrator) prepContractResolutions(
 
 	// Determine the channel type once before the resolution loop so we
 	// don't repeat the nil check on every iteration.
-	var chanType channeldb.ChannelType
+	var chanType chanstate.ChannelType
 	if chanState != nil {
 		chanType = chanState.ChanType
 	}
@@ -3418,7 +3418,7 @@ func (c *ChannelArbitrator) prepareAnchorSweeps(heightHint uint32,
 // an output on the commitment transaction and cannot be resolved onchain. We
 // mark them as failed here.
 func (c *ChannelArbitrator) failIncomingDust(
-	incomingDustHTLCs []channeldb.HTLC) error {
+	incomingDustHTLCs []chanstate.HTLC) error {
 
 	for _, htlc := range incomingDustHTLCs {
 		if !htlc.Incoming || htlc.OutputIndex >= 0 {
@@ -3443,7 +3443,7 @@ func (c *ChannelArbitrator) failIncomingDust(
 		// Send notification.
 		chainArbCfg.HtlcNotifier.NotifyFinalHtlcEvent(
 			key,
-			channeldb.FinalHtlcInfo{
+			chanstate.FinalHtlcInfo{
 				Settled:  false,
 				Offchain: false,
 			},
@@ -3455,7 +3455,7 @@ func (c *ChannelArbitrator) failIncomingDust(
 
 // settleForwards publishes resolution messages for commitment-difference HTLCs
 // with an available preimage.
-func (c *ChannelArbitrator) settleForwards(htlcs []channeldb.HTLC) error {
+func (c *ChannelArbitrator) settleForwards(htlcs []chanstate.HTLC) error {
 	msgsToSend := make([]ResolutionMsg, 0, len(htlcs))
 
 	for _, htlc := range htlcs {
@@ -3535,7 +3535,7 @@ func (c *ChannelArbitrator) handleCoopCloseEvent(
 
 	err := c.cfg.MarkChannelClosed(
 		closeInfo.ChannelCloseSummary,
-		channeldb.ChanStatusCoopBroadcasted,
+		chanstate.ChanStatusCoopBroadcasted,
 	)
 	if err != nil {
 		return fmt.Errorf("unable to mark channel closed: %w", err)
@@ -3610,7 +3610,7 @@ func (c *ChannelArbitrator) handleLocalForceCloseEvent(
 	// channel.
 	err = c.cfg.MarkChannelClosed(
 		closeInfo.ChannelCloseSummary,
-		channeldb.ChanStatusLocalCloseInitiator,
+		chanstate.ChanStatusLocalCloseInitiator,
 	)
 	if err != nil {
 		return fmt.Errorf("unable to mark channel closed: %w", err)
@@ -3673,7 +3673,7 @@ func (c *ChannelArbitrator) handleRemoteForceCloseEvent(
 	closeSummary := &closeInfo.ChannelCloseSummary
 	err = c.cfg.MarkChannelClosed(
 		closeSummary,
-		channeldb.ChanStatusRemoteCloseInitiator,
+		chanstate.ChanStatusRemoteCloseInitiator,
 	)
 	if err != nil {
 		return fmt.Errorf("unable to mark channel closed: %w", err)
@@ -3727,7 +3727,7 @@ func (c *ChannelArbitrator) handleContractBreach(
 	// BreachArbitrator and channel arbitrator have persisted the relevant
 	// states.
 	err = c.cfg.MarkChannelClosed(
-		closeSummary, channeldb.ChanStatusRemoteCloseInitiator,
+		closeSummary, chanstate.ChanStatusRemoteCloseInitiator,
 	)
 	if err != nil {
 		return fmt.Errorf("unable to mark channel closed: %w", err)

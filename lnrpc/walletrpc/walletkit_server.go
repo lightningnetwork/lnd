@@ -33,7 +33,6 @@ import (
 	"github.com/btcsuite/btcwallet/wtxmgr"
 	"github.com/grpc-ecosystem/grpc-gateway/v2/runtime"
 	"github.com/lightningnetwork/lnd/build"
-	"github.com/lightningnetwork/lnd/channeldb"
 	"github.com/lightningnetwork/lnd/chanstate"
 	"github.com/lightningnetwork/lnd/contractcourt"
 	"github.com/lightningnetwork/lnd/fn/v2"
@@ -1398,7 +1397,7 @@ func (w *WalletKit) BumpForceCloseFee(_ context.Context,
 	// Check whether there was a dangling commitment at the time the channel
 	// was force closed.
 	remoteCommitDiff, err := channel.RemoteCommitChainTip()
-	if err != nil && !errors.Is(err, channeldb.ErrNoPendingCommit) {
+	if err != nil && !errors.Is(err, chanstate.ErrNoPendingCommit) {
 		return nil, err
 	}
 

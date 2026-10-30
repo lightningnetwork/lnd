@@ -4,7 +4,7 @@ import (
 	"encoding/binary"
 	"io"
 
-	"github.com/lightningnetwork/lnd/channeldb"
+	"github.com/lightningnetwork/lnd/chanstate"
 	"github.com/lightningnetwork/lnd/graph/db/models"
 	"github.com/lightningnetwork/lnd/htlcswitch/hop"
 	"github.com/lightningnetwork/lnd/lnwire"
@@ -30,7 +30,7 @@ type PaymentCircuit struct {
 	// AddRef is the forward reference of the Add update in the incoming
 	// link's forwarding package. This value is set on the htlcPacket of the
 	// returned settle/fail so that it can be removed from disk.
-	AddRef channeldb.AddRef
+	AddRef chanstate.AddRef
 
 	// Incoming is the circuit key identifying the incoming channel and htlc
 	// index from which this ADD originates.
@@ -72,7 +72,7 @@ func (c *PaymentCircuit) HasKeystone() bool {
 // newPaymentCircuit initializes a payment circuit on the heap using the payment
 // hash and an in-memory htlc packet.
 func newPaymentCircuit(hash *[32]byte, pkt *htlcPacket) *PaymentCircuit {
-	var addRef channeldb.AddRef
+	var addRef chanstate.AddRef
 	if pkt.sourceRef != nil {
 		addRef = *pkt.sourceRef
 	}
@@ -93,7 +93,7 @@ func newPaymentCircuit(hash *[32]byte, pkt *htlcPacket) *PaymentCircuit {
 // makePaymentCircuit initializes a payment circuit on the stack using the
 // payment hash and an in-memory htlc packet.
 func makePaymentCircuit(hash *[32]byte, pkt *htlcPacket) PaymentCircuit {
-	var addRef channeldb.AddRef
+	var addRef chanstate.AddRef
 	if pkt.sourceRef != nil {
 		addRef = *pkt.sourceRef
 	}

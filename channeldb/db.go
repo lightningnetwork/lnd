@@ -420,7 +420,10 @@ func CreateWithBackend(backend kvdb.Backend, modifiers ...OptionModifier) (*DB,
 			linkNodeDB: &LinkNodeDB{
 				backend: backend,
 			},
-			kvStore:                 chanstate.NewKVStore(backend),
+			kvStore: chanstate.NewKVStore(
+				backend,
+				opts.NoRevLogAmtData,
+			),
 			backend:                 backend,
 			tombstoneClosedChannels: opts.tombstoneClosedChannels,
 		},

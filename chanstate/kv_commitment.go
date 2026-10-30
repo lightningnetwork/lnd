@@ -618,6 +618,267 @@ func (s *KVStore) RemoteUnsignedLocalUpdates(
 	return updates, nil
 }
 
+// InsertNextRevocation inserts the next commitment point into the persisted
+// channel state.
+func (s *KVStore) InsertNextRevocation(channel *OpenChannel,
+	revKey btcec.PublicKey) error {
+
+	channel.RemoteNextRevocation = fn.Some(revKey)
+
+	err := kvdb.Update(s.backend, func(tx kvdb.RwTx) error {
+		chanBucket, err := FetchChanBucketRw(
+			tx, channel.IdentityPub, &channel.FundingOutpoint,
+			channel.ChainHash,
+		)
+		if err != nil {
+			return err
+		}
+
+		return PutChanRevocationState(chanBucket, channel)
+	}, func() {})
+	if err != nil {
+		return err
+	}
+
+	return nil
+}
+
+// AppendRemoteCommitChain appends a new CommitDiff to the remote party's
+// commitment chain.
+func (s *KVStore) AppendRemoteCommitChain(channel *OpenChannel,
+	diff *CommitDiff) error {
+
+	return kvdb.Update(s.backend, func(tx kvdb.RwTx) error {
+		// First, we'll grab the writable bucket where this channel's
+		// data resides.
+		chanBucket, err := FetchChanBucketRw(
+			tx, channel.IdentityPub, &channel.FundingOutpoint,
+			channel.ChainHash,
+		)
+		if err != nil {
+			return err
+		}
+
+		// If the channel is marked as borked, then for safety reasons,
+		// we shouldn't attempt any further updates.
+		isBorked, err := isChannelBorked(channel, chanBucket)
+		if err != nil {
+			return err
+		}
+		if isBorked {
+			return ErrChanBorked
+		}
+
+		// Any outgoing settles and fails necessarily have a
+		// corresponding adds in this channel's forwarding packages.
+		// Mark all of these as being fully processed in our forwarding
+		// package, which prevents us from reprocessing them after
+		// startup.
+		packager := NewChannelPackager(channel.ShortChannelID)
+
+		err = packager.AckAddHtlcs(tx, diff.AddAcks...)
+		if err != nil {
+			return err
+		}
+
+		// Additionally, we ack from any fails or settles that are
+		// persisted in another channel's forwarding package. This
+		// prevents the same fails and settles from being retransmitted
+		// after restarts. The actual fail or settle we need to
+		// propagate to the remote party is now in the commit diff.
+		err = packager.AckSettleFails(
+			tx, diff.SettleFailAcks...,
+		)
+		if err != nil {
+			return err
+		}
+
+		//nolint:ll
+		// We are sending a commitment signature so lastWasRevokeKey should
+		// store false.
+		var b bytes.Buffer
+		if err := WriteElements(&b, false); err != nil {
+			return err
+		}
+		err = chanBucket.Put(lastWasRevokeKey, b.Bytes())
+		if err != nil {
+			return err
+		}
+
+		// TODO(roasbeef): use seqno to derive key for later LCP
+
+		// With the bucket retrieved, we'll now serialize the commit
+		// diff itself, and write it to disk.
+		var b2 bytes.Buffer
+		if err := SerializeCommitDiff(&b2, diff); err != nil {
+			return err
+		}
+
+		return chanBucket.Put(commitDiffKey, b2.Bytes())
+	}, func() {})
+}
+
+// AdvanceCommitChainTail records the new state transition within the
+// revocation log and promotes the pending remote commitment to the current
+// remote commitment.
+func (s *KVStore) AdvanceCommitChainTail(channel *OpenChannel,
+	fwdPkg *FwdPkg, updates []LogUpdate, ourOutputIndex,
+	theirOutputIndex uint32) error {
+
+	var newRemoteCommit *ChannelCommitment
+
+	err := kvdb.Update(s.backend, func(tx kvdb.RwTx) error {
+		chanBucket, err := FetchChanBucketRw(
+			tx, channel.IdentityPub, &channel.FundingOutpoint,
+			channel.ChainHash,
+		)
+		if err != nil {
+			return err
+		}
+
+		// If the channel is marked as borked, then for safety reasons,
+		// we shouldn't attempt any further updates.
+		isBorked, err := isChannelBorked(channel, chanBucket)
+		if err != nil {
+			return err
+		}
+		if isBorked {
+			return ErrChanBorked
+		}
+
+		// Persist the latest preimage state to disk as the remote peer
+		// has just added to our local preimage store, and given us a
+		// new pending revocation key.
+		err = PutChanRevocationState(chanBucket, channel)
+		if err != nil {
+			return err
+		}
+
+		// With the current preimage producer/store state updated,
+		// append a new log entry recording this the delta of this
+		// state transition.
+		//
+		// TODO(roasbeef): could make the deltas relative, would save
+		// space, but then tradeoff for more disk-seeks to recover the
+		// full state.
+		logKey := revocationLogBucket
+		logBucket, err := chanBucket.CreateBucketIfNotExists(logKey)
+		if err != nil {
+			return err
+		}
+
+		// Before we append this revoked state to the revocation log,
+		// we'll swap out what's currently the tail of the commit tip,
+		// with the current locked-in commitment for the remote party.
+		tipBytes := chanBucket.Get(commitDiffKey)
+		tipReader := bytes.NewReader(tipBytes)
+		newCommit, err := DeserializeCommitDiff(tipReader)
+		if err != nil {
+			return err
+		}
+		err = PutChanCommitment(
+			chanBucket, &newCommit.Commitment, false,
+		)
+		if err != nil {
+			return err
+		}
+		if err := chanBucket.Delete(commitDiffKey); err != nil {
+			return err
+		}
+
+		// With the commitment pointer swapped, we can now add the
+		// revoked (prior) state to the revocation log.
+		err = PutRevocationLog(
+			logBucket, &channel.RemoteCommitment, ourOutputIndex,
+			theirOutputIndex, s.noRevLogAmtData,
+		)
+		if err != nil {
+			return err
+		}
+
+		// Lastly, we write the forwarding package to disk so that we
+		// can properly recover from failures and reforward HTLCs that
+		// have not received a corresponding settle/fail.
+		err = NewChannelPackager(channel.ShortChannelID).AddFwdPkg(
+			tx, fwdPkg,
+		)
+		if err != nil {
+			return err
+		}
+
+		// Persist the unsigned acked updates that are not included
+		// in their new commitment.
+		updateBytes := chanBucket.Get(unsignedAckedUpdatesKey)
+		if updateBytes == nil {
+			// This shouldn't normally happen as we always store
+			// the number of updates, but could still be
+			// encountered by nodes that are upgrading.
+			newRemoteCommit = &newCommit.Commitment
+			return nil
+		}
+
+		r := bytes.NewReader(updateBytes)
+		unsignedUpdates, err := DeserializeLogUpdates(r)
+		if err != nil {
+			return err
+		}
+
+		var validUpdates []LogUpdate
+		for _, upd := range unsignedUpdates {
+			lIdx := upd.LogIndex
+
+			// Filter for updates that are not on the remote
+			// commitment.
+			if lIdx >= newCommit.Commitment.RemoteLogIndex {
+				validUpdates = append(validUpdates, upd)
+			}
+		}
+
+		var b bytes.Buffer
+		err = SerializeLogUpdates(&b, validUpdates)
+		if err != nil {
+			return fmt.Errorf("unable to serialize log updates: %w",
+				err)
+		}
+
+		err = chanBucket.Put(unsignedAckedUpdatesKey, b.Bytes())
+		if err != nil {
+			return fmt.Errorf("unable to store under "+
+				"unsignedAckedUpdatesKey: %w", err)
+		}
+
+		// Persist the local updates the peer hasn't yet signed so they
+		// can be restored after restart.
+		var b2 bytes.Buffer
+		err = SerializeLogUpdates(&b2, updates)
+		if err != nil {
+			return err
+		}
+
+		err = chanBucket.Put(remoteUnsignedLocalUpdatesKey, b2.Bytes())
+		if err != nil {
+			return fmt.Errorf("unable to restore remote unsigned "+
+				"local updates: %v", err)
+		}
+
+		newRemoteCommit = &newCommit.Commitment
+
+		return nil
+	}, func() {
+		newRemoteCommit = nil
+	})
+	if err != nil {
+		return err
+	}
+
+	// With the db transaction complete, we'll swap over the in-memory
+	// pointer of the new remote commitment, which was previously the tip
+	// of the commit chain.
+	channel.RemoteCommitment = *newRemoteCommit
+
+	return nil
+}
+
 // CommitmentHeight returns the current commitment height. The commitment
 // height represents the number of updates to the commitment state to date.
 // This value is always monotonically increasing. This method is provided in

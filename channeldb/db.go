@@ -1354,10 +1354,6 @@ func (c *ChannelStateDB) FetchClosedChannels(pendingOnly bool) (
 	return chanSummaries, nil
 }
 
-// ErrClosedChannelNotFound signals that a closed channel could not be found in
-// the channeldb.
-var ErrClosedChannelNotFound = errors.New("unable to find closed channel summary")
-
 // FetchClosedChannel queries for a channel close summary using the channel
 // point of the channel in question.
 func (c *ChannelStateDB) FetchClosedChannel(chanID *wire.OutPoint) (

@@ -7,6 +7,7 @@ import (
 	"context"
 	"errors"
 	"testing"
+	"time"
 
 	"github.com/btcsuite/btcd/btcec/v2"
 	"github.com/lightningnetwork/lnd/htlcswitch"
@@ -713,6 +714,49 @@ func TestTrackOnion(t *testing.T) {
 			tc.checkResponse(t, resp)
 		})
 	}
+}
+
+// TestTrackOnionPassesRPCContext asserts that TrackOnion waits on the switch
+// with its own RPC context, so that the switch can release its subscription
+// when the client cancels or times out, and that such a call reports the
+// context error rather than a switch shutdown.
+func TestTrackOnionPassesRPCContext(t *testing.T) {
+	t.Parallel()
+
+	req := &TrackOnionRequest{
+		PaymentHash: make([]byte, 32),
+		AttemptId:   1,
+	}
+
+	// A client deadline on a pending attempt must reach the switch.
+	payer := &mockPayer{}
+	server, _, err := New(&Config{HtlcDispatcher: payer})
+	require.NoError(t, err)
+
+	ctx, cancel := context.WithTimeout(t.Context(), 10*time.Millisecond)
+	defer cancel()
+
+	_, err = server.TrackOnion(ctx, req)
+	require.Equal(t, codes.DeadlineExceeded, status.Code(err))
+	select {
+	case <-payer.gotDone:
+	default:
+		t.Fatal("the switch must see the RPC context end")
+	}
+
+	// The switch closes the result channel when the context is
+	// cancelled. That must read as a cancellation, not a shutdown.
+	closed := make(chan *htlcswitch.PaymentResult)
+	close(closed)
+	payer = &mockPayer{resultChan: closed}
+	server, _, err = New(&Config{HtlcDispatcher: payer})
+	require.NoError(t, err)
+
+	ctx, cancel = context.WithCancel(t.Context())
+	cancel()
+
+	_, err = server.TrackOnion(ctx, req)
+	require.Equal(t, codes.Canceled, status.Code(err))
 }
 
 // TestBuildOnion is a unit test that verifies the behavior of the BuildOnion

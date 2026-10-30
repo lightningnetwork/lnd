@@ -721,8 +721,10 @@ func (s *Server) TrackOnion(ctx context.Context,
 	}
 
 	// Query the switch for the result of the payment attempt via onion.
-	resultChan, err := s.cfg.HtlcDispatcher.GetAttemptResult(
-		req.AttemptId, hash, errorDecryptor,
+	// Passing the RPC context lets the switch release its subscription if
+	// the client gives up before the HTLC resolves.
+	resultChan, err := s.cfg.HtlcDispatcher.GetAttemptResultWithContext(
+		ctx, req.AttemptId, hash, errorDecryptor,
 	)
 	if err != nil {
 		log.Errorf("GetAttemptResult failed for attempt_id=%d of "+
@@ -750,6 +752,14 @@ func (s *Server) TrackOnion(ctx context.Context,
 	select {
 	case result, ok = <-resultChan:
 		if !ok {
+			// The switch also closes the channel when ctx is
+			// cancelled, so report that cause first.
+			if ctx.Err() != nil {
+				return nil, status.FromContextError(
+					ctx.Err(),
+				).Err()
+			}
+
 			// This channel is closed when the Switch shuts down. We
 			// return a gRPC error to the client.
 			return nil, status.Error(codes.Unavailable,

@@ -4,6 +4,8 @@
 package switchrpc
 
 import (
+	"context"
+
 	"github.com/lightningnetwork/lnd/htlcswitch"
 	"github.com/lightningnetwork/lnd/lnrpc"
 	"github.com/lightningnetwork/lnd/lntypes"
@@ -18,6 +20,10 @@ type mockPayer struct {
 	getResultResult *htlcswitch.PaymentResult
 	getResultErr    error
 	resultChan      chan *htlcswitch.PaymentResult
+
+	// gotDone is the Done channel of the context passed to the last
+	// result lookup.
+	gotDone <-chan struct{}
 }
 
 // SendHTLC is a mock implementation of the SendHTLC method.
@@ -29,11 +35,17 @@ func (m *mockPayer) SendHTLC(firstHop lnwire.ShortChannelID,
 	return m.sendErr
 }
 
-// GetAttemptResult is a mock implementation of the GetAttemptResult method.
-func (m *mockPayer) GetAttemptResult(attemptID uint64,
-	paymentHash lntypes.Hash,
+// GetAttemptResultWithContext is a mock implementation of the
+// GetAttemptResultWithContext method. It records the Done channel of the
+// context it is given.
+// When no result is configured, it acts like a pending attempt and returns a
+// channel that never delivers.
+func (m *mockPayer) GetAttemptResultWithContext(ctx context.Context,
+	attemptID uint64, paymentHash lntypes.Hash,
 	errorDecryptor htlcswitch.ErrorDecrypter) (
 	<-chan *htlcswitch.PaymentResult, error) {
+
+	m.gotDone = ctx.Done()
 
 	if m.getResultErr != nil {
 		return nil, m.getResultErr

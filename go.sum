@@ -15,8 +15,8 @@ github.com/NebulousLabs/go-upnp v0.0.0-20180202185039-29b680b06c82 h1:MG93+PZYs9
 github.com/NebulousLabs/go-upnp v0.0.0-20180202185039-29b680b06c82/go.mod h1:GbuBk21JqF+driLX3XtJYNZjGa45YDoa9IqCTzNSfEc=
 github.com/Nvveen/Gotty v0.0.0-20120604004816-cd527374f1e5 h1:TngWCqHvy9oXAN6lEVMRuU21PR1EtLVZJmdB18Gu3Rw=
 github.com/Nvveen/Gotty v0.0.0-20120604004816-cd527374f1e5/go.mod h1:lmUJ/7eu/Q8D7ML55dXQrVaamCz2vxCfdQBasLZfHKk=
-github.com/Roasbeef/btcwallet v0.11.1-0.20261029225415-726a6f83a486 h1:zgoyAKJkVemRLxu88MvGyBlAHekvaiM5JGeDqdMXmRo=
-github.com/Roasbeef/btcwallet v0.11.1-0.20261029225415-726a6f83a486/go.mod h1:BHlKA9iOqgb3djPNneog3u+TirQtEgP7ArVB2BA9W5k=
+github.com/Roasbeef/btcwallet v0.11.1-0.20261030000747-90c6748b7688 h1:M57oyvU8JTcn90DR0ExiV7xIVc9orCViydRHO0TKrP0=
+github.com/Roasbeef/btcwallet v0.11.1-0.20261030000747-90c6748b7688/go.mod h1:xiDvxUl+rsleUfdk1xw79skHK0bQL3X4sZgBlCOfDRA=
 github.com/Yawning/aez v0.0.0-20211027044916-e49e68abd344 h1:cDVUiFo+npB0ZASqnw4q90ylaVAbnYyx0JYqK4YcGok=
 github.com/Yawning/aez v0.0.0-20211027044916-e49e68abd344/go.mod h1:9pIqrY6SXNL8vjRQE5Hd/OL5GyK/9MrGUWs87z/eFfk=
 github.com/aead/chacha20 v0.0.0-20180709150244-8b13a72661da h1:KjTM2ks9d14ZYCvmHS9iAKVt9AyzRSqNU1qabPih5BY=
@@ -284,8 +284,8 @@ github.com/lightninglabs/gozmq v0.0.0-20191113021534-d20a764486bf h1:HZKvJUHlcXI
 github.com/lightninglabs/gozmq v0.0.0-20191113021534-d20a764486bf/go.mod h1:vxmQPeIQxPf6Jf9rM8R+B4rKBqLA2AjttNxkFBL2Plk=
 github.com/lightninglabs/migrate/v4 v4.18.2-9023d66a-fork-pr-2.0.20251211093704-71c1eef09789 h1:7kX7vUgHUazAHcCJ6uzBDa4/2MEGEbMEfa01GtfqmTQ=
 github.com/lightninglabs/migrate/v4 v4.18.2-9023d66a-fork-pr-2.0.20251211093704-71c1eef09789/go.mod h1:99BKpIi6ruaaXRM1A77eqZ+FWPQ3cfRa+ZVy5bmWMaY=
-github.com/lightninglabs/neutrino v0.18.1-0.20261029225123-91b71d964579 h1:qSSFEK6Rqw7/2fC3RVpcfzsBdXzUZY0ywrjyxe1L+5M=
-github.com/lightninglabs/neutrino v0.18.1-0.20261029225123-91b71d964579/go.mod h1:X/FufkyTPZQ03LmG7TkHZbih7BlP3EgHHelGBuxsD2A=
+github.com/lightninglabs/neutrino v0.18.1-0.20261030000508-af3416b2e235 h1:p1Yg6Vi6Iw40pTm+vLn+Kb2K8QWXvRQCWqze1hmMYA4=
+github.com/lightninglabs/neutrino v0.18.1-0.20261030000508-af3416b2e235/go.mod h1:X/FufkyTPZQ03LmG7TkHZbih7BlP3EgHHelGBuxsD2A=
 github.com/lightninglabs/neutrino/cache v1.1.4 h1:KVtvUmBwYr7eKtjfjHG/q6/cQlcrjHl23Gag+VdxF2g=
 github.com/lightninglabs/neutrino/cache v1.1.4/go.mod h1:ZqLzxghPggIRfNXeAZN1VtTKofMyK/ALI6niYsPH6OE=
 github.com/lightninglabs/protobuf-go-hex-display v1.36.11-hex-display h1:fjePiMfYbg3KodAiSXwkpGZpYdPeNd9VnggJWiY6AaY=

@@ -422,6 +422,7 @@ func CreateWithBackend(backend kvdb.Backend, modifiers ...OptionModifier) (*DB,
 			},
 			kvStore: chanstate.NewKVStore(
 				backend,
+				opts.storeFinalHtlcResolutions,
 				opts.NoRevLogAmtData,
 			),
 			backend:                 backend,
@@ -2118,12 +2119,6 @@ func (c *ChannelStateDB) FetchHistoricalChannel(outPoint *wire.OutPoint) (
 	return channel, nil
 }
 
-func fetchFinalHtlcsBucket(tx kvdb.RTx,
-	chanID lnwire.ShortChannelID) (kvdb.RBucket, error) {
-
-	return chanstate.FetchFinalHtlcsBucket(tx, chanID)
-}
-
 var ErrHtlcUnknown = chanstate.ErrHtlcUnknown
 
 // LookupFinalHtlc retrieves a final htlc resolution from the database. If the
@@ -2131,37 +2126,7 @@ var ErrHtlcUnknown = chanstate.ErrHtlcUnknown
 func (c *ChannelStateDB) LookupFinalHtlc(chanID lnwire.ShortChannelID,
 	htlcIndex uint64) (*FinalHtlcInfo, error) {
 
-	var info *FinalHtlcInfo
-
-	err := kvdb.View(c.backend, func(tx kvdb.RTx) error {
-		finalHtlcsBucket, err := fetchFinalHtlcsBucket(
-			tx, chanID,
-		)
-		switch {
-		case errors.Is(err, ErrFinalHtlcsBucketNotFound):
-			fallthrough
-
-		case errors.Is(err, ErrFinalChannelBucketNotFound):
-			return ErrHtlcUnknown
-
-		case err != nil:
-			return fmt.Errorf("cannot fetch final htlcs bucket: %w",
-				err)
-		}
-
-		info, err = chanstate.FetchFinalHtlc(
-			finalHtlcsBucket, htlcIndex,
-		)
-
-		return err
-	}, func() {
-		info = nil
-	})
-	if err != nil {
-		return nil, err
-	}
-
-	return info, nil
+	return c.kvStore.LookupFinalHtlc(chanID, htlcIndex)
 }
 
 // PutOnchainFinalHtlcOutcome stores the final on-chain outcome of an htlc in
@@ -2169,25 +2134,7 @@ func (c *ChannelStateDB) LookupFinalHtlc(chanID lnwire.ShortChannelID,
 func (c *ChannelStateDB) PutOnchainFinalHtlcOutcome(
 	chanID lnwire.ShortChannelID, htlcID uint64, settled bool) error {
 
-	// Skip if the user did not opt in to storing final resolutions.
-	if !c.parent.storeFinalHtlcResolutions {
-		return nil
-	}
-
-	return kvdb.Update(c.backend, func(tx kvdb.RwTx) error {
-		finalHtlcsBucket, err := fetchFinalHtlcsBucketRw(tx, chanID)
-		if err != nil {
-			return err
-		}
-
-		return putFinalHtlc(
-			finalHtlcsBucket, htlcID,
-			FinalHtlcInfo{
-				Settled:  settled,
-				Offchain: false,
-			},
-		)
-	}, func() {})
+	return c.kvStore.PutOnchainFinalHtlcOutcome(chanID, htlcID, settled)
 }
 
 // MakeTestInvoiceDB is used to create a test invoice database for testing

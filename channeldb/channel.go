@@ -264,15 +264,6 @@ func (c *ChannelStateDB) RefreshChannel(channel *OpenChannel) error {
 	return c.kvStore.RefreshChannel(channel)
 }
 
-// fetchChanBucket is a helper function that returns the bucket where a
-// channel's data resides in given: the public key for the node, the outpoint,
-// and the chainhash that the channel resides on.
-func fetchChanBucket(tx kvdb.RTx, nodeKey *btcec.PublicKey,
-	outPoint *wire.OutPoint, chainHash chainhash.Hash) (kvdb.RBucket, error) {
-
-	return cstate.FetchChanBucket(tx, nodeKey, outPoint, chainHash)
-}
-
 // fetchChanBucketRw is a helper function that returns the bucket where a
 // channel's data resides in given: the public key for the node, the outpoint,
 // and the chainhash that the channel resides on. This differs from
@@ -774,41 +765,7 @@ func (c *ChannelStateDB) AppendRemoteCommitChain(channel *OpenChannel,
 func (c *ChannelStateDB) RemoteCommitChainTip(channel *OpenChannel) (
 	*CommitDiff, error) {
 
-	var cd *CommitDiff
-	err := kvdb.View(c.backend, func(tx kvdb.RTx) error {
-		chanBucket, err := fetchChanBucket(
-			tx, channel.IdentityPub, &channel.FundingOutpoint,
-			channel.ChainHash,
-		)
-		switch err {
-		case nil:
-		case ErrNoChanDBExists, ErrNoActiveChannels, ErrChannelNotFound:
-			return ErrNoPendingCommit
-		default:
-			return err
-		}
-
-		tipBytes := chanBucket.Get(commitDiffKey)
-		if tipBytes == nil {
-			return ErrNoPendingCommit
-		}
-
-		tipReader := bytes.NewReader(tipBytes)
-		dcd, err := cstate.DeserializeCommitDiff(tipReader)
-		if err != nil {
-			return err
-		}
-
-		cd = dcd
-		return nil
-	}, func() {
-		cd = nil
-	})
-	if err != nil {
-		return nil, err
-	}
-
-	return cd, nil
+	return c.kvStore.RemoteCommitChainTip(channel)
 }
 
 // UnsignedAckedUpdates retrieves the persisted unsigned acked remote log
@@ -816,36 +773,7 @@ func (c *ChannelStateDB) RemoteCommitChainTip(channel *OpenChannel) (
 func (c *ChannelStateDB) UnsignedAckedUpdates(channel *OpenChannel) (
 	[]LogUpdate, error) {
 
-	var updates []LogUpdate
-	err := kvdb.View(c.backend, func(tx kvdb.RTx) error {
-		chanBucket, err := fetchChanBucket(
-			tx, channel.IdentityPub, &channel.FundingOutpoint,
-			channel.ChainHash,
-		)
-		switch err {
-		case nil:
-		case ErrNoChanDBExists, ErrNoActiveChannels, ErrChannelNotFound:
-			return nil
-		default:
-			return err
-		}
-
-		updateBytes := chanBucket.Get(unsignedAckedUpdatesKey)
-		if updateBytes == nil {
-			return nil
-		}
-
-		r := bytes.NewReader(updateBytes)
-		updates, err = deserializeLogUpdates(r)
-		return err
-	}, func() {
-		updates = nil
-	})
-	if err != nil {
-		return nil, err
-	}
-
-	return updates, nil
+	return c.kvStore.UnsignedAckedUpdates(channel)
 }
 
 // RemoteUnsignedLocalUpdates retrieves the persisted, unsigned local log
@@ -853,37 +781,7 @@ func (c *ChannelStateDB) UnsignedAckedUpdates(channel *OpenChannel) (
 func (c *ChannelStateDB) RemoteUnsignedLocalUpdates(channel *OpenChannel) (
 	[]LogUpdate, error) {
 
-	var updates []LogUpdate
-	err := kvdb.View(c.backend, func(tx kvdb.RTx) error {
-		chanBucket, err := fetchChanBucket(
-			tx, channel.IdentityPub, &channel.FundingOutpoint,
-			channel.ChainHash,
-		)
-		switch err {
-		case nil:
-			break
-		case ErrNoChanDBExists, ErrNoActiveChannels, ErrChannelNotFound:
-			return nil
-		default:
-			return err
-		}
-
-		updateBytes := chanBucket.Get(remoteUnsignedLocalUpdatesKey)
-		if updateBytes == nil {
-			return nil
-		}
-
-		r := bytes.NewReader(updateBytes)
-		updates, err = deserializeLogUpdates(r)
-		return err
-	}, func() {
-		updates = nil
-	})
-	if err != nil {
-		return nil, err
-	}
-
-	return updates, nil
+	return c.kvStore.RemoteUnsignedLocalUpdates(channel)
 }
 
 // InsertNextRevocation inserts the next commitment point into the persisted
@@ -1153,33 +1051,7 @@ func (c *ChannelStateDB) revocationLogTailCommitHeight(
 func (c *ChannelStateDB) CommitmentHeight(channel *OpenChannel) (
 	uint64, error) {
 
-	var height uint64
-	err := kvdb.View(c.backend, func(tx kvdb.RTx) error {
-		// Get the bucket dedicated to storing the metadata for open
-		// channels.
-		chanBucket, err := fetchChanBucket(
-			tx, channel.IdentityPub, &channel.FundingOutpoint,
-			channel.ChainHash,
-		)
-		if err != nil {
-			return err
-		}
-
-		commit, err := fetchChanCommitment(chanBucket, true)
-		if err != nil {
-			return err
-		}
-
-		height = commit.CommitHeight
-		return nil
-	}, func() {
-		height = 0
-	})
-	if err != nil {
-		return 0, err
-	}
-
-	return height, nil
+	return c.kvStore.CommitmentHeight(channel)
 }
 
 // FindPreviousState scans through the append-only log in an attempt to recover
@@ -1456,22 +1328,7 @@ type ChannelSnapshot = cstate.ChannelSnapshot
 func (c *ChannelStateDB) LatestCommitments(channel *OpenChannel) (
 	*ChannelCommitment, *ChannelCommitment, error) {
 
-	err := kvdb.View(c.backend, func(tx kvdb.RTx) error {
-		chanBucket, err := fetchChanBucket(
-			tx, channel.IdentityPub, &channel.FundingOutpoint,
-			channel.ChainHash,
-		)
-		if err != nil {
-			return err
-		}
-
-		return fetchChanCommitments(chanBucket, channel)
-	}, func() {})
-	if err != nil {
-		return nil, nil, err
-	}
-
-	return &channel.LocalCommitment, &channel.RemoteCommitment, nil
+	return c.kvStore.LatestCommitments(channel)
 }
 
 // RemoteRevocationStore returns the most up to date commitment version of the
@@ -1481,22 +1338,7 @@ func (c *ChannelStateDB) LatestCommitments(channel *OpenChannel) (
 func (c *ChannelStateDB) RemoteRevocationStore(channel *OpenChannel) (
 	shachain.Store, error) {
 
-	err := kvdb.View(c.backend, func(tx kvdb.RTx) error {
-		chanBucket, err := fetchChanBucket(
-			tx, channel.IdentityPub, &channel.FundingOutpoint,
-			channel.ChainHash,
-		)
-		if err != nil {
-			return err
-		}
-
-		return fetchChanRevocationState(chanBucket, channel)
-	}, func() {})
-	if err != nil {
-		return nil, err
-	}
-
-	return channel.RevocationStore, nil
+	return c.kvStore.RemoteRevocationStore(channel)
 }
 
 func putChannelCloseSummary(tx kvdb.RwTx, chanID []byte,
@@ -1531,20 +1373,6 @@ func putChanCommitment(chanBucket kvdb.RwBucket, c *ChannelCommitment,
 
 func putChanRevocationState(chanBucket kvdb.RwBucket, channel *OpenChannel) error {
 	return cstate.PutChanRevocationState(chanBucket, channel)
-}
-
-func fetchChanCommitment(chanBucket kvdb.RBucket,
-	local bool) (ChannelCommitment, error) {
-
-	return cstate.FetchChanCommitment(chanBucket, local)
-}
-
-func fetchChanCommitments(chanBucket kvdb.RBucket, channel *OpenChannel) error {
-	return cstate.FetchChanCommitments(chanBucket, channel)
-}
-
-func fetchChanRevocationState(chanBucket kvdb.RBucket, channel *OpenChannel) error {
-	return cstate.FetchChanRevocationState(chanBucket, channel)
 }
 
 func deleteOpenChannel(chanBucket kvdb.RwBucket) error {

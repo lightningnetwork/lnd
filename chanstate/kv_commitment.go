@@ -3,6 +3,7 @@ package chanstate
 import (
 	"bytes"
 	"encoding/binary"
+	"errors"
 	"fmt"
 	"io"
 
@@ -11,6 +12,7 @@ import (
 	"github.com/lightningnetwork/lnd/graph/db/models"
 	"github.com/lightningnetwork/lnd/kvdb"
 	"github.com/lightningnetwork/lnd/lnwire"
+	"github.com/lightningnetwork/lnd/shachain"
 	"github.com/lightningnetwork/lnd/tlv"
 )
 
@@ -486,6 +488,222 @@ func DeleteOpenChannel(chanBucket kvdb.RwBucket) error {
 	}
 
 	return nil
+}
+
+// RemoteCommitChainTip returns the "tip" of the current remote commitment
+// chain.
+func (s *KVStore) RemoteCommitChainTip(
+	channel *OpenChannel) (*CommitDiff, error) {
+
+	var cd *CommitDiff
+	err := kvdb.View(s.backend, func(tx kvdb.RTx) error {
+		chanBucket, err := FetchChanBucket(
+			tx, channel.IdentityPub, &channel.FundingOutpoint,
+			channel.ChainHash,
+		)
+		switch {
+		case err == nil:
+		case errors.Is(err, ErrNoChanDBExists),
+			errors.Is(err, ErrNoActiveChannels),
+			errors.Is(err, ErrChannelNotFound):
+
+			return ErrNoPendingCommit
+		default:
+			return err
+		}
+
+		tipBytes := chanBucket.Get(commitDiffKey)
+		if tipBytes == nil {
+			return ErrNoPendingCommit
+		}
+
+		tipReader := bytes.NewReader(tipBytes)
+		dcd, err := DeserializeCommitDiff(tipReader)
+		if err != nil {
+			return err
+		}
+
+		cd = dcd
+
+		return nil
+	}, func() {
+		cd = nil
+	})
+	if err != nil {
+		return nil, err
+	}
+
+	return cd, nil
+}
+
+// UnsignedAckedUpdates retrieves the persisted unsigned acked remote log
+// updates that still need to be signed for.
+func (s *KVStore) UnsignedAckedUpdates(
+	channel *OpenChannel) ([]LogUpdate, error) {
+
+	var updates []LogUpdate
+	err := kvdb.View(s.backend, func(tx kvdb.RTx) error {
+		chanBucket, err := FetchChanBucket(
+			tx, channel.IdentityPub, &channel.FundingOutpoint,
+			channel.ChainHash,
+		)
+		switch {
+		case err == nil:
+		case errors.Is(err, ErrNoChanDBExists),
+			errors.Is(err, ErrNoActiveChannels),
+			errors.Is(err, ErrChannelNotFound):
+
+			return nil
+		default:
+			return err
+		}
+
+		updateBytes := chanBucket.Get(unsignedAckedUpdatesKey)
+		if updateBytes == nil {
+			return nil
+		}
+
+		r := bytes.NewReader(updateBytes)
+		updates, err = DeserializeLogUpdates(r)
+
+		return err
+	}, func() {
+		updates = nil
+	})
+	if err != nil {
+		return nil, err
+	}
+
+	return updates, nil
+}
+
+// RemoteUnsignedLocalUpdates retrieves the persisted, unsigned local log
+// updates that the remote still needs to sign for.
+func (s *KVStore) RemoteUnsignedLocalUpdates(
+	channel *OpenChannel) ([]LogUpdate, error) {
+
+	var updates []LogUpdate
+	err := kvdb.View(s.backend, func(tx kvdb.RTx) error {
+		chanBucket, err := FetchChanBucket(
+			tx, channel.IdentityPub, &channel.FundingOutpoint,
+			channel.ChainHash,
+		)
+		switch {
+		case err == nil:
+		case errors.Is(err, ErrNoChanDBExists),
+			errors.Is(err, ErrNoActiveChannels),
+			errors.Is(err, ErrChannelNotFound):
+
+			return nil
+		default:
+			return err
+		}
+
+		updateBytes := chanBucket.Get(remoteUnsignedLocalUpdatesKey)
+		if updateBytes == nil {
+			return nil
+		}
+
+		r := bytes.NewReader(updateBytes)
+		updates, err = DeserializeLogUpdates(r)
+
+		return err
+	}, func() {
+		updates = nil
+	})
+	if err != nil {
+		return nil, err
+	}
+
+	return updates, nil
+}
+
+// CommitmentHeight returns the current commitment height. The commitment
+// height represents the number of updates to the commitment state to date.
+// This value is always monotonically increasing. This method is provided in
+// order to allow multiple instances of a particular open channel to obtain a
+// consistent view of the number of channel updates to date.
+func (s *KVStore) CommitmentHeight(channel *OpenChannel) (
+	uint64, error) {
+
+	var height uint64
+	err := kvdb.View(s.backend, func(tx kvdb.RTx) error {
+		// Get the bucket dedicated to storing the metadata for open
+		// channels.
+		chanBucket, err := FetchChanBucket(
+			tx, channel.IdentityPub, &channel.FundingOutpoint,
+			channel.ChainHash,
+		)
+		if err != nil {
+			return err
+		}
+
+		commit, err := FetchChanCommitment(chanBucket, true)
+		if err != nil {
+			return err
+		}
+
+		height = commit.CommitHeight
+
+		return nil
+	}, func() {
+		height = 0
+	})
+	if err != nil {
+		return 0, err
+	}
+
+	return height, nil
+}
+
+// LatestCommitments returns the two latest commitments for both the local and
+// remote party. These commitments are read from disk to ensure that only the
+// latest fully committed state is returned. The first commitment returned is
+// the local commitment, and the second returned is the remote commitment.
+func (s *KVStore) LatestCommitments(channel *OpenChannel) (
+	*ChannelCommitment, *ChannelCommitment, error) {
+
+	err := kvdb.View(s.backend, func(tx kvdb.RTx) error {
+		chanBucket, err := FetchChanBucket(
+			tx, channel.IdentityPub, &channel.FundingOutpoint,
+			channel.ChainHash,
+		)
+		if err != nil {
+			return err
+		}
+
+		return FetchChanCommitments(chanBucket, channel)
+	}, func() {})
+	if err != nil {
+		return nil, nil, err
+	}
+
+	return &channel.LocalCommitment, &channel.RemoteCommitment, nil
+}
+
+// RemoteRevocationStore returns the most up to date commitment version of the
+// revocation storage tree for the remote party. This method can be used when
+// acting on a possible contract breach to ensure, that the caller has the most
+// up to date information required to deliver justice.
+func (s *KVStore) RemoteRevocationStore(
+	channel *OpenChannel) (shachain.Store, error) {
+
+	err := kvdb.View(s.backend, func(tx kvdb.RTx) error {
+		chanBucket, err := FetchChanBucket(
+			tx, channel.IdentityPub, &channel.FundingOutpoint,
+			channel.ChainHash,
+		)
+		if err != nil {
+			return err
+		}
+
+		return FetchChanRevocationState(chanBucket, channel)
+	}, func() {})
+	if err != nil {
+		return nil, err
+	}
+
+	return channel.RevocationStore, nil
 }
 
 // commitTlvData stores all the optional data that may be stored as a TLV stream

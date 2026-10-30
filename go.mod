@@ -217,4 +217,6 @@ replace google.golang.org/protobuf => github.com/lightninglabs/protobuf-go-hex-d
 // GO_VERSION in Makefile.
 go 1.26.10
 
+godebug multipathtcp=0
+
 retract v0.0.2

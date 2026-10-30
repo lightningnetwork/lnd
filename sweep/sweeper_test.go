@@ -232,12 +232,10 @@ func TestMarkInputsPublishFailed(t *testing.T) {
 		inputPublishFailed, inputSwept, inputExcluded, inputFatal,
 	})
 
-	feeRate := chainfee.SatPerKWeight(1000)
-
 	// Mark the test inputs. We expect the non-exist input and the
 	// inputInit to be skipped, and the final input to be marked as
 	// published.
-	s.markInputsPublishFailed(set, feeRate)
+	s.markInputsPublishFailed(set)
 
 	// We expect unchanged number of pending inputs.
 	require.Len(s.inputs, 7)
@@ -251,12 +249,12 @@ func TestMarkInputsPublishFailed(t *testing.T) {
 	// failed.
 	pi = s.inputs[inputPendingPublish.OutPoint()]
 	require.Equal(PublishFailed, pi.state)
-	require.Equal(feeRate, pi.params.StartingFeeRate.UnsafeFromSome())
+	require.True(pi.params.StartingFeeRate.IsNone())
 
 	// We expect the published input's is now marked as publish failed.
 	pi = s.inputs[inputPublished.OutPoint()]
 	require.Equal(PublishFailed, pi.state)
-	require.Equal(feeRate, pi.params.StartingFeeRate.UnsafeFromSome())
+	require.True(pi.params.StartingFeeRate.IsNone())
 
 	// We expect the publish failed input to stay unchanged.
 	pi = s.inputs[inputPublishFailed.OutPoint()]
@@ -660,14 +658,10 @@ func TestSweepPendingInputs(t *testing.T) {
 	setNeedWallet.On("Inputs").Return(nil).Maybe()
 	setNeedWallet.On("DeadlineHeight").Return(testHeight).Once()
 	setNeedWallet.On("Budget").Return(btcutil.Amount(1)).Once()
-	setNeedWallet.On("StartingFeeRate").Return(
-		fn.None[chainfee.SatPerKWeight]()).Once()
 	setNeedWallet.On("Immediate").Return(false).Once()
 	normalSet.On("Inputs").Return(nil).Maybe()
 	normalSet.On("DeadlineHeight").Return(testHeight).Once()
 	normalSet.On("Budget").Return(btcutil.Amount(1)).Once()
-	normalSet.On("StartingFeeRate").Return(
-		fn.None[chainfee.SatPerKWeight]()).Once()
 	normalSet.On("Immediate").Return(false).Once()
 
 	// Make pending inputs for testing. We don't need real values here as

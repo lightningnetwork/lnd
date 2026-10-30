@@ -248,14 +248,7 @@ func (b *BudgetAggregator) filterInputs(inputs InputsMap) InputsMap {
 		// dropping the input, so a transient aux failure doesn't
 		// recreate the silently-stranded mode this guard is meant to
 		// avoid.
-		extraBudget, err := fn.MapOptionZ(
-			b.auxSweeper,
-			func(aux AuxSweeper) fn.Result[btcutil.Amount] {
-				return aux.ExtraBudgetForInputs(
-					[]input.Input{pi.Input},
-				)
-			},
-		).Unpack()
+		extraBudget, err := inputExtraBudget(b.auxSweeper, pi.Input)
 		if err != nil {
 			log.Errorf("Unable to fetch extra budget for "+
 				"input=%v, falling back to own budget: %v",

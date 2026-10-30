@@ -3,7 +3,7 @@ package lnwallet
 import (
 	"github.com/btcsuite/btcd/btcutil/v2"
 	"github.com/btcsuite/btcd/wire/v2"
-	"github.com/lightningnetwork/lnd/channeldb"
+	"github.com/lightningnetwork/lnd/chanstate"
 	"github.com/lightningnetwork/lnd/fn/v2"
 	"github.com/lightningnetwork/lnd/input"
 	"github.com/lightningnetwork/lnd/lnwire"
@@ -46,7 +46,7 @@ type ResolutionReq struct {
 	ChanPoint wire.OutPoint
 
 	// ChanType is the type of the channel that we are trying to resolve.
-	ChanType channeldb.ChannelType
+	ChanType chanstate.ChannelType
 
 	// ShortChanID is the short channel ID of the channel that we are
 	// trying to resolve.

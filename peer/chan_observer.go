@@ -3,6 +3,7 @@ package peer
 import (
 	"github.com/btcsuite/btcd/wire/v2"
 	"github.com/lightningnetwork/lnd/channeldb"
+	"github.com/lightningnetwork/lnd/chanstate"
 	"github.com/lightningnetwork/lnd/fn/v2"
 	"github.com/lightningnetwork/lnd/htlcswitch"
 	"github.com/lightningnetwork/lnd/lntypes"
@@ -28,12 +29,12 @@ type channelView interface {
 
 	// StateSnapshot returns a snapshot of the current fully committed
 	// state within the channel.
-	StateSnapshot() *channeldb.ChannelSnapshot
+	StateSnapshot() *chanstate.ChannelSnapshot
 
 	// MarkShutdownSent persists the given ShutdownInfo. The existence of
 	// the ShutdownInfo represents the fact that the Shutdown message has
 	// been sent by us and so should be re-sent on re-establish.
-	MarkShutdownSent(info *channeldb.ShutdownInfo) error
+	MarkShutdownSent(info *chanstate.ShutdownInfo) error
 }
 
 // linkController is capable of controlling the flow out incoming/outgoing

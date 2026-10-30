@@ -6,6 +6,7 @@ import (
 
 	"github.com/btcsuite/btcd/btcutil/v2"
 	"github.com/lightningnetwork/lnd/channeldb"
+	"github.com/lightningnetwork/lnd/chanstate"
 	"github.com/lightningnetwork/lnd/fn/v2"
 	"github.com/lightningnetwork/lnd/lntypes"
 	"github.com/stretchr/testify/require"
@@ -32,11 +33,11 @@ func genCoopCloseFee(t *rapid.T) btcutil.Amount {
 
 // genChannelType generates various channel types, ensuring good coverage of
 // different channel configurations including anchor outputs and other features.
-func genChannelType(t *rapid.T) channeldb.ChannelType {
-	var chanType channeldb.ChannelType
+func genChannelType(t *rapid.T) chanstate.ChannelType {
+	var chanType chanstate.ChannelType
 
 	// For each bit, decide randomly if it should be set.
-	bits := []channeldb.ChannelType{
+	bits := []chanstate.ChannelType{
 		channeldb.DualFunderBit,
 		channeldb.SingleFunderTweaklessBit,
 		channeldb.NoFundingTxBit,
@@ -52,7 +53,7 @@ func genChannelType(t *rapid.T) channeldb.ChannelType {
 	}
 
 	// Helper to bias towards setting specific bits more frequently.
-	setBit := func(bit channeldb.ChannelType, probability int) {
+	setBit := func(bit chanstate.ChannelType, probability int) {
 		bitRange := rapid.IntRange(0, 100)
 		label := "bit_" + strconv.FormatUint(uint64(bit), 2)
 		if bitRange.Draw(t, label) < probability {

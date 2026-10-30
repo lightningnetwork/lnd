@@ -4,7 +4,6 @@ import (
 	"github.com/btcsuite/btcd/btcutil/v2"
 	"github.com/btcsuite/btcd/chainhash/v2"
 	"github.com/btcsuite/btcd/wire/v2"
-	"github.com/lightningnetwork/lnd/channeldb"
 	"github.com/lightningnetwork/lnd/chanstate"
 	"github.com/lightningnetwork/lnd/fn/v2"
 	"github.com/lightningnetwork/lnd/input"
@@ -60,7 +59,7 @@ type CommitAuxLeaves struct {
 // is copied over to prevent accidental mutation of the original channel state.
 type AuxChanState struct {
 	// ChanType denotes which type of channel this is.
-	ChanType channeldb.ChannelType
+	ChanType chanstate.ChannelType
 
 	// FundingOutpoint is the outpoint of the final funding transaction.
 	// This value uniquely and globally identifies the channel within the
@@ -84,10 +83,10 @@ type AuxChanState struct {
 	Capacity btcutil.Amount
 
 	// LocalChanCfg is the channel configuration for the local node.
-	LocalChanCfg channeldb.ChannelConfig
+	LocalChanCfg chanstate.ChannelConfig
 
 	// RemoteChanCfg is the channel configuration for the remote node.
-	RemoteChanCfg channeldb.ChannelConfig
+	RemoteChanCfg chanstate.ChannelConfig
 
 	// ThawHeight is the height when a frozen channel once again becomes a
 	// normal channel. If this is zero, then there're no restrictions on
@@ -186,13 +185,13 @@ type AuxLeafStore interface {
 	// correspond to the passed aux blob, and an existing channel
 	// commitment.
 	FetchLeavesFromCommit(chanState AuxChanState,
-		commit channeldb.ChannelCommitment, keyRing CommitmentKeyRing,
+		commit chanstate.ChannelCommitment, keyRing CommitmentKeyRing,
 		whoseCommit lntypes.ChannelParty) fn.Result[CommitDiffAuxResult]
 
 	// FetchLeavesFromRevocation attempts to fetch the auxiliary leaves
 	// from a channel revocation that stores balance + blob information.
 	FetchLeavesFromRevocation(
-		r *channeldb.RevocationLog) fn.Result[CommitDiffAuxResult]
+		r *chanstate.RevocationLog) fn.Result[CommitDiffAuxResult]
 
 	// ApplyHtlcView serves as the state transition function for the custom
 	// channel's blob. Given the old blob, and an HTLC view, then a new

@@ -3,7 +3,7 @@ package htlcswitch
 import (
 	"fmt"
 
-	"github.com/lightningnetwork/lnd/channeldb"
+	"github.com/lightningnetwork/lnd/chanstate"
 	"github.com/lightningnetwork/lnd/fn/v2"
 	"github.com/lightningnetwork/lnd/graph/db/models"
 	"github.com/lightningnetwork/lnd/htlcswitch/hop"
@@ -47,12 +47,12 @@ type htlcPacket struct {
 	// sourceRef is used by forwarded htlcPackets to locate incoming Add
 	// entry in a fwdpkg owned by the incoming link. This value can be nil
 	// if there is no such entry, e.g. switch initiated payments.
-	sourceRef *channeldb.AddRef
+	sourceRef *chanstate.AddRef
 
 	// destRef is used to locate a settle/fail entry in the outgoing link's
 	// fwdpkg. If sourceRef is non-nil, this reference should be to a
 	// settle/fail in response to the sourceRef.
-	destRef *channeldb.SettleFailRef
+	destRef *chanstate.SettleFailRef
 
 	// incomingAmount is the value in milli-satoshis that arrived on an
 	// incoming link.

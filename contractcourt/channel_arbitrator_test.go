@@ -319,8 +319,8 @@ type testChanArbOption func(cfg *testChanArbOpts)
 
 // remoteInitiatorOption sets the MarkChannelClosed function in the Channel
 // Arbitrator's config.
-func withMarkClosed(markClosed func(*channeldb.ChannelCloseSummary,
-	...channeldb.ChannelStatus) error) testChanArbOption {
+func withMarkClosed(markClosed func(*chanstate.ChannelCloseSummary,
+	...chanstate.ChannelStatus) error) testChanArbOption {
 
 	return func(cfg *testChanArbOpts) {
 		cfg.arbCfg.MarkChannelClosed = markClosed
@@ -435,8 +435,8 @@ func createTestChannelArbitrator(t *testing.T, log ArbitratorLog,
 
 			return nil
 		},
-		MarkChannelClosed: func(*channeldb.ChannelCloseSummary,
-			...channeldb.ChannelStatus) error {
+		MarkChannelClosed: func(*chanstate.ChannelCloseSummary,
+			...chanstate.ChannelStatus) error {
 
 			return nil
 		},
@@ -452,7 +452,7 @@ func createTestChannelArbitrator(t *testing.T, log ArbitratorLog,
 			return &chanstate.OpenChannel{}, nil
 		},
 		FindOutgoingHTLCDeadline: func(
-			htlc channeldb.HTLC) fn.Option[int32] {
+			htlc chanstate.HTLC) fn.Option[int32] {
 
 			return fn.None[int32]()
 		},
@@ -538,10 +538,10 @@ func TestChannelArbitratorCooperativeClose(t *testing.T) {
 	chanArbCtx.AssertState(StateDefault)
 
 	// We set up a channel to detect when MarkChannelClosed is called.
-	closeInfos := make(chan *channeldb.ChannelCloseSummary)
+	closeInfos := make(chan *chanstate.ChannelCloseSummary)
 	chanArbCtx.chanArb.cfg.MarkChannelClosed = func(
-		closeInfo *channeldb.ChannelCloseSummary,
-		statuses ...channeldb.ChannelStatus) error {
+		closeInfo *chanstate.ChannelCloseSummary,
+		statuses ...chanstate.ChannelStatus) error {
 
 		closeInfos <- closeInfo
 		return nil
@@ -550,7 +550,7 @@ func TestChannelArbitratorCooperativeClose(t *testing.T) {
 	// Cooperative close should do trigger a MarkChannelClosed +
 	// NotifyChannelResolved.
 	closeInfo := &CooperativeCloseInfo{
-		&channeldb.ChannelCloseSummary{},
+		&chanstate.ChannelCloseSummary{},
 	}
 	chanArbCtx.chanArb.cfg.ChainEvents.CooperativeClosure <- closeInfo
 
@@ -607,7 +607,7 @@ func TestChannelArbitratorRemoteForceClose(t *testing.T) {
 		UnilateralCloseSummary: uniClose,
 		CommitSet: CommitSet{
 			ConfCommitKey: fn.Some(RemoteHtlcSet),
-			HtlcSets:      make(map[HtlcSetKey][]channeldb.HTLC),
+			HtlcSets:      make(map[HtlcSetKey][]chanstate.HTLC),
 		},
 	}
 
@@ -633,13 +633,13 @@ func TestDanglingPreimageActions(t *testing.T) {
 
 	preimage := lntypes.Preimage{4, 5, 6}
 	payHash := preimage.Hash()
-	danglingHTLC := channeldb.HTLC{
+	danglingHTLC := chanstate.HTLC{
 		Incoming:    false,
 		HtlcIndex:   77,
 		RHash:       payHash,
 		OutputIndex: 0,
 	}
-	htlcSets := map[HtlcSetKey][]channeldb.HTLC{
+	htlcSets := map[HtlcSetKey][]chanstate.HTLC{
 		LocalHtlcSet:         {},
 		RemoteHtlcSet:        {danglingHTLC},
 		RemotePendingHtlcSet: {},
@@ -696,7 +696,7 @@ func TestDanglingPreimageActions(t *testing.T) {
 			)
 			require.NoError(t, err)
 			require.Equal(
-				t, []channeldb.HTLC{danglingHTLC},
+				t, []chanstate.HTLC{danglingHTLC},
 				actions[HtlcSettleDanglingAction],
 			)
 			require.Empty(t, actions[HtlcFailDanglingAction])
@@ -811,7 +811,7 @@ func TestChannelArbitratorLocalForceClose(t *testing.T) {
 				HtlcResolutions: &lnwallet.HtlcResolutions{},
 			}),
 		},
-		ChannelCloseSummary: &channeldb.ChannelCloseSummary{},
+		ChannelCloseSummary: &chanstate.ChannelCloseSummary{},
 	}
 
 	// It should transition StateContractClosed -> StateFullyResolved.
@@ -859,7 +859,7 @@ func TestChannelArbitratorBreachClose(t *testing.T) {
 	outgoingIdx := uint64(2)
 
 	rHash1 := [lntypes.PreimageSize]byte{1, 2, 3}
-	htlc1 := channeldb.HTLC{
+	htlc1 := chanstate.HTLC{
 		RHash:       rHash1,
 		OutputIndex: 2,
 		Incoming:    false,
@@ -868,7 +868,7 @@ func TestChannelArbitratorBreachClose(t *testing.T) {
 	}
 
 	rHash2 := [lntypes.PreimageSize]byte{2, 2, 2}
-	htlc2 := channeldb.HTLC{
+	htlc2 := chanstate.HTLC{
 		RHash:       rHash2,
 		OutputIndex: 3,
 		Incoming:    true,
@@ -891,7 +891,7 @@ func TestChannelArbitratorBreachClose(t *testing.T) {
 		AnchorResolution: anchorRes,
 		CommitSet: CommitSet{
 			ConfCommitKey: fn.Some(RemoteHtlcSet),
-			HtlcSets: map[HtlcSetKey][]channeldb.HTLC{
+			HtlcSets: map[HtlcSetKey][]chanstate.HTLC{
 				RemoteHtlcSet: {htlc1, htlc2},
 			},
 		},
@@ -984,27 +984,27 @@ func TestChannelArbitratorLocalForceClosePendingHtlc(t *testing.T) {
 
 	// Add HTLC to channel arbitrator.
 	htlcAmt := 10000
-	htlc := channeldb.HTLC{
+	htlc := chanstate.HTLC{
 		Incoming:  false,
 		Amt:       lnwire.MilliSatoshi(htlcAmt),
 		HtlcIndex: 99,
 	}
 
-	outgoingDustHtlc := channeldb.HTLC{
+	outgoingDustHtlc := chanstate.HTLC{
 		Incoming:    false,
 		Amt:         100,
 		HtlcIndex:   100,
 		OutputIndex: -1,
 	}
 
-	incomingDustHtlc := channeldb.HTLC{
+	incomingDustHtlc := chanstate.HTLC{
 		Incoming:    true,
 		Amt:         105,
 		HtlcIndex:   101,
 		OutputIndex: -1,
 	}
 
-	htlcSet := []channeldb.HTLC{
+	htlcSet := []chanstate.HTLC{
 		htlc, outgoingDustHtlc, incomingDustHtlc,
 	}
 
@@ -1115,10 +1115,10 @@ func TestChannelArbitratorLocalForceClosePendingHtlc(t *testing.T) {
 				},
 			}),
 		},
-		ChannelCloseSummary: &channeldb.ChannelCloseSummary{},
+		ChannelCloseSummary: &chanstate.ChannelCloseSummary{},
 		CommitSet: CommitSet{
 			ConfCommitKey: fn.Some(LocalHtlcSet),
-			HtlcSets: map[HtlcSetKey][]channeldb.HTLC{
+			HtlcSets: map[HtlcSetKey][]chanstate.HTLC{
 				LocalHtlcSet: htlcSet,
 			},
 		},
@@ -1538,8 +1538,8 @@ func TestChannelArbitratorPersistence(t *testing.T) {
 	// Now we make the log succeed writing the resolutions, but fail when
 	// attempting to close the channel.
 	log.failLog = false
-	chanArb.cfg.MarkChannelClosed = func(*channeldb.ChannelCloseSummary,
-		...channeldb.ChannelStatus) error {
+	chanArb.cfg.MarkChannelClosed = func(*chanstate.ChannelCloseSummary,
+		...chanstate.ChannelStatus) error {
 
 		return fmt.Errorf("intentional close error")
 	}
@@ -1684,7 +1684,7 @@ func TestChannelArbitratorForceCloseBreachedChannel(t *testing.T) {
 	}
 	log.commitSet = &CommitSet{
 		ConfCommitKey: fn.Some(RemoteHtlcSet),
-		HtlcSets: map[HtlcSetKey][]channeldb.HTLC{
+		HtlcSets: map[HtlcSetKey][]chanstate.HTLC{
 			RemoteHtlcSet: {},
 		},
 	}
@@ -1729,7 +1729,7 @@ func TestChannelArbitratorCommitFailure(t *testing.T) {
 	testCases := []struct {
 
 		// closeType is the type of channel close we want ot test.
-		closeType channeldb.ClosureType
+		closeType chanstate.ClosureType
 
 		// sendEvent is a function that will send the event
 		// corresponding to this test's closeType to the passed
@@ -1744,7 +1744,7 @@ func TestChannelArbitratorCommitFailure(t *testing.T) {
 			closeType: channeldb.CooperativeClose,
 			sendEvent: func(chanArb *ChannelArbitrator) {
 				closeInfo := &CooperativeCloseInfo{
-					&channeldb.ChannelCloseSummary{},
+					&chanstate.ChannelCloseSummary{},
 				}
 				chanArb.cfg.ChainEvents.CooperativeClosure <- closeInfo
 			},
@@ -1779,7 +1779,7 @@ func TestChannelArbitratorCommitFailure(t *testing.T) {
 							HtlcResolutions: &lnwallet.HtlcResolutions{},
 						}),
 					},
-					ChannelCloseSummary: &channeldb.ChannelCloseSummary{},
+					ChannelCloseSummary: &chanstate.ChannelCloseSummary{},
 				}
 			},
 			expectedStates: []ArbitratorState{StateContractClosed, StateFullyResolved},
@@ -1814,8 +1814,8 @@ func TestChannelArbitratorCommitFailure(t *testing.T) {
 
 		closed := make(chan struct{})
 		chanArb.cfg.MarkChannelClosed = func(
-			*channeldb.ChannelCloseSummary,
-			...channeldb.ChannelStatus) error {
+			*chanstate.ChannelCloseSummary,
+			...chanstate.ChannelStatus) error {
 
 			close(closed)
 			return nil
@@ -2042,7 +2042,7 @@ func TestChannelArbitratorDanglingCommitForceClose(t *testing.T) {
 			// commitment transaction of the _remote_ party.
 			htlcIndex := uint64(99)
 			htlcExpiry := uint32(10)
-			danglingHTLC := channeldb.HTLC{
+			danglingHTLC := chanstate.HTLC{
 				Incoming:      false,
 				Amt:           10000,
 				HtlcIndex:     htlcIndex,
@@ -2050,7 +2050,7 @@ func TestChannelArbitratorDanglingCommitForceClose(t *testing.T) {
 			}
 			newUpdate := &ContractUpdate{
 				HtlcKey: htlcKey,
-				Htlcs:   []channeldb.HTLC{danglingHTLC},
+				Htlcs:   []chanstate.HTLC{danglingHTLC},
 			}
 			chanArb.notifyContractUpdate(newUpdate)
 
@@ -2118,13 +2118,13 @@ func TestChannelArbitratorDanglingCommitForceClose(t *testing.T) {
 						HtlcResolutions: &lnwallet.HtlcResolutions{},
 					}),
 				},
-				ChannelCloseSummary: &channeldb.ChannelCloseSummary{},
+				ChannelCloseSummary: &chanstate.ChannelCloseSummary{},
 				CommitSet: CommitSet{
 					ConfCommitKey: fn.Some(
 						testCase.confCommit,
 					),
 					HtlcSets: make(
-						map[HtlcSetKey][]channeldb.HTLC,
+						map[HtlcSetKey][]chanstate.HTLC,
 					),
 				},
 			}
@@ -2141,7 +2141,7 @@ func TestChannelArbitratorDanglingCommitForceClose(t *testing.T) {
 			// commitment or not, we'll populate either a fake
 			// dangling remote commitment, or a regular locked in
 			// one.
-			htlcs := []channeldb.HTLC{danglingHTLC}
+			htlcs := []chanstate.HTLC{danglingHTLC}
 			if testCase.remotePendingHTLC {
 				uniCloseInfo.CommitSet.HtlcSets[RemotePendingHtlcSet] = htlcs
 			} else {
@@ -2211,7 +2211,7 @@ func TestChannelArbitratorDustOnConfirmedCommit(t *testing.T) {
 	// The HTLC has an output on our local commitment, but it is trimmed on
 	// the commitment of the remote party.
 	const htlcIndex = 99
-	liveHTLC := channeldb.HTLC{
+	liveHTLC := chanstate.HTLC{
 		Incoming:      false,
 		Amt:           10000,
 		HtlcIndex:     htlcIndex,
@@ -2225,11 +2225,11 @@ func TestChannelArbitratorDustOnConfirmedCommit(t *testing.T) {
 
 	chanArb.notifyContractUpdate(&ContractUpdate{
 		HtlcKey: LocalHtlcSet,
-		Htlcs:   []channeldb.HTLC{liveHTLC},
+		Htlcs:   []chanstate.HTLC{liveHTLC},
 	})
 	chanArb.notifyContractUpdate(&ContractUpdate{
 		HtlcKey: RemoteHtlcSet,
-		Htlcs:   []channeldb.HTLC{dustHTLC},
+		Htlcs:   []chanstate.HTLC{dustHTLC},
 	})
 
 	// Mine up to the broadcast cut off of the HTLC, which makes the
@@ -2272,10 +2272,10 @@ func TestChannelArbitratorDustOnConfirmedCommit(t *testing.T) {
 				HtlcResolutions: &lnwallet.HtlcResolutions{},
 			}),
 		},
-		ChannelCloseSummary: &channeldb.ChannelCloseSummary{},
+		ChannelCloseSummary: &chanstate.ChannelCloseSummary{},
 		CommitSet: CommitSet{
 			ConfCommitKey: fn.Some(RemoteHtlcSet),
-			HtlcSets: map[HtlcSetKey][]channeldb.HTLC{
+			HtlcSets: map[HtlcSetKey][]chanstate.HTLC{
 				LocalHtlcSet:  {liveHTLC},
 				RemoteHtlcSet: {dustHTLC},
 			},
@@ -2315,8 +2315,8 @@ func TestCheckRemoteDanglingActionsDustDivergence(t *testing.T) {
 	// The HTLC is close enough to its expiry that we would go on chain for
 	// it, which is what makes checkRemoteDanglingActions consider it in the
 	// first place.
-	newHTLC := func(outputIndex int32) channeldb.HTLC {
-		return channeldb.HTLC{
+	newHTLC := func(outputIndex int32) chanstate.HTLC {
+		return chanstate.HTLC{
 			HtlcIndex:     htlcIndex,
 			RefundTimeout: heightHint,
 			OutputIndex:   outputIndex,
@@ -2331,8 +2331,8 @@ func TestCheckRemoteDanglingActionsDustDivergence(t *testing.T) {
 
 	tests := []struct {
 		name         string
-		remote       channeldb.HTLC
-		pending      channeldb.HTLC
+		remote       chanstate.HTLC
+		pending      chanstate.HTLC
 		expectAction ChainAction
 	}{
 		{
@@ -2375,10 +2375,10 @@ func TestCheckRemoteDanglingActionsDustDivergence(t *testing.T) {
 			activeHTLCs := map[HtlcSetKey]htlcSet{
 				LocalHtlcSet: newHtlcSet(nil),
 				RemoteHtlcSet: newHtlcSet(
-					[]channeldb.HTLC{test.remote},
+					[]chanstate.HTLC{test.remote},
 				),
 				RemotePendingHtlcSet: newHtlcSet(
-					[]channeldb.HTLC{test.pending},
+					[]chanstate.HTLC{test.pending},
 				),
 			}
 
@@ -2432,7 +2432,7 @@ func TestChannelArbitratorDustPendingCommitConfirms(t *testing.T) {
 	// the remote commitment, but a fee update trimmed it on the remote
 	// pending commitment.
 	const htlcIndex = 99
-	liveHTLC := channeldb.HTLC{
+	liveHTLC := chanstate.HTLC{
 		Incoming:      false,
 		Amt:           10000,
 		HtlcIndex:     htlcIndex,
@@ -2446,11 +2446,11 @@ func TestChannelArbitratorDustPendingCommitConfirms(t *testing.T) {
 
 	chanArb.notifyContractUpdate(&ContractUpdate{
 		HtlcKey: RemoteHtlcSet,
-		Htlcs:   []channeldb.HTLC{liveHTLC},
+		Htlcs:   []chanstate.HTLC{liveHTLC},
 	})
 	chanArb.notifyContractUpdate(&ContractUpdate{
 		HtlcKey: RemotePendingHtlcSet,
-		Htlcs:   []channeldb.HTLC{dustHTLC},
+		Htlcs:   []chanstate.HTLC{dustHTLC},
 	})
 
 	// Mine up to the broadcast cut off of the HTLC, which makes the
@@ -2489,10 +2489,10 @@ func TestChannelArbitratorDustPendingCommitConfirms(t *testing.T) {
 				HtlcResolutions: &lnwallet.HtlcResolutions{},
 			}),
 		},
-		ChannelCloseSummary: &channeldb.ChannelCloseSummary{},
+		ChannelCloseSummary: &chanstate.ChannelCloseSummary{},
 		CommitSet: CommitSet{
 			ConfCommitKey: fn.Some(RemotePendingHtlcSet),
-			HtlcSets: map[HtlcSetKey][]channeldb.HTLC{
+			HtlcSets: map[HtlcSetKey][]chanstate.HTLC{
 				RemoteHtlcSet:        {liveHTLC},
 				RemotePendingHtlcSet: {dustHTLC},
 			},
@@ -2546,7 +2546,7 @@ func TestChannelArbitratorDustOnLocalLiveOnRemote(t *testing.T) {
 	// the fee rate and the remote party revoked its old commitment but has
 	// not sent the corresponding commitment signature yet.
 	const htlcIndex = 99
-	dustHTLC := channeldb.HTLC{
+	dustHTLC := chanstate.HTLC{
 		Incoming:      false,
 		Amt:           10000,
 		HtlcIndex:     htlcIndex,
@@ -2560,11 +2560,11 @@ func TestChannelArbitratorDustOnLocalLiveOnRemote(t *testing.T) {
 
 	chanArb.notifyContractUpdate(&ContractUpdate{
 		HtlcKey: LocalHtlcSet,
-		Htlcs:   []channeldb.HTLC{dustHTLC},
+		Htlcs:   []chanstate.HTLC{dustHTLC},
 	})
 	chanArb.notifyContractUpdate(&ContractUpdate{
 		HtlcKey: RemoteHtlcSet,
-		Htlcs:   []channeldb.HTLC{liveHTLC},
+		Htlcs:   []chanstate.HTLC{liveHTLC},
 	})
 
 	// Mine up to the broadcast cut off of the HTLC, which makes the
@@ -2606,10 +2606,10 @@ func TestChannelArbitratorDustOnLocalLiveOnRemote(t *testing.T) {
 				HtlcResolutions: &lnwallet.HtlcResolutions{},
 			}),
 		},
-		ChannelCloseSummary: &channeldb.ChannelCloseSummary{},
+		ChannelCloseSummary: &chanstate.ChannelCloseSummary{},
 		CommitSet: CommitSet{
 			ConfCommitKey: fn.Some(LocalHtlcSet),
-			HtlcSets: map[HtlcSetKey][]channeldb.HTLC{
+			HtlcSets: map[HtlcSetKey][]chanstate.HTLC{
 				LocalHtlcSet:  {dustHTLC},
 				RemoteHtlcSet: {liveHTLC},
 			},
@@ -2687,7 +2687,7 @@ func TestChannelArbitratorPendingExpiredHTLC(t *testing.T) {
 	// in 10 blocks.
 	htlcIndex := uint64(99)
 	htlcExpiry := uint32(10)
-	pendingHTLC := channeldb.HTLC{
+	pendingHTLC := chanstate.HTLC{
 		Incoming:      false,
 		Amt:           10000,
 		HtlcIndex:     htlcIndex,
@@ -2695,7 +2695,7 @@ func TestChannelArbitratorPendingExpiredHTLC(t *testing.T) {
 	}
 	newUpdate := &ContractUpdate{
 		HtlcKey: RemoteHtlcSet,
-		Htlcs:   []channeldb.HTLC{pendingHTLC},
+		Htlcs:   []chanstate.HTLC{pendingHTLC},
 	}
 	chanArb.notifyContractUpdate(newUpdate)
 
@@ -2734,7 +2734,8 @@ func TestRemoteCloseInitiator(t *testing.T) {
 						TxOut: []*wire.TxOut{},
 					},
 				},
-				ChannelCloseSummary: channeldb.ChannelCloseSummary{
+				ChannelCloseSummary: chanstate.
+					ChannelCloseSummary{
 					ChanPoint:         channel.FundingOutpoint,
 					RemotePub:         channel.IdentityPub,
 					SettledBalance:    btcutil.Amount(500),
@@ -2804,8 +2805,8 @@ func TestRemoteCloseInitiator(t *testing.T) {
 
 			// Mock marking the channel as closed, we only care
 			// about setting of channel status.
-			mockMarkClosed := func(_ *channeldb.ChannelCloseSummary,
-				statuses ...channeldb.ChannelStatus) error {
+			mockMarkClosed := func(_ *chanstate.ChannelCloseSummary,
+				statuses ...chanstate.ChannelStatus) error {
 
 				for _, status := range statuses {
 					err := alice.State().ApplyChanStatus(status)
@@ -2893,41 +2894,41 @@ func TestFindCommitmentDeadlineAndValue(t *testing.T) {
 	htlcAmt := lnwire.MilliSatoshi(1_000_000)
 
 	// Create four testing HTLCs.
-	htlcDust := channeldb.HTLC{
+	htlcDust := chanstate.HTLC{
 		HtlcIndex:     htlcIndexBase + 1,
 		RefundTimeout: htlcExpiryBase + 1,
 		OutputIndex:   -1,
 		Amt:           htlcAmt,
 	}
-	htlcSmallExipry := channeldb.HTLC{
+	htlcSmallExipry := chanstate.HTLC{
 		HtlcIndex:     htlcIndexBase + 2,
 		RefundTimeout: htlcExpiryBase + 2,
 		Amt:           htlcAmt,
 	}
 
-	htlcPreimage := channeldb.HTLC{
+	htlcPreimage := chanstate.HTLC{
 		HtlcIndex:     htlcIndexBase + 3,
 		RefundTimeout: htlcExpiryBase + 3,
 		RHash:         rHash,
 		Amt:           htlcAmt,
 	}
-	htlcLargeExpiry := channeldb.HTLC{
+	htlcLargeExpiry := chanstate.HTLC{
 		HtlcIndex:     htlcIndexBase + 4,
 		RefundTimeout: htlcExpiryBase + 100,
 		Amt:           htlcAmt,
 	}
-	htlcExpired := channeldb.HTLC{
+	htlcExpired := chanstate.HTLC{
 		HtlcIndex:     htlcIndexBase + 5,
 		RefundTimeout: heightHint,
 		Amt:           htlcAmt,
 	}
 
-	makeHTLCSet := func(incoming, outgoing channeldb.HTLC) htlcSet {
+	makeHTLCSet := func(incoming, outgoing chanstate.HTLC) htlcSet {
 		return htlcSet{
-			incomingHTLCs: map[uint64]channeldb.HTLC{
+			incomingHTLCs: map[uint64]chanstate.HTLC{
 				incoming.HtlcIndex: incoming,
 			},
-			outgoingHTLCs: map[uint64]channeldb.HTLC{
+			outgoingHTLCs: map[uint64]chanstate.HTLC{
 				outgoing.HtlcIndex: outgoing,
 			},
 		}
@@ -2964,7 +2965,7 @@ func TestFindCommitmentDeadlineAndValue(t *testing.T) {
 			)),
 			mockFindOutgoingHTLCDeadline: func() {
 				chanArb.cfg.FindOutgoingHTLCDeadline = func(
-					htlc channeldb.HTLC) fn.Option[int32] {
+					htlc chanstate.HTLC) fn.Option[int32] {
 
 					return fn.Some(int32(
 						htlcLargeExpiry.RefundTimeout,
@@ -2987,7 +2988,7 @@ func TestFindCommitmentDeadlineAndValue(t *testing.T) {
 			)),
 			mockFindOutgoingHTLCDeadline: func() {
 				chanArb.cfg.FindOutgoingHTLCDeadline = func(
-					htlc channeldb.HTLC) fn.Option[int32] {
+					htlc chanstate.HTLC) fn.Option[int32] {
 
 					return fn.Some(int32(
 						htlcLargeExpiry.RefundTimeout,
@@ -3008,7 +3009,7 @@ func TestFindCommitmentDeadlineAndValue(t *testing.T) {
 			)),
 			mockFindOutgoingHTLCDeadline: func() {
 				chanArb.cfg.FindOutgoingHTLCDeadline = func(
-					htlc channeldb.HTLC) fn.Option[int32] {
+					htlc chanstate.HTLC) fn.Option[int32] {
 
 					return fn.Some(int32(
 						htlcDust.RefundTimeout,
@@ -3027,7 +3028,7 @@ func TestFindCommitmentDeadlineAndValue(t *testing.T) {
 			deadline: fn.Some(int32(1)),
 			mockFindOutgoingHTLCDeadline: func() {
 				chanArb.cfg.FindOutgoingHTLCDeadline = func(
-					htlc channeldb.HTLC) fn.Option[int32] {
+					htlc chanstate.HTLC) fn.Option[int32] {
 
 					return fn.Some(int32(
 						htlcExpired.RefundTimeout,
@@ -3086,14 +3087,14 @@ func TestSweepAnchors(t *testing.T) {
 	htlcAmt := lnwire.MilliSatoshi(1_000_000)
 
 	// Create three testing HTLCs.
-	htlcDust := channeldb.HTLC{
+	htlcDust := chanstate.HTLC{
 		HtlcIndex:     htlcIndexBase + 1,
 		RefundTimeout: heightHint + 1,
 		OutputIndex:   -1,
 	}
 
 	deadlinePreimageDelta := deadlineDelta + 2
-	htlcWithPreimage := channeldb.HTLC{
+	htlcWithPreimage := chanstate.HTLC{
 		HtlcIndex:     htlcIndexBase + 2,
 		RefundTimeout: heightHint + deadlinePreimageDelta,
 		RHash:         rHash,
@@ -3101,7 +3102,7 @@ func TestSweepAnchors(t *testing.T) {
 	}
 
 	deadlineSmallDelta := deadlineDelta + 4
-	htlcSmallExipry := channeldb.HTLC{
+	htlcSmallExipry := chanstate.HTLC{
 		HtlcIndex:     htlcIndexBase + 3,
 		RefundTimeout: heightHint + deadlineSmallDelta,
 		Amt:           htlcAmt,
@@ -3111,18 +3112,18 @@ func TestSweepAnchors(t *testing.T) {
 	// the incoming HTLC set.
 	expectedLocalDeadline := heightHint + deadlinePreimageDelta/2
 	chanArb.activeHTLCs[LocalHtlcSet] = htlcSet{
-		incomingHTLCs: map[uint64]channeldb.HTLC{
+		incomingHTLCs: map[uint64]chanstate.HTLC{
 			htlcWithPreimage.HtlcIndex: htlcWithPreimage,
 		},
-		outgoingHTLCs: map[uint64]channeldb.HTLC{
+		outgoingHTLCs: map[uint64]chanstate.HTLC{
 			htlcDust.HtlcIndex: htlcDust,
 		},
 	}
 	chanArb.unmergedSet[LocalHtlcSet] = htlcSet{
-		incomingHTLCs: map[uint64]channeldb.HTLC{
+		incomingHTLCs: map[uint64]chanstate.HTLC{
 			htlcWithPreimage.HtlcIndex: htlcWithPreimage,
 		},
-		outgoingHTLCs: map[uint64]channeldb.HTLC{
+		outgoingHTLCs: map[uint64]chanstate.HTLC{
 			htlcDust.HtlcIndex: htlcDust,
 		},
 	}
@@ -3130,18 +3131,18 @@ func TestSweepAnchors(t *testing.T) {
 	// Setup our remote HTLC set such that no valid HTLCs can be used, thus
 	// the anchor sweeping is skipped.
 	chanArb.activeHTLCs[RemoteHtlcSet] = htlcSet{
-		incomingHTLCs: map[uint64]channeldb.HTLC{
+		incomingHTLCs: map[uint64]chanstate.HTLC{
 			htlcSmallExipry.HtlcIndex: htlcSmallExipry,
 		},
-		outgoingHTLCs: map[uint64]channeldb.HTLC{
+		outgoingHTLCs: map[uint64]chanstate.HTLC{
 			htlcDust.HtlcIndex: htlcDust,
 		},
 	}
 	chanArb.unmergedSet[RemoteHtlcSet] = htlcSet{
-		incomingHTLCs: map[uint64]channeldb.HTLC{
+		incomingHTLCs: map[uint64]chanstate.HTLC{
 			htlcSmallExipry.HtlcIndex: htlcSmallExipry,
 		},
-		outgoingHTLCs: map[uint64]channeldb.HTLC{
+		outgoingHTLCs: map[uint64]chanstate.HTLC{
 			htlcDust.HtlcIndex: htlcDust,
 		},
 	}
@@ -3150,18 +3151,18 @@ func TestSweepAnchors(t *testing.T) {
 	// CLTV from the outgoing HTLC set.
 	expectedPendingDeadline := heightHint + deadlineSmallDelta/2
 	chanArb.activeHTLCs[RemotePendingHtlcSet] = htlcSet{
-		incomingHTLCs: map[uint64]channeldb.HTLC{
+		incomingHTLCs: map[uint64]chanstate.HTLC{
 			htlcDust.HtlcIndex: htlcDust,
 		},
-		outgoingHTLCs: map[uint64]channeldb.HTLC{
+		outgoingHTLCs: map[uint64]chanstate.HTLC{
 			htlcSmallExipry.HtlcIndex: htlcSmallExipry,
 		},
 	}
 	chanArb.unmergedSet[RemotePendingHtlcSet] = htlcSet{
-		incomingHTLCs: map[uint64]channeldb.HTLC{
+		incomingHTLCs: map[uint64]chanstate.HTLC{
 			htlcDust.HtlcIndex: htlcDust,
 		},
-		outgoingHTLCs: map[uint64]channeldb.HTLC{
+		outgoingHTLCs: map[uint64]chanstate.HTLC{
 			htlcSmallExipry.HtlcIndex: htlcSmallExipry,
 		},
 	}
@@ -3169,7 +3170,7 @@ func TestSweepAnchors(t *testing.T) {
 	// Mock FindOutgoingHTLCDeadline so the pending remote's outgoing HTLC
 	// returns the small expiry value.
 	chanArb.cfg.FindOutgoingHTLCDeadline = func(
-		htlc channeldb.HTLC) fn.Option[int32] {
+		htlc chanstate.HTLC) fn.Option[int32] {
 
 		if htlc.RHash != htlcSmallExipry.RHash {
 			return fn.None[int32]()
@@ -3250,7 +3251,7 @@ func TestSweepLocalAnchor(t *testing.T) {
 
 	// Create one testing HTLC.
 	deadlineSmallDelta := deadlineDelta + 4
-	htlcSmallExipry := channeldb.HTLC{
+	htlcSmallExipry := chanstate.HTLC{
 		HtlcIndex:     htlcIndex,
 		RefundTimeout: heightHint + deadlineSmallDelta,
 		Amt:           htlcAmt,
@@ -3271,7 +3272,7 @@ func TestSweepLocalAnchor(t *testing.T) {
 	// other half of the deadline is used to sweep the HTLCs at stake.
 	expectedPendingDeadline := heightHint + deadlineSmallDelta/2
 	chanArb.activeHTLCs[RemotePendingHtlcSet] = htlcSet{
-		outgoingHTLCs: map[uint64]channeldb.HTLC{
+		outgoingHTLCs: map[uint64]chanstate.HTLC{
 			htlcSmallExipry.HtlcIndex: htlcSmallExipry,
 		},
 	}
@@ -3279,7 +3280,7 @@ func TestSweepLocalAnchor(t *testing.T) {
 	// Mock FindOutgoingHTLCDeadline so the pending remote's outgoing HTLC
 	// returns the small expiry value.
 	chanArb.cfg.FindOutgoingHTLCDeadline = func(
-		htlc channeldb.HTLC) fn.Option[int32] {
+		htlc chanstate.HTLC) fn.Option[int32] {
 
 		if htlc.RHash != htlcSmallExipry.RHash {
 			return fn.None[int32]()
@@ -3396,7 +3397,7 @@ func TestChannelArbitratorAnchors(t *testing.T) {
 	deadlineDelta := uint32(100)
 
 	deadlinePreimageDelta := deadlineDelta
-	htlcWithPreimage := channeldb.HTLC{
+	htlcWithPreimage := chanstate.HTLC{
 		HtlcIndex: 99,
 		// RefundTimeout is 101.
 		RefundTimeout: spendingHeight + deadlinePreimageDelta,
@@ -3407,7 +3408,7 @@ func TestChannelArbitratorAnchors(t *testing.T) {
 	expectedDeadline := deadlineDelta/2 + spendingHeight
 
 	deadlineHTLCdelta := deadlineDelta + 40
-	htlc := channeldb.HTLC{
+	htlc := chanstate.HTLC{
 		HtlcIndex: 100,
 		// RefundTimeout is 141.
 		RefundTimeout: spendingHeight + deadlineHTLCdelta,
@@ -3422,7 +3423,7 @@ func TestChannelArbitratorAnchors(t *testing.T) {
 		// to be htlcWithPreimage's CLTV since the incoming HTLC
 		// (toLocalHTLCs) has a lower CLTV value and is preimage
 		// available.
-		Htlcs: []channeldb.HTLC{htlc, htlcWithPreimage},
+		Htlcs: []chanstate.HTLC{htlc, htlcWithPreimage},
 	}
 	chanArb.notifyContractUpdate(newUpdate)
 
@@ -3431,7 +3432,7 @@ func TestChannelArbitratorAnchors(t *testing.T) {
 		// This will make the deadline of the remote anchor resolution
 		// to be htlcWithPreimage's CLTV because the incoming HTLC
 		// (toRemoteHTLCs) has a lower CLTV.
-		Htlcs: []channeldb.HTLC{htlc, htlcWithPreimage},
+		Htlcs: []chanstate.HTLC{htlc, htlcWithPreimage},
 	}
 	chanArb.notifyContractUpdate(newUpdate)
 
@@ -3505,10 +3506,10 @@ func TestChannelArbitratorAnchors(t *testing.T) {
 				AnchorResolution: anchorResolution,
 			}),
 		},
-		ChannelCloseSummary: &channeldb.ChannelCloseSummary{},
+		ChannelCloseSummary: &chanstate.ChannelCloseSummary{},
 		CommitSet: CommitSet{
 			ConfCommitKey: fn.Some(LocalHtlcSet),
-			HtlcSets:      map[HtlcSetKey][]channeldb.HTLC{},
+			HtlcSets:      map[HtlcSetKey][]chanstate.HTLC{},
 		},
 	}
 

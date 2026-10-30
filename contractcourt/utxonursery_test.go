@@ -20,6 +20,7 @@ import (
 	"github.com/btcsuite/btcd/wire/v2"
 	"github.com/davecgh/go-spew/spew"
 	"github.com/lightningnetwork/lnd/channeldb"
+	"github.com/lightningnetwork/lnd/chanstate"
 	"github.com/lightningnetwork/lnd/fn/v2"
 	"github.com/lightningnetwork/lnd/input"
 	"github.com/lightningnetwork/lnd/lntest/mock"
@@ -452,12 +453,14 @@ func createNurseryTestContext(t *testing.T,
 	nurseryCfg := NurseryConfig{
 		Notifier: notifier,
 		FetchClosedChannels: func(pendingOnly bool) (
-			[]*channeldb.ChannelCloseSummary, error) {
-			return []*channeldb.ChannelCloseSummary{}, nil
+			[]*chanstate.ChannelCloseSummary, error) {
+
+			return []*chanstate.ChannelCloseSummary{}, nil
 		},
 		FetchClosedChannel: func(chanID *wire.OutPoint) (
-			*channeldb.ChannelCloseSummary, error) {
-			return &channeldb.ChannelCloseSummary{
+			*chanstate.ChannelCloseSummary, error) {
+
+			return &chanstate.ChannelCloseSummary{
 				CloseHeight: 0,
 			}, nil
 		},
@@ -1415,14 +1418,14 @@ func TestPatchZeroHeightHint(t *testing.T) {
 				ConfDepth: tc.confDepth,
 				FetchClosedChannel: func(
 					chanID *wire.OutPoint) (
-					*channeldb.ChannelCloseSummary,
+					*chanstate.ChannelCloseSummary,
 					error) {
 
 					if tc.fetchError != nil {
 						return nil, tc.fetchError
 					}
 
-					return &channeldb.ChannelCloseSummary{
+					return &chanstate.ChannelCloseSummary{
 						CloseHeight: tc.closeHeight,
 						ShortChanID: tc.shortChanID,
 					}, nil
@@ -1555,7 +1558,7 @@ func TestIncubateConfigWitnessTypeSelection(t *testing.T) {
 		pkScript []byte
 
 		// chanType to pass via WithChanType.
-		chanType channeldb.ChannelType
+		chanType chanstate.ChannelType
 
 		// Expected witness types for incoming and outgoing-remote.
 		expectedIncoming input.StandardWitnessType

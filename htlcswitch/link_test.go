@@ -2175,7 +2175,7 @@ func newSingleLinkTestHarness(t *testing.T, chanAmt,
 
 	pCache := newMockPreimageCache()
 
-	aliceDb := testChannelStateDB(t, aliceLc.channel).GetParentDB()
+	aliceDb := aliceLc.db()
 	aliceSwitch, err := initSwitchWithDB(testStartingHeight, aliceDb)
 	if err != nil {
 		return singleLinkTestHarness{}, err
@@ -4871,7 +4871,7 @@ func (h *persistentLinkHarness) restartLink(
 		pCache = newMockPreimageCache()
 	)
 
-	aliceDb := testChannelStateDB(t, aliceChannel).GetParentDB()
+	aliceDb := testChannelDB(t, aliceChannel)
 	if restartSwitch {
 		var err error
 		h.hSwitch, err = initSwitchWithDB(testStartingHeight, aliceDb)
@@ -5638,7 +5638,7 @@ func TestChannelLinkCleanupSpuriousResponses(t *testing.T) {
 	// should see the second HTLCs AddRef update the forward filter for the
 	// first fwd pkg.
 	fail1 := &htlcPacket{
-		sourceRef: &channeldb.AddRef{
+		sourceRef: &cstate.AddRef{
 			Height: addHeight,
 			Index:  1,
 		},
@@ -5746,7 +5746,7 @@ func TestChannelLinkCleanupSpuriousResponses(t *testing.T) {
 	// in Alice's link, but it should not result in anything being sent to
 	// Bob.
 	fail0 = &htlcPacket{
-		sourceRef: &channeldb.AddRef{
+		sourceRef: &cstate.AddRef{
 			Height: addHeight,
 			Index:  0,
 		},
@@ -5797,7 +5797,7 @@ type mockFailLoadFwdPkgStore struct {
 // failure handling while all other store methods delegate to the embedded
 // store.
 func (m *mockFailLoadFwdPkgStore) LoadFwdPkgs(
-	*cstate.OpenChannel) ([]*channeldb.FwdPkg, error) {
+	*cstate.OpenChannel) ([]*cstate.FwdPkg, error) {
 
 	return nil, fmt.Errorf("failing LoadFwdPkgs")
 }

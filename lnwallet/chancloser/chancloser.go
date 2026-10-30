@@ -12,6 +12,7 @@ import (
 	"github.com/btcsuite/btcd/txscript/v2"
 	"github.com/btcsuite/btcd/wire/v2"
 	"github.com/lightningnetwork/lnd/channeldb"
+	"github.com/lightningnetwork/lnd/chanstate"
 	"github.com/lightningnetwork/lnd/fn/v2"
 	"github.com/lightningnetwork/lnd/htlcswitch"
 	"github.com/lightningnetwork/lnd/input"
@@ -272,7 +273,7 @@ type ChanCloser struct {
 // calcCoopCloseFee computes an "ideal" absolute co-op close fee given the
 // delivery scripts of both parties, any extra (e.g. auxiliary) close outputs
 // to include in the weight estimate, and our ideal fee rate.
-func calcCoopCloseFee(chanType channeldb.ChannelType,
+func calcCoopCloseFee(chanType chanstate.ChannelType,
 	localOutput, remoteOutput *wire.TxOut, extraOutputs []*wire.TxOut,
 	idealFeeRate chainfee.SatPerKWeight) btcutil.Amount {
 
@@ -312,7 +313,7 @@ type SimpleCoopFeeEstimator struct {
 // EstimateFee estimates an _absolute_ fee for a co-op close transaction given
 // the local+remote tx outs (for the co-op close transaction), any extra
 // outputs the close transaction will carry, channel type, and ideal fee rate.
-func (d *SimpleCoopFeeEstimator) EstimateFee(chanType channeldb.ChannelType,
+func (d *SimpleCoopFeeEstimator) EstimateFee(chanType chanstate.ChannelType,
 	localTxOut, remoteTxOut *wire.TxOut, extraTxOuts []*wire.TxOut,
 	idealFeeRate chainfee.SatPerKWeight) btcutil.Amount {
 

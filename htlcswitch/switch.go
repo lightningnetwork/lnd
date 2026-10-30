@@ -20,6 +20,7 @@ import (
 	"github.com/lightningnetwork/lnd/clock"
 	"github.com/lightningnetwork/lnd/contractcourt"
 	"github.com/lightningnetwork/lnd/fn/v2"
+	"github.com/lightningnetwork/lnd/fwdresponse"
 	"github.com/lightningnetwork/lnd/graph/db/models"
 	"github.com/lightningnetwork/lnd/htlcswitch/hop"
 	"github.com/lightningnetwork/lnd/kvdb"
@@ -228,14 +229,14 @@ type Config struct {
 	// SwitchPackager provides access to the forwarding packages of all
 	// active channels. This gives the switch the ability to read arbitrary
 	// forwarding packages, and ack settles and fails contained within them.
-	SwitchPackager channeldb.FwdOperator
+	SwitchPackager chanstate.FwdOperator
 
 	// CheckFwdResponse reports whether a persisted off-chain response
 	// exists for the given outgoing circuit key.
 	CheckFwdResponse func(outKey *CircuitKey) error
 
 	// FetchFwdResponses returns all persisted off-chain responses.
-	FetchFwdResponses func() ([]*channeldb.FwdResponse, error)
+	FetchFwdResponses func() ([]*fwdresponse.Response, error)
 
 	// DeleteFwdResponse removes a persisted response from the store.
 	// Startup replay is its only caller; it reaps records whose circuit is
@@ -418,7 +419,7 @@ type Switch struct {
 	// pendingSettleFails is the set of settle/fail entries that we need to
 	// ack in the forwarding package of the outgoing link. This was added to
 	// make pipelining settles more efficient.
-	pendingSettleFails []channeldb.SettleFailRef
+	pendingSettleFails []chanstate.SettleFailRef
 
 	// resMsgStore is used to store the set of ResolutionMsg that come from
 	// contractcourt. This is used so the Switch can properly forward them,
@@ -1476,7 +1477,9 @@ func (s *Switch) closeCircuit(pkt *htlcPacket) (*PaymentCircuit, error) {
 // forwarding package of the outgoing link for a payment circuit. We do this if
 // we're the originator of the payment, so the link stops attempting to
 // re-broadcast.
-func (s *Switch) ackSettleFail(settleFailRefs ...channeldb.SettleFailRef) error {
+func (s *Switch) ackSettleFail(
+	settleFailRefs ...chanstate.SettleFailRef) error {
+
 	return kvdb.Batch(s.cfg.DB, func(tx kvdb.RwTx) error {
 		return s.cfg.SwitchPackager.AckSettleFails(tx, settleFailRefs...)
 	})
@@ -1915,7 +1918,7 @@ func (s *Switch) Start() error {
 // fwdResponsePacket converts a persisted response into the packet shape
 // consumed by ForwardPackets. The packet has no destination reference because
 // package acknowledgement is handled by the persistence transition.
-func fwdResponsePacket(response *channeldb.FwdResponse) *htlcPacket {
+func fwdResponsePacket(response *fwdresponse.Response) *htlcPacket {
 	return &htlcPacket{
 		outgoingChanID: response.OutKey.ChanID,
 		outgoingHTLCID: response.OutKey.HtlcID,
@@ -2070,9 +2073,10 @@ func (s *Switch) reforwardResponses() error {
 
 // loadChannelFwdPkgs loads all forwarding packages owned by the `source` short
 // channel identifier.
-func (s *Switch) loadChannelFwdPkgs(source lnwire.ShortChannelID) ([]*channeldb.FwdPkg, error) {
+func (s *Switch) loadChannelFwdPkgs(source lnwire.ShortChannelID) (
+	[]*chanstate.FwdPkg, error) {
 
-	var fwdPkgs []*channeldb.FwdPkg
+	var fwdPkgs []*chanstate.FwdPkg
 	if err := kvdb.View(s.cfg.DB, func(tx kvdb.RTx) error {
 		var err error
 		fwdPkgs, err = s.cfg.SwitchPackager.LoadChannelFwdPkgs(
@@ -2095,7 +2099,7 @@ func (s *Switch) loadChannelFwdPkgs(source lnwire.ShortChannelID) ([]*channeldb.
 // outgoing link never comes back online.
 //
 // NOTE: This should mimic the behavior processRemoteSettleFails.
-func (s *Switch) reforwardSettleFails(fwdPkgs []*channeldb.FwdPkg) {
+func (s *Switch) reforwardSettleFails(fwdPkgs []*chanstate.FwdPkg) {
 	for _, fwdPkg := range fwdPkgs {
 		switchPackets := make([]*htlcPacket, 0, len(fwdPkg.SettleFails))
 		for i, update := range fwdPkg.SettleFails {
@@ -2139,7 +2143,7 @@ func (s *Switch) reforwardSettleFails(fwdPkgs []*channeldb.FwdPkg) {
 				failPacket := &htlcPacket{
 					outgoingChanID: fwdPkg.Source,
 					outgoingHTLCID: msg.ID,
-					destRef: &channeldb.SettleFailRef{
+					destRef: &chanstate.SettleFailRef{
 						Source: fwdPkg.Source,
 						Height: fwdPkg.Height,
 						Index:  uint16(i),

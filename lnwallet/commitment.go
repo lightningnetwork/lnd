@@ -104,9 +104,11 @@ type CommitmentKeyRing struct {
 // and commitment point. The keys are derived differently depending on the type
 // of channel, and whether the commitment transaction is ours or the remote
 // peer's.
-func DeriveCommitmentKeys(commitPoint *btcec.PublicKey,
-	whoseCommit lntypes.ChannelParty, chanType channeldb.ChannelType,
-	localChanCfg, remoteChanCfg *channeldb.ChannelConfig) *CommitmentKeyRing {
+func DeriveCommitmentKeys(
+	commitPoint *btcec.PublicKey, whoseCommit lntypes.ChannelParty,
+	chanType chanstate.ChannelType,
+	localChanCfg, remoteChanCfg *chanstate.ChannelConfig,
+) *CommitmentKeyRing {
 
 	tweaklessCommit := chanType.IsTweakless()
 
@@ -226,7 +228,7 @@ func (w *WitnessScriptDesc) WitnessScriptForPath(
 // transaction which we are generating the to_local script for. If the other
 // party learns of the preimage to the revocation hash, then they can claim all
 // the settled funds in the channel, plus the unsettled funds.
-func CommitScriptToSelf(chanType channeldb.ChannelType, initiator bool,
+func CommitScriptToSelf(chanType chanstate.ChannelType, initiator bool,
 	selfKey, revokeKey *btcec.PublicKey, csvDelay, leaseExpiry uint32,
 	auxLeaf input.AuxTapLeaf) (input.ScriptDescriptor, error) {
 
@@ -297,7 +299,7 @@ func CommitScriptToSelf(chanType channeldb.ChannelType, initiator bool,
 // owner of the commitment transaction which we are generating the to_remote
 // script for. The second return value is the CSV delay of the output script,
 // what must be satisfied in order to spend the output.
-func CommitScriptToRemote(chanType channeldb.ChannelType, initiator bool,
+func CommitScriptToRemote(chanType chanstate.ChannelType, initiator bool,
 	remoteKey *btcec.PublicKey, leaseExpiry uint32,
 	auxLeaf input.AuxTapLeaf) (input.ScriptDescriptor, uint32, error) {
 
@@ -378,7 +380,7 @@ func CommitScriptToRemote(chanType channeldb.ChannelType, initiator bool,
 
 // HtlcSigHashType returns the sighash type to use for HTLC success and timeout
 // transactions given the channel type.
-func HtlcSigHashType(chanType channeldb.ChannelType) txscript.SigHashType {
+func HtlcSigHashType(chanType chanstate.ChannelType) txscript.SigHashType {
 	if chanType.HasAnchors() {
 		return txscript.SigHashSingle | txscript.SigHashAnyOneCanPay
 	}
@@ -388,8 +390,10 @@ func HtlcSigHashType(chanType channeldb.ChannelType) txscript.SigHashType {
 
 // HtlcSignDetails converts the passed parameters to a SignDetails valid for
 // this channel type. For non-anchor channels this will return nil.
-func HtlcSignDetails(chanType channeldb.ChannelType, signDesc input.SignDescriptor,
-	sigHash txscript.SigHashType, peerSig input.Signature) *input.SignDetails {
+func HtlcSignDetails(
+	chanType chanstate.ChannelType, signDesc input.SignDescriptor,
+	sigHash txscript.SigHashType,
+	peerSig input.Signature) *input.SignDetails {
 
 	// Non-anchor channels don't need sign details, as the HTLC second
 	// level cannot be altered.
@@ -406,7 +410,7 @@ func HtlcSignDetails(chanType channeldb.ChannelType, signDesc input.SignDescript
 
 // HtlcSecondLevelInputSequence dictates the sequence number we must use on the
 // input to a second level HTLC transaction.
-func HtlcSecondLevelInputSequence(chanType channeldb.ChannelType) uint32 {
+func HtlcSecondLevelInputSequence(chanType chanstate.ChannelType) uint32 {
 	if chanType.HasAnchors() {
 		return 1
 	}
@@ -417,7 +421,7 @@ func HtlcSecondLevelInputSequence(chanType channeldb.ChannelType) uint32 {
 // sweepSigHash returns the sign descriptor to use when signing a sweep
 // transaction. For taproot channels, we'll use this to always sweep with
 // sighash default.
-func sweepSigHash(chanType channeldb.ChannelType) txscript.SigHashType {
+func sweepSigHash(chanType chanstate.ChannelType) txscript.SigHashType {
 	if chanType.IsTaproot() {
 		return txscript.SigHashDefault
 	}
@@ -432,7 +436,7 @@ func sweepSigHash(chanType channeldb.ChannelType) txscript.SigHashType {
 // be spent in a particular way, and to a particular output. The `initiator`
 // argument should correspond to the owner of the commitment transaction which
 // we are generating the to_local script for.
-func SecondLevelHtlcScript(chanType channeldb.ChannelType, initiator bool,
+func SecondLevelHtlcScript(chanType chanstate.ChannelType, initiator bool,
 	revocationKey, delayKey *btcec.PublicKey, csvDelay, leaseExpiry uint32,
 	auxLeaf input.AuxTapLeaf) (input.ScriptDescriptor, error) {
 
@@ -492,7 +496,7 @@ func SecondLevelHtlcScript(chanType channeldb.ChannelType, initiator bool,
 }
 
 // CommitWeight returns the base commitment weight before adding HTLCs.
-func CommitWeight(chanType channeldb.ChannelType) lntypes.WeightUnit {
+func CommitWeight(chanType chanstate.ChannelType) lntypes.WeightUnit {
 	switch {
 	case chanType.IsTaproot():
 		return input.TaprootCommitWeight
@@ -508,7 +512,7 @@ func CommitWeight(chanType channeldb.ChannelType) lntypes.WeightUnit {
 
 // HtlcTimeoutFee returns the fee in satoshis required for an HTLC timeout
 // transaction based on the current fee rate.
-func HtlcTimeoutFee(chanType channeldb.ChannelType,
+func HtlcTimeoutFee(chanType chanstate.ChannelType,
 	feePerKw chainfee.SatPerKWeight) btcutil.Amount {
 
 	switch {
@@ -527,7 +531,7 @@ func HtlcTimeoutFee(chanType channeldb.ChannelType,
 
 // HtlcSuccessFee returns the fee in satoshis required for an HTLC success
 // transaction based on the current fee rate.
-func HtlcSuccessFee(chanType channeldb.ChannelType,
+func HtlcSuccessFee(chanType chanstate.ChannelType,
 	feePerKw chainfee.SatPerKWeight) btcutil.Amount {
 
 	switch {
@@ -546,8 +550,8 @@ func HtlcSuccessFee(chanType channeldb.ChannelType,
 
 // CommitScriptAnchors return the scripts to use for the local and remote
 // anchor.
-func CommitScriptAnchors(chanType channeldb.ChannelType,
-	localChanCfg, remoteChanCfg *channeldb.ChannelConfig,
+func CommitScriptAnchors(chanType chanstate.ChannelType,
+	localChanCfg, remoteChanCfg *chanstate.ChannelConfig,
 	keyRing *CommitmentKeyRing) (
 	input.ScriptDescriptor, input.ScriptDescriptor, error) {
 
@@ -555,7 +559,7 @@ func CommitScriptAnchors(chanType channeldb.ChannelType,
 		anchorScript func(
 			key *btcec.PublicKey) (input.ScriptDescriptor, error)
 
-		keySelector func(*channeldb.ChannelConfig,
+		keySelector func(*chanstate.ChannelConfig,
 			bool) *btcec.PublicKey
 	)
 
@@ -570,7 +574,7 @@ func CommitScriptAnchors(chanType channeldb.ChannelType,
 			return input.NewAnchorScriptTree(key)
 		}
 
-		keySelector = func(cfg *channeldb.ChannelConfig,
+		keySelector = func(cfg *chanstate.ChannelConfig,
 			local bool) *btcec.PublicKey {
 
 			if local {
@@ -606,7 +610,7 @@ func CommitScriptAnchors(chanType channeldb.ChannelType,
 
 		// For the existing channels, we'll always select the multi-sig
 		// key from the party's channel config.
-		keySelector = func(cfg *channeldb.ChannelConfig,
+		keySelector = func(cfg *chanstate.ChannelConfig,
 			_ bool) *btcec.PublicKey {
 
 			return cfg.MultiSigKey.PubKey
@@ -962,9 +966,9 @@ func (cb *CommitmentBuilder) createUnsignedCommitmentTx(ourBalance,
 // paying the counterparty within the channel, which can be spent immediately
 // or after a delay depending on the commitment type. The `initiator` argument
 // should correspond to the owner of the commitment transaction we are creating.
-func CreateCommitTx(chanType channeldb.ChannelType,
+func CreateCommitTx(chanType chanstate.ChannelType,
 	fundingOutput wire.TxIn, keyRing *CommitmentKeyRing,
-	localChanCfg, remoteChanCfg *channeldb.ChannelConfig,
+	localChanCfg, remoteChanCfg *chanstate.ChannelConfig,
 	amountToLocal, amountToRemote btcutil.Amount,
 	numHTLCs int64, initiator bool, leaseExpiry uint32,
 	auxLeaves fn.Option[CommitAuxLeaves]) (*wire.MsgTx, error) {
@@ -1054,7 +1058,7 @@ func CreateCommitTx(chanType channeldb.ChannelType,
 
 // CoopCloseBalance returns the final balances that should be used to create
 // the cooperative close tx, given the channel type and transaction fee.
-func CoopCloseBalance(chanType channeldb.ChannelType, isInitiator bool,
+func CoopCloseBalance(chanType chanstate.ChannelType, isInitiator bool,
 	coopCloseFee, ourBalance, theirBalance, commitFee btcutil.Amount,
 	feePayer fn.Option[lntypes.ChannelParty],
 ) (btcutil.Amount, btcutil.Amount, error) {
@@ -1110,7 +1114,7 @@ func CoopCloseBalance(chanType channeldb.ChannelType, isInitiator bool,
 
 // genSegwitV0HtlcScript generates the HTLC scripts for a normal segwit v0
 // channel.
-func genSegwitV0HtlcScript(chanType channeldb.ChannelType,
+func genSegwitV0HtlcScript(chanType chanstate.ChannelType,
 	isIncoming bool, whoseCommit lntypes.ChannelParty, timeout uint32,
 	rHash [32]byte, keyRing *CommitmentKeyRing,
 ) (*WitnessScriptDesc, error) {
@@ -1249,7 +1253,7 @@ func GenTaprootHtlcScript(isIncoming bool, whoseCommit lntypes.ChannelParty,
 // multiplexer for the various spending paths is returned. The script path that
 // we need to sign for the remote party (2nd level HTLCs) is also returned
 // along side the multiplexer.
-func genHtlcScript(chanType channeldb.ChannelType, isIncoming bool,
+func genHtlcScript(chanType chanstate.ChannelType, isIncoming bool,
 	whoseCommit lntypes.ChannelParty, timeout uint32, rHash [32]byte,
 	keyRing *CommitmentKeyRing,
 	auxLeaf input.AuxTapLeaf) (input.ScriptDescriptor, error) {
@@ -1282,7 +1286,7 @@ func genHtlcScript(chanType channeldb.ChannelType, isIncoming bool,
 // the descriptor itself.
 func addHTLC(commitTx *wire.MsgTx, whoseCommit lntypes.ChannelParty,
 	isIncoming bool, paymentDesc *paymentDescriptor,
-	keyRing *CommitmentKeyRing, chanType channeldb.ChannelType,
+	keyRing *CommitmentKeyRing, chanType chanstate.ChannelType,
 	auxLeaf input.AuxTapLeaf) error {
 
 	timeout := paymentDesc.Timeout

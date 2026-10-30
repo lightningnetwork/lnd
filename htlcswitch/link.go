@@ -514,7 +514,7 @@ func (m *hookMap) invoke() {
 // hodlHtlc contains htlc data that is required for resolution.
 type hodlHtlc struct {
 	add        lnwire.UpdateAddHTLC
-	sourceRef  channeldb.AddRef
+	sourceRef  chanstate.AddRef
 	obfuscator hop.ErrorEncrypter
 }
 
@@ -1147,7 +1147,7 @@ func (l *channelLink) resolveFwdPkgs(ctx context.Context) error {
 // resolveFwdPkg interprets the FwdState of the provided package, either
 // reprocesses any outstanding htlcs in the package, or performs garbage
 // collection on the package.
-func (l *channelLink) resolveFwdPkg(fwdPkg *channeldb.FwdPkg) error {
+func (l *channelLink) resolveFwdPkg(fwdPkg *chanstate.FwdPkg) error {
 	// Remove any completed packages to clear up space.
 	if fwdPkg.State == channeldb.FwdStateCompleted {
 		l.log.Debugf("removing completed fwd pkg for height=%d",
@@ -2914,7 +2914,7 @@ func (l *channelLink) updateChannelFee(ctx context.Context,
 // the context of the provided forwarding package. Any settles or fails that
 // have already been acknowledged in the forwarding package will not be sent to
 // the switch.
-func (l *channelLink) processRemoteSettleFails(fwdPkg *channeldb.FwdPkg) {
+func (l *channelLink) processRemoteSettleFails(fwdPkg *chanstate.FwdPkg) {
 	if len(fwdPkg.SettleFails) == 0 {
 		l.log.Trace("fwd package has no settle/fails to process " +
 			"exiting early")
@@ -3033,7 +3033,7 @@ func (l *channelLink) processRemoteSettleFails(fwdPkg *channeldb.FwdPkg) {
 // database.
 //
 //nolint:funlen
-func (l *channelLink) processRemoteAdds(fwdPkg *channeldb.FwdPkg) {
+func (l *channelLink) processRemoteAdds(fwdPkg *chanstate.FwdPkg) {
 	// Exit early if the fwdPkg is already processed.
 	if fwdPkg.State == channeldb.FwdStateCompleted {
 		l.log.Debugf("skipped processing completed fwdPkg %v", fwdPkg)
@@ -3487,7 +3487,7 @@ func (l *channelLink) experimentalAccountability(
 // processExitHop handles an htlc for which this link is the exit hop. It
 // returns a boolean indicating whether the commitment tx needs an update.
 func (l *channelLink) processExitHop(add lnwire.UpdateAddHTLC,
-	sourceRef channeldb.AddRef, obfuscator hop.ErrorEncrypter,
+	sourceRef chanstate.AddRef, obfuscator hop.ErrorEncrypter,
 	fwdInfo hop.ForwardingInfo, heightNow uint32,
 	payload invoices.Payload) error {
 
@@ -3601,7 +3601,7 @@ func (l *channelLink) processExitHop(add lnwire.UpdateAddHTLC,
 
 // settleHTLC settles the HTLC on the channel.
 func (l *channelLink) settleHTLC(preimage lntypes.Preimage,
-	htlcIndex uint64, sourceRef channeldb.AddRef) error {
+	htlcIndex uint64, sourceRef chanstate.AddRef) error {
 
 	hash := preimage.Hash()
 
@@ -3674,7 +3674,7 @@ func (l *channelLink) forwardBatch(replay bool, packets ...*htlcPacket) {
 // sendHTLCError cancels the HTLC and sends a cancel message back to the peer
 // from which the HTLC was received.
 func (l *channelLink) sendHTLCError(add lnwire.UpdateAddHTLC,
-	sourceRef channeldb.AddRef, failure *LinkError,
+	sourceRef chanstate.AddRef, failure *LinkError,
 	e hop.ErrorEncrypter, isReceive bool) {
 
 	reason, err := e.EncryptFirstHop(failure.WireMessage())
@@ -3817,7 +3817,7 @@ func (l *channelLink) sendIncomingHTLCFailureMsg(htlcIndex uint64,
 // to the payment sender.
 func (l *channelLink) sendMalformedHTLCError(htlcIndex uint64,
 	code lnwire.FailCode, onionBlob [lnwire.OnionPacketSize]byte,
-	sourceRef *channeldb.AddRef) {
+	sourceRef *chanstate.AddRef) {
 
 	shaOnionBlob := sha256.Sum256(onionBlob[:])
 	err := l.channel.MalformedFailHTLC(htlcIndex, code, shaOnionBlob, sourceRef)
@@ -4479,7 +4479,7 @@ func (l *channelLink) processRemoteCommitSig(ctx context.Context,
 				ChanID: l.ShortChanID(),
 				HtlcID: id,
 			},
-			channeldb.FinalHtlcInfo{
+			chanstate.FinalHtlcInfo{
 				Settled:  settled,
 				Offchain: true,
 			},

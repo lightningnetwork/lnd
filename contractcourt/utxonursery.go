@@ -14,6 +14,7 @@ import (
 	"github.com/btcsuite/btcd/wire/v2"
 	"github.com/lightningnetwork/lnd/chainntnfs"
 	"github.com/lightningnetwork/lnd/channeldb"
+	"github.com/lightningnetwork/lnd/chanstate"
 	"github.com/lightningnetwork/lnd/fn/v2"
 	graphdb "github.com/lightningnetwork/lnd/graph/db"
 	"github.com/lightningnetwork/lnd/input"
@@ -185,12 +186,12 @@ type NurseryConfig struct {
 	// FetchClosedChannels provides access to a user's channels, such that
 	// they can be marked fully closed after incubation has concluded.
 	FetchClosedChannels func(pendingOnly bool) (
-		[]*channeldb.ChannelCloseSummary, error)
+		[]*chanstate.ChannelCloseSummary, error)
 
 	// FetchClosedChannel provides access to the close summary to extract a
 	// height hint from.
 	FetchClosedChannel func(chanID *wire.OutPoint) (
-		*channeldb.ChannelCloseSummary, error)
+		*chanstate.ChannelCloseSummary, error)
 
 	// Notifier provides the utxo nursery the ability to subscribe to
 	// transaction confirmation events, which advance outputs through their
@@ -403,7 +404,7 @@ func (u *UtxoNursery) Stop() error {
 type IncubateConfig struct {
 	// chanType is the channel type, used to determine which witness type
 	// to select for taproot channels.
-	chanType fn.Option[channeldb.ChannelType]
+	chanType fn.Option[chanstate.ChannelType]
 }
 
 // IncubateOption is a functional option that can be used to modify the behavior
@@ -413,7 +414,7 @@ type IncubateOption func(*IncubateConfig)
 // WithChanType returns an IncubateOption that sets the channel type for the
 // incubation request, enabling correct witness type selection for production
 // taproot channels.
-func WithChanType(ct channeldb.ChannelType) IncubateOption {
+func WithChanType(ct chanstate.ChannelType) IncubateOption {
 	return func(cfg *IncubateConfig) {
 		cfg.chanType = fn.Some(ct)
 	}

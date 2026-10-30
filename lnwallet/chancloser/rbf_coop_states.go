@@ -8,7 +8,7 @@ import (
 	"github.com/btcsuite/btcd/chaincfg/v2"
 	"github.com/btcsuite/btcd/wire/v2"
 	"github.com/lightningnetwork/lnd/chainntnfs"
-	"github.com/lightningnetwork/lnd/channeldb"
+	"github.com/lightningnetwork/lnd/chanstate"
 	"github.com/lightningnetwork/lnd/fn/v2"
 	"github.com/lightningnetwork/lnd/input"
 	"github.com/lightningnetwork/lnd/lntypes"
@@ -309,7 +309,7 @@ type Environment struct {
 	Scid lnwire.ShortChannelID
 
 	// ChanType is the type of channel we're attempting to close.
-	ChanType channeldb.ChannelType
+	ChanType chanstate.ChannelType
 
 	// BlockHeight is the current block height.
 	BlockHeight uint32

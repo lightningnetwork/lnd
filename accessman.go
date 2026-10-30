@@ -8,7 +8,7 @@ import (
 
 	"github.com/btcsuite/btcd/btcec/v2"
 	"github.com/btcsuite/btclog/v2"
-	"github.com/lightningnetwork/lnd/channeldb"
+	"github.com/lightningnetwork/lnd/chanstate"
 	"github.com/lightningnetwork/lnd/lnutils"
 )
 
@@ -29,7 +29,7 @@ type accessMan struct {
 	// string-version of the serialized public key.
 	//
 	// NOTE: This MUST be accessed with the banScoreMtx held.
-	peerChanInfo map[string]channeldb.ChanCount
+	peerChanInfo map[string]chanstate.ChanCount
 
 	// peerScores stores each connected peer's access status. The map key
 	// is the string-version of the serialized public key.
@@ -49,7 +49,7 @@ type accessMan struct {
 type accessManConfig struct {
 	// initAccessPerms checks the channeldb for initial access permissions
 	// and then populates the peerChanInfo and peerScores maps.
-	initAccessPerms func() (map[string]channeldb.ChanCount, error)
+	initAccessPerms func() (map[string]chanstate.ChanCount, error)
 
 	// shouldDisconnect determines whether we should disconnect a peer or
 	// not.
@@ -62,7 +62,7 @@ type accessManConfig struct {
 func newAccessMan(cfg *accessManConfig) (*accessMan, error) {
 	a := &accessMan{
 		cfg:          cfg,
-		peerChanInfo: make(map[string]channeldb.ChanCount),
+		peerChanInfo: make(map[string]chanstate.ChanCount),
 		peerScores:   make(map[string]peerSlotStatus),
 	}
 
@@ -247,7 +247,7 @@ func (a *accessMan) newPendingOpenChan(remotePub *btcec.PublicKey) error {
 		// transition it to a temporary-access peer. We'll need to
 		// update numRestricted and also peerScores. We'll also need to
 		// update peerChanInfo.
-		peerCount := channeldb.ChanCount{
+		peerCount := chanstate.ChanCount{
 			HasOpenOrClosedChan: false,
 			PendingOpenCount:    1,
 		}
@@ -596,7 +596,7 @@ func (a *accessMan) addPeerAccess(remotePub *btcec.PublicKey,
 	// Otherwise, this is a newly created outbound connection. We won't
 	// place any restriction on it, instead, we will do a hot upgrade here
 	// to move it from restricted to temporary.
-	peerCount := channeldb.ChanCount{
+	peerCount := chanstate.ChanCount{
 		HasOpenOrClosedChan: false,
 		PendingOpenCount:    0,
 	}

@@ -10,6 +10,7 @@ import (
 	"github.com/btcsuite/btcd/btcutil/v2"
 	"github.com/btcsuite/btcd/txscript/v2"
 	"github.com/lightningnetwork/lnd/channeldb"
+	"github.com/lightningnetwork/lnd/chanstate"
 	"github.com/lightningnetwork/lnd/fn/v2"
 	"github.com/lightningnetwork/lnd/graph/db/models"
 	"github.com/lightningnetwork/lnd/htlcswitch/hop"
@@ -42,7 +43,7 @@ type htlcIncomingContestResolver struct {
 // newIncomingContestResolver instantiates a new incoming htlc contest resolver.
 func newIncomingContestResolver(
 	res lnwallet.IncomingHtlcResolution, broadcastHeight uint32,
-	htlc channeldb.HTLC, chanType channeldb.ChannelType,
+	htlc chanstate.HTLC, chanType chanstate.ChannelType,
 	resCfg ResolverConfig) *htlcIncomingContestResolver {
 
 	success := newSuccessResolver(
@@ -70,7 +71,7 @@ func (h *htlcIncomingContestResolver) processFinalHtlcFail() error {
 			ChanID: h.ShortChanID,
 			HtlcID: h.htlc.HtlcIndex,
 		},
-		channeldb.FinalHtlcInfo{
+		chanstate.FinalHtlcInfo{
 			Settled:  false,
 			Offchain: false,
 		},
@@ -621,7 +622,7 @@ func newIncomingContestResolverFromReader(r io.Reader, resCfg ResolverConfig) (
 // before Resolve() is called.
 //
 // NOTE: Part of the htlcContractResolver interface.
-func (h *htlcIncomingContestResolver) Supplement(htlc channeldb.HTLC) {
+func (h *htlcIncomingContestResolver) Supplement(htlc chanstate.HTLC) {
 	h.htlc = htlc
 }
 

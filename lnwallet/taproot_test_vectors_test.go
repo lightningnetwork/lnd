@@ -880,8 +880,8 @@ func createTaprootTestChannelsForVectors(tc *taprootTestContext,
 	chanType := taprootChanType
 
 	// Channel configurations using all deterministic keys.
-	remoteCfg := channeldb.ChannelConfig{
-		ChannelStateBounds: channeldb.ChannelStateBounds{
+	remoteCfg := chanstate.ChannelConfig{
+		ChannelStateBounds: chanstate.ChannelStateBounds{
 			MaxPendingAmount: lnwire.NewMSatFromSatoshis(
 				tc.fundingAmount,
 			),
@@ -889,7 +889,7 @@ func createTaprootTestChannelsForVectors(tc *taprootTestContext,
 			MinHTLC:          0,
 			MaxAcceptedHtlcs: input.MaxHTLCNumber / 2,
 		},
-		CommitmentParams: channeldb.CommitmentParams{
+		CommitmentParams: chanstate.CommitmentParams{
 			DustLimit: tc.dustLimit,
 			CsvDelay:  tc.localCsvDelay,
 		},
@@ -909,8 +909,8 @@ func createTaprootTestChannelsForVectors(tc *taprootTestContext,
 			PubKey: tc.remoteRevocationBasepointSecret.PubKey(),
 		},
 	}
-	localCfg := channeldb.ChannelConfig{
-		ChannelStateBounds: channeldb.ChannelStateBounds{
+	localCfg := chanstate.ChannelConfig{
+		ChannelStateBounds: chanstate.ChannelStateBounds{
 			MaxPendingAmount: lnwire.NewMSatFromSatoshis(
 				tc.fundingAmount,
 			),
@@ -918,7 +918,7 @@ func createTaprootTestChannelsForVectors(tc *taprootTestContext,
 			MinHTLC:          0,
 			MaxAcceptedHtlcs: input.MaxHTLCNumber / 2,
 		},
-		CommitmentParams: channeldb.CommitmentParams{
+		CommitmentParams: chanstate.CommitmentParams{
 			DustLimit: tc.dustLimit,
 			CsvDelay:  tc.localCsvDelay,
 		},
@@ -973,7 +973,7 @@ func createTaprootTestChannelsForVectors(tc *taprootTestContext,
 
 	var commitHeight = tc.commitHeight - 1
 
-	remoteCommit := channeldb.ChannelCommitment{
+	remoteCommit := chanstate.ChannelCommitment{
 		CommitHeight: commitHeight,
 		LocalBalance: lnwire.NewMSatFromSatoshis(remoteBalance),
 		RemoteBalance: lnwire.NewMSatFromSatoshis(
@@ -984,7 +984,7 @@ func createTaprootTestChannelsForVectors(tc *taprootTestContext,
 		CommitTx:  remoteCommitTx,
 		CommitSig: testSigBytes,
 	}
-	localCommit := channeldb.ChannelCommitment{
+	localCommit := chanstate.ChannelCommitment{
 		CommitHeight: commitHeight,
 		LocalBalance: lnwire.NewMSatFromSatoshis(
 			localBalance - commitFee - anchorAmt,
@@ -1012,7 +1012,7 @@ func createTaprootTestChannelsForVectors(tc *taprootTestContext,
 		RevocationStore:         shachain.NewRevocationStore(),
 		LocalCommitment:         remoteCommit,
 		RemoteCommitment:        remoteCommit,
-		Db:                      dbRemote.ChannelStateDB(),
+		Db:                      dbRemote.ChannelStateStore(),
 		FundingTxn:              fundingTx,
 	}
 	localChannelState := &chanstate.OpenChannel{
@@ -1029,7 +1029,7 @@ func createTaprootTestChannelsForVectors(tc *taprootTestContext,
 		RevocationStore:         shachain.NewRevocationStore(),
 		LocalCommitment:         localCommit,
 		RemoteCommitment:        localCommit,
-		Db:                      dbLocal.ChannelStateDB(),
+		Db:                      dbLocal.ChannelStateStore(),
 		FundingTxn:              fundingTx,
 	}
 
@@ -1104,13 +1104,17 @@ func createTaprootTestChannelsForVectors(tc *taprootTestContext,
 		IP:   net.ParseIP("127.0.0.1"),
 		Port: 18556,
 	}
-	require.NoError(t, channelRemote.channelState.SyncPending(addr, 101))
+	require.NoError(t, dbRemote.ChannelLifecycle().SyncPendingChannel(
+		channelRemote.channelState, addr, 101,
+	))
 
 	addr = &net.TCPAddr{
 		IP:   net.ParseIP("127.0.0.1"),
 		Port: 18555,
 	}
-	require.NoError(t, channelLocal.channelState.SyncPending(addr, 101))
+	require.NoError(t, dbLocal.ChannelLifecycle().SyncPendingChannel(
+		channelLocal.channelState, addr, 101,
+	))
 
 	// Initialize revocation windows and musig nonces.
 	err = initRevocationWindows(channelRemote, channelLocal)

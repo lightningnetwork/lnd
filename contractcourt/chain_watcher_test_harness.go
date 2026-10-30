@@ -9,6 +9,7 @@ import (
 	"github.com/btcsuite/btcd/wire/v2"
 	"github.com/lightningnetwork/lnd/chainntnfs"
 	"github.com/lightningnetwork/lnd/channeldb"
+	"github.com/lightningnetwork/lnd/chanstate"
 	"github.com/lightningnetwork/lnd/fn/v2"
 	lnmock "github.com/lightningnetwork/lnd/lntest/mock"
 	"github.com/lightningnetwork/lnd/lnwallet"
@@ -54,7 +55,7 @@ type chainWatcherTestHarness struct {
 	// earlyCoopCloseSummaries records every invocation of the
 	// notifyEarlyCoopClose callback when captureEarlyCoopClose was
 	// enabled. Tests assert against length and contents.
-	earlyCoopCloseSummaries []*channeldb.ChannelCloseSummary
+	earlyCoopCloseSummaries []*chanstate.ChannelCloseSummary
 }
 
 // mockChainNotifier extends the standard mock with additional channels for
@@ -228,10 +229,10 @@ func newChainWatcherTestHarnessFromReporter(t *testing.T,
 
 	// If the test wants to observe early-dispatch invocations, install
 	// a callback that records each summary onto the harness.
-	var notifyEarlyCoopClose func(*channeldb.ChannelCloseSummary)
+	var notifyEarlyCoopClose func(*chanstate.ChannelCloseSummary)
 	if cfg.captureEarlyCoopClose {
 		notifyEarlyCoopClose = func(
-			s *channeldb.ChannelCloseSummary) {
+			s *chanstate.ChannelCloseSummary) {
 
 			harness.earlyCoopCloseMu.Lock()
 			harness.earlyCoopCloseSummaries = append(
@@ -459,7 +460,7 @@ func (h *chainWatcherTestHarness) earlyCoopCloseCount() int {
 // earlyCoopCloseAt returns the early-dispatch summary recorded at the given
 // index. The harness fails the test if the index is out of range.
 func (h *chainWatcherTestHarness) earlyCoopCloseAt(
-	idx int) *channeldb.ChannelCloseSummary {
+	idx int) *chanstate.ChannelCloseSummary {
 
 	h.earlyCoopCloseMu.Lock()
 	defer h.earlyCoopCloseMu.Unlock()

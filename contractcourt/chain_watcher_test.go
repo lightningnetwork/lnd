@@ -435,7 +435,7 @@ func TestChainWatcherDataLossProtect(t *testing.T) {
 			// If we processed this as a DLP case, then the remote
 			// party's commitment should be blank, as we don't have
 			// this up to date state.
-			blankCommit := channeldb.ChannelCommitment{}
+			blankCommit := chanstate.ChannelCommitment{}
 			if uniClose.RemoteCommit.FeePerKw != blankCommit.FeePerKw {
 				t.Errorf("DLP path not executed")
 				return false

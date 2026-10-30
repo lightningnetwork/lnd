@@ -12,6 +12,7 @@ import (
 	"github.com/btcsuite/btcd/txscript/v2"
 	"github.com/btcsuite/btcd/wire/v2"
 	"github.com/lightningnetwork/lnd/channeldb"
+	"github.com/lightningnetwork/lnd/chanstate"
 	"github.com/lightningnetwork/lnd/input"
 	"github.com/lightningnetwork/lnd/keychain"
 	"github.com/lightningnetwork/lnd/lntypes"
@@ -1592,7 +1593,7 @@ func TestWitnessSizes(t *testing.T) {
 
 // genTimeoutTx creates a signed HTLC second level timeout tx.
 func genTimeoutTx(t *testing.T,
-	chanType channeldb.ChannelType) *wire.MsgTx {
+	chanType chanstate.ChannelType) *wire.MsgTx {
 
 	testKeyPriv, err := btcec.NewPrivateKey()
 	require.NoError(t, err)
@@ -1662,7 +1663,7 @@ func genTimeoutTx(t *testing.T,
 }
 
 // genSuccessTx creates a signed HTLC second level success tx.
-func genSuccessTx(t *testing.T, chanType channeldb.ChannelType) *wire.MsgTx {
+func genSuccessTx(t *testing.T, chanType chanstate.ChannelType) *wire.MsgTx {
 	testKeyPriv, err := btcec.NewPrivateKey()
 	require.NoError(t, err)
 

@@ -420,6 +420,7 @@ func CreateWithBackend(backend kvdb.Backend, modifiers ...OptionModifier) (*DB,
 			linkNodeDB: &LinkNodeDB{
 				backend: backend,
 			},
+			kvStore:                 chanstate.NewKVStore(backend),
 			backend:                 backend,
 			tombstoneClosedChannels: opts.tombstoneClosedChannels,
 		},
@@ -567,6 +568,10 @@ type ChannelStateDB struct {
 	// backend points to the actual backend holding the channel state
 	// database. This may be a real backend or a cache middleware.
 	backend kvdb.Backend
+
+	// kvStore is the chanstate-owned KV implementation. ChannelStateDB
+	// keeps compatibility wrappers while callers still import channeldb.
+	kvStore *chanstate.KVStore
 
 	// tombstoneClosedChannels is set by OptionTombstoneClosedChannels.
 	// When true, CloseChannel skips deleting nested per-channel state and

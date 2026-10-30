@@ -1817,11 +1817,7 @@ func (c *ChannelStateDB) AbandonChannel(chanPoint *wire.OutPoint,
 func (c *ChannelStateDB) SaveChannelOpeningState(outPoint,
 	serializedState []byte) error {
 
-	return kvdb.Update(c.backend, func(tx kvdb.RwTx) error {
-		return chanstate.SaveChannelOpeningState(
-			tx, outPoint, serializedState,
-		)
-	}, func() {})
+	return c.kvStore.SaveChannelOpeningState(outPoint, serializedState)
 }
 
 // GetChannelOpeningState fetches the serialized channel state for the provided
@@ -1830,25 +1826,12 @@ func (c *ChannelStateDB) SaveChannelOpeningState(outPoint,
 func (c *ChannelStateDB) GetChannelOpeningState(outPoint []byte) ([]byte,
 	error) {
 
-	var serializedState []byte
-	err := kvdb.View(c.backend, func(tx kvdb.RTx) error {
-		var err error
-		serializedState, err = chanstate.GetChannelOpeningState(
-			tx, outPoint,
-		)
-
-		return err
-	}, func() {
-		serializedState = nil
-	})
-	return serializedState, err
+	return c.kvStore.GetChannelOpeningState(outPoint)
 }
 
 // DeleteChannelOpeningState removes any state for outPoint from the database.
 func (c *ChannelStateDB) DeleteChannelOpeningState(outPoint []byte) error {
-	return kvdb.Update(c.backend, func(tx kvdb.RwTx) error {
-		return chanstate.DeleteChannelOpeningState(tx, outPoint)
-	}, func() {})
+	return c.kvStore.DeleteChannelOpeningState(outPoint)
 }
 
 // syncVersions function is used for safe db version synchronization. It

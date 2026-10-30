@@ -1203,6 +1203,90 @@ func TestHandleBumpEventTxFatal(t *testing.T) {
 	rt.NoError(err)
 }
 
+// TestNoInputBatchFatalIsolation checks that a fatal result for a
+// non-batchable input does not affect any unrelated pending input.
+func TestNoInputBatchFatalIsolation(t *testing.T) {
+	t.Parallel()
+
+	s := New(&UtxoSweeperConfig{})
+	isolated := createMockInput(t, s, PendingPublish)
+	unrelated := createMockInput(t, s, Init)
+
+	// Give both inputs enough budget to pass the aggregator's economic
+	// filtering. They also have the same deadline, so NoInputBatch is the
+	// only reason they end up in different input sets.
+	const budget = btcutil.Amount(100_000)
+	s.inputs[isolated.OutPoint()].params = Params{
+		Budget:       budget,
+		NoInputBatch: true,
+	}
+	s.inputs[unrelated.OutPoint()].params.Budget = budget
+
+	for _, inp := range []input.Input{isolated, unrelated} {
+		mockInp := inp.(*input.MockInput)
+		mockInp.On("RequiredTxOut").Return(nil).Maybe()
+		mockInp.On("RequiredLockTime").Return(uint32(0), false).Maybe()
+	}
+
+	estimator := chainfee.NewStaticEstimator(
+		chainfee.FeePerKwFloor, chainfee.FeePerKwFloor,
+	)
+	aggregator := NewBudgetAggregator(
+		estimator, DefaultMaxInputsPerTx, fn.None[AuxSweeper](),
+	)
+	sets := aggregator.ClusterInputs(s.inputs)
+	require.Len(t, sets, 2)
+
+	// Select the set created for the non-batchable input and confirm that the
+	// aggregator kept the unrelated input out of it.
+	var isolatedSet InputSet
+	for _, set := range sets {
+		inputs := set.Inputs()
+		require.NotEmpty(t, inputs)
+		if inputs[0].OutPoint() != isolated.OutPoint() {
+			continue
+		}
+
+		require.Len(t, inputs, 1)
+		isolatedSet = set
+		break
+	}
+	require.NotNil(t, isolatedSet)
+
+	err := s.handleBumpEvent(&bumpResp{
+		result: &BumpResult{
+			Event: TxFatal,
+			Err:   ErrInputMissing,
+		},
+		set: isolatedSet,
+	})
+	require.NoError(t, err)
+
+	require.Equal(t, Fatal, s.inputs[isolated.OutPoint()].state)
+	require.Equal(t, Init, s.inputs[unrelated.OutPoint()].state)
+}
+
+// TestHandleUpdateReqPreservesNoInputBatch checks that fee-bump parameter
+// updates cannot remove an input's batching policy.
+func TestHandleUpdateReqPreservesNoInputBatch(t *testing.T) {
+	t.Parallel()
+
+	s := New(&UtxoSweeperConfig{})
+	inp := createMockInput(t, s, Published)
+	op := inp.OutPoint()
+	s.inputs[op].params.NoInputBatch = true
+
+	_, err := s.handleUpdateReq(&updateReq{
+		input: op,
+		params: Params{
+			Budget:         1000,
+			DeadlineHeight: fn.Some[int32](200),
+		},
+	})
+	require.NoError(t, err)
+	require.True(t, s.inputs[op].params.NoInputBatch)
+}
+
 // TestHandleUnknownSpendTxOurs checks that `handleUnknownSpendTx` correctly
 // marks an input as swept given the tx is ours.
 func TestHandleUnknownSpendTxOurs(t *testing.T) {

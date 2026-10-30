@@ -199,7 +199,11 @@ release: clean-mobile
 	./scripts/release.sh build-release "$(VERSION_TAG)" "$(BUILD_SYSTEM)" "$(RELEASE_TAGS)" "$(RELEASE_LDFLAGS)" "$(GO_VERSION)"
 
 #? docker-release: Same as release but within a docker container to support reproducible builds on BSD/MacOS platforms
-docker-release:
+docker-release-cache:
+	$(call check_docker_release_cache,$(DOCKER_RELEASE_GOCACHE))
+	$(call check_docker_release_cache,$(DOCKER_RELEASE_GOMODCACHE))
+
+docker-release: docker-release-cache
 	@$(call print, "Building release helper docker image.")
 	if [ "$(tag)" = "" ]; then echo "Must specify tag=<commit_or_tag>!"; exit 1; fi
 

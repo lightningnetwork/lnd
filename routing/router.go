@@ -1776,9 +1776,22 @@ func senderAmtBackwardPass(unifiers []*edgeUnifier,
 		// policy and on the outbound fee for the next hop as any
 		// inbound fee discount is capped by the outbound fee such that
 		// the total fee for B can't become negative.
-		inboundFee := calcCappedInboundFee(edge, netAmount, outboundFee)
-
-		fee := lnwire.MilliSatoshi(int64(outboundFee) + inboundFee)
+		inboundFee, err := calcCappedInboundFee(
+			edge, netAmount, outboundFee,
+		)
+		if err != nil {
+			return nil, 0, ErrNoChannel{position: i}
+		}
+		combinedFee, err := fee.Combined(outFee, inboundFee).Unpack()
+		if err != nil {
+			return nil, 0, ErrNoChannel{position: i}
+		}
+		amount, err := fee.AddAmount(
+			uint64(incomingAmt), combinedFee,
+		).Unpack()
+		if err != nil {
+			return nil, 0, ErrNoChannel{position: i}
+		}
 
 		log.Tracef("Select channel %v at position %v",
 			edge.policy.ChannelID, i)
@@ -1786,7 +1799,7 @@ func senderAmtBackwardPass(unifiers []*edgeUnifier,
 		// Finally, we update the amount that needs to flow into node B
 		// from A, which is the next hop's forwarding amount plus the
 		// fee for B: A --current hop: incomingAmt-- B --next hop-- C
-		incomingAmt += fee
+		incomingAmt = lnwire.MilliSatoshi(amount)
 
 		unifiedEdges[i] = edge
 	}
@@ -1820,7 +1833,13 @@ func receiverAmtForwardPass(runningAmt lnwire.MilliSatoshi,
 		outEdge := unifiedEdges[i]
 
 		// Decrease the amount to send while going forward.
-		runningAmt = outgoingFromIncoming(runningAmt, inEdge, outEdge)
+		var err error
+		runningAmt, err = outgoingFromIncoming(
+			runningAmt, inEdge, outEdge,
+		)
+		if err != nil {
+			return 0, ErrNoChannel{position: i}
+		}
 
 		if !outEdge.amtInRange(runningAmt) {
 			log.Errorf("Amount %v not in range for hop index %v",
@@ -1837,37 +1856,52 @@ func receiverAmtForwardPass(runningAmt lnwire.MilliSatoshi,
 // amount by adding fees to the outgoing amount, replicating the path finding
 // and routing process, see also CheckHtlcForward.
 func incomingFromOutgoing(outgoingAmt lnwire.MilliSatoshi,
-	incoming, outgoing *unifiedEdge) lnwire.MilliSatoshi {
+	incoming, outgoing *unifiedEdge) (lnwire.MilliSatoshi, error) {
 
-	outgoingFee := outgoing.policy.ComputeFee(outgoingAmt)
-
-	// Net amount is the amount the inbound fees are calculated with.
-	netAmount := outgoingAmt + outgoingFee
-
-	inboundFee := incoming.inboundFees.CalcFee(netAmount)
-
-	// The inbound fee is not allowed to reduce the incoming amount below
-	// the outgoing amount.
-	if int64(outgoingFee)+inboundFee < 0 {
-		return outgoingAmt
+	outFee, err := fee.Outbound(
+		uint64(outgoingAmt), uint64(outgoing.policy.FeeBaseMSat),
+		uint64(outgoing.policy.FeeProportionalMillionths),
+	).Unpack()
+	if err != nil {
+		return 0, err
 	}
+	net, carry := bits.Add64(uint64(outgoingAmt), outFee, 0)
+	if carry != 0 {
+		return 0, fmt.Errorf("net amount out of range")
+	}
+	inboundFee, err := fee.Inbound(
+		net, incoming.inboundFees.Base, incoming.inboundFees.Rate,
+	).Unpack()
+	if err != nil {
+		return 0, err
+	}
+	combinedFee, err := fee.Combined(outFee, inboundFee).Unpack()
+	if err != nil {
+		return 0, err
+	}
+	if combinedFee < 0 {
+		return outgoingAmt, nil
+	}
+	amount, err := fee.AddAmount(uint64(outgoingAmt), combinedFee).Unpack()
 
-	return netAmount + lnwire.MilliSatoshi(inboundFee)
+	return lnwire.MilliSatoshi(amount), err
 }
 
 // outgoingFromIncoming computes the outgoing amount based on the incoming
 // amount by subtracting fees from the incoming amount. Note that this is not
 // exactly the inverse of incomingFromOutgoing, because of some rounding.
 func outgoingFromIncoming(incomingAmt lnwire.MilliSatoshi,
-	incoming, outgoing *unifiedEdge) lnwire.MilliSatoshi {
+	incoming, outgoing *unifiedEdge) (lnwire.MilliSatoshi, error) {
 
 	// Convert all quantities to big.Int to be able to hande negative
 	// values. The formulas to compute the outgoing amount involve terms
 	// with PPM*PPM*A, which can easily overflow an int64.
-	A := big.NewInt(int64(incomingAmt))
-	Ro := big.NewInt(int64(outgoing.policy.FeeProportionalMillionths))
-	Bo := big.NewInt(int64(outgoing.policy.FeeBaseMSat))
-	Ri := big.NewInt(int64(incoming.inboundFees.Rate))
+	A := new(big.Int).SetUint64(uint64(incomingAmt))
+	Ro := new(big.Int).SetUint64(
+		uint64(outgoing.policy.FeeProportionalMillionths),
+	)
+	Bo := new(big.Int).SetUint64(uint64(outgoing.policy.FeeBaseMSat))
+	Ri := big.NewInt(fee.ClampInboundRate(incoming.inboundFees.Rate))
 	Bi := big.NewInt(int64(incoming.inboundFees.Base))
 	PPM := big.NewInt(1_000_000)
 
@@ -1953,8 +1987,8 @@ func outgoingFromIncoming(incomingAmt lnwire.MilliSatoshi,
 
 	// Since we compare to 0, we can multiply by PPM*PPM to avoid the
 	// division.
-	if m.Int64() <= 0 {
-		return incomingAmt
+	if m.Sign() <= 0 {
+		return incomingAmt, nil
 	}
 
 	// In order to decide if the total fee is negative, we apply the fee
@@ -1996,12 +2030,12 @@ func outgoingFromIncoming(incomingAmt lnwire.MilliSatoshi,
 	testAmt.Add(testAmt, fraction)
 
 	// Protect against negative values for the integer cast to Msat.
-	if testAmt.Int64() < 0 {
-		return incomingAmt
+	if testAmt.Sign() < 0 {
+		return incomingAmt, nil
 	}
 
 	// If the second case holds, we have to compute the outgoing amount.
-	if lnwire.MilliSatoshi(testAmt.Int64()) > incomingAmt {
+	if testAmt.Cmp(A) > 0 {
 		// Compute the outgoing amount by integer ceiling division. This
 		// precision is needed because PPM*PPM*A and other terms can
 		// easily overflow with int64, which happens with about
@@ -2046,10 +2080,14 @@ func outgoingFromIncoming(incomingAmt lnwire.MilliSatoshi,
 		ceil.Sub(ceil, big.NewInt(1))
 		ceil.Div(ceil, &denominator)
 
-		return lnwire.MilliSatoshi(ceil.Int64())
+		if !ceil.IsUint64() {
+			return 0, fmt.Errorf("outgoing amount out of range")
+		}
+
+		return lnwire.MilliSatoshi(ceil.Uint64()), nil
 	}
 
 	// Otherwise the inbound fee made up for the outbound fee, which is why
 	// we just return the incoming amount.
-	return incomingAmt
+	return incomingAmt, nil
 }

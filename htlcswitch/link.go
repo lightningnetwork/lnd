@@ -7,7 +7,7 @@ import (
 	"crypto/sha256"
 	"errors"
 	"fmt"
-	"math"
+	"math/bits"
 	prand "math/rand"
 	"sync"
 	"sync/atomic"
@@ -104,6 +104,23 @@ func TotalForwardingFee(amtToForward, outFee lnwire.MilliSatoshi,
 	inFee := inboundFee.CalcFee(amtToForward + outFee)
 
 	return inFee + int64(outFee)
+}
+
+// checkedTotalForwardingFee calculates the separately rounded inbound and
+// outbound components without overflowing the amount used for the inbound fee.
+func checkedTotalForwardingFee(amt lnwire.MilliSatoshi, out uint64,
+	inbound models.InboundFee) fn.Result[int64] {
+
+	amount, carry := bits.Add64(uint64(amt), out, 0)
+	if carry != 0 {
+		return fn.Err[int64](errors.New("forwarding amount overflow"))
+	}
+	in, err := fee.Inbound(amount, inbound.Base, inbound.Rate).Unpack()
+	if err != nil {
+		return fn.Err[int64](err)
+	}
+
+	return fee.Combined(out, in)
 }
 
 // ChannelLinkConfig defines the configuration for the channel link. ALL
@@ -2582,14 +2599,11 @@ func (l *channelLink) CheckHtlcForward(payHash [32]byte, incomingHtlcAmt,
 		uint64(amtToForward), uint64(policy.BaseFee),
 		uint64(policy.FeeRate),
 	).Unpack()
-	if feeErr == nil && outFee > math.MaxInt64 {
-		feeErr = fmt.Errorf("outbound fee exceeds signed range")
-	}
 	var expectedFee int64
 	if feeErr == nil {
-		expectedFee = TotalForwardingFee(
-			amtToForward, lnwire.MilliSatoshi(outFee), inboundFee,
-		)
+		expectedFee, feeErr = checkedTotalForwardingFee(
+			amtToForward, outFee, inboundFee,
+		).Unpack()
 	}
 
 	// Compare unsigned amounts before subtracting. A negative expected fee

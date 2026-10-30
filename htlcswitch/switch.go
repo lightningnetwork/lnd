@@ -3285,10 +3285,13 @@ func (s *Switch) handlePacketAdd(packet *htlcPacket,
 				return
 			}
 
-			totalFee := TotalForwardingFee(
-				packet.amount, lnwire.MilliSatoshi(outFee),
-				packet.inboundFee,
-			)
+			totalFee, err := checkedTotalForwardingFee(
+				packet.amount, outFee, packet.inboundFee,
+			).Unpack()
+			if err != nil {
+				log.Debugf("Skipping total fee: %v", err)
+				return
+			}
 			if totalFee < 0 {
 				totalFee = 0
 			}

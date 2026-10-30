@@ -7,11 +7,6 @@ import (
 	"github.com/lightningnetwork/lnd/routing/route"
 )
 
-const (
-	// feeRateParts is the total number of parts used to express fee rates.
-	feeRateParts = 1e6
-)
-
 // CachedEdgePolicy is a struct that only caches the information of a
 // ChannelEdgePolicy that we actually use for pathfinding and therefore need to
 // store in the cache.

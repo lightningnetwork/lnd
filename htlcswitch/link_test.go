@@ -6325,6 +6325,10 @@ func TestCheckHtlcForward(t *testing.T) {
 		{"below threshold", 1009, models.InboundFee{}, true},
 		{"at threshold", 1010, models.InboundFee{}, false},
 		{"above threshold", 1011, models.InboundFee{}, false},
+		{"negative inbound cancellation", 1000,
+			models.InboundFee{Base: -10}, false},
+		{"discount below outgoing", 999,
+			models.InboundFee{Base: -20}, true},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			result := link.CheckHtlcForward(
@@ -6345,7 +6349,8 @@ func TestCheckHtlcForward(t *testing.T) {
 
 	t.Run("fee arithmetic overflow", func(t *testing.T) {
 		overflowLink := channelLink{
-			cfg: link.cfg, log: log, channel: testChannel.channel,
+			cfg: link.cfg, log: log,
+			channel: testChannel.channel,
 		}
 		overflowLink.cfg.FwrdingPolicy.BaseFee = ^lnwire.MilliSatoshi(0)
 		overflowLink.cfg.FwrdingPolicy.FeeRate = 1_000_000
@@ -6375,9 +6380,40 @@ func TestCheckHtlcForward(t *testing.T) {
 		require.True(t, ok)
 	})
 
+	t.Run("inbound arithmetic overflow", func(t *testing.T) {
+		cases := []struct {
+			base    lnwire.MilliSatoshi
+			amount  lnwire.MilliSatoshi
+			inbound models.InboundFee
+		}{
+			{^lnwire.MilliSatoshi(0), 1000, models.InboundFee{}},
+			{0, ^lnwire.MilliSatoshi(0) - 1,
+				models.InboundFee{Rate: 10_000_000}},
+			{1 << 63, 1000, models.InboundFee{}},
+		}
+		for _, tc := range cases {
+			badLink := channelLink{
+				cfg: link.cfg, log: log,
+				channel: testChannel.channel,
+			}
+			badLink.cfg.FwrdingPolicy.BaseFee = tc.base
+			badLink.attachFailAliasUpdate(failAliasUpdate)
+			result := badLink.CheckHtlcForward(
+				hash, ^lnwire.MilliSatoshi(0), tc.amount,
+				200, 150,
+				tc.inbound, 0, lnwire.ShortChannelID{}, nil,
+			)
+			require.NotNil(t, result)
+			msg := result.WireMessage()
+			_, ok := msg.(*lnwire.FailFeeInsufficient)
+			require.True(t, ok)
+		}
+	})
+
 	t.Run("matching and stale proportional policy", func(t *testing.T) {
 		rateLink := channelLink{
-			cfg: link.cfg, log: log, channel: testChannel.channel,
+			cfg: link.cfg, log: log,
+			channel: testChannel.channel,
 		}
 		rateLink.cfg.FwrdingPolicy.FeeRate = 100_000
 		rateLink.attachFailAliasUpdate(failAliasUpdate)

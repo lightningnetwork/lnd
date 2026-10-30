@@ -233,18 +233,21 @@ func (u *edgeUnifier) getEdge(netAmtReceived lnwire.MilliSatoshi,
 // calcCappedInboundFee calculates the inbound fee for a channel, taking into
 // account the total node fee for the "to" node.
 func calcCappedInboundFee(edge *unifiedEdge, amt lnwire.MilliSatoshi,
-	nextOutFee lnwire.MilliSatoshi) int64 {
+	nextOutFee lnwire.MilliSatoshi) (int64, error) {
 
-	// Calculate the inbound fee charged for the amount that passes over the
-	// channel.
-	inboundFee := edge.inboundFees.CalcFee(amt)
+	inboundFee, err := fee.Inbound(
+		uint64(amt), edge.inboundFees.Base, edge.inboundFees.Rate,
+	).Unpack()
+	if err != nil {
+		return 0, err
+	}
 
-	// Take into account that the total node fee cannot be negative.
-	if inboundFee < -int64(nextOutFee) {
+	// Cap discounts so the total node fee cannot be negative.
+	if inboundFee < 0 && uint64(-(inboundFee+1))+1 > uint64(nextOutFee) {
 		inboundFee = -int64(nextOutFee)
 	}
 
-	return inboundFee
+	return inboundFee, nil
 }
 
 // getEdgeLocal returns the optimal unified edge to use for this local
@@ -260,13 +263,21 @@ func (u *edgeUnifier) getEdgeLocal(netAmtReceived lnwire.MilliSatoshi,
 
 	for _, edge := range u.edges {
 		// Calculate the inbound fee charged at the receiving node.
-		inboundFee := calcCappedInboundFee(
+		inboundFee, err := calcCappedInboundFee(
 			edge, netAmtReceived, nextOutFee,
 		)
+		if err != nil {
+			continue
+		}
 
-		// Add inbound fee to get to the amount that is sent over the
-		// local channel.
-		amt := netAmtReceived + lnwire.MilliSatoshi(inboundFee)
+		// Add the inbound fee to the local channel amount.
+		amount, err := fee.AddAmount(
+			uint64(netAmtReceived), inboundFee,
+		).Unpack()
+		if err != nil {
+			continue
+		}
+		amt := lnwire.MilliSatoshi(amount)
 		// Check valid amount range for the channel. We skip this test
 
 		// for payments with custom htlc data we skip the amount range
@@ -362,13 +373,21 @@ func (u *edgeUnifier) getEdgeNetwork(netAmtReceived lnwire.MilliSatoshi,
 
 	for _, edge := range u.edges {
 		// Calculate the inbound fee charged at the receiving node.
-		inboundFee := calcCappedInboundFee(
+		inboundFee, err := calcCappedInboundFee(
 			edge, netAmtReceived, nextOutFee,
 		)
+		if err != nil {
+			continue
+		}
 
-		// Add inbound fee to get to the amount that is sent over the
-		// channel.
-		amt := netAmtReceived + lnwire.MilliSatoshi(inboundFee)
+		// Add inbound fee to get the amount sent over the channel.
+		amount, err := fee.AddAmount(
+			uint64(netAmtReceived), inboundFee,
+		).Unpack()
+		if err != nil {
+			continue
+		}
+		amt := lnwire.MilliSatoshi(amount)
 
 		// Check valid amount range for the channel.
 		if !edge.amtInRange(amt) {
@@ -388,19 +407,15 @@ func (u *edgeUnifier) getEdgeNetwork(netAmtReceived lnwire.MilliSatoshi,
 			uint64(amt), uint64(edge.policy.FeeBaseMSat),
 			uint64(edge.policy.FeeProportionalMillionths),
 		).Unpack()
-		if err != nil || outboundFee > math.MaxInt64 ||
-			uint64(amt) > math.MaxUint64-outboundFee {
-
+		if err != nil || uint64(amt) > math.MaxUint64-outboundFee {
 			continue
 		}
-		combinedFee := int64(outboundFee)
-		if inboundFee > 0 && combinedFee > math.MaxInt64-inboundFee {
+		combinedFee, err := fee.Combined(
+			outboundFee, inboundFee,
+		).Unpack()
+		if err != nil {
 			continue
 		}
-		if inboundFee < 0 && combinedFee < math.MinInt64-inboundFee {
-			continue
-		}
-		combinedFee += inboundFee
 
 		// Track the maximal capacity for usable channels. If we don't
 		// know the capacity, we fall back to MaxHTLC.

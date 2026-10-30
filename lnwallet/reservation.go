@@ -647,6 +647,67 @@ func (r *ChannelReservation) validateReserveBounds() bool {
 	return minChanReserve >= maxDustLimit
 }
 
+// validateInitialBalances fails a channel that could never be used: one where
+// neither side's initial commitment output clears the reserve that side is
+// required to maintain. In that case neither party can add an HTLC without
+// dipping below its reserve, so the channel is dead on arrival.
+//
+// Two checks are made, and both are needed:
+//
+// 1. The BOLT#02 requirement, which the receiver of open_channel MUST apply:
+// both to_local and to_remote are less than or equal to
+// channel_reserve_satoshis, the single value the initiator named in
+// open_channel. That value is the reserve the initiator requires of us.
+//
+// 2. A usability check, comparing each output against the reserve its own
+// side must maintain: to_local against the reserve the initiator named for
+// us, and to_remote against the reserve we named for them in accept_channel.
+// That is what decides whether either side can actually spend, since the two
+// reserves are independent and may differ in either direction.
+//
+// Neither check implies the other. When our accept_channel reserve is the
+// lower of the two, check 1 can reject a channel the initiator could still
+// use, and the spec requires that; when our reserve is the higher, check 1
+// accepts a channel where neither side can spend, which check 2 catches. The
+// second check is therefore a local policy that is in places stricter than
+// the letter of the spec, and it is deliberately additive rather than a
+// reinterpretation of the first.
+//
+// This function should be called with the lock held.
+func (r *ChannelReservation) validateInitialBalances() error {
+	commitment := r.partialState.LocalCommitment
+	ourInitialBalance := commitment.LocalBalance.ToSatoshis()
+	theirInitialBalance := commitment.RemoteBalance.ToSatoshis()
+
+	// The reserve in our contribution is the one the initiator set in
+	// open_channel: the reserve the initiator requires OF US, which is the
+	// single value BOLT#02 compares both initial outputs against. The one
+	// in their contribution is the reserve WE named for them in
+	// accept_channel.
+	reserveInitiatorRequiresOfUs := r.ourContribution.ChanReserve
+	reserveWeRequireOfThem := r.theirContribution.ChanReserve
+
+	// Check 1: the spec's own comparison, both outputs against the
+	// initiator's reserve of us. This is a MUST, so it stays even though
+	// it can turn away a channel the initiator could still use.
+	failsSpecMUST := ourInitialBalance <= reserveInitiatorRequiresOfUs &&
+		theirInitialBalance <= reserveInitiatorRequiresOfUs
+
+	// Check 2: each output against the reserve its own side must maintain,
+	// which is exactly the condition under which neither side can spend.
+	failsUsability := ourInitialBalance <= reserveInitiatorRequiresOfUs &&
+		theirInitialBalance <= reserveWeRequireOfThem
+
+	if failsSpecMUST || failsUsability {
+		return ErrBalancesBelowReserve(
+			ourInitialBalance, theirInitialBalance,
+			reserveInitiatorRequiresOfUs, reserveWeRequireOfThem,
+		)
+	}
+
+	return nil
+}
+
 // OurContribution returns the wallet's fully populated contribution to the
 // pending payment channel. See 'ChannelContribution' for further details
 // regarding the contents of a contribution.

@@ -1396,14 +1396,15 @@ func TestUpdateForwardingPolicy(t *testing.T) {
 	require.NoError(t, err, "unable to send payment")
 
 	// Carol's invoice should now be shown as settled as the payment
-	// succeeded.
-	invoice, err := n.carolServer.registry.LookupInvoice(
-		t.Context(), payResp,
-	)
-	require.NoError(t, err, "unable to get invoice")
-	if invoice.State != invpkg.ContractSettled {
-		t.Fatal("carol invoice haven't been settled")
-	}
+	// succeeded, once her settle is locked in.
+	require.Eventually(t, func() bool {
+		invoice, err := n.carolServer.registry.LookupInvoice(
+			t.Context(), payResp,
+		)
+
+		return err == nil && invoice.State == invpkg.ContractSettled
+	}, 5*time.Second, 10*time.Millisecond,
+		"carol invoice haven't been settled")
 
 	expectedAliceBandwidth := aliceBandwidthBefore - htlcAmt
 	if expectedAliceBandwidth != n.aliceChannelLink.Bandwidth() {
@@ -2235,17 +2236,19 @@ func newSingleLinkTestHarness(t *testing.T, chanAmt,
 		PendingCommitTicker:  ticker.New(time.Minute),
 		// Make the BatchSize and Min/MaxUpdateTimeout large enough
 		// to not trigger commit updates automatically during tests.
-		BatchSize:                  10000,
-		MinUpdateTimeout:           30 * time.Minute,
-		MaxUpdateTimeout:           40 * time.Minute,
-		MaxOutgoingCltvExpiry:      DefaultMaxOutgoingCltvExpiry,
-		MaxFeeAllocation:           DefaultMaxLinkFeeAllocation,
-		NotifyActiveLink:           func(wire.OutPoint) {},
-		NotifyActiveChannel:        func(wire.OutPoint) {},
-		NotifyChannelUpdate:        func(*cstate.OpenChannel) {},
-		NotifyInactiveChannel:      func(wire.OutPoint) {},
-		NotifyInactiveLinkEvent:    func(wire.OutPoint) {},
-		HtlcNotifier:               aliceSwitch.cfg.HtlcNotifier,
+		BatchSize:               10000,
+		MinUpdateTimeout:        30 * time.Minute,
+		MaxUpdateTimeout:        40 * time.Minute,
+		MaxOutgoingCltvExpiry:   DefaultMaxOutgoingCltvExpiry,
+		MaxFeeAllocation:        DefaultMaxLinkFeeAllocation,
+		NotifyActiveLink:        func(wire.OutPoint) {},
+		NotifyActiveChannel:     func(wire.OutPoint) {},
+		NotifyChannelUpdate:     func(*cstate.OpenChannel) {},
+		NotifyInactiveChannel:   func(wire.OutPoint) {},
+		NotifyInactiveLinkEvent: func(wire.OutPoint) {},
+		HtlcNotifier: invoiceRegistry.htlcNotifier(
+			aliceSwitch.cfg.HtlcNotifier,
+		),
 		GetAliases:                 getAliases,
 		ShouldFwdExpAccountability: func() bool { return true },
 	}
@@ -4046,6 +4049,9 @@ func TestChannelRetransmission(t *testing.T) {
 		n = newThreeHopNetwork(ct, channels.aliceToBob, channels.bobToAlice,
 			channels.bobToCarol, channels.carolToBob, testStartingHeight)
 		n.firstBobChannelLink.cfg.Registry = bobRegistry
+		bobNotifier := n.bobServer.htlcSwitch.cfg.HtlcNotifier
+		n.firstBobChannelLink.cfg.HtlcNotifier =
+			bobRegistry.htlcNotifier(bobNotifier)
 		n.aliceServer.intersect(aliceInterceptor)
 		n.bobServer.intersect(bobInterceptor)
 

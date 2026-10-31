@@ -132,6 +132,9 @@
 
 ## Deprecations
 
+* The `etcd` database backend will be deprecated in the release following
+  v0.22.
+
 # Technical and Architectural Updates
 
 ## BOLT Spec Updates

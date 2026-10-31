@@ -141,6 +141,20 @@ func closedChannelOption() testChannelOption {
 	}
 }
 
+// anchorOption marks the test channel as an anchor channel.
+func anchorOption() testChannelOption {
+	return func(params *testChannelParams) {
+		params.channel.ChanType |= AnchorOutputsBit
+	}
+}
+
+// publicChannelOption marks the test channel as public (announced).
+func publicChannelOption() testChannelOption {
+	return func(params *testChannelParams) {
+		params.channel.ChannelFlags |= lnwire.FFAnnounceChannel
+	}
+}
+
 // pubKeyOption is an option which can be used to set the remote's pubkey.
 func pubKeyOption(pubKey *btcec.PublicKey) testChannelOption {
 	return func(params *testChannelParams) {
@@ -217,7 +231,7 @@ func channelIDOption(chanID lnwire.ShortChannelID) testChannelOption {
 // createTestChannel writes a test channel to the database. It takes a set of
 // functional options which can be used to overwrite the default of creating
 // a pending channel that was broadcast at height 100.
-func createTestChannel(t *testing.T, cdb *ChannelStateDB,
+func createTestChannel(t testing.TB, cdb *ChannelStateDB,
 	opts ...testChannelOption) *OpenChannel {
 
 	// Create a default set of parameters.
@@ -266,7 +280,7 @@ func createTestChannel(t *testing.T, cdb *ChannelStateDB,
 	return params.channel
 }
 
-func createTestChannelState(t *testing.T, cdb *ChannelStateDB) *OpenChannel {
+func createTestChannelState(t testing.TB, cdb *ChannelStateDB) *OpenChannel {
 	// Simulate 1000 channel updates.
 	producer, err := shachain.NewRevocationProducerFromBytes(key[:])
 	require.NoError(t, err, "could not get producer")

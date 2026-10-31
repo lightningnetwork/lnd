@@ -13,6 +13,7 @@ import (
 	"github.com/lightningnetwork/lnd/channeldb"
 	"github.com/lightningnetwork/lnd/chanstate"
 	"github.com/lightningnetwork/lnd/contractcourt"
+	"github.com/lightningnetwork/lnd/fn/v2"
 	"github.com/lightningnetwork/lnd/keychain"
 	"github.com/lightningnetwork/lnd/lnwire"
 	"github.com/lightningnetwork/lnd/shachain"
@@ -49,6 +50,15 @@ type chanDBRestorer struct {
 // insert this shell channel back into the database.
 func (c *chanDBRestorer) openChannelShell(backup chanbackup.Single) (
 	*channeldb.ChannelShell, error) {
+
+	tapscriptRoot := fn.None[chainhash.Hash]()
+	if backup.Version.HasTapscriptRoot() {
+		// TapscriptRootVersion stores the root within the optional
+		// CloseTxInputs extension.
+		backup.CloseTxInputs.WhenSome(func(inputs chanbackup.CloseTxInputs) {
+			tapscriptRoot = inputs.TapscriptRoot
+		})
+	}
 
 	var err error
 
@@ -202,6 +212,7 @@ func (c *chanDBRestorer) openChannelShell(backup chanbackup.Single) (
 			RevocationStore:         shachain.NewRevocationStore(),
 			RevocationProducer:      shaChainProducer,
 			ThawHeight:              backup.LeaseExpiry,
+			TapscriptRoot:           tapscriptRoot,
 		},
 	}
 

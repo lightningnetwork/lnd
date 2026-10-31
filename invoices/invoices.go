@@ -222,8 +222,9 @@ const (
 	// ContractOpen means the invoice has only been created.
 	ContractOpen ContractState = 0
 
-	// ContractSettled means the htlc is settled and the invoice has been
-	// paid.
+	// ContractSettled means an ordinary invoice completed a final payment,
+	// possibly for less than its requested amount. A later duplicate HTLC
+	// can still await its own final outcome while the parent stays settled.
 	ContractSettled ContractState = 1
 
 	// ContractCanceled means the invoice has been canceled.
@@ -232,6 +233,16 @@ const (
 	// ContractAccepted means the HTLC has been accepted but not settled
 	// yet.
 	ContractAccepted ContractState = 3
+
+	// ContractPendingSettle means we decided to settle an ordinary invoice
+	// released the preimage, but at least one of its htlcs has not been
+	// irrevocably settled yet. Until then the payer can still recover an
+	// htlc on chain, so the invoice must not be reported as paid. The
+	// invoice can no longer be canceled, and moves to ContractSettled
+	// once every outcome is known and at least one HTLC settled, or to
+	// ContractCanceled if all failed. AMP invoices retain their existing
+	// set-level settlement behavior and do not enter this state.
+	ContractPendingSettle ContractState = 4
 )
 
 // String returns a human readable identifier for the ContractState type.
@@ -248,6 +259,9 @@ func (c ContractState) String() string {
 
 	case ContractAccepted:
 		return "Accepted"
+
+	case ContractPendingSettle:
+		return "PendingSettle"
 	}
 
 	return "Unknown"
@@ -256,6 +270,12 @@ func (c ContractState) String() string {
 // IsFinal returns a boolean indicating whether an invoice state is final.
 func (c ContractState) IsFinal() bool {
 	return c == ContractSettled || c == ContractCanceled
+}
+
+// PreimageReleased returns true if we have decided to settle the invoice and
+// may have revealed its preimage, whether or not the htlcs are final yet.
+func (c ContractState) PreimageReleased() bool {
+	return c == ContractSettled || c == ContractPendingSettle
 }
 
 // ContractTerm is a companion struct to the Invoice struct. This struct houses
@@ -535,9 +555,45 @@ const (
 	// sender.
 	HtlcStateCanceled
 
-	// HtlcStateSettled indicates the htlc is settled.
+	// HtlcStateSettled indicates the htlc is settled. For ordinary HTLCs
+	// its outcome is irrevocable; AMP retains release-time settlement.
 	HtlcStateSettled
+
+	// HtlcStatePendingSettle indicates that we released the preimage for
+	// an ordinary htlc, but its settlement is not irrevocable yet. It moves
+	// to HtlcStateSettled once the settle is locked in off chain or the
+	// htlc is swept on chain, and to HtlcStateCanceled if the payer
+	// reclaims it on chain instead.
+	HtlcStatePendingSettle
 )
+
+// String identifies the HTLC state in logs, distinguishing preimage release
+// from final settlement while keeping unknown persisted values visible.
+func (h HtlcState) String() string {
+	switch h {
+	case HtlcStateAccepted:
+		return "Accepted"
+
+	case HtlcStateCanceled:
+		return "Canceled"
+
+	case HtlcStateSettled:
+		return "Settled"
+
+	case HtlcStatePendingSettle:
+		return "PendingSettle"
+	}
+
+	return "Unknown"
+}
+
+// PreimageReleased returns true if we decided to settle the htlc and may have
+// revealed its preimage to our peer, whether or not the settle is final yet.
+// The preimage of such an htlc must stay available so that it can be claimed
+// on chain.
+func (h HtlcState) PreimageReleased() bool {
+	return h == HtlcStateSettled || h == HtlcStatePendingSettle
+}
 
 // InvoiceHTLC contains details about an htlc paying to this invoice.
 type InvoiceHTLC struct {
@@ -720,6 +776,10 @@ const (
 	// CancelInvoiceUpdate indicates that this update is trying to cancel
 	// an invoice.
 	CancelInvoiceUpdate
+
+	// FinalizeHTLCsUpdate records final outcomes of one or more ordinary
+	// htlcs in HtlcStatePendingSettle, without changing AMP settlement.
+	FinalizeHTLCsUpdate
 )
 
 // String returns a human readable string for the UpdateType.
@@ -736,6 +796,9 @@ func (u UpdateType) String() string {
 
 	case CancelInvoiceUpdate:
 		return "CancelInvoiceUpdate"
+
+	case FinalizeHTLCsUpdate:
+		return "FinalizeHTLCsUpdate"
 
 	default:
 		return fmt.Sprintf("unknown invoice update type: %d", u)
@@ -755,6 +818,11 @@ type InvoiceUpdateDesc struct {
 	// AddHtlcs describes the newly accepted htlcs that need to be added to
 	// the invoice.
 	AddHtlcs map[CircuitKey]*HtlcAcceptDesc
+
+	// FinalizeHtlcs maps ordinary htlcs in HtlcStatePendingSettle to their
+	// outcome: true if the htlc was irrevocably settled, false if the
+	// payer reclaimed it on chain.
+	FinalizeHtlcs map[CircuitKey]bool
 
 	// SetID is an optional set ID for AMP invoices that allows operations
 	// to be more efficient by ensuring we don't need to read out the
@@ -839,9 +907,12 @@ func (i *Invoice) requiresPreimage() bool {
 	return true
 }
 
-// IsPending returns true if the invoice is in ContractOpen state.
+// IsPending returns true if the invoice has not reached a final state yet,
+// meaning it is open, accepted or waiting for its settled htlcs to become
+// final.
 func (i *Invoice) IsPending() bool {
-	return i.State == ContractOpen || i.State == ContractAccepted
+	return i.State == ContractOpen || i.State == ContractAccepted ||
+		i.State == ContractPendingSettle
 }
 
 // copySlice allocates a new slice and copies the source into it.

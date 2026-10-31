@@ -281,28 +281,51 @@ func TestInvoices(t *testing.T) {
 	}
 }
 
-// TestInvoiceIsPending tests that pending invoices are those which are either
-// in ContractOpen or in ContractAccepted state.
+// TestInvoiceIsPending checks the public parent-state classification used
+// when discovering invoices that still need processing after a restart.
 func TestInvoiceIsPending(t *testing.T) {
 	t.Parallel()
 
-	contractStates := []invpkg.ContractState{
-		invpkg.ContractOpen, invpkg.ContractSettled,
-		invpkg.ContractCanceled, invpkg.ContractAccepted,
+	// Arrange: Specify the expected result for each persisted parent state
+	// so released ordinary payments remain discoverable before finality.
+	tests := []struct {
+		state   invpkg.ContractState
+		pending bool
+	}{
+		{
+			state:   invpkg.ContractOpen,
+			pending: true,
+		},
+		{
+			state:   invpkg.ContractSettled,
+			pending: false,
+		},
+		{
+			state:   invpkg.ContractCanceled,
+			pending: false,
+		},
+		{
+			state:   invpkg.ContractAccepted,
+			pending: true,
+		},
+		{
+			state:   invpkg.ContractPendingSettle,
+			pending: true,
+		},
 	}
 
-	for _, state := range contractStates {
+	for _, test := range tests {
 		invoice := invpkg.Invoice{
-			State: state,
+			State: test.state,
 		}
 
-		// We expect that an invoice is pending if it's either in
-		// ContractOpen or ContractAccepted state.
-		open := invpkg.ContractOpen
-		accepted := invpkg.ContractAccepted
-		pending := (state == open || state == accepted)
+		// Act: Query the public classification from just the invoice
+		// state, as callers selecting pending parents do.
+		pending := invoice.IsPending()
 
-		require.Equal(t, pending, invoice.IsPending())
+		// Assert: Compare with the explicit contract instead of
+		// deriving the expectation from the same predicate as the code.
+		require.Equal(t, test.pending, pending, "state %v", test.state)
 	}
 }
 

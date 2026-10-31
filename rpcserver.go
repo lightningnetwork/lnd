@@ -60,6 +60,7 @@ import (
 	"github.com/lightningnetwork/lnd/labels"
 	"github.com/lightningnetwork/lnd/lncfg"
 	"github.com/lightningnetwork/lnd/lnrpc"
+	"github.com/lightningnetwork/lnd/lnrpc/devrpc"
 	"github.com/lightningnetwork/lnd/lnrpc/invoicesrpc"
 	"github.com/lightningnetwork/lnd/lnrpc/routerrpc"
 	"github.com/lightningnetwork/lnd/lnrpc/walletrpc"
@@ -681,6 +682,54 @@ func newRPCServer(cfg *Config, interceptorChain *rpcperms.InterceptorChain,
 	}
 }
 
+// addPermissions adds the macaroon permissions of the main RPC server, of
+// the sub-servers and of the external subservers to the interceptor chain.
+func (r *rpcServer) addPermissions(macService *macaroons.Service,
+	subServerPerms []lnrpc.MacaroonPerms) error {
+
+	// We merge the set of sub server macaroon permissions with the main
+	// RPC server permissions so we can unite them under a single set of
+	// interceptors.
+	for m, ops := range MainRPCServerPermissions() {
+		err := r.interceptorChain.AddPermission(m, ops)
+		if err != nil {
+			return err
+		}
+	}
+
+	for _, subServerPerm := range subServerPerms {
+		for method, ops := range subServerPerm {
+			err := r.interceptorChain.AddPermission(method, ops)
+			if err != nil {
+				return err
+			}
+		}
+	}
+
+	// External subserver possibly need to register their own permissions
+	// and macaroon validator.
+	for method, ops := range r.implCfg.ExternalValidator.Permissions() {
+		err := r.interceptorChain.AddPermission(method, ops)
+		if err != nil {
+			return err
+		}
+
+		// Give the external subservers the possibility to also use
+		// their own validator to check any macaroons attached to calls
+		// to this method. This allows them to have their own root key
+		// ID database and permission entities.
+		err = macService.RegisterExternalValidator(
+			method, r.implCfg.ExternalValidator,
+		)
+		if err != nil {
+			return fmt.Errorf("could not register external "+
+				"macaroon validator: %v", err)
+		}
+	}
+
+	return nil
+}
+
 // addDeps populates all dependencies needed by the RPC server, and any
 // of the sub-servers that it maintains. When this is done, the RPC server can
 // be started, and start accepting RPC calls.
@@ -794,6 +843,13 @@ func (r *rpcServer) addDeps(ctx context.Context, s *server,
 		subServerPerms []lnrpc.MacaroonPerms
 	)
 
+	// The dev RPC creates offers only when the node runs with BOLT 12
+	// offers.
+	var offerCreator fn.Option[devrpc.OfferCreator]
+	if s.offerStore != nil {
+		offerCreator = fn.Some[devrpc.OfferCreator](s)
+	}
+
 	// Before we create any of the sub-servers, we need to ensure that all
 	// the dependencies they need are properly populated within each sub
 	// server configuration struct.
@@ -807,7 +863,7 @@ func (r *rpcServer) addDeps(ctx context.Context, s *server,
 		genInvoiceFeatures, genAmpInvoiceFeatures,
 		s.getNodeAnnouncement, s.updateAndBroadcastSelfNode, parseAddr,
 		rpcsLog, s.aliasMgr, r.implCfg.AuxDataParser,
-		invoiceHtlcModifier,
+		invoiceHtlcModifier, offerCreator,
 	)
 	if err != nil {
 		return err
@@ -830,44 +886,9 @@ func (r *rpcServer) addDeps(ctx context.Context, s *server,
 		subServerPerms = append(subServerPerms, macPerms)
 	}
 
-	// Next, we need to merge the set of sub server macaroon permissions
-	// with the main RPC server permissions so we can unite them under a
-	// single set of interceptors.
-	for m, ops := range MainRPCServerPermissions() {
-		err := r.interceptorChain.AddPermission(m, ops)
-		if err != nil {
-			return err
-		}
-	}
-
-	for _, subServerPerm := range subServerPerms {
-		for method, ops := range subServerPerm {
-			err := r.interceptorChain.AddPermission(method, ops)
-			if err != nil {
-				return err
-			}
-		}
-	}
-
-	// External subserver possibly need to register their own permissions
-	// and macaroon validator.
-	for method, ops := range r.implCfg.ExternalValidator.Permissions() {
-		err := r.interceptorChain.AddPermission(method, ops)
-		if err != nil {
-			return err
-		}
-
-		// Give the external subservers the possibility to also use
-		// their own validator to check any macaroons attached to calls
-		// to this method. This allows them to have their own root key
-		// ID database and permission entities.
-		err = macService.RegisterExternalValidator(
-			method, r.implCfg.ExternalValidator,
-		)
-		if err != nil {
-			return fmt.Errorf("could not register external "+
-				"macaroon validator: %v", err)
-		}
+	err = r.addPermissions(macService, subServerPerms)
+	if err != nil {
+		return err
 	}
 
 	// Finally, with all the set up complete, add the last dependencies to
@@ -5699,6 +5720,7 @@ func (r *rpcServer) SubscribeChannelEvents(req *lnrpc.ChannelEventSubscription,
 			if errors.Is(updateStream.Context().Err(), context.Canceled) {
 				return nil
 			}
+
 			return updateStream.Context().Err()
 
 		case <-r.quit:

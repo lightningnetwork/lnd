@@ -10,6 +10,7 @@ import (
 	"github.com/lightningnetwork/lnd/fn/v2"
 	"github.com/lightningnetwork/lnd/lnwire"
 	"github.com/lightningnetwork/lnd/record"
+	"github.com/lightningnetwork/lnd/tlv"
 	"github.com/stretchr/testify/require"
 )
 
@@ -234,6 +235,30 @@ func buildDeliverHops(t *testing.T, h *actorHarness) hopBuildResult {
 	}
 }
 
+// testPathID is the path id that buildDeliverPathIDHops puts into the final
+// hop.
+var testPathID = []byte{9, 8, 7, 6}
+
+// buildDeliverPathIDHops constructs a final hop whose recipient data carries a
+// path id, as on a blinded path that this node created.
+func buildDeliverPathIDHops(t *testing.T, h *actorHarness) hopBuildResult {
+	rd := &record.BlindedRouteData{
+		PathID: tlv.SomeRecordT(
+			tlv.NewPrimitiveRecord[tlv.TlvType6](testPathID),
+		),
+	}
+	plain := EncodeBlindedRouteData(t, rd)
+	hops := []*sphinx.HopInfo{
+		{NodePub: h.nodeKey.PubKey(), PlainText: plain},
+	}
+
+	return hopBuildResult{
+		blindedPath: BuildBlindedPath(t, hops),
+		privKeys:    []*btcec.PrivateKey{h.nodeKey},
+		after:       func() {},
+	}
+}
+
 // buildForwardUnknownPeerHops constructs hops for testing forward to an
 // unknown peer. The sender returns an error, so forwarding will fail but the
 // message is still processed.
@@ -386,6 +411,8 @@ func TestOnionPeerActorRouting(t *testing.T) {
 		name         string
 		buildHops    buildHopsFunc
 		finalHopTLVs []*lnwire.FinalHopTLV
+		delivered    bool
+		pathID       []byte
 	}{
 		{
 			name:      "forward next node",
@@ -404,6 +431,19 @@ func TestOnionPeerActorRouting(t *testing.T) {
 					Value:   []byte{1, 2, 3},
 				},
 			},
+			delivered: true,
+		},
+		{
+			name:      "deliver with path id",
+			buildHops: buildDeliverPathIDHops,
+			finalHopTLVs: []*lnwire.FinalHopTLV{
+				{
+					TLVType: customTLVType,
+					Value:   []byte{1, 2, 3},
+				},
+			},
+			delivered: true,
+			pathID:    testPathID,
 		},
 		{
 			name:      "forward concatenated path",
@@ -444,6 +484,10 @@ func TestOnionPeerActorRouting(t *testing.T) {
 					t, expectedData,
 					update.EncryptedRecipientData,
 				)
+				require.Equal(
+					t, tc.delivered, update.Delivered,
+				)
+				require.Equal(t, tc.pathID, update.PathID)
 
 				for _, fht := range tc.finalHopTLVs {
 					tlvType := fht.TLVType

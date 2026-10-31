@@ -30,6 +30,7 @@ import (
 	"github.com/lightningnetwork/lnd/actor"
 	"github.com/lightningnetwork/lnd/aliasmgr"
 	"github.com/lightningnetwork/lnd/autopilot"
+	"github.com/lightningnetwork/lnd/bolt12handler"
 	"github.com/lightningnetwork/lnd/brontide"
 	"github.com/lightningnetwork/lnd/chainio"
 	"github.com/lightningnetwork/lnd/chainreg"
@@ -69,6 +70,7 @@ import (
 	"github.com/lightningnetwork/lnd/lnwire"
 	"github.com/lightningnetwork/lnd/nat"
 	"github.com/lightningnetwork/lnd/netann"
+	"github.com/lightningnetwork/lnd/offers"
 	"github.com/lightningnetwork/lnd/onionmessage"
 	paymentsdb "github.com/lightningnetwork/lnd/payments/db"
 	"github.com/lightningnetwork/lnd/peer"
@@ -445,6 +447,11 @@ type server struct {
 	// each peer connection.
 	onionActorFactory onionmessage.OnionActorFactory
 
+	// selfOnionActor processes the onion messages that this node sends to
+	// itself, for example as the introduction node of a blinded path. It
+	// is None when onion messages are off.
+	selfOnionActor fn.Option[onionmessage.OnionPeerActorRef]
+
 	// defaultOnionActorOpts holds the default ActorOptions (backpressure
 	// mailbox with RED) applied to every onion peer actor. These are
 	// computed once during server start and returned by the per-peer
@@ -461,6 +468,13 @@ type server struct {
 	// limiting is disabled (e.g. when onion messaging itself is
 	// turned off).
 	onionLimiter onionmessage.IngressLimiter
+
+	// bolt12Handler handles incoming BOLT 12 invoice requests and
+	// generates signed invoices in response.
+	bolt12Handler *bolt12handler.Handler
+
+	// offerStore persists and queries BOLT 12 offers.
+	offerStore offers.Store
 
 	// txPublisher is a publisher with fee-bumping capability.
 	txPublisher *sweep.TxPublisher
@@ -856,6 +870,8 @@ func newServer(ctx context.Context, cfg *Config, listenAddrs []net.Addr,
 
 		onionMessageServer: subscribe.NewServer(),
 
+		offerStore: dbs.OfferDB,
+
 		actorSystem: actor.NewActorSystem(),
 
 		tlsManager: tlsManager,
@@ -879,6 +895,26 @@ func newServer(ctx context.Context, cfg *Config, listenAddrs []net.Addr,
 	s.invoices = invoices.NewRegistry(
 		dbs.InvoiceDB, expiryWatcher, &registryConfig,
 	)
+
+	// BOLT 12 needs native SQL, so set it up only with the offer store.
+	if s.offerStore != nil {
+		signer := bolt12handler.NewKeyRingSigner(
+			cc.KeyRing, nodeKeyDesc.KeyLocator,
+			nodeKeyECDH.PubKey(),
+		)
+		replier := bolt12handler.NewServerOnionReplier(s)
+
+		// Use the final CLTV delta of BOLT 11 invoices.
+		s.bolt12Handler, err = bolt12handler.NewHandler(
+			s.offerStore, s.invoices, replier, signer, nil,
+			clock.NewDefaultClock(),
+			*s.cfg.ActiveNetParams.GenesisHash,
+			uint16(cfg.Bitcoin.TimeLockDelta),
+		)
+		if err != nil {
+			return nil, err
+		}
+	}
 
 	s.htlcNotifier = htlcswitch.NewHtlcNotifier(time.Now)
 
@@ -2375,6 +2411,22 @@ func (s *server) Start(ctx context.Context) error {
 			return
 		}
 
+		if s.bolt12Handler != nil {
+			cleanup = cleanup.add(func() error {
+				s.bolt12Handler.Stop()
+
+				return nil
+			})
+			resolver := bolt12handler.NewGraphIntroResolver(
+				s.graphDB,
+			)
+			err := s.bolt12Handler.Start(ctx, s, resolver)
+			if err != nil {
+				startErr = err
+				return
+			}
+		}
+
 		if s.hostAnn != nil {
 			cleanup = cleanup.add(s.hostAnn.Stop)
 			if err := s.hostAnn.Start(); err != nil {
@@ -2598,6 +2650,21 @@ func (s *server) Start(ctx context.Context) error {
 
 			s.defaultOnionActorOpts = onionmessage.
 				DefaultOnionActorOpts()
+
+			var selfPub [33]byte
+			copy(
+				selfPub[:],
+				s.identityECDH.PubKey().SerializeCompressed(),
+			)
+			selfActor, err := s.onionActorFactory(
+				s.actorSystem, selfPub,
+				s.defaultOnionActorOpts...,
+			)
+			if err != nil {
+				startErr = err
+				return
+			}
+			s.selfOnionActor = fn.Some(selfActor)
 
 			// Build the global and per-peer onion message rate
 			// limiters from the configured values, then compose
@@ -2902,8 +2969,13 @@ func (s *server) Stop() error {
 		if err := s.sphinxPayment.Stop(); err != nil {
 			srvrLog.Warnf("failed to stop sphinx: %v", err)
 		}
+		// Stop the invoice registry first. A running invoice request
+		// can wait in the registry until the registry stops.
 		if err := s.invoices.Stop(); err != nil {
 			srvrLog.Warnf("failed to stop invoices: %v", err)
+		}
+		if s.bolt12Handler != nil {
+			s.bolt12Handler.Stop()
 		}
 		if err := s.interceptableSwitch.Stop(); err != nil {
 			srvrLog.Warnf("failed to stop interceptable "+
@@ -4539,6 +4611,45 @@ func (s *server) SubscribeOnionMessages() (*subscribe.Client, error) {
 	return s.onionMessageServer.Subscribe()
 }
 
+// offerChains returns the offer_chains of an offer for the chain with the
+// given genesis hash. BOLT 12 says to omit the field for Bitcoin mainnet,
+// which a reader assumes when the field is absent. Other chains need it, so
+// that a payer can check the chain.
+func offerChains(genesisHash chainhash.Hash) [][32]byte {
+	if genesisHash == *chaincfg.MainNetParams.GenesisHash {
+		return nil
+	}
+
+	return [][32]byte{genesisHash}
+}
+
+// CreateOffer creates a new BOLT 12 offer, persists it in the offer
+// store, and returns the encoded offer string and offer hash. The caller
+// checks that the offer store is set.
+func (s *server) CreateOffer(ctx context.Context,
+	description string, amountMsat uint64,
+	absoluteExpiry uint64,
+	quantityMax fn.Option[uint64]) (*offers.CreateOfferResult, error) {
+
+	identity := fn.NewLeft[
+		*btcec.PublicKey, []lnwire.BlindedPath,
+	](s.identityECDH.PubKey())
+
+	chains := offerChains(*s.cfg.ActiveNetParams.GenesisHash)
+
+	return offers.CreateOffer(
+		ctx, s.offerStore, clock.NewDefaultClock(),
+		offers.CreateOfferParams{
+			Identity:       identity,
+			Description:    description,
+			AmountMsat:     amountMsat,
+			AbsoluteExpiry: absoluteExpiry,
+			QuantityMax:    quantityMax,
+			Chains:         chains,
+		},
+	)
+}
+
 // notifyOpenChannelPeerEvent updates the access manager's maps and then calls
 // the channelNotifier's NotifyOpenChannelEvent.
 func (s *server) notifyOpenChannelPeerEvent(op wire.OutPoint,
@@ -5633,10 +5744,20 @@ func (s *server) SendCustomMessage(ctx context.Context, peerPub [33]byte,
 }
 
 // SendOnionMessage sends a custom message to the peer with the specified
-// pubkey.
+// pubkey. If the pubkey is our own, the node processes the message itself.
 // TODO(gijs): change this message to include path finding.
 func (s *server) SendOnionMessage(ctx context.Context, peerPub [33]byte,
 	pathKey *btcec.PublicKey, onion []byte) error {
+
+	// A blinded path whose introduction node is this node starts here, so
+	// the node processes the message as if a peer had sent it.
+	var selfPub [33]byte
+	copy(selfPub[:], s.identityECDH.PubKey().SerializeCompressed())
+	if peerPub == selfPub {
+		msg := lnwire.NewOnionMessage(pathKey, onion)
+
+		return s.processOwnOnionMessage(ctx, msg)
+	}
 
 	peer, err := s.FindPeerByPubStr(string(peerPub[:]))
 	if err != nil {
@@ -5660,6 +5781,24 @@ func (s *server) SendOnionMessage(ctx context.Context, peerPub [33]byte,
 	// Send the message as low-priority. For now we assume that all
 	// application-defined message are low priority.
 	return peer.SendMessageLazy(true, msg)
+}
+
+// processOwnOnionMessage passes an onion message that this node sent to itself
+// to its own onion actor, which forwards or delivers it.
+func (s *server) processOwnOnionMessage(ctx context.Context,
+	msg *lnwire.OnionMessage) error {
+
+	ref, err := s.selfOnionActor.UnwrapOrErr(
+		errors.New("onion messages are disabled"),
+	)
+	if err != nil {
+		return err
+	}
+
+	future := ref.Ask(ctx, onionmessage.NewRequest(*msg))
+	_, err = future.Await(ctx).Unpack()
+
+	return err
 }
 
 // SendToPeer sends an onion message to the peer identified by the given

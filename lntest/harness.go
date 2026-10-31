@@ -221,6 +221,17 @@ func (h *HarnessTest) Context() context.Context {
 	return h.runCtx
 }
 
+// NativeSQLEnabled returns true when the nodes run on a SQL database backend
+// with native SQL tables.
+func (h *HarnessTest) NativeSQLEnabled() bool {
+	if !h.manager.nativeSQL {
+		return false
+	}
+
+	return h.manager.dbBackend == node.BackendSqlite ||
+		h.manager.dbBackend == node.BackendPostgres
+}
+
 // setupWatchOnlyNode initializes a node with the watch-only accounts of an
 // associated remote signing instance.
 func (h *HarnessTest) setupWatchOnlyNode(name string,

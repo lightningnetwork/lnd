@@ -5,6 +5,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/btcsuite/btcd/chaincfg/v2"
 	"github.com/lightningnetwork/lnd/tor"
 	"github.com/stretchr/testify/require"
 )
@@ -237,4 +238,16 @@ func TestWithoutV2Onion(t *testing.T) {
 	// An all-v2 input filters to an empty slice; callers such as
 	// fetchNodeAdvertisedAddrs treat this as "no advertised address".
 	require.Empty(t, withoutV2Onion([]net.Addr{v2, v2}))
+}
+
+// TestOfferChains checks that a mainnet offer has no offer_chains and that an
+// offer on another chain names that chain.
+func TestOfferChains(t *testing.T) {
+	t.Parallel()
+
+	mainnet := *chaincfg.MainNetParams.GenesisHash
+	require.Nil(t, offerChains(mainnet))
+
+	regtest := *chaincfg.RegressionNetParams.GenesisHash
+	require.Equal(t, [][32]byte{regtest}, offerChains(regtest))
 }

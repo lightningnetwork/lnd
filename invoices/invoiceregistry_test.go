@@ -494,6 +494,10 @@ func TestInvoiceRegistry(t *testing.T) {
 			test: testPendingSettleInferOnTick,
 		},
 		{
+			name: "PendingSettleRecordedOutcomeWins",
+			test: testPendingSettleRecordedOutcomeWins,
+		},
+		{
 			name: "CancelInvoice",
 			test: testCancelInvoice,
 		},
@@ -4259,6 +4263,124 @@ func testPendingSettleInferOnTick(t *testing.T,
 			require.Equal(t, invpkg.ContractSettled, stored.State)
 			require.Equal(t, testInvoiceAmount, stored.AmtPaid)
 			require.EqualValues(t, 1, stored.SettleIndex)
+		})
+	}
+}
+
+// testPendingSettleRecordedOutcomeWins checks immediate startup inference,
+// concurrent durable failures and read errors without false payment credit.
+func testPendingSettleRecordedOutcomeWins(t *testing.T,
+	makeDB func(t *testing.T) (invpkg.InvoiceDB, *clock.TestClock)) {
+
+	t.Parallel()
+
+	tests := []struct {
+		name          string
+		recheckErr    error
+		recordFailure bool
+		wantIndex     uint64
+		wantHtlcState invpkg.HtlcState
+		wantState     invpkg.ContractState
+		wantAmount    lnwire.MilliSatoshi
+	}{
+		{
+			name:          "failure recorded during scan",
+			recordFailure: true,
+			wantHtlcState: invpkg.HtlcStateCanceled,
+			wantState:     invpkg.ContractCanceled,
+		},
+		{
+			name:          "record recheck fails",
+			recordFailure: true,
+			wantHtlcState: invpkg.HtlcStatePendingSettle,
+			recheckErr:    errors.New("outcome store unavailable"),
+			wantState:     invpkg.ContractPendingSettle,
+			wantAmount:    testInvoiceAmount,
+		},
+		{
+			name:          "no recorded outcome",
+			wantState:     invpkg.ContractSettled,
+			wantAmount:    testInvoiceAmount,
+			wantIndex:     1,
+			wantHtlcState: invpkg.HtlcStateSettled,
+		},
+	}
+
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			t.Parallel()
+
+			// Arrange a released HTLC with no initial record. The
+			// channel scan then infers success; the following read
+			// reveals a concurrent failure, fails, or confirms that
+			// no recorded result overrides inferred success.
+			db, testClock := makeDB(t)
+			invoice := newInvoice(t, false, false)
+			_, err := db.AddInvoice(
+				t.Context(), invoice, testInvoicePaymentHash,
+			)
+			require.NoError(t, err)
+			ref := invpkg.InvoiceRefByHash(testInvoicePaymentHash)
+			_, err = db.UpdateInvoice(t.Context(), ref, nil,
+				getUpdateInvoice(0, testInvoiceAmount))
+			require.NoError(t, err)
+			key := invpkg.CircuitKey{HtlcID: 0}
+			keys := []invpkg.CircuitKey{key}
+			source := newMockFinalHtlcSource(t)
+			source.On("LookupFinalHtlcs", mock.Anything).Unset()
+			source.On("InferFinalHtlcs", mock.Anything).Unset()
+			source.On("LookupFinalHtlcs", keys).
+				Return(nil, nil).Once()
+			source.On("InferFinalHtlcs", keys).Return(
+				map[invpkg.CircuitKey]invpkg.FinalHtlcOutcome{
+					key: {
+						Key:     key,
+						Settled: true,
+					},
+				}, nil,
+			).Once()
+			// Negative rows acquire a durable failure during
+			// inference. The positive row keeps immediate startup
+			// success when the second lookup still has no record.
+			recorded := make(
+				map[invpkg.CircuitKey]invpkg.FinalHtlcOutcome,
+			)
+			if test.recordFailure {
+				recorded[key] = invpkg.FinalHtlcOutcome{
+					Key:     key,
+					Settled: false,
+				}
+			}
+			source.On("LookupFinalHtlcs", keys).
+				Return(recorded, test.recheckErr).Once()
+			cfg := defaultRegistryConfig()
+			cfg.FinalHtlcSource = source
+			cfg.SettleReconcileInterval = time.Hour
+
+			// Act through startup, which executes the controlled
+			// record/scan/recheck sequence before accepting
+			// traffic.
+			ctx := newTestContext(t, &cfg,
+				func(*testing.T) (invpkg.InvoiceDB,
+					*clock.TestClock) {
+
+					return db, testClock
+				},
+			)
+
+			// Assert failure removes credit and a read error leaves
+			// work pending. Only the no-record row receives
+			// credit and its first settlement index.
+			stored, err := ctx.registry.LookupInvoice(
+				t.Context(), testInvoicePaymentHash,
+			)
+			require.NoError(t, err)
+			require.Equal(t, test.wantState, stored.State)
+			require.Equal(t, test.wantAmount, stored.AmtPaid)
+			require.Equal(t, test.wantIndex, stored.SettleIndex)
+			require.Equal(
+				t, test.wantHtlcState, stored.Htlcs[key].State,
+			)
 		})
 	}
 }

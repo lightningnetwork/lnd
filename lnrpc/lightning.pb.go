@@ -3639,7 +3639,12 @@ type SendCoinsRequest struct {
 	// The strategy to use for selecting coins.
 	CoinSelectionStrategy CoinSelectionStrategy `protobuf:"varint,10,opt,name=coin_selection_strategy,json=coinSelectionStrategy,proto3,enum=lnrpc.CoinSelectionStrategy" json:"coin_selection_strategy,omitempty"`
 	// A list of selected outpoints as inputs for the transaction.
-	Outpoints     []*OutPoint `protobuf:"bytes,11,rep,name=outpoints,proto3" json:"outpoints,omitempty"`
+	Outpoints []*OutPoint `protobuf:"bytes,11,rep,name=outpoints,proto3" json:"outpoints,omitempty"`
+	//
+	//If set, the transaction is crafted and validated (including the wallet
+	//reserve check) but not broadcast, and no inputs are left locked. The
+	//resulting unsigned transaction and its fee are returned in the response.
+	DryRun        bool `protobuf:"varint,12,opt,name=dry_run,json=dryRun,proto3" json:"dry_run,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -3752,10 +3757,26 @@ func (x *SendCoinsRequest) GetOutpoints() []*OutPoint {
 	return nil
 }
 
+func (x *SendCoinsRequest) GetDryRun() bool {
+	if x != nil {
+		return x.DryRun
+	}
+	return false
+}
+
 type SendCoinsResponse struct {
 	state protoimpl.MessageState `protogen:"open.v1"`
 	// The transaction ID of the transaction
-	Txid          string `protobuf:"bytes,1,opt,name=txid,proto3" json:"txid,omitempty"`
+	Txid string `protobuf:"bytes,1,opt,name=txid,proto3" json:"txid,omitempty"`
+	//
+	//The raw unsigned transaction, hex encoded. Only set if dry_run was set in
+	//the request. This transaction MUST NOT be broadcast. If the transaction
+	//spends nested segwit inputs, its txid will differ from the one of the
+	//transaction that would actually be broadcast.
+	RawTx string `protobuf:"bytes,2,opt,name=raw_tx,json=rawTx,proto3" json:"raw_tx,omitempty"`
+	// The total fee of the transaction in satoshis. Only set if dry_run was
+	// set in the request.
+	FeeSat        int64 `protobuf:"varint,3,opt,name=fee_sat,json=feeSat,proto3" json:"fee_sat,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -3795,6 +3816,20 @@ func (x *SendCoinsResponse) GetTxid() string {
 		return x.Txid
 	}
 	return ""
+}
+
+func (x *SendCoinsResponse) GetRawTx() string {
+	if x != nil {
+		return x.RawTx
+	}
+	return ""
+}
+
+func (x *SendCoinsResponse) GetFeeSat() int64 {
+	if x != nil {
+		return x.FeeSat
+	}
+	return 0
 }
 
 type ListUnspentRequest struct {
@@ -19048,7 +19083,7 @@ const file_lightning_proto_rawDesc = "" +
 	"\x03key\x18\x01 \x01(\tR\x03key\x12\x14\n" +
 	"\x05value\x18\x02 \x01(\x03R\x05value:\x028\x01\"&\n" +
 	"\x10SendManyResponse\x12\x12\n" +
-	"\x04txid\x18\x01 \x01(\tR\x04txid\"\xa9\x03\n" +
+	"\x04txid\x18\x01 \x01(\tR\x04txid\"\xc2\x03\n" +
 	"\x10SendCoinsRequest\x12\x12\n" +
 	"\x04addr\x18\x01 \x01(\tR\x04addr\x12\x16\n" +
 	"\x06amount\x18\x02 \x01(\x03R\x06amount\x12\x1f\n" +
@@ -19063,9 +19098,12 @@ const file_lightning_proto_rawDesc = "" +
 	"\x11spend_unconfirmed\x18\t \x01(\bR\x10spendUnconfirmed\x12T\n" +
 	"\x17coin_selection_strategy\x18\n" +
 	" \x01(\x0e2\x1c.lnrpc.CoinSelectionStrategyR\x15coinSelectionStrategy\x12-\n" +
-	"\toutpoints\x18\v \x03(\v2\x0f.lnrpc.OutPointR\toutpoints\"'\n" +
+	"\toutpoints\x18\v \x03(\v2\x0f.lnrpc.OutPointR\toutpoints\x12\x17\n" +
+	"\adry_run\x18\f \x01(\bR\x06dryRun\"W\n" +
 	"\x11SendCoinsResponse\x12\x12\n" +
-	"\x04txid\x18\x01 \x01(\tR\x04txid\"h\n" +
+	"\x04txid\x18\x01 \x01(\tR\x04txid\x12\x15\n" +
+	"\x06raw_tx\x18\x02 \x01(\tR\x05rawTx\x12\x17\n" +
+	"\afee_sat\x18\x03 \x01(\x03R\x06feeSat\"h\n" +
 	"\x12ListUnspentRequest\x12\x1b\n" +
 	"\tmin_confs\x18\x01 \x01(\x05R\bminConfs\x12\x1b\n" +
 	"\tmax_confs\x18\x02 \x01(\x05R\bmaxConfs\x12\x18\n" +

@@ -268,9 +268,11 @@
         "OPEN",
         "SETTLED",
         "CANCELED",
-        "ACCEPTED"
+        "ACCEPTED",
+        "PENDING_SETTLE"
       ],
-      "default": "OPEN"
+      "default": "OPEN",
+      "description": " - SETTLED: An ordinary invoice collected every released payment HTLC. A later\nduplicate HTLC can still be pending or fail while the parent stays\nSETTLED. Check the relevant finalized successful HTLC amounts before\ncrediting. AMP retains its existing set-level settlement semantics;\nthis state does not add an AMP-finality guarantee.\n - CANCELED: The invoice was canceled, possibly after releasing its preimage if\ncollection failed. For ordinary invoices, check preimage_released;\nCANCELED alone does not mean the secret was never released. The amount\nactually collected is retained; cancellation does not refund successful\nHTLCs.\n - PENDING_SETTLE: An ordinary invoice released its preimage, but at least one HTLC still\nawaits its final outcome. The payer may reclaim a pending HTLC on\nchain, so its value must not yet be credited. Once every outcome is\nknown the invoice becomes SETTLED only if every released payment HTLC\nsucceeded. Otherwise it becomes CANCELED and retains the amount\ncollected from successful HTLCs. AMP invoices do not enter this state."
     },
     "invoicesrpcAddHoldInvoiceRequest": {
       "type": "object",
@@ -684,12 +686,12 @@
         "amt_paid_sat": {
           "type": "string",
           "format": "int64",
-          "description": "The amount that was accepted for this invoice, in satoshis. This will ONLY\nbe set if this invoice has been settled or accepted. We provide this field\nas if the invoice was created with a zero value, then we need to record what\namount was ultimately accepted. Additionally, it's possible that the sender\npaid MORE that was specified in the original invoice. So we'll record that\nhere as well.\nNote: Output only, don't specify for creating an invoice."
+          "description": "The amount accepted for this invoice, in satoshis. It can differ from the\nrequested amount, including for zero-value invoices and overpayments.\nFor ordinary invoices this aggregate can include accepted or PENDING_SETTLE\nHTLCs. Even a SETTLED parent can contain a later pending duplicate HTLC.\nCredit only the successful value of the relevant SETTLED HTLCs, rather than\nthe requested amount or this aggregate alone. AMP retains its existing\nrelease-time accounting semantics.\nNote: Output only, don't specify for creating an invoice."
         },
         "amt_paid_msat": {
           "type": "string",
           "format": "int64",
-          "description": "The amount that was accepted for this invoice, in millisatoshis. This will\nONLY be set if this invoice has been settled or accepted. We provide this\nfield as if the invoice was created with a zero value, then we need to\nrecord what amount was ultimately accepted. Additionally, it's possible that\nthe sender paid MORE that was specified in the original invoice. So we'll\nrecord that here as well.\nNote: Output only, don't specify for creating an invoice."
+          "description": "The amount accepted for this invoice, in millisatoshis. It has the same\npending-value and retained-funds semantics as amt_paid_sat. For ordinary\ninvoices, use the amounts and states of the relevant finalized successful\nHTLCs before crediting, including when the parent already reports SETTLED.\nNote: Output only, don't specify for creating an invoice."
         },
         "state": {
           "$ref": "#/definitions/InvoiceInvoiceState",
@@ -738,6 +740,10 @@
         "blinded_path_config": {
           "$ref": "#/definitions/lnrpcBlindedPathConfig",
           "description": "Config values to use when creating blinded paths for this invoice. These\ncan be used to override the defaults config values provided in by the\nglobal config. This field is only used if is_blinded is true."
+        },
+        "preimage_released": {
+          "type": "boolean",
+          "description": "Whether lnd committed to releasing the preimage for this ordinary invoice,\nincluding when collection later failed. This is derived from the invoice\nand HTLC states, not from whether lnd knows the preimage. It does not prove\nthe payer received the preimage, and false does not guarantee the secret\nis unknown elsewhere. Clients must not infer preimage privacy from\nCANCELED alone when refunding a counterpart payment or reusing a hash.\nThis field is not supported for AMP invoices and is false for them.\nNote: Output only, don't specify for creating an invoice."
         }
       }
     },
@@ -813,9 +819,12 @@
       "enum": [
         "ACCEPTED",
         "SETTLED",
-        "CANCELED"
+        "CANCELED",
+        "PENDING_SETTLE",
+        "FAILED"
       ],
-      "default": "ACCEPTED"
+      "default": "ACCEPTED",
+      "description": " - SETTLED: An ordinary HTLC settled irrevocably. AMP retains its existing\npreimage-release settlement semantics.\n - PENDING_SETTLE: An ordinary HTLC released its preimage but its outcome is not final yet.\nIt becomes SETTLED on final success or FAILED if the payer reclaims it.\n - FAILED: An ordinary HTLC whose preimage was released but was not collected. This\ndiffers from CANCELED, which failed before preimage release."
     },
     "lnrpcRouteHint": {
       "type": "object",

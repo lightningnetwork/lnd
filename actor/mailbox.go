@@ -174,10 +174,9 @@ func (m *ChannelMailbox[M, R]) OverflowLen() int {
 }
 
 // popOverflowLocked removes and returns the oldest overflow envelope. The
-// caller must hold overflowMu, or be the single draining goroutine once the
-// mailbox is closed, and must have checked the queue is non-empty. Resetting
-// the episode state when the queue empties lives here so every consumer of
-// the queue shares it.
+// caller must hold overflowMu and must have checked the queue is non-empty.
+// Resetting the episode state when the queue empties lives here so every
+// consumer of the queue shares it.
 func (m *ChannelMailbox[M, R]) popOverflowLocked() envelope[M, R] {
 	env := m.overflow[0]
 
@@ -467,12 +466,20 @@ func (m *ChannelMailbox[M, R]) Drain() iter.Seq[envelope[M, R]] {
 		}
 
 		// Then the overflow, which always trails the channel, so send
-		// order is preserved. Close set closed under the write lock
-		// and every writer checks it under the read lock, so nothing
-		// touches the queue now. Drain runs on the actor loop right
-		// after Close, which makes it the queue's only user.
-		for len(m.overflow) > 0 {
+		// order is preserved. Close does not stop other goroutines from
+		// reading the queue: Send's wait loop and OverflowLen take
+		// overflowMu and look at it before they see the closed flag. So
+		// each pop holds overflowMu, but yield runs outside it, as the
+		// consumer may block or call back into the mailbox.
+		for {
+			m.overflowMu.Lock()
+			if len(m.overflow) == 0 {
+				m.overflowMu.Unlock()
+				return
+			}
+
 			env := m.popOverflowLocked()
+			m.overflowMu.Unlock()
 
 			if !yield(env) {
 				return

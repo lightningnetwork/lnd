@@ -293,3 +293,145 @@ func TestExternalSendWaitHonorsContext(t *testing.T) {
 	require.False(t, mbox.Send(ctx, overflowEnv(2)))
 	require.Equal(t, 1, mbox.OverflowLen())
 }
+
+// TestChannelMailboxDrainRacesSend checks that Drain pops the overflow under
+// overflowMu. A Send or OverflowLen call can still arrive after Close, and
+// both read the queue under that lock, so an unlocked pop in Drain is a data
+// race that the race detector reports.
+func TestChannelMailboxDrainRacesSend(t *testing.T) {
+	const count = 2000
+
+	mbox := NewChannelMailbox[TestMessage, int](t.Context(), 1)
+
+	// One envelope sits in the channel and the rest overflow.
+	for i := range count {
+		require.NoError(t, mbox.SendInTurn(overflowEnv(i)))
+	}
+	require.Equal(t, count-1, mbox.OverflowLen())
+
+	mbox.Close()
+
+	var (
+		drained  = make(chan struct{})
+		finished = make(chan struct{})
+	)
+	go func() {
+		defer close(finished)
+
+		for {
+			select {
+			case <-drained:
+				return
+			default:
+			}
+
+			_ = mbox.OverflowLen()
+
+			ctx, cancel := context.WithTimeout(
+				t.Context(), time.Millisecond,
+			)
+			_ = mbox.Send(ctx, overflowEnv(-1))
+			cancel()
+		}
+	}()
+
+	var got []int
+	for env := range mbox.Drain() {
+		got = append(got, env.message.Value)
+	}
+	close(drained)
+	<-finished
+
+	want := make([]int, count)
+	for i := range want {
+		want[i] = i
+	}
+	require.Equal(t, want, got)
+	require.Zero(t, mbox.OverflowLen())
+}
+
+// gateBehavior floods its own mailbox from its receive turn on a "start"
+// message, which fills the overflow queue, and then blocks on gate.
+type gateBehavior struct {
+	self    ActorRef[*testMsg, string]
+	count   int
+	gate    chan struct{}
+	started chan struct{}
+}
+
+// Receive implements ActorBehavior.
+func (b *gateBehavior) Receive(ctx context.Context,
+	msg *testMsg) fn.Result[string] {
+
+	if msg.data == "start" {
+		for range b.count {
+			b.self.Tell(ctx, newTestMsg("work"))
+		}
+
+		close(b.started)
+		<-b.gate
+	}
+
+	return fn.Ok("ok")
+}
+
+// TestTellParkedBehindOverflowReturnsOnStop checks that shutdown cannot
+// strand a sender that is parked behind a non-empty overflow, and that a Tell
+// after the actor has terminated returns promptly.
+func TestTellParkedBehindOverflowReturnsOnStop(t *testing.T) {
+	beh := &gateBehavior{
+		count:   50,
+		gate:    make(chan struct{}),
+		started: make(chan struct{}),
+	}
+
+	h := newActorTestHarness(t)
+	a := h.newActor("parked-tell", beh, 1)
+	beh.self = a.Ref()
+
+	a.Ref().Tell(t.Context(), newTestMsg("start"))
+	<-beh.started
+
+	// The overflow is non-empty, so an external Tell parks.
+	returned := make(chan struct{})
+	go func() {
+		defer close(returned)
+
+		a.Ref().Tell(context.Background(), newTestMsg("external"))
+	}()
+
+	select {
+	case <-returned:
+		t.Fatal("Tell returned while the overflow was non-empty")
+	case <-time.After(50 * time.Millisecond):
+	}
+
+	a.Stop()
+	close(beh.gate)
+
+	select {
+	case <-returned:
+	case <-time.After(2 * time.Second):
+		t.Fatal("parked Tell was stranded by Stop")
+	}
+
+	select {
+	case <-a.Done():
+	case <-time.After(2 * time.Second):
+		t.Fatal("actor did not terminate")
+	}
+
+	// A Tell after termination must not block.
+	late := make(chan struct{})
+	go func() {
+		defer close(late)
+
+		a.Ref().Tell(context.Background(), newTestMsg("late"))
+	}()
+
+	select {
+	case <-late:
+	case <-time.After(2 * time.Second):
+		t.Fatal("Tell after Done blocked")
+	}
+}

@@ -20,6 +20,11 @@ type nodeEdgeUnifier struct {
 	// policy are different for local channels.
 	sourceNode route.Vertex
 
+	// origin identifies the set of vertices that are valid route
+	// starting points. Used to gate the outgoing channel restriction
+	// independently of the local-channel selection algorithm.
+	origin RouteOrigin
+
 	// toNode is the node for which the edge unifiers are instantiated.
 	toNode route.Vertex
 
@@ -33,7 +38,8 @@ type nodeEdgeUnifier struct {
 
 // newNodeEdgeUnifier instantiates a new nodeEdgeUnifier object. Channel
 // policies can be added to this object.
-func newNodeEdgeUnifier(sourceNode, toNode route.Vertex, useInboundFees bool,
+func newNodeEdgeUnifier(sourceNode, toNode route.Vertex,
+	origin RouteOrigin, useInboundFees bool,
 	outChanRestr map[uint64]struct{}) *nodeEdgeUnifier {
 
 	return &nodeEdgeUnifier{
@@ -41,6 +47,7 @@ func newNodeEdgeUnifier(sourceNode, toNode route.Vertex, useInboundFees bool,
 		toNode:         toNode,
 		useInboundFees: useInboundFees,
 		sourceNode:     sourceNode,
+		origin:         origin,
 		outChanRestr:   outChanRestr,
 	}
 }
@@ -54,10 +61,23 @@ func (u *nodeEdgeUnifier) addPolicy(fromNode route.Vertex,
 	capacity btcutil.Amount, hopPayloadSizeFn PayloadSizeFunc,
 	blindedPayment *BlindedPayment) {
 
+	// localChan indicates whether we have out-of-band knowledge
+	// about this channel's state (self's channels, where
+	// bandwidthHints has real-time data). Controls the selection
+	// algorithm: getEdgeLocal (bandwidth-aware) vs getEdgeNetwork
+	// (gossip heuristics).
 	localChan := fromNode == u.sourceNode
 
+	// isOriginEdge indicates whether this edge originates from a
+	// vertex in the RouteOrigin set. Controls the outgoing channel
+	// restriction. For vanilla lnd these coincide (self is the
+	// only origin), but for multi-origin routing they diverge:
+	// gateway edges are origin edges (restriction applies) but
+	// not local channels (no bandwidth data).
+	isOriginEdge := u.origin.IsOrigin(fromNode)
+
 	// Skip channels if there is an outgoing channel restriction.
-	if localChan && u.outChanRestr != nil {
+	if isOriginEdge && u.outChanRestr != nil {
 		if _, ok := u.outChanRestr[edge.ChannelID]; !ok {
 			log.Debugf("Skipped adding policy for restricted edge "+
 				"%v", edge.ChannelID)

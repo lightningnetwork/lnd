@@ -637,7 +637,7 @@ func (p *paymentLifecycle) createNewPaymentAttempt(rt *route.Route,
 	lastShard bool) (*paymentsdb.HTLCAttempt, error) {
 
 	// Generate a new key to be used for this attempt.
-	sessionKey, err := generateNewSessionKey()
+	sessionKey, err := GenerateNewSessionKey()
 	if err != nil {
 		return nil, err
 	}
@@ -851,6 +851,11 @@ func (p *paymentLifecycle) failPaymentAndAttempt(ctx context.Context,
 // the error type, the error is either the final outcome of the payment or we
 // need to continue with an alternative route. A final outcome is indicated by
 // a non-nil reason value.
+//
+// NOTE: Our Switch RPC server delivers the errors utilized here to callers
+// of SendOnion and TrackOnion rpcs. If the logic the router relies on to handle
+// errors changes, we should be careful to ensure that the Switch RPC server
+// logic for transporting errors to rpc callers is updated as well.
 func (p *paymentLifecycle) handleSwitchErr(ctx context.Context,
 	attempt *paymentsdb.HTLCAttempt,
 	sendErr error) (*attemptResult, error) {
@@ -1155,6 +1160,18 @@ func (p *paymentLifecycle) reloadInflightAttempts(
 		// it's a legacy payment.
 		a = p.patchLegacyPaymentHash(a)
 
+		// Execute the configured reconciliation strategy.
+		if err := p.router.cfg.ReconcileAttempt(a); err != nil {
+			log.Warnf("Reconciliation failed for attempt "+
+				"%v in payment %v: %v. Skipping result "+
+				"collection; will retry on next restart.",
+				a.AttemptID, p.identifier, err)
+
+			continue
+		}
+
+		// Reconciliation succeeded (or was a no-op), so proceed
+		// to awaiting the attempt result.
 		p.resultCollector(&a)
 	}
 

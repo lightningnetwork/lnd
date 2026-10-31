@@ -502,7 +502,8 @@ func newMockIteratorDecoder() *mockIteratorDecoder {
 }
 
 func (p *mockIteratorDecoder) DecodeHopIterator(r io.Reader, rHash []byte,
-	cltv uint32) (hop.Iterator, lnwire.FailCode) {
+	cltv uint32, _ lnwire.MilliSatoshi,
+	_ lnwire.BlindingPointRecord) (hop.Iterator, lnwire.FailCode) {
 
 	var b [4]byte
 	_, err := r.Read(b[:])
@@ -552,6 +553,7 @@ func (p *mockIteratorDecoder) DecodeHopIterators(id []byte,
 	for _, req := range reqs {
 		iterator, failcode := p.DecodeHopIterator(
 			req.OnionReader, req.RHash, req.IncomingCltv,
+			req.IncomingAmount, req.BlindingPoint,
 		)
 
 		if p.decodeFail {
@@ -1203,4 +1205,31 @@ func (h *mockHTLCNotifier) NotifySettleEvent(key HtlcKey,
 func (h *mockHTLCNotifier) NotifyFinalHtlcEvent(key models.CircuitKey,
 	info channeldb.FinalHtlcInfo) {
 
+}
+
+// mockErrorDecryptor is a mock implementation of the ErrorDecrypter interface
+// that allows tests to control the outcome of a DecryptError call.
+type mockErrorDecryptor struct {
+	// result is the ForwardingError to be returned when the mock's
+	// DecryptError method is called.
+	result *ForwardingError
+
+	// err is the error to be returned when the mock's DecryptError method
+	// is called.
+	err error
+}
+
+// DecryptError is a mock implementation of the DecryptError method. It simply
+// returns the values that are configured in the mockErrorDecryptor struct,
+// allowing tests to simulate both successful and failed decryptions.
+//
+// NOTE: This is part of the ErrorDecrypter interface.
+func (m *mockErrorDecryptor) DecryptError(reason lnwire.OpaqueReason) (
+	*ForwardingError, error) {
+
+	if m.err != nil {
+		return nil, m.err
+	}
+
+	return m.result, nil
 }

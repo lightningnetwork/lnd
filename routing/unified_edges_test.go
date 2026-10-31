@@ -56,7 +56,11 @@ func TestNodeEdgeUnifier(t *testing.T) {
 		Rate: 10000,
 	}
 
-	unifierFilled := newNodeEdgeUnifier(source, toNode, false, nil)
+	sourceOrigin := &singleOrigin{source: source}
+
+	unifierFilled := newNodeEdgeUnifier(
+		source, toNode, sourceOrigin, false, nil,
+	)
 
 	unifierFilled.addPolicy(
 		fromNode, &p1, inboundFee1, c1, defaultHopPayloadSize, nil,
@@ -65,7 +69,9 @@ func TestNodeEdgeUnifier(t *testing.T) {
 		fromNode, &p2, inboundFee2, c2, defaultHopPayloadSize, nil,
 	)
 
-	unifierNoCapacity := newNodeEdgeUnifier(source, toNode, false, nil)
+	unifierNoCapacity := newNodeEdgeUnifier(
+		source, toNode, sourceOrigin, false, nil,
+	)
 	unifierNoCapacity.addPolicy(
 		fromNode, &p1, inboundFee1, 0, defaultHopPayloadSize, nil,
 	)
@@ -73,13 +79,17 @@ func TestNodeEdgeUnifier(t *testing.T) {
 		fromNode, &p2, inboundFee2, 0, defaultHopPayloadSize, nil,
 	)
 
-	unifierNoInfo := newNodeEdgeUnifier(source, toNode, false, nil)
+	unifierNoInfo := newNodeEdgeUnifier(
+		source, toNode, sourceOrigin, false, nil,
+	)
 	unifierNoInfo.addPolicy(
 		fromNode, &models.CachedEdgePolicy{}, models.InboundFee{},
 		0, defaultHopPayloadSize, nil,
 	)
 
-	unifierInboundFee := newNodeEdgeUnifier(source, toNode, true, nil)
+	unifierInboundFee := newNodeEdgeUnifier(
+		source, toNode, sourceOrigin, true, nil,
+	)
 	unifierInboundFee.addPolicy(
 		fromNode, &p1, inboundFee1, c1, defaultHopPayloadSize, nil,
 	)
@@ -87,7 +97,9 @@ func TestNodeEdgeUnifier(t *testing.T) {
 		fromNode, &p2, inboundFee2, c2, defaultHopPayloadSize, nil,
 	)
 
-	unifierLocal := newNodeEdgeUnifier(fromNode, toNode, true, nil)
+	unifierLocal := newNodeEdgeUnifier(
+		fromNode, toNode, &singleOrigin{source: fromNode}, true, nil,
+	)
 	unifierLocal.addPolicy(
 		fromNode, &p1, inboundFee1, c1, defaultHopPayloadSize, nil,
 	)
@@ -96,7 +108,9 @@ func TestNodeEdgeUnifier(t *testing.T) {
 	inboundFeeNegative := models.InboundFee{
 		Base: -150,
 	}
-	unifierNegInboundFee := newNodeEdgeUnifier(source, toNode, true, nil)
+	unifierNegInboundFee := newNodeEdgeUnifier(
+		source, toNode, sourceOrigin, true, nil,
+	)
 	unifierNegInboundFee.addPolicy(
 		fromNode, &p1, inboundFeeZero, c1, defaultHopPayloadSize, nil,
 	)

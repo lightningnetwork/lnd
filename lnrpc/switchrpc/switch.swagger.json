@@ -1,0 +1,654 @@
+{
+  "swagger": "2.0",
+  "info": {
+    "title": "switchrpc/switch.proto",
+    "version": "version not set"
+  },
+  "tags": [
+    {
+      "name": "Switch"
+    }
+  ],
+  "consumes": [
+    "application/json"
+  ],
+  "produces": [
+    "application/json"
+  ],
+  "paths": {
+    "/v2/switch/build": {
+      "post": {
+        "summary": "BuildOnion attempts to build an onion packet for the specified route.",
+        "operationId": "Switch_BuildOnion",
+        "responses": {
+          "200": {
+            "description": "A successful response.",
+            "schema": {
+              "$ref": "#/definitions/switchrpcBuildOnionResponse"
+            }
+          },
+          "default": {
+            "description": "An unexpected error response.",
+            "schema": {
+              "$ref": "#/definitions/rpcStatus"
+            }
+          }
+        },
+        "parameters": [
+          {
+            "name": "body",
+            "description": "BuildOnionRequest includes the necessary information to construct a Sphinx\nonion packet.",
+            "in": "body",
+            "required": true,
+            "schema": {
+              "$ref": "#/definitions/switchrpcBuildOnionRequest"
+            }
+          }
+        ],
+        "tags": [
+          "Switch"
+        ]
+      }
+    },
+    "/v2/switch/deleteattempts": {
+      "post": {
+        "summary": "DeleteAttempts removes terminal (settled or failed) payment attempt records\nfrom the server's attempt store. The client explicitly names the attempt\nIDs to delete, enabling online garbage collection of completed attempt\ndata.",
+        "description": "The server processes each attempt ID independently and reports per-ID\nresults. Pending (in-flight) attempts are never deleted; they are reported\nwith a DELETION_PENDING status. Unknown attempt IDs are reported with\nDELETION_NOT_FOUND. Unprocessable records are reported with\nDELETION_FAILED. The overall RPC succeeds (gRPC OK) as long as the\nrequest could be processed, even if individual attempts were not deleted.\n\nClients MUST only delete attempts whose outcome (settled or failed) has\nbeen durably recorded and will never need to be retried. Deleting an\nattempt removes the server's idempotency protection for that attempt ID.",
+        "operationId": "Switch_DeleteAttempts",
+        "responses": {
+          "200": {
+            "description": "A successful response.",
+            "schema": {
+              "$ref": "#/definitions/switchrpcDeleteAttemptsResponse"
+            }
+          },
+          "default": {
+            "description": "An unexpected error response.",
+            "schema": {
+              "$ref": "#/definitions/rpcStatus"
+            }
+          }
+        },
+        "parameters": [
+          {
+            "name": "body",
+            "in": "body",
+            "required": true,
+            "schema": {
+              "$ref": "#/definitions/switchrpcDeleteAttemptsRequest"
+            }
+          }
+        ],
+        "tags": [
+          "Switch"
+        ]
+      }
+    },
+    "/v2/switch/disableremoterouter": {
+      "post": {
+        "summary": "DisableRemoteRouter marks the database as no longer being used by a remote\nrouter. This is useful for migrating from a remote router setup back to the\ndefault embedded router. This RPC will fail if there are any attempt entries\nremaining in the network result store.",
+        "operationId": "Switch_DisableRemoteRouter",
+        "responses": {
+          "200": {
+            "description": "A successful response.",
+            "schema": {
+              "$ref": "#/definitions/switchrpcDisableRemoteRouterResponse"
+            }
+          },
+          "default": {
+            "description": "An unexpected error response.",
+            "schema": {
+              "$ref": "#/definitions/rpcStatus"
+            }
+          }
+        },
+        "parameters": [
+          {
+            "name": "body",
+            "in": "body",
+            "required": true,
+            "schema": {
+              "$ref": "#/definitions/switchrpcDisableRemoteRouterRequest"
+            }
+          }
+        ],
+        "tags": [
+          "Switch"
+        ]
+      }
+    },
+    "/v2/switch/onion": {
+      "post": {
+        "summary": "SendOnion provides an idempotent API for dispatching a pre-formed onion\npacket, which is the primary entry point for a remote router.",
+        "description": "To safely handle network failures, a client can and should retry this RPC\nafter a timeout or disconnection. Retries MUST use the exact same\nattempt_id to allow the server to correctly detect duplicate requests.\n\nA client interacting with this RPC must handle four distinct categories\nof outcomes, determined by the gRPC status code:\n\n1. SUCCESS (gRPC code OK): A definitive confirmation that the HTLC has\nbeen successfully dispatched. The client can proceed to track the\npayment's final result via the TrackOnion RPC.\n\n2. DUPLICATE ACKNOWLEDGMENT (gRPC code AlreadyExists): A definitive\nacknowledgment that a request with the same attempt_id has already\nbeen successfully processed. A retrying client should interpret this\nas a success and proceed to tracking the payment's result.\n\n3. INDEFINITE FAILURE (gRPC code Unavailable or DeadlineExceeded): The\nstate of the HTLC dispatch is unknown. The client MUST retry the exact\nsame request to resolve the ambiguity. A client MUST NOT treat this as\na definitive failure and move on to a new attempt ID; doing so risks a\nduplicate in-flight HTLC.\n\n4. DEFINITIVE FAILURE (gRPC code FailedPrecondition, InvalidArgument,\netc.): The HTLC was not and will not be dispatched. The client should\nfail the attempt and may retry with a new route and/or attempt_id.\n\nIn the case of a FailedPrecondition or Unavailable failure, the gRPC\nerror may include a SendOnionFailureDetails message with additional\ncontext for logging and pathfinding.",
+        "operationId": "Switch_SendOnion",
+        "responses": {
+          "200": {
+            "description": "A successful response.",
+            "schema": {
+              "$ref": "#/definitions/switchrpcSendOnionResponse"
+            }
+          },
+          "default": {
+            "description": "An unexpected error response.",
+            "schema": {
+              "$ref": "#/definitions/rpcStatus"
+            }
+          }
+        },
+        "parameters": [
+          {
+            "name": "body",
+            "in": "body",
+            "required": true,
+            "schema": {
+              "$ref": "#/definitions/switchrpcSendOnionRequest"
+            }
+          }
+        ],
+        "tags": [
+          "Switch"
+        ]
+      }
+    },
+    "/v2/switch/track": {
+      "post": {
+        "summary": "TrackOnion allows callers to query whether or not a payment dispatched via\nSendOnion succeeded or failed.",
+        "description": "This RPC is designed to be called after a successful dispatch has been\nexplicitly confirmed via the SendOnion RPC. It should not be used to\ndetermine whether an HTLC dispatch was received in an ambiguous network\nscenario. That ambiguity must be resolved by retrying the idempotent\nSendOnion RPC until a definitive acknowledgement is received from the Switch\nRPC server.\n\nOnce dispatch is confirmed, TrackOnion provides the mechanism to wait for\nthe result of the in-flight HTLC. A client must handle three distinct\ncategories of outcomes:\n\n1. PAYMENT SUCCESS (gRPC code OK, preimage set): The payment settled\nsuccessfully. The response contains the payment preimage.\n\n2. PAYMENT FAILURE (gRPC code OK, failure_details set): The payment failed\nat the application level. The failure_details oneof describes the specific\nfailure type: a ForwardingFailure from a remote hop, a LocalFailure\nfrom the local node, an UnreadableFailure if the error could not be\ndecoded, or a SwitchError for other switch-level failures. When\nencrypted_error_data is populated, the client may perform its own\ndecryption.\n\n3. QUERY FAILURE (gRPC error status): The query itself could not be\ncompleted. NotFound indicates the payment ID is unknown. Unavailable\nsignals the switch is shutting down. Canceled or DeadlineExceeded\nreflects client-side timeouts. These are safe to retry.",
+        "operationId": "Switch_TrackOnion",
+        "responses": {
+          "200": {
+            "description": "A successful response.",
+            "schema": {
+              "$ref": "#/definitions/switchrpcTrackOnionResponse"
+            }
+          },
+          "default": {
+            "description": "An unexpected error response.",
+            "schema": {
+              "$ref": "#/definitions/rpcStatus"
+            }
+          }
+        },
+        "parameters": [
+          {
+            "name": "body",
+            "in": "body",
+            "required": true,
+            "schema": {
+              "$ref": "#/definitions/switchrpcTrackOnionRequest"
+            }
+          }
+        ],
+        "tags": [
+          "Switch"
+        ]
+      }
+    }
+  },
+  "definitions": {
+    "lnrpcAMPRecord": {
+      "type": "object",
+      "properties": {
+        "root_share": {
+          "type": "string",
+          "format": "byte"
+        },
+        "set_id": {
+          "type": "string",
+          "format": "byte"
+        },
+        "child_index": {
+          "type": "integer",
+          "format": "int64"
+        }
+      }
+    },
+    "lnrpcHop": {
+      "type": "object",
+      "properties": {
+        "chan_id": {
+          "type": "string",
+          "format": "uint64",
+          "description": "The unique channel ID for the channel. The first 3 bytes are the block\nheight, the next 3 the index within the block, and the last 2 bytes are the\noutput index for the channel."
+        },
+        "chan_capacity": {
+          "type": "string",
+          "format": "int64"
+        },
+        "amt_to_forward": {
+          "type": "string",
+          "format": "int64"
+        },
+        "fee": {
+          "type": "string",
+          "format": "int64"
+        },
+        "expiry": {
+          "type": "integer",
+          "format": "int64"
+        },
+        "amt_to_forward_msat": {
+          "type": "string",
+          "format": "int64"
+        },
+        "fee_msat": {
+          "type": "string",
+          "format": "int64"
+        },
+        "pub_key": {
+          "type": "string",
+          "description": "An optional public key of the hop. If the public key is given, the payment\ncan be executed without relying on a copy of the channel graph."
+        },
+        "tlv_payload": {
+          "type": "boolean",
+          "description": "If set to true, then this hop will be encoded using the new variable length\nTLV format. Note that if any custom tlv_records below are specified, then\nthis field MUST be set to true for them to be encoded properly."
+        },
+        "mpp_record": {
+          "$ref": "#/definitions/lnrpcMPPRecord",
+          "description": "An optional TLV record that signals the use of an MPP payment. If present,\nthe receiver will enforce that the same mpp_record is included in the final\nhop payload of all non-zero payments in the HTLC set. If empty, a regular\nsingle-shot payment is or was attempted."
+        },
+        "amp_record": {
+          "$ref": "#/definitions/lnrpcAMPRecord",
+          "description": "An optional TLV record that signals the use of an AMP payment. If present,\nthe receiver will treat all received payments including the same\n(payment_addr, set_id) pair  as being part of one logical payment. The\npayment will be settled by XORing the root_share's together and deriving the\nchild hashes and preimages according to BOLT XX. Must be used in conjunction\nwith mpp_record."
+        },
+        "custom_records": {
+          "type": "object",
+          "additionalProperties": {
+            "type": "string",
+            "format": "byte"
+          },
+          "description": "An optional set of key-value TLV records. This is useful within the context\nof the SendToRoute call as it allows callers to specify arbitrary K-V pairs\nto drop off at each hop within the onion."
+        },
+        "metadata": {
+          "type": "string",
+          "format": "byte",
+          "description": "The payment metadata to send along with the payment to the payee."
+        },
+        "blinding_point": {
+          "type": "string",
+          "format": "byte",
+          "description": "Blinding point is an optional blinding point included for introduction\nnodes in blinded paths. This field is mandatory for hops that represents\nthe introduction point in a blinded path."
+        },
+        "encrypted_data": {
+          "type": "string",
+          "format": "byte",
+          "description": "Encrypted data is a receiver-produced blob of data that provides hops\nin a blinded route with forwarding data. As this data is encrypted by\nthe recipient, we will not be able to parse it - it is essentially an\narbitrary blob of data from our node's perspective. This field is\nmandatory for all hops in a blinded path, including the introduction\nnode."
+        },
+        "total_amt_msat": {
+          "type": "string",
+          "format": "uint64",
+          "description": "The total amount that is sent to the recipient (possibly across multiple\nHTLCs), as specified by the sender when making a payment to a blinded path.\nThis value is only set in the final hop payload of a blinded payment. This\nvalue is analogous to the MPPRecord that is used for regular (non-blinded)\nMPP payments."
+        }
+      }
+    },
+    "lnrpcMPPRecord": {
+      "type": "object",
+      "properties": {
+        "payment_addr": {
+          "type": "string",
+          "format": "byte",
+          "description": "A unique, random identifier used to authenticate the sender as the intended\npayer of a multi-path payment. The payment_addr must be the same for all\nsubpayments, and match the payment_addr provided in the receiver's invoice.\nThe same payment_addr must be used on all subpayments. This is also called\npayment secret in specifications (e.g. BOLT 11)."
+        },
+        "total_amt_msat": {
+          "type": "string",
+          "format": "int64",
+          "description": "The total amount in milli-satoshis being sent as part of a larger multi-path\npayment. The caller is responsible for ensuring subpayments to the same node\nand payment_hash sum exactly to total_amt_msat. The same\ntotal_amt_msat must be used on all subpayments."
+        }
+      }
+    },
+    "lnrpcRoute": {
+      "type": "object",
+      "properties": {
+        "total_time_lock": {
+          "type": "integer",
+          "format": "int64",
+          "description": "The cumulative (final) time lock across the entire route. This is the CLTV\nvalue that should be extended to the first hop in the route. All other hops\nwill decrement the time-lock as advertised, leaving enough time for all\nhops to wait for or present the payment preimage to complete the payment."
+        },
+        "total_fees": {
+          "type": "string",
+          "format": "int64",
+          "description": "The sum of the fees paid at each hop within the final route. In the case\nof a one-hop payment, this value will be zero as we don't need to pay a fee\nto ourselves."
+        },
+        "total_amt": {
+          "type": "string",
+          "format": "int64",
+          "description": "The total amount of funds required to complete a payment over this route.\nThis value includes the cumulative fees at each hop. As a result, the HTLC\nextended to the first-hop in the route will need to have at least this many\nsatoshis, otherwise the route will fail at an intermediate node due to an\ninsufficient amount of fees."
+        },
+        "hops": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "$ref": "#/definitions/lnrpcHop"
+          },
+          "description": "Contains details concerning the specific forwarding details at each hop."
+        },
+        "total_fees_msat": {
+          "type": "string",
+          "format": "int64",
+          "description": "The total fees in millisatoshis."
+        },
+        "total_amt_msat": {
+          "type": "string",
+          "format": "int64",
+          "description": "The total amount in millisatoshis."
+        },
+        "first_hop_amount_msat": {
+          "type": "string",
+          "format": "int64",
+          "description": "The actual on-chain amount that was sent out to the first hop. This value is\nonly different from the total_amt_msat field if this is a custom channel\npayment and the value transported in the HTLC is different from the BTC\namount in the HTLC. If this value is zero, then this is an old payment that\ndidn't have this value yet and can be ignored."
+        },
+        "custom_channel_data": {
+          "type": "string",
+          "format": "byte",
+          "description": "Custom channel data that might be populated in custom channels."
+        },
+        "source_pub_key": {
+          "type": "string",
+          "description": "The source node from whose perspective the route was built. Defaults to\nthe node's own public key."
+        }
+      },
+      "description": "A path through the channel graph which runs over one or more channels in\nsuccession. This struct carries all the information required to craft the\nSphinx onion packet, and send the payment along the first hop in the path. A\nroute is only selected as valid if all the channels have sufficient capacity to\ncarry the initial payment amount after fees are accounted for."
+    },
+    "protobufAny": {
+      "type": "object",
+      "properties": {
+        "@type": {
+          "type": "string"
+        }
+      },
+      "additionalProperties": {}
+    },
+    "rpcStatus": {
+      "type": "object",
+      "properties": {
+        "code": {
+          "type": "integer",
+          "format": "int32"
+        },
+        "message": {
+          "type": "string"
+        },
+        "details": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "$ref": "#/definitions/protobufAny"
+          }
+        }
+      }
+    },
+    "switchrpcAttemptDeletionResult": {
+      "type": "object",
+      "properties": {
+        "attempt_id": {
+          "type": "string",
+          "format": "uint64",
+          "description": "The attempt ID this result corresponds to."
+        },
+        "status": {
+          "$ref": "#/definitions/switchrpcAttemptDeletionStatus",
+          "description": "The outcome of the deletion for this attempt."
+        }
+      },
+      "description": "AttemptDeletionResult reports the outcome of deleting a single attempt."
+    },
+    "switchrpcAttemptDeletionStatus": {
+      "type": "string",
+      "enum": [
+        "DELETION_OK",
+        "DELETION_PENDING",
+        "DELETION_NOT_FOUND",
+        "DELETION_FAILED"
+      ],
+      "default": "DELETION_OK",
+      "description": "AttemptDeletionStatus describes the outcome of a single attempt deletion.\n\n - DELETION_OK: The attempt result was successfully deleted from the store.\n - DELETION_PENDING: The attempt is still in-flight (pending) and cannot be safely deleted.\n - DELETION_NOT_FOUND: The attempt ID was not found in the store. This may indicate a client\nbug (wrong ID, wrong backend) since the server has no record of this\nattempt ever existing.\n - DELETION_FAILED: The attempt record exists but could not be processed (e.g.\ndeserialization error). The record remains in the store."
+    },
+    "switchrpcBuildOnionRequest": {
+      "type": "object",
+      "properties": {
+        "route": {
+          "$ref": "#/definitions/lnrpcRoute",
+          "description": "The route for which the onion packet should be built."
+        },
+        "payment_hash": {
+          "type": "string",
+          "format": "byte",
+          "description": "The payment hash associated with the HTLC."
+        },
+        "session_key": {
+          "type": "string",
+          "format": "byte",
+          "description": "A session key for onion packet construction, if not provided, a new one\nwill be generated."
+        }
+      },
+      "description": "BuildOnionRequest includes the necessary information to construct a Sphinx\nonion packet."
+    },
+    "switchrpcBuildOnionResponse": {
+      "type": "object",
+      "properties": {
+        "onion_blob": {
+          "type": "string",
+          "format": "byte",
+          "description": "The constructed onion packet in bytes."
+        },
+        "session_key": {
+          "type": "string",
+          "format": "byte",
+          "description": "The session key used for building the onion packet."
+        },
+        "hop_pubkeys": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "format": "byte"
+          },
+          "description": "The serialized public keys of all nodes along the route for the\nconstructed onion."
+        }
+      },
+      "description": "BuildOnionResponse contains the constructed onion packet."
+    },
+    "switchrpcDeleteAttemptsRequest": {
+      "type": "object",
+      "properties": {
+        "attempt_ids": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "format": "uint64"
+          },
+          "description": "The attempt IDs to delete from the server's attempt store. Only terminal\n(settled or failed) attempts will be deleted. Pending (in-flight)\nattempts are skipped and reported with a DELETION_PENDING status."
+        }
+      }
+    },
+    "switchrpcDeleteAttemptsResponse": {
+      "type": "object",
+      "properties": {
+        "results": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "$ref": "#/definitions/switchrpcAttemptDeletionResult"
+          },
+          "description": "Per-attempt deletion outcomes. The order corresponds to the order of\nattempt_ids in the request."
+        }
+      }
+    },
+    "switchrpcDisableRemoteRouterRequest": {
+      "type": "object"
+    },
+    "switchrpcDisableRemoteRouterResponse": {
+      "type": "object"
+    },
+    "switchrpcFailureDetails": {
+      "type": "object",
+      "properties": {
+        "error_message": {
+          "type": "string",
+          "description": "A human-readable error_message for logging or display."
+        },
+        "local_failure": {
+          "$ref": "#/definitions/switchrpcLocalFailure",
+          "description": "local_failure is set when the failure originates at the local\nnode (e.g. unable to forward due to insufficient balance,\nchannel policy violations, or other link-level rejections). The\nwire message is available in plaintext without onion decryption."
+        },
+        "forwarding_failure": {
+          "$ref": "#/definitions/switchrpcForwardingFailure",
+          "description": "forwarding_failure is set when the HTLC was forwarded into the\nnetwork and a remote node returned an error. The onion error\nwas successfully decrypted, yielding the failure source index.\nThe wire_message may be empty if the inner failure could not\nbe decoded."
+        },
+        "encrypted_error_data": {
+          "type": "string",
+          "format": "byte",
+          "description": "encrypted_error_data contains the raw onion-encrypted error\nblob. This is returned when no decryption keys were provided\nin the TrackOnionRequest (i.e. no session key or hop public\nkeys), deferring decryption entirely to the client."
+        },
+        "unreadable_failure": {
+          "$ref": "#/definitions/switchrpcUnreadableFailure",
+          "description": "unreadable_failure indicates that decryption keys were provided\nand decryption was attempted, but failed. The original error\ncannot be recovered."
+        },
+        "switch_error": {
+          "$ref": "#/definitions/switchrpcSwitchError",
+          "description": "switch_error indicates an unexpected internal error that does\nnot fall into any of the above categories."
+        }
+      },
+      "description": "FailureDetails provides structured information about why a payment attempt\nfailed on the network. This message is included in a successful\nTrackOnionResponse when the queried attempt ultimately failed."
+    },
+    "switchrpcForwardingFailure": {
+      "type": "object",
+      "properties": {
+        "failure_source_index": {
+          "type": "integer",
+          "format": "int64",
+          "description": "failure_source_index is the 0-based index of the node within the payment\nroute that reported the failure. Index 0 refers to the local node."
+        },
+        "wire_message": {
+          "type": "string",
+          "format": "byte",
+          "description": "The raw, serialized lnwire.FailureMessage reported by the failing node.\nThis field may be empty if the failure message could not be decoded."
+        }
+      },
+      "description": "ForwardingFailure represents an HTLC failure that occurred at a remote node\nin the payment route. The onion error was successfully decrypted, revealing\nthe failing hop."
+    },
+    "switchrpcLocalFailure": {
+      "type": "object",
+      "properties": {
+        "wire_message": {
+          "type": "string",
+          "format": "byte",
+          "description": "The raw, serialized `lnwire.FailureMessage`."
+        }
+      },
+      "description": "LocalFailure represents a failure that originates at the local node. No\nonion decryption is involved because the failure occurred before the HTLC\nleft our node."
+    },
+    "switchrpcSendOnionRequest": {
+      "type": "object",
+      "properties": {
+        "onion_blob": {
+          "type": "string",
+          "format": "byte",
+          "description": "The raw onion packet to be sent across the network."
+        },
+        "attempt_id": {
+          "type": "string",
+          "format": "uint64",
+          "description": "The attempt ID uniquely identifying this payment attempt. The caller can\nexpect to track results for the payment via this attempt ID."
+        },
+        "first_hop_pubkey": {
+          "type": "string",
+          "format": "byte",
+          "description": "The first hop's public key where the onion will be sent.\nThe first hop must be specified either by channel ID or public key."
+        },
+        "first_hop_chan_id": {
+          "type": "string",
+          "format": "uint64",
+          "description": "The channel id of the channel that must be taken to the first hop.\nThe first hop must be specified either by channel ID or public key."
+        },
+        "amount": {
+          "type": "string",
+          "format": "int64",
+          "description": "The total amount in millisatoshis required to complete a payment over\nthis route. This value includes the cumulative fees at each hop. The HTLC\nextended to the first-hop in the route will need to have at least this\nmany (milli)satoshis."
+        },
+        "timelock": {
+          "type": "integer",
+          "format": "int64",
+          "description": "The absolute timelock or CLTV value that should be extended to the first\nhop in the route. All other hops will decrement the time-lock as\ndescribed by the onion."
+        },
+        "payment_hash": {
+          "type": "string",
+          "format": "byte",
+          "description": "The payment hash associated with the HTLC. This is needed for tracking\nand debugging purposes."
+        },
+        "blinding_point": {
+          "type": "string",
+          "format": "byte",
+          "description": "The optional blinding point to use when constructing the HTLC.\nIf set, this will be used to blind the next hop in the route."
+        },
+        "custom_records": {
+          "type": "object",
+          "additionalProperties": {
+            "type": "string",
+            "format": "byte"
+          },
+          "description": "Optional custom TLV records to include in the UpdateAddHTLC message."
+        },
+        "extra_data": {
+          "type": "string",
+          "format": "byte",
+          "description": "Optional opaque extra data to attach to the UpdateAddHTLC message."
+        }
+      }
+    },
+    "switchrpcSendOnionResponse": {
+      "type": "object",
+      "description": "SendOnionResponse is an empty message. A gRPC status of OK or AlreadyExists\nindicates a successful dispatch acknowledgment."
+    },
+    "switchrpcSwitchError": {
+      "type": "object",
+      "description": "SwitchError indicates that an error occurred within the switch subsystem."
+    },
+    "switchrpcTrackOnionRequest": {
+      "type": "object",
+      "properties": {
+        "payment_hash": {
+          "type": "string",
+          "format": "byte",
+          "description": "The payment hash associated with the HTLC. This is needed for tracking\nand debugging purposes."
+        },
+        "attempt_id": {
+          "type": "string",
+          "format": "uint64",
+          "description": "The attempt ID uniquely identifying this payment attempt. The caller can\nexpect to track results for the payment via this attempt ID."
+        },
+        "session_key": {
+          "type": "string",
+          "format": "byte",
+          "description": "Optional: The session key that was used to construct the onion packet.\nThis is required by the server to decrypt any failure message."
+        },
+        "hop_pubkeys": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "format": "byte"
+          },
+          "description": "Optional: The public keys of the nodes in the route, used with the\nsession_key to decrypt any failure message."
+        }
+      }
+    },
+    "switchrpcTrackOnionResponse": {
+      "type": "object",
+      "properties": {
+        "preimage": {
+          "type": "string",
+          "format": "byte",
+          "description": "The preimage obtained by making the payment. If this field is set,\nthe payment succeeded."
+        },
+        "failure_details": {
+          "$ref": "#/definitions/switchrpcFailureDetails",
+          "description": "The application-level failure for the payment attempt. If this field\nis set, the payment attempt failed."
+        }
+      }
+    },
+    "switchrpcUnreadableFailure": {
+      "type": "object",
+      "description": "UnreadableFailure indicates that decryption keys were provided and\ndecryption was attempted, but failed. The original failure information\ncannot be recovered."
+    }
+  }
+}

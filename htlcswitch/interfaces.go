@@ -113,19 +113,17 @@ type scidAliasHandler interface {
 	zeroConfConfirmed() bool
 }
 
-// ChannelUpdateHandler is an interface that provides methods that allow
-// sending lnwire.Message to the underlying link as well as querying state.
-type ChannelUpdateHandler interface {
-	// HandleChannelUpdate handles the htlc requests as settle/add/fail
-	// which sent to us from remote peer we have a channel with.
-	//
-	// NOTE: This function MUST be non-blocking (or block as little as
-	// possible).
-	HandleChannelUpdate(lnwire.Message)
-
+// ChannelInfoProvider provides a read-only view of a ChannelLink that exposes
+// forwarding bandwidth and eligibility information to external subsystems.
+type ChannelInfoProvider interface {
 	// ChanID returns the channel ID for the channel link. The channel ID
 	// is a more compact representation of a channel's full outpoint.
 	ChanID() lnwire.ChannelID
+
+	// ShortChanID returns the short channel ID for the channel link. The
+	// short channel ID encodes the exact location in the main chain that
+	// the original funding output can be found.
+	ShortChanID() lnwire.ShortChannelID
 
 	// Bandwidth returns the amount of milli-satoshis which current link
 	// might pass through channel link. The value returned from this method
@@ -145,6 +143,19 @@ type ChannelUpdateHandler interface {
 	// htlc to the channel, taking the amount of the htlc to add as a
 	// parameter.
 	MayAddOutgoingHtlc(lnwire.MilliSatoshi) error
+}
+
+// ChannelUpdateHandler is an interface that provides methods that allow
+// sending lnwire.Message to the underlying link as well as querying state.
+type ChannelUpdateHandler interface {
+	// HandleChannelUpdate handles the htlc requests as settle/add/fail
+	// which sent to us from remote peer we have a channel with.
+	//
+	// NOTE: This function MUST be non-blocking (or block as little as
+	// possible).
+	HandleChannelUpdate(lnwire.Message)
+
+	ChannelInfoProvider
 
 	// EnableAdds sets the ChannelUpdateHandler state to allow
 	// UpdateAddHtlc's in the specified direction. It returns true if the
@@ -262,11 +273,6 @@ type ChannelLink interface {
 
 	// ChannelPoint returns the channel outpoint for the channel link.
 	ChannelPoint() wire.OutPoint
-
-	// ShortChanID returns the short channel ID for the channel link. The
-	// short channel ID encodes the exact location in the main chain that
-	// the original funding output can be found.
-	ShortChanID() lnwire.ShortChannelID
 
 	// UpdateShortChanID updates the short channel ID for a link. This may
 	// be required in the event that a link is created before the short
@@ -619,4 +625,84 @@ type AuxTrafficShaper interface {
 	// custom records to put it under the purview of the traffic shaper,
 	// meaning that it's from a custom channel.
 	IsCustomHTLC(htlcRecords lnwire.CustomRecords) bool
+}
+
+// AttemptStore defines the interface for initializing, managing, and tracking
+// the lifecycle of HTLC payment attempts. It supports both local and remote
+// payment lifecycle controllers.
+//
+// NOTE: This store is designed to be managed by a *single* logical dispatcher
+// (e.g., a ChannelRouter instance, or a remote payment orchestrator) at a time
+// to avoid collisions of attemptIDs and ensure an unambiguous source of truth
+// for payment state. Concurrent usage by multiple dispatchers is NOT supported.
+type AttemptStore interface {
+	// InitAttempt persists the intent to dispatch a payment attempt,
+	// creating a durable record that serves as an idempotency key. This
+	// method should be called before the HTLC is dispatched to the network.
+	//
+	// NOTE: This method provides a guarantee that only one HTLC can be
+	// initialized for a given attempt ID until the ID is explicitly cleaned
+	// from the store.
+	InitAttempt(attemptID uint64) error
+
+	// StoreResult stores the result of a given payment attempt (identified
+	// by attemptID). This will be called when a result is received from the
+	// network.
+	StoreResult(attemptID uint64, result *networkResult) error
+
+	// FailPendingAttempt transitions an initialized attempt from an
+	// initialized to a failed state and records the provided reason. This
+	// is the synchronous rollback mechanism for attempts that fail before
+	// being committed to the forwarding engine. It returns an error if the
+	// underlying storage fails.
+	FailPendingAttempt(attemptID uint64, reason *LinkError) error
+
+	// FetchPendingAttempts returns a list of all attempt IDs that are
+	// currently in the pending state.
+	//
+	// NOTE: This function is primarily used by the Switch's startup logic
+	// to identify and clean up internally orphaned payment attempts. These
+	// occur when an attempt is initialized via InitAttempt but a crash
+	// prevents its full dispatch to the network (e.g., between InitAttempt
+	// and CommitCircuits). By fetching these pending attempts, the Switch
+	// can transition their state to FAILED, preventing external callers
+	// from indefinitely hanging on GetAttemptResult for an un-dispatched
+	// attempt.
+	FetchPendingAttempts() ([]uint64, error)
+
+	// GetResult returns the network result for the specified attempt ID if
+	// it's available.
+	//
+	// NOTE: This method should return ErrAttemptResultPending for attempts
+	// that have been initialized via InitAttempt but for which a final
+	// result (settle/fail) has not yet been stored. ErrPaymentIDNotFound is
+	// returned for attempts that are unknown.
+	GetResult(attemptID uint64) (*networkResult, error)
+
+	// SubscribeResult subscribes to be notified when a result for a
+	// specific attempt ID becomes available. It returns a channel that will
+	// receive the result.
+	//
+	// NOTE: For backwards compatibility, the returned channel should only
+	// receive a value for attempts that have a final result (settle/fail).
+	// Subscribers should *not* be notified of the initial pending state
+	// created by InitAttempt.
+	SubscribeResult(attemptID uint64) (<-chan *networkResult, error)
+
+	// CleanStore removes all attempt results from the store except for
+	// those listed in the keepPids map. This allows for a "delete all
+	// except" approach to cleanup.
+	CleanStore(keepPids map[uint64]struct{}) error
+
+	// DeleteAttempts removes terminal (settled or failed) attempt results
+	// from the store. The returned map reports the outcome for each
+	// requested attempt ID.
+	DeleteAttempts(attemptIDs []uint64) (map[uint64]DeletionStatus, error)
+
+	// DisableRemoteRouter checks for attempt entries and, if none are
+	// found, deletes the remote router marker from the database. The
+	// external controller that dispatched the attempts is responsible
+	// for cleaning results from the store (e.g. via DeleteAttempts)
+	// before calling this method.
+	DisableRemoteRouter() error
 }

@@ -851,6 +851,22 @@ var allTestCases = []*lntest.TestCase{
 		Name:     "postgres network separation",
 		TestFunc: testPostgresNetworkSeparation,
 	},
+	{
+		Name:     "send onion",
+		TestFunc: testSendOnion,
+	},
+	{
+		Name:     "send onion twice",
+		TestFunc: testSendOnionTwice,
+	},
+	{
+		Name:     "send onion concurrency",
+		TestFunc: testSendOnionConcurrency,
+	},
+	{
+		Name:     "track onion",
+		TestFunc: testTrackOnion,
+	},
 }
 
 // appendPrefixed is used to add a prefix to each test name in the subtests

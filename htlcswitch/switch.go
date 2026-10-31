@@ -314,6 +314,11 @@ type Config struct {
 
 	// IsAlias returns whether or not a given SCID is an alias.
 	IsAlias func(scid lnwire.ShortChannelID) bool
+
+	// ExternalPaymentLifecycle indicates that the payment lifecycle is
+	// managed by an external entity, and the dispatcher's payment store
+	// should not be cleaned on startup.
+	ExternalPaymentLifecycle bool
 }
 
 // Switch is the central messaging bus for all incoming/outgoing HTLCs.
@@ -340,12 +345,12 @@ type Switch struct {
 	// service was initialized with.
 	cfg *Config
 
-	// networkResults stores the results of payments initiated by the user.
+	// attemptStore stores the results of payments initiated by the user.
 	// The store is used to later look up the payments and notify the
 	// user of the result when they are complete. Each payment attempt
 	// should be given a unique integer ID when it is created, otherwise
 	// results might be overwritten.
-	networkResults *networkResultStore
+	attemptStore AttemptStore
 
 	// circuits is storage for payment circuits which are used to
 	// forward the settle/fail htlc updates back to the add htlc initiator.
@@ -470,6 +475,13 @@ func New(cfg Config, currentHeight uint32) (*Switch, error) {
 		return nil, err
 	}
 
+	networkResultStore, err := newNetworkResultStore(
+		cfg.DB, cfg.ExternalPaymentLifecycle,
+	)
+	if err != nil {
+		return nil, err
+	}
+
 	s := &Switch{
 		bestHeight:        currentHeight,
 		cfg:               &cfg,
@@ -479,7 +491,7 @@ func New(cfg Config, currentHeight uint32) (*Switch, error) {
 		interfaceIndex:    make(map[[33]byte]map[lnwire.ChannelID]ChannelLink),
 		pendingLinkIndex:  make(map[lnwire.ChannelID]ChannelLink),
 		linkStopIndex:     make(map[lnwire.ChannelID]chan struct{}),
-		networkResults:    newNetworkResultStore(cfg.DB),
+		attemptStore:      networkResultStore,
 		htlcPlex:          make(chan *plexPacket),
 		chanCloseRequests: make(chan *ChanClose),
 		resolutionMsgs:    make(chan *resolutionMsg),
@@ -537,16 +549,21 @@ func (s *Switch) ProcessContractResolution(msg contractcourt.ResolutionMsg) erro
 // HasAttemptResult reads the network result store to fetch the specified
 // attempt. Returns true if the attempt result exists.
 func (s *Switch) HasAttemptResult(attemptID uint64) (bool, error) {
-	_, err := s.networkResults.getResult(attemptID)
+	_, err := s.attemptStore.GetResult(attemptID)
 	if err == nil {
 		return true, nil
 	}
 
-	if !errors.Is(err, ErrPaymentIDNotFound) {
-		return false, err
+	// If we have not heard of this attempt ID, or have dispatched the
+	// attempt but have not yet received the final (settle/fail) result,
+	// then we return a nil error.
+	if errors.Is(err, ErrPaymentIDNotFound) ||
+		errors.Is(err, ErrAttemptResultPending) {
+
+		return false, nil
 	}
 
-	return false, nil
+	return false, err
 }
 
 // GetAttemptResult returns the result of the HTLC attempt with the given
@@ -574,17 +591,33 @@ func (s *Switch) GetAttemptResult(attemptID uint64, paymentHash lntypes.Hash,
 	// is already available.
 	// Assumption: no one will add this attempt ID other than the caller.
 	if s.circuits.LookupCircuit(inKey) == nil {
-		res, err := s.networkResults.getResult(attemptID)
-		if err != nil {
+		res, err := s.attemptStore.GetResult(attemptID)
+		switch {
+		// We have a final result, we can send it immediately.
+		case err == nil:
+			c := make(chan *networkResult, 1)
+			c <- res
+			nChan = c
+
+		// The attempt is known, but the result is not yet available,
+		// so we fall through to subscribe.
+		case errors.Is(err, ErrAttemptResultPending):
+			log.Tracef("Attempt %d known, but result not yet "+
+				"available. Subscribing for result.", attemptID)
+
+		// If the error is anything else, we return it to the caller.
+		default:
 			return nil, err
 		}
-		c := make(chan *networkResult, 1)
-		c <- res
-		nChan = c
-	} else {
+	}
+
+	// If nChan is still nil, it means we need to subscribe. This happens
+	// if the circuit was found, or if GetResult told us the result is not
+	// yet available.
+	if nChan == nil {
 		// The HTLC was committed to the circuits, subscribe for a
 		// result.
-		nChan, err = s.networkResults.subscribeResult(attemptID)
+		nChan, err = s.attemptStore.SubscribeResult(attemptID)
 		if err != nil {
 			return nil, err
 		}
@@ -636,7 +669,19 @@ func (s *Switch) GetAttemptResult(attemptID uint64, paymentHash lntypes.Hash,
 // preiodically to let the switch clean up payment results that we have
 // handled.
 func (s *Switch) CleanStore(keepPids map[uint64]struct{}) error {
-	return s.networkResults.cleanStore(keepPids)
+	return s.attemptStore.CleanStore(keepPids)
+}
+
+// AttemptStore provides access to the Switch's underlying attempt store.
+func (s *Switch) AttemptStore() AttemptStore {
+	return s.attemptStore
+}
+
+// DisableRemoteRouter calls the underlying result store, telling it to check
+// for attempt entries and if none are found, to delete the remote router
+// marker from the database.
+func (s *Switch) DisableRemoteRouter() error {
+	return s.attemptStore.DisableRemoteRouter()
 }
 
 // SendHTLC is used by other subsystems which aren't belong to htlc switch
@@ -1063,7 +1108,7 @@ func (s *Switch) handleLocalResponse(pkt *htlcPacket) {
 
 	// Store the result to the db. This will also notify subscribers about
 	// the result.
-	if err := s.networkResults.storeResult(attemptID, n); err != nil {
+	if err := s.attemptStore.StoreResult(attemptID, n); err != nil {
 		log.Errorf("Unable to store attempt result for pid=%v: %v",
 			attemptID, err)
 		return
@@ -1130,31 +1175,57 @@ func (s *Switch) extractResult(deobfuscator ErrorDecrypter, n *networkResult,
 	case *lnwire.UpdateFailHTLC:
 		// TODO(yy): construct deobfuscator here to avoid creating it
 		// in paymentLifecycle even for settled HTLCs.
-		paymentErr := s.parseFailedPayment(
+		paymentResult := s.parseFailedPayment(
 			deobfuscator, attemptID, paymentHash, n.unencrypted,
 			n.isResolution, htlc,
 		)
 
-		return &PaymentResult{
-			Error: paymentErr,
-		}, nil
+		// ElimEither allows us to safely handle both cases of the
+		// either.
+		result := fn.ElimEither(
+			paymentResult,
+			// If a decrypted error is present, we use that.
+			func(pErr error) *PaymentResult {
+				return &PaymentResult{
+					Error: pErr,
+				}
+			},
+			// If no decrypted error is present, we use the raw
+			// encrypted error.
+			func(encryptedErr []byte) *PaymentResult {
+				return &PaymentResult{
+					EncryptedError: encryptedErr,
+				}
+			},
+		)
 
+		return result, nil
 	default:
 		return nil, fmt.Errorf("received unknown response type: %T",
 			htlc)
 	}
 }
 
-// parseFailedPayment determines the appropriate failure message to return to
-// a user initiated payment. The three cases handled are:
-//  1. An unencrypted failure, which should already plaintext.
-//  2. A resolution from the chain arbitrator, which possibly has no failure
-//     reason attached.
-//  3. A failure from the remote party, which will need to be decrypted using
-//     the payment deobfuscator.
+// parseFailedPayment determines the appropriate failure message for a failed
+// user-initiated payment. It returns a mutually exclusive pair: either a raw,
+// encrypted error blob, or a decrypted error.
+//
+// The cases handled are:
+//  1. An unencrypted failure: This occurs when the payment fails locally before
+//     clearing the first link. The failure reason is already in plaintext.
+//  2. A resolution from the chain arbitrator: This occurs for on-chain
+//     timeouts, which may not have a specific failure reason.
+//  3. A failure from a remote hop: This is the standard case for a multi-hop
+//     payment failure.
+//     - If a deobfuscator is provided, this function will attempt to decrypt
+//     the failure reason.
+//     - If a deobfuscator is NOT provided, the function returns the raw,
+//     onion-encrypted failure blob. This blob is only fully decryptable by the
+//     entity which built the onion packet.
 func (s *Switch) parseFailedPayment(deobfuscator ErrorDecrypter,
 	attemptID uint64, paymentHash lntypes.Hash, unencrypted,
-	isResolution bool, htlc *lnwire.UpdateFailHTLC) error {
+	isResolution bool, htlc *lnwire.UpdateFailHTLC) fn.Either[error,
+	[]byte] {
 
 	switch {
 
@@ -1179,17 +1250,17 @@ func (s *Switch) parseFailedPayment(deobfuscator ErrorDecrypter,
 				linkError.FailureDetail.FailureString(),
 				paymentHash, attemptID, err)
 
-			return linkError
+			return fn.NewLeft[error, []byte](linkError)
 		}
 
 		// If we successfully decoded the failure reason, return it.
-		return NewLinkError(failureMsg)
+		return fn.NewLeft[error, []byte](NewLinkError(failureMsg))
 
 	// A payment had to be timed out on chain before it got past
 	// the first hop. In this case, we'll report a permanent
 	// channel failure as this means us, or the remote party had to
 	// go on chain.
-	case isResolution && htlc.Reason == nil:
+	case isResolution && len(htlc.Reason) == 0:
 		linkError := NewDetailedLinkError(
 			&lnwire.FailPermanentChannelFailure{},
 			OutgoingFailureOnChainTimeout,
@@ -1199,11 +1270,17 @@ func (s *Switch) parseFailedPayment(deobfuscator ErrorDecrypter,
 			linkError.FailureDetail.FailureString(),
 			paymentHash, attemptID)
 
-		return linkError
+		return fn.NewLeft[error, []byte](linkError)
 
 	// A regular multi-hop payment error that we'll need to
 	// decrypt.
 	default:
+		// If we don't have a deobfuscator, we cannot proceed. Return
+		// the encrypted reason to the caller.
+		if deobfuscator == nil {
+			return fn.NewRight[error, []byte](htlc.Reason)
+		}
+
 		// We'll attempt to fully decrypt the onion encrypted
 		// error. If we're unable to then we'll bail early.
 		failure, err := deobfuscator.DecryptError(htlc.Reason)
@@ -1212,10 +1289,12 @@ func (s *Switch) parseFailedPayment(deobfuscator ErrorDecrypter,
 				"(hash=%v, pid=%d): %v",
 				paymentHash, attemptID, err)
 
-			return ErrUnreadableFailureMessage
+			return fn.NewLeft[error, []byte](
+				ErrUnreadableFailureMessage,
+			)
 		}
 
-		return failure
+		return fn.NewLeft[error, []byte](failure)
 	}
 }
 
@@ -1876,6 +1955,13 @@ func (s *Switch) Start() error {
 
 	log.Infof("HTLC Switch starting")
 
+	// Before starting the main event loop, we'll check for any orphaned
+	// HTLC attempts that may have been left behind by a previous crash.
+	if err := s.cleanupOrphanedAttempts(); err != nil {
+		return fmt.Errorf("failed to cleanup orphaned attempts: %w",
+			err)
+	}
+
 	blockEpochStream, err := s.cfg.Notifier.RegisterBlockEpochNtfn(nil)
 	if err != nil {
 		return err
@@ -1961,6 +2047,88 @@ func (s *Switch) reforwardFwdResponses() error {
 		len(switchPackets))
 
 	return s.ForwardPackets(nil, switchPackets...)
+}
+
+// cleanupOrphanedAttempts is a helper function that is called on startup to
+// clean up any orphaned HTLC attempts. An orphaned attempt is one that has
+// been initialized in the attempt store but for which no corresponding circuit
+// exists in the circuit map. This can happen if the node crashes after
+// initializing an attempt but before committing the circuit.
+func (s *Switch) cleanupOrphanedAttempts() error {
+	pending, err := s.attemptStore.FetchPendingAttempts()
+	if err != nil {
+		return fmt.Errorf("failed to fetch pending attempts: %w", err)
+	}
+
+	if len(pending) == 0 {
+		return nil
+	}
+
+	log.Infof("Found %d pending HTLC attempts, checking for orphans",
+		len(pending))
+
+	for _, attemptID := range pending {
+		// For each pending attempt, we check if a corresponding circuit
+		// exists.
+		inKey := CircuitKey{
+			ChanID: hop.Source,
+			HtlcID: attemptID,
+		}
+		circuit := s.circuits.LookupCircuit(inKey)
+
+		// If no circuit exists, this is an orphan from a crash
+		// between InitAttempt and CommitCircuits. We'll fail it with
+		// a temporary node failure.
+		if circuit == nil {
+			log.Warnf("Found orphaned HTLC attempt with id %d "+
+				"(no circuit), failing", attemptID)
+
+			err := s.attemptStore.FailPendingAttempt(
+				attemptID,
+				NewLinkError(
+					&lnwire.FailTemporaryNodeFailure{},
+				),
+			)
+			if err != nil {
+				log.Errorf("Unable to fail orphaned attempt "+
+					"%d: %v", attemptID, err)
+			}
+
+			continue
+		}
+
+		// If a circuit *does* exist, we must perform a second check.
+		// If the circuit is still "half-open" (it has not been
+		// assigned a keystone by the outgoing link), then it's an
+		// orphan from a crash between CommitCircuits and the handoff
+		// to the link. We must also fail this to prevent a hang.
+		//
+		// TODO(calvin): cleanup of dangling circuits for locally
+		// initated payments as described here:
+		// https://github.com/lightningnetwork/lnd/issues/10423.
+		if !circuit.HasKeystone() {
+			log.Warnf("Found orphaned HTLC attempt with id %d "+
+				"(half-open circuit), failing", attemptID)
+
+			err := s.attemptStore.FailPendingAttempt(
+				attemptID,
+				NewLinkError(
+					&lnwire.FailTemporaryNodeFailure{},
+				),
+			)
+			if err != nil {
+				log.Errorf("Unable to fail orphaned attempt "+
+					"%d: %v", attemptID, err)
+			}
+
+			continue
+		}
+
+		// If the circuit exists and is fully open, it's a legitimate
+		// in-flight HTLC that will be resumed by the router.
+	}
+
+	return nil
 }
 
 // reforwardResolutions fetches the set of resolution messages stored on-disk
@@ -2655,6 +2823,30 @@ func (s *Switch) GetLinksByInterface(hop [33]byte) ([]ChannelUpdateHandler,
 
 	// Range over the returned []ChannelLink to convert them into
 	// []ChannelUpdateHandler.
+	for _, link := range links {
+		handlers = append(handlers, link)
+	}
+
+	return handlers, nil
+}
+
+// GetLinksByPubkey fetches all the links connected to a particular node
+// identified by the serialized compressed form of its public key.
+func (s *Switch) GetLinksByPubkey(hopPubkey [33]byte) ([]ChannelInfoProvider,
+	error) {
+
+	s.indexMtx.RLock()
+	defer s.indexMtx.RUnlock()
+
+	links, err := s.getLinks(hopPubkey)
+	if err != nil {
+		return nil, err
+	}
+
+	handlers := make([]ChannelInfoProvider, 0, len(links))
+
+	// Range over the returned []ChannelLink to convert them into
+	// []ChannelInfoProvider.
 	for _, link := range links {
 		handlers = append(handlers, link)
 	}

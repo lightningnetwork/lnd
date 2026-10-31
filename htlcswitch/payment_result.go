@@ -4,7 +4,9 @@ import (
 	"bytes"
 	"encoding/binary"
 	"errors"
+	"fmt"
 	"io"
+	"slices"
 	"sync"
 
 	"github.com/lightningnetwork/lnd/channeldb"
@@ -26,6 +28,63 @@ var (
 	// ErrPaymentIDAlreadyExists is returned if we try to write a pending
 	// payment whose paymentID already exists.
 	ErrPaymentIDAlreadyExists = errors.New("paymentID already exists")
+
+	// ErrAttemptResultPending is returned if we try to get a result
+	// for a pending payment whose result is not yet available.
+	ErrAttemptResultPending = errors.New(
+		"attempt result not yet available",
+	)
+
+	// ErrAmbiguousAttemptInit is returned when any internal error (eg:
+	// with db read or write) occurs during an InitAttempt call that
+	// prevents a definitive outcome. This indicates that the state of the
+	// payment attempt's inititialization is unknown. Callers should retry
+	// the operation to resolve the ambiguity.
+	ErrAmbiguousAttemptInit = errors.New(
+		"ambiguous result for payment attempt registration",
+	)
+
+	// ErrAttemptEntriesExist is returned when DisableRemoteRouter is
+	// called but there are still attempt entries in the network result
+	// store that have not been cleaned up.
+	ErrAttemptEntriesExist = errors.New(
+		"attempt entries exist in store",
+	)
+
+	// externalLifecycleMarkerBucket is a top-level bucket whose
+	// existence indicates that the payment lifecycle is managed
+	// externally. It prevents a local-mode binary from cleaning the
+	// attempt store on startup, which would destroy state needed by
+	// the external manager.
+	externalLifecycleMarkerBucket = []byte("external-lifecycle-marker")
+)
+
+// DeletionStatus represents the outcome of deleting a single attempt from
+// the store.
+type DeletionStatus int
+
+const (
+	// DeletionOK indicates the attempt was successfully deleted.
+	DeletionOK DeletionStatus = iota
+
+	// DeletionPending indicates the attempt is still in-flight and cannot
+	// be deleted.
+	DeletionPending
+
+	// DeletionNotFound indicates the attempt ID was not found in the
+	// store. This may indicate a client bug (wrong ID, wrong backend).
+	DeletionNotFound
+
+	// DeletionFailed indicates that the attempt record exists but could
+	// not be processed (e.g. deserialization error). The record remains
+	// in the store.
+	DeletionFailed
+)
+
+const (
+	// pendingHtlcMsgType is a custom message type used to represent a
+	// pending HTLC in the network result store.
+	pendingHtlcMsgType lnwire.MessageType = 32768
 )
 
 // PaymentResult wraps a decoded result received from the network after a
@@ -39,6 +98,11 @@ type PaymentResult struct {
 	// irrevocably canceled. If the payment failed during forwarding, this
 	// error will be a *ForwardingError.
 	Error error
+
+	// EncryptedError will contain the raw bytes of an encrypted error
+	// in the event of a payment failure if the switch is instructed to
+	// defer error processing to external sub-systems.
+	EncryptedError []byte
 }
 
 // networkResult is the raw result received from the network after a payment
@@ -90,23 +154,175 @@ type networkResultStore struct {
 	results    map[uint64][]chan *networkResult
 	resultsMtx sync.Mutex
 
-	// attemptIDMtx is a multimutex used to make sure the database and
-	// result subscribers map is consistent for each attempt ID in case of
-	// concurrent callers.
+	// attemptIDMtx is a multimutex used to serialize operations for a
+	// given attempt ID. It ensures InitAttempt's idempotency by protecting
+	// its read-then-write sequence from concurrent calls, and it maintains
+	// consistency between the database state and result subscribers.
 	attemptIDMtx *multimutex.Mutex[uint64]
 }
 
-func newNetworkResultStore(db kvdb.Backend) *networkResultStore {
+func newNetworkResultStore(db kvdb.Backend,
+	externalLifecycle bool) (*networkResultStore, error) {
+
+	// Check for a state mismatch. If the payment lifecycle is managed
+	// locally but the database has been marked for external management,
+	// we must exit to prevent data loss.
+	if !externalLifecycle {
+		var isMarkedExternal bool
+		err := db.View(func(tx kvdb.RTx) error {
+			if tx.ReadBucket(externalLifecycleMarkerBucket) != nil {
+				isMarkedExternal = true
+			}
+
+			return nil
+		}, func() {
+			isMarkedExternal = false
+		})
+		if err != nil {
+			return nil, fmt.Errorf("unable to check for "+
+				"external lifecycle marker: %w", err)
+		}
+
+		if isMarkedExternal {
+			return nil, fmt.Errorf("the htlc attempt database is " +
+				"marked for external lifecycle management " +
+				"by a switchrpc build, but this binary is " +
+				"in local management mode. Halting to " +
+				"prevent data loss. To use this database, " +
+				"restart with an lnd build that includes " +
+				"the `switchrpc` build tag")
+		}
+	}
+
+	// If the payment lifecycle is managed externally, write the marker.
+	// This is placed after the check above to ensure we don't write and
+	// then immediately fail in a misconfigured dev environment.
+	if externalLifecycle {
+		err := db.Update(func(tx kvdb.RwTx) error {
+			_, err := tx.CreateTopLevelBucket(
+				externalLifecycleMarkerBucket,
+			)
+
+			return err
+		}, func() {})
+		if err != nil {
+			return nil, fmt.Errorf("unable to write external "+
+				"lifecycle marker: %w", err)
+		}
+	}
+
 	return &networkResultStore{
 		backend:      db,
 		results:      make(map[uint64][]chan *networkResult),
 		attemptIDMtx: multimutex.NewMutex[uint64](),
-	}
+	}, nil
 }
 
-// storeResult stores the networkResult for the given attemptID, and notifies
+// InitAttempt initializes the payment attempt with the given attemptID.
+//
+// If any record (even a pending result placeholder) already exists in the
+// store, this method returns ErrPaymentIDAlreadyExists. This guarantees that
+// only one HTLC will be initialized and dispatched for a given attempt ID until
+// the ID is explicitly cleaned from attempt store.
+//
+// If any unexpected internal error occurs (such as a database read or write
+// failure), it will be wrapped in ErrAmbiguousAttemptInit. This signals
+// to the caller that the state of the registration is uncertain and that the
+// operation MUST be retried to resolve the ambiguity.
+//
+// NOTE: This is part of the AttemptStore interface. Subscribed clients do not
+// receive notice of this initialization.
+func (store *networkResultStore) InitAttempt(attemptID uint64) error {
+	// We get a mutex for this attempt ID to serialize init, store, and
+	// subscribe operations. This is needed to ensure consistency between
+	// the database state and the subscribers in case of concurrent calls.
+	store.attemptIDMtx.Lock(attemptID)
+	defer store.attemptIDMtx.Unlock(attemptID)
+
+	err := kvdb.Update(store.backend, func(tx kvdb.RwTx) error {
+		// Check if any attempt by this ID is already initialized or
+		// whether a result for the attempt exists in the store.
+		existingResult, err := fetchResult(tx, attemptID)
+		if err != nil && !errors.Is(err, ErrPaymentIDNotFound) {
+			return err
+		}
+
+		// If the result is already in-progress, return an error
+		// indicating that the attempt already exists.
+		if existingResult != nil {
+			log.Warnf("Already initialized attempt for ID=%v",
+				attemptID)
+
+			return ErrPaymentIDAlreadyExists
+		}
+
+		// Create an empty networkResult to serve as place holder until
+		// a result from the network is received.
+		//
+		// TODO(calvin): When migrating to native SQL storage, replace
+		// this custom message placeholder with a proper status enum or
+		// struct to represent the pending state of an attempt.
+		pendingMsg, err := lnwire.NewCustom(pendingHtlcMsgType, nil)
+		if err != nil {
+			// This should not happen with a static message type,
+			// but if it does, it's an internal error that prevents
+			// a definitive outcome, so we must treat it as
+			// ambiguous.
+			return err
+		}
+		inProgressResult := &networkResult{
+			msg:          pendingMsg,
+			unencrypted:  true,
+			isResolution: false,
+		}
+
+		var b bytes.Buffer
+		err = serializeNetworkResult(&b, inProgressResult)
+		if err != nil {
+			return err
+		}
+
+		var attemptIDBytes [8]byte
+		binary.BigEndian.PutUint64(attemptIDBytes[:], attemptID)
+
+		// Mark an attempt with this ID as having been seen by storing
+		// the pending placeholder. No network result is available yet,
+		// so we do not notify subscribers.
+		bucket, err := tx.CreateTopLevelBucket(
+			networkResultStoreBucketKey,
+		)
+		if err != nil {
+			return err
+		}
+
+		return bucket.Put(attemptIDBytes[:], b.Bytes())
+	}, func() {
+		// No need to reset existingResult here as it's scoped to the
+		// transaction.
+	})
+
+	if err != nil {
+		if errors.Is(err, ErrPaymentIDAlreadyExists) {
+			return ErrPaymentIDAlreadyExists
+		}
+
+		// If any unexpected internal error occurs (such as a database
+		// failure), it will be wrapped in ErrAmbiguousAttemptInit.
+		// This signals to the caller that the state of the attempt
+		// initialization is uncertain and that the operation MUST be
+		// retried to resolve the ambiguity.
+		return fmt.Errorf("%w: %w", ErrAmbiguousAttemptInit, err)
+	}
+
+	log.Debugf("Initialized attempt for local payment with attemptID=%v",
+		attemptID)
+
+	return nil
+}
+
+// StoreResult stores the networkResult for the given attemptID, and notifies
 // any subscribers.
-func (store *networkResultStore) storeResult(attemptID uint64,
+func (store *networkResultStore) StoreResult(attemptID uint64,
 	result *networkResult) error {
 
 	// We get a mutex for this attempt ID. This is needed to ensure
@@ -117,7 +333,19 @@ func (store *networkResultStore) storeResult(attemptID uint64,
 
 	log.Debugf("Storing result for attemptID=%v", attemptID)
 
-	// Serialize the payment result.
+	if err := store.storeResult(attemptID, result); err != nil {
+		return err
+	}
+
+	store.notifySubscribers(attemptID, result)
+
+	return nil
+}
+
+// storeResult persists the given result to the database.
+func (store *networkResultStore) storeResult(attemptID uint64,
+	result *networkResult) error {
+
 	var b bytes.Buffer
 	if err := serializeNetworkResult(&b, result); err != nil {
 		return err
@@ -126,7 +354,7 @@ func (store *networkResultStore) storeResult(attemptID uint64,
 	var attemptIDBytes [8]byte
 	binary.BigEndian.PutUint64(attemptIDBytes[:], attemptID)
 
-	err := kvdb.Batch(store.backend, func(tx kvdb.RwTx) error {
+	return kvdb.Batch(store.backend, func(tx kvdb.RwTx) error {
 		networkResults, err := tx.CreateTopLevelBucket(
 			networkResultStoreBucketKey,
 		)
@@ -136,25 +364,25 @@ func (store *networkResultStore) storeResult(attemptID uint64,
 
 		return networkResults.Put(attemptIDBytes[:], b.Bytes())
 	})
-	if err != nil {
-		return err
-	}
+}
 
-	// Now that the result is stored in the database, we can notify any
-	// active subscribers.
+// notifySubscribers notifies any subscribers of the final result for the given
+// attempt ID.
+func (store *networkResultStore) notifySubscribers(attemptID uint64,
+	result *networkResult) {
+
 	store.resultsMtx.Lock()
 	for _, res := range store.results[attemptID] {
 		res <- result
 	}
+
 	delete(store.results, attemptID)
 	store.resultsMtx.Unlock()
-
-	return nil
 }
 
-// subscribeResult is used to get the HTLC attempt result for the given attempt
+// SubscribeResult is used to get the HTLC attempt result for the given attempt
 // ID.  It returns a channel on which the result will be delivered when ready.
-func (store *networkResultStore) subscribeResult(attemptID uint64) (
+func (store *networkResultStore) SubscribeResult(attemptID uint64) (
 	<-chan *networkResult, error) {
 
 	// We get a mutex for this payment ID. This is needed to ensure
@@ -194,11 +422,21 @@ func (store *networkResultStore) subscribeResult(attemptID uint64) (
 		return nil, err
 	}
 
-	// If the result was found, we can send it on the result channel
-	// imemdiately.
+	// If a result is back from the network, we can send it on the result
+	// channel immediately. If the result is still our initialized place
+	// holder, then treat it as not yet available.
 	if result != nil {
-		resultChan <- result
-		return resultChan, nil
+		if result.msg.MsgType() != pendingHtlcMsgType {
+			log.Debugf("Obtained full result for attemptID=%v",
+				attemptID)
+
+			resultChan <- result
+
+			return resultChan, nil
+		}
+
+		log.Debugf("Awaiting result (settle/fail) for attemptID=%v",
+			attemptID)
 	}
 
 	// Otherwise we store the result channel for when the result is
@@ -212,16 +450,32 @@ func (store *networkResultStore) subscribeResult(attemptID uint64) (
 	return resultChan, nil
 }
 
-// getResult attempts to immediately fetch the result for the given pid from
-// the store. If no result is available, ErrPaymentIDNotFound is returned.
-func (store *networkResultStore) getResult(pid uint64) (
+// GetResult attempts to immediately fetch the *final* network result for the
+// given attempt ID from the store.
+//
+// NOTE: This method will return ErrAttemptResultPending for attempts
+// that have been initialized via InitAttempt but for which a final result
+// (settle/fail) has not yet been stored. ErrPaymentIDNotFound is returned
+// for attempts that are unknown.
+func (store *networkResultStore) GetResult(pid uint64) (
 	*networkResult, error) {
 
 	var result *networkResult
 	err := kvdb.View(store.backend, func(tx kvdb.RTx) error {
 		var err error
 		result, err = fetchResult(tx, pid)
-		return err
+		if err != nil {
+			return err
+		}
+
+		// If the attempt is still in-flight, treat it as not yet
+		// available to preserve existing expectation for the behavior
+		// of this method.
+		if result.msg.MsgType() == pendingHtlcMsgType {
+			return ErrAttemptResultPending
+		}
+
+		return nil
 	}, func() {
 		result = nil
 	})
@@ -253,12 +507,12 @@ func fetchResult(tx kvdb.RTx, pid uint64) (*networkResult, error) {
 	return deserializeNetworkResult(r)
 }
 
-// cleanStore removes all entries from the store, except the payment IDs given.
+// CleanStore removes all entries from the store, except the payment IDs given.
 // NOTE: Since every result not listed in the keep map will be deleted, care
 // should be taken to ensure no new payment attempts are being made
 // concurrently while this process is ongoing, as its result might end up being
 // deleted.
-func (store *networkResultStore) cleanStore(keep map[uint64]struct{}) error {
+func (store *networkResultStore) CleanStore(keep map[uint64]struct{}) error {
 	return kvdb.Update(store.backend, func(tx kvdb.RwTx) error {
 		networkResults, err := tx.CreateTopLevelBucket(
 			networkResultStoreBucketKey,
@@ -333,6 +587,297 @@ func (store *networkResultStore) cleanStore(keep map[uint64]struct{}) error {
 
 		log.Infof("Removed %d stale entries from network result store",
 			removed)
+
+		return nil
+	}, func() {})
+}
+
+// DeleteAttempts removes terminal (settled or failed) attempt results from the
+// store. Pending (in-flight) attempts are not deleted. The returned map reports
+// the outcome for each requested attempt ID.
+//
+// This is the safe, "positive space" alternative to CleanStore. Unlike
+// CleanStore which requires a complete snapshot of in-flight attempts (and is
+// therefore vulnerable to stale-snapshot race conditions in a distributed
+// system), DeleteAttempts only operates on explicitly named, finished items.
+func (store *networkResultStore) DeleteAttempts(
+	attemptIDs []uint64) (map[uint64]DeletionStatus, error) {
+
+	results := make(map[uint64]DeletionStatus, len(attemptIDs))
+
+	if len(attemptIDs) == 0 {
+		return results, nil
+	}
+
+	// Reject duplicates and sort IDs before acquiring per-ID mutexes
+	// below. This prevents deadlocks from locking the same ID twice
+	// (duplicates) or from inconsistent lock ordering across concurrent
+	// callers (unsorted).
+	seen := make(map[uint64]struct{}, len(attemptIDs))
+	for _, id := range attemptIDs {
+		if _, ok := seen[id]; ok {
+			return nil, fmt.Errorf("duplicate attempt ID %d", id)
+		}
+
+		seen[id] = struct{}{}
+	}
+	slices.Sort(attemptIDs)
+
+	// Acquire per-ID mutexes for all requested IDs. This ensures
+	// consistency with concurrent Init/Store/Subscribe operations on the
+	// same attempt IDs.
+	for _, id := range attemptIDs {
+		store.attemptIDMtx.Lock(id)
+	}
+	defer func() {
+		for _, id := range attemptIDs {
+			store.attemptIDMtx.Unlock(id)
+		}
+	}()
+
+	err := kvdb.Update(store.backend, func(tx kvdb.RwTx) error {
+		bucket, err := tx.CreateTopLevelBucket(
+			networkResultStoreBucketKey,
+		)
+		if err != nil {
+			return err
+		}
+
+		for _, id := range attemptIDs {
+			var attemptIDBytes [8]byte
+			binary.BigEndian.PutUint64(attemptIDBytes[:], id)
+
+			resultBytes := bucket.Get(attemptIDBytes[:])
+
+			// If the key doesn't exist, report NotFound.
+			if resultBytes == nil {
+				results[id] = DeletionNotFound
+
+				continue
+			}
+
+			// Deserialize to check the state.
+			r := bytes.NewReader(resultBytes)
+			result, err := deserializeNetworkResult(r)
+			if err != nil {
+				log.Warnf("Unable to deserialize result "+
+					"for attempt %d during delete: %v",
+					id, err)
+
+				results[id] = DeletionFailed
+
+				continue
+			}
+
+			// Do not delete pending (in-flight) attempts.
+			if result.msg.MsgType() == pendingHtlcMsgType {
+				results[id] = DeletionPending
+
+				continue
+			}
+
+			// Terminal result — safe to delete.
+			if err := bucket.Delete(attemptIDBytes[:]); err != nil {
+				return fmt.Errorf("failed to delete "+
+					"attempt %d: %w", id, err)
+			}
+
+			results[id] = DeletionOK
+		}
+
+		return nil
+	}, func() {
+		// Reset the results map on transaction retry.
+		results = make(map[uint64]DeletionStatus, len(attemptIDs))
+	})
+	if err != nil {
+		return nil, fmt.Errorf("DeleteAttempts failed: %w", err)
+	}
+
+	deletedCount := 0
+	for _, status := range results {
+		if status == DeletionOK {
+			deletedCount++
+		}
+	}
+
+	if deletedCount > 0 {
+		log.Infof("Deleted %d terminal attempt(s) from network "+
+			"result store", deletedCount)
+	}
+
+	return results, nil
+}
+
+// FetchPendingAttempts returns a list of all attempt IDs that are currently in
+// the pending state.
+//
+// NOTE: This function is NOT safe for concurrent access.
+func (store *networkResultStore) FetchPendingAttempts() ([]uint64, error) {
+	var pending []uint64
+	err := kvdb.View(store.backend, func(tx kvdb.RTx) error {
+		bucket := tx.ReadBucket(networkResultStoreBucketKey)
+		if bucket == nil {
+			return nil
+		}
+
+		return bucket.ForEach(func(k, v []byte) error {
+			// If the key is not 8 bytes, it's not a valid attempt
+			// ID.
+			if len(k) != 8 {
+				log.Warnf("Found invalid key of length %d in "+
+					"network result store", len(k))
+
+				return nil
+			}
+
+			// Deserialize the result to check its type.
+			r := bytes.NewReader(v)
+			result, err := deserializeNetworkResult(r)
+			if err != nil {
+				// If we can't deserialize, we'll log it and
+				// continue. The result will be removed by a
+				// call to CleanStore.
+				log.Warnf("Unable to deserialize result for "+
+					"key %x: %v", k, err)
+
+				return nil
+			}
+
+			// If the result is a pending result, add the attempt
+			// ID to our list.
+			if result.msg.MsgType() == pendingHtlcMsgType {
+				attemptID := binary.BigEndian.Uint64(k)
+				pending = append(pending, attemptID)
+			}
+
+			return nil
+		})
+	}, func() {
+		pending = nil
+	})
+	if err != nil {
+		return nil, err
+	}
+
+	return pending, nil
+}
+
+// FailPendingAttempt transitions an initialized attempt from a `pending` to a
+// `failed` state, recording the provided reason. This ensures that attempts
+// which fail before being committed to the forwarding engine are properly
+// finalized. This transition unblocks any subscribers that might be waiting on
+// a final outcome for an initialized but un-dispatched attempt.
+//
+// NOTE: This method is specifically for attempts that have been initialized
+// via InitAttempt but fail *before* being dispatched to the network. Normal
+// failures (e.g., from an HTLC being failed on-chain or by a peer) are
+// recorded via the StoreResult method and should not use FailPendingAttempt.
+func (store *networkResultStore) FailPendingAttempt(attemptID uint64,
+	linkErr *LinkError) error {
+
+	// We get a mutex for this attempt ID to ensure consistency between the
+	// database state and the subscribers in case of concurrent calls.
+	store.attemptIDMtx.Lock(attemptID)
+	defer store.attemptIDMtx.Unlock(attemptID)
+
+	// First, create the failure result.
+	failureResult, err := newInternalFailureResult(linkErr)
+	if err != nil {
+		return fmt.Errorf("failed to create failure message for "+
+			"attempt %d: %w", attemptID, err)
+	}
+
+	var b bytes.Buffer
+	if err := serializeNetworkResult(&b, failureResult); err != nil {
+		return fmt.Errorf("failed to serialize failure result: %w", err)
+	}
+	serializedFailureResult := b.Bytes()
+
+	var attemptIDBytes [8]byte
+	binary.BigEndian.PutUint64(attemptIDBytes[:], attemptID)
+
+	err = kvdb.Update(store.backend, func(tx kvdb.RwTx) error {
+		// Verify that the attempt exists and is in the pending
+		// state, otherwise we should not fail it.
+		existingResult, err := fetchResult(tx, attemptID)
+		if err != nil {
+			return err
+		}
+
+		if existingResult.msg.MsgType() != pendingHtlcMsgType {
+			return fmt.Errorf("attempt %d not in pending state",
+				attemptID)
+		}
+
+		// Write the failure result to the store to unblock any
+		// subscribers awaiting a final result.
+		bucket, err := tx.CreateTopLevelBucket(
+			networkResultStoreBucketKey,
+		)
+		if err != nil {
+			return err
+		}
+
+		return bucket.Put(attemptIDBytes[:], serializedFailureResult)
+	}, func() {
+	})
+
+	if err != nil {
+		return fmt.Errorf("failed to fail pending attempt %d: %w",
+			attemptID, err)
+	}
+
+	// Lastly, update any subscribers which may be waiting on the result
+	// of this attempt.
+	store.notifySubscribers(attemptID, failureResult)
+
+	return nil
+}
+
+// newInternalFailureResult creates a networkResult representing a terminal,
+// internally generated failure.
+func newInternalFailureResult(linkErr *LinkError) (*networkResult, error) {
+	// First, we need to serialize the wire message from our link error
+	// into a byte slice. This is what the downstream parsers expect.
+	var reasonBytes bytes.Buffer
+	wireMsg := linkErr.WireMessage()
+	if err := lnwire.EncodeFailure(&reasonBytes, wireMsg, 0); err != nil {
+		return nil, err
+	}
+
+	// We'll create a synthetic UpdateFailHTLC to represent this internal
+	// failure, following the pattern used by the contract resolver.
+	failMsg := &lnwire.UpdateFailHTLC{
+		Reason: lnwire.OpaqueReason(reasonBytes.Bytes()),
+	}
+
+	return &networkResult{
+		msg: failMsg,
+		// This is a local failure.
+		unencrypted: true,
+	}, nil
+}
+
+// DisableRemoteRouter checks for attempt entries in the network result store
+// and if none are found, deletes the remote router marker from the database.
+func (store *networkResultStore) DisableRemoteRouter() error {
+	return store.backend.Update(func(tx kvdb.RwTx) error {
+		// First, check if there are any attempt entries.
+		bucket := tx.ReadBucket(networkResultStoreBucketKey)
+		if bucket != nil {
+			cursor := bucket.ReadCursor()
+			k, _ := cursor.First()
+			if k != nil {
+				return ErrAttemptEntriesExist
+			}
+		}
+
+		// If the attempt store is empty, we can delete the marker.
+		err := tx.DeleteTopLevelBucket(externalLifecycleMarkerBucket)
+		if err != nil && !errors.Is(err, kvdb.ErrBucketNotFound) {
+			return err
+		}
 
 		return nil
 	}, func() {})

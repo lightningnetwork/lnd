@@ -476,6 +476,33 @@ func fetchInvoiceNumByRef(invoiceIndex, payAddrIndex, setIDIndex kvdb.RBucket,
 func (d *DB) FetchPendingInvoices(_ context.Context) (
 	map[lntypes.Hash]invpkg.Invoice, error) {
 
+	return d.fetchInvoices(func(invoice *invpkg.Invoice) bool {
+		return invoice.IsPending()
+	})
+}
+
+// FetchPendingSettleInvoices returns all invoices that contain at least one
+// htlc whose final outcome is still pending. The KV backend has no index over
+// htlc states, so it discovers them by scanning the invoice bucket.
+func (d *DB) FetchPendingSettleInvoices(_ context.Context) (
+	map[lntypes.Hash]invpkg.Invoice, error) {
+
+	return d.fetchInvoices(func(invoice *invpkg.Invoice) bool {
+		for _, htlc := range invoice.Htlcs {
+			if htlc.State == invpkg.HtlcStatePendingSettle {
+				return true
+			}
+		}
+
+		return false
+	})
+}
+
+// fetchInvoices returns all invoices matching the given predicate. The result
+// is keyed by payment hash.
+func (d *DB) fetchInvoices(predicate func(*invpkg.Invoice) bool) (
+	map[lntypes.Hash]invpkg.Invoice, error) {
+
 	result := make(map[lntypes.Hash]invpkg.Invoice)
 
 	err := kvdb.View(d, func(tx kvdb.RTx) error {
@@ -510,7 +537,7 @@ func (d *DB) FetchPendingInvoices(_ context.Context) (
 				return err
 			}
 
-			if invoice.IsPending() {
+			if predicate(&invoice) {
 				var paymentHash lntypes.Hash
 				copy(paymentHash[:], k)
 				result[paymentHash] = invoice
@@ -878,6 +905,9 @@ func (k *kvInvoiceUpdater) Finalize(updateType invpkg.UpdateType) error {
 		// invoice. All HTLCs which were accepted are now canceled, so
 		// we persist this state.
 		return k.storeCancelHtlcsUpdate()
+
+	case invpkg.FinalizeHTLCsUpdate:
+		return k.storeFinalizeHtlcsUpdate()
 	}
 
 	return fmt.Errorf("unknown update type: %v", updateType)
@@ -965,6 +995,22 @@ func (k *kvInvoiceUpdater) storeSettleHodlInvoiceUpdate() error {
 	err := k.setSettleMetaFields(nil)
 	if err != nil {
 		return err
+	}
+
+	return k.serializeAndStoreInvoice()
+}
+
+// storeFinalizeHtlcsUpdate persists final ordinary outcomes and assigns the
+// first settlement index only once. Later duplicate HTLCs retain the parent
+// index, and AMP keeps allocating its set metadata in storeAddHtlcsUpdate.
+func (k *kvInvoiceUpdater) storeFinalizeHtlcsUpdate() error {
+	if k.invoice.State == invpkg.ContractSettled &&
+		k.invoice.SettleIndex == 0 {
+
+		err := k.setSettleMetaFields(nil)
+		if err != nil {
+			return err
+		}
 	}
 
 	return k.serializeAndStoreInvoice()

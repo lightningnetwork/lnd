@@ -144,6 +144,12 @@ func UpdateInvoice(hash *lntypes.Hash, invoice *Invoice,
 			return nil, err
 		}
 
+	case FinalizeHTLCsUpdate:
+		err := finalizeHTLCs(invoice, updateTime, update, updater)
+		if err != nil {
+			return nil, err
+		}
+
 	default:
 		return nil, fmt.Errorf("unknown update type: %s",
 			update.UpdateType)
@@ -587,6 +593,74 @@ func cancelInvoice(invoice *Invoice, hash *lntypes.Hash,
 	}
 
 	return nil
+}
+
+// finalizeHTLCs applies final ordinary HTLC outcomes within the invoice
+// transaction. Failed value is removed from the paid amount; the parent
+// completes after its pending HTLCs do, while an already-settled parent keeps
+// its terminal state when a later duplicate finishes.
+func finalizeHTLCs(invoice *Invoice, updateTime time.Time,
+	update *InvoiceUpdateDesc, updater InvoiceUpdater) error {
+
+	if len(update.FinalizeHtlcs) == 0 {
+		return errors.New("no htlcs to finalize")
+	}
+
+	for key, settled := range update.FinalizeHtlcs {
+		htlc, ok := invoice.Htlcs[key]
+		if !ok {
+			return fmt.Errorf("finalize of non-existent htlc %v",
+				key)
+		}
+
+		// Identify a repeated success so callers can distinguish this
+		// state rejection from an unrelated storage failure.
+		if htlc.State == HtlcStateSettled {
+			return fmt.Errorf("htlc %v: %w", key,
+				ErrHTLCAlreadySettled)
+		}
+
+		if htlc.State != HtlcStatePendingSettle {
+			return fmt.Errorf("htlc %v finalized in state %v", key,
+				htlc.State)
+		}
+
+		newState := HtlcStateSettled
+		if !settled {
+			newState = HtlcStateCanceled
+		}
+
+		err := resolveHtlc(key, htlc, newState, updateTime, updater)
+		if err != nil {
+			return err
+		}
+	}
+
+	// The amount paid only counts htlcs that settled or may still settle.
+	var amtPaid lnwire.MilliSatoshi
+	var pending bool
+	for _, htlc := range invoice.Htlcs {
+		if htlc.State.PreimageReleased() {
+			amtPaid += htlc.Amt
+		}
+
+		pending = pending || htlc.State == HtlcStatePendingSettle
+	}
+
+	if invoice.State == ContractPendingSettle && !pending {
+		newState := ContractSettled
+		if amtPaid == 0 {
+			newState = ContractCanceled
+		}
+
+		err := updater.UpdateInvoiceState(newState, nil)
+		if err != nil {
+			return err
+		}
+		invoice.State = newState
+	}
+
+	return updateInvoiceAmtPaid(invoice, amtPaid, updater)
 }
 
 // getUpdatedInvoiceState validates and processes an invoice state update. The

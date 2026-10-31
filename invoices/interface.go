@@ -48,6 +48,11 @@ type InvoiceDB interface {
 	FetchPendingInvoices(ctx context.Context) (map[lntypes.Hash]Invoice,
 		error)
 
+	// FetchPendingSettleInvoices returns all invoices that contain at least
+	// one htlc whose final outcome is still pending.
+	FetchPendingSettleInvoices(ctx context.Context) (
+		map[lntypes.Hash]Invoice, error)
+
 	// QueryInvoices allows a caller to query the invoice database for
 	// invoices within the specified add index range.
 	QueryInvoices(ctx context.Context, q InvoiceQuery) (InvoiceSlice, error)

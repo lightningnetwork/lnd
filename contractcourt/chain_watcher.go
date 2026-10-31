@@ -1257,6 +1257,17 @@ func (c *chainWatcher) handleUnknownRemoteState(
 			commitPoint.SerializeCompressed(),
 			c.cfg.chanState.FundingOutpoint)
 	} else {
+		// Tweakless recovery skips reestablishment, so it must record
+		// lost-state evidence itself before the close is archived. The
+		// legacy path obtains this marker with its commitment point.
+		err := c.cfg.chanState.ApplyChanStatus(
+			chanstate.ChanStatusLocalDataLoss,
+		)
+		if err != nil {
+			return false, fmt.Errorf("unable to mark local data "+
+				"loss: %w", err)
+		}
+
 		log.Infof("ChannelPoint(%v) is tweakless, "+
 			"moving to sweep directly on chain",
 			c.cfg.chanState.FundingOutpoint)

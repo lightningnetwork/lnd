@@ -233,6 +233,14 @@ const (
 	// able and willing to accept keysend payments.
 	KeysendOptional = 55
 
+	// TrampolineRoutingRequired is a required feature bit that signals that
+	// the node supports trampoline routing.
+	TrampolineRoutingRequired FeatureBit = 56
+
+	// TrampolineRoutingOptional is an optional feature bit that signals
+	// that the node supports trampoline routing.
+	TrampolineRoutingOptional FeatureBit = 57
+
 	// RbfCoopCloseRequired is a required feature bit that signals that
 	// the new RBF-based co-op close protocol is supported.
 	RbfCoopCloseRequired = 60
@@ -379,6 +387,8 @@ var Features = map[FeatureBit]string{
 	ExplicitChannelTypeRequired:          "explicit-commitment-type",
 	KeysendOptional:                      "keysend",
 	KeysendRequired:                      "keysend",
+	TrampolineRoutingOptional:            "trampoline-routing",
+	TrampolineRoutingRequired:            "trampoline-routing",
 	ScriptEnforcedLeaseRequired:          "script-enforced-lease",
 	ScriptEnforcedLeaseOptional:          "script-enforced-lease",
 	ScidAliasRequired:                    "scid-alias",

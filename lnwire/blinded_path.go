@@ -67,6 +67,36 @@ func (p *BlindedPath) Record() tlv.Record {
 	)
 }
 
+// Encode serializes one blinded path without an enclosing TLV header.
+func (p *BlindedPath) Encode(w io.Writer) error {
+	return writeBlindedPath(w, p, new([8]byte))
+}
+
+// DecodeBlindedPath decodes one blinded path from a stream that may contain
+// trailing fields. maxBytes bounds all reads and allocations. The returned
+// byte count lets a caller advance through a sequence of framed subtypes.
+func DecodeBlindedPath(r io.Reader, maxBytes uint64) (*BlindedPath, uint64,
+	error) {
+
+	if maxBytes > tlv.MaxRecordSize {
+		return nil, 0, fmt.Errorf("blinded path bound %d exceeds %d",
+			maxBytes, tlv.MaxRecordSize)
+	}
+
+	lr := &io.LimitedReader{
+		R: r,
+		N: int64(maxBytes),
+	}
+	before := lr.N
+
+	var path BlindedPath
+	if err := readBlindedPath(lr, &path, new([8]byte)); err != nil {
+		return nil, 0, err
+	}
+
+	return &path, uint64(before - lr.N), nil
+}
+
 // blindedPathSize returns the on-wire size of a single BlindedPath.
 func blindedPathSize(p *BlindedPath) uint64 {
 	var introLen uint64

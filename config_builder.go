@@ -709,6 +709,19 @@ func (d *DefaultWalletImpl) BuildWalletConfig(ctx context.Context,
 			"strategy %v", d.cfg.CoinSelectionStrategy)
 	}
 
+	// Parse the address type the wallet uses to pay itself.
+	switch d.cfg.InternalAddressType {
+	case "p2tr":
+		walletConfig.InternalAddressType = lnwallet.TaprootPubkey
+
+	case "p2wkh":
+		walletConfig.InternalAddressType = lnwallet.WitnessPubKey
+
+	default:
+		return nil, nil, nil, fmt.Errorf("unknown internal address "+
+			"type %v", d.cfg.InternalAddressType)
+	}
+
 	earlyExit = false
 	return partialChainControl, walletConfig, cleanUp, nil
 }
@@ -808,6 +821,7 @@ func (d *DefaultWalletImpl) BuildChainControl(
 		ChainIO:               walletController,
 		NetParams:             *walletConfig.NetParams,
 		CoinSelectionStrategy: walletConfig.CoinSelectionStrategy,
+		InternalAddressType:   walletConfig.InternalAddressType,
 		AuxLeafStore:          partialChainControl.Cfg.AuxLeafStore,
 		AuxSigner:             partialChainControl.Cfg.AuxSigner,
 	}
@@ -955,6 +969,7 @@ func (d *RPCSignerWalletImpl) BuildChainControl(
 		ChainIO:               walletController,
 		NetParams:             *walletConfig.NetParams,
 		CoinSelectionStrategy: walletConfig.CoinSelectionStrategy,
+		InternalAddressType:   walletConfig.InternalAddressType,
 	}
 
 	// We've created the wallet configuration now, so we can finish

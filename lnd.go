@@ -638,8 +638,10 @@ func Main(cfg *Config, lisCfg ListenerCfg, implCfg *ImplementationCfg,
 			EpochRegistrar: activeChainControl.ChainNotifier,
 			Net:            cfg.net,
 			NewAddress: func() (address.Address, error) {
-				return activeChainControl.Wallet.NewAddress(
-					lnwallet.TaprootPubkey, false,
+				wallet := activeChainControl.Wallet
+
+				return wallet.NewAddress(
+					wallet.InternalAddressType(), false,
 					lnwallet.DefaultAccountName,
 				)
 			},

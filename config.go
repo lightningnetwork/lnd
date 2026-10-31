@@ -222,6 +222,10 @@ const (
 	// used by default to fund transactions.
 	defaultCoinSelectionStrategy = "largest"
 
+	// defaultInternalAddressType is the address type that is used by
+	// default for the addresses the wallet generates to pay itself.
+	defaultInternalAddressType = "p2tr"
+
 	// defaultKeepFailedPaymentAttempts is the default setting for whether
 	// to keep failed payments in the database.
 	defaultKeepFailedPaymentAttempts = false
@@ -473,6 +477,8 @@ type Config struct {
 	ResetWalletTransactions bool `long:"reset-wallet-transactions" description:"Removes all transaction history from the on-chain wallet on startup, forcing a full chain rescan starting at the wallet's birthday. Implements the same functionality as btcwallet's dropwtxmgr command. Should be set to false after successful execution to avoid rescanning on every restart of lnd."`
 
 	CoinSelectionStrategy string `long:"coin-selection-strategy" description:"The strategy to use for selecting coins for wallet transactions." choice:"largest" choice:"random"`
+
+	InternalAddressType string `long:"internal-address-type" description:"The address type the wallet uses to pay itself: change outputs, sweeps after a channel close, cooperative close outputs and watchtower rewards. Set to p2wkh to never create P2TR outputs for the wallet, e.g. when the remote signer can't produce Schnorr signatures." choice:"p2tr" choice:"p2wkh"`
 
 	PaymentsExpirationGracePeriod time.Duration `long:"payments-expiration-grace-period" description:"A period to wait before force closing channels with outgoing htlcs that have timed-out and are a result of this node initiated payments."`
 	TrickleDelay                  int           `long:"trickledelay" description:"Time in milliseconds between each release of announcements to the network"`
@@ -887,6 +893,7 @@ func DefaultConfig() Config {
 		ChannelCommitBatchSize:    defaultChannelCommitBatchSize,
 		FwdHistoryDeleteBatchSize: defaultFwdHistoryDeleteBatchSize,
 		CoinSelectionStrategy:     defaultCoinSelectionStrategy,
+		InternalAddressType:       defaultInternalAddressType,
 		KeepFailedPaymentAttempts: defaultKeepFailedPaymentAttempts,
 		RemoteSigner:              lncfg.DefaultRemoteSignerCfg(),
 		WatchOnlyNode:             lncfg.DefaultWatchOnlyNodeCfg(),

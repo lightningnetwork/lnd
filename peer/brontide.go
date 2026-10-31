@@ -3629,9 +3629,12 @@ func (p *Brontide) ChannelSnapshots() []*channeldb.ChannelSnapshot {
 // the case of a cooperative channel close negotiation.
 func (p *Brontide) genDeliveryScript() ([]byte, error) {
 	// We'll send a normal p2wkh address unless we've negotiated the
-	// shutdown-any-segwit feature.
+	// shutdown-any-segwit feature and the wallet is configured to use
+	// taproot addresses for its own outputs.
 	addrType := lnwallet.WitnessPubKey
-	if p.taprootShutdownAllowed() {
+	if p.taprootShutdownAllowed() &&
+		p.cfg.Wallet.InternalAddressType() == lnwallet.TaprootPubkey {
+
 		addrType = lnwallet.TaprootPubkey
 	}
 

@@ -421,55 +421,49 @@ func (t *TxPublisher) isNeutrinoBackend() bool {
 // register the broadcast request and return a chan to the caller to subscribe
 // the broadcast result. The initial broadcast is guaranteed to be
 // RBF-compliant unless the budget specified cannot cover the fee.
+// Immediate requests finish their initial attempt before block processing can
+// observe them; other requests are initialized on the next block.
 //
 // NOTE: part of the Bumper interface.
 func (t *TxPublisher) Broadcast(req *BumpRequest) <-chan *BumpResult {
 	log.Tracef("Received broadcast request: %s",
 		lnutils.SpewLogClosure(req))
 
-	// Store the request.
-	record := t.storeInitialRecord(req)
+	// Allocate the request privately so neither initialization nor a later
+	// replacement can run before its subscriber is registered.
+	requestID := t.requestCounter.Add(1)
+	record := &monitorRecord{
+		requestID: requestID,
+		req:       req,
+	}
 
 	// Create a chan to send the result to the caller.
 	subscriber := make(chan *BumpResult, 1)
 	t.subscriberChans.Store(record.requestID, subscriber)
 
-	// Publish the tx immediately if specified.
+	// Keep immediate handling private through result delivery. The caller
+	// cannot drain the one-slot channel until Broadcast returns.
 	if req.Immediate {
 		t.handleInitialBroadcast(record)
+	}
+
+	// Terminal results remove the subscriber. Only expose live requests to
+	// the block loop, without resurrecting an already completed attempt.
+	if _, live := t.subscriberChans.Load(requestID); live {
+		t.records.Store(requestID, record)
 	}
 
 	return subscriber
 }
 
-// storeInitialRecord initializes a monitor record and saves it in the map.
-func (t *TxPublisher) storeInitialRecord(req *BumpRequest) *monitorRecord {
-	// Increase the request counter.
-	//
-	// NOTE: this is the only place where we increase the counter.
-	requestID := t.requestCounter.Add(1)
-
-	// Register the record.
-	record := &monitorRecord{
-		requestID: requestID,
-		req:       req,
-	}
-	t.records.Store(requestID, record)
-
-	return record
-}
-
-// updateRecord updates the given record's tx and fee, and saves it in the
-// records map.
+// updateRecord updates the caller-owned record's transaction and fee without
+// registering it. Broadcast controls its visibility to block processing.
 func (t *TxPublisher) updateRecord(r *monitorRecord,
 	sweepCtx *sweepTxCtx) *monitorRecord {
 
 	r.tx = sweepCtx.tx
 	r.fee = sweepCtx.fee
 	r.outpointToTxIndex = sweepCtx.outpointToTxIndex
-
-	// Register the record.
-	t.records.Store(r.requestID, r)
 
 	return r
 }
@@ -479,8 +473,8 @@ func (t *TxPublisher) Name() string {
 	return "TxPublisher"
 }
 
-// initializeTx initializes a fee function and creates an RBF-compliant tx. If
-// succeeded, the initial tx is stored in the records map.
+// initializeTx initializes a fee function and attaches an RBF-compliant tx to
+// the caller-owned record without changing its visibility to block processing.
 func (t *TxPublisher) initializeTx(r *monitorRecord) (*monitorRecord, error) {
 	// Create a fee bumping algorithm to be used for future RBF.
 	feeAlgo, err := t.initializeFeeFunction(r.req)
@@ -552,7 +546,7 @@ func (t *TxPublisher) createRBFCompliantTx(
 
 		switch {
 		case err == nil:
-			// The tx is valid, store it.
+			// Attach the tx without exposing a private record.
 			record := t.updateRecord(r, sweepCtx)
 
 			log.Infof("Created initial sweep tx=%v for %v inputs: "+
@@ -1319,8 +1313,8 @@ func (t *TxPublisher) createAndPublishTx(
 		return t.handleReplacementTxError(r, oldTx, err)
 	}
 
-	// The tx has been created without any errors, we now register a new
-	// record by overwriting the same requestID.
+	// Update the caller-owned pointer in place. Registering a record for
+	// block processing remains the responsibility of Broadcast.
 	record := t.updateRecord(r, sweepCtx)
 
 	// Attempt to broadcast this new tx.

@@ -486,6 +486,14 @@ func TestInvoiceRegistry(t *testing.T) {
 			test: testPendingSettleDuplicateReconcileOnStart,
 		},
 		{
+			name: "PendingSettleRetryFailedWrite",
+			test: testPendingSettleRetryFailedWrite,
+		},
+		{
+			name: "PendingSettleInferOnTick",
+			test: testPendingSettleInferOnTick,
+		},
+		{
 			name: "CancelInvoice",
 			test: testCancelInvoice,
 		},
@@ -4064,4 +4072,193 @@ func testPendingSettleDuplicateReconcileOnStart(t *testing.T,
 	require.Equal(t, testInvoiceAmount, stored.AmtPaid)
 	require.EqualValues(t, 1, stored.SettleIndex)
 	require.Equal(t, invpkg.HtlcStateCanceled, stored.Htlcs[key].State)
+}
+
+// failingFinalizeDB arranges transient write failures while delegating all
+// successful operations to the actual backend under test.
+type failingFinalizeDB struct {
+	invpkg.InvoiceDB
+	mock.Mock
+}
+
+// UpdateInvoice returns the arranged error before touching storage, or runs
+// the actual invoice transaction so the test exercises real finalization.
+func (f *failingFinalizeDB) UpdateInvoice(ctx context.Context,
+	ref invpkg.InvoiceRef, setID *invpkg.SetID,
+	callback invpkg.InvoiceUpdateCallback) (*invpkg.Invoice, error) {
+
+	args := f.Called(ctx, ref, setID, callback)
+	if err := args.Error(0); err != nil {
+		return nil, err
+	}
+
+	return f.InvoiceDB.UpdateInvoice(ctx, ref, setID, callback)
+}
+
+// Embedding the backend keeps failure injection local to invoice writes.
+var _ invpkg.InvoiceDB = (*failingFinalizeDB)(nil)
+
+// testPendingSettleRetryFailedWrite checks that a single delivered outcome
+// survives transient invoice-write failures without waiting for a channel scan.
+func testPendingSettleRetryFailedWrite(t *testing.T,
+	makeDB func(t *testing.T) (invpkg.InvoiceDB, *clock.TestClock)) {
+
+	t.Parallel()
+
+	// Arrange a successful release, one failed finalization write, and
+	// one successful retry on the real backend. A long reconciliation
+	// interval ensures that the live-event retry provides the recovery.
+	cfg := defaultRegistryConfig()
+	cfg.SettleReconcileInterval = time.Hour
+	ctx := newTestContext(t, &cfg,
+		func(t *testing.T) (invpkg.InvoiceDB, *clock.TestClock) {
+			db, testClock := makeDB(t)
+			faultDB := &failingFinalizeDB{
+				InvoiceDB: db,
+			}
+			ref := invpkg.InvoiceRefByHash(testInvoicePaymentHash)
+			args := []interface{}{
+				mock.Anything, ref, (*invpkg.SetID)(nil),
+				mock.Anything,
+			}
+			faultDB.On("UpdateInvoice", args...).Return(nil).Once()
+			faultDB.On("UpdateInvoice", args...).Return(
+				errors.New("invoice write unavailable"),
+			).Once()
+			faultDB.On("UpdateInvoice", args...).Return(nil).Once()
+			t.Cleanup(func() {
+				faultDB.AssertExpectations(t)
+			})
+
+			return faultDB, testClock
+		},
+	)
+	invoice := newInvoice(t, false, false)
+	_, err := ctx.registry.AddInvoice(
+		t.Context(), invoice, testInvoicePaymentHash,
+	)
+	require.NoError(t, err)
+	resolution, err := ctx.registry.NotifyExitHopHtlc(
+		testInvoicePaymentHash, testInvoiceAmount, testHtlcExpiry,
+		testCurrentHeight, getCircuitKey(0), nil, nil, testPayload,
+	)
+	require.NoError(t, err)
+	checkSettleResolution(t, resolution, testInvoicePreimage)
+
+	// Act by delivering the outcome exactly once. The fixture waits for
+	// the actual stored child to become final rather than counting calls.
+	ref := invpkg.InvoiceRefByHash(testInvoicePaymentHash)
+	ctx.finalizeHtlc(ref, getCircuitKey(0), true)
+
+	// Assert that retries produce final credit with only one index.
+	stored, err := ctx.registry.LookupInvoice(
+		t.Context(), testInvoicePaymentHash,
+	)
+	require.NoError(t, err)
+	require.Equal(t, invpkg.ContractSettled, stored.State)
+	require.Equal(t, testInvoiceAmount, stored.AmtPaid)
+	require.EqualValues(t, 1, stored.SettleIndex)
+}
+
+// testPendingSettleInferOnTick checks that channel-only completion is picked
+// up while running, without requiring a second registry restart.
+func testPendingSettleInferOnTick(t *testing.T,
+	makeDB func(t *testing.T) (invpkg.InvoiceDB, *clock.TestClock)) {
+
+	t.Parallel()
+
+	tests := []struct {
+		name       string
+		startupErr error
+	}{
+		{
+			name: "empty startup evidence",
+		},
+		{
+			name:       "failed startup evidence",
+			startupErr: errors.New("channel source unavailable"),
+		},
+	}
+
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			t.Parallel()
+
+			// Arrange either empty or failed startup evidence. Gate
+			// next scan to observe pending state before supplying
+			// channel completion without a live outcome event.
+			db, testClock := makeDB(t)
+			invoice := newInvoice(t, false, false)
+			_, err := db.AddInvoice(
+				t.Context(), invoice, testInvoicePaymentHash,
+			)
+			require.NoError(t, err)
+			ref := invpkg.InvoiceRefByHash(testInvoicePaymentHash)
+			_, err = db.UpdateInvoice(t.Context(), ref, nil,
+				getUpdateInvoice(0, testInvoiceAmount))
+			require.NoError(t, err)
+			key := invpkg.CircuitKey{HtlcID: 0}
+			source := newMockFinalHtlcSource(t)
+			source.On("InferFinalHtlcs", mock.Anything).Unset()
+			source.On("InferFinalHtlcs", []invpkg.CircuitKey{key}).
+				Return(nil, test.startupErr).Once()
+			entered := make(chan struct{})
+			release := make(chan struct{})
+			source.On(
+				"InferFinalHtlcs", []invpkg.CircuitKey{key},
+			).Run(
+				func(mock.Arguments) {
+					close(entered)
+					<-release
+				},
+			).Return(map[invpkg.CircuitKey]invpkg.FinalHtlcOutcome{
+				key: {
+					Key:     key,
+					Settled: true,
+				},
+			}, nil).Once()
+			cfg := defaultRegistryConfig()
+			cfg.FinalHtlcSource = source
+			cfg.SettleReconcileInterval = 10 * time.Millisecond
+			ctx := newTestContext(t, &cfg,
+				func(*testing.T) (invpkg.InvoiceDB,
+					*clock.TestClock) {
+
+					return db, testClock
+				},
+			)
+			t.Cleanup(func() {
+				close(release)
+			})
+
+			// Act by waiting for the existing periodic scan. Before
+			// it finishes, confirm unresolved evidence has not
+			// credited the invoice.
+			select {
+			case <-entered:
+			case <-time.After(testTimeout):
+				t.Fatal("periodic channel scan did not run")
+			}
+			stored, err := ctx.registry.LookupInvoice(
+				t.Context(), testInvoicePaymentHash,
+			)
+			require.NoError(t, err)
+			require.Equal(
+				t, invpkg.ContractPendingSettle, stored.State,
+			)
+			require.Zero(t, stored.SettleIndex)
+			release <- struct{}{}
+			ctx.waitHtlcFinal(ref, key)
+
+			// Assert completion on this registry using only channel
+			// evidence and the timer/subscription lifecycle.
+			stored, err = ctx.registry.LookupInvoice(
+				t.Context(), testInvoicePaymentHash,
+			)
+			require.NoError(t, err)
+			require.Equal(t, invpkg.ContractSettled, stored.State)
+			require.Equal(t, testInvoiceAmount, stored.AmtPaid)
+			require.EqualValues(t, 1, stored.SettleIndex)
+		})
+	}
 }

@@ -679,6 +679,70 @@ func noiseDial(idKey keychain.SingleKeyECDH,
 	}
 }
 
+// subscribeFinalInvoiceHtlcs converts final switch events into invoice
+// outcomes. Cancellation joins the forwarder so registry shutdown cannot
+// leave a sender blocked on the invoice consumer.
+func (s *server) subscribeFinalInvoiceHtlcs() (
+	<-chan invoices.FinalHtlcOutcome, func(), error) {
+
+	client, err := s.htlcNotifier.SubscribeHtlcEvents()
+	if err != nil {
+		return nil, nil, err
+	}
+
+	outcomes := make(chan invoices.FinalHtlcOutcome)
+	quit := make(chan struct{})
+
+	var wg sync.WaitGroup
+	wg.Add(1)
+	go func() {
+		defer wg.Done()
+		defer close(outcomes)
+
+		for {
+			var update interface{}
+			select {
+			case u, ok := <-client.Updates():
+				if !ok {
+					return
+				}
+				update = u
+
+			case <-quit:
+				return
+			}
+
+			event, ok := update.(*htlcswitch.FinalHtlcEvent)
+			if !ok {
+				continue
+			}
+
+			outcome := invoices.FinalHtlcOutcome{
+				Key:      event.CircuitKey,
+				Settled:  event.Settled,
+				Offchain: event.Offchain,
+			}
+
+			select {
+			case outcomes <- outcome:
+			case <-quit:
+				return
+			}
+		}
+	}()
+
+	var once sync.Once
+	cancel := func() {
+		once.Do(func() {
+			close(quit)
+			client.Cancel()
+			wg.Wait()
+		})
+	}
+
+	return outcomes, cancel, nil
+}
+
 // newServer creates a new instance of the server which is to listen using the
 // passed listener address.
 //
@@ -894,6 +958,15 @@ func newServer(ctx context.Context, cfg *Config, listenAddrs []net.Addr,
 		clock.NewDefaultClock(), cfg.Invoices.HoldExpiryDelta,
 		uint32(currentHeight), currentHash, cc.ChainNotifier,
 	)
+
+	s.htlcNotifier = htlcswitch.NewHtlcNotifier(time.Now)
+
+	// The registry learns from the final htlc outcomes when an invoice it
+	// released the preimage for is irrevocably settled.
+	registryConfig.FinalHtlcSource = invoices.NewFinalHtlcSource(
+		chanStateDB, s.subscribeFinalInvoiceHtlcs,
+	)
+
 	s.invoices = invoices.NewRegistry(
 		dbs.InvoiceDB, expiryWatcher, &registryConfig,
 	)
@@ -917,8 +990,6 @@ func newServer(ctx context.Context, cfg *Config, listenAddrs []net.Addr,
 			return nil, err
 		}
 	}
-
-	s.htlcNotifier = htlcswitch.NewHtlcNotifier(time.Now)
 
 	thresholdSats := btcutil.Amount(cfg.MaxFeeExposure)
 	thresholdMSats := lnwire.NewMSatFromSatoshis(thresholdSats)

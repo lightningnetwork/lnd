@@ -1072,9 +1072,16 @@ func (u *UtxoNursery) sweepCribOutput(classHeight uint32, baby *babyOutput) erro
 	label := labels.MakeLabel(labels.LabelTypeSweepTransaction, nil)
 	err := u.cfg.PublishTransaction(baby.timeoutTx, label)
 
-	// In case the tx does not meet mempool fee requirements we continue
-	// because the tx is rebroadcasted in the background and there is
-	// nothing we can do to bump this transaction anyways.
+	// Legacy timeout transactions have a fixed fee and cannot be fee
+	// bumped.
+	// Rebroadcast behavior depends on the backend and does not guarantee
+	// acceptance or confirmation. Continue watching for confirmation.
+	if errors.Is(err, lnwallet.ErrMempoolFee) {
+		utxnLog.Warnf("Legacy timeout tx %v for output %v at expiry "+
+			"height %d was rejected for insufficient mempool "+
+			"fees; its fee is fixed", baby.timeoutTx.TxHash(),
+			baby.OutPoint(), classHeight)
+	}
 	if err != nil && !errors.Is(err, lnwallet.ErrDoubleSpend) &&
 		!errors.Is(err, lnwallet.ErrMempoolFee) {
 

@@ -131,7 +131,7 @@ func testChannelUtxoSelectionError(ht *lntest.HarnessTest) {
 			selectedCoins:      []btcutil.Amount{18_000},
 			feeRate:            1,
 			chanOpenShouldFail: true,
-			expectedErrStr: "available funds(0.00017877 BTC) " +
+			expectedErrStr: "available funds(0.00007834 BTC) " +
 				"below the minimum amount(0.00020000 BTC)",
 		},
 		// The local amount exceeds the value of the selected coins.
@@ -454,7 +454,7 @@ func runUtxoSelectionTestCase(ht *lntest.HarnessTest, alice,
 
 	commitType := tc.commitmentType
 	if commitType == lnrpc.CommitmentType_UNKNOWN_COMMITMENT_TYPE {
-		commitType = lnrpc.CommitmentType_STATIC_REMOTE_KEY
+		commitType = lnrpc.CommitmentType_ANCHORS
 	}
 
 	// The parameters to try opening the channel with.

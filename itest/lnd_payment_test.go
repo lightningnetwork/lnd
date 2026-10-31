@@ -73,9 +73,9 @@ func testPaymentSucceededHTLCRemoteSwept(ht *lntest.HarnessTest) {
 	}
 	invoice := bob.RPC.AddHoldInvoice(req)
 
-	// Create another hold invoice for Bob which expects a payment of 1k
+	// Create another hold invoice for Bob which expects a payment of 100
 	// satoshis from Alice.
-	const dustAmt = 1000
+	const dustAmt = 100
 	req = &invoicesrpc.AddHoldInvoiceRequest{
 		Value: dustAmt,
 		Hash:  dustPayHash[:],
@@ -135,9 +135,9 @@ func testPaymentSucceededHTLCRemoteSwept(ht *lntest.HarnessTest) {
 	bob.RPC.SettleInvoice(dustPreimage[:])
 
 	// Once Bob comes back up, he should find the force closing transaction
-	// from Alice and try to sweep the non-dust outgoing htlc via the
-	// direct preimage spend.
-	ht.AssertNumPendingSweeps(bob, 1)
+	// from Alice and try to sweep the non-dust outgoing HTLC via the
+	// direct preimage spend. His anchor sweep is also pending.
+	ht.AssertNumPendingSweeps(bob, 2)
 
 	// Let Alice come back up. Since the channel is now closed, we expect
 	// different behaviors based on whether the HTLC is a dust.
@@ -234,9 +234,9 @@ func runTestPaymentHTLCTimeout(ht *lntest.HarnessTest, restartAlice bool) {
 	}
 	invoice := bob.RPC.AddHoldInvoice(req)
 
-	// Create another hold invoice for Bob which expects a payment of 1k
+	// Create another hold invoice for Bob which expects a payment of 100
 	// satoshis from Alice.
-	const dustAmt = 1000
+	const dustAmt = 100
 	req = &invoicesrpc.AddHoldInvoiceRequest{
 		Value: dustAmt,
 		Hash:  dustPayHash[:],
@@ -793,7 +793,7 @@ func runAsyncPayments(ht *lntest.HarnessTest, alice, bob *node.HarnessNode,
 // testBidirectionalAsyncPayments tests that nodes are able to send the
 // payments to each other in async manner without blocking.
 func testBidirectionalAsyncPayments(ht *lntest.HarnessTest) {
-	const paymentAmt = 1000
+	const paymentAmt = 100
 
 	// We use new nodes here as the benchmark test creates lots of data
 	// which can be costly to be carried on.
@@ -1229,9 +1229,9 @@ func runSendToRouteFailHTLCTimeout(ht *lntest.HarnessTest, restartAlice bool) {
 	}
 	invoice := bob.RPC.AddHoldInvoice(req)
 
-	// Create another hold invoice for Bob which expects a payment of 1k
+	// Create another hold invoice for Bob which expects a payment of 100
 	// satoshis from Alice.
-	const dustAmt = 1000
+	const dustAmt = 100
 	req = &invoicesrpc.AddHoldInvoiceRequest{
 		Value: dustAmt,
 		Hash:  dustPayHash[:],

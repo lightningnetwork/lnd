@@ -682,15 +682,15 @@ func createTestFundingManager(t *testing.T, privKey *btcec.PrivateKey,
 		reportScidChan:  reportScidChan,
 		addr:            addr,
 
-		// Default both sides to static remote key. Without any
-		// features at all these nodes used to negotiate the legacy
-		// commitment type, which we no longer open. Tests that care
+		// Default both sides to anchor channels. Tests that care
 		// about a specific type overwrite these.
 		localFeatures: []lnwire.FeatureBit{
 			lnwire.StaticRemoteKeyOptional,
+			lnwire.AnchorsZeroFeeHtlcTxOptional,
 		},
 		remoteFeatures: []lnwire.FeatureBit{
 			lnwire.StaticRemoteKeyOptional,
+			lnwire.AnchorsZeroFeeHtlcTxOptional,
 		},
 	}
 
@@ -5763,63 +5763,81 @@ func TestFundingManagerRejectMissingChanType(t *testing.T) {
 	assertNumPendingReservations(t, bob, alicePubKey, 0)
 }
 
-// TestFundingManagerRejectLegacyChanType verifies that the fundee rejects an
-// OpenChannel message carrying an empty ChannelType, which asks for the legacy
-// commitment type.
-//
-// This branch used to perform no feature check whatsoever, since the legacy
-// type predates feature bits entirely, so any peer could obtain a legacy
-// channel from us no matter what either side signalled.
-func TestFundingManagerRejectLegacyChanType(t *testing.T) {
+// TestFundingManagerRejectDeprecatedChanType verifies that the fundee rejects
+// channel types that are retained only for existing channels.
+func TestFundingManagerRejectDeprecatedChanType(t *testing.T) {
 	t.Parallel()
 
-	alice, bob := setupFundingManagers(t)
-	t.Cleanup(func() {
-		tearDownFundingManagers(t, alice, bob)
-	})
-
-	// Both peers support better than the legacy type, which is exactly the
-	// case that used to slip through.
-	featureBits := []lnwire.FeatureBit{
-		lnwire.StaticRemoteKeyOptional,
-		lnwire.AnchorsZeroFeeHtlcTxOptional,
+	tests := []struct {
+		name     string
+		chanType *lnwire.ChannelType
+	}{
+		{
+			name: "legacy",
+			chanType: (*lnwire.ChannelType)(
+				lnwire.NewRawFeatureVector(),
+			),
+		},
+		{
+			name: "static remote key",
+			chanType: (*lnwire.ChannelType)(
+				lnwire.NewRawFeatureVector(
+					lnwire.StaticRemoteKeyRequired,
+				),
+			),
+		},
 	}
-	alice.localFeatures = featureBits
-	alice.remoteFeatures = featureBits
-	bob.localFeatures = featureBits
-	bob.remoteFeatures = featureBits
 
-	emptyChanType := (*lnwire.ChannelType)(lnwire.NewRawFeatureVector())
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			alice, bob := setupFundingManagers(t)
+			t.Cleanup(func() {
+				tearDownFundingManagers(t, alice, bob)
+			})
 
-	openChannelReq := &lnwire.OpenChannel{
-		ChainHash:            *fundingNetParams.GenesisHash,
-		PendingChannelID:     [32]byte{0x01},
-		FundingAmount:        btcutil.Amount(10000000),
-		PushAmount:           0,
-		DustLimit:            btcutil.Amount(546),
-		MaxValueInFlight:     lnwire.MilliSatoshi(100000000),
-		ChannelReserve:       btcutil.Amount(10000),
-		HtlcMinimum:          lnwire.MilliSatoshi(1000),
-		FeePerKiloWeight:     15000,
-		CsvDelay:             144,
-		MaxAcceptedHTLCs:     483,
-		FundingKey:           alice.privKey.PubKey(),
-		RevocationPoint:      alice.privKey.PubKey(),
-		PaymentPoint:         alice.privKey.PubKey(),
-		DelayedPaymentPoint:  alice.privKey.PubKey(),
-		HtlcPoint:            alice.privKey.PubKey(),
-		FirstCommitmentPoint: alice.privKey.PubKey(),
-		ChannelType:          emptyChanType,
+			featureBits := []lnwire.FeatureBit{
+				lnwire.StaticRemoteKeyOptional,
+				lnwire.AnchorsZeroFeeHtlcTxOptional,
+			}
+			alice.localFeatures = featureBits
+			alice.remoteFeatures = featureBits
+			bob.localFeatures = featureBits
+			bob.remoteFeatures = featureBits
+
+			genesisHash := *fundingNetParams.GenesisHash
+			maxValue := lnwire.MilliSatoshi(100000000)
+
+			openChannelReq := &lnwire.OpenChannel{
+				ChainHash:            genesisHash,
+				PendingChannelID:     [32]byte{0x01},
+				FundingAmount:        btcutil.Amount(10000000),
+				DustLimit:            btcutil.Amount(546),
+				MaxValueInFlight:     maxValue,
+				ChannelReserve:       btcutil.Amount(10000),
+				HtlcMinimum:          lnwire.MilliSatoshi(1000),
+				FeePerKiloWeight:     15000,
+				CsvDelay:             144,
+				MaxAcceptedHTLCs:     483,
+				FundingKey:           alice.privKey.PubKey(),
+				RevocationPoint:      alice.privKey.PubKey(),
+				PaymentPoint:         alice.privKey.PubKey(),
+				DelayedPaymentPoint:  alice.privKey.PubKey(),
+				HtlcPoint:            alice.privKey.PubKey(),
+				FirstCommitmentPoint: alice.privKey.PubKey(),
+				ChannelType:          test.chanType,
+			}
+			bob.fundingMgr.ProcessFundingMsg(openChannelReq, alice)
+
+			errMsg := assertFundingMsgSent(t, bob.msgChan, "Error")
+			err, ok := errMsg.(*lnwire.Error)
+			require.True(t, ok)
+			require.Equal(
+				t, lnwire.ErrChanTypeDeprecated.Error(),
+				string(err.Data),
+			)
+			assertNumPendingReservations(t, bob, alicePubKey, 0)
+		})
 	}
-	bob.fundingMgr.ProcessFundingMsg(openChannelReq, alice)
-
-	// Bob should reject the OpenChannel message instead of echoing the
-	// empty channel type back in an AcceptChannel.
-	errMsg := assertFundingMsgSent(t, bob.msgChan, "Error")
-	err, ok := errMsg.(*lnwire.Error)
-	require.True(t, ok)
-	require.Equal(t, lnwire.ErrChanTypeDeprecated.Error(), string(err.Data))
-	assertNumPendingReservations(t, bob, alicePubKey, 0)
 }
 
 // TestFundingManagerAcceptChanType verifies that the fundee accepts an
@@ -5909,9 +5927,6 @@ func (c *countingAcceptor) Accept(
 func TestFundingManagerCommitFeeRateFloor(t *testing.T) {
 	t.Parallel()
 
-	staticRemoteKey := (*lnwire.ChannelType)(lnwire.NewRawFeatureVector(
-		lnwire.StaticRemoteKeyRequired,
-	))
 	anchors := (*lnwire.ChannelType)(lnwire.NewRawFeatureVector(
 		lnwire.StaticRemoteKeyRequired,
 		lnwire.AnchorsZeroFeeHtlcTxRequired,
@@ -5953,49 +5968,36 @@ func TestFundingManagerCommitFeeRateFloor(t *testing.T) {
 	}{
 		{
 			name:     "zero",
-			chanType: staticRemoteKey,
+			chanType: anchors,
 			feeRate:  0,
 		},
 		{
 			name:     "one",
-			chanType: staticRemoteKey,
+			chanType: anchors,
 			feeRate:  1,
 		},
 		{
 			// A max-commit-fee-rate-anchors of 1 sat/vbyte
 			// converts to this rate.
 			name:     "one sat per vbyte",
-			chanType: staticRemoteKey,
+			chanType: anchors,
 			feeRate:  chainfee.SatPerVByte(1).FeePerKWeight(),
 		},
 		{
 			name:     "just below the floor",
-			chanType: staticRemoteKey,
+			chanType: anchors,
 			feeRate:  floor - 1,
 		},
 		{
 			name:     "at the floor",
-			chanType: staticRemoteKey,
+			chanType: anchors,
 			feeRate:  floor,
 			accept:   true,
 		},
 		{
 			name:     "above the floor",
-			chanType: staticRemoteKey,
+			chanType: anchors,
 			feeRate:  floor + 1,
-			accept:   true,
-		},
-		{
-			// The zero-fee HTLC transactions of anchor channels
-			// don't exempt the commitment transaction.
-			name:     "anchors just below the floor",
-			chanType: anchors,
-			feeRate:  floor - 1,
-		},
-		{
-			name:     "anchors at the floor",
-			chanType: anchors,
-			feeRate:  floor,
 			accept:   true,
 		},
 	}
@@ -6014,9 +6016,6 @@ func TestFundingManagerCommitFeeRateFloor(t *testing.T) {
 				tearDownFundingManagers(t, alice, bob)
 			})
 
-			// Both peers support anchors, so the static remote key
-			// channel type explicitly asks for a channel without
-			// anchor outputs.
 			featureBits := []lnwire.FeatureBit{
 				lnwire.StaticRemoteKeyOptional,
 				lnwire.AnchorsZeroFeeHtlcTxOptional,
@@ -6074,9 +6073,6 @@ func TestFundingManagerCommitFeeRateFloor(t *testing.T) {
 func TestFundingManagerProposedCommitFeeRate(t *testing.T) {
 	t.Parallel()
 
-	staticRemoteKey := (*lnwire.ChannelType)(lnwire.NewRawFeatureVector(
-		lnwire.StaticRemoteKeyRequired,
-	))
 	anchors := (*lnwire.ChannelType)(lnwire.NewRawFeatureVector(
 		lnwire.StaticRemoteKeyRequired,
 		lnwire.AnchorsZeroFeeHtlcTxRequired,
@@ -6135,20 +6131,6 @@ func TestFundingManagerProposedCommitFeeRate(t *testing.T) {
 		{
 			name:       "anchors estimate below floor",
 			chanType:   anchors,
-			estimate:   floor - 1,
-			anchorsCap: 2500,
-			expected:   floor,
-		},
-		{
-			name:       "static remote key ignores anchors cap",
-			chanType:   staticRemoteKey,
-			estimate:   62500,
-			anchorsCap: 2500,
-			expected:   62500,
-		},
-		{
-			name:       "static remote key estimate below floor",
-			chanType:   staticRemoteKey,
 			estimate:   floor - 1,
 			anchorsCap: 2500,
 			expected:   floor,

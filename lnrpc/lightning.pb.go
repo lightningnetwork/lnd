@@ -222,10 +222,11 @@ const (
 	//or accepts channels of this type.
 	CommitmentType_LEGACY CommitmentType = 1
 	//
-	//A channel that uses the modern commitment format where the key in the
-	//output of the remote party does not change each state. This makes back
-	//up and recovery easier as when the channel is closed, the funds go
-	//directly to that key.
+	//A channel that uses the commitment format where the key in the output of
+	//the remote party does not change each state.
+	//
+	//This value is only reported for channels that already exist. It is rejected
+	//as an input because lnd no longer opens or accepts channels of this type.
 	CommitmentType_STATIC_REMOTE_KEY CommitmentType = 2
 	//
 	//A channel that uses a commitment format that has anchor outputs on the
@@ -7472,9 +7473,9 @@ type BatchOpenChannel struct {
 	//both peers' supported features; the selected type is always sent
 	//explicitly.
 	//
-	//LEGACY is rejected: lnd no longer opens or accepts channels of that
-	//type. Note that an empty channel type on the wire requests it too, so
-	//there is no way to ask for it at all.
+	//LEGACY and STATIC_REMOTE_KEY are rejected: lnd no longer opens or accepts
+	//channels of those types. An empty channel type on the wire requests LEGACY,
+	//so there is no way to ask for either type.
 	CommitmentType CommitmentType `protobuf:"varint,9,opt,name=commitment_type,json=commitmentType,proto3,enum=lnrpc.CommitmentType" json:"commitment_type,omitempty"`
 	//
 	//The maximum amount of coins in millisatoshi that can be pending within
@@ -7820,9 +7821,9 @@ type OpenChannelRequest struct {
 	//both peers' supported features; the selected type is always sent
 	//explicitly.
 	//
-	//LEGACY is rejected: lnd no longer opens or accepts channels of that
-	//type. Note that an empty channel type on the wire requests it too, so
-	//there is no way to ask for it at all.
+	//LEGACY and STATIC_REMOTE_KEY are rejected: lnd no longer opens or accepts
+	//channels of those types. An empty channel type on the wire requests LEGACY,
+	//so there is no way to ask for either type.
 	CommitmentType CommitmentType `protobuf:"varint,18,opt,name=commitment_type,json=commitmentType,proto3,enum=lnrpc.CommitmentType" json:"commitment_type,omitempty"`
 	//
 	//If this is true, then a zero-conf channel open will be attempted.

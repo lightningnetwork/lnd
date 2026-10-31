@@ -1,12 +1,15 @@
 package htlcswitch
 
 import (
+	"bytes"
 	"encoding/hex"
 	"encoding/json"
+	"errors"
 	"os"
 	"testing"
 
 	"github.com/btcsuite/btcd/btcec/v2"
+	"github.com/btcsuite/btclog/v2"
 	sphinx "github.com/lightningnetwork/lightning-onion"
 	"github.com/lightningnetwork/lnd/lnwire"
 	"github.com/lightningnetwork/lnd/tlv"
@@ -75,6 +78,98 @@ func TestLongFailureMessage(t *testing.T) {
 	}
 
 	require.Equal(t, expectedValue, value.data)
+}
+
+type testFailureDecrypter struct {
+	failure *sphinx.DecryptedError
+	err     error
+}
+
+func (d *testFailureDecrypter) DecryptError([]byte) (
+	*sphinx.DecryptedError, error) {
+
+	return d.failure, d.err
+}
+
+type failureTestLogger struct {
+	btclog.Logger
+	messages [][]any
+}
+
+func (l *failureTestLogger) Debug(args ...any) {
+	l.messages = append(l.messages, args)
+}
+
+// TestFailureDecryption checks decoding and decryption outcomes.
+func TestFailureDecryption(t *testing.T) {
+	logger := &failureTestLogger{Logger: btclog.Disabled}
+	oldLogger := log
+	log = logger
+	t.Cleanup(func() { log = oldLogger })
+
+	var encoded bytes.Buffer
+	valid := &lnwire.FailTemporaryNodeFailure{}
+	require.NoError(t, lnwire.EncodeFailure(&encoded, valid, 0))
+	decryptErr := errors.New("decryption failed")
+
+	tests := []struct {
+		name        string
+		failure     *sphinx.DecryptedError
+		err         error
+		wantMessage lnwire.FailureMessage
+		wantLogs    int
+	}{
+		{
+			name: "malformed",
+			failure: &sphinx.DecryptedError{
+				SenderIdx: 3,
+				Message:   []byte("peer controlled payload"),
+			},
+			wantLogs: 1,
+		},
+		{
+			name: "valid",
+			failure: &sphinx.DecryptedError{
+				SenderIdx: 3,
+				Message:   encoded.Bytes(),
+			},
+			wantMessage: valid,
+		},
+		{name: "decryption error", err: decryptErr},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			logger.messages = nil
+			d := &SphinxErrorDecrypter{
+				OnionErrorDecrypter: &testFailureDecrypter{
+					failure: test.failure,
+					err:     test.err,
+				},
+			}
+			result, err := d.DecryptError(
+				[]byte("opaque peer data"),
+			)
+			if test.err != nil {
+				require.ErrorIs(t, err, test.err)
+				require.Nil(t, result)
+			} else {
+				require.NoError(t, err)
+				require.Equal(t, 3, result.FailureSourceIdx)
+				require.Equal(
+					t, test.wantMessage,
+					result.WireMessage(),
+				)
+			}
+			require.Len(t, logger.messages, test.wantLogs)
+			if test.wantLogs == 1 {
+				message := "Unable to decode authenticated " +
+					"HTLC failure message"
+				require.Equal(
+					t, []any{message}, logger.messages[0],
+				)
+			}
+		})
+	}
 }
 
 type varBytesRecordProducer struct {

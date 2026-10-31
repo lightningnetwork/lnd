@@ -516,6 +516,10 @@ var allTestCases = []*lntest.TestCase{
 		TestFunc: testDeriveSharedKey,
 	},
 	{
+		Name:     "derive and store key",
+		TestFunc: testDeriveAndStoreKey,
+	},
+	{
 		Name:     "sign output raw",
 		TestFunc: testSignOutputRaw,
 	},

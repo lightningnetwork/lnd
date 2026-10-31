@@ -38,3 +38,9 @@ func (m *MockKeyRing) DeriveKey(
 		PubKey: pub,
 	}, nil
 }
+
+func (m *MockKeyRing) DeriveAndStoreKey(
+	keyLoc keychain.KeyLocator) (keychain.KeyDescriptor, error) {
+
+	return m.DeriveKey(keyLoc)
+}

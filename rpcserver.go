@@ -1129,21 +1129,16 @@ func allowCORS(handler http.Handler, origins []string) http.Handler {
 	})
 }
 
-// sendCoinsOnChain makes an on-chain transaction in or to send coins to one or
-// more addresses specified in the passed payment map. The payment map maps an
-// address to a specified output value to be sent to that address.
-func (r *rpcServer) sendCoinsOnChain(paymentMap map[string]int64,
-	feeRate chainfee.SatPerKWeight, minConfs int32, label string,
+// dryRunSendOutputs crafts an unsigned transaction paying to the given outputs
+// without altering the wallet database, and checks that it doesn't spend the
+// wallet balance below the reserved amount.
+//
+// NOTE: This method requires the global coin selection lock to be held.
+func (r *rpcServer) dryRunSendOutputs(outputs []*wire.TxOut,
+	feeRate chainfee.SatPerKWeight, minConfs int32,
 	strategy wallet.CoinSelectionStrategy,
-	selectedUtxos fn.Set[wire.OutPoint]) (*chainhash.Hash, error) {
+	selectedUtxos fn.Set[wire.OutPoint]) (*txauthor.AuthoredTx, error) {
 
-	outputs, err := addrPairsToOutputs(paymentMap, r.cfg.ActiveNetParams.Params)
-	if err != nil {
-		return nil, err
-	}
-
-	// We first do a dry run, to sanity check we won't spend our wallet
-	// balance below the reserved amount.
 	authoredTx, err := r.server.cc.Wallet.CreateSimpleTx(
 		selectedUtxos, outputs, feeRate, minConfs, strategy, true,
 	)
@@ -1158,6 +1153,33 @@ func (r *rpcServer) sendCoinsOnChain(paymentMap map[string]int64,
 			Tx:          authoredTx.Tx,
 			ChangeIndex: &authoredTx.ChangeIndex,
 		},
+	)
+	if err != nil {
+		return nil, err
+	}
+
+	return authoredTx, nil
+}
+
+// sendCoinsOnChain makes an on-chain transaction in or to send coins to one or
+// more addresses specified in the passed payment map. The payment map maps an
+// address to a specified output value to be sent to that address.
+func (r *rpcServer) sendCoinsOnChain(paymentMap map[string]int64,
+	feeRate chainfee.SatPerKWeight, minConfs int32, label string,
+	strategy wallet.CoinSelectionStrategy,
+	selectedUtxos fn.Set[wire.OutPoint]) (*chainhash.Hash, error) {
+
+	outputs, err := addrPairsToOutputs(
+		paymentMap, r.cfg.ActiveNetParams.Params,
+	)
+	if err != nil {
+		return nil, err
+	}
+
+	// We first do a dry run, to sanity check we won't spend our wallet
+	// balance below the reserved amount.
+	_, err = r.dryRunSendOutputs(
+		outputs, feeRate, minConfs, strategy, selectedUtxos,
 	)
 	if err != nil {
 		return nil, err

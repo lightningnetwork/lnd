@@ -1,4 +1,4 @@
-package channeldb
+package chanstate
 
 import (
 	"bytes"
@@ -207,7 +207,7 @@ func TestWriteTLVStream(t *testing.T) {
 
 	// Write the tlv stream.
 	buf := bytes.NewBuffer([]byte{})
-	err = writeTlvStream(buf, ts)
+	err = WriteTlvStream(buf, ts)
 	require.NoError(t, err)
 
 	// Check the bytes are written as expected.
@@ -227,7 +227,7 @@ func TestReadTLVStream(t *testing.T) {
 
 	// Read the tlv stream.
 	buf := bytes.NewBuffer(testValueBytes)
-	_, err = readTlvStream(buf, ts)
+	_, err = ReadTlvStream(buf, ts)
 	require.NoError(t, err)
 
 	// Check the bytes are read as expected.
@@ -250,7 +250,7 @@ func TestReadTLVStreamErr(t *testing.T) {
 
 	// Read the tlv stream.
 	buf := bytes.NewBuffer(b)
-	_, err = readTlvStream(buf, ts)
+	_, err = ReadTlvStream(buf, ts)
 	require.ErrorIs(t, err, io.ErrUnexpectedEOF)
 
 	// Check the bytes are not read.
@@ -265,7 +265,7 @@ func TestSerializeHTLCEntriesEmptyRHash(t *testing.T) {
 
 	// Write the tlv stream.
 	buf := bytes.NewBuffer([]byte{})
-	err := serializeHTLCEntries(buf, []*HTLCEntry{&entry})
+	err := SerializeHTLCEntries(buf, []*HTLCEntry{&entry})
 	require.NoError(t, err)
 
 	// Check the bytes are read as expected.
@@ -280,7 +280,7 @@ func TestSerializeHTLCEntriesWithRHash(t *testing.T) {
 
 	// Write the tlv stream.
 	buf := bytes.NewBuffer([]byte{})
-	err := serializeHTLCEntries(buf, []*HTLCEntry{&entry})
+	err := SerializeHTLCEntries(buf, []*HTLCEntry{&entry})
 	require.NoError(t, err)
 
 	// Check the bytes are read as expected.
@@ -311,7 +311,7 @@ func TestSerializeHTLCEntries(t *testing.T) {
 	expectedBytes = append(expectedBytes, partialBytes...)
 
 	buf := bytes.NewBuffer([]byte{})
-	err := serializeHTLCEntries(buf, []*HTLCEntry{&entry})
+	err := SerializeHTLCEntries(buf, []*HTLCEntry{&entry})
 	require.NoError(t, err)
 
 	// Check the bytes are read as expected.
@@ -364,7 +364,7 @@ func testSerializeRevocationLog(t *testing.T, rl *RevocationLog,
 
 	// Write the tlv stream.
 	buf := bytes.NewBuffer([]byte{})
-	err := serializeRevocationLog(buf, rl)
+	err := SerializeRevocationLog(buf, rl)
 	require.NoError(t, err)
 
 	// Check the expected bytes on the body of the revocation log.
@@ -380,7 +380,7 @@ func testDeserializeRevocationLog(t *testing.T, revLog *RevocationLog,
 
 	// Read the tlv stream.
 	buf := bytes.NewBuffer(revLogBytes)
-	rl, err := deserializeRevocationLog(buf)
+	rl, err := DeserializeRevocationLog(buf)
 	require.NoError(t, err)
 
 	// Check the bytes are read as expected.
@@ -393,7 +393,7 @@ func TestDeserializeHTLCEntriesEmptyRHash(t *testing.T) {
 
 	// Read the tlv stream.
 	buf := bytes.NewBuffer(testHTLCEntryBytes)
-	htlcs, err := deserializeHTLCEntries(buf)
+	htlcs, err := DeserializeHTLCEntries(buf)
 	require.NoError(t, err)
 
 	// Check the bytes are read as expected.
@@ -425,7 +425,7 @@ func TestDeserializeHTLCEntries(t *testing.T) {
 
 	// Read the tlv stream.
 	buf := bytes.NewBuffer(testBytes)
-	htlcs, err := deserializeHTLCEntries(buf)
+	htlcs, err := DeserializeHTLCEntries(buf)
 	require.NoError(t, err)
 
 	// Check the bytes are read as expected.
@@ -436,18 +436,16 @@ func TestDeserializeHTLCEntries(t *testing.T) {
 func TestFetchLogBucket(t *testing.T) {
 	t.Parallel()
 
-	fullDB, err := MakeTestDB(t)
-	require.NoError(t, err)
-
-	backend := fullDB.ChannelStateDB().backend
+	backend, cleanup := makeTestBackend(t)
+	t.Cleanup(cleanup)
 
 	// Test that when neither of the buckets exists, an error is returned.
-	err = kvdb.Update(backend, func(tx kvdb.RwTx) error {
+	err := kvdb.Update(backend, func(tx kvdb.RwTx) error {
 		chanBucket, err := tx.CreateTopLevelBucket(openChannelBucket)
 		require.NoError(t, err)
 
 		// Check an error is returned when there's no sub bucket.
-		_, err = fetchLogBucket(chanBucket)
+		_, err = FetchLogBucket(chanBucket)
 		return err
 	}, func() {})
 	require.ErrorIs(t, err, ErrNoPastDeltas)
@@ -461,7 +459,7 @@ func TestFetchLogBucket(t *testing.T) {
 		require.NoError(t, err)
 
 		// Check an error is returned when there's no sub bucket.
-		_, err = fetchLogBucket(chanBucket)
+		_, err = FetchLogBucket(chanBucket)
 		return err
 	}, func() {})
 	require.NoError(t, err)
@@ -470,12 +468,10 @@ func TestFetchLogBucket(t *testing.T) {
 func TestDeleteLogBucket(t *testing.T) {
 	t.Parallel()
 
-	fullDB, err := MakeTestDB(t)
-	require.NoError(t, err)
+	backend, cleanup := makeTestBackend(t)
+	t.Cleanup(cleanup)
 
-	backend := fullDB.ChannelStateDB().backend
-
-	err = kvdb.Update(backend, func(tx kvdb.RwTx) error {
+	err := kvdb.Update(backend, func(tx kvdb.RwTx) error {
 		// Create the buckets.
 		chanBucket, _, err := createTestRevocationLogBuckets(tx)
 		require.NoError(t, err)
@@ -485,7 +481,7 @@ func TestDeleteLogBucket(t *testing.T) {
 		require.ErrorIs(t, err, kvdb.ErrBucketExists)
 
 		// Delete both buckets.
-		err = deleteLogBucket(chanBucket)
+		err = DeleteLogBucket(chanBucket)
 		require.NoError(t, err)
 
 		// Create the buckets again should give us NO error.
@@ -586,10 +582,8 @@ func TestPutRevocationLog(t *testing.T) {
 
 	for _, tc := range testCases {
 
-		fullDB, err := MakeTestDB(t)
-		require.NoError(t, err)
-
-		backend := fullDB.ChannelStateDB().backend
+		backend, cleanup := makeTestBackend(t)
+		t.Cleanup(cleanup)
 
 		// Construct the testing db transaction.
 		dbTx := func(tx kvdb.RwTx) (RevocationLog, error) {
@@ -598,7 +592,7 @@ func TestPutRevocationLog(t *testing.T) {
 			require.NoError(t, err)
 
 			// Save the log.
-			err = putRevocationLog(
+			err = PutRevocationLog(
 				bucket, &tc.commit, tc.ourIndex, tc.theirIndex,
 				tc.noAmtData,
 			)
@@ -607,7 +601,7 @@ func TestPutRevocationLog(t *testing.T) {
 			}
 
 			// Read the saved log.
-			return fetchRevocationLog(
+			return FetchRevocationLog(
 				bucket, tc.commit.CommitHeight,
 			)
 		}
@@ -631,7 +625,7 @@ func TestFetchRevocationLogCompatible(t *testing.T) {
 
 	knownHeight := testChannelCommit.CommitHeight
 	unknownHeight := knownHeight + 1
-	logKey := makeLogKey(knownHeight)
+	logKey := revocationLogKey(knownHeight)
 
 	testCases := []struct {
 		name         string
@@ -685,10 +679,8 @@ func TestFetchRevocationLogCompatible(t *testing.T) {
 
 	for _, tc := range testCases {
 
-		fullDB, err := MakeTestDB(t)
-		require.NoError(t, err)
-
-		backend := fullDB.ChannelStateDB().backend
+		backend, cleanup := makeTestBackend(t)
+		t.Cleanup(cleanup)
 
 		var (
 			rl     *RevocationLog
@@ -696,7 +688,7 @@ func TestFetchRevocationLogCompatible(t *testing.T) {
 		)
 
 		// Setup the buckets and fill the test data if specified.
-		err = kvdb.Update(backend, func(tx kvdb.RwTx) error {
+		err := kvdb.Update(backend, func(tx kvdb.RwTx) error {
 			// Create the root bucket.
 			cb, err := tx.CreateTopLevelBucket(openChannelBucket)
 			require.NoError(t, err)
@@ -706,7 +698,7 @@ func TestFetchRevocationLogCompatible(t *testing.T) {
 				lb, err := cb.CreateBucket(revocationLogBucket)
 				require.NoError(t, err)
 
-				err = putRevocationLog(
+				err = PutRevocationLog(
 					lb, &testChannelCommit, 0, 1, false,
 				)
 				require.NoError(t, err)
@@ -720,7 +712,7 @@ func TestFetchRevocationLogCompatible(t *testing.T) {
 				require.NoError(t, err)
 
 				buf := bytes.NewBuffer([]byte{})
-				err = serializeChanCommit(
+				err = SerializeChanCommit(
 					buf, &testChannelCommit,
 				)
 				require.NoError(t, err)
@@ -736,7 +728,7 @@ func TestFetchRevocationLogCompatible(t *testing.T) {
 		dbTx := func(tx kvdb.RTx) error {
 			cb := tx.ReadBucket(openChannelBucket)
 
-			rl, commit, err = fetchRevocationLogCompatible(
+			rl, commit, err = FetchRevocationLogCompatible(
 				cb, tc.updateNum,
 			)
 			return err
@@ -830,7 +822,7 @@ func TestDeserializeHTLCEntriesLegacy(t *testing.T) {
 
 		// Read the tlv stream.
 		buf := bytes.NewBuffer(rawEntry)
-		htlcs, err := deserializeHTLCEntries(buf)
+		htlcs, err := DeserializeHTLCEntries(buf)
 		require.NoError(t, err)
 
 		// Check the bytes are read as expected.

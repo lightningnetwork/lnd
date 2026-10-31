@@ -263,7 +263,8 @@ func initAutoPilot(svr *server, cfg *lncfg.AutoPilot,
 			// We'll fetch the current state of open
 			// channels from the database to use as initial
 			// state for the auto-pilot agent.
-			activeChannels, err := svr.chanStateDB.FetchAllChannels()
+			activeChannels, err := svr.channelStore.
+				FetchAllChannels()
 			if err != nil {
 				return nil, err
 			}
@@ -287,7 +288,7 @@ func initAutoPilot(svr *server, cfg *lncfg.AutoPilot,
 		ChannelInfo: func(chanPoint wire.OutPoint) (
 			*autopilot.LocalChannel, error) {
 
-			channel, err := svr.chanStateDB.FetchChannel(chanPoint)
+			channel, err := svr.channelStore.FetchChannel(chanPoint)
 			if err != nil {
 				return nil, err
 			}

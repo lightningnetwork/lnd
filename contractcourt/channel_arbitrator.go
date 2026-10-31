@@ -1933,6 +1933,13 @@ func (c *ChannelArbitrator) checkCommitChainActions(height uint32,
 		// know the pre-image and it's close to timing out. We need to
 		// ensure that we claim the funds that are rightfully ours
 		// on-chain.
+		toChain := c.shouldGoOnChain(
+			htlc, c.cfg.IncomingBroadcastDelta, height,
+		)
+		if !toChain {
+			continue
+		}
+
 		preimageAvailable, err := c.incomingPreimageAvailable(htlc)
 		if err != nil {
 			return nil, err
@@ -1942,25 +1949,18 @@ func (c *ChannelArbitrator) checkCommitChainActions(height uint32,
 			continue
 		}
 
-		toChain := c.shouldGoOnChain(
-			htlc, c.cfg.IncomingBroadcastDelta, height,
+		// Convert to int64 in case of overflow.
+		remainingBlocks := int64(htlc.RefundTimeout) - int64(height)
+
+		log.Infof("ChannelArbitrator(%v): go to chain for incoming "+
+			"htlc %x: timeout=%v, amount=%v, "+
+			"blocks_until_expiry=%v, broadcast_delta=%v",
+			c.cfg.ChanPoint, htlc.RHash[:],
+			htlc.RefundTimeout, htlc.Amt, remainingBlocks,
+			c.cfg.IncomingBroadcastDelta,
 		)
 
-		if toChain {
-			// Convert to int64 in case of overflow.
-			remainingBlocks := int64(htlc.RefundTimeout) -
-				int64(height)
-
-			log.Infof("ChannelArbitrator(%v): go to chain for "+
-				"incoming htlc %x: timeout=%v, amount=%v, "+
-				"blocks_until_expiry=%v, broadcast_delta=%v",
-				c.cfg.ChanPoint, htlc.RHash[:],
-				htlc.RefundTimeout, htlc.Amt, remainingBlocks,
-				c.cfg.IncomingBroadcastDelta,
-			)
-		}
-
-		haveChainActions = haveChainActions || toChain
+		haveChainActions = true
 	}
 
 	// If we don't have any actions to make, then we'll return an empty

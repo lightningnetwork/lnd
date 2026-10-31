@@ -24,6 +24,8 @@ type updateHTLCTest struct {
 func TestUpdateHTLC(t *testing.T) {
 	t.Parallel()
 
+	// Arrange accepted, released and final children with fixed timestamps
+	// so the cases distinguish preimage release from a final resolution.
 	testNow := time.Now()
 	setID := [32]byte{0x01}
 	ampRecord := record.NewAMP([32]byte{0x02}, setID, 3)
@@ -130,7 +132,7 @@ func TestUpdateHTLC(t *testing.T) {
 				AcceptTime:        testNow,
 				ResolveTime:       testNow,
 				Expiry:            40,
-				State:             HtlcStateSettled,
+				State:             HtlcStatePendingSettle,
 				CustomRecords:     make(record.CustomSet),
 				WireCustomRecords: make(lnwire.CustomRecords),
 				AMP:               nil,
@@ -743,6 +745,8 @@ func TestUpdateHTLC(t *testing.T) {
 		},
 	}
 
+	// Act on each independent child; the helper applies the returned
+	// transition and asserts the complete child and any expected error.
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
 			testUpdateHTLC(t, test, testNow)
@@ -750,8 +754,14 @@ func TestUpdateHTLC(t *testing.T) {
 	}
 }
 
+// testUpdateHTLC applies one transition to a copy, preserving the table's
+// original child while checking both its resulting state and timestamp.
 func testUpdateHTLC(t *testing.T, test updateHTLCTest, now time.Time) {
+	// Arrange an isolated child so another case cannot inherit mutations.
 	htlc := test.input.Copy()
+
+	// Act through the shared state selector, applying only changes it
+	// requests, as the invoice updater does when storing a resolution.
 	stateChanged, state, err := getUpdatedHtlcState(
 		htlc, test.invState, test.setID,
 	)
@@ -760,6 +770,8 @@ func testUpdateHTLC(t *testing.T, test updateHTLCTest, now time.Time) {
 		htlc.ResolveTime = now
 	}
 
+	// Assert the full returned state and error, including preservation of
+	// a released child's timestamp when no transition is permitted.
 	require.Equal(t, test.expErr, err)
 	require.Equal(t, test.output, *htlc)
 }
@@ -864,6 +876,8 @@ func TestResolveReplayedHtlcSettled(t *testing.T) {
 		t.Run(test.name, func(t *testing.T) {
 			t.Parallel()
 
+			// Arrange an existing final child and its recorded
+			// preimage, checking the stored replay evidence.
 			circuitKey := CircuitKey{HtlcID: 1}
 			ctx := &invoiceUpdateCtx{
 				hash:       test.paymentHash,
@@ -882,9 +896,15 @@ func TestResolveReplayedHtlcSettled(t *testing.T) {
 				},
 			}
 
+			// Act through replay resolution before new-shard
+			// checks.
 			replayed, resolution, err := resolveReplayedHtlc(
 				ctx, invoice,
 			)
+
+			// Assert replay is recognized and returns the
+			// appropriate preimage or validation error without
+			// creating a new HTLC.
 			require.True(t, replayed)
 
 			switch {
@@ -1113,12 +1133,17 @@ func TestUpdateLegacyRejectsNilPreimageSettle(t *testing.T) {
 		t.Run(test.name, func(t *testing.T) {
 			t.Parallel()
 
+			// Arrange the open/paid paths without a preimage
+			// so neither can produce a fulfill for a new circuit.
 			ctx, invoice := newLegacyUpdateTestContext(
 				t, test.state,
 			)
 			invoice.Terms.PaymentPreimage = nil
 
+			// Act through legacy admission rather than replay.
 			update, resolution, err := updateLegacy(ctx, invoice)
+			// Assert normal rejection without an update or an
+			// internal error that would fail the link.
 			require.NoError(t, err)
 			require.Nil(t, update)
 			requireFailResolution(

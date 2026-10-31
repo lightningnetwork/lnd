@@ -1909,9 +1909,10 @@ func testFeeReplacement(ht *lntest.HarnessTest) {
 	// Suspend Bob so he won't get the preimage from Carol.
 	restartBob := ht.SuspendNode(bob)
 
-	// Carol settles the first invoice.
+	// Carol settles the first invoice. Since Bob is offline, the settle
+	// can't be locked in, so the invoice is pending settlement.
 	carol.RPC.SettleInvoice(preimages[0])
-	ht.AssertInvoiceState(streams[0], lnrpc.Invoice_SETTLED)
+	ht.AssertInvoiceState(streams[0], lnrpc.Invoice_PENDING_SETTLE)
 
 	// Carol goes offline so the preimage won't be sent to Bob.
 	restartCarol := ht.SuspendNode(carol)

@@ -955,18 +955,8 @@ func (k *kvInvoiceUpdater) storeAddHtlcsUpdate() error {
 		}
 	}
 
-	// If this is a non-AMP invoice, then the state can eventually go to
-	// ContractSettled, so we pass in nil value as part of
-	// setSettleMetaFields.
-	if !invoiceIsAMP && k.invoice.State == invpkg.ContractSettled {
-		err := k.setSettleMetaFields(nil)
-		if err != nil {
-			return err
-		}
-	}
-
-	// As we don't update the settle index above for AMP invoices, we'll do
-	// it here for each sub-AMP invoice that was settled.
+	// Ordinary invoices allocate their index at finalization. AMP keeps
+	// allocating its existing per-set settlement index at preimage release.
 	for settledSetID := range k.settledSetIDs {
 		err := k.setSettleMetaFields(&settledSetID)
 		if err != nil {
@@ -990,13 +980,8 @@ func (k *kvInvoiceUpdater) storeAddHtlcsUpdate() error {
 }
 
 // storeSettleHodlInvoiceUpdate updates the invoice in the database after
-// settling a hodl invoice.
+// releasing a hodl preimage. Finalization assigns its settlement index.
 func (k *kvInvoiceUpdater) storeSettleHodlInvoiceUpdate() error {
-	err := k.setSettleMetaFields(nil)
-	if err != nil {
-		return err
-	}
-
 	return k.serializeAndStoreInvoice()
 }
 

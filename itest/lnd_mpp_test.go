@@ -89,7 +89,9 @@ func testSendMultiPathPayment(ht *lntest.HarnessTest) {
 	require.GreaterOrEqual(ht, succeeded, minExpectedShards,
 		"expected shards not reached")
 
-	// Make sure Bob show the invoice as settled for the full amount.
+	// The payer can finish before Bob locks in the settle. Wait through
+	// the existing address-based assertion before checking final credit.
+	ht.AssertInvoiceSettled(mts.bob, invoices[0].PaymentAddr)
 	inv := mts.bob.RPC.LookupInvoice(rHash)
 
 	require.EqualValues(ht, paymentAmt, inv.AmtPaidSat,

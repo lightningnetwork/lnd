@@ -792,8 +792,7 @@ func testScidAliasRoutingHints(ht *lntest.HarnessTest) {
 	// Check that Dave's invoice appears as settled.
 	invoices := dave.RPC.ListInvoices(&lnrpc.ListInvoiceRequest{})
 	require.Len(ht, invoices.Invoices, 1, "expected one invoice")
-	require.Equal(ht, invoices.Invoices[0].State, lnrpc.Invoice_SETTLED,
-		"expected settled invoice")
+	ht.AssertInvoiceSettled(dave, invoices.Invoices[0].PaymentAddr)
 
 	// We'll now delete the alias again, but only on Carol's end. That
 	// should be enough to make the payment fail, since she doesn't know

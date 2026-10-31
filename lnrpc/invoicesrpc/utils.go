@@ -95,6 +95,9 @@ func CreateRPCInvoice(invoice *invoices.Invoice,
 	case invoices.ContractAccepted:
 		state = lnrpc.Invoice_ACCEPTED
 
+	case invoices.ContractPendingSettle:
+		state = lnrpc.Invoice_PENDING_SETTLE
+
 	default:
 		return nil, fmt.Errorf("unknown invoice state %v",
 			invoice.State)
@@ -110,6 +113,8 @@ func CreateRPCInvoice(invoice *invoices.Invoice,
 			state = lnrpc.InvoiceHTLCState_SETTLED
 		case invoices.HtlcStateCanceled:
 			state = lnrpc.InvoiceHTLCState_CANCELED
+		case invoices.HtlcStatePendingSettle:
+			state = lnrpc.InvoiceHTLCState_PENDING_SETTLE
 		default:
 			return nil, fmt.Errorf("unknown state %v", htlc.State)
 		}
@@ -155,8 +160,12 @@ func CreateRPCInvoice(invoice *invoices.Invoice,
 			}
 		}
 
-		// Only report resolved times if htlc is resolved.
-		if htlc.State != invoices.HtlcStateAccepted {
+		// Preimage release records a timestamp internally, but a
+		// pending HTLC has no final resolution time to expose to RPC
+		// callers.
+		if htlc.State == invoices.HtlcStateSettled ||
+			htlc.State == invoices.HtlcStateCanceled {
+
 			rpcHtlc.ResolveTime = htlc.ResolveTime.Unix()
 		}
 

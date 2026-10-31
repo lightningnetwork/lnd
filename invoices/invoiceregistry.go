@@ -79,6 +79,14 @@ type RegistryConfig struct {
 	// HtlcInterceptor is an interface that allows the invoice registry to
 	// let clients intercept invoices before they are settled.
 	HtlcInterceptor HtlcInterceptor
+
+	// FinalHtlcSource supplies final outcomes for ordinary invoices after
+	// their preimages were released, including missed live notifications.
+	FinalHtlcSource FinalHtlcSource
+
+	// SettleReconcileInterval retries pending outcome discovery. Zero
+	// uses DefaultSettleReconcileInterval, and idle passes skip scans.
+	SettleReconcileInterval time.Duration
 }
 
 // htlcReleaseEvent describes an htlc auto-release event. It is used to release
@@ -154,6 +162,10 @@ type InvoiceRegistry struct {
 
 	expiryWatcher *InvoiceExpiryWatcher
 
+	// pendingSettles maps ordinary pending circuits to their invoice hash.
+	// The registry lock protects it through preimage release/finalization.
+	pendingSettles map[CircuitKey]lntypes.Hash
+
 	wg   sync.WaitGroup
 	quit chan struct{}
 }
@@ -181,16 +193,27 @@ func NewRegistry(idb InvoiceDB, expiryWatcher *InvoiceExpiryWatcher,
 		cfg:                 cfg,
 		htlcAutoReleaseChan: make(chan *htlcReleaseEvent),
 		expiryWatcher:       expiryWatcher,
+		pendingSettles:      make(map[CircuitKey]lntypes.Hash),
 		quit:                make(chan struct{}),
 	}
 }
 
 // scanInvoicesOnStart will scan all invoices on start and add active invoices
 // to the invoice expiry watcher while also attempting to delete all canceled
-// invoices.
+// invoices. It also restores ordinary HTLCs awaiting their final outcomes.
 func (i *InvoiceRegistry) scanInvoicesOnStart(ctx context.Context) error {
 	pendingInvoices, err := i.idb.FetchPendingInvoices(ctx)
 	if err != nil {
+		return err
+	}
+
+	// Parent state alone misses duplicate payments whose invoice was
+	// already settled before a later HTLC awaited its final outcome.
+	pendingSettle, err := i.idb.FetchPendingSettleInvoices(ctx)
+	if err != nil {
+		return err
+	}
+	if err := i.startSettleFinalizer(ctx, pendingSettle); err != nil {
 		return err
 	}
 

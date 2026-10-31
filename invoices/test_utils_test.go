@@ -22,6 +22,7 @@ import (
 	"github.com/lightningnetwork/lnd/lnwire"
 	"github.com/lightningnetwork/lnd/record"
 	"github.com/lightningnetwork/lnd/zpay32"
+	"github.com/stretchr/testify/mock"
 	"github.com/stretchr/testify/require"
 )
 
@@ -139,13 +140,83 @@ var (
 )
 
 type testContext struct {
-	idb      invpkg.InvoiceDB
-	registry *invpkg.InvoiceRegistry
-	notifier *mockChainNotifier
-	clock    *clock.TestClock
+	idb        invpkg.InvoiceDB
+	registry   *invpkg.InvoiceRegistry
+	notifier   *mockChainNotifier
+	clock      *clock.TestClock
+	finalHtlcs *mockFinalHtlcSource
 
 	t *testing.T
 }
+
+// mockFinalHtlcSource supplies arranged recovery evidence and a test-owned
+// live channel without implementing a second final-outcome store.
+type mockFinalHtlcSource struct {
+	mock.Mock
+
+	outcomes chan invpkg.FinalHtlcOutcome
+}
+
+// newMockFinalHtlcSource arranges one subscription and optional empty lookups
+// for ordinary fixture use. Regression tests replace those optional calls in
+// Arrange when they need specific recovery evidence or ordering.
+func newMockFinalHtlcSource(t *testing.T) *mockFinalHtlcSource {
+	t.Helper()
+
+	source := &mockFinalHtlcSource{
+		outcomes: make(chan invpkg.FinalHtlcOutcome),
+	}
+	source.On("SubscribeFinalHtlcs").Return(
+		(<-chan invpkg.FinalHtlcOutcome)(source.outcomes),
+		func() {}, nil,
+	).Once()
+	source.On("LookupFinalHtlcs", mock.Anything).Return(nil, nil).Maybe()
+	source.On("InferFinalHtlcs", mock.Anything).Return(nil, nil).Maybe()
+
+	// Fixtures register Stop later, so LIFO cleanup stops all consumers
+	// before this single expectation verification reads the mock.
+	t.Cleanup(func() {
+		source.AssertExpectations(t)
+	})
+
+	return source
+}
+
+// SubscribeFinalHtlcs returns the arranged test-owned event channel and its
+// cancellation callback so subscription ownership matches the real source.
+func (m *mockFinalHtlcSource) SubscribeFinalHtlcs() (
+	<-chan invpkg.FinalHtlcOutcome, func(), error) {
+
+	args := m.Called()
+	outcomes, _ := args.Get(0).(<-chan invpkg.FinalHtlcOutcome)
+	cancel, _ := args.Get(1).(func())
+
+	return outcomes, cancel, args.Error(2)
+}
+
+// LookupFinalHtlcs returns only the durable evidence arranged for these keys;
+// nil represents a source that has not recorded any of their outcomes.
+func (m *mockFinalHtlcSource) LookupFinalHtlcs(keys []invpkg.CircuitKey) (
+	map[invpkg.CircuitKey]invpkg.FinalHtlcOutcome, error) {
+
+	args := m.Called(keys)
+	res, _ := args.Get(0).(map[invpkg.CircuitKey]invpkg.FinalHtlcOutcome)
+
+	return res, args.Error(1)
+}
+
+// InferFinalHtlcs returns arranged channel evidence independently of recorded
+// outcomes so tests can control the real reconciliation boundary.
+func (m *mockFinalHtlcSource) InferFinalHtlcs(keys []invpkg.CircuitKey) (
+	map[invpkg.CircuitKey]invpkg.FinalHtlcOutcome, error) {
+
+	args := m.Called(keys)
+	res, _ := args.Get(0).(map[invpkg.CircuitKey]invpkg.FinalHtlcOutcome)
+
+	return res, args.Error(1)
+}
+
+var _ invpkg.FinalHtlcSource = (*mockFinalHtlcSource)(nil)
 
 func defaultRegistryConfig() invpkg.RegistryConfig {
 	return invpkg.RegistryConfig{
@@ -155,6 +226,8 @@ func defaultRegistryConfig() invpkg.RegistryConfig {
 	}
 }
 
+// newTestContext owns a registry backed by the selected real database and a
+// controlled finality source, stopping consumers before verifying the mock.
 func newTestContext(t *testing.T,
 	registryCfg *invpkg.RegistryConfig,
 	makeDB func(t *testing.T) (invpkg.InvoiceDB,
@@ -175,6 +248,12 @@ func newTestContext(t *testing.T,
 	}
 	cfg.Clock = clock
 
+	finalHtlcs, ok := cfg.FinalHtlcSource.(*mockFinalHtlcSource)
+	if !ok {
+		finalHtlcs = newMockFinalHtlcSource(t)
+		cfg.FinalHtlcSource = finalHtlcs
+	}
+
 	// Instantiate and start the invoice ctx.registry.
 	registry := invpkg.NewRegistry(idb, expiryWatcher, &cfg)
 
@@ -184,14 +263,67 @@ func newTestContext(t *testing.T,
 	})
 
 	ctx := testContext{
-		idb:      idb,
-		registry: registry,
-		notifier: notifier,
-		clock:    clock,
-		t:        t,
+		idb:        idb,
+		registry:   registry,
+		notifier:   notifier,
+		clock:      clock,
+		finalHtlcs: finalHtlcs,
+		t:          t,
 	}
 
 	return &ctx
+}
+
+// finalizeHtlc delivers the final outcome of an htlc to the registry, like
+// the link or the contract court would, and waits until the registry recorded
+// it on the invoice identified by ref.
+func (c *testContext) finalizeHtlc(ref invpkg.InvoiceRef,
+	key invpkg.CircuitKey, settled bool) {
+
+	c.t.Helper()
+
+	outcome := invpkg.FinalHtlcOutcome{
+		Key:      key,
+		Settled:  settled,
+		Offchain: true,
+	}
+
+	select {
+	case c.finalHtlcs.outcomes <- outcome:
+	case <-time.After(testTimeout):
+		c.t.Fatalf("registry didn't receive final outcome of %v", key)
+	}
+
+	c.waitHtlcFinal(ref, key)
+}
+
+// waitHtlcFinal waits until the htlc on the invoice identified by ref is no
+// longer pending settlement.
+func (c *testContext) waitHtlcFinal(ref invpkg.InvoiceRef,
+	key invpkg.CircuitKey) {
+
+	c.t.Helper()
+
+	isFinal := func() bool {
+		inv, err := c.registry.LookupInvoiceByRef(
+			c.t.Context(), ref,
+		)
+		if err != nil {
+			return false
+		}
+
+		htlc, ok := inv.Htlcs[key]
+
+		return ok && htlc.State != invpkg.HtlcStatePendingSettle
+	}
+
+	// The outcome is usually recorded right away, so avoid waiting for the
+	// first tick.
+	if isFinal() {
+		return
+	}
+
+	require.Eventually(c.t, isFinal, testTimeout, 5*time.Millisecond)
 }
 
 func getCircuitKey(htlcID uint64) invpkg.CircuitKey {

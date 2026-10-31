@@ -289,8 +289,6 @@ github.com/lightningnetwork/lightning-onion v1.4.0 h1:qWE1icOH4AKXRcq1KCzt6P/Tes
 github.com/lightningnetwork/lightning-onion v1.4.0/go.mod h1:YDPkvVTVQ6FBBE6Yj93tDd7zA3iTSrryi9xq46i7bKE=
 github.com/lightningnetwork/lnd/fn/v2 v2.0.10 h1:8GiXDXmF9QPnphLVxcn0KAgDTfRsyQoaIJmh7GXX4Ng=
 github.com/lightningnetwork/lnd/fn/v2 v2.0.10/go.mod h1:wg3OyJ9eS14Az8HAZMMxqVjJ+nkKw97uPF/45ICOvs4=
-github.com/lightningnetwork/lnd/tlv v1.4.1 h1:cCx8H4mC6TZ2Pc0aNEYxTqdZoRQA7+XNJa95gciKXNU=
-github.com/lightningnetwork/lnd/tlv v1.4.1/go.mod h1:RvxxfVTCctKzKVWJDyQZqSdu3JV7OjaiQGF06hBCZ+s=
 github.com/lightningnetwork/lnd/tor v1.2.0 h1:Xled9KE+rdTPEMDVJE5VrSoMNkJq6EfH3NCF6pLP4h4=
 github.com/lightningnetwork/lnd/tor v1.2.0/go.mod h1:tB6/Hsk5nIm6xkOPaidd4q1at4x4gF6Bpu/t2UQxYgM=
 github.com/ltcsuite/ltcd v0.0.0-20190101042124-f37f8bf35796 h1:sjOGyegMIhvgfq5oaue6Td+hxZuf3tDC8lAPrFldqFw=

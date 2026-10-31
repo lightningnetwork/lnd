@@ -3831,13 +3831,23 @@ func TestChannelArbitratorAMPPreimageAvailable(t *testing.T) {
 	}
 	htlcs := newHtlcSet([]channeldb.HTLC{htlc})
 
+	// Before the HTLC enters its broadcast window, there is no reason to
+	// decode its onion to look for an AMP preimage.
+	actions, err := chanArb.checkCommitChainActions(
+		height-1, chainTrigger, htlcs,
+	)
+	require.NoError(t, err)
+	require.Empty(t, actions)
+	require.Nil(t, onionProcessor.offeredOnionBlob)
+
 	// While the AMP set isn't settled, there is nothing to claim and we
 	// must not go on-chain.
-	actions, err := chanArb.checkCommitChainActions(
+	actions, err = chanArb.checkCommitChainActions(
 		height, chainTrigger, htlcs,
 	)
 	require.NoError(t, err)
 	require.Empty(t, actions)
+	require.NotNil(t, onionProcessor.offeredOnionBlob)
 
 	// Once the registry settled the HTLC, the child preimage was revealed
 	// and we must go on-chain before the HTLC expires.

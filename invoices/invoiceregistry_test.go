@@ -478,6 +478,10 @@ func TestInvoiceRegistry(t *testing.T) {
 			test: testSettleInvoice,
 		},
 		{
+			name: "PendingSettleOnChainLoss",
+			test: testPendingSettleOnChainLoss,
+		},
+		{
 			name: "CancelInvoice",
 			test: testCancelInvoice,
 		},
@@ -3907,4 +3911,79 @@ func testAmpReconstructionFailCancelsSetOnly(t *testing.T,
 	require.Equal(
 		t, invpkg.HtlcStateSettled, inv.AMPState[setIDA].State,
 	)
+}
+
+// testPendingSettleOnChainLoss asserts that an invoice whose only htlc the
+// payer reclaims on chain after we released the preimage is canceled rather
+// than reported as paid.
+func testPendingSettleOnChainLoss(t *testing.T,
+	makeDB func(t *testing.T) (invpkg.InvoiceDB, *clock.TestClock)) {
+
+	t.Parallel()
+	defer timeout()()
+
+	// Arrange an ordinary invoice and both subscription forms so a lost
+	// released HTLC cannot leak a successful settlement notification.
+	ctx := newTestContext(t, nil, makeDB)
+	ctxb := t.Context()
+
+	allSubscriptions, err := ctx.registry.SubscribeNotifications(ctxb, 0, 0)
+	require.NoError(t, err)
+	defer allSubscriptions.Cancel()
+
+	testInvoice := newInvoice(t, false, false)
+	_, err = ctx.registry.AddInvoice(
+		ctxb, testInvoice, testInvoicePaymentHash,
+	)
+	require.NoError(t, err)
+	<-allSubscriptions.NewInvoices
+
+	subscription, err := ctx.registry.SubscribeSingleInvoice(
+		ctxb, testInvoicePaymentHash,
+	)
+	require.NoError(t, err)
+	defer subscription.Cancel()
+
+	update := <-subscription.Updates
+	require.Equal(t, invpkg.ContractOpen, update.State)
+
+	// Act by releasing its preimage, then deliver the payer's final reclaim
+	// below through the same outcome channel used by the link and resolver.
+	resolution, err := ctx.registry.NotifyExitHopHtlc(
+		testInvoicePaymentHash, testInvoiceAmount, testHtlcExpiry,
+		testCurrentHeight, getCircuitKey(0), nil, nil, testPayload,
+	)
+	require.NoError(t, err)
+	checkSettleResolution(t, resolution, testInvoicePreimage)
+
+	// The subscription was registered after the invoice was added, so it
+	// can receive the add event in addition to its backlog. Skip any
+	// further open updates.
+	update = <-subscription.Updates
+	for update.State == invpkg.ContractOpen {
+		update = <-subscription.Updates
+	}
+	require.Equal(t, invpkg.ContractPendingSettle, update.State)
+
+	// The payer reclaims the htlc on chain.
+	ref := invpkg.InvoiceRefByHash(testInvoicePaymentHash)
+	ctx.finalizeHtlc(ref, getCircuitKey(0), false)
+
+	// Assert cancellation removes provisional credit and allocates no
+	// index, keeping failed releases out of paid notifications.
+	update = <-subscription.Updates
+	require.Equal(t, invpkg.ContractCanceled, update.State)
+	require.Zero(t, update.AmtPaid)
+	require.Zero(t, update.SettleIndex)
+	require.Equal(
+		t, invpkg.HtlcStateCanceled,
+		update.Htlcs[getCircuitKey(0)].State,
+	)
+
+	// Subscribers to all invoices never see the invoice as settled.
+	select {
+	case inv := <-allSubscriptions.SettledInvoices:
+		t.Fatalf("unexpected settled invoice: %v", inv)
+	case <-time.After(100 * time.Millisecond):
+	}
 }

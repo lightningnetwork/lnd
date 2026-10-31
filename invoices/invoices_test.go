@@ -215,6 +215,10 @@ func TestInvoices(t *testing.T) {
 			name: "AddInvoiceInvalidFeatureDeps",
 			test: testAddInvoiceInvalidFeatureDeps,
 		},
+		{
+			name: "FinalizeHtlcs",
+			test: testFinalizeHtlcs,
+		},
 	}
 
 	makeKeyValueDB := func(t *testing.T) invpkg.InvoiceDB {
@@ -2912,4 +2916,135 @@ func testAddInvoiceInvalidFeatureDeps(t *testing.T,
 	require.Error(t, err, feature.NewErrMissingFeatureDep(
 		lnwire.PaymentAddrOptional,
 	))
+}
+
+// testFinalizeHtlcs asserts that a settled invoice waits for the final outcome
+// of its htlcs, and that only the htlcs that settled count as paid.
+func testFinalizeHtlcs(t *testing.T,
+	makeDB func(t *testing.T) invpkg.InvoiceDB) {
+
+	t.Parallel()
+
+	// Arrange an ordinary invoice with two released shards so final
+	// outcome accounting is exercised through the actual database.
+	db := makeDB(t)
+	ctxb := t.Context()
+
+	amt := lnwire.NewMSatFromSatoshis(1000)
+	invoice, err := randInvoice(amt)
+	require.NoError(t, err)
+
+	payHash := invoice.Terms.PaymentPreimage.Hash()
+	_, err = db.AddInvoice(ctxb, invoice, payHash)
+	require.NoError(t, err)
+
+	// Act by releasing both preimages in one invoice transaction, before
+	// either child has a final outcome from the channel or resolver.
+	htlc0 := models.CircuitKey{HtlcID: 0}
+	htlc1 := models.CircuitKey{HtlcID: 1}
+	ref := invpkg.InvoiceRefByHash(payHash)
+	dbInvoice, err := db.UpdateInvoice(ctxb, ref, nil,
+		func(inv *invpkg.Invoice) (*invpkg.InvoiceUpdateDesc, error) {
+			htlcs := make(
+				map[models.CircuitKey]*invpkg.HtlcAcceptDesc,
+			)
+			for _, key := range []models.CircuitKey{htlc0, htlc1} {
+				htlcs[key] = &invpkg.HtlcAcceptDesc{
+					Amt:           amt / 2,
+					CustomRecords: make(record.CustomSet),
+				}
+			}
+
+			return &invpkg.InvoiceUpdateDesc{
+				UpdateType: invpkg.AddHTLCsUpdate,
+				AddHtlcs:   htlcs,
+				State: &invpkg.InvoiceStateUpdateDesc{
+					NewState: invpkg.ContractPendingSettle,
+					Preimage: inv.Terms.PaymentPreimage,
+				},
+			}, nil
+		},
+	)
+	require.NoError(t, err)
+
+	// Assert provisional credit without a final settlement index or date.
+	// Both discovery queries must retain the unresolved payment.
+	require.Equal(t, invpkg.ContractPendingSettle, dbInvoice.State)
+	require.Equal(t, amt, dbInvoice.AmtPaid)
+	require.Zero(t, dbInvoice.SettleIndex)
+	require.True(t, dbInvoice.SettleDate.IsZero())
+	for _, htlc := range dbInvoice.Htlcs {
+		require.Equal(t, invpkg.HtlcStatePendingSettle, htlc.State)
+	}
+
+	pending, err := db.FetchPendingInvoices(ctxb)
+	require.NoError(t, err)
+	require.Contains(t, pending, payHash)
+
+	pendingSettle, err := db.FetchPendingSettleInvoices(ctxb)
+	require.NoError(t, err)
+	require.Contains(t, pendingSettle, payHash)
+
+	// An invoice can't be settled directly.
+	_, err = db.UpdateInvoice(ctxb, ref, nil,
+		func(inv *invpkg.Invoice) (*invpkg.InvoiceUpdateDesc, error) {
+			return &invpkg.InvoiceUpdateDesc{
+				UpdateType: invpkg.AddHTLCsUpdate,
+				State: &invpkg.InvoiceStateUpdateDesc{
+					NewState: invpkg.ContractSettled,
+					Preimage: inv.Terms.PaymentPreimage,
+				},
+			}, nil
+		},
+	)
+	require.ErrorIs(t, err, invpkg.ErrInvoiceCannotSettle)
+
+	// The first htlc settles. The invoice keeps waiting for the second.
+	dbInvoice, err = db.UpdateInvoice(
+		ctxb, ref, nil, getFinalizeHtlcs(true, htlc0),
+	)
+	require.NoError(t, err)
+	require.Equal(t, invpkg.ContractPendingSettle, dbInvoice.State)
+	require.Equal(t, amt, dbInvoice.AmtPaid)
+	require.Equal(
+		t, invpkg.HtlcStateSettled, dbInvoice.Htlcs[htlc0].State,
+	)
+
+	// Repeating a final success must identify the duplicate, rather than
+	// allowing an unrelated database error to satisfy this rejection.
+	_, err = db.UpdateInvoice(
+		ctxb, ref, nil, getFinalizeHtlcs(true, htlc0),
+	)
+	require.ErrorIs(t, err, invpkg.ErrHTLCAlreadySettled)
+
+	// The payer reclaims the second htlc on chain. The invoice is settled
+	// for the amount of the first htlc only.
+	dbInvoice, err = db.UpdateInvoice(
+		ctxb, ref, nil, getFinalizeHtlcs(false, htlc1),
+	)
+	require.NoError(t, err)
+	require.Equal(t, invpkg.ContractSettled, dbInvoice.State)
+	require.Equal(t, amt/2, dbInvoice.AmtPaid)
+	require.EqualValues(t, 1, dbInvoice.SettleIndex)
+	require.False(t, dbInvoice.SettleDate.IsZero())
+	require.Equal(
+		t, invpkg.HtlcStateCanceled, dbInvoice.Htlcs[htlc1].State,
+	)
+
+	// The stored invoice matches.
+	stored, err := db.LookupInvoice(ctxb, ref)
+	require.NoError(t, err)
+	require.Equal(t, invpkg.ContractSettled, stored.State)
+	require.Equal(t, amt/2, stored.AmtPaid)
+	require.EqualValues(t, 1, stored.SettleIndex)
+	require.Equal(t, invpkg.HtlcStateSettled, stored.Htlcs[htlc0].State)
+	require.Equal(t, invpkg.HtlcStateCanceled, stored.Htlcs[htlc1].State)
+
+	pending, err = db.FetchPendingInvoices(ctxb)
+	require.NoError(t, err)
+	require.NotContains(t, pending, payHash)
+
+	pendingSettle, err = db.FetchPendingSettleInvoices(ctxb)
+	require.NoError(t, err)
+	require.NotContains(t, pendingSettle, payHash)
 }

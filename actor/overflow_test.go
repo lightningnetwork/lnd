@@ -397,7 +397,7 @@ func TestTellParkedBehindOverflowReturnsOnStop(t *testing.T) {
 	go func() {
 		defer close(returned)
 
-		a.Ref().Tell(context.Background(), newTestMsg("external"))
+		a.Ref().Tell(t.Context(), newTestMsg("external"))
 	}()
 
 	select {
@@ -426,7 +426,7 @@ func TestTellParkedBehindOverflowReturnsOnStop(t *testing.T) {
 	go func() {
 		defer close(late)
 
-		a.Ref().Tell(context.Background(), newTestMsg("late"))
+		a.Ref().Tell(t.Context(), newTestMsg("late"))
 	}()
 
 	select {

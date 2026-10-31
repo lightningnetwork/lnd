@@ -2,6 +2,7 @@ package zpay32
 
 import (
 	"fmt"
+	"math"
 	"strconv"
 
 	"github.com/lightningnetwork/lnd/lnwire"
@@ -27,19 +28,30 @@ var (
 	}
 )
 
+// mulMSat multiplies the given amount by the given number of millisatoshis per
+// unit, and fails if the result does not fit in a MilliSatoshi.
+func mulMSat(amount, mSatPerUnit uint64) (lnwire.MilliSatoshi, error) {
+	if amount > math.MaxUint64/mSatPerUnit {
+		return 0, fmt.Errorf("amount %d overflows millisatoshis",
+			amount)
+	}
+
+	return lnwire.MilliSatoshi(amount * mSatPerUnit), nil
+}
+
 // mBtcToMSat converts the given amount in milliBTC to millisatoshis.
 func mBtcToMSat(m uint64) (lnwire.MilliSatoshi, error) {
-	return lnwire.MilliSatoshi(m) * 100000000, nil
+	return mulMSat(m, 100000000)
 }
 
 // uBtcToMSat converts the given amount in microBTC to millisatoshis.
 func uBtcToMSat(u uint64) (lnwire.MilliSatoshi, error) {
-	return lnwire.MilliSatoshi(u * 100000), nil
+	return mulMSat(u, 100000)
 }
 
 // nBtcToMSat converts the given amount in nanoBTC to millisatoshis.
 func nBtcToMSat(n uint64) (lnwire.MilliSatoshi, error) {
-	return lnwire.MilliSatoshi(n * 100), nil
+	return mulMSat(n, 100)
 }
 
 // pBtcToMSat converts the given amount in picoBTC to millisatoshis.
@@ -101,7 +113,7 @@ func decodeAmount(amount string) (lnwire.MilliSatoshi, error) {
 		if err != nil {
 			return 0, err
 		}
-		return lnwire.MilliSatoshi(btc) * mSatPerBtc, nil
+		return mulMSat(btc, mSatPerBtc)
 	}
 
 	// If not a digit, it must be part of the known units.

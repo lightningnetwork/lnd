@@ -492,9 +492,9 @@ func createTestFundingManager(t *testing.T, privKey *btcec.PrivateKey,
 	reportScidChan := make(chan struct{})
 
 	wc := &mock.WalletController{
-		RootKey: alicePrivKey,
+		RootKey: privKey,
 	}
-	signer := mock.NewSingleSigner(alicePrivKey)
+	signer := mock.NewSingleSigner(privKey)
 	bio := &mock.ChainIO{
 		BestHeight: fundingBroadcastHeight,
 	}
@@ -517,7 +517,7 @@ func createTestFundingManager(t *testing.T, privKey *btcec.PrivateKey,
 	cdb := fullDB.ChannelStateDB()
 
 	keyRing := &mock.SecretKeyRing{
-		RootKey: alicePrivKey,
+		RootKey: privKey,
 	}
 
 	lnw, err := createTestWallet(
@@ -526,7 +526,10 @@ func createTestFundingManager(t *testing.T, privKey *btcec.PrivateKey,
 	)
 	require.NoError(t, err, "unable to create test ln wallet")
 
+	// Seed the pending-channel-ID stream cipher from this node's key so
+	// distinct managers generate distinct pending channel IDs.
 	var chanIDSeed [32]byte
+	copy(chanIDSeed[:], privKey.Serialize())
 
 	chainedAcceptor := acpt.NewChainedAcceptor()
 

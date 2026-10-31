@@ -4,6 +4,8 @@ import (
 	"bytes"
 	"fmt"
 	"io"
+	"math"
+	"time"
 
 	"github.com/lightningnetwork/lnd/fn/v2"
 	"github.com/lightningnetwork/lnd/lnwire"
@@ -67,6 +69,10 @@ type interpretedResult struct {
 	// pairResults contains a map of node pairs for which we have a result.
 	pairResults map[DirectedNodePair]pairResult
 
+	// nodeFeeDeltas contains the fee level deltas in PPM for each node in
+	// the route. These are only used in case of failure.
+	nodeFeeDeltas map[route.Vertex]uint64
+
 	// finalFailureReason is set to a non-nil value if it makes no more
 	// sense to start another payment attempt. It will contain the reason
 	// why.
@@ -76,16 +82,83 @@ type interpretedResult struct {
 	// that connection. This is used to control the second chance logic for
 	// policy failures.
 	policyFailure *DirectedNodePair
+
+	// cfg holds the fee level options that shape the deltas of this result.
+	cfg InterpretCfg
+}
+
+func newInterpretedResult(cfg InterpretCfg) *interpretedResult {
+	return &interpretedResult{
+		pairResults:   make(map[DirectedNodePair]pairResult),
+		nodeFeeDeltas: make(map[route.Vertex]uint64),
+		cfg:           cfg,
+	}
+}
+
+// InterpretCfg holds the fee level options for the interpretation of payment
+// results. A zero FeeLevelPPM turns fee levels off.
+type InterpretCfg struct {
+	// FeeLevelPPM is the fee level increase in parts per million (PPM) for
+	// the node that we could not reach in a failed payment attempt.
+	FeeLevelPPM uint64
+
+	// FeeLevelReach controls the range the fee level delta drops off from
+	// the node that we couldn't reach.
+	FeeLevelReach float64
+
+	// FeeLevelSymmetric indicates whether the fee level delta also applies
+	// to the hops before the node that we could not reach.
+	FeeLevelSymmetric bool
+
+	// FeeLevelMax is the largest fee level of a node in parts per million.
+	// It must be at least FeeLevelPPM.
+	FeeLevelMax uint64
+
+	// FeeLevelDecay is the time duration that mission control should
+	// decay the fee level delta for a node over time.
+	FeeLevelDecay time.Duration
+
+	// FeeLevelLoad indicates whether mission control rebuilds fee levels
+	// at startup from the stored results of the last four half-lives. The
+	// rebuild uses the config at startup.
+	FeeLevelLoad bool
+}
+
+// Validate checks the interpretCfg for validity. A config with a fee level PPM
+// of zero turns fee levels off and needs no reach or decay.
+func (i InterpretCfg) Validate() error {
+	// The delta computation divides by the reach. Zero or NaN give a NaN
+	// delta, and infinity gives each hop the full PPM.
+	validReach := i.FeeLevelReach > 0 && !math.IsInf(i.FeeLevelReach, 1)
+	if i.FeeLevelPPM > 0 && !validReach {
+		return fmt.Errorf("fee level reach must be finite and above "+
+			"zero, got %v", i.FeeLevelReach)
+	}
+
+	// The max bounds every fee level, so it cannot be below one delta.
+	validMax := i.FeeLevelMax >= i.FeeLevelPPM &&
+		i.FeeLevelMax <= maxFeeLevelPPM
+	if i.FeeLevelPPM > 0 && !validMax {
+		return fmt.Errorf("fee level max must be between the "+
+			"fee level PPM %v and %v, got %v", i.FeeLevelPPM,
+			maxFeeLevelPPM, i.FeeLevelMax)
+	}
+
+	// Without decay, fee levels never fall and are never pruned.
+	if i.FeeLevelPPM > 0 && i.FeeLevelDecay <= 0 {
+		return fmt.Errorf("fee level decay must be above zero, got %v",
+			i.FeeLevelDecay)
+	}
+
+	return nil
 }
 
 // interpretResult interprets a payment outcome and returns an object that
 // contains information required to update mission control.
-func interpretResult(rt *mcRoute,
+func interpretResult(cfg InterpretCfg, rt *mcRoute,
 	failure fn.Option[paymentFailure]) *interpretedResult {
 
-	i := &interpretedResult{
-		pairResults: make(map[DirectedNodePair]pairResult),
-	}
+	i := newInterpretedResult(cfg)
 
 	return fn.ElimOption(failure, func() *interpretedResult {
 		i.processSuccess(rt)
@@ -475,11 +548,18 @@ func (i *interpretedResult) processPaymentOutcomeIntermediate(route *mcRoute,
 		// mission control, this report is ignored.
 		reportIncoming()
 
-	// If the outgoing channel doesn't have enough capacity, we penalize.
+	// If the outgoing channel doesn't have enough balance, we penalize.
 	// But we penalize only in a single direction and only for amounts
 	// greater than the attempted amount.
 	case *lnwire.FailTemporaryChannelFailure:
 		reportOutgoingBalance()
+
+		// Since we had a temporary channel failure, we can now bump the
+		// involved node's fee levels such that we will try higher fee
+		// channels in the future.
+		if i.cfg.FeeLevelPPM != 0 {
+			i.computeFeeDeltas(route, errorSourceIdx)
+		}
 
 	// If FailExpiryTooSoon is received, there must have been some delay
 	// along the path. We can't know which node is causing the delay, so we
@@ -855,6 +935,51 @@ func (i *interpretedResult) failPairBalance(rt *mcRoute, channelIdx int) {
 	pair, amt := getPair(rt, channelIdx)
 
 	i.pairResults[pair] = failPairResult(amt)
+}
+
+// computeFeeDeltas sets the fee deltas for the node that reported the failure.
+func (i *interpretedResult) computeFeeDeltas(rt *mcRoute, hopIdx int) {
+	feeDeltas := make(map[route.Vertex]uint64, len(rt.hops.Val))
+
+	// We set the peak position to the node after the one that reported
+	// the failure since that node is hard to reach.
+	peakPosition := hopIdx
+
+	// reach is the number of hops over which fee levels halve.
+	reach := i.cfg.FeeLevelReach
+
+	// Hops before the peak get no delta unless the fee level is symmetric.
+	for j, hop := range rt.hops.Val {
+		if !i.cfg.FeeLevelSymmetric && j < peakPosition {
+			continue
+		}
+		feeDelta := float64(i.cfg.FeeLevelPPM) * math.Exp2(
+			-math.Abs(float64(j-peakPosition))/reach,
+		)
+		feeDeltas[hop.pubKeyBytes.Val] = clampFeeLevel(feeDelta)
+	}
+
+	i.nodeFeeDeltas = feeDeltas
+}
+
+// maxFeeLevelPPM is the upper bound of the fee level max and of a fee level
+// delta in parts per million. Pathfinding needs it to compute the fee level
+// threshold without overflow.
+const maxFeeLevelPPM = 1_000_000
+
+// clampFeeLevel converts a fee level to parts per million. NaN and values at
+// or below zero give zero, and values above maxFeeLevelPPM give
+// maxFeeLevelPPM. A plain conversion of NaN to uint64 gives a value near 2^63.
+func clampFeeLevel(level float64) uint64 {
+	switch {
+	case math.IsNaN(level) || level <= 0:
+		return 0
+
+	case level >= maxFeeLevelPPM:
+		return maxFeeLevelPPM
+	}
+
+	return uint64(level)
 }
 
 // successPairRange marks the node pairs from node fromIdx to node toIdx as

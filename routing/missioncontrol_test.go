@@ -2,6 +2,7 @@ package routing
 
 import (
 	"os"
+	"sync"
 	"testing"
 	"time"
 
@@ -38,6 +39,12 @@ var (
 	testPenaltyHalfLife       = 30 * time.Minute
 	testAprioriHopProbability = 0.9
 	testAprioriWeight         = 0.5
+
+	feeLevelPPM       uint64  = 100
+	feeLevelMax       uint64  = 1000
+	feeLevelReach     float64 = 1
+	feeLevelSymmetric         = true
+	feeLevelDecay             = 24 * time.Hour
 )
 
 type mcTestContext struct {
@@ -51,6 +58,9 @@ type mcTestContext struct {
 	dbPath string
 
 	pid uint64
+
+	// feeLevelLoad sets FeeLevelLoad on the next restart.
+	feeLevelLoad bool
 }
 
 func createMcTestContext(t *testing.T) *mcTestContext {
@@ -107,7 +117,17 @@ func (ctx *mcTestContext) restartMc() {
 
 	ctx.mcController, err = NewMissionController(
 		ctx.db, mcTestSelf,
-		&MissionControlConfig{Estimator: estimator},
+		&MissionControlConfig{
+			Estimator: estimator,
+			InterpretCfg: InterpretCfg{
+				FeeLevelPPM:       feeLevelPPM,
+				FeeLevelMax:       feeLevelMax,
+				FeeLevelReach:     feeLevelReach,
+				FeeLevelDecay:     feeLevelDecay,
+				FeeLevelSymmetric: feeLevelSymmetric,
+				FeeLevelLoad:      ctx.feeLevelLoad,
+			},
+		},
 	)
 	if err != nil {
 		ctx.t.Fatal(err)
@@ -162,8 +182,8 @@ func (ctx *mcTestContext) reportSuccess() {
 	ctx.pid++
 }
 
-// TestMissionControl tests mission control probability estimation.
-func TestMissionControl(t *testing.T) {
+// TestMissionControlProbability tests mission control probability estimation.
+func TestMissionControlProbability(t *testing.T) {
 	ctx := createMcTestContext(t)
 
 	ctx.clock.setTime(testTime)
@@ -225,6 +245,188 @@ func TestMissionControl(t *testing.T) {
 
 	// Test reporting a success.
 	ctx.reportSuccess()
+}
+
+// TestMissionControlFeeLevels tests that temporary channel failures raise the
+// fee levels of the nodes on the route, and that the levels decay and add up.
+func TestMissionControlFeeLevels(t *testing.T) {
+	ctx := createMcTestContext(t)
+
+	ctx.clock.setTime(testTime)
+
+	// Initially, we expect the fee levels to all be zero since we haven't
+	// experienced any failures yet.
+	require.EqualValues(t, 0, ctx.mc.GetFeeLevel(mcTestSelf))
+	require.EqualValues(t, 0, ctx.mc.GetFeeLevel(mcTestNode1))
+	require.EqualValues(t, 0, ctx.mc.GetFeeLevel(mcTestNode2))
+
+	// Report a failure for the hop from mcTestNode1 to mcTestNode2.
+	ctx.reportFailure(1000, lnwire.NewTemporaryChannelFailure(nil))
+	require.EqualValues(t, 0, ctx.mc.GetFeeLevel(mcTestSelf))
+	require.EqualValues(t, 50, ctx.mc.GetFeeLevel(mcTestNode1))
+	require.EqualValues(t, 100, ctx.mc.GetFeeLevel(mcTestNode2))
+
+	// Let some time pass.
+	ctx.clock.setTime(testTime.Add(24 * time.Hour))
+	require.EqualValues(t, 0, ctx.mc.GetFeeLevel(mcTestSelf))
+	require.EqualValues(t, 25, ctx.mc.GetFeeLevel(mcTestNode1))
+	require.EqualValues(t, 50, ctx.mc.GetFeeLevel(mcTestNode2))
+
+	// We report another failure.
+	ctx.reportFailure(1000, lnwire.NewTemporaryChannelFailure(nil))
+	require.EqualValues(t, 0, ctx.mc.GetFeeLevel(mcTestSelf))
+	require.EqualValues(t, 75, ctx.mc.GetFeeLevel(mcTestNode1))
+	require.EqualValues(t, 150, ctx.mc.GetFeeLevel(mcTestNode2))
+}
+
+// TestMissionControlFeeLevelReplay tests that the startup replay rebuilds fee
+// levels only with loading on and only from recent results.
+func TestMissionControlFeeLevelReplay(t *testing.T) {
+	ctx := createMcTestContext(t)
+
+	// The replay compares reply times with the wall clock, because mission
+	// control gets the test clock only after the replay.
+	now := time.Now()
+
+	// A result older than the replay window, which is four half-lives.
+	ctx.clock.setTime(now.Add(-5 * feeLevelDecay))
+	ctx.reportFailure(1000, lnwire.NewTemporaryChannelFailure(nil))
+
+	// A result inside the replay window.
+	ctx.clock.setTime(now.Add(-time.Hour))
+	ctx.reportFailure(1000, lnwire.NewTemporaryChannelFailure(nil))
+
+	// With loading off, fee levels start empty.
+	ctx.restartMc()
+	require.EqualValues(t, 0, ctx.mc.GetFeeLevel(mcTestNode1))
+	require.EqualValues(t, 0, ctx.mc.GetFeeLevel(mcTestNode2))
+
+	// With loading on, only the recent result counts. The old result would
+	// add about 3 PPM to the level of mcTestNode2.
+	ctx.feeLevelLoad = true
+	ctx.restartMc()
+	require.EqualValues(t, 50, ctx.mc.GetFeeLevel(mcTestNode1))
+	require.EqualValues(t, 100, ctx.mc.GetFeeLevel(mcTestNode2))
+}
+
+// TestMissionControlGetFeeLevels tests that GetFeeLevels returns a decayed
+// copy, which is safe to read while results come in.
+func TestMissionControlGetFeeLevels(t *testing.T) {
+	ctx := createMcTestContext(t)
+	ctx.clock.setTime(testTime)
+
+	ctx.reportFailure(1000, lnwire.NewTemporaryChannelFailure(nil))
+
+	// After one half-life the copy holds the decayed value and the time of
+	// the last delta.
+	ctx.clock.setTime(testTime.Add(feeLevelDecay))
+	levels := ctx.mc.GetFeeLevels()
+	require.EqualValues(t, 50, levels[mcTestNode2].FeeRate)
+	require.Equal(t, testTime, levels[mcTestNode2].LastUpdate.UTC())
+
+	// A change to the copy does not change mission control.
+	delete(levels, mcTestNode2)
+	require.EqualValues(t, 50, ctx.mc.GetFeeLevel(mcTestNode2))
+
+	// Read the fee levels while results come in. The race detector reports
+	// a shared map.
+	var wg sync.WaitGroup
+	wg.Add(1)
+	go func() {
+		defer wg.Done()
+
+		for range 100 {
+			for range ctx.mc.GetFeeLevels() {
+			}
+		}
+	}()
+	for range 100 {
+		ctx.reportFailure(1000, lnwire.NewTemporaryChannelFailure(nil))
+	}
+	wg.Wait()
+}
+
+// TestMissionControlFeeLevelPrune tests that a processed result removes the fee
+// levels that have decayed to zero.
+func TestMissionControlFeeLevelPrune(t *testing.T) {
+	ctx := createMcTestContext(t)
+	ctx.clock.setTime(testTime)
+
+	ctx.reportFailure(1000, lnwire.NewTemporaryChannelFailure(nil))
+	require.NotEmpty(t, ctx.mc.GetFeeLevels())
+
+	ctx.clock.setTime(testTime.Add(30 * feeLevelDecay))
+	ctx.reportSuccess()
+	require.Empty(t, ctx.mc.GetFeeLevels())
+}
+
+// TestMissionControlFeeLevelSetConfig tests that a decay change at run time
+// applies to the fee levels, and that SetConfig does not change its argument.
+func TestMissionControlFeeLevelSetConfig(t *testing.T) {
+	ctx := createMcTestContext(t)
+	ctx.clock.setTime(testTime)
+
+	ctx.reportFailure(1000, lnwire.NewTemporaryChannelFailure(nil))
+	require.EqualValues(t, 100, ctx.mc.GetFeeLevel(mcTestNode2))
+
+	cfg := ctx.mc.GetConfig()
+	cfg.InterpretCfg.FeeLevelDecay = time.Hour
+	cfg.InterpretCfg.FeeLevelLoad = true
+	want := *cfg
+	require.NoError(t, ctx.mc.SetConfig(cfg))
+	require.Equal(t, want, *cfg)
+	require.Equal(t, want.InterpretCfg, ctx.mc.GetConfig().InterpretCfg)
+
+	// The fee level halves after the new half-life.
+	ctx.clock.setTime(testTime.Add(time.Hour))
+	require.EqualValues(t, 50, ctx.mc.GetFeeLevel(mcTestNode2))
+}
+
+// TestMissionControlFeeLevelOff tests that a fee level PPM of zero at run time
+// turns off the fee levels that already exist.
+func TestMissionControlFeeLevelOff(t *testing.T) {
+	ctx := createMcTestContext(t)
+	ctx.clock.setTime(testTime)
+
+	ctx.reportFailure(1000, lnwire.NewTemporaryChannelFailure(nil))
+	require.NotZero(t, ctx.mc.GetFeeLevel(mcTestNode2))
+
+	cfg := ctx.mc.GetConfig()
+	cfg.InterpretCfg.FeeLevelPPM = 0
+	require.NoError(t, ctx.mc.SetConfig(cfg))
+	require.Zero(t, ctx.mc.GetFeeLevel(mcTestNode2))
+}
+
+// TestMissionControlFeeLevelMaxDecay tests that mission control stores at most
+// the fee level max, so a capped fee level halves from the max.
+func TestMissionControlFeeLevelMaxDecay(t *testing.T) {
+	ctx := createMcTestContext(t)
+	ctx.clock.setTime(testTime)
+
+	for range 20 {
+		ctx.reportFailure(1000, lnwire.NewTemporaryChannelFailure(nil))
+	}
+	require.EqualValues(t, feeLevelMax, ctx.mc.GetFeeLevel(mcTestNode2))
+
+	ctx.clock.setTime(testTime.Add(feeLevelDecay))
+	require.EqualValues(t, feeLevelMax/2, ctx.mc.GetFeeLevel(mcTestNode2))
+}
+
+// TestMissionControlFeeLevelMax tests that a lower fee level max at run time
+// caps the fee levels that already exist.
+func TestMissionControlFeeLevelMax(t *testing.T) {
+	ctx := createMcTestContext(t)
+	ctx.clock.setTime(testTime)
+
+	ctx.reportFailure(1000, lnwire.NewTemporaryChannelFailure(nil))
+	require.EqualValues(t, 100, ctx.mc.GetFeeLevel(mcTestNode2))
+
+	cfg := ctx.mc.GetConfig()
+	cfg.InterpretCfg.FeeLevelPPM = 40
+	cfg.InterpretCfg.FeeLevelMax = 40
+	require.NoError(t, ctx.mc.SetConfig(cfg))
+	require.EqualValues(t, 40, ctx.mc.GetFeeLevel(mcTestNode2))
+	require.EqualValues(t, 40, ctx.mc.GetFeeLevels()[mcTestNode2].FeeRate)
 }
 
 // TestMissionControlChannelUpdate tests that the first channel update is not
@@ -310,6 +512,16 @@ func TestMissionControlNamespaces(t *testing.T) {
 	ctx.expectP(1000, 0)
 	ctx.setNamespacedMC(newNs)
 	ctx.expectP(1000, testAprioriHopProbability+0.05)
+}
+
+// TestMissionControlFeeLevelInvalidConfig tests that mission control rejects an
+// invalid fee level config.
+func TestMissionControlFeeLevelInvalidConfig(t *testing.T) {
+	ctx := createMcTestContext(t)
+
+	cfg := ctx.mc.GetConfig()
+	cfg.InterpretCfg = InterpretCfg{FeeLevelPPM: 100}
+	require.Error(t, ctx.mc.SetConfig(cfg))
 }
 
 // testClock is an implementation of clock.Clock that lets the caller overwrite

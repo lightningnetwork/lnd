@@ -1112,12 +1112,21 @@ func newServer(ctx context.Context, cfg *Config, listenAddrs []net.Addr,
 		}
 	}
 
+	feeLevelCfg := routingConfig.FeeLevelConfig
 	mcCfg := &routing.MissionControlConfig{
 		OnConfigUpdate:          fn.Some(s.UpdateRoutingConfig),
 		Estimator:               estimator,
 		MaxMcHistory:            routingConfig.MaxMcHistory,
 		McFlushInterval:         routingConfig.McFlushInterval,
 		MinFailureRelaxInterval: routing.DefaultMinFailureRelaxInterval,
+		InterpretCfg: routing.InterpretCfg{
+			FeeLevelPPM:       feeLevelCfg.PPM,
+			FeeLevelMax:       feeLevelCfg.Max,
+			FeeLevelReach:     feeLevelCfg.Reach,
+			FeeLevelSymmetric: feeLevelCfg.Symmetric,
+			FeeLevelDecay:     feeLevelCfg.Decay,
+			FeeLevelLoad:      feeLevelCfg.Load,
+		},
 	}
 
 	s.missionController, err = routing.NewMissionController(
@@ -2067,6 +2076,15 @@ func (s *server) UpdateRoutingConfig(cfg *routing.MissionControlConfig) {
 	}
 
 	routerCfg.MaxMcHistory = cfg.MaxMcHistory
+
+	routerCfg.FeeLevelConfig = routerrpc.FeeLevelConfig{
+		PPM:       cfg.InterpretCfg.FeeLevelPPM,
+		Max:       cfg.InterpretCfg.FeeLevelMax,
+		Reach:     cfg.InterpretCfg.FeeLevelReach,
+		Decay:     cfg.InterpretCfg.FeeLevelDecay,
+		Symmetric: cfg.InterpretCfg.FeeLevelSymmetric,
+		Load:      cfg.InterpretCfg.FeeLevelLoad,
+	}
 }
 
 // registerBlockConsumers registers the subsystems that consume block events.

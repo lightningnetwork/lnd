@@ -843,3 +843,10 @@ func TestDeserializeHTLCEntriesLegacy(t *testing.T) {
 		require.Equal(t, record, htlcs[0].HtlcIndex)
 	}
 }
+
+// makeLogKey converts a uint64 into an 8 byte array.
+func makeLogKey(updateNum uint64) [8]byte {
+	var key [8]byte
+	byteOrder.PutUint64(key[:], updateNum)
+	return key
+}

@@ -361,10 +361,9 @@ type DB struct {
 	// channelStateDB separates all DB operations on channel state.
 	channelStateDB *ChannelStateDB
 
-	dbPath                    string
-	clock                     clock.Clock
-	dryRun                    bool
-	storeFinalHtlcResolutions bool
+	dbPath string
+	clock  clock.Clock
+	dryRun bool
 
 	// noRevLogAmtData if true, means that commitment transaction amount
 	// data should not be stored in the revocation log.
@@ -420,13 +419,19 @@ func CreateWithBackend(backend kvdb.Backend, modifiers ...OptionModifier) (*DB,
 			linkNodeDB: &LinkNodeDB{
 				backend: backend,
 			},
+			kvStore: chanstate.NewKVStore(
+				backend,
+				opts.storeFinalHtlcResolutions,
+				opts.NoRevLogAmtData,
+				opts.tombstoneClosedChannels,
+				extractFwdResponses,
+			),
 			backend:                 backend,
 			tombstoneClosedChannels: opts.tombstoneClosedChannels,
 		},
-		clock:                     opts.clock,
-		dryRun:                    opts.dryRun,
-		storeFinalHtlcResolutions: opts.storeFinalHtlcResolutions,
-		noRevLogAmtData:           opts.NoRevLogAmtData,
+		clock:           opts.clock,
+		dryRun:          opts.dryRun,
+		noRevLogAmtData: opts.NoRevLogAmtData,
 	}
 
 	// Set the parent pointer (only used in tests).
@@ -567,6 +572,10 @@ type ChannelStateDB struct {
 	// backend points to the actual backend holding the channel state
 	// database. This may be a real backend or a cache middleware.
 	backend kvdb.Backend
+
+	// kvStore is the chanstate-owned KV implementation. ChannelStateDB
+	// keeps compatibility wrappers while callers still import channeldb.
+	kvStore *chanstate.KVStore
 
 	// tombstoneClosedChannels is set by OptionTombstoneClosedChannels.
 	// When true, CloseChannel skips deleting nested per-channel state and
@@ -1320,78 +1329,15 @@ func fetchChannels(c *ChannelStateDB, filters ...fetchChannelsFilter) (
 func (c *ChannelStateDB) FetchClosedChannels(pendingOnly bool) (
 	[]*ChannelCloseSummary, error) {
 
-	var chanSummaries []*ChannelCloseSummary
-
-	if err := kvdb.View(c.backend, func(tx kvdb.RTx) error {
-		closeBucket := tx.ReadBucket(closedChannelBucket)
-		if closeBucket == nil {
-			return ErrNoClosedChannels
-		}
-
-		return closeBucket.ForEach(func(chanID []byte, summaryBytes []byte) error {
-			summaryReader := bytes.NewReader(summaryBytes)
-			chanSummary, err := deserializeCloseChannelSummary(summaryReader)
-			if err != nil {
-				return err
-			}
-
-			// If the query specified to only include pending
-			// channels, then we'll skip any channels which aren't
-			// currently pending.
-			if !chanSummary.IsPending && pendingOnly {
-				return nil
-			}
-
-			chanSummaries = append(chanSummaries, chanSummary)
-			return nil
-		})
-	}, func() {
-		chanSummaries = nil
-	}); err != nil {
-		return nil, err
-	}
-
-	return chanSummaries, nil
+	return c.kvStore.FetchClosedChannels(pendingOnly)
 }
-
-// ErrClosedChannelNotFound signals that a closed channel could not be found in
-// the channeldb.
-var ErrClosedChannelNotFound = errors.New("unable to find closed channel summary")
 
 // FetchClosedChannel queries for a channel close summary using the channel
 // point of the channel in question.
 func (c *ChannelStateDB) FetchClosedChannel(chanID *wire.OutPoint) (
 	*ChannelCloseSummary, error) {
 
-	var chanSummary *ChannelCloseSummary
-	if err := kvdb.View(c.backend, func(tx kvdb.RTx) error {
-		closeBucket := tx.ReadBucket(closedChannelBucket)
-		if closeBucket == nil {
-			return ErrClosedChannelNotFound
-		}
-
-		var b bytes.Buffer
-		var err error
-		if err = graphdb.WriteOutpoint(&b, chanID); err != nil {
-			return err
-		}
-
-		summaryBytes := closeBucket.Get(b.Bytes())
-		if summaryBytes == nil {
-			return ErrClosedChannelNotFound
-		}
-
-		summaryReader := bytes.NewReader(summaryBytes)
-		chanSummary, err = deserializeCloseChannelSummary(summaryReader)
-
-		return err
-	}, func() {
-		chanSummary = nil
-	}); err != nil {
-		return nil, err
-	}
-
-	return chanSummary, nil
+	return c.kvStore.FetchClosedChannel(chanID)
 }
 
 // FetchClosedChannelForID queries for a channel close summary using the
@@ -1399,51 +1345,7 @@ func (c *ChannelStateDB) FetchClosedChannel(chanID *wire.OutPoint) (
 func (c *ChannelStateDB) FetchClosedChannelForID(cid lnwire.ChannelID) (
 	*ChannelCloseSummary, error) {
 
-	var chanSummary *ChannelCloseSummary
-	if err := kvdb.View(c.backend, func(tx kvdb.RTx) error {
-		closeBucket := tx.ReadBucket(closedChannelBucket)
-		if closeBucket == nil {
-			return ErrClosedChannelNotFound
-		}
-
-		// The first 30 bytes of the channel ID and outpoint will be
-		// equal.
-		cursor := closeBucket.ReadCursor()
-		op, c := cursor.Seek(cid[:30])
-
-		// We scan over all possible candidates for this channel ID.
-		for ; op != nil && bytes.Compare(cid[:30], op[:30]) <= 0; op, c = cursor.Next() {
-			var outPoint wire.OutPoint
-			err := graphdb.ReadOutpoint(
-				bytes.NewReader(op), &outPoint,
-			)
-			if err != nil {
-				return err
-			}
-
-			// If the found outpoint does not correspond to this
-			// channel ID, we continue.
-			if !cid.IsChanPoint(&outPoint) {
-				continue
-			}
-
-			// Deserialize the close summary and return.
-			r := bytes.NewReader(c)
-			chanSummary, err = deserializeCloseChannelSummary(r)
-			if err != nil {
-				return err
-			}
-
-			return nil
-		}
-		return ErrClosedChannelNotFound
-	}, func() {
-		chanSummary = nil
-	}); err != nil {
-		return nil, err
-	}
-
-	return chanSummary, nil
+	return c.kvStore.FetchClosedChannelForID(cid)
 }
 
 // MarkChanFullyClosed marks a channel as fully closed within the database. A
@@ -1816,11 +1718,7 @@ func (c *ChannelStateDB) AbandonChannel(chanPoint *wire.OutPoint,
 func (c *ChannelStateDB) SaveChannelOpeningState(outPoint,
 	serializedState []byte) error {
 
-	return kvdb.Update(c.backend, func(tx kvdb.RwTx) error {
-		return chanstate.SaveChannelOpeningState(
-			tx, outPoint, serializedState,
-		)
-	}, func() {})
+	return c.kvStore.SaveChannelOpeningState(outPoint, serializedState)
 }
 
 // GetChannelOpeningState fetches the serialized channel state for the provided
@@ -1829,25 +1727,12 @@ func (c *ChannelStateDB) SaveChannelOpeningState(outPoint,
 func (c *ChannelStateDB) GetChannelOpeningState(outPoint []byte) ([]byte,
 	error) {
 
-	var serializedState []byte
-	err := kvdb.View(c.backend, func(tx kvdb.RTx) error {
-		var err error
-		serializedState, err = chanstate.GetChannelOpeningState(
-			tx, outPoint,
-		)
-
-		return err
-	}, func() {
-		serializedState = nil
-	})
-	return serializedState, err
+	return c.kvStore.GetChannelOpeningState(outPoint)
 }
 
 // DeleteChannelOpeningState removes any state for outPoint from the database.
 func (c *ChannelStateDB) DeleteChannelOpeningState(outPoint []byte) error {
-	return kvdb.Update(c.backend, func(tx kvdb.RwTx) error {
-		return chanstate.DeleteChannelOpeningState(tx, outPoint)
-	}, func() {})
+	return c.kvStore.DeleteChannelOpeningState(outPoint)
 }
 
 // syncVersions function is used for safe db version synchronization. It
@@ -2131,12 +2016,6 @@ func (c *ChannelStateDB) FetchHistoricalChannel(outPoint *wire.OutPoint) (
 	return channel, nil
 }
 
-func fetchFinalHtlcsBucket(tx kvdb.RTx,
-	chanID lnwire.ShortChannelID) (kvdb.RBucket, error) {
-
-	return chanstate.FetchFinalHtlcsBucket(tx, chanID)
-}
-
 var ErrHtlcUnknown = chanstate.ErrHtlcUnknown
 
 // LookupFinalHtlc retrieves a final htlc resolution from the database. If the
@@ -2144,37 +2023,7 @@ var ErrHtlcUnknown = chanstate.ErrHtlcUnknown
 func (c *ChannelStateDB) LookupFinalHtlc(chanID lnwire.ShortChannelID,
 	htlcIndex uint64) (*FinalHtlcInfo, error) {
 
-	var info *FinalHtlcInfo
-
-	err := kvdb.View(c.backend, func(tx kvdb.RTx) error {
-		finalHtlcsBucket, err := fetchFinalHtlcsBucket(
-			tx, chanID,
-		)
-		switch {
-		case errors.Is(err, ErrFinalHtlcsBucketNotFound):
-			fallthrough
-
-		case errors.Is(err, ErrFinalChannelBucketNotFound):
-			return ErrHtlcUnknown
-
-		case err != nil:
-			return fmt.Errorf("cannot fetch final htlcs bucket: %w",
-				err)
-		}
-
-		info, err = chanstate.FetchFinalHtlc(
-			finalHtlcsBucket, htlcIndex,
-		)
-
-		return err
-	}, func() {
-		info = nil
-	})
-	if err != nil {
-		return nil, err
-	}
-
-	return info, nil
+	return c.kvStore.LookupFinalHtlc(chanID, htlcIndex)
 }
 
 // PutOnchainFinalHtlcOutcome stores the final on-chain outcome of an htlc in
@@ -2182,25 +2031,7 @@ func (c *ChannelStateDB) LookupFinalHtlc(chanID lnwire.ShortChannelID,
 func (c *ChannelStateDB) PutOnchainFinalHtlcOutcome(
 	chanID lnwire.ShortChannelID, htlcID uint64, settled bool) error {
 
-	// Skip if the user did not opt in to storing final resolutions.
-	if !c.parent.storeFinalHtlcResolutions {
-		return nil
-	}
-
-	return kvdb.Update(c.backend, func(tx kvdb.RwTx) error {
-		finalHtlcsBucket, err := fetchFinalHtlcsBucketRw(tx, chanID)
-		if err != nil {
-			return err
-		}
-
-		return putFinalHtlc(
-			finalHtlcsBucket, htlcID,
-			FinalHtlcInfo{
-				Settled:  settled,
-				Offchain: false,
-			},
-		)
-	}, func() {})
+	return c.kvStore.PutOnchainFinalHtlcOutcome(chanID, htlcID, settled)
 }
 
 // MakeTestInvoiceDB is used to create a test invoice database for testing

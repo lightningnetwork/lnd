@@ -482,6 +482,10 @@ func TestInvoiceRegistry(t *testing.T) {
 			test: testPendingSettleOnChainLoss,
 		},
 		{
+			name: "PendingSettleDuplicateReconcileOnStart",
+			test: testPendingSettleDuplicateReconcileOnStart,
+		},
+		{
 			name: "CancelInvoice",
 			test: testCancelInvoice,
 		},
@@ -3986,4 +3990,78 @@ func testPendingSettleOnChainLoss(t *testing.T,
 		t.Fatalf("unexpected settled invoice: %v", inv)
 	case <-time.After(100 * time.Millisecond):
 	}
+}
+
+// testPendingSettleDuplicateReconcileOnStart checks that recovery discovers
+// pending duplicates beneath a settled parent without allocating another index.
+func testPendingSettleDuplicateReconcileOnStart(t *testing.T,
+	makeDB func(t *testing.T) (invpkg.InvoiceDB, *clock.TestClock)) {
+
+	t.Parallel()
+
+	// Arrange an already-paid invoice with a later released duplicate.
+	// Only the duplicate's failure becomes known while the registry is off.
+	db, testClock := makeDB(t)
+	invoice := newInvoice(t, false, false)
+	_, err := db.AddInvoice(t.Context(), invoice, testInvoicePaymentHash)
+	require.NoError(t, err)
+	ref := invpkg.InvoiceRefByHash(testInvoicePaymentHash)
+	_, err = settleInvoice(db, ref, 0, testInvoiceAmount)
+	require.NoError(t, err)
+	key := invpkg.CircuitKey{HtlcID: 1}
+	htlcs := map[invpkg.CircuitKey]*invpkg.HtlcAcceptDesc{
+		key: {
+			Amt:           testInvoiceAmount,
+			CustomRecords: make(record.CustomSet),
+		},
+	}
+	_, err = db.UpdateInvoice(t.Context(), ref, nil,
+		func(*invpkg.Invoice) (*invpkg.InvoiceUpdateDesc, error) {
+			return &invpkg.InvoiceUpdateDesc{
+				UpdateType: invpkg.AddHTLCsUpdate,
+				AddHtlcs:   htlcs,
+			}, nil
+		},
+	)
+	require.NoError(t, err)
+	// The ordinary pending query excludes a paid parent, while recovery
+	// must still discover its later child awaiting a final outcome.
+	pending, err := db.FetchPendingInvoices(t.Context())
+	require.NoError(t, err)
+	require.NotContains(t, pending, testInvoicePaymentHash)
+	released, err := db.FetchPendingSettleInvoices(t.Context())
+	require.NoError(t, err)
+	require.Contains(t, released, testInvoicePaymentHash)
+
+	source := newMockFinalHtlcSource(t)
+	source.On("LookupFinalHtlcs", mock.Anything).Unset()
+	source.On("LookupFinalHtlcs", []invpkg.CircuitKey{key}).Return(
+		map[invpkg.CircuitKey]invpkg.FinalHtlcOutcome{
+			key: {
+				Key:     key,
+				Settled: false,
+			},
+		}, nil,
+	).Once()
+	cfg := defaultRegistryConfig()
+	cfg.FinalHtlcSource = source
+
+	// Act by starting the registry, which must discover pending children
+	// even though the ordinary pending-invoice query excludes their parent.
+	ctx := newTestContext(t, &cfg,
+		func(*testing.T) (invpkg.InvoiceDB, *clock.TestClock) {
+			return db, testClock
+		},
+	)
+
+	// Assert that only the duplicate loses credit; the original payment
+	// and its first settlement index survive the recovery unchanged.
+	stored, err := ctx.registry.LookupInvoice(
+		t.Context(), testInvoicePaymentHash,
+	)
+	require.NoError(t, err)
+	require.Equal(t, invpkg.ContractSettled, stored.State)
+	require.Equal(t, testInvoiceAmount, stored.AmtPaid)
+	require.EqualValues(t, 1, stored.SettleIndex)
+	require.Equal(t, invpkg.HtlcStateCanceled, stored.Htlcs[key].State)
 }

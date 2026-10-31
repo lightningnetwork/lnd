@@ -370,7 +370,8 @@ func (c *mockChainNotifier) RegisterConfirmationsNtfn(txid *chainhash.Hash,
 // RegisterSpendNtfn returns a SpendEvent that contains a channel that the spend
 // details will go over.
 func (c *mockChainNotifier) RegisterSpendNtfn(outpoint *wire.OutPoint,
-	pkScript []byte, heightHint uint32) (*chainntnfs.SpendEvent, error) {
+	pkScript []byte, heightHint uint32,
+	_ ...chainntnfs.SpendOption) (*chainntnfs.SpendEvent, error) {
 
 	return &chainntnfs.SpendEvent{
 		Spend:  c.SpendChan,

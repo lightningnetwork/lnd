@@ -432,6 +432,10 @@ type SpendNtfn struct {
 	// an entry for it.
 	HeightHint uint32
 
+	// NumConfirmations is the depth at which the spend becomes safe to
+	// deliver.
+	NumConfirmations uint32
+
 	// dispatched signals whether a spend notification has been dispatched
 	// to the client.
 	dispatched bool
@@ -526,6 +530,12 @@ type TxNotifier struct {
 	// being reorged out of the chain.
 	spendsByHeight map[uint32]map[SpendRequest]struct{}
 
+	// ntfnsBySpendConfirmHeight indexes individual spend clients by the
+	// height at which their shared candidate reaches the requested depth.
+	// Keeping this index separate lets clients use independent depths while
+	// retaining one inclusion record for reorg handling.
+	ntfnsBySpendConfirmHeight map[uint32]map[*SpendNtfn]struct{}
+
 	// confirmHintCache is a cache used to maintain the latest height hints
 	// for transactions/output scripts. Each height hint represents the
 	// earliest height at which they scripts could have been confirmed
@@ -560,9 +570,12 @@ func NewTxNotifier(startHeight uint32, reorgSafetyLimit uint32,
 		ntfnsByConfirmHeight: make(map[uint32]map[*ConfNtfn]struct{}),
 		spendNotifications:   make(map[SpendRequest]*spendNtfnSet),
 		spendsByHeight:       make(map[uint32]map[SpendRequest]struct{}),
-		confirmHintCache:     confirmHintCache,
-		spendHintCache:       spendHintCache,
-		quit:                 make(chan struct{}),
+		ntfnsBySpendConfirmHeight: make(
+			map[uint32]map[*SpendNtfn]struct{},
+		),
+		confirmHintCache: confirmHintCache,
+		spendHintCache:   spendHintCache,
+		quit:             make(chan struct{}),
 	}
 }
 
@@ -1019,7 +1032,8 @@ func (n *TxNotifier) dispatchConfDetails(
 // newSpendNtfn validates all of the parameters required to successfully create
 // and register a spend notification.
 func (n *TxNotifier) newSpendNtfn(outpoint *wire.OutPoint,
-	pkScript []byte, heightHint uint32) (*SpendNtfn, error) {
+	pkScript []byte, heightHint uint32,
+	opts *SpendOptions) (*SpendNtfn, error) {
 
 	// An accompanying output script must always be provided.
 	if len(pkScript) == 0 {
@@ -1032,6 +1046,13 @@ func (n *TxNotifier) newSpendNtfn(outpoint *wire.OutPoint,
 		return nil, ErrNoHeightHint
 	}
 
+	// Keep the requested maturity inside this notifier's retained reorg
+	// history so the candidate cannot be pruned before delivery. Production
+	// notifiers retain ReorgSafetyLimit, currently 144 blocks.
+	if opts.NumConfs > n.reorgSafetyLimit {
+		return nil, ErrNumConfsOutOfRange
+	}
+
 	// Ensure the output script is of a supported type.
 	spendRequest, err := NewSpendRequest(outpoint, pkScript)
 	if err != nil {
@@ -1040,8 +1061,9 @@ func (n *TxNotifier) newSpendNtfn(outpoint *wire.OutPoint,
 
 	spendID := atomic.AddUint64(&n.spendClientCounter, 1)
 	return &SpendNtfn{
-		SpendID:      spendID,
-		SpendRequest: spendRequest,
+		SpendID:          spendID,
+		SpendRequest:     spendRequest,
+		NumConfirmations: opts.NumConfs,
 		Event: NewSpendEvent(func() {
 			n.CancelSpend(spendRequest, spendID)
 		}),
@@ -1057,8 +1079,9 @@ func (n *TxNotifier) newSpendNtfn(outpoint *wire.OutPoint,
 // before the notifier's current tip, the spend details must be provided with
 // the UpdateSpendDetails method, otherwise we will wait for the outpoint/output
 // script to be spent at tip, even though it already has.
-func (n *TxNotifier) RegisterSpend(outpoint *wire.OutPoint, pkScript []byte,
-	heightHint uint32) (*SpendRegistration, error) {
+func (n *TxNotifier) RegisterSpend(
+	outpoint *wire.OutPoint, pkScript []byte, heightHint uint32,
+	optFuncs ...SpendOption) (*SpendRegistration, error) {
 
 	select {
 	case <-n.quit:
@@ -1066,8 +1089,15 @@ func (n *TxNotifier) RegisterSpend(outpoint *wire.OutPoint, pkScript []byte,
 	default:
 	}
 
-	// We'll start by performing a series of validation checks.
-	ntfn, err := n.newSpendNtfn(outpoint, pkScript, heightHint)
+	// Parse the globally valid policy before creating any client state.
+	opts, err := ParseSpendOptions(optFuncs...)
+	if err != nil {
+		return nil, err
+	}
+
+	// Apply request and notifier-specific validation before touching caches
+	// or registration maps.
+	ntfn, err := n.newSpendNtfn(outpoint, pkScript, heightHint, opts)
 	if err != nil {
 		return nil, err
 	}
@@ -1117,7 +1147,7 @@ func (n *TxNotifier) RegisterSpend(outpoint *wire.OutPoint, pkScript []byte,
 			"registration since rescan has finished",
 			ntfn.SpendRequest)
 
-		err := n.dispatchSpendDetails(ntfn, spendSet.details)
+		err := n.scheduleSpendNtfn(ntfn, spendSet.details, false)
 		if err != nil {
 			return nil, err
 		}
@@ -1206,6 +1236,8 @@ func (n *TxNotifier) CancelSpend(spendRequest SpendRequest, spendID uint64) {
 
 	Log.Debugf("Canceling spend notification: spend_id=%d, %v", spendID,
 		spendRequest)
+
+	n.removeSpendMaturity(ntfn)
 
 	// We'll close all the notification channels to let the client know
 	// their cancel request has been fulfilled.
@@ -1374,14 +1406,105 @@ func (n *TxNotifier) updateSpendDetails(spendRequest SpendRequest,
 		"request %v", details.SpendingHeight, spendRequest)
 
 	spendSet.details = details
+	n.trackSpendByHeight(spendRequest, details)
 	for _, ntfn := range spendSet.ntfns {
-		err := n.dispatchSpendDetails(ntfn, spendSet.details)
+		err := n.scheduleSpendNtfn(ntfn, spendSet.details, false)
 		if err != nil {
 			return err
 		}
 	}
 
 	return nil
+}
+
+// trackSpendByHeight indexes shared candidate ownership independently of the
+// current client count, ensuring cancellation cannot hide cached details from
+// the disconnect path that must clear them after a reorg.
+//
+// NOTE: This must be called with the TxNotifier's lock held.
+func (n *TxNotifier) trackSpendByHeight(spendRequest SpendRequest,
+	details *SpendDetail) {
+
+	// Candidates beyond the notifier's reorg window no longer need reverse
+	// indexing because a supported DisconnectTip cannot reach their block.
+	spendHeight := uint32(details.SpendingHeight)
+	if spendHeight+n.reorgSafetyLimit <= n.currentHeight {
+		return
+	}
+
+	spendSet, ok := n.spendsByHeight[spendHeight]
+	if !ok {
+		// Allocate one bucket per inclusion height so every cached
+		// request is invalidated when the block disconnects.
+		spendSet = make(map[SpendRequest]struct{})
+		n.spendsByHeight[spendHeight] = spendSet
+	}
+	spendSet[spendRequest] = struct{}{}
+}
+
+// scheduleSpendNtfn records a canonical spend candidate for one client and
+// either queues it at the requested maturity height or dispatches an already
+// mature historical candidate. A tip candidate waits for NotifyHeight even at
+// depth one so ConnectTip and notification delivery remain separate phases.
+//
+// NOTE: This must be called with the TxNotifier's lock held.
+func (n *TxNotifier) scheduleSpendNtfn(ntfn *SpendNtfn,
+	details *SpendDetail, waitForNotify bool) error {
+
+	// A missing candidate has nothing to schedule, while a delivered client
+	// must not receive the shared candidate a second time.
+	if details == nil || ntfn.dispatched {
+		return nil
+	}
+
+	spendHeight := uint32(details.SpendingHeight)
+	spendConfirmHeight := spendHeight + ntfn.NumConfirmations - 1
+
+	// Historical candidates at or behind the processed tip are already
+	// mature. A live tip candidate at the current height waits until the
+	// caller completes block processing through NotifyHeight.
+	if spendConfirmHeight < n.currentHeight ||
+		(spendConfirmHeight == n.currentHeight && !waitForNotify) {
+
+		return n.dispatchSpendDetails(ntfn, details)
+	}
+
+	ntfnSet, ok := n.ntfnsBySpendConfirmHeight[spendConfirmHeight]
+	if !ok {
+		// Allocate one bucket per maturity height so NotifyHeight can
+		// dispatch clients without scanning unrelated spend requests.
+		ntfnSet = make(map[*SpendNtfn]struct{})
+		n.ntfnsBySpendConfirmHeight[spendConfirmHeight] = ntfnSet
+	}
+	ntfnSet[ntfn] = struct{}{}
+
+	return nil
+}
+
+// removeSpendMaturity removes a pending client from its candidate's maturity
+// index. It is safe to call for an already-dispatched or candidate-free client
+// because deleting a missing map entry is a no-op.
+//
+// NOTE: This must be called with the TxNotifier's lock held.
+func (n *TxNotifier) removeSpendMaturity(ntfn *SpendNtfn) {
+	spendSet := n.spendNotifications[ntfn.SpendRequest]
+
+	// A canceled request without a candidate was never entered in the
+	// maturity index, so cleanup is complete without computing a height.
+	if spendSet == nil || spendSet.details == nil {
+		return
+	}
+
+	spendHeight := uint32(spendSet.details.SpendingHeight)
+	spendConfirmHeight := spendHeight + ntfn.NumConfirmations - 1
+	ntfnSet := n.ntfnsBySpendConfirmHeight[spendConfirmHeight]
+	delete(ntfnSet, ntfn)
+
+	if len(ntfnSet) == 0 {
+		// Drop empty height buckets to keep the index bounded by active
+		// spend clients rather than previously observed chain heights.
+		delete(n.ntfnsBySpendConfirmHeight, spendConfirmHeight)
+	}
 }
 
 // dispatchSpendDetails dispatches a spend notification to the client.
@@ -1406,19 +1529,6 @@ func (n *TxNotifier) dispatchSpendDetails(ntfn *SpendNtfn, details *SpendDetail)
 		ntfn.dispatched = true
 	case <-n.quit:
 		return ErrTxNotifierExiting
-	}
-
-	spendHeight := uint32(details.SpendingHeight)
-
-	// We also add to spendsByHeight to notify on chain reorgs.
-	reorgSafeHeight := spendHeight + n.reorgSafetyLimit
-	if reorgSafeHeight > n.currentHeight {
-		txSet, exists := n.spendsByHeight[spendHeight]
-		if !exists {
-			txSet = make(map[SpendRequest]struct{})
-			n.spendsByHeight[spendHeight] = txSet
-		}
-		txSet[ntfn.SpendRequest] = struct{}{}
 	}
 
 	return nil
@@ -1506,6 +1616,18 @@ func (n *TxNotifier) ConnectTip(block *btcutil.Block,
 		for spendRequest := range n.spendsByHeight[matureBlockHeight] {
 			spendSet := n.spendNotifications[spendRequest]
 			for _, ntfn := range spendSet.ntfns {
+				// NotifyHeight normally dispatches this
+				// notification at its maturity height. Schedule
+				// it defensively if pruning is reached before
+				// that height is processed.
+				err := n.scheduleSpendNtfn(
+					ntfn, spendSet.details, false,
+				)
+				if err != nil {
+					return err
+				}
+				n.removeSpendMaturity(ntfn)
+
 				select {
 				case ntfn.Event.Done <- struct{}{}:
 				case <-n.quit:
@@ -1706,8 +1828,20 @@ func (n *TxNotifier) handleSpendDetailsAtTip(spendRequest SpendRequest,
 
 	// TODO(wilmer): cancel pending historical rescans if any?
 	spendSet := n.spendNotifications[spendRequest]
+
+	// A script-only request can match several outpoints that reuse one
+	// script. Preserve the first candidate until it disconnects or ages out
+	// so queued clients cannot be retargeted to a less mature replacement.
+	if spendSet.details != nil {
+		Log.Warnf("Ignoring output script reuse for %s at height %d.",
+			spendRequest, details.SpendingHeight)
+
+		return
+	}
+
 	spendSet.rescanStatus = rescanComplete
 	spendSet.details = details
+	n.trackSpendByHeight(spendRequest, details)
 
 	for _, ntfn := range spendSet.ntfns {
 		// In the event that this notification was aware that the
@@ -1718,21 +1852,17 @@ func (n *TxNotifier) handleSpendDetailsAtTip(spendRequest SpendRequest,
 		case <-ntfn.Event.Reorg:
 		default:
 		}
-	}
 
-	// We'll note the spending height of the request in order to correctly
-	// handle dispatching notifications when the spending transactions gets
-	// reorged out of the chain.
-	spendHeight := uint32(details.SpendingHeight)
-	opSet, exists := n.spendsByHeight[spendHeight]
-	if !exists {
-		opSet = make(map[SpendRequest]struct{})
-		n.spendsByHeight[spendHeight] = opSet
+		// Queue tip candidates even at depth one so callers cannot
+		// observe them until NotifyHeight completes the block.
+		if err := n.scheduleSpendNtfn(ntfn, details, true); err != nil {
+			Log.Errorf("Unable to schedule spend for %v: %v",
+				spendRequest, err)
+		}
 	}
-	opSet[spendRequest] = struct{}{}
 
 	Log.Debugf("Spend request %v spent at tip=%d", spendRequest,
-		spendHeight)
+		details.SpendingHeight)
 }
 
 // NotifyHeight dispatches confirmation and spend notifications to the clients
@@ -1813,17 +1943,25 @@ func (n *TxNotifier) NotifyHeight(height uint32) error {
 	}
 	delete(n.ntfnsByConfirmHeight, height)
 
-	// Finally, we'll dispatch spend notifications for all the requests that
-	// were spent at this new block height.
-	for spendRequest := range n.spendsByHeight[height] {
-		spendSet := n.spendNotifications[spendRequest]
-		for _, ntfn := range spendSet.ntfns {
-			err := n.dispatchSpendDetails(ntfn, spendSet.details)
-			if err != nil {
-				return err
-			}
+	// Finally, we'll dispatch spend notifications whose individual maturity
+	// height has been reached. Their shared inclusion index remains intact
+	// until the candidate is reorg safe.
+	for ntfn := range n.ntfnsBySpendConfirmHeight[height] {
+		spendSet := n.spendNotifications[ntfn.SpendRequest]
+		if spendSet == nil {
+			// Cancellation can remove a registration before its
+			// queued height. Skip stale index entries.
+			continue
+		}
+
+		// Deliver the canonical details only after this client's own
+		// maturity height has been reached.
+		err := n.dispatchSpendDetails(ntfn, spendSet.details)
+		if err != nil {
+			return err
 		}
 	}
+	delete(n.ntfnsBySpendConfirmHeight, height)
 
 	return nil
 }
@@ -1908,10 +2046,17 @@ func (n *TxNotifier) DisconnectTip(blockHeight uint32) error {
 	// requests whose spending transaction was included at the height being
 	// disconnected.
 	for op := range n.spendsByHeight[blockHeight] {
+		spendSet := n.spendNotifications[op]
+
+		// Remove each queued maturity before clearing its shared
+		// candidate so a replacement cannot trigger a stale delivery.
+		for _, ntfn := range spendSet.ntfns {
+			n.removeSpendMaturity(ntfn)
+		}
+
 		// Since the spending transaction is being reorged out of the
 		// chain, we'll need to clear out the spending details of the
 		// request.
-		spendSet := n.spendNotifications[op]
 		spendSet.details = nil
 
 		// For all requests which have had a spend notification

@@ -6211,7 +6211,7 @@ func (lc *LightningChannel) AckSettleFails(
 // SetFwdFilter writes the forwarding decision for a given remote commitment
 // height.
 func (lc *LightningChannel) SetFwdFilter(height uint64,
-	fwdFilter *channeldb.PkgFilter) error {
+	fwdFilter *chanstate.PkgFilter) error {
 
 	return lc.channelState.SetFwdFilter(height, fwdFilter)
 }

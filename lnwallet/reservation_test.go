@@ -50,7 +50,7 @@ func TestReservationAuxChanStatePopulatesNegotiatedConfigs(t *testing.T) {
 		theirContribution: &ChannelContribution{
 			ChannelConfig: remoteCfg,
 		},
-		partialState: &channeldb.OpenChannel{
+		partialState: &chanstate.OpenChannel{
 			IdentityPub: peerPub,
 		},
 	}

@@ -5,6 +5,7 @@ import (
 	"crypto/rand"
 	"errors"
 	"fmt"
+	"io"
 	"maps"
 	"math/big"
 	"net"
@@ -1005,7 +1006,9 @@ func (c *client) readMessage(peer wtserver.Peer) (wtwire.Message, error) {
 	// Parse the received message according to the watchtower wire
 	// specification.
 	msgReader := bytes.NewReader(rawMsg)
-	msg, err := wtwire.ReadMessage(msgReader, 0)
+	msg, err := wtwire.ReadMessage(
+		io.LimitReader(msgReader, int64(len(rawMsg))), 0,
+	)
 	if err != nil {
 		err = fmt.Errorf("unable to parse message: %w", err)
 		c.log.Errorf("Unable to read msg: %v", err)

@@ -2838,6 +2838,51 @@ func TestRbfCloseClosingNegotiationRemote(t *testing.T) {
 		closeHarness.assertNoStateTransitions()
 	})
 
+	t.Run("recv_offer_closee_only_reply", func(t *testing.T) {
+		terms := *closeTerms
+		terms.RemoteBalance = lnwire.NewMSatFromSatoshis(
+			absoluteFee + 10000,
+		)
+		state := &ClosingNegotiation{
+			PeerState: lntypes.Dual[AsymmetricPeerState]{
+				Remote: &RemoteCloseStart{
+					CloseChannelTerms: &terms,
+				},
+			},
+			CloseChannelTerms: &terms,
+		}
+		h := newCloser(t, &harnessCfg{
+			initialState: fn.Some[ProtocolState](state),
+		})
+		defer h.stopAndAssert()
+
+		h.expectNewCloseSig(localAddr, remoteAddr, absoluteFee, 1)
+		h.expectCloseFinalized(
+			&localSig, &remoteSig, localAddr, remoteAddr,
+			absoluteFee, 1, false,
+		)
+		matcher := func(msg *lnwire.ClosingSig) bool {
+			return msg.ClosingSigs.NoCloserClosee.IsSome() &&
+				msg.ClosingSigs.CloserAndClosee.IsNone() &&
+				msg.ClosingSigs.CloserNoClosee.IsNone()
+		}
+		h.expectMsgSent(singleMsgMatcher(matcher))
+		h.chanCloser.SendEvent(ctx, &OfferReceivedEvent{
+			SigMsg: lnwire.ClosingComplete{
+				FeeSatoshis:  absoluteFee,
+				CloserScript: remoteAddr,
+				CloseeScript: localAddr,
+				ClosingSigs: lnwire.ClosingSigs{
+					NoCloserClosee: newSigTlv[tlv.TlvType2](
+						remoteWireSig,
+					),
+				},
+			},
+		})
+		h.assertStateTransitions(&ClosingNegotiation{})
+		h.waitForMsgSent()
+	})
+
 	// When both CloserNoClosee AND CloserAndClosee are present (which is
 	// spec-compliant), the closee should select CloserAndClosee when local
 	// output is not dust.

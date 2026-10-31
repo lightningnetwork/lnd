@@ -14,6 +14,9 @@ type readWriteTx struct {
 	// stm is the reference to the parent STM.
 	stm STM
 
+	// readErr records the first error from an errorless bucket read.
+	readErr error
+
 	// rootBucketID holds the sha256 hash of the root bucket id, which is used
 	// for key space spearation.
 	rootBucketID [bucketIDLength]byte
@@ -34,6 +37,21 @@ func newReadWriteTx(stm STM, prefix string, lock sync.Locker) *readWriteTx {
 		lock:         lock,
 		rootBucketID: makeBucketID([]byte(prefix)),
 	}
+}
+
+// recordReadError retains the first failed read for the transaction.
+func (tx *readWriteTx) recordReadError(err error) {
+	if tx.readErr == nil {
+		tx.readErr = err
+	}
+}
+
+// apply runs a managed transaction callback and propagates read errors.
+func (tx *readWriteTx) apply(f func() error) error {
+	if err := f(); err != nil {
+		return err
+	}
+	return tx.readErr
 }
 
 // rooBucket is a helper function to return the always present
@@ -88,7 +106,7 @@ func (tx *readWriteTx) Rollback() error {
 	tx.stm.Rollback()
 	tx.active = false
 
-	return nil
+	return tx.readErr
 }
 
 // ReadWriteBucket opens the root bucket for read/write access.  If the
@@ -120,6 +138,13 @@ func (tx *readWriteTx) Commit() error {
 
 	if tx.lock != nil {
 		defer tx.lock.Unlock()
+	}
+
+	// A failed read must prevent all pending writes from committing.
+	if tx.readErr != nil {
+		tx.stm.Rollback()
+		tx.active = false
+		return tx.readErr
 	}
 
 	// Try committing the transaction.

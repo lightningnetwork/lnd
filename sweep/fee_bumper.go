@@ -47,6 +47,9 @@ var (
 	// ErrInputMissing is returned when a given input no longer exists,
 	// e.g., spending from an orphan tx.
 	ErrInputMissing = errors.New("input no longer exists")
+
+	// errSpendCheckFailed identifies an inconclusive spend check.
+	errSpendCheckFailed = errors.New("spend check failed")
 )
 
 var (
@@ -682,9 +685,20 @@ func (t *TxPublisher) createAndCheckTx(r *monitorRecord) (*sweepTxCtx, error) {
 // in another tx, or the input is referencing an orphan. When the input is
 // spent, it will be handled via the TxUnknownSpend flow by creating a
 // TxUnknownSpend bump result, otherwise, a TxFatal bump result is returned.
+// A failed spend check yields a retryable TxFailed result.
 func (t *TxPublisher) handleMissingInputs(r *monitorRecord) *BumpResult {
 	// Get the spending txns.
-	spends := t.getSpentInputs(r)
+	spends, err := t.getSpentInputs(r)
+	if err != nil {
+		return &BumpResult{
+			Event:     TxFailed,
+			Tx:        r.tx,
+			requestID: r.requestID,
+			Err: fmt.Errorf(
+				"%w: %w", errSpendCheckFailed, err,
+			),
+		}
+	}
 
 	// Attach the spending txns.
 	r.spentInputs = spends
@@ -980,7 +994,12 @@ func (t *TxPublisher) processRecords() {
 		log.Tracef("Checking monitor recordID=%v", requestID)
 
 		// Check whether the inputs have already been spent.
-		spends := t.getSpentInputs(r)
+		spends, err := t.getSpentInputs(r)
+		if err != nil {
+			log.Errorf("Unable to check spends for record %v: %v",
+				requestID, err)
+			return nil
+		}
 
 		// If the any of the inputs has been spent, the record will be
 		// marked as failed or confirmed.
@@ -1107,9 +1126,10 @@ func (t *TxPublisher) handleInitialTxError(r *monitorRecord, err error) {
 	case errors.Is(err, ErrTxNoOutput):
 		result.Event = TxFailed
 
-	// When the error is due to zero fee rate delta, we'll send a TxFailed
-	// so these inputs can be retried in the next block.
-	case errors.Is(err, ErrZeroFeeRateDelta):
+	// An infeasible starting rate or zero fee rate delta is retryable.
+	// Do not try to initialize the same fee function again here.
+	case errors.Is(err, ErrZeroFeeRateDelta),
+		errors.Is(err, errStartingFeeRateTooHigh):
 		result.Event = TxFailed
 
 	// When the error is due to budget being used up, we'll send a TxFailed
@@ -1395,9 +1415,10 @@ func (t *TxPublisher) isUnknownSpent(r *monitorRecord,
 
 // getSpentInputs performs a non-blocking read on the spending subscriptions to
 // see whether any of the monitored inputs has been spent. A map of inputs with
-// their spending txns are returned if found.
+// their spending txns are returned if found. An error indicates that the
+// inputs could not be checked reliably.
 func (t *TxPublisher) getSpentInputs(
-	r *monitorRecord) map[wire.OutPoint]*wire.MsgTx {
+	r *monitorRecord) (map[wire.OutPoint]*wire.MsgTx, error) {
 
 	// Create a slice to record the inputs spent.
 	spentInputs := make(map[wire.OutPoint]*wire.MsgTx, len(r.req.Inputs))
@@ -1425,10 +1446,10 @@ func (t *TxPublisher) getSpentInputs(
 			&op, inp.SignDesc().Output.PkScript, heightHint,
 		)
 		if err != nil {
-			log.Criticalf("Failed to register spend ntfn for "+
-				"input=%v: %v", op, err)
-
-			return nil
+			return nil, fmt.Errorf(
+				"register spend notification for %v: %w",
+				op, err,
+			)
 		}
 
 		// Remove the subscription when exit.
@@ -1438,9 +1459,9 @@ func (t *TxPublisher) getSpentInputs(
 		select {
 		case spend, ok := <-spendEvent.Spend:
 			if !ok {
-				log.Debugf("Spend ntfn for %v canceled", op)
-
-				continue
+				return nil, fmt.Errorf(
+					"spend notification for %v closed", op,
+				)
 			}
 
 			spendingTx := spend.SpendingTx
@@ -1456,7 +1477,7 @@ func (t *TxPublisher) getSpentInputs(
 		}
 	}
 
-	return spentInputs
+	return spentInputs, nil
 }
 
 // calcCurrentConfTarget calculates the current confirmation target based on
@@ -1915,13 +1936,15 @@ func (t *TxPublisher) calculateRetryFeeRate(
 	// the fee rate data so the sweeper can pick up where we left off.
 	if feeFunc == nil {
 		f, err := t.initializeFeeFunction(r.req)
+		if errors.Is(err, errStartingFeeRateTooHigh) {
+			// Retry using an estimated rate without modifying the
+			// monitored record's request.
+			req := *r.req
+			req.StartingFeeRate = fn.None[chainfee.SatPerKWeight]()
+			f, err = t.initializeFeeFunction(&req)
+		}
 
-		// TODO(yy): The only error we would receive here is when the
-		// pkScript is not recognized by the weightEstimator. What we
-		// should do instead is to check the pkScript immediately after
-		// receiving a sweep request so we don't need to check it again,
-		// which will also save us from error checking from several
-		// callsites.
+		// Propagate any remaining initialization error to the caller.
 		if err != nil {
 			log.Errorf("Failed to create fee func for record %v: "+
 				"%v", r.requestID, err)

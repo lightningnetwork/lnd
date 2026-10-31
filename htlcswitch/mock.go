@@ -555,7 +555,7 @@ func (p *mockIteratorDecoder) DecodeHopIterators(id []byte,
 		)
 
 		if p.decodeFail {
-			failcode = lnwire.CodeTemporaryChannelFailure
+			failcode = lnwire.CodeInvalidOnionKey
 		}
 
 		resp := hop.DecodeHopIteratorResponse{

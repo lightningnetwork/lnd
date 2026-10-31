@@ -5,6 +5,7 @@ import (
 	"github.com/btcsuite/btcd/btcutil/v2"
 	"github.com/btcsuite/btcd/wire/v2"
 	"github.com/lightningnetwork/lnd/fn/v2"
+	"github.com/lightningnetwork/lnd/lntypes"
 	"github.com/lightningnetwork/lnd/lnwire"
 	"github.com/lightningnetwork/lnd/tlv"
 )
@@ -76,4 +77,10 @@ type AuxCloseDesc struct {
 	// to. This will be None if the remote party will not have an output on
 	// the co-op close transaction.
 	RemoteCloseOutput fn.Option[CloseOutput]
+
+	// FeePayer is the party that pays CloseFee. If None, the channel
+	// initiator pays, which is the rule of the legacy close negotiation.
+	// The RBF close flow sets this explicitly, as there the party that
+	// proposes a close transaction pays its fee out of its own balance.
+	FeePayer fn.Option[lntypes.ChannelParty]
 }

@@ -7,6 +7,7 @@ import (
 	"crypto/sha256"
 	"errors"
 	"fmt"
+	"math/bits"
 	prand "math/rand"
 	"sync"
 	"sync/atomic"
@@ -23,6 +24,7 @@ import (
 	"github.com/lightningnetwork/lnd/htlcswitch/hodl"
 	"github.com/lightningnetwork/lnd/htlcswitch/hop"
 	"github.com/lightningnetwork/lnd/input"
+	"github.com/lightningnetwork/lnd/internal/fee"
 	"github.com/lightningnetwork/lnd/invoices"
 	"github.com/lightningnetwork/lnd/lnpeer"
 	"github.com/lightningnetwork/lnd/lntypes"
@@ -76,7 +78,14 @@ const (
 func ExpectedFee(f models.ForwardingPolicy,
 	htlcAmt lnwire.MilliSatoshi) lnwire.MilliSatoshi {
 
-	return f.BaseFee + (htlcAmt*f.FeeRate)/1000000
+	value, err := fee.Outbound(
+		uint64(htlcAmt), uint64(f.BaseFee), uint64(f.FeeRate),
+	).Unpack()
+	if err != nil {
+		panic(err)
+	}
+
+	return lnwire.MilliSatoshi(value)
 }
 
 // TotalForwardingFee returns the total fee this node charges to forward
@@ -95,6 +104,23 @@ func TotalForwardingFee(amtToForward, outFee lnwire.MilliSatoshi,
 	inFee := inboundFee.CalcFee(amtToForward + outFee)
 
 	return inFee + int64(outFee)
+}
+
+// checkedTotalForwardingFee calculates the separately rounded inbound and
+// outbound components without overflowing the amount used for the inbound fee.
+func checkedTotalForwardingFee(amt lnwire.MilliSatoshi, out uint64,
+	inbound models.InboundFee) fn.Result[int64] {
+
+	amount, carry := bits.Add64(uint64(amt), out, 0)
+	if carry != 0 {
+		return fn.Err[int64](errors.New("forwarding amount overflow"))
+	}
+	in, err := fee.Inbound(amount, inbound.Base, inbound.Rate).Unpack()
+	if err != nil {
+		return fn.Err[int64](err)
+	}
+
+	return fee.Combined(out, in)
 }
 
 // ChannelLinkConfig defines the configuration for the channel link. ALL
@@ -2519,6 +2545,22 @@ func (l *channelLink) UpdateForwardingPolicy(
 	l.cfg.FwrdingPolicy = newPolicy
 }
 
+// checkedFeeAdvertiser provides an overflow-checked advertised outbound fee.
+type checkedFeeAdvertiser interface {
+	advertisedFeeChecked(lnwire.MilliSatoshi) fn.Result[uint64]
+}
+
+func (l *channelLink) advertisedFeeChecked(
+	amt lnwire.MilliSatoshi) fn.Result[uint64] {
+
+	l.RLock()
+	policy := l.cfg.FwrdingPolicy
+	l.RUnlock()
+
+	return fee.Outbound(uint64(amt), uint64(policy.BaseFee),
+		uint64(policy.FeeRate))
+}
+
 // AdvertisedFee returns the fee this link's current forwarding policy charges
 // to forward the given outgoing amount (base fee plus the proportional fee).
 //
@@ -2553,21 +2595,31 @@ func (l *channelLink) CheckHtlcForward(payHash [32]byte, incomingHtlcAmt,
 	// Using the outgoing HTLC amount, we'll calculate the outgoing
 	// fee this incoming HTLC must carry in order to satisfy the constraints
 	// of the outgoing link, then add the inbound fee we charge on top.
-	outFee := ExpectedFee(policy, amtToForward)
-	expectedFee := TotalForwardingFee(amtToForward, outFee, inboundFee)
+	outFee, feeErr := fee.Outbound(
+		uint64(amtToForward), uint64(policy.BaseFee),
+		uint64(policy.FeeRate),
+	).Unpack()
+	var expectedFee int64
+	if feeErr == nil {
+		expectedFee, feeErr = checkedTotalForwardingFee(
+			amtToForward, outFee, inboundFee,
+		).Unpack()
+	}
 
-	// If the actual fee is less than our expected fee, then we'll reject
-	// this HTLC as it didn't provide a sufficient amount of fees, or the
-	// values have been tampered with, or the send used incorrect/dated
-	// information to construct the forwarding information for this hop. In
-	// any case, we'll cancel this HTLC.
-	actualFee := int64(incomingHtlcAmt) - int64(amtToForward)
-	if incomingHtlcAmt < amtToForward || actualFee < expectedFee {
+	// Compare unsigned amounts before subtracting. A negative expected fee
+	// cannot authorize forwarding more than the incoming amount.
+	var actualFee uint64
+	if incomingHtlcAmt >= amtToForward {
+		actualFee = uint64(incomingHtlcAmt - amtToForward)
+	}
+	if feeErr != nil || incomingHtlcAmt < amtToForward ||
+		(expectedFee > 0 && actualFee < uint64(expectedFee)) {
+
 		l.log.Warnf("outgoing htlc(%x) has insufficient fee: "+
 			"expected %v, got %v: incoming=%v, outgoing=%v, "+
-			"inboundFee=%v",
+			"inboundFee=%v, feeErr=%v",
 			payHash[:], expectedFee, actualFee,
-			incomingHtlcAmt, amtToForward, inboundFee,
+			incomingHtlcAmt, amtToForward, inboundFee, feeErr,
 		)
 
 		// As part of the returned error, we'll send our latest routing

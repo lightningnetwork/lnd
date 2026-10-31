@@ -6316,6 +6316,127 @@ func TestCheckHtlcForward(t *testing.T) {
 
 	var hash [32]byte
 
+	for _, tc := range []struct {
+		name        string
+		incoming    lnwire.MilliSatoshi
+		inbound     models.InboundFee
+		wantFailure bool
+	}{
+		{"below threshold", 1009, models.InboundFee{}, true},
+		{"at threshold", 1010, models.InboundFee{}, false},
+		{"above threshold", 1011, models.InboundFee{}, false},
+		{"negative inbound cancellation", 1000,
+			models.InboundFee{Base: -10}, false},
+		{"discount below outgoing", 999,
+			models.InboundFee{Base: -20}, true},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			result := link.CheckHtlcForward(
+				hash, tc.incoming, 1000, 200, 150,
+				tc.inbound, 0,
+				lnwire.ShortChannelID{}, nil,
+			)
+			if tc.wantFailure {
+				require.NotNil(t, result)
+				msg := result.WireMessage()
+				_, ok := msg.(*lnwire.FailFeeInsufficient)
+				require.True(t, ok)
+			} else {
+				require.Nil(t, result)
+			}
+		})
+	}
+
+	t.Run("fee arithmetic overflow", func(t *testing.T) {
+		overflowLink := channelLink{
+			cfg: link.cfg, log: log,
+			channel: testChannel.channel,
+		}
+		overflowLink.cfg.FwrdingPolicy.BaseFee = ^lnwire.MilliSatoshi(0)
+		overflowLink.cfg.FwrdingPolicy.FeeRate = 1_000_000
+		overflowLink.attachFailAliasUpdate(failAliasUpdate)
+		result := overflowLink.CheckHtlcForward(
+			hash, 1000, 1000, 200, 150, models.InboundFee{}, 0,
+			lnwire.ShortChannelID{}, nil,
+		)
+		require.NotNil(t, result)
+		_, ok := result.WireMessage().(*lnwire.FailFeeInsufficient)
+		require.True(t, ok)
+	})
+
+	t.Run("outbound fee outside signed range", func(t *testing.T) {
+		wideLink := channelLink{
+			cfg: link.cfg, log: log, channel: testChannel.channel,
+		}
+		wideLink.cfg.FwrdingPolicy.FeeRate = 3_200_000_000
+		wideLink.attachFailAliasUpdate(failAliasUpdate)
+		amount := lnwire.MilliSatoshi(3_000_000_000_000_000)
+		result := wideLink.CheckHtlcForward(
+			hash, amount, amount, 200, 150, models.InboundFee{}, 0,
+			lnwire.ShortChannelID{}, nil,
+		)
+		require.NotNil(t, result)
+		_, ok := result.WireMessage().(*lnwire.FailFeeInsufficient)
+		require.True(t, ok)
+	})
+
+	t.Run("inbound arithmetic overflow", func(t *testing.T) {
+		cases := []struct {
+			base    lnwire.MilliSatoshi
+			amount  lnwire.MilliSatoshi
+			inbound models.InboundFee
+		}{
+			{^lnwire.MilliSatoshi(0), 1000, models.InboundFee{}},
+			{0, ^lnwire.MilliSatoshi(0) - 1,
+				models.InboundFee{Rate: 10_000_000}},
+			{1 << 63, 1000, models.InboundFee{}},
+		}
+		for _, tc := range cases {
+			badLink := channelLink{
+				cfg: link.cfg, log: log,
+				channel: testChannel.channel,
+			}
+			badLink.cfg.FwrdingPolicy.BaseFee = tc.base
+			badLink.attachFailAliasUpdate(failAliasUpdate)
+			result := badLink.CheckHtlcForward(
+				hash, ^lnwire.MilliSatoshi(0), tc.amount,
+				200, 150,
+				tc.inbound, 0, lnwire.ShortChannelID{}, nil,
+			)
+			require.NotNil(t, result)
+			msg := result.WireMessage()
+			_, ok := msg.(*lnwire.FailFeeInsufficient)
+			require.True(t, ok)
+		}
+	})
+
+	t.Run("matching and stale proportional policy", func(t *testing.T) {
+		rateLink := channelLink{
+			cfg: link.cfg, log: log,
+			channel: testChannel.channel,
+		}
+		rateLink.cfg.FwrdingPolicy.FeeRate = 100_000
+		rateLink.attachFailAliasUpdate(failAliasUpdate)
+		for _, tc := range []struct {
+			incoming lnwire.MilliSatoshi
+			fail     bool
+		}{{1109, true}, {1110, false}, {1111, false}} {
+			result := rateLink.CheckHtlcForward(
+				hash, tc.incoming, 1000, 200, 150,
+				models.InboundFee{}, 0,
+				lnwire.ShortChannelID{}, nil,
+			)
+			if tc.fail {
+				require.NotNil(t, result)
+				msg := result.WireMessage()
+				_, ok := msg.(*lnwire.FailFeeInsufficient)
+				require.True(t, ok)
+			} else {
+				require.Nil(t, result)
+			}
+		}
+	})
+
 	t.Run("satisfied", func(t *testing.T) {
 		result := link.CheckHtlcForward(
 			hash, 1500, 1000, 200, 150, models.InboundFee{}, 0,
@@ -8045,4 +8166,25 @@ func TestTotalForwardingFee(t *testing.T) {
 			require.Equal(t, test.want, got)
 		})
 	}
+}
+
+// foreignFeeLink exposes only the public link interface.
+type foreignFeeLink struct{ ChannelLink }
+
+func TestCheckedAdvertisedFee(t *testing.T) {
+	link := &channelLink{cfg: ChannelLinkConfig{
+		FwrdingPolicy: models.ForwardingPolicy{
+			BaseFee: 10, FeeRate: 100_000,
+		},
+	}}
+	value, ok := checkedAdvertisedFee(link, 1000)
+	require.True(t, ok)
+	require.Equal(t, uint64(110), value)
+
+	_, ok = checkedAdvertisedFee(foreignFeeLink{link}, 1000)
+	require.False(t, ok)
+
+	link.cfg.FwrdingPolicy.BaseFee = ^lnwire.MilliSatoshi(0)
+	_, ok = checkedAdvertisedFee(link, 1000)
+	require.False(t, ok)
 }

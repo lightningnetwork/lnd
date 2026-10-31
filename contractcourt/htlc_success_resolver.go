@@ -175,7 +175,9 @@ func (h *htlcSuccessResolver) resolveRemoteCommitOutput() error {
 	if err != nil {
 		return err
 	}
-	spendingInput, err := h.validatedSpendInput(sweepTxDetails)
+	spendingInput, err := validatedSpendInput(
+		sweepTxDetails, h.htlcResolution.ClaimOutpoint,
+	)
 	if err != nil {
 		return err
 	}
@@ -600,19 +602,19 @@ func (h *htlcSuccessResolver) isTaprootFinal() bool {
 	return h.chanType.IsTaprootFinal()
 }
 
-// validatedSpendInput returns the transaction input reported to spend this
-// resolver's HTLC outpoint after validating the notifier data.
-func (h *htlcSuccessResolver) validatedSpendInput(
-	spend *chainntnfs.SpendDetail) (*wire.TxIn, error) {
+// validatedSpendInput returns the selected transaction input after validating
+// the untrusted notifier data against the outpoint registered for the spend.
+func validatedSpendInput(spend *chainntnfs.SpendDetail,
+	expectedOutpoint wire.OutPoint) (*wire.TxIn, error) {
 
 	switch {
 	case spend == nil:
 		return nil, fmt.Errorf("%w: missing spend detail for %v",
-			errInvalidSpendDetails, h.outpoint())
+			errInvalidSpendDetails, expectedOutpoint)
 
 	case spend.SpendingTx == nil:
 		return nil, fmt.Errorf("%w: missing spending tx for %v",
-			errInvalidSpendDetails, h.outpoint())
+			errInvalidSpendDetails, expectedOutpoint)
 
 	case spend.SpenderInputIndex >= uint32(len(spend.SpendingTx.TxIn)):
 		return nil, fmt.Errorf("%w: spender input index %d out of "+
@@ -625,10 +627,10 @@ func (h *htlcSuccessResolver) validatedSpendInput(
 		return nil, fmt.Errorf("%w: spender input %d is nil",
 			errInvalidSpendDetails, spend.SpenderInputIndex)
 	}
-	if spendingInput.PreviousOutPoint != h.outpoint() {
+	if spendingInput.PreviousOutPoint != expectedOutpoint {
 		return nil, fmt.Errorf("%w: input %v, expected %v",
 			errInvalidSpendDetails, spendingInput.PreviousOutPoint,
-			h.outpoint())
+			expectedOutpoint)
 	}
 
 	return spendingInput, nil
@@ -818,7 +820,9 @@ func (h *htlcSuccessResolver) sweepSuccessTxOutput() error {
 	if err != nil {
 		return err
 	}
-	_, err = h.validatedSpendInput(commitSpend)
+	expectedOutpoint :=
+		h.htlcResolution.SignedSuccessTx.TxIn[0].PreviousOutPoint
+	_, err = validatedSpendInput(commitSpend, expectedOutpoint)
 	if err != nil {
 		return err
 	}
@@ -974,7 +978,7 @@ func (h *htlcSuccessResolver) resolveSuccessTx() error {
 	if err != nil {
 		return err
 	}
-	_, err = h.validatedSpendInput(commitSpend)
+	_, err = validatedSpendInput(commitSpend, outpoint)
 	if err != nil {
 		return err
 	}
@@ -1016,7 +1020,8 @@ func (h *htlcSuccessResolver) resolveSuccessTx() error {
 }
 
 // resolveSuccessTxOutput waits for the spend of the output from the 2nd-level
-// success tx.
+// success tx. It validates the selected input before mutating resolver state
+// and derives the spend ID from the transaction rather than notifier metadata.
 func (h *htlcSuccessResolver) resolveSuccessTxOutput(op wire.OutPoint) error {
 	// To wrap this up, we'll wait until the second-level transaction has
 	// been spent, then fully resolve the contract.
@@ -1031,13 +1036,18 @@ func (h *htlcSuccessResolver) resolveSuccessTxOutput(op wire.OutPoint) error {
 	if err != nil {
 		return err
 	}
+	_, err = validatedSpendInput(spend, op)
+	if err != nil {
+		return err
+	}
+	spendTxID := spend.SpendingTx.TxHash()
 
 	h.reportLock.Lock()
 	h.currentReport.RecoveredBalance = h.currentReport.LimboBalance
 	h.currentReport.LimboBalance = 0
 	h.reportLock.Unlock()
 
-	return h.checkpointClaim(op, spend.SpenderTxHash)
+	return h.checkpointClaim(op, &spendTxID)
 }
 
 // Launch creates an input based on the details of the incoming htlc resolution

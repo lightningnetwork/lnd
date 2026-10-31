@@ -111,6 +111,34 @@ perform an RBF again in the coming blocks.
 for the first time, unless its budget has been used up, `TxPublisher` will
 guarantee that the initial publish meets the RBF requirements.
 
+`TxPublisher` diagnoses constructed, non-fee mempool rejections with
+no-broadcast subset probes. It first attributes immediately available confirmed
+spends through `TxUnknownSpend`. If historical delivery is still pending for a
+multi-input missing-input failure, it instead isolates a rejected singleton.
+Underfunded probes, including small anchors, progressively borrow normal funding
+inputs and validate that group separately after rejection. A funding fee
+rejection proves input availability only, allowing missing-input attribution
+without treating it as script-validity evidence. Other funding failures remain
+inconclusive. Probes use the failed attempt's fee and address policy and are
+never published, stored, or monitored. Auxiliary sweep logic is not bypassed.
+
+`UtxoSweeper` applies the resulting `BadInput` evidence. Permanent script or
+missing-input attribution terminates only that tracked input, or quarantines a
+diagnosed wallet UTXO. These survivors restart without the failed aggregate fee;
+confirmed third-party spends retain the existing fee line. A singleton mempool
+conflict remains retryable with its spend subscription
+intact; valid siblings are resubmitted without it, and any wallet exclusion
+for that resubmission is temporary. Unattributed conflicts remain retryable
+without fee escalation. Fee initialization follows the existing zero-delta
+retry path. Other aborted, unchanged-set diagnoses must advance their fee and
+become fatal if advancement fails; skipped or completed singleton-free
+non-conflict diagnoses retain the whole-set fatal outcome.
+
+A rejected replacement does not displace an already accepted transaction.
+`TxPublisher` retains that transaction's monitoring until an actual spend is
+attributed, and terminal cleanup identifies the accepted transaction. Initial
+bad-input diagnosis is therefore not applied to rejected replacements.
+
 #### `FeeFunction`
 
 `FeeFunction` is an interface that specifies a function over a starting fee

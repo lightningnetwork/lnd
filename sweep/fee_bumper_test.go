@@ -1,11 +1,14 @@
 package sweep
 
 import (
+	"encoding/binary"
+	"errors"
 	"fmt"
 	"sync/atomic"
 	"testing"
 	"time"
 
+	"github.com/btcsuite/btcd/btcec/v2/ecdsa"
 	"github.com/btcsuite/btcd/btcutil/v2"
 	"github.com/btcsuite/btcd/chainhash/v2"
 	"github.com/btcsuite/btcd/wire/v2"
@@ -36,12 +39,14 @@ var (
 	testInputCount atomic.Uint64
 )
 
+// createTestInput builds a funded input with a unique test outpoint.
 func createTestInput(value int64,
 	witnessType input.WitnessType) input.BaseInput {
 
-	hash := chainhash.Hash{0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
-		0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
-		byte(testInputCount.Add(1))}
+	// Preserve the full counter so repeated and parallel probe tests cannot
+	// wrap a single hash byte to the empty outpoint.
+	var hash chainhash.Hash
+	binary.LittleEndian.PutUint64(hash[:], testInputCount.Add(1))
 
 	input := input.MakeBaseInput(
 		&wire.OutPoint{
@@ -388,8 +393,11 @@ type mockers struct {
 	feeFunc *MockFeeFunction
 }
 
-// createTestPublisher creates a new tx publisher using the provided mockers.
-func createTestPublisher(t *testing.T) (*TxPublisher, *mockers) {
+// createTestPublisherWithAux creates a new tx publisher using the provided
+// mockers and aux sweeper option.
+func createTestPublisherWithAux(t *testing.T,
+	auxSweeper fn.Option[AuxSweeper]) (*TxPublisher, *mockers) {
+
 	// Create a mock fee estimator.
 	estimator := &chainfee.MockEstimator{}
 
@@ -427,17 +435,54 @@ func createTestPublisher(t *testing.T) (*TxPublisher, *mockers) {
 		Signer:     m.signer,
 		Wallet:     m.wallet,
 		Notifier:   m.notifier,
-		AuxSweeper: fn.Some[AuxSweeper](&MockAuxSweeper{}),
+		AuxSweeper: auxSweeper,
 	})
 
 	return tp, m
+}
+
+// createTestPublisher creates a new tx publisher using the provided mockers.
+func createTestPublisher(t *testing.T) (*TxPublisher, *mockers) {
+	return createTestPublisherWithAux(
+		t, fn.Some[AuxSweeper](&MockAuxSweeper{}),
+	)
+}
+
+// createTestPublisherNoAux creates a new tx publisher without an aux sweeper.
+func createTestPublisherNoAux(t *testing.T) (*TxPublisher, *mockers) {
+	return createTestPublisherWithAux(t, fn.None[AuxSweeper]())
+}
+
+// txSpendsInputs returns a matcher that checks that a tx spends the exact input
+// set, regardless of ordering.
+func txSpendsInputs(inputs ...input.Input) func(*wire.MsgTx) bool {
+	// Membership, rather than input order, identifies a rebuilt probe.
+	want := make(map[wire.OutPoint]struct{}, len(inputs))
+	for _, inp := range inputs {
+		want[inp.OutPoint()] = struct{}{}
+	}
+
+	return func(tx *wire.MsgTx) bool {
+		if tx == nil || len(tx.TxIn) != len(want) {
+			return false
+		}
+
+		for _, txIn := range tx.TxIn {
+			if _, ok := want[txIn.PreviousOutPoint]; !ok {
+				return false
+			}
+		}
+
+		return true
+	}
 }
 
 // TestCreateAndCheckTx checks `createAndCheckTx` behaves as expected.
 func TestCreateAndCheckTx(t *testing.T) {
 	t.Parallel()
 
-	// Create a test request.
+	// Arrange a funded input and ordered backend verdicts so the table
+	// distinguishes construction budget failure from mempool rejection.
 	inp := createTestInput(1000, input.WitnessKeyHash)
 
 	// Create a publisher using the mocks.
@@ -445,7 +490,7 @@ func TestCreateAndCheckTx(t *testing.T) {
 
 	// Create a test feerate and return it from the mock fee function.
 	feerate := chainfee.SatPerKWeight(1000)
-	m.feeFunc.On("FeeRate").Return(feerate)
+	m.feeFunc.On("FeeRate").Return(feerate).Times(3)
 
 	// Mock the wallet to fail on testmempoolaccept on the first call, and
 	// succeed on the second.
@@ -459,13 +504,15 @@ func TestCreateAndCheckTx(t *testing.T) {
 	// this is fine to be mocked. This behaves essentially as skipping the
 	// Signer check and always assume the tx has a valid sig.
 	script := &input.Script{}
-	m.signer.On("ComputeInputScript", mock.Anything,
-		mock.Anything).Return(script, nil)
+	m.signer.On(
+		"ComputeInputScript", mock.Anything, mock.Anything,
+	).Return(script, nil).Times(3)
 
 	testCases := []struct {
-		name        string
-		req         *BumpRequest
-		expectedErr error
+		name                string
+		req                 *BumpRequest
+		expectedErr         error
+		expectedWrappedErrs []error
 	}{
 		{
 			// When the budget cannot cover the fee, an error
@@ -486,7 +533,8 @@ func TestCreateAndCheckTx(t *testing.T) {
 				Inputs:          []input.Input{&inp},
 				Budget:          btcutil.Amount(1000),
 			},
-			expectedErr: errDummy,
+			expectedErr:         errDummy,
+			expectedWrappedErrs: []error{errMempoolRejected},
 		},
 		{
 			// When the mempool accepts the transaction, no error
@@ -509,11 +557,17 @@ func TestCreateAndCheckTx(t *testing.T) {
 		}
 
 		t.Run(tc.name, func(t *testing.T) {
-			// Call the method under test.
+			// Act by constructing and testing the candidate for
+			// this budget.
 			_, err := tp.createAndCheckTx(r)
 
-			// Check the result is as expected.
+			// Assert both the underlying rejection and the
+			// eligibility marker used to distinguish a constructed
+			// candidate from a build failure.
 			require.ErrorIs(t, err, tc.expectedErr)
+			for _, expectedErr := range tc.expectedWrappedErrs {
+				require.ErrorIs(t, err, expectedErr)
+			}
 		})
 	}
 }
@@ -703,6 +757,1334 @@ func TestCreateRBFCompliantTx(t *testing.T) {
 	}
 }
 
+// createBadInputTestRequest creates a bump request with the given number of
+// inputs and enough budget for subset probes.
+func createBadInputTestRequest(numInputs int) *BumpRequest {
+	// Uniform, well-funded inputs let diagnosis tests vary membership and
+	// rejection evidence without introducing independent funding failures.
+	inputs := make([]input.Input, 0, numInputs)
+	for range numInputs {
+		inp := createTestInput(10_000, input.WitnessKeyHash)
+		inputs = append(inputs, &inp)
+	}
+
+	return &BumpRequest{
+		DeliveryAddress: changePkScript,
+		Inputs:          inputs,
+		Budget:          btcutil.Amount(10_000),
+	}
+}
+
+// TestShouldDiagnoseBadInputs checks the eligibility rules for no-broadcast
+// subset diagnosis.
+func TestShouldDiagnoseBadInputs(t *testing.T) {
+	t.Parallel()
+
+	// Arrange configurations that differ only in whether safe subset
+	// diagnosis has a constructed candidate, known fee, and no auxiliary
+	// logic.
+	testCases := []struct {
+		name      string
+		numInputs int
+		withAux   bool
+		withFee   bool
+		err       error
+		diagnose  bool
+	}{
+		{
+			name:      "mempool rejection",
+			numInputs: 2,
+			withFee:   true,
+			err: fmt.Errorf("%w: %w",
+				errMempoolRejected, errDummy),
+			diagnose: true,
+		},
+		{
+			name:      "missing fee function",
+			numInputs: 2,
+			err: fmt.Errorf("%w: %w",
+				errMempoolRejected, errDummy),
+		},
+		{
+			name:      "construction error",
+			numInputs: 2,
+			withFee:   true,
+			err:       errDummy,
+		},
+		{
+			name:      "singleton",
+			numInputs: 1,
+			withFee:   true,
+			err: fmt.Errorf("%w: %w",
+				errMempoolRejected, errDummy),
+		},
+		{
+			name:      "aux sweeper",
+			numInputs: 2,
+			withAux:   true,
+			withFee:   true,
+			err: fmt.Errorf("%w: %w",
+				errMempoolRejected, errDummy),
+		},
+	}
+
+	for _, testCase := range testCases {
+		t.Run(testCase.name, func(t *testing.T) {
+			var tp *TxPublisher
+			var m *mockers
+			if testCase.withAux {
+				tp, m = createTestPublisher(t)
+			} else {
+				tp, m = createTestPublisherNoAux(t)
+			}
+
+			record := &monitorRecord{
+				requestID: 1,
+				req: createBadInputTestRequest(
+					testCase.numInputs,
+				),
+			}
+			if testCase.withFee {
+				record.feeFunction = m.feeFunc
+			}
+
+			// Act by checking eligibility without signing or
+			// testing any subset.
+			diagnose := tp.shouldDiagnoseBadInputs(
+				record, testCase.err,
+			)
+
+			// Assert that only the eligible multi-input rejection
+			// permits probing.
+			require.Equal(t, testCase.diagnose, diagnose)
+		})
+	}
+}
+
+// TestProbeInputSetScriptFailure checks that probe script failures stay
+// concrete so findBadInput owns bad-input attribution.
+func TestProbeInputSetScriptFailure(t *testing.T) {
+	t.Parallel()
+
+	// Arrange a constructible probe rejected for its input script, using
+	// fixture cleanup to verify its sole acceptance call.
+	tp, m := createTestPublisherNoAux(t)
+	req := createBadInputTestRequest(2)
+	record := &monitorRecord{
+		requestID:   1,
+		req:         req,
+		feeFunction: m.feeFunc,
+	}
+
+	inputs := req.Inputs
+	m.feeFunc.On("FeeRate").Return(chainfee.SatPerKWeight(1000)).Once()
+	m.signer.On(
+		"ComputeInputScript", mock.Anything, mock.Anything,
+	).Return(&input.Script{}, nil).Times(2)
+	m.wallet.On(
+		"CheckMempoolAcceptance",
+		mock.MatchedBy(txSpendsInputs(inputs...)),
+	).Return(chain.ErrScriptVerifyFlag).Once()
+
+	// Act by building and checking the subset without publication.
+	err := tp.probeInputSet(record, inputs)
+
+	// Assert that the concrete error remains distinguishable to diagnosis.
+	require.ErrorIs(t, err, chain.ErrScriptVerifyFlag)
+	require.NotErrorIs(t, err, errMempoolRejected)
+}
+
+// TestProbeInputSetPolicyError checks that non-script mempool failures remain
+// concrete errors and are not treated as bad-input probe failures.
+func TestProbeInputSetPolicyError(t *testing.T) {
+	t.Parallel()
+
+	// Arrange a constructible probe rejected by transaction fee policy so a
+	// valid input is not blamed for an unrelated rejection.
+	tp, m := createTestPublisherNoAux(t)
+	req := createBadInputTestRequest(2)
+	record := &monitorRecord{
+		requestID:   1,
+		req:         req,
+		feeFunction: m.feeFunc,
+	}
+
+	inputs := req.Inputs
+	m.feeFunc.On("FeeRate").Return(chainfee.SatPerKWeight(1000)).Once()
+	m.signer.On(
+		"ComputeInputScript", mock.Anything, mock.Anything,
+	).Return(&input.Script{}, nil).Times(2)
+	m.wallet.On(
+		"CheckMempoolAcceptance",
+		mock.MatchedBy(txSpendsInputs(inputs...)),
+	).Return(chain.ErrInsufficientFee).Once()
+
+	// Act by building and checking the subset without publication.
+	err := tp.probeInputSet(record, inputs)
+
+	// Assert that the concrete error remains distinguishable to diagnosis.
+	require.ErrorIs(t, err, chain.ErrInsufficientFee)
+	require.NotErrorIs(t, err, errMempoolRejected)
+}
+
+// TestProbeInputSetConstructionError checks that failures before mempool
+// acceptance remain distinguishable from policy rejections.
+func TestProbeInputSetConstructionError(t *testing.T) {
+	t.Parallel()
+
+	// Arrange a signer failure before any candidate reaches the backend; no
+	// acceptance call is expected for a transaction that cannot be built.
+	tp, m := createTestPublisherNoAux(t)
+	req := createBadInputTestRequest(1)
+	record := &monitorRecord{
+		requestID:   1,
+		req:         req,
+		feeFunction: m.feeFunc,
+	}
+
+	m.feeFunc.On("FeeRate").Return(chainfee.SatPerKWeight(1000)).Once()
+	m.signer.On(
+		"ComputeInputScript", mock.Anything, mock.Anything,
+	).Return(nil, errDummy).Once()
+
+	// Act by building and checking the subset without publication.
+	err := tp.probeInputSet(record, req.Inputs)
+
+	// Assert that the concrete error remains distinguishable to diagnosis.
+	require.ErrorIs(t, err, errProbeTxConstruction)
+	require.ErrorIs(t, err, errDummy)
+}
+
+// TestProbeInputSetFundsRequiredOutput checks collective funding and prevents
+// rejection of the funding group from becoming evidence against the target.
+func TestProbeInputSetFundsRequiredOutput(t *testing.T) {
+	t.Parallel()
+
+	// Arrange target and funding verdicts for one committed output.
+	// Funding fee policy proves availability only; it cannot establish that
+	// the funder's script is valid for a combined script rejection.
+	testCases := []struct {
+		name        string
+		probeErr    error
+		fundingErr  error
+		expectedErr error
+	}{
+		{
+			name:        "accepted funding",
+			probeErr:    chain.ErrMissingInputs,
+			expectedErr: ErrInputMissing,
+		},
+		{
+			name:        "spent funding",
+			probeErr:    chain.ErrMissingInputs,
+			fundingErr:  chain.ErrMissingInputs,
+			expectedErr: errProbeTxConstruction,
+		},
+		{
+			name:        "conflicted funding",
+			probeErr:    chain.ErrMissingInputs,
+			fundingErr:  chain.ErrMempoolConflict,
+			expectedErr: errProbeTxConstruction,
+		},
+		{
+			name:        "fee-rejected funding",
+			probeErr:    chain.ErrMissingInputs,
+			fundingErr:  chain.ErrInsufficientFee,
+			expectedErr: ErrInputMissing,
+		},
+		{
+			name:        "script target with fee-rejected funding",
+			probeErr:    chain.ErrScriptVerifyFlag,
+			fundingErr:  chain.ErrInsufficientFee,
+			expectedErr: errProbeTxConstruction,
+		},
+	}
+	for _, testCase := range testCases {
+		t.Run(testCase.name, func(t *testing.T) {
+			tp, m := createTestPublisherNoAux(t)
+			requiredBase := createTestInput(
+				10_000, input.WitnessKeyHash,
+			)
+			required := &input.MockInput{}
+			defer required.AssertExpectations(t)
+			required.On("OutPoint").Return(
+				requiredBase.OutPoint(),
+			).Times(7)
+			required.On("SignDesc").Return(
+				requiredBase.SignDesc(),
+			).Times(4)
+			required.On("RequiredTxOut").Return(&wire.TxOut{
+				Value: 10_000,
+			}).Times(16)
+			required.On("RequiredLockTime").Return(
+				uint32(0), false,
+			).Times(3)
+			required.On("UnconfParent").Return(nil).Times(3)
+			required.On("WitnessType").Return(
+				input.WitnessKeyHash,
+			).Times(7)
+			required.On("BlocksToMaturity").Return(uint32(0)).Once()
+			required.On(
+				"CraftInputScript", mock.Anything,
+				mock.Anything, mock.Anything, mock.Anything,
+				mock.Anything,
+			).Return(&input.Script{}, nil).Once()
+			base1 := createTestInput(700, input.WitnessKeyHash)
+			base2 := createTestInput(700, input.WitnessKeyHash)
+			record := &monitorRecord{
+				req: &BumpRequest{
+					DeliveryAddress: changePkScript,
+					Inputs: []input.Input{
+						required, &base1, &base2,
+					},
+				},
+				feeFunction: m.feeFunc,
+			}
+			m.feeFunc.On("FeeRate").Return(
+				chainfee.SatPerKWeight(1000),
+			).Once()
+			m.signer.On(
+				"ComputeInputScript", mock.Anything,
+				mock.Anything,
+			).Return(&input.Script{}, nil).Times(4)
+			m.wallet.On("CheckMempoolAcceptance", mock.MatchedBy(
+				txSpendsInputs(required, &base1, &base2),
+			)).Return(testCase.probeErr).Once()
+			m.wallet.On("CheckMempoolAcceptance", mock.MatchedBy(
+				txSpendsInputs(&base1, &base2),
+			)).Return(testCase.fundingErr).Once()
+
+			// Act by probing the target with companions that are
+			// individually insufficient; only their combined value
+			// can pay its fee.
+			err := tp.probeInputSet(record, []input.Input{required})
+
+			// Assert that funding availability suffices only for
+			// missing-target evidence; script or ambiguous funding
+			// failures cannot identify the target.
+			require.ErrorIs(t, err, testCase.expectedErr)
+			if errors.Is(err, errProbeTxConstruction) {
+				require.NotErrorIs(t, err, ErrInputMissing)
+			}
+			if errors.Is(
+				testCase.fundingErr, chain.ErrMempoolConflict,
+			) {
+
+				require.ErrorIs(
+					t, err, chain.ErrMempoolConflict,
+				)
+			}
+		})
+	}
+}
+
+// TestIsInputScriptFailure checks that only input script or standardness errors
+// are treated as identifying bad inputs.
+func TestIsInputScriptFailure(t *testing.T) {
+	t.Parallel()
+
+	// Arrange the existing script sentinels and fee/unknown controls so
+	// broad backend failures cannot masquerade as input evidence.
+	testCases := []struct {
+		err      error
+		expected bool
+	}{
+		{
+			err:      chain.ErrScriptVerifyFlag,
+			expected: true,
+		},
+		{
+			err:      chain.ErrNonMandatoryScriptVerifyFlag,
+			expected: true,
+		},
+		{
+			err:      chain.ErrBadWitnessNonStandard,
+			expected: true,
+		},
+		{
+			err:      chain.ErrScriptSigNotPushOnly,
+			expected: true,
+		},
+		{
+			err:      chain.ErrScriptSigSize,
+			expected: true,
+		},
+		{
+			err:      chain.ErrNonStandardInputs,
+			expected: true,
+		},
+		{
+			err:      chain.ErrInsufficientFee,
+			expected: false,
+		},
+		{
+			err:      errDummy,
+			expected: false,
+		},
+	}
+
+	for _, testCase := range testCases {
+		// Act by classifying each backend rejection without a
+		// transaction.
+		actual := isInputScriptFailure(testCase.err)
+
+		// Assert that only input-specific rejections permit
+		// attribution.
+		require.Equal(t, testCase.expected, actual)
+	}
+}
+
+// TestFindBadInputIdentifiesSingleton checks that the binary search returns the
+// first singleton input that fails a mempool probe.
+func TestFindBadInputIdentifiesSingleton(t *testing.T) {
+	t.Parallel()
+
+	// Arrange a rejected half whose first singleton is valid and second
+	// singleton is script-invalid, identifying one outpoint without
+	// broadcasting.
+	tp, m := createTestPublisherNoAux(t)
+	req := createBadInputTestRequest(4)
+	record := &monitorRecord{
+		requestID:   1,
+		req:         req,
+		feeFunction: m.feeFunc,
+	}
+
+	m.feeFunc.On("FeeRate").Return(chainfee.SatPerKWeight(1000)).Times(3)
+	m.signer.On(
+		"ComputeInputScript", mock.Anything, mock.Anything,
+	).Return(&input.Script{}, nil).Times(4)
+
+	inputs := req.Inputs
+	m.wallet.On(
+		"CheckMempoolAcceptance",
+		mock.MatchedBy(txSpendsInputs(inputs[0], inputs[1])),
+	).Return(chain.ErrScriptVerifyFlag).Once()
+	m.wallet.On(
+		"CheckMempoolAcceptance",
+		mock.MatchedBy(txSpendsInputs(inputs[0])),
+	).Return(nil).Once()
+	m.wallet.On(
+		"CheckMempoolAcceptance",
+		mock.MatchedBy(txSpendsInputs(inputs[1])),
+	).Return(chain.ErrScriptVerifyFlag).Once()
+
+	// Act by searching for a single independently rejected input.
+	badInput, err := tp.findBadInput(record)
+
+	// Assert that the rejected half's second singleton is identified while
+	// the accepted first singleton supplies no permanent failure evidence.
+	require.NoError(t, err)
+	require.Equal(t, inputs[1].OutPoint(), badInput)
+}
+
+// TestFindBadInputStopsOnPolicyProbeError checks that a policy error found
+// during probing aborts diagnosis instead of marking the singleton input bad.
+func TestFindBadInputStopsOnPolicyProbeError(t *testing.T) {
+	t.Parallel()
+
+	// Arrange an accepted half followed by a fee-policy rejection;
+	// transaction policy must stop diagnosis without blaming an input.
+	tp, m := createTestPublisherNoAux(t)
+	req := createBadInputTestRequest(4)
+	record := &monitorRecord{
+		requestID:   1,
+		req:         req,
+		feeFunction: m.feeFunc,
+	}
+
+	m.feeFunc.On("FeeRate").Return(chainfee.SatPerKWeight(1000)).Times(2)
+	m.signer.On(
+		"ComputeInputScript", mock.Anything, mock.Anything,
+	).Return(&input.Script{}, nil).Times(3)
+
+	inputs := req.Inputs
+	m.wallet.On(
+		"CheckMempoolAcceptance",
+		mock.MatchedBy(txSpendsInputs(inputs[0], inputs[1])),
+	).Return(nil).Once()
+	m.wallet.On(
+		"CheckMempoolAcceptance",
+		mock.MatchedBy(txSpendsInputs(inputs[2])),
+	).Return(chain.ErrInsufficientFee).Once()
+
+	// Act by searching for a single independently rejected input.
+	badInput, err := tp.findBadInput(record)
+
+	// Assert that fee policy aborts attribution with a zero outpoint; it
+	// cannot establish that any input is permanently invalid.
+	require.ErrorIs(t, err, chain.ErrInsufficientFee)
+	require.Equal(t, wire.OutPoint{}, badInput)
+}
+
+// TestFindBadInputContinuesAfterConstructionError checks that an
+// unconstructible subset falls back to singleton probes across the full set.
+func TestFindBadInputContinuesAfterConstructionError(t *testing.T) {
+	t.Parallel()
+
+	// Arrange an unconstructible half and valid early singletons, with a
+	// bad input at the end that the construction failure must not hide.
+	tp, m := createTestPublisherNoAux(t)
+	req := createBadInputTestRequest(4)
+	record := &monitorRecord{
+		requestID:   1,
+		req:         req,
+		feeFunction: m.feeFunc,
+	}
+
+	m.feeFunc.On("FeeRate").Return(chainfee.SatPerKWeight(1000)).Times(5)
+	m.signer.On(
+		"ComputeInputScript", mock.Anything, mock.Anything,
+	).Return(nil, errDummy).Once()
+	m.signer.On(
+		"ComputeInputScript", mock.Anything, mock.Anything,
+	).Return(&input.Script{}, nil).Times(4)
+
+	inputs := req.Inputs
+	for _, inp := range inputs[:3] {
+		m.wallet.On(
+			"CheckMempoolAcceptance",
+			mock.MatchedBy(txSpendsInputs(inp)),
+		).Return(nil).Once()
+	}
+	m.wallet.On(
+		"CheckMempoolAcceptance",
+		mock.MatchedBy(txSpendsInputs(inputs[3])),
+	).Return(chain.ErrScriptVerifyFlag).Once()
+
+	// Act by searching for a single independently rejected input.
+	badInput, err := tp.findBadInput(record)
+
+	// Assert that the last singleton is identified despite the earlier
+	// construction failure, allowing unrelated members to remain retryable.
+	require.NoError(t, err)
+	require.Equal(t, inputs[3].OutPoint(), badInput)
+}
+
+// TestDiagnoseInputSetMetadata checks the evidence carried by attribution and
+// distinguishes a completed search from inconclusive backend policy.
+func TestDiagnoseInputSetMetadata(t *testing.T) {
+	t.Parallel()
+
+	// Arrange the existing completed/aborted/script outcomes and a
+	// transient conflict, whose identity must survive attribution without
+	// becoming fatal.
+	testCases := []struct {
+		name     string
+		probeErr error
+		outcome  inputDiagnosisOutcome
+		probes   int
+	}{
+		{
+			name:     "script attribution",
+			probeErr: chain.ErrScriptVerifyFlag,
+			outcome:  diagnosisAttributed,
+			probes:   1,
+		},
+		{
+			name:     "conflict attribution",
+			probeErr: chain.ErrMempoolConflict,
+			outcome:  diagnosisAttributed,
+			probes:   1,
+		},
+		{
+			name:    "completed",
+			outcome: diagnosisCompleted,
+			probes:  2,
+		},
+		{
+			name:     "aborted",
+			probeErr: chain.ErrInsufficientFee,
+			outcome:  diagnosisAborted,
+			probes:   1,
+		},
+	}
+	for _, testCase := range testCases {
+		t.Run(testCase.name, func(t *testing.T) {
+			tp, m := createTestPublisherNoAux(t)
+			req := createBadInputTestRequest(2)
+			record := &monitorRecord{
+				req:         req,
+				feeFunction: m.feeFunc,
+			}
+			m.feeFunc.On("FeeRate").Return(
+				chainfee.SatPerKWeight(1000),
+			).Times(testCase.probes)
+			m.signer.On(
+				"ComputeInputScript", mock.Anything,
+				mock.Anything,
+			).Return(&input.Script{}, nil).Times(testCase.probes)
+			m.wallet.On(
+				"CheckMempoolAcceptance", mock.Anything,
+			).Return(testCase.probeErr).Times(testCase.probes)
+
+			// Act by diagnosing two inputs through actual subset
+			// probes.
+			diagnosis := tp.diagnoseInputSet(record)
+
+			// Assert that attributed membership and its rejection
+			// kind survive; transaction-policy aborts must carry no
+			// attributable outpoint.
+			require.Equal(t, testCase.outcome, diagnosis.outcome)
+			if testCase.outcome == diagnosisAttributed {
+				require.Equal(
+					t, req.Inputs[0].OutPoint(),
+					diagnosis.badInput,
+				)
+			} else {
+				require.Equal(
+					t, wire.OutPoint{}, diagnosis.badInput,
+				)
+			}
+			if errors.Is(
+				testCase.probeErr, chain.ErrMempoolConflict,
+			) ||
+				testCase.outcome == diagnosisAborted {
+
+				require.ErrorIs(
+					t, diagnosis.probeErr,
+					testCase.probeErr,
+				)
+			}
+		})
+	}
+}
+
+// createBadInputTestRecord creates a monitored record and subscriber used by
+// initial-broadcast error tests.
+func createBadInputTestRecord(tp *TxPublisher, req *BumpRequest,
+	feeFunc FeeFunction) (*monitorRecord, chan *BumpResult) {
+
+	const requestID = uint64(1)
+	record := &monitorRecord{
+		requestID:   requestID,
+		req:         req,
+		feeFunction: feeFunc,
+	}
+
+	subscriber := make(chan *BumpResult, 1)
+	tp.subscriberChans.Store(requestID, subscriber)
+	tp.records.Store(requestID, record)
+
+	return record, subscriber
+}
+
+// mockNoInputSpends models pending historical delivery without sleeps.
+func mockNoInputSpends(m *mockers, inputs []input.Input) {
+	for _, inp := range inputs {
+		op := inp.OutPoint()
+		spendEvent := &chainntnfs.SpendEvent{
+			Spend:  make(chan *chainntnfs.SpendDetail),
+			Cancel: func() {},
+		}
+		m.notifier.On(
+			"RegisterSpendNtfn", &op, mock.Anything, mock.Anything,
+		).Return(spendEvent, nil).Once()
+	}
+}
+
+// TestHandleBadInputsDiagnosesBadInput checks that a multi-input mempool script
+// failure becomes TxFailed with the singleton input that fails its probe.
+func TestHandleBadInputsDiagnosesBadInput(t *testing.T) {
+	t.Parallel()
+
+	// Arrange four inputs whose left half and second singleton fail script
+	// verification while the first singleton passes. Fixture cleanup
+	// permits only those acceptance calls and rejects publication.
+	tp, m := createTestPublisherNoAux(t)
+	req := createBadInputTestRequest(4)
+	record := &monitorRecord{
+		requestID:   1,
+		req:         req,
+		feeFunction: m.feeFunc,
+	}
+
+	rejectedFeeRate := chainfee.SatPerKWeight(1000)
+	m.feeFunc.On("FeeRate").Return(rejectedFeeRate).Times(3)
+	m.signer.On(
+		"ComputeInputScript", mock.Anything, mock.Anything,
+	).Return(&input.Script{}, nil).Times(4)
+
+	inputs := req.Inputs
+	badInput := inputs[1]
+	m.wallet.On(
+		"CheckMempoolAcceptance",
+		mock.MatchedBy(txSpendsInputs(inputs[0], inputs[1])),
+	).Return(chain.ErrScriptVerifyFlag).Once()
+	m.wallet.On(
+		"CheckMempoolAcceptance",
+		mock.MatchedBy(txSpendsInputs(inputs[0])),
+	).Return(nil).Once()
+	m.wallet.On(
+		"CheckMempoolAcceptance",
+		mock.MatchedBy(txSpendsInputs(inputs[1])),
+	).Return(chain.ErrScriptVerifyFlag).Once()
+
+	initialErr := fmt.Errorf("%w: %w", errMempoolRejected,
+		chain.ErrScriptVerifyFlag)
+
+	// Act by diagnosing the constructed batch rejection to isolate its
+	// script failure through actual subset transactions.
+	result := tp.handleBadInputs(record, initialErr)
+
+	// Assert that only the independently rejected second input is
+	// attributed. Survivors receive no aggregate retry rate and can restart
+	// their own fees.
+	require.Equal(t, TxFailed, result.Event)
+	require.ErrorIs(t, result.Err, chain.ErrScriptVerifyFlag)
+	require.NotNil(t, result.BadInput)
+	require.Equal(t, badInput.OutPoint(), *result.BadInput)
+	require.Zero(t, result.FeeRate)
+}
+
+// TestHandleBadInputsNoSingletonBadInput checks that diagnosis keeps BadInput
+// nil when no singleton input fails by itself.
+func TestHandleBadInputsNoSingletonBadInput(t *testing.T) {
+	t.Parallel()
+
+	// Arrange a non-conflict batch rejection whose tested halves and
+	// remaining singletons all pass, leaving completed diagnosis without an
+	// attributable input. No fee-advance call is permitted.
+	tp, m := createTestPublisherNoAux(t)
+	req := createBadInputTestRequest(4)
+	record := &monitorRecord{
+		requestID:   1,
+		req:         req,
+		feeFunction: m.feeFunc,
+	}
+
+	feeRate := chainfee.SatPerKWeight(1000)
+	m.feeFunc.On("FeeRate").Return(feeRate).Times(3)
+	m.signer.On(
+		"ComputeInputScript", mock.Anything, mock.Anything,
+	).Return(&input.Script{}, nil).Times(4)
+
+	inputs := req.Inputs
+	m.wallet.On(
+		"CheckMempoolAcceptance",
+		mock.MatchedBy(txSpendsInputs(inputs[0], inputs[1])),
+	).Return(nil).Once()
+	m.wallet.On(
+		"CheckMempoolAcceptance",
+		mock.MatchedBy(txSpendsInputs(inputs[2])),
+	).Return(nil).Once()
+	m.wallet.On(
+		"CheckMempoolAcceptance",
+		mock.MatchedBy(txSpendsInputs(inputs[3])),
+	).Return(nil).Once()
+
+	initialErr := fmt.Errorf("%w: %w", errMempoolRejected, errDummy)
+
+	// Act by completing diagnosis for all four inputs through accepted
+	// probes.
+	result := tp.handleBadInputs(record, initialErr)
+
+	// Assert the preserved whole-set fatal outcome for conclusive
+	// non-conflict diagnosis without a bad singleton, retaining its
+	// original batch error.
+	require.Equal(t, TxFatal, result.Event)
+	require.ErrorIs(t, result.Err, errDummy)
+	require.Nil(t, result.BadInput)
+	require.Zero(t, result.FeeRate)
+}
+
+// TestHandleBadInputsProbeConstructionError keeps inconclusive diagnosis
+// bounded without changing the generic retry helper's exhaustion policy.
+func TestHandleBadInputsProbeConstructionError(t *testing.T) {
+	t.Parallel()
+
+	// Arrange signing failures for every subset, leaving no singleton
+	// proof. The cases distinguish a rounded position from an exhausted fee
+	// function.
+	testCases := []struct {
+		name   string
+		feeErr error
+		rate   chainfee.SatPerKWeight
+		event  BumpEvent
+	}{
+		{
+			name:  "advance after rounding",
+			rate:  1100,
+			event: TxFailed,
+		},
+		{
+			name:   "inconclusive diagnosis reaches ceiling",
+			feeErr: ErrMaxPosition,
+			rate:   1000,
+			event:  TxFatal,
+		},
+	}
+	for _, testCase := range testCases {
+		t.Run(testCase.name, func(t *testing.T) {
+			tp, m := createTestPublisherNoAux(t)
+			record := &monitorRecord{
+				req:         createBadInputTestRequest(4),
+				feeFunction: m.feeFunc,
+			}
+			m.feeFunc.On("FeeRate").Return(
+				chainfee.SatPerKWeight(1000),
+			).Times(5)
+			if testCase.feeErr == nil {
+				m.feeFunc.On("Increment").Return(
+					false, nil,
+				).Once()
+				m.feeFunc.On("Increment").Return(
+					true, nil,
+				).Once()
+			} else {
+				m.feeFunc.On("Increment").Return(
+					false, testCase.feeErr,
+				).Once()
+			}
+			m.feeFunc.On("FeeRate").Return(testCase.rate).Once()
+			m.signer.On(
+				"ComputeInputScript", mock.Anything,
+				mock.Anything,
+			).Return(nil, errDummy).Times(5)
+			initialErr := fmt.Errorf("%w: %w", errMempoolRejected,
+				errDummy)
+
+			// Act by running failed construction through normal
+			// diagnosis and its local retry policy, including
+			// rounded fee positions.
+			result := tp.handleBadInputs(record, initialErr)
+
+			// Assert that only an actual rate increase permits this
+			// inconclusive non-conflict retry; its ceiling remains
+			// fatal without inventing an attributable input.
+			require.Equal(t, testCase.event, result.Event)
+			require.Equal(t, testCase.rate, result.FeeRate)
+			require.Nil(t, result.BadInput)
+			if testCase.feeErr == nil {
+				require.ErrorIs(t, result.Err, errDummy)
+			} else {
+				require.ErrorIs(t, result.Err, testCase.feeErr)
+			}
+		})
+	}
+}
+
+// TestHandleBadInputsProbeMissingInputs checks that diagnosis fails only the
+// exact missing singleton and leaves the rest retryable.
+func TestHandleBadInputsProbeMissingInputs(t *testing.T) {
+	t.Parallel()
+
+	// Arrange a rejected half and its first singleton as missing. Only
+	// mempool acceptance calls are allowed; spend-notifier calls would fail
+	// the fixture.
+	tp, m := createTestPublisherNoAux(t)
+	req := createBadInputTestRequest(4)
+	record := &monitorRecord{
+		requestID:   1,
+		req:         req,
+		feeFunction: m.feeFunc,
+	}
+
+	rejectedFeeRate := chainfee.SatPerKWeight(1000)
+	m.feeFunc.On("FeeRate").Return(rejectedFeeRate).Times(2)
+	m.signer.On(
+		"ComputeInputScript", mock.Anything, mock.Anything,
+	).Return(&input.Script{}, nil).Times(3)
+
+	inputs := req.Inputs
+	m.wallet.On(
+		"CheckMempoolAcceptance",
+		mock.MatchedBy(txSpendsInputs(inputs[0], inputs[1])),
+	).Return(chain.ErrMissingInputs).Once()
+	m.wallet.On(
+		"CheckMempoolAcceptance",
+		mock.MatchedBy(txSpendsInputs(inputs[0])),
+	).Return(chain.ErrMissingInputs).Once()
+
+	initialErr := fmt.Errorf("%w: %w", errMempoolRejected, errDummy)
+
+	// Act by diagnosing the full rejection until the exact missing
+	// singleton is identified independently.
+	result := tp.handleBadInputs(record, initialErr)
+
+	// Assert that only that singleton is attributed and survivors can
+	// restart without the failed aggregate fee; preserve the original batch
+	// error.
+	require.Equal(t, TxFailed, result.Event)
+	require.ErrorIs(t, result.Err, errDummy)
+	require.Zero(t, result.FeeRate)
+	require.NotNil(t, result.BadInput)
+	require.Equal(t, inputs[0].OutPoint(), *result.BadInput)
+}
+
+// TestHandleMissingInputsIsolatesMissing checks that a full multi-input missing
+// result fails only the isolated terminal input.
+func TestHandleMissingInputsIsolatesMissing(t *testing.T) {
+	t.Parallel()
+
+	// Arrange empty historical spend channels for four inputs and
+	// missing-input verdicts for the left half and its first singleton.
+	// This models delayed historical delivery after the full candidate
+	// reported missing inputs.
+	tp, m := createTestPublisherNoAux(t)
+	req := createBadInputTestRequest(4)
+	record := &monitorRecord{
+		requestID:   1,
+		req:         req,
+		feeFunction: m.feeFunc,
+		tx:          &wire.MsgTx{LockTime: 2},
+	}
+
+	rejectedFeeRate := chainfee.SatPerKWeight(1000)
+	m.feeFunc.On("FeeRate").Return(rejectedFeeRate).Times(2)
+	m.signer.On(
+		"ComputeInputScript", mock.Anything, mock.Anything,
+	).Return(&input.Script{}, nil).Times(3)
+
+	inputs := req.Inputs
+	m.wallet.On(
+		"CheckMempoolAcceptance",
+		mock.MatchedBy(txSpendsInputs(inputs[0], inputs[1])),
+	).Return(chain.ErrMissingInputs).Once()
+	m.wallet.On(
+		"CheckMempoolAcceptance",
+		mock.MatchedBy(txSpendsInputs(inputs[0])),
+	).Return(chain.ErrMissingInputs).Once()
+
+	for _, inp := range inputs {
+		op := inp.OutPoint()
+		spendEvent := &chainntnfs.SpendEvent{
+			Spend:  make(chan *chainntnfs.SpendDetail, 1),
+			Cancel: func() {},
+		}
+		m.notifier.On(
+			"RegisterSpendNtfn", &op, mock.Anything, mock.Anything,
+		).Return(spendEvent, nil).Once()
+	}
+
+	// Act by handling missing inputs through immediate spend lookup
+	// followed by normal subset diagnosis when those channels are still
+	// empty.
+	result := tp.handleMissingInputs(record)
+
+	// Assert that the first singleton alone is attributed as missing and
+	// the other members remain eligible for fresh-fee retry rather than all
+	// failing.
+	require.Equal(t, TxFailed, result.Event)
+	require.ErrorIs(t, result.Err, ErrInputMissing)
+	require.Zero(t, result.FeeRate)
+	require.NotNil(t, result.BadInput)
+	require.Equal(t, inputs[0].OutPoint(), *result.BadInput)
+}
+
+// TestHandleMissingInputsFundsAnchor checks that an ordinary underfunded anchor
+// can be isolated even when its wallet funder cannot replace a mempool spend.
+func TestHandleMissingInputsFundsAnchor(t *testing.T) {
+	t.Parallel()
+
+	// Arrange a missing 330-sat anchor and a funded wallet input with empty
+	// historical spend channels. The wallet-only probe reaches RBF fee
+	// policy, proving its input exists without validating its script.
+	tp, m := createTestPublisherNoAux(t)
+	anchor := createTestInput(330, input.CommitmentAnchor)
+	funder := createTestInput(50_000, input.TaprootPubKeySpend)
+	inputs := []input.Input{&anchor, &funder}
+	record := &monitorRecord{
+		requestID: 1,
+		req: &BumpRequest{
+			Inputs:          inputs,
+			DeliveryAddress: changePkScript,
+		},
+		feeFunction: m.feeFunc,
+	}
+	m.feeFunc.On("FeeRate").Return(chainfee.SatPerKWeight(2500)).Once()
+	m.signer.On(
+		"ComputeInputScript", mock.Anything, mock.Anything,
+	).Return(&input.Script{}, nil).Twice()
+	m.signer.On(
+		"SignOutputRaw", mock.Anything, mock.Anything,
+	).Return(&ecdsa.Signature{}, nil).Once()
+	m.wallet.On("CheckMempoolAcceptance", mock.MatchedBy(
+		txSpendsInputs(inputs...),
+	)).Return(chain.ErrMissingInputs).Once()
+	m.wallet.On("CheckMempoolAcceptance", mock.MatchedBy(
+		txSpendsInputs(&funder),
+	)).Return(chain.ErrInsufficientFee).Once()
+	for _, inp := range inputs {
+		op := inp.OutPoint()
+		spendEvent := &chainntnfs.SpendEvent{
+			Spend:  make(chan *chainntnfs.SpendDetail, 1),
+			Cancel: func() {},
+		}
+		m.notifier.On(
+			"RegisterSpendNtfn", &op, mock.Anything, mock.Anything,
+		).Return(spendEvent, nil).Once()
+	}
+
+	// Act through missing-input handling, which must borrow funding for the
+	// anchor's otherwise unconstructible singleton before attributing it.
+	result := tp.handleMissingInputs(record)
+
+	// Assert that only the missing anchor is terminal; the wallet funder's
+	// fee rejection must not strand the set or carry its aggregate fee.
+	require.Equal(t, TxFailed, result.Event)
+	require.ErrorIs(t, result.Err, ErrInputMissing)
+	require.NotNil(t, result.BadInput)
+	require.Equal(t, anchor.OutPoint(), *result.BadInput)
+	require.Zero(t, result.FeeRate)
+}
+
+// TestHandleMissingInputsNoAttributionFatal checks that a completed diagnosis
+// without a rejected singleton is fatal for the complete set.
+func TestHandleMissingInputsNoAttributionFatal(t *testing.T) {
+	t.Parallel()
+
+	// Arrange empty historical spend channels and two accepted singleton
+	// probes, so completed diagnosis supplies no narrower missing-input
+	// proof.
+	tp, m := createTestPublisherNoAux(t)
+	req := createBadInputTestRequest(2)
+	record := &monitorRecord{
+		requestID:   1,
+		req:         req,
+		feeFunction: m.feeFunc,
+		tx:          &wire.MsgTx{LockTime: 2},
+	}
+
+	mockNoInputSpends(m, req.Inputs)
+	m.feeFunc.On("FeeRate").Return(chainfee.SatPerKWeight(1000)).Times(2)
+	m.signer.On(
+		"ComputeInputScript", mock.Anything, mock.Anything,
+	).Return(&input.Script{}, nil).Times(2)
+	m.wallet.On("CheckMempoolAcceptance", mock.Anything).Return(nil).Twice()
+
+	// Act by handling the full missing-input failure through spend lookup
+	// and a completed singleton search.
+	result := tp.handleMissingInputs(record)
+
+	// Assert the existing whole-set fatal policy for completed,
+	// non-conflict diagnosis with no attributable singleton, retaining
+	// ErrInputMissing.
+	require.Equal(t, TxFatal, result.Event)
+	require.ErrorIs(t, result.Err, ErrInputMissing)
+	require.Nil(t, result.BadInput)
+}
+
+// TestInitialMempoolFailureSingletonFatal checks that singleton non-fee mempool
+// rejections keep the existing TxFatal behavior.
+func TestInitialMempoolFailureSingletonFatal(t *testing.T) {
+	t.Parallel()
+
+	// Arrange a known-fee singleton with a non-conflict mempool rejection.
+	// There is no smaller membership to probe, and no backend call is
+	// arranged.
+	tp, m := createTestPublisherNoAux(t)
+	req := createBadInputTestRequest(1)
+	record, subscriber := createBadInputTestRecord(tp, req, m.feeFunc)
+	initialErr := fmt.Errorf("%w: %w", errMempoolRejected, errDummy)
+
+	// Act by delivering that rejection through the initial error handler.
+	tp.handleInitialTxError(record, initialErr)
+	result := <-subscriber
+
+	// Assert that the existing singleton fatal outcome remains intact and
+	// no extra BadInput evidence is manufactured by skipped diagnosis.
+	require.Equal(t, TxFatal, result.Event)
+	require.Nil(t, result.BadInput)
+}
+
+// TestInitialMempoolFailureAuxSweeperSkipsDiagnosis checks that aux-enabled
+// sweep transactions preserve whole-set fatal behavior without subset probes.
+func TestInitialMempoolFailureAuxSweeperSkipsDiagnosis(t *testing.T) {
+	t.Parallel()
+
+	// Arrange an aux-enabled batch with a non-conflict mempool rejection.
+	// Subset construction could bypass its address policy, so no probe call
+	// or fee-function call is allowed by the fixture.
+	tp, m := createTestPublisher(t)
+	req := createBadInputTestRequest(4)
+	record, subscriber := createBadInputTestRecord(tp, req, m.feeFunc)
+	initialErr := fmt.Errorf("%w: %w", errMempoolRejected, errDummy)
+
+	// Act by delivering the rejection through the aux-aware diagnosis gate.
+	tp.handleInitialTxError(record, initialErr)
+	result := <-subscriber
+
+	// Assert the preserved whole-set fatal policy for skipped aux
+	// diagnosis, with no invented singleton attribution.
+	require.Equal(t, TxFatal, result.Event)
+	require.Nil(t, result.BadInput)
+}
+
+// TestInitialRetryFeeCeilingRetries checks that ordinary budget exhaustion
+// retains its upstream retry behavior even when the fee function is exhausted.
+func TestInitialRetryFeeCeilingRetries(t *testing.T) {
+	t.Parallel()
+
+	// Arrange an ordinary budget failure whose fee function cannot
+	// increment beyond its ceiling. This uses the generic retry path, not
+	// diagnosis.
+	tp, m := createTestPublisherNoAux(t)
+	record, subscriber := createBadInputTestRecord(
+		tp, createBadInputTestRequest(2), m.feeFunc,
+	)
+	feeRate := chainfee.SatPerKWeight(1000)
+	m.feeFunc.On("Increment").Return(false, ErrMaxPosition).Once()
+	m.feeFunc.On("FeeRate").Return(feeRate).Once()
+
+	// Act by handling the budget failure through the initial error handler
+	// and the unchanged upstream retry-fee helper.
+	tp.handleInitialTxError(record, ErrNotEnoughBudget)
+	result := <-subscriber
+
+	// Assert that budget exhaustion remains retryable at the existing rate,
+	// with its original error retained for later regrouping or a budget
+	// update.
+	require.Equal(t, TxFailed, result.Event)
+	require.ErrorIs(t, result.Err, ErrNotEnoughBudget)
+	require.Equal(t, feeRate, result.FeeRate)
+}
+
+// TestCreateAndCheckTxMempoolConflict checks that an unconfirmed conflicting
+// spend remains distinct from confirmed missing-input evidence.
+func TestCreateAndCheckTxMempoolConflict(t *testing.T) {
+	t.Parallel()
+
+	// Arrange a constructed candidate rejected by a reversible mempool
+	// conflict, with no accepted transaction in the monitor record.
+	tp, m := createTestPublisherNoAux(t)
+	inputs := make([]input.Input, 0, 2)
+	for range 2 {
+		inp := createTestInput(10_000, input.WitnessKeyHash)
+		inputs = append(inputs, &inp)
+	}
+	record := &monitorRecord{
+		requestID: 1,
+		req: &BumpRequest{
+			DeliveryAddress: changePkScript,
+			Inputs:          inputs,
+			Budget:          btcutil.Amount(10_000),
+		},
+		feeFunction: m.feeFunc,
+	}
+
+	m.feeFunc.On("FeeRate").Return(chainfee.SatPerKWeight(1000)).Once()
+	m.signer.On(
+		"ComputeInputScript", mock.Anything, mock.Anything,
+	).Return(&input.Script{}, nil).Times(2)
+	m.wallet.On("CheckMempoolAcceptance", mock.Anything).Return(
+		chain.ErrMempoolConflict,
+	).Once()
+
+	// Act by testing the candidate without publishing or recording it.
+	_, err := tp.createAndCheckTx(record)
+
+	// Assert conflict identity survives without recording the rejected tx.
+	require.ErrorIs(t, err, chain.ErrMempoolConflict)
+	require.Nil(t, record.tx)
+}
+
+// TestInitialMempoolConflictIsolatesInput checks that a conflicting singleton
+// is reported with transient evidence so its valid sibling can progress.
+func TestInitialMempoolConflictIsolatesInput(t *testing.T) {
+	t.Parallel()
+
+	// Arrange a rejected two-input request with one independently
+	// conflicting singleton; no fee increment or permanent input failure is
+	// justified.
+	tp, m := createTestPublisherNoAux(t)
+	req := createBadInputTestRequest(2)
+	record, subscriber := createBadInputTestRecord(tp, req, m.feeFunc)
+	m.feeFunc.On("FeeRate").Return(chainfee.SatPerKWeight(1000)).Once()
+	m.signer.On(
+		"ComputeInputScript", mock.Anything, mock.Anything,
+	).Return(&input.Script{}, nil).Once()
+	m.wallet.On("CheckMempoolAcceptance", mock.Anything).Return(
+		chain.ErrMempoolConflict,
+	).Once()
+
+	// Act by handling the full conflict through normal initial diagnosis.
+	tp.handleInitialTxError(record, fmt.Errorf("%w: %w", errMempoolRejected,
+		chain.ErrMempoolConflict))
+	result := <-subscriber
+
+	// Assert that the exact outpoint carries a reversible conflict,
+	// allowing the existing consumer to resubmit survivors without making
+	// it fatal.
+	require.Equal(t, TxFailed, result.Event)
+	require.ErrorIs(t, result.Err, chain.ErrMempoolConflict)
+	require.NotNil(t, result.BadInput)
+	require.Equal(t, req.Inputs[0].OutPoint(), *result.BadInput)
+}
+
+// TestInitialConflictWithUntestableFunding preserves a conflict discovered
+// after an earlier singleton construction failure without blaming its target.
+func TestInitialConflictWithUntestableFunding(t *testing.T) {
+	t.Parallel()
+
+	// Arrange an underfunded companion before the committed-output target.
+	// The complete pair is constructible, but no other normal input can
+	// fund the companion's own output. Use the deadline-one fee ceiling so
+	// losing the later conflict would make diagnosis fatal at a positive
+	// rate.
+	tp, m := createTestPublisherNoAux(t)
+	companion := createTestInput(300, input.WitnessKeyHash)
+	base := createTestInput(10_000, input.WitnessKeyHash)
+	required := &input.MockInput{}
+	defer required.AssertExpectations(t)
+	required.On("OutPoint").Return(base.OutPoint()).Times(13)
+	required.On("SignDesc").Return(base.SignDesc()).Times(5)
+	required.On("RequiredTxOut").Return(&wire.TxOut{
+		Value: 10_000,
+	}).Times(20)
+	required.On("RequiredLockTime").Return(uint32(0), false).Times(3)
+	required.On("UnconfParent").Return(nil).Times(3)
+	required.On("WitnessType").Return(input.WitnessKeyHash).Times(11)
+	required.On("BlocksToMaturity").Return(uint32(0)).Twice()
+	required.On(
+		"CraftInputScript", mock.Anything, mock.Anything, mock.Anything,
+		mock.Anything, mock.Anything,
+	).Return(&input.Script{}, nil).Twice()
+	const feeRate = chainfee.SatPerKWeight(250)
+	req := &BumpRequest{
+		DeliveryAddress: changePkScript,
+		Inputs:          []input.Input{&companion, required},
+		Budget:          10_000,
+		MaxFeeRate:      feeRate,
+		DeadlineHeight:  1,
+	}
+	feeFunction, err := NewLinearFeeFunction(
+		feeRate, 1, m.estimator, fn.None[chainfee.SatPerKWeight](),
+	)
+	require.NoError(t, err)
+	record, subscriber := createBadInputTestRecord(tp, req, feeFunction)
+	m.signer.On(
+		"ComputeInputScript", mock.Anything, mock.Anything,
+	).Return(&input.Script{}, nil).Twice()
+	m.wallet.On("CheckMempoolAcceptance", mock.MatchedBy(
+		txSpendsInputs(req.Inputs...),
+	)).Return(chain.ErrScriptVerifyFlag).Once()
+	m.wallet.On("CheckMempoolAcceptance", mock.MatchedBy(
+		txSpendsInputs(required, &companion),
+	)).Return(chain.ErrMempoolConflict).Once()
+
+	// Act by rejecting the full candidate, then diagnosing it through the
+	// initial error handler. The first construction failure must not erase
+	// the later combined conflict when funding-only construction also
+	// fails.
+	_, err = tp.createAndCheckTx(record)
+	require.ErrorIs(t, err, chain.ErrScriptVerifyFlag)
+	tp.handleInitialTxError(record, err)
+	result := <-subscriber
+
+	// Assert that the ambiguous set remains retryable at its current rate.
+	// No singleton was independently blamed, so no input may be
+	// quarantined.
+	require.Equal(t, TxFailed, result.Event)
+	require.ErrorIs(t, result.Err, chain.ErrMempoolConflict)
+	require.Equal(t, feeRate, result.FeeRate)
+	require.Nil(t, result.BadInput)
+}
+
+// TestReplacementRejectionKeepsOldTx checks that rejected candidates preserve
+// accepted monitoring until an actual attributed spend ends the request.
+func TestReplacementRejectionKeepsOldTx(t *testing.T) {
+	t.Parallel()
+
+	// Arrange singleton/multi-input rejection and pending/ready historical
+	// delivery through the real replacement path, without diagnostic
+	// probes.
+	testCases := []struct {
+		name   string
+		inputs int
+		reject error
+		spent  bool
+	}{
+		{
+			name:   "singleton script rejection",
+			inputs: 1,
+			reject: chain.ErrScriptVerifyFlag,
+		},
+		{
+			name:   "multi-input script rejection",
+			inputs: 2,
+			reject: chain.ErrScriptVerifyFlag,
+		},
+		{
+			name:   "pending historical spend",
+			inputs: 2,
+			reject: chain.ErrMissingInputs,
+		},
+		{
+			name:   "attributed historical spend",
+			inputs: 2,
+			reject: chain.ErrMissingInputs,
+			spent:  true,
+		},
+	}
+	for _, testCase := range testCases {
+		t.Run(testCase.name, func(t *testing.T) {
+			tp, m := createTestPublisherNoAux(t)
+			req := createBadInputTestRequest(testCase.inputs)
+			record, _ := createBadInputTestRecord(
+				tp, req, m.feeFunc,
+			)
+			oldTx := &wire.MsgTx{LockTime: 1}
+			record.tx = oldTx
+			feeRateCall := m.feeFunc.On("FeeRate").Return(
+				chainfee.SatPerKWeight(1000),
+			).Once()
+			if testCase.spent {
+				feeRateCall.Twice()
+				m.feeFunc.On("Increment").Return(
+					true, nil,
+				).Once()
+			}
+			m.signer.On(
+				"ComputeInputScript", mock.Anything,
+				mock.Anything,
+			).Return(&input.Script{}, nil).Times(testCase.inputs)
+			m.wallet.On(
+				"CheckMempoolAcceptance", mock.Anything,
+			).Return(testCase.reject).Once()
+			if errors.Is(testCase.reject, chain.ErrMissingInputs) {
+				for i, inp := range req.Inputs {
+					spendChan := make(
+						chan *chainntnfs.SpendDetail, 1,
+					)
+					event := &chainntnfs.SpendEvent{
+						Spend:  spendChan,
+						Cancel: func() {},
+					}
+					if testCase.spent && i == 0 {
+						event = createTestSpendEvent(
+							&wire.MsgTx{
+								LockTime: 2,
+							},
+						)
+					}
+					op := inp.OutPoint()
+					m.notifier.On(
+						"RegisterSpendNtfn", &op,
+						mock.Anything, mock.Anything,
+					).Return(event, nil).Once()
+				}
+			}
+
+			// Act by rejecting an actual rebuilt replacement
+			// transaction.
+			result := tp.createAndPublishTx(record)
+
+			// Assert that rejection alone preserves the accepted
+			// record, while actual spend cleanup identifies oldTx
+			// rather than its candidate.
+			require.Same(t, oldTx, record.tx)
+			if testCase.spent {
+				value := result.UnwrapOrFail(t)
+				require.Equal(t, TxUnknownSpend, value.Event)
+				require.Same(t, oldTx, value.Tx)
+			} else {
+				require.True(t, result.IsNone())
+			}
+		})
+	}
+}
+
 // TestTxPublisherBroadcast checks the internal `broadcast` method behaves as
 // expected.
 func TestTxPublisherBroadcast(t *testing.T) {
@@ -795,7 +2177,6 @@ func TestTxPublisherBroadcast(t *testing.T) {
 	}
 
 	for _, tc := range testCases {
-
 		t.Run(tc.name, func(t *testing.T) {
 			tc.setupMock()
 
@@ -927,7 +2308,6 @@ func TestRemoveResult(t *testing.T) {
 	}
 
 	for _, tc := range testCases {
-
 		t.Run(tc.name, func(t *testing.T) {
 			requestID := tc.setupRecord()
 
@@ -1744,6 +3124,9 @@ func TestProcessRecordsConfirmed(t *testing.T) {
 func TestProcessRecordsSpent(t *testing.T) {
 	t.Parallel()
 
+	// Arrange a monitored input with a confirmed third-party spend and the
+	// existing next fee, which survivors need to continue their fee line.
+
 	// Create a publisher using the mocks.
 	tp, m := createTestPublisher(t)
 
@@ -1774,14 +3157,12 @@ func TestProcessRecordsSpent(t *testing.T) {
 	tp.subscriberChans.Store(requestID, subscriber)
 	tp.records.Store(requestID, recordConfirmed)
 
-	// Mock the fee function to increase feerate.
 	m.feeFunc.On("Increment").Return(true, nil).Once()
+	feeRate := chainfee.SatPerKWeight(1000)
+	m.feeFunc.On("FeeRate").Return(feeRate).Once()
 
-	// Create a test feerate and return it from the mock fee function.
-	feerate := chainfee.SatPerKWeight(1000)
-	m.feeFunc.On("FeeRate").Return(feerate)
-
-	// Call processRecords and expect the results are notified back.
+	// Act by processing the spend and delivering its scoped publisher
+	// result.
 	tp.processRecords()
 
 	// Check the unknown tx result.
@@ -1790,12 +3171,12 @@ func TestProcessRecordsSpent(t *testing.T) {
 		t.Fatal("timeout waiting for subscriber")
 
 	case result := <-subscriber:
-		// We expect the result to be TxUnknownSpend.
+		// Assert that the confirmed spend retains its transaction and
+		// next fee so survivor retries preserve the existing fee line.
 		require.Equal(t, TxUnknownSpend, result.Event)
 		require.Equal(t, tx, result.Tx)
 
-		// We expect the fee rate to be updated.
-		require.Equal(t, feerate, result.FeeRate)
+		require.Equal(t, feeRate, result.FeeRate)
 
 		// No error should be set.
 		require.ErrorIs(t, result.Err, ErrUnknownSpent)

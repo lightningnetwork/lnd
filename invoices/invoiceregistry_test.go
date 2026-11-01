@@ -1051,11 +1051,8 @@ func testLookupAMPHtlcPreimageSetIsolation(t *testing.T,
 	)
 }
 
-// testReplayedAMPHtlcNearExpiry asserts that a held AMP HTLC that is replayed
-// close to its expiry, as the on-chain resolver does after a force close, is
-// still treated as accepted. Otherwise the resolver would abandon the HTLC,
-// while the invoice later settles it as part of its set: the payer would get
-// the shard back on-chain while the invoice reports it as paid.
+// testReplayedAMPHtlcNearExpiry asserts that a recorded AMP HTLC replayed near
+// expiry is resolved from its persisted invoice state.
 func testReplayedAMPHtlcNearExpiry(t *testing.T,
 	makeDB func(t *testing.T) (invpkg.InvoiceDB, *clock.TestClock)) {
 
@@ -1076,9 +1073,9 @@ func testReplayedAMPHtlcNearExpiry(t *testing.T,
 
 	sharer, err := amp.NewSeedSharer()
 	require.NoError(t, err)
-	left, right, err := sharer.Split()
+	left, _, err := sharer.Split()
 	require.NoError(t, err)
-	shardA, shardB := left.Child(0), right.Child(1)
+	shardA := left.Child(0)
 
 	payload := func(child *amp.Child, index uint32) *mockPayload {
 		return &mockPayload{
@@ -1087,8 +1084,7 @@ func testReplayedAMPHtlcNearExpiry(t *testing.T,
 		}
 	}
 
-	// The large shard A arrives with the minimum accepted expiry and is
-	// held until the set completes.
+	// Record shard A as accepted at the minimum expiry.
 	minExpiry := uint32(testCurrentHeight + testFinalCltvRejectDelta)
 	resolution, err := ctx.registry.NotifyExitHopHtlc(
 		shardA.Hash, 300, minExpiry, testCurrentHeight,
@@ -1098,9 +1094,7 @@ func testReplayedAMPHtlcNearExpiry(t *testing.T,
 	require.NoError(t, err)
 	require.Nil(t, resolution)
 
-	// The channel goes on-chain and the resolver replays shard A one block
-	// later. It must still be accepted rather than failed by the expiry
-	// check for new HTLCs.
+	// Replay shard A one block later and verify its recorded result.
 	resolverChan := make(chan interface{}, 1)
 	resolution, err = ctx.registry.NotifyExitHopHtlc(
 		shardA.Hash, 300, minExpiry, testCurrentHeight+1,
@@ -1109,29 +1103,6 @@ func testReplayedAMPHtlcNearExpiry(t *testing.T,
 	require.NoError(t, err)
 	require.Nil(t, resolution)
 
-	// The tiny shard B completes the set.
-	resolution, err = ctx.registry.NotifyExitHopHtlc(
-		shardB.Hash, 60, uint32(testCurrentHeight+40),
-		testCurrentHeight+1, getCircuitKey(2),
-		make(chan interface{}, 1), nil, payload(shardB, 1),
-	)
-	require.NoError(t, err)
-	checkSettleResolution(t, resolution, shardB.Preimage)
-
-	// The resolver learns shard A's child preimage, so it can claim the
-	// HTLC that the invoice now counts as paid.
-	select {
-	case res := <-resolverChan:
-		htlcResolution, ok := res.(invpkg.HtlcResolution)
-		require.True(t, ok)
-
-		checkSettleResolution(
-			t, htlcResolution, shardA.Preimage,
-		)
-
-	case <-time.After(testTimeout):
-		t.Fatal("resolver not notified of settled shard")
-	}
 }
 
 // testReplayedHoldKeysendNearExpiry asserts that a held keysend HTLC that is

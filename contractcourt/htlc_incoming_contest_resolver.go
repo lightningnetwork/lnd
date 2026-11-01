@@ -314,9 +314,8 @@ func (h *htlcIncomingContestResolver) Resolve() (ContractResolver, error) {
 		witnessUpdates <-chan lntypes.Preimage
 	)
 	if payload.FwdInfo.IsExit() {
-		// If this AMP HTLC was already settled off-chain, its child
-		// preimage was revealed and we must claim it, independent of
-		// any height checks the registry applies to new HTLCs.
+		// Resolve a recorded AMP HTLC from its settled invoice state
+		// before applying validation for new HTLCs.
 		applied, err := h.applyAMPPreimage(payload)
 		if err != nil {
 			return nil, err

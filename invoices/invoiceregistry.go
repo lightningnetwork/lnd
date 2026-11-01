@@ -643,11 +643,9 @@ func (i *InvoiceRegistry) LookupInvoiceByRef(ctx context.Context,
 }
 
 // LookupAMPHtlcPreimage returns the child preimage of a settled AMP HTLC that
-// pays to the given hash within the given set. AMP invoices don't carry an
-// invoice-level preimage, so this is the only way for on-chain resolution to
-// learn a child preimage that was already revealed off-chain. Unlike
-// NotifyExitHopHtlc, this is a pure read without any side effects on the
-// invoice. False is returned if no matching settled HTLC is found.
+// pays to the given hash within the given set. Unlike NotifyExitHopHtlc, this
+// is a pure read without any side effects on the invoice. False is returned
+// if no matching settled HTLC is found.
 func (i *InvoiceRegistry) LookupAMPHtlcPreimage(ctx context.Context,
 	setID [32]byte, hash lntypes.Hash) (lntypes.Preimage, bool, error) {
 

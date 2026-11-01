@@ -2097,10 +2097,8 @@ func (c *ChannelArbitrator) incomingPreimageAvailable(
 		return false, err
 	}
 
-	// Finally, an incoming AMP HTLC is paid with a child hash that doesn't
-	// index its invoice, and AMP invoices have no invoice-level preimage.
-	// Once the registry settled the HTLC, its child preimage was revealed
-	// to our peer, so we must be able to go on-chain to claim it.
+	// Finally, check the settled AMP child preimage stored on the invoice
+	// HTLC, using the set ID from the incoming payload.
 	if !htlc.Incoming {
 		return false, nil
 	}

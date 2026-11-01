@@ -167,9 +167,7 @@ func TestHtlcIncomingResolverExitSettleAMP(t *testing.T) {
 		setID: {testResPreimage},
 	}
 
-	// Close to expiry, the registry fails AMP HTLCs before it checks for
-	// replays. This must not make us abandon an HTLC whose preimage we
-	// already revealed.
+	// Ensure the settled lookup is applied before new-HTLC validation.
 	ctx.registry.notifyResolution = invoices.NewFailResolution(
 		testResCircuitKey, testAcceptHeight, invoices.ResultAmpError,
 	)
@@ -178,6 +176,40 @@ func TestHtlcIncomingResolverExitSettleAMP(t *testing.T) {
 	ctx.waitForResult(true)
 
 	require.Zero(t, ctx.registry.notifyCalls.Load())
+}
+
+// TestHtlcIncomingResolverAMPSettlesAfterLaunch asserts that Resolve retries
+// the side-effect-free AMP preimage lookup when Launch ran before the AMP set
+// settled.
+func TestHtlcIncomingResolverAMPSettlesAfterLaunch(t *testing.T) {
+	t.Parallel()
+	defer timeout()()
+
+	setID := [32]byte{1}
+	ctx := newIncomingResolverTestContext(t, true)
+	ctx.onionProcessor.amp = record.NewAMP([32]byte{2}, setID, 0)
+
+	// Launch cannot find the child preimage while the shard is only
+	// accepted. In particular, it must leave the contest resolver active.
+	err := ctx.resolver.Launch()
+	require.NoError(t, err)
+	require.False(t, ctx.resolver.IsResolved())
+
+	// Complete the AMP set after Launch. Resolve must perform the lookup
+	// again and claim the HTLC with the newly stored child preimage.
+	ctx.registry.ampPreimages = map[[32]byte][]lntypes.Preimage{
+		setID: {testResPreimage},
+	}
+
+	ctx.resolveErr = make(chan error, 1)
+	go func() {
+		var err error
+		ctx.nextResolver, err = ctx.resolver.Resolve()
+		ctx.resolveErr <- err
+	}()
+
+	ctx.notifyEpoch(testInitialBlockHeight)
+	ctx.waitForResult(true)
 }
 
 // TestHtlcIncomingResolverAMPPreimageLookupError asserts that AMP invoice

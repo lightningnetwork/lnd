@@ -31,6 +31,7 @@ type invoiceDBFaultInjector struct {
 	invpkg.InvoiceDB
 
 	lookupErr   error
+	lookupCalls int
 	updateCalls int
 }
 
@@ -38,6 +39,8 @@ type invoiceDBFaultInjector struct {
 // the wrapped invoice database.
 func (f *invoiceDBFaultInjector) LookupInvoice(ctx context.Context,
 	ref invpkg.InvoiceRef) (invpkg.Invoice, error) {
+
+	f.lookupCalls++
 
 	if f.lookupErr != nil {
 		return invpkg.Invoice{}, f.lookupErr
@@ -102,6 +105,23 @@ func newFaultTestContext(t *testing.T, cfg *invpkg.RegistryConfig,
 // retryable and interceptor errors only fail HTLCs that are known to be new.
 func testInvoiceRegistryProcessingErrors(t *testing.T,
 	makeDB func(t *testing.T) (invpkg.InvoiceDB, *clock.TestClock)) {
+	t.Run("ordinary payment uses one lookup", func(t *testing.T) {
+		ctx, faultDB := newFaultTestContext(t, nil, makeDB)
+		invoice := newInvoice(t, false, false)
+		_, err := ctx.registry.AddInvoice(
+			t.Context(), invoice, testInvoicePaymentHash,
+		)
+		require.NoError(t, err)
+
+		resolution, err := ctx.registry.NotifyExitHopHtlc(
+			testInvoicePaymentHash, testInvoiceAmount,
+			testHtlcExpiry, testCurrentHeight, getCircuitKey(0),
+			nil, nil, testPayload,
+		)
+		require.NoError(t, err)
+		checkSettleResolution(t, resolution, testInvoicePreimage)
+		require.Equal(t, 1, faultDB.lookupCalls)
+	})
 
 	t.Run("lookup error is retryable", func(t *testing.T) {
 		lookupErr := errors.New("temporary database failure")

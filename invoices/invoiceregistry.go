@@ -1011,15 +1011,22 @@ func (i *InvoiceRegistry) NotifyExitHopHtlc(rHash lntypes.Hash,
 		totalAmtMsat:         payload.TotalAmtMsat(),
 	}
 
-	// A replayed HTLC must be resolved according to its recorded state.
-	// The spontaneous payment checks below only apply to new HTLCs. In
-	// particular their expiry check uses the current height, so a held
-	// HTLC replayed by the on-chain resolver close to its expiry would
-	// otherwise be failed, while the invoice can still settle it as part
-	// of its set.
-	replayed, err := i.isReplayedHtlc(&ctx)
-	if err != nil {
-		return nil, err
+	// Only spontaneous AMP and keysend processing needs replay detection
+	// before taking the registry lock. Its expiry checks apply to new HTLCs
+	// and could otherwise fail a recorded replay near expiry. Ordinary
+	// invoice payments skip this early lookup and use the existing replay
+	// check in notifyExitHopHtlcLocked below.
+	_, isKeysend := ctx.customRecords[record.KeySendType]
+	checkReplay := i.cfg.AcceptAMP && ctx.amp != nil ||
+		i.cfg.AcceptKeySend && ctx.amp == nil && isKeysend
+
+	var replayed bool
+	if checkReplay {
+		var err error
+		replayed, err = i.isReplayedHtlc(&ctx)
+		if err != nil {
+			return nil, err
+		}
 	}
 
 	switch {

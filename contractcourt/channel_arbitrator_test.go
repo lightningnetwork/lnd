@@ -3869,13 +3869,20 @@ func TestChannelArbitratorAMPPreimageAvailable(t *testing.T) {
 	require.NoError(t, err)
 	require.Empty(t, actions)
 
-	// Outgoing HTLCs are never AMP exit hop HTLCs.
+	// The invoice registry only answers for HTLCs offered to us. An
+	// outgoing HTLC must not be claimed with an AMP child preimage, even if
+	// its payload decodes as an exit AMP hop whose child preimage the
+	// registry released.
 	registry.ampLookupErr = nil
 	registry.ampPreimages = map[[32]byte][]lntypes.Preimage{
 		setID: {preimage},
 	}
-	htlc.Incoming = false
-	available, err := chanArb.incomingPreimageAvailable(htlc)
+	outgoing := htlc
+	outgoing.Incoming = false
+	onionProcessor.offeredOnionBlob = nil
+
+	available, err := chanArb.incomingPreimageAvailable(outgoing)
 	require.NoError(t, err)
 	require.False(t, available)
+	require.Nil(t, onionProcessor.offeredOnionBlob)
 }

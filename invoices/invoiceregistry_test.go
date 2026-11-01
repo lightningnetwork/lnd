@@ -570,6 +570,10 @@ func TestInvoiceRegistry(t *testing.T) {
 			test: testLookupAMPHtlcPreimage,
 		},
 		{
+			name: "LookupAMPHtlcPreimageSetIsolation",
+			test: testLookupAMPHtlcPreimageSetIsolation,
+		},
+		{
 			name: "ReplayedAMPHtlcNearExpiry",
 			test: testReplayedAMPHtlcNearExpiry,
 		},
@@ -737,6 +741,165 @@ func testLookupAMPHtlcPreimage(t *testing.T,
 	)
 	require.NoError(t, err)
 	require.False(t, ok)
+}
+
+// testLookupAMPHtlcPreimageSetIsolation asserts that settled AMP preimages and
+// replay outcomes remain scoped to their set on a reusable AMP invoice.
+func testLookupAMPHtlcPreimageSetIsolation(t *testing.T,
+	makeDB func(t *testing.T) (invpkg.InvoiceDB, *clock.TestClock)) {
+
+	t.Parallel()
+	defer timeout()()
+
+	ctx := newTestContext(t, nil, makeDB)
+	ctxb := t.Context()
+
+	const expiry = uint32(testCurrentHeight + 20)
+
+	var payAddr [32]byte
+	_, err := rand.Read(payAddr[:])
+	require.NoError(t, err)
+
+	invoice := newInvoice(t, false, true)
+	invoice.Terms.PaymentAddr = payAddr
+	_, err = ctx.registry.AddInvoice(
+		ctxb, invoice, testInvoicePaymentHash,
+	)
+	require.NoError(t, err)
+
+	type ampSet struct {
+		id       [32]byte
+		children [2]*amp.Child
+	}
+
+	newSet := func() ampSet {
+		var setID [32]byte
+		_, err := rand.Read(setID[:])
+		require.NoError(t, err)
+
+		sharer, err := amp.NewSeedSharer()
+		require.NoError(t, err)
+		left, right, err := sharer.Split()
+		require.NoError(t, err)
+
+		return ampSet{
+			id: setID,
+			children: [2]*amp.Child{
+				left.Child(0), right.Child(1),
+			},
+		}
+	}
+
+	settledSet := newSet()
+	acceptedSet := newSet()
+	canceledSet := newSet()
+
+	type sentHtlc struct {
+		set        ampSet
+		childIndex int
+		circuitID  uint64
+		hodlChan   chan interface{}
+	}
+
+	send := func(htlc sentHtlc, hash lntypes.Hash) invpkg.HtlcResolution {
+		child := htlc.set.children[htlc.childIndex]
+		childIndex := uint32(htlc.childIndex)
+		payload := &mockPayload{
+			mpp: record.NewMPP(testInvoiceAmount, payAddr),
+			amp: record.NewAMP(
+				child.Share, htlc.set.id, childIndex,
+			),
+		}
+
+		resolution, err := ctx.registry.NotifyExitHopHtlc(
+			hash, testInvoiceAmount/2, expiry,
+			testCurrentHeight, getCircuitKey(htlc.circuitID),
+			htlc.hodlChan, nil, payload,
+		)
+		require.NoError(t, err)
+
+		return resolution
+	}
+
+	// Settle one complete set.
+	settledA := sentHtlc{
+		set: settledSet, childIndex: 0, circuitID: 1,
+		hodlChan: make(chan interface{}, 1),
+	}
+	settledB := sentHtlc{
+		set: settledSet, childIndex: 1, circuitID: 2,
+		hodlChan: make(chan interface{}, 1),
+	}
+	require.Nil(t, send(settledA, settledSet.children[0].Hash))
+	checkSettleResolution(
+		t, send(settledB, settledSet.children[1].Hash),
+		settledSet.children[1].Preimage,
+	)
+
+	// Leave a second set accepted and incomplete.
+	accepted := sentHtlc{
+		set: acceptedSet, childIndex: 0, circuitID: 3,
+		hodlChan: make(chan interface{}, 1),
+	}
+	require.Nil(t, send(accepted, acceptedSet.children[0].Hash))
+
+	// Start a third set, then fail reconstruction when its second shard
+	// supplies a hash that doesn't match its derived child. The accepted
+	// first shard is canceled as part of that set only.
+	canceledA := sentHtlc{
+		set: canceledSet, childIndex: 0, circuitID: 4,
+		hodlChan: make(chan interface{}, 1),
+	}
+	canceledB := sentHtlc{
+		set: canceledSet, childIndex: 1, circuitID: 5,
+		hodlChan: make(chan interface{}, 1),
+	}
+	require.Nil(t, send(canceledA, canceledSet.children[0].Hash))
+	checkFailResolution(
+		t, send(canceledB, lntypes.Hash{9}),
+		invpkg.ResultAmpReconstruction,
+	)
+
+	// Only the settled set exposes preimages. A hash from that set cannot
+	// be used to read through another set ID.
+	for _, child := range settledSet.children {
+		preimage, ok, err := ctx.registry.LookupAMPHtlcPreimage(
+			ctxb, settledSet.id, child.Hash,
+		)
+		require.NoError(t, err)
+		require.True(t, ok)
+		require.Equal(t, child.Preimage, preimage)
+	}
+	_, ok, err := ctx.registry.LookupAMPHtlcPreimage(
+		ctxb, acceptedSet.id, acceptedSet.children[0].Hash,
+	)
+	require.NoError(t, err)
+	require.False(t, ok)
+	_, ok, err = ctx.registry.LookupAMPHtlcPreimage(
+		ctxb, canceledSet.id, canceledSet.children[0].Hash,
+	)
+	require.NoError(t, err)
+	require.False(t, ok)
+	_, ok, err = ctx.registry.LookupAMPHtlcPreimage(
+		ctxb, acceptedSet.id, settledSet.children[0].Hash,
+	)
+	require.NoError(t, err)
+	require.False(t, ok)
+
+	// Replays resolve according to the state recorded within their own set.
+	settledReplay := send(settledA, settledSet.children[0].Hash)
+	settleResolution := checkSettleResolution(
+		t, settledReplay, settledSet.children[0].Preimage,
+	)
+	require.Equal(
+		t, invpkg.ResultReplayToSettled, settleResolution.Outcome,
+	)
+
+	require.Nil(t, send(accepted, acceptedSet.children[0].Hash))
+	canceledReplay := send(canceledA, canceledSet.children[0].Hash)
+	checkFailResolution(
+		t, canceledReplay, invpkg.ResultReplayToCanceled,
+	)
 }
 
 // testReplayedAMPHtlcNearExpiry asserts that a held AMP HTLC that is replayed

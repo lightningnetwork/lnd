@@ -2126,8 +2126,8 @@ func (c *ChannelArbitrator) isAMPPreimageAvailable(htlc channeldb.HTLC) bool {
 		// Don't block chain actions for all other HTLCs of this
 		// channel. The lookup is retried on the next block.
 		log.Errorf("ChannelArbitrator(%v): unable to look up AMP "+
-			"preimage for htlc=%x: %v", c.cfg.ChanPoint,
-			htlc.RHash[:], err)
+			"preimage for htlc=%x (refund_timeout=%v): %v",
+			c.cfg.ChanPoint, htlc.RHash[:], htlc.RefundTimeout, err)
 
 		return false
 	}

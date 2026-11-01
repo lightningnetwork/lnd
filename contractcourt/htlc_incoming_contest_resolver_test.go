@@ -2,6 +2,7 @@ package contractcourt
 
 import (
 	"bytes"
+	"errors"
 	"io"
 	"testing"
 
@@ -177,6 +178,48 @@ func TestHtlcIncomingResolverExitSettleAMP(t *testing.T) {
 	ctx.waitForResult(true)
 
 	require.Zero(t, ctx.registry.notifyCalls.Load())
+}
+
+// TestHtlcIncomingResolverAMPPreimageLookupError asserts that AMP invoice
+// lookup errors are returned by both resolver entry points without mutating
+// the invoice through NotifyExitHopHtlc.
+func TestHtlcIncomingResolverAMPPreimageLookupError(t *testing.T) {
+	t.Parallel()
+
+	lookupErr := errors.New("lookup failed")
+	newContext := func(t *testing.T) *incomingResolverTestContext {
+		ctx := newIncomingResolverTestContext(t, true)
+		ctx.onionProcessor.amp = record.NewAMP(
+			[32]byte{2}, [32]byte{1}, 0,
+		)
+		ctx.registry.ampLookupErr = lookupErr
+
+		return ctx
+	}
+
+	t.Run("launch", func(t *testing.T) {
+		ctx := newContext(t)
+
+		err := ctx.resolver.Launch()
+		require.ErrorIs(t, err, lookupErr)
+		require.Zero(t, ctx.registry.notifyCalls.Load())
+	})
+
+	t.Run("resolve", func(t *testing.T) {
+		defer timeout()()
+
+		ctx := newContext(t)
+		resolveErr := make(chan error, 1)
+		go func() {
+			_, err := ctx.resolver.Resolve()
+			resolveErr <- err
+		}()
+
+		ctx.notifyEpoch(testInitialBlockHeight)
+		require.ErrorIs(t, <-resolveErr, lookupErr)
+		require.Zero(t, ctx.registry.notifyCalls.Load())
+		require.False(t, ctx.resolver.IsResolved())
+	})
 }
 
 // TestHtlcIncomingResolverExitCancel tests resolution of an exit hop htlc for

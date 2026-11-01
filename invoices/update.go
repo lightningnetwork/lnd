@@ -288,14 +288,38 @@ func updateMpp(ctx *invoiceUpdateCtx, inv *Invoice) (*InvoiceUpdateDesc,
 
 	// Add amount of new htlc.
 	newSetTotal += ctx.amtPaid
+	setComplete := newSetTotal >= totalAmt
 
 	// The invoice is still open. Check the expiry.
-	if ctx.expiry < uint32(ctx.currentHeight+ctx.finalCltvRejectDelta) {
+	minRejectExpiry := uint32(
+		ctx.currentHeight + ctx.finalCltvRejectDelta,
+	)
+	if ctx.expiry < minRejectExpiry {
 		return nil, ctx.failRes(ResultExpiryTooSoon), nil
 	}
 
-	if ctx.expiry < uint32(ctx.currentHeight+inv.Terms.FinalCltvDelta) {
+	minInvoiceExpiry := uint32(
+		ctx.currentHeight + inv.Terms.FinalCltvDelta,
+	)
+	if ctx.expiry < minInvoiceExpiry {
 		return nil, ctx.failRes(ResultExpiryTooSoon), nil
+	}
+
+	// Before completing the set, ensure every previously accepted shard
+	// is still safe to settle at the current height. A shard may have
+	// satisfied these checks when it was first accepted but become stale
+	// while waiting for the rest of the set.
+	if setComplete {
+		for _, htlc := range htlcSet {
+			if htlc.Expiry < minRejectExpiry ||
+				htlc.Expiry < minInvoiceExpiry {
+
+				return cancelHtlcSetUpdate(htlcSet, setID),
+					ctx.failRes(
+						ResultHtlcSetExpiryTooSoon,
+					), nil
+			}
+		}
 	}
 
 	if setID != nil && *setID == BlankPayAddr {
@@ -313,7 +337,6 @@ func updateMpp(ctx *invoiceUpdateCtx, inv *Invoice) (*InvoiceUpdateDesc,
 	}
 
 	// If the invoice cannot be settled yet, only record the htlc.
-	setComplete := newSetTotal >= totalAmt
 	if !setComplete {
 		return &update, ctx.acceptRes(resultPartialAccepted), nil
 	}
@@ -335,26 +358,7 @@ func updateMpp(ctx *invoiceUpdateCtx, inv *Invoice) (*InvoiceUpdateDesc,
 		var failRes *HtlcFailResolution
 		htlcPreimages, failRes = reconstructAMPPreimages(ctx, htlcSet)
 		if failRes != nil {
-			// Reconstruction failure is a set-local condition: only
-			// the HTLCs of this set can never settle. Cancel just
-			// this set and keep the invoice open, since reusable
-			// static AMP invoices may carry other accepted sets
-			// that are unaffected by the failure. The current HTLC
-			// is failed directly via failRes and was never added
-			// to the invoice, so it is not part of the cancel set.
-			cancelHtlcs := make(
-				map[CircuitKey]struct{}, len(htlcSet),
-			)
-			for key := range htlcSet {
-				cancelHtlcs[key] = struct{}{}
-			}
-
-			update.UpdateType = CancelHTLCsUpdate
-			update.CancelHtlcs = cancelHtlcs
-			update.AddHtlcs = nil
-			update.SetID = (*SetID)(setID)
-
-			return &update, failRes, nil
+			return cancelHtlcSetUpdate(htlcSet, setID), failRes, nil
 		}
 
 		// The preimage for _this_ HTLC will be the one with context's
@@ -372,6 +376,24 @@ func updateMpp(ctx *invoiceUpdateCtx, inv *Invoice) (*InvoiceUpdateDesc,
 	}
 
 	return &update, ctx.settleRes(htlcPreimage, ResultSettled), nil
+}
+
+// cancelHtlcSetUpdate returns an update that cancels every previously accepted
+// HTLC in a payment set while leaving the invoice open. The completing HTLC is
+// not included because it has not been added to the invoice yet.
+func cancelHtlcSetUpdate(htlcSet HTLCSet,
+	setID *[32]byte) *InvoiceUpdateDesc {
+
+	cancelHtlcs := make(map[CircuitKey]struct{}, len(htlcSet))
+	for key := range htlcSet {
+		cancelHtlcs[key] = struct{}{}
+	}
+
+	return &InvoiceUpdateDesc{
+		UpdateType:  CancelHTLCsUpdate,
+		CancelHtlcs: cancelHtlcs,
+		SetID:       (*SetID)(setID),
+	}
 }
 
 // HTLCSet is a map of CircuitKey to InvoiceHTLC.

@@ -1052,8 +1052,9 @@ func testLookupAMPHtlcPreimageSetIsolation(t *testing.T,
 	)
 }
 
-// testReplayedAMPHtlcNearExpiry asserts that a recorded AMP HTLC replayed near
-// expiry is resolved from its persisted invoice state.
+// testReplayedAMPHtlcNearExpiry asserts that a held AMP HTLC replayed by the
+// on-chain resolver remains accepted, but cannot be used to settle its set once
+// its expiry is too close at the set's completion height.
 func testReplayedAMPHtlcNearExpiry(t *testing.T,
 	makeDB func(t *testing.T) (invpkg.InvoiceDB, *clock.TestClock)) {
 
@@ -1074,9 +1075,9 @@ func testReplayedAMPHtlcNearExpiry(t *testing.T,
 
 	sharer, err := amp.NewSeedSharer()
 	require.NoError(t, err)
-	left, _, err := sharer.Split()
+	left, right, err := sharer.Split()
 	require.NoError(t, err)
-	shardA := left.Child(0)
+	shardA, shardB := left.Child(0), right.Child(1)
 
 	payload := func(child *amp.Child, index uint32) *mockPayload {
 		return &mockPayload{
@@ -1085,7 +1086,8 @@ func testReplayedAMPHtlcNearExpiry(t *testing.T,
 		}
 	}
 
-	// Record shard A as accepted at the minimum expiry.
+	// Shard A arrives with the minimum accepted expiry and is held until
+	// the set completes.
 	minExpiry := uint32(testCurrentHeight + testFinalCltvRejectDelta)
 	resolution, err := ctx.registry.NotifyExitHopHtlc(
 		shardA.Hash, 300, minExpiry, testCurrentHeight,
@@ -1095,7 +1097,9 @@ func testReplayedAMPHtlcNearExpiry(t *testing.T,
 	require.NoError(t, err)
 	require.Nil(t, resolution)
 
-	// Replay shard A one block later and verify its recorded result.
+	// The channel goes on-chain and the resolver replays shard A one block
+	// later. It must still be accepted rather than failed by the expiry
+	// check for new HTLCs.
 	resolverChan := make(chan interface{}, 1)
 	resolution, err = ctx.registry.NotifyExitHopHtlc(
 		shardA.Hash, 300, minExpiry, testCurrentHeight+1,
@@ -1103,6 +1107,43 @@ func testReplayedAMPHtlcNearExpiry(t *testing.T,
 	)
 	require.NoError(t, err)
 	require.Nil(t, resolution)
+
+	// Shard B would complete the set, but shard A no longer has a
+	// sufficient CLTV delta at the current height.
+	resolution, err = ctx.registry.NotifyExitHopHtlc(
+		shardB.Hash, 60, uint32(testCurrentHeight+40),
+		testCurrentHeight+1, getCircuitKey(2),
+		make(chan interface{}, 1), nil, payload(shardB, 1),
+	)
+	require.NoError(t, err)
+	checkFailResolution(
+		t, resolution, invpkg.ResultHtlcSetExpiryTooSoon,
+	)
+
+	// The failed completion attempt must cancel shard A, leave the invoice
+	// open and not record shard B.
+	invoice, err := ctx.registry.LookupInvoiceByRef(
+		t.Context(), invpkg.InvoiceRefBySetID(setID),
+	)
+	require.NoError(t, err)
+	require.Equal(t, invpkg.ContractOpen, invoice.State)
+	htlcA, ok := invoice.Htlcs[getCircuitKey(1)]
+	require.True(t, ok)
+	require.Equal(t, invpkg.HtlcStateCanceled, htlcA.State)
+	_, ok = invoice.Htlcs[getCircuitKey(2)]
+	require.False(t, ok)
+
+	select {
+	case resolution := <-resolverChan:
+		htlcResolution, ok := resolution.(invpkg.HtlcResolution)
+		require.True(t, ok)
+		checkFailResolution(
+			t, htlcResolution, invpkg.ResultHtlcSetExpiryTooSoon,
+		)
+
+	case <-time.After(testTimeout):
+		t.Fatal("resolver not notified of stale set cancellation")
+	}
 }
 
 // testReplayedHoldKeysendNearExpiry asserts that a held keysend HTLC that is

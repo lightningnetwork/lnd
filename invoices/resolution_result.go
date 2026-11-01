@@ -121,6 +121,10 @@ const (
 	// hash/preimage pairs were invalid for at least one HTLC in the set.
 	ResultAmpReconstruction
 
+	// ResultHtlcSetExpiryTooSoon is returned when an accepted HTLC can no
+	// longer safely settle at the height when its set becomes complete.
+	ResultHtlcSetExpiryTooSoon
+
 	// ExternalValidationFailed is returned when the external validation
 	// failed.
 	ExternalValidationFailed
@@ -197,6 +201,9 @@ func (f FailResolutionResult) FailureString() string {
 	case ResultAmpReconstruction:
 		return "amp reconstruction failed"
 
+	case ResultHtlcSetExpiryTooSoon:
+		return "htlc set contains an expiry that is too soon"
+
 	case ExternalValidationFailed:
 		return "external validation failed"
 
@@ -217,6 +224,7 @@ func (f FailResolutionResult) IsSetFailure() bool {
 		ResultHtlcSetTotalTooLow,
 		ResultHtlcSetTotalMismatch,
 		ResultHtlcSetOverpayment,
+		ResultHtlcSetExpiryTooSoon,
 		ExternalValidationFailed:
 
 		return true

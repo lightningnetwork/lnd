@@ -16,7 +16,7 @@ require (
 	github.com/btcsuite/btcd/wire/v2 v2.0.0
 	github.com/btcsuite/btclog v1.0.0
 	github.com/btcsuite/btclog/v2 v2.0.1-0.20250728225537-6090e87c6c5b
-	github.com/btcsuite/btcwallet v0.18.1-0.20261020132555-16cfb4483d1f
+	github.com/btcsuite/btcwallet v0.18.1
 	github.com/btcsuite/btcwallet/wallet/txauthor v1.4.0
 	github.com/btcsuite/btcwallet/wallet/txrules v1.3.0
 	github.com/btcsuite/btcwallet/walletdb v1.6.0
@@ -35,6 +35,7 @@ require (
 	github.com/jessevdk/go-flags v1.6.1
 	github.com/jrick/logrotate v1.1.2
 	github.com/kkdai/bstream v1.0.0
+	github.com/klauspost/compress v1.18.0
 	github.com/lightninglabs/neutrino v0.18.0
 	github.com/lightninglabs/neutrino/cache v1.1.4
 	github.com/lightningnetwork/lightning-onion v1.4.0
@@ -51,6 +52,7 @@ require (
 	github.com/lightningnetwork/lnd/tor v1.2.0
 	github.com/ltcsuite/ltcd v0.0.0-20190101042124-f37f8bf35796
 	github.com/miekg/dns v1.1.43
+	github.com/pmezard/go-difflib v1.0.0
 	github.com/prometheus/client_golang v1.23.2
 	github.com/stretchr/testify v1.11.1
 	github.com/tv42/zbase32 v0.0.0-20160707012821-501572607d02
@@ -62,17 +64,13 @@ require (
 	golang.org/x/mobile v0.0.0-20190719004257-d2bd2a29d028
 	golang.org/x/sync v0.22.0
 	golang.org/x/term v0.45.0
+	golang.org/x/text v0.40.0
 	golang.org/x/time v0.3.0
 	google.golang.org/grpc v1.83.1
 	google.golang.org/protobuf v1.36.11
 	gopkg.in/macaroon-bakery.v2 v2.0.1
 	gopkg.in/macaroon.v2 v2.0.0
 	pgregory.net/rapid v1.2.0
-)
-
-require (
-	github.com/felixge/httpsnoop v1.1.0 // indirect
-	github.com/kcalvinalvin/anet v0.0.0-20251112173137-d8ddc1f6dbee // indirect
 )
 
 require (
@@ -102,6 +100,7 @@ require (
 	github.com/docker/go-connections v0.4.0 // indirect
 	github.com/docker/go-units v0.5.0 // indirect
 	github.com/dustin/go-humanize v1.0.1 // indirect
+	github.com/felixge/httpsnoop v1.1.0 // indirect
 	github.com/fergusstrange/embedded-postgres v1.25.0 // indirect
 	github.com/fsnotify/fsnotify v1.5.4 // indirect
 	github.com/go-logr/logr v1.4.3 // indirect
@@ -126,7 +125,7 @@ require (
 	github.com/json-iterator/go v1.1.12 // indirect
 	github.com/juju/loggo v0.0.0-20210728185423-eebad3a902c4 // indirect
 	github.com/juju/testing v0.0.0-20220203020004-a0ff61f03494 // indirect
-	github.com/klauspost/compress v1.18.0
+	github.com/kcalvinalvin/anet v0.0.0-20251112173137-d8ddc1f6dbee // indirect
 	github.com/lib/pq v1.10.9 // indirect
 	github.com/lightninglabs/gozmq v0.0.0-20191113021534-d20a764486bf // indirect
 	github.com/mattn/go-isatty v0.0.24 // indirect
@@ -145,7 +144,6 @@ require (
 	github.com/opencontainers/runc v1.2.8 // indirect
 	github.com/ory/dockertest/v3 v3.10.0 // indirect
 	github.com/pkg/errors v0.9.1 // indirect
-	github.com/pmezard/go-difflib v1.0.0
 	github.com/prometheus/client_model v0.6.2 // indirect
 	github.com/prometheus/common v0.66.1 // indirect
 	github.com/prometheus/procfs v0.16.1 // indirect
@@ -187,7 +185,6 @@ require (
 	golang.org/x/mod v0.38.0 // indirect
 	golang.org/x/net v0.57.0 // indirect
 	golang.org/x/sys v0.47.0 // indirect
-	golang.org/x/text v0.40.0
 	golang.org/x/tools v0.48.0 // indirect
 	google.golang.org/genproto v0.0.0-20231016165738-49dd2c1f3d0b // indirect
 	google.golang.org/genproto/googleapis/api v0.0.0-20260526163538-3dc84a4a5aaa // indirect

@@ -123,6 +123,9 @@ func DecodeBlindedPayment(r io.Reader) (*BlindedPaymentPath, error) {
 	if err != nil {
 		return nil, err
 	}
+	if numHops[0] == 0 {
+		return nil, fmt.Errorf("blinded payment path must contain at least one hop")
+	}
 
 	payment.Hops = make([]*sphinx.BlindedHopInfo, int(numHops[0]))
 

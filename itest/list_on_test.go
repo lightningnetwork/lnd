@@ -11,7 +11,7 @@ import (
 
 var allTestCases = []*lntest.TestCase{
 	{
-		Name: "rbf coop close upfront address",
+		Name:     "rbf coop close upfront address",
 		TestFunc: testRbfCoopCloseUpfrontAddress,
 	},
 	{

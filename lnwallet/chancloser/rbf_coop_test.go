@@ -1443,7 +1443,7 @@ func TestRbfChannelActiveTransitions(t *testing.T) {
 		defer h.stopAndAssert()
 		h.expectShutdownEvents(shutdownExpect{
 			isInitiator: true,
-			allowSend: true,
+			allowSend:   true,
 		})
 		h.expectMsgSent(nil)
 		h.chanCloser.SendEvent(
@@ -1463,7 +1463,7 @@ func TestRbfChannelActiveTransitions(t *testing.T) {
 		defer h.stopAndAssert()
 		h.expectShutdownEvents(shutdownExpect{
 			isInitiator: true,
-			allowSend: true,
+			allowSend:   true,
 		})
 		h.expectMsgSent(nil)
 		h.chanCloser.SendEvent(ctx, &SendShutdown{})
@@ -1479,7 +1479,7 @@ func TestRbfChannelActiveTransitions(t *testing.T) {
 		defer h.stopAndAssert()
 		h.expectShutdownEvents(shutdownExpect{
 			isInitiator: true,
-			allowSend: true,
+			allowSend:   true,
 		})
 		h.expectMsgSent(nil)
 		h.chanCloser.SendEvent(

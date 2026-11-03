@@ -5,7 +5,6 @@ import (
 	"fmt"
 	"io"
 	"os"
-	"path"
 	"path/filepath"
 	"time"
 
@@ -88,7 +87,6 @@ type DatabaseBackend int
 
 const (
 	BackendBbolt DatabaseBackend = iota
-	BackendEtcd
 	BackendPostgres
 	BackendSqlite
 )
@@ -327,28 +325,6 @@ func (cfg *BaseNodeConfig) GenArgs() []string {
 	}
 
 	switch cfg.DBBackend {
-	case BackendEtcd:
-		args = append(args, "--db.backend=etcd")
-		args = append(args, "--db.etcd.embedded")
-		args = append(
-			args, fmt.Sprintf(
-				"--db.etcd.embedded_client_port=%v",
-				port.NextAvailablePort(),
-			),
-		)
-		args = append(
-			args, fmt.Sprintf(
-				"--db.etcd.embedded_peer_port=%v",
-				port.NextAvailablePort(),
-			),
-		)
-		args = append(
-			args, fmt.Sprintf(
-				"--db.etcd.embedded_log_file=%v",
-				path.Join(cfg.LogDir, "etcd.log"),
-			),
-		)
-
 	case BackendPostgres:
 		args = append(args, "--db.backend=postgres")
 		args = append(args, "--db.postgres.dsn="+cfg.PostgresDsn)

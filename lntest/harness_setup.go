@@ -136,9 +136,6 @@ func prepareDBBackend(t *testing.T,
 	case "bbolt":
 		dbBackend = node.BackendBbolt
 
-	case "etcd":
-		dbBackend = node.BackendEtcd
-
 	case "postgres":
 		dbBackend = node.BackendPostgres
 

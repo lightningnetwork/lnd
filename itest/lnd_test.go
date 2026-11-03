@@ -78,7 +78,7 @@ var (
 
 	// dbBackendFlag specifies the backend to use.
 	dbBackendFlag = flag.String("dbbackend", "bbolt", "Database backend "+
-		"(bbolt, etcd, postgres)")
+		"(bbolt, postgres, sqlite)")
 
 	nativeSQLFlag = flag.Bool("nativesql", false, "Database backend to "+
 		"use native SQL when applicable (only for sqlite and postgres")

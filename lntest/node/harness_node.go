@@ -677,9 +677,6 @@ func (hn *HarnessNode) WaitForProcessExit() error {
 		}
 	}
 
-	// Rename the etcd.log file if the node was running on embedded etcd.
-	finalizeEtcdLog(hn)
-
 	return errReturned
 }
 
@@ -1051,21 +1048,6 @@ func assertNodeShutdown(filename string) error {
 
 	return fmt.Errorf("node did not shut down properly: found log "+
 		"lines: %s", buf)
-}
-
-// finalizeEtcdLog saves the etcd log files when test ends.
-func finalizeEtcdLog(hn *HarnessNode) {
-	// Exit early if this is not etcd backend.
-	if hn.Cfg.DBBackend != BackendEtcd {
-		return
-	}
-
-	etcdLogFileName := fmt.Sprintf("%s/etcd.log", hn.Cfg.LogDir)
-	newEtcdLogFileName := fmt.Sprintf("%v-etcd.log",
-		getFinalizedLogFilePrefix(hn),
-	)
-
-	renameFile(etcdLogFileName, newEtcdLogFileName)
 }
 
 // addLogFile creates log files used by this node.

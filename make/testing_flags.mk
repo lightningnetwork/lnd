@@ -74,10 +74,6 @@ ifneq ($(minerbackend),)
 ITEST_FLAGS += -minerbackend=$(minerbackend)
 endif
 
-ifeq ($(dbbackend),etcd)
-DEV_TAGS += kvdb_etcd
-endif
-
 ifeq ($(dbbackend),postgres)
 ifneq ($(nativesql),)
 ITEST_FLAGS += -nativesql

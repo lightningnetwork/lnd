@@ -504,10 +504,10 @@ func TestBudgetInputSetClusterInputs(t *testing.T) {
 	wt := &input.MockWitnessType{}
 	defer wt.AssertExpectations(t)
 
-	// Mock the `SizeUpperBound` method to return the size 10 times since
-	// we are using ten inputs.
+	// Mock the `SizeUpperBound` method to return the size 11 times since
+	// we are using eleven inputs.
 	const wu lntypes.WeightUnit = 100
-	wt.On("SizeUpperBound").Return(wu, true, nil).Times(10)
+	wt.On("SizeUpperBound").Return(wu, true, nil).Times(11)
 
 	// Calculate the input size.
 	inpSize := lntypes.VByte(input.InputSize).ToWU() + wu
@@ -560,6 +560,25 @@ func TestBudgetInputSetClusterInputs(t *testing.T) {
 		params: Params{
 			Budget:         budgetHigh,
 			ExclusiveGroup: &exclusiveGroup,
+		},
+		DeadlineHeight: deadline1,
+	}
+
+	// Add an input whose own policy disables batching. It has the same
+	// deadline as ordinary inputs, but must still get its own input set.
+	inpNoBatch := &input.MockInput{}
+	defer inpNoBatch.AssertExpectations(t)
+
+	opNoBatch := wire.OutPoint{Hash: chainhash.Hash{6, 7, 8, 9, 10}}
+	inpNoBatch.On("OutPoint").Return(opNoBatch).Maybe()
+	inpNoBatch.On("WitnessType").Return(wt)
+	inpNoBatch.On("RequiredTxOut").Return(nil)
+
+	inputs[opNoBatch] = &SweeperInput{
+		Input: inpNoBatch,
+		params: Params{
+			Budget:       budgetHigh,
+			NoInputBatch: true,
 		},
 		DeadlineHeight: deadline1,
 	}
@@ -652,13 +671,9 @@ func TestBudgetInputSetClusterInputs(t *testing.T) {
 	// Call the method under test.
 	result := b.ClusterInputs(inputs)
 
-	// We expect four input sets to be returned, one for each deadline and
-	// extra one for the exclusive input.
-	require.Len(t, result, 4)
-
-	// The last set should be the exclusive input that has only one input.
-	setExclusive := result[3]
-	require.Len(t, setExclusive.Inputs(), 1)
+	// We expect five input sets: one for each deadline, one for the
+	// exclusive input and one for the non-batchable input.
+	require.Len(t, result, 5)
 
 	// Check the each of rest has exactly two inputs.
 	deadlines := make(map[int32]struct{})
@@ -677,6 +692,16 @@ func TestBudgetInputSetClusterInputs(t *testing.T) {
 	require.Contains(t, deadlines, defaultDeadline)
 	require.Contains(t, deadlines, deadline1)
 	require.Contains(t, deadlines, deadline2)
+
+	// Both grouping policies create singleton sets. Map iteration makes
+	// their order intentionally unspecified.
+	separateOutpoints := make(map[wire.OutPoint]struct{})
+	for _, set := range result[3:] {
+		require.Len(t, set.Inputs(), 1)
+		separateOutpoints[set.Inputs()[0].OutPoint()] = struct{}{}
+	}
+	require.Contains(t, separateOutpoints, opExclusive)
+	require.Contains(t, separateOutpoints, opNoBatch)
 }
 
 // TestSplitOnLocktime asserts `splitOnLocktime` works as expected.

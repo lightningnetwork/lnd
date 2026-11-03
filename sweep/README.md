@@ -81,9 +81,11 @@ flowchart LR
 `BudgetAggregator` implements this interface by grouping inputs with the same
 deadline together. Inputs with the same deadline express the same time
 sensitivity, so it makes sense to sweep them in the same transaction. Once
-grouped, inputs in each batch are sorted based on their budgets. The only
-exception is inputs with the `ExclusiveGroup` flag set, which will be swept
-alone.
+grouped, inputs in each batch are sorted based on their budgets. Inputs with an
+`ExclusiveGroup` or the `NoInputBatch` flag set are instead placed in their own
+input set. `ExclusiveGroup` models mutually exclusive alternatives, while
+`NoInputBatch` isolates an independent sweep input without excluding any other
+input. Wallet inputs may still be added to either type of set to fund its fee.
 
 Once the batching is finished, an `InputSet` is returned, which is an interface
 used to decide whether a wallet UTXO is needed or not when creating the

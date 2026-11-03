@@ -127,32 +127,13 @@ func createRoutingAction(ctx context.Context, resolver NodeIDResolver,
 	nextPathKey *btcec.PublicKey) (routingAction, error) {
 
 	if isForwarding(packet) {
-		var nextNodeID *btcec.PublicKey
-		if routeData.NextNodeID.IsSome() {
-			n, err := routeData.NextNodeID.UnwrapOrErr(
-				ErrNextNodeIdEmpty,
-			)
-			if err != nil {
-				return routingAction{}, err
-			}
-			nextNodeID = n.Val
-		} else {
-			scid, err := routeData.ShortChannelID.UnwrapOrErr(
-				ErrSCIDEmpty,
-			)
-			if err != nil {
-				return routingAction{}, err
-			}
-			nextNodeID, err = resolver.RemotePubFromSCID(
-				ctx, scid.Val,
-			)
-			if err != nil {
-				return routingAction{}, err
-			}
+		nextNodeID, err := nextNodeID(ctx, resolver, routeData)
+		if err != nil {
+			return routingAction{}, err
 		}
 
 		buf := new(bytes.Buffer)
-		err := packet.NextPacket.Encode(buf)
+		err = packet.NextPacket.Encode(buf)
 		if err != nil {
 			return routingAction{}, err
 		}
@@ -175,6 +156,28 @@ func createRoutingAction(ctx context.Context, resolver NodeIDResolver,
 		payload: payload,
 		pathID:  pathID,
 	}), nil
+}
+
+// nextNodeID returns the key of the next node that the route data names, by
+// its node id or by a channel to it.
+func nextNodeID(ctx context.Context, resolver NodeIDResolver,
+	routeData *record.BlindedRouteData) (*btcec.PublicKey, error) {
+
+	if routeData.NextNodeID.IsSome() {
+		n, err := routeData.NextNodeID.UnwrapOrErr(ErrNextNodeIdEmpty)
+		if err != nil {
+			return nil, err
+		}
+
+		return n.Val, nil
+	}
+
+	scid, err := routeData.ShortChannelID.UnwrapOrErr(ErrSCIDEmpty)
+	if err != nil {
+		return nil, err
+	}
+
+	return resolver.RemotePubFromSCID(ctx, scid.Val)
 }
 
 // deriveNextPathKey derives the next path key using the router and current

@@ -498,7 +498,8 @@ jobs:
           - name: bitcoind-sqlite=nativesql-experiment
             args: backend=bitcoind dbbackend=sqlite nativesql=true tags=test_native_sql
           - name: bitcoind-postgres
-            args: backend=bitcoind dbbackend=postgres
+            # Exercise etcd election with shared PostgreSQL node storage.
+            args: backend=bitcoind dbbackend=postgres tags=kvdb_etcd
           - name: bitcoind-postgres-nativesql
             args: backend=bitcoind dbbackend=postgres nativesql=true
           - name: bitcoind-postgres-nativesql-experiment

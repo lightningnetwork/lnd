@@ -377,13 +377,12 @@ func (cfg *BaseNodeConfig) GenArgs() []string {
 	return args
 }
 
-// ExtraArgsEtcd returns extra args for configuring LND to use an external etcd
-// database (for remote channel DB and wallet DB).
+// ExtraArgsEtcd configures etcd connections and leader election while leaving
+// node storage selection to the harness's configured database backend.
 func ExtraArgsEtcd(etcdCfg *etcd.Config, name string, cluster bool,
 	leaderSessionTTL int) []string {
 
 	extraArgs := []string{
-		"--db.backend=etcd",
 		fmt.Sprintf("--db.etcd.host=%v", etcdCfg.Host),
 		fmt.Sprintf("--db.etcd.user=%v", etcdCfg.User),
 		fmt.Sprintf("--db.etcd.pass=%v", etcdCfg.Pass),

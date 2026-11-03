@@ -3,6 +3,7 @@ package sweep
 import (
 	"crypto/rand"
 	"errors"
+	"math"
 	"testing"
 	"time"
 
@@ -10,6 +11,7 @@ import (
 	"github.com/btcsuite/btcd/btcutil/v2"
 	"github.com/btcsuite/btcd/chainhash/v2"
 	"github.com/btcsuite/btcd/wire/v2"
+	"github.com/btcsuite/btcwallet/chain"
 	"github.com/lightningnetwork/lnd/chainntnfs"
 	"github.com/lightningnetwork/lnd/fn/v2"
 	"github.com/lightningnetwork/lnd/input"
@@ -689,7 +691,7 @@ func TestSweepPendingInputs(t *testing.T) {
 	publisher.On("Broadcast", mock.Anything).Return(nil).Twice()
 
 	// Act by sweeping the clusters through their configured publisher.
-	s.sweepPendingInputs(pis)
+	s.sweepPendingInputs(pis, nil)
 
 	// Assert the publication and funding calls through fixture cleanup.
 }
@@ -864,6 +866,323 @@ func TestHandleBumpEventTxFailedWalletInput(t *testing.T) {
 	require.True(t, s.inputs[trackedOp].params.StartingFeeRate.IsNone())
 	require.True(t, s.excludedWalletInputs.Contains(walletOp))
 	require.NotContains(t, s.inputs, walletOp)
+}
+
+// TestHandleBumpEventTxFailedConflict checks that tracked conflicts remain
+// retryable while only the current batch's healthy siblings are republished.
+func TestHandleBumpEventTxFailedConflict(t *testing.T) {
+	t.Parallel()
+
+	// Arrange a tracked conflict and, optionally, another conflict
+	// isolated from an earlier batch. Only this batch's healthy inputs may
+	// enter the immediate retry; the earlier conflict waits for a block.
+	testCases := []struct {
+		name  string
+		prior bool
+	}{
+		{
+			name: "tracked conflict",
+		},
+		{
+			name:  "previously isolated conflict",
+			prior: true,
+		},
+	}
+	for _, testCase := range testCases {
+		t.Run(testCase.name, func(t *testing.T) {
+			aggregator := &mockUtxoAggregator{}
+			defer aggregator.AssertExpectations(t)
+			publisher := &MockBumper{}
+			defer publisher.AssertExpectations(t)
+			s := New(&UtxoSweeperConfig{
+				Aggregator: aggregator,
+				Publisher:  publisher,
+			})
+			s.currentOutputScript = fn.Some(lnwallet.AddrWithKey{})
+			t.Cleanup(func() {
+				close(s.quit)
+				s.wg.Wait()
+			})
+			set := &MockInputSet{}
+			defer set.AssertExpectations(t)
+			in1 := createMockInput(t, s, PendingPublish)
+			bad := createMockInput(t, s, PendingPublish)
+			in2 := createMockInput(t, s, PendingPublish)
+			all := []input.Input{in1, bad, in2}
+			set.On("Inputs").Return(all).Times(2)
+			badOp := bad.OutPoint()
+			// An earlier conflict remains pending but is not a
+			// member of the current publisher result's input set.
+			tracked := []*input.MockInput{in1, bad, in2}
+			var prior *input.MockInput
+			if testCase.prior {
+				prior = createMockInput(t, s, PublishFailed)
+				tracked = append(tracked, prior)
+			}
+			listeners := make([]chan Result, 0, len(s.inputs))
+			for _, inp := range tracked {
+				pi := s.inputs[inp.OutPoint()]
+				listener := make(chan Result, 1)
+				pi.listeners = []chan Result{listener}
+				listeners = append(listeners, listener)
+				inp.On("RequiredLockTime").Return(
+					uint32(0), false,
+				).Once()
+				inp.On("BlocksToMaturity").Return(
+					uint32(0),
+				).Once()
+				inp.On("HeightHint").Return(uint32(0)).Once()
+			}
+			good := []*SweeperInput{
+				s.inputs[in1.OutPoint()],
+				s.inputs[in2.OutPoint()],
+			}
+			for _, inp := range []*input.MockInput{in1, in2} {
+				inp.On("RequiredTxOut").Return(
+					(*wire.TxOut)(nil),
+				).Once()
+				inp.On("SignDesc").Return(&input.SignDescriptor{
+					Output: &wire.TxOut{Value: 10_000},
+				}).Once()
+			}
+			remaining := &BudgetInputSet{inputs: good}
+			matchesInputs := func(inputs InputsMap) bool {
+				return len(inputs) == 2 && inputs[badOp] == nil
+			}
+			aggregator.On(
+				"ClusterInputs", mock.MatchedBy(matchesInputs),
+			).Return([]InputSet{remaining}).Once()
+			matchesRequest := func(req *BumpRequest) bool {
+				if len(req.Inputs) != 2 {
+					return false
+				}
+				actual := fn.NewSet(
+					req.Inputs[0].OutPoint(),
+					req.Inputs[1].OutPoint(),
+				)
+
+				return actual.Equal(fn.NewSet(
+					in1.OutPoint(),
+					in2.OutPoint(),
+				))
+			}
+			publisher.On(
+				"Broadcast", mock.MatchedBy(matchesRequest),
+			).Return(make(chan *BumpResult)).Once()
+
+			// Act by applying an attributed transient conflict
+			// through the real resubmission path, including a fresh
+			// publish request.
+			err := s.handleBumpEvent(&bumpResp{
+				set: set,
+				result: &BumpResult{
+					Event:    TxFailed,
+					Err:      chain.ErrMempoolConflict,
+					BadInput: &badOp,
+				},
+			})
+
+			// Assert that valid siblings progress and conflict
+			// listeners stay open, with no sweeper-lifetime
+			// exclusion left after selection.
+			require.NoError(t, err)
+			require.False(t, s.excludedWalletInputs.Contains(badOp))
+			require.Equal(
+				t, PublishFailed, s.inputs[badOp].state,
+			)
+			for _, pi := range good {
+				require.Equal(t, PendingPublish, pi.state)
+			}
+			if prior != nil {
+				require.Equal(
+					t, PublishFailed,
+					s.inputs[prior.OutPoint()].state,
+				)
+			}
+			for _, listener := range listeners {
+				require.Empty(t, listener)
+			}
+		})
+	}
+}
+
+// TestWalletConflictRetries checks that asynchronous funder conflicts cannot
+// alternate forever, and that normal block retries can reuse those funders.
+func TestWalletConflictRetries(t *testing.T) {
+	t.Parallel()
+
+	// Arrange both outcomes for the same A/B/C selection sequence: healthy
+	// C publishes, or an unattributed failure returns to normal block
+	// retry.
+	testCases := []struct {
+		name       string
+		blockRetry bool
+	}{
+		{
+			name: "healthy funder publishes",
+		},
+		{
+			name:       "normal block retry reuses funders",
+			blockRetry: true,
+		},
+	}
+	for _, testCase := range testCases {
+		t.Run(testCase.name, func(t *testing.T) {
+			// Arrange real wallet funding for a tracked input whose
+			// budget exceeds its value. The smallest wallet UTXO is
+			// permanently quarantined; A/B conflict and C is
+			// healthy.
+			wallet := &MockWallet{}
+			defer wallet.AssertExpectations(t)
+			aggregator := &mockUtxoAggregator{}
+			defer aggregator.AssertExpectations(t)
+			publisher := &MockBumper{}
+			defer publisher.AssertExpectations(t)
+			store := &MockSweeperStore{}
+			defer store.AssertExpectations(t)
+			s := New(&UtxoSweeperConfig{
+				Wallet:     wallet,
+				Aggregator: aggregator,
+				Publisher:  publisher,
+				Store:      store,
+			})
+			s.currentOutputScript = fn.Some(lnwallet.AddrWithKey{})
+			t.Cleanup(func() {
+				require.NoError(t, s.Stop())
+			})
+			pi := &SweeperInput{
+				Input: createP2WKHInput(330),
+				state: PendingPublish,
+				params: Params{
+					Budget: 1000,
+				},
+			}
+			s.inputs[pi.OutPoint()] = pi
+			listener := make(chan Result, 1)
+			pi.listeners = []chan Result{listener}
+			utxos := make([]*lnwallet.Utxo, 4)
+			for i := range utxos {
+				value := btcutil.Amount(1000 * (i + 1))
+				// Keep wallet hashes outside the input
+				// fixture's counter so they cannot collide.
+				hash := chainhash.Hash{31: byte(i + 100)}
+				utxos[i] = &lnwallet.Utxo{
+					AddressType: lnwallet.WitnessPubKey,
+					Value:       value,
+					OutPoint: wire.OutPoint{
+						Hash: hash,
+					},
+				}
+			}
+			s.excludedWalletInputs.Add(utxos[0].OutPoint)
+			original := &BudgetInputSet{
+				inputs: []*SweeperInput{pi},
+			}
+			require.NoError(t, original.addWalletInput(utxos[1]))
+			funders := []int{2, 3}
+			if testCase.blockRetry {
+				funders = append(funders, 1)
+			} else {
+				store.On(
+					"StoreTx", mock.Anything,
+				).Return(nil).Once()
+			}
+			wallet.On(
+				"WithCoinSelectLock", mock.Anything,
+			).Return(nil).Times(len(funders))
+			wallet.On(
+				"ListUnspentWitnessFromDefaultAccount",
+				int32(1), int32(math.MaxInt32),
+			).Return(utxos, nil).Times(len(funders))
+			channels := make([]chan *BumpResult, 0, len(funders))
+			for _, funder := range funders {
+				set := &BudgetInputSet{
+					inputs: []*SweeperInput{pi},
+				}
+				aggregator.On("ClusterInputs", s.inputs).Return(
+					[]InputSet{set},
+				).Once()
+				op := utxos[funder].OutPoint
+				tracked := pi.OutPoint()
+				matchesRequest := func(req *BumpRequest) bool {
+					if len(req.Inputs) != 2 {
+						return false
+					}
+					first := req.Inputs[0].OutPoint()
+
+					return first == tracked &&
+						req.Inputs[1].OutPoint() == op
+				}
+				resultChan := make(chan *BumpResult, 1)
+				channels = append(channels, resultChan)
+				publisher.On(
+					"Broadcast",
+					mock.MatchedBy(matchesRequest),
+				).Return(resultChan).Once()
+			}
+
+			// Act through the consumer, then the real asynchronous
+			// monitor: A's failure selects B, and B's later failure
+			// must select C even after the first handler returned.
+			badA := utxos[1].OutPoint
+			require.NoError(t, s.handleBumpEvent(&bumpResp{
+				set: original,
+				result: &BumpResult{
+					Event:    TxFailed,
+					Err:      chain.ErrMempoolConflict,
+					BadInput: &badA,
+				},
+			}))
+			badB := utxos[2].OutPoint
+			channels[0] <- &BumpResult{
+				Event:    TxFailed,
+				Err:      chain.ErrMempoolConflict,
+				BadInput: &badB,
+			}
+			select {
+			case resp := <-s.bumpRespChan:
+				require.NoError(t, s.handleBumpEvent(resp))
+			case <-time.After(time.Second):
+				t.Fatal("wallet conflict result not delivered")
+			}
+			result := &BumpResult{
+				Event: TxPublished,
+				Tx:    &wire.MsgTx{},
+			}
+			if testCase.blockRetry {
+				result = &BumpResult{
+					Event: TxFailed,
+					Err:   errDummy,
+				}
+			}
+			channels[1] <- result
+			select {
+			case resp := <-s.bumpRespChan:
+				require.NoError(t, s.handleBumpEvent(resp))
+			case <-time.After(time.Second):
+				t.Fatal("healthy funder result not delivered")
+			}
+			if testCase.blockRetry {
+				// Resume the collector's normal block retry
+				// entry; A can fund again, but permanent
+				// quarantine stays.
+				s.sweepPendingInputs(
+					s.updateSweeperInputs(), nil,
+				)
+			}
+
+			// Assert C's funded sweep progresses without
+			// terminating its input. Exact publisher expectations
+			// prove C was selected and the normal block retry can
+			// select A again.
+			expectedState := Published
+			if testCase.blockRetry {
+				expectedState = PendingPublish
+			}
+			require.Equal(t, expectedState, pi.state)
+			require.Empty(t, listener)
+		})
+	}
 }
 
 // TestHandleBumpEventTxReplaced checks that the sweeper correctly handles the
@@ -1160,7 +1479,7 @@ func TestMonitorFeeBumpResult(t *testing.T) {
 
 			s.wg.Add(1)
 			go func() {
-				s.monitorFeeBumpResult(set, resultChan)
+				s.monitorFeeBumpResult(set, resultChan, nil)
 				close(done)
 			}()
 

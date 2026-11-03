@@ -11,6 +11,10 @@ import (
 
 var allTestCases = []*lntest.TestCase{
 	{
+		Name: "rbf coop close upfront address",
+		TestFunc: testRbfCoopCloseUpfrontAddress,
+	},
+	{
 		Name:     "local reputation log only",
 		TestFunc: testLocalReputationLogOnly,
 	},

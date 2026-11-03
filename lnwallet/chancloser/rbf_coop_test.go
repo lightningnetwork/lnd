@@ -1404,6 +1404,93 @@ func TestRbfChannelActiveTransitions(t *testing.T) {
 		closeHarness.assertNoStateTransitions()
 	})
 
+	// The operator-specified destination must agree with the channel's
+	// upfront shutdown commitment before the FSM sends shutdown events.
+	t.Run("sc_upfront_conflict_rejected", func(t *testing.T) {
+		h := newCloser(t, &harnessCfg{
+			localUpfrontAddr: fn.Some(localAddr),
+		})
+		defer h.stopAndAssert()
+
+		// The original implementation continues into sendShutdownEvents.
+		// Admit those calls as optional so its ignored-request behavior
+		// fails as an error-contract violation rather than mock panic.
+		h.expectShutdownEvents(shutdownExpect{
+			isInitiator: true,
+			allowSend:   true,
+		})
+		h.expectMsgSent(nil)
+		for _, call := range h.chanObserver.ExpectedCalls {
+			call.Maybe()
+		}
+		for _, call := range h.daemonAdapters.ExpectedCalls {
+			call.Maybe()
+		}
+
+		h.sendEventAndExpectFailure(
+			ctx, &SendShutdown{
+				DeliveryAddr: fn.Some(remoteAddr),
+			}, ErrUpfrontShutdownScriptMismatch,
+		)
+		h.assertNoStateTransitions()
+	})
+
+	// A matching requested script must retain the ordinary shutdown flow.
+	t.Run("sc_upfront_matching_allowed", func(t *testing.T) {
+		h := newCloser(t, &harnessCfg{
+			localUpfrontAddr: fn.Some(localAddr),
+		})
+		defer h.stopAndAssert()
+		h.expectShutdownEvents(shutdownExpect{
+			isInitiator: true,
+			allowSend: true,
+		})
+		h.expectMsgSent(nil)
+		h.chanCloser.SendEvent(
+			ctx, &SendShutdown{DeliveryAddr: fn.Some(localAddr)},
+		)
+		h.assertStateTransitions(&ShutdownPending{})
+		st := assertStateT[*ShutdownPending](h)
+		require.Equal(t, localAddr, st.ShutdownScripts.LocalDeliveryScript)
+		h.waitForMsgSent()
+	})
+
+	// Without a requested destination, the committed script is mandatory.
+	t.Run("sc_upfront_default_allowed", func(t *testing.T) {
+		h := newCloser(t, &harnessCfg{
+			localUpfrontAddr: fn.Some(localAddr),
+		})
+		defer h.stopAndAssert()
+		h.expectShutdownEvents(shutdownExpect{
+			isInitiator: true,
+			allowSend: true,
+		})
+		h.expectMsgSent(nil)
+		h.chanCloser.SendEvent(ctx, &SendShutdown{})
+		h.assertStateTransitions(&ShutdownPending{})
+		st := assertStateT[*ShutdownPending](h)
+		require.Equal(t, localAddr, st.ShutdownScripts.LocalDeliveryScript)
+		h.waitForMsgSent()
+	})
+
+	// Without an upfront commitment, honor the operator's valid script.
+	t.Run("sc_requested_without_upfront_allowed", func(t *testing.T) {
+		h := newCloser(t, &harnessCfg{})
+		defer h.stopAndAssert()
+		h.expectShutdownEvents(shutdownExpect{
+			isInitiator: true,
+			allowSend: true,
+		})
+		h.expectMsgSent(nil)
+		h.chanCloser.SendEvent(
+			ctx, &SendShutdown{DeliveryAddr: fn.Some(localAddr)},
+		)
+		h.assertStateTransitions(&ShutdownPending{})
+		st := assertStateT[*ShutdownPending](h)
+		require.Equal(t, localAddr, st.ShutdownScripts.LocalDeliveryScript)
+		h.waitForMsgSent()
+	})
+
 	// Initiating the shutdown should have us transition to the shutdown
 	// pending state. We should also emit events to disable the channel,
 	// and also send a message to our target peer.

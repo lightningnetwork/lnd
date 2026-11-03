@@ -249,6 +249,16 @@ func (c *ChannelActive) ProcessEvent(event ProtocolEvent, env *Environment,
 	// with a special SendPredicate, then go to the ShutdownPending where
 	// we'll wait for the remote to send their shutdown.
 	case *SendShutdown:
+		// An upfront script commits the close destination. Reject a
+		// conflicting operator request before emitting shutdown events.
+		upfront := env.LocalUpfrontShutdown.UnwrapOr(nil)
+		requested := msg.DeliveryAddr.UnwrapOr(nil)
+		if len(upfront) > 0 && len(requested) > 0 &&
+			!bytes.Equal(upfront, requested) {
+
+			return nil, ErrUpfrontShutdownScriptMismatch
+		}
+
 		// If we have an upfront shutdown addr or a delivery addr then
 		// we'll use that. Otherwise, we'll generate a new delivery
 		// addr.

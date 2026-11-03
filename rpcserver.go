@@ -3001,6 +3001,17 @@ func (r *rpcServer) CloseChannel(in *lnrpc.CloseChannelRequest,
 			}
 		}
 
+		// An upfront shutdown script fixes the cooperative-close
+		// destination. Reject a conflicting RPC request before sending
+		// it to either the RBF actor or the classic peer closer.
+		upfrontScript := channel.LocalShutdownScript
+		if len(upfrontScript) != 0 && len(deliveryScript) != 0 &&
+			!bytes.Equal(upfrontScript, deliveryScript) {
+
+			return fmt.Errorf("cannot close channel %v: %w",
+				chanPoint, chancloser.ErrUpfrontShutdownScriptMismatch)
+		}
+
 		maxFee := chainfee.SatPerKVByte(
 			in.MaxFeePerVbyte * 1000,
 		).FeePerKWeight()

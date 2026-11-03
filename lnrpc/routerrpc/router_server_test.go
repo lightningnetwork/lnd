@@ -3,6 +3,8 @@ package routerrpc
 import (
 	"bytes"
 	"context"
+	"maps"
+	"slices"
 	"testing"
 	"time"
 
@@ -900,4 +902,33 @@ func TestProbePaymentRequestUsesUniqueHashPerLSP(t *testing.T) {
 	require.Contains(t, probedDests, bobVertex)
 	require.Contains(t, probedDests, eveVertex)
 	require.Contains(t, probedDests, daveVertex)
+}
+
+// TestMacPermissionsCoverage checks that macPermissions has an entry for
+// exactly the RPCs of the Router service, as listed in its generated service
+// descriptor, and that each entry requires at least one permission. An RPC
+// without an entry is rejected outright by the macaroon interceptor, an entry
+// without an RPC is stale or misspelt, and an empty entry would accept any
+// valid macaroon.
+func TestMacPermissionsCoverage(t *testing.T) {
+	t.Parallel()
+
+	prefix := "/" + Router_ServiceDesc.ServiceName + "/"
+
+	var rpcs []string
+	for _, method := range Router_ServiceDesc.Methods {
+		rpcs = append(rpcs, prefix+method.MethodName)
+	}
+	for _, stream := range Router_ServiceDesc.Streams {
+		rpcs = append(rpcs, prefix+stream.StreamName)
+	}
+
+	require.ElementsMatch(
+		t, rpcs, slices.Collect(maps.Keys(macPermissions)),
+		"Router RPCs (A) and macPermissions entries (B) differ",
+	)
+
+	for method, ops := range macPermissions {
+		require.NotEmpty(t, ops, "%s requires no permissions", method)
+	}
 }

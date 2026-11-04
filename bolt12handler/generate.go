@@ -348,7 +348,7 @@ func buildSingleHopBlindedPath(nodePubKey *btcec.PublicKey,
 	}
 
 	// The path_id lets the receiver match the incoming HTLC to the invoice.
-	routeData := record.NewFinalHopBlindedRouteData(nil, pathID)
+	routeData := record.NewFinalHopBlindedRouteData(nil, pathID, nil)
 	plainText, err := record.EncodeBlindedRouteData(routeData)
 	if err != nil {
 		return lnwire.BlindedPath{}, fmt.Errorf("encode route data: %w",

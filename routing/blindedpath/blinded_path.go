@@ -23,6 +23,11 @@ import (
 const (
 	// oneMillion is a constant used frequently in fee rate calculations.
 	oneMillion = uint32(1_000_000)
+
+	// payerOnionReserve is the part of the payer's onion that a blinded
+	// path with an invoice envelope leaves free. It holds five clear hops
+	// of the payer to the introduction node, at 59 bytes each.
+	payerOnionReserve = 295
 )
 
 // errInvalidBlindedPath indicates that the chosen real path is not usable as
@@ -68,6 +73,11 @@ type BuildBlindedPathCfg struct {
 	// payment address used in normal payments. It lets the recipient check
 	// that the path is being used in the correct context.
 	PathID []byte
+
+	// InvoiceEnvelope is an optional envelope for stateless BOLT 12
+	// invoice settlement. When set, it is embedded alongside PathID in the
+	// final hop's encrypted data.
+	InvoiceEnvelope []byte
 
 	// ValueMsat is the payment amount in milli-satoshis that must be
 	// routed. This will be used for selecting appropriate routes to use for
@@ -226,10 +236,9 @@ func buildBlindedPaymentPath(cfg *BuildBlindedPathCfg, path *candidatePath) (
 		finalHopPubKey = path.hops[len(path.hops)-1].pubKey
 	}
 
-	// For the final hop, we only send it the path ID and payment
-	// constraints.
 	info, err := buildFinalHopRouteData(
-		finalHopPubKey, cfg.PathID, constraints,
+		finalHopPubKey, cfg.PathID, cfg.InvoiceEnvelope,
+		constraints,
 	)
 	if err != nil {
 		return nil, err
@@ -299,6 +308,23 @@ func buildBlindedPaymentPath(cfg *BuildBlindedPathCfg, path *candidatePath) (
 			"hop")
 	}
 
+	// The padding gives every hop the size of the final hop, so an
+	// invoice envelope grows each hop. The payer cannot use a path that
+	// leaves no room in its onion for its own hops.
+	if len(cfg.InvoiceEnvelope) > 0 {
+		size := blindedPathOnionSize(
+			blindedPath, cfg.ValueMsat, cltvExpiry,
+		)
+		maxSize := uint64(
+			sphinx.MaxRoutingPayloadSize - payerOnionReserve,
+		)
+		if size > maxSize {
+			return nil, fmt.Errorf("%w: blinded hops use %d bytes "+
+				"of the onion, maximum is %d",
+				errInvalidBlindedPath, size, maxSize)
+		}
+	}
+
 	// Overwrite the introduction point's blinded pub key with the real
 	// pub key since then we can use this more compact format in the
 	// invoice without needing to encode the un-used blinded node pub key of
@@ -317,6 +343,32 @@ func buildBlindedPaymentPath(cfg *BuildBlindedPathCfg, path *candidatePath) (
 		FirstEphemeralBlindingPoint: blindedPath.BlindingPoint,
 		Hops:                        blindedPath.BlindedHops,
 	}, nil
+}
+
+// blindedPathOnionSize returns the number of onion bytes that the payer
+// spends on the hops of the blinded path. The final hop amount and CLTV are
+// upper bounds, so the result does not underestimate the size.
+func blindedPathOnionSize(path *sphinx.BlindedPath, amt lnwire.MilliSatoshi,
+	cltvExpiry uint32) uint64 {
+
+	var size uint64
+	for i, blindedHop := range path.BlindedHops {
+		hop := route.Hop{
+			EncryptedData: blindedHop.CipherText,
+		}
+		if i == 0 {
+			hop.BlindingPoint = path.BlindingPoint
+		}
+		if i == len(path.BlindedHops)-1 {
+			hop.AmtToForward = amt
+			hop.TotalAmtMsat = amt
+			hop.OutgoingTimeLock = cltvExpiry
+		}
+
+		size += hop.PayloadSize(0)
+	}
+
+	return size
 }
 
 // hopRelayInfo packages together the relay info to send to hop on a blinded
@@ -626,10 +678,11 @@ func buildHopRouteData(node route.Vertex, scid lnwire.ShortChannelID,
 // final hop and packages it with the real node ID of the node it is intended
 // for.
 func buildFinalHopRouteData(node route.Vertex, pathID []byte,
+	invoiceEnvelope []byte,
 	constraints *record.PaymentConstraints) (*hopData, error) {
 
 	blindedRouteHopData := record.NewFinalHopBlindedRouteData(
-		constraints, pathID,
+		constraints, pathID, invoiceEnvelope,
 	)
 	nodeID, err := btcec.ParsePubKey(node[:])
 	if err != nil {

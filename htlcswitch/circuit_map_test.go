@@ -10,6 +10,7 @@ import (
 	"github.com/btcsuite/btcd/wire/v2"
 	"github.com/lightningnetwork/lnd/channeldb"
 	"github.com/lightningnetwork/lnd/chanstate"
+	"github.com/lightningnetwork/lnd/fwdresponse"
 	"github.com/lightningnetwork/lnd/htlcswitch"
 	"github.com/lightningnetwork/lnd/kvdb"
 	"github.com/lightningnetwork/lnd/lnwire"
@@ -345,7 +346,7 @@ func TestCircuitMapRetainsFwdResponseCircuits(t *testing.T) {
 		return resolutionErr
 	}
 	cfg.CheckFwdResponse = func(*htlcswitch.CircuitKey) error {
-		return channeldb.ErrFwdResponseNotFound
+		return fwdresponse.ErrNotFound
 	}
 	_, err = htlcswitch.NewCircuitMap(cfg)
 	require.ErrorIs(t, err, resolutionErr)

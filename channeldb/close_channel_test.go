@@ -44,7 +44,7 @@ func writeTestRevlogEntries(t *testing.T, cdb *ChannelStateDB,
 		require.NoError(t, err)
 
 		for i := range n {
-			commit := testChannelCommit
+			commit := ch.LocalCommitment
 			commit.CommitHeight = uint64(i)
 
 			err := putRevocationLog(logBkt, &commit, 0, 1, false)

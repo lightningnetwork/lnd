@@ -257,7 +257,7 @@ func createTestPeerWithChannel(t *testing.T, updateChan func(a,
 		RevocationStore:         shachain.NewRevocationStore(),
 		LocalCommitment:         aliceCommit,
 		RemoteCommitment:        aliceCommit,
-		Db:                      dbAlice.ChannelStateDB(),
+		Db:                      dbAlice.ChannelStateStore(),
 		FundingTxn:              channels.TestFundingTx,
 	}
 	bobChannelState := &chanstate.OpenChannel{
@@ -273,14 +273,17 @@ func createTestPeerWithChannel(t *testing.T, updateChan func(a,
 		RevocationStore:         shachain.NewRevocationStore(),
 		LocalCommitment:         bobCommit,
 		RemoteCommitment:        bobCommit,
-		Db:                      dbBob.ChannelStateDB(),
+		Db:                      dbBob.ChannelStateStore(),
 	}
 
 	// Set custom values on the channel states.
 	updateChan(aliceChannelState, bobChannelState)
 
 	aliceAddr := alicePeer.cfg.Addr.Address
-	if err := aliceChannelState.SyncPending(aliceAddr, 0); err != nil {
+	err = dbAlice.ChannelLifecycle().SyncPendingChannel(
+		aliceChannelState, aliceAddr, 0,
+	)
+	if err != nil {
 		return nil, err
 	}
 
@@ -289,7 +292,10 @@ func createTestPeerWithChannel(t *testing.T, updateChan func(a,
 		Port: 18556,
 	}
 
-	if err := bobChannelState.SyncPending(bobAddr, 0); err != nil {
+	err = dbBob.ChannelLifecycle().SyncPendingChannel(
+		bobChannelState, bobAddr, 0,
+	)
+	if err != nil {
 		return nil, err
 	}
 
@@ -659,7 +665,7 @@ func createTestPeer(t *testing.T) *peerTestCtx {
 		ChanStatusSampleInterval: 30 * time.Second,
 		ChanEnableTimeout:        chanActiveTimeout,
 		ChanDisableTimeout:       2 * time.Minute,
-		DB:                       dbAliceChannel.ChannelStateDB(),
+		DB:                       dbAliceChannel.ChannelStateStore(),
 		Graph:                    dbAliceGraph,
 		MessageSigner:            nodeSignerAlice,
 		OurPubKey:                aliceKeyPub,
@@ -702,7 +708,9 @@ func createTestPeer(t *testing.T) *peerTestCtx {
 	mockSwitch := &mockMessageSwitch{}
 
 	// TODO(yy): change ChannelNotifier to be an interface.
-	channelNotifier := channelnotifier.New(dbAliceChannel.ChannelStateDB())
+	channelNotifier := channelnotifier.New(
+		dbAliceChannel.ChannelStateStore(),
+	)
 	require.NoError(t, channelNotifier.Start())
 	t.Cleanup(func() {
 		require.NoError(t, channelNotifier.Stop(),
@@ -754,7 +762,7 @@ func createTestPeer(t *testing.T) *peerTestCtx {
 		Switch:            mockSwitch,
 		ChanActiveTimeout: chanActiveTimeout,
 		InterceptSwitch:   interceptableSwitch,
-		ChannelDB:         dbAliceChannel.ChannelStateDB(),
+		ChannelStateStore: dbAliceChannel.ChannelStateDB(),
 		FeeEstimator:      estimator,
 		Wallet:            wallet,
 		ChainNotifier:     notifier,

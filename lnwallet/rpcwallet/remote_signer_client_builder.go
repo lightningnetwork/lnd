@@ -21,9 +21,12 @@ func NewRemoteSignerClientBuilder(cfg *lncfg.WatchOnlyNode) *rscBuilder {
 	return &rscBuilder{cfg}
 }
 
-// Build creates a new RemoteSignerClient instance. If the configuration enables
-// an outbound remote signer, a new OutboundRemoteSignerClient will be returned.
-// Else, a NoOpClient will be returned.
+// Build creates a new RemoteSignerClient instance. If this node is configured
+// to act as a remote signer that dials the watch-only node, an OutboundClient
+// is returned. Otherwise a NoOpClient is returned.
+//
+// NOTE: "outbound" here is from this node's point of view, as it is this node
+// that dials out. The watch-only node calls the resulting connection inbound.
 func (b *rscBuilder) Build(subServers []lnrpc.SubServer) (
 	RemoteSignerClient, error) {
 
@@ -42,8 +45,9 @@ func (b *rscBuilder) Build(subServers []lnrpc.SubServer) (
 		}
 	}
 
-	// Check if we have all servers and if the configuration enables an
-	// outbound remote signer. If not, return a NoOpClient.
+	// Check if we have all servers and if this node is configured to act as
+	// a remote signer that dials the watch-only node. If not, return a
+	// NoOpClient.
 	if walletServer == nil || signerServer == nil {
 		log.Debugf("Using a No Op remote signer client due to " +
 			"current sub-server support")
@@ -58,7 +62,8 @@ func (b *rscBuilder) Build(subServers []lnrpc.SubServer) (
 		return &NoOpClient{}, nil
 	}
 
-	// An outbound remote signer client is enabled, therefore we create one.
+	// This node is configured to dial the watch-only node and serve signing
+	// requests over that connection, so create the client that does it.
 	log.Debugf("Using an outbound remote signer client")
 
 	streamFeeder := NewStreamFeeder(b.cfg.ConnectionCfg)

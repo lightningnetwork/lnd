@@ -2940,6 +2940,17 @@ func TestAlwaysSendChannelUpdate(t *testing.T) {
 	assertMsgSent(t, harness.mockConn, lnwire.MsgChannelUpdate)
 }
 
+// TestLogForceCloseResultWithoutTx verifies that a deferred local force close
+// can return without a transaction while waiting for the remote close.
+func TestLogForceCloseResultWithoutTx(t *testing.T) {
+	t.Parallel()
+
+	testPeer := NewBrontide(Config{})
+	require.NotPanics(t, func() {
+		testPeer.logForceCloseResult(lnwire.ShortChannelID{}, nil, nil)
+	})
+}
+
 // TODO(yy): add test for `addActiveChannel` and `handleNewActiveChannel` once
 // we have interfaced `lnwallet.LightningChannel` and
 // `*contractcourt.ChainArbitrator`.

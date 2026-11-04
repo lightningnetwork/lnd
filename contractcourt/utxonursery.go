@@ -12,6 +12,7 @@ import (
 	"github.com/btcsuite/btcd/btcutil"
 	"github.com/btcsuite/btcd/txscript"
 	"github.com/btcsuite/btcd/wire"
+	"github.com/btcsuite/btcwallet/chain"
 	"github.com/lightningnetwork/lnd/chainntnfs"
 	"github.com/lightningnetwork/lnd/channeldb"
 	"github.com/lightningnetwork/lnd/fn/v2"
@@ -1072,11 +1073,12 @@ func (u *UtxoNursery) sweepCribOutput(classHeight uint32, baby *babyOutput) erro
 	label := labels.MakeLabel(labels.LabelTypeSweepTransaction, nil)
 	err := u.cfg.PublishTransaction(baby.timeoutTx, label)
 
-	// In case the tx does not meet mempool fee requirements we continue
-	// because the tx is rebroadcasted in the background and there is
-	// nothing we can do to bump this transaction anyways.
+	// Continue when the transaction does not meet mempool fee or
+	// replacement requirements. The transaction is rebroadcast in the
+	// background, and there is nothing we can do to bump it here.
 	if err != nil && !errors.Is(err, lnwallet.ErrDoubleSpend) &&
-		!errors.Is(err, lnwallet.ErrMempoolFee) {
+		!errors.Is(err, lnwallet.ErrMempoolFee) &&
+		!errors.Is(err, chain.ErrInsufficientFee) {
 
 		utxnLog.Errorf("Unable to broadcast baby tx: "+
 			"%v, %v", err, lnutils.SpewLogClosure(baby.timeoutTx))

@@ -1,0 +1,27 @@
+name: Nightly
+
+# Runs the nightly tier of the CI workflow on master: the complete job set of
+# main.yml, including the itests that don't gate the merge queue, the Windows
+# and macOS itests and the coverage report. Since master isn't tested after
+# each merge, this is the backstop for everything the merge queue doesn't run.
+on:
+  schedule:
+    # Every day at 03:00 UTC.
+    - cron: "0 3 * * *"
+  workflow_dispatch:
+
+# The permissions of the called workflow can't exceed the ones granted here,
+# see main.yml for what they are used for.
+permissions:
+  actions: write
+  contents: read
+  pull-requests: read
+
+jobs:
+  ci:
+    name: CI
+    # Don't run on a schedule in forks, they can still dispatch it manually.
+    if: github.event_name == 'workflow_dispatch' || github.repository == 'lightningnetwork/lnd'
+    uses: ./.github/workflows/main.yml
+    with:
+      tier: nightly

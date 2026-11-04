@@ -28,6 +28,12 @@ type AmpSubInvoiceHtlc struct {
 	Preimage   []byte
 }
 
+type Bolt12Invoice struct {
+	InvoiceID int64
+	OfferID   sql.NullInt64
+	Envelope  []byte
+}
+
 type ChainParam struct {
 	SingleRow bool
 	Network   string

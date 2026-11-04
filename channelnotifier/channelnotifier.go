@@ -17,7 +17,14 @@ type ChannelNotifier struct {
 
 	ntfnServer *subscribe.Server
 
-	chanDB chanstate.Store
+	chanDB channelNotifierStore
+}
+
+// channelNotifierStore is the narrow channel-state persistence surface needed
+// to hydrate open and closed channel notification payloads.
+type channelNotifierStore interface {
+	chanstate.OpenChannelStore
+	chanstate.ClosedChannelStore
 }
 
 // PendingOpenChannelEvent represents a new event where a new channel has
@@ -97,7 +104,7 @@ type FundingTimeoutEvent struct {
 // New creates a new channel notifier. The ChannelNotifier gets channel
 // events from peers and from the chain arbitrator, and dispatches them to
 // its clients.
-func New(chanDB chanstate.Store) *ChannelNotifier {
+func New(chanDB channelNotifierStore) *ChannelNotifier {
 	return &ChannelNotifier{
 		ntfnServer: subscribe.NewServer(),
 		chanDB:     chanDB,

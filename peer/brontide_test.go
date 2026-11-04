@@ -435,7 +435,7 @@ func TestLinkFailureRetiresRestoredLegacyCloser(t *testing.T) {
 
 	firstPeer.Disconnect(errors.New("test reconnect"))
 	firstPeer.cg.WgWait()
-	dbChans, err := firstPeer.cfg.ChannelDB.FetchOpenChannels(
+	dbChans, err := firstPeer.cfg.ChannelStateStore.FetchOpenChannels(
 		firstPeer.cfg.Addr.IdentityKey,
 	)
 	require.NoError(t, err)

@@ -1,7 +1,6 @@
 package channeldb
 
 import (
-	"bytes"
 	"context"
 	"encoding/binary"
 	"errors"
@@ -11,8 +10,7 @@ import (
 	"testing"
 
 	"github.com/btcsuite/btcd/btcec/v2"
-	"github.com/btcsuite/btcd/wire/v2"
-	"github.com/btcsuite/btcwallet/walletdb"
+	"github.com/lightningnetwork/lnd/chanlifecycle"
 	mig "github.com/lightningnetwork/lnd/channeldb/migration"
 	"github.com/lightningnetwork/lnd/channeldb/migration12"
 	"github.com/lightningnetwork/lnd/channeldb/migration13"
@@ -34,10 +32,10 @@ import (
 	"github.com/lightningnetwork/lnd/channeldb/migration_01_to_11"
 	"github.com/lightningnetwork/lnd/chanstate"
 	"github.com/lightningnetwork/lnd/clock"
-	graphdb "github.com/lightningnetwork/lnd/graph/db"
+	"github.com/lightningnetwork/lnd/fwdresponse"
 	"github.com/lightningnetwork/lnd/invoices"
 	"github.com/lightningnetwork/lnd/kvdb"
-	"github.com/lightningnetwork/lnd/lnwire"
+	"github.com/lightningnetwork/lnd/linknode"
 	"github.com/stretchr/testify/require"
 )
 
@@ -358,13 +356,27 @@ var (
 type DB struct {
 	kvdb.Backend
 
-	// channelStateDB separates all DB operations on channel state.
-	channelStateDB *ChannelStateDB
+	// chanStateStore owns channel-state persistence.
+	chanStateStore chanstate.Store
 
-	dbPath                    string
-	clock                     clock.Clock
-	dryRun                    bool
-	storeFinalHtlcResolutions bool
+	// linkNodeDB separates all DB operations on LinkNodes.
+	linkNodeDB linknode.Store
+
+	// channelLifecycle owns operations that atomically update channel state
+	// and link-node metadata.
+	channelLifecycle chanlifecycle.ChannelLifecycle
+
+	// linkNodeMaintainer owns link-node repair and pruning operations
+	// derived from channel state.
+	linkNodeMaintainer chanlifecycle.LinkNodeMaintainer
+
+	// fwdResponseStore persists off-chain settle and fail messages until
+	// the switch can safely replay or reap them.
+	fwdResponseStore *fwdresponse.KVStore
+
+	dbPath string
+	clock  clock.Clock
+	dryRun bool
 
 	// noRevLogAmtData if true, means that commitment transaction amount
 	// data should not be stored in the revocation log.
@@ -414,24 +426,36 @@ func CreateWithBackend(backend kvdb.Backend, modifiers ...OptionModifier) (*DB,
 		}
 	}
 
+	linkNodeDB := linknode.NewDB(backend)
+	fwdResponseStore := fwdresponse.NewKVStore(backend)
+	kvStore := chanstate.NewKVStore(
+		backend,
+		chanstate.WithStoreFinalHtlcResolutions(
+			opts.storeFinalHtlcResolutions,
+		),
+		chanstate.WithNoRevLogAmtData(opts.NoRevLogAmtData),
+		chanstate.WithTombstoneClosedChannels(
+			opts.tombstoneClosedChannels,
+		),
+		chanstate.WithExtractFwdResponses(
+			fwdResponseStore.ExtractFwdResponses,
+		),
+	)
 	chanDB := &DB{
-		Backend: backend,
-		channelStateDB: &ChannelStateDB{
-			linkNodeDB: &LinkNodeDB{
-				backend: backend,
-			},
-			backend:                 backend,
-			tombstoneClosedChannels: opts.tombstoneClosedChannels,
-		},
-		clock:                     opts.clock,
-		dryRun:                    opts.dryRun,
-		storeFinalHtlcResolutions: opts.storeFinalHtlcResolutions,
-		noRevLogAmtData:           opts.NoRevLogAmtData,
+		Backend:          backend,
+		chanStateStore:   kvStore,
+		linkNodeDB:       linkNodeDB,
+		fwdResponseStore: fwdResponseStore,
+		clock:            opts.clock,
+		dryRun:           opts.dryRun,
+		noRevLogAmtData:  opts.NoRevLogAmtData,
 	}
-
-	// Set the parent pointer (only used in tests).
-	chanDB.channelStateDB.parent = chanDB
-
+	chanDB.channelLifecycle = chanlifecycle.NewKVChannelLifecycle(
+		backend, linkNodeDB, kvStore,
+	)
+	chanDB.linkNodeMaintainer = chanlifecycle.NewKVLinkNodeMaintainer(
+		backend, linkNodeDB,
+	)
 	// Synchronize the version of database and apply migrations if needed.
 	if !opts.NoMigration {
 		if err := chanDB.syncVersions(dbVersions); err != nil {
@@ -457,7 +481,6 @@ func (d *DB) Path() string {
 
 var dbTopLevelBuckets = [][]byte{
 	openChannelBucket,
-	fwdResponseBucketKey,
 	closedChannelBucket,
 	forwardingLogBucket,
 	fwdPackagesKey,
@@ -478,6 +501,10 @@ var dbTopLevelBuckets = [][]byte{
 // operation is fully atomic.
 func (d *DB) Wipe() error {
 	err := kvdb.Update(d, func(tx kvdb.RwTx) error {
+		if err := d.fwdResponseStore.Wipe(tx); err != nil {
+			return err
+		}
+
 		for _, tlb := range dbTopLevelBuckets {
 			err := tx.DeleteTopLevelBucket(tlb)
 			if err != nil && err != kvdb.ErrBucketNotFound {
@@ -553,1301 +580,18 @@ func fileExists(path string) bool {
 	return true
 }
 
-// ChannelStateDB is a database that keeps track of all channel state.
-type ChannelStateDB struct {
-	// linkNodeDB separates all DB operations on LinkNodes.
-	linkNodeDB *LinkNodeDB
-
-	// parent holds a pointer to the "main" channeldb.DB object. This is
-	// only used for testing and should never be used in production code.
-	// For testing use the ChannelStateDB.GetParentDB() function to retrieve
-	// this pointer.
-	parent *DB
-
-	// backend points to the actual backend holding the channel state
-	// database. This may be a real backend or a cache middleware.
-	backend kvdb.Backend
-
-	// tombstoneClosedChannels is set by OptionTombstoneClosedChannels.
-	// When true, CloseChannel skips deleting nested per-channel state and
-	// relies on the outpointBucket flip to outpointClosed as the
-	// authoritative closed-channel signal.
-	tombstoneClosedChannels bool
-}
-
-// GetParentDB returns the "main" channeldb.DB object that is the owner of this
-// ChannelStateDB instance. Use this function only in tests where passing around
-// pointers makes testing less readable. Never to be used in production code!
-func (c *ChannelStateDB) GetParentDB() *DB {
-	return c.parent
-}
-
-// LinkNodeDB returns the current instance of the link node database.
-func (c *ChannelStateDB) LinkNodeDB() *LinkNodeDB {
-	return c.linkNodeDB
-}
-
-// FetchOpenChannels starts a new database transaction and returns all stored
-// currently active/open channels associated with the target nodeID. In the case
-// that no active channels are known to have been created with this node, then a
-// zero-length slice is returned.
-func (c *ChannelStateDB) FetchOpenChannels(nodeID *btcec.PublicKey) (
-	[]*OpenChannel, error) {
-
-	var channels []*OpenChannel
-	err := kvdb.View(c.backend, func(tx kvdb.RTx) error {
-		var err error
-		channels, err = c.fetchOpenChannels(tx, nodeID)
-		return err
-	}, func() {
-		channels = nil
-	})
-
-	return channels, err
-}
-
-// fetchOpenChannels uses and existing database transaction and returns all
-// stored currently active/open channels associated with the target nodeID. In
-// the case that no active channels are known to have been created with this
-// node, then a zero-length slice is returned.
-func (c *ChannelStateDB) fetchOpenChannels(tx kvdb.RTx,
-	nodeID *btcec.PublicKey) ([]*OpenChannel, error) {
-
-	// Get the bucket dedicated to storing the metadata for open channels.
-	openChanBucket := tx.ReadBucket(openChannelBucket)
-	if openChanBucket == nil {
-		return nil, nil
-	}
-
-	// Within this top level bucket, fetch the bucket dedicated to storing
-	// open channel data specific to the remote node.
-	pub := nodeID.SerializeCompressed()
-	nodeChanBucket := openChanBucket.NestedReadBucket(pub)
-	if nodeChanBucket == nil {
-		return nil, nil
-	}
-
-	// Next, we'll need to go down an additional layer in order to retrieve
-	// the channels for each chain the node knows of.
-	var channels []*OpenChannel
-	err := nodeChanBucket.ForEach(func(chainHash, v []byte) error {
-		// If there's a value, it's not a bucket so ignore it.
-		if v != nil {
-			return nil
-		}
-
-		// If we've found a valid chainhash bucket, then we'll retrieve
-		// that so we can extract all the channels.
-		chainBucket := nodeChanBucket.NestedReadBucket(chainHash)
-		if chainBucket == nil {
-			return fmt.Errorf("unable to read bucket for chain=%x",
-				chainHash[:])
-		}
-
-		// Finally, we both of the necessary buckets retrieved, fetch
-		// all the active channels related to this node.
-		nodeChannels, err := c.fetchNodeChannels(tx, chainBucket)
-		if err != nil {
-			return fmt.Errorf("unable to read channel for "+
-				"chain_hash=%x, node_key=%x: %v",
-				chainHash[:], pub, err)
-		}
-
-		channels = append(channels, nodeChannels...)
-		return nil
-	})
-
-	return channels, err
-}
-
-// fetchNodeChannels retrieves all active channels from the target chainBucket
-// which is under a node's dedicated channel bucket. This function is typically
-// used to fetch all the active channels related to a particular node. Channels
-// already flipped to outpointClosed in the outpoint index are skipped silently
-// — readers see only channels that are still considered open.
-func (c *ChannelStateDB) fetchNodeChannels(tx kvdb.RTx,
-	chainBucket kvdb.RBucket) ([]*OpenChannel, error) {
-
-	var channels []*OpenChannel
-
-	// Hoist the outpoint-bucket lookup so the closed-channel check inside
-	// the loop is a per-iteration map probe rather than a tx-level bucket
-	// resolve.
-	opBucket := tx.ReadBucket(outpointBucket)
-
-	// A node may have channels on several chains, so for each known chain,
-	// we'll extract all the channels.
-	err := chainBucket.ForEach(func(chanPoint, v []byte) error {
-		// If there's a value, it's not a bucket so ignore it.
-		if v != nil {
-			return nil
-		}
-
-		// Skip already-closed channels. The chanBucket still exists
-		// on disk on tombstone-enabled backends; the outpoint flip is
-		// the sole signal that the channel should be treated as
-		// closed.
-		isClosed, err := isOutpointClosed(opBucket, chanPoint)
-		if err != nil {
-			return err
-		}
-		if isClosed {
-			return nil
-		}
-
-		// Once we've found a valid channel bucket, we'll extract it
-		// from the node's chain bucket.
-		chanBucket := chainBucket.NestedReadBucket(chanPoint)
-
-		var outPoint wire.OutPoint
-		err = graphdb.ReadOutpoint(
-			bytes.NewReader(chanPoint), &outPoint,
-		)
-		if err != nil {
-			return err
-		}
-		oChannel, err := fetchOpenChannel(chanBucket, &outPoint)
-		if err != nil {
-			return fmt.Errorf("unable to read channel data for "+
-				"chan_point=%v: %w", outPoint, err)
-		}
-		oChannel.Db = c
-
-		channels = append(channels, oChannel)
-
-		return nil
-	})
-	if err != nil {
-		return nil, err
-	}
-
-	return channels, nil
-}
-
-// FetchChannel attempts to locate a channel specified by the passed channel
-// point. If the channel cannot be found, then an error will be returned.
-func (c *ChannelStateDB) FetchChannel(chanPoint wire.OutPoint) (*OpenChannel,
-	error) {
-
-	var targetChanPoint bytes.Buffer
-	err := graphdb.WriteOutpoint(&targetChanPoint, &chanPoint)
-	if err != nil {
-		return nil, err
-	}
-
-	targetChanPointBytes := targetChanPoint.Bytes()
-	selector := func(chainBkt walletdb.ReadBucket) ([]byte, *wire.OutPoint,
-		error) {
-
-		return targetChanPointBytes, &chanPoint, nil
-	}
-
-	return c.channelScanner(nil, selector)
-}
-
-// FetchChannelByID attempts to locate a channel specified by the passed channel
-// ID. If the channel cannot be found, then an error will be returned.
-func (c *ChannelStateDB) FetchChannelByID(id lnwire.ChannelID) (*OpenChannel,
-	error) {
-
-	selector := func(chainBkt walletdb.ReadBucket) ([]byte, *wire.OutPoint,
-		error) {
-
-		var (
-			targetChanPointBytes []byte
-			targetChanPoint      *wire.OutPoint
-
-			// errChanFound is used to signal that the channel has
-			// been found so that iteration through the DB buckets
-			// can stop.
-			errChanFound = errors.New("channel found")
-		)
-		err := chainBkt.ForEach(func(k, _ []byte) error {
-			var outPoint wire.OutPoint
-			err := graphdb.ReadOutpoint(
-				bytes.NewReader(k), &outPoint,
-			)
-			if err != nil {
-				return err
-			}
-
-			chanID := lnwire.NewChanIDFromOutPoint(outPoint)
-			if chanID != id {
-				return nil
-			}
-
-			targetChanPoint = &outPoint
-			targetChanPointBytes = k
-
-			return errChanFound
-		})
-		if err != nil && !errors.Is(err, errChanFound) {
-			return nil, nil, err
-		}
-		if targetChanPoint == nil {
-			return nil, nil, ErrChannelNotFound
-		}
-
-		return targetChanPointBytes, targetChanPoint, nil
-	}
-
-	return c.channelScanner(nil, selector)
-}
-
 // ChanCount is used by the server in determining access control.
 type ChanCount = chanstate.ChanCount
-
-// FetchPermAndTempPeers returns a map where the key is the remote node's
-// public key and the value is a struct that has a tally of the pending-open
-// channels and whether the peer has an open or closed channel with us.
-func (c *ChannelStateDB) FetchPermAndTempPeers(
-	chainHash []byte) (map[string]ChanCount, error) {
-
-	peerChanInfo := make(map[string]ChanCount)
-
-	err := kvdb.View(c.backend, func(tx kvdb.RTx) error {
-		openChanBucket := tx.ReadBucket(openChannelBucket)
-		if openChanBucket == nil {
-			return ErrNoChanDBExists
-		}
-
-		// Hoist the outpoint-bucket lookup so the closed-channel check
-		// inside the nested chainBucket.ForEach below is a per-channel
-		// map probe rather than a tx-level bucket resolve.
-		opBucket := tx.ReadBucket(outpointBucket)
-
-		openChanErr := openChanBucket.ForEach(func(nodePub,
-			v []byte) error {
-
-			// If there is a value, this is not a bucket.
-			if v != nil {
-				return nil
-			}
-
-			nodeChanBucket := openChanBucket.NestedReadBucket(
-				nodePub,
-			)
-			if nodeChanBucket == nil {
-				return nil
-			}
-
-			chainBucket := nodeChanBucket.NestedReadBucket(
-				chainHash,
-			)
-			if chainBucket == nil {
-				return fmt.Errorf("no chain bucket exists")
-			}
-
-			var isPermPeer bool
-			var pendingOpenCount uint64
-
-			internalErr := chainBucket.ForEach(func(chanPoint,
-				val []byte) error {
-
-				// If there is a value, this is not a bucket.
-				if val != nil {
-					return nil
-				}
-
-				// Skip already-closed channels: they are
-				// logically closed even though their
-				// per-channel state still resides under
-				// chainBucket. The closed peer's protected
-				// status is established below via the
-				// historical-channel scan.
-				isClosed, err := isOutpointClosed(
-					opBucket, chanPoint,
-				)
-				if err != nil {
-					return err
-				}
-				if isClosed {
-					return nil
-				}
-
-				chanBucket := chainBucket.NestedReadBucket(
-					chanPoint,
-				)
-				if chanBucket == nil {
-					return nil
-				}
-
-				var op wire.OutPoint
-				readErr := graphdb.ReadOutpoint(
-					bytes.NewReader(chanPoint), &op,
-				)
-				if readErr != nil {
-					return readErr
-				}
-
-				// We need to go through each channel and look
-				// at the IsPending status.
-				openChan, err := fetchOpenChannel(
-					chanBucket, &op,
-				)
-				if err != nil {
-					return err
-				}
-
-				if openChan.IsPending {
-					// Add to the pending-open count since
-					// this is a temp peer.
-					pendingOpenCount++
-					return nil
-				}
-
-				// Since IsPending is false, this is a perm
-				// peer.
-				isPermPeer = true
-
-				return nil
-			})
-			if internalErr != nil {
-				return internalErr
-			}
-
-			peerCount := ChanCount{
-				HasOpenOrClosedChan: isPermPeer,
-				PendingOpenCount:    pendingOpenCount,
-			}
-			peerChanInfo[string(nodePub)] = peerCount
-
-			return nil
-		})
-		if openChanErr != nil {
-			return openChanErr
-		}
-
-		// Now check the closed channel bucket.
-		historicalChanBucket := tx.ReadBucket(historicalChannelBucket)
-		if historicalChanBucket == nil {
-			return ErrNoHistoricalBucket
-		}
-
-		historicalErr := historicalChanBucket.ForEach(func(chanPoint,
-			v []byte) error {
-			// Parse each nested bucket and the chanInfoKey to get
-			// the IsPending bool. This determines whether the
-			// peer is protected or not.
-			if v != nil {
-				// This is not a bucket. This is currently not
-				// possible.
-				return nil
-			}
-
-			chanBucket := historicalChanBucket.NestedReadBucket(
-				chanPoint,
-			)
-			if chanBucket == nil {
-				// This is not possible.
-				return fmt.Errorf("no historical channel " +
-					"bucket exists")
-			}
-
-			var op wire.OutPoint
-			readErr := graphdb.ReadOutpoint(
-				bytes.NewReader(chanPoint), &op,
-			)
-			if readErr != nil {
-				return readErr
-			}
-
-			// This channel is closed, but the structure of the
-			// historical bucket is the same. This is by design,
-			// which means we can call fetchOpenChannel.
-			channel, fetchErr := fetchOpenChannel(chanBucket, &op)
-			if fetchErr != nil {
-				return fetchErr
-			}
-
-			// Only include this peer in the protected class if
-			// the closing transaction confirmed. Note that
-			// CloseChannel can be called in the funding manager
-			// while IsPending is true which is why we need this
-			// special-casing to not count premature funding
-			// manager calls to CloseChannel.
-			if !channel.IsPending {
-				// Fetch the public key of the remote node. We
-				// need to use the string-ified serialized,
-				// compressed bytes as the key.
-				remotePub := channel.IdentityPub
-				remoteSer := remotePub.SerializeCompressed()
-				remoteKey := string(remoteSer)
-
-				count, exists := peerChanInfo[remoteKey]
-				if exists {
-					count.HasOpenOrClosedChan = true
-					peerChanInfo[remoteKey] = count
-				} else {
-					peerCount := ChanCount{
-						HasOpenOrClosedChan: true,
-					}
-					peerChanInfo[remoteKey] = peerCount
-				}
-			}
-
-			return nil
-		})
-		if historicalErr != nil {
-			return historicalErr
-		}
-
-		return nil
-	}, func() {
-		clear(peerChanInfo)
-	})
-
-	return peerChanInfo, err
-}
-
-// channelSelector describes a function that takes a chain-hash bucket from
-// within the open-channel DB and returns the wanted channel point bytes, and
-// channel point. It must return the ErrChannelNotFound error if the wanted
-// channel is not in the given bucket.
-type channelSelector func(chainBkt walletdb.ReadBucket) ([]byte, *wire.OutPoint,
-	error)
-
-// channelScanner will traverse the DB to each chain-hash bucket of each node
-// pub-key bucket in the open-channel-bucket. The chanSelector will then be used
-// to fetch the wanted channel outpoint from the chain bucket.
-func (c *ChannelStateDB) channelScanner(tx kvdb.RTx,
-	chanSelect channelSelector) (*OpenChannel, error) {
-
-	var (
-		targetChan *OpenChannel
-
-		// errChanFound is used to signal that the channel has been
-		// found so that iteration through the DB buckets can stop.
-		errChanFound = errors.New("channel found")
-	)
-
-	// chanScan will traverse the following bucket structure:
-	//  * nodePub => chainHash => chanPoint
-	//
-	// At each level we go one further, ensuring that we're traversing the
-	// proper key (that's actually a bucket). By only reading the bucket
-	// structure and skipping fully decoding each channel, we save a good
-	// bit of CPU as we don't need to do things like decompress public
-	// keys.
-	chanScan := func(tx kvdb.RTx) error {
-		// Get the bucket dedicated to storing the metadata for open
-		// channels.
-		openChanBucket := tx.ReadBucket(openChannelBucket)
-		if openChanBucket == nil {
-			return ErrNoActiveChannels
-		}
-
-		// Hoist the outpoint-bucket lookup so the closed-channel
-		// check inside the per-chain ForEach below pays one tx-level
-		// bucket resolve total instead of one per visited chanKey.
-		opBucket := tx.ReadBucket(outpointBucket)
-
-		// Within the node channel bucket, are the set of node pubkeys
-		// we have channels with, we don't know the entire set, so we'll
-		// check them all.
-		return openChanBucket.ForEach(func(nodePub, v []byte) error {
-			// Ensure that this is a key the same size as a pubkey,
-			// and also that it leads directly to a bucket.
-			if len(nodePub) != 33 || v != nil {
-				return nil
-			}
-
-			nodeChanBucket := openChanBucket.NestedReadBucket(
-				nodePub,
-			)
-			if nodeChanBucket == nil {
-				return nil
-			}
-
-			// The next layer down is all the chains that this node
-			// has channels on with us.
-			return nodeChanBucket.ForEach(func(chainHash,
-				v []byte) error {
-
-				// If there's a value, it's not a bucket so
-				// ignore it.
-				if v != nil {
-					return nil
-				}
-
-				chainBucket := nodeChanBucket.NestedReadBucket(
-					chainHash,
-				)
-				if chainBucket == nil {
-					return fmt.Errorf("unable to read "+
-						"bucket for chain=%x",
-						chainHash)
-				}
-
-				// Finally, we reach the leaf bucket that stores
-				// all the chanPoints for this node.
-				targetChanBytes, chanPoint, err := chanSelect(
-					chainBucket,
-				)
-				if errors.Is(err, ErrChannelNotFound) {
-					return nil
-				} else if err != nil {
-					return err
-				}
-
-				// An already-closed channel is logically gone
-				// and must not be surfaced by lookup-style
-				// scans.
-				isClosed, err := isOutpointClosed(
-					opBucket, targetChanBytes,
-				)
-				if err != nil {
-					return err
-				}
-				if isClosed {
-					return nil
-				}
-
-				chanBucket := chainBucket.NestedReadBucket(
-					targetChanBytes,
-				)
-				if chanBucket == nil {
-					return nil
-				}
-
-				channel, err := fetchOpenChannel(
-					chanBucket, chanPoint,
-				)
-				if err != nil {
-					return err
-				}
-
-				targetChan = channel
-				targetChan.Db = c
-
-				return errChanFound
-			})
-		})
-	}
-
-	var err error
-	if tx == nil {
-		err = kvdb.View(c.backend, chanScan, func() {})
-	} else {
-		err = chanScan(tx)
-	}
-	if err != nil && !errors.Is(err, errChanFound) {
-		return nil, err
-	}
-
-	if targetChan != nil {
-		return targetChan, nil
-	}
-
-	// If we can't find the channel, then we return with an error, as we
-	// have nothing to back up.
-	return nil, ErrChannelNotFound
-}
-
-// FetchAllChannels attempts to retrieve all open channels currently stored
-// within the database, including pending open, fully open and channels waiting
-// for a closing transaction to confirm.
-func (c *ChannelStateDB) FetchAllChannels() ([]*OpenChannel, error) {
-	return fetchChannels(c)
-}
-
-// FetchAllOpenChannels will return all channels that have the funding
-// transaction confirmed, and is not waiting for a closing transaction to be
-// confirmed.
-func (c *ChannelStateDB) FetchAllOpenChannels() ([]*OpenChannel, error) {
-	return fetchChannels(
-		c,
-		pendingChannelFilter(false),
-		waitingCloseFilter(false),
-	)
-}
-
-// FetchPendingChannels will return channels that have completed the process of
-// generating and broadcasting funding transactions, but whose funding
-// transactions have yet to be confirmed on the blockchain.
-func (c *ChannelStateDB) FetchPendingChannels() ([]*OpenChannel, error) {
-	return fetchChannels(c,
-		pendingChannelFilter(true),
-		waitingCloseFilter(false),
-	)
-}
-
-// FetchWaitingCloseChannels will return all channels that have been opened,
-// but are now waiting for a closing transaction to be confirmed.
-//
-// NOTE: This includes channels that are also pending to be opened.
-func (c *ChannelStateDB) FetchWaitingCloseChannels() ([]*OpenChannel, error) {
-	return fetchChannels(
-		c, waitingCloseFilter(true),
-	)
-}
-
-// fetchChannelsFilter applies a filter to channels retrieved in fetchchannels.
-// A set of filters can be combined to filter across multiple dimensions.
-type fetchChannelsFilter func(channel *OpenChannel) bool
-
-// pendingChannelFilter returns a filter based on whether channels are pending
-// (ie, their funding transaction still needs to confirm). If pending is false,
-// channels with confirmed funding transactions are returned.
-func pendingChannelFilter(pending bool) fetchChannelsFilter {
-	return func(channel *OpenChannel) bool {
-		return channel.IsPending == pending
-	}
-}
-
-// waitingCloseFilter returns a filter which filters channels based on whether
-// they are awaiting the confirmation of their closing transaction. If waiting
-// close is true, channels that have had their closing tx broadcast are
-// included. If it is false, channels that are not awaiting confirmation of
-// their close transaction are returned.
-func waitingCloseFilter(waitingClose bool) fetchChannelsFilter {
-	return func(channel *OpenChannel) bool {
-		// If the channel is in any other state than Default,
-		// then it means it is waiting to be closed.
-		channelWaitingClose :=
-			channel.ChanStatus() != ChanStatusDefault
-
-		// Include the channel if it matches the value for
-		// waiting close that we are filtering on.
-		return channelWaitingClose == waitingClose
-	}
-}
-
-// fetchChannels attempts to retrieve channels currently stored in the
-// database. It takes a set of filters which are applied to each channel to
-// obtain a set of channels with the desired set of properties. Only channels
-// which have a true value returned for *all* of the filters will be returned.
-// If no filters are provided, every channel in the open channels bucket will
-// be returned.
-func fetchChannels(c *ChannelStateDB, filters ...fetchChannelsFilter) (
-	[]*OpenChannel, error) {
-
-	var channels []*OpenChannel
-
-	err := kvdb.View(c.backend, func(tx kvdb.RTx) error {
-		// Get the bucket dedicated to storing the metadata for open
-		// channels.
-		openChanBucket := tx.ReadBucket(openChannelBucket)
-		if openChanBucket == nil {
-			return ErrNoActiveChannels
-		}
-
-		// Next, fetch the bucket dedicated to storing metadata related
-		// to all nodes. All keys within this bucket are the serialized
-		// public keys of all our direct counterparties.
-		nodeMetaBucket := tx.ReadBucket(nodeInfoBucket)
-		if nodeMetaBucket == nil {
-			return fmt.Errorf("node bucket not created")
-		}
-
-		// Finally for each node public key in the bucket, fetch all
-		// the channels related to this particular node.
-		return nodeMetaBucket.ForEach(func(k, v []byte) error {
-			nodeChanBucket := openChanBucket.NestedReadBucket(k)
-			if nodeChanBucket == nil {
-				return nil
-			}
-
-			return nodeChanBucket.ForEach(func(chainHash, v []byte) error {
-				// If there's a value, it's not a bucket so
-				// ignore it.
-				if v != nil {
-					return nil
-				}
-
-				// If we've found a valid chainhash bucket,
-				// then we'll retrieve that so we can extract
-				// all the channels.
-				chainBucket := nodeChanBucket.NestedReadBucket(
-					chainHash,
-				)
-				if chainBucket == nil {
-					return fmt.Errorf("unable to read "+
-						"bucket for chain=%x", chainHash[:])
-				}
-
-				nodeChans, err := c.fetchNodeChannels(
-					tx, chainBucket,
-				)
-				if err != nil {
-					return fmt.Errorf("unable to read "+
-						"channel for chain_hash=%x, "+
-						"node_key=%x: %v", chainHash[:], k, err)
-				}
-				for _, channel := range nodeChans {
-					// includeChannel indicates whether the channel
-					// meets the criteria specified by our filters.
-					includeChannel := true
-
-					// Run through each filter and check whether the
-					// channel should be included.
-					for _, f := range filters {
-						// If the channel fails the filter, set
-						// includeChannel to false and don't bother
-						// checking the remaining filters.
-						if !f(channel) {
-							includeChannel = false
-							break
-						}
-					}
-
-					// If the channel passed every filter, include it in
-					// our set of channels.
-					if includeChannel {
-						channels = append(channels, channel)
-					}
-				}
-				return nil
-			})
-
-		})
-	}, func() {
-		channels = nil
-	})
-	if err != nil {
-		return nil, err
-	}
-
-	return channels, nil
-}
-
-// FetchClosedChannels attempts to fetch all closed channels from the database.
-// The pendingOnly bool toggles if channels that aren't yet fully closed should
-// be returned in the response or not. When a channel was cooperatively closed,
-// it becomes fully closed after a single confirmation.  When a channel was
-// forcibly closed, it will become fully closed after _all_ the pending funds
-// (if any) have been swept.
-func (c *ChannelStateDB) FetchClosedChannels(pendingOnly bool) (
-	[]*ChannelCloseSummary, error) {
-
-	var chanSummaries []*ChannelCloseSummary
-
-	if err := kvdb.View(c.backend, func(tx kvdb.RTx) error {
-		closeBucket := tx.ReadBucket(closedChannelBucket)
-		if closeBucket == nil {
-			return ErrNoClosedChannels
-		}
-
-		return closeBucket.ForEach(func(chanID []byte, summaryBytes []byte) error {
-			summaryReader := bytes.NewReader(summaryBytes)
-			chanSummary, err := deserializeCloseChannelSummary(summaryReader)
-			if err != nil {
-				return err
-			}
-
-			// If the query specified to only include pending
-			// channels, then we'll skip any channels which aren't
-			// currently pending.
-			if !chanSummary.IsPending && pendingOnly {
-				return nil
-			}
-
-			chanSummaries = append(chanSummaries, chanSummary)
-			return nil
-		})
-	}, func() {
-		chanSummaries = nil
-	}); err != nil {
-		return nil, err
-	}
-
-	return chanSummaries, nil
-}
-
-// ErrClosedChannelNotFound signals that a closed channel could not be found in
-// the channeldb.
-var ErrClosedChannelNotFound = errors.New("unable to find closed channel summary")
-
-// FetchClosedChannel queries for a channel close summary using the channel
-// point of the channel in question.
-func (c *ChannelStateDB) FetchClosedChannel(chanID *wire.OutPoint) (
-	*ChannelCloseSummary, error) {
-
-	var chanSummary *ChannelCloseSummary
-	if err := kvdb.View(c.backend, func(tx kvdb.RTx) error {
-		closeBucket := tx.ReadBucket(closedChannelBucket)
-		if closeBucket == nil {
-			return ErrClosedChannelNotFound
-		}
-
-		var b bytes.Buffer
-		var err error
-		if err = graphdb.WriteOutpoint(&b, chanID); err != nil {
-			return err
-		}
-
-		summaryBytes := closeBucket.Get(b.Bytes())
-		if summaryBytes == nil {
-			return ErrClosedChannelNotFound
-		}
-
-		summaryReader := bytes.NewReader(summaryBytes)
-		chanSummary, err = deserializeCloseChannelSummary(summaryReader)
-
-		return err
-	}, func() {
-		chanSummary = nil
-	}); err != nil {
-		return nil, err
-	}
-
-	return chanSummary, nil
-}
-
-// FetchClosedChannelForID queries for a channel close summary using the
-// channel ID of the channel in question.
-func (c *ChannelStateDB) FetchClosedChannelForID(cid lnwire.ChannelID) (
-	*ChannelCloseSummary, error) {
-
-	var chanSummary *ChannelCloseSummary
-	if err := kvdb.View(c.backend, func(tx kvdb.RTx) error {
-		closeBucket := tx.ReadBucket(closedChannelBucket)
-		if closeBucket == nil {
-			return ErrClosedChannelNotFound
-		}
-
-		// The first 30 bytes of the channel ID and outpoint will be
-		// equal.
-		cursor := closeBucket.ReadCursor()
-		op, c := cursor.Seek(cid[:30])
-
-		// We scan over all possible candidates for this channel ID.
-		for ; op != nil && bytes.Compare(cid[:30], op[:30]) <= 0; op, c = cursor.Next() {
-			var outPoint wire.OutPoint
-			err := graphdb.ReadOutpoint(
-				bytes.NewReader(op), &outPoint,
-			)
-			if err != nil {
-				return err
-			}
-
-			// If the found outpoint does not correspond to this
-			// channel ID, we continue.
-			if !cid.IsChanPoint(&outPoint) {
-				continue
-			}
-
-			// Deserialize the close summary and return.
-			r := bytes.NewReader(c)
-			chanSummary, err = deserializeCloseChannelSummary(r)
-			if err != nil {
-				return err
-			}
-
-			return nil
-		}
-		return ErrClosedChannelNotFound
-	}, func() {
-		chanSummary = nil
-	}); err != nil {
-		return nil, err
-	}
-
-	return chanSummary, nil
-}
-
-// MarkChanFullyClosed marks a channel as fully closed within the database. A
-// channel should be marked as fully closed if the channel was initially
-// cooperatively closed and it's reached a single confirmation, or after all
-// the pending funds in a channel that has been forcibly closed have been
-// swept.
-func (c *ChannelStateDB) MarkChanFullyClosed(chanPoint *wire.OutPoint) error {
-	return kvdb.Update(c.backend, func(tx kvdb.RwTx) error {
-		var b bytes.Buffer
-		if err := graphdb.WriteOutpoint(&b, chanPoint); err != nil {
-			return err
-		}
-
-		chanID := b.Bytes()
-
-		closedChanBucket, err := tx.CreateTopLevelBucket(
-			closedChannelBucket,
-		)
-		if err != nil {
-			return err
-		}
-
-		chanSummaryBytes := closedChanBucket.Get(chanID)
-		if chanSummaryBytes == nil {
-			return fmt.Errorf("no closed channel for "+
-				"chan_point=%v found", chanPoint)
-		}
-
-		chanSummaryReader := bytes.NewReader(chanSummaryBytes)
-		chanSummary, err := deserializeCloseChannelSummary(
-			chanSummaryReader,
-		)
-		if err != nil {
-			return err
-		}
-
-		chanSummary.IsPending = false
-
-		var newSummary bytes.Buffer
-		err = serializeChannelCloseSummary(&newSummary, chanSummary)
-		if err != nil {
-			return err
-		}
-
-		err = closedChanBucket.Put(chanID, newSummary.Bytes())
-		if err != nil {
-			return err
-		}
-
-		// Now that the channel is closed, we'll check if we have any
-		// other open channels with this peer. If we don't we'll
-		// garbage collect it to ensure we don't establish persistent
-		// connections to peers without open channels.
-		remotePub := chanSummary.RemotePub
-		openChannels, err := c.fetchOpenChannels(tx, remotePub)
-		if err != nil {
-			return fmt.Errorf("unable to fetch open channels for "+
-				"peer %x: %v",
-				remotePub.SerializeCompressed(), err)
-		}
-
-		if len(openChannels) > 0 {
-			return nil
-		}
-
-		// If there are no open channels with this peer, prune the
-		// link node. We do this within the same transaction to avoid
-		// a race condition where a new channel could be opened
-		// between this check and the deletion.
-		log.Infof("Pruning link node %x with zero open "+
-			"channels from database",
-			remotePub.SerializeCompressed())
-
-		err = deleteLinkNode(tx, remotePub)
-		if err != nil {
-			return fmt.Errorf("unable to delete link "+
-				"node: %w", err)
-		}
-
-		return nil
-	}, func() {})
-}
-
-// pruneLinkNode determines whether we should garbage collect a link node from
-// the database due to no longer having any open channels with it.
-//
-// NOTE: This function should be called after an initial check shows no open
-// channels exist. It will double-check within a write transaction to avoid a
-// race condition where a channel could be opened between the initial check
-// and the deletion.
-func (c *ChannelStateDB) pruneLinkNode(remotePub *btcec.PublicKey) error {
-	return kvdb.Update(c.backend, func(tx kvdb.RwTx) error {
-		// Double-check for open channels to avoid deleting a link node
-		// if a channel was opened since the caller's initial check.
-		//
-		// NOTE: This avoids a race condition where a channel could be
-		// opened between the initial check and the deletion.
-		openChannels, err := c.fetchOpenChannels(tx, remotePub)
-		if err != nil {
-			return err
-		}
-
-		// If channels exist now, don't prune.
-		if len(openChannels) > 0 {
-			return nil
-		}
-
-		// No open channels, safe to prune the link node.
-		log.Infof("Pruning link node %x with zero open channels "+
-			"from database",
-			remotePub.SerializeCompressed())
-
-		err = deleteLinkNode(tx, remotePub)
-		if err != nil {
-			return fmt.Errorf("unable to prune link node: %w", err)
-		}
-
-		return nil
-	}, func() {})
-}
-
-// PruneLinkNodes attempts to prune all link nodes found within the database
-// with whom we no longer have any open channels with.
-func (c *ChannelStateDB) PruneLinkNodes() error {
-	allLinkNodes, err := c.linkNodeDB.FetchAllLinkNodes()
-	if err != nil {
-		return err
-	}
-
-	for _, linkNode := range allLinkNodes {
-		var (
-			openChannels []*OpenChannel
-			linkNode     = linkNode
-		)
-		err := kvdb.View(c.backend, func(tx kvdb.RTx) error {
-			var err error
-			openChannels, err = c.fetchOpenChannels(
-				tx, linkNode.IdentityPub,
-			)
-			return err
-		}, func() {
-			openChannels = nil
-		})
-		if err != nil {
-			return err
-		}
-
-		if len(openChannels) > 0 {
-			continue
-		}
-
-		err = c.pruneLinkNode(linkNode.IdentityPub)
-		if err != nil {
-			return err
-		}
-	}
-
-	return nil
-}
-
-// RepairLinkNodes scans all channels in the database and ensures that a
-// link node exists for each remote peer. This should be called on startup to
-// ensure that our database is consistent.
-//
-// NOTE: This function is designed to repair database inconsistencies that may
-// have occurred due to the race condition in link node pruning (where link
-// nodes could be incorrectly deleted while channels still existed). This can
-// be removed once we move to native sql.
-func (c *ChannelStateDB) RepairLinkNodes(network wire.BitcoinNet) error {
-	// In a single read transaction, build a list of all peers with open
-	// channels and check which ones are missing link nodes.
-	var missingPeers []*btcec.PublicKey
-
-	err := kvdb.View(c.backend, func(tx kvdb.RTx) error {
-		openChanBucket := tx.ReadBucket(openChannelBucket)
-		if openChanBucket == nil {
-			return ErrNoActiveChannels
-		}
-
-		var peersWithChannels []*btcec.PublicKey
-
-		err := openChanBucket.ForEach(func(nodePubBytes,
-			_ []byte) error {
-
-			nodePub, err := btcec.ParsePubKey(nodePubBytes)
-			if err != nil {
-				return err
-			}
-
-			channels, err := c.fetchOpenChannels(tx, nodePub)
-			if err != nil {
-				return err
-			}
-
-			if len(channels) > 0 {
-				peersWithChannels = append(
-					peersWithChannels, nodePub,
-				)
-			}
-
-			return nil
-		})
-		if err != nil {
-			return err
-		}
-
-		// Now check which peers are missing link nodes within the
-		// same transaction.
-		missingPeers, err = c.linkNodeDB.FindMissingLinkNodes(
-			tx, peersWithChannels,
-		)
-
-		return err
-	}, func() {
-		missingPeers = nil
-	})
-	if err != nil && !errors.Is(err, ErrNoActiveChannels) {
-		return fmt.Errorf("unable to fetch channels: %w", err)
-	}
-
-	// Early exit if no repairs needed.
-	if len(missingPeers) == 0 {
-		return nil
-	}
-
-	// Create all missing link nodes in a single write transaction
-	// using the LinkNodeDB abstraction.
-	linkNodesToCreate := make([]*LinkNode, 0, len(missingPeers))
-	for _, remotePub := range missingPeers {
-		linkNode := NewLinkNode(c.linkNodeDB, network, remotePub)
-		linkNodesToCreate = append(linkNodesToCreate, linkNode)
-
-		log.Infof("Repairing missing link node for peer %x",
-			remotePub.SerializeCompressed())
-	}
-
-	err = c.linkNodeDB.CreateLinkNodes(nil, linkNodesToCreate)
-	if err != nil {
-		return err
-	}
-
-	log.Infof("Repaired %d missing link nodes on startup",
-		len(missingPeers))
-
-	return nil
-}
-
-// ChannelShell is a shell of a channel that is meant to be used for channel
-// recovery purposes.
-type ChannelShell = chanstate.ChannelShell
-
-// RestoreChannelShells is a method that allows the caller to reconstruct the
-// state of an OpenChannel from the ChannelShell. We'll attempt to write the
-// new channel to disk, create a LinkNode instance with the passed node
-// addresses, and finally create an edge within the graph for the channel as
-// well. This method is idempotent, so repeated calls with the same set of
-// channel shells won't modify the database after the initial call.
-func (c *ChannelStateDB) RestoreChannelShells(channelShells ...*ChannelShell) error {
-	err := kvdb.Update(c.backend, func(tx kvdb.RwTx) error {
-		for _, channelShell := range channelShells {
-			channel := channelShell.Chan
-
-			// When we make a channel, we mark that the channel has
-			// been restored, this will signal to other sub-systems
-			// to not attempt to use the channel as if it was a
-			// regular one.
-			channel.SetChannelStatusForStore(
-				channel.ChannelStatusForStore() |
-					ChanStatusRestored,
-			)
-
-			// First, we'll attempt to create a new open channel
-			// and link node for this channel. If the channel
-			// already exists, then in order to ensure this method
-			// is idempotent, we'll continue to the next step.
-			channel.Db = c
-			err := syncNewChannel(
-				tx, channel, channelShell.NodeAddrs, c.backend,
-			)
-			if err != nil {
-				return err
-			}
-		}
-
-		return nil
-	}, func() {})
-	if err != nil {
-		return err
-	}
-
-	return nil
-}
 
 // AddrsForNode consults the channel database for all addresses known to the
 // passed node public key. The returned boolean indicates if the given node is
 // unknown to the channel DB or not.
 //
 // NOTE: this is part of the AddrSource interface.
-func (d *DB) AddrsForNode(_ context.Context, nodePub *btcec.PublicKey) (bool,
+func (d *DB) AddrsForNode(ctx context.Context, nodePub *btcec.PublicKey) (bool,
 	[]net.Addr, error) {
 
-	linkNode, err := d.channelStateDB.linkNodeDB.FetchLinkNode(nodePub)
-	// Only if the error is something other than ErrNodeNotFound do we
-	// return it.
-	switch {
-	case err != nil && !errors.Is(err, ErrNodeNotFound):
-		return false, nil, err
-
-	case errors.Is(err, ErrNodeNotFound):
-		return false, nil, nil
-	}
-
-	return true, linkNode.Addresses, nil
-}
-
-// AbandonChannel attempts to remove the target channel from the open channel
-// database. If the channel was already removed (has a closed channel entry),
-// then we'll return a nil error. Otherwise, we'll insert a new close summary
-// into the database.
-func (c *ChannelStateDB) AbandonChannel(chanPoint *wire.OutPoint,
-	bestHeight uint32) error {
-
-	// With the chanPoint constructed, we'll attempt to find the target
-	// channel in the database. If we can't find the channel, then we'll
-	// return the error back to the caller.
-	dbChan, err := c.FetchChannel(*chanPoint)
-	switch {
-	// If the channel wasn't found, then it's possible that it was already
-	// abandoned from the database.
-	case err == ErrChannelNotFound:
-		_, closedErr := c.FetchClosedChannel(chanPoint)
-		if closedErr != nil {
-			return closedErr
-		}
-
-		// If the channel was already closed, then we don't return an
-		// error as we'd like this step to be repeatable.
-		return nil
-	case err != nil:
-		return err
-	}
-
-	// Now that we've found the channel, we'll populate a close summary for
-	// the channel, so we can store as much information for this abounded
-	// channel as possible. We also ensure that we set Pending to false, to
-	// indicate that this channel has been "fully" closed.
-	summary := &ChannelCloseSummary{
-		CloseType:               Abandoned,
-		ChanPoint:               *chanPoint,
-		ChainHash:               dbChan.ChainHash,
-		CloseHeight:             bestHeight,
-		RemotePub:               dbChan.IdentityPub,
-		Capacity:                dbChan.Capacity,
-		SettledBalance:          dbChan.LocalCommitment.LocalBalance.ToSatoshis(),
-		ShortChanID:             dbChan.ShortChanID(),
-		RemoteCurrentRevocation: dbChan.RemoteCurrentRevocation,
-		RemoteNextRevocation:    dbChan.RemoteNextRevocation,
-		LocalChanConfig:         dbChan.LocalChanCfg,
-	}
-
-	// Finally, we'll close the channel in the DB, and return back to the
-	// caller. We set ourselves as the close initiator because we abandoned
-	// the channel.
-	return dbChan.CloseChannel(summary, ChanStatusLocalCloseInitiator)
-}
-
-// SaveChannelOpeningState saves the serialized channel state for the provided
-// chanPoint to the channelOpeningStateBucket.
-func (c *ChannelStateDB) SaveChannelOpeningState(outPoint,
-	serializedState []byte) error {
-
-	return kvdb.Update(c.backend, func(tx kvdb.RwTx) error {
-		return chanstate.SaveChannelOpeningState(
-			tx, outPoint, serializedState,
-		)
-	}, func() {})
-}
-
-// GetChannelOpeningState fetches the serialized channel state for the provided
-// outPoint from the database, or returns ErrChannelNotFound if the channel
-// is not found.
-func (c *ChannelStateDB) GetChannelOpeningState(outPoint []byte) ([]byte,
-	error) {
-
-	var serializedState []byte
-	err := kvdb.View(c.backend, func(tx kvdb.RTx) error {
-		var err error
-		serializedState, err = chanstate.GetChannelOpeningState(
-			tx, outPoint,
-		)
-
-		return err
-	}, func() {
-		serializedState = nil
-	})
-	return serializedState, err
-}
-
-// DeleteChannelOpeningState removes any state for outPoint from the database.
-func (c *ChannelStateDB) DeleteChannelOpeningState(outPoint []byte) error {
-	return kvdb.Update(c.backend, func(tx kvdb.RwTx) error {
-		return chanstate.DeleteChannelOpeningState(tx, outPoint)
-	}, func() {})
+	return d.linkNodeDB.AddrsForNode(ctx, nodePub)
 }
 
 // syncVersions function is used for safe db version synchronization. It
@@ -2039,10 +783,31 @@ func (d *DB) applyOptionalVersions(cfg OptionalMiragtionConfig) error {
 	return nil
 }
 
-// ChannelStateDB returns the sub database that is concerned with the channel
-// state.
-func (d *DB) ChannelStateDB() *ChannelStateDB {
-	return d.channelStateDB
+// ChannelStateStore returns the channel-state persistence store.
+func (d *DB) ChannelStateStore() chanstate.Store {
+	return d.chanStateStore
+}
+
+// LinkNodeStore returns the link-node persistence store.
+func (d *DB) LinkNodeStore() linknode.Store {
+	return d.linkNodeDB
+}
+
+// FwdResponseStore returns the forwarding-response persistence store.
+func (d *DB) FwdResponseStore() fwdresponse.Store {
+	return d.fwdResponseStore
+}
+
+// ChannelLifecycle returns operations that atomically update channel state and
+// link-node metadata.
+func (d *DB) ChannelLifecycle() chanlifecycle.ChannelLifecycle {
+	return d.channelLifecycle
+}
+
+// LinkNodeMaintainer returns link-node repair and pruning operations derived
+// from channel state.
+func (d *DB) LinkNodeMaintainer() chanlifecycle.LinkNodeMaintainer {
+	return d.linkNodeMaintainer
 }
 
 // LatestDBVersion returns the number of the latest database version currently
@@ -2073,135 +838,7 @@ func getMigrationsToApply(versions []mandatoryVersion,
 	return migrations, migrationVersions
 }
 
-// fetchHistoricalChanBucket returns a the channel bucket for a given outpoint
-// from the historical channel bucket. If the bucket does not exist,
-// ErrNoHistoricalBucket is returned.
-func fetchHistoricalChanBucket(tx kvdb.RTx,
-	outPoint *wire.OutPoint) (kvdb.RBucket, error) {
-
-	// First fetch the top level bucket which stores all data related to
-	// historically stored channels.
-	historicalChanBucket := tx.ReadBucket(historicalChannelBucket)
-	if historicalChanBucket == nil {
-		return nil, ErrNoHistoricalBucket
-	}
-
-	// With the bucket for the node and chain fetched, we can now go down
-	// another level, for the channel itself.
-	var chanPointBuf bytes.Buffer
-	if err := graphdb.WriteOutpoint(&chanPointBuf, outPoint); err != nil {
-		return nil, err
-	}
-	chanBucket := historicalChanBucket.NestedReadBucket(
-		chanPointBuf.Bytes(),
-	)
-	if chanBucket == nil {
-		return nil, ErrChannelNotFound
-	}
-
-	return chanBucket, nil
-}
-
-// FetchHistoricalChannel fetches open channel data from the historical channel
-// bucket.
-func (c *ChannelStateDB) FetchHistoricalChannel(outPoint *wire.OutPoint) (
-	*OpenChannel, error) {
-
-	var channel *OpenChannel
-	err := kvdb.View(c.backend, func(tx kvdb.RTx) error {
-		chanBucket, err := fetchHistoricalChanBucket(tx, outPoint)
-		if err != nil {
-			return err
-		}
-
-		channel, err = fetchOpenChannel(chanBucket, outPoint)
-		if err != nil {
-			return err
-		}
-
-		channel.Db = c
-		return nil
-	}, func() {
-		channel = nil
-	})
-	if err != nil {
-		return nil, err
-	}
-
-	return channel, nil
-}
-
-func fetchFinalHtlcsBucket(tx kvdb.RTx,
-	chanID lnwire.ShortChannelID) (kvdb.RBucket, error) {
-
-	return chanstate.FetchFinalHtlcsBucket(tx, chanID)
-}
-
 var ErrHtlcUnknown = chanstate.ErrHtlcUnknown
-
-// LookupFinalHtlc retrieves a final htlc resolution from the database. If the
-// htlc has no final resolution yet, ErrHtlcUnknown is returned.
-func (c *ChannelStateDB) LookupFinalHtlc(chanID lnwire.ShortChannelID,
-	htlcIndex uint64) (*FinalHtlcInfo, error) {
-
-	var info *FinalHtlcInfo
-
-	err := kvdb.View(c.backend, func(tx kvdb.RTx) error {
-		finalHtlcsBucket, err := fetchFinalHtlcsBucket(
-			tx, chanID,
-		)
-		switch {
-		case errors.Is(err, ErrFinalHtlcsBucketNotFound):
-			fallthrough
-
-		case errors.Is(err, ErrFinalChannelBucketNotFound):
-			return ErrHtlcUnknown
-
-		case err != nil:
-			return fmt.Errorf("cannot fetch final htlcs bucket: %w",
-				err)
-		}
-
-		info, err = chanstate.FetchFinalHtlc(
-			finalHtlcsBucket, htlcIndex,
-		)
-
-		return err
-	}, func() {
-		info = nil
-	})
-	if err != nil {
-		return nil, err
-	}
-
-	return info, nil
-}
-
-// PutOnchainFinalHtlcOutcome stores the final on-chain outcome of an htlc in
-// the database.
-func (c *ChannelStateDB) PutOnchainFinalHtlcOutcome(
-	chanID lnwire.ShortChannelID, htlcID uint64, settled bool) error {
-
-	// Skip if the user did not opt in to storing final resolutions.
-	if !c.parent.storeFinalHtlcResolutions {
-		return nil
-	}
-
-	return kvdb.Update(c.backend, func(tx kvdb.RwTx) error {
-		finalHtlcsBucket, err := fetchFinalHtlcsBucketRw(tx, chanID)
-		if err != nil {
-			return err
-		}
-
-		return putFinalHtlc(
-			finalHtlcsBucket, htlcID,
-			FinalHtlcInfo{
-				Settled:  settled,
-				Offchain: false,
-			},
-		)
-	}, func() {})
-}
 
 // MakeTestInvoiceDB is used to create a test invoice database for testing
 // purposes. It simply calls into MakeTestDB so the same modifiers can be used.

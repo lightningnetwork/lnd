@@ -152,7 +152,7 @@ type ChannelArbitratorConfig struct {
 
 	// CloseType is the type of the close event in case IsPendingClose is
 	// true. Otherwise this value is unset.
-	CloseType channeldb.ClosureType
+	CloseType chanstate.ClosureType
 
 	// NotifyChannelResolved is used by the channel arbitrator to signal
 	// that a given channel has been resolved.

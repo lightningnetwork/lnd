@@ -280,7 +280,7 @@ type OpenChannel struct {
 	// ChanStatus is the current status of this channel. If it is not in
 	// the state Default, it should not be used for forwarding payments.
 	//
-	// NOTE: In `channeldb.OpenChannel`, this field is private. We choose
+	// NOTE: In `chanstate.OpenChannel`, this field is private. We choose
 	// to export this private field such that following migrations can
 	// access this field directly.
 	ChanStatus ChannelStatus

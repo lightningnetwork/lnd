@@ -1729,7 +1729,7 @@ func TestChannelArbitratorCommitFailure(t *testing.T) {
 	testCases := []struct {
 
 		// closeType is the type of channel close we want ot test.
-		closeType channeldb.ClosureType
+		closeType chanstate.ClosureType
 
 		// sendEvent is a function that will send the event
 		// corresponding to this test's closeType to the passed

@@ -1,6 +1,7 @@
 package itest
 
 import (
+	"bytes"
 	"fmt"
 	"testing"
 
@@ -51,14 +52,30 @@ func runRbfCoopCloseTest(st *lntest.HarnessTest,
 	require.Equal(st, bobPendingUpdate.FeePerVbyte, int64(bobFeeRate))
 	require.True(st, bobPendingUpdate.LocalCloseTx)
 
-	var err error
+	// Bob's initial offer can still be queued on Alice's stream. Match
+	// his replacement under one deadline before checking its fee and
+	// ownership. Return errors so assertions stay on the test goroutine.
+	err := wait.NoError(func() error {
+		update, err := aliceCloseStream.Recv()
+		if err != nil {
+			return fmt.Errorf("receive close update: %w", err)
+		}
 
-	// Alice should've also received a similar update that Bob has
-	// increased the closing fee rate to 10 sat/vb with his settled funds.
-	aliceCloseUpdate, err = st.ReceiveCloseChannelUpdate(aliceCloseStream)
+		pending := update.GetClosePending()
+		if pending == nil {
+			return fmt.Errorf("expected pending close, got %v",
+				update)
+		}
+		if !bytes.Equal(pending.Txid, bobPendingUpdate.Txid) {
+			return fmt.Errorf("expected close txid %x, got %x",
+				bobPendingUpdate.Txid, pending.Txid)
+		}
+
+		alicePendingUpdate = pending
+
+		return nil
+	}, defaultTimeout)
 	require.NoError(st, err)
-	alicePendingUpdate = aliceCloseUpdate.GetClosePending()
-	require.NotNil(st, aliceCloseUpdate)
 
 	// For taproot channels, due to different witness sizes,
 	// the fee per vbyte might be slightly different due to

@@ -31,7 +31,9 @@ func TestDeserializeWrappedLogUpdates(t *testing.T) {
 	require.Len(t, updates, math.MaxUint16+1)
 	require.Equal(t, uint64(0), updates[0].LogIndex)
 	require.IsType(t, &lnwire.UpdateFulfillHTLC{}, updates[0].UpdateMsg)
-	require.Equal(t, uint64(math.MaxUint16), updates[len(updates)-1].LogIndex)
+	require.Equal(
+		t, uint64(math.MaxUint16), updates[len(updates)-1].LogIndex,
+	)
 }
 
 func TestDeserializeLogUpdatesRejectsTrailingData(t *testing.T) {

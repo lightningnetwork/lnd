@@ -822,17 +822,38 @@ func ConfDetailsFromTxIndex(chainConn TxIndexConn, r ConfRequest,
 		"tx %v in block %v", r.TxID, blockHash)
 }
 
+// HeightHint is a cached historical scan boundary for a request. The request
+// is known not to have confirmed, or been spent, in any block from Origin up
+// to, but not including, Height. A later registration can therefore skip to
+// Height only if its own height hint is at least Origin. An Origin of zero
+// marks a legacy hint whose scan origin was not recorded.
+type HeightHint struct {
+	// Height is the height from which a new historical scan must begin.
+	Height uint32
+
+	// Origin is the earliest height covered by the scans that established
+	// Height.
+	Origin uint32
+}
+
+// ConfirmHints maps confirmation requests to the height hints to persist for
+// them.
+type ConfirmHints map[ConfRequest]HeightHint
+
+// SpendHints maps spend requests to the height hints to persist for them.
+type SpendHints map[SpendRequest]HeightHint
+
 // SpendHintCache is an interface whose duty is to cache spend hints for
 // outpoints. A spend hint is defined as the earliest height in the chain at
 // which an outpoint could have been spent within.
 type SpendHintCache interface {
-	// CommitSpendHint commits a spend hint for the outpoints to the cache.
-	CommitSpendHint(height uint32, spendRequests ...SpendRequest) error
+	// CommitSpendHints commits the given spend hints to the cache.
+	CommitSpendHints(hints SpendHints) error
 
 	// QuerySpendHint returns the latest spend hint for an outpoint.
 	// ErrSpendHintNotFound is returned if a spend hint does not exist
 	// within the cache for the outpoint.
-	QuerySpendHint(spendRequest SpendRequest) (uint32, error)
+	QuerySpendHint(spendRequest SpendRequest) (HeightHint, error)
 
 	// PurgeSpendHint removes the spend hint for the outpoints from the
 	// cache.
@@ -843,14 +864,13 @@ type SpendHintCache interface {
 // transactions. A confirm hint is defined as the earliest height in the chain
 // at which a transaction could have been included in a block.
 type ConfirmHintCache interface {
-	// CommitConfirmHint commits a confirm hint for the transactions to the
-	// cache.
-	CommitConfirmHint(height uint32, confRequests ...ConfRequest) error
+	// CommitConfirmHints commits the given confirm hints to the cache.
+	CommitConfirmHints(hints ConfirmHints) error
 
 	// QueryConfirmHint returns the latest confirm hint for a transaction
 	// hash. ErrConfirmHintNotFound is returned if a confirm hint does not
 	// exist within the cache for the transaction hash.
-	QueryConfirmHint(confRequest ConfRequest) (uint32, error)
+	QueryConfirmHint(confRequest ConfRequest) (HeightHint, error)
 
 	// PurgeConfirmHint removes the confirm hint for the transactions from
 	// the cache.

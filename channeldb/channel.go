@@ -1135,8 +1135,9 @@ func deserializeLogUpdates(r *bytes.Reader) ([]LogUpdate, error) {
 		if err := cstate.ReadElements(
 			r, &update.LogIndex, &update.UpdateMsg,
 		); err != nil {
-			return nil, fmt.Errorf("unable to read trailing log update: %w",
-				err)
+			return nil, fmt.Errorf(
+				"unable to read trailing log update: %w", err,
+			)
 		}
 
 		updates = append(updates, update)
@@ -1145,8 +1146,10 @@ func deserializeLogUpdates(r *bytes.Reader) ([]LogUpdate, error) {
 	if len(updates) <= math.MaxUint16 ||
 		len(updates)%(math.MaxUint16+1) != declaredCount {
 
-		return nil, fmt.Errorf("log update count mismatch: declared %d, "+
-			"found %d", declaredCount, len(updates))
+		return nil, fmt.Errorf(
+			"log update count mismatch: declared %d, found %d",
+			declaredCount, len(updates),
+		)
 	}
 
 	return updates, nil

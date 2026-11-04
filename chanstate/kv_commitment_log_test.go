@@ -27,7 +27,9 @@ func TestSerializeLogUpdatesCountLimit(t *testing.T) {
 	decoded, err := DeserializeLogUpdates(bytes.NewReader(buf.Bytes()))
 	require.NoError(t, err)
 	require.Len(t, decoded, math.MaxUint16)
-	require.Equal(t, uint64(math.MaxUint16-1), decoded[len(decoded)-1].LogIndex)
+	require.Equal(
+		t, uint64(math.MaxUint16-1), decoded[len(decoded)-1].LogIndex,
+	)
 
 	buf.Reset()
 	err = SerializeLogUpdates(&buf, updates)

@@ -5859,8 +5859,10 @@ func (lc *LightningChannel) RevokeCurrentCommitment() (*lnwire.RevokeAndAck,
 		lastLocalCommitted,
 	)
 	if len(unsignedAckedUpdates) > math.MaxUint16 {
-		return nil, nil, nil, fmt.Errorf("too many unsigned acked updates: "+
-			"%d exceeds %d", len(unsignedAckedUpdates), math.MaxUint16)
+		return nil, nil, nil, fmt.Errorf(
+			"too many unsigned acked updates: %d exceeds %d",
+			len(unsignedAckedUpdates), math.MaxUint16,
+		)
 	}
 
 	revocationMsg, err := lc.generateRevocation(lc.currentHeight)

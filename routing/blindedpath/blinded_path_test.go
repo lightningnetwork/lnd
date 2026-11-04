@@ -12,6 +12,7 @@ import (
 
 	"github.com/btcsuite/btcd/btcec/v2"
 	sphinx "github.com/lightningnetwork/lightning-onion"
+	"github.com/lightningnetwork/lnd/chanstate"
 	"github.com/lightningnetwork/lnd/graph/db/models"
 	"github.com/lightningnetwork/lnd/keychain"
 	"github.com/lightningnetwork/lnd/lnwire"
@@ -1265,4 +1266,165 @@ func decryptAndDecodeHopData(t *testing.T, priv *btcec.PrivateKey,
 	require.NoError(t, err)
 
 	return routeData, nextEphem
+}
+
+// TestBuildBlindedPathInvoiceEnvelope verifies that only the final hop of a
+// blinded path carries the invoice envelope.
+func TestBuildBlindedPathInvoiceEnvelope(t *testing.T) {
+	t.Parallel()
+
+	privKey, _ := btcec.PrivKeyFromBytes([]byte{1})
+	envelope := []byte{4, 5, 6}
+
+	paths, err := BuildBlindedPaymentPaths(envelopePathCfg(2, envelope))
+	require.NoError(t, err)
+	require.Len(t, paths, 1)
+
+	hops := paths[0].Hops
+	ephem := paths[0].FirstEphemeralBlindingPoint
+	for i, hop := range hops {
+		var data *record.BlindedRouteData
+		data, ephem = decryptAndDecodeHopData(
+			t, privKey, ephem, hop.CipherText,
+		)
+
+		if i < len(hops)-1 {
+			require.True(t, data.InvoiceEnvelope.IsNone())
+			continue
+		}
+		require.Equal(
+			t, envelope, data.InvoiceEnvelope.UnwrapOrFailV(t),
+		)
+	}
+}
+
+// envelopePathCfg returns a config for paths of the local node padded to
+// numHops+1 hops, with the given invoice envelope in the final hop.
+func envelopePathCfg(numHops uint8, envelope []byte) *BuildBlindedPathCfg {
+	_, pubKey := btcec.PrivKeyFromBytes([]byte{1})
+	self := route.NewVertex(pubKey)
+
+	return &BuildBlindedPathCfg{
+		FindRoutes: func(_ lnwire.MilliSatoshi) ([]*route.Route,
+			error) {
+
+			return []*route.Route{{SourcePubKey: self}}, nil
+		},
+		FetchOurOpenChannels: func() ([]*chanstate.OpenChannel,
+			error) {
+
+			return []*chanstate.OpenChannel{{
+				Capacity: 1_000_000,
+			}}, nil
+		},
+		BestHeight: func() (uint32, error) {
+			return 1000, nil
+		},
+		AddPolicyBuffer: func(p *BlindedHopPolicy) (
+			*BlindedHopPolicy, error) {
+
+			return p, nil
+		},
+		PathID:                  []byte{1, 2, 3},
+		InvoiceEnvelope:         envelope,
+		ValueMsat:               1000,
+		MinFinalCLTVExpiryDelta: 12,
+		BlocksUntilExpiry:       200,
+		MinNumHops:              numHops,
+		DefaultDummyHopPolicy: &BlindedHopPolicy{
+			CLTVExpiryDelta: 50,
+			FeeRate:         100,
+			BaseFee:         100,
+			MinHTLCMsat:     1000,
+			MaxHTLCMsat:     lnwire.MaxMilliSatoshi,
+		},
+	}
+}
+
+// TestBuildBlindedPathEnvelopeOnionBudget verifies that a path with an
+// invoice envelope is dropped when its blinded hops leave less than the
+// reserve of the payer's onion. A path without an envelope is not checked.
+func TestBuildBlindedPathEnvelopeOnionBudget(t *testing.T) {
+	t.Parallel()
+
+	maxSize := uint64(sphinx.MaxRoutingPayloadSize - payerOnionReserve)
+
+	// A single hop spends 123 onion bytes besides its envelope, so an
+	// envelope of 882 bytes fills the budget exactly. An invoice envelope
+	// has 151 bytes with the field sizes that TestSize pins.
+	tests := []struct {
+		name        string
+		numHops     uint8
+		envelopeLen int
+		wantHops    int
+		atBudget    bool
+	}{
+		{
+			name:        "three hops with an invoice envelope",
+			numHops:     2,
+			envelopeLen: 151,
+			wantHops:    3,
+		},
+		{
+			name:        "envelope at the budget",
+			envelopeLen: 882,
+			wantHops:    1,
+			atBudget:    true,
+		},
+		{
+			name:        "envelope one byte over the budget",
+			envelopeLen: 883,
+		},
+		{
+			name:     "no envelope over the budget",
+			numHops:  10,
+			wantHops: 11,
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+
+			var envelope []byte
+			if tc.envelopeLen > 0 {
+				envelope = bytes.Repeat(
+					[]byte{1}, tc.envelopeLen,
+				)
+			}
+
+			paths, err := BuildBlindedPaymentPaths(
+				envelopePathCfg(tc.numHops, envelope),
+			)
+			if tc.wantHops == 0 {
+				require.ErrorContains(
+					t, err, "could not build any blinded "+
+						"paths",
+				)
+
+				return
+			}
+			require.NoError(t, err)
+			require.Len(t, paths, 1)
+			require.Len(t, paths[0].Hops, tc.wantHops)
+
+			if envelope == nil {
+				return
+			}
+
+			path := paths[0]
+			blindedPath := &sphinx.BlindedPath{
+				BlindingPoint: path.FirstEphemeralBlindingPoint,
+				BlindedHops:   path.Hops,
+			}
+			size := blindedPathOnionSize(
+				blindedPath, 1000, 1000+200+12,
+			)
+			if tc.atBudget {
+				require.Equal(t, maxSize, size)
+			} else {
+				require.Less(t, size, maxSize)
+			}
+		})
+	}
 }

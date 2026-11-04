@@ -623,7 +623,7 @@ func migrateInvoices(ctx context.Context, tx *sqlc.Queries,
 		}
 
 		migratedInvoice, err := fetchInvoice(
-			ctx, tx, InvoiceRefByHash(paymentHash),
+			ctx, tx, InvoiceRefByHash(paymentHash), false,
 		)
 		if err != nil {
 			return fmt.Errorf("unable to fetch migrated "+

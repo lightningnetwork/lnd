@@ -88,6 +88,25 @@ var (
 		"invoice with payment hash already exists",
 	)
 
+	// ErrBolt12Disabled is returned when a BOLT 12 invoice is added to a
+	// store that does not have BOLT 12 enabled.
+	ErrBolt12Disabled = errors.New("BOLT 12 is not enabled in the " +
+		"invoice store")
+
+	// ErrBolt12NoEnvelope is returned when a BOLT 12 invoice without an
+	// invoice envelope is added.
+	ErrBolt12NoEnvelope = errors.New("BOLT 12 invoice has no envelope")
+
+	// ErrBolt12BadEnvelope is returned when the invoice envelope of a
+	// BOLT 12 invoice does not decode.
+	ErrBolt12BadEnvelope = errors.New("BOLT 12 invoice envelope does " +
+		"not decode")
+
+	// ErrBolt12AMP is returned when an invoice is both a BOLT 12 and an
+	// AMP invoice.
+	ErrBolt12AMP = errors.New("a BOLT 12 invoice cannot be an AMP " +
+		"invoice")
+
 	// ErrDuplicatePayAddr is returned when an invoice with the target
 	// payment addr already exists.
 	ErrDuplicatePayAddr = errors.New(

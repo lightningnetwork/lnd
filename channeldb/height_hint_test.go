@@ -81,6 +81,46 @@ func TestHeightHintCacheConfirms(t *testing.T) {
 	}
 }
 
+// TestHeightHintCacheConfirmsPerScript ensures that a request for an output
+// script that never confirms cannot advance another script's cached hint.
+func TestHeightHintCacheConfirmsPerScript(t *testing.T) {
+	t.Parallel()
+
+	hintCache := initHintCache(t)
+	txid := chainhash.Hash{1}
+	script := func(value byte) []byte {
+		return append([]byte{0x00, 0x20}, bytes.Repeat(
+			[]byte{value}, 32,
+		)...)
+	}
+
+	confirmed, err := chainntnfs.NewConfRequest(&txid, script(2))
+	require.NoError(t, err)
+	unconfirmed, err := chainntnfs.NewConfRequest(&txid, script(3))
+	require.NoError(t, err)
+	unknown, err := chainntnfs.NewConfRequest(&txid, script(4))
+	require.NoError(t, err)
+
+	require.NoError(t, hintCache.CommitConfirmHint(100, confirmed))
+	require.NoError(t, hintCache.CommitConfirmHint(105, unconfirmed))
+
+	hint, err := hintCache.QueryConfirmHint(confirmed)
+	require.NoError(t, err)
+	require.EqualValues(t, 100, hint)
+
+	hint, err = hintCache.QueryConfirmHint(unconfirmed)
+	require.NoError(t, err)
+	require.EqualValues(t, 105, hint)
+
+	_, err = hintCache.QueryConfirmHint(unknown)
+	require.ErrorIs(t, err, chainntnfs.ErrConfirmHintNotFound)
+
+	require.NoError(t, hintCache.PurgeConfirmHint(unconfirmed))
+	hint, err = hintCache.QueryConfirmHint(confirmed)
+	require.NoError(t, err)
+	require.EqualValues(t, 100, hint)
+}
+
 // TestHeightHintCacheSpends ensures that the height hint cache properly caches
 // spend hints for outpoints.
 func TestHeightHintCacheSpends(t *testing.T) {

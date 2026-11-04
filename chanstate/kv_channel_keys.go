@@ -22,11 +22,10 @@ var (
 	//
 	outpointBucket = []byte("outpoint-bucket")
 
-	// chanIDBucket stores all of the 32-byte channel ID's we know about.
-	// These could be derived from outpointBucket, but it is more
-	// convenient to have these in their own bucket.
+	// chanIDBucket stores all of the 32-byte channel IDs we know about.
+	// Each value stores the serialized 36-byte funding outpoint.
 	//
-	// chanID -> tlv stream.
+	// chanID -> serialized outpoint.
 	//
 	chanIDBucket = []byte("chan-id-bucket")
 

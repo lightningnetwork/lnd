@@ -31,6 +31,7 @@ import (
 	"github.com/lightningnetwork/lnd/channeldb/migration33"
 	"github.com/lightningnetwork/lnd/channeldb/migration34"
 	"github.com/lightningnetwork/lnd/channeldb/migration35"
+	"github.com/lightningnetwork/lnd/channeldb/migration36"
 	"github.com/lightningnetwork/lnd/channeldb/migration_01_to_11"
 	"github.com/lightningnetwork/lnd/chanstate"
 	"github.com/lightningnetwork/lnd/clock"
@@ -317,6 +318,11 @@ var (
 			// optional migration package.
 			number:    35,
 			migration: migration35.MigrateWaitingProofStore,
+		},
+		{
+			// Store funding outpoints in the existing ChannelID index.
+			number:    36,
+			migration: migration36.MigrateChanIDOutpoints,
 		},
 	}
 
@@ -750,35 +756,85 @@ func (c *ChannelStateDB) FetchChannel(chanPoint wire.OutPoint) (*OpenChannel,
 func (c *ChannelStateDB) FetchChannelByID(id lnwire.ChannelID) (*OpenChannel,
 	error) {
 
+	var targetChan *OpenChannel
+	err := kvdb.View(c.backend, func(tx kvdb.RTx) error {
+		idBucket := tx.ReadBucket(chanIDBucket)
+		if idBucket == nil {
+			return ErrNoChanDBExists
+		}
+
+		// The index is populated by migration 36 and updated atomically
+		// with every new channel. A missing ID is therefore a true miss.
+		chanPointBytes := idBucket.Get(id[:])
+		if chanPointBytes == nil {
+			return ErrChannelNotFound
+		}
+
+		// Empty values are legacy membership-only entries. Keep the
+		// original scan as a safe fallback for pre-migration records.
+		if len(chanPointBytes) == 0 {
+			var err error
+			targetChan, err = c.fetchChannelByIDScan(tx, id)
+			return err
+		}
+
+		var outPoint wire.OutPoint
+		reader := bytes.NewReader(chanPointBytes)
+		if err := graphdb.ReadOutpoint(reader, &outPoint); err != nil {
+			return fmt.Errorf("decode ChannelID index %x: %w", id, err)
+		}
+		if reader.Len() != 0 {
+			return fmt.Errorf(
+				"ChannelID index %x has %d trailing bytes",
+				id, reader.Len(),
+			)
+		}
+		if lnwire.NewChanIDFromOutPoint(outPoint) != id {
+			return fmt.Errorf(
+				"ChannelID index %x does not match outpoint %v",
+				id, outPoint,
+			)
+		}
+
+		selector := func(walletdb.ReadBucket) ([]byte, *wire.OutPoint,
+			error) {
+			return chanPointBytes, &outPoint, nil
+		}
+		var err error
+		targetChan, err = c.channelScanner(tx, selector)
+		return err
+	}, func() {})
+
+	return targetChan, err
+}
+
+// fetchChannelByIDScan preserves lookup behavior for legacy empty index
+// values. New and migrated databases use the persistent outpoint value.
+func (c *ChannelStateDB) fetchChannelByIDScan(tx kvdb.RTx,
+	id lnwire.ChannelID) (*OpenChannel, error) {
+
 	selector := func(chainBkt walletdb.ReadBucket) ([]byte, *wire.OutPoint,
 		error) {
 
 		var (
 			targetChanPointBytes []byte
 			targetChanPoint      *wire.OutPoint
-
-			// errChanFound is used to signal that the channel has
-			// been found so that iteration through the DB buckets
-			// can stop.
-			errChanFound = errors.New("channel found")
+			errChanFound        = errors.New("channel found")
 		)
+
 		err := chainBkt.ForEach(func(k, _ []byte) error {
 			var outPoint wire.OutPoint
-			err := graphdb.ReadOutpoint(
-				bytes.NewReader(k), &outPoint,
-			)
-			if err != nil {
+			if err := graphdb.ReadOutpoint(bytes.NewReader(k), &outPoint);
+				err != nil {
 				return err
 			}
 
-			chanID := lnwire.NewChanIDFromOutPoint(outPoint)
-			if chanID != id {
+			if lnwire.NewChanIDFromOutPoint(outPoint) != id {
 				return nil
 			}
 
 			targetChanPoint = &outPoint
 			targetChanPointBytes = k
-
 			return errChanFound
 		})
 		if err != nil && !errors.Is(err, errChanFound) {
@@ -791,7 +847,7 @@ func (c *ChannelStateDB) FetchChannelByID(id lnwire.ChannelID) (*OpenChannel,
 		return targetChanPointBytes, targetChanPoint, nil
 	}
 
-	return c.channelScanner(nil, selector)
+	return c.channelScanner(tx, selector)
 }
 
 // ChanCount is used by the server in determining access control.

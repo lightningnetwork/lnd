@@ -358,7 +358,7 @@ func fullSyncOpenChannel(tx kvdb.RwTx, c *OpenChannel) error {
 		return err
 	}
 
-	if err := cidBucket.Put(cid[:], []byte{}); err != nil {
+	if err := cidBucket.Put(cid[:], chanPointBuf.Bytes()); err != nil {
 		return err
 	}
 

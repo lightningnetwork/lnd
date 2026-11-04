@@ -10,9 +10,18 @@ import (
 	"github.com/lightningnetwork/lnd/lnwire"
 )
 
-// staleCheckInterval is how often the manager checks for pending HTLCs that
-// have outlived the worst case time they could be held for.
-const staleCheckInterval = 5 * time.Minute
+const (
+	// staleCheckInterval is how often the manager checks for pending HTLCs
+	// that have outlived the worst case time they could be held for.
+	staleCheckInterval = 5 * time.Minute
+
+	// flushInterval is how often channels whose state changed are written
+	// to the store.
+	flushInterval = time.Minute
+
+	// storeTimeout bounds each store operation.
+	storeTimeout = 30 * time.Second
+)
 
 // Manager is the local reputation subsystem. It observes forwarded HTLCs via
 // its OnForward/OnSettle/OnFail hooks, maintains per-channel reputation state,
@@ -24,14 +33,30 @@ const staleCheckInterval = 5 * time.Minute
 // is a handful of map lookups and floating-point operations, so it is cheap
 // enough to sit on the switch's forwarding path, and computing the decision
 // inline (rather than on a background worker) is what a future enforcement step
-// will require. Nothing is persisted, so reputation is re-accrued from live
-// traffic after a restart.
+// will require.
+//
+// Channel state is loaded from the store on Start and channels whose state
+// changed are written back periodically and on Stop. Pending HTLCs are not
+// persisted: they are replayed from the switch's in-flight circuits.
 type Manager struct {
 	cfg   Config
 	clock clock.Clock
+	store Store
 
-	// mu guards channels. It is held for the duration of each hook.
+	// mu guards channels, htlcIndex and dirty. It is held for the duration
+	// of each hook.
 	mu sync.Mutex
+
+	// storeMu serialises the operations that move state between memory
+	// and the store (load, flush and channel removal) so that none of
+	// them can interleave with another and, for example, a flush write a
+	// snapshot taken before a removal back after it. The hooks never take
+	// it. When both are held, storeMu is taken before mu.
+	storeMu sync.Mutex
+
+	// dirty holds the channel_ids of channels whose averages changed since
+	// they were last written to the store.
+	dirty map[lnwire.ChannelID]struct{}
 
 	// channels holds per-channel reputation state, keyed by the channel's
 	// channel_id and created lazily on the first HTLC event for a channel.
@@ -54,10 +79,11 @@ type Manager struct {
 	stopOnce  sync.Once
 }
 
-// NewManager constructs a reputation Manager with the given config and clock.
-// The clock is mandatory (production passes clock.NewDefaultClock; tests pass a
-// test clock).
-func NewManager(cfg Config, clk clock.Clock) (*Manager, error) {
+// NewManager constructs a reputation Manager with the given config, clock and
+// store. The clock is mandatory (production passes clock.NewDefaultClock; tests
+// pass a test clock). A nil store means nothing is persisted and reputation is
+// re-accrued from live traffic after a restart.
+func NewManager(cfg Config, clk clock.Clock, store Store) (*Manager, error) {
 	if err := cfg.Validate(); err != nil {
 		return nil, fmt.Errorf("invalid reputation config: %w", err)
 	}
@@ -66,18 +92,25 @@ func NewManager(cfg Config, clk clock.Clock) (*Manager, error) {
 		return nil, fmt.Errorf("reputation manager requires a clock")
 	}
 
+	if store == nil {
+		store = NewNoopStore()
+	}
+
 	return &Manager{
 		cfg:       cfg,
 		clock:     clk,
+		store:     store,
 		channels:  make(map[lnwire.ChannelID]*channelReputation),
 		htlcIndex: make(map[models.CircuitKey]lnwire.ChannelID),
+		dirty:     make(map[lnwire.ChannelID]struct{}),
 		quit:      make(chan struct{}),
 	}, nil
 }
 
-// Start launches the periodic stale-pending check. Per-channel state is created
-// lazily on the first HTLC event, so there is nothing to load.
+// Start loads the persisted channel state and launches the periodic
+// stale-pending check and store flush. It fails if the store cannot be read.
 func (m *Manager) Start() error {
+	var startErr error
 	m.startOnce.Do(func() {
 		log.Infof("Reputation manager starting (log-only): "+
 			"resolution_period=%v revenue_window=%v "+
@@ -85,23 +118,37 @@ func (m *Manager) Start() error {
 			m.cfg.ResolutionPeriod, m.cfg.RevenueWindow,
 			m.cfg.ReputationMultiplier, m.cfg.RevenueWindowCount)
 
+		if err := m.load(); err != nil {
+			startErr = fmt.Errorf("unable to load reputation "+
+				"state: %w", err)
+
+			return
+		}
+
 		m.wg.Add(1)
-		go m.staleCheckLoop()
+		go m.run()
 	})
 
-	return nil
+	return startErr
 }
 
-// Stop tears down the subsystem.
+// Stop tears down the subsystem, writing any unsaved channel state to the
+// store first.
 func (m *Manager) Stop() error {
+	var stopErr error
 	m.stopOnce.Do(func() {
 		close(m.quit)
 		m.wg.Wait()
 
+		if err := m.flush(); err != nil {
+			stopErr = fmt.Errorf("unable to flush reputation "+
+				"state: %w", err)
+		}
+
 		log.Infof("Reputation manager stopped")
 	})
 
-	return nil
+	return stopErr
 }
 
 // OnForward observes a forwarded HTLC at the point the switch commits to
@@ -304,6 +351,7 @@ func (m *Manager) resolveHTLC(incoming models.CircuitKey, settled bool,
 	if settled {
 		inChan := m.getOrCreateChannel(pending.incomingChan, at)
 		inChan.incomingRevenue.add(satFromUint(pending.fee).Int64(), at)
+		m.dirty[pending.incomingChan] = struct{}{}
 	}
 
 	effFee := m.cfg.effectiveFee(
@@ -311,6 +359,7 @@ func (m *Manager) resolveHTLC(incoming models.CircuitKey, settled bool,
 	)
 
 	newRep := outChan.outgoingReputation.add(effFee, at)
+	m.dirty[outgoingChan] = struct{}{}
 
 	// Log a single greppable line per resolution reporting the reputation
 	// change, so it can be tracked without matching several phrasings. The
@@ -322,22 +371,33 @@ func (m *Manager) resolveHTLC(incoming models.CircuitKey, settled bool,
 	return nil
 }
 
-// staleCheckLoop runs the periodic stale-pending check until the manager is
-// stopped.
-func (m *Manager) staleCheckLoop() {
+// run drives the periodic stale-pending check and store flush until the
+// manager is stopped.
+func (m *Manager) run() {
 	defer m.wg.Done()
 
-	ticker := time.NewTicker(staleCheckInterval)
-	defer ticker.Stop()
+	staleTicker := time.NewTicker(staleCheckInterval)
+	defer staleTicker.Stop()
+
+	flushTicker := time.NewTicker(flushInterval)
+	defer flushTicker.Stop()
 
 	for {
 		select {
 		case <-m.quit:
 			return
 
-		case <-ticker.C:
+		case <-staleTicker.C:
 			guarded("stale check", func() {
 				m.reportStalePendings()
+			})
+
+		case <-flushTicker.C:
+			guarded("flush", func() {
+				if err := m.flush(); err != nil {
+					log.Errorf("Reputation flush failed: "+
+						"%v", err)
+				}
 			})
 		}
 	}

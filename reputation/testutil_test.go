@@ -2,6 +2,7 @@ package reputation
 
 import (
 	"encoding/binary"
+	"errors"
 	"time"
 
 	"github.com/lightningnetwork/lnd/clock"
@@ -29,3 +30,6 @@ func chanID(v uint64) lnwire.ChannelID {
 func advance(c *clock.TestClock, d time.Duration) {
 	c.SetTime(c.Now().Add(d))
 }
+
+// errTest is a sentinel error injected into test doubles.
+var errTest = errors.New("test error")

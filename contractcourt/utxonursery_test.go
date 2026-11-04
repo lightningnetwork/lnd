@@ -18,6 +18,7 @@ import (
 	"github.com/btcsuite/btcd/chaincfg/chainhash"
 	"github.com/btcsuite/btcd/txscript"
 	"github.com/btcsuite/btcd/wire"
+	"github.com/btcsuite/btcwallet/chain"
 	"github.com/davecgh/go-spew/spew"
 	"github.com/lightningnetwork/lnd/channeldb"
 	"github.com/lightningnetwork/lnd/fn/v2"
@@ -672,11 +673,16 @@ func TestRejectedCribTransaction(t *testing.T) {
 			broadcastErr: lnwallet.ErrMempoolFee,
 		},
 		{
-			// We map a rejected rbf transaction to ErrDoubleSpend
-			// in lnd.
-			name: "Crib tx is rejected because of a " +
-				"rbf transaction not succeeding",
+			name:         "Crib transaction input is already spent",
 			broadcastErr: lnwallet.ErrDoubleSpend,
+		},
+		{
+			// The wallet returns ErrInsufficientFee when another
+			// transaction spending the input is already in the
+			// mempool.
+			name: "Crib replacement pays " +
+				"insufficient fee",
+			broadcastErr: chain.ErrInsufficientFee,
 		},
 		{
 			name: "Crib tx is rejected with an " +

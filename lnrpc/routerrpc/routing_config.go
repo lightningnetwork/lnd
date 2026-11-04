@@ -44,6 +44,50 @@ type RoutingConfig struct {
 
 	// FeeEstimationTimeout is the maximum time to wait for routing fees to be estimated.
 	FeeEstimationTimeout time.Duration `long:"fee-estimation-timeout" description:"the maximum time to wait for routing fees to be estimated by payment probes"`
+
+	// FeeLevelConfig controls the experimental fee level mechanism. It is a
+	// value, so a config without it gives the zero config, which turns fee
+	// levels off.
+	FeeLevelConfig FeeLevelConfig `group:"fee-level" namespace:"fee-level" description:"EXPERIMENTAL: configuration for the fee level mechanism. It can pick routes with higher fees to make fewer payment attempts. Any routing node on a route can raise fee levels with temporary channel failures."`
+}
+
+// FeeLevelConfig controls the fee level mechanism. The mechanism is
+// experimental: it can pick routes with higher fees to make fewer payment
+// attempts.
+//
+//nolint:ll
+type FeeLevelConfig struct {
+	// PPM is the fee level increase for routing failures in terms of a fee
+	// rate. Fee level increase most strongly for the failing node. Fee
+	// levels of neighboring nodes along the route are increased less
+	// strongly, controlled by Reach.
+	PPM uint64 `long:"ppm" description:"EXPERIMENTAL: The fee level increase for routing failures. The fee level increases most strongly for the failing node to reach. The value 0 turns fee levels off. The recommended value is 50. It must not be above fee-level.max. A higher value can give routes with higher fees."`
+
+	// Max is the largest fee level of a node in parts per million. It must
+	// be at least PPM.
+	Max uint64 `long:"max" description:"The largest fee level of a node in parts per million. It bounds the extra fee that a fee level can make pathfinding accept on one channel. It must be at least fee-level.ppm and at most 1000000."`
+
+	// Reach is the correlation factor for fee levels of neighboring nodes
+	// along the route in units of hops. The larger this value, the more
+	// neighbors are affected by the fee level increase of the failing node.
+	Reach float64 `long:"reach" description:"The correlation factor for fee levels of neighboring nodes along the route in units of hops."`
+
+	// Decay is the time it takes for a fee level to decay to 50% of its
+	// initial value. The decay is exponential.
+	Decay time.Duration `long:"decay" description:"The time it takes for a fee level to decay to 50% of its initial value."`
+
+	// Symmetric is the flag that also applies a fee level change to the
+	// successful hops before the failing node. It is off by default. With
+	// it on, any node on the route can raise the fee levels of the honest
+	// nodes before it. It can be useful for rebalancing.
+	Symmetric bool `long:"symmetric" description:"If true, the fee level is also applied to the successful hops before the failing node. This can be useful for rebalancing. Any routing node on a route can then raise the fee levels of the nodes before it with temporary channel failures."`
+
+	// Load is the flag that indicates whether fee levels are rebuilt at
+	// startup from the stored payment results of the last four decay
+	// half-lives. If false, fee levels start at zero. The rebuild uses the
+	// config at startup, so a change of PPM, Max, Reach, Decay or
+	// Symmetric also changes the rebuilt fee levels.
+	Load bool `long:"load" description:"If true, fee levels are rebuilt at startup from the stored payment results of the last four decay half-lives, with the current fee level config. If false, fee levels start at zero. Do not change fee-level.ppm, fee-level.max, fee-level.reach, fee-level.decay or fee-level.symmetric before a restart, because the rebuild applies the new values to past results."`
 }
 
 // AprioriConfig defines parameters for the apriori probability.

@@ -91,3 +91,104 @@ func TestMissionControlStateSetLastPairResult(t *testing.T) {
 	}
 	require.Equal(t, expected, result[to])
 }
+
+// TestMissionControlStateFeeLevel tests functionality of the fee level
+// mechanism.
+func TestMissionControlStateFeeLevel(t *testing.T) {
+	var (
+		feeLevelDecay = time.Hour
+		now           = time.Now()
+		state         = newMissionControlState(0)
+	)
+
+	// Query the fee level for a node that has not been set yet.
+	node := route.Vertex{1}
+	feeLevel := state.getFeeLevel(now, node, feeLevelDecay)
+	require.Zero(t, feeLevel)
+
+	feeLevelDelta := uint64(100)
+	state.setFeeDelta(
+		now, node, feeLevelDelta, feeLevelDecay, maxFeeLevelPPM,
+	)
+
+	feeLevel = state.getFeeLevel(now, node, feeLevelDecay)
+	require.Equal(t, feeLevelDelta, feeLevel)
+
+	// Set the fee level for the node again. The fee level should have
+	// accumulated.
+	state.setFeeDelta(
+		now, node, feeLevelDelta, feeLevelDecay, maxFeeLevelPPM,
+	)
+	feeLevel = state.getFeeLevel(now, node, feeLevelDecay)
+	require.Equal(t, feeLevelDelta*2, feeLevel)
+
+	// Query the fee level after some time. The fee level should have
+	// decayed.
+	decayTime := now.Add(feeLevelDecay)
+	feeLevel = state.getFeeLevel(decayTime, node, feeLevelDecay)
+	require.Equal(t, feeLevelDelta, feeLevel)
+
+	// Query the fee level after some more time. The fee level should have
+	// decayed by another 50%.
+	decayTime = decayTime.Add(feeLevelDecay)
+	feeLevel = state.getFeeLevel(decayTime, node, feeLevelDecay)
+	require.Equal(t, feeLevelDelta/2, feeLevel)
+}
+
+// TestMissionControlStateFeeLevelCap tests that repeated deltas do not raise a
+// fee level above the given maximum.
+func TestMissionControlStateFeeLevelCap(t *testing.T) {
+	var (
+		feeLevelDecay = time.Hour
+		now           = time.Now()
+		state         = newMissionControlState(0)
+		node          = route.Vertex{1}
+	)
+
+	for range 3 {
+		state.setFeeDelta(now, node, 400, feeLevelDecay, 1000)
+	}
+	require.EqualValues(
+		t, 1000, state.getFeeLevel(now, node, feeLevelDecay),
+	)
+}
+
+// TestMissionControlStateFeeLevelClockStep tests that a clock step back
+// neither drops a delta nor decays a fee level.
+func TestMissionControlStateFeeLevelClockStep(t *testing.T) {
+	var (
+		feeLevelDecay = time.Hour
+		now           = time.Now()
+		earlier       = now.Add(-feeLevelDecay)
+		state         = newMissionControlState(0)
+		node          = route.Vertex{1}
+	)
+
+	state.setFeeDelta(now, node, 100, feeLevelDecay, maxFeeLevelPPM)
+
+	// A read before the last update gives the full fee level.
+	require.EqualValues(
+		t, 100, state.getFeeLevel(earlier, node, feeLevelDecay),
+	)
+
+	// A delta before the last update adds up and keeps the later time.
+	state.setFeeDelta(earlier, node, 100, feeLevelDecay, maxFeeLevelPPM)
+	require.EqualValues(
+		t, 200, state.getFeeLevel(now, node, feeLevelDecay),
+	)
+	require.Equal(t, now, state.feeLevels[node].LastUpdate)
+}
+
+// TestMissionControlStateResetFeeLevels tests that a history reset clears the
+// fee levels.
+func TestMissionControlStateResetFeeLevels(t *testing.T) {
+	var (
+		now   = time.Now()
+		state = newMissionControlState(0)
+		node  = route.Vertex{1}
+	)
+
+	state.setFeeDelta(now, node, 100, time.Hour, maxFeeLevelPPM)
+	state.resetHistory()
+	require.Zero(t, state.getFeeLevel(now, node, time.Hour))
+}

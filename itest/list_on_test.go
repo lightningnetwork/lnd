@@ -11,6 +11,10 @@ import (
 
 var allTestCases = []*lntest.TestCase{
 	{
+		Name:     "mission control fee level",
+		TestFunc: testMissionControlFeeLevel,
+	},
+	{
 		Name:     "local reputation log only",
 		TestFunc: testLocalReputationLogOnly,
 	},

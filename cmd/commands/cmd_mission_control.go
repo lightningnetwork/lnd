@@ -48,7 +48,8 @@ var setCfgCommand = cli.Command{
 	Description: `
         Update the config values being used by mission control to calculate the
         probability that payment routes will succeed. The estimator type must be
-        provided to set estimator-related parameters.`,
+        provided to set estimator-related parameters. Fee level flags that
+        are not set keep their current values.`,
 	Flags: []cli.Flag{
 		// General settings.
 		cli.UintFlag{
@@ -111,6 +112,35 @@ var setCfgCommand = cli.Command{
 				"estimator takes into account other channels " +
 				"of a router",
 		},
+		cli.Uint64Flag{
+			Name: "feelevelppm",
+			Usage: "(experimental) the fee level increase for " +
+				"routing failures, 0 turns fee levels off, " +
+				"50 is recommended. Fee levels trade higher " +
+				"route fees for fewer payment attempts.",
+		},
+		cli.Uint64Flag{
+			Name: "feelevelmax",
+			Usage: "the largest fee level of a node in ppm, at " +
+				"least feelevelppm",
+		},
+		cli.Float64Flag{
+			Name:  "feelevelreach",
+			Usage: "the correlation factor for fee levels",
+		},
+		cli.DurationFlag{
+			Name: "feeleveldecay",
+			Usage: "the time it takes for a fee level to decay " +
+				"to 50% of its initial value",
+		},
+		cli.BoolFlag{
+			Name: "feelevelsymmetric",
+			Usage: "if true, the fee level is also applied for " +
+				"successful hops before the failing node, " +
+				"which can be useful for rebalancing. Any " +
+				"routing node can then raise the fee levels " +
+				"of the nodes before it. It is off by default",
+		},
 	},
 	Action: actionDecorator(setCfg),
 }
@@ -146,6 +176,36 @@ func setCfg(ctx *cli.Context) error {
 			"failrelax",
 		).Seconds())
 	}
+
+	// Change only the fee level parameters that are set, and keep the
+	// current values of the others.
+	feeLevelCfg := mcCfg.Config.FeeLevelParameters
+	if feeLevelCfg == nil {
+		feeLevelCfg = &routerrpc.FeeLevelParameters{}
+	}
+	if ctx.IsSet("feelevelppm") {
+		haveValue = true
+		feeLevelCfg.LevelPpm = ctx.Uint64("feelevelppm")
+	}
+	if ctx.IsSet("feelevelreach") {
+		haveValue = true
+		feeLevelCfg.Reach = ctx.Float64("feelevelreach")
+	}
+	if ctx.IsSet("feeleveldecay") {
+		haveValue = true
+		feeLevelCfg.DecaySeconds = uint64(
+			ctx.Duration("feeleveldecay").Seconds(),
+		)
+	}
+	if ctx.IsSet("feelevelsymmetric") {
+		haveValue = true
+		feeLevelCfg.Symmetric = ctx.Bool("feelevelsymmetric")
+	}
+	if ctx.IsSet("feelevelmax") {
+		haveValue = true
+		feeLevelCfg.MaxLevelPpm = ctx.Uint64("feelevelmax")
+	}
+	mcCfg.Config.FeeLevelParameters = feeLevelCfg
 
 	// We switch between estimators and set corresponding configs. If
 	// estimator is not set, we ignore the values.

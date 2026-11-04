@@ -257,6 +257,7 @@ func TestFindRoutesWithFeeLimit(t *testing.T) {
 	restrictions := &RestrictParams{
 		FeeLimit:          lnwire.NewMSatFromSatoshis(10),
 		ProbabilitySource: noProbabilitySource,
+		FeeLevelSource:    noFeeLevelSource,
 		CltvLimit:         math.MaxUint32,
 	}
 

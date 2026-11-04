@@ -282,6 +282,7 @@ func (p *paymentSession) RequestRoute(maxAmt, feeLimit lnwire.MilliSatoshi,
 	// MissionController.
 	restrictions := &RestrictParams{
 		ProbabilitySource:     p.missionControl.GetProbability,
+		FeeLevelSource:        p.missionControl.GetFeeLevel,
 		FeeLimit:              feeLimit,
 		OutgoingChannelIDs:    p.payment.OutgoingChannelIDs,
 		LastHop:               p.payment.LastHop,

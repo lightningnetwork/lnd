@@ -56,6 +56,7 @@ var (
 	noRestrictions = &RestrictParams{
 		FeeLimit:          noFeeLimit,
 		ProbabilitySource: noProbabilitySource,
+		FeeLevelSource:    noFeeLevelSource,
 		CltvLimit:         math.MaxUint32,
 	}
 
@@ -114,6 +115,11 @@ func noProbabilitySource(route.Vertex, route.Vertex, lnwire.MilliSatoshi,
 	btcutil.Amount) float64 {
 
 	return 1
+}
+
+// noFeeLevelSource returns fee level 0 for every node.
+func noFeeLevelSource(route.Vertex) uint64 {
+	return 0
 }
 
 // testGraph is the struct which corresponds to the JSON format used to encode
@@ -818,82 +824,116 @@ func TestPathFinding(t *testing.T) {
 	testCases := []struct {
 		name string
 		fn   func(t *testing.T, useCache bool)
-	}{{
-		name: "lowest fee path",
-		fn:   runFindLowestFeePath,
-	}, {
-		name: "basic graph path finding",
-		fn:   runBasicGraphPathFinding,
-	}, {
-		name: "path finding with additional edges",
-		fn:   runPathFindingWithAdditionalEdges,
-	}, {
-		name: "path finding with duplicate blinded hop",
-		fn:   runPathFindingWithBlindedPathDuplicateHop,
-	}, {
-		name: "path finding with redundant additional edges",
-		fn:   runPathFindingWithRedundantAdditionalEdges,
-	}, {
-		name: "new route path too long",
-		fn:   runNewRoutePathTooLong,
-	}, {
-		name: "path not available",
-		fn:   runPathNotAvailable,
-	}, {
-		name: "destination tlv graph fallback",
-		fn:   runDestTLVGraphFallback,
-	}, {
-		name: "missing feature dependency",
-		fn:   runMissingFeatureDep,
-	}, {
-		name: "unknown required features",
-		fn:   runUnknownRequiredFeatures,
-	}, {
-		name: "destination payment address",
-		fn:   runDestPaymentAddr,
-	}, {
-		name: "path insufficient capacity",
-		fn:   runPathInsufficientCapacity,
-	}, {
-		name: "route fail min HTLC",
-		fn:   runRouteFailMinHTLC,
-	}, {
-		name: "route fail max HTLC",
-		fn:   runRouteFailMaxHTLC,
-	}, {
-		name: "route fail disabled edge",
-		fn:   runRouteFailDisabledEdge,
-	}, {
-		name: "path source edges bandwidth",
-		fn:   runPathSourceEdgesBandwidth,
-	}, {
-		name: "restrict outgoing channel",
-		fn:   runRestrictOutgoingChannel,
-	}, {
-		name: "restrict last hop",
-		fn:   runRestrictLastHop,
-	}, {
-		name: "CLTV limit",
-		fn:   runCltvLimit,
-	}, {
-		name: "probability routing",
-		fn:   runProbabilityRouting,
-	}, {
-		name: "equal cost route selection",
-		fn:   runEqualCostRouteSelection,
-	}, {
-		name: "no cycle",
-		fn:   runNoCycle,
-	}, {
-		name: "route to self",
-		fn:   runRouteToSelf,
-	}, {
-		name: "with metadata",
-		fn:   runFindPathWithMetadata,
-	}, {
-		name: "inbound fees",
-		fn:   runInboundFees,
-	}}
+	}{
+		{
+			name: "lowest fee path",
+			fn:   runFindLowestFeePath,
+		},
+		{
+			name: "basic graph path finding",
+			fn:   runBasicGraphPathFinding,
+		},
+		{
+			name: "path finding with additional edges",
+			fn:   runPathFindingWithAdditionalEdges,
+		},
+		{
+			name: "path finding with duplicate blinded hop",
+			fn:   runPathFindingWithBlindedPathDuplicateHop,
+		},
+		{
+			name: "path finding with redundant additional edges",
+			fn:   runPathFindingWithRedundantAdditionalEdges,
+		},
+		{
+			name: "new route path too long",
+			fn:   runNewRoutePathTooLong,
+		},
+		{
+			name: "path not available",
+			fn:   runPathNotAvailable,
+		},
+		{
+			name: "destination tlv graph fallback",
+			fn:   runDestTLVGraphFallback,
+		},
+		{
+			name: "missing feature dependency",
+			fn:   runMissingFeatureDep,
+		},
+		{
+			name: "unknown required features",
+			fn:   runUnknownRequiredFeatures,
+		},
+		{
+			name: "destination payment address",
+			fn:   runDestPaymentAddr,
+		},
+		{
+			name: "path insufficient capacity",
+			fn:   runPathInsufficientCapacity,
+		},
+		{
+			name: "route fail min HTLC",
+			fn:   runRouteFailMinHTLC,
+		},
+		{
+			name: "route fail max HTLC",
+			fn:   runRouteFailMaxHTLC,
+		},
+		{
+			name: "route fail disabled edge",
+			fn:   runRouteFailDisabledEdge,
+		},
+		{
+			name: "path source edges bandwidth",
+			fn:   runPathSourceEdgesBandwidth,
+		},
+		{
+			name: "restrict outgoing channel",
+			fn:   runRestrictOutgoingChannel,
+		},
+		{
+			name: "restrict last hop",
+			fn:   runRestrictLastHop,
+		},
+		{
+			name: "CLTV limit",
+			fn:   runCltvLimit,
+		},
+		{
+			name: "probability routing",
+			fn:   runProbabilityRouting,
+		},
+		{
+			name: "equal cost route selection",
+			fn:   runEqualCostRouteSelection,
+		},
+		{
+			name: "no cycle",
+			fn:   runNoCycle,
+		},
+		{
+			name: "route to self",
+			fn:   runRouteToSelf,
+		},
+		{
+			name: "with metadata",
+			fn:   runFindPathWithMetadata,
+		},
+		{
+			name: "inbound fees",
+			fn:   runInboundFees,
+		},
+		{
+			name: "low to high",
+			fn:   runLowToHigh,
+		},
+		{
+			name: "fee level skips local channels",
+			fn:   runFeeLevelLocalChannel,
+		},
+	}
 
 	// Run with graph cache enabled.
 	for _, tc := range testCases {
@@ -1131,6 +1171,7 @@ func testBasicGraphPathFindingCase(t *testing.T, graphInstance *testGraphInstanc
 		&RestrictParams{
 			FeeLimit:          test.feeLimit,
 			ProbabilitySource: noProbabilitySource,
+			FeeLevelSource:    noFeeLevelSource,
 			CltvLimit:         math.MaxUint32,
 		},
 		testPathFindingConfig,
@@ -3212,6 +3253,169 @@ func runInboundFees(t *testing.T, useCache bool) {
 		Hops:          expectedHops,
 	}
 	require.Equal(t, expectedRt, rt)
+}
+
+// runLowToHigh tests jumping to higher fee levels when routing failures towards
+// a node occur.
+func runLowToHigh(t *testing.T, useCache bool) {
+	chanCapSat := btcutil.Amount(100000)
+	features := lnwire.NewFeatureVector(
+		lnwire.NewRawFeatureVector(
+			lnwire.PaymentAddrOptional,
+			lnwire.TLVOnionPayloadRequired,
+		),
+		lnwire.Features,
+	)
+
+	// The test network is constructed such that the target node has three
+	// incoming channels. The lowest two fee rate channels are depleted.
+	// There is an additional node "a" such that "s" does not know the
+	// balances of the channels to "t". The path finding algorithm will try
+	// the lowest fee rate first, but then will not consider the higher fee
+	// rate path, but will try the highest one.
+	//     b -(0 PPM, depleted)- t
+	//     |
+	// s - a - c -(10 PPM, depleted)- t
+	//     |
+	//     d -(20 PPM, liquid)- t
+
+	newPolicy := func(feeRate lnwire.MilliSatoshi) *testChannelPolicy {
+		return &testChannelPolicy{
+			Expiry:             100,
+			MinHTLC:            0,
+			MaxHTLC:            0,
+			FeeBaseMsat:        0,
+			FeeRate:            feeRate,
+			InboundFeeBaseMsat: 0,
+			InboundFeeRate:     0,
+			Features:           features,
+		}
+	}
+	testChannels := []*testChannel{
+		symmetricTestChannel("s", "a", chanCapSat, newPolicy(0), 10),
+		symmetricTestChannel("a", "b", chanCapSat, newPolicy(0), 11),
+		symmetricTestChannel("a", "c", chanCapSat, newPolicy(0), 12),
+		symmetricTestChannel("a", "d", chanCapSat, newPolicy(0), 13),
+
+		// We reverse the order to have depleted channels.
+		symmetricTestChannel("b", "t", chanCapSat, newPolicy(0), 1),
+		symmetricTestChannel("c", "t", chanCapSat, newPolicy(10), 2),
+		symmetricTestChannel("d", "t", chanCapSat, newPolicy(20), 3),
+		symmetricTestChannel("e", "t", chanCapSat, newPolicy(30), 4),
+	}
+
+	ctx := newPathFindingTestContext(t, useCache, testChannels, "s")
+
+	payAddr := [32]byte{1}
+	ctx.restrictParams.PaymentAddr = fn.Some(payAddr)
+	ctx.restrictParams.DestFeatures = tlvPayAddrFeatures
+
+	paymentAmt := lnwire.MilliSatoshi(100_000)
+	target := ctx.keyFromAlias("t")
+
+	path, err := ctx.findPath(target, paymentAmt)
+	require.NoError(t, err, "unable to find path")
+	require.Equal(t, 3, len(path), "expected one path")
+	require.Equal(t, uint64(1), path[len(path)-1].policy.ChannelID)
+
+	// Simulate a temporary channel failure along channel 1, which raises
+	// the fee level of t.
+	ctx.restrictParams.FeeLevelSource = func(
+		node route.Vertex) uint64 {
+
+		if node == ctx.keyFromAlias("t") {
+			return 21
+		}
+
+		return 0
+	}
+
+	// We should now avoid channel 1 and 2 since channel 1 gets mapped to
+	// about feeNew = feeLevel + (feeLevel - feeOld) = 21 + (21 - 0) = 42
+	// and channel 2 to 21 + (21 - 10) = 32. Those are both above the fee
+	// rate of channel 3, which should get selected next.
+	path, err = ctx.findPath(target, paymentAmt)
+	require.NoError(t, err, "unable to find path")
+	require.Equal(t, 3, len(path), "expected one path")
+	require.Equal(t, uint64(3), path[len(path)-1].policy.ChannelID)
+}
+
+// runFeeLevelLocalChannel tests that the fee level of a peer does not
+// penalize our own channel to it. We pay no fee on that channel.
+func runFeeLevelLocalChannel(t *testing.T, useCache bool) {
+	chanCapSat := btcutil.Amount(10_000_000)
+	features := lnwire.NewFeatureVector(
+		lnwire.NewRawFeatureVector(
+			lnwire.PaymentAddrOptional,
+			lnwire.TLVOnionPayloadRequired,
+		),
+		lnwire.Features,
+	)
+	newPolicy := func(feeRate lnwire.MilliSatoshi) *testChannelPolicy {
+		return &testChannelPolicy{
+			Expiry:   100,
+			FeeRate:  feeRate,
+			Features: features,
+		}
+	}
+
+	// s - t (local channel)
+	// |   |
+	// b --+ (fee rate just above the fee level of t)
+	testChannels := []*testChannel{
+		symmetricTestChannel("s", "t", chanCapSat, newPolicy(0), 1),
+		symmetricTestChannel("s", "b", chanCapSat, newPolicy(0), 2),
+		symmetricTestChannel(
+			"b", "t", chanCapSat, newPolicy(10_001), 3,
+		),
+	}
+
+	ctx := newPathFindingTestContext(t, useCache, testChannels, "s")
+
+	payAddr := [32]byte{1}
+	ctx.restrictParams.PaymentAddr = fn.Some(payAddr)
+	ctx.restrictParams.DestFeatures = tlvPayAddrFeatures
+
+	target := ctx.keyFromAlias("t")
+	ctx.restrictParams.FeeLevelSource = func(
+		node route.Vertex) uint64 {
+
+		if node == target {
+			return 10_000
+		}
+
+		return 0
+	}
+
+	// With a penalty on the local channel, its weight would be twice the
+	// fee level threshold, and the route via b would win.
+	path, err := ctx.findPath(target, 1_000_000_000)
+	require.NoError(t, err)
+	require.Len(t, path, 1)
+	require.Equal(t, uint64(1), path[0].policy.ChannelID)
+}
+
+// TestEdgeWeightFeeLevelOverflow tests that the fee level threshold does not
+// wrap for large amounts.
+func TestEdgeWeightFeeLevelOverflow(t *testing.T) {
+	t.Parallel()
+
+	// The plain product of this amount and the fee level wraps in uint64.
+	lockedAmt := lnwire.MilliSatoshi(1e14)
+	feeLevel := uint64(maxFeeLevelPPM)
+
+	// At the maximum fee level the threshold is the full amount. A zero
+	// fee is mirrored to twice the threshold.
+	require.Equal(
+		t, edgeWeight(lockedAmt, 2*lockedAmt, 0, 0),
+		edgeWeight(lockedAmt, 0, feeLevel, 0),
+	)
+
+	// The threshold rounds down to whole msat.
+	require.Equal(
+		t, edgeWeight(1_999_999, 2, 0, 0),
+		edgeWeight(1_999_999, 0, 1, 0),
+	)
 }
 
 type pathFindingTestContext struct {

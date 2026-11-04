@@ -1083,6 +1083,13 @@ func testMissionControlCfg(t *testing.T, hn *node.HarnessNode) {
 				CapacityFraction: 0.8,
 			},
 		},
+		FeeLevelParameters: &routerrpc.FeeLevelParameters{
+			LevelPpm:     100,
+			Reach:        2,
+			DecaySeconds: 600,
+			Symmetric:    false,
+			MaxLevelPpm:  500,
+		},
 	}
 	hn.RPC.SetMissionControlConfig(cfg)
 

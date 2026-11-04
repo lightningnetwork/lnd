@@ -153,18 +153,15 @@ func (db *DB) Validate() error {
 		}
 
 	case EtcdBackend:
-		if db.UseNativeSQL {
-			return fmt.Errorf("cannot use native SQL with etcd " +
-				"backend")
-		}
-
-		if !db.Etcd.Embedded && db.Etcd.Host == "" {
-			return fmt.Errorf("etcd host must be set")
-		}
+		// Reject storage before opening a database. A backend change
+		// alone would not transfer existing etcd data.
+		return fmt.Errorf("etcd database backend is disabled; " +
+			"existing etcd data must be migrated before " +
+			"selecting another backend")
 
 	default:
 		return fmt.Errorf("unknown backend, must be either '%v', "+
-			"'%v', '%v' or '%v'", BoltBackend, EtcdBackend,
+			"'%v' or '%v'", BoltBackend,
 			PostgresBackend, SqliteBackend)
 	}
 

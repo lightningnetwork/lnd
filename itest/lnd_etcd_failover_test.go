@@ -18,6 +18,7 @@ import (
 	"github.com/lightningnetwork/lnd/lncfg"
 	"github.com/lightningnetwork/lnd/lnrpc"
 	"github.com/lightningnetwork/lnd/lntest"
+	"github.com/lightningnetwork/lnd/lntest/node"
 	"github.com/lightningnetwork/lnd/lntest/port"
 	"github.com/stretchr/testify/require"
 )
@@ -35,16 +36,25 @@ func assertLeader(ht *lntest.HarnessTest, observer cluster.LeaderElector,
 // single cluster (sharing the same identity) one can hand over the leader role
 // to the other (failing over after graceful shutdown or forceful abort).
 func testEtcdFailover(ht *lntest.HarnessTest) {
+	// A shared PostgreSQL database preserves node state across leaders;
+	// etcd supplies election only, rather than storing the node's data.
+	if !ht.IsPostgresBackend() {
+		ht.Skip("leader failover requires PostgreSQL storage")
+	}
+
 	testCases := []struct {
 		name string
 		kill bool
-	}{{
-		name: "failover after shutdown",
-		kill: false,
-	}, {
-		name: "failover after abort",
-		kill: true,
-	}}
+	}{
+		{
+			name: "failover after shutdown",
+			kill: false,
+		},
+		{
+			name: "failover after abort",
+			kill: true,
+		},
+	}
 
 	for _, test := range testCases {
 
@@ -58,6 +68,8 @@ func testEtcdFailover(ht *lntest.HarnessTest) {
 	}
 }
 
+// testEtcdFailoverCase exercises one handover while both leaders share
+// PostgreSQL state and coordinate ownership through etcd.
 func testEtcdFailoverCase(ht *lntest.HarnessTest, kill bool) {
 	etcdCfg, cleanup, err := kvdb.StartEtcdTestBackend(
 		ht.T.TempDir(), uint16(port.NextAvailablePort()),
@@ -84,9 +96,13 @@ func testEtcdFailoverCase(ht *lntest.HarnessTest, kill bool) {
 	stateless := false
 	cluster := true
 
-	carol1, _, _ := ht.NewNodeWithSeedEtcd(
-		"Carol-1", etcdCfg, password, stateless, cluster,
-		leaderSessionTTL,
+	// Use the harness's PostgreSQL backend and configure etcd election
+	// through extra arguments before initializing the first wallet.
+	carol1Args := node.ExtraArgsEtcd(
+		etcdCfg, "Carol-1", cluster, leaderSessionTTL,
+	)
+	carol1, _, _ := ht.NewNodeWithSeed(
+		"Carol-1", carol1Args, password, stateless,
 	)
 	info1 := carol1.RPC.GetInfo()
 	ht.ConnectNodes(carol1, alice)
@@ -98,9 +114,14 @@ func testEtcdFailoverCase(ht *lntest.HarnessTest, kill bool) {
 
 	// At this point Carol-1 is the elected leader, while Carol-2 will wait
 	// to become the leader when Carol-1 stops.
-	carol2 := ht.NewNodeEtcd(
-		"Carol-2", etcdCfg, password, cluster, leaderSessionTTL,
+	// Point the follower at the same state before starting its process.
+	// Its wallet stays locked until it acquires leadership below.
+	carol2Args := node.ExtraArgsEtcd(
+		etcdCfg, "Carol-2", cluster, leaderSessionTTL,
 	)
+	carol2 := ht.CreateNewNode("Carol-2", carol2Args, password, true)
+	carol2.Cfg.PostgresDsn = carol1.Cfg.PostgresDsn
+	require.NoError(ht, carol2.StartLndCmd(ht.Context()))
 	assertLeader(ht, observer, "Carol-1")
 
 	amt := btcutil.Amount(1000)
@@ -256,6 +277,12 @@ func (p *Proxy) Stop(t *testing.T) {
 // testLeaderHealthCheck tests that a node is properly shut down when the leader
 // health check fails.
 func testLeaderHealthCheck(ht *lntest.HarnessTest) {
+	// Keep storage reachable while the proxy partitions election traffic,
+	// so a shutdown demonstrates the leader health check's behavior.
+	if !ht.IsPostgresBackend() {
+		ht.Skip("leader health check requires PostgreSQL storage")
+	}
+
 	clientPort := port.NextAvailablePort()
 
 	// Let's start a test etcd instance that we'll redirect through a proxy.
@@ -301,9 +328,11 @@ func testLeaderHealthCheck(ht *lntest.HarnessTest) {
 	stateless := false
 	cluster := true
 
-	carol, _, _ := ht.NewNodeWithSeedEtcd(
-		"Carol-1", &proxyEtcdCfg, password, stateless, cluster,
-		leaderSessionTTL,
+	carolArgs := node.ExtraArgsEtcd(
+		&proxyEtcdCfg, "Carol-1", cluster, leaderSessionTTL,
+	)
+	carol, _, _ := ht.NewNodeWithSeed(
+		"Carol-1", carolArgs, password, stateless,
 	)
 
 	// Make sure Carol-1 is indeed the leader.
@@ -313,9 +342,14 @@ func testLeaderHealthCheck(ht *lntest.HarnessTest) {
 	// to become the leader when Carol-1 releases the lease. Note that for
 	// Carol-2 we don't use the proxy as we want to simulate a network
 	// partition only for Carol-1.
-	carol2 := ht.NewNodeEtcd(
-		"Carol-2", etcdCfg, password, cluster, leaderSessionTTL,
+	// Share PostgreSQL state without routing the follower's election
+	// connection through the proxy that will be disconnected below.
+	carol2Args := node.ExtraArgsEtcd(
+		etcdCfg, "Carol-2", cluster, leaderSessionTTL,
 	)
+	carol2 := ht.CreateNewNode("Carol-2", carol2Args, password, true)
+	carol2.Cfg.PostgresDsn = carol.Cfg.PostgresDsn
+	require.NoError(ht, carol2.StartLndCmd(ht.Context()))
 
 	// Stop the proxy so that we simulate a network partition which
 	// consequently will make the leader health check fail and force Carol

@@ -85,8 +85,8 @@ to run each of them.
 For both `make itest` and `make itest-parallel`, the following arguments are
 allowed,
 - `timeout`, specifies the timeout value used in testing.
-- `dbbackend`, specifies the database backend. Must be `bbolt`, `etcd`, or
-  `postgres`, default to `bbolt`.
+- `dbbackend`, specifies the database backend. Must be `bbolt`, `postgres`, or
+  `sqlite`, default to `bbolt`.
 - `backend`, specifies the chain backend to be used. Must be one of,
 	- `btcd`, the default value.
 	- `neutrino`
@@ -95,12 +95,12 @@ allowed,
 	- `bitcoind rpcpolling`
 
 ```shell
-# Run a single test case using bitcoind as the chain backend and etcd as the
+# Run a single test case using bitcoind as the chain backend and PostgreSQL as the
 # database backend, with a timeout of 5 minutes.
-make itest icase=list_channels backend=bitcoind dbbackend=etcd timeout=5m
+make itest icase=list_channels backend=bitcoind dbbackend=postgres timeout=5m
 
 # Run all test cases in parallel, using bitcoind notxindex as the chain backend
-# and etcd as the database backend, with a timeout of 60 minutes for each
+# and PostgreSQL as the database backend, with a timeout of 60 minutes for each
 # parallel.
-make itest-parallel backend="bitcoind notxindex" dbbackend=etcd timeout=60m
+make itest-parallel backend="bitcoind notxindex" dbbackend=postgres timeout=60m
 ```

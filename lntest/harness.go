@@ -18,7 +18,6 @@ import (
 	"github.com/btcsuite/btcd/wire/v2"
 	"github.com/lightningnetwork/lnd/fn/v2"
 	"github.com/lightningnetwork/lnd/input"
-	"github.com/lightningnetwork/lnd/kvdb/etcd"
 	"github.com/lightningnetwork/lnd/lnrpc"
 	"github.com/lightningnetwork/lnd/lnrpc/invoicesrpc"
 	"github.com/lightningnetwork/lnd/lnrpc/routerrpc"
@@ -718,55 +717,6 @@ func (h *HarnessTest) RestoreNodeWithSeed(name string, extraArgs []string,
 		n.Name())
 
 	return n
-}
-
-// NewNodeEtcd starts a new node with seed that'll use an external etcd
-// database as its storage. The passed cluster flag indicates that we'd like
-// the node to join the cluster leader election. We won't wait until RPC is
-// available (this is useful when the node is not expected to become the leader
-// right away).
-func (h *HarnessTest) NewNodeEtcd(name string, etcdCfg *etcd.Config,
-	password []byte, cluster bool,
-	leaderSessionTTL int) *node.HarnessNode {
-
-	// We don't want to use the embedded etcd instance.
-	h.manager.dbBackend = node.BackendBbolt
-
-	extraArgs := node.ExtraArgsEtcd(
-		etcdCfg, name, cluster, leaderSessionTTL,
-	)
-	node, err := h.manager.newNode(h.T, name, extraArgs, password, true)
-	require.NoError(h, err, "failed to create new node with etcd")
-
-	// Start the node daemon only.
-	err = node.StartLndCmd(h.runCtx)
-	require.NoError(h, err, "failed to start node %s", node.Name())
-
-	return node
-}
-
-// NewNodeWithSeedEtcd starts a new node with seed that'll use an external etcd
-// database as its storage. The passed cluster flag indicates that we'd like
-// the node to join the cluster leader election.
-func (h *HarnessTest) NewNodeWithSeedEtcd(name string, etcdCfg *etcd.Config,
-	password []byte, statelessInit, cluster bool,
-	leaderSessionTTL int) (*node.HarnessNode, []string, []byte) {
-
-	// We don't want to use the embedded etcd instance.
-	h.manager.dbBackend = node.BackendBbolt
-
-	// Create a request to generate a new aezeed. The new seed will have
-	// the same password as the internal wallet.
-	req := &lnrpc.GenSeedRequest{
-		AezeedPassphrase: password,
-		SeedEntropy:      nil,
-	}
-
-	extraArgs := node.ExtraArgsEtcd(
-		etcdCfg, name, cluster, leaderSessionTTL,
-	)
-
-	return h.newNodeWithSeed(name, extraArgs, req, statelessInit)
 }
 
 // NewNodeWatchOnly creates a new watch-only node and asserts its

@@ -5,7 +5,6 @@ import (
 	"fmt"
 	"io"
 	"os"
-	"path"
 	"path/filepath"
 	"time"
 
@@ -88,7 +87,6 @@ type DatabaseBackend int
 
 const (
 	BackendBbolt DatabaseBackend = iota
-	BackendEtcd
 	BackendPostgres
 	BackendSqlite
 )
@@ -327,28 +325,6 @@ func (cfg *BaseNodeConfig) GenArgs() []string {
 	}
 
 	switch cfg.DBBackend {
-	case BackendEtcd:
-		args = append(args, "--db.backend=etcd")
-		args = append(args, "--db.etcd.embedded")
-		args = append(
-			args, fmt.Sprintf(
-				"--db.etcd.embedded_client_port=%v",
-				port.NextAvailablePort(),
-			),
-		)
-		args = append(
-			args, fmt.Sprintf(
-				"--db.etcd.embedded_peer_port=%v",
-				port.NextAvailablePort(),
-			),
-		)
-		args = append(
-			args, fmt.Sprintf(
-				"--db.etcd.embedded_log_file=%v",
-				path.Join(cfg.LogDir, "etcd.log"),
-			),
-		)
-
 	case BackendPostgres:
 		args = append(args, "--db.backend=postgres")
 		args = append(args, "--db.postgres.dsn="+cfg.PostgresDsn)
@@ -377,13 +353,12 @@ func (cfg *BaseNodeConfig) GenArgs() []string {
 	return args
 }
 
-// ExtraArgsEtcd returns extra args for configuring LND to use an external etcd
-// database (for remote channel DB and wallet DB).
+// ExtraArgsEtcd configures etcd connections and leader election while leaving
+// node storage selection to the harness's configured database backend.
 func ExtraArgsEtcd(etcdCfg *etcd.Config, name string, cluster bool,
 	leaderSessionTTL int) []string {
 
 	extraArgs := []string{
-		"--db.backend=etcd",
 		fmt.Sprintf("--db.etcd.host=%v", etcdCfg.Host),
 		fmt.Sprintf("--db.etcd.user=%v", etcdCfg.User),
 		fmt.Sprintf("--db.etcd.pass=%v", etcdCfg.Pass),

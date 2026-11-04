@@ -46,7 +46,7 @@ func TestRevokeAllowsMaxUnsignedAckedUpdates(t *testing.T) {
 
 	// Fill the acked update window to the largest list the on-disk uint16
 	// count can express. The revocation must still go through.
-	for i := 0; i < math.MaxUint16; i++ {
+	for i := range math.MaxUint16 {
 		channel.updateLogs.Remote.appendUpdate(&paymentDescriptor{
 			EntryType: FeeUpdate,
 			LogIndex:  uint64(i),

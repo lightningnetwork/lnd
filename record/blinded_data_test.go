@@ -125,6 +125,7 @@ func TestBlindedDataFinalHopEncoding(t *testing.T) {
 		name        string
 		pathID      []byte
 		constraints bool
+		envelope    []byte
 	}{
 		{
 			name:   "with path ID",
@@ -138,6 +139,11 @@ func TestBlindedDataFinalHopEncoding(t *testing.T) {
 			name:        "with path ID and constraints",
 			pathID:      []byte{1, 2, 3, 4, 5, 6},
 			constraints: true,
+		},
+		{
+			name:     "with path ID and invoice envelope",
+			pathID:   []byte{1, 2, 3, 4, 5, 6},
+			envelope: []byte{7, 8, 9},
 		},
 	}
 
@@ -154,7 +160,7 @@ func TestBlindedDataFinalHopEncoding(t *testing.T) {
 			}
 
 			encodedData := NewFinalHopBlindedRouteData(
-				constraints, test.pathID,
+				constraints, test.pathID, test.envelope,
 			)
 
 			encoded, err := EncodeBlindedRouteData(encodedData)
@@ -165,6 +171,9 @@ func TestBlindedDataFinalHopEncoding(t *testing.T) {
 			require.NoError(t, err)
 
 			require.Equal(t, encodedData, decodedData)
+
+			envelope := decodedData.InvoiceEnvelope.ValOpt()
+			require.Equal(t, test.envelope, envelope.UnwrapOr(nil))
 		})
 	}
 }

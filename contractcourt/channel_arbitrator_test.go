@@ -3625,11 +3625,12 @@ func TestChannelArbitratorStartForceCloseFail(t *testing.T) {
 		},
 
 		// A restored channel restarts after its force-close state was
-		// persisted. The restored shell returns the local-data-loss sentinel
-		// because it has no commitment to broadcast. Startup must leave the
-		// arbitrator waiting for the remote close.
+		// persisted. The restored shell returns the local-data-loss
+		// sentinel because it has no commitment to broadcast. Startup
+		// must leave the arbitrator waiting for the remote close.
 		{
-			name: "restored channel waits for remote close after restart",
+			name: "restored channel waits for remote close " +
+				"after restart",
 			forceCloseErr: fmt.Errorf(
 				"restored channel: %w",
 				lnwallet.ErrForceCloseLocalDataLoss,
@@ -3673,9 +3674,12 @@ func TestChannelArbitratorStartForceCloseFail(t *testing.T) {
 
 			if test.synchronousRestart {
 				chanArb.state = test.expectedState
-				err = chanArb.progressStateMachineAfterRestart(0, nil)
+				err = chanArb.progressStateMachineAfterRestart(
+					0, nil,
+				)
 				require.NoError(t, err)
 				chanArbCtx.AssertState(test.expectedState)
+
 				return
 			}
 

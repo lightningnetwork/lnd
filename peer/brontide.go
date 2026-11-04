@@ -5238,7 +5238,8 @@ func (p *Brontide) logForceCloseResult(shortChanID lnwire.ShortChannelID,
 	closeTx *wire.MsgTx, err error) {
 
 	if err != nil {
-		p.log.Errorf("unable to force close link(%v): %v", shortChanID, err)
+		p.log.Errorf("unable to force close link(%v): %v",
+			shortChanID, err)
 
 		return
 	}

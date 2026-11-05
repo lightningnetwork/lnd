@@ -14,9 +14,9 @@ var (
 	spendHintBucket = []byte("spend-hints")
 
 	// confirmHintBucket is the name of the bucket which houses the height
-	// hints for transactions. Each height hint represents the earliest
-	// height at which its corresponding transaction could have been
-	// confirmed within.
+	// hints for confirmation requests. Each height hint represents the
+	// earliest height at which a transaction matching its corresponding
+	// request could have been confirmed.
 	confirmHintBucket = []byte("confirm-hints")
 )
 
@@ -175,7 +175,8 @@ func (c *HeightHintCache) PurgeSpendHint(
 	})
 }
 
-// CommitConfirmHint commits a confirm hint for the transactions to the cache.
+// CommitConfirmHint commits a confirm hint for the confirmation requests to the
+// cache.
 func (c *HeightHintCache) CommitConfirmHint(height uint32,
 	confRequests ...chainntnfs.ConfRequest) error {
 
@@ -213,9 +214,9 @@ func (c *HeightHintCache) CommitConfirmHint(height uint32,
 	})
 }
 
-// QueryConfirmHint returns the latest confirm hint for a transaction hash.
+// QueryConfirmHint returns the latest confirm hint for a confirmation request.
 // ErrConfirmHintNotFound is returned if a confirm hint does not exist within
-// the cache for the transaction hash.
+// the cache for the request.
 func (c *HeightHintCache) QueryConfirmHint(
 	confRequest chainntnfs.ConfRequest) (uint32, error) {
 
@@ -251,8 +252,8 @@ func (c *HeightHintCache) QueryConfirmHint(
 	return hint, nil
 }
 
-// PurgeConfirmHint removes the confirm hint for the transactions from the
-// cache.
+// PurgeConfirmHint removes the confirm hints for the confirmation requests from
+// the cache.
 func (c *HeightHintCache) PurgeConfirmHint(
 	confRequests ...chainntnfs.ConfRequest) error {
 
@@ -290,12 +291,16 @@ func confHintKey(r *chainntnfs.ConfRequest) ([]byte, error) {
 		return r.PkScript.Script(), nil
 	}
 
-	var txid bytes.Buffer
-	if err := WriteElement(&txid, r.TxID); err != nil {
+	// A confirmation request matches both the txid and its output script.
+	// Keep their hints separate so an unmatched script cannot advance the
+	// hint for a transaction that already confirmed.
+	var key bytes.Buffer
+	if err := WriteElement(&key, r.TxID); err != nil {
 		return nil, err
 	}
+	key.Write(r.PkScript.Script())
 
-	return txid.Bytes(), nil
+	return key.Bytes(), nil
 }
 
 // spendHintKey returns the key that will be used to index the spend request's

@@ -42,6 +42,7 @@ import (
 	"github.com/lightningnetwork/lnd/kvdb"
 	"github.com/lightningnetwork/lnd/labels"
 	"github.com/lightningnetwork/lnd/lntest/unittest"
+	"github.com/lightningnetwork/lnd/lntest/wait"
 	"github.com/lightningnetwork/lnd/lnwallet"
 	"github.com/lightningnetwork/lnd/lnwallet/btcwallet"
 	"github.com/lightningnetwork/lnd/lnwallet/chainfee"
@@ -198,32 +199,42 @@ func assertTxInWallet(t *testing.T, w *lnwallet.LightningWallet,
 
 	t.Helper()
 
-	// We'll fetch all of our transaction and go through each one until
-	// finding the expected transaction with its expected confirmation
-	// status.
-	txs, _, _, err := w.ListTransactionDetails(
-		0, btcwallet.UnconfirmedHeight, "", 0, 1000,
-	)
-	require.NoError(t, err, "unable to retrieve transactions")
-	for _, tx := range txs {
-		if tx.Hash != txHash {
-			continue
+	// A wallet can report itself as synced to the chain tip before it
+	// has processed the transactions of the last block. With neutrino in
+	// particular, the block's filter is matched and the confirmation
+	// recorded asynchronously, so poll until the transaction shows up
+	// with the expected confirmation status.
+	err := wait.NoError(func() error {
+		// We'll fetch all of our transactions and go through each one
+		// until finding the expected transaction.
+		txs, _, _, err := w.ListTransactionDetails(
+			0, btcwallet.UnconfirmedHeight, "", 0, 1000,
+		)
+		if err != nil {
+			return fmt.Errorf("unable to retrieve transactions: "+
+				"%w", err)
 		}
-		if tx.NumConfirmations <= 0 && confirmed {
-			t.Fatalf("expected transaction %v to be confirmed",
-				txHash)
-		}
-		if tx.NumConfirmations > 0 && !confirmed {
-			t.Fatalf("expected transaction %v to be unconfirmed",
-				txHash)
+		for _, tx := range txs {
+			if tx.Hash != txHash {
+				continue
+			}
+			if tx.NumConfirmations <= 0 && confirmed {
+				return fmt.Errorf("expected transaction %v "+
+					"to be confirmed", txHash)
+			}
+			if tx.NumConfirmations > 0 && !confirmed {
+				return fmt.Errorf("expected transaction %v "+
+					"to be unconfirmed", txHash)
+			}
+
+			// We've found the transaction and it matches the
+			// desired confirmation status.
+			return nil
 		}
 
-		// We've found the transaction and it matches the desired
-		// confirmation status, so we can exit.
-		return
-	}
-
-	t.Fatalf("transaction %v not found", txHash)
+		return fmt.Errorf("transaction %v not found", txHash)
+	}, 30*time.Second)
+	require.NoError(t, err)
 }
 
 func loadTestCredits(miner *rpctest.Harness, w *lnwallet.LightningWallet,

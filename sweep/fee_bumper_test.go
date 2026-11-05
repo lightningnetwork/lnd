@@ -1108,8 +1108,16 @@ func TestBroadcastImmediate(t *testing.T) {
 	require.NotNil(t, resultChan)
 
 	// Assert that local initialization failure stays fatal and removes its
-	// request rather than entering the backend-error retry path.
-	result := <-resultChan
+	// request rather than entering the backend-error retry path. Bound the
+	// receive so missing delivery fails before the suite timeout.
+	var result *BumpResult
+	select {
+	case result = <-resultChan:
+
+	case <-time.After(time.Second):
+		t.Fatal("timeout waiting for initial broadcast result")
+	}
+
 	require.Equal(t, TxFatal, result.Event)
 	require.ErrorIs(t, result.Err, errDummy)
 	require.Empty(t, tp.records.Len())
@@ -1200,10 +1208,19 @@ func TestBroadcastRetryMempoolErrors(t *testing.T) {
 
 			// Act with one public broadcast; the failed acceptance
 			// must return without trying to publish the candidate.
-			result := <-tp.Broadcast(req)
+			resultChan := tp.Broadcast(req)
 
 			// Assert retry preserves cause and next fee, keeping
-			// the cap when no further increase is possible.
+			// the cap when no further increase is possible. Bound
+			// missing delivery so a regression fails promptly.
+			var result *BumpResult
+			select {
+			case result = <-resultChan:
+
+			case <-time.After(time.Second):
+				t.Fatal("timeout waiting for retry result")
+			}
+
 			require.Equal(t, TxFailed, result.Event)
 			require.ErrorIs(t, result.Err, tc.err)
 			if tc.atCeiling {

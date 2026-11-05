@@ -2,10 +2,13 @@ package sweep
 
 import (
 	"fmt"
+	"sync"
 	"sync/atomic"
 	"testing"
 	"time"
 
+	"github.com/btcsuite/btcd/btcec/v2"
+	"github.com/btcsuite/btcd/btcec/v2/ecdsa"
 	"github.com/btcsuite/btcd/btcutil/v2"
 	"github.com/btcsuite/btcd/chainhash/v2"
 	"github.com/btcsuite/btcd/wire/v2"
@@ -313,12 +316,12 @@ func TestInitializeFeeFunction(t *testing.T) {
 	require.Equal(t, feerate, f.FeeRate())
 }
 
-// TestUpdateRecord correctly updates the fields fee and tx, and saves the
-// record.
+// TestUpdateRecord checks that transaction updates mutate the caller's record.
 func TestUpdateRecord(t *testing.T) {
 	t.Parallel()
 
-	// Create a test input.
+	// Arrange a caller-owned record and transaction context so updates can
+	// be checked independently of registration for block processing.
 	inp := createTestInput(1000, input.WitnessKeyHash)
 
 	// Create a bump request.
@@ -340,7 +343,7 @@ func TestUpdateRecord(t *testing.T) {
 		AuxSweeper: fn.Some[AuxSweeper](&MockAuxSweeper{}),
 	})
 
-	// Get the current counter and check it's increased later.
+	// Use an unregistered request ID; allocation belongs to Broadcast.
 	initialCounter := tp.requestCounter.Load()
 
 	op := wire.OutPoint{
@@ -365,12 +368,11 @@ func TestUpdateRecord(t *testing.T) {
 		feeFunction: feeFunc,
 	}
 
-	// Call the method under test.
+	// Act by attaching the constructed transaction to the supplied pointer.
 	tp.updateRecord(record, sweepCtx)
 
-	// Read the saved record and compare.
-	record, ok := tp.records.Load(initialCounter)
-	require.True(t, ok)
+	// Assert the caller sees the new transaction data while its original
+	// request and fee function remain attached to that same record.
 	require.Equal(t, tx, record.tx)
 	require.Equal(t, feeFunc, record.feeFunction)
 	require.Equal(t, fee, record.fee)
@@ -864,6 +866,9 @@ func TestRemoveResult(t *testing.T) {
 					feeFunction: m.feeFunc,
 				}
 
+				// Enroll for terminal removal explicitly;
+				// field updates do not register the record.
+				tp.records.Store(rid, record)
 				tp.updateRecord(record, sweepCtx)
 				tp.subscriberChans.Store(rid, nil)
 
@@ -888,6 +893,8 @@ func TestRemoveResult(t *testing.T) {
 					feeFunction: m.feeFunc,
 				}
 
+				// Enroll to test failed-result removal.
+				tp.records.Store(rid, record)
 				tp.updateRecord(record, sweepCtx)
 				tp.subscriberChans.Store(rid, nil)
 
@@ -913,6 +920,8 @@ func TestRemoveResult(t *testing.T) {
 					feeFunction: m.feeFunc,
 				}
 
+				// Keep a live record for the non-terminal case.
+				tp.records.Store(rid, record)
 				tp.updateRecord(record, sweepCtx)
 				tp.subscriberChans.Store(rid, nil)
 
@@ -929,15 +938,18 @@ func TestRemoveResult(t *testing.T) {
 	for _, tc := range testCases {
 
 		t.Run(tc.name, func(t *testing.T) {
+			// Arrange a live fixture and bind its result so both
+			// maps can be checked for this event's lifetime.
 			requestID := tc.setupRecord()
 
 			// Attach the requestID from the setup.
 			tc.result.requestID = requestID
 
-			// Remove the result.
+			// Act by applying the event's terminal cleanup policy.
 			tp.removeResult(tc.result)
 
-			// Check if the record is removed.
+			// Assert both mappings follow the event's lifetime;
+			// published events retain mappings for later blocks.
 			_, found := tp.records.Load(requestID)
 			require.Equal(t, !tc.removed, found)
 
@@ -1116,6 +1128,175 @@ func TestBroadcastImmediate(t *testing.T) {
 	require.Empty(t, tp.subscriberChans.Len())
 }
 
+// TestBroadcastImmediateConcurrentBlock checks that an immediate attempt owns
+// its record until Broadcast returns, while later blocks can still replace it.
+func TestBroadcastImmediateConcurrentBlock(t *testing.T) {
+	t.Parallel()
+
+	// These windows distinguish duplicate initialization from a replacement
+	// observing a constructed transaction before its first result is sent.
+	testCases := []struct {
+		name       string
+		publishing bool
+	}{
+		{
+			name:       "constructing",
+			publishing: false,
+		},
+		{
+			name:       "publishing",
+			publishing: true,
+		},
+	}
+
+	for _, tc := range testCases {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+
+			// Arrange a funded revoked input with an explicit fee.
+			// Duplicate initialization must reach publication on
+			// faulty code without exhausting estimator calls.
+			tp, m := createTestPublisher(t)
+			tp.currentHeight.Store(100)
+			inp := createTestInput(100_000, input.CommitmentRevoke)
+			startingFeeRate := chainfee.SatPerKWeight(1000)
+			req := &BumpRequest{
+				DeliveryAddress: changePkScript,
+				Inputs:          []input.Input{&inp},
+				Budget:          50_000,
+				MaxFeeRate:      10_000,
+				DeadlineHeight:  110,
+				StartingFeeRate: fn.Some(startingFeeRate),
+				Immediate:       true,
+			}
+			privKey, _ := btcec.PrivKeyFromBytes([]byte{1})
+			digest := make([]byte, chainhash.HashSize)
+			sig := ecdsa.Sign(privKey, digest)
+
+			// Pause the immediate attempt so competing work can
+			// fill the result slot. OnceFunc lets cleanup safely
+			// release a barrier already released by the test.
+			paused := make(chan struct{})
+			release := make(chan struct{})
+			resume := sync.OnceFunc(func() { close(release) })
+			m.signer.On(
+				"SignOutputRaw", mock.Anything, mock.Anything,
+			).Return(sig, nil).Run(
+				func(mock.Arguments) {
+					if !tc.publishing {
+						close(paused)
+						<-release
+					}
+				},
+			).Once()
+			m.signer.On(
+				"SignOutputRaw", mock.Anything, mock.Anything,
+			).Return(sig, nil).Once()
+			m.wallet.On(
+				"CheckMempoolAcceptance", mock.Anything,
+			).Return(nil).Twice()
+			m.wallet.On(
+				"PublishTransaction", mock.Anything,
+				mock.Anything,
+			).Return(nil).Run(
+				func(mock.Arguments) {
+					if tc.publishing {
+						close(paused)
+						<-release
+					}
+				},
+			).Once()
+			m.wallet.On(
+				"PublishTransaction", mock.Anything,
+				mock.Anything,
+			).Return(nil).Once()
+
+			// The red concurrent pass or green later block checks
+			// this singleton's spend status exactly once.
+			op := inp.OutPoint()
+			m.notifier.On(
+				"RegisterSpendNtfn", &op,
+				mock.Anything, inp.HeightHint(),
+			).Return(
+				&chainntnfs.SpendEvent{
+					Cancel: func() {},
+				}, nil,
+			).Once()
+
+			// Install cleanup before work so assertion failures
+			// release signing/publication and result sends.
+			broadcastDone := make(chan struct{})
+			blockDone := make(chan struct{})
+			blockStarted := false
+			t.Cleanup(func() {
+				resume()
+				require.NoError(t, tp.Stop())
+				_, err := fn.RecvOrTimeout(
+					broadcastDone, time.Second,
+				)
+				require.NoError(t, err)
+				if blockStarted {
+					_, err = fn.RecvOrTimeout(
+						blockDone, time.Second,
+					)
+					require.NoError(t, err)
+				}
+			})
+
+			// Act by overlapping an offer with block processing.
+			// Join workers before releasing the offer, without
+			// a subscriber reader, to fill the faulty result slot.
+			var resultChan <-chan *BumpResult
+			go func() {
+				resultChan = tp.Broadcast(req)
+				close(broadcastDone)
+			}()
+			_, err := fn.RecvOrTimeout(paused, time.Second)
+			require.NoError(t, err)
+			tp.currentHeight.Add(1)
+			blockStarted = true
+			go func() {
+				tp.processRecords()
+				tp.wg.Wait()
+				close(blockDone)
+			}()
+			_, err = fn.RecvOrTimeout(blockDone, time.Second)
+			require.NoError(t, err)
+			resume()
+
+			// Assert Broadcast returns before reading its result.
+			// The one-slot buffer exposes the circular wait.
+			_, err = fn.RecvOrTimeout(broadcastDone, time.Second)
+			require.NoError(
+				t, err, "Broadcast waits for a result reader",
+			)
+			initial, err := fn.RecvOrTimeout(
+				resultChan, time.Second,
+			)
+			require.NoError(t, err)
+			require.Equal(t, TxPublished, initial.Event)
+			require.NoError(t, initial.Err)
+
+			// Act again after consuming the initial result. A later
+			// block must replace the completed initial attempt.
+			tp.currentHeight.Add(1)
+			tp.processRecords()
+			tp.wg.Wait()
+
+			// Assert RBF progress on the same request to also
+			// detect losing the record after initialization.
+			replacement, err := fn.RecvOrTimeout(
+				resultChan, time.Second,
+			)
+			require.NoError(t, err)
+			require.Equal(t, TxReplaced, replacement.Event)
+			require.NoError(t, replacement.Err)
+			require.Equal(t, initial.Tx, replacement.ReplacedTx)
+			require.Greater(t, replacement.FeeRate, initial.FeeRate)
+		})
+	}
+}
+
 // TestCreateAndPublishFail checks all the error cases are handled properly in
 // the method createAndPublishTx.
 func TestCreateAndPublishFail(t *testing.T) {
@@ -1191,7 +1372,8 @@ func TestCreateAndPublishFail(t *testing.T) {
 func TestCreateAndPublishSuccess(t *testing.T) {
 	t.Parallel()
 
-	// Create a publisher using the mocks.
+	// Arrange a caller-owned record and accepted replacement transactions
+	// so publication failures can be distinguished from record mutation.
 	tp, m := createTestPublisher(t)
 
 	// Create a test requestID.
@@ -1223,10 +1405,14 @@ func TestCreateAndPublishSuccess(t *testing.T) {
 	m.wallet.On("CheckMempoolAcceptance", mock.Anything).Return(nil)
 
 	// Mock the wallet to publish and return an error.
-	m.wallet.On("PublishTransaction",
-		mock.Anything, mock.Anything).Return(errDummy).Once()
+	m.wallet.On(
+		"PublishTransaction", mock.Anything, mock.Anything,
+	).Return(errDummy).Once()
+	m.wallet.On(
+		"PublishTransaction", mock.Anything, mock.Anything,
+	).Return(nil).Once()
 
-	// Call the createAndPublish method and expect a failure result.
+	// Act by constructing a replacement whose publication is rejected.
 	resultOpt := tp.createAndPublishTx(record)
 	result := resultOpt.UnwrapOrFail(t)
 
@@ -1234,20 +1420,14 @@ func TestCreateAndPublishSuccess(t *testing.T) {
 	require.Equal(t, TxFailed, result.Event)
 	require.ErrorIs(t, result.Err, errDummy)
 
-	// Although the replacement tx was failed to be published, the record
-	// should be stored.
+	// Assert construction updated the caller's record despite publication
+	// failure; registration is owned separately by Broadcast.
 	require.NotNil(t, result.Tx)
 	require.NotNil(t, result.ReplacedTx)
-	_, found := tp.records.Load(requestID)
-	require.True(t, found)
+	require.Same(t, result.Tx, record.tx)
 
-	// We now check a successful RBF.
-	//
-	// Mock the wallet to publish successfully.
-	m.wallet.On("PublishTransaction",
-		mock.Anything, mock.Anything).Return(nil).Once()
-
-	// Call the createAndPublish method and expect a success result.
+	// Act again with successful publication using the same caller-owned
+	// pointer to exercise the ordinary replacement path.
 	resultOpt = tp.createAndPublishTx(record)
 	result = resultOpt.UnwrapOrFail(t)
 	require.True(t, resultOpt.IsSome())
@@ -1260,9 +1440,8 @@ func TestCreateAndPublishSuccess(t *testing.T) {
 	require.NotNil(t, result.Tx)
 	require.NotNil(t, result.ReplacedTx)
 
-	// Check the record is stored.
-	_, found = tp.records.Load(requestID)
-	require.True(t, found)
+	// Assert the next replacement is also visible through that pointer.
+	require.Same(t, result.Tx, record.tx)
 }
 
 // TestHandleTxConfirmed checks the expected result is returned from the method
@@ -1305,9 +1484,9 @@ func TestHandleTxConfirmed(t *testing.T) {
 		feeFunction: m.feeFunc,
 	}
 
+	// Arrange a live record so confirmation must remove its registration.
+	tp.records.Store(requestID, record)
 	tp.updateRecord(record, sweepCtx)
-	record, ok := tp.records.Load(requestID)
-	require.True(t, ok)
 
 	// Create a subscription to the event.
 	subscriber := make(chan *BumpResult, 1)
@@ -1317,9 +1496,8 @@ func TestHandleTxConfirmed(t *testing.T) {
 	feerate := chainfee.SatPerKWeight(1000)
 	m.feeFunc.On("FeeRate").Return(feerate).Once()
 
-	// Call the method and expect a result to be received.
-	//
-	// NOTE: must be called in a goroutine in case it blocks.
+	// Act by reporting confirmation asynchronously so result delivery can
+	// complete while the test observes the subscriber and handler lifetime.
 	tp.wg.Add(1)
 	done := make(chan struct{})
 	go func() {
@@ -1332,7 +1510,8 @@ func TestHandleTxConfirmed(t *testing.T) {
 		t.Fatal("timeout waiting for subscriber to receive result")
 
 	case result := <-subscriber:
-		// We expect the result to be TxConfirmed and the tx is set.
+		// Assert confirmation preserves the transaction and fee
+		// metadata needed by the sweeper to finish this request.
 		require.Equal(t, TxConfirmed, result.Event)
 		require.Equal(t, tx, result.Tx)
 		require.Nil(t, result.Err)
@@ -1395,6 +1574,8 @@ func TestHandleFeeBumpTx(t *testing.T) {
 		outpointToTxIndex: utxoIndex,
 	}
 
+	// Arrange a live record for the replacement lifecycle checks.
+	tp.records.Store(requestID, record)
 	tp.updateRecord(record, sweepCtx)
 
 	// Create a subscription to the event.
@@ -1409,11 +1590,12 @@ func TestHandleFeeBumpTx(t *testing.T) {
 	m.feeFunc.On("IncreaseFeeRate", mock.Anything).Return(
 		false, errDummy).Once()
 
-	// Call the method and expect no result received.
+	// Act with a fee-function error; the existing policy defers replacement
+	// instead of emitting an event for this unsuccessful fee increase.
 	tp.wg.Add(1)
 	go tp.handleFeeBumpTx(record, testHeight)
 
-	// Check there's no result sent back.
+	// Assert the subscriber stays quiet when no replacement was attempted.
 	select {
 	case <-time.After(time.Second):
 	case result := <-subscriber:

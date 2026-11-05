@@ -8,6 +8,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"math"
 	"net"
 	"strconv"
 	"strings"
@@ -2922,6 +2923,11 @@ type CommitDiff struct {
 
 // serializeLogUpdates serializes provided list of updates to a stream.
 func serializeLogUpdates(w io.Writer, logUpdates []LogUpdate) error {
+	if len(logUpdates) > math.MaxUint16 {
+		return fmt.Errorf("too many log updates: %d exceeds %d",
+			len(logUpdates), math.MaxUint16)
+	}
+
 	numUpdates := uint16(len(logUpdates))
 	if err := binary.Write(w, byteOrder, numUpdates); err != nil {
 		return err
@@ -2937,8 +2943,9 @@ func serializeLogUpdates(w io.Writer, logUpdates []LogUpdate) error {
 	return nil
 }
 
-// deserializeLogUpdates deserializes a list of updates from a stream.
-func deserializeLogUpdates(r io.Reader) ([]LogUpdate, error) {
+// deserializeLogUpdateStream deserializes a list of updates from a stream
+// that may contain further data after the list.
+func deserializeLogUpdateStream(r io.Reader) ([]LogUpdate, error) {
 	var numUpdates uint16
 	if err := binary.Read(r, byteOrder, &numUpdates); err != nil {
 		return nil, err
@@ -2954,6 +2961,42 @@ func deserializeLogUpdates(r io.Reader) ([]LogUpdate, error) {
 		}
 	}
 	return logUpdates, nil
+}
+
+// deserializeLogUpdates deserializes a list of updates stored on its own under
+// a bucket key.
+func deserializeLogUpdates(r *bytes.Reader) ([]LogUpdate, error) {
+	updates, err := deserializeLogUpdateStream(r)
+	if err != nil || r.Len() == 0 {
+		return updates, err
+	}
+
+	// Older versions wrote the complete list after a wrapped uint16 count.
+	// Recover those entries so a reconnect cannot silently drop a settle.
+	declaredCount := len(updates)
+	for r.Len() > 0 {
+		var update LogUpdate
+		if err := ReadElements(
+			r, &update.LogIndex, &update.UpdateMsg,
+		); err != nil {
+			return nil, fmt.Errorf(
+				"unable to read trailing log update: %w", err,
+			)
+		}
+
+		updates = append(updates, update)
+	}
+
+	if len(updates) <= math.MaxUint16 ||
+		len(updates)%(math.MaxUint16+1) != declaredCount {
+
+		return nil, fmt.Errorf(
+			"log update count mismatch: declared %d, found %d",
+			declaredCount, len(updates),
+		)
+	}
+
+	return updates, nil
 }
 
 func serializeCommitDiff(w io.Writer, diff *CommitDiff) error { // nolint: dupl
@@ -3026,7 +3069,7 @@ func deserializeCommitDiff(r io.Reader) (*CommitDiff, error) {
 	}
 	d.CommitSig = commitSig
 
-	d.LogUpdates, err = deserializeLogUpdates(r)
+	d.LogUpdates, err = deserializeLogUpdateStream(r)
 	if err != nil {
 		return nil, err
 	}

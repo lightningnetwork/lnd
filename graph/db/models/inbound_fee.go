@@ -1,11 +1,8 @@
 package models
 
-import "github.com/lightningnetwork/lnd/lnwire"
-
-const (
-	// maxFeeRate is the maximum fee rate that we allow. It is set to allow
-	// a variable fee component of up to 10x the payment amount.
-	maxFeeRate = 10 * feeRateParts
+import (
+	"github.com/lightningnetwork/lnd/internal/fee"
+	"github.com/lightningnetwork/lnd/lnwire"
 )
 
 type InboundFee struct {
@@ -31,23 +28,13 @@ func (i *InboundFee) ToWire() lnwire.Fee {
 
 // CalcFee calculates what the inbound fee should minimally be for forwarding
 // the given amount. This amount is the total of the outgoing amount plus the
-// outbound fee, which is what the inbound fee is based on.
+// outbound fee, which is what the inbound fee is based on. It panics if the
+// fee cannot be represented as an int64.
 func (i *InboundFee) CalcFee(amt lnwire.MilliSatoshi) int64 {
-	fee := int64(i.Base)
-	rate := int64(i.Rate)
-
-	// Cap the rate to prevent overflows.
-	switch {
-	case rate > maxFeeRate:
-		rate = maxFeeRate
-
-	case rate < -maxFeeRate:
-		rate = -maxFeeRate
+	value, err := fee.Inbound(uint64(amt), i.Base, i.Rate).Unpack()
+	if err != nil {
+		panic(err)
 	}
 
-	// Calculate proportional component. To keep the integer math simple,
-	// positive fees are rounded down while negative fees are rounded up.
-	fee += rate * int64(amt) / feeRateParts
-
-	return fee
+	return value
 }

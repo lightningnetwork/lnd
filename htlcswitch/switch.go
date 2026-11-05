@@ -3015,6 +3015,24 @@ func (s *Switch) AddAliasForLink(chanID lnwire.ChannelID,
 }
 
 // handlePacketAdd handles forwarding an Add packet.
+// checkedAdvertisedFee skips observations for links without checked fees.
+func checkedAdvertisedFee(link ChannelLink,
+	amount lnwire.MilliSatoshi) (uint64, bool) {
+
+	advertiser, ok := link.(checkedFeeAdvertiser)
+	if !ok {
+		log.Debug("Skipping reputation: no checked fee")
+		return 0, false
+	}
+	value, err := advertiser.advertisedFeeChecked(amount).Unpack()
+	if err != nil {
+		log.Debugf("Skipping reputation fee: %v", err)
+		return 0, false
+	}
+
+	return value, true
+}
+
 func (s *Switch) handlePacketAdd(packet *htlcPacket,
 	htlc *lnwire.UpdateAddHTLC) error {
 
@@ -3257,44 +3275,42 @@ func (s *Switch) handlePacketAdd(packet *htlcPacket,
 	// observes the event to update internal reputation state; it never
 	// affects the forwarding decision (log-only).
 	if s.cfg.ReputationManager != nil {
-		// Use the fee the node ADVERTISED for this forward, not the
-		// (possibly larger) fee offered by the incoming HTLC. Scoring
-		// reputation/revenue on the offered fee would let a sender
-		// inflate or destroy reputation by over/under-paying; the
-		// advertised fee is what the node actually charges.
-		//
-		// The advertised fee is the same total CheckHtlcForward
-		// requires (outbound plus inbound component), attributed to the
-		// outgoing link. An inbound discount can push the total
-		// negative, in which case it is clamped at zero: reputation and
-		// revenue track fees actually earned, never owed.
-		totalFee := TotalForwardingFee(
-			packet.amount, destination.AdvertisedFee(packet.amount),
-			packet.inboundFee,
-		)
-		if totalFee < 0 {
-			totalFee = 0
-		}
-		advertisedFee := lnwire.MilliSatoshi(totalFee)
+		func() {
+			// Use the advertised fee, not the sender's offered fee.
+			// Clamp negative totals to zero.
+			outFee, ok := checkedAdvertisedFee(
+				destination, packet.amount,
+			)
+			if !ok {
+				return
+			}
 
-		// Report the accountable bit as the upstream peer sent it.
-		// Whether this node forwards the experimental signal is the
-		// outgoing link's concern only; scoring on the received value
-		// keeps the data independent of that flag.
-		//
-		// Channels are identified by channel_id rather than short
-		// channel id, so that a zero-conf channel confirming (or a
-		// future splice) does not split the channel's history.
-		s.cfg.ReputationManager.OnForward(
-			CircuitKey{
-				ChanID: packet.incomingChanID,
-				HtlcID: packet.incomingHTLCID,
-			},
-			incomingLink.ChanID(), destination.ChanID(),
-			packet.incomingAmount, packet.amount, advertisedFee,
-			packet.incomingTimeout, s.BestHeight(),
-			htlcAccountable(htlc),
-		)
+			totalFee, err := checkedTotalForwardingFee(
+				packet.amount, outFee, packet.inboundFee,
+			).Unpack()
+			if err != nil {
+				log.Debugf("Skipping total fee: %v", err)
+				return
+			}
+			if totalFee < 0 {
+				totalFee = 0
+			}
+			advertisedFee := lnwire.MilliSatoshi(totalFee)
+
+			// Score the received accountability signal and identify
+			// channels by ID to preserve history.
+			s.cfg.ReputationManager.OnForward(
+				CircuitKey{
+					ChanID: packet.incomingChanID,
+					HtlcID: packet.incomingHTLCID,
+				},
+				incomingLink.ChanID(), destination.ChanID(),
+				packet.incomingAmount, packet.amount,
+				advertisedFee,
+				packet.incomingTimeout, s.BestHeight(),
+				htlcAccountable(htlc),
+			)
+		}()
 	}
 
 	return destination.handleSwitchPacket(packet)

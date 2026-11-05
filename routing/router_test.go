@@ -2046,6 +2046,13 @@ func TestInboundOutbound(t *testing.T) {
 			outgoingRate: 100,
 		},
 		{
+			name:         "capped positive inbound fee rate",
+			incomingBase: 0,
+			incomingRate: 20_000_000,
+			outgoingBase: 0,
+			outgoingRate: 0,
+		},
+		{
 			name:         "small negative inbound and outbound fee",
 			incomingBase: -10,
 			incomingRate: -50,
@@ -2127,16 +2134,18 @@ func testInboundOutboundFee(t *testing.T, outgoingAmt uint64, inBase,
 
 	// We compute the incoming amount based on the outgoing amount, which
 	// mimicks the path finding process.
-	incomingAmt := incomingFromOutgoing(
+	incomingAmt, err := incomingFromOutgoing(
 		lnwire.MilliSatoshi(outgoingAmt), incomingEdge,
 		outgoingEdge,
 	)
+	require.NoError(t, err)
 
 	// We do the reverse and compute the outgoing amount based on the
 	// incoming amount.
-	outgoingAmtNew := outgoingFromIncoming(
+	outgoingAmtNew, err := outgoingFromIncoming(
 		incomingAmt, incomingEdge, outgoingEdge,
 	)
+	require.NoError(t, err)
 
 	// We require that the incoming amount is always larger than or equal to
 	// the outgoing amount, because total fees (=incoming-outgoing) should
@@ -2158,6 +2167,44 @@ func testInboundOutboundFee(t *testing.T, outgoingAmt uint64, inBase,
 		t, int64(outgoingAmtNew), int64(outgoingAmt), debugStr,
 		"expected outgoingAmtNew >= outgoingAmt",
 	)
+}
+
+func TestIncomingFromOutgoingCheckedArithmetic(t *testing.T) {
+	incoming := &unifiedEdge{inboundFees: models.InboundFee{Base: -10}}
+	outgoing := &unifiedEdge{policy: &models.CachedEdgePolicy{
+		FeeBaseMSat: 5,
+	}}
+	amount, err := incomingFromOutgoing(100, incoming, outgoing)
+	require.NoError(t, err)
+	require.Equal(t, lnwire.MilliSatoshi(100), amount)
+
+	_, err = incomingFromOutgoing(
+		lnwire.MilliSatoshi(^uint64(0)), incoming, outgoing,
+	)
+	require.Error(t, err)
+}
+
+func TestOutgoingFromIncomingWideArithmetic(t *testing.T) {
+	incoming := &unifiedEdge{policy: &models.CachedEdgePolicy{}}
+	outgoing := &unifiedEdge{policy: &models.CachedEdgePolicy{
+		FeeBaseMSat: 1,
+	}}
+
+	amount, err := outgoingFromIncoming(
+		lnwire.MilliSatoshi(^uint64(0)), incoming, outgoing,
+	)
+	require.NoError(t, err)
+	require.Equal(t, lnwire.MilliSatoshi(^uint64(0)-1), amount)
+
+	outgoing.policy.FeeBaseMSat = 100
+	_, err = outgoingFromIncoming(1, incoming, outgoing)
+	require.Error(t, err)
+
+	outgoing.policy.FeeBaseMSat = 0
+	outgoing.policy.FeeProportionalMillionths = lnwire.MilliSatoshi(1 << 63)
+	amount, err = outgoingFromIncoming(10, incoming, outgoing)
+	require.NoError(t, err)
+	require.Equal(t, lnwire.MilliSatoshi(1), amount)
 }
 
 // FuzzInboundOutbound tests the incoming and outgoing amount calculation

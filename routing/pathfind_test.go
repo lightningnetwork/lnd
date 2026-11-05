@@ -4096,3 +4096,59 @@ func TestFindBlindedPaths(t *testing.T) {
 		"eve,bob,frank,alice,dave",
 	})
 }
+
+func TestNewRouteCheckedFees(t *testing.T) {
+	tests := []struct {
+		name    string
+		amount  lnwire.MilliSatoshi
+		base    lnwire.MilliSatoshi
+		rate    lnwire.MilliSatoshi
+		inbound models.InboundFee
+		want    lnwire.MilliSatoshi
+		wantErr bool
+	}{
+		{name: "below threshold", amount: 999999,
+			rate: 1, want: 999999},
+		{name: "at threshold", amount: 1000000, rate: 1, want: 1000001},
+		{name: "above threshold", amount: 1000001,
+			rate: 1, want: 1000002},
+		{name: "negative inbound", amount: 100, base: 10,
+			inbound: models.InboundFee{Base: -5}, want: 105},
+		{name: "negative inbound capped", amount: 100, base: 10,
+			inbound: models.InboundFee{Base: -20}, want: 100},
+		{name: "outbound overflow", amount: ^lnwire.MilliSatoshi(0),
+			base: 1, wantErr: true},
+		{name: "inbound overflow", amount: ^lnwire.MilliSatoshi(0),
+			inbound: models.InboundFee{Rate: 10000000},
+			wantErr: true},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			policy := func() *models.CachedEdgePolicy {
+				return &models.CachedEdgePolicy{
+					ToNodePubKey: func() route.Vertex {
+						return route.Vertex{}
+					},
+				}
+			}
+			first, second := policy(), policy()
+			second.FeeBaseMSat = test.base
+			second.FeeProportionalMillionths = test.rate
+			path := []*unifiedEdge{
+				{policy: first, inboundFees: test.inbound},
+				{policy: second},
+			}
+			r, err := newRoute(
+				route.Vertex{}, path, 0, finalHopParams{
+					amt: test.amount, totalAmt: test.amount,
+				}, nil,
+			)
+			if test.wantErr {
+				require.Error(t, err)
+				return
+			}
+			require.NoError(t, err)
+			require.Equal(t, test.want, r.TotalAmount)
+		})
+	}
+}

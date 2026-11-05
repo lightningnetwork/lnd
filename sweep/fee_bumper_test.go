@@ -1237,6 +1237,55 @@ func TestBroadcastRetryMempoolErrors(t *testing.T) {
 	}
 }
 
+// TestBroadcastAlreadyInMempool checks an accepted initial transaction reaches
+// publication so the existing tracking path can continue managing its inputs.
+func TestBroadcastAlreadyInMempool(t *testing.T) {
+	t.Parallel()
+
+	// Arrange a funded immediate request with an explicit rate, isolating
+	// acceptance handling from estimation. The wallet wraps its sentinel,
+	// as the acceptance adapter does before returning to the publisher.
+	tp, m := createTestPublisher(t)
+	inp := createTestInput(100_000, input.WitnessKeyHash)
+	feeRate := chainfee.SatPerKWeight(1000)
+	req := &BumpRequest{
+		DeliveryAddress: changePkScript,
+		Inputs:          []input.Input{&inp},
+		Budget:          btcutil.Amount(10_000),
+		MaxFeeRate:      feeRate * 10,
+		StartingFeeRate: fn.Some(feeRate),
+		DeadlineHeight:  10,
+		Immediate:       true,
+	}
+	acceptanceErr := fmt.Errorf("check: %w", chain.ErrTxAlreadyInMempool)
+	m.signer.On(
+		"ComputeInputScript", mock.Anything, mock.Anything,
+	).Return(&input.Script{}, nil).Once()
+	m.wallet.On(
+		"CheckMempoolAcceptance", mock.Anything,
+	).Return(acceptanceErr).Once()
+	m.wallet.On(
+		"PublishTransaction", mock.Anything, mock.Anything,
+	).Return(nil).Once()
+
+	// Act through the public immediate interface; an already accepted
+	// candidate must still reach idempotent publication and registration.
+	resultChan := tp.Broadcast(req)
+
+	// Assert the public result keeps the transaction managed instead of
+	// reporting a fatal rejection. Fixture cleanup verifies publication was
+	// called once; bounded delivery exposes notification regressions.
+	select {
+	case result := <-resultChan:
+		require.Equal(t, TxPublished, result.Event)
+		require.NoError(t, result.Err)
+		require.NotNil(t, result.Tx)
+
+	case <-time.After(time.Second):
+		t.Fatal("timeout waiting for already accepted broadcast result")
+	}
+}
+
 // TestCreateAndPublishFail checks all the error cases are handled properly in
 // the method createAndPublishTx.
 func TestCreateAndPublishFail(t *testing.T) {

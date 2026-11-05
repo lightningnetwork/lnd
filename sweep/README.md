@@ -138,6 +138,16 @@ The ending fee rate is the value from dividing the budget by the size of the
 sweeping transaction, and capped at the `--sweeper.maxfeerate`. The ending fee
 rate can be overridden by setting the `--budget` via `bumpfee` cli.
 
+The starting fee rate never exceeds the ending fee rate. If the fee estimate
+for the deadline is at or above the ending fee rate, the fee function starts at
+the ending fee rate and stays there, so the first attempt to publish the
+sweeping transaction already uses the maximum fee rate its budget allows. A
+starting fee rate set via `bumpfee` is capped at the ending fee rate in the
+same way when the fee function is initialized, for example if it's above
+`--sweeper.maxfeerate`. An input whose budget can't even pay its starting fee
+rate for its own size is skipped earlier, when the sweeper groups its inputs,
+and isn't swept.
+
 For instance, suppose `lnd` is using `bitcoind` as its fee estimator, and an
 input with a deadline of 1000 blocks and a budget of 200,000 sats is being
 swept in a transaction that has a size of 500 vbytes, the fee function will be

@@ -21,14 +21,14 @@ name: CI
 #            queue. Removing the label re-runs the PR's latest run, see
 #            ci-hold.yml. Merge group and nightly runs are never held.
 #
-# Required status checks apply to both the pull_request and the merge_group
-# context, so every required check has to be reported in both. Required matrix
-# legs that don't belong to the pr tier therefore stay instantiated on pull
-# requests and only skip their steps: a job-level condition is evaluated before
-# the matrix is expanded, so a skipped matrix job would never report the
-# per-leg check names. The CI result job aggregates the results of all gating
-# jobs into a single check, so that the jobs of the merge tier can be required
-# without listing every leg.
+# The CI result job aggregates the results of all gating jobs into a single
+# check, and it is the only required status check. Jobs, including matrix
+# jobs, are therefore skipped at the job level whenever they aren't part of the
+# selected tier, so that they don't occupy a runner. A matrix that is only
+# partially part of a tier is split into two jobs with the same name, so that
+# the check names stay the same. In exchange, every gating job must be listed
+# in the needs of the CI result job and in its lists of the tiers it is part
+# of: a job missing from the needs is not checked at all.
 on:
   pull_request:
     branches:
@@ -174,13 +174,7 @@ jobs:
       # runs full CI. Renamed files are checked under both their old and new
       # name so that moving a source file into docs/ doesn't count as a
       # documentation change. An empty or failed file listing is treated as
-      # "not docs only".
-      #
-      # Jobs consuming this output either skip at the job level (non-matrix
-      # jobs) or keep the job instantiated and skip its steps (matrix jobs).
-      # The latter is needed because a job-level condition is evaluated
-      # before the matrix is expanded, so a skipped matrix job would never
-      # report the per-leg check names that branch protection requires.
+      # "not docs only". Jobs consuming this output skip at the job level.
       - name: Detect documentation-only changes
         id: docs-only
         if: github.event_name == 'pull_request' && steps.tier.outputs.tier != 'held'
@@ -357,14 +351,9 @@ jobs:
   ########################
   cross-compile:
     needs: ci-gate
-    # Run even if the gate job failed: without a status function a
-    # failed dependency skips this job, and a skipped required check
-    # counts as passed.
-    if: ${{ !cancelled() }}
-    env:
-      # Skipped for documentation-only changes, on draft PRs and when CI is
-      # held.
-      SKIP: ${{ needs.ci-gate.outputs.docs-only == 'true' || github.event.pull_request.draft == true || needs.ci-gate.outputs.tier == 'held' }}
+    # Skipped for documentation-only changes, on draft PRs and when CI is
+    # held.
+    if: ${{ !cancelled() && needs.ci-gate.outputs.docs-only != 'true' && github.event.pull_request.draft != true && needs.ci-gate.outputs.tier != 'held' }}
     name: Cross compilation
     runs-on: ubuntu-latest
     strategy:
@@ -377,21 +366,14 @@ jobs:
             sys: freebsd-386 linux-386 windows-386
           - name: amd64
             sys: darwin-amd64 freebsd-amd64 linux-amd64 netbsd-amd64 openbsd-amd64 windows-amd64
-    steps:
-      - name: Skip notice
-        if: env.SKIP == 'true'
-        run: echo "::notice::Job auto-passed (documentation-only change, draft PR or CI held)"
-
+    steps: &cross-compile-steps
       - name: Git checkout
-        if: env.SKIP != 'true'
         uses: actions/checkout@v5
 
       - name: Clean up runner space
-        if: env.SKIP != 'true'
         uses: ./.github/actions/cleanup-space
 
       - name: Setup go ${{ env.GO_VERSION }}
-        if: env.SKIP != 'true'
         uses: ./.github/actions/setup-go
         with:
           go-version: '${{ env.GO_VERSION }}'
@@ -399,15 +381,14 @@ jobs:
           use-build-cache: 'no'
 
       - name: Build release for all architectures
-        if: env.SKIP != 'true'
         run: make release sys="${{ matrix.sys }}"
 
   ########################
   # cross compilation of the arm targets (merge and nightly tiers)
   ########################
   cross-compile-arm:
-    # Not a required check, so it can be skipped at the job level. It uses the
-    # same name as the cross-compile job so the check names don't change.
+    # Uses the same name and steps as the cross-compile job so the check
+    # names don't change.
     needs: ci-gate
     if: ${{ !cancelled() && (needs.ci-gate.outputs.tier == 'merge' || needs.ci-gate.outputs.tier == 'nightly') }}
     name: Cross compilation
@@ -417,38 +398,16 @@ jobs:
         include:
           - name: arm
             sys: darwin-arm64 freebsd-arm linux-armv6 linux-armv7 linux-arm64 windows-arm64
-    steps:
-      - name: Git checkout
-        uses: actions/checkout@v5
-
-      - name: Clean up runner space
-        uses: ./.github/actions/cleanup-space
-
-      - name: Setup go ${{ env.GO_VERSION }}
-        uses: ./.github/actions/setup-go
-        with:
-          go-version: '${{ env.GO_VERSION }}'
-          key-prefix: cross-compile
-          use-build-cache: 'no'
-
-      - name: Build release for all architectures
-        run: make release sys="${{ matrix.sys }}"
+    steps: *cross-compile-steps
 
   ########################
   # run unit tests
   ########################
   unit-test:
     needs: ci-gate
-    # Run even if the gate job failed: without a status function a
-    # failed dependency skips this job, and a skipped required check
-    # counts as passed.
-    if: ${{ !cancelled() }}
-    env:
-      # Skipped for documentation-only changes and when CI is held. The pr
-      # tier only runs the unit-cover and unit-module legs, the other legs are
-      # kept instantiated so that the required per-leg checks are reported
-      # (see the top of this file).
-      SKIP: ${{ needs.ci-gate.outputs.docs-only == 'true' || needs.ci-gate.outputs.tier == 'held' || (needs.ci-gate.outputs.tier == 'pr' && matrix.unit_type != 'unit-cover' && matrix.unit_type != 'unit-module') }}
+    # Skipped for documentation-only changes and when CI is held. Only runs
+    # the legs of the pr tier, the other legs are run by unit-test-merge.
+    if: ${{ !cancelled() && needs.ci-gate.outputs.docs-only != 'true' && needs.ci-gate.outputs.tier != 'held' }}
     name: Run unit tests
     runs-on: ubuntu-latest
     strategy:
@@ -457,6 +416,74 @@ jobs:
       matrix:
         unit_type:
           - unit-cover
+          - unit-module
+
+    steps: &unit-test-steps
+      - name: Git checkout
+        uses: actions/checkout@v5
+        with:
+          fetch-depth: 0
+
+      - name: Clean up runner space
+        uses: ./.github/actions/cleanup-space
+
+      - name: Fetch and rebase on ${{ github.base_ref }}
+        if: github.event_name == 'pull_request'
+        uses: ./.github/actions/rebase
+
+      - name: Git checkout fuzzing seeds
+        uses: actions/checkout@v5
+        with:
+          repository: lightninglabs/lnd-fuzz
+          path: lnd-fuzz
+
+      - name: Rsync fuzzing seeds
+        run: rsync -a --ignore-existing lnd-fuzz/ ./
+
+      - name: Setup go ${{ env.GO_VERSION }}
+        uses: ./.github/actions/setup-go
+        with:
+          go-version: '${{ env.GO_VERSION }}'
+          key-prefix: unit-test
+
+      - name: Install bitcoind
+        run: ./scripts/install_bitcoind.sh $BITCOIN_VERSION
+
+      - name: Run ${{ matrix.unit_type }}
+        run: make ${{ matrix.unit_type }}
+
+      # Coverage is only reported by the nightly tier, which runs the complete
+      # set of coverage collecting jobs.
+      - name: Clean coverage
+        run: grep -Ev '(\.pb\.go|\.pb\.json\.go|\.pb\.gw\.go)' coverage.txt > coverage-norpc.txt
+        if: matrix.unit_type == 'unit-cover' && needs.ci-gate.outputs.tier == 'nightly'
+
+      - name: Send coverage
+        uses: coverallsapp/github-action@v2
+        if: matrix.unit_type == 'unit-cover' && needs.ci-gate.outputs.tier == 'nightly'
+        continue-on-error: true
+        with:
+          file: coverage-norpc.txt
+          flag-name: 'unit'
+          format: 'golang'
+          parallel: true
+
+  ########################
+  # run the remaining unit tests (merge and nightly tiers)
+  ########################
+  unit-test-merge:
+    # Uses the same name and steps as the unit-test job so the check names
+    # don't change. Documentation-only changes skip it when the full-ci label
+    # selects the merge tier on a pull request.
+    needs: ci-gate
+    if: ${{ !cancelled() && needs.ci-gate.outputs.docs-only != 'true' && (needs.ci-gate.outputs.tier == 'merge' || needs.ci-gate.outputs.tier == 'nightly') }}
+    name: Run unit tests
+    runs-on: ubuntu-latest
+    strategy:
+      # Allow other tests in the matrix to continue if one fails.
+      fail-fast: false
+      matrix:
+        unit_type:
           - unit tags="kvdb_etcd"
           - unit tags="kvdb_postgres"
           - unit tags="kvdb_sqlite"
@@ -465,83 +492,16 @@ jobs:
           - unit-race
           - unit-race tags="test_db_sqlite"
           - unit-race tags="test_db_postgres"
-          - unit-module
-
-    steps:
-      - name: Skip notice
-        if: env.SKIP == 'true'
-        run: echo "::notice::Job auto-passed (documentation-only change, CI held, or not part of the PR tier and runs in the merge queue)"
-
-      - name: Git checkout
-        if: env.SKIP != 'true'
-        uses: actions/checkout@v5
-        with:
-          fetch-depth: 0
-
-      - name: Clean up runner space
-        if: env.SKIP != 'true'
-        uses: ./.github/actions/cleanup-space
-
-      - name: Fetch and rebase on ${{ github.base_ref }}
-        if: env.SKIP != 'true' && github.event_name == 'pull_request'
-        uses: ./.github/actions/rebase
-
-      - name: Git checkout fuzzing seeds
-        if: env.SKIP != 'true'
-        uses: actions/checkout@v5
-        with:
-          repository: lightninglabs/lnd-fuzz
-          path: lnd-fuzz
-
-      - name: Rsync fuzzing seeds
-        if: env.SKIP != 'true'
-        run: rsync -a --ignore-existing lnd-fuzz/ ./
-
-      - name: Setup go ${{ env.GO_VERSION }}
-        if: env.SKIP != 'true'
-        uses: ./.github/actions/setup-go
-        with:
-          go-version: '${{ env.GO_VERSION }}'
-          key-prefix: unit-test
-
-      - name: Install bitcoind
-        if: env.SKIP != 'true'
-        run: ./scripts/install_bitcoind.sh $BITCOIN_VERSION
-
-      - name: Run ${{ matrix.unit_type }}
-        if: env.SKIP != 'true'
-        run: make ${{ matrix.unit_type }}
-
-      # Coverage is only reported by the nightly tier, which runs the complete
-      # set of coverage collecting jobs.
-      - name: Clean coverage
-        run: grep -Ev '(\.pb\.go|\.pb\.json\.go|\.pb\.gw\.go)' coverage.txt > coverage-norpc.txt
-        if: env.SKIP != 'true' && matrix.unit_type == 'unit-cover' && needs.ci-gate.outputs.tier == 'nightly'
-
-      - name: Send coverage
-        uses: coverallsapp/github-action@v2
-        if: env.SKIP != 'true' && matrix.unit_type == 'unit-cover' && needs.ci-gate.outputs.tier == 'nightly'
-        continue-on-error: true
-        with:
-          file: coverage-norpc.txt
-          flag-name: 'unit'
-          format: 'golang'
-          parallel: true
-
+    steps: *unit-test-steps
 
   ########################
-  # run integration tests with TRANCHES
+  # run integration tests with TRANCHES (merge and nightly tiers)
   ########################
   basic-integration-test:
-    # Required check of the merge tier. Kept instantiated in the pr and held
-    # tiers and for documentation-only changes so the per-leg checks are
-    # reported; the steps are skipped instead. Runs even if the gate job
-    # failed: without a status function a failed dependency skips this job,
-    # and a skipped required check counts as passed.
+    # Documentation-only changes skip it when the full-ci label selects the
+    # merge tier on a pull request.
     needs: ci-gate
-    if: ${{ !cancelled() }}
-    env:
-      SKIP: ${{ needs.ci-gate.outputs.docs-only == 'true' || needs.ci-gate.outputs.tier == 'pr' || needs.ci-gate.outputs.tier == 'held' }}
+    if: ${{ !cancelled() && needs.ci-gate.outputs.docs-only != 'true' && (needs.ci-gate.outputs.tier == 'merge' || needs.ci-gate.outputs.tier == 'nightly') }}
     name: Run basic itests
     runs-on: ubuntu-latest
     strategy:
@@ -560,18 +520,12 @@ jobs:
           - name: neutrino
             args: backend=neutrino cover=1
     steps:
-      - name: Skip notice
-        if: env.SKIP == 'true'
-        run: echo "::notice::Job auto-passed (documentation-only change, CI held, or not part of the PR tier and runs in the merge queue)"
-
       - name: Git checkout
-        if: env.SKIP != 'true'
         uses: actions/checkout@v5
         with:
           fetch-depth: 0
 
       - name: Check for no-itest label
-        if: env.SKIP != 'true'
         id: check-label
         uses: ./.github/actions/check-label
         with:
@@ -579,37 +533,36 @@ jobs:
           skip-message: "Tests auto-passed due to 'no-itest' label"
 
       - name: Clean up runner space
-        if: steps.check-label.outputs.skip != 'true' && env.SKIP != 'true'
+        if: steps.check-label.outputs.skip != 'true'
         uses: ./.github/actions/cleanup-space
 
       - name: Fetch and rebase on ${{ github.base_ref }}
-        if: github.event_name == 'pull_request' && steps.check-label.outputs.skip != 'true' && env.SKIP != 'true'
+        if: github.event_name == 'pull_request' && steps.check-label.outputs.skip != 'true'
         uses: ./.github/actions/rebase
 
       - name: Setup go ${{ env.GO_VERSION }}
-        if: steps.check-label.outputs.skip != 'true' && env.SKIP != 'true'
+        if: steps.check-label.outputs.skip != 'true'
         uses: ./.github/actions/setup-go
         with:
           go-version: '${{ env.GO_VERSION }}'
           key-prefix: integration-test
 
       - name: Install bitcoind
-        if: steps.check-label.outputs.skip != 'true' && env.SKIP != 'true'
+        if: steps.check-label.outputs.skip != 'true'
         run: ./scripts/install_bitcoind.sh $BITCOIN_VERSION
 
       - name: Run ${{ matrix.name }}
-        if: steps.check-label.outputs.skip != 'true' && env.SKIP != 'true'
+        if: steps.check-label.outputs.skip != 'true'
         run: make itest-parallel tranches=${{ env.TRANCHES }} ${{ matrix.args }} shuffleseed=${{ github.run_id }}${{ strategy.job-index }}
 
       # Coverage is only reported by the nightly tier. The cover=1 arguments
-      # are kept in the other tiers as they are part of the required check
-      # names.
+      # are kept in the merge tier as they are part of the check names.
       - name: Clean coverage
         run: grep -Ev '(\.pb\.go|\.pb\.json\.go|\.pb\.gw\.go)' coverage.txt > coverage-norpc.txt
-        if: ${{ contains(matrix.args, 'cover=1') && steps.check-label.outputs.skip != 'true' && env.SKIP != 'true' && needs.ci-gate.outputs.tier == 'nightly' }}
+        if: ${{ contains(matrix.args, 'cover=1') && steps.check-label.outputs.skip != 'true' && needs.ci-gate.outputs.tier == 'nightly' }}
 
       - name: Send coverage
-        if: ${{ contains(matrix.args, 'cover=1') && steps.check-label.outputs.skip != 'true' && env.SKIP != 'true' && needs.ci-gate.outputs.tier == 'nightly' }}
+        if: ${{ contains(matrix.args, 'cover=1') && steps.check-label.outputs.skip != 'true' && needs.ci-gate.outputs.tier == 'nightly' }}
         continue-on-error: true
         uses: coverallsapp/github-action@v2
         with:
@@ -619,13 +572,13 @@ jobs:
           parallel: true
 
       - name: Zip log files on failure
-        if: ${{ failure() && steps.check-label.outputs.skip != 'true' && env.SKIP != 'true' }}
+        if: ${{ failure() && steps.check-label.outputs.skip != 'true' }}
         timeout-minutes: 5 # timeout after 5 minute
         run: 7z a logs-itest-${{ matrix.name }}.zip itest/**/*.log itest/postgres.log
 
       - name: Upload log files on failure
         uses: actions/upload-artifact@v4
-        if: ${{ failure() && steps.check-label.outputs.skip != 'true' && env.SKIP != 'true' }}
+        if: ${{ failure() && steps.check-label.outputs.skip != 'true' }}
         with:
           name: logs-itest-${{ matrix.name }}
           path: logs-itest-${{ matrix.name }}.zip
@@ -636,9 +589,8 @@ jobs:
   ########################
   integration-test:
     name: Run itests
-    # Not a required check, so it can be skipped at the job level. The legs
-    # gate the merge queue through the CI result job. The remaining database
-    # variants only run in the nightly tier, see integration-test-nightly.
+    # The remaining database variants only run in the nightly tier, see
+    # integration-test-nightly.
     needs: ci-gate
     if: ${{ !cancelled() && (needs.ci-gate.outputs.tier == 'merge' || needs.ci-gate.outputs.tier == 'nightly') }}
     runs-on: ubuntu-latest
@@ -734,8 +686,7 @@ jobs:
   ########################
   windows-integration-test:
     name: Run windows itest
-    # Not a required check, so it can be skipped at the job level. Only runs
-    # in the nightly tier.
+    # Only runs in the nightly tier.
     needs: ci-gate
     if: ${{ !cancelled() && needs.ci-gate.outputs.tier == 'nightly' }}
     runs-on: windows-latest
@@ -790,8 +741,7 @@ jobs:
   ########################
   macos-integration-test:
     name: Run macOS itest
-    # Not a required check, so it can be skipped at the job level. Only runs
-    # in the nightly tier.
+    # Only runs in the nightly tier.
     needs: ci-gate
     if: ${{ !cancelled() && needs.ci-gate.outputs.tier == 'nightly' }}
     runs-on: macos-14
@@ -841,13 +791,8 @@ jobs:
   ########################
   dep-pin:
     needs: ci-gate
-    # Run even if the gate job failed: without a status function a
-    # failed dependency skips this job, and a skipped required check
-    # counts as passed.
-    if: ${{ !cancelled() }}
-    env:
-      # Skipped for documentation-only changes.
-      SKIP: ${{ needs.ci-gate.outputs.docs-only == 'true' || needs.ci-gate.outputs.tier == 'held' }}
+    # Skipped for documentation-only changes and when CI is held.
+    if: ${{ !cancelled() && needs.ci-gate.outputs.docs-only != 'true' && needs.ci-gate.outputs.tier != 'held' }}
     name: Check pinned dependencies
     runs-on: ubuntu-latest
     strategy:
@@ -859,20 +804,13 @@ jobs:
           - github.com/golang/protobuf v1.5.4
 
     steps:
-      - name: Skip notice
-        if: env.SKIP == 'true'
-        run: echo "::notice::Job auto-passed (documentation-only change or CI held)"
-
       - name: Git checkout
-        if: env.SKIP != 'true'
         uses: actions/checkout@v5
 
       - name: Clean up runner space
-        if: env.SKIP != 'true'
         uses: ./.github/actions/cleanup-space
 
       - name: Ensure dependencies at correct version
-        if: env.SKIP != 'true'
         run: if ! grep -q "${{ matrix.pinned_dep }}" go.mod; then echo dependency ${{ matrix.pinned_dep }} should not be altered ; exit 1 ; fi
 
   ########################
@@ -937,8 +875,6 @@ jobs:
   ########################
   backwards-compatibility-test:
     name: Backwards compatibility test
-    # Not a required check, so it can be skipped at the job level. Gates the
-    # merge queue through the CI result job.
     needs: ci-gate
     if: ${{ !cancelled() && (needs.ci-gate.outputs.tier == 'merge' || needs.ci-gate.outputs.tier == 'nightly') }}
     runs-on: ubuntu-latest
@@ -1040,6 +976,7 @@ jobs:
       - cross-compile
       - cross-compile-arm
       - unit-test
+      - unit-test-merge
       - basic-integration-test
       - integration-test
       - integration-test-nightly
@@ -1054,14 +991,20 @@ jobs:
     steps:
       # Every job must have succeeded or have been skipped. Skipping is only
       # allowed for the jobs that aren't listed for the selected tier, so
-      # that a job that was skipped by mistake can never let the merge queue
-      # pass. In the pr tier the static checks and lint may be skipped for
-      # documentation-only changes. A held run always fails, so that a PR
-      # whose CI never ran can't enter the merge queue.
+      # that a job that was skipped by mistake can never let a tier pass.
+      # Since this is the only required check, a job that gates a tier must
+      # be both in the needs above and in the list of that tier. On pull
+      # requests, documentation-only changes skip the jobs listed in
+      # docs_only_jobs and draft PRs skip the cross compilation; merge group
+      # and nightly runs never skip them. A held run always fails, so that a
+      # PR whose CI never ran can't enter the merge queue.
       - name: Check job results
         env:
           NEEDS: ${{ toJSON(needs) }}
           TIER: ${{ needs.ci-gate.outputs.tier }}
+          EVENT_NAME: ${{ github.event_name }}
+          DOCS_ONLY: ${{ needs.ci-gate.outputs.docs-only }}
+          DRAFT: ${{ github.event.pull_request.draft }}
         run: |
           if [[ "$TIER" == "held" ]]; then
             msg="CI is held, remove the ci-hold label to run it"
@@ -1070,17 +1013,18 @@ jobs:
             exit 1
           fi
 
-          pr_jobs="ci-gate check-commits cross-compile unit-test
-            basic-integration-test dep-pin milestone-check
-            release-notes-consistency"
+          pr_jobs="ci-gate static-checks lint cross-compile unit-test dep-pin
+            milestone-check release-notes-consistency"
           merge_jobs="ci-gate static-checks lint cross-compile cross-compile-arm
-            unit-test basic-integration-test integration-test dep-pin
-            milestone-check release-notes-consistency
+            unit-test unit-test-merge basic-integration-test integration-test
+            dep-pin milestone-check release-notes-consistency
             backwards-compatibility-test"
           nightly_jobs="ci-gate static-checks lint cross-compile
-            cross-compile-arm unit-test basic-integration-test integration-test
-            integration-test-nightly windows-integration-test
+            cross-compile-arm unit-test unit-test-merge basic-integration-test
+            integration-test integration-test-nightly windows-integration-test
             macos-integration-test dep-pin backwards-compatibility-test"
+          docs_only_jobs="static-checks lint cross-compile unit-test
+            unit-test-merge basic-integration-test dep-pin"
 
           case "$TIER" in
             pr) must_succeed=$pr_jobs ;;
@@ -1089,10 +1033,24 @@ jobs:
             *) echo "::error::Unknown tier '${TIER}'"; exit 1 ;;
           esac
 
-          # Pad the list with spaces to match whole job names only.
-          must_succeed=" $(echo $must_succeed) "
+          # Check commits runs for every pull request, also when the full-ci
+          # label selects the merge tier, but never in the merge queue.
+          may_skip=""
+          if [[ "$EVENT_NAME" == "pull_request" ]]; then
+            must_succeed="${must_succeed} check-commits"
+            if [[ "$DOCS_ONLY" == "true" ]]; then
+              may_skip="${may_skip} ${docs_only_jobs}"
+            fi
+            if [[ "$DRAFT" == "true" ]]; then
+              may_skip="${may_skip} cross-compile"
+            fi
+          fi
 
-          echo "Tier: ${TIER}"
+          # Pad the lists with spaces to match whole job names only.
+          must_succeed=" $(echo $must_succeed) "
+          may_skip=" $(echo $may_skip) "
+
+          echo "Tier: ${TIER} (docs-only: ${DOCS_ONLY:-n/a}, draft: ${DRAFT:-n/a})"
           failed=0
           for job in $(jq -r 'keys[]' <<< "$NEEDS"); do
             result=$(jq -r --arg j "$job" '.[$j].result' <<< "$NEEDS")
@@ -1100,7 +1058,9 @@ jobs:
             if [[ "$result" == "success" ]]; then
               continue
             fi
-            if [[ "$result" == "skipped" && "$must_succeed" != *" ${job} "* ]]; then
+            if [[ "$result" == "skipped" && ( "$must_succeed" != *" ${job} "* ||
+              "$may_skip" == *" ${job} "* ) ]]; then
+
               continue
             fi
             echo "::error::Job ${job} finished with result ${result}"

@@ -78,13 +78,14 @@ endif
 #   avoiding slow host-syncing overhead).
 # Paths inside container must match GOCACHE/GOMODCACHE in tools/Dockerfile.
 ifdef CI
-# Read the custom linter build cache from GitHub Actions' cache store. Only
-# the nightly run writes it (LINT_WRITE_CACHE=1), so per-PR builds don't
-# evict the shared Go caches. The cache scopes are set in the lint job.
-DOCKER_BUILD_ARGS = --load --cache-from type=gha
-ifdef LINT_WRITE_CACHE
-DOCKER_BUILD_ARGS += --cache-to type=gha,mode=max
-endif
+# In CI, build the tools image through BuildKit with the GitHub Actions
+# cache backend, so the expensive layer that compiles the custom linter
+# is restored from the cache store instead of being rebuilt on every
+# cold runner. The runner exposes the required credentials; see the lint
+# job in .github/workflows/main.yml. Local builds (no CI) keep the
+# default local layer cache and don't need the flags.
+export DOCKER_BUILD_ARGS = --load --cache-from type=gha \
+	--cache-to type=gha,mode=min
 # CI mode: bind mount to host paths that GitHub Actions caches.
 DOCKER_TOOLS_BASE = docker run \
   --rm \

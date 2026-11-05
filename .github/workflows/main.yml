@@ -49,15 +49,6 @@ on:
         type: string
         required: true
 
-  # Used by nightly.yml to run the nightly tier, which is also the only run
-  # that writes the shared lint caches (see the lint job).
-  workflow_call:
-    inputs:
-      tier:
-        description: "The tier to run, only nightly is supported"
-        required: true
-        type: string
-
 permissions:
   # Required to manage and delete caches.
   actions: write
@@ -364,12 +355,6 @@ jobs:
         uses: docker/setup-buildx-action@v3
 
       - name: lint
-        env:
-          # Cache exports are reserved for the nightly master run, which is
-          # reachable here as the workflow_call input. PR caches aren't
-          # readable by other PRs, and exporting on every push would churn
-          # the shared cache store for no reuse benefit.
-          LINT_WRITE_CACHE: ${{ inputs.tier == 'nightly' && '1' || '' }}
         run: GOGC=50 make lint
 
       - name: lint submodules

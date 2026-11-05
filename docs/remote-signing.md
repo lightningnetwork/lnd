@@ -281,6 +281,15 @@ wallet with a connected watch-only wallet. After this setup, the signer and
 watch-only node can be started as usual, provided the configuration from these
 steps remains in place.
 
+Note: The outbound signer node needs the `signrpc` and `walletrpc` sub-servers
+to service signing requests from the watch-only node. The official release
+binaries include them. If you build `lnd` from source, make sure `signrpc` and
+`walletrpc` are part of the build tags you pass, alongside any other tags your
+setup needs, for example `make install tags="signrpc walletrpc <other tags>"`.
+See the [installation guide](INSTALL.md) for the full list of tags. A signer
+node built without them exits with an error naming the missing tags once its
+wallet has been unlocked.
+
 #### Step 1: export the `xpub`s of the outbound signer node's wallet
 
 When starting the signer node to export the `xpub`s of the wallet, these entries

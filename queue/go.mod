@@ -1,6 +1,6 @@
 module github.com/lightningnetwork/lnd/queue
 
-go 1.26.10
+go 1.27.3
 
 require (
 	github.com/lightningnetwork/lnd/fn/v2 v2.0.8

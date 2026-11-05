@@ -9,6 +9,7 @@
    1. [Development Guidelines](#development-guidelines)
 7. [Code Approval Process](#code-approval-process)
    1. [Code Review](#code-review)
+   1. [Continuous Integration](#continuous-integration)
    1. [Rework Code (if needed)](#rework-code-if-needed)
    1. [Acceptance](#acceptance)
    1. [Backporting Changes](#backporting-changes)
@@ -209,6 +210,22 @@ other checks which are generally performed as follows:
   overall architecture
 - The change is not something which is deemed inappropriate by community
   consensus
+
+## Continuous Integration
+
+CI does not run automatically on a new pull request. When a pull request is
+opened it gets the `ci-hold` label, and while the label is present the CI
+workflow skips all of its jobs and the `CI result` check fails with "CI is
+held". This keeps the CI runners free for pull requests that are ready to be
+tested. Once a maintainer has taken a first look at the pull request they
+remove the label, which starts CI for the latest commit of the pull request.
+New commits pushed while the label is present are held as well. Maintainers can
+remove the label from their own pull requests right away.
+
+Once CI runs, pull requests only run the fast checks (linting, static checks,
+the commit checks, the cross compilation and part of the unit tests). The full
+unit test matrix and the integration tests run in the merge queue. A maintainer
+can add the `full-ci` label to run the merge queue checks on a pull request.
 
 ## Rework Code (if needed)
 

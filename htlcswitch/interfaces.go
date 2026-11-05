@@ -162,16 +162,19 @@ type ChannelUpdateHandler interface {
 	IsFlushing(direction LinkDirection) bool
 
 	// OnFlushedOnce adds a hook that will be called the next time the
-	// channel state reaches zero htlcs. This hook will only ever be called
-	// once. If the channel state already has zero htlcs, then this will be
-	// called immediately.
-	OnFlushedOnce(func())
+	// channel state reaches zero htlcs. This hook will only ever be
+	// called once. If the channel state already has zero htlcs, then
+	// this will be called immediately. The registration fails if the
+	// link or caller stops before the link accepts it.
+	OnFlushedOnce(context.Context, func()) error
 
 	// OnCommitOnce adds a hook that will be called the next time a
 	// CommitSig message is sent in the argument's LinkDirection. This hook
 	// will only ever be called once. If no CommitSig is owed in the
 	// argument's LinkDirection, then we will call this hook immediately.
-	OnCommitOnce(LinkDirection, func())
+	// The registration fails if the link or caller stops before the link
+	// accepts it.
+	OnCommitOnce(context.Context, LinkDirection, func()) error
 
 	// InitStfu allows us to initiate quiescence on this link. It returns
 	// a receive only channel that will block until quiescence has been

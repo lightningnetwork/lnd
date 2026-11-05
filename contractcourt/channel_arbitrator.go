@@ -14,6 +14,7 @@ import (
 	"github.com/btcsuite/btcd/chaincfg/chainhash"
 	"github.com/btcsuite/btcd/txscript"
 	"github.com/btcsuite/btcd/wire"
+	"github.com/btcsuite/btcwallet/chain"
 	"github.com/lightningnetwork/lnd/chainio"
 	"github.com/lightningnetwork/lnd/channeldb"
 	"github.com/lightningnetwork/lnd/fn/v2"
@@ -1167,9 +1168,12 @@ func (c *ChannelArbitrator) stateStep(
 			// commitment transaction has too low fees to make it
 			// into mempool. The rebroadcaster makes sure this
 			// transaction is republished regularly until confirmed
-			// or replaced.
+			// or replaced. A rejected replacement means another
+			// commitment is already in the mempool, so we still
+			// move on and offer its anchor for CPFP.
 			if !errors.Is(err, lnwallet.ErrDoubleSpend) &&
-				!errors.Is(err, lnwallet.ErrMempoolFee) {
+				!errors.Is(err, lnwallet.ErrMempoolFee) &&
+				!errors.Is(err, chain.ErrInsufficientFee) {
 
 				return StateError, closeTx, err
 			}

@@ -672,6 +672,12 @@ func TestRejectedCribTransaction(t *testing.T) {
 			broadcastErr: lnwallet.ErrMempoolFee,
 		},
 		{
+			name: "wrapped mempool fee rejection",
+			broadcastErr: fmt.Errorf(
+				"publish: %w", lnwallet.ErrMempoolFee,
+			),
+		},
+		{
 			// We map a rejected rbf transaction to ErrDoubleSpend
 			// in lnd.
 			name: "Crib tx is rejected because of a " +

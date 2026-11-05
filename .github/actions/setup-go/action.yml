@@ -88,3 +88,14 @@ runs:
       shell: bash
       run: |
         echo "GOPATH=$(go env GOPATH)" >> $GITHUB_ENV
+
+    # Go puts its temporary build directory ($WORK) under /tmp by default. On
+    # the ubuntu-26.04 runner image /tmp is a RAM backed tmpfs of only a few
+    # GB, which large builds (e.g. linking every unit test binary) exhaust
+    # with "disk quota exceeded". RUNNER_TEMP is on the runner's disk and is
+    # cleaned after every job.
+    - name: set GOTMPDIR
+      shell: bash
+      run: |
+        mkdir -p "$RUNNER_TEMP/go-tmp"
+        echo "GOTMPDIR=$RUNNER_TEMP/go-tmp" >> $GITHUB_ENV

@@ -25,3 +25,57 @@ jobs:
     uses: ./.github/workflows/main.yml
     with:
       tier: nightly
+
+  # Scheduled runs notify only the user who last changed the schedule, so
+  # failures are tracked in an issue instead. A failing run opens an issue
+  # labeled nightly-failure, or comments on the open one, and the next passing
+  # run closes it. Manually dispatched runs are left alone, they are usually
+  # started to test something.
+  report:
+    name: Report nightly result
+    needs: ci
+    if: ${{ !cancelled() && github.event_name == 'schedule' && github.repository == 'lightningnetwork/lnd' }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    permissions:
+      # Required to list the failed jobs of the run.
+      actions: read
+      # Required to open, comment on and close the tracking issue.
+      issues: write
+    steps:
+      - name: Open, update or close the tracking issue
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+          RESULT: ${{ needs.ci.result }}
+          RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+          LABEL: nightly-failure
+        run: |
+          issue=$(gh issue list --label "$LABEL" --state open --limit 1 \
+            --json number --jq '.[0].number // empty')
+
+          if [[ "$RESULT" == "success" ]]; then
+            if [[ -n "$issue" ]]; then
+              gh issue close "$issue" --comment \
+                "The [nightly run](${RUN_URL}) passed again on ${GITHUB_SHA:0:12}."
+            fi
+            exit 0
+          fi
+
+          failed=$(gh api --paginate \
+            "repos/${GH_REPO}/actions/runs/${GITHUB_RUN_ID}/jobs?per_page=100" \
+            --jq '.jobs[] | select(.conclusion == "failure" or
+              .conclusion == "timed_out") | "- [\(.name)](\(.html_url))"') ||
+            failed="(failed to list the jobs)"
+          body=$(printf '%s\n\n%s\n\n%s\n' \
+            "The [nightly run](${RUN_URL}) on ${GITHUB_SHA:0:12} finished with result \`${RESULT}\`." \
+            "Failed jobs:" "${failed:-(none reported)}")
+
+          if [[ -n "$issue" ]]; then
+            gh issue comment "$issue" --body "$body"
+          else
+            gh label create "$LABEL" --color b60205 --force \
+              --description "Tracks a failing nightly CI run"
+            gh issue create --title "Nightly CI failure" --label "$LABEL" \
+              --body "$body"
+          fi

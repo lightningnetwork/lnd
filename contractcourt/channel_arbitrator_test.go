@@ -13,6 +13,7 @@ import (
 	"github.com/btcsuite/btcd/btcutil"
 	"github.com/btcsuite/btcd/chaincfg/chainhash"
 	"github.com/btcsuite/btcd/wire"
+	"github.com/btcsuite/btcwallet/chain"
 	"github.com/davecgh/go-spew/spew"
 	"github.com/lightningnetwork/lnd/chainio"
 	"github.com/lightningnetwork/lnd/chainntnfs"
@@ -3604,11 +3605,18 @@ func TestChannelArbitratorStartForceCloseFail(t *testing.T) {
 			expectedStartup: true,
 		},
 		{
-			// We map a rejected rbf transaction to ErrDoubleSpend
-			// in lnd.
-			name: "Commitment is rejected because of a " +
-				"rbf transaction not succeeding",
+			name: "Commitment is rejected because it is " +
+				"already spent",
 			broadcastErr:    lnwallet.ErrDoubleSpend,
+			expectedState:   StateCommitmentBroadcasted,
+			expectedStartup: true,
+		},
+		{
+			// The wallet returns ErrInsufficientFee when another
+			// commitment is already in the mempool.
+			name: "Commitment replacement pays " +
+				"insufficient fee",
+			broadcastErr:    chain.ErrInsufficientFee,
 			expectedState:   StateCommitmentBroadcasted,
 			expectedStartup: true,
 		},

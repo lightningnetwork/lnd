@@ -7802,6 +7802,25 @@ func TestLinkFlushApiGateStateIdempotence(t *testing.T) {
 	}
 }
 
+// TestHookRegistrationAfterManagerExit verifies that hook registration fails
+// once the only goroutine that can accept the hook has exited.
+func TestHookRegistrationAfterManagerExit(t *testing.T) {
+	link := &channelLink{
+		flushHooks:          newHookMap(),
+		outgoingCommitHooks: newHookMap(),
+		incomingCommitHooks: newHookMap(),
+		htlcManagerDone:     make(chan struct{}),
+		cg:                  fn.NewContextGuard(),
+	}
+	close(link.htlcManagerDone)
+
+	err := link.OnFlushedOnce(t.Context(), func() {})
+	require.ErrorIs(t, err, ErrLinkShuttingDown)
+
+	err = link.OnCommitOnce(t.Context(), Outgoing, func() {})
+	require.ErrorIs(t, err, ErrLinkShuttingDown)
+}
+
 func TestLinkOutgoingCommitHooksCalled(t *testing.T) {
 	harness, err :=
 		newSingleLinkTestHarness(
@@ -7835,9 +7854,12 @@ func TestLinkOutgoingCommitHooksCalled(t *testing.T) {
 	ctx.sendHtlcAliceToBob(0, htlc)
 	ctx.receiveHtlcAliceToBob()
 
-	harness.aliceLink.OnCommitOnce(Outgoing, func() {
-		close(hookCalled)
-	})
+	err = harness.aliceLink.OnCommitOnce(
+		t.Context(), Outgoing, func() {
+			close(hookCalled)
+		},
+	)
+	require.NoError(t, err)
 
 	select {
 	case <-hookCalled:
@@ -7906,10 +7928,11 @@ func TestLinkFlushHooksCalled(t *testing.T) {
 	// A -- rev -> B
 	ctx.receiveRevAndAckAliceToBob()
 
-	// Register flush hook
-	harness.aliceLink.OnFlushedOnce(func() {
+	// Register flush hook.
+	err = harness.aliceLink.OnFlushedOnce(t.Context(), func() {
 		close(hookCalled)
 	})
+	require.NoError(t, err)
 
 	// Channel is not clean, hook should not be called
 	assertHookCalled(false)

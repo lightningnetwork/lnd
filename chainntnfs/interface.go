@@ -844,17 +844,17 @@ type SpendHintCache interface {
 // the chain at which a transaction matching the request could have been
 // included in a block.
 type ConfirmHintCache interface {
-	// CommitConfirmHint commits a confirm hint for the confirmation requests
-	// to the cache.
+	// CommitConfirmHint commits a confirm hint for the confirmation
+	// requests to the cache.
 	CommitConfirmHint(height uint32, confRequests ...ConfRequest) error
 
 	// QueryConfirmHint returns the latest confirm hint for a confirmation
-	// request. ErrConfirmHintNotFound is returned if a confirm hint does not
-	// exist within the cache for the request.
+	// request. ErrConfirmHintNotFound is returned if a confirm hint does
+	// not exist within the cache for the request.
 	QueryConfirmHint(confRequest ConfRequest) (uint32, error)
 
-	// PurgeConfirmHint removes the confirm hints for the confirmation requests
-	// from the cache.
+	// PurgeConfirmHint removes the confirm hints for the confirmation
+	// requests from the cache.
 	PurgeConfirmHint(confRequests ...ConfRequest) error
 }
 

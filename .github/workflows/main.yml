@@ -340,7 +340,27 @@ jobs:
           # Use the same cache from unit test job to save time.
           key-prefix: unit-test
 
+      # The lint targets build a Docker image that compiles the custom
+      # golangci-lint binary from source, which takes several minutes on a
+      # cold runner. Set up BuildKit with the GitHub Actions cache backend
+      # so the image layers (and with them the compiled binary) can be
+      # reused across runs whenever the tools/ inputs are unchanged. The
+      # ghaction-github-runtime step exposes the GitHub cache credentials
+      # to plain run: steps; without it the gha cache backend in a
+      # manually invoked docker build has no way to reach the cache store.
+      - name: Expose GitHub runtime credentials for BuildKit
+        # crazy-max/ghaction-github-runtime v3
+        uses: crazy-max/ghaction-github-runtime@3cb05d89e1f492524af3d41a1c98c83bc3025124
+
+      - name: Set up Docker Buildx
+        # docker/setup-buildx-action v3
+        uses: docker/setup-buildx-action@8d2750c68a42422c14e847fe6c8ac0403b4cbd6f
+
       - name: lint
+        env:
+          # Only the nightly run writes the linter image cache, see the
+          # Makefile's docker-tools target for why.
+          LINT_WRITE_CACHE: ${{ inputs.tier == 'nightly' && '1' || '' }}
         run: GOGC=50 make lint
 
       - name: lint submodules

@@ -3694,6 +3694,83 @@ out:
 	}
 }
 
+func TestPeerAliasCollisionValidation(t *testing.T) {
+	t.Parallel()
+
+	ctx, err := createTestCtx(t, 0, false)
+	require.NoError(t, err)
+	ctx.gossiper.cfg.AssumeChannelValid = true
+
+	chanAnn, err := ctx.createChannelAnnouncement(
+		100, selfKeyPriv, remoteKeyPriv1,
+		withFundingTxPrep(fundingTxPrepTypeNone),
+	)
+	require.NoError(t, err)
+	channelUpdate, err := createUpdateAnnouncement(
+		100, 0, selfKeyPriv, testTimestamp,
+	)
+	require.NoError(t, err)
+
+	channelPoint := wire.OutPoint{Index: 1}
+	alias := lnwire.ShortChannelID{BlockHeight: 200}
+	collisionErr := errors.New("peer alias collides with another channel")
+
+	sendLocalMsg(t, ctx, chanAnn, ChannelPoint(channelPoint))
+
+	var validationCalls int
+	var validatedPoint wire.OutPoint
+	var validatedAlias lnwire.ShortChannelID
+	ctx.gossiper.cfg.ValidatePeerAlias = func(
+		gotPoint wire.OutPoint, gotAlias lnwire.ShortChannelID) error {
+
+		validationCalls++
+		validatedPoint = gotPoint
+		validatedAlias = gotAlias
+
+		return collisionErr
+	}
+
+	originalSignAliasUpdate := ctx.gossiper.cfg.SignAliasUpdate
+	var signCalls int
+	ctx.gossiper.cfg.SignAliasUpdate = func(
+		update *lnwire.ChannelUpdate1) (*ecdsa.Signature, error) {
+
+		signCalls++
+		return originalSignAliasUpdate(update)
+	}
+
+	err = mustProcess(t, ctx.gossiper.ProcessLocalAnnouncement(
+		channelUpdate, RemoteAlias(&alias),
+	))
+	require.ErrorIs(t, err, collisionErr)
+	require.Equal(t, 1, validationCalls)
+	require.Equal(t, channelPoint, validatedPoint)
+	require.Equal(t, alias, validatedAlias)
+	require.Zero(t, signCalls)
+
+	ctx.gossiper.cfg.GetAlias = func(lnwire.ChannelID) (
+		lnwire.ShortChannelID, error) {
+
+		return alias, nil
+	}
+
+	info, edge1, _, err := ctx.router.GetChannelByID(
+		chanAnn.ShortChannelID,
+	)
+	require.NoError(t, err)
+	require.NotNil(t, edge1)
+
+	updates, err := ctx.gossiper.processChanPolicyUpdate(
+		t.Context(), []EdgeWithInfo{{Info: info, Edge: edge1}},
+	)
+	require.NoError(t, err)
+	require.Empty(t, updates)
+	require.Equal(t, 2, validationCalls)
+	require.Equal(t, channelPoint, validatedPoint)
+	require.Equal(t, alias, validatedAlias)
+	require.Zero(t, signCalls)
+}
+
 // TestProcessChannelAnnouncementOptionalMsgFields ensures that the gossiper can
 // properly handled optional message fields provided by the caller when
 // processing a channel announcement.

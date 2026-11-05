@@ -1,0 +1,180 @@
+name: CI hold
+
+# New pull requests are held: this workflow adds the ci-hold label when a PR is
+# opened, and the CI gate of main.yml selects the held tier while the label is
+# present, so that CI doesn't occupy any runners until a maintainer has looked
+# at the PR.
+#
+# Removing the label re-runs the PR's latest CI run for its current head
+# commit. The CI gate reads the labels from the API, so the re-run sees that
+# the label is gone, and its results are reported on the PR like those of the
+# original run. Adding the full-ci label to a PR that isn't held re-runs CI the
+# same way to run the merge tier.
+#
+# main.yml doesn't listen to labeled and unlabeled events itself: the event
+# can't be filtered by label name, so every unrelated label change would start
+# a new run that cancels the one in progress.
+#
+# pull_request_target runs this file from the default branch in the context of
+# the base repository, so the token can label PRs and re-run workflows for PRs
+# opened from forks too. No PR code is checked out or executed here. Label
+# changes made with the GITHUB_TOKEN, like the one of the hold job, don't
+# trigger workflows, so this workflow never triggers itself.
+on:
+  pull_request_target:
+    types: [opened, labeled, unlabeled]
+
+permissions: {}
+
+concurrency:
+  # Handle the events of a PR one after the other.
+  group: ci-hold-${{ github.event.pull_request.number }}
+  cancel-in-progress: false
+
+defaults:
+  run:
+    shell: bash
+
+env:
+  HOLD_LABEL: ci-hold
+
+jobs:
+  hold:
+    name: Hold CI
+    if: github.event.action == 'opened'
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    permissions:
+      # Required to add the label.
+      pull-requests: write
+    steps:
+      - name: Add the ci-hold label
+        env:
+          GH_TOKEN: ${{ github.token }}
+          PR_NUMBER: ${{ github.event.pull_request.number }}
+        run: |
+          gh api --silent -X POST \
+            "repos/${GITHUB_REPOSITORY}/issues/${PR_NUMBER}/labels" \
+            -f "labels[]=${HOLD_LABEL}"
+
+          msg="CI is held, remove the ${HOLD_LABEL} label to run it"
+          echo "::notice::${msg}"
+          echo "${msg}" >> "$GITHUB_STEP_SUMMARY"
+
+  run-ci:
+    name: Run held CI
+    if: >-
+      (github.event.action == 'unlabeled' &&
+      github.event.label.name == 'ci-hold') ||
+      (github.event.action == 'labeled' &&
+      github.event.label.name == 'full-ci' &&
+      !contains(github.event.pull_request.labels.*.name, 'ci-hold'))
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    permissions:
+      # Required to list, cancel and re-run workflow runs.
+      actions: write
+      # Required to read the current state of the PR.
+      pull-requests: read
+    steps:
+      - name: Re-run CI for the current head commit
+        env:
+          GH_TOKEN: ${{ github.token }}
+          PR_NUMBER: ${{ github.event.pull_request.number }}
+          # Seconds to wait for a cancelled run to finish.
+          CANCEL_TIMEOUT: 300
+        run: |
+          # The event payload may be outdated by now, read the current state
+          # of the PR.
+          pr=$(gh api "repos/${GITHUB_REPOSITORY}/pulls/${PR_NUMBER}")
+          state=$(jq -r '.state' <<< "$pr")
+          head_sha=$(jq -r '.head.sha // ""' <<< "$pr")
+
+          if [[ "$state" != "open" ]]; then
+            echo "PR #${PR_NUMBER} is ${state}, nothing to do"
+            exit 0
+          fi
+          if jq -e --arg l "$HOLD_LABEL" '[.labels[].name] | index($l) != null' \
+            <<< "$pr" > /dev/null; then
+
+            echo "PR #${PR_NUMBER} is held again, nothing to do"
+            exit 0
+          fi
+
+          # Without a head SHA the query would match every PR run in the
+          # repository, so never proceed with an empty one.
+          if [[ -z "$head_sha" ]]; then
+            echo "::error::Could not read the head commit of PR #${PR_NUMBER}"
+            exit 1
+          fi
+
+          # The latest run for the current head commit. Older head commits
+          # don't matter: every push starts a new run, which reads the labels
+          # itself. Runs that the API associates only with a different PR
+          # (same head commit opened against another base) are left alone;
+          # runs of PRs from forks carry no association at all.
+          run=$(gh api \
+            "repos/${GITHUB_REPOSITORY}/actions/workflows/main.yml/runs?event=pull_request&head_sha=${head_sha}&per_page=100" \
+            --jq '[.workflow_runs[]
+              | select((.pull_requests | length) == 0
+                or any(.pull_requests[]; .number == (env.PR_NUMBER | tonumber)))]
+              | sort_by(.created_at) | last // empty
+              | [.id, .status, (.conclusion // "none")] | @tsv')
+
+          if [[ -z "$run" ]]; then
+            echo "::notice::No CI run found for ${head_sha}, the next push will run CI"
+            exit 0
+          fi
+
+          IFS=$'\t' read -r run_id status conclusion <<< "$run"
+          echo "Latest CI run for ${head_sha}: ${run_id} (${status}, ${conclusion})"
+
+          # Runs of first-time contributors wait for a maintainer's approval.
+          # Once approved, the run reads the labels itself.
+          if [[ "$status" == "action_required" || \
+            "$conclusion" == "action_required" ]]; then
+
+            echo "::notice::CI run ${run_id} is waiting for approval, approve it to run CI"
+            exit 0
+          fi
+
+          if [[ "$status" != "completed" ]]; then
+            # A run whose gate job hasn't started yet reads the labels when
+            # it does, so it can be left alone. Otherwise the gate may have
+            # seen the old labels already, so the run has to be replaced.
+            gate=$(gh api \
+              "repos/${GITHUB_REPOSITORY}/actions/runs/${run_id}/jobs?filter=latest&per_page=100" \
+              --jq '[.jobs[] | select(.name == "CI gate") | .status] | first // "none"') ||
+              gate="unknown"
+            echo "CI gate job: ${gate}"
+            case "$gate" in
+              queued|waiting|pending|requested)
+                echo "::notice::CI run ${run_id} hasn't selected its tier yet, it will pick up the labels"
+                exit 0
+                ;;
+            esac
+
+            echo "Cancelling CI run ${run_id}"
+            gh api --silent -X POST \
+              "repos/${GITHUB_REPOSITORY}/actions/runs/${run_id}/cancel" ||
+              echo "::warning::Failed to cancel run ${run_id}, it may have finished already"
+
+            deadline=$((SECONDS + CANCEL_TIMEOUT))
+            until [[ "$(gh api "repos/${GITHUB_REPOSITORY}/actions/runs/${run_id}" \
+              --jq '.status')" == "completed" ]]; do
+
+              if (( SECONDS >= deadline )); then
+                echo "::error::CI run ${run_id} didn't finish within ${CANCEL_TIMEOUT}s, re-run it manually"
+                exit 1
+              fi
+              sleep 10
+            done
+          fi
+
+          echo "Re-running CI run ${run_id}"
+          gh api --silent -X POST \
+            "repos/${GITHUB_REPOSITORY}/actions/runs/${run_id}/rerun"
+
+          msg="Re-running CI run ${run_id} for ${head_sha}"
+          echo "::notice::${msg}"
+          echo "${msg}" >> "$GITHUB_STEP_SUMMARY"

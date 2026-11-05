@@ -14,6 +14,12 @@ name: CI
 #   nightly: Scheduled and manual runs on master, see nightly.yml. Everything
 #            of the merge tier plus the remaining itests, the Windows and
 #            macOS itests and the coverage report.
+#   held:    Pull requests carrying the ci-hold label. New PRs get the label
+#            from ci-hold.yml when they are opened, so that their CI doesn't
+#            occupy any runners until a maintainer removes it. All jobs skip
+#            and the CI result job fails, so a held PR can't enter the merge
+#            queue. Removing the label re-runs the PR's latest run, see
+#            ci-hold.yml. Merge group and nightly runs are never held.
 #
 # Required status checks apply to both the pull_request and the merge_group
 # context, so every required check has to be reported in both. Required matrix
@@ -48,7 +54,8 @@ permissions:
   actions: write
   # Default permission for checking out code.
   contents: read
-  # Required to read the current PR labels via the API in check-label.
+  # Required to read the current PR labels and label events via the API in
+  # the CI gate job and in check-label.
   pull-requests: read
 
 concurrency:
@@ -86,23 +93,37 @@ jobs:
     name: CI gate
     runs-on: ubuntu-latest
     outputs:
-      # One of pr, merge or nightly, see the top of this file.
+      # One of held, pr, merge or nightly, see the top of this file.
       tier: ${{ steps.tier.outputs.tier }}
       # True when the PR only touches files under docs/ or markdown files.
       # Merge group and nightly runs never set this.
       docs-only: ${{ steps.docs-only.outputs.docs-only }}
     steps:
       # The labels are read from the API rather than the event payload, so
-      # that re-running the workflow after adding the full-ci label picks it
-      # up. If the labels can't be read the PR runs the pr tier; the merge
-      # queue runs the merge tier regardless.
+      # that re-running the workflow after adding the full-ci label or
+      # removing the ci-hold label picks it up. If the labels can't be read
+      # the PR runs the pr tier; the merge queue runs the merge tier
+      # regardless.
+      #
+      # The run for a newly opened PR starts at the same time as ci-hold.yml,
+      # which adds the ci-hold label, so the label may not be visible yet.
+      # The first attempt of such a run is therefore held unless the label
+      # has already been removed again, which is the case when the run was
+      # waiting for approval (PRs of first-time contributors) while a
+      # maintainer removed the label. Re-runs (attempt 2 and up, as started
+      # by ci-hold.yml) only look at the current labels. PRs opened with the
+      # GITHUB_TOKEN, such as the backport PRs, are exempt: they don't
+      # trigger ci-hold.yml, so they never get the label, and their runs
+      # already wait for a maintainer's approval.
       - name: Select tier
         id: tier
         env:
           GH_TOKEN: ${{ github.token }}
           EVENT_NAME: ${{ github.event_name }}
+          EVENT_ACTION: ${{ github.event.action }}
           INPUT_TIER: ${{ inputs.tier }}
           PR_NUMBER: ${{ github.event.pull_request.number }}
+          HOLD_LABEL: ci-hold
         run: |
           if [[ "$INPUT_TIER" == "nightly" ]]; then
             tier=nightly
@@ -113,7 +134,31 @@ jobs:
             labels=$(gh api \
               "repos/${GITHUB_REPOSITORY}/issues/${PR_NUMBER}/labels?per_page=100" \
               --jq '[.[].name]') || labels='[]'
-            if jq -e 'index("full-ci") != null' <<< "$labels" > /dev/null; then
+            echo "Labels: ${labels}"
+
+            if jq -e --arg l "$HOLD_LABEL" 'index($l) != null' \
+              <<< "$labels" > /dev/null; then
+
+              tier=held
+            elif [[ "$EVENT_ACTION" == "opened" && \
+              "$GITHUB_RUN_ATTEMPT" == "1" && \
+              "$GITHUB_ACTOR" != "github-actions[bot]" ]]; then
+
+              # If the events can't be read the run stays held.
+              removed=$(gh api --paginate \
+                "repos/${GITHUB_REPOSITORY}/issues/${PR_NUMBER}/events?per_page=100" \
+                --jq '.[] | select(.event == "unlabeled"
+                  and .label.name == env.HOLD_LABEL) | .id') || removed=""
+              if [[ -z "$removed" ]]; then
+                tier=held
+              fi
+            fi
+
+            if [[ "$tier" == "held" ]]; then
+              msg="CI is held, remove the ${HOLD_LABEL} label to run it"
+              echo "::notice::${msg}"
+              echo "${msg}" >> "$GITHUB_STEP_SUMMARY"
+            elif jq -e 'index("full-ci") != null' <<< "$labels" > /dev/null; then
               echo "::notice::Running the merge tier due to the 'full-ci' label"
               tier=merge
             fi
@@ -138,7 +183,7 @@ jobs:
       # report the per-leg check names that branch protection requires.
       - name: Detect documentation-only changes
         id: docs-only
-        if: github.event_name == 'pull_request'
+        if: github.event_name == 'pull_request' && steps.tier.outputs.tier != 'held'
         env:
           GH_TOKEN: ${{ github.token }}
           PR_NUMBER: ${{ github.event.pull_request.number }}
@@ -184,7 +229,7 @@ jobs:
   static-checks:
     name: Static Checks
     needs: ci-gate
-    if: ${{ !cancelled() && needs.ci-gate.outputs.docs-only != 'true' }}
+    if: ${{ !cancelled() && needs.ci-gate.outputs.docs-only != 'true' && needs.ci-gate.outputs.tier != 'held' }}
     runs-on: ubuntu-latest
     steps:
       - name: Git checkout
@@ -250,7 +295,9 @@ jobs:
   # check commits
   ########################
   check-commits:
-    if: github.event_name == 'pull_request'
+    # Waits for the gate job only to learn whether CI is held.
+    needs: ci-gate
+    if: ${{ !cancelled() && github.event_name == 'pull_request' && needs.ci-gate.outputs.tier != 'held' }}
     name: Check commits
     runs-on: ubuntu-latest
     steps:
@@ -281,7 +328,7 @@ jobs:
   lint:
     name: Lint code
     needs: ci-gate
-    if: ${{ !cancelled() && needs.ci-gate.outputs.docs-only != 'true' }}
+    if: ${{ !cancelled() && needs.ci-gate.outputs.docs-only != 'true' && needs.ci-gate.outputs.tier != 'held' }}
     runs-on: ubuntu-latest
     steps:
       - name: git checkout
@@ -315,8 +362,9 @@ jobs:
     # counts as passed.
     if: ${{ !cancelled() }}
     env:
-      # Skipped for documentation-only changes and on draft PRs.
-      SKIP: ${{ needs.ci-gate.outputs.docs-only == 'true' || github.event.pull_request.draft == true }}
+      # Skipped for documentation-only changes, on draft PRs and when CI is
+      # held.
+      SKIP: ${{ needs.ci-gate.outputs.docs-only == 'true' || github.event.pull_request.draft == true || needs.ci-gate.outputs.tier == 'held' }}
     name: Cross compilation
     runs-on: ubuntu-latest
     strategy:
@@ -332,7 +380,7 @@ jobs:
     steps:
       - name: Skip notice
         if: env.SKIP == 'true'
-        run: echo "::notice::Job auto-passed (documentation-only change or draft PR)"
+        run: echo "::notice::Job auto-passed (documentation-only change, draft PR or CI held)"
 
       - name: Git checkout
         if: env.SKIP != 'true'
@@ -396,11 +444,11 @@ jobs:
     # counts as passed.
     if: ${{ !cancelled() }}
     env:
-      # Skipped for documentation-only changes. The pr tier only runs the
-      # unit-cover and unit-module legs, the other legs are kept instantiated
-      # so that the required per-leg checks are reported (see the top of this
-      # file).
-      SKIP: ${{ needs.ci-gate.outputs.docs-only == 'true' || (needs.ci-gate.outputs.tier == 'pr' && matrix.unit_type != 'unit-cover' && matrix.unit_type != 'unit-module') }}
+      # Skipped for documentation-only changes and when CI is held. The pr
+      # tier only runs the unit-cover and unit-module legs, the other legs are
+      # kept instantiated so that the required per-leg checks are reported
+      # (see the top of this file).
+      SKIP: ${{ needs.ci-gate.outputs.docs-only == 'true' || needs.ci-gate.outputs.tier == 'held' || (needs.ci-gate.outputs.tier == 'pr' && matrix.unit_type != 'unit-cover' && matrix.unit_type != 'unit-module') }}
     name: Run unit tests
     runs-on: ubuntu-latest
     strategy:
@@ -422,7 +470,7 @@ jobs:
     steps:
       - name: Skip notice
         if: env.SKIP == 'true'
-        run: echo "::notice::Job auto-passed (documentation-only change or not part of the PR tier, runs in the merge queue)"
+        run: echo "::notice::Job auto-passed (documentation-only change, CI held, or not part of the PR tier and runs in the merge queue)"
 
       - name: Git checkout
         if: env.SKIP != 'true'
@@ -485,15 +533,15 @@ jobs:
   # run integration tests with TRANCHES
   ########################
   basic-integration-test:
-    # Required check of the merge tier. Kept instantiated in the pr tier and
-    # for documentation-only changes so the per-leg checks are reported; the
-    # steps are skipped instead. Runs even if the gate job failed: without a
-    # status function a failed dependency skips this job, and a skipped
-    # required check counts as passed.
+    # Required check of the merge tier. Kept instantiated in the pr and held
+    # tiers and for documentation-only changes so the per-leg checks are
+    # reported; the steps are skipped instead. Runs even if the gate job
+    # failed: without a status function a failed dependency skips this job,
+    # and a skipped required check counts as passed.
     needs: ci-gate
     if: ${{ !cancelled() }}
     env:
-      SKIP: ${{ needs.ci-gate.outputs.docs-only == 'true' || needs.ci-gate.outputs.tier == 'pr' }}
+      SKIP: ${{ needs.ci-gate.outputs.docs-only == 'true' || needs.ci-gate.outputs.tier == 'pr' || needs.ci-gate.outputs.tier == 'held' }}
     name: Run basic itests
     runs-on: ubuntu-latest
     strategy:
@@ -514,7 +562,7 @@ jobs:
     steps:
       - name: Skip notice
         if: env.SKIP == 'true'
-        run: echo "::notice::Job auto-passed (documentation-only change or not part of the PR tier, runs in the merge queue)"
+        run: echo "::notice::Job auto-passed (documentation-only change, CI held, or not part of the PR tier and runs in the merge queue)"
 
       - name: Git checkout
         if: env.SKIP != 'true'
@@ -799,7 +847,7 @@ jobs:
     if: ${{ !cancelled() }}
     env:
       # Skipped for documentation-only changes.
-      SKIP: ${{ needs.ci-gate.outputs.docs-only == 'true' }}
+      SKIP: ${{ needs.ci-gate.outputs.docs-only == 'true' || needs.ci-gate.outputs.tier == 'held' }}
     name: Check pinned dependencies
     runs-on: ubuntu-latest
     strategy:
@@ -813,7 +861,7 @@ jobs:
     steps:
       - name: Skip notice
         if: env.SKIP == 'true'
-        run: echo "::notice::Job auto-passed (documentation-only change)"
+        run: echo "::notice::Job auto-passed (documentation-only change or CI held)"
 
       - name: Git checkout
         if: env.SKIP != 'true'
@@ -833,7 +881,9 @@ jobs:
   milestone-check:
     name: Check release notes updated
     # Only meaningful for pull requests, the nightly tier skips it.
-    if: github.event_name == 'pull_request' || github.event_name == 'merge_group'
+    # Waits for the gate job only to learn whether CI is held.
+    needs: ci-gate
+    if: ${{ !cancelled() && (github.event_name == 'pull_request' || github.event_name == 'merge_group') && needs.ci-gate.outputs.tier != 'held' }}
     runs-on: ubuntu-latest
     steps:
       - name: Git checkout
@@ -865,7 +915,9 @@ jobs:
   release-notes-consistency:
     name: Check release notes consistency
     # Only meaningful for pull requests, the nightly tier skips it.
-    if: github.event_name == 'pull_request' || github.event_name == 'merge_group'
+    # Waits for the gate job only to learn whether CI is held.
+    needs: ci-gate
+    if: ${{ !cancelled() && (github.event_name == 'pull_request' || github.event_name == 'merge_group') && needs.ci-gate.outputs.tier != 'held' }}
     runs-on: ubuntu-latest
     steps:
       - name: Git checkout
@@ -916,8 +968,11 @@ jobs:
     runs-on: ubuntu-latest
 
     # This condition checks for pull requests from authors with write access.
+    # Held pull requests don't use any runners.
+    needs: ci-gate
     if: >-
-      contains('OWNER, MEMBER, COLLABORATOR', github.event.pull_request.author_association)
+      contains('OWNER, MEMBER, COLLABORATOR', github.event.pull_request.author_association) &&
+      needs.ci-gate.outputs.tier != 'held'
 
     steps:
       - name: Checkout repository
@@ -1001,12 +1056,20 @@ jobs:
       # allowed for the jobs that aren't listed for the selected tier, so
       # that a job that was skipped by mistake can never let the merge queue
       # pass. In the pr tier the static checks and lint may be skipped for
-      # documentation-only changes.
+      # documentation-only changes. A held run always fails, so that a PR
+      # whose CI never ran can't enter the merge queue.
       - name: Check job results
         env:
           NEEDS: ${{ toJSON(needs) }}
           TIER: ${{ needs.ci-gate.outputs.tier }}
         run: |
+          if [[ "$TIER" == "held" ]]; then
+            msg="CI is held, remove the ci-hold label to run it"
+            echo "::error::${msg}"
+            echo "${msg}" >> "$GITHUB_STEP_SUMMARY"
+            exit 1
+          fi
+
           pr_jobs="ci-gate check-commits cross-compile unit-test
             basic-integration-test dep-pin milestone-check
             release-notes-consistency"

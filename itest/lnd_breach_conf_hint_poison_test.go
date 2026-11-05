@@ -3,8 +3,6 @@
 package itest
 
 import (
-	"fmt"
-
 	"github.com/btcsuite/btcd/btcutil"
 	"github.com/btcsuite/btcd/chaincfg/chainhash"
 	"github.com/btcsuite/btcd/wire"
@@ -29,10 +27,6 @@ func testBreachConfHintPoisonedByFakeFunding(ht *lntest.HarnessTest) {
 		paymentAmt  = 100_000
 		numInvoices = 4
 
-		// Production lnd waits at least 3 confirmations before acting
-		// on a channel close; integration builds default to 1.
-		closeConfs = 3
-
 		// Any output index works, the txid is what matters.
 		fakeOutputIndex = 50
 	)
@@ -45,7 +39,6 @@ func testBreachConfHintPoisonedByFakeFunding(ht *lntest.HarnessTest) {
 	aliceArgs := append(
 		lntest.NodeArgsForCommitType(commitType),
 		"--nolisten", "--minbackoff=1h",
-		fmt.Sprintf("--dev.force-channel-close-confs=%d", closeConfs),
 	)
 	alice := ht.NewNode("Alice", aliceArgs)
 
@@ -160,9 +153,10 @@ func testBreachConfHintPoisonedByFakeFunding(ht *lntest.HarnessTest) {
 	block := ht.MineBlocksAndAssertNumTxes(1, 1)[0]
 	ht.AssertTxInBlock(block, *breachTxid)
 
-	// After closeConfs confirmations the chain watcher hands the breach
-	// to the breach arbitrator. The fake funding request remains pending.
-	ht.MineBlocks(closeConfs - 1)
+	// On this branch the chain watcher hands the breach to the breach
+	// arbitrator after a single confirmation, as channel close
+	// confirmations are not scaled. The fake funding request remains
+	// pending.
 	ht.AssertNumPendingOpenChannels(alice, 1)
 
 	// Justice must spend the revoked to_local before Mallory's CSV delay

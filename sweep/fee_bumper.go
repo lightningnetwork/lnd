@@ -82,7 +82,9 @@ const (
 
 	// TxFailed is sent when creation or broadcast fails but its inputs can
 	// be retried, including fee constraints and transient mempool failures.
-	// Retry uses different grouping or a higher fee within the budget.
+	// Retry can regroup inputs or adjust fees within the budget. A supplied
+	// retry fee rate applies to the next attempt. Initialization can still
+	// reject a zero rate delta and trigger re-estimation.
 	//
 	// TODO(yy): Remove the above usage once we remove sweeping non-CPFP
 	// anchors.
@@ -105,9 +107,9 @@ const (
 	//   broadcast and confirmed.
 	TxUnknownSpend
 
-	// TxFatal is sent when the inputs in this tx cannot be retried. Txns
-	// will end up in this state if they have encountered a non-fee related
-	// error, which means they cannot be retried with increased budget.
+	// TxFatal is sent when an error prevents retrying the inputs, such as a
+	// known non-retryable rejection or a local initialization failure.
+	// Unknown and transient mempool acceptance errors use TxFailed.
 	TxFatal
 
 	// sentinelEvent is used to check if an event is unknown.

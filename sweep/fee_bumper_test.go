@@ -1179,8 +1179,10 @@ func TestBroadcastRetryMempoolErrors(t *testing.T) {
 			maxFeeRate := feeRate * 10
 			deadline := int32(10)
 
-			// A one-block deadline initializes directly at the cap,
-			// leaving no increase to justify dropping the input.
+			// A one-block deadline initializes directly at the cap.
+			// This checks retry metadata. A distant capped start
+			// still takes the zero-delta path, which permits
+			// re-estimation on the next block.
 			if tc.atCeiling {
 				deadline = 1
 			}

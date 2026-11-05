@@ -4474,14 +4474,7 @@ func (p *Brontide) handleLinkFailure(failure linkFailureReport) {
 		closeTx, err := p.cfg.ChainArb.ForceCloseContract(
 			failure.chanPoint,
 		)
-		if err != nil {
-			p.log.Errorf("unable to force close "+
-				"link(%v): %v", failure.shortChanID, err)
-		} else {
-			p.log.Infof("channel(%v) force "+
-				"closed with txid %v",
-				failure.shortChanID, closeTx.TxHash())
-		}
+		p.logForceCloseResult(failure.shortChanID, closeTx, err)
 	}
 
 	// If this is a permanent failure, we will mark the channel borked.
@@ -4532,6 +4525,28 @@ func (p *Brontide) handleLinkFailure(failure linkFailureReport) {
 	if failure.linkErr.FailureAction == htlcswitch.LinkFailureDisconnect {
 		p.Disconnect(fmt.Errorf("link requested disconnect"))
 	}
+}
+
+// logForceCloseResult records the result of a force-close request. The
+// arbitrator can return no transaction when it waits for a remote close.
+func (p *Brontide) logForceCloseResult(shortChanID lnwire.ShortChannelID,
+	closeTx *wire.MsgTx, err error) {
+
+	if err != nil {
+		p.log.Errorf("unable to force close link(%v): %v",
+			shortChanID, err)
+
+		return
+	}
+	if closeTx == nil {
+		p.log.Warnf("no local close transaction for link(%v); "+
+			"waiting for remote close", shortChanID)
+
+		return
+	}
+
+	p.log.Infof("channel(%v) force closed with txid %v", shortChanID,
+		closeTx.TxHash())
 }
 
 // fetchLinkFromKeyAndCid fetches a link from the switch via the remote's

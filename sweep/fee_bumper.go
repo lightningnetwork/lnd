@@ -552,7 +552,13 @@ func (t *TxPublisher) createRBFCompliantTx(
 		sweepCtx, err := t.createAndCheckTx(r)
 
 		switch {
-		case err == nil:
+		// An accepted initial tx still needs idempotent publication to
+		// register rebroadcasting and confirmation tracking.
+		case err == nil,
+			errors.Is(err, chain.ErrTxAlreadyInMempool),
+			errors.Is(err, chain.ErrTxAlreadyKnown),
+			errors.Is(err, chain.ErrTxAlreadyConfirmed):
+
 			// The tx is valid, store it.
 			record := t.updateRecord(r, sweepCtx)
 

@@ -105,6 +105,7 @@ func newFaultTestContext(t *testing.T, cfg *invpkg.RegistryConfig,
 // retryable and interceptor errors only fail HTLCs that are known to be new.
 func testInvoiceRegistryProcessingErrors(t *testing.T,
 	makeDB func(t *testing.T) (invpkg.InvoiceDB, *clock.TestClock)) {
+
 	t.Run("ordinary payment uses one lookup", func(t *testing.T) {
 		ctx, faultDB := newFaultTestContext(t, nil, makeDB)
 		invoice := newInvoice(t, false, false)
@@ -1102,7 +1103,6 @@ func testReplayedAMPHtlcNearExpiry(t *testing.T,
 	)
 	require.NoError(t, err)
 	require.Nil(t, resolution)
-
 }
 
 // testReplayedHoldKeysendNearExpiry asserts that a held keysend HTLC that is

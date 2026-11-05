@@ -211,8 +211,8 @@ func newDispatchTest(t *testing.T, maxInflight int,
 	replier := &chanReplier{replies: replies}
 	handler, err := NewHandler(
 		store, nopNotifier{}, replier,
-		newPrivKeySigner(nodeKey), nil, clock.NewDefaultClock(),
-		testChainHash(), testFinalCLTVDelta,
+		newPrivKeySigner(nodeKey), testPathIDKey(nodeKey), nil,
+		clock.NewDefaultClock(), testChainHash(), testFinalCLTVDelta,
 	)
 	require.NoError(t, err)
 	handler.maxInflight = maxInflight
@@ -498,7 +498,8 @@ func TestHandlerDispatch(t *testing.T) {
 
 		handler, err := NewHandler(
 			newMockOfferStore(), nopNotifier{}, &mockReplier{},
-			newPrivKeySigner(testKey(t)), nil,
+			newPrivKeySigner(testKey(t)),
+			testPathIDKey(testKey(t)), nil,
 			clock.NewDefaultClock(), testChainHash(),
 			testFinalCLTVDelta,
 		)
@@ -518,7 +519,8 @@ func TestHandlerDispatch(t *testing.T) {
 
 		handler, err := NewHandler(
 			newMockOfferStore(), nopNotifier{}, &mockReplier{},
-			newPrivKeySigner(testKey(t)), nil,
+			newPrivKeySigner(testKey(t)),
+			testPathIDKey(testKey(t)), nil,
 			clock.NewDefaultClock(), testChainHash(),
 			testFinalCLTVDelta,
 		)
@@ -542,7 +544,8 @@ func TestHandlerDispatch(t *testing.T) {
 
 		handler, err := NewHandler(
 			newMockOfferStore(), nopNotifier{}, &mockReplier{},
-			newPrivKeySigner(testKey(t)), nil,
+			newPrivKeySigner(testKey(t)),
+			testPathIDKey(testKey(t)), nil,
 			clock.NewDefaultClock(), testChainHash(),
 			testFinalCLTVDelta,
 		)
@@ -577,7 +580,8 @@ func TestHandlerDispatch(t *testing.T) {
 			handler, err := NewHandler(
 				newMockOfferStore(), nopNotifier{},
 				&mockReplier{}, newPrivKeySigner(testKey(t)),
-				nil, clock.NewDefaultClock(), testChainHash(),
+				testPathIDKey(testKey(t)), nil,
+				clock.NewDefaultClock(), testChainHash(),
 				testFinalCLTVDelta,
 			)
 			require.NoError(t, err)

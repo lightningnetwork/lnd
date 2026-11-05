@@ -78,6 +78,12 @@ endif
 #   avoiding slow host-syncing overhead).
 # Paths inside container must match GOCACHE/GOMODCACHE in tools/Dockerfile.
 ifdef CI
+# In CI the custom linter build cache lives in GitHub Actions' cache
+# store (see the lint job in main.yml), so every lint job that shares
+# the same tools/ dependencies reuses the compiled linter binary instead
+# of rebuilding the roughly four minute compile from source.
+export DOCKER_BUILD_ARGS = --cache-from type=gha --cache-to type=gha,mode=max \
+	--build-arg BUILDKIT_INLINE_CACHE=1
 # CI mode: bind mount to host paths that GitHub Actions caches.
 DOCKER_TOOLS_BASE = docker run \
   --rm \
@@ -223,7 +229,11 @@ release-notes:
 
 docker-tools:
 	@$(call print, "Building tools docker image.")
-	docker build -q -t lnd-tools $(TOOLS_DIR)
+	# Use BuildKit so the expensive step that compiles the custom linter from
+	# source can be restored from a remote build cache. On CI the cache
+	# configuration is passed in through DOCKER_BUILD_ARGS (see the lint
+	# job), locally the build cache falls back to the default local one.
+	docker build -q -t lnd-tools $(DOCKER_BUILD_ARGS) $(TOOLS_DIR)
 
 scratch: build
 

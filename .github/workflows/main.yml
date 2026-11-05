@@ -1,17 +1,47 @@
 name: CI
 
+# The jobs of this workflow are split into three tiers, selected by the CI
+# gate job below:
+#
+#   pr:      Pull requests. Only the fast checks run (lint, static checks,
+#            commit checks, release notes, pinned dependencies, the i386 and
+#            amd64 cross compilation and the unit-cover and unit-module unit
+#            tests). Adding the full-ci label to a PR runs the merge tier
+#            instead.
+#   merge:   Merge queue. The real gate: the pr tier plus the full unit test
+#            matrix, the basic itests, the key database itests, the arm cross
+#            compilation and the backwards compatibility test.
+#   nightly: Scheduled and manual runs on master, see nightly.yml. Everything
+#            of the merge tier plus the remaining itests, the Windows and
+#            macOS itests and the coverage report.
+#
+# Required status checks apply to both the pull_request and the merge_group
+# context, so every required check has to be reported in both. Required matrix
+# legs that don't belong to the pr tier therefore stay instantiated on pull
+# requests and only skip their steps: a job-level condition is evaluated before
+# the matrix is expanded, so a skipped matrix job would never report the
+# per-leg check names. The CI result job aggregates the results of all gating
+# jobs into a single check, so that the jobs of the merge tier can be required
+# without listing every leg.
 on:
   pull_request:
     branches:
       - "*"
     # ready_for_review and converted_to_draft are added so that changing the
-    # draft state of a PR triggers a new run: draft PRs only run a fast
-    # subset of the jobs, so the run has to be replaced whenever the state
-    # changes. The concurrency group below cancels the previous one.
+    # draft state of a PR triggers a new run: draft PRs skip the cross
+    # compilation, so the run has to be replaced whenever the state changes.
+    # The concurrency group below cancels the previous one.
     types: [opened, synchronize, reopened, ready_for_review, converted_to_draft]
   merge_group:
     branches:
       - "master"
+  # Used by nightly.yml to run the nightly tier.
+  workflow_call:
+    inputs:
+      tier:
+        description: "The tier to run, only nightly is supported"
+        type: string
+        required: true
 
 permissions:
   # Required to manage and delete caches.
@@ -22,9 +52,10 @@ permissions:
   pull-requests: read
 
 concurrency:
-  # Cancel any previous workflows from the same PR or merge group.
+  # Cancel any previous workflows from the same PR or merge group. Nightly
+  # runs wait for the previous one instead of cancelling it.
   group: ${{ github.event.pull_request.number || github.ref }}
-  cancel-in-progress: true
+  cancel-in-progress: ${{ inputs.tier != 'nightly' }}
 
 defaults:
   run:
@@ -49,16 +80,51 @@ env:
 
 jobs:
   ########################
-  # CI gate: detect documentation-only changes
+  # CI gate: select the tier and detect documentation-only changes
   ########################
   ci-gate:
     name: CI gate
     runs-on: ubuntu-latest
     outputs:
+      # One of pr, merge or nightly, see the top of this file.
+      tier: ${{ steps.tier.outputs.tier }}
       # True when the PR only touches files under docs/ or markdown files.
-      # Push and merge_group runs never set this.
+      # Merge group and nightly runs never set this.
       docs-only: ${{ steps.docs-only.outputs.docs-only }}
     steps:
+      # The labels are read from the API rather than the event payload, so
+      # that re-running the workflow after adding the full-ci label picks it
+      # up. If the labels can't be read the PR runs the pr tier; the merge
+      # queue runs the merge tier regardless.
+      - name: Select tier
+        id: tier
+        env:
+          GH_TOKEN: ${{ github.token }}
+          EVENT_NAME: ${{ github.event_name }}
+          INPUT_TIER: ${{ inputs.tier }}
+          PR_NUMBER: ${{ github.event.pull_request.number }}
+        run: |
+          if [[ "$INPUT_TIER" == "nightly" ]]; then
+            tier=nightly
+          elif [[ "$EVENT_NAME" == "merge_group" ]]; then
+            tier=merge
+          elif [[ "$EVENT_NAME" == "pull_request" ]]; then
+            tier=pr
+            labels=$(gh api \
+              "repos/${GITHUB_REPOSITORY}/issues/${PR_NUMBER}/labels?per_page=100" \
+              --jq '[.[].name]') || labels='[]'
+            if jq -e 'index("full-ci") != null' <<< "$labels" > /dev/null; then
+              echo "::notice::Running the merge tier due to the 'full-ci' label"
+              tier=merge
+            fi
+          else
+            echo "::error::Unsupported event ${EVENT_NAME} (tier '${INPUT_TIER}')"
+            exit 1
+          fi
+
+          echo "Selected tier: ${tier}"
+          echo "tier=${tier}" >> "$GITHUB_OUTPUT"
+
       # Anything that isn't under docs/ or a markdown file counts as code and
       # runs full CI. Renamed files are checked under both their old and new
       # name so that moving a source file into docs/ doesn't count as a
@@ -256,14 +322,13 @@ jobs:
     strategy:
       fail-fast: true
       matrix:
-        # Please keep this list in sync with make/release_flags.mk!
+        # Please keep this list, together with the one of the
+        # cross-compile-arm job, in sync with make/release_flags.mk!
         include:
           - name: i386
             sys: freebsd-386 linux-386 windows-386
           - name: amd64
             sys: darwin-amd64 freebsd-amd64 linux-amd64 netbsd-amd64 openbsd-amd64 windows-amd64
-          - name: arm
-            sys: darwin-arm64 freebsd-arm linux-armv6 linux-armv7 linux-arm64 windows-arm64
     steps:
       - name: Skip notice
         if: env.SKIP == 'true'
@@ -290,6 +355,38 @@ jobs:
         run: make release sys="${{ matrix.sys }}"
 
   ########################
+  # cross compilation of the arm targets (merge and nightly tiers)
+  ########################
+  cross-compile-arm:
+    # Not a required check, so it can be skipped at the job level. It uses the
+    # same name as the cross-compile job so the check names don't change.
+    needs: ci-gate
+    if: ${{ !cancelled() && (needs.ci-gate.outputs.tier == 'merge' || needs.ci-gate.outputs.tier == 'nightly') }}
+    name: Cross compilation
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        include:
+          - name: arm
+            sys: darwin-arm64 freebsd-arm linux-armv6 linux-armv7 linux-arm64 windows-arm64
+    steps:
+      - name: Git checkout
+        uses: actions/checkout@v5
+
+      - name: Clean up runner space
+        uses: ./.github/actions/cleanup-space
+
+      - name: Setup go ${{ env.GO_VERSION }}
+        uses: ./.github/actions/setup-go
+        with:
+          go-version: '${{ env.GO_VERSION }}'
+          key-prefix: cross-compile
+          use-build-cache: 'no'
+
+      - name: Build release for all architectures
+        run: make release sys="${{ matrix.sys }}"
+
+  ########################
   # run unit tests
   ########################
   unit-test:
@@ -299,8 +396,11 @@ jobs:
     # counts as passed.
     if: ${{ !cancelled() }}
     env:
-      # Skipped for documentation-only changes; on draft PRs only the race legs are skipped.
-      SKIP: ${{ needs.ci-gate.outputs.docs-only == 'true' || (github.event.pull_request.draft == true && startsWith(matrix.unit_type, 'unit-race')) }}
+      # Skipped for documentation-only changes. The pr tier only runs the
+      # unit-cover and unit-module legs, the other legs are kept instantiated
+      # so that the required per-leg checks are reported (see the top of this
+      # file).
+      SKIP: ${{ needs.ci-gate.outputs.docs-only == 'true' || (needs.ci-gate.outputs.tier == 'pr' && matrix.unit_type != 'unit-cover' && matrix.unit_type != 'unit-module') }}
     name: Run unit tests
     runs-on: ubuntu-latest
     strategy:
@@ -322,7 +422,7 @@ jobs:
     steps:
       - name: Skip notice
         if: env.SKIP == 'true'
-        run: echo "::notice::Job auto-passed (documentation-only change or draft PR)"
+        run: echo "::notice::Job auto-passed (documentation-only change or not part of the PR tier, runs in the merge queue)"
 
       - name: Git checkout
         if: env.SKIP != 'true'
@@ -364,13 +464,15 @@ jobs:
         if: env.SKIP != 'true'
         run: make ${{ matrix.unit_type }}
 
+      # Coverage is only reported by the nightly tier, which runs the complete
+      # set of coverage collecting jobs.
       - name: Clean coverage
         run: grep -Ev '(\.pb\.go|\.pb\.json\.go|\.pb\.gw\.go)' coverage.txt > coverage-norpc.txt
-        if: env.SKIP != 'true' && matrix.unit_type == 'unit-cover'
+        if: env.SKIP != 'true' && matrix.unit_type == 'unit-cover' && needs.ci-gate.outputs.tier == 'nightly'
 
       - name: Send coverage
         uses: coverallsapp/github-action@v2
-        if: env.SKIP != 'true' && matrix.unit_type == 'unit-cover'
+        if: env.SKIP != 'true' && matrix.unit_type == 'unit-cover' && needs.ci-gate.outputs.tier == 'nightly'
         continue-on-error: true
         with:
           file: coverage-norpc.txt
@@ -383,15 +485,15 @@ jobs:
   # run integration tests with TRANCHES
   ########################
   basic-integration-test:
-    # Required check and part of the fast subset that runs on draft PRs. Kept
-    # instantiated for documentation-only changes so the per-leg checks are
-    # reported; the steps are skipped instead. Runs even if the gate job
-    # failed: without a status function a failed dependency skips this job,
-    # and a skipped required check counts as passed.
+    # Required check of the merge tier. Kept instantiated in the pr tier and
+    # for documentation-only changes so the per-leg checks are reported; the
+    # steps are skipped instead. Runs even if the gate job failed: without a
+    # status function a failed dependency skips this job, and a skipped
+    # required check counts as passed.
     needs: ci-gate
     if: ${{ !cancelled() }}
     env:
-      SKIP: ${{ needs.ci-gate.outputs.docs-only == 'true' }}
+      SKIP: ${{ needs.ci-gate.outputs.docs-only == 'true' || needs.ci-gate.outputs.tier == 'pr' }}
     name: Run basic itests
     runs-on: ubuntu-latest
     strategy:
@@ -410,12 +512,18 @@ jobs:
           - name: neutrino
             args: backend=neutrino cover=1
     steps:
+      - name: Skip notice
+        if: env.SKIP == 'true'
+        run: echo "::notice::Job auto-passed (documentation-only change or not part of the PR tier, runs in the merge queue)"
+
       - name: Git checkout
+        if: env.SKIP != 'true'
         uses: actions/checkout@v5
         with:
           fetch-depth: 0
 
       - name: Check for no-itest label
+        if: env.SKIP != 'true'
         id: check-label
         uses: ./.github/actions/check-label
         with:
@@ -445,12 +553,15 @@ jobs:
         if: steps.check-label.outputs.skip != 'true' && env.SKIP != 'true'
         run: make itest-parallel tranches=${{ env.TRANCHES }} ${{ matrix.args }} shuffleseed=${{ github.run_id }}${{ strategy.job-index }}
 
+      # Coverage is only reported by the nightly tier. The cover=1 arguments
+      # are kept in the other tiers as they are part of the required check
+      # names.
       - name: Clean coverage
         run: grep -Ev '(\.pb\.go|\.pb\.json\.go|\.pb\.gw\.go)' coverage.txt > coverage-norpc.txt
-        if: ${{ contains(matrix.args, 'cover=1') && steps.check-label.outputs.skip != 'true' && env.SKIP != 'true' }}
+        if: ${{ contains(matrix.args, 'cover=1') && steps.check-label.outputs.skip != 'true' && env.SKIP != 'true' && needs.ci-gate.outputs.tier == 'nightly' }}
 
       - name: Send coverage
-        if: ${{ contains(matrix.args, 'cover=1') && steps.check-label.outputs.skip != 'true' && env.SKIP != 'true' }}
+        if: ${{ contains(matrix.args, 'cover=1') && steps.check-label.outputs.skip != 'true' && env.SKIP != 'true' && needs.ci-gate.outputs.tier == 'nightly' }}
         continue-on-error: true
         uses: coverallsapp/github-action@v2
         with:
@@ -473,37 +584,28 @@ jobs:
           retention-days: 5
 
   ########################
-  # run integration tests with SMALL_TRANCHES
+  # run integration tests with SMALL_TRANCHES (merge and nightly tiers)
   ########################
   integration-test:
     name: Run itests
-    # Not a required check, so it can be skipped at the job level. Draft PRs
-    # only run the fast subset (see the unit-test and basic itest jobs).
+    # Not a required check, so it can be skipped at the job level. The legs
+    # gate the merge queue through the CI result job. The remaining database
+    # variants only run in the nightly tier, see integration-test-nightly.
     needs: ci-gate
-    if: ${{ !cancelled() && needs.ci-gate.outputs.docs-only != 'true' && github.event.pull_request.draft != true }}
+    if: ${{ !cancelled() && (needs.ci-gate.outputs.tier == 'merge' || needs.ci-gate.outputs.tier == 'nightly') }}
     runs-on: ubuntu-latest
     strategy:
       # Allow other tests in the matrix to continue if one fails.
       fail-fast: false
       matrix:
         include:
-          - name: bitcoind-rpcpolling
-            args: backend="bitcoind rpcpolling"
           - name: bitcoind-etcd
             args: backend=bitcoind dbbackend=etcd
           - name: bitcoind-sqlite
             args: backend=bitcoind dbbackend=sqlite
-          - name: bitcoind-sqlite-nativesql
-            args: backend=bitcoind dbbackend=sqlite nativesql=true
-          - name: bitcoind-sqlite=nativesql-experiment
-            args: backend=bitcoind dbbackend=sqlite nativesql=true tags=test_native_sql
           - name: bitcoind-postgres
             args: backend=bitcoind dbbackend=postgres
-          - name: bitcoind-postgres-nativesql
-            args: backend=bitcoind dbbackend=postgres nativesql=true
-          - name: bitcoind-postgres-nativesql-experiment
-            args: backend=bitcoind dbbackend=postgres nativesql=true tags=test_native_sql
-    steps:
+    steps: &integration-test-steps
       - name: Git checkout
         uses: actions/checkout@v5
         with:
@@ -539,20 +641,6 @@ jobs:
         if: steps.check-label.outputs.skip != 'true'
         run: make itest-parallel tranches=${{ env.SMALL_TRANCHES }} ${{ matrix.args }} shuffleseed=${{ github.run_id }}${{ strategy.job-index }}
 
-      - name: Clean coverage
-        run: grep -Ev '(\.pb\.go|\.pb\.json\.go|\.pb\.gw\.go)' coverage.txt > coverage-norpc.txt
-        if: ${{ contains(matrix.args, 'cover=1') && steps.check-label.outputs.skip != 'true' }}
-
-      - name: Send coverage
-        if: ${{ contains(matrix.args, 'cover=1') && steps.check-label.outputs.skip != 'true' }}
-        continue-on-error: true
-        uses: coverallsapp/github-action@v2
-        with:
-          file: coverage-norpc.txt
-          flag-name: 'itest-${{ matrix.name }}'
-          format: 'golang'
-          parallel: true
-
       - name: Zip log files on failure
         if: ${{ failure() && steps.check-label.outputs.skip != 'true' }}
         timeout-minutes: 5 # timeout after 5 minute
@@ -566,16 +654,42 @@ jobs:
           path: logs-itest-${{ matrix.name }}.zip
           retention-days: 5
 
+  ########################
+  # run the remaining integration tests with SMALL_TRANCHES (nightly tier)
+  ########################
+  integration-test-nightly:
+    # Uses the same name and steps as the integration-test job so the check
+    # names don't change.
+    name: Run itests
+    needs: ci-gate
+    if: ${{ !cancelled() && needs.ci-gate.outputs.tier == 'nightly' }}
+    runs-on: ubuntu-latest
+    strategy:
+      # Allow other tests in the matrix to continue if one fails.
+      fail-fast: false
+      matrix:
+        include:
+          - name: bitcoind-rpcpolling
+            args: backend="bitcoind rpcpolling"
+          - name: bitcoind-sqlite-nativesql
+            args: backend=bitcoind dbbackend=sqlite nativesql=true
+          - name: bitcoind-sqlite=nativesql-experiment
+            args: backend=bitcoind dbbackend=sqlite nativesql=true tags=test_native_sql
+          - name: bitcoind-postgres-nativesql
+            args: backend=bitcoind dbbackend=postgres nativesql=true
+          - name: bitcoind-postgres-nativesql-experiment
+            args: backend=bitcoind dbbackend=postgres nativesql=true tags=test_native_sql
+    steps: *integration-test-steps
 
   ########################
   # run windows integration test
   ########################
   windows-integration-test:
     name: Run windows itest
-    # Not a required check, so it can be skipped at the job level. Draft PRs
-    # only run the fast subset (see the unit-test and basic itest jobs).
+    # Not a required check, so it can be skipped at the job level. Only runs
+    # in the nightly tier.
     needs: ci-gate
-    if: ${{ !cancelled() && needs.ci-gate.outputs.docs-only != 'true' && github.event.pull_request.draft != true }}
+    if: ${{ !cancelled() && needs.ci-gate.outputs.tier == 'nightly' }}
     runs-on: windows-latest
     steps:
       - name: Git checkout
@@ -628,10 +742,10 @@ jobs:
   ########################
   macos-integration-test:
     name: Run macOS itest
-    # Not a required check, so it can be skipped at the job level. Draft PRs
-    # only run the fast subset (see the unit-test and basic itest jobs).
+    # Not a required check, so it can be skipped at the job level. Only runs
+    # in the nightly tier.
     needs: ci-gate
-    if: ${{ !cancelled() && needs.ci-gate.outputs.docs-only != 'true' && github.event.pull_request.draft != true }}
+    if: ${{ !cancelled() && needs.ci-gate.outputs.tier == 'nightly' }}
     runs-on: macos-14
     steps:
       - name: Git checkout
@@ -718,6 +832,8 @@ jobs:
   ########################
   milestone-check:
     name: Check release notes updated
+    # Only meaningful for pull requests, the nightly tier skips it.
+    if: github.event_name == 'pull_request' || github.event_name == 'merge_group'
     runs-on: ubuntu-latest
     steps:
       - name: Git checkout
@@ -748,6 +864,8 @@ jobs:
   ########################
   release-notes-consistency:
     name: Check release notes consistency
+    # Only meaningful for pull requests, the nightly tier skips it.
+    if: github.event_name == 'pull_request' || github.event_name == 'merge_group'
     runs-on: ubuntu-latest
     steps:
       - name: Git checkout
@@ -767,10 +885,10 @@ jobs:
   ########################
   backwards-compatibility-test:
     name: Backwards compatibility test
-    # Not a required check, so it can be skipped at the job level. Draft PRs
-    # only run the fast subset (see the unit-test and basic itest jobs).
+    # Not a required check, so it can be skipped at the job level. Gates the
+    # merge queue through the CI result job.
     needs: ci-gate
-    if: ${{ !cancelled() && needs.ci-gate.outputs.docs-only != 'true' && github.event.pull_request.draft != true }}
+    if: ${{ !cancelled() && (needs.ci-gate.outputs.tier == 'merge' || needs.ci-gate.outputs.tier == 'nightly') }}
     runs-on: ubuntu-latest
     steps:
       - name: Git checkout
@@ -830,10 +948,11 @@ jobs:
             fi
           done
 
-  # Notify about the completion of all coverage collecting jobs.
+  # Notify about the completion of all coverage collecting jobs. Coverage is
+  # only reported by the nightly tier.
   finish:
     name: Send coverage report
-    if: ${{ !cancelled() && needs.ci-gate.outputs.docs-only != 'true' }}
+    if: ${{ !cancelled() && needs.ci-gate.outputs.tier == 'nightly' }}
     needs: [ci-gate, unit-test, basic-integration-test]
     runs-on: ubuntu-latest
     timeout-minutes: 5
@@ -843,3 +962,86 @@ jobs:
         continue-on-error: true
         with:
           parallel-finished: true
+
+  ########################
+  # CI result: aggregate the gating jobs into a single check
+  ########################
+  ci-result:
+    name: CI result
+    # Runs for failed and cancelled dependencies too, so that they are reported
+    # as a failure instead of skipping this job: a skipped required check
+    # counts as passed. Merge group and nightly runs report even when they are
+    # cancelled. A pull request run is cancelled when it's superseded by a new
+    # push, and must not wait for a runner afterwards: it would hold the
+    # concurrency group and delay the new run. Cancelling a pull request run
+    # can't let a change merge untested, since the merge tier still has to
+    # pass in the merge queue.
+    if: ${{ !cancelled() || github.event_name != 'pull_request' }}
+    needs:
+      - ci-gate
+      - static-checks
+      - check-commits
+      - lint
+      - cross-compile
+      - cross-compile-arm
+      - unit-test
+      - basic-integration-test
+      - integration-test
+      - integration-test-nightly
+      - windows-integration-test
+      - macos-integration-test
+      - dep-pin
+      - milestone-check
+      - release-notes-consistency
+      - backwards-compatibility-test
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      # Every job must have succeeded or have been skipped. Skipping is only
+      # allowed for the jobs that aren't listed for the selected tier, so
+      # that a job that was skipped by mistake can never let the merge queue
+      # pass. In the pr tier the static checks and lint may be skipped for
+      # documentation-only changes.
+      - name: Check job results
+        env:
+          NEEDS: ${{ toJSON(needs) }}
+          TIER: ${{ needs.ci-gate.outputs.tier }}
+        run: |
+          pr_jobs="ci-gate check-commits cross-compile unit-test
+            basic-integration-test dep-pin milestone-check
+            release-notes-consistency"
+          merge_jobs="ci-gate static-checks lint cross-compile cross-compile-arm
+            unit-test basic-integration-test integration-test dep-pin
+            milestone-check release-notes-consistency
+            backwards-compatibility-test"
+          nightly_jobs="ci-gate static-checks lint cross-compile
+            cross-compile-arm unit-test basic-integration-test integration-test
+            integration-test-nightly windows-integration-test
+            macos-integration-test dep-pin backwards-compatibility-test"
+
+          case "$TIER" in
+            pr) must_succeed=$pr_jobs ;;
+            merge) must_succeed=$merge_jobs ;;
+            nightly) must_succeed=$nightly_jobs ;;
+            *) echo "::error::Unknown tier '${TIER}'"; exit 1 ;;
+          esac
+
+          # Pad the list with spaces to match whole job names only.
+          must_succeed=" $(echo $must_succeed) "
+
+          echo "Tier: ${TIER}"
+          failed=0
+          for job in $(jq -r 'keys[]' <<< "$NEEDS"); do
+            result=$(jq -r --arg j "$job" '.[$j].result' <<< "$NEEDS")
+            echo "${job}: ${result}"
+            if [[ "$result" == "success" ]]; then
+              continue
+            fi
+            if [[ "$result" == "skipped" && "$must_succeed" != *" ${job} "* ]]; then
+              continue
+            fi
+            echo "::error::Job ${job} finished with result ${result}"
+            failed=1
+          done
+
+          exit $failed

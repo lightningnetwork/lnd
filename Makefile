@@ -81,11 +81,17 @@ ifdef CI
 # In CI, build the tools image through BuildKit with the GitHub Actions
 # cache backend, so the expensive layer that compiles the custom linter
 # is restored from the cache store instead of being rebuilt on every
-# cold runner. The runner exposes the required credentials; see the lint
-# job in .github/workflows/main.yml. Local builds (no CI) keep the
-# default local layer cache and don't need the flags.
-export DOCKER_BUILD_ARGS = --load --cache-from type=gha \
-	--cache-to type=gha,mode=min
+# cold runner. Only the nightly run writes a new snapshot: an exported
+# image is roughly 650 MiB, and exporting from every PR would evict the
+# shared Go build caches. The runner exposes the required credentials;
+# see the lint job in .github/workflows/main.yml. Local builds (no CI)
+# keep the default local layer cache and don't need the flags.
+export DOCKER_BUILD_ARGS = --load --progress=plain --cache-from type=gha
+ifdef LINT_WRITE_CACHE
+# A cache export is only an optimization. If GitHub's cache service is
+# unavailable or rate-limits us, keep the lint result green.
+DOCKER_BUILD_ARGS += --cache-to type=gha,mode=min,ignore-error=true
+endif
 # CI mode: bind mount to host paths that GitHub Actions caches.
 DOCKER_TOOLS_BASE = docker run \
   --rm \
@@ -231,11 +237,7 @@ release-notes:
 
 docker-tools:
 	@$(call print, "Building tools docker image.")
-	# Use BuildKit so the expensive step that compiles the custom linter from
-	# source can be restored from a remote build cache. On CI the cache
-	# configuration is passed in through DOCKER_BUILD_ARGS (see the lint
-	# job), locally the build cache falls back to the default local one.
-	docker build -q -t lnd-tools $(DOCKER_BUILD_ARGS) $(TOOLS_DIR)
+	docker build -t lnd-tools $(DOCKER_BUILD_ARGS) $(TOOLS_DIR)
 
 scratch: build
 

@@ -357,6 +357,10 @@ jobs:
         uses: docker/setup-buildx-action@8d2750c68a42422c14e847fe6c8ac0403b4cbd6f
 
       - name: lint
+        env:
+          # Only the nightly run writes the linter image cache, see the
+          # Makefile's docker-tools target for why.
+          LINT_WRITE_CACHE: ${{ inputs.tier == 'nightly' && '1' || '' }}
         run: GOGC=50 make lint
 
       - name: lint submodules

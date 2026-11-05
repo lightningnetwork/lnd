@@ -356,6 +356,32 @@ jobs:
         # docker/setup-buildx-action v3
         uses: docker/setup-buildx-action@8d2750c68a42422c14e847fe6c8ac0403b4cbd6f
 
+      # golangci-lint keeps a per-file analysis cache that makes repeat
+      # runs skip packages whose sources didn't change. The lint targets
+      # bind mount this directory into the tools container as
+      # /root/.cache/golangci-lint, but nothing ever persisted it between
+      # runs, so every lint job re-analyzed the whole repo from scratch
+      # ("File cache stats: 0 entries of total size 0B" in the logs).
+      #
+      # Restore the most recent snapshot in every run, keyed by the lint
+      # config, the tools module and the custom linter plugins, so a run
+      # never reuses analysis results produced by a different linter. Only
+      # the nightly run saves a new snapshot (the workflow's tier input):
+      # entries saved by PR and merge queue runs are only readable by that
+      # same PR and by master, so saving from every run would churn the
+      # repo's shared cache space, which is already at its size limit,
+      # without any reuse. The nightly run also lints master, so its
+      # snapshot covers the sources most PRs share. golangci-lint's own
+      # cache metadata decides which entries are valid for the sources at
+      # hand, so stale entries from an older snapshot are re-analyzed.
+      - name: golangci-lint analysis cache
+        uses: actions/cache/restore@v4
+        with:
+          path: ~/.cache/golangci-lint
+          key: lint-analysis-${{ runner.os }}-go-${{ env.GO_VERSION }}-${{ hashFiles('.golangci.yml', 'tools/go.mod', 'tools/go.sum', 'tools/.custom-gcl.yml', 'tools/linters/**/*.go') }}-${{ github.run_id }}
+          restore-keys: |
+            lint-analysis-${{ runner.os }}-go-${{ env.GO_VERSION }}-${{ hashFiles('.golangci.yml', 'tools/go.mod', 'tools/go.sum', 'tools/.custom-gcl.yml', 'tools/linters/**/*.go') }}-
+
       - name: lint
         env:
           # Only the nightly run writes the linter image cache, see the
@@ -365,6 +391,15 @@ jobs:
 
       - name: lint submodules
         run: GOGC=50 make lint-module
+
+      # Save after both lint steps, including on a failure, so the
+      # analysis that did run isn't lost. A cancelled run is left alone.
+      - name: Save golangci-lint analysis cache
+        if: ${{ !cancelled() && inputs.tier == 'nightly' }}
+        uses: actions/cache/save@v4
+        with:
+          path: ~/.cache/golangci-lint
+          key: lint-analysis-${{ runner.os }}-go-${{ env.GO_VERSION }}-${{ hashFiles('.golangci.yml', 'tools/go.mod', 'tools/go.sum', 'tools/.custom-gcl.yml', 'tools/linters/**/*.go') }}-${{ github.run_id }}
 
   ########################
   # cross compilation

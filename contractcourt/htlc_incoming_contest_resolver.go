@@ -2,6 +2,7 @@ package contractcourt
 
 import (
 	"bytes"
+	"context"
 	"encoding/binary"
 	"errors"
 	"fmt"
@@ -313,6 +314,16 @@ func (h *htlcIncomingContestResolver) Resolve() (ContractResolver, error) {
 		witnessUpdates <-chan lntypes.Preimage
 	)
 	if payload.FwdInfo.IsExit() {
+		// Resolve a recorded AMP HTLC from its settled invoice state
+		// before applying validation for new HTLCs.
+		applied, err := h.applyAMPPreimage(payload)
+		if err != nil {
+			return nil, err
+		}
+		if applied {
+			return h.htlcSuccessResolver, nil
+		}
+
 		// Create a buffered hodl chan to prevent deadlock.
 		hodlQueue := queue.NewConcurrentQueue(10)
 		hodlQueue.Start()
@@ -631,19 +642,52 @@ func (h *htlcIncomingContestResolver) Supplement(htlc channeldb.HTLC) {
 func (h *htlcIncomingContestResolver) SupplementDeadline(_ fn.Option[int32]) {
 }
 
+// applyAMPPreimage looks up the child preimage of a settled AMP HTLC and
+// applies it to the resolver if found. It returns true if a preimage was
+// applied.
+func (h *htlcIncomingContestResolver) applyAMPPreimage(
+	payload *hop.Payload) (bool, error) {
+
+	preimage, ok, err := lookupAMPPreimage(
+		h.Registry, payload, h.htlc.RHash,
+	)
+	if err != nil {
+		return false, err
+	}
+	if !ok {
+		return false, nil
+	}
+
+	h.log.Debugf("found settled AMP preimage for htlc=%x", h.htlc.RHash)
+
+	if err := h.applyPreimage(preimage); err != nil {
+		return false, err
+	}
+
+	return true, nil
+}
+
 // decodePayload (re)decodes the hop payload of a received htlc.
 func (h *htlcIncomingContestResolver) decodePayload() (*hop.Payload,
 	[]byte, error) {
 
+	return decodeIncomingPayload(h.OnionProcessor, &h.htlc)
+}
+
+// decodeIncomingPayload decodes the hop payload of an incoming HTLC from its
+// onion blob, and returns it together with the onion blob for the next hop.
+func decodeIncomingPayload(processor OnionProcessor,
+	htlc *channeldb.HTLC) (*hop.Payload, []byte, error) {
+
 	blindingInfo := hop.ReconstructBlindingInfo{
-		IncomingAmt:    h.htlc.Amt,
-		IncomingExpiry: h.htlc.RefundTimeout,
-		BlindingKey:    h.htlc.BlindingPoint,
+		IncomingAmt:    htlc.Amt,
+		IncomingExpiry: htlc.RefundTimeout,
+		BlindingKey:    htlc.BlindingPoint,
 	}
 
-	onionReader := bytes.NewReader(h.htlc.OnionBlob[:])
-	iterator, err := h.OnionProcessor.ReconstructHopIterator(
-		onionReader, h.htlc.RHash[:], blindingInfo,
+	onionReader := bytes.NewReader(htlc.OnionBlob[:])
+	iterator, err := processor.ReconstructHopIterator(
+		onionReader, htlc.RHash[:], blindingInfo,
 	)
 	if err != nil {
 		return nil, nil, err
@@ -663,6 +707,23 @@ func (h *htlcIncomingContestResolver) decodePayload() (*hop.Payload,
 	}
 
 	return payload, onionBlob[:], nil
+}
+
+// lookupAMPPreimage returns the child preimage of an incoming AMP HTLC that
+// pays to us as the exit hop, if the invoice registry has already settled it.
+// AMP invoices have no invoice-level preimage, so the child preimage can only
+// be found on the settled invoice HTLC, identified by the set ID carried in
+// the onion payload.
+func lookupAMPPreimage(registry Registry, payload *hop.Payload,
+	hash lntypes.Hash) (lntypes.Preimage, bool, error) {
+
+	if !payload.FwdInfo.IsExit() || payload.AMP == nil {
+		return lntypes.Preimage{}, false, nil
+	}
+
+	return registry.LookupAMPHtlcPreimage(
+		context.Background(), payload.AMP.SetID(), hash,
+	)
 }
 
 // A compile time assertion to ensure htlcIncomingContestResolver meets the
@@ -719,6 +780,13 @@ func (h *htlcIncomingContestResolver) findAndapplyPreimage() (bool, error) {
 	// let Resolve record the failed final outcome.
 	if h.invalidFinalHtlc(payload, h.broadcastHeight) {
 		return false, nil
+	}
+
+	// AMP child preimages aren't stored at the invoice level, so check
+	// whether the registry already settled this HTLC as part of its set.
+	applied, err := h.applyAMPPreimage(payload)
+	if err != nil || applied {
+		return applied, err
 	}
 
 	// Notify registry that we are potentially resolving as an exit hop

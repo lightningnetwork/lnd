@@ -2,6 +2,7 @@ package contractcourt
 
 import (
 	"bytes"
+	"errors"
 	"io"
 	"testing"
 
@@ -20,6 +21,7 @@ import (
 	"github.com/lightningnetwork/lnd/lntypes"
 	"github.com/lightningnetwork/lnd/lnwallet"
 	"github.com/lightningnetwork/lnd/lnwire"
+	"github.com/lightningnetwork/lnd/record"
 	"github.com/stretchr/testify/require"
 )
 
@@ -148,6 +150,108 @@ func TestHtlcIncomingResolverExitSettle(t *testing.T) {
 
 		t.Fatal("unexpected onion blob")
 	}
+}
+
+// TestHtlcIncomingResolverExitSettleAMP tests that a settled AMP HTLC is
+// claimed with its child preimage from the invoice registry, even if the
+// registry would reject the HTLC as a new payment at the current height.
+func TestHtlcIncomingResolverExitSettleAMP(t *testing.T) {
+	t.Parallel()
+	defer timeout()()
+
+	setID := [32]byte{1}
+
+	ctx := newIncomingResolverTestContext(t, true)
+	ctx.onionProcessor.amp = record.NewAMP([32]byte{2}, setID, 0)
+	ctx.registry.ampPreimages = map[[32]byte][]lntypes.Preimage{
+		setID: {testResPreimage},
+	}
+
+	// Ensure the settled lookup is applied before new-HTLC validation.
+	ctx.registry.notifyResolution = invoices.NewFailResolution(
+		testResCircuitKey, testAcceptHeight, invoices.ResultAmpError,
+	)
+
+	ctx.resolve()
+	ctx.waitForResult(true)
+
+	require.Zero(t, ctx.registry.notifyCalls.Load())
+}
+
+// TestHtlcIncomingResolverAMPSettlesAfterLaunch asserts that Resolve retries
+// the side-effect-free AMP preimage lookup when Launch ran before the AMP set
+// settled.
+func TestHtlcIncomingResolverAMPSettlesAfterLaunch(t *testing.T) {
+	t.Parallel()
+	defer timeout()()
+
+	setID := [32]byte{1}
+	ctx := newIncomingResolverTestContext(t, true)
+	ctx.onionProcessor.amp = record.NewAMP([32]byte{2}, setID, 0)
+
+	// Launch cannot find the child preimage while the shard is only
+	// accepted. In particular, it must leave the contest resolver active.
+	err := ctx.resolver.Launch()
+	require.NoError(t, err)
+	require.False(t, ctx.resolver.IsResolved())
+
+	// Complete the AMP set after Launch. Resolve must perform the lookup
+	// again and claim the HTLC with the newly stored child preimage.
+	ctx.registry.ampPreimages = map[[32]byte][]lntypes.Preimage{
+		setID: {testResPreimage},
+	}
+
+	ctx.resolveErr = make(chan error, 1)
+	go func() {
+		var err error
+		ctx.nextResolver, err = ctx.resolver.Resolve()
+		ctx.resolveErr <- err
+	}()
+
+	ctx.notifyEpoch(testInitialBlockHeight)
+	ctx.waitForResult(true)
+}
+
+// TestHtlcIncomingResolverAMPPreimageLookupError asserts that AMP invoice
+// lookup errors are returned by both resolver entry points without mutating
+// the invoice through NotifyExitHopHtlc.
+func TestHtlcIncomingResolverAMPPreimageLookupError(t *testing.T) {
+	t.Parallel()
+
+	lookupErr := errors.New("lookup failed")
+	newContext := func(t *testing.T) *incomingResolverTestContext {
+		ctx := newIncomingResolverTestContext(t, true)
+		ctx.onionProcessor.amp = record.NewAMP(
+			[32]byte{2}, [32]byte{1}, 0,
+		)
+		ctx.registry.ampLookupErr = lookupErr
+
+		return ctx
+	}
+
+	t.Run("launch", func(t *testing.T) {
+		ctx := newContext(t)
+
+		err := ctx.resolver.Launch()
+		require.ErrorIs(t, err, lookupErr)
+		require.Zero(t, ctx.registry.notifyCalls.Load())
+	})
+
+	t.Run("resolve", func(t *testing.T) {
+		defer timeout()()
+
+		ctx := newContext(t)
+		resolveErr := make(chan error, 1)
+		go func() {
+			_, err := ctx.resolver.Resolve()
+			resolveErr <- err
+		}()
+
+		ctx.notifyEpoch(testInitialBlockHeight)
+		require.ErrorIs(t, <-resolveErr, lookupErr)
+		require.Zero(t, ctx.registry.notifyCalls.Load())
+		require.False(t, ctx.resolver.IsResolved())
+	})
 }
 
 // TestHtlcIncomingResolverExitCancel tests resolution of an exit hop htlc for
@@ -377,6 +481,7 @@ type mockHopIterator struct {
 	isExit        bool
 	forwardAmount int
 	outgoingCltv  uint32
+	amp           *record.AMP
 	hop.Iterator
 }
 
@@ -396,13 +501,16 @@ func (h *mockHopIterator) HopPayload() (*hop.Payload, hop.RouteRole, error) {
 		outgoingCltv = 40
 	}
 
-	return hop.NewLegacyPayload(&sphinx.HopData{
+	payload := hop.NewLegacyPayload(&sphinx.HopData{
 		Realm:         [1]byte{},
 		NextAddress:   nextAddress,
 		ForwardAmount: uint64(forwardAmount),
 		OutgoingCltv:  outgoingCltv,
 		ExtraBytes:    [12]byte{},
-	}), hop.RouteRoleCleartext, nil
+	})
+	payload.AMP = h.amp
+
+	return payload, hop.RouteRoleCleartext, nil
 }
 
 func (h *mockHopIterator) EncodeNextHop(w io.Writer) error {
@@ -413,6 +521,7 @@ type mockOnionProcessor struct {
 	isExit           bool
 	forwardAmount    int
 	outgoingCltv     uint32
+	amp              *record.AMP
 	offeredOnionBlob []byte
 }
 
@@ -429,6 +538,7 @@ func (o *mockOnionProcessor) ReconstructHopIterator(r io.Reader, rHash []byte,
 		isExit:        o.isExit,
 		forwardAmount: o.forwardAmount,
 		outgoingCltv:  o.outgoingCltv,
+		amp:           o.amp,
 	}, nil
 }
 

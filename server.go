@@ -906,9 +906,16 @@ func newServer(ctx context.Context, cfg *Config, listenAddrs []net.Addr,
 		)
 		replier := bolt12handler.NewServerOnionReplier(s)
 
+		var pathIDKey bolt12handler.PathIDKey
+		pathIDKey, err = bolt12handler.DerivePathIDKey(nodeKeyECDH)
+		if err != nil {
+			return nil, err
+		}
+
 		// Use the final CLTV delta of BOLT 11 invoices.
 		s.bolt12Handler, err = bolt12handler.NewHandler(
-			s.offerStore, s.invoices, replier, signer, nil,
+			s.offerStore, s.invoices, replier, signer, pathIDKey,
+			nil,
 			clock.NewDefaultClock(),
 			*s.cfg.ActiveNetParams.GenesisHash,
 			uint16(cfg.Bitcoin.TimeLockDelta),

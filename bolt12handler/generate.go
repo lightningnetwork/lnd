@@ -1,7 +1,6 @@
 package bolt12handler
 
 import (
-	"crypto/rand"
 	"errors"
 	"fmt"
 	"math/bits"
@@ -10,7 +9,9 @@ import (
 	"github.com/btcsuite/btcd/btcec/v2"
 	sphinx "github.com/lightningnetwork/lightning-onion"
 	"github.com/lightningnetwork/lnd/bolt12"
+	"github.com/lightningnetwork/lnd/bolt12handler/envelope"
 	"github.com/lightningnetwork/lnd/clock"
+	"github.com/lightningnetwork/lnd/fn/v2"
 	"github.com/lightningnetwork/lnd/lntypes"
 	"github.com/lightningnetwork/lnd/lnwire"
 	"github.com/lightningnetwork/lnd/record"
@@ -30,6 +31,15 @@ var (
 	errOfferWithoutIssuerID = errors.New("offer without " +
 		"offer_issuer_id is not supported")
 
+	// errMissingPayerID is returned for an invoice request without
+	// invreq_payer_id. The invoice envelope must carry the payer id.
+	errMissingPayerID = errors.New("invoice request has no " +
+		"invreq_payer_id")
+
+	// errPayerNoteTooLong is returned for an invoice request whose
+	// invreq_payer_note is longer than envelope.MaxPayerNoteLen.
+	errPayerNoteTooLong = errors.New("invreq_payer_note is too long")
+
 	// errCurrencyConversion is returned when the invoice amount needs a
 	// conversion from offer_currency to msat. The handler has no exchange
 	// rate.
@@ -45,6 +55,10 @@ type InvoiceConfig struct {
 	// PathBuilder constructs the blinded payment paths. If it is nil, the
 	// invoice uses a single-hop blinded path to this node.
 	PathBuilder PaymentPathBuilder
+
+	// PathIDKey computes the payment path id and the preimage of the
+	// invoice.
+	PathIDKey PathIDKey
 
 	// Clock provides the invoice creation time.
 	Clock clock.Clock
@@ -64,6 +78,9 @@ func (c *InvoiceConfig) Validate() error {
 
 	case c.Clock == nil:
 		return errors.New("invoice config has no clock")
+
+	case c.PathIDKey == PathIDKey{}:
+		return errors.New("invoice config has no path id key")
 	}
 
 	return nil
@@ -80,13 +97,13 @@ type PaymentPathResult struct {
 }
 
 // PaymentPathBuilder constructs blinded payment paths for a BOLT 12 invoice.
-// The builder receives the invoice amount and a path_id to embed in the final
-// hop's encrypted data.
+// The builder receives the invoice amount, a path_id, and an optional invoice
+// envelope to embed in the final hop's encrypted data.
 type PaymentPathBuilder interface {
 	// BuildPaymentPaths returns blinded payment paths suitable for
 	// embedding in a BOLT 12 invoice.
-	BuildPaymentPaths(amountMsat uint64,
-		pathID []byte) (*PaymentPathResult, error)
+	BuildPaymentPaths(amountMsat uint64, pathID []byte,
+		invoiceEnvelope []byte) (*PaymentPathResult, error)
 }
 
 // InvoiceResult contains the output of invoice generation.
@@ -110,10 +127,11 @@ type InvoiceResult struct {
 
 // GenerateInvoice creates a BOLT 12 invoice in response to a validated invoice
 // request. The invoice mirrors the request, and the node identity key signs
-// it. If cfg.PathBuilder is nil or fails, a single-hop blinded path is used as
-// fallback.
-func GenerateInvoice(cfg *InvoiceConfig,
-	ir *bolt12.InvoiceRequest) (*InvoiceResult, error) {
+// it. The invoice envelope records offerHash, the hash of the offer that the
+// request answers. If cfg.PathBuilder is nil or fails, a single-hop blinded
+// path is used as fallback.
+func GenerateInvoice(cfg *InvoiceConfig, ir *bolt12.InvoiceRequest,
+	offerHash [32]byte) (*InvoiceResult, error) {
 
 	if err := cfg.Validate(); err != nil {
 		return nil, err
@@ -129,26 +147,60 @@ func GenerateInvoice(cfg *InvoiceConfig,
 		return nil, errOfferWithoutIssuerID
 	}
 
-	var preimage lntypes.Preimage
-	if _, err := rand.Read(preimage[:]); err != nil {
-		return nil, fmt.Errorf("generate preimage: %w", err)
-	}
-	paymentHash := preimage.Hash()
-
-	var pathID [32]byte
-	if _, err := rand.Read(pathID[:]); err != nil {
-		return nil, fmt.Errorf("generate path_id: %w", err)
-	}
-
-	invoiceAmount, err := computeInvoiceAmount(ir)
+	payerID, err := ir.InvreqPayerID.ValOpt().UnwrapOrErr(
+		errMissingPayerID,
+	)
 	if err != nil {
 		return nil, err
 	}
 
+	// The envelope carries the payer note on every blinded hop, so a long
+	// note would use the onion budget of the payer.
+	//
+	// TODO: Answer with an invoice_error once the handler sends invoice
+	// errors.
+	payerNote := ir.InvreqPayerNote.ValOpt().UnwrapOr(nil)
+	if len(payerNote) > envelope.MaxPayerNoteLen {
+		return nil, fmt.Errorf("%w: %d bytes", errPayerNoteTooLong,
+			len(payerNote))
+	}
+
+	// The envelope carries the invoice state for stateless BOLT 12
+	// settlement. The envelope and the invoice share the creation time.
+	invoiceAmount, err := computeInvoiceAmount(ir)
+	if err != nil {
+		return nil, err
+	}
+	now := cfg.Clock.Now()
+	invoiceEnvelope, err := envelope.Encode(&envelope.Data{
+		OfferHash: fn.Some(offerHash),
+		PayerID:   [33]byte(payerID.SerializeCompressed()),
+		CreatedAt: uint64(now.Unix()),
+		Amount:    invoiceAmount,
+		Quantity:  uint64(ir.InvreqQuantity.ValOpt().UnwrapOr(0)),
+		PayerNote: payerNote,
+	})
+	if err != nil {
+		return nil, fmt.Errorf("encode envelope: %w", err)
+	}
+
+	// The path id authenticates the envelope and gives the preimage, so
+	// the node stores nothing until the payment arrives.
+	binding := EnvelopeBinding(invoiceEnvelope)
+	pathID, err := cfg.PathIDKey.newPaymentPathID(binding)
+	if err != nil {
+		return nil, err
+	}
+	preimage, ok := cfg.PathIDKey.checkPaymentPathID(pathID[:], binding)
+	if !ok {
+		return nil, errors.New("new payment path id does not verify")
+	}
+	paymentHash := preimage.Hash()
+
 	var pathResult *PaymentPathResult
 	if cfg.PathBuilder != nil {
 		pathResult, err = cfg.PathBuilder.BuildPaymentPaths(
-			invoiceAmount, pathID[:],
+			invoiceAmount, pathID[:], invoiceEnvelope,
 		)
 		switch {
 		case err != nil:
@@ -175,7 +227,7 @@ func GenerateInvoice(cfg *InvoiceConfig,
 	// instead of using the single-hop path.
 	if pathResult == nil {
 		path, pathErr := buildSingleHopBlindedPath(
-			cfg.Signer.NodePubKey(), pathID[:],
+			cfg.Signer.NodePubKey(), pathID[:], invoiceEnvelope,
 		)
 		if pathErr != nil {
 			return nil, fmt.Errorf("build single-hop path: %w",
@@ -207,7 +259,7 @@ func GenerateInvoice(cfg *InvoiceConfig,
 
 	inv := buildInvoiceFromRequest(
 		ir, cfg.Signer.NodePubKey(), paymentHash, pathResult,
-		invoiceAmount, cfg.Clock.Now(),
+		invoiceAmount, now,
 	)
 
 	signedInv, encoded, err := signAndEncode(inv, cfg.Signer)
@@ -337,9 +389,11 @@ func expectedOfferAmount(offerAmount, quantity uint64) (uint64, error) {
 
 // buildSingleHopBlindedPath creates a single-hop blinded payment path for the
 // direct-peer case. The introduction node is the receiver itself, and the
-// single hop's encrypted data carries the path_id for invoice lookup.
+// single hop's encrypted data carries the path_id for invoice lookup and the
+// invoice envelope for settlement.
 func buildSingleHopBlindedPath(nodePubKey *btcec.PublicKey,
-	pathID []byte) (lnwire.BlindedPath, error) {
+	pathID []byte,
+	invoiceEnvelope []byte) (lnwire.BlindedPath, error) {
 
 	sessionKey, err := btcec.NewPrivateKey()
 	if err != nil {
@@ -347,8 +401,11 @@ func buildSingleHopBlindedPath(nodePubKey *btcec.PublicKey,
 			"key: %w", err)
 	}
 
-	// The path_id lets the receiver match the incoming HTLC to the invoice.
-	routeData := record.NewFinalHopBlindedRouteData(nil, pathID, nil)
+	// The path_id lets the receiver match the incoming HTLC, and the
+	// optional envelope lets it reconstruct the invoice.
+	routeData := record.NewFinalHopBlindedRouteData(
+		nil, pathID, invoiceEnvelope,
+	)
 	plainText, err := record.EncodeBlindedRouteData(routeData)
 	if err != nil {
 		return lnwire.BlindedPath{}, fmt.Errorf("encode route data: %w",

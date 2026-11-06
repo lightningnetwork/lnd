@@ -1,7 +1,12 @@
 package itest
 
 import (
+	"context"
+	"encoding/hex"
 	"fmt"
+	"os"
+	"os/exec"
+	"path/filepath"
 	"testing"
 	"time"
 
@@ -13,12 +18,16 @@ import (
 	"github.com/lightningnetwork/lnd/lnrpc"
 	"github.com/lightningnetwork/lnd/lnrpc/signrpc"
 	"github.com/lightningnetwork/lnd/lnrpc/walletrpc"
+	"github.com/lightningnetwork/lnd/lnrpc/watchonlyrpc"
 	"github.com/lightningnetwork/lnd/lntest"
 	"github.com/lightningnetwork/lnd/lntest/node"
 	"github.com/lightningnetwork/lnd/lntest/port"
 	"github.com/lightningnetwork/lnd/lntest/wait"
 	"github.com/lightningnetwork/lnd/lnwallet/rpcwallet"
+	"github.com/lightningnetwork/lnd/signal"
 	"github.com/stretchr/testify/require"
+	"google.golang.org/grpc/codes"
+	"google.golang.org/grpc/status"
 )
 
 // remoteSignerTestCases defines a set of test cases to run against the remote
@@ -732,6 +741,7 @@ func testOutboundRSMacaroonEnforcement(ht *lntest.HarnessTest) {
 	// signer node, which can take a while on slow CI runners and remote
 	// database backends. Give the signer the default timeout to connect.
 	watchOnlyArgs := []string{
+		"--rpcmiddleware.enable",
 		"--remotesigner.enable",
 		"--remotesigner.experimentalallowinboundconnection",
 		fmt.Sprintf("--remotesigner.experimentalrpclisten=%s",
@@ -745,7 +755,7 @@ func testOutboundRSMacaroonEnforcement(ht *lntest.HarnessTest) {
 	// works as expected.
 	watchOnly := ht.CreateNewNode("WatchOnly", watchOnlyArgs, nil, false)
 
-	startChan := make(chan error)
+	startChan := make(chan error, 1)
 
 	// Start the watch-only node in a goroutine as it requires a remote
 	// signer to connect before it can fully start.
@@ -815,12 +825,140 @@ func testOutboundRSMacaroonEnforcement(ht *lntest.HarnessTest) {
 		),
 	}
 
-	_ = ht.NewNode("Signer", signerArgs)
+	signer := ht.NewNode("Signer", signerArgs)
 
 	// Finally, wait and ensure that the watch-only node is able to start
 	// up properly.
 	err = <-startChan
 	require.NoError(ht, err, "Shouldn't error on watch-only node startup")
+
+	// Bake the narrow stream credential only after the main RPC is active.
+	// Restarting the same signer proves authorized reconnect and actual
+	// signing, complementing the rejected invoice macaroon above.
+	baked, err := watchOnly.RPC.LN.BakeMacaroon(
+		ht.Context(), &lnrpc.BakeMacaroonRequest{
+			Permissions: []*lnrpc.MacaroonPermission{
+				{
+					Entity: "remotesigner",
+					Action: "generate",
+				},
+			},
+		},
+	)
+	require.NoError(ht, err)
+	credential, err := hex.DecodeString(baked.GetMacaroon())
+	require.NoError(ht, err)
+	macPath := filepath.Join(ht.TempDir(), "restricted-signer.macaroon")
+	require.NoError(ht, os.WriteFile(macPath, credential, 0600))
+
+	// Reuse the read-only middleware harness, but keep every assertion in
+	// the owning test. The observer drains and acknowledges messages during
+	// reconnect; its final result is returned through a buffered channel.
+	observer := registerMiddleware(
+		ht.T, watchOnly, &lnrpc.MiddlewareRegistration{
+			MiddlewareName: "remote-signer-observer",
+			ReadOnlyMode:   true,
+		}, true,
+	)
+	defer observer.cancel()
+	type observation struct {
+		methods []string
+		err     error
+	}
+	observed := make(chan observation, 1)
+	controlSeen := make(chan struct{}, 1)
+	go func() {
+		var methods []string
+		for {
+			message, err := observer.stream.Recv()
+			if err != nil {
+				observed <- observation{
+					methods: methods,
+					err:     err,
+				}
+
+				return
+			}
+			method := message.GetRequest().GetMethodFullUri()
+			if method == "" {
+				method = message.GetResponse().
+					GetMethodFullUri()
+			}
+			if method == "" {
+				method = message.GetStreamAuth().
+					GetMethodFullUri()
+			}
+			if method != "" {
+				methods = append(methods, method)
+			}
+			err = observer.stream.Send(&lnrpc.RPCMiddlewareResponse{
+				RefMsgId: message.GetMsgId(),
+				MiddlewareMessage: &lnrpc.
+					RPCMiddlewareResponse_Feedback{
+					Feedback: &lnrpc.InterceptFeedback{},
+				},
+			})
+			if err != nil {
+				observed <- observation{
+					methods: methods,
+					err:     err,
+				}
+
+				return
+			}
+			if method == "/lnrpc.Lightning/GetInfo" {
+				select {
+				case controlSeen <- struct{}{}:
+
+				default:
+				}
+			}
+		}
+	}()
+	restrictedArgs := append([]string(nil), signerArgs...)
+	restrictedArgs[len(restrictedArgs)-1] = fmt.Sprintf(
+		"--watchonlynode.macaroonpath=%s", macPath,
+	)
+	ht.RestartNodeWithExtraArgs(signer, restrictedArgs)
+	message := []byte("authorized outbound signer after reconnect")
+	signed := watchOnly.RPC.SignMessage(message)
+	recovered := watchOnly.RPC.VerifyMessage(message, signed.GetSignature())
+	require.Equal(ht, signer.PubKeyStr, recovered.GetPubkey())
+	watchOnly.RPC.GetInfo()
+	select {
+	case <-controlSeen:
+
+	case <-time.After(defaultTimeout):
+		ht.Fatal("main RPC was not observed by middleware")
+	}
+	observer.cancel()
+	result := <-observed
+	require.Equal(ht, codes.Canceled, status.Code(result.err))
+	require.Contains(ht, result.methods, "/lnrpc.Lightning/GetInfo")
+	streamMethod := watchonlyrpc.FullMethodSignCoordinatorStreams
+	require.NotContains(ht, result.methods, streamMethod)
+
+	// Cancel the middleware before the outage. A real signing request now
+	// outlives the adapter's 15s request deadline; that deadline can
+	// request shutdown, while the default valid health check remains the
+	// backstop.
+	ht.Shutdown(signer)
+	ctx, cancel := context.WithTimeout(ht.Context(), 20*time.Second)
+	defer cancel()
+	_, err = watchOnly.RPC.LN.SignMessage(ctx, &lnrpc.SignMessageRequest{
+		Msg: []byte("signer is offline"),
+	})
+	require.Error(ht, err)
+
+	// The request deadline or default health check can trigger shutdown;
+	// both causes have a failure exit status.
+	var exitErr *exec.ExitError
+	require.ErrorAs(ht, watchOnly.WaitForProcessExit(), &exitErr)
+	require.Contains(ht, []signal.ExitCode{
+		signal.ExitCodeCriticalError,
+		signal.ExitCodeRemoteSigner,
+	}, signal.ExitCode(exitErr.ExitCode()))
+
 }
 
 // deriveCustomScopeAccounts derives the first 255 default accounts of the

@@ -1,22 +1,31 @@
 package lnd
 
 import (
+	"context"
+	"crypto/tls"
+	"crypto/x509"
 	"errors"
 	"fmt"
 	"testing"
 	"time"
 
+	"github.com/lightningnetwork/lnd/cert"
 	"github.com/lightningnetwork/lnd/channeldb"
 	"github.com/lightningnetwork/lnd/fn/v2"
 	"github.com/lightningnetwork/lnd/graph/db/models"
 	"github.com/lightningnetwork/lnd/lnrpc"
+	"github.com/lightningnetwork/lnd/lnrpc/watchonlyrpc"
+	"github.com/lightningnetwork/lnd/lnwallet/rpcwallet"
 	"github.com/lightningnetwork/lnd/lnwire"
 	"github.com/lightningnetwork/lnd/rpcperms"
 	"github.com/lightningnetwork/lnd/signal"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/mock"
 	"github.com/stretchr/testify/require"
+	"google.golang.org/grpc"
 	"google.golang.org/grpc/codes"
+	"google.golang.org/grpc/credentials"
+	"google.golang.org/grpc/keepalive"
 	"google.golang.org/grpc/status"
 	"google.golang.org/protobuf/proto"
 )
@@ -289,6 +298,104 @@ func TestStopDaemonRecoveryGuard(t *testing.T) {
 			}
 		})
 	}
+}
+
+// TestRemoteSignerMandatoryMiddleware proves unregistered main-chain mandatory
+// middleware cannot block authenticated registration on the dedicated server.
+func TestRemoteSignerMandatoryMiddleware(t *testing.T) {
+	// Arrange the production dedicated-server startup path with mandatory
+	// middleware configured but never registered on the main chain.
+	// Transport TLS remains real; macaroon authorization has its separate
+	// daemon itest.
+	cfg := DefaultConfig()
+	cfg.NoMacaroons = true
+	cfg.RPCMiddleware.Enable = true
+	cfg.RPCMiddleware.Mandatory = []string{"unregistered"}
+	cfg.RemoteSigner.Enable = true
+	cfg.RemoteSigner.ExperimentalAllowInboundConnection = true
+	cfg.RemoteSigner.ExperimentalRPCListeners = []string{"127.0.0.1:0"}
+	mainChain := rpcperms.NewInterceptorChain(
+		rpcsLog, true, cfg.RPCMiddleware.Mandatory,
+	)
+	require.NoError(t, mainChain.Start())
+	t.Cleanup(func() {
+		require.NoError(t, mainChain.Stop())
+	})
+	mainChain.SetWalletUnlocked()
+	coordinator := rpcwallet.NewInboundConnection(time.Second, time.Second)
+	t.Cleanup(coordinator.Stop)
+	certBytes, keyBytes, err := cert.GenCertPair(
+		"mandatory middleware test", nil, nil, false, time.Hour,
+	)
+	require.NoError(t, err)
+	pair, err := tls.X509KeyPair(certBytes, keyBytes)
+	require.NoError(t, err)
+	tlsCredentials := credentials.NewTLS(cert.TLSConfFromCert(pair))
+	server, listeners, chain, err := startInboundWatchOnlyRPCServer(
+		&cfg, []grpc.ServerOption{
+			grpc.Creds(tlsCredentials),
+		}, keepalive.ServerParameters{}, keepalive.EnforcementPolicy{},
+		mainChain, coordinator,
+	)
+	require.NoError(t, err)
+	t.Cleanup(func() {
+		server.Stop()
+		require.NoError(t, chain.Stop())
+	})
+	roots := x509.NewCertPool()
+	require.True(t, roots.AppendCertsFromPEM(certBytes))
+	clientCredentials := credentials.NewClientTLSFromCert(roots, "")
+	connection, err := grpc.NewClient(
+		listeners[0].Addr().String(),
+		grpc.WithTransportCredentials(clientCredentials),
+	)
+	require.NoError(t, err)
+	t.Cleanup(func() {
+		require.NoError(t, connection.Close())
+	})
+	ctx, cancel := context.WithTimeout(t.Context(), 3*time.Second)
+	defer cancel()
+	client := watchonlyrpc.NewWatchOnlyClient(connection)
+	stream, err := client.SignCoordinatorStreams(ctx)
+	require.NoError(t, err)
+	challenge := make([]byte, 32)
+	version := watchonlyrpc.RegistrationVersion
+
+	// Act by registering over the actual TLS stream while the main server
+	// still has no middleware registration or active signing dependencies.
+	require.NoError(t, stream.Send(&watchonlyrpc.SignCoordinatorResponse{
+		RefRequestId: 1,
+		SignResponseType: &rpcwallet.RSRegistration{
+			SignerRegistration: &watchonlyrpc.SignerRegistration{
+				RegistrationChallenge: challenge,
+				RegistrationInfo:      version,
+			},
+		},
+	}))
+	response, err := stream.Recv()
+
+	// Assert registration completes with a connection-bound proof instead
+	// of waiting forever for middleware that can only register later.
+	require.NoError(t, err)
+	complete := response.GetRegistrationResponse().GetRegistrationComplete()
+	require.NotNil(t, complete)
+	require.NoError(t, watchonlyrpc.VerifyRegistrationProof(
+		stream.Context(), challenge, complete.GetRegistrationInfo(),
+		complete.GetSignature(),
+	))
+
+	// The probe follows proof verification; replying proves the dedicated
+	// stream can admit work without waiting for main-server middleware.
+	ping, err := stream.Recv()
+	require.NoError(t, err)
+	require.True(t, ping.GetPing())
+	require.NoError(t, stream.Send(&rpcwallet.RSResponse{
+		RefRequestId: ping.GetRequestId(),
+		SignResponseType: &watchonlyrpc.SignCoordinatorResponse_Pong{
+			Pong: true,
+		},
+	}))
+	require.NoError(t, coordinator.WaitUntilConnected(ctx))
 }
 
 // TestMarshalDBEdgeVersions checks that the graph RPC marshalers read the

@@ -10,6 +10,7 @@ import (
 	"github.com/btcsuite/btcd/chainhash/v2"
 	"github.com/btcsuite/btcd/wire/v2"
 	"github.com/lightningnetwork/lnd/chainntnfs"
+	"github.com/lightningnetwork/lnd/channeldb"
 	"github.com/stretchr/testify/require"
 )
 
@@ -2616,5 +2617,72 @@ func assertSpendDetails(t *testing.T, result, expected *chainntnfs.SpendDetail) 
 	if result.SpendingHeight != expected.SpendingHeight {
 		t.Fatalf("expected spending height %d, got %d",
 			expected.SpendingHeight, result.SpendingHeight)
+	}
+}
+
+// BenchmarkTxNotifierConnectTip measures the per-block cost of the TxNotifier
+// when backed by a bolt height hint cache. Each iteration connects an empty
+// block, which commits a spend hint for an outstanding spend request and,
+// optionally, a confirm hint for a pending confirmation request.
+func BenchmarkTxNotifierConnectTip(b *testing.B) {
+	b.Run("spend", func(b *testing.B) {
+		benchmarkTxNotifierConnectTip(b, false)
+	})
+
+	b.Run("spend+conf", func(b *testing.B) {
+		benchmarkTxNotifierConnectTip(b, true)
+	})
+}
+
+// benchmarkTxNotifierConnectTip connects empty blocks to a TxNotifier that
+// watches one spend request that is never spent and, if withConf is set, one
+// confirmation request that never confirms.
+func benchmarkTxNotifierConnectTip(b *testing.B, withConf bool) {
+	db := channeldb.OpenForTesting(b, b.TempDir())
+	hintCache, err := channeldb.NewHeightHintCache(
+		channeldb.CacheConfig{}, db.Backend,
+	)
+	require.NoError(b, err)
+
+	const startHeight = 100
+	n := chainntnfs.NewTxNotifier(
+		startHeight, chainntnfs.ReorgSafetyLimit, hintCache, hintCache,
+	)
+	b.Cleanup(n.TearDown)
+
+	// Register with a height hint above the current height so that no
+	// historical rescan is needed. The requests are then watched at tip
+	// immediately, and their hints are updated with every block.
+	op := wire.OutPoint{Index: 1}
+	_, err = n.RegisterSpend(&op, testRawScript, startHeight+1)
+	require.NoError(b, err)
+
+	txid := chainhash.Hash{0x01}
+	if withConf {
+		_, err = n.RegisterConf(&txid, testRawScript, 1, startHeight+1)
+		require.NoError(b, err)
+	}
+
+	height := uint32(startHeight)
+	for b.Loop() {
+		height++
+		block := btcutil.NewBlock(&wire.MsgBlock{})
+		require.NoError(b, n.ConnectTip(block, height))
+		require.NoError(b, n.NotifyHeight(height))
+	}
+
+	// Make sure the hints were actually written for every block.
+	spendHint, err := hintCache.QuerySpendHint(
+		chainntnfs.SpendRequest{OutPoint: op},
+	)
+	require.NoError(b, err)
+	require.Equal(b, height, spendHint)
+
+	if withConf {
+		confHint, err := hintCache.QueryConfirmHint(
+			chainntnfs.ConfRequest{TxID: txid},
+		)
+		require.NoError(b, err)
+		require.Equal(b, height, confHint)
 	}
 }

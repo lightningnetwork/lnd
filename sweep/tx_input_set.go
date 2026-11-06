@@ -11,7 +11,6 @@ import (
 	"github.com/lightningnetwork/lnd/fn/v2"
 	"github.com/lightningnetwork/lnd/input"
 	"github.com/lightningnetwork/lnd/lnwallet"
-	"github.com/lightningnetwork/lnd/lnwallet/chainfee"
 )
 
 var (
@@ -61,15 +60,11 @@ type InputSet interface {
 	// input set.
 	Budget() btcutil.Amount
 
-	// StartingFeeRate returns the max starting fee rate found in the
-	// inputs.
-	StartingFeeRate() fn.Option[chainfee.SatPerKWeight]
-
 	// Immediate returns a boolean to indicate whether the tx made from
 	// this input set should be published immediately.
 	//
 	// TODO(yy): create a new method `Params` to combine the informational
-	// methods DeadlineHeight, Budget, StartingFeeRate and Immediate.
+	// methods DeadlineHeight, Budget and Immediate.
 	Immediate() bool
 }
 
@@ -226,6 +221,20 @@ func (b *BudgetInputSet) attachExtraBudget(s fn.Option[AuxSweeper]) error {
 	b.extraBudget = extraBudget
 
 	return nil
+}
+
+// inputExtraBudget returns the extra budget that the aux sweeper, if any,
+// attributes to a single input. The AuxSweeper interface requires
+// contributions to be additive across inputs, so this is the input's share of
+// the extra budget of any set containing it.
+func inputExtraBudget(auxSweeper fn.Option[AuxSweeper],
+	inp input.Input) (btcutil.Amount, error) {
+
+	return fn.MapOptionZ(
+		auxSweeper, func(aux AuxSweeper) fn.Result[btcutil.Amount] {
+			return aux.ExtraBudgetForInputs([]input.Input{inp})
+		},
+	).Unpack()
 }
 
 // String returns a human-readable description of the input set.
@@ -451,24 +460,6 @@ func (b *BudgetInputSet) inputAmts() (btcutil.Amount, btcutil.Amount) {
 	}
 
 	return totalAmt, spendableAmt
-}
-
-// StartingFeeRate returns the max starting fee rate found in the inputs.
-//
-// NOTE: part of the InputSet interface.
-func (b *BudgetInputSet) StartingFeeRate() fn.Option[chainfee.SatPerKWeight] {
-	maxFeeRate := chainfee.SatPerKWeight(0)
-	startingFeeRate := fn.None[chainfee.SatPerKWeight]()
-
-	for _, inp := range b.inputs {
-		feerate := inp.params.StartingFeeRate.UnwrapOr(0)
-		if feerate > maxFeeRate {
-			maxFeeRate = feerate
-			startingFeeRate = fn.Some(maxFeeRate)
-		}
-	}
-
-	return startingFeeRate
 }
 
 // Immediate returns whether the inputs should be swept immediately.

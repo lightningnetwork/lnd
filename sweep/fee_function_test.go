@@ -1,393 +1,382 @@
 package sweep
 
 import (
+	"fmt"
 	"testing"
 
+	"github.com/btcsuite/btcd/btcutil/v2"
 	"github.com/lightningnetwork/lnd/fn/v2"
 	"github.com/lightningnetwork/lnd/lnwallet/chainfee"
 	"github.com/stretchr/testify/require"
+	"pgregory.net/rapid"
 )
 
-// TestLinearFeeFunctionNewMaxFeeRateUsed tests when the conf target is <= 1,
-// the max fee rate is used.
-func TestLinearFeeFunctionNewMaxFeeRateUsed(t *testing.T) {
-	t.Parallel()
+// singleSchedule returns a schedule originating at height 100.
+func singleSchedule(
+	start fn.Option[chainfee.SatPerKWeight]) []InputSchedule {
 
-	rt := require.New(t)
-
-	// Create a mock fee estimator.
-	estimator := &chainfee.MockEstimator{}
-	defer estimator.AssertExpectations(t)
-
-	// Create testing params.
-	maxFeeRate := chainfee.SatPerKWeight(10000)
-	noStartFeeRate := fn.None[chainfee.SatPerKWeight]()
-
-	// Assert init fee function with zero conf value will end up using the
-	// max fee rate.
-	f, err := NewLinearFeeFunction(maxFeeRate, 0, estimator, noStartFeeRate)
-	rt.NoError(err)
-	rt.NotNil(f)
-
-	// Assert the internal state.
-	rt.Equal(maxFeeRate, f.startingFeeRate)
-	rt.Equal(maxFeeRate, f.endingFeeRate)
-	rt.Equal(maxFeeRate, f.currentFeeRate)
-
-	// Assert init fee function with conf of one will end up using the max
-	// fee rate.
-	f, err = NewLinearFeeFunction(maxFeeRate, 1, estimator, noStartFeeRate)
-	rt.NoError(err)
-	rt.NotNil(f)
-
-	// Assert the internal state.
-	rt.Equal(maxFeeRate, f.startingFeeRate)
-	rt.Equal(maxFeeRate, f.endingFeeRate)
-	rt.Equal(maxFeeRate, f.currentFeeRate)
+	return []InputSchedule{{FeeSchedule: FeeSchedule{
+		StartHeight: 100, StartingFeeRate: start,
+	}}}
 }
 
-// TestLinearFeeFunctionNewZeroFeeRateDelta tests when the fee rate delta is
-// zero, it will return an error except when the width is one.
-func TestLinearFeeFunctionNewZeroFeeRateDelta(t *testing.T) {
+// TestPooledFeeCapsRequestedRate checks that an unaffordable starting rate
+// produces a constant schedule, including at and beyond the deadline.
+// Elapsed time reaches the endpoint without error; only an explicit search
+// step past it is an exhaustion.
+func TestPooledFeeCapsRequestedRate(t *testing.T) {
 	t.Parallel()
 
-	rt := require.New(t)
+	for _, target := range []int32{20, 2, 1, 0} {
+		t.Run(fmt.Sprintf("target=%d", target), func(t *testing.T) {
+			const capRate = chainfee.SatPerKWeight(1000)
+			f, err := newPooledFeeFunction(
+				capRate, 100+target, 100,
+				singleSchedule(fn.Some(capRate+1)), nil,
+			)
+			require.NoError(t, err)
+			require.Equal(t, capRate, f.FeeRate())
 
-	// Create a mock fee estimator.
-	estimator := &chainfee.MockEstimator{}
-	defer estimator.AssertExpectations(t)
+			increased, err := f.IncreaseFeeRate(0)
+			require.NoError(t, err)
+			require.False(t, increased)
+			require.Equal(t, capRate, f.FeeRate())
 
-	// Create testing params.
-	maxFeeRate := chainfee.SatPerKWeight(10000)
-	estimatedFeeRate := chainfee.SatPerKWeight(500)
-	confTarget := uint32(6)
-	noStartFeeRate := fn.None[chainfee.SatPerKWeight]()
-
-	// When the calculated fee rate delta is 0, an error should be returned
-	// when the width is not one.
-	//
-	// Mock the fee estimator to return the fee rate.
-	estimator.On("EstimateFeePerKW", confTarget).Return(
-		// The starting fee rate is the max fee rate.
-		maxFeeRate, nil).Once()
-	estimator.On("RelayFeePerKW").Return(estimatedFeeRate).Once()
-
-	f, err := NewLinearFeeFunction(
-		maxFeeRate, confTarget, estimator, noStartFeeRate,
-	)
-	rt.ErrorContains(err, "fee rate delta is zero")
-	rt.Nil(f)
-
-	// When the calculated fee rate delta is 0, an error should NOT be
-	// returned when the width is one, and the starting feerate is capped
-	// at the max fee rate.
-	//
-	// Mock the fee estimator to return the fee rate.
-	smallConf := uint32(2)
-	estimator.On("EstimateFeePerKW", smallConf).Return(
-		// The fee rate is greater than the max fee rate.
-		maxFeeRate+1, nil).Once()
-	estimator.On("RelayFeePerKW").Return(estimatedFeeRate).Once()
-
-	f, err = NewLinearFeeFunction(
-		maxFeeRate, smallConf, estimator, noStartFeeRate,
-	)
-	rt.NoError(err)
-	rt.NotNil(f)
-
-	// Assert the internal state.
-	rt.Equal(maxFeeRate, f.startingFeeRate)
-	rt.Equal(maxFeeRate, f.endingFeeRate)
-	rt.Equal(maxFeeRate, f.currentFeeRate)
-	rt.Zero(f.deltaFeeRate)
-	rt.Equal(smallConf-1, f.width)
-}
-
-// TestLinearFeeFunctionNewEsimator tests the NewLinearFeeFunction function
-// properly reacts to the response or error returned from the fee estimator.
-func TestLinearFeeFunctionNewEsimator(t *testing.T) {
-	t.Parallel()
-
-	rt := require.New(t)
-
-	// Create a mock fee estimator.
-	estimator := &chainfee.MockEstimator{}
-	defer estimator.AssertExpectations(t)
-
-	// Create testing params.
-	maxFeeRate := chainfee.SatPerKWeight(10000)
-	minRelayFeeRate := chainfee.SatPerKWeight(100)
-	confTarget := uint32(6)
-	noStartFeeRate := fn.None[chainfee.SatPerKWeight]()
-
-	// When the fee estimator returns an error, it's returned.
-	//
-	// Mock the fee estimator to return an error.
-	estimator.On("EstimateFeePerKW", confTarget).Return(
-		chainfee.SatPerKWeight(0), errDummy).Once()
-
-	f, err := NewLinearFeeFunction(
-		maxFeeRate, confTarget, estimator, noStartFeeRate,
-	)
-	rt.ErrorIs(err, errDummy)
-	rt.Nil(f)
-
-	// When the conf target is >= 1008, the min relay fee should be used.
-	//
-	// Mock the fee estimator to reutrn the fee rate.
-	estimator.On("RelayFeePerKW").Return(minRelayFeeRate).Once()
-
-	largeConf := uint32(1008)
-	f, err = NewLinearFeeFunction(
-		maxFeeRate, largeConf, estimator, noStartFeeRate,
-	)
-	rt.NoError(err)
-	rt.NotNil(f)
-
-	// Assert the internal state.
-	rt.Equal(minRelayFeeRate, f.startingFeeRate)
-	rt.Equal(maxFeeRate, f.endingFeeRate)
-	rt.Equal(minRelayFeeRate, f.currentFeeRate)
-	rt.NotZero(f.deltaFeeRate)
-	rt.Equal(largeConf-1, f.width)
-}
-
-// TestLinearFeeFunctionNewSuccess tests we can create the fee function
-// successfully.
-func TestLinearFeeFunctionNewSuccess(t *testing.T) {
-	t.Parallel()
-
-	rt := require.New(t)
-
-	// Create a mock fee estimator.
-	estimator := &chainfee.MockEstimator{}
-	defer estimator.AssertExpectations(t)
-
-	// Create testing params.
-	maxFeeRate := chainfee.SatPerKWeight(10000)
-	estimatedFeeRate := chainfee.SatPerKWeight(500)
-	minRelayFeeRate := chainfee.SatPerKWeight(100)
-	confTarget := uint32(6)
-	noStartFeeRate := fn.None[chainfee.SatPerKWeight]()
-	startFeeRate := chainfee.SatPerKWeight(1000)
-
-	// Check a successfully created fee function.
-	//
-	// Mock the fee estimator to return the fee rate.
-	estimator.On("EstimateFeePerKW", confTarget).Return(
-		estimatedFeeRate, nil).Once()
-	estimator.On("RelayFeePerKW").Return(minRelayFeeRate).Once()
-
-	f, err := NewLinearFeeFunction(
-		maxFeeRate, confTarget, estimator, noStartFeeRate,
-	)
-	rt.NoError(err)
-	rt.NotNil(f)
-
-	// Assert the internal state.
-	rt.Equal(estimatedFeeRate, f.startingFeeRate)
-	rt.Equal(maxFeeRate, f.endingFeeRate)
-	rt.Equal(estimatedFeeRate, f.currentFeeRate)
-	rt.NotZero(f.deltaFeeRate)
-	rt.Equal(confTarget-1, f.width)
-
-	// Check a successfully created fee function using the specified
-	// starting fee rate.
-	//
-	// NOTE: by NOT mocking the fee estimator, we assert the
-	// estimateFeeRate is NOT called.
-	f, err = NewLinearFeeFunction(
-		maxFeeRate, confTarget, estimator, fn.Some(startFeeRate),
-	)
-
-	rt.NoError(err)
-	rt.NotNil(f)
-
-	// Assert the customized starting fee rate is used.
-	rt.Equal(startFeeRate, f.startingFeeRate)
-	rt.Equal(maxFeeRate, f.endingFeeRate)
-	rt.Equal(startFeeRate, f.currentFeeRate)
-	rt.NotZero(f.deltaFeeRate)
-	rt.Equal(confTarget-1, f.width)
-}
-
-// TestLinearFeeFunctionFeeRateAtPosition checks the expected feerate is
-// calculated and returned.
-func TestLinearFeeFunctionFeeRateAtPosition(t *testing.T) {
-	t.Parallel()
-
-	rt := require.New(t)
-
-	// Create a fee func which has three positions:
-	// - position 0: 1000
-	// - position 1: 2000
-	// - position 2: 3000
-	f := &LinearFeeFunction{
-		startingFeeRate: 1000,
-		endingFeeRate:   3000,
-		position:        0,
-		deltaFeeRate:    1_000_000,
-		width:           3,
-	}
-
-	testCases := []struct {
-		name            string
-		pos             uint32
-		expectedFeerate chainfee.SatPerKWeight
-	}{
-		{
-			name:            "position 0",
-			pos:             0,
-			expectedFeerate: 1000,
-		},
-		{
-			name:            "position 1",
-			pos:             1,
-			expectedFeerate: 2000,
-		},
-		{
-			name:            "position 2",
-			pos:             2,
-			expectedFeerate: 3000,
-		},
-		{
-			name:            "position 3",
-			pos:             3,
-			expectedFeerate: 3000,
-		},
-	}
-
-	for _, tc := range testCases {
-
-		t.Run(tc.name, func(t *testing.T) {
-			t.Parallel()
-
-			result := f.feeRateAtPosition(tc.pos)
-			rt.Equal(tc.expectedFeerate, result)
+			increased, err = f.Increment()
+			require.False(t, increased)
+			require.ErrorIs(t, err, ErrMaxPosition)
+			require.Equal(t, capRate, f.FeeRate())
 		})
 	}
 }
 
-// TestLinearFeeFunctionIncrement checks the internal state is updated
-// correctly when the fee rate is incremented.
-func TestLinearFeeFunctionIncrement(t *testing.T) {
+// TestPooledFeeEstimator checks that a schedule without a starting rate is
+// estimated at its origin's conf target, and that the estimator's response or
+// error is handled.
+func TestPooledFeeEstimator(t *testing.T) {
 	t.Parallel()
 
 	rt := require.New(t)
 
-	// Create a mock fee estimator.
 	estimator := &chainfee.MockEstimator{}
 	defer estimator.AssertExpectations(t)
 
-	// Create testing params. These params are chosen so the delta value is
-	// 100.
-	maxFeeRate := chainfee.SatPerKWeight(900)
-	estimatedFeeRate := chainfee.SatPerKWeight(100)
-	confTarget := uint32(9) // This means the width is 8.
+	maxFeeRate := chainfee.SatPerKWeight(10000)
+	noStart := fn.None[chainfee.SatPerKWeight]()
 
-	// Mock the fee estimator to return the fee rate.
-	estimator.On("EstimateFeePerKW", confTarget).Return(
-		estimatedFeeRate, nil).Once()
-	estimator.On("RelayFeePerKW").Return(estimatedFeeRate).Once()
+	// An estimator error is returned.
+	estimator.On("EstimateFeePerKW", uint32(6)).Return(
+		chainfee.SatPerKWeight(0), errDummy).Once()
+	_, err := newPooledFeeFunction(
+		maxFeeRate, 106, 100, singleSchedule(noStart), estimator,
+	)
+	rt.ErrorIs(err, errDummy)
 
-	f, err := NewLinearFeeFunction(
-		maxFeeRate, confTarget, estimator,
-		fn.None[chainfee.SatPerKWeight](),
+	// An estimate above the maximum is capped.
+	estimator.On("EstimateFeePerKW", uint32(6)).Return(
+		maxFeeRate+1, nil).Once()
+	estimator.On("RelayFeePerKW").Return(
+		chainfee.SatPerKWeight(100)).Once()
+	f, err := newPooledFeeFunction(
+		maxFeeRate, 106, 100, singleSchedule(noStart), estimator,
 	)
 	rt.NoError(err)
+	rt.Equal(maxFeeRate, f.FeeRate())
 
-	// We now increase the position from 1 to 8.
-	for i := uint32(1); i <= confTarget-1; i++ {
-		// Increase the fee rate.
-		increased, err := f.Increment()
+	// When the conf target is >= 1008, the min relay fee is used.
+	estimator.On("RelayFeePerKW").Return(
+		chainfee.SatPerKWeight(100)).Once()
+	f, err = newPooledFeeFunction(
+		maxFeeRate, 1108, 100, singleSchedule(noStart), estimator,
+	)
+	rt.NoError(err)
+	rt.EqualValues(100, f.FeeRate())
+
+	// When the deadline is within one block of the origin, nothing is
+	// estimated and the maximum is used.
+	for _, deadline := range []int32{100, 101} {
+		f, err = newPooledFeeFunction(
+			maxFeeRate, deadline, 100, singleSchedule(noStart),
+			estimator,
+		)
 		rt.NoError(err)
-		rt.True(increased)
-
-		// Assert the internal state.
-		rt.Equal(i, f.position)
-
-		delta := chainfee.SatPerKWeight(i * 100)
-		rt.Equal(estimatedFeeRate+delta, f.currentFeeRate)
-
-		// Check public method returns the expected fee rate.
-		rt.Equal(estimatedFeeRate+delta, f.FeeRate())
+		rt.Equal(maxFeeRate, f.FeeRate())
 	}
-
-	// Now the position is at 8th, increase it again should give us an
-	// error.
-	increased, err := f.Increment()
-	rt.ErrorIs(err, ErrMaxPosition)
-	rt.False(increased)
 }
 
-// TestLinearFeeFunctionIncreaseFeeRate checks the internal state is updated
-// correctly when the fee rate is increased using conf targets.
-func TestLinearFeeFunctionIncreaseFeeRate(t *testing.T) {
+// deferredBatch returns schedules for an immediate input with origin 100 and
+// a deferred input with origin 101, sharing deadline 111 and equal budgets.
+func deferredBatch() []InputSchedule {
+	return []InputSchedule{{
+		FeeSchedule: FeeSchedule{
+			StartHeight:     100,
+			StartingFeeRate: fn.Some(chainfee.SatPerKWeight(1000)),
+		},
+		Budget: 5000,
+	}, {
+		FeeSchedule: FeeSchedule{
+			StartHeight:     101,
+			StartingFeeRate: fn.Some(chainfee.SatPerKWeight(1500)),
+		},
+		Budget: 5000,
+	}}
+}
+
+// TestPooledFeeSearch checks that a local search advances the evaluation
+// height without elapsed time undoing it, and that a deferred schedule
+// constrains the start but commits nothing before its origin.
+func TestPooledFeeSearch(t *testing.T) {
+	t.Parallel()
+
+	f, err := newPooledFeeFunction(11000, 111, 100, deferredBatch(), nil)
+	require.NoError(t, err)
+
+	// The deferred input's starting rate binds the whole transaction.
+	require.EqualValues(t, 1500, f.FeeRate())
+
+	// A fee rejection searches one block ahead of the chain. Only the
+	// immediate input's ramp has begun, committing its half of the
+	// headroom: 1500 + 9500 * 0.5 * 1/10.
+	increased, err := f.Increment()
+	require.NoError(t, err)
+	require.True(t, increased)
+	require.EqualValues(t, 1975, f.FeeRate())
+
+	// Elapsed time must not undo that search.
+	increased, err = f.IncreaseFeeRate(10)
+	require.NoError(t, err)
+	require.False(t, increased)
+	require.EqualValues(t, 1975, f.FeeRate())
+
+	// A block later both ramps have begun:
+	// 1500 + 9500 * 0.5 * (2/10 + 1/9).
+	increased, err = f.IncreaseFeeRate(9)
+	require.NoError(t, err)
+	require.True(t, increased)
+	require.EqualValues(t, 2978, f.FeeRate())
+
+	// Time reaching the cap is normal; searching beyond it is exhaustion.
+	increased, err = f.IncreaseFeeRate(1)
+	require.NoError(t, err)
+	require.True(t, increased)
+	require.EqualValues(t, 11000, f.FeeRate())
+	increased, err = f.Increment()
+	require.ErrorIs(t, err, ErrMaxPosition)
+	require.False(t, increased)
+	increased, err = f.IncreaseFeeRate(0)
+	require.NoError(t, err)
+	require.False(t, increased)
+}
+
+// TestPooledFeeCommitsOwnBudget checks that elapsed urgency commits only the
+// schedule's own budget. An old input with a small budget must not spend a
+// new input's budget on its behalf.
+func TestPooledFeeCommitsOwnBudget(t *testing.T) {
+	t.Parallel()
+
+	start := fn.Some(chainfee.SatPerKWeight(1000))
+	old := InputSchedule{
+		FeeSchedule: FeeSchedule{
+			StartHeight: 100, StartingFeeRate: start,
+		},
+		Budget: 1000,
+	}
+	fresh := InputSchedule{
+		FeeSchedule: FeeSchedule{
+			StartHeight: 105, StartingFeeRate: start,
+		},
+		Budget: 9000,
+	}
+
+	// Alone, the old input is halfway along its ramp.
+	f, err := newPooledFeeFunction(
+		11000, 111, 105, []InputSchedule{old}, nil,
+	)
+	require.NoError(t, err)
+	require.EqualValues(t, 6000, f.FeeRate())
+
+	// Pooled, it commits half of its tenth of the headroom, and the fresh
+	// input commits nothing: 1000 + 10000 * 0.1 * 0.5.
+	f, err = newPooledFeeFunction(
+		11000, 111, 105, []InputSchedule{old, fresh}, nil,
+	)
+	require.NoError(t, err)
+	require.EqualValues(t, 1500, f.FeeRate())
+
+	// Every budget is committed by the deadline.
+	_, err = f.IncreaseFeeRate(1)
+	require.NoError(t, err)
+	require.EqualValues(t, 11000, f.FeeRate())
+}
+
+// TestPooledFeeMatchesLinear checks that schedules sharing an origin follow
+// the linear ramp from their highest starting rate, whatever their budgets,
+// through any interleaving of elapsed time and searches. Weights are summed
+// in floating point, so a rate exactly between two integers may round either
+// way.
+func TestPooledFeeMatchesLinear(t *testing.T) {
+	t.Parallel()
+
+	rapid.Check(t, func(rt *rapid.T) {
+		width := rapid.Int32Range(1, 1008).Draw(rt, "width")
+		capRate := chainfee.SatPerKWeight(
+			rapid.Int64Range(253, 1_000_000).Draw(rt, "cap"),
+		)
+		count := rapid.IntRange(1, 5).Draw(rt, "schedules")
+		schedules := make([]InputSchedule, count)
+		var start chainfee.SatPerKWeight
+		for i := range schedules {
+			rate := chainfee.SatPerKWeight(
+				rapid.Int64Range(253, 1_000_000).
+					Draw(rt, "start"),
+			)
+			start = max(start, min(rate, capRate))
+			schedules[i] = InputSchedule{
+				FeeSchedule: FeeSchedule{
+					StartHeight:     100,
+					StartingFeeRate: fn.Some(rate),
+				},
+				Budget: btcutil.Amount(
+					rapid.Int64Range(0, 1_000_000).
+						Draw(rt, "budget"),
+				),
+			}
+		}
+		deadline := 100 + width + 1
+		f, err := newPooledFeeFunction(
+			capRate, deadline, 100, schedules, nil,
+		)
+		require.NoError(rt, err)
+
+		// Searches step the evaluation height ahead of the chain, and
+		// elapsed time never moves it back.
+		height, evaluated := int32(100), int32(100)
+		ops := rapid.SliceOfN(rapid.Bool(), 0, 50).Draw(rt, "ops")
+		for _, search := range ops {
+			if search {
+				_, err := f.Increment()
+				if err != nil {
+					require.ErrorIs(rt, err, ErrMaxPosition)
+					require.Equal(rt, capRate, f.FeeRate())
+				} else {
+					evaluated++
+				}
+			} else {
+				height++
+				evaluated = max(evaluated, height)
+				target := calcCurrentConfTarget(
+					height, deadline,
+				)
+				_, err := f.IncreaseFeeRate(target)
+				require.NoError(rt, err)
+			}
+
+			elapsed := min(1, float64(evaluated-100)/float64(width))
+			want := float64(start) +
+				float64(capRate-start)*elapsed
+			require.InDelta(rt, want, float64(f.FeeRate()),
+				0.5+1e-6)
+		}
+	})
+}
+
+// TestPooledFeeFloor checks that a prior publication masks advances of the
+// pooled schedule until either time or a fee search raises it above the floor.
+func TestPooledFeeFloor(t *testing.T) {
+	t.Parallel()
+
+	for _, search := range []bool{false, true} {
+		t.Run(fmt.Sprintf("search=%v", search), func(t *testing.T) {
+			pooled, err := newPooledFeeFunction(
+				11000, 111, 100, deferredBatch(), nil,
+			)
+			require.NoError(t, err)
+			f := &flooredFeeFunction{
+				FeeFunction: pooled, floor: 3000,
+			}
+			advance := func() (bool, error) {
+				return f.IncreaseFeeRate(10)
+			}
+			clearFloor := func() error {
+				_, err := f.IncreaseFeeRate(8)
+				return err
+			}
+			if search {
+				advance = f.Increment
+				clearFloor = func() error {
+					return increaseCandidateFee(f)
+				}
+			}
+			increased, err := advance()
+			require.NoError(t, err)
+			require.False(t, increased)
+			require.EqualValues(t, 3000, f.FeeRate())
+			require.NoError(t, clearFloor())
+			require.Greater(t, f.FeeRate(), f.floor)
+			require.LessOrEqual(t, f.FeeRate(),
+				chainfee.SatPerKWeight(11000))
+		})
+	}
+}
+
+// TestFlooredFeeFunction checks that a floor from a prior publication raises
+// the effective rate without touching the schedule, and that an increase is
+// reported only when the effective rate rises above the floor.
+func TestFlooredFeeFunction(t *testing.T) {
 	t.Parallel()
 
 	rt := require.New(t)
 
-	// Create a mock fee estimator.
-	estimator := &chainfee.MockEstimator{}
-	defer estimator.AssertExpectations(t)
-
-	// Create testing params. These params are chosen so the delta value is
-	// 100.
+	// Width 8, delta 100: the schedule runs 100, 200, ..., 900.
 	maxFeeRate := chainfee.SatPerKWeight(900)
-	estimatedFeeRate := chainfee.SatPerKWeight(100)
-	confTarget := uint32(9) // This means the width is 8.
-
-	// Mock the fee estimator to return the fee rate.
-	estimator.On("EstimateFeePerKW", confTarget).Return(
-		estimatedFeeRate, nil).Once()
-	estimator.On("RelayFeePerKW").Return(estimatedFeeRate).Once()
-
-	f, err := NewLinearFeeFunction(
-		maxFeeRate, confTarget, estimator,
-		fn.None[chainfee.SatPerKWeight](),
+	start := fn.Some(chainfee.SatPerKWeight(100))
+	inner, err := newPooledFeeFunction(
+		maxFeeRate, 109, 100, singleSchedule(start), nil,
 	)
 	rt.NoError(err)
 
-	// If we are increasing the fee rate using the initial conf target, we
-	// should get a nil error and false.
-	increased, err := f.IncreaseFeeRate(confTarget)
-	rt.NoError(err)
-	rt.False(increased)
+	f := &flooredFeeFunction{FeeFunction: inner, floor: 350}
+	rt.EqualValues(350, f.FeeRate())
+	rt.EqualValues(100, inner.FeeRate())
 
-	// Test that we are allowed to use a larger conf target.
-	increased, err = f.IncreaseFeeRate(confTarget + 1)
-	rt.NoError(err)
-	rt.False(increased)
-
-	// We now increase the fee rate from conf target 8 to 2 and assert we
-	// get no error and true.
-	for i := uint32(1); i < confTarget-1; i++ {
-		// Increase the fee rate.
-		increased, err := f.IncreaseFeeRate(confTarget - i)
+	// Steps below the floor advance the schedule but report no increase.
+	for _, want := range []chainfee.SatPerKWeight{200, 300} {
+		increased, err := f.Increment()
 		rt.NoError(err)
-		rt.True(increased)
-
-		// Assert the internal state.
-		rt.Equal(i, f.position)
-
-		delta := chainfee.SatPerKWeight(i * 100)
-		rt.Equal(estimatedFeeRate+delta, f.currentFeeRate)
-
-		// Check public method returns the expected fee rate.
-		rt.Equal(estimatedFeeRate+delta, f.FeeRate())
+		rt.False(increased)
+		rt.EqualValues(350, f.FeeRate())
+		rt.Equal(want, inner.FeeRate())
 	}
 
-	// Test that when we use a conf target of 1, we get the ending fee
-	// rate.
-	increased, err = f.IncreaseFeeRate(1)
+	// The first step above the floor is an increase.
+	increased, err := f.Increment()
 	rt.NoError(err)
 	rt.True(increased)
-	rt.Equal(confTarget-1, f.position)
-	rt.Equal(maxFeeRate, f.currentFeeRate)
+	rt.EqualValues(400, f.FeeRate())
 
-	// Test that when we use a conf target of 0, ErrMaxPosition is
-	// returned.
-	increased, err = f.IncreaseFeeRate(0)
-	rt.ErrorIs(err, ErrMaxPosition)
+	// The same holds for elapsed time. A floor above the schedule's rate
+	// at conf target 6 hides that step; conf target 3 clears it.
+	g := &flooredFeeFunction{floor: 650}
+	g.FeeFunction, err = newPooledFeeFunction(
+		maxFeeRate, 109, 100, singleSchedule(start), nil,
+	)
+	rt.NoError(err)
+
+	increased, err = g.IncreaseFeeRate(6)
+	rt.NoError(err)
 	rt.False(increased)
+	rt.EqualValues(650, g.FeeRate())
+
+	increased, err = g.IncreaseFeeRate(3)
+	rt.NoError(err)
+	rt.True(increased)
+	rt.EqualValues(700, g.FeeRate())
+
+	// Exhaustion passes through unchanged.
+	increased, err = g.IncreaseFeeRate(0)
+	rt.NoError(err)
+	rt.True(increased)
+	rt.Equal(maxFeeRate, g.FeeRate())
+	_, err = g.Increment()
+	rt.ErrorIs(err, ErrMaxPosition)
 }

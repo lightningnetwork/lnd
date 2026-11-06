@@ -938,7 +938,7 @@ func (d *RPCSignerWalletImpl) BuildChainControl(
 	)
 	if err != nil {
 		err := fmt.Errorf("unable to create RPC remote signing wallet "+
-			"%v", err)
+			"%w", err)
 		d.logger.Error(err)
 
 		return &ChainControlResult{CleanUp: cleanUp}, err

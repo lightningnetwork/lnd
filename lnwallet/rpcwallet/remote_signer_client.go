@@ -187,7 +187,7 @@ func (s *StreamFeeder) GetStream(ctx context.Context) (*Stream, error) {
 		connErr := conn.Close()
 		if connErr != nil {
 			log.ErrorS(ctx, "Unable to close watch-only node "+
-				"connection: %v", connErr)
+				"connection", connErr)
 		}
 
 		return nil, err
@@ -368,7 +368,7 @@ func (r *OutboundClient) runForever(ctx context.Context) {
 
 		connected, err := r.runOnce(ctx)
 		if err != nil {
-			r.log.ErrorS(ctx, "runOnce error", err)
+			r.log.WarnS(ctx, "Remote signer connection ended", err)
 		}
 
 		// Reset the retry timeout after a successful connection.

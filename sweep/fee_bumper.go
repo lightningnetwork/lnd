@@ -47,6 +47,19 @@ var (
 	// ErrInputMissing is returned when a given input no longer exists,
 	// e.g., spending from an orphan tx.
 	ErrInputMissing = errors.New("input no longer exists")
+
+	// errMempoolRejected separates backend rejection of a constructed
+	// candidate from failures that cannot provide diagnostic evidence.
+	errMempoolRejected = errors.New("mempool rejected tx")
+
+	// errProbeTxConstruction means the selected inputs cannot supply an
+	// independently testable probe, so rejection cannot identify its
+	// target.
+	errProbeTxConstruction = errors.New("unable to construct probe tx")
+
+	// errBadInputNotFound distinguishes a completed search with no
+	// attributable singleton from a probe that could not be tested.
+	errBadInputNotFound = errors.New("bad input not found")
 )
 
 var (
@@ -85,6 +98,8 @@ const (
 	// Retry can regroup inputs or adjust fees within the budget. A supplied
 	// retry fee rate applies to the next attempt. Initialization can still
 	// reject a zero rate delta and trigger re-estimation.
+	// BadInput scopes an attributable failure; a mempool conflict keeps
+	// that input retryable instead of terminal.
 	//
 	// TODO(yy): Remove the above usage once we remove sweeping non-CPFP
 	// anchors.
@@ -110,6 +125,7 @@ const (
 	// TxFatal is sent when an error prevents retrying the inputs, such as a
 	// known non-retryable rejection or a local initialization failure.
 	// Unknown and transient mempool acceptance errors use TxFailed.
+	// Per-input outcomes instead use TxFailed with BadInput set.
 	TxFatal
 
 	// sentinelEvent is used to check if an event is unknown.
@@ -281,6 +297,12 @@ type BumpResult struct {
 	// SpentInputs are the inputs spent by another tx which caused the
 	// current tx to be failed.
 	SpentInputs map[wire.OutPoint]*wire.MsgTx
+
+	// BadInput identifies a singleton rejected by a diagnostic probe. When
+	// Err is a mempool conflict it remains retryable; other attributable
+	// failures are terminal or quarantined. Nil means no input was
+	// isolated.
+	BadInput *wire.OutPoint
 
 	// requestID is the ID of the request that created this record.
 	requestID uint64
@@ -607,10 +629,6 @@ func (t *TxPublisher) createRBFCompliantTx(
 				}
 			}
 
-		// TODO(yy): suppose there's only one bad input, we can do a
-		// binary search to find out which input is causing this error
-		// by recreating a tx using half of the inputs and check its
-		// mempool acceptance.
 		default:
 			log.Debugf("Failed to create RBF-compliant tx: %v", err)
 			return nil, err
@@ -647,7 +665,7 @@ func (t *TxPublisher) createAndCheckTx(r *monitorRecord) (*sweepTxCtx, error) {
 	req.ExtraTxOut = sweepCtx.extraTxOut
 
 	// Validate the tx's mempool acceptance.
-	err = t.cfg.Wallet.CheckMempoolAcceptance(sweepCtx.tx)
+	err = t.checkMempoolAcceptance(sweepCtx)
 
 	// Exit early if the tx is valid.
 	if err == nil {
@@ -671,14 +689,86 @@ func (t *TxPublisher) createAndCheckTx(r *monitorRecord) (*sweepTxCtx, error) {
 
 	// If the inputs are spent by another tx, we will exit with the latest
 	// sweepCtx and an error.
-	if errors.Is(err, chain.ErrMissingInputs) {
+	if errors.Is(err, ErrInputMissing) {
 		log.Debugf("Tx %v missing inputs, it's likely the input has "+
 			"been spent by others", sweepCtx.tx.TxHash())
 
-		// Make sure to update the record with the latest attempt.
-		t.updateRecord(r, sweepCtx)
+		// Initial missing-input attribution needs its candidate
+		// context. A rejected replacement must leave the accepted
+		// record intact.
+		if r.tx == nil {
+			t.updateRecord(r, sweepCtx)
+		}
 
 		return sweepCtx, ErrInputMissing
+	}
+
+	return sweepCtx, fmt.Errorf("%w: tx=%v failed mempool check: %w",
+		errMempoolRejected, sweepCtx.tx.TxHash(), err)
+}
+
+// shouldDiagnoseBadInputs returns true if a mempool rejection should be
+// isolated with no-broadcast subset probes.
+func (t *TxPublisher) shouldDiagnoseBadInputs(r *monitorRecord,
+	err error) bool {
+
+	// Bad-input probes must use the same fee rate as the rejected tx. A
+	// record can be missing its fee function if tx initialization failed
+	// before fee selection completed, which means any probe tx would use a
+	// made-up feerate. Skip diagnosis and let handleBadInputs keep the
+	// original error as a whole-set failure.
+	if r.feeFunction == nil {
+		return false
+	}
+
+	// Only a concrete mempool rejection proves the fully constructed tx was
+	// invalid under mempool policy. Construction, signing and fee-selection
+	// errors do not have a candidate tx to bisect, so handleBadInputs keeps
+	// them on the existing whole-set fatal path instead of probing subsets.
+	if !errors.Is(err, errMempoolRejected) &&
+		!errors.Is(err, ErrInputMissing) {
+
+		return false
+	}
+
+	// A singleton rejection already identifies the only input in the batch.
+	// There is no subset left to probe, so the caller preserves existing
+	// singleton fatal behavior.
+	if len(r.req.Inputs) <= 1 {
+		return false
+	}
+
+	// Aux sweepers may derive addresses or other sweep details from the
+	// complete input set. Subset probes would bypass that logic and could
+	// misattribute aux failures, so keep them on the whole-set path.
+	if t.cfg.AuxSweeper.IsSome() {
+		log.Infof("Skipping bad-input diagnosis for requestID=%v: aux "+
+			"sweeper is active", r.requestID)
+
+		return false
+	}
+
+	return true
+}
+
+// checkMempoolAcceptance checks a candidate without publishing or recording it,
+// preserving the same backend classification for full candidates and probes.
+func (t *TxPublisher) checkMempoolAcceptance(sweepCtx *sweepTxCtx) error {
+	err := t.cfg.Wallet.CheckMempoolAcceptance(sweepCtx.tx)
+	// Unsupported checks must reach the initial-candidate bypass unchanged
+	// and unlogged, including every Neutrino sweep attempt.
+	if err == nil || errors.Is(err, chain.ErrUnimplemented) ||
+		errors.Is(err, rpcclient.ErrBackendVersion) {
+
+		return err
+	}
+
+	// Missing-input failures use a dedicated sentinel so callers can run
+	// spend attribution instead of treating them as script failures.
+	if errors.Is(err, chain.ErrMissingInputs) {
+		log.Debugf("Tx %v missing inputs", sweepCtx.tx.TxHash())
+
+		return ErrInputMissing
 	}
 
 	// Unknown backend errors, including transport failures, do not prove an
@@ -689,8 +779,355 @@ func (t *TxPublisher) createAndCheckTx(r *monitorRecord) (*sweepTxCtx, error) {
 		err = fmt.Errorf("%w: %w", chain.ErrUndefined, err)
 	}
 
-	return sweepCtx, fmt.Errorf("tx=%v failed mempool check: %w",
-		sweepCtx.tx.TxHash(), err)
+	log.Infof("Tx=%v with %v inputs failed mempool check: %v",
+		sweepCtx.tx.TxHash(), len(sweepCtx.tx.TxIn), err)
+
+	return err
+}
+
+// isTransientMempoolError shares the existing initial-attempt retry policy with
+// diagnosis so a temporary backend failure cannot permanently discard inputs.
+func isTransientMempoolError(err error) bool {
+	return errors.Is(err, chain.ErrUndefined) ||
+		errors.Is(err, chain.ErrMempoolFull) ||
+		errors.Is(err, chain.ErrMempoolChainTooLong) ||
+		errors.Is(err, chain.ErrTooManyReplacements) ||
+		errors.Is(err, chain.ErrReplacementAddsUnconfirmed) ||
+		errors.Is(err, chain.ErrMempoolConflict)
+}
+
+// probeInputSet tests a subset without publishing, storing, or monitoring it.
+// Underfunded subsets borrow normal companions to pay the same attempt fee.
+func (t *TxPublisher) probeInputSet(r *monitorRecord,
+	inputs []input.Input) error {
+
+	// Keep construction policy identical to the rejected candidate. These
+	// temporary contexts never update the publisher's real monitor record.
+	feeRate := r.feeFunction.FeeRate()
+	createProbe := func(probeInputs []input.Input) (*sweepTxCtx, error) {
+		return t.createSweepTx(
+			probeInputs, r.req.DeliveryAddress, feeRate,
+		)
+	}
+	sweepCtx, err := createProbe(inputs)
+	if err == nil {
+		return t.checkMempoolAcceptance(sweepCtx)
+	}
+
+	// Small anchors and required outputs may need borrowed funding. Other
+	// construction failures cannot be resolved by adding companion value.
+	if !errors.Is(err, ErrNotEnoughInputs) &&
+		!errors.Is(err, ErrTxNoOutput) {
+
+		return fmt.Errorf("%w: %w", errProbeTxConstruction, err)
+	}
+
+	selected := fn.NewSet[wire.OutPoint]()
+	for _, inp := range inputs {
+		selected.Add(inp.OutPoint())
+	}
+	probeInputs := append([]input.Input(nil), inputs...)
+	var companions []input.Input
+	for _, companion := range r.req.Inputs {
+		if companion.RequiredTxOut() != nil ||
+			selected.Contains(companion.OutPoint()) {
+
+			continue
+		}
+
+		// Small companions can fund a target collectively even if none
+		// can create a standalone output. Stop at the first built
+		// probe.
+		companions = append(companions, companion)
+		probeInputs = append(probeInputs, companion)
+		sweepCtx, err = createProbe(probeInputs)
+		if err != nil {
+			continue
+		}
+		probeErr := t.checkMempoolAcceptance(sweepCtx)
+		if probeErr == nil {
+			return nil
+		}
+
+		// A combined rejection could come from a newly spent funder.
+		// Test the funding group separately after that rejection.
+		fundingCtx, fundingErr := createProbe(companions)
+		if fundingErr == nil {
+			fundingErr = t.checkMempoolAcceptance(fundingCtx)
+		}
+		// Input lookup precedes fee policy in both RPC backends. A
+		// funding fee rejection proves availability only, so use it
+		// solely to attribute a combined missing-input rejection.
+		if errors.Is(probeErr, ErrInputMissing) &&
+			errors.Is(fundingErr, chain.ErrInsufficientFee) {
+
+			return probeErr
+		}
+		// A combined transient failure stays reversible when funding
+		// cannot independently establish which input caused rejection.
+		if fundingErr != nil &&
+			isTransientMempoolError(probeErr) {
+
+			// A failed RPC cannot clear an independently observed
+			// funding conflict or justify escalating its retry fee.
+			if errors.Is(fundingErr, chain.ErrMempoolConflict) {
+				fundingErr = fmt.Errorf("%w: %w", fundingErr,
+					probeErr)
+			} else {
+				fundingErr = probeErr
+			}
+		}
+		if isTransientMempoolError(fundingErr) {
+			// Retain a transient cause without attributing its
+			// funder rejection to the selected target.
+			return fmt.Errorf("%w: %w", errProbeTxConstruction,
+				fundingErr)
+		}
+		if fundingErr != nil {
+			// Do not expose a funder's script/missing sentinel as
+			// rejection evidence for the target singleton.
+			log.Debugf("Inconclusive probe funding: %v", fundingErr)
+			return errProbeTxConstruction
+		}
+
+		return probeErr
+	}
+
+	return fmt.Errorf("%w: %w", errProbeTxConstruction, err)
+}
+
+// isInputScriptFailure returns true for mempool failures that can be attributed
+// to a single input's script or witness data.
+func isInputScriptFailure(err error) bool {
+	// Only witness/script-specific rejection proves a singleton is bad; fee
+	// and transaction-wide policy errors must stay inconclusive.
+	return errors.Is(err, chain.ErrScriptVerifyFlag) ||
+		errors.Is(err, chain.ErrNonMandatoryScriptVerifyFlag) ||
+		errors.Is(err, chain.ErrBadWitnessNonStandard) ||
+		errors.Is(err, chain.ErrScriptSigNotPushOnly) ||
+		errors.Is(err, chain.ErrScriptSigSize) ||
+		errors.Is(err, chain.ErrNonStandardInputs)
+}
+
+// findBadInputInSet searches the given input set for a single input that fails
+// mempool acceptance by itself.
+func (t *TxPublisher) findBadInputInSet(r *monitorRecord,
+	inputs []input.Input) (wire.OutPoint, error) {
+
+	// Halving a rejected subset makes progress without publishing a probe.
+	// Only a concrete singleton rejection can identify its input.
+	if len(inputs) > 1 {
+		mid := len(inputs) / 2
+		left := inputs[:mid]
+
+		err := t.probeInputSet(r, left)
+		switch {
+		case err == nil:
+			// An accepted left half leaves only the right half to
+			// inspect.
+			return t.findBadInputInSet(r, inputs[mid:])
+
+		case errors.Is(err, errProbeTxConstruction):
+			// An untestable half cannot hide a rejected later
+			// singleton.
+			return t.findBadInputBySingleton(r, inputs)
+
+		case errors.Is(err, ErrInputMissing),
+			errors.Is(err, chain.ErrMempoolConflict):
+			if len(left) == 1 {
+				return left[0].OutPoint(), err
+			}
+
+			// Preserve whether narrowing found a permanent missing
+			// input or a reversible conflict; consumers apply
+			// different policies.
+			return t.findBadInputInSet(r, left)
+
+		case isInputScriptFailure(err):
+			if len(left) == 1 {
+				return left[0].OutPoint(), nil
+			}
+
+			return t.findBadInputInSet(r, left)
+
+		default:
+			return wire.OutPoint{}, err
+		}
+	}
+
+	if len(inputs) == 0 {
+		return wire.OutPoint{}, errBadInputNotFound
+	}
+
+	err := t.probeInputSet(r, inputs)
+	switch {
+	case err == nil:
+		return wire.OutPoint{}, errBadInputNotFound
+
+	// A failed funding group never identifies the target singleton, even
+	// when its wrapped cause is a transient conflict.
+	case errors.Is(err, errProbeTxConstruction):
+		return wire.OutPoint{}, err
+
+	case errors.Is(err, ErrInputMissing),
+		errors.Is(err, chain.ErrMempoolConflict):
+		return inputs[0].OutPoint(), err
+
+	case isInputScriptFailure(err):
+		return inputs[0].OutPoint(), nil
+
+	default:
+		return wire.OutPoint{}, err
+	}
+}
+
+// findBadInputBySingleton scans candidates after a subset cannot be built.
+func (t *TxPublisher) findBadInputBySingleton(r *monitorRecord,
+	inputs []input.Input) (wire.OutPoint, error) {
+
+	// Keep scanning after untestable candidates so a later independently
+	// rejected singleton can still release unrelated valid inputs.
+	var constructionErr error
+	for _, inp := range inputs {
+		err := t.probeInputSet(r, []input.Input{inp})
+		switch {
+		case err == nil:
+			continue
+
+		case errors.Is(err, errProbeTxConstruction):
+			// Retain transient evidence over local construction
+			// uncertainty regardless of input order. Conflicts keep
+			// their priority and no-escalation policy.
+			if constructionErr == nil ||
+				errors.Is(err, chain.ErrMempoolConflict) ||
+				!isTransientMempoolError(constructionErr) &&
+					isTransientMempoolError(err) {
+
+				constructionErr = err
+			}
+
+			continue
+
+		case errors.Is(err, ErrInputMissing),
+			errors.Is(err, chain.ErrMempoolConflict):
+			return inp.OutPoint(), err
+
+		case isInputScriptFailure(err):
+			return inp.OutPoint(), nil
+
+		default:
+			// Later policy cannot clear an interrupted probe
+			// or justify permanently failing unproven inputs.
+			if isTransientMempoolError(constructionErr) {
+				return wire.OutPoint{}, constructionErr
+			}
+
+			return wire.OutPoint{}, err
+		}
+	}
+
+	if constructionErr != nil {
+		return wire.OutPoint{}, constructionErr
+	}
+
+	return wire.OutPoint{}, errBadInputNotFound
+}
+
+// inputDiagnosisOutcome describes whether diagnosis changed the input set or
+// left it unchanged, and whether an unchanged result is conclusive.
+type inputDiagnosisOutcome uint8
+
+const (
+	diagnosisSkipped inputDiagnosisOutcome = iota
+	diagnosisCompleted
+	diagnosisAborted
+	diagnosisAttributed
+)
+
+// inputDiagnosis carries the explicit result of singleton attribution.
+type inputDiagnosis struct {
+	outcome  inputDiagnosisOutcome
+	badInput wire.OutPoint
+
+	// probeErr preserves reversible backend failures on abort, as well as
+	// attribution causes, so uncertainty cannot permanently fail inputs.
+	probeErr error
+}
+
+// diagnoseInputSet runs singleton attribution and classifies its outcome.
+func (t *TxPublisher) diagnoseInputSet(r *monitorRecord) inputDiagnosis {
+	badInput, err := t.findBadInputInSet(r, r.req.Inputs)
+	switch {
+	// An untestable funded probe must remain inconclusive even if its cause
+	// would identify an input in an independently tested singleton.
+	case errors.Is(err, errProbeTxConstruction):
+		return inputDiagnosis{outcome: diagnosisAborted, probeErr: err}
+
+	case err == nil, errors.Is(err, ErrInputMissing),
+		errors.Is(err, chain.ErrMempoolConflict):
+		return inputDiagnosis{
+			outcome:  diagnosisAttributed,
+			badInput: badInput,
+			probeErr: err,
+		}
+
+	// A completed search differs from an interrupted one for retry policy.
+	case errors.Is(err, errBadInputNotFound):
+		return inputDiagnosis{outcome: diagnosisCompleted}
+
+	default:
+		return inputDiagnosis{outcome: diagnosisAborted, probeErr: err}
+	}
+}
+
+// resultForDiagnosis converts explicit diagnosis metadata into retry policy.
+func (t *TxPublisher) resultForDiagnosis(r *monitorRecord, err error,
+	diagnosis inputDiagnosis) *BumpResult {
+
+	result := &BumpResult{
+		Event:     TxFatal,
+		Err:       err,
+		requestID: r.requestID,
+	}
+	// Changed membership restarts survivors without the aggregate fee.
+	if diagnosis.outcome == diagnosisAttributed {
+		result.Event = TxFailed
+		result.BadInput = &diagnosis.badInput
+		// Preserve the newer diagnosis when a competing spend confirms
+		// during probing and the initial conflict becomes missing.
+		if errors.Is(diagnosis.probeErr, ErrInputMissing) ||
+			errors.Is(
+				diagnosis.probeErr, chain.ErrMempoolConflict,
+			) {
+
+			result.Err = diagnosis.probeErr
+		} else if errors.Is(err, chain.ErrMempoolConflict) {
+			// Independent script evidence can identify a permanent
+			// failure even when the full batch first hit a
+			// conflict.
+			result.Err = errMempoolRejected
+		}
+
+		return result
+	}
+
+	// A transient probe failure cannot identify an input. Keep an earlier
+	// conflict too: an interrupted check does not establish it has cleared.
+	if isTransientMempoolError(diagnosis.probeErr) {
+		if errors.Is(err, chain.ErrMempoolConflict) {
+			diagnosis.probeErr = fmt.Errorf("%w: %w", err,
+				diagnosis.probeErr)
+		}
+
+		return t.createUnchangedSetRetryResult(r, diagnosis.probeErr)
+	}
+	if errors.Is(err, chain.ErrMempoolConflict) ||
+		diagnosis.outcome == diagnosisAborted {
+
+		return t.createUnchangedSetRetryResult(r, err)
+	}
+
+	return result
 }
 
 // handleMissingInputs handles the case when the chain backend reports back a
@@ -704,6 +1141,16 @@ func (t *TxPublisher) handleMissingInputs(r *monitorRecord) *BumpResult {
 
 	// Attach the spending txns.
 	r.spentInputs = spends
+
+	// Empty historical channels do not establish that the whole batch is
+	// orphaned. Probe multi-input membership before classifying it.
+	if len(spends) == 0 &&
+		t.shouldDiagnoseBadInputs(r, ErrInputMissing) {
+
+		return t.resultForDiagnosis(
+			r, ErrInputMissing, t.diagnoseInputSet(r),
+		)
+	}
 
 	// If there are no spending txns found and the input is missing, the
 	// input is referencing an orphan tx that's no longer valid, e.g., the
@@ -1102,6 +1549,73 @@ func (t *TxPublisher) handleTxConfirmed(r *monitorRecord) {
 	t.handleResult(result)
 }
 
+// createUnchangedSetRetryResult preserves transient failures and bounds other
+// diagnosis retries. Non-conflict callers have a fee function from the gate.
+func (t *TxPublisher) createUnchangedSetRetryResult(r *monitorRecord,
+	err error) *BumpResult {
+
+	result := &BumpResult{
+		Event:     TxFailed,
+		Err:       err,
+		requestID: r.requestID,
+	}
+
+	// A higher fee cannot displace a non-replaceable conflicting spend.
+	// Leave ordinary initialization and zero-delta retry policy intact.
+	if errors.Is(err, chain.ErrMempoolConflict) {
+		if r.feeFunction != nil {
+			result.FeeRate = r.feeFunction.FeeRate()
+		}
+
+		return result
+	}
+
+	// Backend uncertainty follows ordinary retry policy: keep the current
+	// rate usable at the cap instead of failing unproven batch members.
+	if isTransientMempoolError(err) {
+		feeRate, feeErr := t.calculateRetryFeeRate(r)
+		result.FeeRate = feeRate
+		if feeErr != nil {
+			result.Event = TxFatal
+			result.Err = feeErr
+		}
+
+		return result
+	}
+
+	// Only inconclusive non-conflict diagnosis requires actual advancement.
+	// Keep this ceiling policy out of the generic budget/RBF retry helper.
+	for {
+		increased, feeErr := r.feeFunction.Increment()
+		if feeErr != nil {
+			result.Event = TxFatal
+			result.Err = feeErr
+			result.FeeRate = r.feeFunction.FeeRate()
+
+			return result
+		}
+		if increased {
+			result.FeeRate = r.feeFunction.FeeRate()
+
+			return result
+		}
+	}
+}
+
+// handleBadInputs handles a non-fee mempool rejection by trying to identify a
+// single input that fails mempool acceptance by itself.
+func (t *TxPublisher) handleBadInputs(r *monitorRecord,
+	err error) *BumpResult {
+
+	if !t.shouldDiagnoseBadInputs(r, err) {
+		return t.resultForDiagnosis(r, err, inputDiagnosis{
+			outcome: diagnosisSkipped,
+		})
+	}
+
+	return t.resultForDiagnosis(r, err, t.diagnoseInputSet(r))
+}
+
 // handleInitialTxError maps initialization failures to retry or terminal
 // results. Backend uncertainty retains inputs and the next retry fee.
 func (t *TxPublisher) handleInitialTxError(r *monitorRecord, err error) {
@@ -1124,6 +1638,15 @@ func (t *TxPublisher) handleInitialTxError(r *monitorRecord, err error) {
 	case errors.Is(err, ErrZeroFeeRateDelta):
 		result.Event = TxFailed
 
+	// Diagnose eligible conflicts before the generic retry arm so their
+	// healthy siblings can progress as a separate set.
+	case errors.Is(err, chain.ErrMempoolConflict) &&
+		t.shouldDiagnoseBadInputs(r, err):
+
+		result = t.resultForDiagnosis(
+			r, err, t.diagnoseInputSet(r),
+		)
+
 	// When the error is due to budget being used up, we'll send a TxFailed
 	// so these inputs can be retried with a different group in the next
 	// block.
@@ -1135,12 +1658,7 @@ func (t *TxPublisher) handleInitialTxError(r *monitorRecord, err error) {
 	// re-clustering does not restart at the same insufficient rate.
 	case errors.Is(err, ErrNotEnoughInputs),
 		errors.Is(err, ErrNotEnoughBudget),
-		errors.Is(err, chain.ErrUndefined),
-		errors.Is(err, chain.ErrMempoolFull),
-		errors.Is(err, chain.ErrMempoolChainTooLong),
-		errors.Is(err, chain.ErrTooManyReplacements),
-		errors.Is(err, chain.ErrReplacementAddsUnconfirmed),
-		errors.Is(err, chain.ErrMempoolConflict):
+		isTransientMempoolError(err):
 
 		result.Event = TxFailed
 
@@ -1160,14 +1678,10 @@ func (t *TxPublisher) handleInitialTxError(r *monitorRecord, err error) {
 	case errors.Is(err, ErrInputMissing):
 		result = t.handleMissingInputs(r)
 
-	// Known non-retryable rejections and local construction errors retain
-	// terminal handling. Only acceptance errors normalized above can enter
-	// the unknown-backend retry case.
-	//
-	// TODO(yy): Find out which input is causing the failure and fail that
-	// one only.
+	// Concrete mempool rejections can identify individual failures;
+	// diagnosis keeps permanent evidence separate from transient conflicts.
 	default:
-		result.Event = TxFatal
+		result = t.handleBadInputs(r, err)
 	}
 
 	t.handleResult(result)
@@ -1864,14 +2378,24 @@ func (t *TxPublisher) handleReplacementTxError(r *monitorRecord,
 		return fn.None[BumpResult]()
 	}
 
-	// At least one of the inputs is missing, which means it has already
-	// been spent by another tx and confirmed. In this case we will handle
-	// it by returning a TxUnknownSpend bump result.
-	if errors.Is(err, ErrInputMissing) {
-		log.Warnf("Fail to fee bump tx %v: %v", oldTx.TxHash(), err)
-		bumpResult := t.handleMissingInputs(r)
+	// Rejection did not displace oldTx. Keep its existing monitoring and
+	// rebroadcast instead of diagnosing standalone probes against it.
+	if errors.Is(err, errMempoolRejected) {
+		return fn.None[BumpResult]()
+	}
 
-		return fn.Some(*bumpResult)
+	if errors.Is(err, ErrInputMissing) {
+		// Empty historical delivery is inconclusive for an accepted tx.
+		// Existing block processing will observe a later actual spend.
+		spends := t.getSpentInputs(r)
+		if len(spends) == 0 {
+			return fn.None[BumpResult]()
+		}
+		r.spentInputs = spends
+		result := t.createUnknownSpentBumpResult(r)
+		result.Tx = oldTx
+
+		return fn.Some(*result)
 	}
 
 	// Return a failed event to retry the sweep.

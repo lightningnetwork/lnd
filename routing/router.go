@@ -218,15 +218,15 @@ func noOpReconcile(_ paymentsdb.HTLCAttempt) error {
 // forward outgoing payments can be derived.
 type FeeSchema struct {
 	// BaseFee is the base amount of milli-satoshis that will be chained
-	// for ANY payment forwarded.
-	BaseFee lnwire.MilliSatoshi
+	// for ANY payment forwarded. None keeps the current value.
+	BaseFee fn.Option[lnwire.MilliSatoshi]
 
 	// FeeRate is the rate that will be charged for forwarding payments.
 	// This value should be interpreted as the numerator for a fraction
 	// (fixed point arithmetic) whose denominator is 1 million. As a result
 	// the effective fee rate charged per mSAT will be: (amount *
-	// FeeRate/1,000,000).
-	FeeRate uint32
+	// FeeRate/1,000,000). None keeps the current value.
+	FeeRate fn.Option[uint32]
 
 	// InboundFee is the inbound fee schedule that applies to forwards
 	// coming in through a channel to which this FeeSchema pertains.
@@ -241,8 +241,8 @@ type ChannelPolicy struct {
 	FeeSchema
 
 	// TimeLockDelta is the required HTLC timelock delta to be used
-	// when forwarding payments.
-	TimeLockDelta uint32
+	// when forwarding payments. None keeps the current value.
+	TimeLockDelta fn.Option[uint32]
 
 	// MaxHTLC is the maximum HTLC size including fees we are allowed to
 	// forward over this channel.

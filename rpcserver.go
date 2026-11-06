@@ -7610,8 +7610,8 @@ func (r *rpcServer) UpdateChannelPolicy(ctx context.Context,
 
 	baseFeeMsat := lnwire.MilliSatoshi(req.BaseFeeMsat)
 	feeSchema := routing.FeeSchema{
-		BaseFee:    baseFeeMsat,
-		FeeRate:    feeRateFixed,
+		BaseFee:    fn.Some(baseFeeMsat),
+		FeeRate:    fn.Some(feeRateFixed),
 		InboundFee: inboundFee,
 	}
 
@@ -7624,7 +7624,7 @@ func (r *rpcServer) UpdateChannelPolicy(ctx context.Context,
 
 	chanPolicy := routing.ChannelPolicy{
 		FeeSchema:     feeSchema,
-		TimeLockDelta: req.TimeLockDelta,
+		TimeLockDelta: fn.Some(req.TimeLockDelta),
 		MaxHTLC:       maxHtlc,
 		MinHTLC:       minHtlc,
 	}

@@ -2524,38 +2524,44 @@ var updateChannelPolicyCommand = cli.Command{
 	Category: "Channels",
 	Usage: "Update the channel policy for all channels, or a single " +
 		"channel.",
-	ArgsUsage: "base_fee_msat fee_rate time_lock_delta " +
+	ArgsUsage: "[base_fee_msat] [fee_rate] [time_lock_delta] " +
 		"[--max_htlc_msat=N] [channel_point]",
 	Description: `
 	Updates the channel policy for all channels, or just a particular
         channel identified by its channel point. The update will be committed, 
 	and broadcast to the rest of the network within the next batch. Channel
         points are encoded as: funding_txid:output_index
+
+	Only the fields that are passed are updated, all others keep their
+	current value. Leaving out base_fee_msat or the fee rate requires lnd
+	v0.22.0 or later.
 	`,
 	Flags: []cli.Flag{
-		cli.Int64Flag{
+		cli.StringFlag{
 			Name: "base_fee_msat",
-			Usage: "the base fee in milli-satoshis that will be " +
-				"charged for each forwarded HTLC, regardless " +
-				"of payment size",
+			Usage: "if set, the base fee in milli-satoshis that " +
+				"will be charged for each forwarded HTLC, " +
+				"regardless of payment size. If unset, the " +
+				"base fee is left unchanged",
 		},
 		cli.StringFlag{
 			Name: "fee_rate",
-			Usage: "the fee rate that will be charged " +
+			Usage: "if set, the fee rate that will be charged " +
 				"proportionally based on the value of each " +
 				"forwarded HTLC, the lowest possible rate is " +
 				"0 with a granularity of 0.000001 " +
 				"(millionths). Can not be set at the same " +
-				"time as fee_rate_ppm",
+				"time as fee_rate_ppm. If neither is set, " +
+				"the fee rate is left unchanged",
 		},
-		cli.Uint64Flag{
+		cli.StringFlag{
 			Name: "fee_rate_ppm",
-			Usage: "the fee rate ppm (parts per million) that " +
-				"will be charged proportionally based on the " +
-				"value of each forwarded HTLC, the lowest " +
-				"possible rate is 0 with a granularity of " +
-				"0.000001 (millionths). Can not be set at " +
-				"the same time as fee_rate",
+			Usage: "if set, the fee rate ppm (parts per million) " +
+				"that will be charged proportionally based " +
+				"on the value of each forwarded HTLC, the " +
+				"lowest possible rate is 0. Can not be set " +
+				"at the same time as fee_rate. If neither is " +
+				"set, the fee rate is left unchanged",
 		},
 		cli.Int64Flag{
 			Name: "inbound_base_fee_msat",
@@ -2582,10 +2588,11 @@ var updateChannelPolicyCommand = cli.Command{
 				"(forward at a loss), and lead to " +
 				"penalization by the sender",
 		},
-		cli.Uint64Flag{
+		cli.StringFlag{
 			Name: "time_lock_delta",
-			Usage: "the CLTV delta that will be applied to all " +
-				"forwarded HTLCs",
+			Usage: "if set, the CLTV delta that will be applied " +
+				"to all forwarded HTLCs. If unset, the CLTV " +
+				"delta is left unchanged",
 		},
 		cli.Uint64Flag{
 			Name: "min_htlc_msat",
@@ -2666,15 +2673,68 @@ func parseTimeLockDelta(timeLockDeltaStr string) (uint16, error) {
 	return uint16(timeLockDeltaUnCheck), nil
 }
 
-func updateChannelPolicy(ctx *cli.Context) error {
-	ctxc := getContext()
-	client, cleanUp := getClient(ctx)
-	defer cleanUp()
+// checkPartialPolicyUpdate refuses a policy update that an lnd predating
+// partial updates would misapply. Such an lnd ignores partial_update and resets
+// omitted fee fields to zero, and only accepts the request if time_lock_delta
+// is set, so the version is only checked in that case.
+func checkPartialPolicyUpdate(ctx context.Context,
+	client lnrpc.LightningClient, req *lnrpc.PolicyUpdateRequest) error {
+
+	if req.TimeLockDelta == 0 ||
+		(req.BaseFeeMsatSpecified && req.FeeRateSpecified) {
+
+		return nil
+	}
+
+	info, err := client.GetInfo(ctx, &lnrpc.GetInfoRequest{})
+	if err != nil {
+		return fmt.Errorf("unable to check that lnd supports partial "+
+			"policy updates (needs info:read permission), pass "+
+			"base_fee_msat and fee_rate or fee_rate_ppm as "+
+			"well: %w", err)
+	}
+
+	if !supportsPartialPolicyUpdate(info.Version) {
+		return fmt.Errorf("lnd %s doesn't support partial policy "+
+			"updates, pass base_fee_msat and fee_rate or "+
+			"fee_rate_ppm as well", info.Version)
+	}
+
+	return nil
+}
+
+// supportsPartialPolicyUpdate reports whether an lnd version string, as
+// returned by GetInfo, supports partial_update in UpdateChannelPolicy.
+// Unparsable versions are treated as unsupported.
+func supportsPartialPolicyUpdate(version string) bool {
+	var major, minor, patch uint32
+	_, err := fmt.Sscanf(version, "%d.%d.%d", &major, &minor, &patch)
+	if err != nil {
+		return false
+	}
+
+	// Partial updates were added in the 0.22 development cycle (0.21.99).
+	switch {
+	case major > 0:
+		return true
+	case minor != 21:
+		return minor > 21
+	default:
+		return patch >= 99
+	}
+}
+
+// parsePolicyUpdateRequest builds a PolicyUpdateRequest from the command's
+// flags and positional arguments.
+func parsePolicyUpdateRequest(ctx *cli.Context) (*lnrpc.PolicyUpdateRequest,
+	error) {
 
 	var (
 		baseFee       int64
+		baseFeeSet    bool
 		feeRate       float64
 		feeRatePpm    uint64
+		feeRateSet    bool
 		timeLockDelta uint16
 		err           error
 	)
@@ -2682,52 +2742,89 @@ func updateChannelPolicy(ctx *cli.Context) error {
 
 	switch {
 	case ctx.IsSet("base_fee_msat"):
-		baseFee = ctx.Int64("base_fee_msat")
+		baseFee, err = strconv.ParseInt(
+			ctx.String("base_fee_msat"), 10, 64,
+		)
+		if err != nil {
+			return nil, fmt.Errorf("unable to decode "+
+				"base_fee_msat: %w", err)
+		}
+		baseFeeSet = true
+
 	case args.Present():
 		baseFee, err = strconv.ParseInt(args.First(), 10, 64)
 		if err != nil {
-			return fmt.Errorf("unable to decode base_fee_msat: %w",
-				err)
+			return nil, fmt.Errorf("unable to decode "+
+				"base_fee_msat: %w", err)
 		}
+		baseFeeSet = true
 		args = args.Tail()
-	default:
-		return fmt.Errorf("base_fee_msat argument missing")
 	}
 
 	switch {
 	case ctx.IsSet("fee_rate") && ctx.IsSet("fee_rate_ppm"):
-		return fmt.Errorf("fee_rate or fee_rate_ppm can not both be set")
+		return nil, fmt.Errorf("fee_rate or fee_rate_ppm can not " +
+			"both be set")
+
 	case ctx.IsSet("fee_rate"):
-		feeRate = ctx.Float64("fee_rate")
+		feeRate, err = strconv.ParseFloat(ctx.String("fee_rate"), 64)
+		if err != nil {
+			return nil, fmt.Errorf("unable to decode "+
+				"fee_rate: %w", err)
+		}
+		feeRateSet = true
+
 	case ctx.IsSet("fee_rate_ppm"):
-		feeRatePpm = ctx.Uint64("fee_rate_ppm")
+		feeRatePpm, err = strconv.ParseUint(
+			ctx.String("fee_rate_ppm"), 10, 32,
+		)
+		if err != nil {
+			return nil, fmt.Errorf("unable to decode "+
+				"fee_rate_ppm: %w", err)
+		}
+		feeRateSet = true
+
 	case args.Present():
 		feeRate, err = strconv.ParseFloat(args.First(), 64)
 		if err != nil {
-			return fmt.Errorf("unable to decode fee_rate: %w", err)
+			return nil, fmt.Errorf("unable to decode "+
+				"fee_rate: %w", err)
 		}
-
+		feeRateSet = true
 		args = args.Tail()
-	default:
-		return fmt.Errorf("fee_rate or fee_rate_ppm argument missing")
 	}
 
+	var timeLockDeltaStr string
 	switch {
 	case ctx.IsSet("time_lock_delta"):
-		timeLockDeltaStr := ctx.String("time_lock_delta")
+		timeLockDeltaStr = ctx.String("time_lock_delta")
+
+	case args.Present():
+		timeLockDeltaStr = args.First()
+		args = args.Tail()
+	}
+
+	if timeLockDeltaStr != "" {
 		timeLockDelta, err = parseTimeLockDelta(timeLockDeltaStr)
 		if err != nil {
-			return err
-		}
-	case args.Present():
-		timeLockDelta, err = parseTimeLockDelta(args.First())
-		if err != nil {
-			return err
+			return nil, err
 		}
 
-		args = args.Tail()
-	default:
-		return fmt.Errorf("time_lock_delta argument missing")
+		// A zero time lock delta means "keep the current value" in a
+		// partial update, so don't let an explicit zero pass silently.
+		if timeLockDelta == 0 {
+			return nil, fmt.Errorf("time_lock_delta must be " +
+				"greater than 0")
+		}
+	}
+
+	if !baseFeeSet && !feeRateSet && timeLockDelta == 0 &&
+		!ctx.IsSet("max_htlc_msat") && !ctx.IsSet("min_htlc_msat") &&
+		!ctx.IsSet("inbound_fee_rate_ppm") &&
+		!ctx.IsSet("inbound_base_fee_msat") &&
+		!ctx.IsSet("create_missing_edge") {
+
+		return nil, fmt.Errorf("no policy fields to update")
 	}
 
 	var (
@@ -2745,7 +2842,8 @@ func updateChannelPolicy(ctx *cli.Context) error {
 	if chanPointStr != "" {
 		chanPoint, err = parseChanPoint(chanPointStr)
 		if err != nil {
-			return fmt.Errorf("unable to parse chan_point: %w", err)
+			return nil, fmt.Errorf("unable to parse "+
+				"chan_point: %w", err)
 		}
 	}
 
@@ -2753,14 +2851,14 @@ func updateChannelPolicy(ctx *cli.Context) error {
 	if inboundBaseFeeMsat < math.MinInt32 ||
 		inboundBaseFeeMsat > math.MaxInt32 {
 
-		return errors.New("inbound_base_fee_msat out of range")
+		return nil, errors.New("inbound_base_fee_msat out of range")
 	}
 
 	inboundFeeRatePpm := ctx.Int64("inbound_fee_rate_ppm")
 	if inboundFeeRatePpm < math.MinInt32 ||
 		inboundFeeRatePpm > math.MaxInt32 {
 
-		return errors.New("inbound_fee_rate_ppm out of range")
+		return nil, errors.New("inbound_fee_rate_ppm out of range")
 	}
 
 	// Inbound fees are optional. However, if an update is required,
@@ -2769,7 +2867,7 @@ func updateChannelPolicy(ctx *cli.Context) error {
 	if ctx.IsSet("inbound_base_fee_msat") !=
 		ctx.IsSet("inbound_fee_rate_ppm") {
 
-		return errors.New("both parameters must be provided: " +
+		return nil, errors.New("both parameters must be provided: " +
 			"inbound_base_fee_msat and inbound_fee_rate_ppm")
 	}
 
@@ -2782,12 +2880,16 @@ func updateChannelPolicy(ctx *cli.Context) error {
 
 	createMissingEdge := ctx.Bool("create_missing_edge")
 
+	// Fields that weren't passed keep their current value.
 	req := &lnrpc.PolicyUpdateRequest{
-		BaseFeeMsat:       baseFee,
-		TimeLockDelta:     uint32(timeLockDelta),
-		MaxHtlcMsat:       ctx.Uint64("max_htlc_msat"),
-		InboundFee:        inboundFee,
-		CreateMissingEdge: createMissingEdge,
+		BaseFeeMsat:          baseFee,
+		TimeLockDelta:        uint32(timeLockDelta),
+		MaxHtlcMsat:          ctx.Uint64("max_htlc_msat"),
+		InboundFee:           inboundFee,
+		CreateMissingEdge:    createMissingEdge,
+		PartialUpdate:        true,
+		BaseFeeMsatSpecified: baseFeeSet,
+		FeeRateSpecified:     feeRateSet,
 	}
 
 	if ctx.IsSet("min_htlc_msat") {
@@ -2809,6 +2911,23 @@ func updateChannelPolicy(ctx *cli.Context) error {
 		req.FeeRate = feeRate
 	} else if feeRatePpm != 0 {
 		req.FeeRatePpm = uint32(feeRatePpm)
+	}
+
+	return req, nil
+}
+
+func updateChannelPolicy(ctx *cli.Context) error {
+	req, err := parsePolicyUpdateRequest(ctx)
+	if err != nil {
+		return err
+	}
+
+	ctxc := getContext()
+	client, cleanUp := getClient(ctx)
+	defer cleanUp()
+
+	if err := checkPartialPolicyUpdate(ctxc, client, req); err != nil {
+		return err
 	}
 
 	resp, err := client.UpdateChannelPolicy(ctxc, req)

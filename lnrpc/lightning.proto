@@ -4773,6 +4773,21 @@ message PolicyUpdateRequest {
     // channel permanently. For fields not set in this command, the default
     // policy will be created.
     bool create_missing_edge = 11;
+
+    // If true, only the fields the caller marks as specified are updated and
+    // all others keep their current value: base_fee_msat is applied only if
+    // base_fee_msat_specified is set, fee_rate/fee_rate_ppm only if
+    // fee_rate_specified is set, and time_lock_delta only if non-zero. If
+    // false, base_fee_msat, fee_rate/fee_rate_ppm and time_lock_delta are
+    // always applied, with unset values treated as zero.
+    bool partial_update = 12;
+
+    // If true and partial_update is set, base_fee_msat is applied.
+    bool base_fee_msat_specified = 13;
+
+    // If true and partial_update is set, fee_rate or fee_rate_ppm is applied.
+    // If both are zero, the fee rate is set to zero.
+    bool fee_rate_specified = 14;
 }
 
 enum UpdateFailure {

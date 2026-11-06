@@ -7462,30 +7462,41 @@ func (r *rpcServer) FeeReport(ctx context.Context,
 // 0.000001, or 0.0001%.
 const minFeeRate = 1e-6
 
-// UpdateChannelPolicy allows the caller to update the channel forwarding policy
-// for all channels globally, or a particular channel.
-func (r *rpcServer) UpdateChannelPolicy(ctx context.Context,
-	req *lnrpc.PolicyUpdateRequest) (*lnrpc.PolicyUpdateResponse, error) {
+// channelPolicyFromRequest validates a PolicyUpdateRequest and converts it
+// into the channel policy that is applied to the target channels.
+func channelPolicyFromRequest(req *lnrpc.PolicyUpdateRequest,
+	maxOutgoingCltvExpiry uint32,
+	acceptPositiveInboundFees bool) (routing.ChannelPolicy, error) {
 
-	var targetChans []wire.OutPoint
-	switch scope := req.Scope.(type) {
-	// If the request is targeting all active channels, then we don't need
-	// target any channels by their channel point.
-	case *lnrpc.PolicyUpdateRequest_Global:
+	// Outside a partial update the specified flags have no effect, so
+	// reject them rather than applying unset fields as zero.
+	if !req.PartialUpdate &&
+		(req.BaseFeeMsatSpecified || req.FeeRateSpecified) {
 
-	// Otherwise, we're targeting an individual channel by its channel
-	// point.
-	case *lnrpc.PolicyUpdateRequest_ChanPoint:
-		txid, err := lnrpc.GetChanPointFundingTxid(scope.ChanPoint)
-		if err != nil {
-			return nil, err
-		}
-		targetChans = append(targetChans, wire.OutPoint{
-			Hash:  *txid,
-			Index: scope.ChanPoint.OutputIndex,
-		})
-	default:
-		return nil, fmt.Errorf("unknown scope: %v", scope)
+		return routing.ChannelPolicy{}, status.Errorf(
+			codes.InvalidArgument, "base_fee_msat_specified and "+
+				"fee_rate_specified require partial_update",
+		)
+	}
+
+	// In a partial update, a field the caller didn't mark as specified is
+	// left unchanged. Reject non-zero values for such fields, as they
+	// would otherwise be silently ignored.
+	keepBaseFee := req.PartialUpdate && !req.BaseFeeMsatSpecified
+	keepFeeRate := req.PartialUpdate && !req.FeeRateSpecified
+	keepTimeLockDelta := req.PartialUpdate && req.TimeLockDelta == 0
+
+	if keepBaseFee && req.BaseFeeMsat != 0 {
+		return routing.ChannelPolicy{}, status.Errorf(
+			codes.InvalidArgument, "base_fee_msat set without "+
+				"base_fee_msat_specified in partial update",
+		)
+	}
+	if keepFeeRate && (req.FeeRate != 0 || req.FeeRatePpm != 0) {
+		return routing.ChannelPolicy{}, status.Errorf(
+			codes.InvalidArgument, "fee_rate or fee_rate_ppm set "+
+				"without fee_rate_specified in partial update",
+		)
 	}
 
 	var feeRateFixed uint32
@@ -7497,7 +7508,9 @@ func (r *rpcServer) UpdateChannelPolicy(ctx context.Context,
 		errMsg := "cannot set both FeeRate and FeeRatePpm at the " +
 			"same time"
 
-		return nil, status.Errorf(codes.InvalidArgument, "%v", errMsg)
+		return routing.ChannelPolicy{}, status.Errorf(
+			codes.InvalidArgument, "%v", errMsg,
+		)
 
 	// If the request is using fee_rate.
 	case req.FeeRate != 0:
@@ -7505,9 +7518,9 @@ func (r *rpcServer) UpdateChannelPolicy(ctx context.Context,
 		// the passed fee rate is below 1e-6, or the lowest allowed
 		// non-zero fee rate expressible within the protocol.
 		if req.FeeRate != 0 && req.FeeRate < minFeeRate {
-			return nil, fmt.Errorf("fee rate of %v is too "+
-				"small, min fee rate is %v", req.FeeRate,
-				minFeeRate)
+			return routing.ChannelPolicy{}, fmt.Errorf("fee rate "+
+				"of %v is too small, min fee rate is %v",
+				req.FeeRate, minFeeRate)
 		}
 
 		// We'll also need to convert the floating point fee rate we
@@ -7528,23 +7541,26 @@ func (r *rpcServer) UpdateChannelPolicy(ctx context.Context,
 
 	// We'll also ensure that the user isn't setting a CLTV delta that
 	// won't give outgoing HTLCs enough time to fully resolve if needed.
-	if err := validateChannelPolicyTimeLockDelta(
-		req.TimeLockDelta, r.cfg.MaxOutgoingCltvExpiry,
-	); err != nil {
-		return nil, err
+	if !keepTimeLockDelta {
+		err := validateChannelPolicyTimeLockDelta(
+			req.TimeLockDelta, maxOutgoingCltvExpiry,
+		)
+		if err != nil {
+			return routing.ChannelPolicy{}, err
+		}
 	}
 
 	// By default, positive inbound fees are rejected.
-	if !r.cfg.AcceptPositiveInboundFees && req.InboundFee != nil {
+	if !acceptPositiveInboundFees && req.InboundFee != nil {
 		if req.InboundFee.BaseFeeMsat > 0 {
-			return nil, fmt.Errorf("positive values for inbound "+
-				"base fee msat are not supported: %v",
-				req.InboundFee.BaseFeeMsat)
+			return routing.ChannelPolicy{}, fmt.Errorf("positive "+
+				"values for inbound base fee msat are not "+
+				"supported: %v", req.InboundFee.BaseFeeMsat)
 		}
 		if req.InboundFee.FeeRatePpm > 0 {
-			return nil, fmt.Errorf("positive values for inbound "+
-				"fee rate ppm are not supported: %v",
-				req.InboundFee.FeeRatePpm)
+			return routing.ChannelPolicy{}, fmt.Errorf("positive "+
+				"values for inbound fee rate ppm are not "+
+				"supported: %v", req.InboundFee.FeeRatePpm)
 		}
 	}
 
@@ -7573,11 +7589,49 @@ func (r *rpcServer) UpdateChannelPolicy(ctx context.Context,
 		minHtlc = &min
 	}
 
-	chanPolicy := routing.ChannelPolicy{
-		FeeSchema:     feeSchema,
-		TimeLockDelta: req.TimeLockDelta,
-		MaxHTLC:       maxHtlc,
-		MinHTLC:       minHtlc,
+	return routing.ChannelPolicy{
+		FeeSchema:         feeSchema,
+		TimeLockDelta:     req.TimeLockDelta,
+		MaxHTLC:           maxHtlc,
+		MinHTLC:           minHtlc,
+		KeepBaseFee:       keepBaseFee,
+		KeepFeeRate:       keepFeeRate,
+		KeepTimeLockDelta: keepTimeLockDelta,
+	}, nil
+}
+
+// UpdateChannelPolicy allows the caller to update the channel forwarding policy
+// for all channels globally, or a particular channel.
+func (r *rpcServer) UpdateChannelPolicy(ctx context.Context,
+	req *lnrpc.PolicyUpdateRequest) (*lnrpc.PolicyUpdateResponse, error) {
+
+	var targetChans []wire.OutPoint
+	switch scope := req.Scope.(type) {
+	// If the request is targeting all active channels, then we don't need
+	// target any channels by their channel point.
+	case *lnrpc.PolicyUpdateRequest_Global:
+
+	// Otherwise, we're targeting an individual channel by its channel
+	// point.
+	case *lnrpc.PolicyUpdateRequest_ChanPoint:
+		txid, err := lnrpc.GetChanPointFundingTxid(scope.ChanPoint)
+		if err != nil {
+			return nil, err
+		}
+		targetChans = append(targetChans, wire.OutPoint{
+			Hash:  *txid,
+			Index: scope.ChanPoint.OutputIndex,
+		})
+	default:
+		return nil, fmt.Errorf("unknown scope: %v", scope)
+	}
+
+	chanPolicy, err := channelPolicyFromRequest(
+		req, r.cfg.MaxOutgoingCltvExpiry,
+		r.cfg.AcceptPositiveInboundFees,
+	)
+	if err != nil {
+		return nil, err
 	}
 
 	rpcsLog.Debugf("[updatechanpolicy] updating channel policy, "+

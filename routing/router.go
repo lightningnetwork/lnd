@@ -251,6 +251,13 @@ type ChannelPolicy struct {
 	// MinHTLC is the minimum HTLC size including fees we are allowed to
 	// forward over this channel.
 	MinHTLC *lnwire.MilliSatoshi
+
+	// KeepBaseFee, KeepFeeRate and KeepTimeLockDelta leave the current
+	// value of the respective field unchanged instead of applying the one
+	// in this policy.
+	KeepBaseFee       bool
+	KeepFeeRate       bool
+	KeepTimeLockDelta bool
 }
 
 // Config defines the configuration for the ChannelRouter. ALL elements within

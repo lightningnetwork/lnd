@@ -1,6 +1,7 @@
 package commands
 
 import (
+	"context"
 	"encoding/hex"
 	"flag"
 	"fmt"
@@ -8,8 +9,12 @@ import (
 	"strconv"
 	"testing"
 
+	"github.com/lightningnetwork/lnd/lnrpc"
 	"github.com/stretchr/testify/require"
 	"github.com/urfave/cli"
+	"google.golang.org/grpc"
+	"google.golang.org/grpc/codes"
+	"google.golang.org/grpc/status"
 )
 
 // TestParseChanPoint tests parseChanPoint with various
@@ -489,6 +494,223 @@ func TestParseChanIDs(t *testing.T) {
 			}
 			require.NoError(t, err)
 			require.Equal(t, tc.expected, chanIDs)
+		})
+	}
+}
+
+// TestParsePolicyUpdateRequest checks that updatechanpolicy only marks the
+// fields the user passed as specified.
+func TestParsePolicyUpdateRequest(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name   string
+		args   []string
+		want   *lnrpc.PolicyUpdateRequest
+		errStr string
+	}{
+		{
+			name: "fee rate ppm only",
+			args: []string{"--fee_rate_ppm=0"},
+			want: &lnrpc.PolicyUpdateRequest{
+				PartialUpdate:    true,
+				FeeRateSpecified: true,
+			},
+		},
+		{
+			name: "base fee zero only",
+			args: []string{"--base_fee_msat=0"},
+			want: &lnrpc.PolicyUpdateRequest{
+				PartialUpdate:        true,
+				BaseFeeMsatSpecified: true,
+			},
+		},
+		{
+			name: "time lock delta only",
+			args: []string{"--time_lock_delta=80"},
+			want: &lnrpc.PolicyUpdateRequest{
+				PartialUpdate: true,
+				TimeLockDelta: 80,
+			},
+		},
+		{
+			name: "all positional",
+			args: []string{"1000", "0.001", "40"},
+			want: &lnrpc.PolicyUpdateRequest{
+				PartialUpdate:        true,
+				BaseFeeMsat:          1000,
+				BaseFeeMsatSpecified: true,
+				FeeRate:              0.001,
+				FeeRateSpecified:     true,
+				TimeLockDelta:        40,
+			},
+		},
+		{
+			name:   "nothing to update",
+			args:   []string{},
+			errStr: "no policy fields to update",
+		},
+		{
+			name:   "explicit zero time lock delta",
+			args:   []string{"--time_lock_delta=0"},
+			errStr: "time_lock_delta must be greater than 0",
+		},
+		{
+			name:   "invalid base fee",
+			args:   []string{"--base_fee_msat=abc"},
+			errStr: "unable to decode base_fee_msat",
+		},
+		{
+			name:   "invalid fee rate ppm",
+			args:   []string{"--fee_rate_ppm=-1"},
+			errStr: "unable to decode fee_rate_ppm",
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+
+			flagSet := flag.NewFlagSet(
+				"updatechanpolicy", flag.ContinueOnError,
+			)
+			for _, f := range updateChannelPolicyCommand.Flags {
+				f.Apply(flagSet)
+			}
+			require.NoError(t, flagSet.Parse(tc.args))
+
+			ctx := cli.NewContext(nil, flagSet, nil)
+			got, err := parsePolicyUpdateRequest(ctx)
+			if tc.errStr != "" {
+				require.ErrorContains(t, err, tc.errStr)
+				return
+			}
+			require.NoError(t, err)
+
+			tc.want.Scope = &lnrpc.PolicyUpdateRequest_Global{
+				Global: true,
+			}
+			require.Equal(t, tc.want, got)
+		})
+	}
+}
+
+// TestSupportsPartialPolicyUpdate checks the lnd version gate for partial
+// channel policy updates.
+func TestSupportsPartialPolicyUpdate(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		version string
+		want    bool
+	}{
+		{"0.21.6-beta commit=v0.21.6-beta", false},
+		{"0.20.1-beta", false},
+		{"0.21.99-beta commit=v0.21.0-beta-500-gabc", true},
+		{"0.22.0-beta commit=v0.22.0-beta", true},
+		{"0.23.1-beta", true},
+		{"1.0.0", true},
+		{"", false},
+		{"garbage", false},
+	}
+
+	for _, tc := range tests {
+		require.Equal(
+			t, tc.want, supportsPartialPolicyUpdate(tc.version),
+			tc.version,
+		)
+	}
+}
+
+// getInfoClient is a LightningClient whose GetInfo returns a fixed result.
+type getInfoClient struct {
+	lnrpc.LightningClient
+
+	info  *lnrpc.GetInfoResponse
+	err   error
+	calls int
+}
+
+func (c *getInfoClient) GetInfo(context.Context, *lnrpc.GetInfoRequest,
+	...grpc.CallOption) (*lnrpc.GetInfoResponse, error) {
+
+	c.calls++
+	return c.info, c.err
+}
+
+// TestCheckPartialPolicyUpdate checks when lncli refuses a partial policy
+// update because lnd may not support it.
+func TestCheckPartialPolicyUpdate(t *testing.T) {
+	t.Parallel()
+
+	partial := &lnrpc.PolicyUpdateRequest{
+		PartialUpdate: true,
+		TimeLockDelta: 80,
+	}
+	oldLnd := &lnrpc.GetInfoResponse{Version: "0.21.6-beta"}
+	newLnd := &lnrpc.GetInfoResponse{Version: "0.22.0-beta"}
+	denied := status.Error(codes.PermissionDenied, "permission denied")
+
+	tests := []struct {
+		name      string
+		req       *lnrpc.PolicyUpdateRequest
+		client    *getInfoClient
+		wantCalls int
+		errStr    string
+	}{
+		{
+			name: "no time lock delta skips check",
+			req: &lnrpc.PolicyUpdateRequest{
+				PartialUpdate:    true,
+				FeeRateSpecified: true,
+			},
+			client: &getInfoClient{err: denied},
+		},
+		{
+			name: "all fee fields skips check",
+			req: &lnrpc.PolicyUpdateRequest{
+				PartialUpdate:        true,
+				TimeLockDelta:        80,
+				BaseFeeMsatSpecified: true,
+				FeeRateSpecified:     true,
+			},
+			client: &getInfoClient{err: denied},
+		},
+		{
+			name:      "new lnd",
+			req:       partial,
+			client:    &getInfoClient{info: newLnd},
+			wantCalls: 1,
+		},
+		{
+			name:      "old lnd",
+			req:       partial,
+			client:    &getInfoClient{info: oldLnd},
+			wantCalls: 1,
+			errStr:    "doesn't support partial policy updates",
+		},
+		{
+			name:      "no info permission",
+			req:       partial,
+			client:    &getInfoClient{err: denied},
+			wantCalls: 1,
+			errStr:    "needs info:read permission",
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+
+			err := checkPartialPolicyUpdate(
+				t.Context(), tc.client, tc.req,
+			)
+			require.Equal(t, tc.wantCalls, tc.client.calls)
+			if tc.errStr != "" {
+				require.ErrorContains(t, err, tc.errStr)
+				return
+			}
+			require.NoError(t, err)
 		})
 	}
 }

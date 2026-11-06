@@ -7,7 +7,9 @@ import (
 
 	"github.com/lightningnetwork/lnd/channeldb"
 	"github.com/lightningnetwork/lnd/fn/v2"
+	"github.com/lightningnetwork/lnd/graph/db/models"
 	"github.com/lightningnetwork/lnd/lnrpc"
+	"github.com/lightningnetwork/lnd/routing"
 	"github.com/lightningnetwork/lnd/signal"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -150,6 +152,133 @@ func TestRpcCommitmentType(t *testing.T) {
 			require.Equal(
 				t, tt.want, rpcCommitmentType(tt.chanType),
 			)
+		})
+	}
+}
+
+// TestChannelPolicyFromRequest checks which fields of a PolicyUpdateRequest are
+// applied, in particular that legacy requests keep applying zero values while
+// partial updates leave unspecified fields unchanged.
+func TestChannelPolicyFromRequest(t *testing.T) {
+	t.Parallel()
+
+	const maxCltvExpiry = 2016
+
+	tests := []struct {
+		name   string
+		req    *lnrpc.PolicyUpdateRequest
+		want   routing.ChannelPolicy
+		errStr string
+	}{
+		{
+			// Existing clients don't send zero values on the wire,
+			// so they must still be applied as zero.
+			name: "legacy request applies zero fees",
+			req: &lnrpc.PolicyUpdateRequest{
+				TimeLockDelta: 40,
+			},
+			want: routing.ChannelPolicy{
+				TimeLockDelta: 40,
+			},
+		},
+		{
+			name: "legacy request rejects zero time lock delta",
+			req: &lnrpc.PolicyUpdateRequest{
+				BaseFeeMsat: 1000,
+			},
+			errStr: "time lock delta of 0 is too small",
+		},
+		{
+			name: "partial update keeps unspecified fields",
+			req: &lnrpc.PolicyUpdateRequest{
+				PartialUpdate: true,
+				MaxHtlcMsat:   5000,
+			},
+			want: routing.ChannelPolicy{
+				MaxHTLC:           5000,
+				KeepBaseFee:       true,
+				KeepFeeRate:       true,
+				KeepTimeLockDelta: true,
+			},
+		},
+		{
+			name: "partial update applies specified zero fees",
+			req: &lnrpc.PolicyUpdateRequest{
+				PartialUpdate:        true,
+				BaseFeeMsatSpecified: true,
+				FeeRateSpecified:     true,
+			},
+			want: routing.ChannelPolicy{
+				KeepTimeLockDelta: true,
+			},
+		},
+		{
+			name: "partial update applies fee rate ppm only",
+			req: &lnrpc.PolicyUpdateRequest{
+				PartialUpdate:    true,
+				FeeRateSpecified: true,
+				FeeRatePpm:       250,
+			},
+			want: routing.ChannelPolicy{
+				FeeSchema: routing.FeeSchema{
+					FeeRate: 250,
+				},
+				KeepBaseFee:       true,
+				KeepTimeLockDelta: true,
+			},
+		},
+		{
+			name: "partial update validates time lock delta",
+			req: &lnrpc.PolicyUpdateRequest{
+				PartialUpdate: true,
+				TimeLockDelta: 2,
+			},
+			errStr: "time lock delta of 2 is too small",
+		},
+		{
+			name: "specified flag without partial update",
+			req: &lnrpc.PolicyUpdateRequest{
+				BaseFeeMsatSpecified: true,
+				BaseFeeMsat:          1000,
+				TimeLockDelta:        80,
+			},
+			errStr: "require partial_update",
+		},
+		{
+			name: "partial update rejects unflagged base fee",
+			req: &lnrpc.PolicyUpdateRequest{
+				PartialUpdate: true,
+				BaseFeeMsat:   1000,
+			},
+			errStr: "base_fee_msat set without",
+		},
+		{
+			name: "partial update rejects unflagged fee rate",
+			req: &lnrpc.PolicyUpdateRequest{
+				PartialUpdate: true,
+				FeeRate:       0.001,
+			},
+			errStr: "fee_rate or fee_rate_ppm set without",
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+
+			got, err := channelPolicyFromRequest(
+				tc.req, maxCltvExpiry, false,
+			)
+			if tc.errStr != "" {
+				require.ErrorContains(t, err, tc.errStr)
+				return
+			}
+
+			require.NoError(t, err)
+
+			// Inbound fees aren't under test here.
+			tc.want.InboundFee = fn.None[models.InboundFee]()
+			require.Equal(t, tc.want, got)
 		})
 	}
 }

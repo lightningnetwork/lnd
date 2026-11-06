@@ -831,6 +831,67 @@ func testUpdateChannelPolicyFeeRateAccuracy(ht *lntest.HarnessTest) {
 	assertNodesPolicyUpdate(ht, nodes, alice, expectedPolicy, chanPoint)
 }
 
+// testUpdateChannelPolicyPartial tests that a partial policy update only
+// changes the fields it specifies, and that legacy requests still apply zero
+// values.
+func testUpdateChannelPolicyPartial(ht *lntest.HarnessTest) {
+	chanPoints, nodes := ht.CreateSimpleNetwork(
+		[][]string{nil, nil}, lntest.OpenChannelParams{
+			Amt: funding.MaxBtcFundingAmount,
+		},
+	)
+	alice := nodes[0]
+	chanPoint := chanPoints[0]
+	scope := &lnrpc.PolicyUpdateRequest_ChanPoint{ChanPoint: chanPoint}
+
+	expectedPolicy := &lnrpc.RoutingPolicy{
+		FeeBaseMsat:      1500,
+		FeeRateMilliMsat: 2000,
+		TimeLockDelta:    66,
+		MinHtlc:          1000,
+		MaxHtlcMsat:      500000,
+	}
+
+	// Set a known starting policy.
+	alice.RPC.UpdateChannelPolicy(&lnrpc.PolicyUpdateRequest{
+		BaseFeeMsat:   expectedPolicy.FeeBaseMsat,
+		FeeRatePpm:    uint32(expectedPolicy.FeeRateMilliMsat),
+		TimeLockDelta: expectedPolicy.TimeLockDelta,
+		MaxHtlcMsat:   expectedPolicy.MaxHtlcMsat,
+		Scope:         scope,
+	})
+	assertNodesPolicyUpdate(ht, nodes, alice, expectedPolicy, chanPoint)
+
+	// Set only the fee rate, to zero. Everything else must be kept.
+	alice.RPC.UpdateChannelPolicy(&lnrpc.PolicyUpdateRequest{
+		PartialUpdate:    true,
+		FeeRateSpecified: true,
+		Scope:            scope,
+	})
+	expectedPolicy.FeeRateMilliMsat = 0
+	assertNodesPolicyUpdate(ht, nodes, alice, expectedPolicy, chanPoint)
+
+	// Set only the time lock delta.
+	alice.RPC.UpdateChannelPolicy(&lnrpc.PolicyUpdateRequest{
+		PartialUpdate: true,
+		TimeLockDelta: 80,
+		Scope:         scope,
+	})
+	expectedPolicy.TimeLockDelta = 80
+	assertNodesPolicyUpdate(ht, nodes, alice, expectedPolicy, chanPoint)
+
+	// A legacy request without the base fee must still reset it to zero,
+	// as existing clients rely on that.
+	alice.RPC.UpdateChannelPolicy(&lnrpc.PolicyUpdateRequest{
+		FeeRatePpm:    100,
+		TimeLockDelta: 80,
+		Scope:         scope,
+	})
+	expectedPolicy.FeeBaseMsat = 0
+	expectedPolicy.FeeRateMilliMsat = 100
+	assertNodesPolicyUpdate(ht, nodes, alice, expectedPolicy, chanPoint)
+}
+
 // assertNodesPolicyUpdate checks that a given policy update has been received
 // by a list of given nodes.
 func assertNodesPolicyUpdate(ht *lntest.HarnessTest, nodes []*node.HarnessNode,

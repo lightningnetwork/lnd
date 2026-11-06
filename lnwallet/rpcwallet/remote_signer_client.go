@@ -2,6 +2,8 @@ package rpcwallet
 
 import (
 	"context"
+	"crypto/rand"
+	"crypto/sha256"
 	"errors"
 	"fmt"
 	"log/slog"
@@ -453,21 +455,19 @@ func (r *OutboundClient) handshake(ctx context.Context, stream *Stream) error {
 		errChan = make(chan error, 1)
 	)
 
-	// registrationMsg is the message that we send to the watch-only node to
-	// initiate the handshake process.
-	// TODO(viktor): The current authentication model is TLS + macaroon.
-	// This message could later be extended with version information and a
-	// randomized RegistrationChallenge as part of a future mutual-auth
-	// extension, but it does not currently provide signer identity
-	// verification on its own.
+	// A fresh challenge binds this registration to the actual TLS stream,
+	// retaining TLS/macaroons as the endpoint/caller authentication.
+	challenge := make([]byte, sha256.Size)
+	if _, err := rand.Read(challenge); err != nil {
+		return fmt.Errorf("generate registration challenge: %w", err)
+	}
+	version := watchonlyrpc.RegistrationVersion
 	var registrationMsg = &watchonlyrpc.SignCoordinatorResponse{
 		RefRequestId: handshakeRequestID,
 		SignResponseType: &RSRegistration{
 			SignerRegistration: &watchonlyrpc.SignerRegistration{
-				RegistrationChallenge: []byte(
-					"registrationChallenge",
-				),
-				RegistrationInfo: "outboundSigner",
+				RegistrationChallenge: challenge,
+				RegistrationInfo:      version,
 			},
 		},
 	}
@@ -495,6 +495,7 @@ func (r *OutboundClient) handshake(ctx context.Context, stream *Stream) error {
 	select {
 	case <-ctxt.Done():
 		return ctxt.Err()
+
 	case err := <-errChan:
 		if err != nil {
 			return fmt.Errorf("handshake error: %w", err)
@@ -520,9 +521,14 @@ func (r *OutboundClient) handshake(ctx context.Context, stream *Stream) error {
 		GetRegistrationResponseType().(type) {
 	// The registration was successful.
 	case *RSRegistrationComplete:
-		// TODO(viktor): This should verify that the signature in the
-		// complete message is valid.
-		return nil
+		// Accept requests only after the peer confirms the fresh
+		// challenge on this TLS connection using the supported protocol
+		// version.
+		return watchonlyrpc.VerifyRegistrationProof(
+			stream.Context(), challenge,
+			rType.RegistrationComplete.GetRegistrationInfo(),
+			rType.RegistrationComplete.GetSignature(),
+		)
 
 	// An error occurred during the registration process.
 	case *watchonlyrpc.RegistrationResponse_RegistrationError:

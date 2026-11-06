@@ -269,10 +269,15 @@ func (ms *mockStream) handleHandshake(t *testing.T) error {
 	require.Equal(t, handshakeRequestID, resp.GetRefRequestId())
 	require.NotEmpty(t, resp.GetSignerRegistration())
 
+	proof, err := watchonlyrpc.RegistrationProof(
+		ms.ctx, resp.GetSignerRegistration().GetRegistrationChallenge(),
+		watchonlyrpc.RegistrationVersion,
+	)
+	require.NoError(t, err)
 	complete := &watchonlyrpc.RegistrationResponse_RegistrationComplete{
 		RegistrationComplete: &watchonlyrpc.RegistrationComplete{
-			Signature:        "",
-			RegistrationInfo: "watch-only registration info",
+			Signature:        proof,
+			RegistrationInfo: watchonlyrpc.RegistrationVersion,
 		},
 	}
 
@@ -1026,6 +1031,103 @@ func remoteSignerTLSContexts(t *testing.T) (context.Context, context.Context) {
 				State: client.ConnectionState(),
 			},
 		})
+}
+
+// TestRemoteSignerRegistration rejects invalid registration before the running
+// client can admit signing work; existing Ping tests cover valid admission.
+func TestRemoteSignerRegistration(t *testing.T) {
+	cases := []struct {
+		name    string
+		proof   string
+		version string
+	}{
+		{
+			name:    "missing proof",
+			proof:   "missing",
+			version: watchonlyrpc.RegistrationVersion,
+		},
+		{
+			name:    "changed challenge",
+			proof:   "changed challenge",
+			version: watchonlyrpc.RegistrationVersion,
+		},
+		{
+			name:    "wrong TLS connection",
+			proof:   "other connection",
+			version: watchonlyrpc.RegistrationVersion,
+		},
+		{
+			name:    "incompatible version",
+			version: "unsupported",
+		},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			// Arrange the client without completing admission.
+			// Signing backend calls must remain unused.
+			feeder := newMockStreamFeeder(t)
+			feeder.expectStream(t, 1, 1)
+			client := newTestRemoteSignerClient(t, feeder, false)
+			defer func() {
+				require.NoError(t, client.Stop())
+			}()
+			require.NoError(t, <-feeder.streamCreated)
+			stream := feeder.stream
+			registration := <-stream.sendChan
+			proofCtx := stream.Context()
+			if tc.proof == "other connection" {
+				proofCtx, _ = remoteSignerTLSContexts(t)
+			}
+			challenge := registration.GetSignerRegistration().
+				GetRegistrationChallenge()
+			if tc.proof == "changed challenge" {
+				// Copy the value to leave the original client
+				// challenge intact for verification.
+				challenge = append([]byte(nil), challenge...)
+				challenge[0] ^= 1
+			}
+			proof, err := watchonlyrpc.RegistrationProof(
+				proofCtx, challenge,
+				watchonlyrpc.RegistrationVersion,
+			)
+			require.NoError(t, err)
+			if tc.proof == "missing" {
+				proof = ""
+			}
+
+			// Act through the running protocol with one altered
+			// proof/version, leaving the transport authenticated.
+			complete := &watchonlyrpc.RegistrationComplete{
+				Signature:        proof,
+				RegistrationInfo: tc.version,
+			}
+			completed := &RSRegistrationComplete{
+				RegistrationComplete: complete,
+			}
+			response := &watchonlyrpc.RegistrationResponse{
+				RegistrationResponseType: completed,
+			}
+			reply := &RSRegistrationResponse{
+				RegistrationResponse: response,
+			}
+			require.NoError(t, stream.recvRequest(
+				&watchonlyrpc.SignCoordinatorRequest{
+					RequestId:       handshakeRequestID,
+					SignRequestType: reply,
+				},
+			))
+
+			// Assert invalid admission closes the stream before
+			// signing can start; fixture cleanup verifies no
+			// backend operation was invoked.
+			select {
+			case <-stream.Context().Done():
+
+			case <-time.After(2 * time.Second):
+				t.Fatal("invalid registration stayed active")
+			}
+		})
+	}
 }
 
 // TestRegistrationProofInputs exercises protocol guards with a usable TLS

@@ -7,6 +7,7 @@ import (
 	"errors"
 	"math"
 	"net"
+	"sync"
 	"testing"
 	"time"
 
@@ -38,6 +39,10 @@ var (
 	ErrStreamError = errors.New("stream creation error")
 )
 
+// muSig2SignRequest names the existing wire variant used by ordered stream
+// fixtures without repeating its long qualified name in nested literals.
+type muSig2SignRequest = watchonlyrpc.SignCoordinatorRequest_MuSig2SignRequest
+
 // mockStreamFeeder arranges each connection attempt before the client starts.
 // streamCreated publishes the current stream to the owning test goroutine.
 type mockStreamFeeder struct {
@@ -66,8 +71,10 @@ func newMockStreamFeeder(t *testing.T) *mockStreamFeeder {
 
 // expectStream arranges one successful connection and its bounded wire calls.
 // Preparing the stream here keeps expectations in Arrange, including
-// reconnects.
-func (msf *mockStreamFeeder) expectStream(t *testing.T, sends, requests int) {
+// reconnects. The returned mock allows additional expectations before Start.
+func (msf *mockStreamFeeder) expectStream(t *testing.T,
+	sends, requests int) *mockStream {
+
 	t.Helper()
 	_, tlsCtx := remoteSignerTLSContexts(t)
 	ctx, cancel := context.WithCancel(tlsCtx)
@@ -92,6 +99,8 @@ func (msf *mockStreamFeeder) expectStream(t *testing.T, sends, requests int) {
 		case <-msf.quit:
 		}
 	}).Return(connection, nil).Once()
+
+	return stream
 }
 
 // expectStreamFailures arranges the exact failed attempts in the backoff test.
@@ -1033,6 +1042,303 @@ func remoteSignerTLSContexts(t *testing.T) (context.Context, context.Context) {
 		})
 }
 
+// MuSig2Sign exposes explicit expectations for ordered backend operations.
+func (m *mockSignerServer) MuSig2Sign(ctx context.Context,
+	req *signrpc.MuSig2SignRequest) (*signrpc.MuSig2SignResponse, error) {
+
+	args := m.Called(ctx, req)
+	response, _ := args.Get(0).(*signrpc.MuSig2SignResponse)
+
+	return response, args.Error(1)
+}
+
+// TestRemoteSignerSessionOrdering serializes one session without reserving a
+// worker merely to wait for that session's already-running predecessor.
+func TestRemoteSignerSessionOrdering(t *testing.T) {
+	// Arrange two same-session calls and an independent session. The second
+	// call records entry so its ordering can be checked at the backend
+	// boundary.
+	feeder := newMockStreamFeeder(t)
+	feeder.expectStream(t, 4, 4)
+	client := newTestRemoteSignerClient(t, feeder, true)
+	client.requestTimeout = 5 * time.Second
+	backend, ok := client.signerServer.(*mockSignerServer)
+	require.True(t, ok)
+	entered := make(chan struct{})
+	secondEntered := make(chan struct{})
+	gate := make(chan struct{})
+	release := sync.OnceFunc(func() { close(gate) })
+	t.Cleanup(func() {
+		release()
+		require.NoError(t, client.Stop())
+	})
+	first := &signrpc.MuSig2SignRequest{
+		SessionId:     []byte{1},
+		MessageDigest: []byte{1},
+	}
+	second := &signrpc.MuSig2SignRequest{
+		SessionId:     []byte{1},
+		MessageDigest: []byte{2},
+	}
+	other := &signrpc.MuSig2SignRequest{
+		SessionId: []byte{2},
+	}
+	backend.On(
+		"MuSig2Sign", mock.Anything, first,
+	).Run(func(mock.Arguments) {
+		close(entered)
+		<-gate
+	}).Return(&signrpc.MuSig2SignResponse{}, nil).Once()
+	backend.On(
+		"MuSig2Sign", mock.Anything, second,
+	).Run(func(mock.Arguments) {
+		close(secondEntered)
+	}).Return(&signrpc.MuSig2SignResponse{}, nil).Once()
+	backend.On("MuSig2Sign", mock.Anything, other).Return(
+		&signrpc.MuSig2SignResponse{}, nil,
+	).Once()
+
+	// Act in receive order, holding the first call while another session
+	// runs.
+	requests := []*signrpc.MuSig2SignRequest{first, second, other}
+	for index, request := range requests {
+		require.NoError(t, feeder.stream.recvRequest(
+			&watchonlyrpc.SignCoordinatorRequest{
+				RequestId: uint64(index + 2),
+				SignRequestType: &muSig2SignRequest{
+					MuSig2SignRequest: request,
+				},
+			},
+		))
+		if index == 0 {
+			<-entered
+		}
+	}
+
+	// Assert the independent session completes while the successor remains
+	// outside the backend, then release and observe FIFO responses for its
+	// session.
+	require.Equal(
+		t, uint64(4), (<-feeder.stream.sendChan).GetRefRequestId(),
+	)
+	select {
+	case <-secondEntered:
+		t.Fatal("same-session successor entered " +
+			"before predecessor returned")
+
+	default:
+	}
+	release()
+	require.Equal(
+		t, uint64(2), (<-feeder.stream.sendChan).GetRefRequestId(),
+	)
+	require.Equal(
+		t, uint64(3), (<-feeder.stream.sendChan).GetRefRequestId(),
+	)
+}
+
+// TestRemoteSignerBackpressure exposes saturation instead of blocking Ping or
+// growing a new set of workers behind the synchronous backend calls.
+func TestRemoteSignerBackpressure(t *testing.T) {
+	// Arrange enough blocked calls to fill the existing workers and queue,
+	// then reserve IDs for overflow and Ping after the handshake.
+	signingRequests := signerWorkerCount + maxPendingSignerRequests + 1
+	busyID := handshakeRequestID + uint64(signingRequests)
+	pingID := busyID + 1
+	feeder := newMockStreamFeeder(t)
+	feeder.expectStream(t, 3, signingRequests+2)
+	client := newTestRemoteSignerClient(t, feeder, true)
+	client.requestTimeout = 10 * time.Second
+	backend, ok := client.signerServer.(*mockSignerServer)
+	require.True(t, ok)
+	entered := make(chan struct{}, signerWorkerCount)
+	gate := make(chan struct{})
+	release := sync.OnceFunc(func() { close(gate) })
+	stop := sync.OnceValue(client.Stop)
+	t.Cleanup(func() {
+		stopped := make(chan error, 1)
+		go func() {
+			stopped <- stop()
+		}()
+		<-feeder.stream.Context().Done()
+		release()
+		require.NoError(t, <-stopped)
+	})
+	request := &signrpc.SignMessageReq{
+		Msg: []byte("blocked"),
+	}
+	backend.On(
+		"SignMessage", mock.Anything, request,
+	).Run(func(mock.Arguments) {
+		entered <- struct{}{}
+		<-gate
+	}).Return(&signrpc.SignMessageResp{}, nil).Times(signerWorkerCount)
+
+	// Act by filling the workers and bounded pending queue, then sending
+	// one excess request and a Ping. Only public responses expose queue
+	// pressure.
+	for index := range signingRequests {
+		id := handshakeRequestID + uint64(index) + 1
+		require.NoError(t, feeder.stream.recvRequest(
+			&watchonlyrpc.SignCoordinatorRequest{
+				RequestId: id,
+				SignRequestType: &watchonlyrpc.
+					SignCoordinatorRequest_SignMessageReq{
+					SignMessageReq: request,
+				},
+			},
+		))
+		if index < signerWorkerCount {
+			<-entered
+		}
+	}
+	require.NoError(t, feeder.stream.recvRequest(
+		&watchonlyrpc.SignCoordinatorRequest{
+			RequestId: pingID,
+			SignRequestType: &watchonlyrpc.
+				SignCoordinatorRequest_Ping{
+				Ping: true,
+			},
+		},
+	))
+
+	// Assert saturation is visible and Ping stays independent. Cleanup
+	// cancels queued work before releasing entered calls, so the backend
+	// expectation permits only the original worker count to enter.
+	busy := <-feeder.stream.sendChan
+	require.Equal(t, busyID, busy.GetRefRequestId())
+	require.Contains(t, busy.GetSignerError().GetError(), "busy")
+	pong := <-feeder.stream.sendChan
+	require.Equal(t, pingID, pong.GetRefRequestId())
+	require.True(t, pong.GetPong())
+}
+
+// TestRemoteSignerDispatchShutdown checks that Stop drains an entered backend
+// before returning, even when that backend cannot honor cancellation.
+func TestRemoteSignerDispatchShutdown(t *testing.T) {
+	// Arrange one entered synchronous call. Cleanup releases it before
+	// joining Stop, including when an assertion aborts the normal path.
+	feeder := newMockStreamFeeder(t)
+	feeder.expectStream(t, 1, 2)
+	client := newTestRemoteSignerClient(t, feeder, true)
+	client.requestTimeout = 10 * time.Second
+	backend, ok := client.signerServer.(*mockSignerServer)
+	require.True(t, ok)
+	entered := make(chan struct{})
+	gate := make(chan struct{})
+	release := sync.OnceFunc(func() { close(gate) })
+	stop := sync.OnceValue(client.Stop)
+	t.Cleanup(func() {
+		release()
+		require.NoError(t, stop())
+	})
+	request := &signrpc.MuSig2SignRequest{
+		SessionId:     []byte{1},
+		MessageDigest: []byte{1},
+	}
+	backend.On(
+		"MuSig2Sign", mock.Anything, request,
+	).Run(func(mock.Arguments) {
+		close(entered)
+		<-gate
+	}).Return(&signrpc.MuSig2SignResponse{}, nil).Once()
+	require.NoError(t, feeder.stream.recvRequest(
+		&watchonlyrpc.SignCoordinatorRequest{
+			RequestId: 2,
+			SignRequestType: &muSig2SignRequest{
+				MuSig2SignRequest: request,
+			},
+		},
+	))
+	<-entered
+
+	// Act by stopping the client while the entered backend still holds
+	// wallet access, and wait for cancellation to reach the stream.
+	stopped := make(chan error, 1)
+	go func() {
+		stopped <- stop()
+	}()
+	<-feeder.stream.Context().Done()
+
+	// Assert Stop remains pending until wallet access ends, then joins it.
+	select {
+	case err := <-stopped:
+		t.Fatalf("Stop abandoned entered backend: %v", err)
+
+	default:
+	}
+	release()
+	require.NoError(t, <-stopped)
+}
+
+// TestRemoteSignerDispatchReconnect discards an old stream's late result and
+// allows its same-session successor to complete on the replacement stream.
+func TestRemoteSignerDispatchReconnect(t *testing.T) {
+	// Arrange a backend that ignores cancellation. Both jobs share a
+	// session, so the successor response also proves its predecessor ended.
+	feeder := newMockStreamFeeder(t)
+	feeder.expectStream(t, 1, 2)
+	feeder.expectStream(t, 2, 2)
+	client := newTestRemoteSignerClient(t, feeder, true)
+	client.requestTimeout = 10 * time.Second
+	backend, ok := client.signerServer.(*mockSignerServer)
+	require.True(t, ok)
+	entered := make(chan struct{})
+	gate := make(chan struct{})
+	release := sync.OnceFunc(func() { close(gate) })
+	t.Cleanup(func() {
+		release()
+		require.NoError(t, client.Stop())
+	})
+	first := &signrpc.MuSig2SignRequest{
+		SessionId:     []byte{1},
+		MessageDigest: []byte{1},
+	}
+	backend.On(
+		"MuSig2Sign", mock.Anything, first,
+	).Run(func(mock.Arguments) {
+		close(entered)
+		<-gate
+	}).Return(&signrpc.MuSig2SignResponse{}, nil).Once()
+	next := &signrpc.MuSig2SignRequest{
+		SessionId:     []byte{1},
+		MessageDigest: []byte{2},
+	}
+	backend.On(
+		"MuSig2Sign", mock.Anything, next,
+	).Return(&signrpc.MuSig2SignResponse{}, nil).Once()
+	require.NoError(t, feeder.stream.recvRequest(
+		&watchonlyrpc.SignCoordinatorRequest{
+			RequestId: 2,
+			SignRequestType: &muSig2SignRequest{
+				MuSig2SignRequest: first,
+			},
+		},
+	))
+	<-entered
+
+	// Act by reconnecting while the old backend is still entered, then
+	// submit its same-session successor before releasing the old call.
+	require.NoError(t, feeder.stream.recvErr(ErrStreamError))
+	require.NoError(t, <-feeder.streamCreated)
+	require.NoError(t, feeder.stream.handleHandshake(t))
+	require.NoError(t, feeder.stream.recvRequest(
+		&watchonlyrpc.SignCoordinatorRequest{
+			RequestId: 3,
+			SignRequestType: &muSig2SignRequest{
+				MuSig2SignRequest: next,
+			},
+		},
+	))
+	release()
+
+	// Assert only the successor result reaches the new stream. FIFO
+	// execution ensures the old result has already been discarded.
+	response := <-feeder.stream.sendChan
+	require.Equal(t, uint64(3), response.GetRefRequestId())
+	require.NotNil(t, response.GetMuSig2SignResponse())
+}
+
 // TestRemoteSignerRegistration rejects invalid registration before the running
 // client can admit signing work; existing Ping tests cover valid admission.
 func TestRemoteSignerRegistration(t *testing.T) {
@@ -1181,4 +1487,228 @@ func TestRegistrationProofInputs(t *testing.T) {
 			require.NotEmpty(t, proof)
 		})
 	}
+}
+
+// TestRemoteSignerQueueExpiry returns queued deadlines without entering the
+// backend, and reclaims their capacity while every worker remains occupied.
+func TestRemoteSignerQueueExpiry(t *testing.T) {
+	// Arrange the production worker and pending limits through public
+	// traffic. Only the first workers may enter; Stop cancels the transport
+	// before cleanup releases these non-cancellable backend calls.
+	feeder := newMockStreamFeeder(t)
+	requests := signerWorkerCount + maxPendingSignerRequests + 3
+	feeder.expectStream(t, maxPendingSignerRequests+3, requests)
+	client := newTestRemoteSignerClient(t, feeder, true)
+	client.requestTimeout = 500 * time.Millisecond
+	backend, ok := client.signerServer.(*mockSignerServer)
+	require.True(t, ok)
+	entered := make(chan struct{}, signerWorkerCount)
+	gate := make(chan struct{})
+	release := sync.OnceFunc(func() { close(gate) })
+	stop := sync.OnceValue(client.Stop)
+	t.Cleanup(func() {
+		stopped := make(chan error, 1)
+		go func() {
+			stopped <- stop()
+		}()
+		<-feeder.stream.Context().Done()
+		release()
+		require.NoError(t, <-stopped)
+	})
+	request := &signrpc.SignMessageReq{
+		Msg: []byte("blocked"),
+	}
+	backend.On("SignMessage", mock.Anything, request).Run(
+		func(mock.Arguments) {
+			entered <- struct{}{}
+			<-gate
+		},
+	).Return(&signrpc.SignMessageResp{}, nil).Times(signerWorkerCount)
+
+	// Act by filling the workers and queue without releasing any backend.
+	// Each wire request has a distinct ID so duplicate/missing replies are
+	// visible independently of dispatcher state.
+	for index := range signerWorkerCount + maxPendingSignerRequests {
+		id := handshakeRequestID + uint64(index) + 1
+		require.NoError(t, feeder.stream.recvRequest(
+			&watchonlyrpc.SignCoordinatorRequest{
+				RequestId: id,
+				SignRequestType: &watchonlyrpc.
+					SignCoordinatorRequest_SignMessageReq{
+					SignMessageReq: request,
+				},
+			},
+		))
+		if index < signerWorkerCount {
+			<-entered
+		}
+	}
+
+	// Assert every queued job receives one deadline error before a worker
+	// is freed. Backend expectations reject entry by any expired job.
+	seen := make(map[uint64]bool)
+	for range maxPendingSignerRequests {
+		select {
+		case response := <-feeder.stream.sendChan:
+			id := response.GetRefRequestId()
+			require.Greater(
+				t, id,
+				handshakeRequestID+uint64(signerWorkerCount),
+			)
+			require.False(t, seen[id])
+			seen[id] = true
+			require.Contains(
+				t, response.GetSignerError().GetError(),
+				context.DeadlineExceeded.Error(),
+			)
+
+		case <-time.After(2 * time.Second):
+			t.Fatal("queued request received no deadline response")
+		}
+	}
+
+	// Act again while all workers remain blocked: the expired queue must
+	// admit fresh work, and Ping must still bypass signing capacity.
+	freshID := handshakeRequestID + uint64(signerWorkerCount+
+		maxPendingSignerRequests) + 1
+	require.NoError(t, feeder.stream.recvRequest(
+		&watchonlyrpc.SignCoordinatorRequest{
+			RequestId: freshID,
+			SignRequestType: &watchonlyrpc.
+				SignCoordinatorRequest_SignMessageReq{
+				SignMessageReq: request,
+			},
+		},
+	))
+	require.NoError(t, feeder.stream.recvRequest(
+		&watchonlyrpc.SignCoordinatorRequest{
+			RequestId: freshID + 1,
+			SignRequestType: &watchonlyrpc.
+				SignCoordinatorRequest_Ping{
+				Ping: true,
+			},
+		},
+	))
+
+	// Assert Ping progresses and the fresh job expires rather than being
+	// refused as busy. No worker has been released during either phase.
+	pong := <-feeder.stream.sendChan
+	require.Equal(t, freshID+1, pong.GetRefRequestId())
+	require.True(t, pong.GetPong())
+	response := <-feeder.stream.sendChan
+	require.Equal(t, freshID, response.GetRefRequestId())
+	require.Contains(
+		t, response.GetSignerError().GetError(),
+		context.DeadlineExceeded.Error(),
+	)
+}
+
+// TestRemoteSignerWriteTimeout reconnects when an unread response writer
+// fills routing capacity, so the main loop cannot consume its own IO failure.
+func TestRemoteSignerWriteTimeout(t *testing.T) {
+	// Arrange a bounded burst that leaves the first Pong unwritten and
+	// fills the existing response buffer. Only registration and the first
+	// blocked response enter Send on the old stream; the next is usable.
+	// One response blocks in Send and another blocks routing after the
+	// per-stream backlog fills; derive that boundary from its actual limit.
+	const pings = maxPendingSignerResponses + 2
+	feeder := newMockStreamFeeder(t)
+	feeder.expectStream(t, 2, pings+1)
+	feeder.expectStream(t, 2, 2)
+	client := newTestRemoteSignerClient(t, feeder, true)
+	client.requestTimeout = 500 * time.Millisecond
+	t.Cleanup(func() {
+		require.NoError(t, client.Stop())
+	})
+	old := feeder.stream
+
+	// Act through public wire traffic without reading old Pongs. Its
+	// response write deadline must close the transport and release routing.
+	for index := range pings {
+		id := uint64(index) + handshakeRequestID + 1
+		require.NoError(t, old.recvRequest(
+			&watchonlyrpc.SignCoordinatorRequest{
+				RequestId: id,
+				SignRequestType: &watchonlyrpc.
+					SignCoordinatorRequest_Ping{
+					Ping: true,
+				},
+			},
+		))
+	}
+
+	// Assert a replacement is requested without Stop, then complete its
+	// registration and verify it can answer a fresh public Ping.
+	select {
+	case err := <-feeder.streamCreated:
+		require.NoError(t, err)
+
+	case <-time.After(4 * time.Second):
+		t.Fatal("write timeout did not release response backpressure")
+	}
+	require.NoError(t, feeder.stream.handleHandshake(t))
+	require.NoError(t, feeder.stream.recvRequest(
+		&watchonlyrpc.SignCoordinatorRequest{
+			RequestId: 2,
+			SignRequestType: &watchonlyrpc.
+				SignCoordinatorRequest_Ping{
+				Ping: true,
+			},
+		},
+	))
+	pong := <-feeder.stream.sendChan
+	require.Equal(t, uint64(2), pong.GetRefRequestId())
+	require.True(t, pong.GetPong())
+}
+
+// TestRemoteSignerSendFailure releases full response routing when Send returns
+// an error before its write deadline, allowing reconnect without client Stop.
+func TestRemoteSignerSendFailure(t *testing.T) {
+	// Arrange one successful registration Send, then one gated Send error.
+	// The prepared stream permits exact expectations before Start. Cleanup
+	// releases the gate before joining client IO if an assertion aborts.
+	const pings = maxPendingSignerResponses + 3
+	feeder := newMockStreamFeeder(t)
+	old := feeder.expectStream(t, 1, pings+1)
+	feeder.expectStream(t, 0, 0)
+	failSend := make(chan struct{})
+	release := sync.OnceFunc(func() { close(failSend) })
+	old.On("Send", mock.Anything).Run(func(mock.Arguments) {
+		<-failSend
+	}).Return(ErrMockResponseErr).Once()
+	client := newTestRemoteSignerClient(t, feeder, true)
+	client.requestTimeout = 10 * time.Second
+	t.Cleanup(func() {
+		release()
+		require.NoError(t, client.Stop())
+	})
+
+	// Act through enough peer traffic to block Send, fill the response
+	// backlog, block routing and complete one further reader rendezvous.
+	// That last receive proves routing is blocked before Send fails.
+	for index := range pings {
+		id := handshakeRequestID + uint64(index) + 1
+		require.NoError(t, old.recvRequest(
+			&watchonlyrpc.SignCoordinatorRequest{
+				RequestId: id,
+				SignRequestType: &watchonlyrpc.
+					SignCoordinatorRequest_Ping{
+					Ping: true,
+				},
+			},
+		))
+	}
+	release()
+
+	// Assert Send failure closes the old transport and requests a new one
+	// before the ten-second write timeout, without manually stopping the
+	// client. Timeout coverage checks successful reconnect traffic.
+	select {
+	case err := <-feeder.streamCreated:
+		require.NoError(t, err)
+
+	case <-time.After(4 * time.Second):
+		t.Fatal("Send error did not release response routing")
+	}
+	require.ErrorIs(t, old.Context().Err(), context.Canceled)
 }

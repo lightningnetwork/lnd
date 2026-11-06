@@ -5,7 +5,6 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
-	"os"
 	"sync"
 	"sync/atomic"
 	"time"
@@ -17,11 +16,8 @@ import (
 	"github.com/lightningnetwork/lnd/lnrpc/signrpc"
 	"github.com/lightningnetwork/lnd/lnrpc/walletrpc"
 	"github.com/lightningnetwork/lnd/lnrpc/watchonlyrpc"
-	"github.com/lightningnetwork/lnd/macaroons"
 	"google.golang.org/grpc"
-	"google.golang.org/grpc/credentials"
 	"google.golang.org/protobuf/reflect/protoreflect"
-	"gopkg.in/macaroon.v2"
 )
 
 type (
@@ -197,42 +193,12 @@ func (s *StreamFeeder) getClientConn(
 	ctx, cancel := s.cg.Create(ctx, fn.WithCustomTimeoutCG(s.cfg.Timeout))
 	defer cancel()
 
-	// Load the specified macaroon file for the watch-only node.
-	macBytes, err := os.ReadFile(s.cfg.MacaroonPath)
-	if err != nil {
-		return nil, fmt.Errorf("could not read macaroon file: %w", err)
-	}
-
-	mac := &macaroon.Macaroon{}
-
-	err = mac.UnmarshalBinary(macBytes)
-	if err != nil {
-		return nil, fmt.Errorf("could not unmarshal macaroon: %w", err)
-	}
-
-	macCred, err := macaroons.NewMacaroonCredential(mac)
-	if err != nil {
-		return nil, fmt.Errorf(
-			"could not create macaroon credential: %w", err)
-	}
-
-	// Load the specified TLS cert for the watch-only node.
-	tlsCreds, err := credentials.NewClientTLSFromFile(s.cfg.TLSCertPath, "")
-	if err != nil {
-		return nil, fmt.Errorf("could not load TLS cert: %w", err)
-	}
-
-	opts := []grpc.DialOption{
-		grpc.WithBlock(),
-		grpc.WithTransportCredentials(tlsCreds),
-		grpc.WithPerRPCCredentials(macCred),
-	}
-
+	// Identify the destination before shared dialing so reconnect failures
+	// can be traced to the configured watch-only endpoint.
 	log.InfoS(ctx, "Attempting to connect to the watch-only node",
 		slog.String("rpc_host", s.cfg.RPCHost))
 
-	// Connect to the watch-only node using the new context.
-	return grpc.DialContext(ctx, s.cfg.RPCHost, opts...)
+	return dialRemoteSignerRPC(ctx, s.cfg, s.cfg.Timeout)
 }
 
 // A compile time assertion to ensure StreamFeeder meets the

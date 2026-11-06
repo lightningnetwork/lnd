@@ -680,6 +680,10 @@ var allTestCases = []*lntest.TestCase{
 		TestFunc: testBlindedRouteInvoices,
 	},
 	{
+		Name:     "blinded path htlc maximum",
+		TestFunc: testBlindedPathHTLCMaximum,
+	},
+	{
 		Name:     "receiver blinded error",
 		TestFunc: testReceiverBlindedError,
 	},

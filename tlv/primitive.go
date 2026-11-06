@@ -1,12 +1,11 @@
 package tlv
 
 import (
-	"bytes"
 	"encoding/binary"
 	"errors"
 	"fmt"
 	"io"
-	"math"
+	"slices"
 
 	"github.com/btcsuite/btcd/btcec/v2"
 )
@@ -332,23 +331,38 @@ func EVarBytes(w io.Writer, val interface{}, _ *[8]byte) error {
 // is not *[]byte.
 func DVarBytes(r io.Reader, val interface{}, _ *[8]byte, l uint64) error {
 	if b, ok := val.(*[]byte); ok {
-		if l > math.MaxInt64 {
-			return ErrRecordTooLarge
+		// Allocate at most MaxRecordSize bytes up front, then grow the
+		// buffer incrementally as bytes arrive. This way a malformed
+		// length prefix cannot force a large allocation for bytes that
+		// never arrive.
+		decoded := make([]byte, 0, min(l, MaxRecordSize))
+		for remaining := l; remaining > 0; {
+			chunk := min(remaining, MaxRecordSize)
+
+			// Extend the buffer by one chunk and read directly into
+			// its tail.
+			offset := len(decoded)
+			decoded = slices.Grow(
+				decoded, int(chunk),
+			)[:offset+int(chunk)]
+			_, err := io.ReadFull(r, decoded[offset:])
+
+			// A record truncated exactly at a chunk boundary reads
+			// zero bytes on its final chunk, which io.ReadFull reports
+			// as io.EOF. Match the EOF contract of reading the record
+			// in a single call.
+			//nolint:errorlint
+			if err == io.EOF && offset > 0 {
+				return io.ErrUnexpectedEOF
+			}
+			if err != nil {
+				return err
+			}
+
+			remaining -= chunk
 		}
 
-		var decoded bytes.Buffer
-		n, err := io.CopyN(&decoded, r, int64(l))
-
-		// Match io.ReadFull's handling of exact, not wrapped, EOF.
-		//nolint:errorlint
-		if err == io.EOF && n > 0 {
-			return io.ErrUnexpectedEOF
-		}
-		if err != nil {
-			return err
-		}
-
-		*b = decoded.Bytes()
+		*b = decoded
 
 		return nil
 	}

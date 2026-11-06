@@ -7,7 +7,10 @@ import (
 
 	"github.com/lightningnetwork/lnd/channeldb"
 	"github.com/lightningnetwork/lnd/fn/v2"
+	graphdb "github.com/lightningnetwork/lnd/graph/db"
+	"github.com/lightningnetwork/lnd/lncfg"
 	"github.com/lightningnetwork/lnd/lnrpc"
+	"github.com/lightningnetwork/lnd/lnwire"
 	"github.com/lightningnetwork/lnd/signal"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -151,5 +154,51 @@ func TestRpcCommitmentType(t *testing.T) {
 				t, tt.want, rpcCommitmentType(tt.chanType),
 			)
 		})
+	}
+}
+
+// TestDescribeGraphCacheRequestShape asserts that the DescribeGraph response
+// cache is only used for the default request shape, so a cached response never
+// answers a request with a different include_unannounced or include_auth_proof
+// value.
+func TestDescribeGraphCacheRequestShape(t *testing.T) {
+	t.Parallel()
+
+	graph := graphdb.NewVersionedGraph(
+		graphdb.MakeTestGraph(t), lnwire.GossipVersion1,
+	)
+
+	r := &rpcServer{
+		cfg: &Config{
+			Caches: &lncfg.Caches{
+				RPCGraphCacheDuration: time.Hour,
+			},
+		},
+		server: &server{v1Graph: graph},
+	}
+
+	// Seed the cache with a sentinel so that a cache hit is observable
+	// even though the graph is empty.
+	sentinel := &lnrpc.ChannelGraph{
+		Nodes: []*lnrpc.LightningNode{{Alias: "cached-sentinel"}},
+	}
+	r.describeGraphResp = sentinel
+
+	// The default request is served from the cache.
+	resp, err := r.DescribeGraph(t.Context(), &lnrpc.ChannelGraphRequest{})
+	require.NoError(t, err)
+	require.Same(t, sentinel, resp)
+
+	// Any other request shape must bypass the cache and leave it intact.
+	for _, req := range []*lnrpc.ChannelGraphRequest{
+		{IncludeUnannounced: true},
+		{IncludeAuthProof: true},
+		{IncludeUnannounced: true, IncludeAuthProof: true},
+	} {
+		resp, err := r.DescribeGraph(t.Context(), req)
+		require.NoError(t, err)
+		require.NotSame(t, sentinel, resp)
+		require.Empty(t, resp.Nodes)
+		require.Same(t, sentinel, r.describeGraphResp)
 	}
 }

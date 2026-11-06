@@ -56,6 +56,13 @@ type BlindedRouteData struct {
 
 	// Features is the set of features the payment requires.
 	Features tlv.OptionalRecordT[tlv.TlvType14, lnwire.FeatureVector]
+
+	// InvoiceEnvelope is an optional envelope carrying the data needed
+	// to reconstruct a BOLT 12 invoice at HTLC settlement time.
+	// It uses the custom TLV range (65536 or higher), so it cannot collide
+	// with future spec-assigned types in encrypted_recipient_data. Only
+	// BOLT 12 invoices set it.
+	InvoiceEnvelope tlv.OptionalRecordT[tlv.TlvType65538, []byte]
 }
 
 // NewNonFinalBlindedRouteData creates the data that's provided for hops within
@@ -135,9 +142,10 @@ func NewNonFinalBlindedRouteDataOnionMessage(
 }
 
 // NewFinalHopBlindedRouteData creates the data that's provided for the final
-// hop in a blinded route.
+// hop in a blinded route. The optional invoiceEnvelope carries BOLT 12 invoice
+// data for stateless settlement. Pass nil for BOLT 11 blinded paths.
 func NewFinalHopBlindedRouteData(constraints *PaymentConstraints,
-	pathID []byte) *BlindedRouteData {
+	pathID []byte, invoiceEnvelope []byte) *BlindedRouteData {
 
 	var data BlindedRouteData
 	if pathID != nil {
@@ -149,6 +157,14 @@ func NewFinalHopBlindedRouteData(constraints *PaymentConstraints,
 	if constraints != nil {
 		data.Constraints = tlv.SomeRecordT(
 			tlv.NewRecordT[tlv.TlvType12](*constraints))
+	}
+
+	if invoiceEnvelope != nil {
+		data.InvoiceEnvelope = tlv.SomeRecordT(
+			tlv.NewPrimitiveRecord[tlv.TlvType65538](
+				invoiceEnvelope,
+			),
+		)
 	}
 
 	return &data
@@ -187,6 +203,7 @@ func DecodeBlindedRouteData(r io.Reader) (*BlindedRouteData, error) {
 		relayInfo        = d.RelayInfo.Zero()
 		constraints      = d.Constraints.Zero()
 		features         = d.Features.Zero()
+		invoiceEnvelope  = d.InvoiceEnvelope.Zero()
 	)
 
 	var tlvRecords lnwire.ExtraOpaqueData
@@ -196,7 +213,7 @@ func DecodeBlindedRouteData(r io.Reader) (*BlindedRouteData, error) {
 
 	typeMap, err := tlvRecords.ExtractRecords(
 		&padding, &scid, &nextNodeID, &pathID, &blindingOverride,
-		&relayInfo, &constraints, &features,
+		&relayInfo, &constraints, &features, &invoiceEnvelope,
 	)
 	if err != nil {
 		return nil, err
@@ -234,6 +251,11 @@ func DecodeBlindedRouteData(r io.Reader) (*BlindedRouteData, error) {
 
 	if val, ok := typeMap[d.Features.TlvType()]; ok && val == nil {
 		d.Features = tlv.SomeRecordT(features)
+	}
+
+	val, ok = typeMap[d.InvoiceEnvelope.TlvType()]
+	if ok && val == nil {
+		d.InvoiceEnvelope = tlv.SomeRecordT(invoiceEnvelope)
 	}
 
 	return &d, nil
@@ -289,6 +311,12 @@ func EncodeBlindedRouteData(data *BlindedRouteData) ([]byte, error) {
 
 		recordProducers = append(recordProducers, &f)
 	})
+
+	data.InvoiceEnvelope.WhenSome(
+		func(env tlv.RecordT[tlv.TlvType65538, []byte]) {
+			recordProducers = append(recordProducers, &env)
+		},
+	)
 
 	if err := e.PackRecords(recordProducers...); err != nil {
 		return nil, err

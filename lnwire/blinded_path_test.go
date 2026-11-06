@@ -6,6 +6,7 @@ import (
 
 	"github.com/btcsuite/btcd/btcec/v2"
 	"github.com/stretchr/testify/require"
+	"pgregory.net/rapid"
 )
 
 // validPubkeyIntro returns an on-curve PubkeyIntro plus the matching
@@ -409,6 +410,100 @@ func TestEncodeBlindedPathsRejects(t *testing.T) {
 					"encoder wrote bytes on fail-closed "+
 						"path")
 			}
+		})
+	}
+}
+
+// TestBlindedPathSphinxRoundTrip checks that NewBlindedPathFromSphinx inverts
+// ToSphinx for a path with a pubkey-form introduction node.
+func TestBlindedPathSphinxRoundTrip(t *testing.T) {
+	t.Parallel()
+
+	rapid.Check(t, func(rt *rapid.T) {
+		path := RandBlindedPath(rt)
+		intro, err := NewPubkeyIntro(RandPubKey(rt))
+		require.NoError(rt, err)
+		path.IntroductionNode = intro
+
+		sphinxPath, err := path.ToSphinx()
+		require.NoError(rt, err)
+
+		got, err := NewBlindedPathFromSphinx(sphinxPath)
+		require.NoError(rt, err)
+		require.Equal(rt, path, got)
+	})
+}
+
+// TestToSphinxRejects checks that ToSphinx rejects a path that the routing
+// layer cannot use.
+func TestToSphinxRejects(t *testing.T) {
+	t.Parallel()
+
+	pubIntro, _ := validPubkeyIntro(t)
+	sciddirIntro, err := NewSciddirIntro(
+		0x00, [8]byte{1, 2, 3, 4, 5, 6, 7, 8},
+	)
+	require.NoError(t, err)
+
+	hop := BlindedHop{
+		BlindedNodeID: validBlindingPoint(t),
+		EncryptedData: []byte{0xaa, 0xbb},
+	}
+
+	tests := []struct {
+		name  string
+		intro IntroductionNode
+		point *btcec.PublicKey
+		hops  []BlindedHop
+		err   string
+	}{
+		{
+			name:  "sciddir intro",
+			intro: sciddirIntro,
+			point: validBlindingPoint(t),
+			hops:  []BlindedHop{hop},
+			err:   "not supported",
+		},
+		{
+			name:  "nil intro",
+			point: validBlindingPoint(t),
+			hops:  []BlindedHop{hop},
+			err:   "nil intro node",
+		},
+		{
+			name:  "nil intro pubkey",
+			intro: PubkeyIntro{},
+			point: validBlindingPoint(t),
+			hops:  []BlindedHop{hop},
+			err:   "nil pubkey",
+		},
+		{
+			name:  "nil blinding point",
+			intro: pubIntro,
+			hops:  []BlindedHop{hop},
+			err:   "nil blinding point",
+		},
+		{
+			name:  "nil blinded hop",
+			intro: pubIntro,
+			point: validBlindingPoint(t),
+			hops:  []BlindedHop{hop, {}},
+			err:   "nil blinded hop 1",
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+
+			path := &BlindedPath{
+				IntroductionNode: tc.intro,
+				BlindingPoint:    tc.point,
+				Hops:             tc.hops,
+			}
+
+			_, err := path.ToSphinx()
+			require.ErrorContains(t, err, tc.err)
 		})
 	}
 }

@@ -8,6 +8,7 @@ import (
 	"errors"
 	"fmt"
 	"math"
+	"sync/atomic"
 	"time"
 
 	"github.com/btcsuite/btcd/btcec/v2"
@@ -21,6 +22,7 @@ import (
 	"github.com/lightningnetwork/lnd/offers"
 	"github.com/lightningnetwork/lnd/routing"
 	"github.com/lightningnetwork/lnd/tlv"
+	"golang.org/x/time/rate"
 )
 
 // InvoiceNotifier sends an Open event for each new BOLT 12 invoice to the
@@ -41,6 +43,7 @@ type Handler struct {
 	notifier           InvoiceNotifier
 	replier            OnionReplier
 	signer             NodeSigner
+	pathIDKey          PathIDKey
 	paymentPathBuilder PaymentPathBuilder
 	clock              clock.Clock
 
@@ -51,15 +54,37 @@ type Handler struct {
 	// finalCLTVDelta is the final CLTV delta that this node requires for a
 	// BOLT 12 invoice payment.
 	finalCLTVDelta uint16
+
+	// maxInflight is the number of invoice requests that the handler
+	// answers at the same time.
+	maxInflight int
+
+	// requestLimiter limits the rate of the answered invoice requests.
+	requestLimiter *rate.Limiter
+
+	// introResolver resolves a sciddir introduction node of a reply path.
+	// Start sets it before the dispatch starts.
+	introResolver IntroNodeResolver
+
+	// hopPeeler removes the hops of this node at the start of a reply
+	// path. Start sets it before the dispatch starts.
+	hopPeeler HopPeeler
+
+	started atomic.Bool
+
+	// gm runs the dispatch and the invoice requests. Its Stop cancels them
+	// and waits for them.
+	gm *fn.GoroutineManager
 }
 
 // NewHandler creates a new BOLT 12 invoice request handler. It returns an error
 // when the offer store, the notifier, the replier, the signer or the clock is
-// nil. The path builder can be nil, and the handler then uses a single-hop
-// blinded path. The final CLTV delta must be at least routing.MinCLTVDelta,
-// and it must leave room for routing.BlockPadding in a uint16.
+// nil. It also returns an error when the path id key is the zero key.
+// The path builder can be nil. The handler then uses a single-hop blinded
+// path. The final CLTV delta must be at least routing.MinCLTVDelta. It must
+// also leave room for routing.BlockPadding in a uint16.
 func NewHandler(offerStore offers.Store, notifier InvoiceNotifier,
-	replier OnionReplier, signer NodeSigner,
+	replier OnionReplier, signer NodeSigner, pathIDKey PathIDKey,
 	paymentPathBuilder PaymentPathBuilder, clk clock.Clock,
 	activeChain [32]byte, finalCLTVDelta uint16) (*Handler, error) {
 
@@ -75,6 +100,9 @@ func NewHandler(offerStore offers.Store, notifier InvoiceNotifier,
 
 	case signer == nil:
 		return nil, errors.New("handler has no signer")
+
+	case pathIDKey == PathIDKey{}:
+		return nil, errors.New("handler has no path id key")
 
 	case clk == nil:
 		return nil, errors.New("handler has no clock")
@@ -94,10 +122,14 @@ func NewHandler(offerStore offers.Store, notifier InvoiceNotifier,
 		notifier:           notifier,
 		replier:            replier,
 		signer:             signer,
+		pathIDKey:          pathIDKey,
 		paymentPathBuilder: paymentPathBuilder,
 		clock:              clk,
 		activeChain:        activeChain,
 		finalCLTVDelta:     finalCLTVDelta,
+		maxInflight:        maxInflightRequests,
+		requestLimiter:     rate.NewLimiter(requestRate, requestBurst),
+		gm:                 fn.NewGoroutineManager(),
 	}, nil
 }
 
@@ -141,10 +173,11 @@ func (h *Handler) HandleInvoiceRequest(ctx context.Context, invreqBytes []byte,
 
 	result, err := GenerateInvoice(&InvoiceConfig{
 		Signer:         h.signer,
+		PathIDKey:      h.pathIDKey,
 		PathBuilder:    h.paymentPathBuilder,
 		Clock:          h.clock,
 		FinalCLTVDelta: h.finalCLTVDelta,
-	}, ir)
+	}, ir, offer.Hash)
 	if err != nil {
 		return fmt.Errorf("generate invoice: %w", err)
 	}

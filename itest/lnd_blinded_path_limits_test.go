@@ -4,20 +4,40 @@ import (
 	"github.com/lightningnetwork/lnd/lnrpc"
 	"github.com/lightningnetwork/lnd/lnrpc/routerrpc"
 	"github.com/lightningnetwork/lnd/lntest"
-	"github.com/lightningnetwork/lnd/lntest/node"
 	"github.com/stretchr/testify/require"
 )
 
-// testBlindedPathHTLCMaximum checks that an invoice's advertised blinded path
-// maximum can actually be delivered through its channels, including the fees
-// owed to downstream forwarding nodes.
+// testBlindedPathHTLCMaximum checks the introduction node's outgoing channel
+// as the bottleneck: Alice -> Bob (intro) -> Carol -> Dave. Bob's channel
+// permits 1,000 sats, including Carol's 1-sat fee, leaving 999 sats for Dave.
 func testBlindedPathHTLCMaximum(ht *lntest.HarnessTest) {
-	// Alice -> Bob (introduction) -> Carol -> Dave (recipient).
+	assertBlindedPathHTLCMaximum(ht, 1, 1_000_000)
+}
+
+// testBlindedPathHTLCMaximumMiddle checks a bottleneck inside the hidden path:
+// Alice -> Bob (intro) -> Carol -> Dave -> Eve. Bob's outgoing channel permits
+// 1,000 sats, but Carol's outgoing channel permits only 500 sats. Dave's 1-sat
+// downstream fee must fit inside Carol's limit, leaving 499 sats for Eve.
+// Bob remains the introduction node even though Carol limits the path.
+func testBlindedPathHTLCMaximumMiddle(ht *lntest.HarnessTest) {
+	assertBlindedPathHTLCMaximum(ht, 2, 500_000)
+}
+
+// assertBlindedPathHTLCMaximum builds a chain with Bob as introduction node.
+// bottleneckIndex identifies the limited outgoing channel and its source in
+// the chain; one fee-charging forwarder and the recipient follow that source.
+// It proves the fee-adjusted boundary is payable, then attempts the advertised
+// maximum, which must also fit every outgoing channel in the blinded path.
+func assertBlindedPathHTLCMaximum(ht *lntest.HarnessTest,
+	bottleneckIndex int, channelMaximumMsat uint64) {
+
 	// Disable policy padding to exercise the exact advertised boundary.
-	cfgs := [][]string{nil, nil, nil, {
+	numNodes := bottleneckIndex + 3
+	cfgs := make([][]string, numNodes)
+	cfgs[numNodes-1] = []string{
 		"--routing.blinding.policy-increase-multiplier=1",
 		"--routing.blinding.policy-decrease-multiplier=1",
-	}}
+	}
 	channels, nodes := ht.CreateSimpleNetwork(
 		cfgs,
 		lntest.OpenChannelParams{
@@ -26,54 +46,41 @@ func testBlindedPathHTLCMaximum(ht *lntest.HarnessTest) {
 			UseFeeRate: true,
 		},
 	)
-	alice, bob, carol, dave := nodes[0], nodes[1], nodes[2], nodes[3]
+	alice, bob, recipient := nodes[0], nodes[1], nodes[numNodes-1]
 
-	const (
-		channelMaximumMsat = 1_000_000
-		downstreamFeeMsat  = 1_000
-		recipientMaximum   = channelMaximumMsat - downstreamFeeMsat
-	)
+	const downstreamFeeMsat = 1_000
 
-	// Bob's outgoing channel can carry at most 1,000,000 msat. Carol
-	// charges 1,000 msat on the next channel, so only 999,000 msat can
-	// reach Dave in a single HTLC. All channels have ample liquidity.
-	updates := []struct {
-		node    *node.HarnessNode
-		channel *lnrpc.ChannelPoint
-		baseFee int64
-		maximum uint64
-	}{
-		{
-			node:    bob,
-			channel: channels[1],
-			maximum: channelMaximumMsat,
-		},
-		{
-			node:    carol,
-			channel: channels[2],
-			baseFee: downstreamFeeMsat,
-			maximum: lntest.CalculateMaxHtlc(100_000),
-		},
-	}
-	for _, update := range updates {
-		update.node.RPC.UpdateChannelPolicy(&lnrpc.PolicyUpdateRequest{
+	// All channels have ample liquidity. Configure the limited channel
+	// and the fee on the final channel. Earlier channels carry that fee
+	// as well as the recipient amount; the introduction channel is not
+	// necessarily the bottleneck.
+	for i := 1; i < len(channels); i++ {
+		maximum := uint64(1_000_000)
+		if i == bottleneckIndex {
+			maximum = channelMaximumMsat
+		}
+		var baseFee int64
+		if i == len(channels)-1 {
+			baseFee = downstreamFeeMsat
+		}
+		nodes[i].RPC.UpdateChannelPolicy(&lnrpc.PolicyUpdateRequest{
 			Scope: &lnrpc.PolicyUpdateRequest_ChanPoint{
-				ChanPoint: update.channel,
+				ChanPoint: channels[i],
 			},
-			BaseFeeMsat:   update.baseFee,
+			BaseFeeMsat:   baseFee,
 			TimeLockDelta: 40,
-			MaxHtlcMsat:   update.maximum,
+			MaxHtlcMsat:   maximum,
 		})
 		expected := &lnrpc.RoutingPolicy{
-			FeeBaseMsat:   update.baseFee,
+			FeeBaseMsat:   baseFee,
 			TimeLockDelta: 40,
 			MinHtlc:       1_000,
-			MaxHtlcMsat:   update.maximum,
+			MaxHtlcMsat:   maximum,
 		}
 		for _, observer := range nodes {
 			ht.AssertChannelPolicyUpdate(
-				observer, update.node, expected,
-				update.channel, false,
+				observer, nodes[i], expected, channels[i],
+				false,
 			)
 		}
 	}
@@ -82,14 +89,14 @@ func testBlindedPathHTLCMaximum(ht *lntest.HarnessTest) {
 	// amount advertised by the invoice. SendToRouteV2 makes one
 	// attempt, preventing automatic retries or MPP from masking a bad
 	// per-HTLC maximum.
-	amount := int64(recipientMaximum)
+	amount := int64(channelMaximumMsat - downstreamFeeMsat)
 	for range 2 {
-		invoice := dave.RPC.AddInvoice(&lnrpc.Invoice{
+		invoice := recipient.RPC.AddInvoice(&lnrpc.Invoice{
 			ValueMsat: amount,
 			IsBlinded: true,
 			BlindedPathConfig: &lnrpc.BlindedPathConfig{
-				MinNumRealHops: new(uint32(2)),
-				NumHops:        new(uint32(2)),
+				MinNumRealHops: new(uint32(numNodes - 2)),
+				NumHops:        new(uint32(numNodes - 2)),
 			},
 		})
 		decoded := alice.RPC.DecodePayReq(invoice.PaymentRequest)
@@ -98,12 +105,12 @@ func testBlindedPathHTLCMaximum(ht *lntest.HarnessTest) {
 		require.Equal(
 			ht, bob.PubKey[:], path.BlindedPath.IntroductionNode,
 		)
-		require.Len(ht, path.BlindedPath.BlindedHops, 3)
+		require.Len(ht, path.BlindedPath.BlindedHops, numNodes-1)
 		require.EqualValues(ht, downstreamFeeMsat, path.BaseFeeMsat)
 		require.Zero(ht, path.ProportionalFeeRate)
 		require.LessOrEqual(ht, uint64(amount), path.HtlcMaxMsat)
 		require.LessOrEqual(
-			ht, path.HtlcMaxMsat, uint64(channelMaximumMsat),
+			ht, path.HtlcMaxMsat, channelMaximumMsat,
 		)
 
 		routes := alice.RPC.QueryRoutes(&lnrpc.QueryRoutesRequest{
@@ -130,7 +137,7 @@ func testBlindedPathHTLCMaximum(ht *lntest.HarnessTest) {
 			"an amount admitted by the blinded path must be "+
 				"payable: %v", attempt.Failure,
 		)
-		settled := dave.RPC.LookupInvoice(invoice.RHash)
+		settled := recipient.RPC.LookupInvoice(invoice.RHash)
 		require.Equal(ht, lnrpc.Invoice_SETTLED, settled.State)
 		require.Equal(ht, amount, settled.AmtPaidMsat)
 

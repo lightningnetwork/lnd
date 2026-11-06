@@ -1,8 +1,11 @@
 package input
 
 import (
+	"bytes"
 	"crypto/sha256"
+	"encoding/binary"
 	"fmt"
+	"sort"
 
 	"github.com/btcsuite/btcd/btcec/v2"
 	"github.com/btcsuite/btcd/btcec/v2/schnorr"
@@ -26,6 +29,10 @@ type MuSig2State struct {
 	// session is the signing session responsible for keeping track of the
 	// nonces and partial signatures involved in the signing process.
 	session MuSig2Session
+
+	// contextDigest freezes key/tweak inputs that are no longer available
+	// from the crypto session when the message is eventually signed.
+	contextDigest [sha256.Size]byte
 }
 
 // PrivKeyFetcher is used to fetch a private key that matches a given key desc.
@@ -36,6 +43,10 @@ type PrivKeyFetcher func(*keychain.KeyDescriptor) (*btcec.PrivateKey, error)
 // used by callers to interact with a given session.
 type MusigSessionManager struct {
 	keyFetcher PrivKeyFetcher
+
+	// bindNonce protects caller-supplied v1.0.0rc2 nonces across sessions.
+	// Legacy sessions generate fresh nonces and enforce one-use signing.
+	bindNonce func([musig2.PubNonceSize]byte, [sha256.Size]byte) error
 
 	sessionMtx *multimutex.Mutex[MuSig2SessionID]
 
@@ -50,10 +61,15 @@ func (m *MusigSessionManager) NumLiveSessions() int {
 }
 
 // NewMusigSessionManager creates a new musig manager given an abstract key
-// fetcher.
-func NewMusigSessionManager(keyFetcher PrivKeyFetcher) *MusigSessionManager {
+// fetcher and durable nonce/transcript binder. A nil binder is intended only
+// for test signers; it retains the crypto session's existing one-use guard.
+func NewMusigSessionManager(keyFetcher PrivKeyFetcher,
+	bindNonce func([musig2.PubNonceSize]byte,
+		[sha256.Size]byte) error) *MusigSessionManager {
+
 	return &MusigSessionManager{
 		keyFetcher: keyFetcher,
+		bindNonce:  bindNonce,
 		musig2Sessions: &lnutils.SyncMap[
 			MuSig2SessionID, *MuSig2State,
 		]{},
@@ -125,6 +141,11 @@ func (m *MusigSessionManager) MuSig2CreateSession(bipVersion MuSig2Version,
 		},
 		context: musigContext,
 		session: musigSession,
+		contextDigest: muSig2ContextDigest(
+			bipVersion, privKey.PubKey(),
+			musigContext.SigningKeys(),
+			combinedKey, tweaks,
+		),
 	}
 
 	// The internal key is only calculated if we are using a taproot tweak
@@ -176,6 +197,26 @@ func (m *MusigSessionManager) MuSig2Sign(sessionID MuSig2SessionID,
 		return nil, fmt.Errorf("only have %d of %d required nonces",
 			session.session.NumRegisteredNonces(),
 			len(session.context.SigningKeys()))
+	}
+
+	// Bind supplied v1.0.0rc2 nonces before signing so reconstructed exact
+	// repeats remain safe. Legacy v0.4.0 cannot accept supplied nonces; it
+	// generates fresh ones and retains its existing one-use session guard.
+	if m.bindNonce != nil && session.Version == MuSig2Version100RC2 {
+		combinedNonce, err := session.session.CombinedNonce()
+		if err != nil {
+			return nil, fmt.Errorf("get combined nonce: %w", err)
+		}
+		transcript := append([]byte(nil), session.contextDigest[:]...)
+		transcript = append(transcript, session.PublicNonce[:]...)
+		transcript = append(transcript, combinedNonce[:]...)
+		transcript = append(transcript, msg[:]...)
+		digest := sha256.Sum256(transcript)
+		err = m.bindNonce(session.PublicNonce, digest)
+		if err != nil {
+			return nil, fmt.Errorf("bind MuSig2 signing "+
+				"transcript: %w", err)
+		}
 	}
 
 	// Create our own partial signature with the local signing key.
@@ -375,4 +416,55 @@ func (m *MusigSessionManager) MuSig2GetCombinedNonce(
 	}
 
 	return combinedNonce, nil
+}
+
+// muSig2ContextDigest commits to the effective signing context independently of
+// mutable request slices. Fixed-width keys/tweaks and explicit list lengths
+// prevent distinct contexts from sharing an ambiguous byte representation.
+func muSig2ContextDigest(version MuSig2Version, local *btcec.PublicKey,
+	keys []*btcec.PublicKey, combined *btcec.PublicKey,
+	tweaks *MuSig2Tweaks) [sha256.Size]byte {
+
+	data := append([]byte("lnd-musig2-transcript-v1"), byte(version))
+	data = append(data, local.SerializeCompressed()...)
+	data = append(data, combined.SerializeCompressed()...)
+
+	// Context creation sorts signers for aggregation. Freeze that same set
+	// so equivalent request ordering does not block recovery retries.
+	encodedKeys := make([][]byte, len(keys))
+	for i, key := range keys {
+		encodedKeys[i] = key.SerializeCompressed()
+	}
+	sort.Slice(encodedKeys, func(i, j int) bool {
+		return bytes.Compare(encodedKeys[i], encodedKeys[j]) < 0
+	})
+	data = binary.BigEndian.AppendUint32(data, uint32(len(encodedKeys)))
+	for _, key := range encodedKeys {
+		data = append(data, key...)
+	}
+
+	// Generic tweaks are ordered; BIP86 takes precedence over a script
+	// root, matching ToContextOptions rather than binding ignored input.
+	data = binary.BigEndian.AppendUint32(
+		data, uint32(len(tweaks.GenericTweaks)),
+	)
+	for _, tweak := range tweaks.GenericTweaks {
+		data = append(data, tweak.Tweak[:]...)
+		flag := byte(0)
+		if tweak.IsXOnly {
+			flag = 1
+		}
+		data = append(data, flag)
+	}
+	if tweaks.TaprootBIP0086Tweak {
+		data = append(data, 1)
+	} else {
+		data = append(data, 0)
+		data = binary.BigEndian.AppendUint32(
+			data, uint32(len(tweaks.TaprootTweak)),
+		)
+		data = append(data, tweaks.TaprootTweak...)
+	}
+
+	return sha256.Sum256(data)
 }

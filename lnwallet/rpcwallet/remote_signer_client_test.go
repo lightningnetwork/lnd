@@ -7,7 +7,6 @@ import (
 	"errors"
 	"math"
 	"net"
-	"sync"
 	"testing"
 	"time"
 
@@ -17,6 +16,7 @@ import (
 	"github.com/lightningnetwork/lnd/lnrpc/signrpc"
 	"github.com/lightningnetwork/lnd/lnrpc/walletrpc"
 	"github.com/lightningnetwork/lnd/lnrpc/watchonlyrpc"
+	"github.com/stretchr/testify/mock"
 	"github.com/stretchr/testify/require"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/credentials"
@@ -38,188 +38,190 @@ var (
 	ErrStreamError = errors.New("stream creation error")
 )
 
-// mockStreamFeeder is a mock implementation of SignCoordinatorStreamFeeder.
+// mockStreamFeeder arranges each connection attempt before the client starts.
+// streamCreated publishes the current stream to the owning test goroutine.
 type mockStreamFeeder struct {
-	// stream is the current mock stream instance that gets set when the
-	// GetStream execution is successful.
-	stream *mockStream
-
-	// streamShouldFail is a boolean that indicates if the stream should
-	// fail when GetStream is called.
-	streamShouldFail bool
-
-	// streamCreated is a channel that is used to signal when the stream has
-	// been created. If the stream creation fails, an error is sent over the
-	// channel instead.
+	mock.Mock
+	stream        *mockStream
 	streamCreated chan error
-
-	quit chan struct{}
-
-	mu sync.Mutex
+	quit          chan struct{}
 }
 
-// newMockStreamFeeder creates a new mock stream feeder instance. If
-// getStreamShouldFail is set to true, the GetStream method will fail and return
-// an error when executed, until the SetStreamFailure method is called to change
-// the behavior.
-func newMockStreamFeeder(getStreamShouldFail bool) *mockStreamFeeder {
-	return &mockStreamFeeder{
-		streamCreated:    make(chan error),
-		quit:             make(chan struct{}),
-		streamShouldFail: getStreamShouldFail,
+// newMockStreamFeeder gives the test one expectation check and one Stop call.
+func newMockStreamFeeder(t *testing.T) *mockStreamFeeder {
+	t.Helper()
+	feeder := &mockStreamFeeder{
+		streamCreated: make(chan error),
+		quit:          make(chan struct{}),
 	}
+	feeder.On("Stop").Run(func(mock.Arguments) {
+		close(feeder.quit)
+	}).Return().Once()
+	t.Cleanup(func() {
+		feeder.AssertExpectations(t)
+	})
+
+	return feeder
 }
 
-// GetStream returns a mock stream instance. If the stream creation fails, an
-// error is returned instead.
-func (msf *mockStreamFeeder) GetStream(ctx context.Context) (
-	*Stream, error) {
+// expectStream arranges one successful connection and its bounded wire calls.
+// Preparing the stream here keeps expectations in Arrange, including
+// reconnects.
+func (msf *mockStreamFeeder) expectStream(t *testing.T, sends, requests int) {
+	t.Helper()
+	_, tlsCtx := remoteSignerTLSContexts(t)
+	ctx, cancel := context.WithCancel(tlsCtx)
+	t.Cleanup(cancel)
+	stream := newMockStream(t, ctx, sends, requests)
+	connection := NewStream(stream, func() error {
+		cancel()
 
-	msf.mu.Lock()
+		return nil
+	})
+	msf.On("GetStream", mock.Anything).Run(func(args mock.Arguments) {
+		caller, _ := args.Get(0).(context.Context)
+		// The rendezvous publishes this generation before the test uses
+		// its channels. Client cancellation always releases the
+		// callback.
+		msf.stream = stream
+		select {
+		case msf.streamCreated <- nil:
+		case <-caller.Done():
+		case <-msf.quit:
+		}
+	}).Return(connection, nil).Once()
+}
 
-	select {
-	case <-msf.quit:
-		msf.mu.Unlock()
-		return nil, ErrShuttingDown
-	default:
-	}
-
-	// If we've configured the stream feeder to fail, we'll fail the stream
-	// creation and return an error.
-	if msf.streamShouldFail {
-		msf.mu.Unlock()
-
-		// Signal that the stream creation has failed.
+// expectStreamFailures arranges the exact failed attempts in the backoff test.
+func (msf *mockStreamFeeder) expectStreamFailures(attempts int) {
+	msf.On("GetStream", mock.Anything).Run(func(args mock.Arguments) {
+		ctx, _ := args.Get(0).(context.Context)
 		select {
 		case msf.streamCreated <- ErrStreamError:
 		case <-ctx.Done():
 		case <-msf.quit:
 		}
-
-		return nil, ErrStreamError
-	}
-
-	// Wrap the context in a cancelable context, so that the stream will be
-	// canceled when either party cancels to the context.
-	// If cancel function is executed, that simulates that the stream was
-	// cancelled by the other party (i.e. the watch-only node).
-	// If the parent context is cancelled, the remote signer client has
-	// cancelled the stream.
-	ctxc, cancel := context.WithCancel(ctx)
-
-	// Else create a new mock stream instance.
-	mStream := newMockStream(ctxc)
-
-	msf.stream = mStream
-
-	// cancel the context on the closure of the stream.
-	closeFunc := func() error {
-		cancel()
-
-		return nil
-	}
-
-	returnStream := NewStream(msf.stream, closeFunc)
-
-	msf.mu.Unlock()
-
-	// Signal that the stream creation has succeeded.
-	select {
-	case msf.streamCreated <- nil:
-	case <-ctxc.Done():
-	case <-msf.quit:
-	}
-
-	return returnStream, nil
+	}).Return((*Stream)(nil), ErrStreamError).Times(attempts)
 }
 
-// SetStreamFailure sets the streamShouldFail boolean to the provided value.
-// If set to true, the GetStream method will fail and return an error when
-// executed. If set to false, the GetStream method will succeed and return a
-// mock stream instance.
-func (msf *mockStreamFeeder) SetStreamFailure(shouldFail bool) {
-	msf.mu.Lock()
-	defer msf.mu.Unlock()
+// GetStream returns the generation selected by the test's Arrange expectations.
+func (msf *mockStreamFeeder) GetStream(ctx context.Context) (*Stream, error) {
+	args := msf.Called(ctx)
+	stream, _ := args.Get(0).(*Stream)
 
-	msf.streamShouldFail = shouldFail
+	return stream, args.Error(1)
 }
 
-// GetStreamShouldFail returns the current value of the streamShouldFail
-// boolean.
-func (msf *mockStreamFeeder) GetStreamShouldFail() bool {
-	msf.mu.Lock()
-	defer msf.mu.Unlock()
-
-	return msf.streamShouldFail
-}
-
-// Stop signals the mock stream feeder to stop.
+// Stop records the single client shutdown before releasing fixture waiters.
 func (msf *mockStreamFeeder) Stop() {
-	close(msf.quit)
+	msf.Called()
 }
 
-// A compile time assertion to ensure mockStreamFeeder meets the
-// SignCoordinatorStreamFeeder interface.
+// Compile-time checks keep the fixtures on the actual transport interfaces.
 var _ SignCoordinatorStreamFeeder = (*mockStreamFeeder)(nil)
+var _ StreamClient = (*mockStream)(nil)
 
-// Mock implementation of a stream.
+// mockStream keeps channel rendezvous in Arrange callbacks, with one reader and
+// one writer returning only their mock expectation results.
 type mockStream struct {
-	sendChan chan *watchonlyrpc.SignCoordinatorResponse
-	recvChan chan *watchonlyrpc.SignCoordinatorRequest
-
-	// recvErrChan can be used to simulate that the stream errors.
+	mock.Mock
+	sendChan    chan *watchonlyrpc.SignCoordinatorResponse
+	recvChan    chan *watchonlyrpc.SignCoordinatorRequest
 	recvErrChan chan error
-
-	// ctx is the context that the stream was created with.
-	ctx context.Context //nolint:containedctx
+	ctx         context.Context //nolint:containedctx
 }
 
-// newMockStream creates a new mock stream instance.
-// The second return value is a cancel function that can be used to cancel the
-// stream.
-func newMockStream(ctx context.Context) *mockStream {
-	return &mockStream{
+// newMockStream arranges exactly the traffic the test observes. One final Recv
+// may be waiting during cancellation; an unfinished replacement handshake may
+// likewise stop before either IO call enters.
+func newMockStream(t *testing.T, ctx context.Context,
+	sends, requests int) *mockStream {
+
+	t.Helper()
+	stream := &mockStream{
 		sendChan:    make(chan *watchonlyrpc.SignCoordinatorResponse),
 		recvChan:    make(chan *watchonlyrpc.SignCoordinatorRequest),
 		recvErrChan: make(chan error),
 		ctx:         ctx,
 	}
-}
-
-// Send sends a response over the mock stream. This is called by the remote
-// signer client when it responds to a request.
-func (ms *mockStream) Send(resp *watchonlyrpc.SignCoordinatorResponse) error {
-	select {
-	case <-ms.ctx.Done():
-		// If the context is canceled, we return an error to indicate
-		// that the stream has been canceled.
-		return ErrStreamCanceled
-	case ms.sendChan <- resp:
+	t.Cleanup(func() {
+		stream.AssertExpectations(t)
+	})
+	// Context reads are immutable transport access, not a business-call
+	// count. Send/Recv expectations bound the actual protocol traffic.
+	stream.On("Context").Return(ctx).Maybe()
+	send := stream.On("Send", mock.Anything).Return(nil)
+	switch sends {
+	case 0:
+		send.Maybe()
+	case 1:
+		send.Once()
+	default:
+		send.Times(sends)
+	}
+	send.Run(func(args mock.Arguments) {
+		response, _ := args.Get(0).(*watchonlyrpc.
+			SignCoordinatorResponse)
+		var err error
+		select {
+		case <-ctx.Done():
+			err = ErrStreamCanceled
+		case stream.sendChan <- response:
+		}
+		// Writes are serialized, so Called returns this invocation's
+		// result through the existing mock.Call return mechanism.
+		send.Return(err)
+	})
+	for index, count := range []int{requests, 1} {
+		if count == 0 {
+			continue
+		}
+		recv := stream.On("Recv").Return(nil, nil)
+		switch {
+		case index == 1:
+			recv.Maybe()
+		case count == 1:
+			recv.Once()
+		default:
+			recv.Times(count)
+		}
+		recv.Run(func(mock.Arguments) {
+			var request *watchonlyrpc.SignCoordinatorRequest
+			var err error
+			select {
+			case request = <-stream.recvChan:
+			case err = <-stream.recvErrChan:
+			case <-ctx.Done():
+				err = ErrStreamCanceled
+			}
+			// One stream reader owns these dynamic channel results;
+			// they remain mock return values rather than fake
+			// methods.
+			recv.Return(request, err)
+		})
 	}
 
-	return nil
+	return stream
 }
 
-// Recv simulates that a request over is sent over the mock stream to the
-// remote signer client. If a request is sent over the recvChan, the remote
-// signer client will handle the request. If an error is sent over the
-// recvErrChan channel, the error will be received by the remote signer client.
+// Send returns the arranged result of writing this response to the peer.
+func (ms *mockStream) Send(
+	response *watchonlyrpc.SignCoordinatorResponse) error {
+
+	args := ms.Called(response)
+
+	return args.Error(0)
+}
+
+// Recv returns the arranged request or stream error from the peer.
 func (ms *mockStream) Recv() (*watchonlyrpc.SignCoordinatorRequest, error) {
-	select {
-	case resp := <-ms.recvChan:
-		return resp, nil
-	case err := <-ms.recvErrChan:
-		return nil, err
-	case <-ms.ctx.Done():
-		// If the context is canceled, we return an error to indicate
-		// that the stream has been canceled.
-		return nil, ErrStreamCanceled
-	}
+	args := ms.Called()
+	request, _ := args.Get(0).(*watchonlyrpc.SignCoordinatorRequest)
+
+	return request, args.Error(1)
 }
 
-// Helper function to simulate requests sent over the mock stream.
-// The function will return an error if the stream is canceled before the
-// request is received.
+// recvRequest delivers peer traffic without bypassing the arranged Recv call.
 func (ms *mockStream) recvRequest(
 	req *watchonlyrpc.SignCoordinatorRequest) error {
 
@@ -231,9 +233,7 @@ func (ms *mockStream) recvRequest(
 	}
 }
 
-// Helper function to simulate that the stream errors.
-// The function will return an error if the stream is canceled before the error
-// is received.
+// recvErr fails the waiting transport read without calling the client directly.
 func (ms *mockStream) recvErr(err error) error {
 	select {
 	case ms.recvErrChan <- err:
@@ -260,10 +260,15 @@ func (ms *mockStream) handleHandshake(t *testing.T) error {
 	require.Equal(t, handshakeRequestID, resp.GetRefRequestId())
 	require.NotEmpty(t, resp.GetSignerRegistration())
 
+	proof, err := watchonlyrpc.RegistrationProof(
+		ms.ctx, resp.GetSignerRegistration().GetRegistrationChallenge(),
+		watchonlyrpc.RegistrationVersion,
+	)
+	require.NoError(t, err)
 	complete := &watchonlyrpc.RegistrationResponse_RegistrationComplete{
 		RegistrationComplete: &watchonlyrpc.RegistrationComplete{
-			Signature:        "",
-			RegistrationInfo: "watch-only registration info",
+			Signature:        proof,
+			RegistrationInfo: watchonlyrpc.RegistrationVersion,
 		},
 	}
 
@@ -283,23 +288,66 @@ func (ms *mockStream) handleHandshake(t *testing.T) error {
 	return ms.recvRequest(regCompleteMsg)
 }
 
-// Mock implementations of various WalletKit_SignCoordinatorStreamsClient
-// methods.
-func (ms *mockStream) Header() (metadata.MD, error) { return nil, nil }
-func (ms *mockStream) SendMsg(m any) error          { return nil }
-func (ms *mockStream) Trailer() metadata.MD         { return nil }
-func (ms *mockStream) CloseSend() error             { return nil }
-func (ms *mockStream) RecvMsg(m any) error          { return nil }
-func (ms *mockStream) Context() context.Context     { return ms.ctx }
+// Header requires an explicit expectation for gRPC metadata access.
+func (ms *mockStream) Header() (metadata.MD, error) {
+	args := ms.Called()
+	header, _ := args.Get(0).(metadata.MD)
+
+	return header, args.Error(1)
+}
+
+// SendMsg rejects an unexpected generic gRPC write.
+func (ms *mockStream) SendMsg(msg any) error {
+	args := ms.Called(msg)
+
+	return args.Error(0)
+}
+
+// Trailer returns metadata only when the test has arranged it.
+func (ms *mockStream) Trailer() metadata.MD {
+	args := ms.Called()
+	trailer, _ := args.Get(0).(metadata.MD)
+
+	return trailer
+}
+
+// CloseSend requires an explicit expectation for a half-close.
+func (ms *mockStream) CloseSend() error {
+	args := ms.Called()
+
+	return args.Error(0)
+}
+
+// RecvMsg rejects an unexpected generic gRPC read.
+func (ms *mockStream) RecvMsg(msg any) error {
+	args := ms.Called(msg)
+
+	return args.Error(0)
+}
+
+// Context returns the immutable transport context prepared in Arrange.
+func (ms *mockStream) Context() context.Context {
+	args := ms.Called()
+	ctx, _ := args.Get(0).(context.Context)
+
+	return ctx
+}
 
 // newTestRemoteSignerClient creates a new outbound remote signer client
 // instance for testing purposes, and inserts the passed streamFeeder together
 // with a mock sub-servers into the created instance.
 func newTestRemoteSignerClient(t *testing.T,
-	streamFeeder *mockStreamFeeder) *OutboundClient {
+	streamFeeder *mockStreamFeeder, handshake bool) *OutboundClient {
 
+	wallet := &mockWalletKitServer{}
+	signer := &mockSignerServer{}
+	// The fixture owns verification so callers never duplicate
+	// expectations.
+	t.Cleanup(func() {
+		signer.AssertExpectations(t)
+	})
 	client, err := NewOutboundClient(
-		&mockWalletKitServer{}, &mockSignerServer{}, streamFeeder,
+		wallet, signer, streamFeeder,
 		1*time.Second,
 	)
 	require.NoError(t, err)
@@ -308,7 +356,7 @@ func newTestRemoteSignerClient(t *testing.T,
 	// We expect the remote signer client attempt to create a stream during
 	// the start up. So if the stream feeder is configured to succeed, we
 	// need to handle the handshake procedure to finalize the stream set up.
-	if !streamFeeder.GetStreamShouldFail() {
+	if handshake {
 		// Wait for the stream to be created.
 		err := <-streamFeeder.streamCreated
 		require.NoError(t, err)
@@ -325,9 +373,13 @@ func newTestRemoteSignerClient(t *testing.T,
 func TestPingResponse(t *testing.T) {
 	t.Parallel()
 
-	mockFeeder := newMockStreamFeeder(false)
+	// Arrange the exact connection and wire traffic before starting the
+	// client; fixture cleanup verifies each mock once after shutdown.
 
-	client := newTestRemoteSignerClient(t, mockFeeder)
+	mockFeeder := newMockStreamFeeder(t)
+	mockFeeder.expectStream(t, 2, 2)
+
+	client := newTestRemoteSignerClient(t, mockFeeder, true)
 	defer func() {
 		// Ensure that the remote signer client is stopped successfully
 		// after the test.
@@ -346,15 +398,14 @@ func TestPingResponse(t *testing.T) {
 		SignRequestType: pingReq,
 	}
 
-	// Send the request to the remote signer client.
+	// Act by delivering one Ping through the arranged transport reader.
 	err := mockFeeder.stream.recvRequest(req)
 	require.NoError(t, err)
 
 	// Wait for the response from the remote signer client.
 	resp := <-mockFeeder.stream.sendChan
 
-	// Ensure that the response contains the correct request ID and that
-	// it's a pong response.
+	// Assert the serialized writer returns a Pong for that request ID.
 	require.Equal(t, requestID, resp.GetRefRequestId())
 	require.True(t, resp.GetPong())
 }
@@ -365,9 +416,13 @@ func TestPingResponse(t *testing.T) {
 func TestMultiplePingResponses(t *testing.T) {
 	t.Parallel()
 
-	mockFeeder := newMockStreamFeeder(false)
+	// Arrange the exact connection and wire traffic before starting the
+	// client; fixture cleanup verifies each mock once after shutdown.
 
-	client := newTestRemoteSignerClient(t, mockFeeder)
+	mockFeeder := newMockStreamFeeder(t)
+	mockFeeder.expectStream(t, 3, 3)
+
+	client := newTestRemoteSignerClient(t, mockFeeder, true)
 	defer func() {
 		// Ensure that the remote signer client is stopped successfully
 		// after the test.
@@ -386,7 +441,7 @@ func TestMultiplePingResponses(t *testing.T) {
 		SignRequestType: pingReq,
 	}
 
-	// Send the first request to the remote signer client.
+	// Act by delivering Pings sequentially through the transport reader.
 	err := mockFeeder.stream.recvRequest(req1)
 	require.NoError(t, err)
 
@@ -413,8 +468,8 @@ func TestMultiplePingResponses(t *testing.T) {
 	// Wait for the second response from the remote signer client.
 	resp2 := <-mockFeeder.stream.sendChan
 
-	// Ensure that the response contains the correct request ID, which
-	// differs from the first request, and that it's a pong response.
+	// Assert the second Pong preserves its distinct ID, proving the
+	// response correlation survives repeated stream requests.
 	require.Equal(t, requestID2, resp2.GetRefRequestId())
 	require.True(t, resp2.GetPong())
 }
@@ -425,9 +480,14 @@ func TestMultiplePingResponses(t *testing.T) {
 func TestStreamRecvErrorHandling(t *testing.T) {
 	t.Parallel()
 
-	msf := newMockStreamFeeder(false)
+	// Arrange the exact connection and wire traffic before starting the
+	// client; fixture cleanup verifies each mock once after shutdown.
 
-	client := newTestRemoteSignerClient(t, msf)
+	msf := newMockStreamFeeder(t)
+	msf.expectStream(t, 1, 1)
+	msf.expectStream(t, 0, 0)
+
+	client := newTestRemoteSignerClient(t, msf, true)
 	defer func() {
 		// Ensure that the remote signer client is stopped successfully
 		// after the test.
@@ -437,13 +497,13 @@ func TestStreamRecvErrorHandling(t *testing.T) {
 	// Fetch the stream context before the stream is canceled.
 	streamCtx := msf.stream.Context()
 
-	// Simulate that the stream errors, which should cause the remote signer
-	// client to cancel the stream.
+	// Act by failing the entered transport read, without calling client
+	// reconnect internals or changing the already arranged replacement.
 	err := msf.stream.recvErr(ErrStreamCanceled)
 	require.NoError(t, err)
 
-	// Ensure that the stream has been canceled, as that should cause the
-	// remote signer client to cancel the stream context.
+	// Assert the old stream is cancelled and the prearranged replacement is
+	// requested, exposing reconnect only through the transport boundary.
 	<-streamCtx.Done()
 
 	// Now we expect the remote signer client to retry to create a new
@@ -458,9 +518,13 @@ func TestStreamRecvErrorHandling(t *testing.T) {
 func TestResponseError(t *testing.T) {
 	t.Parallel()
 
-	msf := newMockStreamFeeder(false)
+	// Arrange the exact connection and wire traffic before starting the
+	// client; fixture cleanup verifies each mock once after shutdown.
 
-	client := newTestRemoteSignerClient(t, msf)
+	msf := newMockStreamFeeder(t)
+	msf.expectStream(t, 2, 2)
+
+	client := newTestRemoteSignerClient(t, msf, true)
 	defer func() {
 		// Ensure that the remote signer client is stopped successfully
 		// after the test.
@@ -481,14 +545,24 @@ func TestResponseError(t *testing.T) {
 		SignRequestType: signMessageReq,
 	}
 
-	// Send the request to the remote signer client.
+	// Arrange the one backend failure that the stream must report to its
+	// peer.
+	backend, ok := client.signerServer.(*mockSignerServer)
+	require.True(t, ok)
+	backend.On(
+		"SignMessage", mock.Anything, signMessageReq.SignMessageReq,
+	).Return((*signrpc.SignMessageResp)(nil), ErrMockResponseErr).Once()
+
+	// Act by sending the request through the running stream, not the
+	// backend.
 	err := msf.stream.recvRequest(req)
 	require.NoError(t, err)
 
 	// Wait for the response from the remote signer client.
 	resp := <-msf.stream.sendChan
 
-	// Ensure that the response contains the correct request ID.
+	// Assert the wire error retains its request ID and backend failure
+	// text.
 	require.Equal(t, requestID, resp.GetRefRequestId())
 
 	// The response should be a SignerError, as the request could not be
@@ -507,9 +581,15 @@ func TestResponseError(t *testing.T) {
 func TestStreamCreationBackoff(t *testing.T) {
 	t.Parallel()
 
-	msf := newMockStreamFeeder(true)
+	// Arrange the exact connection and wire traffic before starting the
+	// client; fixture cleanup verifies each mock once after shutdown.
 
-	client := newTestRemoteSignerClient(t, msf)
+	msf := newMockStreamFeeder(t)
+	msf.expectStreamFailures(4)
+	msf.expectStream(t, 1, 1)
+	msf.expectStream(t, 0, 0)
+
+	client := newTestRemoteSignerClient(t, msf, false)
 	defer func() {
 		// Ensure that the remote signer client is stopped successfully
 		// after the test.
@@ -520,8 +600,8 @@ func TestStreamCreationBackoff(t *testing.T) {
 	// ensures that the retry timeout will be capped on the fourth backoff.
 	client.maxRetryTimeout = defaultRetryTimeout * 3
 
-	// As we passed false to the newMockStreamFeeder constructor, the stream
-	// creation should fail.
+	// Act by observing the four arranged connection failures. Their
+	// timestamps expose the public retry backoff before either success.
 	err := <-msf.streamCreated
 	require.Equal(t, ErrStreamError, err)
 
@@ -540,11 +620,11 @@ func TestStreamCreationBackoff(t *testing.T) {
 	expectedBackoff := time.Duration(float64(defaultRetryTimeout) *
 		math.Pow(float64(retryMultiplier), 0)) // 0 for no multiplier
 
-	// Verify that the retry backoff is within the expected range. We allow
-	// a small margin of error (100ms) on the range bound to account for the
-	// time it takes to execute the test code. We also allow a small margin
-	// of error (10ms) on the lower bound to account for the time the code
-	// execution takes between the creation of the stream, and when
+	// Assert each measured interval follows the configured backoff. We
+	// allow a small margin of error (100ms) on the range bound to account
+	// for the time it takes to execute the test code. We also allow a small
+	// margin of error (10ms) on the lower bound to account for the time the
+	// code execution takes between the creation of the stream, and when
 	// retryBackoff is set.
 	require.GreaterOrEqual(
 		t, retryBackoff, expectedBackoff-10*time.Millisecond,
@@ -606,10 +686,8 @@ func TestStreamCreationBackoff(t *testing.T) {
 		t, retryBackoff, expectedBackoff+100*time.Millisecond,
 	)
 
-	// For the next retry, we want the stream creation to succeed. This will
-	// reset the retry backoff to the default value, once the stream is
-	// successfully created.
-	msf.SetStreamFailure(false)
+	// The next arranged attempt succeeds. Completing its handshake resets
+	// the retry delay without changing any expectations during Act.
 
 	// Reset the last attempt time, so we can check the next retry.
 	lastStreamCreationAttempt = time.Now()
@@ -710,15 +788,20 @@ func (m *mockWalletKitServer) InjectDependencies(
 // mockSignerServer is a mock signrpc.SignerServer implementation that panics
 // for all request methods except SignMessage.
 type mockSignerServer struct {
+	mock.Mock
 	signrpc.UnimplementedSignerServer
 }
 
 var _ signrpc.SignerServer = (*mockSignerServer)(nil)
 
-func (m *mockSignerServer) SignMessage(_ context.Context,
-	_ *signrpc.SignMessageReq) (*signrpc.SignMessageResp, error) {
+// SignMessage delegates signing behavior to the test's explicit expectation.
+func (m *mockSignerServer) SignMessage(ctx context.Context,
+	req *signrpc.SignMessageReq) (*signrpc.SignMessageResp, error) {
 
-	return nil, ErrMockResponseErr
+	args := m.Called(ctx, req)
+	resp, _ := args.Get(0).(*signrpc.SignMessageResp)
+
+	return resp, args.Error(1)
 }
 
 // Name returns a unique string representation of the sub-server. This
@@ -939,6 +1022,102 @@ func remoteSignerTLSContexts(t *testing.T) (context.Context, context.Context) {
 				State: client.ConnectionState(),
 			},
 		})
+}
+
+// TestRemoteSignerRegistration rejects invalid registration before the running
+// client can admit signing work; existing Ping tests cover valid admission.
+func TestRemoteSignerRegistration(t *testing.T) {
+	cases := []struct {
+		name    string
+		proof   string
+		version string
+	}{
+		{
+			name:    "missing proof",
+			proof:   "missing",
+			version: watchonlyrpc.RegistrationVersion,
+		},
+		{
+			name:    "changed challenge",
+			proof:   "changed challenge",
+			version: watchonlyrpc.RegistrationVersion,
+		},
+		{
+			name:    "wrong TLS connection",
+			proof:   "other connection",
+			version: watchonlyrpc.RegistrationVersion,
+		},
+		{
+			name:    "incompatible version",
+			version: "unsupported",
+		},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			// Arrange the client without completing admission.
+			// Signing backend calls must remain unused.
+			feeder := newMockStreamFeeder(t)
+			feeder.expectStream(t, 1, 1)
+			client := newTestRemoteSignerClient(t, feeder, false)
+			defer func() {
+				require.NoError(t, client.Stop())
+			}()
+			require.NoError(t, <-feeder.streamCreated)
+			stream := feeder.stream
+			registration := <-stream.sendChan
+			proofCtx := stream.Context()
+			if tc.proof == "other connection" {
+				proofCtx, _ = remoteSignerTLSContexts(t)
+			}
+			challenge := registration.GetSignerRegistration().
+				GetRegistrationChallenge()
+			if tc.proof == "changed challenge" {
+				// Copy the value to leave the original client
+				// challenge intact for verification.
+				challenge = append([]byte(nil), challenge...)
+				challenge[0] ^= 1
+			}
+			proof, err := watchonlyrpc.RegistrationProof(
+				proofCtx, challenge,
+				watchonlyrpc.RegistrationVersion,
+			)
+			require.NoError(t, err)
+			if tc.proof == "missing" {
+				proof = ""
+			}
+
+			// Act through the running protocol with one altered
+			// proof/version, leaving the transport authenticated.
+			complete := &watchonlyrpc.RegistrationComplete{
+				Signature:        proof,
+				RegistrationInfo: tc.version,
+			}
+			completed := &RSRegistrationComplete{
+				RegistrationComplete: complete,
+			}
+			response := &watchonlyrpc.RegistrationResponse{
+				RegistrationResponseType: completed,
+			}
+			reply := &RSRegistrationResponse{
+				RegistrationResponse: response,
+			}
+			require.NoError(t, stream.recvRequest(
+				&watchonlyrpc.SignCoordinatorRequest{
+					RequestId:       handshakeRequestID,
+					SignRequestType: reply,
+				},
+			))
+
+			// Assert invalid admission closes the stream before
+			// signing can start; fixture cleanup verifies no
+			// backend operation was invoked.
+			select {
+			case <-stream.Context().Done():
+			case <-time.After(2 * time.Second):
+				t.Fatal("invalid registration stayed active")
+			}
+		})
+	}
 }
 
 // TestRegistrationProofInputs exercises protocol guards with a usable TLS

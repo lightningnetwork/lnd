@@ -255,7 +255,7 @@ func setupNewStream(t *testing.T,
 	coordinator *SignCoordinator, sends, responses int) (*mockSCStream,
 	chan error) {
 
-	stream := newMockSCStream(t, sends, responses)
+	stream := newMockSCStream(t, sends+1, responses+1)
 
 	errChan := make(chan error, 1)
 	go func() {
@@ -301,6 +301,13 @@ func setupNewStream(t *testing.T,
 		)
 	}
 
+	// Reply only after receiving the ordinary Ping, as the real client
+	// does after proof verification. Run cannot publish readiness earlier.
+	ping, err := getRequest(stream)
+	require.NoError(t, err)
+	require.Equal(t, handshakeRequestID, ping.GetRequestId())
+	require.True(t, ping.GetPing())
+	stream.pong(ping.GetRequestId())
 	require.NoError(t, coordinator.WaitUntilConnected(t.Context()))
 
 	return stream, errChan
@@ -793,7 +800,7 @@ func TestRemoteSignerSecondRun(t *testing.T) {
 	// blocked.
 	coordinator := NewSignCoordinator(time.Second, time.Second)
 	t.Cleanup(coordinator.Stop)
-	stream := newMockSCStream(t, 1, 1)
+	stream := newMockSCStream(t, 2, 2)
 	first := make(chan error, 1)
 	go func() {
 		first <- coordinator.Run(stream)
@@ -818,6 +825,11 @@ func TestRemoteSignerSecondRun(t *testing.T) {
 	require.ErrorIs(t, err, ErrMultipleConnections)
 	_, err = getRequest(stream)
 	require.NoError(t, err)
+	ping, err := getRequest(stream)
+	require.NoError(t, err)
+	require.True(t, ping.GetPing())
+	stream.pong(ping.GetRequestId())
+	require.NoError(t, coordinator.WaitUntilConnected(t.Context()))
 	stream.Cancel()
 	require.ErrorIs(t, <-first, ErrStreamCanceled)
 }
@@ -848,4 +860,50 @@ func TestRemoteSignerHandshakeDeadline(t *testing.T) {
 
 	// Assert deadline expiry remains distinguishable from client shutdown.
 	require.ErrorIs(t, err, context.DeadlineExceeded)
+}
+
+// TestRemoteSignerReadinessConfirmation waits for proof acceptance to become
+// observable through the signer's ordinary Ping response.
+func TestRemoteSignerReadinessConfirmation(t *testing.T) {
+	// Arrange an authenticated stream and exact registration/probe traffic.
+	// Returning Run cancels transport IO, matching the real gRPC handler.
+	coordinator := NewSignCoordinator(time.Second, time.Second)
+	t.Cleanup(coordinator.Stop)
+	stream := newMockSCStream(t, 2, 2)
+	version := watchonlyrpc.RegistrationVersion
+	runErr := make(chan error, 1)
+	go func() {
+		runErr <- coordinator.Run(stream)
+		stream.Cancel()
+	}()
+	stream.sendResponse(&RSResponse{
+		RefRequestId: handshakeRequestID,
+		SignResponseType: &RSRegistration{
+			SignerRegistration: &watchonlyrpc.SignerRegistration{
+				RegistrationChallenge: make([]byte, 32),
+				RegistrationInfo:      version,
+			},
+		},
+	})
+
+	// Act by receiving our proof and its readiness probe, withholding Pong
+	// while a public startup waiter expires.
+	registration, err := getRequest(stream)
+	require.NoError(t, err)
+	require.NotNil(t, registration.GetRegistrationResponse())
+	ping, err := getRequest(stream)
+	require.NoError(t, err)
+	ctx, cancel := context.WithTimeout(t.Context(), 20*time.Millisecond)
+	defer cancel()
+	err = coordinator.WaitUntilConnected(ctx)
+
+	// Assert sending proof alone does not release startup. A matching Pong
+	// then completes readiness. Stream closure still terminates Run.
+	require.ErrorIs(t, err, context.DeadlineExceeded)
+	require.Equal(t, handshakeRequestID, ping.GetRequestId())
+	require.True(t, ping.GetPing())
+	stream.pong(ping.GetRequestId())
+	require.NoError(t, coordinator.WaitUntilConnected(t.Context()))
+	stream.Cancel()
+	require.ErrorIs(t, <-runErr, ErrStreamCanceled)
 }

@@ -7173,6 +7173,18 @@
         "create_missing_edge": {
           "type": "boolean",
           "description": "Under unknown circumstances a channel can exist with a missing edge in\nthe graph database. This can cause an 'edge not found' error when calling\n`getchaninfo` and/or cause the default channel policy to be used during\nforwards. Setting this flag will recreate the edge if not found, allowing\nupdating this channel policy and fixing the missing edge problem for this\nchannel permanently. For fields not set in this command, the default\npolicy will be created."
+        },
+        "partial_update": {
+          "type": "boolean",
+          "description": "If true, only the fields the caller marks as specified are updated and\nall others keep their current value: base_fee_msat is applied only if\nbase_fee_msat_specified is set, fee_rate/fee_rate_ppm only if\nfee_rate_specified is set, and time_lock_delta only if non-zero. If\nfalse, base_fee_msat, fee_rate/fee_rate_ppm and time_lock_delta are\nalways applied, with unset values treated as zero."
+        },
+        "base_fee_msat_specified": {
+          "type": "boolean",
+          "description": "If true and partial_update is set, base_fee_msat is applied."
+        },
+        "fee_rate_specified": {
+          "type": "boolean",
+          "description": "If true and partial_update is set, fee_rate or fee_rate_ppm is applied.\nIf both are zero, the fee rate is set to zero."
         }
       }
     },

@@ -15480,8 +15480,20 @@ type PolicyUpdateRequest struct {
 	// channel permanently. For fields not set in this command, the default
 	// policy will be created.
 	CreateMissingEdge bool `protobuf:"varint,11,opt,name=create_missing_edge,json=createMissingEdge,proto3" json:"create_missing_edge,omitempty"`
-	unknownFields     protoimpl.UnknownFields
-	sizeCache         protoimpl.SizeCache
+	// If true, only the fields the caller marks as specified are updated and
+	// all others keep their current value: base_fee_msat is applied only if
+	// base_fee_msat_specified is set, fee_rate/fee_rate_ppm only if
+	// fee_rate_specified is set, and time_lock_delta only if non-zero. If
+	// false, base_fee_msat, fee_rate/fee_rate_ppm and time_lock_delta are
+	// always applied, with unset values treated as zero.
+	PartialUpdate bool `protobuf:"varint,12,opt,name=partial_update,json=partialUpdate,proto3" json:"partial_update,omitempty"`
+	// If true and partial_update is set, base_fee_msat is applied.
+	BaseFeeMsatSpecified bool `protobuf:"varint,13,opt,name=base_fee_msat_specified,json=baseFeeMsatSpecified,proto3" json:"base_fee_msat_specified,omitempty"`
+	// If true and partial_update is set, fee_rate or fee_rate_ppm is applied.
+	// If both are zero, the fee rate is set to zero.
+	FeeRateSpecified bool `protobuf:"varint,14,opt,name=fee_rate_specified,json=feeRateSpecified,proto3" json:"fee_rate_specified,omitempty"`
+	unknownFields    protoimpl.UnknownFields
+	sizeCache        protoimpl.SizeCache
 }
 
 func (x *PolicyUpdateRequest) Reset() {
@@ -15598,6 +15610,27 @@ func (x *PolicyUpdateRequest) GetInboundFee() *InboundFee {
 func (x *PolicyUpdateRequest) GetCreateMissingEdge() bool {
 	if x != nil {
 		return x.CreateMissingEdge
+	}
+	return false
+}
+
+func (x *PolicyUpdateRequest) GetPartialUpdate() bool {
+	if x != nil {
+		return x.PartialUpdate
+	}
+	return false
+}
+
+func (x *PolicyUpdateRequest) GetBaseFeeMsatSpecified() bool {
+	if x != nil {
+		return x.BaseFeeMsatSpecified
+	}
+	return false
+}
+
+func (x *PolicyUpdateRequest) GetFeeRateSpecified() bool {
+	if x != nil {
+		return x.FeeRateSpecified
 	}
 	return false
 }
@@ -20141,7 +20174,7 @@ const file_lightning_proto_rawDesc = "" +
 	"InboundFee\x12\"\n" +
 	"\rbase_fee_msat\x18\x01 \x01(\x05R\vbaseFeeMsat\x12 \n" +
 	"\ffee_rate_ppm\x18\x02 \x01(\x05R\n" +
-	"feeRatePpm\"\xda\x03\n" +
+	"feeRatePpm\"\xe6\x04\n" +
 	"\x13PolicyUpdateRequest\x12\x18\n" +
 	"\x06global\x18\x01 \x01(\bH\x00R\x06global\x124\n" +
 	"\n" +
@@ -20157,7 +20190,10 @@ const file_lightning_proto_rawDesc = "" +
 	"\vinbound_fee\x18\n" +
 	" \x01(\v2\x11.lnrpc.InboundFeeR\n" +
 	"inboundFee\x12.\n" +
-	"\x13create_missing_edge\x18\v \x01(\bR\x11createMissingEdgeB\a\n" +
+	"\x13create_missing_edge\x18\v \x01(\bR\x11createMissingEdge\x12%\n" +
+	"\x0epartial_update\x18\f \x01(\bR\rpartialUpdate\x125\n" +
+	"\x17base_fee_msat_specified\x18\r \x01(\bR\x14baseFeeMsatSpecified\x12,\n" +
+	"\x12fee_rate_specified\x18\x0e \x01(\bR\x10feeRateSpecifiedB\a\n" +
 	"\x05scope\"\x8c\x01\n" +
 	"\fFailedUpdate\x12+\n" +
 	"\boutpoint\x18\x01 \x01(\v2\x0f.lnrpc.OutPointR\boutpoint\x12,\n" +

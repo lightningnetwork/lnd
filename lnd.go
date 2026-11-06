@@ -515,6 +515,11 @@ func Main(cfg *Config, lisCfg ListenerCfg, implCfg *ImplementationCfg,
 
 	activeChainControl := chainControlResult.ChainControl
 
+	// Publish recovery access before waiting for a signer: StopDaemon is
+	// already available while the full server dependencies are still
+	// absent.
+	rpcServer.setRecoveryReader(activeChainControl.Wallet.GetRecoveryInfo)
+
 	// If the signer dials this node rather than the other way around, chain
 	// control returned the receiving side of that connection. Start the
 	// dedicated RPC server that accepts it. This RPC is not served by the

@@ -286,7 +286,8 @@ func TestRPCKeyRingUsesRequestTimeoutForInboundSigner(t *testing.T) {
 	// This test then verifies that this value remains scoped to startup
 	// waiting and is not used as the per-request RPC timeout.
 	conn := NewInboundConnection(requestTimeout, 0)
-	stream, runErrChan := setupNewStream(t, conn.SignCoordinator)
+	t.Cleanup(conn.Stop)
+	stream, runErrChan := setupNewStream(t, conn.SignCoordinator, 2, 2)
 
 	keyRing, err := NewRPCKeyRing(nil, nil, conn, nil)
 	require.NoError(t, err)

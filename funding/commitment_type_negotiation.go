@@ -14,19 +14,24 @@ var (
 	errUnsupportedChannelType = errors.New("requested channel type " +
 		"not supported")
 
-	// ErrDeprecatedChanType is returned when settling on the legacy
-	// commitment type is the only option left, either because the caller of
-	// our own RPC asked for it or because automatic selection would have
-	// fallen back to it. We keep operating the legacy channels we already
-	// have, but no longer open new ones.
+	// ErrDeprecatedChanType is returned when the caller of our own RPC
+	// asks for the legacy or static remote key commitment type. We keep
+	// operating existing channels that use these types, but no longer open
+	// new ones.
 	//
 	// Unlike lnwire.ErrChanTypeDeprecated, which we send to a peer whose
 	// proposal we reject, this never goes on the wire. The audience is our
 	// own operator, who can act on the answer, so it spells out what to use
 	// instead.
-	ErrDeprecatedChanType = errors.New("the legacy commitment type is " +
-		"deprecated, new channels must use the static remote key " +
-		"commitment type or later")
+	ErrDeprecatedChanType = errors.New("the legacy and static remote key " +
+		"commitment types are deprecated, new channels must use the " +
+		"anchors commitment type or later")
+
+	// ErrNoAnchorSupport is returned when automatic channel type selection
+	// cannot find mutual support for anchor commitments. We no longer fall
+	// back to an older commitment type in this case.
+	ErrNoAnchorSupport = errors.New("peer does not support the anchors " +
+		"commitment type, which is required for new channels")
 )
 
 // negotiateCommitmentType determines the commitment type of a newly opened
@@ -34,8 +39,8 @@ var (
 // commitment features supported by both peers. Otherwise, a default type is
 // selected from those features.
 //
-// The legacy commitment type is never selected, whether it was requested
-// explicitly or would only have been reached by falling back.
+// The legacy and static remote key commitment types are never selected,
+// whether requested explicitly or reached by falling back.
 //
 // On success, the returned ChannelType is non-nil and is signaled on the wire.
 // An error is returned if the requested type is unsupported or deprecated, or
@@ -224,12 +229,10 @@ func explicitNegotiateCommitmentType(channelType lnwire.ChannelType, local,
 		}
 		return lnwallet.CommitmentTypeAnchorsZeroFeeHtlcTx, nil
 
-	// Static remote key feature only.
+	// The static remote key type is retained for existing channels, but is
+	// no longer accepted for new ones.
 	case channelFeatures.OnlyContains(lnwire.StaticRemoteKeyRequired):
-		if !hasFeatures(local, remote, lnwire.StaticRemoteKeyOptional) {
-			return 0, errUnsupportedChannelType
-		}
-		return lnwallet.CommitmentTypeTweakless, nil
+		return 0, lnwire.ErrChanTypeDeprecated
 
 	// Simple taproot channels only (final feature bits).
 	case channelFeatures.OnlyContains(
@@ -455,8 +458,8 @@ func explicitNegotiateCommitmentType(channelType lnwire.ChannelType, local,
 // Taproot channels must be requested explicitly, so that defaults stay on
 // channel types usable for both public and private channels.
 //
-// An error is returned if there is no mutually supported type above the legacy
-// one, which we no longer open.
+// An error is returned if the peers cannot negotiate anchor commitments or a
+// newer explicitly requested type.
 //
 // TODO(yy): Revisit taproot channel selection once public taproot channel
 // announcements are supported.
@@ -476,24 +479,9 @@ func selectDefaultChannelType(local,
 			nil
 	}
 
-	// Since we don't want to support the "legacy" anchor type, we will fall
-	// back to static remote key if the nodes don't support the zero fee
-	// HTLC tx anchor type.
-	//
-	// If both nodes are signaling the proper feature bit for tweakless
-	// commitments, we'll use that.
-	if hasFeatures(local, remote, lnwire.StaticRemoteKeyOptional) {
-		chanType := lnwire.ChannelType(*lnwire.NewRawFeatureVector(
-			lnwire.StaticRemoteKeyRequired,
-		))
-
-		return &chanType, lnwallet.CommitmentTypeTweakless, nil
-	}
-
-	// Without a mutually supported type above it, the only one left to fall
-	// back on is the legacy type, which we never open. Either side failing
-	// to signal static remote key is enough to end up here.
-	return nil, 0, ErrDeprecatedChanType
+	// Static remote key and legacy commitments are retained for existing
+	// channels, but are no longer fallback types for new channels.
+	return nil, 0, ErrNoAnchorSupport
 }
 
 // hasFeatures determines whether a set of features is supported by both the set

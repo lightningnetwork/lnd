@@ -108,8 +108,8 @@ func testWipeForwardingPackages(ht *lntest.HarnessTest) {
 		ht.AssertChannelPendingForceClose(alice, chanPointAB)
 	}
 
-	// Alice should one pending sweep.
-	ht.AssertNumPendingSweeps(alice, 1)
+	// Alice should have pending sweeps for her commit output and anchor.
+	ht.AssertNumPendingSweeps(alice, 2)
 
 	// Mine 1 block to get Alice's sweeping tx confirmed.
 	ht.MineBlocksAndAssertNumTxes(1, 1)

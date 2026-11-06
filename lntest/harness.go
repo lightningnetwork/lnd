@@ -1800,8 +1800,9 @@ func (h *HarnessTest) CleanupForceClose(hn *node.HarnessNode) {
 	// of blocks to mine. This may end up mining more blocks than needed.
 	h.MineEmptyBlocks(node.DefaultCSV - 1)
 
-	// Assert there is one pending sweep.
-	h.AssertNumPendingSweeps(hn, 1)
+	// Assert there is at least one pending sweep. Anchor channels can also
+	// have an uneconomical anchor sweep request.
+	h.AssertAtLeastNumPendingSweeps(hn, 1)
 
 	// The node should now sweep the funds, clean up by mining the sweeping
 	// tx.

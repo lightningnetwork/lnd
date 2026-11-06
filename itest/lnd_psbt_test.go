@@ -1661,9 +1661,8 @@ func testPsbtChanFundingWithUnstableUtxos(ht *lntest.HarnessTest) {
 
 	chanSize := btcutil.Amount(walletUtxo.AmountSat / 2)
 
-	// We use STATIC_REMOTE_KEY channels to easily generate sweeps without
-	// anchor sweeps interfering.
-	cType := lnrpc.CommitmentType_STATIC_REMOTE_KEY
+	// Use anchor channels, which are the oldest supported channel type.
+	cType := lnrpc.CommitmentType_ANCHORS
 
 	// We open a normal channel so that we can force-close it and produce
 	// a sweeper originating utxo.
@@ -1675,13 +1674,14 @@ func testPsbtChanFundingWithUnstableUtxos(ht *lntest.HarnessTest) {
 	channelPoint := lntest.ChanPointFromPendingUpdate(update)
 	ht.MineBlocksAndAssertNumTxes(1, 2)
 
-	// Now force close the channel by dave to generate a utxo which is
-	// swept by the sweeper. We have STATIC_REMOTE_KEY Channel Types.
+	// Now force close the channel by Dave to generate a UTXO which is
+	// swept by the sweeper.
 	ht.CloseChannelAssertPending(dave, channelPoint, true)
 	ht.MineBlocksAndAssertNumTxes(1, 1)
 
-	// Make sure Carol sees her to_remote output from the force close tx.
-	ht.AssertNumPendingSweeps(carol, 1)
+	// Make sure Carol sees her to_remote output and anchor output from the
+	// force close transaction.
+	ht.AssertAtLeastNumPendingSweeps(carol, 2)
 
 	// We wait for the to_remote sweep tx.
 	ht.AssertNumUTXOsUnconfirmed(carol, 1)
@@ -1690,12 +1690,12 @@ func testPsbtChanFundingWithUnstableUtxos(ht *lntest.HarnessTest) {
 	// channel with all available utxos.
 	carolBalance := carol.RPC.WalletBalance()
 
-	// The max chan size needs to account for the fee opening the channel
-	// itself.
-	// NOTE: We need to always account for a change here, because their is
-	// an inaccurarcy in the backend code.
+	// The maximum channel size needs to account for the funding transaction
+	// fee and the anchor channel wallet reserve. We always account for a
+	// change output due to an inaccuracy in the backend code.
 	chanSize = btcutil.Amount(carolBalance.TotalBalance) -
-		fundingFee(2, true)
+		fundingFee(2, true) -
+		btcutil.Amount(carolBalance.ReservedBalanceAnchorChan)
 
 	// Now open a channel of this amount via a psbt workflow.
 	// At this point, we can begin our PSBT channel funding workflow. We'll
@@ -1793,17 +1793,18 @@ func testPsbtChanFundingWithUnstableUtxos(ht *lntest.HarnessTest) {
 	block := ht.MineBlocksAndAssertNumTxes(1, 1)[0]
 	ht.AssertTxInBlock(block, txHash)
 
-	// Now we do the same but instead use preselected utxos to verify that
-	// these utxos respects the utxo restrictions on sweeper unconfirmed
-	// inputs as well.
+	// Now we do the same but instead use preselected UTXOs to verify that
+	// these UTXOs respect the restrictions on unconfirmed sweeper inputs as
+	// well.
 
-	// Now force close the channel by dave to generate a utxo which is
-	// swept by the sweeper. We have STATIC_REMOTE_KEY Channel Types.
+	// Force close the channel by Dave to generate a UTXO which is swept by
+	// the sweeper.
 	ht.CloseChannelAssertPending(dave, channelPoint2, true)
 	ht.MineBlocksAndAssertNumTxes(1, 1)
 
-	// Make sure Carol sees her to_remote output from the force close tx.
-	ht.AssertNumPendingSweeps(carol, 1)
+	// Make sure Carol sees her to_remote output and anchor output from the
+	// force close transaction.
+	ht.AssertAtLeastNumPendingSweeps(carol, 2)
 
 	// We wait for the to_remote sweep tx of channelPoint2.
 	utxos := ht.AssertNumUTXOsUnconfirmed(carol, 1)
@@ -1812,14 +1813,12 @@ func testPsbtChanFundingWithUnstableUtxos(ht *lntest.HarnessTest) {
 	// channel with all available utxos.
 	carolBalance = carol.RPC.WalletBalance()
 
-	// The max chan size needs to account for the fee opening the channel
-	// itself.
-	// NOTE: We need to always account for a change here, because their is
-	// an inaccurarcy in the backend code calculating the fee of a 1 input
-	// one output transaction, it always account for a channge in that case
-	// as well.
+	// The maximum channel size needs to account for the funding transaction
+	// fee and the anchor channel wallet reserve. We always account for a
+	// change output due to an inaccuracy in the backend code.
 	chanSize = btcutil.Amount(carolBalance.TotalBalance) -
-		fundingFee(2, true)
+		fundingFee(2, true) -
+		btcutil.Amount(carolBalance.ReservedBalanceAnchorChan)
 
 	// Now open a channel of this amount via a psbt workflow.
 	// At this point, we can begin our PSBT channel funding workflow. We'll

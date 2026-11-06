@@ -615,9 +615,12 @@ func (b *blindedForwardTest) drainCarolLiquidity(incoming bool) {
 	})
 	require.Len(b.ht, resp.Channels, 1)
 
-	// We can't send our channel reserve, and leave some buffer for fees.
+	// Keep enough balance for this payment's fees, but less than the 10,000
+	// satoshis used by the follow-up payment, so it cannot be forwarded.
+	const remainingBalance = 5_000
 	paymentAmt := resp.Channels[0].LocalBalance -
-		int64(resp.Channels[0].RemoteConstraints.ChanReserveSat) - 25000
+		int64(resp.Channels[0].RemoteConstraints.ChanReserveSat) -
+		remainingBalance
 
 	invoice := receivingNode.RPC.AddInvoice(&lnrpc.Invoice{
 		// Leave some leeway for fees for the HTLC.
@@ -876,10 +879,11 @@ func testErrorHandlingOnChainFailure(ht *lntest.HarnessTest) {
 	// HTLC from now on.
 	ht.SuspendNode(testCase.carol)
 
-	// Mine blocks so that Bob will claim his CSV delayed local commitment,
-	// we've already mined 1 block so we need one less than our CSV.
+	// Mine blocks so that Bob will claim his CSV-delayed local commitment.
+	// His anchor sweep is also pending. We've already mined one block, so
+	// we need one less than our CSV.
 	ht.MineBlocks(toLocalCSV - 1)
-	ht.AssertNumPendingSweeps(bob, 1)
+	ht.AssertNumPendingSweeps(bob, 2)
 	ht.MineBlocksAndAssertNumTxes(1, 1)
 
 	// Restart bob so that we can test that he's able to recover everything
@@ -894,10 +898,10 @@ func testErrorHandlingOnChainFailure(ht *lntest.HarnessTest) {
 	ht.Log(carolHTLC.IncomingExpiry, info.BlockHeight, target)
 	ht.MineBlocks(int(target))
 
-	// Wait for Bob's timeout transaction in the mempool, since we've
-	// suspended Carol we don't need to account for her commitment output
-	// claim.
-	ht.AssertNumPendingSweeps(bob, 0)
+	// Bob should have pending sweeps for the timeout transaction and his
+	// anchor. Carol is suspended and won't claim her commitment output, so
+	// mine the timeout transaction.
+	ht.AssertNumPendingSweeps(bob, 2)
 	ht.MineBlocksAndAssertNumTxes(1, 1)
 
 	// Assert that the HTLC has cleared.

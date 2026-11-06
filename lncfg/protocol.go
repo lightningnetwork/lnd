@@ -39,9 +39,10 @@ type ProtocolOptions struct {
 	// the new experimental RBF coop close feature.
 	RbfCoopClose bool `long:"rbf-coop-close" description:"if set, then lnd will signal that it supports the new RBF based coop close protocol"`
 
-	// NoAnchors should be set if we don't want to support opening or accepting
-	// channels having the anchor commitment type.
-	NoAnchors bool `long:"no-anchors" description:"disable support for anchor commitments"`
+	// NoAnchors is deprecated and no longer has any effect. Anchor
+	// commitments can no longer be disabled, as every commitment type
+	// below them is deprecated for new channels.
+	NoAnchors bool `long:"no-anchors" hidden:"true" description:"deprecated: anchor commitments can no longer be disabled"`
 
 	// NoScriptEnforcedLease should be set if we don't want to support
 	// opening or accepting channels having the script enforced commitment
@@ -140,9 +141,11 @@ func (l *ProtocolOptions) Wumbo() bool {
 }
 
 // NoAnchorCommitments returns true if we have disabled support for the anchor
-// commitment type.
+// commitment type. Anchor commitments can no longer be turned off, so this
+// always returns false. The NoAnchors field is only kept around so that
+// configs which still set it continue to parse.
 func (l *ProtocolOptions) NoAnchorCommitments() bool {
-	return l.NoAnchors
+	return false
 }
 
 // NoScriptEnforcementLease returns true if we have disabled support for the

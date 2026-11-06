@@ -2,19 +2,27 @@ package rpcwallet
 
 import (
 	"context"
+	"crypto/tls"
+	"crypto/x509"
 	"errors"
 	"math"
+	"net"
 	"sync"
 	"testing"
 	"time"
 
+	"github.com/lightningnetwork/lnd/cert"
 	"github.com/lightningnetwork/lnd/lncfg"
 	"github.com/lightningnetwork/lnd/lnrpc"
 	"github.com/lightningnetwork/lnd/lnrpc/signrpc"
 	"github.com/lightningnetwork/lnd/lnrpc/walletrpc"
 	"github.com/lightningnetwork/lnd/lnrpc/watchonlyrpc"
 	"github.com/stretchr/testify/require"
+	"google.golang.org/grpc/codes"
+	"google.golang.org/grpc/credentials"
 	"google.golang.org/grpc/metadata"
+	"google.golang.org/grpc/peer"
+	"google.golang.org/grpc/status"
 )
 
 var (
@@ -885,4 +893,103 @@ func TestRemoteSignerClientBuilderErrorNamesBuildInstructions(t *testing.T) {
 	require.ErrorContains(t, err, "build tags enabled")
 	require.ErrorContains(t, err, "make build with-rpc=1")
 	require.ErrorContains(t, err, "official release build")
+}
+
+// remoteSignerTLSContexts provides real exporter state to existing stream
+// fixtures, so their handshake success never bypasses production validation.
+func remoteSignerTLSContexts(t *testing.T) (context.Context, context.Context) {
+	t.Helper()
+	certBytes, keyBytes, err := cert.GenCertPair(
+		"remote signer test", nil, nil, false, time.Hour,
+	)
+	require.NoError(t, err)
+	pair, err := tls.X509KeyPair(certBytes, keyBytes)
+	require.NoError(t, err)
+	roots := x509.NewCertPool()
+	require.True(t, roots.AppendCertsFromPEM(certBytes))
+	left, right := net.Pipe()
+	t.Cleanup(func() {
+		_ = left.Close()
+		_ = right.Close()
+	})
+	require.NoError(t, left.SetDeadline(time.Now().Add(5*time.Second)))
+	require.NoError(t, right.SetDeadline(time.Now().Add(5*time.Second)))
+	server := tls.Server(left, cert.TLSConfFromCert(pair))
+	client := tls.Client(right, &tls.Config{
+		RootCAs:    roots,
+		ServerName: "localhost",
+		MinVersion: tls.VersionTLS12,
+	})
+	// Progress both TLS endpoints together and return errors to the owning
+	// test goroutine. Raw connection cleanup also releases a failed
+	// handshake.
+	done := make(chan error, 1)
+	go func() {
+		done <- server.HandshakeContext(t.Context())
+	}()
+	require.NoError(t, client.HandshakeContext(t.Context()))
+	require.NoError(t, <-done)
+
+	return peer.NewContext(t.Context(), &peer.Peer{
+			AuthInfo: credentials.TLSInfo{
+				State: server.ConnectionState(),
+			},
+		}), peer.NewContext(t.Context(), &peer.Peer{
+			AuthInfo: credentials.TLSInfo{
+				State: client.ConnectionState(),
+			},
+		})
+}
+
+// TestRegistrationProofInputs exercises protocol guards with a usable TLS
+// exporter so transport failure cannot mask either rejected input.
+func TestRegistrationProofInputs(t *testing.T) {
+	cases := []struct {
+		name      string
+		version   string
+		challenge []byte
+		wantCode  codes.Code
+	}{
+		{
+			name:      "valid",
+			version:   watchonlyrpc.RegistrationVersion,
+			challenge: make([]byte, 32),
+		},
+		{
+			name:      "unsupported version",
+			version:   "unsupported",
+			challenge: make([]byte, 32),
+			wantCode:  codes.InvalidArgument,
+		},
+		{
+			name:      "truncated challenge",
+			version:   watchonlyrpc.RegistrationVersion,
+			challenge: make([]byte, 31),
+			wantCode:  codes.InvalidArgument,
+		},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			// Arrange a real TLS exporter for every case. The valid
+			// control rules out transport failure as the rejection.
+			ctx, _ := remoteSignerTLSContexts(t)
+
+			// Act through the public proof producer, varying only
+			// the protocol version or challenge length.
+			proof, err := watchonlyrpc.RegistrationProof(
+				ctx, tc.challenge, tc.version,
+			)
+
+			// Assert the stable code so transport failures cannot
+			// replace the intended protocol rejection.
+			require.Equal(t, tc.wantCode, status.Code(err))
+			if tc.wantCode != codes.OK {
+				require.Empty(t, proof)
+
+				return
+			}
+			require.NoError(t, err)
+			require.NotEmpty(t, proof)
+		})
+	}
 }

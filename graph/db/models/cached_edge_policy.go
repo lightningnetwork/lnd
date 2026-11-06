@@ -30,6 +30,11 @@ type CachedEdgePolicy struct {
 	// IsDisabled indicates whether the policy disables forwarding.
 	IsDisabled bool
 
+	// Version is the gossip version that announced this policy. The graph
+	// cache only applies a policy to a channel entry built from the same
+	// version.
+	Version lnwire.GossipVersion
+
 	// TimeLockDelta is the number of blocks this node will subtract from
 	// the expiry of an incoming HTLC. This value expresses the time buffer
 	// the node would like to HTLC exchanges.
@@ -87,6 +92,7 @@ func NewCachedPolicy(policy *ChannelEdgePolicy) *CachedEdgePolicy {
 				lnwire.ChanUpdateDisabled != 0,
 			IsNode1: policy.ChannelFlags&
 				lnwire.ChanUpdateDirection == 0,
+			Version:       policy.Version,
 			TimeLockDelta: policy.TimeLockDelta,
 			MinHTLC:       policy.MinHTLC,
 			MaxHTLC:       policy.MaxHTLC,
@@ -106,6 +112,7 @@ func NewCachedPolicy(policy *ChannelEdgePolicy) *CachedEdgePolicy {
 		HasMaxHTLC:                policy.MaxHTLC != 0,
 		IsNode1:                   !policy.SecondPeer,
 		IsDisabled:                !policy.DisableFlags.IsEnabled(),
+		Version:                   policy.Version,
 		TimeLockDelta:             policy.TimeLockDelta,
 		MinHTLC:                   policy.MinHTLC,
 		MaxHTLC:                   policy.MaxHTLC,

@@ -1007,7 +1007,17 @@ func newServer(ctx context.Context, cfg *Config, listenAddrs []net.Addr,
 		IsChannelActive:          s.htlcSwitch.HasActiveLink,
 		ApplyChannelUpdate:       s.applyChannelUpdate,
 		DB:                       s.chanStateDB,
-		Graph:                    dbs.GraphDB,
+
+		// The manager signs v1 channel updates from the stored
+		// policies, so it reads the v1 graph.
+		//
+		// TODO(gossip-v2): once lnd can build and sign v2 channel
+		// updates, enable and disable a channel on every version it is
+		// announced on, rather than on the preferred version only.
+		// Otherwise nodes on the other version keep seeing the old
+		// status. This means toggling DisableFlags for v2 instead of
+		// ChannelFlags.
+		Graph: v1Graph,
 	}
 
 	chanStatusMgr, err := netann.NewChanStatusManager(chanStatusMgrCfg)
@@ -1587,7 +1597,15 @@ func newServer(ctx context.Context, cfg *Config, listenAddrs []net.Addr,
 	deleteAliasEdge := func(scid lnwire.ShortChannelID) (
 		*models.ChannelEdgePolicy, error) {
 
-		info, e1, e2, err := s.graphDB.FetchChannelEdgesByID(
+		// The funding manager re-adds the channel with the returned
+		// policy and announces it with a v1 channel update, so the
+		// lookup and the deletion both stay on v1.
+		//
+		// TODO(gossip-v2): once the funding manager can announce
+		// channels on v2, delete the alias edge on every version it
+		// was added with, and re-add each version with that version's
+		// policy, instead of using the preferred version.
+		info, e1, e2, err := s.v1Graph.FetchChannelEdgesByID(
 			context.TODO(), scid.ToUint64(),
 		)
 		if errors.Is(err, graphdb.ErrEdgeNotFound) {
@@ -1611,7 +1629,7 @@ func newServer(ctx context.Context, cfg *Config, listenAddrs []net.Addr,
 			ourPolicy = e2
 		}
 
-		if ourPolicy == nil {
+		if info == nil || ourPolicy == nil {
 			// Something is wrong, so return an error.
 			return nil, fmt.Errorf("we don't have an edge")
 		}
@@ -1619,6 +1637,7 @@ func newServer(ctx context.Context, cfg *Config, listenAddrs []net.Addr,
 		err = s.v1Graph.DeleteChannelEdges(
 			context.TODO(), false, false, scid.ToUint64(),
 		)
+
 		return ourPolicy, err
 	}
 

@@ -1304,7 +1304,17 @@ func (b *Builder) SyncedHeight() uint32 {
 	return b.bestHeight.Load()
 }
 
-// GetChannelByID return the channel by the channel id.
+// GetChannelByID return the v1 channel by the channel id. The callers, the v1
+// gossiper among them, build v1 channel updates from the returned policies, so
+// the lookup stays on v1 rather than returning the preferred version.
+//
+// TODO(gossip-v2): once lnd can build and sign v2 channel updates, take the
+// gossip version as an argument instead of hardcoding v1, and don't switch to
+// the preferred version: when a channel exists on both versions, each caller
+// needs a specific one. The gossiper should validate a received update against
+// the channel of the update's own version, refresh our own updates on every
+// version the channel is announced on, and fetchLastChanUpdate should use the
+// gossip version the peer speaks.
 //
 // NOTE: This method is part of the ChannelGraphSource interface.
 func (b *Builder) GetChannelByID(chanID lnwire.ShortChannelID) (
@@ -1312,7 +1322,7 @@ func (b *Builder) GetChannelByID(chanID lnwire.ShortChannelID) (
 	*models.ChannelEdgePolicy,
 	*models.ChannelEdgePolicy, error) {
 
-	return b.cfg.Graph.FetchChannelEdgesByID(
+	return b.v1Graph.FetchChannelEdgesByID(
 		context.TODO(), chanID.ToUint64(),
 	)
 }

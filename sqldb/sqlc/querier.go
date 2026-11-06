@@ -144,6 +144,16 @@ type Querier interface {
 	GetNodesByIDs(ctx context.Context, ids []int64) ([]GraphNode, error)
 	GetNodesByLastUpdateRange(ctx context.Context, arg GetNodesByLastUpdateRangeParams) ([]GraphNode, error)
 	GetOfferByHash(ctx context.Context, hash []byte) (Offer, error)
+	// Return the gossip version that the preferred-channel mapping selects for the
+	// channel with the given funding outpoint. Every version of a channel shares
+	// its outpoint and SCID, so at most one of them has a mapping row. The caller
+	// passes the gossip versions to consider, so that the lookup can use the
+	// (version, outpoint) index instead of scanning every channel.
+	GetPreferredChannelVersionByOutpoint(ctx context.Context, arg GetPreferredChannelVersionByOutpointParams) (int16, error)
+	// Return the gossip version that the preferred-channel mapping selects for an
+	// SCID, so that readers follow the rule UpsertPreferredChannel applies instead
+	// of ranking the versions again.
+	GetPreferredChannelVersionBySCID(ctx context.Context, scid []byte) (int16, error)
 	GetPruneEntriesForHeights(ctx context.Context, heights []int64) ([]GraphPruneLog, error)
 	GetPruneHashByHeight(ctx context.Context, blockHeight int64) ([]byte, error)
 	GetPruneTip(ctx context.Context) (GraphPruneLog, error)
@@ -232,7 +242,8 @@ type Querier interface {
 	ListChannelsWithPoliciesForCachePaginated(ctx context.Context, arg ListChannelsWithPoliciesForCachePaginatedParams) ([]ListChannelsWithPoliciesForCachePaginatedRow, error)
 	ListChannelsWithPoliciesPaginated(ctx context.Context, arg ListChannelsWithPoliciesPaginatedParams) ([]ListChannelsWithPoliciesPaginatedRow, error)
 	ListNodeIDsAndPubKeys(ctx context.Context, arg ListNodeIDsAndPubKeysParams) ([]ListNodeIDsAndPubKeysRow, error)
-	ListNodesPaginated(ctx context.Context, arg ListNodesPaginatedParams) ([]GraphNode, error)
+	ListPreferredChannelsPaginated(ctx context.Context, arg ListPreferredChannelsPaginatedParams) ([]ListPreferredChannelsPaginatedRow, error)
+	ListPreferredNodesPaginated(ctx context.Context, arg ListPreferredNodesPaginatedParams) ([]ListPreferredNodesPaginatedRow, error)
 	NextInvoiceSettleIndex(ctx context.Context) (int64, error)
 	NodeExists(ctx context.Context, arg NodeExistsParams) (bool, error)
 	OnAMPSubInvoiceCanceled(ctx context.Context, arg OnAMPSubInvoiceCanceledParams) error
@@ -257,6 +268,12 @@ type Querier interface {
 	UpsertNode(ctx context.Context, arg UpsertNodeParams) (int64, error)
 	UpsertNodeAddress(ctx context.Context, arg UpsertNodeAddressParams) error
 	UpsertNodeExtraType(ctx context.Context, arg UpsertNodeExtraTypeParams) error
+	// Recompute the preferred channel for a given SCID and upsert the result.
+	// Priority: v2 with policies > v1 with policies > v2 bare > v1 bare.
+	UpsertPreferredChannel(ctx context.Context, scid []byte) error
+	// Recompute the preferred node for a given pub_key and upsert the result.
+	// Priority: v2 announced > v1 announced > v2 shell > v1 shell.
+	UpsertPreferredNode(ctx context.Context, pubKey []byte) error
 	UpsertPruneLogEntry(ctx context.Context, arg UpsertPruneLogEntryParams) error
 	// We use a separate upsert for our own node since we want to be less strict
 	// about the last_update field. For our own node, we always want to

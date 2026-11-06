@@ -636,6 +636,48 @@ func (i *InvoiceRegistry) LookupInvoiceByRef(ctx context.Context,
 	return i.idb.LookupInvoice(ctx, ref)
 }
 
+// LookupAMPHtlcPreimage returns the child preimage of a settled AMP HTLC that
+// pays to the given hash within the given set. Unlike NotifyExitHopHtlc, this
+// is a pure read without any side effects on the invoice. False is returned
+// if no matching settled HTLC is found.
+func (i *InvoiceRegistry) LookupAMPHtlcPreimage(ctx context.Context,
+	setID [32]byte, hash lntypes.Hash) (lntypes.Preimage, bool, error) {
+
+	invoice, err := i.idb.LookupInvoice(
+		ctx, InvoiceRefBySetIDFiltered(setID),
+	)
+	switch {
+	case errors.Is(err, ErrInvoiceNotFound) ||
+		errors.Is(err, ErrNoInvoicesCreated):
+
+		return lntypes.Preimage{}, false, nil
+
+	case err != nil:
+		return lntypes.Preimage{}, false, err
+	}
+
+	settled := invoice.HTLCSet(&setID, HtlcStateSettled)
+	for _, htlc := range settled {
+		if htlc.AMP == nil || htlc.AMP.Hash != hash {
+			continue
+		}
+
+		if htlc.AMP.Preimage == nil {
+			return lntypes.Preimage{}, false, ErrHTLCPreimageMissing
+		}
+
+		preimage := *htlc.AMP.Preimage
+		if !preimage.Matches(hash) {
+			return lntypes.Preimage{}, false,
+				ErrHTLCPreimageMismatch
+		}
+
+		return preimage, true, nil
+	}
+
+	return lntypes.Preimage{}, false, nil
+}
+
 // startHtlcTimer starts a new timer via the invoice registry main loop that
 // cancels a single htlc on an invoice when the htlc hold duration has passed.
 func (i *InvoiceRegistry) startHtlcTimer(invoiceRef InvoiceRef,
@@ -900,6 +942,34 @@ func (i *InvoiceRegistry) processAMP(ctx invoiceUpdateCtx) error {
 	}
 }
 
+// isReplayedHtlc returns true if the HTLC is already recorded on the invoice
+// it pays to. For AMP HTLCs, only the HTLC set of the payment's set ID is
+// loaded.
+func (i *InvoiceRegistry) isReplayedHtlc(ctx *invoiceUpdateCtx) (bool,
+	error) {
+
+	ref := ctx.invoiceRef()
+	if setID := ctx.setID(); setID != nil {
+		ref = InvoiceRefBySetIDFiltered(*setID)
+	}
+
+	invoice, err := i.idb.LookupInvoice(context.Background(), ref)
+	switch {
+	case errors.Is(err, ErrInvoiceNotFound) ||
+		errors.Is(err, ErrNoInvoicesCreated) ||
+		errors.Is(err, ErrInvRefEquivocation):
+
+		return false, nil
+
+	case err != nil:
+		return false, err
+	}
+
+	_, ok := invoice.Htlcs[ctx.circuitKey]
+
+	return ok, nil
+}
+
 // NotifyExitHopHtlc attempts to mark an invoice as settled. The return value
 // describes how the htlc should be resolved.
 //
@@ -939,7 +1009,28 @@ func (i *InvoiceRegistry) NotifyExitHopHtlc(rHash lntypes.Hash,
 		totalAmtMsat:         payload.TotalAmtMsat(),
 	}
 
+	// Only spontaneous AMP and keysend processing needs replay detection
+	// before taking the registry lock. Its expiry checks apply to new HTLCs
+	// and could otherwise fail a recorded replay near expiry. Ordinary
+	// invoice payments skip this early lookup and use the existing replay
+	// check in notifyExitHopHtlcLocked below.
+	_, isKeysend := ctx.customRecords[record.KeySendType]
+	checkReplay := i.cfg.AcceptAMP && ctx.amp != nil ||
+		i.cfg.AcceptKeySend && ctx.amp == nil && isKeysend
+
+	var replayed bool
+	if checkReplay {
+		var err error
+		replayed, err = i.isReplayedHtlc(&ctx)
+		if err != nil {
+			return nil, err
+		}
+	}
+
 	switch {
+	// Replays are handled by the locked notify logic below.
+	case replayed:
+
 	// If we are accepting spontaneous AMP payments and this payload
 	// contains an AMP record, create an AMP invoice that will be settled
 	// below.

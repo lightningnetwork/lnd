@@ -1532,9 +1532,7 @@ func (c *ChannelArbitrator) findCommitmentDeadlineAndValue(heightHint uint32,
 
 		// Since it's an HTLC sent to us, check if we have preimage for
 		// this HTLC.
-		preimageAvailable, err := c.incomingPreimageAvailable(
-			htlc.RHash,
-		)
+		preimageAvailable, err := c.incomingPreimageAvailable(htlc)
 		if err != nil {
 			return fn.None[int32](), 0, err
 		}
@@ -1935,9 +1933,14 @@ func (c *ChannelArbitrator) checkCommitChainActions(height uint32,
 		// know the pre-image and it's close to timing out. We need to
 		// ensure that we claim the funds that are rightfully ours
 		// on-chain.
-		preimageAvailable, err := c.incomingPreimageAvailable(
-			htlc.RHash,
+		toChain := c.shouldGoOnChain(
+			htlc, c.cfg.IncomingBroadcastDelta, height,
 		)
+		if !toChain {
+			continue
+		}
+
+		preimageAvailable, err := c.incomingPreimageAvailable(htlc)
 		if err != nil {
 			return nil, err
 		}
@@ -1946,25 +1949,18 @@ func (c *ChannelArbitrator) checkCommitChainActions(height uint32,
 			continue
 		}
 
-		toChain := c.shouldGoOnChain(
-			htlc, c.cfg.IncomingBroadcastDelta, height,
+		// Convert to int64 in case of overflow.
+		remainingBlocks := int64(htlc.RefundTimeout) - int64(height)
+
+		log.Infof("ChannelArbitrator(%v): go to chain for incoming "+
+			"htlc %x: timeout=%v, amount=%v, "+
+			"blocks_until_expiry=%v, broadcast_delta=%v",
+			c.cfg.ChanPoint, htlc.RHash[:],
+			htlc.RefundTimeout, htlc.Amt, remainingBlocks,
+			c.cfg.IncomingBroadcastDelta,
 		)
 
-		if toChain {
-			// Convert to int64 in case of overflow.
-			remainingBlocks := int64(htlc.RefundTimeout) -
-				int64(height)
-
-			log.Infof("ChannelArbitrator(%v): go to chain for "+
-				"incoming htlc %x: timeout=%v, amount=%v, "+
-				"blocks_until_expiry=%v, broadcast_delta=%v",
-				c.cfg.ChanPoint, htlc.RHash[:],
-				htlc.RefundTimeout, htlc.Amt, remainingBlocks,
-				c.cfg.IncomingBroadcastDelta,
-			)
-		}
-
-		haveChainActions = haveChainActions || toChain
+		haveChainActions = true
 	}
 
 	// If we don't have any actions to make, then we'll return an empty
@@ -2066,13 +2062,14 @@ func (c *ChannelArbitrator) checkCommitChainActions(height uint32,
 // invoice database holds the preimages of invoices we issued, which only an
 // HTLC offered to us can claim, so this must not be used for outgoing HTLCs.
 // Their preimages are resolved by outgoingPreimage.
-func (c *ChannelArbitrator) incomingPreimageAvailable(hash lntypes.Hash) (
-	bool, error) {
+func (c *ChannelArbitrator) incomingPreimageAvailable(
+	htlc channeldb.HTLC) (bool,
+	error) {
 
 	// Start by checking the preimage cache for preimages of
 	// forwarded HTLCs.
 	_, preimageAvailable := c.cfg.PreimageDB.LookupPreimage(
-		hash,
+		htlc.RHash,
 	)
 	if preimageAvailable {
 		return true, nil
@@ -2084,20 +2081,56 @@ func (c *ChannelArbitrator) incomingPreimageAvailable(hash lntypes.Hash) (
 	// than the invoice cltv delta. We don't want to go to chain only to
 	// have the incoming contest resolver decide that we don't want to
 	// settle this invoice.
-	invoice, err := c.cfg.Registry.LookupInvoice(context.Background(), hash)
+	invoice, err := c.cfg.Registry.LookupInvoice(
+		context.Background(), htlc.RHash,
+	)
 	switch {
 	case err == nil:
+		if invoice.Terms.PaymentPreimage != nil {
+			return true, nil
+		}
+
 	case errors.Is(err, invoices.ErrInvoiceNotFound) ||
 		errors.Is(err, invoices.ErrNoInvoicesCreated):
 
-		return false, nil
 	default:
 		return false, err
 	}
 
-	preimageAvailable = invoice.Terms.PaymentPreimage != nil
+	// Finally, check the settled AMP child preimage stored on the invoice
+	// HTLC, using the set ID from the incoming payload.
+	if !htlc.Incoming {
+		return false, nil
+	}
 
-	return preimageAvailable, nil
+	return c.isAMPPreimageAvailable(htlc), nil
+}
+
+// isAMPPreimageAvailable decodes the onion payload of an incoming HTLC and
+// returns whether it is an AMP HTLC that the invoice registry already
+// settled.
+func (c *ChannelArbitrator) isAMPPreimageAvailable(htlc channeldb.HTLC) bool {
+	payload, _, err := decodeIncomingPayload(c.cfg.OnionProcessor, &htlc)
+	if err != nil {
+		// An HTLC we can't decode can't have been settled by us.
+		log.Tracef("ChannelArbitrator(%v): unable to decode payload "+
+			"of htlc=%x: %v", c.cfg.ChanPoint, htlc.RHash[:], err)
+
+		return false
+	}
+
+	_, ok, err := lookupAMPPreimage(c.cfg.Registry, payload, htlc.RHash)
+	if err != nil {
+		// Don't block chain actions for all other HTLCs of this
+		// channel. The lookup is retried on the next block.
+		log.Errorf("ChannelArbitrator(%v): unable to look up AMP "+
+			"preimage for htlc=%x (refund_timeout=%v): %v",
+			c.cfg.ChanPoint, htlc.RHash[:], htlc.RefundTimeout, err)
+
+		return false
+	}
+
+	return ok
 }
 
 // outgoingPreimage returns the preimage of an outgoing HTLC from the witness

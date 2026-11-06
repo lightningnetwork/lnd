@@ -20,7 +20,7 @@ const (
 type RPCMiddleware struct {
 	Enable           bool          `long:"enable" description:"Enable the RPC middleware interceptor functionality."`
 	InterceptTimeout time.Duration `long:"intercepttimeout" description:"Time after which a RPC middleware intercept request will time out and return an error if it hasn't yet received a response."`
-	Mandatory        []string      `long:"addmandatory" description:"Add the named middleware to the list of mandatory middlewares. All RPC requests are blocked/denied if any of the mandatory middlewares is not registered. Can be specified multiple times."`
+	Mandatory        []string      `long:"addmandatory" description:"Add the named middleware to the list of mandatory middlewares. RPC requests on the main RPC server are blocked/denied if any mandatory middleware is not registered. The dedicated remote signer stream does not use RPC middleware. Can be specified multiple times."`
 }
 
 // Validate checks the values configured for the RPC middleware.

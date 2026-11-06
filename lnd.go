@@ -400,7 +400,7 @@ func Main(cfg *Config, lisCfg ListenerCfg, implCfg *ImplementationCfg,
 
 	// Now that both the WalletUnlocker and LightningService have been
 	// registered with the GRPC server, we can start listening.
-	err = startGrpcListen(cfg, grpcServer, grpcListeners)
+	err = startGrpcListen(cfg, grpcServer, grpcListeners, true)
 	if err != nil {
 		return mkErr("error starting gRPC listener", err)
 	}
@@ -995,9 +995,11 @@ func createWalletUnlockerService(cfg *Config) *walletunlocker.UnlockerService {
 	)
 }
 
-// startGrpcListen starts the GRPC server on the passed listeners.
+// startGrpcListen starts each listener and signals readiness. Only the main
+// server registers Prometheus metrics; dedicated signing listeners reuse the
+// same serving lifetime without duplicating global metric registration.
 func startGrpcListen(cfg *Config, grpcServer *grpc.Server,
-	listeners []*ListenerWithSignal) error {
+	listeners []*ListenerWithSignal, registerPrometheus bool) error {
 
 	// Use a WaitGroup so we can be sure the instructions on how to input the
 	// password is the last thing to be printed to the console.
@@ -1017,7 +1019,7 @@ func startGrpcListen(cfg *Config, grpcServer *grpc.Server,
 	}
 
 	// If Prometheus monitoring is enabled, start the Prometheus exporter.
-	if cfg.Prometheus.Enabled() {
+	if registerPrometheus && cfg.Prometheus.Enabled() {
 		err := monitoring.ExportPrometheusMetrics(
 			grpcServer, cfg.Prometheus,
 		)
@@ -1291,7 +1293,7 @@ func startInboundWatchOnlyRPCServer(cfg *Config,
 	watchonlyrpc.RegisterWatchOnlyServer(grpcServer,
 		&watchonlyrpc.InboundServer{Conn: conn})
 
-	err = startGrpcListenNoPrometheus(grpcServer, listeners)
+	err = startGrpcListen(cfg, grpcServer, listeners, false)
 	if err != nil {
 		return nil, nil, nil, err
 	}
@@ -1299,33 +1301,4 @@ func startInboundWatchOnlyRPCServer(cfg *Config,
 	success = true
 
 	return grpcServer, listeners, interceptor, nil
-}
-
-// startGrpcListenNoPrometheus starts a gRPC server on the passed listeners
-// without exporting Prometheus metrics. This is used by the dedicated remote
-// signer RPC server because Prometheus registration must remain a single-shot
-// operation on the main RPC server.
-func startGrpcListenNoPrometheus(grpcServer *grpc.Server,
-	listeners []*ListenerWithSignal) error {
-
-	// We only use the wait group to wait until each listener has signaled
-	// readiness, not until the serving goroutines exit.
-	var wg sync.WaitGroup
-
-	for _, lis := range listeners {
-		wg.Add(1)
-		go func() {
-			rpcsLog.Infof("Remote signer RPC server listening "+
-				"on %s", lis.Addr())
-
-			close(lis.Ready)
-			wg.Done()
-
-			_ = grpcServer.Serve(lis)
-		}()
-	}
-
-	wg.Wait()
-
-	return nil
 }

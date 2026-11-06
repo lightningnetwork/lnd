@@ -185,7 +185,7 @@ func (r *OutboundConnection) Ping(ctx context.Context,
 	newConn, err := r.connectRPC(ctx, timeout)
 	if err != nil {
 		return fmt.Errorf("error connecting to the remote "+
-			"signing node through RPC: %v", err)
+			"signing node through RPC: %w", err)
 	}
 
 	defer func() {

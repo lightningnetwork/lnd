@@ -569,3 +569,156 @@ func TestCreateEdgeHigher(t *testing.T) {
 	require.Equal(t, expectedInfo, info)
 	require.Equal(t, expectedEdge, edge)
 }
+
+// TestUpdatePolicyKeepFields checks that the Keep* flags of a policy update
+// leave the matching fields of the existing edge unchanged, both on the edge
+// sent to the gossiper and on the policy sent to the links.
+func TestUpdatePolicyKeepFields(t *testing.T) {
+	t.Parallel()
+
+	const (
+		curBaseFee  = lnwire.MilliSatoshi(500)
+		curFeeRate  = lnwire.MilliSatoshi(700)
+		curTimeLock = uint16(40)
+	)
+
+	chanPoint := wire.OutPoint{Hash: chainhash.Hash{1}, Index: 2}
+	info, err := models.NewV1Channel(
+		0, chainhash.Hash{}, route.Vertex{}, route.Vertex{},
+		&models.ChannelV1Fields{},
+		models.WithCapacity(btcutil.Amount(1000)),
+		models.WithChannelPoint(chanPoint),
+	)
+	require.NoError(t, err)
+
+	tests := []struct {
+		name         string
+		policy       routing.ChannelPolicy
+		wantBaseFee  lnwire.MilliSatoshi
+		wantFeeRate  lnwire.MilliSatoshi
+		wantTimeLock uint16
+	}{
+		{
+			name: "keep all",
+			policy: routing.ChannelPolicy{
+				KeepBaseFee:       true,
+				KeepFeeRate:       true,
+				KeepTimeLockDelta: true,
+			},
+			wantBaseFee:  curBaseFee,
+			wantFeeRate:  curFeeRate,
+			wantTimeLock: curTimeLock,
+		},
+		{
+			name: "set fee rate to zero only",
+			policy: routing.ChannelPolicy{
+				KeepBaseFee:       true,
+				KeepTimeLockDelta: true,
+			},
+			wantBaseFee:  curBaseFee,
+			wantFeeRate:  0,
+			wantTimeLock: curTimeLock,
+		},
+		{
+			name: "set time lock delta only",
+			policy: routing.ChannelPolicy{
+				TimeLockDelta: 80,
+				KeepBaseFee:   true,
+				KeepFeeRate:   true,
+			},
+			wantBaseFee:  curBaseFee,
+			wantFeeRate:  curFeeRate,
+			wantTimeLock: 80,
+		},
+		{
+			name:         "no keep flags applies all fields",
+			policy:       routing.ChannelPolicy{TimeLockDelta: 80},
+			wantBaseFee:  0,
+			wantFeeRate:  0,
+			wantTimeLock: 80,
+		},
+	}
+
+	bounds := chanstate.ChannelStateBounds{
+		MaxPendingAmount: 999000,
+		MinHTLC:          1,
+	}
+	openChan := &chanstate.OpenChannel{
+		LocalChanCfg: chanstate.ChannelConfig{
+			ChannelStateBounds: bounds,
+		},
+		RemoteChanCfg: chanstate.ChannelConfig{
+			ChannelStateBounds: bounds,
+		},
+	}
+	fetchChannel := func(wire.OutPoint) (*chanstate.OpenChannel, error) {
+		return openChan, nil
+	}
+
+	// newEdge returns the current policy of the channel.
+	const maxHtlcFlag = lnwire.ChanUpdateRequiredMaxHtlc
+	newEdge := func() *models.ChannelEdgePolicy {
+		return &models.ChannelEdgePolicy{
+			Version:                   lnwire.GossipVersion1,
+			FeeBaseMSat:               curBaseFee,
+			FeeProportionalMillionths: curFeeRate,
+			TimeLockDelta:             curTimeLock,
+			MinHTLC:                   1,
+			MaxHTLC:                   5000,
+			MessageFlags:              maxHtlcFlag,
+		}
+	}
+
+	type fwdPolicies = map[wire.OutPoint]models.ForwardingPolicy
+	type edgeCallback = func(*models.ChannelEdgeInfo,
+		*models.ChannelEdgePolicy) error
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+
+			var (
+				gotEdges    []discovery.EdgeWithInfo
+				gotPolicies fwdPolicies
+			)
+
+			manager := Manager{
+				UpdateForwardingPolicies: func(p fwdPolicies) {
+					gotPolicies = p
+				},
+				PropagateChanPolicyUpdate: func(
+					e []discovery.EdgeWithInfo) error {
+
+					gotEdges = e
+					return nil
+				},
+				ForAllOutgoingChannels: func(_ context.Context,
+					cb edgeCallback, _ func()) error {
+
+					return cb(info, newEdge())
+				},
+				FetchChannel: fetchChannel,
+			}
+
+			failed, err := manager.UpdatePolicy(
+				t.Context(), tc.policy, false, chanPoint,
+			)
+			require.NoError(t, err)
+			require.Empty(t, failed)
+
+			require.Len(t, gotEdges, 1)
+			edge := gotEdges[0].Edge
+			require.Equal(t, tc.wantBaseFee, edge.FeeBaseMSat)
+			require.Equal(t, tc.wantFeeRate,
+				edge.FeeProportionalMillionths)
+			require.Equal(t, tc.wantTimeLock, edge.TimeLockDelta)
+
+			fwd := gotPolicies[chanPoint]
+			require.Equal(t, tc.wantBaseFee, fwd.BaseFee)
+			require.Equal(t, tc.wantFeeRate, fwd.FeeRate)
+			require.EqualValues(
+				t, tc.wantTimeLock, fwd.TimeLockDelta,
+			)
+		})
+	}
+}

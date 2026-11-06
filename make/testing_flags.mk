@@ -1,5 +1,5 @@
 DEV_TAGS = dev
-RPC_TAGS = autopilotrpc chainrpc invoicesrpc neutrinorpc peersrpc signrpc walletrpc watchtowerrpc
+RPC_TAGS = autopilotrpc chainrpc invoicesrpc neutrinorpc peersrpc signrpc switchrpc walletrpc watchtowerrpc
 LOG_TAGS =
 TEST_FLAGS =
 ITEST_FLAGS =
@@ -166,4 +166,4 @@ endif
 ITEST_TAGS := $(DEV_TAGS) $(RPC_TAGS) integration $(backend)
 
 # Construct the coverage test command with the added build flags.
-UNIT_COVER := $(GOTEST) $(COVER_FLAGS) -tags="$(DEV_TAGS) $(LOG_TAGS)" $(TEST_FLAGS) $(COVER_PKG)
+UNIT_COVER := $(GOTEST) $(COVER_FLAGS) -tags="$(DEV_TAGS) $(RPC_TAGS) $(LOG_TAGS)" $(TEST_FLAGS) $(COVER_PKG)

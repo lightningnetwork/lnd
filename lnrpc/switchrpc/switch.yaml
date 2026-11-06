@@ -1,0 +1,20 @@
+type: google.api.Service
+config_version: 3
+
+http:
+  rules:
+    - selector: switchrpc.Switch.SendOnion
+      post: "/v2/switch/onion"
+      body: "*"
+    - selector: switchrpc.Switch.TrackOnion
+      post: "/v2/switch/track"
+      body: "*"
+    - selector: switchrpc.Switch.BuildOnion
+      post: "/v2/switch/build"
+      body: "*"
+    - selector: switchrpc.Switch.DeleteAttempts
+      post: "/v2/switch/deleteattempts"
+      body: "*"
+    - selector: switchrpc.Switch.DisableRemoteRouter
+      post: "/v2/switch/disableremoterouter"
+      body: "*"

@@ -185,6 +185,34 @@ type MissionControlQuerier interface {
 		amt lnwire.MilliSatoshi, capacity btcutil.Amount) float64
 }
 
+// ReconcileFunc defines the callback invoked for each in-flight HTLC attempt
+// during startup before result collection begins.
+//
+// When the ChannelRouter runs in a separate process from the Switch, a crash
+// can occur after the router persists an attempt but before the dispatch call
+// is confirmed by the switch. On restart, the router cannot tell whether the
+// HTLC is actually in-flight. This callback resolves that ambiguity by letting
+// the caller re-dispatch the attempt idempotently: the switch either accepts
+// the HTLC (newly dispatched) or returns a duplicate error (already in-flight).
+// Either outcome confirms the attempt is live and result collection can
+// proceed safely.
+//
+// Implementations should handle transient failures internally (e.g. retry with
+// backoff) and only return an error when reconciliation cannot be completed. A
+// returned error causes the lifecycle to skip result collection for that
+// attempt; it will be retried on the next restart.
+type ReconcileFunc func(a paymentsdb.HTLCAttempt) error
+
+// noOpReconcile is the default ReconcileFunc used in standard lnd where the
+// ChannelRouter and Switch run in the same process. Because they share a crash
+// domain — if lnd crashes, both restart together — the dispatch hand-off
+// (RegisterAttempt to CommitCircuits) is synchronous and in-process. On
+// restart, result collection from the Switch unambiguously reveals whether
+// each attempt was dispatched, so no reconciliation is needed.
+func noOpReconcile(_ paymentsdb.HTLCAttempt) error {
+	return nil
+}
+
 // FeeSchema is the set fee configuration for a Lightning Node on the network.
 // Using the coefficients described within the schema, the required fee to
 // forward outgoing payments can be derived.
@@ -299,6 +327,22 @@ type Config struct {
 	// KeepFailedPaymentAttempts indicates whether to keep failed payment
 	// attempts in the database.
 	KeepFailedPaymentAttempts bool
+
+	// ReconcileAttempt is the strategy executed for each in-flight
+	// HTLC attempt during startup before result collection begins.
+	// Callers running the ChannelRouter in a separate process from
+	// the Switch should provide an implementation that idempotently
+	// confirms dispatch status for each attempt (e.g. via SendOnion).
+	// See ReconcileFunc for the full contract.
+	//
+	// Defaults to noOpReconcile when not set, preserving standard
+	// lnd behavior where the router and switch share a crash domain.
+	ReconcileAttempt ReconcileFunc
+
+	// ExternalPaymentLifecycle indicates that the payment lifecycle is
+	// managed by an external entity, and the dispatcher's payment store
+	// should not be cleaned on startup.
+	ExternalPaymentLifecycle bool
 }
 
 // EdgeLocator is a struct used to identify a specific edge.
@@ -342,6 +386,13 @@ type ChannelRouter struct {
 // channel graph is a subset of the UTXO set) set, then the router will proceed
 // to fully sync to the latest state of the UTXO set.
 func New(cfg Config) (*ChannelRouter, error) {
+	// Default to a no-op reconciliation callback, preserving
+	// standard lnd behavior where the router and switch share a
+	// crash domain.
+	if cfg.ReconcileAttempt == nil {
+		cfg.ReconcileAttempt = noOpReconcile
+	}
+
 	return &ChannelRouter{
 		cfg:  &cfg,
 		quit: make(chan struct{}),
@@ -426,6 +477,11 @@ type RouteRequest struct {
 	// parameters used to reach a target node blinded paths. This field is
 	// mutually exclusive with the Target field.
 	BlindedPathSet *BlindedPaymentPathSet
+
+	// Origin is an optional RouteOrigin that determines where the
+	// route can start. When set, it overrides Source for path-finding
+	// termination. When nil, a singleOrigin wrapping Source is used.
+	Origin RouteOrigin
 }
 
 // RouteHints is an alias type for a set of route hints, with the source node
@@ -549,15 +605,20 @@ func (r *ChannelRouter) FindRoute(req *RouteRequest) (*route.Route, float64,
 		return nil, 0, errors.New("time preference out of range")
 	}
 
-	path, probability, err := findPath(
+	origin := RouteOrigin(&singleOrigin{req.Source})
+	if req.Origin != nil {
+		origin = req.Origin
+	}
+
+	source, path, probability, err := findPath(
 		&graphParams{
 			additionalEdges: req.RouteHints,
 			bandwidthHints:  bandwidthHints,
 			graph:           r.cfg.RoutingGraph,
 		},
 		req.Restrictions, &r.cfg.PathFindingConfig,
-		r.cfg.SelfNode, req.Source, req.Target, req.Amount,
-		req.TimePreference, finalHtlcExpiry,
+		r.cfg.SelfNode, origin, req.Target,
+		req.Amount, req.TimePreference, finalHtlcExpiry,
 	)
 	if err != nil {
 		return nil, 0, err
@@ -565,7 +626,7 @@ func (r *ChannelRouter) FindRoute(req *RouteRequest) (*route.Route, float64,
 
 	// Create the route with absolute time lock values.
 	route, err := newRoute(
-		req.Source, path, uint32(currentHeight),
+		source, path, uint32(currentHeight),
 		finalHopParams{
 			amt:       req.Amount,
 			totalAmt:  req.Amount,
@@ -729,9 +790,9 @@ func (r *ChannelRouter) FindBlindedPaths(destination route.Vertex,
 	return bestRoutes, nil
 }
 
-// generateNewSessionKey generates a new ephemeral private key to be used for a
+// GenerateNewSessionKey generates a new ephemeral private key to be used for a
 // payment attempt.
-func generateNewSessionKey() (*btcec.PrivateKey, error) {
+func GenerateNewSessionKey() (*btcec.PrivateKey, error) {
 	// Generate a new random session key to ensure that we don't trigger
 	// any replay.
 	//
@@ -1338,15 +1399,18 @@ func (e ErrNoChannel) Error() string {
 		"node index %v", e.position)
 }
 
-// BuildRoute returns a fully specified route based on a list of pubkeys. If
-// amount is nil, the minimum routable amount is used. To force a specific
-// outgoing channel, use the outgoingChan parameter.
-func (r *ChannelRouter) BuildRoute(amt fn.Option[lnwire.MilliSatoshi],
-	hops []route.Vertex, outgoingChan *uint64, finalCltvDelta int32,
+// BuildRoute builds a fully specified route based on a list of pubkeys from
+// the perspective of the provided source node. If amount is nil, the minimum
+// routable amount is used. To force a specific outgoing channel, use the
+// outgoingChan parameter.
+func (r *ChannelRouter) BuildRoute(sourceNode route.Vertex,
+	amt fn.Option[lnwire.MilliSatoshi], hops []route.Vertex,
+	outgoingChan *uint64, finalCltvDelta int32,
 	payAddr fn.Option[[32]byte], firstHopBlob fn.Option[[]byte]) (
 	*route.Route, error) {
 
-	log.Tracef("BuildRoute called: hopsCount=%v, amt=%v", len(hops), amt)
+	log.Tracef("BuildRoute called: sourceNode=%v, hopsCount=%v, amt=%v",
+		sourceNode, len(hops), amt)
 
 	var outgoingChans map[uint64]struct{}
 	if outgoingChan != nil {
@@ -1365,12 +1429,10 @@ func (r *ChannelRouter) BuildRoute(amt fn.Option[lnwire.MilliSatoshi],
 		return nil, err
 	}
 
-	sourceNode := r.cfg.SelfNode
-
 	// We check that each node in the route has a connection to others that
 	// can forward in principle.
 	unifiers, err := getEdgeUnifiers(
-		r.cfg.SelfNode, hops, outgoingChans, r.cfg.RoutingGraph,
+		sourceNode, hops, outgoingChans, r.cfg.RoutingGraph,
 	)
 	if err != nil {
 		return nil, err
@@ -1464,9 +1526,19 @@ func (r *ChannelRouter) resumePayments() error {
 		}
 	}
 
-	log.Debugf("Cleaning network result store.")
-	if err := r.cfg.Payer.CleanStore(toKeep); err != nil {
-		return err
+	// When the payment life-cycle is managed by an external entity, we
+	// must not clean the attempt store on startup. The external controller
+	// relies on HTLC attempt information persisted by the dispatcher to
+	// resume its payment lifecycle and will need to coordinate all cleanup
+	// operations itself.
+	if !r.cfg.ExternalPaymentLifecycle {
+		log.Debugf("Cleaning network result store.")
+		if err := r.cfg.Payer.CleanStore(toKeep); err != nil {
+			return err
+		}
+	} else {
+		log.Infof("Dispatcher attempt store cleanup disabled. " +
+			"Attempt information must be cleaned remotely.")
 	}
 
 	// launchPayment is a helper closure that handles resuming the payment.
@@ -1662,7 +1734,8 @@ func getEdgeUnifiers(source route.Vertex, hops []route.Vertex,
 		// is not the last hop.
 		isExitHop := i == len(hops)-1
 		u := newNodeEdgeUnifier(
-			source, toNode, !isExitHop, outgoingChans,
+			source, toNode, &singleOrigin{source: source},
+			!isExitHop, outgoingChans,
 		)
 
 		err := u.addGraphPolicies(graph)

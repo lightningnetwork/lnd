@@ -185,7 +185,7 @@ func New(cfg Config, blockCache *blockcache.BlockCache) (*BtcWallet, error) {
 	}
 
 	finalWallet.MusigSessionManager = input.NewMusigSessionManager(
-		finalWallet.fetchPrivKey,
+		finalWallet.fetchPrivKey, finalWallet.bindMuSig2Nonce,
 	)
 
 	return finalWallet, nil

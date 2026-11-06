@@ -134,7 +134,9 @@ func NewSingleSigner(privkey *btcec.PrivateKey) *SingleSigner {
 	keyFetcher := func(*keychain.KeyDescriptor) (*btcec.PrivateKey, error) {
 		return signer.Privkey, nil
 	}
-	signer.MusigSessionManager = input.NewMusigSessionManager(keyFetcher)
+	signer.MusigSessionManager = input.NewMusigSessionManager(
+		keyFetcher, nil,
+	)
 
 	return signer
 }

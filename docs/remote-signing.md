@@ -64,6 +64,11 @@ using an "outbound" remote signer is one where the watch-only node accepts an
 internals refer to it as an inbound connection. Where it matters, this document
 says which node dials rather than relying on the labels.
 
+The signer that dials out uses four workers and accepts up to 32 pending
+signing requests. Additional requests receive a busy error. Operations for the
+same MuSig2 session run in order; independent sessions can run concurrently.
+Ping does not wait for a signing worker or a place in the pending queue.
+
 ## Security model
 
 Remote signing splits key material away from the node that is exposed to the
@@ -78,6 +83,12 @@ distinction decides what the setup actually buys you.
 > your funds to an address of their choosing. The signer will produce them. In
 > its current form this represents blind signing rather than a spending
 > policy or a hardware-wallet style confirmation step.
+
+Preserve the signer's wallet database and its MuSig2 nonce history. Supplied
+nonces are bound to their signing transcripts before signing: exact commitment
+reconstruction remains possible, while changed transcripts are rejected. This
+guard cannot cover uses before installation or history lost through deletion,
+rollback or seed-only restoration. It does not enforce transaction policy.
 
 ### What the signer protects against
 
@@ -142,10 +153,11 @@ the funds still leave.
     theft-capable. YOU MUST rotate it, and stop the signer until the rotation is
     done.
   * **The watch-only node's macaroon**, used when the signer dials the
-    watch-only node. As the registration challenge is not verified yet (see
-    below), whoever holds it can connect to the watch-only node as if it were
-    the signer. The watch-only node accepts only one signer connection at a
-    time, so if the holder connects while the real signer is not connected, the
+    watch-only node. The registration proof authenticates the watch-only TLS
+    connection to the signer, not the signer wallet to the watch-only node.
+    Whoever holds this macaroon can still connect as if it were the signer.
+    The watch-only node accepts only one signer connection at a time, so if
+    the holder connects while the real signer is not connected, the
     real signer is refused and the holder receives every signing request the
     watch-only node sends. It cannot produce valid signatures, so the node can
     no longer sign, and it learns everything the node asks to have signed.
@@ -267,6 +279,16 @@ through the RPC interface as is described in the
 [section below](#Example-initialization-script).
 
 ### Outbound remote signer example
+
+Upgrade both experimental stream endpoints together. Registration requires a
+connection-bound TLS proof, with TLS 1.3 or TLS 1.2 Extended Master Secret;
+missing or incompatible proofs close registration. Classic RPC signing keeps
+its existing protocol.
+
+The dedicated signing listener applies TLS and macaroon authorization, but
+bypasses RPC middleware, including mandatory middleware. Main-server middleware
+registration can itself require the signer during startup. Enforce additional
+signing policy outside that middleware.
 
 The setup of an outbound remote signer, can be done in 3 steps:
 
@@ -405,8 +427,8 @@ node will shut down:
 
 ```text
 # Set the interval for how often the watch-only node will check that the signer
-# node is still connected.
-healthcheck.remotesigner.interval=5s
+# node is still connected; use the documented one-minute minimum.
+healthcheck.remotesigner.interval=1m
 ```
 
 If the signer disconnects after startup, it may take some time to reconnect.
@@ -427,6 +449,10 @@ watch-only node shuts down. Note that other regular requests sent concurrently
 to the remote signer may still time out and return errors while waiting for the
 signer to reconnect. Therefore, setting this value too high is experimental and
 may have unexpected side effects.
+
+During wallet recovery, `StopDaemon` refuses to interrupt a rescan even while
+startup waits for the signer. After unlock, it also refuses shutdown while
+recovery state is unavailable; retry once that state is available.
 
 After starting the watch-only node, you can create a new watch-only wallet by
 following the example below:

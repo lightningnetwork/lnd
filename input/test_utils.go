@@ -66,7 +66,7 @@ func NewMockSigner(privKeys []*btcec.PrivateKey,
 	keyFetcher := func(*keychain.KeyDescriptor) (*btcec.PrivateKey, error) {
 		return signer.Privkeys[0], nil
 	}
-	signer.MusigSessionManager = NewMusigSessionManager(keyFetcher)
+	signer.MusigSessionManager = NewMusigSessionManager(keyFetcher, nil)
 
 	return signer
 }

@@ -2,10 +2,10 @@ package rpcwallet
 
 import (
 	"context"
+	"crypto/rand"
+	"crypto/sha256"
 	"errors"
 	"fmt"
-	"log/slog"
-	"os"
 	"sync"
 	"sync/atomic"
 	"time"
@@ -17,11 +17,8 @@ import (
 	"github.com/lightningnetwork/lnd/lnrpc/signrpc"
 	"github.com/lightningnetwork/lnd/lnrpc/walletrpc"
 	"github.com/lightningnetwork/lnd/lnrpc/watchonlyrpc"
-	"github.com/lightningnetwork/lnd/macaroons"
 	"google.golang.org/grpc"
-	"google.golang.org/grpc/credentials"
 	"google.golang.org/protobuf/reflect/protoreflect"
-	"gopkg.in/macaroon.v2"
 )
 
 type (
@@ -71,6 +68,19 @@ const (
 	// handshakeRequestID is the request ID reserved for the handshake with
 	// the watch-only node.
 	handshakeRequestID = uint64(1)
+
+	// signerWorkerCount conservatively bounds synchronous wallet calls
+	// across reconnects; Stop must drain entered calls that cannot cancel.
+	signerWorkerCount = 4
+
+	// maxPendingSignerRequests retains a small fixed burst backlog beyond
+	// the workers. This conservative bound is not benchmark-tuned; excess
+	// requests fail fast instead of growing memory without limit.
+	maxPendingSignerRequests = 32
+
+	// maxPendingSignerResponses bounds each stream's response backlog.
+	// A stalled writer must close the transport to release full routing.
+	maxPendingSignerResponses = 64
 )
 
 // Stream represents the stream to the watch-only node with a Close function
@@ -176,7 +186,7 @@ func (s *StreamFeeder) GetStream(ctx context.Context) (*Stream, error) {
 		connErr := conn.Close()
 		if connErr != nil {
 			log.ErrorS(ctx, "Unable to close watch-only node "+
-				"connection: %v", connErr)
+				"connection", connErr)
 		}
 
 		return nil, err
@@ -197,42 +207,7 @@ func (s *StreamFeeder) getClientConn(
 	ctx, cancel := s.cg.Create(ctx, fn.WithCustomTimeoutCG(s.cfg.Timeout))
 	defer cancel()
 
-	// Load the specified macaroon file for the watch-only node.
-	macBytes, err := os.ReadFile(s.cfg.MacaroonPath)
-	if err != nil {
-		return nil, fmt.Errorf("could not read macaroon file: %w", err)
-	}
-
-	mac := &macaroon.Macaroon{}
-
-	err = mac.UnmarshalBinary(macBytes)
-	if err != nil {
-		return nil, fmt.Errorf("could not unmarshal macaroon: %w", err)
-	}
-
-	macCred, err := macaroons.NewMacaroonCredential(mac)
-	if err != nil {
-		return nil, fmt.Errorf(
-			"could not create macaroon credential: %w", err)
-	}
-
-	// Load the specified TLS cert for the watch-only node.
-	tlsCreds, err := credentials.NewClientTLSFromFile(s.cfg.TLSCertPath, "")
-	if err != nil {
-		return nil, fmt.Errorf("could not load TLS cert: %w", err)
-	}
-
-	opts := []grpc.DialOption{
-		grpc.WithBlock(),
-		grpc.WithTransportCredentials(tlsCreds),
-		grpc.WithPerRPCCredentials(macCred),
-	}
-
-	log.InfoS(ctx, "Attempting to connect to the watch-only node",
-		slog.String("rpc_host", s.cfg.RPCHost))
-
-	// Connect to the watch-only node using the new context.
-	return grpc.DialContext(ctx, s.cfg.RPCHost, opts...)
+	return dialRemoteSignerRPC(ctx, s.cfg, s.cfg.Timeout)
 }
 
 // A compile time assertion to ensure StreamFeeder meets the
@@ -270,7 +245,8 @@ var _ RemoteSignerClient = (*NoOpClient)(nil)
 // sign requests from the watch-only node, which are sent over a stream between
 // the node and a watch-only node.
 type OutboundClient struct {
-	stopped atomic.Bool
+	stopped    atomic.Bool
+	dispatcher *signerDispatcher
 
 	log btclog.Logger
 
@@ -286,8 +262,8 @@ type OutboundClient struct {
 	// watch-only node when requested to do so by the remote signer client.
 	streamFeeder SignCoordinatorStreamFeeder
 
-	// requestTimeout is the timeout used when sending responses to the
-	// watch-only node.
+	// requestTimeout bounds queued/backend work and each response write.
+	// Synchronous backends must return before Stop can finish draining.
 	requestTimeout time.Duration
 
 	// maxRetryTimeout is the max value for the retry timeout, defining
@@ -321,6 +297,11 @@ func NewOutboundClient(walletServer walletrpc.WalletKitServer,
 	}
 
 	return &OutboundClient{
+		dispatcher: &signerDispatcher{
+			incoming:  make(chan signerJob),
+			work:      make(chan signerJob),
+			completed: make(chan string),
+		},
 		log:             log.WithPrefix("Remote signer client: "),
 		walletServer:    walletServer,
 		signerServer:    signerServer,
@@ -342,6 +323,15 @@ func (r *OutboundClient) Start(ctx context.Context) error {
 	// That way we know that we only need to select on the context guard's
 	// Done channel if the remote signer client is shutting down.
 	ctx, _ = r.cg.Create(ctx)
+
+	// One pool spans reconnects, bounding entered backend calls even when
+	// old synchronous handlers cannot honor cancellation yet.
+	r.dispatcher.start.Do(func() {
+		r.gManager.Go(ctx, r.dispatcher.run)
+		for range signerWorkerCount {
+			r.gManager.Go(ctx, r.dispatcher.worker)
+		}
+	})
 
 	success := r.gManager.Go(ctx, r.runForever)
 	if !success {
@@ -372,7 +362,7 @@ func (r *OutboundClient) runForever(ctx context.Context) {
 
 		connected, err := r.runOnce(ctx)
 		if err != nil {
-			r.log.ErrorS(ctx, "runOnce error", err)
+			r.log.WarnS(ctx, "Remote signer connection ended", err)
 		}
 
 		// Reset the retry timeout after a successful connection.
@@ -459,6 +449,12 @@ func (r *OutboundClient) runOnce(ctx context.Context) (bool, error) {
 		}
 	}()
 
+	// Transport closure must cancel blocked response/admission routing even
+	// when the main loop cannot yet consume its IO failure. The guard
+	// also cancels this stream's readers and writers on client Stop.
+	ctx, cancelStream := r.cg.Create(stream.Context())
+	defer cancelStream()
+
 	// Once the stream has been created, we'll need to perform the handshake
 	// process with the watch-only node, before it will start sending us
 	// requests.
@@ -487,21 +483,19 @@ func (r *OutboundClient) handshake(ctx context.Context, stream *Stream) error {
 		errChan = make(chan error, 1)
 	)
 
-	// registrationMsg is the message that we send to the watch-only node to
-	// initiate the handshake process.
-	// TODO(viktor): The current authentication model is TLS + macaroon.
-	// This message could later be extended with version information and a
-	// randomized RegistrationChallenge as part of a future mutual-auth
-	// extension, but it does not currently provide signer identity
-	// verification on its own.
+	// A fresh challenge binds this registration to the actual TLS stream,
+	// retaining TLS/macaroons as the endpoint/caller authentication.
+	challenge := make([]byte, sha256.Size)
+	if _, err := rand.Read(challenge); err != nil {
+		return fmt.Errorf("generate registration challenge: %w", err)
+	}
+	version := watchonlyrpc.RegistrationVersion
 	var registrationMsg = &watchonlyrpc.SignCoordinatorResponse{
 		RefRequestId: handshakeRequestID,
 		SignResponseType: &RSRegistration{
 			SignerRegistration: &watchonlyrpc.SignerRegistration{
-				RegistrationChallenge: []byte(
-					"registrationChallenge",
-				),
-				RegistrationInfo: "outboundSigner",
+				RegistrationChallenge: challenge,
+				RegistrationInfo:      version,
 			},
 		},
 	}
@@ -529,6 +523,7 @@ func (r *OutboundClient) handshake(ctx context.Context, stream *Stream) error {
 	select {
 	case <-ctxt.Done():
 		return ctxt.Err()
+
 	case err := <-errChan:
 		if err != nil {
 			return fmt.Errorf("handshake error: %w", err)
@@ -554,9 +549,14 @@ func (r *OutboundClient) handshake(ctx context.Context, stream *Stream) error {
 		GetRegistrationResponseType().(type) {
 	// The registration was successful.
 	case *RSRegistrationComplete:
-		// TODO(viktor): This should verify that the signature in the
-		// complete message is valid.
-		return nil
+		// Accept requests only after the peer confirms the fresh
+		// challenge on this TLS connection using the supported protocol
+		// version.
+		return watchonlyrpc.VerifyRegistrationProof(
+			stream.Context(), challenge,
+			rType.RegistrationComplete.GetRegistrationInfo(),
+			rType.RegistrationComplete.GetSignature(),
+		)
 
 	// An error occurred during the registration process.
 	case *watchonlyrpc.RegistrationResponse_RegistrationError:
@@ -569,80 +569,294 @@ func (r *OutboundClient) handshake(ctx context.Context, stream *Stream) error {
 	}
 }
 
-// processSignRequestsForever processes and responds to the sign requests tha
-// are sent over the stream. The function will continuously run until the
-// remote signer client is either stopped or the stream errors.
+// processSignRequestsForever keeps stream IO independent from backend calls.
+// Ping runs on the control path; ordered jobs share the client-wide dispatcher.
 func (r *OutboundClient) processSignRequestsForever(ctx context.Context,
 	stream *Stream) error {
 
+	requests := make(chan *watchonlyrpc.SignCoordinatorRequest)
+	responses := make(chan *RSResponse, maxPendingSignerResponses)
+	failures := make(chan error, 2)
+
+	// Exactly one reader and one response writer belong to this stream.
+	// runOnce closes the real connection on return, releasing blocked IO.
+	if !r.gManager.Go(ctx, func(_ context.Context) {
+		for {
+			request, err := stream.Recv()
+			if err != nil {
+				select {
+				case failures <- err:
+
+				case <-ctx.Done():
+				}
+
+				return
+			}
+			select {
+			case requests <- request:
+
+			case <-ctx.Done():
+				return
+			}
+		}
+	}) {
+
+		return ErrShuttingDown
+	}
+
+	if !r.gManager.Go(ctx, func(_ context.Context) {
+		for {
+			select {
+			case <-ctx.Done():
+				return
+
+			case response := <-responses:
+				err := r.sendResponse(ctx, response, stream)
+				if err != nil {
+					select {
+					case failures <- err:
+
+					case <-ctx.Done():
+					}
+
+					return
+				}
+			}
+		}
+	}) {
+
+		return ErrShuttingDown
+	}
 	for {
-		err := r.processSingleSignReq(ctx, stream)
-		if err != nil {
+		select {
+		case <-ctx.Done():
+			return ctx.Err()
+
+		case err := <-failures:
 			return err
+
+		case request := <-requests:
+			// Control messages do not wait for a backend worker or
+			// a slot in the signing queue. Wire backpressure
+			// remains stream-scoped.
+			_, ping := request.GetSignRequestType().(*watchonlyrpc.
+				SignCoordinatorRequest_Ping)
+			if ping {
+				select {
+				case responses <- r.formResponse(ctx, request):
+
+				case <-ctx.Done():
+					return ctx.Err()
+				}
+
+				continue
+			}
+			jobCtx, cancel := context.WithTimeout(
+				ctx, r.requestTimeout,
+			)
+			job := signerJob{
+				session:  signerSession(request),
+				done:     jobCtx.Done(),
+				accepted: make(chan bool, 1),
+				run: func() {
+					defer cancel()
+					response := r.formResponse(
+						jobCtx, request,
+					)
+
+					// A late backend result belongs only to
+					// its original stream. Never route it
+					// through a replacement sink.
+					select {
+					case <-ctx.Done():
+
+					case responses <- response:
+					}
+				},
+			}
+			select {
+			case r.dispatcher.incoming <- job:
+
+			case <-ctx.Done():
+				cancel()
+
+				return ctx.Err()
+			}
+			select {
+			case accepted := <-job.accepted:
+				if accepted {
+					continue
+				}
+
+			case <-ctx.Done():
+				cancel()
+
+				return ctx.Err()
+			}
+			cancel()
+
+			// Saturation is a visible application error, not an
+			// unbounded goroutine or a receiver stalled behind the
+			// slow backend.
+			failure := &watchonlyrpc.SignerError{
+				Error: "remote signer busy",
+			}
+			variant := &watchonlyrpc.
+				SignCoordinatorResponse_SignerError{
+				SignerError: failure,
+			}
+			response := &RSResponse{
+				RefRequestId:     request.GetRequestId(),
+				SignResponseType: variant,
+			}
+			select {
+			case responses <- response:
+
+			case <-ctx.Done():
+				return ctx.Err()
+			}
+		}
+	}
+}
+
+// signerJob carries an ordered operation without retaining a context in shared
+// state. Cancellation and the response sink are bound in its execution closure.
+type signerJob struct {
+	session  string
+	done     <-chan struct{}
+	accepted chan bool
+	run      func()
+}
+
+// signerDispatcher owns eligibility and queue bounds; workers never block on a
+// per-session lock while independent sessions are waiting for execution.
+type signerDispatcher struct {
+	start     sync.Once
+	incoming  chan signerJob
+	work      chan signerJob
+	completed chan string
+}
+
+// run dispatches FIFO work per session up to maxPendingSignerRequests. It
+// alone accesses active and pending; reconnects reuse this same owner.
+func (d *signerDispatcher) run(ctx context.Context) {
+	active := make(map[string]bool)
+	var pending []signerJob
+
+	// Expired closures send deadline errors without using a backend
+	// worker. Reuse this pass before admission because expiry can race
+	// the select below.
+	prune := func() {
+		for i := 0; i < len(pending); {
+			select {
+			case <-pending[i].done:
+				job := pending[i]
+				pending = append(pending[:i], pending[i+1:]...)
+				job.run()
+
+			default:
+				i++
+			}
+		}
+	}
+	for {
+		prune()
+
+		// Jobs share one timeout and arrive in deadline order. Wake on
+		// the oldest to expire work even while all workers are busy.
+		var expired <-chan struct{}
+		if len(pending) > 0 {
+			expired = pending[0].done
+		}
+
+		var work chan signerJob
+		var next signerJob
+		index := -1
+		for i, job := range pending {
+			if job.session == "" || !active[job.session] {
+				work, next, index = d.work, job, i
+				break
+			}
 		}
 
 		select {
 		case <-ctx.Done():
-			return ErrShuttingDown
-		default:
+			return
+
+		case <-expired:
+			continue
+
+		case job := <-d.incoming:
+			prune()
+			if len(pending) == maxPendingSignerRequests {
+				job.accepted <- false
+
+				continue
+			}
+			pending = append(pending, job)
+			job.accepted <- true
+
+		case session := <-d.completed:
+			delete(active, session)
+
+		case work <- next:
+			if next.session != "" {
+				active[next.session] = true
+			}
+			pending = append(pending[:index], pending[index+1:]...)
 		}
 	}
 }
 
-// processSingleSignReq waits for and processes a single request from the
-// watch-only node, and sends the corresponding response back.
-func (r *OutboundClient) processSingleSignReq(ctx context.Context,
-	stream *Stream) error {
+// worker drains entered synchronous calls during Stop, while cancelled queued
+// jobs return deadline errors before backend entry. Always run the closure:
+// expiry may race handoff from the owner, and live callers still need a reply.
+// Completion cannot block after the owner exits.
+func (d *signerDispatcher) worker(ctx context.Context) {
+	for {
+		select {
+		case <-ctx.Done():
+			return
 
-	// Wait for a request from the watch-only node.
-	req, err := r.waitForRequest(ctx, stream)
-	if err != nil {
-		return err
-	}
+		case job := <-d.work:
+			job.run()
+			select {
+			case d.completed <- job.session:
 
-	// Process the received request.
-	resp := r.formResponse(ctx, req)
-
-	// Send the response back to the watch-only node.
-	return r.sendResponse(ctx, resp, stream)
-}
-
-// waitForRequest waits for a request from the watch-only node.
-func (r *OutboundClient) waitForRequest(ctx context.Context, stream *Stream) (
-	*watchonlyrpc.SignCoordinatorRequest, error) {
-
-	var (
-		req     *watchonlyrpc.SignCoordinatorRequest
-		err     error
-		errChan = make(chan error, 1)
-	)
-
-	// We run the stream.Recv() in a goroutine to ensure we can stop if the
-	// remote signer client is shutting down (i.e. the quit channel is
-	// closed). Shutting down the remote signer client will cancel the ctx,
-	// which will cancel the stream context, which in turn will stop the
-	// goroutine.
-	ok := r.gManager.Go(ctx, func(_ context.Context) {
-		req, err = stream.Recv()
-		errChan <- err
-	})
-	if !ok {
-		return nil, fmt.Errorf("error receiving request")
-	}
-
-	// Wait for the response and then handle it.
-	select {
-	case <-ctx.Done():
-		return nil, ctx.Err()
-
-	case err := <-errChan:
-		if err != nil {
-			return nil, fmt.Errorf("error receiving request: %w",
-				err)
+			case <-ctx.Done():
+				return
+			}
 		}
 	}
+}
 
-	return req, nil
+// signerSession extracts only order-sensitive session IDs. Creation and
+// stateless RPCs may run independently, like the classic gRPC backend.
+func signerSession(request *watchonlyrpc.SignCoordinatorRequest) string {
+	switch request := request.GetSignRequestType().(type) {
+	case *watchonlyrpc.SignCoordinatorRequest_MuSig2RegisterNoncesRequest:
+		return string(
+			request.MuSig2RegisterNoncesRequest.GetSessionId(),
+		)
+
+	case *watchonlyrpc.SignCoordinatorRequest_MuSig2CombinedNoncesReq:
+		return string(request.MuSig2CombinedNoncesReq.GetSessionId())
+
+	case *watchonlyrpc.SignCoordinatorRequest_MuSig2GetCombinedNoncesReq:
+		return string(request.MuSig2GetCombinedNoncesReq.GetSessionId())
+
+	case *watchonlyrpc.SignCoordinatorRequest_MuSig2SignRequest:
+		return string(request.MuSig2SignRequest.GetSessionId())
+
+	case *watchonlyrpc.SignCoordinatorRequest_MuSig2CombineSigRequest:
+		return string(request.MuSig2CombineSigRequest.GetSessionId())
+
+	case *watchonlyrpc.SignCoordinatorRequest_MuSig2CleanupRequest:
+		return string(request.MuSig2CleanupRequest.GetSessionId())
+
+	default:
+		return ""
+	}
 }
 
 // formResponse processes the received request from the watch-only node, and
@@ -650,9 +864,18 @@ func (r *OutboundClient) waitForRequest(ctx context.Context, stream *Stream) (
 func (r *OutboundClient) formResponse(ctx context.Context,
 	req *watchonlyrpc.SignCoordinatorRequest) *RSResponse {
 
-	resp, err := r.process(ctx, req)
+	// Queue expiry must yield an error without entering a backend. Check
+	// again after synchronous work so a late signature is never released.
+	var resp *RSResponse
+	err := ctx.Err()
+	if err == nil {
+		resp, err = r.process(ctx, req)
+		if ctx.Err() != nil {
+			err = ctx.Err()
+		}
+	}
 	if err != nil {
-		r.log.ErrorS(ctx, "could not process request", err)
+		r.log.WarnS(ctx, "Could not process signing request", err)
 
 		// If we fail to process the request, we will send a SignerError
 		// back to the watch-only node, indicating the nature of the
@@ -869,40 +1092,26 @@ func (r *OutboundClient) process(ctx context.Context,
 	}
 }
 
-// sendResponse sends the passed response back to the watch-only node over the
-// stream.
+// sendResponse is called only by the stream's serialized writer. Closing the
+// real connection on timeout releases Send without a per-response goroutine.
 func (r *OutboundClient) sendResponse(ctx context.Context, resp *RSResponse,
 	stream *Stream) error {
 
-	// Timeout sending the response if it takes too long.
-	ctxt, cancel := r.cg.Create(
-		ctx, fn.WithCustomTimeoutCG(r.requestTimeout),
-	)
-	defer cancel()
-
-	var errChan = make(chan error, 1)
-
-	// We send the response in a goroutine to ensure we can return an error
-	// if the send times out or we shut down. This is done to ensure that
-	// this function won't block indefinitely.
-	ok := r.gManager.Go(ctxt, func(ctxt context.Context) {
-		errChan <- stream.Send(resp)
+	if err := ctx.Err(); err != nil {
+		return err
+	}
+	timer := time.AfterFunc(r.requestTimeout, func() {
+		_ = stream.Close()
 	})
-	if !ok {
-		return fmt.Errorf("error sending response")
+	defer timer.Stop()
+	if err := stream.Send(resp); err != nil {
+		// A full sink cannot consume the writer's failure. Closing
+		// the transport cancels its existing routing context.
+		_ = stream.Close()
+
+		return fmt.Errorf("error sending response: %w", err)
 	}
-
-	select {
-	case <-ctxt.Done():
-		return ctxt.Err()
-
-	case err := <-errChan:
-		if err != nil {
-			return fmt.Errorf("error sending response: %w", err)
-		}
-	}
-
-	r.log.TraceS(ctxt, "Sent response to watch-only node",
+	r.log.TraceS(ctx, "Sent response to watch-only node",
 		btclog.ClosureAttr("response", formatSignCoordinatorMsg(resp)))
 
 	return nil

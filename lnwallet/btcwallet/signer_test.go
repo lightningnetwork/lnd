@@ -5,6 +5,7 @@ import (
 	"encoding/hex"
 	"fmt"
 	"math"
+	"sync"
 	"testing"
 	"time"
 
@@ -12,6 +13,7 @@ import (
 	"github.com/btcsuite/btcd/btcec/v2"
 	"github.com/btcsuite/btcd/btcec/v2/ecdsa"
 	"github.com/btcsuite/btcd/btcec/v2/schnorr"
+	"github.com/btcsuite/btcd/btcec/v2/schnorr/musig2"
 	"github.com/btcsuite/btcd/btcutil/v2"
 	"github.com/btcsuite/btcd/btcutil/v2/hdkeychain"
 	"github.com/btcsuite/btcd/chaincfg/v2"
@@ -22,6 +24,8 @@ import (
 	"github.com/btcsuite/btcwallet/waddrmgr"
 	"github.com/lightningnetwork/lnd/blockcache"
 	"github.com/lightningnetwork/lnd/input"
+	"github.com/lightningnetwork/lnd/keychain"
+	"github.com/lightningnetwork/lnd/kvdb"
 	"github.com/lightningnetwork/lnd/lntest/unittest"
 	"github.com/lightningnetwork/lnd/lnwallet"
 	"github.com/stretchr/testify/require"
@@ -529,4 +533,199 @@ func TestMaybeTweakPrivKey(t *testing.T) {
 			tc.validate(t, result, pubKey)
 		})
 	}
+}
+
+// TestMuSig2TranscriptReplay rejects changed aggregate nonces, signer sets and
+// tweaks. The remote commitment test covers message changes and exact recovery.
+func TestMuSig2TranscriptReplay(t *testing.T) {
+	// Arrange a real wallet and fixed local nonce. Each session gets a copy
+	// because the crypto library deliberately erases consumed secret
+	// nonces.
+	w, _ := newTestWallet(t, &chaincfg.RegressionNetParams, seedBytes)
+	t.Cleanup(func() {
+		require.NoError(t, w.Stop())
+		require.NoError(t, w.db.Close())
+	})
+	loc := keychain.KeyLocator{
+		Family: keychain.KeyFamilyMultiSig,
+	}
+	localKey, err := w.deriveKeyByLocator(loc)
+	require.NoError(t, err)
+	peerKey, err := btcec.NewPrivateKey()
+	require.NoError(t, err)
+	otherKey, err := btcec.NewPrivateKey()
+	require.NoError(t, err)
+	localNonce, err := musig2.GenNonces(
+		musig2.WithPublicKey(localKey.PubKey()),
+	)
+	require.NoError(t, err)
+	peerNonce, err := musig2.GenNonces(
+		musig2.WithPublicKey(peerKey.PubKey()),
+	)
+	require.NoError(t, err)
+	otherNonce, err := musig2.GenNonces(
+		musig2.WithPublicKey(peerKey.PubKey()),
+	)
+	require.NoError(t, err)
+	message := sha256.Sum256([]byte("commitment reconstruction"))
+	keys := []*btcec.PublicKey{localKey.PubKey(), peerKey.PubKey()}
+	fixed := *localNonce
+	original, err := w.MuSig2CreateSession(
+		input.MuSig2Version100RC2, loc, keys, &input.MuSig2Tweaks{},
+		[][musig2.PubNonceSize]byte{peerNonce.PubNonce}, &fixed,
+	)
+	require.NoError(t, err)
+	_, err = w.MuSig2Sign(original.SessionID, message, true)
+	require.NoError(t, err)
+	cases := []struct {
+		name   string
+		peer   *btcec.PublicKey
+		nonce  [musig2.PubNonceSize]byte
+		tweaks input.MuSig2Tweaks
+	}{
+		{
+			name:  "different aggregate nonce",
+			peer:  peerKey.PubKey(),
+			nonce: otherNonce.PubNonce,
+		},
+		{
+			name:  "different signer set",
+			peer:  otherKey.PubKey(),
+			nonce: peerNonce.PubNonce,
+		},
+		{
+			name:  "different tweak",
+			peer:  peerKey.PubKey(),
+			nonce: peerNonce.PubNonce,
+			tweaks: input.MuSig2Tweaks{
+				TaprootBIP0086Tweak: true,
+			},
+		},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			// Arrange another session from the same nonce material;
+			// this bypasses the existing live crypto session's
+			// one-use guard.
+			fixed := *localNonce
+			keys := []*btcec.PublicKey{localKey.PubKey(), tc.peer}
+			session, err := w.MuSig2CreateSession(
+				input.MuSig2Version100RC2, loc, keys,
+				&tc.tweaks,
+				[][musig2.PubNonceSize]byte{tc.nonce}, &fixed,
+			)
+			require.NoError(t, err)
+
+			// Act through the production wallet's embedded session
+			// manager.
+			sig, err := w.MuSig2Sign(
+				session.SessionID, message, true,
+			)
+
+			// Assert changed contexts fail before a partial
+			// signature can escape the wallet.
+			require.ErrorIs(t, err, errMuSig2NonceReuse)
+			require.Nil(t, sig)
+		})
+	}
+}
+
+// TestMuSig2ConcurrentNonceReplay checks that two different sessions cannot
+// race the durable nonce authority into signing different transcripts.
+func TestMuSig2ConcurrentNonceReplay(t *testing.T) {
+	// Arrange independent session IDs with the same nonce and different key
+	// tweaks, so only the database transaction can serialize their signing.
+	w, _ := newTestWallet(t, &chaincfg.RegressionNetParams, seedBytes)
+	t.Cleanup(func() {
+		require.NoError(t, w.Stop())
+		require.NoError(t, w.db.Close())
+	})
+	loc := keychain.KeyLocator{
+		Family: keychain.KeyFamilyMultiSig,
+	}
+	key, err := w.deriveKeyByLocator(loc)
+	require.NoError(t, err)
+	peer, err := btcec.NewPrivateKey()
+	require.NoError(t, err)
+	nonce, err := musig2.GenNonces(musig2.WithPublicKey(key.PubKey()))
+	require.NoError(t, err)
+	other, err := musig2.GenNonces(musig2.WithPublicKey(peer.PubKey()))
+	require.NoError(t, err)
+	keys := []*btcec.PublicKey{key.PubKey(), peer.PubKey()}
+	var sessions [2]*input.MuSig2SessionInfo
+	for i := range sessions {
+		fixed := *nonce
+		sessions[i], err = w.MuSig2CreateSession(
+			input.MuSig2Version100RC2, loc, keys,
+			&input.MuSig2Tweaks{
+				TaprootBIP0086Tweak: i == 1,
+			},
+			[][musig2.PubNonceSize]byte{other.PubNonce}, &fixed,
+		)
+		require.NoError(t, err)
+	}
+
+	// Act from separate callers; neither waits on the other's session
+	// mutex.
+	start := make(chan struct{})
+	results := make(chan error, len(sessions))
+	for _, session := range sessions {
+		go func() {
+			<-start
+			_, err := w.MuSig2Sign(
+				session.SessionID, [32]byte{}, true,
+			)
+			results <- err
+		}()
+	}
+	close(start)
+
+	// Assert exactly one transcript won and its competitor failed closed.
+	failures := 0
+	for range sessions {
+		if err := <-results; err != nil {
+			require.ErrorIs(t, err, errMuSig2NonceReuse)
+			failures++
+		}
+	}
+	require.Equal(t, 1, failures)
+}
+
+// TestMuSig2NonceStoreFailure prevents signing when nonce history cannot be
+// committed, even though all crypto session inputs have already been loaded.
+func TestMuSig2NonceStoreFailure(t *testing.T) {
+	// Arrange a complete real session before closing the wallet database.
+	w, _ := newTestWallet(t, &chaincfg.RegressionNetParams, seedBytes)
+	closeWallet := sync.OnceFunc(func() {
+		require.NoError(t, w.Stop())
+		require.NoError(t, w.db.Close())
+	})
+	t.Cleanup(closeWallet)
+	loc := keychain.KeyLocator{
+		Family: keychain.KeyFamilyMultiSig,
+	}
+	key, err := w.deriveKeyByLocator(loc)
+	require.NoError(t, err)
+	peer, err := btcec.NewPrivateKey()
+	require.NoError(t, err)
+	nonce, err := musig2.GenNonces(musig2.WithPublicKey(peer.PubKey()))
+	require.NoError(t, err)
+	session, err := w.MuSig2CreateSession(
+		input.MuSig2Version100RC2, loc,
+		[]*btcec.PublicKey{key.PubKey(), peer.PubKey()},
+		&input.MuSig2Tweaks{},
+		[][musig2.PubNonceSize]byte{nonce.PubNonce}, nil,
+	)
+	require.NoError(t, err)
+	closeWallet()
+
+	// Act through the public signing API with valid in-memory state but an
+	// unavailable durable authority, matching a storage failure before
+	// signing.
+	sig, err := w.MuSig2Sign(session.SessionID, [32]byte{}, true)
+
+	// Assert the closed database caused the failure and no partial
+	// signature escaped.
+	require.ErrorIs(t, err, kvdb.ErrDatabaseNotOpen)
+	require.Nil(t, sig)
 }

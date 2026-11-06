@@ -8,6 +8,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/btcsuite/btcd/chaincfg/v2"
 	"github.com/btcsuite/btcd/wire/v2"
 	"github.com/lightningnetwork/lnd/aliasmgr"
 	"github.com/lightningnetwork/lnd/chainreg"
@@ -499,4 +500,16 @@ func TestLivenessMonitorExitCodes(t *testing.T) {
 			}, 5*time.Second, 10*time.Millisecond)
 		})
 	}
+}
+
+// TestOfferChains checks that a mainnet offer has no offer_chains and that an
+// offer on another chain names that chain.
+func TestOfferChains(t *testing.T) {
+	t.Parallel()
+
+	mainnet := *chaincfg.MainNetParams.GenesisHash
+	require.Nil(t, offerChains(mainnet))
+
+	regtest := *chaincfg.RegressionNetParams.GenesisHash
+	require.Equal(t, [][32]byte{regtest}, offerChains(regtest))
 }

@@ -18,7 +18,10 @@ import (
 var (
 	// DefaultMaxInputsPerTx specifies the default maximum number of inputs
 	// allowed in a single sweep tx. If more need to be swept, multiple txes
-	// are created and published.
+	// are created and published. With the currently supported sweep input
+	// types, 100 original inputs remain below the standard transaction
+	// weight limit. Wallet inputs added later are bounded separately by
+	// their estimated weight.
 	DefaultMaxInputsPerTx = uint32(100)
 
 	// ErrLocktimeConflict is returned when inputs with different

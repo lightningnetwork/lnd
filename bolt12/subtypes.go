@@ -202,6 +202,126 @@ type BlindedPayInfo struct {
 	Features lnwire.RawFeatureVector
 }
 
+// Encode serializes one blinded_payinfo subtype without an enclosing TLV
+// header.
+func (b *BlindedPayInfo) Encode(w io.Writer) error {
+	if b == nil {
+		return fmt.Errorf("nil blinded_payinfo")
+	}
+	if b.HtlcMinimumMsat > b.HtlcMaximumMsat {
+		return ErrInvalidHtlcRange
+	}
+
+	var buf [8]byte
+	binary.BigEndian.PutUint32(buf[:4], b.FeeBaseMsat)
+	if _, err := w.Write(buf[:4]); err != nil {
+		return err
+	}
+
+	binary.BigEndian.PutUint32(buf[:4], b.FeeProportionalMillionths)
+	if _, err := w.Write(buf[:4]); err != nil {
+		return err
+	}
+
+	binary.BigEndian.PutUint16(buf[:2], b.CltvExpiryDelta)
+	if _, err := w.Write(buf[:2]); err != nil {
+		return err
+	}
+
+	binary.BigEndian.PutUint64(buf[:8], b.HtlcMinimumMsat)
+	if _, err := w.Write(buf[:8]); err != nil {
+		return err
+	}
+
+	binary.BigEndian.PutUint64(buf[:8], b.HtlcMaximumMsat)
+	if _, err := w.Write(buf[:8]); err != nil {
+		return err
+	}
+
+	featureLen := b.Features.SerializeSize()
+	if featureLen > math.MaxUint16 {
+		return fmt.Errorf("features %d exceed limit %d",
+			featureLen, math.MaxUint16)
+	}
+
+	binary.BigEndian.PutUint16(buf[:2], uint16(featureLen))
+	if _, err := w.Write(buf[:2]); err != nil {
+		return err
+	}
+
+	return b.Features.EncodeBase256(w)
+}
+
+// DecodeBlindedPayInfo decodes one blinded_payinfo subtype from a stream that
+// may contain trailing fields. maxBytes bounds all reads and allocations. The
+// returned byte count lets a caller advance through a sequence of subtypes.
+func DecodeBlindedPayInfo(r io.Reader, maxBytes uint64) (*BlindedPayInfo,
+	uint64, error) {
+
+	if maxBytes > tlv.MaxRecordSize {
+		return nil, 0, fmt.Errorf("blinded_payinfo bound %d exceeds %d",
+			maxBytes, tlv.MaxRecordSize)
+	}
+
+	lr := &io.LimitedReader{
+		R: r,
+		N: int64(maxBytes),
+	}
+	before := lr.N
+	var (
+		info BlindedPayInfo
+		buf  [8]byte
+	)
+
+	if _, err := io.ReadFull(lr, buf[:4]); err != nil {
+		return nil, 0, fmt.Errorf("read fee_base: %w", err)
+	}
+	info.FeeBaseMsat = binary.BigEndian.Uint32(buf[:4])
+
+	if _, err := io.ReadFull(lr, buf[:4]); err != nil {
+		return nil, 0, fmt.Errorf("read fee_prop: %w", err)
+	}
+	info.FeeProportionalMillionths = binary.BigEndian.Uint32(buf[:4])
+
+	if _, err := io.ReadFull(lr, buf[:2]); err != nil {
+		return nil, 0, fmt.Errorf("read cltv_delta: %w", err)
+	}
+	info.CltvExpiryDelta = binary.BigEndian.Uint16(buf[:2])
+
+	if _, err := io.ReadFull(lr, buf[:8]); err != nil {
+		return nil, 0, fmt.Errorf("read htlc_min: %w", err)
+	}
+	info.HtlcMinimumMsat = binary.BigEndian.Uint64(buf[:8])
+
+	if _, err := io.ReadFull(lr, buf[:8]); err != nil {
+		return nil, 0, fmt.Errorf("read htlc_max: %w", err)
+	}
+	info.HtlcMaximumMsat = binary.BigEndian.Uint64(buf[:8])
+	if info.HtlcMinimumMsat > info.HtlcMaximumMsat {
+		return nil, 0, ErrInvalidHtlcRange
+	}
+
+	if _, err := io.ReadFull(lr, buf[:2]); err != nil {
+		return nil, 0, fmt.Errorf("read flen: %w", err)
+	}
+	featureLen := binary.BigEndian.Uint16(buf[:2])
+	if int64(featureLen) > lr.N {
+		return nil, 0, fmt.Errorf("flen %d exceeds remaining %d",
+			featureLen, lr.N)
+	}
+
+	features := lnwire.NewRawFeatureVector()
+	if err := features.DecodeBase256(lr, int(featureLen)); err != nil {
+		return nil, 0, fmt.Errorf("read features: %w", err)
+	}
+	if features.SerializeSize() != int(featureLen) {
+		return nil, 0, ErrNonMinimalFeatures
+	}
+	info.Features = *features
+
+	return &info, uint64(before - lr.N), nil
+}
+
 // BlindedPayInfos holds a list of BlindedPayInfo entries for the
 // invoice_blindedpay field.
 type BlindedPayInfos struct {

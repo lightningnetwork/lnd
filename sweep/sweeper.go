@@ -1591,9 +1591,16 @@ func (s *UtxoSweeper) sweepPendingInputs(inputs InputsMap) {
 	// coin select lock to prevent the coins being selected for other
 	// transactions like funding of a channel.
 	sweepWithLock := func(set InputSet) error {
+		// Read the current relay fee rate. It is the threshold a wallet
+		// UTXO's value must clear to pay for its own input weight, so
+		// it must follow the backend's mempool policy rather than the
+		// value seen at startup. This is read before taking the coin
+		// select lock since the estimator may query the chain backend.
+		relayFeeRate := s.cfg.FeeEstimator.RelayFeePerKW()
+
 		return s.cfg.Wallet.WithCoinSelectLock(func() error {
 			// Try to add inputs from our wallet.
-			err := set.AddWalletInputs(s.cfg.Wallet)
+			err := set.AddWalletInputs(s.cfg.Wallet, relayFeeRate)
 			if err != nil {
 				return err
 			}

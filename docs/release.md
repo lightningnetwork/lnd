@@ -10,6 +10,17 @@ utilize a workaround needed until `go1.13.2`.
 
 ## Building a New Release
 
+When preparing a new project release, complete the
+[release-note process](release-notes/README.md#preparing-a-release), including
+the [attribution audit](release-notes/README.md#contributor-attribution)
+for human authors, coauthors, and reviewers, before tagging. These preparation
+steps do not apply when reproducing an existing release's binaries.
+
+After `.github/workflows/release.yaml` creates the GitHub release draft, replace
+its release-note and contributor TODOs with the consolidated notes and audited
+contributor list from the tagged commit. Preserve the draft's verification and
+build instructions.
+
 ### macOS
 
 The first requirement is to have [`docker`](https://www.docker.com/)

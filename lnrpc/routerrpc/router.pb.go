@@ -377,8 +377,9 @@ type SendPaymentRequest struct {
 	//is specified, the following fields are required: dest, amt and payment_hash.
 	PaymentRequest string `protobuf:"bytes,5,opt,name=payment_request,json=paymentRequest,proto3" json:"payment_request,omitempty"`
 	//
-	//An optional limit, expressed in seconds, on the time to wait before
-	//attempting the first HTLC. Once HTLCs are in flight, the payment will
+	//An optional limit, expressed in seconds, on the total time to spend
+	//attempting the payment. The limit covers path finding and every HTLC
+	//attempt, including retries. Once HTLCs are in flight, the payment will
 	//not be aborted until the HTLCs are either settled or failed. If the field
 	//is not set or is explicitly set to zero, the default value of 60 seconds
 	//will be applied.

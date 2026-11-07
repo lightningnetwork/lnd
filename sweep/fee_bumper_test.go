@@ -173,7 +173,7 @@ func TestBumpRequestMaxFeeRateAllowed(t *testing.T) {
 
 	// Define a test budget and calculates its fee rate.
 	budget := btcutil.Amount(1000)
-	budgetFeeRate := chainfee.NewSatPerKWeight(budget, weight)
+	budgetFeeRate := chainfee.NewSatPerKWeightFloor(budget, weight)
 
 	testCases := []struct {
 		name               string

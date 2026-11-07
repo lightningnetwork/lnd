@@ -3,6 +3,7 @@ package chainfee
 import (
 	"testing"
 
+	"github.com/btcsuite/btcd/btcutil/v2"
 	"github.com/lightningnetwork/lnd/lntypes"
 	"github.com/stretchr/testify/require"
 )
@@ -30,4 +31,53 @@ func TestFeeForWeightRoundUp(t *testing.T) {
 
 	require.EqualValues(t, 168, feeRate.FeeForWeight(txWeight))
 	require.EqualValues(t, 169, feeRate.FeeForWeightRoundUp(txWeight))
+}
+
+// TestNewSatPerKWeightFloor checks that converting a fee to a fee rate never
+// produces a fee above the original amount.
+func TestNewSatPerKWeightFloor(t *testing.T) {
+	t.Parallel()
+
+	testCases := []struct {
+		name     string
+		fee      btcutil.Amount
+		weight   lntypes.WeightUnit
+		expected SatPerKWeight
+	}{
+		{
+			name:     "exact",
+			fee:      500,
+			weight:   1_000,
+			expected: 500,
+		},
+		{
+			name:     "fractional",
+			fee:      500_000,
+			weight:   14_144,
+			expected: 35_350,
+		},
+		{
+			name:     "less than one sat per kw",
+			fee:      1,
+			weight:   2_000,
+			expected: 0,
+		},
+		{
+			name:     "zero weight",
+			fee:      500,
+			weight:   0,
+			expected: 0,
+		},
+	}
+
+	for _, tc := range testCases {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+
+			rate := NewSatPerKWeightFloor(tc.fee, tc.weight)
+			require.Equal(t, tc.expected, rate)
+			require.LessOrEqual(t, rate.FeeForWeight(tc.weight),
+				tc.fee)
+		})
+	}
 }

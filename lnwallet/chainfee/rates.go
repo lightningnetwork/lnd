@@ -70,6 +70,19 @@ func NewSatPerKWeight(fee btcutil.Amount, wu lntypes.WeightUnit) SatPerKWeight {
 	return SatPerKWeight(fee.MulF64(1000 / float64(wu)))
 }
 
+// NewSatPerKWeightFloor creates a new fee rate in sat/kw, rounding down to
+// ensure that converting the rate back to a fee never exceeds fee. A zero
+// weight yields a zero fee rate.
+func NewSatPerKWeightFloor(fee btcutil.Amount,
+	wu lntypes.WeightUnit) SatPerKWeight {
+
+	if wu == 0 {
+		return 0
+	}
+
+	return SatPerKWeight(fee * 1000 / btcutil.Amount(wu))
+}
+
 // FeeForWeight calculates the fee resulting from this fee rate and the given
 // weight in weight units (wu).
 func (s SatPerKWeight) FeeForWeight(wu lntypes.WeightUnit) btcutil.Amount {

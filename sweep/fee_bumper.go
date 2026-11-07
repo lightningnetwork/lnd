@@ -216,7 +216,7 @@ func (r *BumpRequest) MaxFeeRateAllowed() (chainfee.SatPerKWeight, error) {
 	// sets the budget to be proportional to the input value, the fee rate
 	// can be very high and we need to make sure it doesn't exceed the max
 	// fee rate.
-	maxFeeRateAllowed := chainfee.NewSatPerKWeight(r.Budget, size)
+	maxFeeRateAllowed := chainfee.NewSatPerKWeightFloor(r.Budget, size)
 	if maxFeeRateAllowed > r.MaxFeeRate {
 		log.Debugf("Budget feerate %v exceeds MaxFeeRate %v, use "+
 			"MaxFeeRate instead, txWeight=%v", maxFeeRateAllowed,

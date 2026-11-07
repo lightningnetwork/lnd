@@ -52,6 +52,17 @@ func (m *SecretKeyRing) DeriveKey(
 	}, nil
 }
 
+// DeriveAndStoreKey attempts to derive an arbitrary key specified by the passed
+// KeyLocator, and also records that key in the wallet. The mock always records
+// the keys it derives, so this is identical to DeriveKey.
+//
+// NOTE: This is part of the keychain.KeyRing interface.
+func (m *SecretKeyRing) DeriveAndStoreKey(
+	keyLoc keychain.KeyLocator) (keychain.KeyDescriptor, error) {
+
+	return m.DeriveKey(keyLoc)
+}
+
 // ECDH performs a scalar multiplication (ECDH-like operation) between the
 // target key descriptor and remote public key. The output returned will be the
 // sha256 of the resulting shared point serialized in compressed format. If k is

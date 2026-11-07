@@ -1515,7 +1515,7 @@
         "budget": {
           "type": "string",
           "format": "uint64",
-          "description": "Optional. The max amount in sats that can be used as the fees. Setting this\nvalue greater than the input's value may result in CPFP - one or more wallet\nutxos will be used to pay the fees specified by the budget. If not set, for\nnew inputs, by default 50% of the input's value will be treated as the\nbudget for fee bumping; for existing inputs, their current budgets will be\nretained."
+          "description": "Optional. The max amount in sats that can be targeted as the fees. Change\nbelow the dust limit may be added to the final fee on top of this amount.\nSetting this value greater than the input's value may result in CPFP - one\nor more wallet utxos will be used to pay the fees specified by the budget.\nIf not set, for new inputs, by default 50% of the input's value will be\ntreated as the budget for fee bumping; for existing inputs, their current\nbudgets will be retained."
         },
         "deadline_delta": {
           "type": "integer",
@@ -1557,7 +1557,7 @@
         "budget": {
           "type": "string",
           "format": "uint64",
-          "description": "Optional. The max amount in sats that can be used as the fees. For already\nregistered anchor outputs if not set explicitly the old value will be used.\nFor channel force closes which have no HTLCs in their commitment transaction\nthis value has to be set to an appropriate amount to pay for the cpfp\ntransaction of the force closed channel otherwise the fee bumping will fail."
+          "description": "Optional. The max amount in sats that can be targeted as the fees. Change\nbelow the dust limit may be added to the final fee on top of this amount.\nFor already registered anchor outputs if not set explicitly the old value\nwill be used.\nFor channel force closes which have no HTLCs in their commitment transaction\nthis value has to be set to an appropriate amount to pay for the cpfp\ntransaction of the force closed channel otherwise the fee bumping will fail."
         },
         "target_conf": {
           "type": "integer",
@@ -2070,7 +2070,7 @@
         "budget": {
           "type": "string",
           "format": "uint64",
-          "description": "The budget for this sweep, expressed in satoshis. This is the maximum amount\nthat can be spent as fees to sweep this output."
+          "description": "The budget for this sweep, expressed in satoshis. This is the maximum amount\nthat can be targeted as fees to sweep this output. Change below the dust\nlimit may be added to the final fee on top of this amount."
         },
         "deadline_height": {
           "type": "integer",

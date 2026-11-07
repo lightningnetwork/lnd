@@ -3785,16 +3785,48 @@ func (r *rpcServer) WalletBalance(ctx context.Context,
 		return nil, err
 	}
 
+	// Default to one confirmation for the confirmed-balance threshold.
+	if in.MinConfs <= 0 {
+		in.MinConfs = 1
+	}
+
+	// Scan every unspent wallet output once, rather than once per account,
+	// and bucket the outputs by account. This mirrors ConfirmedBalance,
+	// which also lists the unspent witness outputs and sums them, but now
+	// does it a single time for all accounts.
+	utxos, err := r.server.cc.Wallet.ListUnspentWitness(
+		0, math.MaxInt32, "",
+	)
+	if err != nil {
+		return nil, err
+	}
+
+	type accountBalance struct {
+		total, confirmed btcutil.Amount
+	}
+	balances := make(map[string]*accountBalance)
+	for _, utxo := range utxos {
+		bal, ok := balances[utxo.Account]
+		if !ok {
+			bal = &accountBalance{}
+			balances[utxo.Account] = bal
+		}
+
+		bal.total += utxo.Value
+		if utxo.Confirmations >= int64(in.MinConfs) {
+			bal.confirmed += utxo.Value
+		}
+	}
+
 	var totalBalance, confirmedBalance, unconfirmedBalance btcutil.Amount
 	rpcAccountBalances := make(
 		map[string]*lnrpc.WalletAccountBalance, len(accounts),
 	)
 	for _, account := range accounts {
-		// There are two default accounts, one for NP2WKH outputs and
-		// another for P2WKH outputs. The balance will be computed for
-		// both given one call to ConfirmedBalance with the default
-		// wallet and imported account, so we'll skip the second
-		// instance to avoid inflating the balance.
+		// The default account appears under multiple key scopes, all
+		// sharing the same account name. Their outputs are already
+		// combined under that name in the balances map, so we skip the
+		// repeated instances to avoid inflating the balance.
 		switch account.AccountName {
 		case waddrmgr.ImportedAddrAccountName:
 			// Omit the imported account from the response unless we
@@ -3820,27 +3852,16 @@ func (r *rpcServer) WalletBalance(ctx context.Context,
 			continue
 		}
 
-		// Get total balance, from txs that have >= 0 confirmations.
-		totalBal, err := r.server.cc.Wallet.ConfirmedBalance(
-			0, account.AccountName,
-		)
-		if err != nil {
-			return nil, err
+		// Look up the balance tallied for this account in the single
+		// scan above. An account with no unspent outputs has no entry,
+		// in which case its balances are zero.
+		var totalBal, confirmedBal btcutil.Amount
+		if bal, ok := balances[account.AccountName]; ok {
+			totalBal = bal.total
+			confirmedBal = bal.confirmed
 		}
-		totalBalance += totalBal
 
-		// Get confirmed balance, from txs that have >= 1 confirmations.
-		// TODO(halseth): get both unconfirmed and confirmed balance in
-		// one call, as this is racy.
-		if in.MinConfs <= 0 {
-			in.MinConfs = 1
-		}
-		confirmedBal, err := r.server.cc.Wallet.ConfirmedBalance(
-			in.MinConfs, account.AccountName,
-		)
-		if err != nil {
-			return nil, err
-		}
+		totalBalance += totalBal
 		confirmedBalance += confirmedBal
 
 		// Get unconfirmed balance, from txs with 0 confirmations.
@@ -5699,6 +5720,7 @@ func (r *rpcServer) SubscribeChannelEvents(req *lnrpc.ChannelEventSubscription,
 			if errors.Is(updateStream.Context().Err(), context.Canceled) {
 				return nil
 			}
+
 			return updateStream.Context().Err()
 
 		case <-r.quit:
@@ -6137,6 +6159,7 @@ func (r *rpcServer) SubscribeInvoices(req *lnrpc.InvoiceSubscription,
 			if errors.Is(updateStream.Context().Err(), context.Canceled) {
 				return nil
 			}
+
 			return updateStream.Context().Err()
 
 		case <-r.quit:
@@ -6180,6 +6203,7 @@ func (r *rpcServer) SubscribeTransactions(req *lnrpc.GetTransactionsRequest,
 			if errors.Is(updateStream.Context().Err(), context.Canceled) {
 				return nil
 			}
+
 			return updateStream.Context().Err()
 
 		case <-r.quit:
@@ -6886,6 +6910,7 @@ func (r *rpcServer) SubscribeChannelGraph(req *lnrpc.GraphTopologySubscription,
 			if errors.Is(updateStream.Context().Err(), context.Canceled) {
 				return nil
 			}
+
 			return updateStream.Context().Err()
 
 		// The server is quitting, so we'll exit immediately. Returning
@@ -8145,6 +8170,7 @@ func (r *rpcServer) SubscribeChannelBackups(req *lnrpc.ChannelBackupSubscription
 			if errors.Is(updateStream.Context().Err(), context.Canceled) {
 				return nil
 			}
+
 			return updateStream.Context().Err()
 
 		case <-r.quit:

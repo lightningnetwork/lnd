@@ -113,7 +113,8 @@ type DaemonAdapters interface {
 	// the outpoint creates must also be specified. This allows this
 	// interface to be implemented by BIP 158-like filtering.
 	RegisterSpendNtfn(outpoint *wire.OutPoint, pkScript []byte,
-		heightHint uint32) (*chainntnfs.SpendEvent, error)
+		heightHint uint32, opts ...chainntnfs.SpendOption) (
+		*chainntnfs.SpendEvent, error)
 }
 
 // stateQuery is used by outside callers to query the internal state of the

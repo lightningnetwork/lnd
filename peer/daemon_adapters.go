@@ -129,10 +129,11 @@ func (l *LndDaemonAdapters) RegisterConfirmationsNtfn(txid *chainhash.Hash,
 // RegisterSpendNtfn registers an intent to be notified once the target
 // outpoint is successfully spent within a transaction.
 func (l *LndDaemonAdapters) RegisterSpendNtfn(outpoint *wire.OutPoint,
-	pkScript []byte, heightHint uint32) (*chainntnfs.SpendEvent, error) {
+	pkScript []byte, heightHint uint32,
+	opts ...chainntnfs.SpendOption) (*chainntnfs.SpendEvent, error) {
 
 	return l.cfg.ChainNotifier.RegisterSpendNtfn(
-		outpoint, pkScript, heightHint,
+		outpoint, pkScript, heightHint, opts...,
 	)
 }
 

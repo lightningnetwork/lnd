@@ -56,13 +56,15 @@ type Config struct {
 // DefaultConfig defines the config defaults.
 func DefaultConfig() *Config {
 	defaultRoutingConfig := RoutingConfig{
+		PaymentRouter:            routing.DefaultPaymentRouter,
 		ProbabilityEstimatorType: routing.DefaultEstimator,
 		MinRouteProbability:      routing.DefaultMinRouteProbability,
 
-		AttemptCost:     routing.DefaultAttemptCost.ToSatoshis(),
-		AttemptCostPPM:  routing.DefaultAttemptCostPPM,
-		MaxMcHistory:    routing.DefaultMaxMcHistory,
-		McFlushInterval: routing.DefaultMcFlushInterval,
+		AttemptCost:           routing.DefaultAttemptCost.ToSatoshis(),
+		AttemptCostPPM:        routing.DefaultAttemptCostPPM,
+		MaxMcHistory:          routing.DefaultMaxMcHistory,
+		McFlushInterval:       routing.DefaultMcFlushInterval,
+		IntervalFlushInterval: routing.DefaultIntervalFlushInterval,
 		AprioriConfig: &AprioriConfig{
 			HopProbability:   routing.DefaultAprioriHopProbability,
 			Weight:           routing.DefaultAprioriWeight,
@@ -85,12 +87,14 @@ func DefaultConfig() *Config {
 // GetRoutingConfig returns the routing config based on this sub server config.
 func GetRoutingConfig(cfg *Config) *RoutingConfig {
 	return &RoutingConfig{
+		PaymentRouter:            cfg.PaymentRouter,
 		ProbabilityEstimatorType: cfg.ProbabilityEstimatorType,
 		MinRouteProbability:      cfg.MinRouteProbability,
 		AttemptCost:              cfg.AttemptCost,
 		AttemptCostPPM:           cfg.AttemptCostPPM,
 		MaxMcHistory:             cfg.MaxMcHistory,
 		McFlushInterval:          cfg.McFlushInterval,
+		IntervalFlushInterval:    cfg.IntervalFlushInterval,
 		AprioriConfig: &AprioriConfig{
 			HopProbability:   cfg.AprioriConfig.HopProbability,
 			Weight:           cfg.AprioriConfig.Weight,

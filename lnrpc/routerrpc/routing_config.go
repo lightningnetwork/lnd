@@ -10,6 +10,18 @@ import (
 //
 //nolint:ll
 type RoutingConfig struct {
+	// PaymentRouter selects the routing algorithm used to send payments.
+	// The default router is Dijkstra over a probability estimator, with
+	// mission control behind it and the shard amount halved whenever no
+	// route is found. The interval router replaces all of that with per
+	// directed channel liquidity intervals, and plans the shard amount and
+	// the route together.
+	//
+	// NOTE: this is named PaymentRouter rather than Router because the
+	// router sub server config already carries a Router field holding the
+	// channel router itself.
+	PaymentRouter string `long:"router" choice:"default" choice:"interval" description:"Routing algorithm used to send payments. The interval router is experimental."`
+
 	// ProbabilityEstimatorType sets the estimator to use.
 	ProbabilityEstimatorType string `long:"estimator" choice:"apriori" choice:"bimodal" description:"Probability estimator used for pathfinding." `
 
@@ -35,6 +47,12 @@ type RoutingConfig struct {
 	// McFlushInterval defines the timer interval to use to flush mission
 	// control state to the DB.
 	McFlushInterval time.Duration `long:"mcflushinterval" description:"the timer interval to use to flush mission control state to the DB"`
+
+	// IntervalFlushInterval defines the timer interval to use to flush the
+	// interval router's liquidity beliefs to the DB. It is only used when
+	// the interval router is selected and the node runs the native SQL
+	// backend.
+	IntervalFlushInterval time.Duration `long:"intervalflushinterval" description:"the timer interval to use to flush the interval router's liquidity beliefs to the DB"`
 
 	// AprioriConfig defines parameters for the apriori probability.
 	AprioriConfig *AprioriConfig `group:"apriori" namespace:"apriori" description:"configuration for the apriori pathfinding probability estimator"`

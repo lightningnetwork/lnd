@@ -217,3 +217,7 @@ go 1.26.10
 godebug multipathtcp=0
 
 retract v0.0.2
+
+// TODO: Remove this replace once btcsuite/btcwallet#1489 (backport of
+// btcsuite/btcwallet#1464 to ver-0-16) is merged, and pin the merged commit.
+replace github.com/btcsuite/btcwallet => github.com/ziggie1984/btcwallet v0.16.10-0.20261107175108-eef30752f818

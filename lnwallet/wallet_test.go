@@ -105,3 +105,18 @@ func TestRegisterFundingIntent(t *testing.T) {
 	err = lw.RegisterFundingIntent(testID, nil)
 	require.ErrorIs(err, ErrDuplicatePendingChanID)
 }
+
+// TestInternalAddressType checks that the wallet falls back to P2TR for its
+// own addresses if no internal address type is configured.
+func TestInternalAddressType(t *testing.T) {
+	t.Parallel()
+
+	lw := &LightningWallet{}
+	require.Equal(t, TaprootPubkey, lw.InternalAddressType())
+
+	lw.Cfg.InternalAddressType = WitnessPubKey
+	require.Equal(t, WitnessPubKey, lw.InternalAddressType())
+
+	lw.Cfg.InternalAddressType = TaprootPubkey
+	require.Equal(t, TaprootPubkey, lw.InternalAddressType())
+}

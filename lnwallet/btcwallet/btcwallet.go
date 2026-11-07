@@ -1061,6 +1061,16 @@ func (b *BtcWallet) SendOutputs(inputs fn.Set[wire.OutPoint],
 		return nil, lnwallet.ErrInvalidMinconf
 	}
 
+	// btcwallet's SendOutputs doesn't allow us to set the change scope
+	// without also restricting coin selection to that scope. So if a
+	// custom change scope is configured, we create the transaction
+	// ourselves and publish it, the same way SendOutputs does.
+	if b.changeKeyScope() != nil {
+		return b.sendOutputsWithChangeScope(
+			inputs, outputs, feeRate, minConfs, label, strategy,
+		)
+	}
+
 	// Use selected UTXOs if specified, otherwise default selection.
 	if len(inputs) != 0 {
 		return b.wallet.SendOutputsWithInput(
@@ -1073,6 +1083,50 @@ func (b *BtcWallet) SendOutputs(inputs fn.Set[wire.OutPoint],
 		outputs, nil, defaultAccount, minConfs, feeSatPerKB,
 		strategy, label,
 	)
+}
+
+// sendOutputsWithChangeScope funds, signs, and broadcasts a transaction paying
+// out to the specified outputs, sending any change to the configured change
+// key scope. It mirrors btcwallet's SendOutputs: if the wallet is watch-only,
+// the unsigned transaction is returned together with ErrTxUnsigned.
+func (b *BtcWallet) sendOutputsWithChangeScope(inputs fn.Set[wire.OutPoint],
+	outputs []*wire.TxOut, feeRate chainfee.SatPerKWeight,
+	minConfs int32, label string,
+	strategy base.CoinSelectionStrategy) (*wire.MsgTx, error) {
+
+	authoredTx, err := b.CreateSimpleTx(
+		inputs, outputs, feeRate, minConfs, strategy, false,
+	)
+	if err != nil {
+		return nil, err
+	}
+
+	// If our wallet is read-only, we'll get a transaction with coins
+	// selected but no witness data. In such a case we need to inform our
+	// caller that they'll actually need to go ahead and sign the TX.
+	if b.wallet.AddrManager().WatchOnly() {
+		return authoredTx.Tx, base.ErrTxUnsigned
+	}
+
+	err = b.wallet.PublishTransaction(authoredTx.Tx, label)
+	if err != nil {
+		return nil, err
+	}
+
+	return authoredTx.Tx, nil
+}
+
+// changeKeyScope returns the key scope that should be used for the change
+// outputs of transactions created by the wallet. A nil scope means that
+// btcwallet's default (BIP-0086, P2TR) is used.
+func (b *BtcWallet) changeKeyScope() *waddrmgr.KeyScope {
+	switch b.cfg.InternalAddressType {
+	case lnwallet.WitnessPubKey:
+		return &waddrmgr.KeyScopeBIP0084
+
+	default:
+		return nil
+	}
 }
 
 // CreateSimpleTx creates a Bitcoin transaction paying to the specified
@@ -1121,12 +1175,15 @@ func (b *BtcWallet) CreateSimpleTx(inputs fn.Set[wire.OutPoint],
 		}
 	}
 
-	// Add the optional inputs to the transaction.
-	optFunc := base.WithCustomSelectUtxos(inputs.ToSlice())
+	// Add the optional inputs and the change scope to the transaction.
+	optFuncs := []base.TxCreateOption{
+		base.WithCustomSelectUtxos(inputs.ToSlice()),
+		base.WithCustomChangeScope(b.changeKeyScope()),
+	}
 
 	return b.wallet.CreateSimpleTx(
 		nil, defaultAccount, outputs, minConfs, feeSatPerKB,
-		strategy, dryRun, []base.TxCreateOption{optFunc}...,
+		strategy, dryRun, optFuncs...,
 	)
 }
 

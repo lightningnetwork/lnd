@@ -536,6 +536,13 @@ var sendCoinsCommand = cli.Command{
 				"the amt flag",
 		},
 		txLabelFlag,
+		cli.BoolFlag{
+			Name: "dry_run",
+			Usage: "if set, the transaction is crafted and " +
+				"validated but not broadcast; the unsigned " +
+				"raw transaction and its fee are returned " +
+				"instead",
+		},
 	},
 	Action: actionDecorator(sendCoins),
 }
@@ -661,7 +668,10 @@ func sendCoins(ctx *cli.Context) error {
 	// Ask for confirmation if we're on an actual terminal and the output is
 	// not being redirected to another command. This prevents existing shell
 	// scripts from breaking.
-	if !ctx.Bool("force") && term.IsTerminal(int(os.Stdout.Fd())) {
+	// A dry run doesn't broadcast anything, so there's nothing to confirm.
+	if !ctx.Bool("force") && !ctx.Bool("dry_run") &&
+		term.IsTerminal(int(os.Stdout.Fd())) {
+
 		fmt.Printf("Amount: %d\n", displayAmt)
 		fmt.Printf("Destination address: %v\n", addr)
 
@@ -682,6 +692,7 @@ func sendCoins(ctx *cli.Context) error {
 		SpendUnconfirmed:      minConfs == 0,
 		CoinSelectionStrategy: coinSelectionStrategy,
 		Outpoints:             outpoints,
+		DryRun:                ctx.Bool("dry_run"),
 	}
 	txid, err := client.SendCoins(ctxc, req)
 	if err != nil {

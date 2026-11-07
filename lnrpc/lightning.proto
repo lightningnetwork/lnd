@@ -1191,10 +1191,29 @@ message SendCoinsRequest {
 
     // A list of selected outpoints as inputs for the transaction.
     repeated OutPoint outpoints = 11;
+
+    /*
+    If set, the transaction is crafted and validated (including the wallet
+    reserve check) but not broadcast, and no inputs are left locked. The
+    resulting unsigned transaction and its fee are returned in the response.
+    */
+    bool dry_run = 12;
 }
 message SendCoinsResponse {
     // The transaction ID of the transaction
     string txid = 1;
+
+    /*
+    The raw unsigned transaction, hex encoded. Only set if dry_run was set in
+    the request. This transaction MUST NOT be broadcast. If the transaction
+    spends nested segwit inputs, its txid will differ from the one of the
+    transaction that would actually be broadcast.
+    */
+    string raw_tx = 2;
+
+    // The total fee of the transaction in satoshis. Only set if dry_run was
+    // set in the request.
+    int64 fee_sat = 3;
 }
 
 message ListUnspentRequest {

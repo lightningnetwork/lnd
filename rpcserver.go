@@ -1129,21 +1129,16 @@ func allowCORS(handler http.Handler, origins []string) http.Handler {
 	})
 }
 
-// sendCoinsOnChain makes an on-chain transaction in or to send coins to one or
-// more addresses specified in the passed payment map. The payment map maps an
-// address to a specified output value to be sent to that address.
-func (r *rpcServer) sendCoinsOnChain(paymentMap map[string]int64,
-	feeRate chainfee.SatPerKWeight, minConfs int32, label string,
+// dryRunSendOutputs crafts an unsigned transaction paying to the given outputs
+// without altering the wallet database, and checks that it doesn't spend the
+// wallet balance below the reserved amount.
+//
+// NOTE: This method requires the global coin selection lock to be held.
+func (r *rpcServer) dryRunSendOutputs(outputs []*wire.TxOut,
+	feeRate chainfee.SatPerKWeight, minConfs int32,
 	strategy wallet.CoinSelectionStrategy,
-	selectedUtxos fn.Set[wire.OutPoint]) (*chainhash.Hash, error) {
+	selectedUtxos fn.Set[wire.OutPoint]) (*txauthor.AuthoredTx, error) {
 
-	outputs, err := addrPairsToOutputs(paymentMap, r.cfg.ActiveNetParams.Params)
-	if err != nil {
-		return nil, err
-	}
-
-	// We first do a dry run, to sanity check we won't spend our wallet
-	// balance below the reserved amount.
 	authoredTx, err := r.server.cc.Wallet.CreateSimpleTx(
 		selectedUtxos, outputs, feeRate, minConfs, strategy, true,
 	)
@@ -1158,6 +1153,33 @@ func (r *rpcServer) sendCoinsOnChain(paymentMap map[string]int64,
 			Tx:          authoredTx.Tx,
 			ChangeIndex: &authoredTx.ChangeIndex,
 		},
+	)
+	if err != nil {
+		return nil, err
+	}
+
+	return authoredTx, nil
+}
+
+// sendCoinsOnChain makes an on-chain transaction in or to send coins to one or
+// more addresses specified in the passed payment map. The payment map maps an
+// address to a specified output value to be sent to that address.
+func (r *rpcServer) sendCoinsOnChain(paymentMap map[string]int64,
+	feeRate chainfee.SatPerKWeight, minConfs int32, label string,
+	strategy wallet.CoinSelectionStrategy,
+	selectedUtxos fn.Set[wire.OutPoint]) (*chainhash.Hash, error) {
+
+	outputs, err := addrPairsToOutputs(
+		paymentMap, r.cfg.ActiveNetParams.Params,
+	)
+	if err != nil {
+		return nil, err
+	}
+
+	// We first do a dry run, to sanity check we won't spend our wallet
+	// balance below the reserved amount.
+	_, err = r.dryRunSendOutputs(
+		outputs, feeRate, minConfs, strategy, selectedUtxos,
 	)
 	if err != nil {
 		return nil, err
@@ -1387,9 +1409,9 @@ func (r *rpcServer) SendCoins(ctx context.Context,
 	}
 
 	rpcsLog.Infof("[sendcoins] addr=%v, amt=%v, sat/kw=%v, min_confs=%v, "+
-		"send_all=%v, select_outpoints=%v",
+		"send_all=%v, select_outpoints=%v, dry_run=%v",
 		in.Addr, btcutil.Amount(in.Amount), int64(feePerKw), minConfs,
-		in.SendAll, len(in.Outpoints))
+		in.SendAll, len(in.Outpoints), in.DryRun)
 
 	// Decode the address receiving the coins, we need to check whether the
 	// address is valid for this network.
@@ -1556,6 +1578,14 @@ func (r *rpcServer) SendCoins(ctx context.Context,
 			return nil, err
 		}
 
+		// On a dry run we release the selected inputs again and return
+		// the crafted transaction without publishing it.
+		if in.DryRun {
+			sweepTxPkg.CancelSweepAttempt()
+
+			return r.dryRunSweepResponse(sweepTxPkg.SweepTx)
+		}
+
 		rpcsLog.Debugf("Sweeping coins from wallet to addr=%v, "+
 			"with tx=%v", in.Addr,
 			lnutils.SpewLogClosure(sweepTxPkg.SweepTx))
@@ -1580,6 +1610,37 @@ func (r *rpcServer) SendCoins(ctx context.Context,
 		// selection (funding, sweep alls, other sends) can proceed
 		// while we instruct the wallet to send this transaction.
 		paymentMap := map[string]int64{targetAddr.String(): in.Amount}
+
+		if in.DryRun {
+			outputs, err := addrPairsToOutputs(
+				paymentMap, r.cfg.ActiveNetParams.Params,
+			)
+			if err != nil {
+				return nil, err
+			}
+
+			var authoredTx *txauthor.AuthoredTx
+			err = wallet.WithCoinSelectLock(func() error {
+				var err error
+				authoredTx, err = r.dryRunSendOutputs(
+					outputs, feePerKw, minConfs,
+					coinSelectionStrategy, selectOutpoints,
+				)
+
+				return err
+			})
+			if err != nil {
+				return nil, err
+			}
+
+			fee := authoredTx.TotalInput
+			for _, txOut := range authoredTx.Tx.TxOut {
+				fee -= btcutil.Amount(txOut.Value)
+			}
+
+			return dryRunSendCoinsResponse(authoredTx.Tx, fee)
+		}
+
 		err := wallet.WithCoinSelectLock(func() error {
 			newTXID, err := r.sendCoinsOnChain(
 				paymentMap, feePerKw, minConfs, label,
@@ -1601,6 +1662,58 @@ func (r *rpcServer) SendCoins(ctx context.Context,
 	rpcsLog.Infof("[sendcoins] spend generated txid: %v", txid.String())
 
 	return &lnrpc.SendCoinsResponse{Txid: txid.String()}, nil
+}
+
+// dryRunSweepResponse builds the dry run response for a send_all sweep
+// transaction, looking up the value of each input in the wallet to determine
+// the fee.
+func (r *rpcServer) dryRunSweepResponse(
+	sweepTx *wire.MsgTx) (*lnrpc.SendCoinsResponse, error) {
+
+	var totalInput, totalOutput btcutil.Amount
+	for _, txIn := range sweepTx.TxIn {
+		utxo, err := r.server.cc.Wallet.FetchOutpointInfo(
+			&txIn.PreviousOutPoint,
+		)
+		if err != nil {
+			return nil, fmt.Errorf("unable to fetch input %v: %w",
+				txIn.PreviousOutPoint, err)
+		}
+
+		totalInput += utxo.Value
+	}
+	for _, txOut := range sweepTx.TxOut {
+		totalOutput += btcutil.Amount(txOut.Value)
+	}
+
+	return dryRunSendCoinsResponse(sweepTx, totalInput-totalOutput)
+}
+
+// dryRunSendCoinsResponse returns the SendCoins response for a dry run. Any
+// input scripts and witnesses are stripped from the transaction, so the
+// returned transaction is always unsigned and can't be broadcast as is.
+func dryRunSendCoinsResponse(tx *wire.MsgTx,
+	fee btcutil.Amount) (*lnrpc.SendCoinsResponse, error) {
+
+	unsignedTx := tx.Copy()
+	for _, txIn := range unsignedTx.TxIn {
+		txIn.SignatureScript = nil
+		txIn.Witness = nil
+	}
+
+	var buf bytes.Buffer
+	if err := unsignedTx.Serialize(&buf); err != nil {
+		return nil, err
+	}
+
+	rpcsLog.Infof("[sendcoins] dry run generated txid: %v, fee: %v",
+		unsignedTx.TxHash(), fee)
+
+	return &lnrpc.SendCoinsResponse{
+		Txid:   unsignedTx.TxHash().String(),
+		RawTx:  hex.EncodeToString(buf.Bytes()),
+		FeeSat: int64(fee),
+	}, nil
 }
 
 // SendMany handles a request for a transaction create multiple specified
@@ -5699,6 +5812,7 @@ func (r *rpcServer) SubscribeChannelEvents(req *lnrpc.ChannelEventSubscription,
 			if errors.Is(updateStream.Context().Err(), context.Canceled) {
 				return nil
 			}
+
 			return updateStream.Context().Err()
 
 		case <-r.quit:

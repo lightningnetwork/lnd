@@ -632,11 +632,13 @@ func TestSweepPendingInputs(t *testing.T) {
 				DeliveryAddress: testPubKey.SerializeCompressed(),
 			})
 		},
+		MaxFeeRate:           DefaultMaxFeeRate,
 		NoDeadlineConfTarget: uint32(DefaultDeadlineDelta),
 	})
 
 	// Set a current height to test the deadline override.
 	s.currentHeight = testHeight
+	s.relayFeeRate = chainfee.FeePerKwFloor
 
 	// Create an input set that needs wallet inputs.
 	setNeedWallet := &MockInputSet{}
@@ -644,7 +646,9 @@ func TestSweepPendingInputs(t *testing.T) {
 
 	// Mock this set to ask for wallet input.
 	setNeedWallet.On("NeedWalletInput").Return(true).Once()
-	setNeedWallet.On("AddWalletInputs", wallet).Return(nil).Once()
+	setNeedWallet.On(
+		"AddWalletInputs", wallet, chainfee.FeePerKwFloor,
+	).Return(nil).Once()
 
 	// Mock the wallet to require the lock once.
 	wallet.On("WithCoinSelectLock", mock.Anything).Return(nil).Once()

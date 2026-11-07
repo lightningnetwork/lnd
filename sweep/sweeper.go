@@ -1604,7 +1604,9 @@ func (s *UtxoSweeper) sweepPendingInputs(inputs InputsMap) {
 	sweepWithLock := func(set InputSet) error {
 		return s.cfg.Wallet.WithCoinSelectLock(func() error {
 			// Try to add inputs from our wallet.
-			err := set.AddWalletInputs(s.cfg.Wallet)
+			err := set.AddWalletInputs(
+				s.cfg.Wallet, s.relayFeeRate,
+			)
 			if err != nil {
 				return err
 			}

@@ -634,10 +634,10 @@ type AuxTrafficShaper interface {
 // the lifecycle of HTLC payment attempts. It supports both local and remote
 // payment lifecycle controllers.
 //
-// NOTE: This store is designed to be managed by a *single* logical dispatcher
-// (e.g., a ChannelRouter instance, or a remote payment orchestrator) at a time
-// to avoid collisions of attemptIDs and ensure an unambiguous source of truth
-// for payment state. Concurrent usage by multiple dispatchers is NOT supported.
+// NOTE: Every attempt ID in this store is allocated from one sequencer shared
+// by the local ChannelRouter and the external attempt index, so the two never
+// collide. External dispatchers do not address this store by ID; they go
+// through ExternalAttemptStore, which maps their own keys to these IDs.
 type AttemptStore interface {
 	// StoreResult stores the result of a given payment attempt (identified
 	// by attemptID). This will be called when a result is received from the
@@ -685,8 +685,9 @@ type AttemptStore interface {
 	SubscribeResult(attemptID uint64) (<-chan *networkResult, error)
 
 	// CleanStore removes all attempt results from the store except for
-	// those listed in the keepPids map. This allows for a "delete all
-	// except" approach to cleanup.
+	// those listed in the keepPids map and those named in the external
+	// attempt index. This allows for a "delete all except" approach to
+	// cleanup that never touches an external dispatcher's attempts.
 	CleanStore(keepPids map[uint64]struct{}) error
 
 	// DisableRemoteRouter checks for attempt entries and, if none are

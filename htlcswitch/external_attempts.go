@@ -34,6 +34,10 @@ var (
 	// registration is reported as ambiguous so that a retry draws the next
 	// ID.
 	errInternalIDInUse = errors.New("internal attempt ID already in use")
+
+	// errUnreadableIndex is returned when an index entry cannot be
+	// decoded, so the attempt it names is unknown.
+	errUnreadableIndex = errors.New("unreadable external index entry")
 )
 
 const (
@@ -130,6 +134,34 @@ func fetchExternalIndexEntry(tx kvdb.RTx,
 	}
 
 	return decodeExternalIndexEntry(entryBytes)
+}
+
+// fetchIndexedAttemptIDs returns the internal attempt IDs named in the
+// external attempt index. It returns errUnreadableIndex if any entry cannot be
+// decoded.
+func fetchIndexedAttemptIDs(tx kvdb.RTx) (map[uint64]struct{}, error) {
+	ids := make(map[uint64]struct{})
+
+	index := tx.ReadBucket(externalAttemptIndexBucketKey)
+	if index == nil {
+		return ids, nil
+	}
+
+	err := kvdb.ForAll(index, func(k, v []byte) error {
+		entry, err := decodeExternalIndexEntry(v)
+		if err != nil {
+			return fmt.Errorf("%w: key %x: %w", errUnreadableIndex,
+				k, err)
+		}
+		ids[entry.attemptID] = struct{}{}
+
+		return nil
+	})
+	if err != nil {
+		return nil, err
+	}
+
+	return ids, nil
 }
 
 // resultExists reports whether any record exists for the attempt ID.

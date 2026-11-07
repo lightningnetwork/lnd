@@ -449,13 +449,23 @@ func fetchResult(tx kvdb.RTx, pid uint64) (*networkResult, error) {
 	return deserializeNetworkResult(r)
 }
 
-// CleanStore removes all entries from the store, except the payment IDs given.
-// NOTE: Since every result not listed in the keep map will be deleted, care
-// should be taken to ensure no new payment attempts are being made
-// concurrently while this process is ongoing, as its result might end up being
-// deleted.
+// CleanStore removes all entries from the store, except the payment IDs given
+// and the attempts named in the external attempt index. Indexed attempts
+// belong to an external dispatcher, which deletes them by key itself.
+//
+// NOTE: Since every unindexed result not listed in the keep map will be
+// deleted, care should be taken to ensure no new local payment attempts are
+// being made concurrently while this process is ongoing, as its result might
+// end up being deleted. Externally keyed attempts need no such care: their
+// record and index entry are written in one transaction, and the index is
+// read in the same transaction as the deletes below.
 func (store *networkResultStore) CleanStore(keep map[uint64]struct{}) error {
-	return kvdb.Update(store.backend, func(tx kvdb.RwTx) error {
+	err := kvdb.Update(store.backend, func(tx kvdb.RwTx) error {
+		indexed, err := fetchIndexedAttemptIDs(tx)
+		if err != nil {
+			return err
+		}
+
 		networkResults, err := tx.CreateTopLevelBucket(
 			networkResultStoreBucketKey,
 		)
@@ -481,7 +491,9 @@ func (store *networkResultStore) CleanStore(keep map[uint64]struct{}) error {
 		)
 		if err := kvdb.ForAll(networkResults, func(k, v []byte) error {
 			pid := binary.BigEndian.Uint64(k)
-			if _, ok := keep[pid]; !ok {
+			_, keepListed := keep[pid]
+			_, owned := indexed[pid]
+			if !keepListed && !owned {
 				removed++
 				return nil
 			}
@@ -532,6 +544,17 @@ func (store *networkResultStore) CleanStore(keep map[uint64]struct{}) error {
 
 		return nil
 	}, func() {})
+
+	// An unreadable index entry may protect any attempt, so we cannot
+	// tell which results are safe to remove. Removing nothing is safe,
+	// and the store is pruned again on the next start.
+	if errors.Is(err, errUnreadableIndex) {
+		log.Errorf("Skipping network result store cleanup: %v", err)
+
+		return nil
+	}
+
+	return err
 }
 
 // FetchPendingAttempts returns a list of all attempt IDs that are currently in

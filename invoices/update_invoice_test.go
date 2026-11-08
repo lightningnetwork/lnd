@@ -1206,6 +1206,49 @@ func TestUpdateLegacyValidatesKeysendRecord(t *testing.T) {
 	}
 }
 
+// TestUpdateMppRejectsSettledAmpSet checks that a fresh shard for a paid AMP
+// set is rejected without an updater error that would fail the channel link.
+func TestUpdateMppRejectsSettledAmpSet(t *testing.T) {
+	t.Parallel()
+
+	// Arrange a reusable AMP invoice with one paid set and a fresh circuit
+	// for that same set. A partial amount avoids preimage reconstruction,
+	// isolating the closed-set admission guard.
+	settledSetID := [32]byte{1}
+	ctx, invoice := newLegacyUpdateTestContext(t, ContractOpen)
+	ctx.circuitKey = CircuitKey{HtlcID: 2}
+	ctx.amtPaid = 400
+	ctx.mpp = record.NewMPP(1000, invoice.Terms.PaymentAddr)
+	ctx.amp = record.NewAMP([32]byte{3}, settledSetID, 1)
+	invoice.Terms.PaymentPreimage = nil
+	invoice.Terms.Features = lnwire.NewFeatureVector(
+		lnwire.NewRawFeatureVector(lnwire.AMPRequired), lnwire.Features,
+	)
+	invoice.AmtPaid = 1000
+	invoice.Htlcs[CircuitKey{HtlcID: 1}] = &InvoiceHTLC{
+		Amt:         1000,
+		MppTotalAmt: 1000,
+		State:       HtlcStateSettled,
+		AMP: &InvoiceHtlcAMPData{
+			Record: *record.NewAMP([32]byte{4}, settledSetID, 0),
+		},
+	}
+
+	// Act through new-shard admission so rejection must be a normal HTLC
+	// resolution rather than an updater error that fails its channel link.
+	update, resolution, err := updateInvoice(ctx, invoice)
+
+	// Assert rejection preserves the paid set and its accounting, while
+	// returning no invoice update and no internal error to the link.
+	require.NoError(t, err)
+	require.Nil(t, update)
+	requireFailResolution(t, resolution, ResultInvoiceNotOpen)
+	require.Equal(t, ContractOpen, invoice.State)
+	require.Equal(t, lnwire.MilliSatoshi(1000), invoice.AmtPaid)
+	require.Zero(t, invoice.SettleIndex)
+	require.Len(t, invoice.Htlcs, 1)
+}
+
 // newLegacyUpdateTestContext creates a minimal legacy invoice and update
 // context for exercising update selection and settlement outcomes.
 func newLegacyUpdateTestContext(t *testing.T,

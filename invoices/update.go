@@ -276,6 +276,12 @@ func updateMpp(ctx *invoiceUpdateCtx, inv *Invoice) (*InvoiceUpdateDesc,
 
 	htlcSet := inv.HTLCSet(setID, HtlcStateAccepted)
 
+	// AMP invoices remain open after a set settles. Reject fresh shards
+	// for that set before their update can fail the link carrying them.
+	if len(inv.HTLCSet(setID, HtlcStateSettled)) > 0 {
+		return nil, ctx.failRes(ResultInvoiceNotOpen), nil
+	}
+
 	// Check whether total amt matches other HTLCs in the set.
 	var newSetTotal lnwire.MilliSatoshi
 	for _, htlc := range htlcSet {

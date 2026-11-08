@@ -69,10 +69,6 @@ var (
 			Entity: "offchain",
 			Action: "write",
 		}},
-		"/switchrpc.Switch/DisableRemoteRouter": {{
-			Entity: "offchain",
-			Action: "write",
-		}},
 	}
 
 	// DefaultSwitchMacFilename is the default name of the switch macaroon
@@ -1100,30 +1096,6 @@ func deletionStatusToProto(
 	default:
 		return AttemptDeletionStatus_DELETION_NOT_FOUND
 	}
-}
-
-// DisableRemoteRouter disables the remote router, allowing a migration back to
-// the embedded router.
-func (s *Server) DisableRemoteRouter(ctx context.Context,
-	req *DisableRemoteRouterRequest) (*DisableRemoteRouterResponse, error) {
-
-	err := s.cfg.RemoteRouterController.DisableRemoteRouter()
-	if err != nil {
-		if errors.Is(err, htlcswitch.ErrAttemptEntriesExist) {
-			return nil, status.Errorf(
-				codes.FailedPrecondition,
-				"unable to disable remote router: %v",
-				err,
-			)
-		}
-
-		return nil, status.Errorf(
-			codes.Internal,
-			"unable to disable remote router: %v", err,
-		)
-	}
-
-	return &DisableRemoteRouterResponse{}, nil
 }
 
 // marshallFailureDetails creates the FailureDetails message for the

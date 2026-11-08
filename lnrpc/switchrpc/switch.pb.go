@@ -1416,78 +1416,6 @@ func (x *AttemptDeletionResult) GetStatus() AttemptDeletionStatus {
 	return AttemptDeletionStatus_DELETION_OK
 }
 
-type DisableRemoteRouterRequest struct {
-	state         protoimpl.MessageState `protogen:"open.v1"`
-	unknownFields protoimpl.UnknownFields
-	sizeCache     protoimpl.SizeCache
-}
-
-func (x *DisableRemoteRouterRequest) Reset() {
-	*x = DisableRemoteRouterRequest{}
-	mi := &file_switchrpc_switch_proto_msgTypes[19]
-	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
-	ms.StoreMessageInfo(mi)
-}
-
-func (x *DisableRemoteRouterRequest) String() string {
-	return protoimpl.X.MessageStringOf(x)
-}
-
-func (*DisableRemoteRouterRequest) ProtoMessage() {}
-
-func (x *DisableRemoteRouterRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_switchrpc_switch_proto_msgTypes[19]
-	if x != nil {
-		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
-		if ms.LoadMessageInfo() == nil {
-			ms.StoreMessageInfo(mi)
-		}
-		return ms
-	}
-	return mi.MessageOf(x)
-}
-
-// Deprecated: Use DisableRemoteRouterRequest.ProtoReflect.Descriptor instead.
-func (*DisableRemoteRouterRequest) Descriptor() ([]byte, []int) {
-	return file_switchrpc_switch_proto_rawDescGZIP(), []int{19}
-}
-
-type DisableRemoteRouterResponse struct {
-	state         protoimpl.MessageState `protogen:"open.v1"`
-	unknownFields protoimpl.UnknownFields
-	sizeCache     protoimpl.SizeCache
-}
-
-func (x *DisableRemoteRouterResponse) Reset() {
-	*x = DisableRemoteRouterResponse{}
-	mi := &file_switchrpc_switch_proto_msgTypes[20]
-	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
-	ms.StoreMessageInfo(mi)
-}
-
-func (x *DisableRemoteRouterResponse) String() string {
-	return protoimpl.X.MessageStringOf(x)
-}
-
-func (*DisableRemoteRouterResponse) ProtoMessage() {}
-
-func (x *DisableRemoteRouterResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_switchrpc_switch_proto_msgTypes[20]
-	if x != nil {
-		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
-		if ms.LoadMessageInfo() == nil {
-			ms.StoreMessageInfo(mi)
-		}
-		return ms
-	}
-	return mi.MessageOf(x)
-}
-
-// Deprecated: Use DisableRemoteRouterResponse.ProtoReflect.Descriptor instead.
-func (*DisableRemoteRouterResponse) Descriptor() ([]byte, []int) {
-	return file_switchrpc_switch_proto_rawDescGZIP(), []int{20}
-}
-
 var File_switchrpc_switch_proto protoreflect.FileDescriptor
 
 const file_switchrpc_switch_proto_rawDesc = "" +
@@ -1575,22 +1503,19 @@ const file_switchrpc_switch_proto_rawDesc = "" +
 	"\aresults\x18\x01 \x03(\v2 .switchrpc.AttemptDeletionResultR\aresults\"z\n" +
 	"\x15AttemptDeletionResult\x12'\n" +
 	"\x03key\x18\x04 \x01(\v2\x15.switchrpc.AttemptKeyR\x03key\x128\n" +
-	"\x06status\x18\x02 \x01(\x0e2 .switchrpc.AttemptDeletionStatusR\x06status\"\x1c\n" +
-	"\x1aDisableRemoteRouterRequest\"\x1d\n" +
-	"\x1bDisableRemoteRouterResponse*k\n" +
+	"\x06status\x18\x02 \x01(\x0e2 .switchrpc.AttemptDeletionStatusR\x06status*k\n" +
 	"\x15AttemptDeletionStatus\x12\x0f\n" +
 	"\vDELETION_OK\x10\x00\x12\x14\n" +
 	"\x10DELETION_PENDING\x10\x01\x12\x16\n" +
 	"\x12DELETION_NOT_FOUND\x10\x02\x12\x13\n" +
-	"\x0fDELETION_FAILED\x10\x032\xa3\x03\n" +
+	"\x0fDELETION_FAILED\x10\x032\xbd\x02\n" +
 	"\x06Switch\x12F\n" +
 	"\tSendOnion\x12\x1b.switchrpc.SendOnionRequest\x1a\x1c.switchrpc.SendOnionResponse\x12I\n" +
 	"\n" +
 	"TrackOnion\x12\x1c.switchrpc.TrackOnionRequest\x1a\x1d.switchrpc.TrackOnionResponse\x12I\n" +
 	"\n" +
 	"BuildOnion\x12\x1c.switchrpc.BuildOnionRequest\x1a\x1d.switchrpc.BuildOnionResponse\x12U\n" +
-	"\x0eDeleteAttempts\x12 .switchrpc.DeleteAttemptsRequest\x1a!.switchrpc.DeleteAttemptsResponse\x12d\n" +
-	"\x13DisableRemoteRouter\x12%.switchrpc.DisableRemoteRouterRequest\x1a&.switchrpc.DisableRemoteRouterResponseB1Z/github.com/lightningnetwork/lnd/lnrpc/switchrpcb\x06proto3"
+	"\x0eDeleteAttempts\x12 .switchrpc.DeleteAttemptsRequest\x1a!.switchrpc.DeleteAttemptsResponseB1Z/github.com/lightningnetwork/lnd/lnrpc/switchrpcb\x06proto3"
 
 var (
 	file_switchrpc_switch_proto_rawDescOnce sync.Once
@@ -1605,36 +1530,34 @@ func file_switchrpc_switch_proto_rawDescGZIP() []byte {
 }
 
 var file_switchrpc_switch_proto_enumTypes = make([]protoimpl.EnumInfo, 1)
-var file_switchrpc_switch_proto_msgTypes = make([]protoimpl.MessageInfo, 22)
+var file_switchrpc_switch_proto_msgTypes = make([]protoimpl.MessageInfo, 20)
 var file_switchrpc_switch_proto_goTypes = []any{
-	(AttemptDeletionStatus)(0),          // 0: switchrpc.AttemptDeletionStatus
-	(*AttemptKey)(nil),                  // 1: switchrpc.AttemptKey
-	(*SendOnionRequest)(nil),            // 2: switchrpc.SendOnionRequest
-	(*SendOnionResponse)(nil),           // 3: switchrpc.SendOnionResponse
-	(*Accepted)(nil),                    // 4: switchrpc.Accepted
-	(*Rejected)(nil),                    // 5: switchrpc.Rejected
-	(*Ambiguous)(nil),                   // 6: switchrpc.Ambiguous
-	(*Mismatch)(nil),                    // 7: switchrpc.Mismatch
-	(*TrackOnionRequest)(nil),           // 8: switchrpc.TrackOnionRequest
-	(*TrackOnionResponse)(nil),          // 9: switchrpc.TrackOnionResponse
-	(*FailureDetails)(nil),              // 10: switchrpc.FailureDetails
-	(*ForwardingFailure)(nil),           // 11: switchrpc.ForwardingFailure
-	(*LocalFailure)(nil),                // 12: switchrpc.LocalFailure
-	(*SwitchError)(nil),                 // 13: switchrpc.SwitchError
-	(*UnreadableFailure)(nil),           // 14: switchrpc.UnreadableFailure
-	(*BuildOnionRequest)(nil),           // 15: switchrpc.BuildOnionRequest
-	(*BuildOnionResponse)(nil),          // 16: switchrpc.BuildOnionResponse
-	(*DeleteAttemptsRequest)(nil),       // 17: switchrpc.DeleteAttemptsRequest
-	(*DeleteAttemptsResponse)(nil),      // 18: switchrpc.DeleteAttemptsResponse
-	(*AttemptDeletionResult)(nil),       // 19: switchrpc.AttemptDeletionResult
-	(*DisableRemoteRouterRequest)(nil),  // 20: switchrpc.DisableRemoteRouterRequest
-	(*DisableRemoteRouterResponse)(nil), // 21: switchrpc.DisableRemoteRouterResponse
-	nil,                                 // 22: switchrpc.SendOnionRequest.CustomRecordsEntry
-	(*lnrpc.Route)(nil),                 // 23: lnrpc.Route
+	(AttemptDeletionStatus)(0),     // 0: switchrpc.AttemptDeletionStatus
+	(*AttemptKey)(nil),             // 1: switchrpc.AttemptKey
+	(*SendOnionRequest)(nil),       // 2: switchrpc.SendOnionRequest
+	(*SendOnionResponse)(nil),      // 3: switchrpc.SendOnionResponse
+	(*Accepted)(nil),               // 4: switchrpc.Accepted
+	(*Rejected)(nil),               // 5: switchrpc.Rejected
+	(*Ambiguous)(nil),              // 6: switchrpc.Ambiguous
+	(*Mismatch)(nil),               // 7: switchrpc.Mismatch
+	(*TrackOnionRequest)(nil),      // 8: switchrpc.TrackOnionRequest
+	(*TrackOnionResponse)(nil),     // 9: switchrpc.TrackOnionResponse
+	(*FailureDetails)(nil),         // 10: switchrpc.FailureDetails
+	(*ForwardingFailure)(nil),      // 11: switchrpc.ForwardingFailure
+	(*LocalFailure)(nil),           // 12: switchrpc.LocalFailure
+	(*SwitchError)(nil),            // 13: switchrpc.SwitchError
+	(*UnreadableFailure)(nil),      // 14: switchrpc.UnreadableFailure
+	(*BuildOnionRequest)(nil),      // 15: switchrpc.BuildOnionRequest
+	(*BuildOnionResponse)(nil),     // 16: switchrpc.BuildOnionResponse
+	(*DeleteAttemptsRequest)(nil),  // 17: switchrpc.DeleteAttemptsRequest
+	(*DeleteAttemptsResponse)(nil), // 18: switchrpc.DeleteAttemptsResponse
+	(*AttemptDeletionResult)(nil),  // 19: switchrpc.AttemptDeletionResult
+	nil,                            // 20: switchrpc.SendOnionRequest.CustomRecordsEntry
+	(*lnrpc.Route)(nil),            // 21: lnrpc.Route
 }
 var file_switchrpc_switch_proto_depIdxs = []int32{
 	1,  // 0: switchrpc.SendOnionRequest.key:type_name -> switchrpc.AttemptKey
-	22, // 1: switchrpc.SendOnionRequest.custom_records:type_name -> switchrpc.SendOnionRequest.CustomRecordsEntry
+	20, // 1: switchrpc.SendOnionRequest.custom_records:type_name -> switchrpc.SendOnionRequest.CustomRecordsEntry
 	4,  // 2: switchrpc.SendOnionResponse.accepted:type_name -> switchrpc.Accepted
 	5,  // 3: switchrpc.SendOnionResponse.rejected:type_name -> switchrpc.Rejected
 	6,  // 4: switchrpc.SendOnionResponse.ambiguous:type_name -> switchrpc.Ambiguous
@@ -1645,7 +1568,7 @@ var file_switchrpc_switch_proto_depIdxs = []int32{
 	11, // 9: switchrpc.FailureDetails.forwarding_failure:type_name -> switchrpc.ForwardingFailure
 	14, // 10: switchrpc.FailureDetails.unreadable_failure:type_name -> switchrpc.UnreadableFailure
 	13, // 11: switchrpc.FailureDetails.switch_error:type_name -> switchrpc.SwitchError
-	23, // 12: switchrpc.BuildOnionRequest.route:type_name -> lnrpc.Route
+	21, // 12: switchrpc.BuildOnionRequest.route:type_name -> lnrpc.Route
 	1,  // 13: switchrpc.DeleteAttemptsRequest.keys:type_name -> switchrpc.AttemptKey
 	19, // 14: switchrpc.DeleteAttemptsResponse.results:type_name -> switchrpc.AttemptDeletionResult
 	1,  // 15: switchrpc.AttemptDeletionResult.key:type_name -> switchrpc.AttemptKey
@@ -1654,14 +1577,12 @@ var file_switchrpc_switch_proto_depIdxs = []int32{
 	8,  // 18: switchrpc.Switch.TrackOnion:input_type -> switchrpc.TrackOnionRequest
 	15, // 19: switchrpc.Switch.BuildOnion:input_type -> switchrpc.BuildOnionRequest
 	17, // 20: switchrpc.Switch.DeleteAttempts:input_type -> switchrpc.DeleteAttemptsRequest
-	20, // 21: switchrpc.Switch.DisableRemoteRouter:input_type -> switchrpc.DisableRemoteRouterRequest
-	3,  // 22: switchrpc.Switch.SendOnion:output_type -> switchrpc.SendOnionResponse
-	9,  // 23: switchrpc.Switch.TrackOnion:output_type -> switchrpc.TrackOnionResponse
-	16, // 24: switchrpc.Switch.BuildOnion:output_type -> switchrpc.BuildOnionResponse
-	18, // 25: switchrpc.Switch.DeleteAttempts:output_type -> switchrpc.DeleteAttemptsResponse
-	21, // 26: switchrpc.Switch.DisableRemoteRouter:output_type -> switchrpc.DisableRemoteRouterResponse
-	22, // [22:27] is the sub-list for method output_type
-	17, // [17:22] is the sub-list for method input_type
+	3,  // 21: switchrpc.Switch.SendOnion:output_type -> switchrpc.SendOnionResponse
+	9,  // 22: switchrpc.Switch.TrackOnion:output_type -> switchrpc.TrackOnionResponse
+	16, // 23: switchrpc.Switch.BuildOnion:output_type -> switchrpc.BuildOnionResponse
+	18, // 24: switchrpc.Switch.DeleteAttempts:output_type -> switchrpc.DeleteAttemptsResponse
+	21, // [21:25] is the sub-list for method output_type
+	17, // [17:21] is the sub-list for method input_type
 	17, // [17:17] is the sub-list for extension type_name
 	17, // [17:17] is the sub-list for extension extendee
 	0,  // [0:17] is the sub-list for field type_name
@@ -1698,7 +1619,7 @@ func file_switchrpc_switch_proto_init() {
 			GoPackagePath: reflect.TypeOf(x{}).PkgPath(),
 			RawDescriptor: unsafe.Slice(unsafe.StringData(file_switchrpc_switch_proto_rawDesc), len(file_switchrpc_switch_proto_rawDesc)),
 			NumEnums:      1,
-			NumMessages:   22,
+			NumMessages:   20,
 			NumExtensions: 0,
 			NumServices:   1,
 		},

@@ -3324,30 +3324,26 @@ func TestFindBlindedPathsWithMC(t *testing.T) {
 	})
 }
 
-// TestResumePaymentsSkipsCleanStoreInExternalMode verifies that when
-// ExternalPaymentLifecycle is true, CleanStore is not called during
-// resumePayments. The external controller is responsible for cleaning the
-// attempt store.
-func TestResumePaymentsSkipsCleanStoreInExternalMode(t *testing.T) {
+// TestResumePaymentsCleansStore verifies that resumePayments always cleans the
+// attempt store, keeping the attempt IDs of in-flight payments. Attempts of an
+// external dispatcher are kept by the store itself.
+func TestResumePaymentsCleansStore(t *testing.T) {
 	t.Parallel()
 
 	mockControl := &mockControlTower{}
 	mockPayer := &mockPaymentAttemptDispatcher{}
 
-	// resumePayments calls FetchInFlightPayments before deciding
-	// whether to run CleanStore. Return an empty slice so no payment
-	// goroutines are launched.
+	// Return no in-flight payments so no payment goroutines are
+	// launched and the keep set is empty.
 	mockControl.On("FetchInFlightPayments").Return(
 		[]*paymentsdb.MPPayment{}, nil,
 	)
+	mockPayer.On("CleanStore", map[uint64]struct{}{}).Return(nil).Once()
 
 	rt := &ChannelRouter{
 		cfg: &Config{
 			Control: mockControl,
 			Payer:   mockPayer,
-
-			// This is the key: external mode is active.
-			ExternalPaymentLifecycle: true,
 		},
 		quit: make(chan struct{}),
 	}
@@ -3355,8 +3351,6 @@ func TestResumePaymentsSkipsCleanStoreInExternalMode(t *testing.T) {
 	err := rt.resumePayments()
 	require.NoError(t, err)
 
-	// CleanStore should NOT have been called.
-	mockPayer.AssertNotCalled(t, "CleanStore", mock.Anything)
-
+	mockPayer.AssertExpectations(t)
 	mockControl.AssertExpectations(t)
 }

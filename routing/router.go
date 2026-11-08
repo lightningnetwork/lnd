@@ -338,11 +338,6 @@ type Config struct {
 	// Defaults to noOpReconcile when not set, preserving standard
 	// lnd behavior where the router and switch share a crash domain.
 	ReconcileAttempt ReconcileFunc
-
-	// ExternalPaymentLifecycle indicates that the payment lifecycle is
-	// managed by an external entity, and the dispatcher's payment store
-	// should not be cleaned on startup.
-	ExternalPaymentLifecycle bool
 }
 
 // EdgeLocator is a struct used to identify a specific edge.
@@ -1526,19 +1521,9 @@ func (r *ChannelRouter) resumePayments() error {
 		}
 	}
 
-	// When the payment life-cycle is managed by an external entity, we
-	// must not clean the attempt store on startup. The external controller
-	// relies on HTLC attempt information persisted by the dispatcher to
-	// resume its payment lifecycle and will need to coordinate all cleanup
-	// operations itself.
-	if !r.cfg.ExternalPaymentLifecycle {
-		log.Debugf("Cleaning network result store.")
-		if err := r.cfg.Payer.CleanStore(toKeep); err != nil {
-			return err
-		}
-	} else {
-		log.Infof("Dispatcher attempt store cleanup disabled. " +
-			"Attempt information must be cleaned remotely.")
+	log.Debugf("Cleaning network result store.")
+	if err := r.cfg.Payer.CleanStore(toKeep); err != nil {
+		return err
 	}
 
 	// launchPayment is a helper closure that handles resuming the payment.

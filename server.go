@@ -31,7 +31,6 @@ import (
 	"github.com/lightningnetwork/lnd/aliasmgr"
 	"github.com/lightningnetwork/lnd/autopilot"
 	"github.com/lightningnetwork/lnd/brontide"
-	"github.com/lightningnetwork/lnd/build"
 	"github.com/lightningnetwork/lnd/chainio"
 	"github.com/lightningnetwork/lnd/chainreg"
 	"github.com/lightningnetwork/lnd/chanacceptor"
@@ -1213,7 +1212,6 @@ func newServer(ctx context.Context, cfg *Config, listenAddrs []net.Addr,
 		ClosedSCIDs:               s.fetchClosedChannelSCIDs(),
 		TrafficShaper:             implCfg.TrafficShaper,
 		KeepFailedPaymentAttempts: cfg.KeepFailedPaymentAttempts,
-		ExternalPaymentLifecycle:  build.SwitchRPC,
 	})
 	if err != nil {
 		return nil, fmt.Errorf("can't create router: %w", err)

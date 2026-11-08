@@ -270,7 +270,8 @@ func testSendOnionKeyMismatch(ht *lntest.HarnessTest) {
 
 // testSendOnionRestart checks that the mapping from a client's key to the
 // gateway's internal attempt survives a restart of the gateway while the HTLC
-// is in flight, and that the attempt can then be tracked and deleted by key.
+// is in flight, that the settled result survives a second restart, and that
+// the attempt can then be tracked and deleted by key.
 func testSendOnionRestart(ht *lntest.HarnessTest) {
 	// Alice -> Bob -> Carol.
 	const chanAmt = btcutil.Amount(100_000)
@@ -315,6 +316,14 @@ func testSendOnionRestart(ht *lntest.HarnessTest) {
 	ht.AssertInvoiceSettled(carol, invoice.PaymentAddr)
 
 	trackResp := alice.RPC.TrackOnion(attempt.trackReq())
+	require.Equal(ht, preimage[:], trackResp.GetPreimage())
+
+	// Restart the gateway again with the attempt settled but not yet
+	// deleted. The router's startup cleanup must keep the indexed result,
+	// so the client can still read it.
+	ht.RestartNode(alice)
+
+	trackResp = alice.RPC.TrackOnion(attempt.trackReq())
 	require.Equal(ht, preimage[:], trackResp.GetPreimage())
 
 	// Delete the attempt by its key. The record and the key go together,

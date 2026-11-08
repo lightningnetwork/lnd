@@ -41,6 +41,7 @@ import (
 	"github.com/lightningnetwork/lnd/lnwire"
 	"github.com/lightningnetwork/lnd/ticker"
 	"github.com/lightningnetwork/lnd/tlv"
+	"github.com/stretchr/testify/mock"
 	"github.com/stretchr/testify/require"
 )
 
@@ -7036,6 +7037,104 @@ func TestChannelLinkExitHopExpiryAtMaximum(t *testing.T) {
 
 	ctx.receiveSettleAliceToBob()
 	ctx.receiveCommitSigAliceToBob(0)
+}
+
+// mockFwdFilterStore injects a forwarding-marker failure while keeping all
+// other channel storage operations on the real database.
+type mockFwdFilterStore struct {
+	cstate.Store
+	mock.Mock
+}
+
+// SetFwdFilter returns the arranged persistence failure before the marker
+// can make any exit-hop callback eligible to release a preimage.
+func (m *mockFwdFilterStore) SetFwdFilter(channel *cstate.OpenChannel,
+	height uint64, filter *cstate.PkgFilter) error {
+
+	args := m.Called(channel, height, filter)
+
+	return args.Error(0)
+}
+
+// Embedding the real store keeps the fault limited to the replay marker.
+var _ cstate.Store = (*mockFwdFilterStore)(nil)
+
+// TestChannelLinkExitSettlePersistence checks that a failed replay-marker
+// write cannot release an invoice preimage or send a fulfill to the peer.
+func TestChannelLinkExitSettlePersistence(t *testing.T) {
+	t.Parallel()
+
+	// Arrange a real invoice and channel, injecting a failure only in the
+	// incoming package marker write. All other storage operations still
+	// reach the actual channel database.
+	harness, err := newSingleLinkTestHarness(
+		t, btcutil.SatoshiPerBitcoin*5, 0,
+	)
+	require.NoError(t, err)
+	link, ok := harness.aliceLink.(*channelLink)
+	require.True(t, ok)
+	registry, ok := link.cfg.Registry.(*mockInvoiceRegistry)
+	require.True(t, ok)
+	peer, ok := link.cfg.Peer.(*mockPeer)
+	require.True(t, ok)
+	state := link.channel.State()
+	store := &mockFwdFilterStore{
+		Store: state.Db,
+	}
+	store.On("SetFwdFilter", state, uint64(1),
+		mock.AnythingOfType("*chanstate.PkgFilter")).
+		Return(fmt.Errorf("marker write failed")).Once()
+	state.Db = store
+	t.Cleanup(func() {
+		store.AssertExpectations(t)
+	})
+	failed := make(chan LinkFailureError, 1)
+	link.cfg.OnChannelFailure = func(_ lnwire.ChannelID,
+		_ lnwire.ShortChannelID, failure LinkFailureError) {
+
+		failed <- failure
+	}
+	htlc, invoice := generateHtlcAndInvoice(t, 0)
+	err = registry.AddInvoice(t.Context(), *invoice, htlc.PaymentHash)
+	require.NoError(t, err)
+	require.NoError(t, harness.start())
+	t.Cleanup(harness.aliceLink.Stop)
+	ctx := linkTestContext{
+		t:           t,
+		aliceSwitch: harness.aliceSwitch,
+		aliceLink:   harness.aliceLink,
+		aliceMsgs:   peer.sentMsgs,
+		bobChannel:  harness.bobChannel,
+	}
+
+	// Act by locking in the incoming HTLC through the normal commitment
+	// exchange, causing the link to process its forwarding package.
+	ctx.sendHtlcBobToAlice(htlc)
+	ctx.sendCommitSigBobToAlice(1)
+	ctx.receiveRevAndAckAliceToBob()
+	ctx.receiveCommitSigAliceToBob(1)
+	ctx.sendRevAndAckBobToAlice()
+
+	// Assert the persistence failure is observed before inspecting invoice
+	// state. Join the link before draining peer messages so a late fulfill
+	// cannot hide behind an immediate empty-channel observation.
+	select {
+	case failure := <-failed:
+		require.Equal(t, ErrInternalError, failure.code)
+	case <-time.After(wait.DefaultTimeout):
+		t.Fatal("missing marker failure")
+	}
+	harness.aliceLink.Stop()
+	for len(peer.sentMsgs) > 0 {
+		msg := <-peer.sentMsgs
+		_, fulfilled := msg.(*lnwire.UpdateFulfillHTLC)
+		require.False(t, fulfilled)
+	}
+	stored, err := registry.LookupInvoice(t.Context(), htlc.PaymentHash)
+	require.NoError(t, err)
+	require.Equal(t, invpkg.ContractOpen, stored.State)
+	require.Empty(t, stored.Htlcs)
+	require.Zero(t, stored.AmtPaid)
 }
 
 // TestChannelLinkRevocationWindowRegular asserts that htlcs paying to a regular

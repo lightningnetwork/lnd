@@ -3159,6 +3159,11 @@ func (l *channelLink) processRemoteAdds(fwdPkg *channeldb.FwdPkg) {
 
 	var switchPackets []*htlcPacket
 
+	// Exit-hop callbacks may release preimages. Delay them until the
+	// existing processed marker is durable, so restart bypasses onion
+	// replay rejection for any HTLC whose preimage we have released.
+	var exitHopCallbacks []func() error
+
 	for i, update := range unackedAdds {
 		idx := update.index
 		sourceRef := fwdPkg.SourceRef(idx)
@@ -3300,17 +3305,14 @@ func (l *channelLink) processRemoteAdds(fwdPkg *channeldb.FwdPkg) {
 
 		switch {
 		case fwdInfo.IsExit():
-			err := l.processExitHop(
-				add, sourceRef, obfuscator, fwdInfo,
-				heightNow, pld,
+			exitHopCallbacks = append(
+				exitHopCallbacks, func() error {
+					return l.processExitHop(
+						add, sourceRef, obfuscator,
+						fwdInfo, heightNow, pld,
+					)
+				},
 			)
-			if err != nil {
-				l.failf(LinkFailureError{
-					code: ErrInternalError,
-				}, "%v", err)
-
-				return
-			}
 
 		// There are additional channels left within this route. So
 		// we'll simply do some forwarding package book-keeping.
@@ -3483,6 +3485,19 @@ func (l *channelLink) processRemoteAdds(fwdPkg *channeldb.FwdPkg) {
 		if err != nil {
 			l.failf(LinkFailureError{code: ErrInternalError},
 				"unable to set fwd filter: %v", err)
+			return
+		}
+	}
+
+	// Run invoice callbacks synchronously in their original order, after
+	// the persistence barrier and before handing packets to the switch.
+	for _, callback := range exitHopCallbacks {
+		if err := callback(); err != nil {
+			l.failf(
+				LinkFailureError{code: ErrInternalError},
+				"%v", err,
+			)
+
 			return
 		}
 	}

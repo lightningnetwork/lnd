@@ -31,12 +31,16 @@ type forwardAction struct {
 }
 
 // deliverAction contains the information needed to deliver the payload to any
-// subscribers. Since we only support forwarding onion messages, this is only
-// needed in itest to verify correct handling and behavior.
+// subscribers.
 type deliverAction struct {
 	// payload contains the decoded payload for this hop, which may include
 	// custom records and routing information.
 	payload *lnwire.OnionMessagePayload
+
+	// pathID is the path_id in the recipient data of this hop. The creator
+	// of the blinded path sets it, so it is set only when the message
+	// arrived on a path that has one.
+	pathID []byte
 }
 
 type routingAction = fn.Either[forwardAction, deliverAction]
@@ -123,32 +127,13 @@ func createRoutingAction(ctx context.Context, resolver NodeIDResolver,
 	nextPathKey *btcec.PublicKey) (routingAction, error) {
 
 	if isForwarding(packet) {
-		var nextNodeID *btcec.PublicKey
-		if routeData.NextNodeID.IsSome() {
-			n, err := routeData.NextNodeID.UnwrapOrErr(
-				ErrNextNodeIdEmpty,
-			)
-			if err != nil {
-				return routingAction{}, err
-			}
-			nextNodeID = n.Val
-		} else {
-			scid, err := routeData.ShortChannelID.UnwrapOrErr(
-				ErrSCIDEmpty,
-			)
-			if err != nil {
-				return routingAction{}, err
-			}
-			nextNodeID, err = resolver.RemotePubFromSCID(
-				ctx, scid.Val,
-			)
-			if err != nil {
-				return routingAction{}, err
-			}
+		nextNodeID, err := nextNodeID(ctx, resolver, routeData)
+		if err != nil {
+			return routingAction{}, err
 		}
 
 		buf := new(bytes.Buffer)
-		err := packet.NextPacket.Encode(buf)
+		err = packet.NextPacket.Encode(buf)
 		if err != nil {
 			return routingAction{}, err
 		}
@@ -162,9 +147,37 @@ func createRoutingAction(ctx context.Context, resolver NodeIDResolver,
 		}), nil
 	}
 
+	var pathID []byte
+	routeData.PathID.WhenSome(func(r tlv.RecordT[tlv.TlvType6, []byte]) {
+		pathID = r.Val
+	})
+
 	return fn.NewRight[forwardAction](deliverAction{
 		payload: payload,
+		pathID:  pathID,
 	}), nil
+}
+
+// nextNodeID returns the key of the next node that the route data names, by
+// its node id or by a channel to it.
+func nextNodeID(ctx context.Context, resolver NodeIDResolver,
+	routeData *record.BlindedRouteData) (*btcec.PublicKey, error) {
+
+	if routeData.NextNodeID.IsSome() {
+		n, err := routeData.NextNodeID.UnwrapOrErr(ErrNextNodeIdEmpty)
+		if err != nil {
+			return nil, err
+		}
+
+		return n.Val, nil
+	}
+
+	scid, err := routeData.ShortChannelID.UnwrapOrErr(ErrSCIDEmpty)
+	if err != nil {
+		return nil, err
+	}
+
+	return resolver.RemotePubFromSCID(ctx, scid.Val)
 }
 
 // deriveNextPathKey derives the next path key using the router and current

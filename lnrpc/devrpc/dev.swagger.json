@@ -16,6 +16,39 @@
     "application/json"
   ],
   "paths": {
+    "/v2/dev/createoffer": {
+      "post": {
+        "summary": "lncli: `createoffer`\nCreateOffer creates a new BOLT 12 offer. The offer is persisted in the\noffer store and the encoded offer string (lno1...) is returned. The node\nmust run with --protocol.bolt12-offers.",
+        "operationId": "Dev_CreateOffer",
+        "responses": {
+          "200": {
+            "description": "A successful response.",
+            "schema": {
+              "$ref": "#/definitions/devrpcCreateOfferResponse"
+            }
+          },
+          "default": {
+            "description": "An unexpected error response.",
+            "schema": {
+              "$ref": "#/definitions/rpcStatus"
+            }
+          }
+        },
+        "parameters": [
+          {
+            "name": "body",
+            "in": "body",
+            "required": true,
+            "schema": {
+              "$ref": "#/definitions/devrpcCreateOfferRequest"
+            }
+          }
+        ],
+        "tags": [
+          "Dev"
+        ]
+      }
+    },
     "/v2/dev/importgraph": {
       "post": {
         "summary": "lncli: `importgraph`\nImportGraph imports a ChannelGraph into the graph database. Should only be\nused for development.",
@@ -85,6 +118,44 @@
     }
   },
   "definitions": {
+    "devrpcCreateOfferRequest": {
+      "type": "object",
+      "properties": {
+        "description": {
+          "type": "string",
+          "description": "A UTF-8 description of the purpose of the payment. Required when\namount_msat is set."
+        },
+        "amount_msat": {
+          "type": "string",
+          "format": "uint64",
+          "description": "The amount expected per item in millisatoshis. Zero or unset means\nthe payer chooses the amount."
+        },
+        "absolute_expiry": {
+          "type": "string",
+          "format": "uint64",
+          "description": "Seconds since epoch after which the offer expires. Zero or unset\nmeans no expiry."
+        },
+        "quantity_max": {
+          "type": "string",
+          "format": "uint64",
+          "description": "Maximum number of items that can be requested in a single invoice.\nZero means unlimited. If not set, quantity selection is not\nsupported."
+        }
+      }
+    },
+    "devrpcCreateOfferResponse": {
+      "type": "object",
+      "properties": {
+        "offer": {
+          "type": "string",
+          "description": "The bech32-encoded offer string (lno1...)."
+        },
+        "offer_hash": {
+          "type": "string",
+          "format": "byte",
+          "description": "The 32-byte offer hash: the SHA256 of the offer's TLV records."
+        }
+      }
+    },
     "devrpcImportGraphResponse": {
       "type": "object"
     },

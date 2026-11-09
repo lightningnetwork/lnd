@@ -180,7 +180,7 @@ func TestChainArbitratorFiltersOpenChannels(t *testing.T) {
 
 	db := channeldb.OpenForTesting(t, t.TempDir())
 	channels := make([]*chanstate.OpenChannel, 0, 2)
-	for i := 0; i < 2; i++ {
+	for i := range 2 {
 		lightningChannel, _, err := lnwallet.CreateTestChannels(
 			t, channeldb.SingleFunderTweaklessBit,
 		)

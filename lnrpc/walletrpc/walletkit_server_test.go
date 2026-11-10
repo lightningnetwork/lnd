@@ -26,26 +26,46 @@ import (
 	"github.com/lightningnetwork/lnd/lnwallet"
 	"github.com/lightningnetwork/lnd/lnwallet/chainfee"
 	"github.com/lightningnetwork/lnd/lnwallet/chanfunding"
+	testifymock "github.com/stretchr/testify/mock"
 	"github.com/stretchr/testify/require"
+	"google.golang.org/protobuf/encoding/protowire"
+	"google.golang.org/protobuf/proto"
 )
 
-// TestMarshallLeasesIncludesSpendProgress verifies that ListLeases exposes
-// each confirmation-controlled lease's persisted spend progress.
+// TestMarshallLeasesIncludesSpendProgress verifies that lease responses
+// report the no-expiry lifetime alongside the stored spend height.
 func TestMarshallLeasesIncludesSpendProgress(t *testing.T) {
 	t.Parallel()
 
-	testCases := []int32{0, 123, -1}
-	for _, spendHeight := range testCases {
-		testName := fmt.Sprintf("height %d", spendHeight)
+	testCases := []struct {
+		depth       uint32
+		spendHeight int32
+		noExpiry    bool
+	}{
+		{
+			depth:       0,
+			spendHeight: 0,
+			noExpiry:    false,
+		},
+		{
+			depth:       1,
+			spendHeight: 123,
+			noExpiry:    true,
+		},
+	}
+	for _, testCase := range testCases {
+		testName := fmt.Sprintf("depth %d", testCase.depth)
 		t.Run(testName, func(t *testing.T) {
 			t.Parallel()
 
+			// Arrange timed and no-expiry wallet lifetimes so their
+			// response flags can distinguish them without a count.
 			lockedOutput := &wtxmgr.LockedOutput{
 				Outpoint:               wire.OutPoint{Index: 2},
 				LockID:                 wtxmgr.LockID{1},
 				Expiration:             time.Unix(123, 0),
-				ReleaseAfterSpendConfs: 6,
-				ConfirmedSpendHeight:   spendHeight,
+				ReleaseAfterSpendConfs: testCase.depth,
+				ConfirmedSpendHeight:   testCase.spendHeight,
 			}
 			locks := []*wallet.ListLeasedOutputResult{{
 				LockedOutput: lockedOutput,
@@ -53,10 +73,18 @@ func TestMarshallLeasesIncludesSpendProgress(t *testing.T) {
 				PkScript:     []byte{0x51},
 			}}
 
+			// Act by converting the same lease metadata returned by
+			// funding and listing through their shared marshaller.
 			rpcLocks := marshallLeases(locks)
+
+			// Assert the boolean reports the lifetime and preserves
+			// the independent spend-height readback.
 			require.Len(t, rpcLocks, 1)
 			require.Equal(
-				t, spendHeight,
+				t, testCase.noExpiry, rpcLocks[0].NoExpiry,
+			)
+			require.Equal(
+				t, testCase.spendHeight,
 				rpcLocks[0].ConfirmedSpendHeight,
 			)
 		})
@@ -104,20 +132,138 @@ type mockCoinSelectionLocker struct {
 	fail bool
 }
 
-// renewalWallet returns a persisted lease after extending it through the
-// legacy lease method.
-type renewalWallet struct {
-	*leaseOptionsWallet
-
-	leases  []*wallet.ListLeasedOutputResult
-	listErr error
+// noExpiryLeaseWallet checks lease acquisition and renewal through the public
+// handler without substituting another implementation of lease lifetime rules.
+type noExpiryLeaseWallet struct {
+	lnwallet.WalletController
+	testifymock.Mock
 }
 
-// ListLeasedOutputs returns the persisted leases visible after renewal.
-func (w *renewalWallet) ListLeasedOutputs() (
+var _ lnwallet.OutputLeaserWithOptions = (*noExpiryLeaseWallet)(nil)
+
+// LeaseOutput models renewal through the existing zero-option wallet path.
+func (w *noExpiryLeaseWallet) LeaseOutput(id wtxmgr.LockID, op wire.OutPoint,
+	duration time.Duration) (time.Time, error) {
+
+	args := w.Called(id, op, duration)
+	expiration, _ := args.Get(0).(time.Time)
+	return expiration, args.Error(1)
+}
+
+// LeaseOutputWithOptions checks the persisted lifetime requested by the RPC.
+func (w *noExpiryLeaseWallet) LeaseOutputWithOptions(id wtxmgr.LockID,
+	op wire.OutPoint, duration time.Duration,
+	opts lnwallet.LeaseOutputOptions) (time.Time, error) {
+
+	args := w.Called(id, op, duration, opts)
+	expiration, _ := args.Get(0).(time.Time)
+	return expiration, args.Error(1)
+}
+
+// ListLeasedOutputs provides the effective policy after a same-owner renewal.
+func (w *noExpiryLeaseWallet) ListLeasedOutputs() (
 	[]*wallet.ListLeasedOutputResult, error) {
 
-	return w.leases, w.listErr
+	args := w.Called()
+	leases, _ := args.Get(0).([]*wallet.ListLeasedOutputResult)
+	return leases, args.Error(1)
+}
+
+// TestLeaseOutputNoExpiry verifies the explicit flag acquires the wallet's
+// no-timeout lifetime and reports that policy to clients.
+func TestLeaseOutputNoExpiry(t *testing.T) {
+	t.Parallel()
+
+	// Arrange an exact wallet expectation and use the real coin-selection
+	// mutex so only the optional wallet capability needs to be mocked.
+	id := wtxmgr.LockID{1}
+	op := wire.OutPoint{Index: 1}
+	controller := &noExpiryLeaseWallet{}
+	defer controller.AssertExpectations(t)
+	controller.On(
+		"LeaseOutputWithOptions", id, op,
+		chanfunding.DefaultLockDuration,
+		lnwallet.LeaseOutputOptions{ReleaseAfterSpendConfs: 1},
+	).Return(time.Unix(123, 0), nil).Once()
+	server := &WalletKit{cfg: &Config{
+		Wallet:              controller,
+		CoinSelectionLocker: &lnwallet.LightningWallet{},
+	}}
+
+	// Act with no duration: the flag alone chooses the
+	// persisted reservation, without requiring a user-supplied count.
+	resp, err := server.LeaseOutput(t.Context(), &LeaseOutputRequest{
+		Id: id[:],
+		Outpoint: &lnrpc.OutPoint{
+			TxidBytes:   op.Hash[:],
+			OutputIndex: op.Index,
+		},
+		NoExpiry: true,
+	})
+
+	// Assert the new response field acknowledges the installed policy;
+	// deferred mock verification checks the exact owner and lifetime once.
+	require.NoError(t, err)
+	require.True(t, resp.NoExpiry)
+}
+
+// TestLeaseOutputRejectsNoExpiryConflicts verifies both lease RPCs reject
+// competing lifetime settings before touching wallet state.
+func TestLeaseOutputRejectsNoExpiryConflicts(t *testing.T) {
+	t.Parallel()
+
+	// Arrange without a wallet so validation must reject the conflicting
+	// lifetimes before either handler can acquire a reservation.
+	server := &WalletKit{cfg: &Config{}}
+
+	// Act through both public request forms with a duration that cannot
+	// apply to the explicitly requested no-expiry lifetime.
+	_, leaseErr := server.LeaseOutput(t.Context(), &LeaseOutputRequest{
+		Id: bytes.Repeat([]byte{1}, 32),
+		Outpoint: &lnrpc.OutPoint{
+			TxidBytes: make([]byte, 32),
+		},
+		NoExpiry:          true,
+		ExpirationSeconds: 1,
+	})
+	_, fundErr := server.FundPsbt(t.Context(), &FundPsbtRequest{
+		InputLeaseNoExpiry:    true,
+		LockExpirationSeconds: 1,
+	})
+
+	// Assert both handlers expose the shared identity, so clients and
+	// regression coverage do not depend on diagnostic wording.
+	require.ErrorIs(t, leaseErr, errLeaseLifetimeConflict)
+	require.ErrorIs(t, fundErr, errLeaseLifetimeConflict)
+}
+
+// TestLeaseOutputRejectsRetiredSpendConfs verifies old protobuf requests
+// fail explicitly at both lease entry points instead of selecting timed locks.
+func TestLeaseOutputRejectsRetiredSpendConfs(t *testing.T) {
+	t.Parallel()
+
+	// Arrange the old count value at each retired wire number. Ordinary
+	// decoding retains these bytes even though the fields are now reserved;
+	// no wallet is configured: rejection must need no acquisition.
+	leaseReq := &LeaseOutputRequest{}
+	leaseWire := protowire.AppendTag(nil, 4, protowire.VarintType)
+	leaseWire = protowire.AppendVarint(leaseWire, 3)
+	require.NoError(t, proto.Unmarshal(leaseWire, leaseReq))
+	fundReq := &FundPsbtRequest{}
+	fundWire := protowire.AppendTag(nil, 15, protowire.VarintType)
+	fundWire = protowire.AppendVarint(fundWire, 3)
+	require.NoError(t, proto.Unmarshal(fundWire, fundReq))
+	server := &WalletKit{cfg: &Config{}}
+
+	// Act through both public handlers with the decoded old requests, as
+	// gRPC would deliver them from clients using the removed parameters.
+	_, leaseErr := server.LeaseOutput(t.Context(), leaseReq)
+	_, fundErr := server.FundPsbt(t.Context(), fundReq)
+
+	// Assert the shared migration error before other validation or wallet
+	// work; error identity keeps this independent of diagnostic wording.
+	require.ErrorIs(t, leaseErr, errLeaseSpendConfsUnsupported)
+	require.ErrorIs(t, fundErr, errLeaseSpendConfsUnsupported)
 }
 
 // WithCoinSelectLock runs the callback and optionally returns a test error.
@@ -138,101 +284,142 @@ func (m *mockCoinSelectionLocker) WithCoinSelectLock(f func() error) error {
 func TestLeaseOutputRejectsUnsupportedOptions(t *testing.T) {
 	t.Parallel()
 
-	wallet := &legacyLeaseWallet{
-		WalletController: &mock.WalletController{},
-	}
-	rpcServer, _, err := New(&Config{
-		Wallet: &lnwallet.LightningWallet{
-			WalletController: wallet,
-		},
-		CoinSelectionLocker: &mockCoinSelectionLocker{},
-	})
-	require.NoError(t, err)
+	// Arrange a concrete wallet with no underlying optional leaser. The
+	// existing resolver must reject it without invoking a wallet method.
+	rpcServer := &WalletKit{cfg: &Config{
+		Wallet:              &lnwallet.LightningWallet{},
+		CoinSelectionLocker: &lnwallet.LightningWallet{},
+	}}
 
-	_, err = rpcServer.LeaseOutput(t.Context(), &LeaseOutputRequest{
+	// Act with only the no-expiry flag so a competing duration cannot
+	// obscure the missing wallet capability.
+	_, err := rpcServer.LeaseOutput(t.Context(), &LeaseOutputRequest{
 		Id: bytes.Repeat([]byte{1}, 32),
 		Outpoint: &lnrpc.OutPoint{
 			TxidBytes:   make([]byte, 32),
 			OutputIndex: 1,
 		},
-		ExpirationSeconds:      60,
-		ReleaseAfterSpendConfs: 6,
+		NoExpiry: true,
 	})
+
+	// Assert the capability error rather than accepting a timed fallback;
+	// the unconfigured wallet would fail if the handler called through it.
 	require.ErrorIs(t, err, errOutputLeaseOptionsUnsupported)
-	require.Zero(t, wallet.leaseCalls,
-		"unsupported options must not create a shorter legacy lease")
 }
 
-// TestLeaseOutputReturnsEffectiveRenewalDepth verifies that renewing an
-// existing confirmation-controlled lease through the legacy zero-depth path
-// reports the non-zero depth retained by the wallet.
+// TestLeaseOutputReturnsEffectiveRenewalDepth verifies a same-owner renewal
+// acknowledges the timed or no-expiry lifetime preserved by the wallet.
 func TestLeaseOutputReturnsEffectiveRenewalDepth(t *testing.T) {
 	t.Parallel()
 
-	lockID := wtxmgr.LockID{1}
-	outpoint := wire.OutPoint{Index: 1}
-	controller := &renewalWallet{
-		leaseOptionsWallet: &leaseOptionsWallet{
-			WalletController: &mock.WalletController{},
+	testCases := []struct {
+		depth    uint32
+		noExpiry bool
+	}{
+		{
+			depth:    1,
+			noExpiry: true,
 		},
-		leases: []*wallet.ListLeasedOutputResult{{
-			LockedOutput: &wtxmgr.LockedOutput{
+		{
+			depth:    0,
+			noExpiry: false,
+		},
+	}
+	for _, testCase := range testCases {
+		name := fmt.Sprintf("depth %d", testCase.depth)
+		t.Run(name, func(t *testing.T) {
+			t.Parallel()
+
+			// Arrange a zero-option renewal and one readback of its
+			// stored lifetime, with the real coin-selection mutex.
+			lockID := wtxmgr.LockID{1}
+			outpoint := wire.OutPoint{Index: 1}
+			controller := &noExpiryLeaseWallet{}
+			defer controller.AssertExpectations(t)
+			controller.On(
+				"LeaseOutput", lockID, outpoint, time.Minute,
+			).Return(time.Unix(123, 0), nil).Once()
+			lockedOutput := &wtxmgr.LockedOutput{
 				Outpoint:               outpoint,
 				LockID:                 lockID,
-				ReleaseAfterSpendConfs: 6,
-			},
-		}},
-	}
-	rpcServer, _, err := New(&Config{
-		Wallet:              controller,
-		CoinSelectionLocker: &mockCoinSelectionLocker{},
-	})
-	require.NoError(t, err)
+				ReleaseAfterSpendConfs: testCase.depth,
+			}
+			leases := []*wallet.ListLeasedOutputResult{
+				{
+					LockedOutput: lockedOutput,
+				},
+			}
+			controller.On("ListLeasedOutputs").Return(
+				leases, nil,
+			).Once()
+			locker := &lnwallet.LightningWallet{}
+			server := &WalletKit{cfg: &Config{
+				Wallet:              controller,
+				CoinSelectionLocker: locker,
+			}}
 
-	resp, err := rpcServer.LeaseOutput(t.Context(), &LeaseOutputRequest{
-		Id: lockID[:],
-		Outpoint: &lnrpc.OutPoint{
-			TxidBytes:   make([]byte, 32),
-			OutputIndex: outpoint.Index,
-		},
-		ExpirationSeconds: 60,
-	})
-	require.NoError(t, err)
-	require.Equal(t, uint32(6), resp.ReleaseAfterSpendConfs)
-	require.Equal(t, 1, controller.legacyCalls)
+			// Act without a new policy: the existing lease
+			// must keep its persisted lifetime on this renewal.
+			resp, err := server.LeaseOutput(
+				t.Context(), &LeaseOutputRequest{
+					Id: lockID[:],
+					Outpoint: &lnrpc.OutPoint{
+						TxidBytes:   outpoint.Hash[:],
+						OutputIndex: outpoint.Index,
+					},
+					ExpirationSeconds: 60,
+				},
+			)
+
+			// Assert the boolean describes the retained lifetime,
+			// even though the renewal omitted the no-expiry flag.
+			require.NoError(t, err)
+			require.Equal(t, testCase.noExpiry, resp.NoExpiry)
+		})
+	}
 }
 
-// TestLeaseOutputIgnoresRenewalDepthReadError verifies an informational depth
-// lookup cannot prevent a successful legacy lease.
+// TestLeaseOutputIgnoresRenewalDepthReadError verifies that failed policy
+// readback cannot turn successful lease acquisition into an RPC failure.
 func TestLeaseOutputIgnoresRenewalDepthReadError(t *testing.T) {
 	t.Parallel()
 
+	// Arrange a successful renewal followed by failed policy readback.
+	// Reuse the wallet mock so both calls are checked without another
+	// implementation of the wallet interface.
 	lockID := wtxmgr.LockID{1}
-	controller := &renewalWallet{
-		leaseOptionsWallet: &leaseOptionsWallet{
-			WalletController: &mock.WalletController{},
-		},
-		listErr: errors.New("list leases failed"),
-	}
-	rpcServer, _, err := New(&Config{
+	outpoint := wire.OutPoint{}
+	controller := &noExpiryLeaseWallet{}
+	defer controller.AssertExpectations(t)
+	controller.On(
+		"LeaseOutput", lockID, outpoint, time.Minute,
+	).Return(time.Unix(123, 0), nil).Once()
+	controller.On("ListLeasedOutputs").Return(
+		[]*wallet.ListLeasedOutputResult(nil),
+		errors.New("list leases failed"),
+	).Once()
+	rpcServer := &WalletKit{cfg: &Config{
 		Wallet:              controller,
-		CoinSelectionLocker: &mockCoinSelectionLocker{},
-	})
-	require.NoError(t, err)
+		CoinSelectionLocker: &lnwallet.LightningWallet{},
+	}}
 
+	// Act through the timed renewal path, which reads the retained policy
+	// after the wallet has successfully acquired or extended the lease.
 	resp, err := rpcServer.LeaseOutput(t.Context(), &LeaseOutputRequest{
 		Id: lockID[:],
 		Outpoint: &lnrpc.OutPoint{
-			TxidBytes: make([]byte, 32),
+			TxidBytes: outpoint.Hash[:],
 		},
 		ExpirationSeconds: 60,
 	})
+
+	// Assert acquisition still succeeds without claiming an unverified
+	// no-expiry policy; deferred verification checks each wallet call once.
 	require.NoError(t, err)
-	require.Zero(t, resp.ReleaseAfterSpendConfs)
-	require.Equal(t, 1, controller.legacyCalls)
+	require.False(t, resp.NoExpiry)
 }
 
-// TestFundPsbtRequiresCustomLockID verifies confirmation-controlled input
+// TestFundPsbtRequiresCustomLockID verifies no-expiry input
 // leases require an external, caller-specific owner ID.
 func TestFundPsbtRequiresCustomLockID(t *testing.T) {
 	t.Parallel()
@@ -240,22 +427,21 @@ func TestFundPsbtRequiresCustomLockID(t *testing.T) {
 	testCases := []struct {
 		name     string
 		lockID   []byte
-		expected string
+		expected error
 	}{
 		{
-			name: "missing",
-			expected: "custom lock ID required for " +
-				"confirmation-controlled",
+			name:     "missing",
+			expected: errMissingCustomLockID,
 		},
 		{
 			name:     "all zero",
 			lockID:   make([]byte, 32),
-			expected: "custom lock ID must not be all zeros",
+			expected: errZeroCustomLockID,
 		},
 		{
 			name:     "reserved internal",
 			lockID:   chanfunding.LndInternalLockID[:],
-			expected: "reserved custom lock ID cannot be used",
+			expected: errReservedCustomLockID,
 		},
 	}
 
@@ -263,14 +449,22 @@ func TestFundPsbtRequiresCustomLockID(t *testing.T) {
 		t.Run(testCase.name, func(t *testing.T) {
 			t.Parallel()
 
+			// Arrange a no-expiry request with an unsafe owner and
+			// no wallet, requiring rejection before acquisition.
 			server := &WalletKit{cfg: &Config{}}
 			req := &FundPsbtRequest{
-				InputReleaseAfterSpendConfs: 6,
+				InputLeaseNoExpiry: true,
+				CustomLockId:       testCase.lockID,
 			}
-			req.CustomLockId = testCase.lockID
 
+			// Act before template validation or funding can obscure
+			// the owner-ID rejection.
 			_, err := server.FundPsbt(t.Context(), req)
-			require.ErrorContains(t, err, testCase.expected)
+
+			// Assert each invalid identity is rejected, requiring a
+			// caller-specific owner for a persistent reservation.
+			// Compare identities without matching message text.
+			require.ErrorIs(t, err, testCase.expected)
 		})
 	}
 }

@@ -30,7 +30,7 @@ func (c *readWriteCursor) First() (key, value []byte) {
 	// Get the first key with the value prefix.
 	kv, err := c.bucket.tx.stm.First(c.prefix)
 	if err != nil {
-		// TODO: revise this once kvdb interface supports errors
+		c.bucket.tx.recordReadError(err)
 		return nil, nil
 	}
 
@@ -47,7 +47,7 @@ func (c *readWriteCursor) First() (key, value []byte) {
 func (c *readWriteCursor) Last() (key, value []byte) {
 	kv, err := c.bucket.tx.stm.Last(c.prefix)
 	if err != nil {
-		// TODO: revise this once kvdb interface supports errors
+		c.bucket.tx.recordReadError(err)
 		return nil, nil
 	}
 
@@ -64,7 +64,7 @@ func (c *readWriteCursor) Last() (key, value []byte) {
 func (c *readWriteCursor) Next() (key, value []byte) {
 	kv, err := c.bucket.tx.stm.Next(c.prefix, c.currKey)
 	if err != nil {
-		// TODO: revise this once kvdb interface supports errors
+		c.bucket.tx.recordReadError(err)
 		return nil, nil
 	}
 
@@ -81,7 +81,7 @@ func (c *readWriteCursor) Next() (key, value []byte) {
 func (c *readWriteCursor) Prev() (key, value []byte) {
 	kv, err := c.bucket.tx.stm.Prev(c.prefix, c.currKey)
 	if err != nil {
-		// TODO: revise this once kvdb interface supports errors
+		c.bucket.tx.recordReadError(err)
 		return nil, nil
 	}
 
@@ -101,7 +101,7 @@ func (c *readWriteCursor) Seek(seek []byte) (key, value []byte) {
 	// STM will seek to the next matching key with prefix.
 	kv, err := c.bucket.tx.stm.Seek(c.prefix, c.prefix+string(seek))
 	if err != nil {
-		// TODO: revise this once kvdb interface supports errors
+		c.bucket.tx.recordReadError(err)
 		return nil, nil
 	}
 

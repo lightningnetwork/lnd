@@ -686,7 +686,17 @@ func TestSweepPendingInputs(t *testing.T) {
 	setNeedWallet.On("StartingFeeRate").Return(
 		fn.None[chainfee.SatPerKWeight]()).Once()
 	setNeedWallet.On("Immediate").Return(false).Once()
-	normalSet.On("Inputs").Return(nil).Times(2)
+	// Arrange one exclusive input in the ordinary set so publication must
+	// carry its group even if a later attempt removes the tracked entry.
+	group := uint64(7)
+	anchor := createTestInput(10_000, input.WitnessKeyHash)
+	s.inputs[anchor.OutPoint()] = &SweeperInput{
+		Input: &anchor,
+		params: Params{
+			ExclusiveGroup: &group,
+		},
+	}
+	normalSet.On("Inputs").Return([]input.Input{&anchor}).Times(2)
 	normalSet.On("DeadlineHeight").Return(testHeight).Once()
 	normalSet.On("Budget").Return(btcutil.Amount(1)).Once()
 	normalSet.On("StartingFeeRate").Return(
@@ -702,8 +712,14 @@ func TestSweepPendingInputs(t *testing.T) {
 		setNeedWallet, normalSet,
 	}).Once()
 
-	// Mock `Broadcast` to return a result.
-	publisher.On("Broadcast", mock.Anything).Return(nil).Twice()
+	// Arrange exact publication calls: ordinary requests have no group,
+	// while the exclusive request preserves its original identity.
+	publisher.On("Broadcast", mock.MatchedBy(func(req *BumpRequest) bool {
+		return req.ExclusiveGroup == nil
+	})).Return(nil).Once()
+	publisher.On("Broadcast", mock.MatchedBy(func(req *BumpRequest) bool {
+		return req.ExclusiveGroup != nil && *req.ExclusiveGroup == group
+	})).Return(nil).Once()
 
 	// Act by sweeping the clusters through their configured publisher.
 	s.sweepPendingInputs(pis, nil)

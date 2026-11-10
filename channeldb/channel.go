@@ -2917,6 +2917,14 @@ func SerializeHtlcs(b io.Writer, htlcs ...HTLC) error {
 		copy(onionAndExtraData, htlc.OnionBlob[:])
 		copy(onionAndExtraData[lnwire.OnionPacketSize:], htlc.ExtraData)
 
+		// Refuse to write an HTLC that the reader would reject, as a
+		// single unreadable HTLC makes the whole channel unreadable.
+		if len(onionAndExtraData) > maxVarBytesLen {
+			return fmt.Errorf("htlc onion and extra data too "+
+				"large: %d > max %d", len(onionAndExtraData),
+				maxVarBytesLen)
+		}
+
 		if err := WriteElements(b,
 			htlc.Signature, htlc.RHash, htlc.Amt, htlc.RefundTimeout,
 			htlc.OutputIndex, htlc.Incoming, onionAndExtraData,

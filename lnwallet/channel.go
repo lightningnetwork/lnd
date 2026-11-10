@@ -5279,7 +5279,10 @@ func genHtlcSigValidationJobs(chanState *channeldb.OpenChannel,
 			SigHash:   sigHash,
 		})
 
-		if len(auxHtlcSigs) > i {
+		// Only taproot overlay channels carry aux signatures, so we
+		// don't attach or persist aux data a peer sends for any other
+		// channel type. This matches the per-HTLC count check below.
+		if chanType.HasTapscriptRoot() && len(auxHtlcSigs) > i {
 			auxSig := auxHtlcSigs[i]
 			auxVerifyJob := NewAuxVerifyJob(
 				auxSig, *keyRing, incoming,
@@ -8714,6 +8717,8 @@ type chanCloseOpt struct {
 	customLockTime fn.Option[uint32]
 
 	customPayer fn.Option[lntypes.ChannelParty]
+
+	omitRemoteOutput bool
 }
 
 // ChanCloseOpt is a closure type that cen be used to modify the set of default
@@ -8731,6 +8736,13 @@ func defaultCloseOpts() *chanCloseOpt {
 func WithCoopCloseMusigSession(session *MusigSession) ChanCloseOpt {
 	return func(opts *chanCloseOpt) {
 		opts.musigSession = session
+	}
+}
+
+// WithOmittedRemoteCloseOutput omits the remote party's closing output.
+func WithOmittedRemoteCloseOutput() ChanCloseOpt {
+	return func(opts *chanCloseOpt) {
+		opts.omitRemoteOutput = true
 	}
 }
 
@@ -8829,6 +8841,9 @@ func (lc *LightningChannel) CreateCloseProposal(proposedFee btcutil.Amount,
 		closeTxOpts = append(closeTxOpts, WithExtraTxCloseOutputs(
 			opts.extraCloseOutputs,
 		))
+	}
+	if opts.omitRemoteOutput {
+		closeTxOpts = append(closeTxOpts, withOmittedRemoteTxOutput())
 	}
 	if opts.customSort != nil {
 		closeTxOpts = append(
@@ -8943,6 +8958,9 @@ func (lc *LightningChannel) CompleteCooperativeClose(
 		closeTxOpts = append(closeTxOpts, WithExtraTxCloseOutputs(
 			opts.extraCloseOutputs,
 		))
+	}
+	if opts.omitRemoteOutput {
+		closeTxOpts = append(closeTxOpts, withOmittedRemoteTxOutput())
 	}
 	if opts.customSort != nil {
 		closeTxOpts = append(
@@ -9729,6 +9747,8 @@ type closeTxOpts struct {
 	customSequence fn.Option[uint32]
 
 	customLockTime fn.Option[uint32]
+
+	omitRemoteOutput bool
 }
 
 // defaultCloseTxOpts returns a closeTxOpts struct with default values.
@@ -9741,6 +9761,12 @@ func defaultCloseTxOpts() closeTxOpts {
 // CloseTxOpt is a functional option that allows us to modify how the closing
 // transaction is created.
 type CloseTxOpt func(*closeTxOpts)
+
+func withOmittedRemoteTxOutput() CloseTxOpt {
+	return func(o *closeTxOpts) {
+		o.omitRemoteOutput = true
+	}
+}
 
 // WithRBFCloseTx signals that the cooperative close tx should signal RBF.
 func WithRBFCloseTx() CloseTxOpt {
@@ -9839,7 +9865,7 @@ func CreateCooperativeCloseTx(fundingTxIn wire.TxIn,
 	}
 
 	var remoteOutputIdx fn.Option[int]
-	haveRemoteOutput := theirBalance >= remoteDust
+	haveRemoteOutput := theirBalance >= remoteDust && !opts.omitRemoteOutput
 	if haveRemoteOutput {
 		// If a party's script is an OP_RETURN, then we set their
 		// balance to zero.

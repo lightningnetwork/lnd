@@ -14,9 +14,6 @@ var (
 	// ErrMaxPosition is returned when trying to increase the position of
 	// the fee function while it's already at its max.
 	ErrMaxPosition = errors.New("position already at max")
-
-	// ErrZeroFeeRateDelta is returned when the fee rate delta is zero.
-	ErrZeroFeeRateDelta = errors.New("fee rate delta is zero")
 )
 
 // mSatPerKWeight represents a fee rate in msat/kw.
@@ -145,9 +142,10 @@ func NewLinearFeeFunction(maxFeeRate chainfee.SatPerKWeight,
 		func() (chainfee.SatPerKWeight, error) {
 			// Estimate the initial fee rate.
 			//
-			// NOTE: estimateFeeRate guarantees the returned fee
-			// rate is capped by the ending fee rate, so we don't
-			// need to worry about overpay.
+			// NOTE: estimateFeeRate caps the estimate at the
+			// ending fee rate, but not the min relay fee rate it
+			// returns for long conf targets, which is capped
+			// below.
 			return l.estimateFeeRate(confTarget)
 		})
 	if err != nil {
@@ -157,23 +155,30 @@ func NewLinearFeeFunction(maxFeeRate chainfee.SatPerKWeight,
 	// Calculate how much fee rate should be increased per block.
 	end := l.endingFeeRate
 
+	// The fee rate never exceeds the ending fee rate, which is the maximum
+	// the budget allows. A starting fee rate above it, which the caller
+	// may pass in, or which may be the min relay fee rate used for long
+	// conf targets, is capped.
+	//
+	// NOTE: If the starting fee rate is the ending fee rate, which happens
+	// when the budget can't pay more than the estimate for the deadline,
+	// there's nothing to increase, and the fee rate stays at the maximum.
+	if start > end {
+		log.Debugf("Starting fee rate %v exceeds the ending fee rate "+
+			"%v, using the ending fee rate", start, end)
+
+		start = end
+	}
+
 	// The starting and ending fee rates are in sat/kw, so we need to
 	// convert them to msat/kw by multiplying by 1000.
+	//
+	// NOTE: The delta is zero if the starting and ending fee rates are the
+	// same, or if their difference is too small to be spread over the
+	// width. The fee rate then stays at the starting fee rate until the
+	// last position, which uses the ending fee rate.
 	delta := btcutil.Amount(end - start).MulF64(1000 / float64(l.width))
 	l.deltaFeeRate = mSatPerKWeight(delta)
-
-	// We only allow the delta to be zero if the width is one - when the
-	// delta is zero, it means the starting and ending fee rates are the
-	// same, which means there's nothing to increase, so any width greater
-	// than 1 doesn't provide any utility. This could happen when the
-	// budget is too small.
-	if l.deltaFeeRate == 0 && l.width != 1 {
-		log.Errorf("Failed to init fee function: startingFeeRate=%v, "+
-			"endingFeeRate=%v, width=%v, delta=%v", start, end,
-			l.width, l.deltaFeeRate)
-
-		return nil, ErrZeroFeeRateDelta
-	}
 
 	// Attach the calculated values to the fee function.
 	l.startingFeeRate = start
@@ -196,14 +201,35 @@ func (l *LinearFeeFunction) FeeRate() chainfee.SatPerKWeight {
 // Increment increases the fee rate by one position, returns a boolean to
 // indicate whether the fee rate was increased, and an error if the position is
 // greater than the width. The increased fee rate will be set as the current
-// fee rate, and the internal position will be incremented.
+// fee rate, and the internal position will be incremented, past the positions
+// that can't change the fee rate.
 //
 // NOTE: this method will change the state of the fee function as it increases
 // its current fee rate.
 //
 // NOTE: part of the FeeFunction interface.
 func (l *LinearFeeFunction) Increment() (bool, error) {
-	return l.increaseFeeRate(l.position + 1)
+	position := l.position + 1
+
+	// The publisher calls this method until the fee rate is increased.
+	// Over positions that share the current fee rate, that would take one
+	// call per block until the deadline, so we skip them. Each call still
+	// returns the fee rate a single step would.
+	switch {
+	// Once at the ending fee rate, the fee rate stays there, so we move to
+	// the last position.
+	case l.currentFeeRate >= l.endingFeeRate:
+		position = l.width
+
+	// With a zero delta, the fee rate stays at the starting fee rate until
+	// the last position. We move to the position before it, so that this
+	// call keeps the starting fee rate, and the next one reaches the
+	// ending fee rate.
+	case l.deltaFeeRate == 0 && position < l.width:
+		position = l.width - 1
+	}
+
+	return l.increaseFeeRate(position)
 }
 
 // IncreaseFeeRate calculate a new position using the given conf target, and

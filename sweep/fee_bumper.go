@@ -1119,11 +1119,6 @@ func (t *TxPublisher) handleInitialTxError(r *monitorRecord, err error) {
 	case errors.Is(err, ErrTxNoOutput):
 		result.Event = TxFailed
 
-	// When the error is due to zero fee rate delta, we'll send a TxFailed
-	// so these inputs can be retried in the next block.
-	case errors.Is(err, ErrZeroFeeRateDelta):
-		result.Event = TxFailed
-
 	// When the error is due to budget being used up, we'll send a TxFailed
 	// so these inputs can be retried with a different group in the next
 	// block.

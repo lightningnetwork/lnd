@@ -1,6 +1,7 @@
 package sweep
 
 import (
+	"math"
 	"testing"
 
 	"github.com/lightningnetwork/lnd/fn/v2"
@@ -46,9 +47,138 @@ func TestLinearFeeFunctionNewMaxFeeRateUsed(t *testing.T) {
 	rt.Equal(maxFeeRate, f.currentFeeRate)
 }
 
-// TestLinearFeeFunctionNewZeroFeeRateDelta tests when the fee rate delta is
-// zero, it will return an error except when the width is one.
-func TestLinearFeeFunctionNewZeroFeeRateDelta(t *testing.T) {
+// TestLinearFeeFunctionNewStartAtMaxFeeRate tests that a fee function whose
+// starting fee rate is at or above the max fee rate starts at the max fee rate
+// and stays there, for any width.
+func TestLinearFeeFunctionNewStartAtMaxFeeRate(t *testing.T) {
+	t.Parallel()
+
+	// Create testing params.
+	maxFeeRate := chainfee.SatPerKWeight(10000)
+	minRelayFeeRate := chainfee.SatPerKWeight(500)
+
+	testCases := []struct {
+		name       string
+		confTarget uint32
+
+		// start is the starting fee rate passed in by the caller.
+		start fn.Option[chainfee.SatPerKWeight]
+
+		// estimate and relayFee are the fee rates the fee estimator
+		// returns for the conf target and as the min relay fee rate.
+		// Only the ones that are set are mocked, so the others assert
+		// that the fee estimator isn't asked for them.
+		estimate fn.Option[chainfee.SatPerKWeight]
+		relayFee fn.Option[chainfee.SatPerKWeight]
+	}{
+		{
+			// When the budget can't pay more than the estimate for
+			// the deadline, the estimate is capped at the max fee
+			// rate, which leaves nothing to increase.
+			name:       "estimate at max fee rate",
+			confTarget: 6,
+			estimate:   fn.Some(maxFeeRate),
+			relayFee:   fn.Some(minRelayFeeRate),
+		},
+		{
+			name:       "estimate above max fee rate",
+			confTarget: 6,
+			estimate:   fn.Some(maxFeeRate + 1),
+			relayFee:   fn.Some(minRelayFeeRate),
+		},
+		{
+			name:       "estimate above max fee rate, width one",
+			confTarget: 2,
+			estimate:   fn.Some(maxFeeRate + 1),
+			relayFee:   fn.Some(minRelayFeeRate),
+		},
+		{
+			// The sweeper passes in the max fee rate as the
+			// starting fee rate when it retries inputs whose
+			// budget has been used up.
+			name:       "start at max fee rate",
+			confTarget: 6,
+			start:      fn.Some(maxFeeRate),
+		},
+		{
+			// This holds up to the widest window a CSV delay
+			// allows.
+			name:       "start at max fee rate, widest window",
+			confTarget: math.MaxUint16,
+			start:      fn.Some(maxFeeRate),
+		},
+		{
+			// A starting fee rate above the max fee rate is capped.
+			name:       "start above max fee rate",
+			confTarget: 6,
+			start:      fn.Some(maxFeeRate + 1),
+		},
+		{
+			// So is the min relay fee rate, which is used for conf
+			// targets of at least 1008 blocks.
+			name:       "min relay fee rate above max fee rate",
+			confTarget: 1008,
+			relayFee:   fn.Some(maxFeeRate + 1),
+		},
+	}
+
+	for _, tc := range testCases {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+
+			// Create a mock fee estimator.
+			estimator := &chainfee.MockEstimator{}
+			defer estimator.AssertExpectations(t)
+
+			tc.estimate.WhenSome(func(r chainfee.SatPerKWeight) {
+				estimator.On(
+					"EstimateFeePerKW", tc.confTarget,
+				).Return(r, nil).Once()
+			})
+			tc.relayFee.WhenSome(func(r chainfee.SatPerKWeight) {
+				estimator.On("RelayFeePerKW").Return(r).Once()
+			})
+
+			f, err := NewLinearFeeFunction(
+				maxFeeRate, tc.confTarget, estimator, tc.start,
+			)
+			require.NoError(t, err)
+
+			// Assert the internal state: the fee function starts
+			// at the max fee rate, with nothing to increase.
+			width := tc.confTarget - 1
+			require.Equal(t, maxFeeRate, f.startingFeeRate)
+			require.Equal(t, maxFeeRate, f.endingFeeRate)
+			require.Equal(t, maxFeeRate, f.currentFeeRate)
+			require.Zero(t, f.deltaFeeRate)
+			require.Equal(t, width, f.width)
+
+			// Raising the fee rate as the deadline approaches
+			// doesn't change it, up to the last position.
+			increased, err := f.IncreaseFeeRate(width)
+			require.NoError(t, err)
+			require.False(t, increased)
+			require.Equal(t, maxFeeRate, f.FeeRate())
+
+			increased, err = f.IncreaseFeeRate(1)
+			require.NoError(t, err)
+			require.False(t, increased)
+			require.Equal(t, maxFeeRate, f.FeeRate())
+
+			// From the last position, the fee rate can't be
+			// incremented.
+			increased, err = f.Increment()
+			require.ErrorIs(t, err, ErrMaxPosition)
+			require.False(t, increased)
+		})
+	}
+}
+
+// TestLinearFeeFunctionNewDeltaRoundedToZero tests that a difference between
+// the starting and max fee rates that is too small to be spread over the width
+// keeps the starting fee rate until the last position, which uses the max fee
+// rate.
+func TestLinearFeeFunctionNewDeltaRoundedToZero(t *testing.T) {
 	t.Parallel()
 
 	rt := require.New(t)
@@ -57,50 +187,32 @@ func TestLinearFeeFunctionNewZeroFeeRateDelta(t *testing.T) {
 	estimator := &chainfee.MockEstimator{}
 	defer estimator.AssertExpectations(t)
 
-	// Create testing params.
+	// Create testing params. An increase of one sat/kw over a width of
+	// 3000 blocks is a third of a msat/kw per block, which is rounded to
+	// zero.
 	maxFeeRate := chainfee.SatPerKWeight(10000)
-	estimatedFeeRate := chainfee.SatPerKWeight(500)
-	confTarget := uint32(6)
-	noStartFeeRate := fn.None[chainfee.SatPerKWeight]()
-
-	// When the calculated fee rate delta is 0, an error should be returned
-	// when the width is not one.
-	//
-	// Mock the fee estimator to return the fee rate.
-	estimator.On("EstimateFeePerKW", confTarget).Return(
-		// The starting fee rate is the max fee rate.
-		maxFeeRate, nil).Once()
-	estimator.On("RelayFeePerKW").Return(estimatedFeeRate).Once()
+	startFeeRate := maxFeeRate - 1
+	confTarget := uint32(3001)
 
 	f, err := NewLinearFeeFunction(
-		maxFeeRate, confTarget, estimator, noStartFeeRate,
-	)
-	rt.ErrorContains(err, "fee rate delta is zero")
-	rt.Nil(f)
-
-	// When the calculated fee rate delta is 0, an error should NOT be
-	// returned when the width is one, and the starting feerate is capped
-	// at the max fee rate.
-	//
-	// Mock the fee estimator to return the fee rate.
-	smallConf := uint32(2)
-	estimator.On("EstimateFeePerKW", smallConf).Return(
-		// The fee rate is greater than the max fee rate.
-		maxFeeRate+1, nil).Once()
-	estimator.On("RelayFeePerKW").Return(estimatedFeeRate).Once()
-
-	f, err = NewLinearFeeFunction(
-		maxFeeRate, smallConf, estimator, noStartFeeRate,
+		maxFeeRate, confTarget, estimator, fn.Some(startFeeRate),
 	)
 	rt.NoError(err)
-	rt.NotNil(f)
-
-	// Assert the internal state.
-	rt.Equal(maxFeeRate, f.startingFeeRate)
-	rt.Equal(maxFeeRate, f.endingFeeRate)
-	rt.Equal(maxFeeRate, f.currentFeeRate)
 	rt.Zero(f.deltaFeeRate)
-	rt.Equal(smallConf-1, f.width)
+	rt.Equal(startFeeRate, f.FeeRate())
+
+	// The fee rate stays at the starting fee rate up to the last
+	// position.
+	increased, err := f.IncreaseFeeRate(2)
+	rt.NoError(err)
+	rt.False(increased)
+	rt.Equal(startFeeRate, f.FeeRate())
+
+	// The last position uses the max fee rate.
+	increased, err = f.IncreaseFeeRate(1)
+	rt.NoError(err)
+	rt.True(increased)
+	rt.Equal(maxFeeRate, f.FeeRate())
 }
 
 // TestLinearFeeFunctionNewEsimator tests the NewLinearFeeFunction function
@@ -316,6 +428,76 @@ func TestLinearFeeFunctionIncrement(t *testing.T) {
 	// Now the position is at 8th, increase it again should give us an
 	// error.
 	increased, err := f.Increment()
+	rt.ErrorIs(err, ErrMaxPosition)
+	rt.False(increased)
+}
+
+// TestLinearFeeFunctionIncrementSameFeeRate checks that incrementing a fee
+// function skips the positions that can't change its fee rate, however far
+// away its deadline is.
+func TestLinearFeeFunctionIncrementSameFeeRate(t *testing.T) {
+	t.Parallel()
+
+	rt := require.New(t)
+
+	// Create a mock fee estimator.
+	estimator := &chainfee.MockEstimator{}
+	defer estimator.AssertExpectations(t)
+
+	// Create testing params, with a deadline as far away as a deadline
+	// height allows.
+	maxFeeRate := chainfee.SatPerKWeight(10000)
+	confTarget := uint32(math.MaxInt32)
+	width := confTarget - 1
+
+	// A fee function that starts at the max fee rate stays there, so the
+	// first increment moves it to its last position, and the next one
+	// fails.
+	//
+	// NOTE: by NOT mocking the fee estimator, we assert the
+	// estimateFeeRate is NOT called.
+	f, err := NewLinearFeeFunction(
+		maxFeeRate, confTarget, estimator, fn.Some(maxFeeRate),
+	)
+	rt.NoError(err)
+
+	increased, err := f.Increment()
+	rt.NoError(err)
+	rt.False(increased)
+	rt.Equal(width, f.position)
+	rt.Equal(maxFeeRate, f.FeeRate())
+
+	increased, err = f.Increment()
+	rt.ErrorIs(err, ErrMaxPosition)
+	rt.False(increased)
+
+	// The min relay fee rate used for such a deadline is too close to the
+	// max fee rate to be spread over the width, so the delta is zero, and
+	// the fee rate stays at the starting fee rate until the last position.
+	// The first increment keeps it, the second one reaches the max fee
+	// rate, and the third one fails.
+	estimator.On("RelayFeePerKW").Return(chainfee.FeePerKwFloor).Once()
+
+	f, err = NewLinearFeeFunction(
+		maxFeeRate, confTarget, estimator,
+		fn.None[chainfee.SatPerKWeight](),
+	)
+	rt.NoError(err)
+	rt.Zero(f.deltaFeeRate)
+
+	increased, err = f.Increment()
+	rt.NoError(err)
+	rt.False(increased)
+	rt.Equal(width-1, f.position)
+	rt.Equal(chainfee.FeePerKwFloor, f.FeeRate())
+
+	increased, err = f.Increment()
+	rt.NoError(err)
+	rt.True(increased)
+	rt.Equal(width, f.position)
+	rt.Equal(maxFeeRate, f.FeeRate())
+
+	increased, err = f.Increment()
 	rt.ErrorIs(err, ErrMaxPosition)
 	rt.False(increased)
 }

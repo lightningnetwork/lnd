@@ -2150,6 +2150,142 @@ func TestHandleInitialBroadcastFail(t *testing.T) {
 	require.Equal(t, 0, tp.subscriberChans.Len())
 }
 
+// TestHandleInitialBroadcastAtMaxFeeRate checks that a request whose budget
+// can't pay more than the fee estimate for its deadline is published at the
+// max fee rate its budget allows right away, that a rejection at that fee rate
+// fails the request after a single attempt, and that the retry, which starts
+// at that fee rate, is published at it.
+func TestHandleInitialBroadcastAtMaxFeeRate(t *testing.T) {
+	t.Parallel()
+
+	// Create a publisher using the mocks. The extra output of the mock aux
+	// sweeper isn't accounted for by the max fee rate of the request, so
+	// we don't use it.
+	tp, m := createTestPublisher(t)
+	tp.cfg.AuxSweeper = fn.None[AuxSweeper]()
+
+	// Create a testing bump request, whose deadline is ten blocks away.
+	const confTarget = 10
+	inp := createTestInput(100_000, input.WitnessKeyHash)
+	req := &BumpRequest{
+		DeliveryAddress: changePkScript,
+		Inputs:          []input.Input{&inp},
+		Budget:          btcutil.Amount(1000),
+		MaxFeeRate:      chainfee.SatPerKWeight(100_000),
+		DeadlineHeight:  confTarget,
+	}
+	maxFeeRate, err := req.MaxFeeRateAllowed()
+	require.NoError(t, err)
+
+	// Mock the fee estimator to return a fee rate above the max fee rate
+	// for the deadline of the request, once for each of its broadcasts.
+	m.estimator.On("EstimateFeePerKW", uint32(confTarget)).Return(
+		maxFeeRate*2, nil).Twice()
+	m.estimator.On("RelayFeePerKW").Return(chainfee.FeePerKwFloor).Twice()
+
+	// Mock the signer to always return a valid script.
+	//
+	// NOTE: we are not testing the utility of creating valid txes here, so
+	// this is fine to be mocked. This behaves essentially as skipping the
+	// Signer check and always assume the tx has a valid sig.
+	script := &input.Script{}
+	m.signer.On("ComputeInputScript", mock.Anything,
+		mock.Anything).Return(script, nil)
+
+	// Mock the testmempoolaccept to pass, and the wallet to publish
+	// successfully.
+	m.wallet.On("CheckMempoolAcceptance", mock.Anything).Return(nil).Once()
+	m.wallet.On("PublishTransaction",
+		mock.Anything, mock.Anything).Return(nil).Once()
+
+	// Register the request using `Broadcast`, and grab its monitor record
+	// from the map.
+	resultChan := tp.Broadcast(req)
+	rid := tp.requestCounter.Load()
+	rec, ok := tp.records.Load(rid)
+	require.True(t, ok)
+
+	// Call the method under test, and wait for the result.
+	tp.wg.Add(1)
+	tp.handleInitialBroadcast(rec)
+
+	var result *BumpResult
+	select {
+	case <-time.After(time.Second):
+		t.Fatal("timeout waiting for subscriber to receive result")
+
+	case result = <-resultChan:
+	}
+
+	// The tx is published at the max fee rate.
+	require.Equal(t, TxPublished, result.Event)
+	require.Equal(t, maxFeeRate, result.FeeRate)
+	require.LessOrEqual(t, result.Fee, req.Budget)
+
+	// Mock the testmempoolaccept to reject the tx, as it doesn't pay
+	// enough to replace a conflicting tx. Testing the tx a second time
+	// would fail the test.
+	m.wallet.On("CheckMempoolAcceptance", mock.Anything).Return(
+		chain.ErrInsufficientFee).Once()
+
+	// Register the request again, and make its initial broadcast.
+	resultChan = tp.Broadcast(req)
+	rid = tp.requestCounter.Load()
+	rec, ok = tp.records.Load(rid)
+	require.True(t, ok)
+
+	tp.wg.Add(1)
+	tp.handleInitialBroadcast(rec)
+
+	select {
+	case <-time.After(time.Second):
+		t.Fatal("timeout waiting for subscriber to receive result")
+
+	case result = <-resultChan:
+	}
+
+	// The fee rate can't be raised, so the request fails after a single
+	// attempt, and its inputs are retried at the max fee rate.
+	require.Equal(t, TxFailed, result.Event)
+	require.ErrorIs(t, result.Err, ErrMaxPosition)
+	require.Equal(t, maxFeeRate, result.FeeRate)
+
+	// The sweeper retries the inputs in the next block, starting at the
+	// fee rate of the failed attempt.
+	//
+	// NOTE: by NOT mocking the fee estimator again, we assert the
+	// estimateFeeRate is NOT called.
+	retryReq := *req
+	retryReq.StartingFeeRate = fn.Some(result.FeeRate)
+
+	// Mock the testmempoolaccept to pass this time, and the wallet to
+	// publish successfully.
+	m.wallet.On("CheckMempoolAcceptance", mock.Anything).Return(nil).Once()
+	m.wallet.On("PublishTransaction",
+		mock.Anything, mock.Anything).Return(nil).Once()
+
+	// Register the retry, and make its initial broadcast.
+	resultChan = tp.Broadcast(&retryReq)
+	rid = tp.requestCounter.Load()
+	rec, ok = tp.records.Load(rid)
+	require.True(t, ok)
+
+	tp.wg.Add(1)
+	tp.handleInitialBroadcast(rec)
+
+	select {
+	case <-time.After(time.Second):
+		t.Fatal("timeout waiting for subscriber to receive result")
+
+	case result = <-resultChan:
+	}
+
+	// The retry is published at the max fee rate.
+	require.Equal(t, TxPublished, result.Event)
+	require.Equal(t, maxFeeRate, result.FeeRate)
+	require.LessOrEqual(t, result.Fee, req.Budget)
+}
+
 // TestHasInputsSpent checks the expected outpoint:tx map is returned.
 func TestHasInputsSpent(t *testing.T) {
 	t.Parallel()

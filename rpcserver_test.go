@@ -7,7 +7,9 @@ import (
 
 	"github.com/lightningnetwork/lnd/channeldb"
 	"github.com/lightningnetwork/lnd/fn/v2"
+	"github.com/lightningnetwork/lnd/graph/db/models"
 	"github.com/lightningnetwork/lnd/lnrpc"
+	"github.com/lightningnetwork/lnd/lnwire"
 	"github.com/lightningnetwork/lnd/signal"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -151,5 +153,112 @@ func TestRpcCommitmentType(t *testing.T) {
 				t, tt.want, rpcCommitmentType(tt.chanType),
 			)
 		})
+	}
+}
+
+// TestMarshalDBEdgeVersions checks that the graph RPC marshalers read the
+// direction, the disabled state and the last update of a policy from the
+// fields that its gossip version carries them in.
+func TestMarshalDBEdgeVersions(t *testing.T) {
+	t.Parallel()
+
+	lastUpdate := time.Unix(1_700_000_000, 0)
+
+	tests := []struct {
+		name string
+
+		// node1 and node2 are the policies of NodeKey1 and NodeKey2.
+		// The test hands them to marshalDBEdge in both orders, so the
+		// marshaler has to place them by their direction.
+		node1, node2 *models.ChannelEdgePolicy
+
+		wantDisabled   bool
+		wantLastUpdate uint32
+	}{
+		{
+			name: "v1",
+			node1: &models.ChannelEdgePolicy{
+				Version:     lnwire.GossipVersion1,
+				FeeBaseMSat: 1,
+				LastUpdate:  lastUpdate,
+				ChannelFlags: lnwire.
+					ChanUpdateDisabled,
+			},
+			node2: &models.ChannelEdgePolicy{
+				Version:      lnwire.GossipVersion1,
+				FeeBaseMSat:  2,
+				LastUpdate:   lastUpdate,
+				ChannelFlags: lnwire.ChanUpdateDirection,
+			},
+			wantDisabled:   true,
+			wantLastUpdate: uint32(lastUpdate.Unix()),
+		},
+		{
+			// A v2 policy carries its direction in SecondPeer and
+			// its disabled state in DisableFlags, and leaves the
+			// v1 ChannelFlags and LastUpdate unset.
+			name: "v2",
+			node1: &models.ChannelEdgePolicy{
+				Version:     lnwire.GossipVersion2,
+				FeeBaseMSat: 1,
+				DisableFlags: lnwire.ChanUpdateDisableIncoming |
+					lnwire.ChanUpdateDisableOutgoing,
+				LastBlockHeight: 800_000,
+			},
+			node2: &models.ChannelEdgePolicy{
+				Version:         lnwire.GossipVersion2,
+				FeeBaseMSat:     2,
+				SecondPeer:      true,
+				LastBlockHeight: 800_001,
+			},
+			wantDisabled: true,
+
+			// A v2 policy has no unix time, so the last update is
+			// zero rather than the year-2042 value that converting
+			// a zero time.Time to uint32 produces.
+			wantLastUpdate: 0,
+		},
+	}
+
+	for _, test := range tests {
+		for _, reversed := range []bool{false, true} {
+			name := fmt.Sprintf("%s/reversed=%v", test.name,
+				reversed)
+
+			t.Run(name, func(t *testing.T) {
+				t.Parallel()
+
+				c1, c2 := test.node1, test.node2
+				if reversed {
+					c1, c2 = c2, c1
+				}
+
+				edge := marshalDBEdge(
+					&models.ChannelEdgeInfo{ChannelID: 1},
+					c1, c2, false,
+				)
+
+				require.EqualValues(
+					t, 1, edge.Node1Policy.FeeBaseMsat,
+				)
+				require.EqualValues(
+					t, 2, edge.Node2Policy.FeeBaseMsat,
+				)
+
+				require.Equal(
+					t, test.wantDisabled,
+					edge.Node1Policy.Disabled,
+				)
+				require.False(t, edge.Node2Policy.Disabled)
+
+				require.Equal(
+					t, test.wantLastUpdate,
+					edge.Node1Policy.LastUpdate,
+				)
+				require.Equal(
+					t, test.wantLastUpdate, edge.LastUpdate,
+				)
+			})
+		}
 	}
 }

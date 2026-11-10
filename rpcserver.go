@@ -6265,11 +6265,10 @@ func (r *rpcServer) DescribeGraph(ctx context.Context,
 		}
 	}
 
-	// Obtain the pointer to the V1 channel graph. This will provide a
-	// consistent view of the graph due to bolt db's transactional model.
-	//
-	// TODO(elle): switch to a cross-version graph view when available.
-	graph := r.server.v1Graph
+	// Obtain the pointer to the cross-version channel graph. This will
+	// provide a consistent view of the graph due to bolt db's
+	// transactional model.
+	graph := r.server.graphDB
 
 	// First iterate through all the known nodes (connected or unconnected
 	// within the graph), collating their current state into the RPC
@@ -6353,19 +6352,18 @@ func marshalDBEdge(edgeInfo *models.ChannelEdgeInfo,
 	includeAuthProof bool) *lnrpc.ChannelEdge {
 
 	// Make sure the policies match the node they belong to. c1 should point
-	// to the policy for NodeKey1, and c2 for NodeKey2.
-	if c1 != nil && c1.ChannelFlags&lnwire.ChanUpdateDirection == 1 ||
-		c2 != nil && c2.ChannelFlags&lnwire.ChanUpdateDirection == 0 {
-
+	// to the policy for NodeKey1, and c2 for NodeKey2. IsNode1 reads the
+	// direction from the field that each gossip version carries it in.
+	if c1 != nil && !c1.IsNode1() || c2 != nil && c2.IsNode1() {
 		c2, c1 = c1, c2
 	}
 
 	var lastUpdate int64
 	if c1 != nil {
-		lastUpdate = c1.LastUpdate.Unix()
+		lastUpdate = policyLastUpdate(c1)
 	}
-	if c2 != nil && c2.LastUpdate.Unix() > lastUpdate {
-		lastUpdate = c2.LastUpdate.Unix()
+	if c2 != nil && policyLastUpdate(c2) > lastUpdate {
+		lastUpdate = policyLastUpdate(c2)
 	}
 
 	customRecords := marshalExtraOpaqueData(edgeInfo.ExtraOpaqueData)
@@ -6418,7 +6416,7 @@ func marshalPolicyExtraOpaqueData(data []byte) map[uint64][]byte {
 func marshalDBRoutingPolicy(
 	policy *models.ChannelEdgePolicy) *lnrpc.RoutingPolicy {
 
-	disabled := policy.ChannelFlags&lnwire.ChanUpdateDisabled != 0
+	disabled := policy.IsDisabled()
 
 	customRecords := marshalPolicyExtraOpaqueData(policy.ExtraOpaqueData)
 	inboundFee := policy.InboundFee.UnwrapOr(lnwire.Fee{})
@@ -6430,12 +6428,24 @@ func marshalDBRoutingPolicy(
 		FeeBaseMsat:      int64(policy.FeeBaseMSat),
 		FeeRateMilliMsat: int64(policy.FeeProportionalMillionths),
 		Disabled:         disabled,
-		LastUpdate:       uint32(policy.LastUpdate.Unix()),
+		LastUpdate:       uint32(policyLastUpdate(policy)),
 		CustomRecords:    customRecords,
 
 		InboundFeeBaseMsat:      inboundFee.BaseFee,
 		InboundFeeRateMilliMsat: inboundFee.FeeRate,
 	}
+}
+
+// policyLastUpdate returns the unix time of a policy's last update. A v2 policy
+// is ordered by the block height it was announced at rather than by a
+// timestamp, so it has no unix time, and zero is returned for it. The RPC has
+// no field for the block height yet.
+func policyLastUpdate(policy *models.ChannelEdgePolicy) int64 {
+	if policy.Version != lnwire.GossipVersion1 {
+		return 0
+	}
+
+	return policy.LastUpdate.Unix()
 }
 
 // GetNodeMetrics returns all available node metrics calculated from the

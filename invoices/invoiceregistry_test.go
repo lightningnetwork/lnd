@@ -482,6 +482,10 @@ func TestInvoiceRegistry(t *testing.T) {
 			test: testPendingSettleOnChainLoss,
 		},
 		{
+			name: "PendingSettleMixedRecovery",
+			test: testPendingSettleMixedRecovery,
+		},
+		{
 			name: "PendingSettleDuplicateReconcileOnStart",
 			test: testPendingSettleDuplicateReconcileOnStart,
 		},
@@ -3992,7 +3996,7 @@ func testPendingSettleOnChainLoss(t *testing.T,
 	require.Zero(t, update.AmtPaid)
 	require.Zero(t, update.SettleIndex)
 	require.Equal(
-		t, invpkg.HtlcStateCanceled,
+		t, invpkg.HtlcStateFailed,
 		update.Htlcs[getCircuitKey(0)].State,
 	)
 
@@ -4075,7 +4079,7 @@ func testPendingSettleDuplicateReconcileOnStart(t *testing.T,
 	require.Equal(t, invpkg.ContractSettled, stored.State)
 	require.Equal(t, testInvoiceAmount, stored.AmtPaid)
 	require.EqualValues(t, 1, stored.SettleIndex)
-	require.Equal(t, invpkg.HtlcStateCanceled, stored.Htlcs[key].State)
+	require.Equal(t, invpkg.HtlcStateFailed, stored.Htlcs[key].State)
 }
 
 // failingFinalizeDB arranges transient write failures while delegating all
@@ -4286,7 +4290,7 @@ func testPendingSettleRecordedOutcomeWins(t *testing.T,
 		{
 			name:          "failure recorded during scan",
 			recordFailure: true,
-			wantHtlcState: invpkg.HtlcStateCanceled,
+			wantHtlcState: invpkg.HtlcStateFailed,
 			wantState:     invpkg.ContractCanceled,
 		},
 		{

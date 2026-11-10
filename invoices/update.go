@@ -121,7 +121,7 @@ func resolveReplayedHtlc(ctx *invoiceUpdateCtx, inv *Invoice) (bool,
 	}
 
 	switch htlc.State {
-	case HtlcStateCanceled:
+	case HtlcStateCanceled, HtlcStateFailed:
 		return true, ctx.failRes(ResultReplayToCanceled), nil
 
 	case HtlcStateAccepted:

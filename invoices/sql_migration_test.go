@@ -115,6 +115,11 @@ func randHTLCRapid(t *rapid.T, invoice *Invoice, amt lnwire.MilliSatoshi) (
 
 	case ContractCanceled:
 		htlc.State = HtlcStateCanceled
+		if !invoice.IsAMP() {
+			htlc.State = rapid.SampledFrom([]HtlcState{
+				HtlcStateCanceled, HtlcStateFailed,
+			}).Draw(t, "canceledHtlcState")
+		}
 		htlc.ResolveTime = randInvoiceTime(invoice)
 
 	case ContractAccepted:

@@ -219,6 +219,10 @@ func TestInvoices(t *testing.T) {
 			name: "FinalizeHtlcs",
 			test: testFinalizeHtlcs,
 		},
+		{
+			name: "SettleCollection",
+			test: testSettleCollection,
+		},
 	}
 
 	makeKeyValueDB := func(t *testing.T) invpkg.InvoiceDB {
@@ -2918,8 +2922,8 @@ func testAddInvoiceInvalidFeatureDeps(t *testing.T,
 	))
 }
 
-// testFinalizeHtlcs asserts that a settled invoice waits for the final outcome
-// of its htlcs, and that only the htlcs that settled count as paid.
+// testFinalizeHtlcs asserts that an invoice waits for every final outcome,
+// then cancels on partial collection while preserving the received funds.
 func testFinalizeHtlcs(t *testing.T,
 	makeDB func(t *testing.T) invpkg.InvoiceDB) {
 
@@ -3017,28 +3021,28 @@ func testFinalizeHtlcs(t *testing.T,
 	)
 	require.ErrorIs(t, err, invpkg.ErrHTLCAlreadySettled)
 
-	// The payer reclaims the second htlc on chain. The invoice is settled
-	// for the amount of the first htlc only.
+	// The payer reclaims the second htlc on chain. The invoice is canceled
+	// but retains the amount collected from the first htlc.
 	dbInvoice, err = db.UpdateInvoice(
 		ctxb, ref, nil, getFinalizeHtlcs(false, htlc1),
 	)
 	require.NoError(t, err)
-	require.Equal(t, invpkg.ContractSettled, dbInvoice.State)
+	require.Equal(t, invpkg.ContractCanceled, dbInvoice.State)
 	require.Equal(t, amt/2, dbInvoice.AmtPaid)
-	require.EqualValues(t, 1, dbInvoice.SettleIndex)
-	require.False(t, dbInvoice.SettleDate.IsZero())
+	require.Zero(t, dbInvoice.SettleIndex)
+	require.True(t, dbInvoice.SettleDate.IsZero())
 	require.Equal(
-		t, invpkg.HtlcStateCanceled, dbInvoice.Htlcs[htlc1].State,
+		t, invpkg.HtlcStateFailed, dbInvoice.Htlcs[htlc1].State,
 	)
 
 	// The stored invoice matches.
 	stored, err := db.LookupInvoice(ctxb, ref)
 	require.NoError(t, err)
-	require.Equal(t, invpkg.ContractSettled, stored.State)
+	require.Equal(t, invpkg.ContractCanceled, stored.State)
 	require.Equal(t, amt/2, stored.AmtPaid)
-	require.EqualValues(t, 1, stored.SettleIndex)
+	require.Zero(t, stored.SettleIndex)
 	require.Equal(t, invpkg.HtlcStateSettled, stored.Htlcs[htlc0].State)
-	require.Equal(t, invpkg.HtlcStateCanceled, stored.Htlcs[htlc1].State)
+	require.Equal(t, invpkg.HtlcStateFailed, stored.Htlcs[htlc1].State)
 
 	pending, err = db.FetchPendingInvoices(ctxb)
 	require.NoError(t, err)

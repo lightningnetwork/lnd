@@ -629,7 +629,7 @@ func finalizeHTLCs(invoice *Invoice, updateTime time.Time,
 
 		newState := HtlcStateSettled
 		if !settled {
-			newState = HtlcStateCanceled
+			newState = HtlcStateFailed
 		}
 
 		err := resolveHtlc(key, htlc, newState, updateTime, updater)
@@ -640,18 +640,21 @@ func finalizeHTLCs(invoice *Invoice, updateTime time.Time,
 
 	// The amount paid only counts htlcs that settled or may still settle.
 	var amtPaid lnwire.MilliSatoshi
-	var pending bool
+	var pending, failed bool
 	for _, htlc := range invoice.Htlcs {
 		if htlc.State.PreimageReleased() {
 			amtPaid += htlc.Amt
 		}
 
 		pending = pending || htlc.State == HtlcStatePendingSettle
+		failed = failed || htlc.State == HtlcStateFailed
 	}
 
 	if invoice.State == ContractPendingSettle && !pending {
 		newState := ContractSettled
-		if amtPaid == 0 {
+		// Only a lost released HTLC prevents collection. Earlier
+		// canceled attempts never released a preimage and don't count.
+		if failed {
 			newState = ContractCanceled
 		}
 

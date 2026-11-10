@@ -222,12 +222,13 @@ const (
 	// ContractOpen means the invoice has only been created.
 	ContractOpen ContractState = 0
 
-	// ContractSettled means an ordinary invoice completed a final payment,
-	// possibly for less than its requested amount. A later duplicate HTLC
-	// can still await its own final outcome while the parent stays settled.
+	// ContractSettled means an ordinary invoice collected every released
+	// payment HTLC. A later duplicate HTLC can still await its own final
+	// outcome while the parent stays settled.
 	ContractSettled ContractState = 1
 
-	// ContractCanceled means the invoice has been canceled.
+	// ContractCanceled means the invoice has been canceled. If a released
+	// HTLC failed, AmtPaid retains the funds collected from other HTLCs.
 	ContractCanceled ContractState = 2
 
 	// ContractAccepted means the HTLC has been accepted but not settled
@@ -238,9 +239,9 @@ const (
 	// released the preimage, but at least one of its htlcs has not been
 	// irrevocably settled yet. Until then the payer can still recover an
 	// htlc on chain, so the invoice must not be reported as paid. The
-	// invoice can no longer be canceled, and moves to ContractSettled
-	// once every outcome is known and at least one HTLC settled, or to
-	// ContractCanceled if all failed. AMP invoices retain their existing
+	// invoice cannot be manually canceled. Once every outcome is known,
+	// it moves to ContractSettled only if all released HTLCs settled, or
+	// ContractCanceled if any failed. AMP invoices retain their existing
 	// set-level settlement behavior and do not enter this state.
 	ContractPendingSettle ContractState = 4
 )
@@ -562,9 +563,14 @@ const (
 	// HtlcStatePendingSettle indicates that we released the preimage for
 	// an ordinary htlc, but its settlement is not irrevocable yet. It moves
 	// to HtlcStateSettled once the settle is locked in off chain or the
-	// htlc is swept on chain, and to HtlcStateCanceled if the payer
+	// htlc is swept on chain, and to HtlcStateFailed if the payer
 	// reclaims it on chain instead.
 	HtlcStatePendingSettle
+
+	// HtlcStateFailed indicates a final failure after an ordinary HTLC's
+	// preimage was released. Unlike an attempt canceled before release,
+	// this prevents a pending invoice from completing successfully.
+	HtlcStateFailed
 )
 
 // String identifies the HTLC state in logs, distinguishing preimage release
@@ -582,6 +588,9 @@ func (h HtlcState) String() string {
 
 	case HtlcStatePendingSettle:
 		return "PendingSettle"
+
+	case HtlcStateFailed:
+		return "Failed"
 	}
 
 	return "Unknown"
@@ -590,7 +599,7 @@ func (h HtlcState) String() string {
 // PreimageReleased returns true if we decided to settle the htlc and may have
 // revealed its preimage to our peer, whether or not the settle is final yet.
 // The preimage of such an htlc must stay available so that it can be claimed
-// on chain.
+// on chain. A final failure no longer has an outstanding claim.
 func (h HtlcState) PreimageReleased() bool {
 	return h == HtlcStateSettled || h == HtlcStatePendingSettle
 }

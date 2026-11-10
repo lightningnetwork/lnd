@@ -874,6 +874,16 @@ func (s *UtxoSweeper) sweep(set InputSet,
 		// TODO(yy): pass the strategy here.
 	}
 
+	// Retain group identity before publication; a later failed attempt
+	// may remove the tracked input while this request remains accepted.
+	for _, inp := range req.Inputs {
+		pi, ok := s.inputs[inp.OutPoint()]
+		if ok && pi.params.ExclusiveGroup != nil {
+			req.ExclusiveGroup = pi.params.ExclusiveGroup
+			break
+		}
+	}
+
 	// Reschedule the inputs that we just tried to sweep. This is done in
 	// case the following publish fails, we'd like to update the inputs'
 	// publish attempts and rescue them in the next sweep.

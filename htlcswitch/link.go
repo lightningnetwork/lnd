@@ -3075,9 +3075,18 @@ func (l *channelLink) processRemoteAdds(fwdPkg *channeldb.FwdPkg) {
 	// the same length of responses to be returned.
 	decodeReqs := make([]hop.DecodeHopIteratorRequest, 0, len(fwdPkg.Adds))
 
-	// unackedAdds is a list of ADDs that's waiting for the remote's
-	// settle/fail update.
-	unackedAdds := make([]*lnwire.UpdateAddHTLC, 0, len(fwdPkg.Adds))
+	// indexedAdd retains an ADD's original forwarding-package index after
+	// acknowledged entries are filtered out. The compacted slice index
+	// cannot be used for FwdFilter or AddRef lookups because
+	// acknowledgement filters may be sparse.
+	type indexedAdd struct {
+		index uint16
+		add   *lnwire.UpdateAddHTLC
+	}
+
+	// unackedAdds is a list of ADDs waiting for the remote's settle/fail
+	// update, together with their original forwarding-package indexes.
+	unackedAdds := make([]indexedAdd, 0, len(fwdPkg.Adds))
 
 	for i, update := range fwdPkg.Adds {
 		// If this index is already found in the ack filter, the
@@ -3107,7 +3116,10 @@ func (l *channelLink) processRemoteAdds(fwdPkg *channeldb.FwdPkg) {
 			}
 
 			decodeReqs = append(decodeReqs, req)
-			unackedAdds = append(unackedAdds, msg)
+			unackedAdds = append(unackedAdds, indexedAdd{
+				index: uint16(i),
+				add:   msg,
+			})
 		}
 	}
 
@@ -3131,9 +3143,9 @@ func (l *channelLink) processRemoteAdds(fwdPkg *channeldb.FwdPkg) {
 	var switchPackets []*htlcPacket
 
 	for i, update := range unackedAdds {
-		idx := uint16(i)
+		idx := update.index
 		sourceRef := fwdPkg.SourceRef(idx)
-		add := *update
+		add := *update.add
 
 		// An incoming HTLC add has been full-locked in. As a result we
 		// can now examine the forwarding details of the HTLC, and the

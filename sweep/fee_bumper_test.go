@@ -690,6 +690,61 @@ func TestCreateAndCheckTxAtBudgetBoundary(t *testing.T) {
 	require.Len(t, sweepCtx.tx.TxOut, 1)
 }
 
+// TestPrepareSweepTxAtBudgetBoundaryWithoutRequiredOutput checks that an
+// anchor CPFP at its budget-derived maximum fee rate remains publishable when
+// its change would otherwise be dust. Since there is no required output, the
+// fee must be reduced just enough to retain a standard change output.
+func TestPrepareSweepTxAtBudgetBoundaryWithoutRequiredOutput(t *testing.T) {
+	t.Parallel()
+
+	const (
+		budget           = btcutil.Amount(100_000)
+		anchorValue      = int64(330)
+		walletInputValue = int64(99_671)
+	)
+
+	anchor := createTestInput(anchorValue, input.CommitmentAnchor)
+	walletInput := createTestInput(
+		walletInputValue, input.WitnessKeyHash,
+	)
+	inputs := []input.Input{&anchor, &walletInput}
+
+	req := &BumpRequest{
+		DeliveryAddress: changePkScript,
+		Inputs:          inputs,
+		Budget:          budget,
+		MaxFeeRate:      chainfee.SatPerKWeight(1_000_000),
+	}
+
+	feeRate, err := req.MaxFeeRateAllowed()
+	require.NoError(t, err)
+
+	weight, err := calcSweepTxWeight(
+		inputs, [][]byte{changePkScript.DeliveryAddress},
+	)
+	require.NoError(t, err)
+	require.EqualValues(t, 767, weight)
+
+	targetFee := feeRate.FeeForWeight(weight)
+	require.EqualValues(t, 99_999, targetFee)
+
+	prepared, err := prepareSweepTx(
+		inputs, changePkScript, feeRate, 0, fn.None[AuxSweeper](),
+	)
+	require.NoError(t, err)
+
+	changeFloor := lnwallet.DustLimitForSize(
+		len(changePkScript.DeliveryAddress),
+	)
+	require.EqualValues(t, 330, changeFloor)
+	require.EqualValues(t, 99_671, prepared.fee)
+	require.Zero(t, prepared.discardedDust)
+
+	changeOutputs := prepared.changeOutputs.UnwrapOr(nil)
+	require.Len(t, changeOutputs, 1)
+	require.EqualValues(t, changeFloor, changeOutputs[0].Value)
+}
+
 // createTestBumpRequest creates a new bump request.
 func createTestBumpRequest() *BumpRequest {
 	// Create a test input.
@@ -2451,6 +2506,7 @@ func TestPrepareSweepTx(t *testing.T) {
 	// Create test inputs with different values.
 	inp1 := createTestInput(1000000, input.WitnessKeyHash)
 	inp2 := createTestInput(2000000, input.WitnessKeyHash)
+	dustInp := createTestInput(100, input.WitnessKeyHash)
 
 	// Test fee rate and height.
 	feeRate := chainfee.SatPerKWeight(1000)
@@ -2568,6 +2624,15 @@ func TestPrepareSweepTx(t *testing.T) {
 			currentHeight:  currentHeight,
 			auxSweeper:     fn.None[AuxSweeper](),
 			expectedErr:    ErrNotEnoughInputs,
+		},
+		{
+			name:           "insufficient value for change output",
+			inputs:         []input.Input{&dustInp},
+			changePkScript: changePkScript,
+			feeRate:        0,
+			currentHeight:  currentHeight,
+			auxSweeper:     fn.None[AuxSweeper](),
+			expectedErr:    ErrTxNoOutput,
 		},
 		{
 			name: "immature locktime",

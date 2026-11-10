@@ -1684,7 +1684,9 @@ type sweepTxPreparation struct {
 // 2. check the locktimes are the same.
 // 3. check the inputs cover the outputs.
 //
-// NOTE: if the change amount is below dust, it will be added to the tx fee.
+// NOTE: if the change amount is below dust, it will be added to the tx fee when
+// another output remains. Otherwise, the fee is reduced to retain a standard
+// change output.
 func prepareSweepTx(inputs []input.Input, changePkScript lnwallet.AddrWithKey,
 	feeRate chainfee.SatPerKWeight, currentHeight int32,
 	auxSweeper fn.Option[AuxSweeper]) (*sweepTxPreparation, error) {
@@ -1815,27 +1817,36 @@ func prepareSweepTx(inputs []input.Input, changePkScript lnwallet.AddrWithKey,
 		len(changePkScript.DeliveryAddress),
 	)
 
+	addChangeOutput := true
 	switch {
-	// If the change amount is dust, we'll move it into the fees, and
-	// ignore it.
+	// If there is no required output, discarding dust change would leave
+	// the transaction without any outputs. Reduce the fee just enough to
+	// create a standard change output instead.
+	case changeAmt < changeFloor && requiredOutput == 0:
+		feeReduction := changeFloor - changeAmt
+		if feeReduction > txFee {
+			return nil, ErrTxNoOutput
+		}
+
+		log.Infof("Change amt %v below dustlimit %v, reducing fee "+
+			"by %v to retain the change output", changeAmt,
+			changeFloor, feeReduction)
+
+		txFee -= feeReduction
+		changeAmt = changeFloor
+
+	// If the change amount is dust and another output remains, move the
+	// change into the fee and omit the change output.
 	case changeAmt < changeFloor:
 		log.Infof("Change amt %v below dustlimit %v, not adding "+
 			"change output", changeAmt, changeFloor)
 
-		// If there's no required output, and the change output is a
-		// dust, it means we are creating a tx without any outputs. In
-		// this case we'll return an error. This could happen when
-		// creating a tx that has an anchor as the only input.
-		if requiredOutput == 0 {
-			return nil, ErrTxNoOutput
-		}
-
-		// The dust amount is added to the fee.
 		discardedDust = changeAmt
 		txFee += changeAmt
+		addChangeOutput = false
+	}
 
-	// Otherwise, we'll actually recognize it as a change output.
-	default:
+	if addChangeOutput {
 		changeOuts = append(changeOuts, SweepOutput{
 			TxOut: wire.TxOut{
 				Value:    int64(changeAmt),

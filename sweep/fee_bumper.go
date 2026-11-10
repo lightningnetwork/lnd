@@ -170,6 +170,10 @@ type BumpRequest struct {
 	// Inputs is the set of inputs to sweep.
 	Inputs []input.Input
 
+	// ExclusiveGroup retains the input's mutually exclusive group after
+	// its tracked sweeper entry is removed. Nil means no group membership.
+	ExclusiveGroup *uint64
+
 	// DeadlineHeight is the block height at which the tx should be
 	// confirmed.
 	DeadlineHeight int32

@@ -5279,7 +5279,10 @@ func genHtlcSigValidationJobs(chanState *channeldb.OpenChannel,
 			SigHash:   sigHash,
 		})
 
-		if len(auxHtlcSigs) > i {
+		// Only taproot overlay channels carry aux signatures, so we
+		// don't attach or persist aux data a peer sends for any other
+		// channel type. This matches the per-HTLC count check below.
+		if chanType.HasTapscriptRoot() && len(auxHtlcSigs) > i {
 			auxSig := auxHtlcSigs[i]
 			auxVerifyJob := NewAuxVerifyJob(
 				auxSig, *keyRing, incoming,

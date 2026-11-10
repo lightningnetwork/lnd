@@ -12634,6 +12634,37 @@ func TestAuxSigNotRequiredOnPlainChannel(t *testing.T) {
 	))
 }
 
+// TestAuxSigIgnoredOnPlainChannel tests that aux signatures sent for a channel
+// without the tapscript root bit are neither attached to the HTLC nor stored
+// with it. Only overlay channels use aux signatures, so the HTLC records of a
+// plain channel must not carry any.
+func TestAuxSigIgnoredOnPlainChannel(t *testing.T) {
+	t.Parallel()
+
+	plainChanType := taprootOverlayChanType &^ channeldb.TapscriptRootBit
+	aliceChannel, bobChannel := createAuxHtlcChannels(t, plainChanType, 1)
+
+	mockAuxSignerWithSigs(bobChannel, 1)
+
+	aliceNewCommit, err := aliceChannel.SignNextCommitment(ctxb)
+	require.NoError(t, err, "unable to sign commitment")
+
+	require.NoError(t, bobChannel.ReceiveNewCommitment(
+		aliceNewCommit.CommitSigs,
+	))
+
+	// Revoking persists the new local commitment, whose HTLC must not
+	// carry the aux signature.
+	_, _, _, err = bobChannel.RevokeCurrentCommitment()
+	require.NoError(t, err, "unable to revoke commitment")
+
+	htlcs := bobChannel.channelState.LocalCommitment.Htlcs
+	require.Len(t, htlcs, 1)
+
+	sigType := uint64(htlcCustomSigType.TypeVal())
+	require.NotContains(t, htlcs[0].CustomRecords, sigType)
+}
+
 // TestAuxSigNotRequiredWithoutAuxSigner tests that an overlay channel on a node
 // with no aux signer configured still accepts commitments carrying no aux
 // signatures. Without a signer there is nothing that could consume them, so

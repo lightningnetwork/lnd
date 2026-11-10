@@ -230,7 +230,8 @@ func (db *db) View(f func(tx walletdb.ReadTx) error, reset func()) error {
 
 	apply := func(stm STM) error {
 		reset()
-		return f(newReadWriteTx(stm, etcdDefaultRootBucketId, nil))
+		tx := newReadWriteTx(stm, etcdDefaultRootBucketId, nil)
+		return tx.apply(func() error { return f(tx) })
 	}
 
 	_, err := RunSTM(db.cli, apply, db.txQueue, db.getSTMOptions()...)
@@ -252,7 +253,8 @@ func (db *db) Update(f func(tx walletdb.ReadWriteTx) error, reset func()) error 
 
 	apply := func(stm STM) error {
 		reset()
-		return f(newReadWriteTx(stm, etcdDefaultRootBucketId, nil))
+		tx := newReadWriteTx(stm, etcdDefaultRootBucketId, nil)
+		return tx.apply(func() error { return f(tx) })
 	}
 
 	_, err := RunSTM(db.cli, apply, db.txQueue, db.getSTMOptions()...)

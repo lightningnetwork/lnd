@@ -4041,13 +4041,6 @@ func (d *AuthenticatedGossiper) validateFundingTransaction(_ context.Context,
 		},
 	)
 	if err != nil {
-		// Mark the edge as a zombie so we won't try to re-validate it
-		// on start up.
-		zErr := d.cfg.Graph.MarkZombieEdge(scid.ToUint64())
-		if zErr != nil {
-			return wire.OutPoint{}, 0, nil, zErr
-		}
-
 		return wire.OutPoint{}, 0, nil, fmt.Errorf("%w: %w",
 			ErrInvalidFundingOutput, err)
 	}

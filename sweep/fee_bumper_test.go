@@ -2155,6 +2155,82 @@ func TestHandleInitialBroadcastFail(t *testing.T) {
 	require.Equal(t, 0, tp.subscriberChans.Len())
 }
 
+// TestHandleInitialBroadcastTxTooLarge tests that when the initial tx is
+// rejected for exceeding the standardness weight limit, a TxFailed event is
+// sent back so the inputs can be retried, instead of a TxFatal event.
+func TestHandleInitialBroadcastTxTooLarge(t *testing.T) {
+	t.Parallel()
+
+	// Create a publisher using the mocks.
+	tp, m := createTestPublisher(t)
+
+	// Create a test feerate.
+	feerate := chainfee.SatPerKWeight(1000)
+
+	// Create a test request.
+	inp := createTestInput(1000, input.WitnessKeyHash)
+
+	// Create a testing bump request.
+	req := &BumpRequest{
+		DeliveryAddress: changePkScript,
+		Inputs:          []input.Input{&inp},
+		Budget:          btcutil.Amount(1000),
+		MaxFeeRate:      feerate * 10,
+		DeadlineHeight:  10,
+	}
+
+	// Mock the fee estimator to return the testing fee rate.
+	//
+	// We are not testing `NewLinearFeeFunction` here, so the actual params
+	// used are irrelevant.
+	m.estimator.On("EstimateFeePerKW", mock.Anything).Return(
+		feerate, nil).Once()
+	m.estimator.On("RelayFeePerKW").Return(chainfee.FeePerKwFloor).Once()
+
+	// Mock the signer to always return a valid script.
+	//
+	// NOTE: we are not testing the utility of creating valid txes here, so
+	// this is fine to be mocked. This behaves essentially as skipping the
+	// Signer check and always assume the tx has a valid sig.
+	script := &input.Script{}
+	m.signer.On("ComputeInputScript", mock.Anything,
+		mock.Anything).Return(script, nil)
+
+	// Mock the testmempoolaccept to reject the tx for exceeding the
+	// standardness weight limit.
+	m.wallet.On("CheckMempoolAcceptance",
+		mock.Anything).Return(chain.ErrTxTooLarge).Once()
+
+	// Register the testing record use `Broadcast`.
+	resultChan := tp.Broadcast(req)
+
+	// Grab the monitor record from the map.
+	rid := tp.requestCounter.Load()
+	rec, ok := tp.records.Load(rid)
+	require.True(t, ok)
+
+	// Call the method under test.
+	tp.wg.Add(1)
+	tp.handleInitialBroadcast(rec)
+
+	// Check the result is sent back.
+	select {
+	case <-time.After(time.Second):
+		t.Fatal("timeout waiting for subscriber to receive result")
+
+	case result := <-resultChan:
+		// We expect a TxFailed event so the inputs are retried, with
+		// the current fee rate attached for the next attempt.
+		require.Equal(t, TxFailed, result.Event)
+		require.ErrorIs(t, result.Err, chain.ErrTxTooLarge)
+		require.Equal(t, feerate, result.FeeRate)
+	}
+
+	// Validate the record was removed.
+	require.Equal(t, 0, tp.records.Len())
+	require.Equal(t, 0, tp.subscriberChans.Len())
+}
+
 // TestHasInputsSpent checks the expected outpoint:tx map is returned.
 func TestHasInputsSpent(t *testing.T) {
 	t.Parallel()

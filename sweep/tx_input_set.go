@@ -10,6 +10,7 @@ import (
 	"github.com/btcsuite/btcd/wire"
 	"github.com/lightningnetwork/lnd/fn/v2"
 	"github.com/lightningnetwork/lnd/input"
+	"github.com/lightningnetwork/lnd/lntypes"
 	"github.com/lightningnetwork/lnd/lnwallet"
 	"github.com/lightningnetwork/lnd/lnwallet/chainfee"
 )
@@ -34,10 +35,12 @@ type InputSet interface {
 	// Inputs returns the set of inputs that should be used to create a tx.
 	Inputs() []input.Input
 
-	// AddWalletInputs adds wallet inputs to the set until a non-dust
-	// change output can be made. Return an error if there are not enough
-	// wallet inputs.
-	AddWalletInputs(wallet Wallet) error
+	// AddWalletInputs adds wallet inputs to the set until its budget is
+	// covered, subject to the wallet input count and transaction weight
+	// limits. Inputs that cannot pay for their own weight at the relay fee
+	// rate are skipped. Return an error if no input can contribute to fees.
+	AddWalletInputs(wallet Wallet,
+		relayFeeRate chainfee.SatPerKWeight) error
 
 	// NeedWalletInput returns true if the input set needs more wallet
 	// inputs.
@@ -131,6 +134,18 @@ var _ InputSet = (*BudgetInputSet)(nil)
 
 // errEmptyInputs is returned when the input slice is empty.
 var errEmptyInputs = fmt.Errorf("inputs slice is empty")
+
+const (
+	// maxStandardTxWeight is the maximum weight a transaction may have to
+	// be accepted into the mempool under the default standardness policy.
+	// It mirrors btcd's unexported maxStandardTxWeight.
+	maxStandardTxWeight = lntypes.WeightUnit(400_000)
+
+	// sweepTxWeightMargin is the weight reserved for transaction outputs
+	// that are not yet known when wallet inputs are selected, such as
+	// extra outputs added by the aux sweeper.
+	sweepTxWeightMargin = lntypes.WeightUnit(1_000)
+)
 
 // validateInputs is used when creating new BudgetInputSet to ensure there are
 // no duplicate inputs and they all share the same deadline heights, if set.
@@ -247,13 +262,22 @@ func (b *BudgetInputSet) addInput(input SweeperInput) {
 // addWalletInput takes a wallet UTXO and adds it as an input to be used as
 // budget for the input set.
 func (b *BudgetInputSet) addWalletInput(utxo *lnwallet.Utxo) error {
-	input, err := createWalletTxInput(utxo)
+	walletInput, err := createWalletTxInput(utxo)
 	if err != nil {
 		return err
 	}
 
+	b.addWalletTxInput(walletInput, utxo.Value)
+
+	return nil
+}
+
+// addWalletTxInput adds an already constructed wallet input to the set.
+func (b *BudgetInputSet) addWalletTxInput(walletInput input.Input,
+	value btcutil.Amount) {
+
 	pi := SweeperInput{
-		Input: input,
+		Input: walletInput,
 		params: Params{
 			DeadlineHeight: fn.Some(b.deadlineHeight),
 		},
@@ -261,9 +285,7 @@ func (b *BudgetInputSet) addWalletInput(utxo *lnwallet.Utxo) error {
 	b.addInput(pi)
 
 	log.Debugf("Added wallet input to input set: op=%v, amt=%v",
-		pi.OutPoint(), utxo.Value)
-
-	return nil
+		pi.OutPoint(), value)
 }
 
 // NeedWalletInput returns true if the input set needs more wallet inputs.
@@ -335,6 +357,23 @@ func (b *BudgetInputSet) hasNormalInput() bool {
 	return false
 }
 
+// walletCandidate is a wallet UTXO considered for a budget input set, along
+// with the weight it adds to the sweep transaction.
+type walletCandidate struct {
+	utxo        *lnwallet.Utxo
+	walletInput input.Input
+	weight      lntypes.WeightUnit
+}
+
+// denserThan returns true if the candidate has a strictly higher value per
+// weight unit than other. The ratios are compared exactly by cross
+// multiplication, as a rounded fee rate can order two candidates on opposite
+// sides of the relay fee threshold incorrectly.
+func (c walletCandidate) denserThan(other walletCandidate) bool {
+	return int64(c.utxo.Value)*int64(other.weight) >
+		int64(other.utxo.Value)*int64(c.weight)
+}
+
 // AddWalletInputs adds wallet inputs to the set until the specified budget is
 // met. When sweeping inputs with required outputs, although there's budget
 // specified, it cannot be directly spent from these required outputs. Instead,
@@ -343,11 +382,18 @@ func (b *BudgetInputSet) hasNormalInput() bool {
 // we are calling this method, it means other inputs cannot cover the specified
 // budget, so we need to borrow from wallet utxos.
 //
-// Return an error if there are not enough wallet inputs, and the budget set is
-// set to its initial state by removing any wallet inputs added.
+// Wallet UTXOs are considered in order of value per weight unit, highest
+// first. For UTXOs of the same address type this is largest first, so the
+// budget is covered with the fewest inputs. Selection stops before the sweep
+// would exceed the standard transaction weight limit.
+// A UTXO that cannot pay for its own added weight at the node's relay fee
+// rate is not useful to any relayable sweep and is skipped.
+//
+// Return an error if none of the set's inputs can contribute to fees.
 //
 // NOTE: must be called with the wallet lock held via `WithCoinSelectLock`.
-func (b *BudgetInputSet) AddWalletInputs(wallet Wallet) error {
+func (b *BudgetInputSet) AddWalletInputs(wallet Wallet,
+	relayFeeRate chainfee.SatPerKWeight) error {
 	// Retrieve wallet utxos. Only consider confirmed utxos to prevent
 	// problems around RBF rules for unconfirmed inputs. This currently
 	// ignores the configured coin selection strategy.
@@ -358,21 +404,100 @@ func (b *BudgetInputSet) AddWalletInputs(wallet Wallet) error {
 		return fmt.Errorf("list unspent witness: %w", err)
 	}
 
-	// Sort the UTXOs by putting smaller values at the start of the slice
-	// to avoid locking large UTXO for sweeping.
-	//
-	// TODO(yy): add more choices to CoinSelectionStrategy and use the
-	// configured value here.
-	sort.Slice(utxos, func(i, j int) bool {
-		return utxos[i].Value < utxos[j].Value
-	})
+	// Seed a weight estimate with the set's existing inputs and reserve an
+	// output for the sweep destination. This keeps the transaction below
+	// the standardness weight limit as wallet inputs are added.
+	var estimator input.TxWeightEstimator
+	for _, inp := range b.inputs {
+		err := inp.WitnessType().AddWeightEstimation(&estimator)
+		if err != nil {
+			// Skip inputs that cannot be weighted, the same way the
+			// tx generator treats them. They are accounted for by
+			// the weight margin.
+			log.Errorf("Failed to get weight estimate for "+
+				"input=%v: %v", inp.OutPoint(), err)
 
-	// Add wallet inputs to the set until the specified budget is covered.
+			continue
+		}
+
+		if txOut := inp.RequiredTxOut(); txOut != nil {
+			estimator.AddTxOutput(txOut)
+		}
+	}
+	estimator.AddP2TROutput()
+
+	// Measure the weight each UTXO adds to the transaction, without
+	// mutating the estimator.
+	candidates := make([]walletCandidate, 0, len(utxos))
 	for _, utxo := range utxos {
-		err := b.addWalletInput(utxo)
+		inp, err := createWalletTxInput(utxo)
 		if err != nil {
 			return err
 		}
+
+		trial := estimator
+		err = inp.WitnessType().AddWeightEstimation(&trial)
+		if err != nil {
+			return fmt.Errorf("estimate wallet input weight: %w",
+				err)
+		}
+
+		candidates = append(candidates, walletCandidate{
+			utxo:        utxo,
+			walletInput: inp,
+			weight:      trial.Weight() - estimator.Weight(),
+		})
+	}
+
+	// Consider the UTXOs with the highest value per weight unit first. For
+	// UTXOs of the same address type this is largest first, so the fewest
+	// inputs cover the budget.
+	//
+	// TODO(yy): add more choices to CoinSelectionStrategy and use the
+	// configured value here.
+	sort.SliceStable(candidates, func(i, j int) bool {
+		return candidates[i].denserThan(candidates[j])
+	})
+
+	maxWeight := maxStandardTxWeight - sweepTxWeightMargin
+
+	for _, c := range candidates {
+		// A wallet input must contribute more value than the fee for
+		// its own weight at the minimum relay fee rate. Because
+		// candidates are sorted by exact value density, all remaining
+		// candidates are also unable to pay for themselves once this
+		// condition is met. Since the value is a whole number of
+		// satoshis, comparing it against the rounded down fee is the
+		// same as comparing the exact value density against the rate.
+		if c.utxo.Value <= relayFeeRate.FeeForWeight(c.weight) {
+			log.Debugf("Stopped adding wallet inputs: input %v "+
+				"with value %v cannot pay for weight %v at "+
+				"relay fee rate %v", c.utxo.OutPoint,
+				c.utxo.Value, c.weight, relayFeeRate)
+
+			break
+		}
+
+		weight := estimator.Weight()
+
+		// Stop adding wallet inputs once the transaction would exceed
+		// the standardness weight limit.
+		if weight+c.weight > maxWeight {
+			log.Warnf("Stopped adding wallet inputs: tx weight %v "+
+				"would exceed %v", weight+c.weight, maxWeight)
+
+			break
+		}
+
+		err := c.walletInput.WitnessType().AddWeightEstimation(
+			&estimator,
+		)
+		if err != nil {
+			return fmt.Errorf("estimate wallet input weight: %w",
+				err)
+		}
+
+		b.addWalletTxInput(c.walletInput, c.utxo.Value)
 
 		// Return if we've reached the minimum output amount.
 		if !b.NeedWalletInput() {

@@ -1155,6 +1155,25 @@ func (t *TxPublisher) handleInitialTxError(r *monitorRecord, err error) {
 		// Attach the new fee rate.
 		result.FeeRate = feeRate
 
+	// When the tx exceeds the standardness weight limit, we'll send a
+	// TxFailed so the inputs are retried rather than dropped. Input sets
+	// and the wallet inputs added to them are bounded by weight, so this
+	// should be unreachable and points to a weight estimation bug.
+	// Dropping the inputs could lose funds, while retrying costs one
+	// rejected attempt per block.
+	case errors.Is(err, chain.ErrTxTooLarge):
+		log.Errorf("Sweep tx with %v inputs exceeds the standardness "+
+			"weight limit, which indicates a weight estimation "+
+			"bug, retrying: %v", len(r.req.Inputs), err)
+
+		result.Event = TxFailed
+
+		// The fee rate is unrelated to the rejection, so we keep the
+		// current fee trajectory for the next attempt. The fee
+		// function is always set at this point, as the rejection can
+		// only happen after the tx is created.
+		result.FeeRate = r.feeFunction.FeeRate()
+
 	// When there are missing inputs, we'll create a TxUnknownSpend bump
 	// result here so the rest of the inputs can be retried.
 	case errors.Is(err, ErrInputMissing):

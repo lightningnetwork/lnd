@@ -621,30 +621,47 @@ func TestSweepPendingInputs(t *testing.T) {
 	publisher := &MockBumper{}
 	defer publisher.AssertExpectations(t)
 
+	// The estimator reports a relay fee rate that differs from the one
+	// cached at startup, so the test can check which one is used.
+	const relayFeeRate = chainfee.SatPerKWeight(5_000)
+
+	estimator := &chainfee.MockEstimator{}
+	defer estimator.AssertExpectations(t)
+
+	estimator.On("RelayFeePerKW").Return(relayFeeRate).Once()
+
 	// Create a test sweeper.
 	s := New(&UtxoSweeperConfig{
-		Wallet:     wallet,
-		Aggregator: aggregator,
-		Publisher:  publisher,
+		Wallet:       wallet,
+		Aggregator:   aggregator,
+		Publisher:    publisher,
+		FeeEstimator: estimator,
 		GenSweepScript: func() fn.Result[lnwallet.AddrWithKey] {
 			//nolint:ll
 			return fn.Ok(lnwallet.AddrWithKey{
 				DeliveryAddress: testPubKey.SerializeCompressed(),
 			})
 		},
+		MaxFeeRate:           DefaultMaxFeeRate,
 		NoDeadlineConfTarget: uint32(DefaultDeadlineDelta),
 	})
 
-	// Set a current height to test the deadline override.
+	// Set a current height to test the deadline override, and a stale
+	// relay fee rate as if it was read at startup.
 	s.currentHeight = testHeight
+	s.relayFeeRate = chainfee.FeePerKwFloor
 
 	// Create an input set that needs wallet inputs.
 	setNeedWallet := &MockInputSet{}
 	defer setNeedWallet.AssertExpectations(t)
 
-	// Mock this set to ask for wallet input.
+	// Mock this set to ask for wallet input. Wallet inputs must be
+	// selected against the relay fee rate read for this round, not the
+	// one cached at startup.
 	setNeedWallet.On("NeedWalletInput").Return(true).Once()
-	setNeedWallet.On("AddWalletInputs", wallet).Return(nil).Once()
+	setNeedWallet.On(
+		"AddWalletInputs", wallet, relayFeeRate,
+	).Return(nil).Once()
 
 	// Mock the wallet to require the lock once.
 	wallet.On("WithCoinSelectLock", mock.Anything).Return(nil).Once()

@@ -226,6 +226,7 @@ Once CI runs, pull requests only run the fast checks (linting, static checks,
 the commit checks, the cross compilation and part of the unit tests). The full
 unit test matrix and the integration tests run in the merge queue. A maintainer
 can add the `full-ci` label to run the merge queue checks on a pull request.
+See [CI Runs](ci-runs.md) for the complete trigger, job, and cache map.
 
 ## Rework Code (if needed)
 

@@ -864,9 +864,30 @@ func (s *Switch) ForwardPackets(linkQuit <-chan struct{},
 
 	// Now, forward any packets for circuits that were successfully added to
 	// the switch's circuit map.
-	for _, packet := range addedPackets {
+	for i, packet := range addedPackets {
 		err := s.routeAsync(packet, fwdChan, linkQuit)
 		if err != nil {
+			// CommitCircuits persisted the entire batch before
+			// routing began. If this packet could not be handed to
+			// the switch, neither it nor any later packet can have
+			// reached an outgoing mailbox. Remove their half
+			// circuits so the incoming link can safely replay them
+			// after reconnecting.
+			unforwarded := make(
+				[]CircuitKey, 0, len(addedPackets)-i,
+			)
+			for _, pkt := range addedPackets[i:] {
+				unforwarded = append(unforwarded, pkt.inKey())
+			}
+
+			cleanupErr := s.circuits.DeleteCircuits(unforwarded...)
+			if cleanupErr != nil {
+				return fmt.Errorf("failed to forward packet: "+
+					"%v; unable to remove unforwarded "+
+					"circuits: %w",
+					err, cleanupErr)
+			}
+
 			return fmt.Errorf("failed to forward packet %w", err)
 		}
 		numSent++

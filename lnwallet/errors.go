@@ -60,6 +60,14 @@ func ErrCsvDelayTooLarge(remoteDelay, maxDelay uint16) ReservationError {
 	}
 }
 
+// ErrCsvDelayZero returns an error indicating that a CSV delay of zero was
+// proposed.
+func ErrCsvDelayZero() ReservationError {
+	return ReservationError{
+		errors.New("CSV delay must be greater than zero"),
+	}
+}
+
 // ErrChanReserveTooSmall returns an error indicating that the channel reserve
 // the remote is requiring is too small to be accepted.
 func ErrChanReserveTooSmall(reserve, dustLimit btcutil.Amount) ReservationError {

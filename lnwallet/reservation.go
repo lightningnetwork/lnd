@@ -958,6 +958,12 @@ func VerifyConstraints(bounds *channeldb.ChannelStateBounds,
 	commitParams *channeldb.CommitmentParams, maxLocalCSVDelay uint16,
 	channelCapacity btcutil.Amount) error {
 
+	// A zero CSV delay leaves no time to respond to a breach of the
+	// commitment it applies to, so we never accept or propose one.
+	if commitParams.CsvDelay == 0 {
+		return ErrCsvDelayZero()
+	}
+
 	// Fail if the csv delay for our funds exceeds our maximum.
 	if commitParams.CsvDelay > maxLocalCSVDelay {
 		return ErrCsvDelayTooLarge(

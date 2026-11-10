@@ -934,14 +934,14 @@ func (n *TxNotifier) dispatchConfDetails(
 	// already been dispatched, then we can skip dispatching to this
 	// client.
 	if details == nil {
-		Log.Debugf("Skipped dispatching nil conf details for request "+
+		Log.Tracef("Skipped dispatching nil conf details for request "+
 			"%v, conf_id=%v", ntfn.ConfRequest, ntfn.ConfID)
 
 		return nil
 	}
 
 	if ntfn.dispatched {
-		Log.Debugf("Skipped dispatched conf details for request %v "+
+		Log.Tracef("Skipped dispatched conf details for request %v "+
 			"conf_id=%v", ntfn.ConfRequest, ntfn.ConfID)
 
 		return nil
@@ -1337,11 +1337,8 @@ func (n *TxNotifier) updateSpendDetails(spendRequest SpendRequest,
 
 	// Return an error if the witness data is not present in the spending
 	// transaction.
-	//
-	// NOTE: if the witness stack is empty, we will do a critical log which
-	// shuts down the node.
 	if !details.HasSpenderWitness() {
-		Log.Criticalf("Found spending tx for outpoint=%v, but the "+
+		Log.Errorf("Found spending tx for outpoint=%v, but the "+
 			"transaction %v does not have witness",
 			spendRequest.OutPoint, details.SpendingTx.TxHash())
 
@@ -1391,7 +1388,7 @@ func (n *TxNotifier) dispatchSpendDetails(ntfn *SpendNtfn, details *SpendDetail)
 	// If there are no spend details to dispatch or if the notification has
 	// already been dispatched, then we can skip dispatching to this client.
 	if details == nil || ntfn.dispatched {
-		Log.Debugf("Skipping dispatch of spend details(%v) for "+
+		Log.Tracef("Skipping dispatch of spend details(%v) for "+
 			"request %v, dispatched=%v", details, ntfn.SpendRequest,
 			ntfn.dispatched)
 		return nil
@@ -1793,7 +1790,7 @@ func (n *TxNotifier) NotifyHeight(height uint32) error {
 		// If the `confDetails` has already been sent before, we'll
 		// skip it and continue processing the next one.
 		if ntfn.dispatched {
-			Log.Debugf("Skipped dispatched conf details for "+
+			Log.Tracef("Skipped dispatched conf details for "+
 				"request %v conf_id=%v", ntfn.ConfRequest,
 				ntfn.ConfID)
 

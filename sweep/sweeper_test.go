@@ -1354,160 +1354,136 @@ func TestHandleBumpEventTxPublished(t *testing.T) {
 	require.Equal(t, Published, s.inputs[op].state)
 }
 
-// TestMonitorFeeBumpResult checks that the fee bump monitor loop correctly
-// exits when the sweeper is stopped, the tx is confirmed or failed.
+// TestMonitorFeeBumpResult checks terminal and ongoing publisher results
+// control monitor exit and cancellation of the accepted transaction.
 func TestMonitorFeeBumpResult(t *testing.T) {
-	// Create a mock store.
-	store := &MockSweeperStore{}
-	defer store.AssertExpectations(t)
-
-	// Create a mock wallet.
-	wallet := &MockWallet{}
-	defer wallet.AssertExpectations(t)
-
-	// Create a mock input set.
-	set := &MockInputSet{}
-	defer set.AssertExpectations(t)
-
-	// Create a test sweeper.
-	s := New(&UtxoSweeperConfig{
-		Store:  store,
-		Wallet: wallet,
-	})
-
-	// Create a mock input.
-	inp := createMockInput(t, s, PendingPublish)
-
-	// Create a testing tx that spends the input.
-	op := inp.OutPoint()
-	tx := &wire.MsgTx{
-		LockTime: 1,
-		TxIn: []*wire.TxIn{
-			{PreviousOutPoint: op},
-		},
-	}
-
+	// Arrange result data for the existing terminal, ongoing and shutdown
+	// cases. The monitor only needs a transaction identity, not signed
+	// inputs.
+	tx := &wire.MsgTx{LockTime: 1}
 	testCases := []struct {
-		name            string
-		setupResultChan func() <-chan *BumpResult
-		shouldExit      bool
+		name              string
+		result            *BumpResult
+		cancelRebroadcast bool
+		shouldExit        bool
+		shutdown          bool
 	}{
 		{
-			// When a tx confirmed event is received, we expect to
-			// exit the monitor loop.
 			name: "tx confirmed",
-			// We send a result with TxConfirmed event to the
-			// result channel.
-			setupResultChan: func() <-chan *BumpResult {
-				// Create a result chan.
-				resultChan := make(chan *BumpResult, 1)
-				resultChan <- &BumpResult{
-					Tx:      tx,
-					Event:   TxConfirmed,
-					Fee:     10000,
-					FeeRate: 100,
-				}
-
-				// We expect to cancel rebroadcasting the tx
-				// once confirmed.
-				wallet.On("CancelRebroadcast",
-					tx.TxHash()).Once()
-
-				return resultChan
+			result: &BumpResult{
+				Tx:      tx,
+				Event:   TxConfirmed,
+				Fee:     10000,
+				FeeRate: 100,
 			},
-			shouldExit: true,
+			cancelRebroadcast: true,
+			shouldExit:        true,
 		},
 		{
-			// When a tx failed event is received, we expect to
-			// exit the monitor loop.
 			name: "tx failed",
-			// We send a result with TxConfirmed event to the
-			// result channel.
-			setupResultChan: func() <-chan *BumpResult {
-				// Create a result chan.
-				resultChan := make(chan *BumpResult, 1)
-				resultChan <- &BumpResult{
-					Tx:    tx,
-					Event: TxFailed,
-					Err:   errDummy,
-				}
-
-				// We expect to cancel rebroadcasting the tx
-				// once failed.
-				wallet.On("CancelRebroadcast",
-					tx.TxHash()).Once()
-
-				return resultChan
+			result: &BumpResult{
+				Tx:    tx,
+				Event: TxFailed,
+				Err:   errDummy,
+			},
+			cancelRebroadcast: true,
+			shouldExit:        true,
+		},
+		{
+			name: "tx fatal",
+			result: &BumpResult{
+				Tx:    tx,
+				Event: TxFatal,
+				Err:   errDummy,
+			},
+			cancelRebroadcast: true,
+			shouldExit:        true,
+		},
+		{
+			name: "tx unknown spend",
+			result: &BumpResult{
+				Tx:    tx,
+				Event: TxUnknownSpend,
+				Err:   ErrUnknownSpent,
+			},
+			cancelRebroadcast: true,
+			shouldExit:        true,
+		},
+		{
+			name: "tx fatal before creation",
+			result: &BumpResult{
+				Event: TxFatal,
+				Err:   errDummy,
 			},
 			shouldExit: true,
 		},
 		{
-			// When processing non-confirmed events, the monitor
-			// should not exit.
 			name: "no exit on normal event",
-			// We send a result with TxPublished and mock the
-			// method `StoreTx` to return nil.
-			setupResultChan: func() <-chan *BumpResult {
-				// Create a result chan.
-				resultChan := make(chan *BumpResult, 1)
-				resultChan <- &BumpResult{
-					Tx:    tx,
-					Event: TxPublished,
-				}
-
-				return resultChan
+			result: &BumpResult{
+				Tx:    tx,
+				Event: TxPublished,
 			},
-			shouldExit: false,
 		},
 		{
-			// When the sweeper is shutting down, the monitor loop
-			// should exit.
-			name: "exit on sweeper shutdown",
-			// We don't send anything but quit the sweeper.
-			setupResultChan: func() <-chan *BumpResult {
-				close(s.quit)
-
-				return nil
-			},
+			name:       "exit on sweeper shutdown",
+			shutdown:   true,
 			shouldExit: true,
 		},
 	}
+	for _, testCase := range testCases {
+		t.Run(testCase.name, func(t *testing.T) {
+			// Arrange this case's channel and mocks directly.
+			// Cleanup stops an ongoing monitor before its resources
+			// are released.
+			wallet := &MockWallet{}
+			defer wallet.AssertExpectations(t)
+			set := &MockInputSet{}
+			defer set.AssertExpectations(t)
+			s := New(&UtxoSweeperConfig{Wallet: wallet})
+			t.Cleanup(func() {
+				require.NoError(t, s.Stop())
+			})
+			if testCase.cancelRebroadcast {
+				wallet.On(
+					"CancelRebroadcast", tx.TxHash(),
+				).Once()
+			}
+			var resultChan chan *BumpResult
+			if testCase.result != nil {
+				resultChan = make(chan *BumpResult, 1)
+				resultChan <- testCase.result
+			}
+			if testCase.shutdown {
+				require.NoError(t, s.Stop())
+			}
 
-	for _, tc := range testCases {
-		tc := tc
-
-		t.Run(tc.name, func(t *testing.T) {
-			// Setup the testing result channel.
-			resultChan := tc.setupResultChan()
-
-			// Create a done chan that's used to signal the monitor
-			// has exited.
+			// Act by starting the real monitor with the selected
+			// result or the closed shutdown signal and observing
+			// its lifetime.
 			done := make(chan struct{})
-
 			s.wg.Add(1)
 			go func() {
 				s.monitorFeeBumpResult(set, resultChan, nil)
 				close(done)
 			}()
 
-			// The monitor is expected to exit, we check it's done
-			// in one second or fail.
-			if tc.shouldExit {
+			// Assert terminal results/shutdown exit; an ongoing
+			// result waits for cleanup. Required cancellation is
+			// checked once by this case's deferred mock
+			// verification.
+			if testCase.shouldExit {
 				select {
 				case <-done:
-				case <-time.After(1 * time.Second):
+				case <-time.After(time.Second):
 					require.Fail(t, "monitor not exited")
 				}
 
 				return
 			}
-
-			// The monitor should not exit, check it doesn't close
-			// the `done` channel within one second.
 			select {
 			case <-done:
 				require.Fail(t, "monitor exited")
-			case <-time.After(1 * time.Second):
+			case <-time.After(time.Second):
 			}
 		})
 	}

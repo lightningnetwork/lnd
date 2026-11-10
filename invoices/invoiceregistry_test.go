@@ -2488,12 +2488,16 @@ func testInvoiceExpiryWithRegistry(t *testing.T,
 	require.NoError(t, registry.Stop(), "failed to stop invoice registry")
 }
 
-// testOldInvoiceRemovalOnStart tests that we'll attempt to remove old canceled
-// invoices upon start while keeping all settled ones.
+// testOldInvoiceRemovalOnStart checks that startup cleanup preserves released
+// payment records, including failed collection, and removes unreleased cancels.
 func testOldInvoiceRemovalOnStart(t *testing.T,
 	makeDB func(t *testing.T) (invpkg.InvoiceDB, *clock.TestClock)) {
 
 	t.Parallel()
+
+	// Arrange expired invoices with settled, unreleased canceled, mixed and
+	// all-failed outcomes so cleanup must preserve release history, even
+	// when the released payment collected no value.
 	idb, testClock := makeDB(t)
 
 	cfg := invpkg.RegistryConfig{
@@ -2509,7 +2513,7 @@ func testOldInvoiceRemovalOnStart(t *testing.T,
 	registry := invpkg.NewRegistry(idb, expiryWatcher, &cfg)
 
 	// First prefill the Channel DB with some pre-existing expired invoices.
-	const numExpired = 5
+	const numExpired = 6
 	const numPending = 0
 	existingInvoices := generateInvoiceExpiryTestData(
 		t, testTime, 0, numExpired, numPending,
@@ -2517,22 +2521,94 @@ func testOldInvoiceRemovalOnStart(t *testing.T,
 
 	ctxb := t.Context()
 
+	var unpaidAddIndex uint64
 	i := 0
 	for paymentHash, invoice := range existingInvoices.expiredInvoices {
-		// Mark half of the invoices as settled, the other half as
-		// canceled.
-		if i%2 == 0 {
+		partialPayment := i == 1
+		failedPayment := i == 3
+
+		// Leave the mixed and all-failed fixtures open to release their
+		// actual HTLCs; other fixtures retain the cleanup controls.
+		switch {
+		case partialPayment || failedPayment:
+			invoice.State = invpkg.ContractOpen
+
+		case i%2 == 0:
 			invoice.State = invpkg.ContractSettled
-		} else {
+
+		default:
 			invoice.State = invpkg.ContractCanceled
 		}
 
-		_, err := idb.AddInvoice(ctxb, invoice, paymentHash)
+		addIndex, err := idb.AddInvoice(ctxb, invoice, paymentHash)
 		require.NoError(t, err)
-		i++
-	}
+		if i == numExpired-1 {
+			unpaidAddIndex = addIndex
+		}
 
-	// Collect all settled invoices for our expectation set.
+		i++
+		if !partialPayment && !failedPayment {
+			continue
+		}
+
+		// Persist released outcomes through the database update API.
+		// Unique keys prevent the two payment fixtures from sharing an
+		// HTLC identity, including in the SQL backend's global index.
+		ref := invpkg.InvoiceRefByHash(paymentHash)
+		keys := []invpkg.CircuitKey{
+			getCircuitKey(uint64(2 * i)),
+			getCircuitKey(uint64(2*i + 1)),
+		}
+		release := func(inv *invpkg.Invoice) (
+			*invpkg.InvoiceUpdateDesc, error) {
+
+			htlcs := make(
+				map[invpkg.CircuitKey]*invpkg.HtlcAcceptDesc,
+			)
+			amount := inv.Terms.Value / 2
+			for _, key := range keys {
+				htlcs[key] = &invpkg.HtlcAcceptDesc{
+					Amt:           amount,
+					CustomRecords: record.CustomSet{},
+				}
+			}
+
+			state := &invpkg.InvoiceStateUpdateDesc{
+				NewState: invpkg.ContractPendingSettle,
+				Preimage: inv.Terms.PaymentPreimage,
+			}
+
+			return &invpkg.InvoiceUpdateDesc{
+				UpdateType: invpkg.AddHTLCsUpdate,
+				AddHtlcs:   htlcs,
+				State:      state,
+			}, nil
+		}
+		_, err = idb.UpdateInvoice(
+			ctxb, ref, nil, release,
+		)
+		require.NoError(t, err)
+		_, err = idb.UpdateInvoice(
+			ctxb, ref, nil, getFinalizeHtlcs(
+				!failedPayment, keys[0],
+			),
+		)
+		require.NoError(t, err)
+		final, err := idb.UpdateInvoice(
+			ctxb, ref, nil,
+			getFinalizeHtlcs(false, keys[1]),
+		)
+		require.NoError(t, err)
+		require.Equal(t, invpkg.ContractCanceled, final.State)
+		expectedPaid := invoice.Terms.Value / 2
+		if failedPayment {
+			expectedPaid = 0
+		}
+		require.Equal(t, expectedPaid, final.AmtPaid)
+	}
+	require.NotZero(t, unpaidAddIndex)
+
+	// Collect retained payment records for our expectation set.
 	var expected []invpkg.Invoice
 
 	// Perform a scan query to collect all invoices.
@@ -2544,24 +2620,29 @@ func testOldInvoiceRemovalOnStart(t *testing.T,
 	response, err := idb.QueryInvoices(ctxb, query)
 	require.NoError(t, err)
 
-	// Save all settled invoices for our expectation set.
+	// Only the unreleased canceled fixture may disappear. Select it by
+	// its known add index instead of duplicating the retention predicate;
+	// full snapshots preserve credit, preimages and final HTLC states.
 	for _, invoice := range response.Invoices {
-		if invoice.State == invpkg.ContractSettled {
+		if invoice.AddIndex != unpaidAddIndex {
 			expected = append(expected, invoice)
 		}
 	}
 
-	// Start the registry which should collect and delete all canceled
-	// invoices upon start.
+	// Act by starting the registry with automatic cleanup enabled, using
+	// the same persisted invoices and each backend's real deletion path.
 	err = registry.Start()
 	require.NoError(t, err, "cannot start the registry")
+	t.Cleanup(func() {
+		require.NoError(t, registry.Stop())
+	})
 
 	// Perform a scan query to collect all invoices.
 	response, err = idb.QueryInvoices(ctxb, query)
 	require.NoError(t, err)
 
-	// Check that we really only kept the settled invoices after the
-	// registry start.
+	// Assert the unreleased cancellation disappears while all released
+	// history, including the zero-credit failed payment, stays unchanged.
 	require.Equal(t, expected, response.Invoices)
 }
 

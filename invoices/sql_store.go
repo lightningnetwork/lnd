@@ -1710,7 +1710,8 @@ func (i *SQLStore) DeleteInvoice(ctx context.Context,
 	return nil
 }
 
-// DeleteCanceledInvoices removes all canceled invoices from the database.
+// DeleteCanceledInvoices removes canceled invoices, preserving ordinary
+// invoices with settled or failed released HTLCs and their release history.
 func (i *SQLStore) DeleteCanceledInvoices(ctx context.Context) error {
 	writeTxOpt := sqldb.WriteTxOpt()
 	err := i.db.ExecTx(ctx, writeTxOpt, func(db SQLInvoiceQueries) error {

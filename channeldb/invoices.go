@@ -2245,7 +2245,8 @@ func delAMPSettleIndex(invoiceNum []byte, invoices,
 	return nil
 }
 
-// DeleteCanceledInvoices deletes all canceled invoices from the database.
+// DeleteCanceledInvoices deletes canceled invoices, preserving ordinary
+// invoices with settled or failed released HTLCs so release history survives.
 func (d *DB) DeleteCanceledInvoices(_ context.Context) error {
 	return kvdb.Update(d, func(tx kvdb.RwTx) error {
 		invoices := tx.ReadWriteBucket(invoiceBucket)
@@ -2288,6 +2289,19 @@ func (d *DB) DeleteCanceledInvoices(_ context.Context) error {
 
 			if invoice.State != invpkg.ContractCanceled {
 				return nil
+			}
+
+			// Failed collection does not undo release. Keep the
+			// history even when every released HTLC failed.
+			for _, htlc := range invoice.Htlcs {
+				if invoice.IsAMP() {
+					continue
+				}
+				if htlc.State == invpkg.HtlcStateSettled ||
+					htlc.State == invpkg.HtlcStateFailed {
+
+					return nil
+				}
 			}
 
 			// Delete the payment hash from the invoice index.

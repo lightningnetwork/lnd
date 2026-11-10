@@ -93,8 +93,8 @@ type InvoiceDB interface {
 	DeleteInvoice(ctx context.Context,
 		invoicesToDelete []InvoiceDeleteRef) error
 
-	// DeleteCanceledInvoices removes all canceled invoices from the
-	// database.
+	// DeleteCanceledInvoices removes canceled invoices, preserving ordinary
+	// release history for both collected and failed HTLCs.
 	DeleteCanceledInvoices(ctx context.Context) error
 }
 

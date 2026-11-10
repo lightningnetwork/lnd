@@ -1,6 +1,7 @@
 package lnd
 
 import (
+	"context"
 	"fmt"
 	"testing"
 	"time"
@@ -8,13 +9,168 @@ import (
 	"github.com/lightningnetwork/lnd/channeldb"
 	"github.com/lightningnetwork/lnd/fn/v2"
 	"github.com/lightningnetwork/lnd/graph/db/models"
+	"github.com/lightningnetwork/lnd/invoices"
 	"github.com/lightningnetwork/lnd/lnrpc"
+	"github.com/lightningnetwork/lnd/lntypes"
 	"github.com/lightningnetwork/lnd/lnwire"
 	"github.com/lightningnetwork/lnd/signal"
 	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/mock"
 	"github.com/stretchr/testify/require"
+	"google.golang.org/grpc/codes"
+	"google.golang.org/grpc/status"
 	"google.golang.org/protobuf/proto"
 )
+
+// canceledInvoiceDBMock supplies only the database operations used by the
+// canceled-invoice RPC, leaving the concrete registry's lookup path intact.
+type canceledInvoiceDBMock struct {
+	invoices.InvoiceDB
+	mock.Mock
+}
+
+// Assert the embedded interface and overridden operations satisfy the registry
+// and RPC database contract without implementing unrelated storage methods.
+var _ invoices.InvoiceDB = (*canceledInvoiceDBMock)(nil)
+
+// LookupInvoice returns the arranged snapshot through the registry's normal
+// lookup path so deletion policy is tested at the RPC boundary.
+func (m *canceledInvoiceDBMock) LookupInvoice(ctx context.Context,
+	ref invoices.InvoiceRef) (invoices.Invoice, error) {
+
+	args := m.Called(ctx, ref)
+	invoice, _ := args.Get(0).(invoices.Invoice)
+	return invoice, args.Error(1)
+}
+
+// DeleteInvoice requires an explicit expectation so any deletion of a released
+// payment record fails the test rather than silently discarding its history.
+func (m *canceledInvoiceDBMock) DeleteInvoice(ctx context.Context,
+	refs []invoices.InvoiceDeleteRef) error {
+
+	args := m.Called(ctx, refs)
+	return args.Error(0)
+}
+
+// TestDeleteCanceledInvoiceReleaseHistory checks that canceled-invoice deletion
+// preserves ordinary release history even when all released HTLCs failed.
+func TestDeleteCanceledInvoiceReleaseHistory(t *testing.T) {
+	t.Parallel()
+
+	// Arrange canceled snapshots with a known preimage in every case.
+	// Only the HTLC evidence distinguishes an unreleased cancellation
+	// from released collection failures, including zero received credit.
+	preimage := lntypes.Preimage{1}
+	hash := preimage.Hash()
+	testCases := []struct {
+		name        string
+		htlcStates  []invoices.HtlcState
+		amtPaid     lnwire.MilliSatoshi
+		allowDelete bool
+	}{
+		{
+			name: "unreleased cancellation",
+			htlcStates: []invoices.HtlcState{
+				invoices.HtlcStateCanceled,
+			},
+			allowDelete: true,
+		},
+		{
+			name: "all released HTLCs failed",
+			htlcStates: []invoices.HtlcState{
+				invoices.HtlcStateFailed,
+			},
+		},
+		{
+			name: "partially collected payment",
+			htlcStates: []invoices.HtlcState{
+				invoices.HtlcStateSettled,
+				invoices.HtlcStateFailed,
+			},
+			amtPaid: 500,
+		},
+	}
+	for _, tc := range testCases {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+
+			// Arrange the registry's lookup; require one delete
+			// only for the unreleased fixture. The
+			// unstarted registry performs lookup without workers.
+			ctx := t.Context()
+			htlcs := make(
+				map[models.CircuitKey]*invoices.InvoiceHTLC,
+			)
+			invoice := invoices.Invoice{
+				State:    invoices.ContractCanceled,
+				AddIndex: 1,
+				AmtPaid:  tc.amtPaid,
+				Terms: invoices.ContractTerm{
+					PaymentPreimage: &preimage,
+				},
+				Htlcs: htlcs,
+			}
+			for n, state := range tc.htlcStates {
+				invoice.Htlcs[models.CircuitKey{
+					HtlcID: uint64(n),
+				}] = &invoices.InvoiceHTLC{
+					State: state,
+				}
+			}
+			idb := &canceledInvoiceDBMock{}
+			idb.Test(t)
+			t.Cleanup(func() {
+				idb.AssertExpectations(t)
+			})
+			idb.On(
+				"LookupInvoice", ctx,
+				invoices.InvoiceRefByHash(hash),
+			).Return(invoice, nil).Once()
+			if tc.allowDelete {
+				refs := []invoices.InvoiceDeleteRef{
+					{
+						PayHash:  hash,
+						AddIndex: invoice.AddIndex,
+					},
+				}
+				idb.On(
+					"DeleteInvoice", ctx, refs,
+				).Return(nil).Once()
+			}
+			r := &rpcServer{
+				server: &server{
+					invoicesDB: idb,
+					invoices: invoices.NewRegistry(
+						idb, nil,
+						&invoices.RegistryConfig{},
+					),
+				},
+			}
+
+			// Act through the public canceled-only deletion method;
+			// released records must not reach database deletion.
+			resp, err := r.DeleteCanceledInvoice(
+				ctx, &lnrpc.DelCanceledInvoiceReq{
+					InvoiceHash: hash.String(),
+				},
+			)
+
+			// Assert unreleased cancellations remain deletable;
+			// both released failures return the documented status
+			// without a response; cleanup verifies database calls.
+			if tc.allowDelete {
+				require.NoError(t, err)
+				require.NotNil(t, resp)
+			} else {
+				require.Equal(
+					t, codes.FailedPrecondition,
+					status.Code(err),
+				)
+				require.Nil(t, resp)
+			}
+		})
+	}
+}
 
 func TestGetAllPermissions(t *testing.T) {
 	perms := GetAllPermissions()

@@ -12154,3 +12154,117 @@ func TestEvaluateNoOpHtlc(t *testing.T) {
 		require.Equal(t, tc.expectedDeltas, tc.balanceDeltas)
 	}
 }
+
+// taprootOverlayChanType is the channel type of a taproot overlay channel. The
+// tapscript root bit is what marks it as one, and therefore as a channel whose
+// peer owes us an aux signature for every HTLC.
+var taprootOverlayChanType = channeldb.SingleFunderTweaklessBit |
+	channeldb.AnchorOutputsBit | channeldb.SimpleTaprootFeatureBit |
+	channeldb.TapscriptRootBit
+
+// auxHtlcAmt is the amount of the HTLCs added by createAuxHtlcChannels. It is
+// well above both channels' dust limit, so each such HTLC gets its own
+// commitment output and therefore its own signature.
+const auxHtlcAmt = btcutil.Amount(20000)
+
+// addAuxHtlc adds a single HTLC of the given amount, offered by Alice and
+// received by Bob. The index seeds the payment preimage, so callers must pass a
+// distinct index for each HTLC added to the same pair of channels.
+func addAuxHtlc(t *testing.T, aliceChannel, bobChannel *LightningChannel,
+	idx int, amt btcutil.Amount) {
+
+	var fakeOnionBlob [lnwire.OnionPacketSize]byte
+	copy(
+		fakeOnionBlob[:],
+		bytes.Repeat([]byte{0x05}, lnwire.OnionPacketSize),
+	)
+
+	var preimage [32]byte
+	copy(preimage[:], bytes.Repeat([]byte{byte(idx)}, 32))
+
+	htlc := &lnwire.UpdateAddHTLC{
+		PaymentHash: sha256.Sum256(preimage[:]),
+		Amount:      lnwire.NewMSatFromSatoshis(amt),
+		Expiry:      uint32(10),
+		OnionBlob:   fakeOnionBlob,
+	}
+
+	htlcIndex, err := aliceChannel.AddHTLC(htlc, nil)
+	require.NoError(t, err, "unable to add htlc")
+
+	htlc.ID = htlcIndex
+	_, err = bobChannel.ReceiveHTLC(htlc)
+	require.NoError(t, err, "unable to recv htlc")
+}
+
+// createAuxHtlcChannels creates a pair of channels of the given type, with the
+// given number of HTLCs offered by Alice and received by Bob. The HTLCs are
+// well above the dust limit, so each of them gets its own commitment output
+// and therefore its own signature.
+func createAuxHtlcChannels(t *testing.T, chanType channeldb.ChannelType,
+	numHtlcs int) (*LightningChannel, *LightningChannel) {
+
+	aliceChannel, bobChannel, err := CreateTestChannels(t, chanType)
+	require.NoError(t, err, "unable to create test channels")
+
+	for idx := range numHtlcs {
+		addAuxHtlc(t, aliceChannel, bobChannel, idx, auxHtlcAmt)
+	}
+
+	return aliceChannel, bobChannel
+}
+
+// mockAuxSignerWithSigs installs an aux signer on the given channel that
+// reports the given number of unpacked signature slots, regardless of what the
+// remote party actually sent. That stands in for a peer whose commit_sig
+// carried that many aux signatures.
+func mockAuxSignerWithSigs(channel *LightningChannel,
+	numSigs int) *MockAuxSigner {
+
+	auxSigner := NewAuxSignerMock(EmptyMockJobHandler)
+	channel.auxSigner = fn.Some[AuxSigner](auxSigner)
+
+	slots := make([]fn.Option[tlv.Blob], numSigs)
+	for idx := range slots {
+		slots[idx] = fn.Some(tlv.Blob{0x01})
+	}
+
+	auxSigner.On("UnpackSigs", mock.Anything).Return(fn.Ok(slots))
+	auxSigner.On(
+		"VerifySecondLevelSigs", mock.Anything, mock.Anything,
+		mock.Anything,
+	).Return(nil)
+
+	return auxSigner
+}
+
+// TestAuxSigIgnoredOnPlainChannel tests that aux signatures sent for a channel
+// without the tapscript root bit are neither attached to the HTLC nor stored
+// with it. Only overlay channels use aux signatures, so the HTLC records of a
+// plain channel must not carry any.
+func TestAuxSigIgnoredOnPlainChannel(t *testing.T) {
+	t.Parallel()
+
+	plainChanType := taprootOverlayChanType &^ channeldb.TapscriptRootBit
+	aliceChannel, bobChannel := createAuxHtlcChannels(t, plainChanType, 1)
+
+	mockAuxSignerWithSigs(bobChannel, 1)
+
+	aliceNewCommit, err := aliceChannel.SignNextCommitment(ctxb)
+	require.NoError(t, err, "unable to sign commitment")
+
+	require.NoError(t, bobChannel.ReceiveNewCommitment(
+		aliceNewCommit.CommitSigs,
+	))
+
+	// Revoking persists the new local commitment, whose HTLC must not
+	// carry the aux signature.
+	_, _, _, err = bobChannel.RevokeCurrentCommitment()
+	require.NoError(t, err, "unable to revoke commitment")
+
+	htlcs := bobChannel.channelState.LocalCommitment.Htlcs
+	require.Len(t, htlcs, 1)
+
+	sigType := uint64(htlcCustomSigType.TypeVal())
+	require.NotContains(t, htlcs[0].CustomRecords, sigType)
+}

@@ -741,6 +741,13 @@ type Brontide struct {
 	// peer's chansync message with its own over and over again.
 	resentChanSyncMsg map[lnwire.ChannelID]struct{}
 
+	// chanSyncSent records channels for which this connection has already
+	// queued channel_reestablish. A pending channel has no link at
+	// reconnect, so loadActiveChannels queues the message itself. The link
+	// created after confirmation must not send a second copy: that message
+	// is not a reconnection, and peers fail the channel.
+	chanSyncSent *lnutils.SyncMap[lnwire.ChannelID, struct{}]
+
 	// channelEventClient is the channel event subscription client that's
 	// used to assist retry enabling the channels. This client is only
 	// created when the reenableTimeout is no greater than 1 minute. Once
@@ -789,6 +796,8 @@ func NewBrontide(cfg Config) *Brontide {
 		msgmux.NewMultiMsgRouter(),
 	))
 
+	chanSyncSent := &lnutils.SyncMap[lnwire.ChannelID, struct{}]{}
+
 	p := &Brontide{
 		cfg:           cfg,
 		activeSignal:  make(chan struct{}),
@@ -814,6 +823,7 @@ func NewBrontide(cfg Config) *Brontide {
 		chanCloseMsgs:      make(chan *closeMsg),
 		chanCloseFlushed:   make(chan lnwire.ChannelID),
 		resentChanSyncMsg:  make(map[lnwire.ChannelID]struct{}),
+		chanSyncSent:       chanSyncSent,
 		startReady:         make(chan struct{}),
 		log:                peerLog.WithPrefix(logPrefix),
 		msgRouter:          msgRouter,
@@ -1344,6 +1354,7 @@ func (p *Brontide) loadActiveChannels(chans []*channeldb.OpenChannel) (
 				p.log.Errorf("Unable to create channel "+
 					"reestablish message for channel %v: "+
 					"%v", chanPoint, err)
+
 				continue
 			}
 
@@ -1435,8 +1446,24 @@ func (p *Brontide) loadActiveChannels(chans []*channeldb.OpenChannel) (
 		// the funding manager's responsibility to spin up pending
 		// channels. Adding them here would just be extra work as we'll
 		// tear them down when creating + adding the final link.
+		//
+		// BOLT 2 requires channel_reestablish on reconnection for each
+		// remembered channel. Confirmation is not a condition. Start
+		// writes this message before the write handler. The link
+		// created after confirmation must not send a second copy.
 		if lnChan.IsPending() {
 			p.markPendingChannel(chanID)
+
+			chanSync, err := dbChan.ChanSyncMsg()
+			if err != nil {
+				p.log.Errorf("Unable to create channel "+
+					"reestablish message for channel %v: "+
+					"%v", chanPoint, err)
+				continue
+			}
+
+			p.chanSyncSent.Store(chanID, struct{}{})
+			msgs = append(msgs, chanSync)
 
 			continue
 		}
@@ -1657,6 +1684,15 @@ func (p *Brontide) addLink(chanPoint *wire.OutPoint,
 	// down to ensure that the mailboxes are only ever under the control of
 	// one link.
 	chanID := lnwire.NewChanIDFromOutPoint(*chanPoint)
+
+	// A pending channel already queued channel_reestablish at reconnect.
+	// The link still syncs, but it must not transmit a second copy.
+	if p.chanSyncSent != nil {
+		if _, sent := p.chanSyncSent.Load(chanID); sent {
+			linkCfg.ChanSyncMsgSent = true
+		}
+	}
+
 	p.cfg.Switch.RemoveLink(chanID)
 
 	// With the channel link created, we'll now notify the htlc switch so

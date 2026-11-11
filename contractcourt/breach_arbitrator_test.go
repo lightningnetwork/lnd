@@ -2714,9 +2714,10 @@ func TestUpdateBreachInfoKeepsSecondLevelTweakOnCompaction(t *testing.T) {
 			},
 		}
 	}
-	updateBreachInfo(breachInfo, []spend{
-		secondLevelSpend(1), secondLevelSpend(2),
-	})
+	updateBreachInfo(
+		breachInfo, []spend{secondLevelSpend(1), secondLevelSpend(2)},
+		fn.None[lnwallet.AuxContractResolver](),
+	)
 	require.Len(t, breachInfo.breachedOutputs, 3)
 
 	// Our justice tx then sweeps the commitment output, which is removed
@@ -2732,7 +2733,7 @@ func TestUpdateBreachInfoKeepsSecondLevelTweakOnCompaction(t *testing.T) {
 			},
 			SpenderInputIndex: 0,
 		},
-	}})
+	}}, fn.None[lnwallet.AuxContractResolver]())
 	require.Len(t, breachInfo.breachedOutputs, 2)
 
 	for _, bo := range breachInfo.breachedOutputs {
@@ -2770,7 +2771,7 @@ func TestUpdateBreachInfoCountsFinalTaprootRevokedFunds(t *testing.T) {
 			SpendingTx:        &wire.MsgTx{TxIn: []*wire.TxIn{{}}},
 			SpenderInputIndex: 0,
 		},
-	}})
+	}}, fn.None[lnwallet.AuxContractResolver]())
 
 	// Assert: The amount contributes to both the total and revoked-funds
 	// tallies and is removed from the remaining breach set.

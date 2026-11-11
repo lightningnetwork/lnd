@@ -24,7 +24,26 @@ const (
 	outcomeAccepted  = "accepted"
 	outcomeRejected  = "rejected"
 	outcomeAmbiguous = "ambiguous"
+	outcomeMismatch  = "mismatch"
 )
+
+// testKey returns a valid attempt key whose bytes are b repeated 16 times.
+func testKey(b byte) *AttemptKey {
+	id := make([]byte, minAttemptKeyLen)
+	for i := range id {
+		id[i] = b
+	}
+
+	return &AttemptKey{Id: id}
+}
+
+// invalidKeys are attempt keys the server must refuse, by name.
+var invalidKeys = map[string]*AttemptKey{
+	"nil key":     nil,
+	"empty key":   {},
+	"15-byte key": {Id: make([]byte, minAttemptKeyLen-1)},
+	"65-byte key": {Id: make([]byte, maxAttemptKeyLen+1)},
+}
 
 // TestSendOnion is a unit test that rigorously verifies the behavior of the
 // SendOnion RPC handler in isolation. It ensures that the server correctly
@@ -44,7 +63,7 @@ func TestSendOnion(t *testing.T) {
 		return &SendOnionRequest{
 			OnionBlob:      make([]byte, lnwire.OnionPacketSize),
 			PaymentHash:    make([]byte, 32),
-			AttemptId:      1,
+			Key:            testKey(1),
 			Amount:         1000,
 			FirstHopChanId: 12345,
 		}
@@ -63,7 +82,8 @@ func TestSendOnion(t *testing.T) {
 		expectedErrCode codes.Code
 
 		// expectedOutcome is the response outcome we expect, one of
-		// outcomeAccepted, outcomeRejected or outcomeAmbiguous. When
+		// outcomeAccepted, outcomeRejected, outcomeAmbiguous or
+		// outcomeMismatch. When
 		// set, the call must succeed and carry that outcome.
 		expectedOutcome string
 
@@ -168,13 +188,34 @@ func TestSendOnion(t *testing.T) {
 			wantAlreadyRegistered: true,
 		},
 		{
-			// ErrDuplicateAdd from the switch/dispatcher is a
-			// last line of defense against duplicate htlc attempts.
-			// Under normal operation, InitAttempt catches
-			// duplicates first and we never reach SendHTLC. This
-			// path could be reached if the InitAttempt record were
-			// removed (e.g., via a future DeleteAttempts RPC) while
-			// the circuit is still registered.
+			// A key registered for a different request must not
+			// read as a verdict on the attempt, since the original
+			// may be in flight. Nothing is dispatched and the
+			// registered attempt is not failed.
+			name: "key registered for a different request",
+			setup: func(t *testing.T, s *Server,
+				req *SendOnionRequest) {
+
+				store, ok := s.cfg.AttemptStore.(*mockAttemptStore)
+				require.True(t, ok)
+				store.initErr = htlcswitch.ErrAttemptFingerprintMismatch
+			},
+			expectedOutcome: outcomeMismatch,
+			check: func(t *testing.T, s *Server,
+				_ *SendOnionResponse) {
+
+				payer, ok := s.cfg.HtlcDispatcher.(*mockPayer)
+				require.True(t, ok)
+				require.Nil(t, payer.sentFirstHop,
+					"mismatch must not dispatch")
+			},
+		},
+		{
+			// ErrDuplicateAdd after a fresh registration means a
+			// circuit already exists under the new internal ID, so
+			// it belongs to another HTLC and this call dispatched
+			// nothing. The answer is ambiguous rather than
+			// accepted, and the record is left untouched.
 			name: "dispatcher duplicate htlc error",
 			setup: func(t *testing.T, s *Server,
 				req *SendOnionRequest) {
@@ -183,8 +224,7 @@ func TestSendOnion(t *testing.T) {
 				require.True(t, ok)
 				payer.sendErr = htlcswitch.ErrDuplicateAdd
 			},
-			expectedOutcome:       outcomeAccepted,
-			wantAlreadyRegistered: true,
+			expectedOutcome: outcomeAmbiguous,
 		},
 		{
 			// Recording the failure is best effort. If the store
@@ -350,8 +390,9 @@ func TestSendOnion(t *testing.T) {
 			// isolation.
 			store := &mockAttemptStore{}
 			server, _, err := New(&Config{
-				HtlcDispatcher: &mockPayer{},
-				AttemptStore:   store,
+				HtlcDispatcher:       &mockPayer{},
+				AttemptStore:         store,
+				ExternalAttemptStore: store,
 			})
 			require.NoError(t, err)
 
@@ -399,6 +440,45 @@ func TestSendOnion(t *testing.T) {
 	}
 }
 
+// TestSendOnionInvalidKey checks that SendOnion refuses a missing or out of
+// bounds attempt key before it registers, records or dispatches anything.
+func TestSendOnionInvalidKey(t *testing.T) {
+	t.Parallel()
+
+	for name, key := range invalidKeys {
+		t.Run(name, func(t *testing.T) {
+			t.Parallel()
+
+			store := &mockAttemptStore{}
+			payer := &mockPayer{}
+			server, _, err := New(&Config{
+				HtlcDispatcher:       payer,
+				AttemptStore:         store,
+				ExternalAttemptStore: store,
+			})
+			require.NoError(t, err)
+
+			onion := make([]byte, lnwire.OnionPacketSize)
+			req := &SendOnionRequest{
+				OnionBlob:      onion,
+				PaymentHash:    make([]byte, 32),
+				Key:            key,
+				Amount:         1000,
+				FirstHopChanId: 12345,
+			}
+			resp, err := server.SendOnion(t.Context(), req)
+			require.Nil(t, resp)
+			require.Equal(
+				t, codes.InvalidArgument, status.Code(err),
+			)
+
+			require.Zero(t, store.initCalls, "attempt registered")
+			require.Zero(t, store.failCalls, "failure recorded")
+			require.Nil(t, payer.sentFirstHop, "HTLC dispatched")
+		})
+	}
+}
+
 // requireOutcome asserts the response carries the named outcome.
 func requireOutcome(t *testing.T, resp *SendOnionResponse, want string) {
 	t.Helper()
@@ -415,6 +495,9 @@ func requireOutcome(t *testing.T, resp *SendOnionResponse, want string) {
 
 	case outcomeAmbiguous:
 		require.NotNil(t, resp.GetAmbiguous(), "want ambiguous")
+
+	case outcomeMismatch:
+		require.NotNil(t, resp.GetMismatch(), "want mismatch")
 
 	default:
 		t.Fatalf("unknown outcome %q", want)
@@ -459,8 +542,8 @@ func TestTrackOnion(t *testing.T) {
 	// Create a valid request that can be used as a template for tests.
 	makeValidRequest := func() *TrackOnionRequest {
 		return &TrackOnionRequest{
+			Key:         testKey(1),
 			PaymentHash: make([]byte, 32),
-			AttemptId:   1,
 		}
 	}
 
@@ -590,6 +673,16 @@ func TestTrackOnion(t *testing.T) {
 			expectedErrCode: codes.NotFound,
 		},
 		{
+			name: "invalid attempt key",
+			setup: func(t *testing.T, m *mockPayer,
+				req *TrackOnionRequest) {
+
+				req.Key = &AttemptKey{Id: []byte{1, 2, 3}}
+			},
+			getCtx:          t.Context,
+			expectedErrCode: codes.InvalidArgument,
+		},
+		{
 			name: "invalid payment hash",
 			setup: func(t *testing.T, m *mockPayer,
 				req *TrackOnionRequest) {
@@ -685,7 +778,8 @@ func TestTrackOnion(t *testing.T) {
 			// Create a new server for each test case to ensure
 			// isolation.
 			server, _, err := New(&Config{
-				HtlcDispatcher: mockPayer,
+				HtlcDispatcher:       mockPayer,
+				ExternalAttemptStore: &mockAttemptStore{},
 			})
 			require.NoError(t, err)
 
@@ -711,6 +805,57 @@ func TestTrackOnion(t *testing.T) {
 			// If no gRPC error was expected, check the response.
 			require.NoError(t, err)
 			tc.checkResponse(t, resp)
+		})
+	}
+}
+
+// TestTrackOnionKeyLookup checks how TrackOnion reports a key it cannot
+// resolve to an internal attempt.
+func TestTrackOnionKeyLookup(t *testing.T) {
+	t.Parallel()
+
+	testCases := []struct {
+		name         string
+		lookupErr    error
+		key          *AttemptKey
+		expectedCode codes.Code
+	}{
+		{
+			name:         "unregistered key",
+			lookupErr:    htlcswitch.ErrPaymentIDNotFound,
+			key:          testKey(1),
+			expectedCode: codes.NotFound,
+		},
+		{
+			name:         "lookup failure",
+			lookupErr:    errors.New("db failure"),
+			key:          testKey(1),
+			expectedCode: codes.Internal,
+		},
+		{
+			name:         "missing key",
+			expectedCode: codes.InvalidArgument,
+		},
+	}
+
+	for _, tc := range testCases {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+
+			server, _, err := New(&Config{
+				HtlcDispatcher: &mockPayer{},
+				ExternalAttemptStore: &mockAttemptStore{
+					lookupErr: tc.lookupErr,
+				},
+			})
+			require.NoError(t, err)
+
+			req := &TrackOnionRequest{
+				Key:         tc.key,
+				PaymentHash: make([]byte, 32),
+			}
+			_, err = server.TrackOnion(t.Context(), req)
+			require.Equal(t, tc.expectedCode, status.Code(err))
 		})
 	}
 }
@@ -898,6 +1043,28 @@ func TestBuildOnion(t *testing.T) {
 func TestDeleteAttempts(t *testing.T) {
 	t.Parallel()
 
+	// refs returns the attempt keys built by testKey from bs.
+	refs := func(bs ...byte) []*AttemptKey {
+		out := make([]*AttemptKey, 0, len(bs))
+		for _, b := range bs {
+			out = append(out, testKey(b))
+		}
+
+		return out
+	}
+
+	// byKey keys the given statuses by the attempt key testKey builds.
+	byKey := func(t *testing.T, ids map[byte]htlcswitch.DeletionStatus,
+	) map[string]htlcswitch.DeletionStatus {
+
+		out := make(map[string]htlcswitch.DeletionStatus, len(ids))
+		for b, st := range ids {
+			out[string(testKey(b).Id)] = st
+		}
+
+		return out
+	}
+
 	//nolint:ll
 	testCases := []struct {
 		name string
@@ -917,15 +1084,15 @@ func TestDeleteAttempts(t *testing.T) {
 			setup: func(t *testing.T,
 				store *mockAttemptStore) *DeleteAttemptsRequest {
 
-				store.deleteResp = map[uint64]htlcswitch.DeletionStatus{
+				store.deleteByKey = byKey(t, map[byte]htlcswitch.DeletionStatus{
 					1: htlcswitch.DeletionOK,
 					2: htlcswitch.DeletionPending,
 					3: htlcswitch.DeletionNotFound,
 					4: htlcswitch.DeletionFailed,
-				}
+				})
 
 				return &DeleteAttemptsRequest{
-					AttemptIds: []uint64{1, 2, 3, 4},
+					Keys: refs(1, 2, 3, 4),
 				}
 			},
 			expectedErrCode: codes.OK,
@@ -934,30 +1101,28 @@ func TestDeleteAttempts(t *testing.T) {
 
 				require.Len(t, resp.Results, 4)
 
-				// Verify results preserve request order.
-				require.Equal(t, uint64(1),
-					resp.Results[0].AttemptId)
+				// Every result echoes the client's key, in
+				// request order.
+				for i, r := range resp.Results {
+					require.Equal(t, testKey(byte(i+1)).Id,
+						r.Key.GetId())
+				}
+
 				require.Equal(t,
 					AttemptDeletionStatus_DELETION_OK,
 					resp.Results[0].Status,
 				)
 
-				require.Equal(t, uint64(2),
-					resp.Results[1].AttemptId)
 				require.Equal(t,
 					AttemptDeletionStatus_DELETION_PENDING,
 					resp.Results[1].Status,
 				)
 
-				require.Equal(t, uint64(3),
-					resp.Results[2].AttemptId)
 				require.Equal(t,
 					AttemptDeletionStatus_DELETION_NOT_FOUND,
 					resp.Results[2].Status,
 				)
 
-				require.Equal(t, uint64(4),
-					resp.Results[3].AttemptId)
 				require.Equal(t,
 					AttemptDeletionStatus_DELETION_FAILED,
 					resp.Results[3].Status,
@@ -969,10 +1134,10 @@ func TestDeleteAttempts(t *testing.T) {
 			setup: func(t *testing.T,
 				store *mockAttemptStore) *DeleteAttemptsRequest {
 
-				store.deleteResp = map[uint64]htlcswitch.DeletionStatus{}
+				store.deleteByKey = byKey(t, nil)
 
 				return &DeleteAttemptsRequest{
-					AttemptIds: []uint64{},
+					Keys: refs(),
 				}
 			},
 			expectedErrCode: codes.OK,
@@ -987,13 +1152,13 @@ func TestDeleteAttempts(t *testing.T) {
 			setup: func(t *testing.T,
 				store *mockAttemptStore) *DeleteAttemptsRequest {
 
-				store.deleteResp = map[uint64]htlcswitch.DeletionStatus{
+				store.deleteByKey = byKey(t, map[byte]htlcswitch.DeletionStatus{
 					1: htlcswitch.DeletionOK,
 					2: htlcswitch.DeletionOK,
-				}
+				})
 
 				return &DeleteAttemptsRequest{
-					AttemptIds: []uint64{1, 2, 1},
+					Keys: refs(1, 2, 1),
 				}
 			},
 			expectedErrCode: codes.OK,
@@ -1012,10 +1177,24 @@ func TestDeleteAttempts(t *testing.T) {
 				store.deleteErr = errors.New("db failure")
 
 				return &DeleteAttemptsRequest{
-					AttemptIds: []uint64{1},
+					Keys: refs(1),
 				}
 			},
 			expectedErrCode: codes.Internal,
+		},
+		{
+			name: "invalid attempt key",
+			setup: func(t *testing.T,
+				store *mockAttemptStore) *DeleteAttemptsRequest {
+
+				return &DeleteAttemptsRequest{
+					Keys: []*AttemptKey{
+						testKey(1),
+						{Id: make([]byte, 15)},
+					},
+				}
+			},
+			expectedErrCode: codes.InvalidArgument,
 		},
 	}
 
@@ -1026,8 +1205,9 @@ func TestDeleteAttempts(t *testing.T) {
 			mockStore := &mockAttemptStore{}
 
 			server, _, err := New(&Config{
-				HtlcDispatcher: &mockPayer{},
-				AttemptStore:   mockStore,
+				HtlcDispatcher:       &mockPayer{},
+				AttemptStore:         mockStore,
+				ExternalAttemptStore: mockStore,
 			})
 			require.NoError(t, err)
 

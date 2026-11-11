@@ -6153,8 +6153,7 @@ func TestSwitchFailOrphanedAttempt(t *testing.T) {
 	// Manually initialize an attempt in the store. This simulates the "bad"
 	// state where an attempt is pending but has no corresponding circuit.
 	attemptID := uint64(1)
-	err = s.attemptStore.InitAttempt(attemptID)
-	require.NoError(t, err, "unable to initialize attempt")
+	initPendingAttempt(t, s.attemptStore, attemptID)
 
 	// Now, call GetAttemptResult. This function returns a channel that will
 	// deliver the result.
@@ -6210,8 +6209,7 @@ func TestSwitchOrphanCleanup(t *testing.T) {
 				// Manually initialize an attempt to simulate
 				// the state of the database if the node crashed
 				// after InitAttempt but before CommitCircuits.
-				err := s.attemptStore.InitAttempt(attemptID)
-				require.NoError(t, err, "unable to init")
+				initPendingAttempt(t, s.attemptStore, attemptID)
 			},
 		},
 		{
@@ -6223,8 +6221,7 @@ func TestSwitchOrphanCleanup(t *testing.T) {
 				// circuit to simulate the state of the database
 				// if the node crashed after CommitCircuits but
 				// before the packet was handed off to the link.
-				err := s.attemptStore.InitAttempt(attemptID)
-				require.NoError(t, err, "unable to init")
+				initPendingAttempt(t, s.attemptStore, attemptID)
 
 				htlc := &lnwire.UpdateAddHTLC{
 					PaymentHash: lntypes.Hash{0x01},
@@ -6250,7 +6247,7 @@ func TestSwitchOrphanCleanup(t *testing.T) {
 				circuit := newPaymentCircuit(
 					&htlc.PaymentHash, packet,
 				)
-				_, err = s.circuits.CommitCircuits(circuit)
+				_, err := s.circuits.CommitCircuits(circuit)
 				require.NoError(t, err, "commit failed")
 			},
 		},

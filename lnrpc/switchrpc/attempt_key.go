@@ -8,6 +8,9 @@ import (
 	"encoding/binary"
 	"hash"
 	"slices"
+
+	"google.golang.org/grpc/codes"
+	"google.golang.org/grpc/status"
 )
 
 // fingerprintVersion is the version of the request fingerprint encoding. It
@@ -15,6 +18,46 @@ import (
 // fingerprint. A change across an upgrade makes retries of attempts
 // registered before it look like mismatches, which fails closed.
 const fingerprintVersion byte = 0
+
+const (
+	// minAttemptKeyLen is the shortest attempt key the server accepts.
+	minAttemptKeyLen = 16
+
+	// maxAttemptKeyLen is the longest attempt key the server accepts.
+	maxAttemptKeyLen = 64
+)
+
+// keyedAttempt is a message that names an attempt by the client's attempt
+// key.
+type keyedAttempt interface {
+	GetKey() *AttemptKey
+}
+
+// attemptKey returns the idempotency key that m names. The key is the
+// client's opaque bytes, which must be between minAttemptKeyLen and
+// maxAttemptKeyLen bytes long.
+func attemptKey(m keyedAttempt) ([]byte, error) {
+	return validateAttemptKey(m.GetKey())
+}
+
+// validateAttemptKey returns the bytes of k if k is set and within the length
+// bounds, and an InvalidArgument error otherwise.
+func validateAttemptKey(k *AttemptKey) ([]byte, error) {
+	if k == nil {
+		return nil, status.Error(codes.InvalidArgument,
+			"attempt key is required")
+	}
+
+	id := k.GetId()
+	if len(id) < minAttemptKeyLen || len(id) > maxAttemptKeyLen {
+		return nil, status.Errorf(codes.InvalidArgument,
+			"invalid attempt key length %d, expected %d to %d "+
+				"bytes", len(id), minAttemptKeyLen,
+			maxAttemptKeyLen)
+	}
+
+	return id, nil
+}
 
 // requestFingerprint returns a digest of the fields of a SendOnion request
 // that define the HTLC it dispatches. Two requests with the same key must

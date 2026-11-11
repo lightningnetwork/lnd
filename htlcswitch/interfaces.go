@@ -639,15 +639,6 @@ type AuxTrafficShaper interface {
 // to avoid collisions of attemptIDs and ensure an unambiguous source of truth
 // for payment state. Concurrent usage by multiple dispatchers is NOT supported.
 type AttemptStore interface {
-	// InitAttempt persists the intent to dispatch a payment attempt,
-	// creating a durable record that serves as an idempotency key. This
-	// method should be called before the HTLC is dispatched to the network.
-	//
-	// NOTE: This method provides a guarantee that only one HTLC can be
-	// initialized for a given attempt ID until the ID is explicitly cleaned
-	// from the store.
-	InitAttempt(attemptID uint64) error
-
 	// StoreResult stores the result of a given payment attempt (identified
 	// by attemptID). This will be called when a result is received from the
 	// network.
@@ -665,9 +656,10 @@ type AttemptStore interface {
 	//
 	// NOTE: This function is primarily used by the Switch's startup logic
 	// to identify and clean up internally orphaned payment attempts. These
-	// occur when an attempt is initialized via InitAttempt but a crash
-	// prevents its full dispatch to the network (e.g., between InitAttempt
-	// and CommitCircuits). By fetching these pending attempts, the Switch
+	// occur when an attempt is initialized via
+	// ExternalAttemptStore.InitAttempt but a crash prevents its full
+	// dispatch to the network (e.g., between InitAttempt and
+	// CommitCircuits). By fetching these pending attempts, the Switch
 	// can transition their state to FAILED, preventing external callers
 	// from indefinitely hanging on GetAttemptResult for an un-dispatched
 	// attempt.
@@ -677,9 +669,9 @@ type AttemptStore interface {
 	// it's available.
 	//
 	// NOTE: This method should return ErrAttemptResultPending for attempts
-	// that have been initialized via InitAttempt but for which a final
-	// result (settle/fail) has not yet been stored. ErrPaymentIDNotFound is
-	// returned for attempts that are unknown.
+	// that have been initialized via ExternalAttemptStore.InitAttempt but
+	// for which a final result (settle/fail) has not yet been stored.
+	// ErrPaymentIDNotFound is returned for attempts that are unknown.
 	GetResult(attemptID uint64) (*networkResult, error)
 
 	// SubscribeResult subscribes to be notified when a result for a
@@ -689,18 +681,13 @@ type AttemptStore interface {
 	// NOTE: For backwards compatibility, the returned channel should only
 	// receive a value for attempts that have a final result (settle/fail).
 	// Subscribers should *not* be notified of the initial pending state
-	// created by InitAttempt.
+	// created by ExternalAttemptStore.InitAttempt.
 	SubscribeResult(attemptID uint64) (<-chan *networkResult, error)
 
 	// CleanStore removes all attempt results from the store except for
 	// those listed in the keepPids map. This allows for a "delete all
 	// except" approach to cleanup.
 	CleanStore(keepPids map[uint64]struct{}) error
-
-	// DeleteAttempts removes terminal (settled or failed) attempt results
-	// from the store. The returned map reports the outcome for each
-	// requested attempt ID.
-	DeleteAttempts(attemptIDs []uint64) (map[uint64]DeletionStatus, error)
 
 	// DisableRemoteRouter checks for attempt entries and, if none are
 	// found, deletes the remote router marker from the database. The

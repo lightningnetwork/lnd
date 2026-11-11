@@ -6,7 +6,6 @@ import (
 	"errors"
 	"fmt"
 	"io"
-	"slices"
 	"sync"
 
 	"github.com/lightningnetwork/lnd/channeldb"
@@ -155,13 +154,12 @@ type networkResultStore struct {
 	resultsMtx sync.Mutex
 
 	// attemptIDMtx is a multimutex used to serialize operations for a
-	// given attempt ID. It ensures InitAttempt's idempotency by protecting
-	// its read-then-write sequence from concurrent calls, and it maintains
-	// consistency between the database state and result subscribers.
+	// given attempt ID. It maintains consistency between the database
+	// state and result subscribers.
 	attemptIDMtx *multimutex.Mutex[uint64]
 
 	// externalKeyMtx is a multimutex keyed by the external attempt key.
-	// It serializes the index lookup and insert in InitExternalAttempt,
+	// It serializes the index lookup and insert in InitAttempt,
 	// so two calls with the same key yield exactly one internal ID.
 	externalKeyMtx *multimutex.Mutex[string]
 }
@@ -222,72 +220,6 @@ func newNetworkResultStore(db kvdb.Backend,
 		attemptIDMtx:   multimutex.NewMutex[uint64](),
 		externalKeyMtx: multimutex.NewMutex[string](),
 	}, nil
-}
-
-// InitAttempt initializes the payment attempt with the given attemptID.
-//
-// If any record (even a pending result placeholder) already exists in the
-// store, this method returns ErrPaymentIDAlreadyExists. This guarantees that
-// only one HTLC will be initialized and dispatched for a given attempt ID until
-// the ID is explicitly cleaned from attempt store.
-//
-// If any unexpected internal error occurs (such as a database read or write
-// failure), it will be wrapped in ErrAmbiguousAttemptInit. This signals
-// to the caller that the state of the registration is uncertain and that the
-// operation MUST be retried to resolve the ambiguity.
-//
-// NOTE: This is part of the AttemptStore interface. Subscribed clients do not
-// receive notice of this initialization.
-func (store *networkResultStore) InitAttempt(attemptID uint64) error {
-	// We get a mutex for this attempt ID to serialize init, store, and
-	// subscribe operations. This is needed to ensure consistency between
-	// the database state and the subscribers in case of concurrent calls.
-	store.attemptIDMtx.Lock(attemptID)
-	defer store.attemptIDMtx.Unlock(attemptID)
-
-	err := kvdb.Update(store.backend, func(tx kvdb.RwTx) error {
-		// Check if any attempt by this ID is already initialized or
-		// whether a result for the attempt exists in the store.
-		existingResult, err := fetchResult(tx, attemptID)
-		if err != nil && !errors.Is(err, ErrPaymentIDNotFound) {
-			return err
-		}
-
-		// If the result is already in-progress, return an error
-		// indicating that the attempt already exists.
-		if existingResult != nil {
-			log.Warnf("Already initialized attempt for ID=%v",
-				attemptID)
-
-			return ErrPaymentIDAlreadyExists
-		}
-
-		// Mark an attempt with this ID as having been seen by storing
-		// the pending placeholder. No network result is available yet,
-		// so we do not notify subscribers.
-		return putPendingPlaceholder(tx, attemptID)
-	}, func() {
-		// No need to reset existingResult here as it's scoped to the
-		// transaction.
-	})
-
-	if err != nil {
-		if errors.Is(err, ErrPaymentIDAlreadyExists) {
-			return ErrPaymentIDAlreadyExists
-		}
-
-		// If any unexpected internal error occurs (such as a database
-		// failure), it will be wrapped in ErrAmbiguousAttemptInit.
-		// This signals to the caller that the state of the attempt
-		// initialization is uncertain and that the operation MUST be
-		// retried to resolve the ambiguity.
-		return fmt.Errorf("%w: %w", ErrAmbiguousAttemptInit, err)
-	}
-
-	log.Debugf("Initialized attempt for local payment with attemptID=%v",
-		attemptID)
-
-	return nil
 }
 
 // putPendingPlaceholder writes the pending placeholder record for the given
@@ -600,123 +532,6 @@ func (store *networkResultStore) CleanStore(keep map[uint64]struct{}) error {
 
 		return nil
 	}, func() {})
-}
-
-// DeleteAttempts removes terminal (settled or failed) attempt results from the
-// store. Pending (in-flight) attempts are not deleted. The returned map reports
-// the outcome for each requested attempt ID.
-//
-// This is the safe, "positive space" alternative to CleanStore. Unlike
-// CleanStore which requires a complete snapshot of in-flight attempts (and is
-// therefore vulnerable to stale-snapshot race conditions in a distributed
-// system), DeleteAttempts only operates on explicitly named, finished items.
-func (store *networkResultStore) DeleteAttempts(
-	attemptIDs []uint64) (map[uint64]DeletionStatus, error) {
-
-	results := make(map[uint64]DeletionStatus, len(attemptIDs))
-
-	if len(attemptIDs) == 0 {
-		return results, nil
-	}
-
-	// Reject duplicates and sort IDs before acquiring per-ID mutexes
-	// below. This prevents deadlocks from locking the same ID twice
-	// (duplicates) or from inconsistent lock ordering across concurrent
-	// callers (unsorted).
-	seen := make(map[uint64]struct{}, len(attemptIDs))
-	for _, id := range attemptIDs {
-		if _, ok := seen[id]; ok {
-			return nil, fmt.Errorf("duplicate attempt ID %d", id)
-		}
-
-		seen[id] = struct{}{}
-	}
-	slices.Sort(attemptIDs)
-
-	// Acquire per-ID mutexes for all requested IDs. This ensures
-	// consistency with concurrent Init/Store/Subscribe operations on the
-	// same attempt IDs.
-	for _, id := range attemptIDs {
-		store.attemptIDMtx.Lock(id)
-	}
-	defer func() {
-		for _, id := range attemptIDs {
-			store.attemptIDMtx.Unlock(id)
-		}
-	}()
-
-	err := kvdb.Update(store.backend, func(tx kvdb.RwTx) error {
-		bucket, err := tx.CreateTopLevelBucket(
-			networkResultStoreBucketKey,
-		)
-		if err != nil {
-			return err
-		}
-
-		for _, id := range attemptIDs {
-			var attemptIDBytes [8]byte
-			binary.BigEndian.PutUint64(attemptIDBytes[:], id)
-
-			resultBytes := bucket.Get(attemptIDBytes[:])
-
-			// If the key doesn't exist, report NotFound.
-			if resultBytes == nil {
-				results[id] = DeletionNotFound
-
-				continue
-			}
-
-			// Deserialize to check the state.
-			r := bytes.NewReader(resultBytes)
-			result, err := deserializeNetworkResult(r)
-			if err != nil {
-				log.Warnf("Unable to deserialize result "+
-					"for attempt %d during delete: %v",
-					id, err)
-
-				results[id] = DeletionFailed
-
-				continue
-			}
-
-			// Do not delete pending (in-flight) attempts.
-			if result.msg.MsgType() == pendingHtlcMsgType {
-				results[id] = DeletionPending
-
-				continue
-			}
-
-			// Terminal result — safe to delete.
-			if err := bucket.Delete(attemptIDBytes[:]); err != nil {
-				return fmt.Errorf("failed to delete "+
-					"attempt %d: %w", id, err)
-			}
-
-			results[id] = DeletionOK
-		}
-
-		return nil
-	}, func() {
-		// Reset the results map on transaction retry.
-		results = make(map[uint64]DeletionStatus, len(attemptIDs))
-	})
-	if err != nil {
-		return nil, fmt.Errorf("DeleteAttempts failed: %w", err)
-	}
-
-	deletedCount := 0
-	for _, status := range results {
-		if status == DeletionOK {
-			deletedCount++
-		}
-	}
-
-	if deletedCount > 0 {
-		log.Infof("Deleted %d terminal attempt(s) from network "+
-			"result store", deletedCount)
-	}
-
-	return results, nil
 }
 
 // FetchPendingAttempts returns a list of all attempt IDs that are currently in

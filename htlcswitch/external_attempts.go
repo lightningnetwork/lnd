@@ -56,25 +56,27 @@ const (
 // on the internal ID, so the external key never enters the switch's own
 // number space.
 type ExternalAttemptStore interface {
-	// InitExternalAttempt registers the attempt named by key. On first
+	// InitAttempt registers the attempt named by key. On first
 	// sight it allocates an internal attempt ID with nextID, and writes the
 	// index entry and the pending placeholder in one transaction. If the
 	// key is already registered with the same fingerprint, the existing
 	// internal ID is returned together with ErrPaymentIDAlreadyExists. If
 	// it is registered with a different fingerprint,
-	// ErrAttemptFingerprintMismatch is returned. Any other error is
-	// wrapped in ErrAmbiguousAttemptInit.
-	InitExternalAttempt(key []byte, fingerprint [32]byte,
+	// ErrAttemptFingerprintMismatch is returned. An empty key is refused
+	// with ErrEmptyExternalKey before anything is read or written. Any
+	// other error is wrapped in ErrAmbiguousAttemptInit.
+	InitAttempt(key []byte, fingerprint [32]byte,
 		nextID func() (uint64, error)) (uint64, error)
 
-	// LookupExternalAttempt returns the internal attempt ID for key, or
+	// LookupAttempt returns the internal attempt ID for key, or
 	// ErrPaymentIDNotFound if the key is not registered.
-	LookupExternalAttempt(key []byte) (uint64, error)
+	LookupAttempt(key []byte) (uint64, error)
 
-	// DeleteExternalAttempts removes terminal attempts named by keys,
+	// DeleteAttempts removes terminal attempts named by keys,
 	// deleting the record and its index entry together. The returned
-	// statuses are in the same order as keys.
-	DeleteExternalAttempts(keys [][]byte) ([]DeletionStatus, error)
+	// statuses are in the same order as keys. A key that appears more
+	// than once fails the whole call, and nothing is deleted.
+	DeleteAttempts(keys [][]byte) ([]DeletionStatus, error)
 }
 
 // externalIndexEntry is the decoded value of an index entry.
@@ -143,10 +145,10 @@ func resultExists(tx kvdb.RTx, attemptID uint64) bool {
 	return results.Get(attemptIDBytes[:]) != nil
 }
 
-// InitExternalAttempt registers an externally keyed attempt.
+// InitAttempt registers an externally keyed attempt.
 //
 // NOTE: This is part of the ExternalAttemptStore interface.
-func (store *networkResultStore) InitExternalAttempt(key []byte,
+func (store *networkResultStore) InitAttempt(key []byte,
 	fingerprint [32]byte, nextID func() (uint64, error)) (uint64, error) {
 
 	if len(key) == 0 {
@@ -251,10 +253,10 @@ func (store *networkResultStore) initIndexedAttempt(key []byte,
 	}, func() {})
 }
 
-// LookupExternalAttempt returns the internal attempt ID registered for key.
+// LookupAttempt returns the internal attempt ID registered for key.
 //
 // NOTE: This is part of the ExternalAttemptStore interface.
-func (store *networkResultStore) LookupExternalAttempt(key []byte) (uint64,
+func (store *networkResultStore) LookupAttempt(key []byte) (uint64,
 	error) {
 
 	var entry *externalIndexEntry
@@ -273,12 +275,12 @@ func (store *networkResultStore) LookupExternalAttempt(key []byte) (uint64,
 	return entry.attemptID, nil
 }
 
-// DeleteExternalAttempts removes terminal attempts named by their external
+// DeleteAttempts removes terminal attempts named by their external
 // keys. A record and its index entry are always deleted together, so an index
 // entry never outlives the record it points to.
 //
 // NOTE: This is part of the ExternalAttemptStore interface.
-func (store *networkResultStore) DeleteExternalAttempts(
+func (store *networkResultStore) DeleteAttempts(
 	keys [][]byte) ([]DeletionStatus, error) {
 
 	if len(keys) == 0 {
@@ -329,7 +331,7 @@ func (store *networkResultStore) DeleteExternalAttempts(
 		attemptIDs = nil
 	})
 	if err != nil {
-		return nil, fmt.Errorf("DeleteExternalAttempts failed: %w", err)
+		return nil, fmt.Errorf("DeleteAttempts failed: %w", err)
 	}
 
 	slices.Sort(attemptIDs)
@@ -366,7 +368,7 @@ func (store *networkResultStore) DeleteExternalAttempts(
 		statuses = make([]DeletionStatus, len(keys))
 	})
 	if err != nil {
-		return nil, fmt.Errorf("DeleteExternalAttempts failed: %w", err)
+		return nil, fmt.Errorf("DeleteAttempts failed: %w", err)
 	}
 
 	return statuses, nil

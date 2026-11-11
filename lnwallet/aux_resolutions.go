@@ -29,8 +29,12 @@ const (
 // channels.
 type AuxSigDesc struct {
 	// AuxSig is the second-level signature for the HTLC that we are trying
-	// to resolve. This is only present if this is a resolution request for
-	// an HTLC on our commitment transaction.
+	// to resolve. It is present for an HTLC on our commitment transaction,
+	// and for an HTLC on a revoked commitment of the remote party whose
+	// revocation carried their aux sig for it. In both cases it covers
+	// the one second-level path the HTLC has on the commitment it sits
+	// on: success for an HTLC incoming to the commitment's owner, timeout
+	// for one they offered.
 	AuxSig []byte
 
 	// SignDetails is the sign details for the second-level HTLC. This may
@@ -64,6 +68,15 @@ type ResolutionReq struct {
 	// HtlcID is the ID of the HTLC that we are trying to resolve. This is
 	// only set if this is a resolution request for an HTLC.
 	HtlcID fn.Option[input.HtlcIndex]
+
+	// HtlcIncoming states the direction of the HTLC that we are trying to
+	// resolve, from our point of view: true if we received it, false if
+	// we offered it. It is set for the HTLC resolutions of a breach.
+	// There the witness type of a second-level revocation no longer tells
+	// the direction, and the HTLC ID alone does not identify the HTLC:
+	// both parties count the HTLCs they offer from zero, so an incoming
+	// and an outgoing HTLC regularly share an ID.
+	HtlcIncoming fn.Option[bool]
 
 	// HtlcAmt is the amount of the HTLC that we are trying to resolve.
 	HtlcAmt btcutil.Amount

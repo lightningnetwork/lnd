@@ -2531,6 +2531,51 @@ func NewBreachRetribution(chanState *chanstate.OpenChannel, stateNum uint64,
 	return br, nil
 }
 
+// auxSigDescFromHTLCBlob extracts the AuxSigDesc for a breached HTLC from its
+// custom-records blob, if present. The sig is the remote party's
+// revocation-path aux sig (revocationAuxSigType), which it sent in the
+// RevokeAndAck for exactly this state and which we verified against the
+// second-level HTLC of its commitment before accepting the revocation.
+//
+// No other sig will do. In particular the CommitSig aux sig that may sit in
+// the same records (htlcCustomSigType) is the one the remote party sent for
+// the second-level HTLC of OUR commitment, a different transaction. Passing
+// it on would make the aux resolver build a proof around a sig that cannot
+// verify, where reporting no sig lets it fall back to resolving the HTLC
+// without one. So for a state that was revoked without revocation aux sigs
+// this returns None.
+func auxSigDescFromHTLCBlob(htlc *channeldb.HTLCEntry,
+	chanState *chanstate.OpenChannel,
+	keyRing *CommitmentKeyRing) fn.Option[AuxSigDesc] {
+
+	var auxSigDesc fn.Option[AuxSigDesc]
+	htlc.CustomBlob.WhenSome(func(r tlv.RecordT[tlv.TlvType5, tlv.Blob]) {
+		customRecords, err := lnwire.ParseCustomRecords(r.Val)
+		if err != nil {
+			return
+		}
+
+		revSigType := revocationAuxSigType.TypeVal()
+		auxSig := customRecords[uint64(revSigType)]
+		if len(auxSig) == 0 {
+			return
+		}
+
+		// Construct the sign desc for the second-level tx proof.
+		sd := input.SignDescriptor{
+			KeyDesc:     chanState.LocalChanCfg.HtlcBasePoint,
+			SingleTweak: keyRing.LocalHtlcKeyTweak,
+			SignMethod:  input.TaprootScriptSpendSignMethod,
+		}
+		auxSigDesc = fn.Some(AuxSigDesc{
+			AuxSig:      auxSig,
+			SignDetails: input.SignDetails{SignDesc: sd},
+		})
+	})
+
+	return auxSigDesc
+}
+
 // createHtlcRetribution is a helper function to construct an HtlcRetribution
 // based on the passed params.
 func createHtlcRetribution(chanState *chanstate.OpenChannel,
@@ -2697,50 +2742,13 @@ func createHtlcRetribution(chanState *chanstate.OpenChannel,
 			PayHash: fn.Some(
 				[32]byte(htlc.RHash.Val),
 			),
-			HtlcID:    htlcIDOpt,
-			CltvDelay: fn.Some(htlc.RefundTimeout.Val),
+			HtlcID:       htlcIDOpt,
+			HtlcIncoming: fn.Some(htlc.Incoming.Val),
+			CltvDelay:    fn.Some(htlc.RefundTimeout.Val),
 		}
 
-		// Populate the AuxSigDesc if the HTLC has custom
-		// records (containing the remote's asset-level
-		// sig for the second-level tx). This allows the
-		// aux subsystem to construct a valid proof with
-		// real witnesses instead of placeholders.
-		htlc.CustomBlob.WhenSome(
-			func(r tlv.RecordT[tlv.TlvType5, tlv.Blob]) {
-				customRecords, err := lnwire.
-					ParseCustomRecords(r.Val)
-				if err != nil {
-					return
-				}
-
-				sigType := htlcCustomSigType.TypeVal()
-				auxSig := customRecords[uint64(sigType)]
-				if len(auxSig) > 0 {
-					// Construct the HTLC sign
-					// descriptor that the aux
-					// subsystem needs to sign the
-					// second-level transition proof.
-					htlcSignDesc := input.SignDescriptor{
-						KeyDesc: chanState.
-							LocalChanCfg.
-							HtlcBasePoint,
-						SingleTweak: keyRing.
-							LocalHtlcKeyTweak,
-						SignMethod: input.
-							TaprootScriptSpendSignMethod,
-					}
-
-					resolveReq.AuxSigDesc = fn.Some(
-						AuxSigDesc{
-							AuxSig: auxSig,
-							SignDetails: input.SignDetails{
-								SignDesc: htlcSignDesc,
-							},
-						},
-					)
-				}
-			},
+		resolveReq.AuxSigDesc = auxSigDescFromHTLCBlob(
+			htlc, chanState, keyRing,
 		)
 		if revokedLog != nil {
 			resolveReq.CommitBlob = revokedLog.CustomBlob.ValOpt()
@@ -2752,12 +2760,22 @@ func createHtlcRetribution(chanState *chanstate.OpenChannel,
 				return a.ResolveContract(resolveReq)
 			},
 		)
-		if err := resolveBlob.Err(); err != nil {
-			return emptyRetribution, fmt.Errorf("unable to "+
-				"aux resolve HTLC: %w", err)
-		}
 
-		resolutionBlob = resolveBlob.OkToSome()
+		// A failure to resolve one HTLC must not cost us the whole
+		// retribution: the commitment outputs and every other HTLC
+		// are still ours to claim, and nothing retries a handoff that
+		// errors out. So this HTLC is degraded to a plain sweep of
+		// its BTC value, without a blob, and the error is surfaced.
+		if err := resolveBlob.Err(); err != nil {
+			walletLog.Errorf("Unable to aux resolve breached "+
+				"HTLC(id=%v, incoming=%v) of "+
+				"ChannelPoint(%v), sweeping it without aux "+
+				"resolution: %v",
+				htlcIDOpt, htlc.Incoming.Val,
+				cs.FundingOutpoint, err)
+		} else {
+			resolutionBlob = resolveBlob.OkToSome()
+		}
 
 		// Save the resolve request template so the breach arbiter
 		// can re-resolve when an HTLC is taken to second level.

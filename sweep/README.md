@@ -136,13 +136,13 @@ resubmitted without it. Temporary wallet exclusions accumulate across that
 immediate retry chain and clear when it ends or returns to normal block
 retries. Eligible diagnosis keeps unattributed conflicts retryable. No retry
 carries a fee from the failed attempt. Fee initialization follows existing
-budget and zero-delta retry paths. Transient backend failures and fee refusals
-(RBF, relay minimum or mempool minimum) during probing retain their cause and
-are retried like other failures, including at the cap. Full-RBF fee refusals
-retain whole-set retries instead of input attribution. Other aborted,
-unchanged-set diagnoses are retried while their fee function can advance, and
-become fatal once it can't; known terminal rejections with skipped or
-completed singleton-free diagnosis retain the whole-set fatal outcome.
+budget retry paths. Transient backend failures and fee refusals (RBF, relay
+minimum or mempool minimum) during probing retain their cause and are retried
+like other failures, including at the cap. Full-RBF fee refusals retain
+whole-set retries instead of input attribution. Other aborted, unchanged-set
+diagnoses are retried while their fee function can advance, and become fatal
+once it can't; known terminal rejections with skipped or completed
+singleton-free diagnosis retain the whole-set fatal outcome.
 
 A rejected replacement does not displace an already accepted transaction.
 `TxPublisher` retains monitoring until an actual spend is attributed or the
@@ -162,11 +162,11 @@ they identify a transaction.
 rate, an ending fee rate, and a width (the deadline delta). It's used by the
 `Bumper` to suggest a new fee rate for bumping the sweeping transaction.
 
-`LinearFeeFunction` implements this interface using a linear function - it
+`TxPublisher` uses a linear implementation of this interface - it
 calculates a fee rate delta using `(ending_fee_rate - starting_fee_rate) /
 deadline`, and increases the fee rate by this delta value every time a new block
-arrives. Once the deadline is passed, `LinearFeeFunction` will cap its
-returning fee rate at the ending fee rate.
+arrives. Once the deadline is passed, the fee function will cap its returning
+fee rate at the ending fee rate.
 
 The starting fee rate is the estimated fee rate from the fee estimator, which
 is the result from calling `estimatesmartfee`(`bitcoind`),

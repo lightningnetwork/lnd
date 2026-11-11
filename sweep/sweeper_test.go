@@ -239,9 +239,7 @@ func TestMarkInputsPublishFailed(t *testing.T) {
 	// inputInit to be skipped, and the final input to be marked as
 	// published.
 	// Act by marking the published members for another attempt.
-	s.markInputsPublishFailed(
-		set, fn.None[fn.Option[chainfee.SatPerKWeight]](),
-	)
+	s.markInputsPublishFailed(set)
 
 	// We expect unchanged number of pending inputs.
 	// Assert only eligible states change and membership remains intact.

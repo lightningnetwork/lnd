@@ -295,7 +295,7 @@ func TestInitializeFeeFunction(t *testing.T) {
 
 	// Mock the fee estimator to return an error.
 	//
-	// We are not testing `NewLinearFeeFunction` here, so the actual params
+	// We are not testing the fee function here, so the actual params
 	// used are irrelevant.
 	dummyErr := fmt.Errorf("dummy error")
 	estimator.On("EstimateFeePerKW", mock.Anything).Return(
@@ -308,7 +308,7 @@ func TestInitializeFeeFunction(t *testing.T) {
 
 	// Mock the fee estimator to return the testing fee rate.
 	//
-	// We are not testing `NewLinearFeeFunction` here, so the actual params
+	// We are not testing the fee function here, so the actual params
 	// used are irrelevant.
 	estimator.On("EstimateFeePerKW", mock.Anything).Return(
 		feerate, nil).Once()
@@ -335,7 +335,7 @@ func TestCandidateRecord(t *testing.T) {
 	}
 
 	// Create a naive fee function.
-	feeFunc := &LinearFeeFunction{}
+	feeFunc := &pooledFeeFunction{}
 
 	// Create a test fee and tx.
 	fee := btcutil.Amount(1000)
@@ -1382,9 +1382,9 @@ func TestInitialConflictWithUntestableFunding(t *testing.T) {
 				MaxFeeRate:     feeRate,
 				DeadlineHeight: 1,
 			}
-			feeFunction, err := NewLinearFeeFunction(
-				feeRate, 1, m.estimator,
-				fn.None[chainfee.SatPerKWeight](),
+			feeFunction, err := newPooledFeeFunction(
+				feeRate, 1, 0, []InputSchedule{{}},
+				m.estimator,
 			)
 			require.NoError(t, err)
 			record, subscriber := createBadInputTestRecord(
@@ -1506,9 +1506,16 @@ func TestReplacementRejectionKeepsOldTx(t *testing.T) {
 			// Arrange every accepted attempt at the same real cap;
 			// exclusion must work after fee growth has stopped.
 			req.DeadlineHeight = 1
-			feeFunc, err := NewLinearFeeFunction(
-				1000, 1, m.estimator,
-				fn.Some(chainfee.SatPerKWeight(1000)),
+			feeFunc, err := newPooledFeeFunction(
+				1000, 1, 0, []InputSchedule{{
+					FeeSchedule: FeeSchedule{
+						StartingFeeRate: fn.Some(
+							chainfee.SatPerKWeight(
+								1000,
+							),
+						),
+					},
+				}}, m.estimator,
 			)
 			require.NoError(t, err)
 			var record *monitorRecord
@@ -3528,7 +3535,7 @@ func TestHandleInitialBroadcastSuccess(t *testing.T) {
 
 	// Mock the fee estimator to return the testing fee rate.
 	//
-	// We are not testing `NewLinearFeeFunction` here, so the actual params
+	// We are not testing the fee function here, so the actual params
 	// used are irrelevant.
 	m.estimator.On("EstimateFeePerKW", mock.Anything).Return(
 		feerate, nil).Once()
@@ -3615,7 +3622,7 @@ func TestHandleInitialBroadcastFail(t *testing.T) {
 
 	// Mock the fee estimator to return the testing fee rate.
 	//
-	// We are not testing `NewLinearFeeFunction` here, so the actual params
+	// We are not testing the fee function here, so the actual params
 	// used are irrelevant.
 	m.estimator.On("EstimateFeePerKW", mock.Anything).Return(
 		feerate, nil).Twice()
@@ -3723,7 +3730,7 @@ func TestHandleInitialBroadcastTxTooLarge(t *testing.T) {
 
 	// Mock the fee estimator to return the testing fee rate.
 	//
-	// We are not testing `NewLinearFeeFunction` here, so the actual params
+	// We are not testing the fee function here, so the actual params
 	// used are irrelevant.
 	m.estimator.On("EstimateFeePerKW", mock.Anything).Return(
 		feerate, nil).Once()

@@ -91,6 +91,13 @@
   forwarding-package acknowledgements are sparse or the incoming link shuts
   down immediately after circuit persistence.
 
+* A reconnect while a channel funding transaction is still unconfirmed now
+  sends `channel_reestablish` for that channel. The channel was remembered,
+  but no reestablish was sent until it confirmed, so a peer waiting on the
+  message disconnected and took every other channel to that peer offline.
+  The message is sent once on that connection.
+  [Link](https://github.com/lightningnetwork/lnd/pull/11540)
+
 # New Features
 
 ## Functional Enhancements
@@ -131,5 +138,6 @@
 
 * Boris Nagaev
 * Olaoluwa Osuntokun
+* Vincenzo Palazzo
 * Yong Yu
 * Ziggie

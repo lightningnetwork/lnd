@@ -72,6 +72,12 @@ ifneq ($(workers),)
 LINT_WORKERS = --concurrency=$(workers)
 endif
 
+# CI sets the checked-out merge's base so only issues on changed lines are
+# reported. Other runs retain the baseline configured in .golangci.yml.
+ifneq ($(LINT_BASE),)
+LINT_DIFF = --new-from-rev=$(LINT_BASE)
+endif
+
 # Docker cache mounting strategy:
 # - CI (GitHub Actions): Use bind mounts to host paths that GA caches persist.
 # - Local: Use Docker named volumes (much faster on macOS/Windows due to
@@ -401,7 +407,7 @@ check-go-version: check-go-version-dockerfile check-go-version-yaml
 #? lint-source: Run static code analysis
 lint-source: docker-tools
 	@$(call print, "Linting source.")
-	$(DOCKER_TOOLS_LINT) custom-gcl run -v $(LINT_WORKERS)
+	$(DOCKER_TOOLS_LINT) custom-gcl run -v $(LINT_WORKERS) $(LINT_DIFF)
 
 #? lint-config-check: Verify that the lint config is up to date
 #  We use the official linter here not our custom one because for checking the
@@ -436,7 +442,7 @@ lint-module: docker-tools
 lint-module-run:
 	$(DOCKER_TOOLS_LINT_BASE) \
 		--workdir "/build/$(module)" \
-		lnd-tools custom-gcl run -v $(LINT_WORKERS) \
+		lnd-tools custom-gcl run -v $(LINT_WORKERS) $(LINT_DIFF) \
 		-c "$(lint_config)"
 
 #? protolint: Lint proto files using protolint

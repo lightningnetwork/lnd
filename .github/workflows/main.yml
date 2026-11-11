@@ -324,6 +324,11 @@ jobs:
     needs: ci-gate
     if: ${{ !cancelled() && needs.ci-gate.outputs.docs-only != 'true' && needs.ci-gate.outputs.tier != 'held' }}
     runs-on: ubuntu-latest
+    env:
+      # Use the first parent of the checked-out PR/merge-group merge so
+      # unrelated changes since the legacy lint baseline are not reported.
+      # Nightly retains the configured baseline.
+      LINT_BASE: ${{ inputs.tier != 'nightly' && 'HEAD^1' || '' }}
     steps:
       - name: git checkout
         uses: actions/checkout@v5

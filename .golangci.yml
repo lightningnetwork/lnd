@@ -5,8 +5,9 @@ run:
   # `make lint` to see where else it needs to be updated as well).
   go: "1.27.3"
 
-  # Abort after 10 minutes.
-  timeout: 10m
+  # Package loading can take nine minutes on CI runners; allow time for
+  # analysis as well while keeping the overall run bounded.
+  timeout: 15m
 
   build-tags:
     - autopilotrpc

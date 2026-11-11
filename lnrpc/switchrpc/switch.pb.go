@@ -23,10 +23,14 @@ const (
 )
 
 // AttemptDeletionStatus describes the outcome of a single attempt deletion.
+//
+// DELETION_OK is the zero value, so a result whose status field is absent
+// reads as deleted. Pair each result with its key.
 type AttemptDeletionStatus int32
 
 const (
-	// The attempt result was successfully deleted from the store.
+	// The attempt result was successfully deleted from the store. The key is
+	// forgotten and MUST never be sent again.
 	AttemptDeletionStatus_DELETION_OK AttemptDeletionStatus = 0
 	// The attempt is still in-flight (pending) and cannot be safely deleted.
 	AttemptDeletionStatus_DELETION_PENDING AttemptDeletionStatus = 1
@@ -282,7 +286,8 @@ func (x *SendOnionRequest) GetExtraData() []byte {
 // an earlier call with the same attempt key may already have dispatched. After
 // any gRPC error the caller MUST NOT conclude that the HTLC was not
 // dispatched, and MUST NOT send a replacement under a new attempt key until
-// this one is answered Rejected or TrackOnion reports it failed.
+// this one is answered Rejected or, once Accepted, TrackOnion reports it
+// failed.
 //
 // A caller that receives an outcome it does not recognise, or a response with
 // no outcome set at all, MUST treat it as Ambiguous and retry the same

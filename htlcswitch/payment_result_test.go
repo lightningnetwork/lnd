@@ -105,8 +105,7 @@ func TestNetworkResultStore(t *testing.T) {
 
 	db := channeldb.OpenForTesting(t, t.TempDir())
 
-	store, err := newNetworkResultStore(db, false)
-	require.NoError(t, err)
+	store := newNetworkResultStore(db)
 
 	var results []*networkResult
 	for i := 0; i < numResults; i++ {
@@ -300,8 +299,7 @@ func TestNetworkResultStoreCleanStore(t *testing.T) {
 				cleanup()
 			})
 
-			store, err := newNetworkResultStore(backend, false)
-			require.NoError(t, err)
+			store := newNetworkResultStore(backend)
 
 			// Store a result for every attempt ID.
 			for i := range test.numResults {
@@ -384,8 +382,7 @@ func BenchmarkPostgresNetworkResultStoreCleanStore(b *testing.B) {
 				cleanup()
 			})
 
-			store, err := newNetworkResultStore(backend, false)
-			require.NoError(b, err)
+			store := newNetworkResultStore(backend)
 			keep := make(map[uint64]struct{}, test.numKeep)
 			for i := range test.numKeep {
 				keep[i] = struct{}{}
@@ -444,8 +441,7 @@ func TestNetworkResultStoreFailAndFetch(t *testing.T) {
 	t.Parallel()
 
 	db := channeldb.OpenForTesting(t, t.TempDir())
-	store, err := newNetworkResultStore(db, false)
-	require.NoError(t, err)
+	store := newNetworkResultStore(db)
 
 	// Test FetchPendingAttempts on an empty store.
 	pending, err := store.FetchPendingAttempts()
@@ -541,103 +537,138 @@ func TestNetworkResultStoreFailAndFetch(t *testing.T) {
 	})
 }
 
-// TestDisableRemoteRouter tests that the DisableRemoteRouter method behaves as
-// expected.
-func TestDisableRemoteRouter(t *testing.T) {
+// TestCheckLegacyLifecycleMarker checks the startup check on the marker that
+// switchrpc builds without attempt keys wrote: an unmarked store opens as is,
+// a marked store with no records loses its marker and opens, and a marked
+// store with records, as such a build left it, is refused untouched.
+func TestCheckLegacyLifecycleMarker(t *testing.T) {
 	t.Parallel()
 
-	checkMarker := func(t *testing.T, db kvdb.Backend) bool {
-		var marked bool
-		err := db.View(func(tx kvdb.RTx) error {
-			if tx.ReadBucket(externalLifecycleMarkerBucket) != nil {
-				marked = true
-			}
+	markerExists := func(t *testing.T, db kvdb.Backend) bool {
+		t.Helper()
+
+		var exists bool
+		err := kvdb.View(db, func(tx kvdb.RTx) error {
+			exists = tx.ReadBucket(
+				legacyLifecycleMarkerBucket,
+			) != nil
 
 			return nil
 		}, func() {
-			marked = false
+			exists = false
 		})
 		require.NoError(t, err)
 
-		return marked
+		return exists
 	}
 
-	// Test case 1: In-flight payments exist.
-	t.Run("in-flight payments", func(t *testing.T) {
-		t.Parallel()
+	writeMarker := func(t *testing.T, db kvdb.Backend) {
+		t.Helper()
 
-		db := channeldb.OpenForTesting(t, t.TempDir())
-		store, err := newNetworkResultStore(db, true)
+		err := kvdb.Update(db, func(tx kvdb.RwTx) error {
+			_, err := tx.CreateTopLevelBucket(
+				legacyLifecycleMarkerBucket,
+			)
+
+			return err
+		}, func() {})
 		require.NoError(t, err)
-		require.True(t, checkMarker(t, db))
+	}
 
-		// Add a payment result to simulate an in-flight payment.
-		err = store.storeResult(0, &networkResult{
-			msg: &lnwire.UpdateAddHTLC{},
-		})
-		require.NoError(t, err)
+	settle := func(t *testing.T, store *networkResultStore, id uint64) {
+		t.Helper()
 
-		// Attempt to disable the remote router.
-		err = store.DisableRemoteRouter()
-		require.ErrorIs(t, err, ErrAttemptEntriesExist)
+		require.NoError(t, store.StoreResult(id, &networkResult{
+			msg:         &lnwire.UpdateFulfillHTLC{},
+			unencrypted: true,
+		}))
+	}
 
-		// The marker should still exist.
-		require.True(t, checkMarker(t, db))
-	})
-
-	// Test case 2: No in-flight payments.
-	t.Run("no in-flight payments", func(t *testing.T) {
-		t.Parallel()
-
-		db := channeldb.OpenForTesting(t, t.TempDir())
-		store, err := newNetworkResultStore(db, true)
-		require.NoError(t, err)
-		require.True(t, checkMarker(t, db))
-
-		// Attempt to disable the remote router.
-		err = store.DisableRemoteRouter()
-		require.NoError(t, err)
-
-		// The marker should be gone.
-		require.False(t, checkMarker(t, db))
-	})
-
-	// Test case 3: No in-flight payments and no marker.
 	t.Run("no marker", func(t *testing.T) {
 		t.Parallel()
 
 		db := channeldb.OpenForTesting(t, t.TempDir())
-		store, err := newNetworkResultStore(db, false)
-		require.NoError(t, err)
-		require.False(t, checkMarker(t, db))
+		store := newNetworkResultStore(db)
+		settle(t, store, 1)
 
-		// Attempt to disable the remote router.
-		err = store.DisableRemoteRouter()
-		require.NoError(t, err)
+		require.NoError(t, checkLegacyLifecycleMarker(db))
+		require.False(t, markerExists(t, db))
 
-		// The marker should still be gone.
-		require.False(t, checkMarker(t, db))
+		// Records of an unmarked store are not touched.
+		_, err := store.GetResult(1)
+		require.NoError(t, err)
 	})
-}
 
-// TestMarkerCollision verifies that creating a network result store in local
-// mode (externalLifecycle=false) fails when the database is already marked for
-// external lifecycle management. This prevents the local router from
-// accidentally cleaning attempt data that a remote controller depends on.
-func TestMarkerCollision(t *testing.T) {
-	t.Parallel()
+	t.Run("marker without result bucket", func(t *testing.T) {
+		t.Parallel()
 
-	db := channeldb.OpenForTesting(t, t.TempDir())
+		db := channeldb.OpenForTesting(t, t.TempDir())
+		writeMarker(t, db)
 
-	// First, create a store in external mode to write the marker.
-	_, err := newNetworkResultStore(db, true)
-	require.NoError(t, err)
+		require.NoError(t, checkLegacyLifecycleMarker(db))
+		require.False(t, markerExists(t, db))
+	})
 
-	// Now, try to create a store in local mode on the same DB. This
-	// should fail because the DB is marked for external management.
-	_, err = newNetworkResultStore(db, false)
-	require.Error(t, err)
-	require.Contains(t, err.Error(),
-		"marked for external lifecycle management",
-	)
+	t.Run("marker with drained result bucket", func(t *testing.T) {
+		t.Parallel()
+
+		db := channeldb.OpenForTesting(t, t.TempDir())
+		writeMarker(t, db)
+
+		// The old build's DeleteAttempts leaves the bucket in place
+		// but empty.
+		err := kvdb.Update(db, func(tx kvdb.RwTx) error {
+			_, err := tx.CreateTopLevelBucket(
+				networkResultStoreBucketKey,
+			)
+
+			return err
+		}, func() {})
+		require.NoError(t, err)
+
+		require.NoError(t, checkLegacyLifecycleMarker(db))
+		require.False(t, markerExists(t, db))
+
+		// The switch starts on a drained store.
+		_, err = initSwitchWithDB(0, db)
+		require.NoError(t, err)
+	})
+
+	t.Run("marker with records", func(t *testing.T) {
+		t.Parallel()
+
+		// Prepare the database the way a switchrpc build without
+		// attempt keys leaves it: the marker, a pending placeholder
+		// and a settled result under client chosen attempt IDs, and
+		// no attempt index.
+		db := channeldb.OpenForTesting(t, t.TempDir())
+		writeMarker(t, db)
+
+		err := kvdb.Update(db, func(tx kvdb.RwTx) error {
+			return putPendingPlaceholder(tx, 3)
+		}, func() {})
+		require.NoError(t, err)
+
+		store := newNetworkResultStore(db)
+		settle(t, store, 4)
+
+		err = checkLegacyLifecycleMarker(db)
+		require.ErrorIs(t, err, ErrUndrainedResultStore)
+		require.ErrorContains(t, err, "2 record(s) remain")
+
+		// Nothing was changed: the marker and both records remain,
+		// and the check refuses again on the next start.
+		require.True(t, markerExists(t, db))
+		_, err = store.GetResult(3)
+		require.ErrorIs(t, err, ErrAttemptResultPending)
+		_, err = store.GetResult(4)
+		require.NoError(t, err)
+
+		err = checkLegacyLifecycleMarker(db)
+		require.ErrorIs(t, err, ErrUndrainedResultStore)
+
+		// The switch refuses to start on such a store.
+		_, err = initSwitchWithDB(0, db)
+		require.ErrorIs(t, err, ErrUndrainedResultStore)
+	})
 }

@@ -689,11 +689,4 @@ type AttemptStore interface {
 	// attempt index. This allows for a "delete all except" approach to
 	// cleanup that never touches an external dispatcher's attempts.
 	CleanStore(keepPids map[uint64]struct{}) error
-
-	// DisableRemoteRouter checks for attempt entries and, if none are
-	// found, deletes the remote router marker from the database. The
-	// external controller that dispatched the attempts is responsible
-	// for cleaning results from the store (e.g. via DeleteAttempts)
-	// before calling this method.
-	DisableRemoteRouter() error
 }

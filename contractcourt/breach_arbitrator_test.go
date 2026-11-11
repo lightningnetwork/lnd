@@ -424,6 +424,15 @@ func (frs *failingRetributionStore) ForAll(cb func(*retributionInfo) error,
 	return frs.rs.ForAll(cb, reset)
 }
 
+func (frs *failingRetributionStore) RecordJusticeTxs(chanPoint *wire.OutPoint,
+	justiceTxs map[chainhash.Hash]*justiceTxCtx) error {
+
+	frs.mu.Lock()
+	defer frs.mu.Unlock()
+
+	return frs.rs.RecordJusticeTxs(chanPoint, justiceTxs)
+}
+
 // Parse the pubkeys in the breached outputs.
 func initBreachedOutputs() error {
 	for i := range breachedOutputs {
@@ -589,6 +598,27 @@ func (rs *mockRetributionStore) ForAll(cb func(*retributionInfo) error,
 		if err := cb(copyRetInfo(retInfo)); err != nil {
 			return err
 		}
+	}
+
+	return nil
+}
+
+func (rs *mockRetributionStore) RecordJusticeTxs(chanPoint *wire.OutPoint,
+	justiceTxs map[chainhash.Hash]*justiceTxCtx) error {
+
+	rs.mu.Lock()
+	defer rs.mu.Unlock()
+
+	retInfo, ok := rs.state[*chanPoint]
+	if !ok {
+		return errors.New("unknown retribution")
+	}
+
+	if retInfo.justiceTxs == nil {
+		retInfo.justiceTxs = make(map[chainhash.Hash]*justiceTxCtx)
+	}
+	for txid, jtx := range justiceTxs {
+		retInfo.justiceTxs[txid] = jtx
 	}
 
 	return nil

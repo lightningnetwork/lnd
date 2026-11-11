@@ -18,6 +18,10 @@
     - [Code Health](#code-health)
     - [Tooling and Documentation](#tooling-and-documentation)
 
+> **Note:** The `v0.21.7-beta` Git tag and Docker image correspond to the same
+> release build and are safe to use. The `v0.21.8-beta` release corrects the
+> release metadata and notes.
+
 # Bug Fixes
 
 * [Fixed a number of low-level correctness

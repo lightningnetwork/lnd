@@ -66,6 +66,11 @@ type SQLInvoiceQueries interface { //nolint:interfacebloat
 	FetchBolt12Invoice(ctx context.Context,
 		invoiceID int64) (sqlc.FetchBolt12InvoiceRow, error)
 
+	// DeleteOpenBolt12Invoice deletes a BOLT 12 invoice of an offer that
+	// is open and has no accepted HTLC.
+	DeleteOpenBolt12Invoice(ctx context.Context, id int64) (sql.Result,
+		error)
+
 	// TODO(bhandras): remove this once migrations have been separated out.
 	InsertMigratedInvoice(ctx context.Context,
 		arg sqlc.InsertMigratedInvoiceParams) (int64, error)
@@ -1820,6 +1825,42 @@ func (i *SQLStore) DeleteCanceledInvoices(ctx context.Context) error {
 	}
 
 	return nil
+}
+
+// DeleteOpenBolt12Invoice deletes the BOLT 12 invoice with the given add
+// index. It deletes only an invoice that answers an offer, is open and has
+// no accepted HTLC. The check and the delete are one statement. So an HTLC
+// that a concurrent update accepts keeps the row. It reports whether it
+// deleted the row.
+func (i *SQLStore) DeleteOpenBolt12Invoice(ctx context.Context,
+	addIndex uint64) (bool, error) {
+
+	var deleted bool
+	writeTxOpt := sqldb.WriteTxOpt()
+	err := i.db.ExecTx(ctx, writeTxOpt, func(db SQLInvoiceQueries) error {
+		result, err := db.DeleteOpenBolt12Invoice(
+			ctx, int64(addIndex),
+		)
+		if err != nil {
+			return err
+		}
+
+		rows, err := result.RowsAffected()
+		if err != nil {
+			return err
+		}
+		deleted = rows > 0
+
+		return nil
+	}, func() {
+		deleted = false
+	})
+	if err != nil {
+		return false, fmt.Errorf("unable to delete open BOLT 12 "+
+			"invoice(%v): %w", addIndex, err)
+	}
+
+	return deleted, nil
 }
 
 // fetchInvoiceData fetches additional data for the given invoice. If the

@@ -2245,6 +2245,14 @@ func delAMPSettleIndex(invoiceNum []byte, invoices,
 	return nil
 }
 
+// DeleteOpenBolt12Invoice returns invpkg.ErrBolt12Disabled, because the KV
+// store holds no BOLT 12 invoice.
+func (d *DB) DeleteOpenBolt12Invoice(_ context.Context,
+	_ uint64) (bool, error) {
+
+	return false, invpkg.ErrBolt12Disabled
+}
+
 // DeleteCanceledInvoices deletes canceled invoices, preserving ordinary
 // invoices with settled or failed released HTLCs so release history survives.
 func (d *DB) DeleteCanceledInvoices(_ context.Context) error {

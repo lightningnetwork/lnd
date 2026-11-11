@@ -20,6 +20,7 @@ import (
 	"github.com/lightningnetwork/lnd/record"
 	"github.com/lightningnetwork/lnd/sqldb"
 	"github.com/lightningnetwork/lnd/sqldb/sqlc"
+	"github.com/stretchr/testify/mock"
 	"github.com/stretchr/testify/require"
 )
 
@@ -340,6 +341,185 @@ func TestBolt12SendsOneOpenEvent(t *testing.T) {
 	bolt11 := receive(subscription.NewInvoices)
 	require.False(t, bolt11.IsBolt12)
 	require.Equal(t, stored.AddIndex+1, bolt11.AddIndex)
+}
+
+// TestBolt12SingleSubscriberOneOpenEvent verifies that only the first HTLC of
+// a rebuilt BOLT 12 invoice sends an Open event. A subscriber to the single
+// invoice gets that event and then the update of the settling HTLC.
+func TestBolt12SingleSubscriberOneOpenEvent(t *testing.T) {
+	t.Parallel()
+
+	ctx, _, preimage, pathID := newBolt12RegistryContext(t)
+
+	subscription, err := ctx.registry.SubscribeSingleInvoice(
+		t.Context(), preimage.Hash(),
+	)
+	require.NoError(t, err)
+	defer subscription.Cancel()
+
+	resolution, _ := notifyBolt12Shard(t, ctx, preimage, pathID, 1)
+	require.Nil(t, resolution)
+
+	resolution, _ = notifyBolt12Shard(t, ctx, preimage, pathID, 2)
+	require.NotNil(t, resolution)
+
+	receive := func() *invpkg.Invoice {
+		t.Helper()
+
+		select {
+		case invoice := <-subscription.Updates:
+			return invoice
+
+		case <-time.After(testTimeout):
+			t.Fatal("no invoice update")
+
+			return nil
+		}
+	}
+
+	require.Equal(t, invpkg.ContractOpen, receive().State)
+	require.Equal(t, invpkg.ContractPendingSettle, receive().State)
+}
+
+// TestBolt12DeletesRowAfterMppTimeout verifies that the registry deletes the
+// rebuilt invoice when the MPP timeout cancels its only accepted HTLC.
+func TestBolt12DeletesRowAfterMppTimeout(t *testing.T) {
+	t.Parallel()
+
+	ctx, _, preimage, pathID := newBolt12RegistryContext(t)
+
+	resolution, hodlChan := notifyBolt12Shard(t, ctx, preimage, pathID, 1)
+	require.Nil(t, resolution)
+
+	ctx.clock.SetTime(testTime.Add(30 * time.Second))
+
+	select {
+	case res := <-hodlChan:
+		checkFailResolution(
+			t, res.(invpkg.HtlcResolution),
+			invpkg.ResultMppTimeout,
+		)
+
+	case <-time.After(testTimeout):
+		t.Fatal("no MPP timeout")
+	}
+
+	// The event loop deletes the row after it resolves the HTLC.
+	require.Eventually(t, func() bool {
+		_, err := ctx.registry.LookupInvoice(
+			t.Context(), preimage.Hash(),
+		)
+
+		return errors.Is(err, invpkg.ErrInvoiceNotFound)
+	}, testTimeout, 10*time.Millisecond)
+}
+
+// TestBolt12DeletesRowWhenFirstShardFails verifies that the registry deletes
+// the rebuilt invoice on each outcome that does not accept the first shard. No
+// HTLC pays the row and the expiry watcher never gets it, so it would stay open
+// forever.
+func TestBolt12DeletesRowWhenFirstShardFails(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name string
+
+		// interceptErr and cancelSet set the response of the HTLC
+		// interceptor.
+		interceptErr error
+		cancelSet    bool
+
+		total lnwire.MilliSatoshi
+		want  invpkg.FailResolutionResult
+	}{
+		{
+			// The update refuses the shard after the registry
+			// stored the rebuilt invoice.
+			name:  "total below the amount",
+			total: testInvoiceAmount / 2,
+			want:  invpkg.ResultHtlcSetTotalTooLow,
+		},
+		{
+			name:      "interceptor cancels the set",
+			cancelSet: true,
+			total:     testInvoiceAmount,
+			want:      invpkg.ExternalValidationFailed,
+		},
+		{
+			name:         "interceptor fails",
+			interceptErr: errors.New("interceptor down"),
+			total:        testInvoiceAmount,
+			want:         invpkg.ResultInvoiceInterceptorError,
+		},
+	}
+
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			t.Parallel()
+
+			var resp any
+			if test.interceptErr == nil {
+				resp = invpkg.HtlcModifyResponse{
+					CancelSet: test.cancelSet,
+				}
+			}
+
+			interceptor := &invpkg.MockHtlcModifier{}
+			interceptor.On(
+				"Intercept", mock.Anything, mock.Anything,
+			).Return(test.interceptErr, resp)
+
+			ctx, _, preimage, pathID := newBolt12RegistryContext(
+				t, func(cfg *invpkg.RegistryConfig) {
+					cfg.HtlcInterceptor = interceptor
+				},
+			)
+
+			payload := bolt12Payload(pathID, test.total)
+			resolution, _ := notifyBolt12Payload(
+				t, ctx, preimage, payload, 1,
+			)
+			checkFailResolution(t, resolution, test.want)
+
+			requireNoInvoice(t, ctx, preimage.Hash())
+		})
+	}
+}
+
+// TestBolt12NoOpenEventForDeletedRow verifies that a rebuilt invoice that the
+// registry deletes again sends no Open event, so a subscriber never sees an
+// invoice that does not exist.
+func TestBolt12NoOpenEventForDeletedRow(t *testing.T) {
+	t.Parallel()
+
+	ctx, _, preimage, pathID := newBolt12RegistryContext(t)
+
+	subscription, err := ctx.registry.SubscribeNotifications(
+		t.Context(), 0, 0,
+	)
+	require.NoError(t, err)
+	defer subscription.Cancel()
+
+	// The MPP total is below the invoice amount, so the registry deletes
+	// the rebuilt row.
+	payload := bolt12Payload(pathID, testInvoiceAmount/2)
+	resolution, _ := notifyBolt12Payload(t, ctx, preimage, payload, 1)
+	checkFailResolution(t, resolution, invpkg.ResultHtlcSetTotalTooLow)
+
+	// The next event is the one of a BOLT 11 invoice added after it.
+	_, err = ctx.registry.AddInvoice(
+		t.Context(), newInvoice(t, false, false),
+		testInvoicePaymentHash,
+	)
+	require.NoError(t, err)
+
+	select {
+	case invoice := <-subscription.NewInvoices:
+		require.False(t, invoice.IsBolt12)
+
+	case <-time.After(testTimeout):
+		t.Fatal("no invoice event")
+	}
 }
 
 // TestBolt12RefusesHtlcWithoutPathID verifies that a BOLT 12 invoice refuses a

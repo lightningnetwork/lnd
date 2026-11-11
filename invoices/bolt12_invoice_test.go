@@ -15,6 +15,7 @@ import (
 	invpkg "github.com/lightningnetwork/lnd/invoices"
 	"github.com/lightningnetwork/lnd/lntypes"
 	"github.com/lightningnetwork/lnd/lnwire"
+	"github.com/lightningnetwork/lnd/record"
 	"github.com/lightningnetwork/lnd/sqldb"
 	"github.com/lightningnetwork/lnd/sqldb/sqlc"
 	"github.com/stretchr/testify/require"
@@ -79,6 +80,7 @@ func TestBolt12SQLStore(t *testing.T) {
 		{"Bolt11Invoice", testBolt11InvoiceWithBolt12Store},
 		{"StoreDisabled", testBolt12InvoiceStoreDisabled},
 		{"DeleteCascades", testBolt12InvoiceDeleteCascades},
+		{"DeleteOpenInvoice", testBolt12DeleteOpenInvoice},
 		{"RejectsAMP", testBolt12InvoiceRejectsAMP},
 		{"EnvelopeChecks", testBolt12InvoiceEnvelopeChecks},
 		{"ListPaths", testBolt12InvoiceListPaths},
@@ -367,6 +369,124 @@ func testBolt12InvoiceDeleteCascades(t *testing.T, newDB bolt12DBMaker) {
 
 	_, err = db.queries.FetchBolt12Invoice(ctx, int64(addIndex))
 	require.ErrorIs(t, err, sql.ErrNoRows)
+}
+
+// testBolt12DeleteOpenInvoice verifies that the guarded delete removes only a
+// BOLT 12 invoice of an offer that is open and has no accepted HTLC. The
+// caller can hold an invoice copy that is out of date. So the store must keep
+// a row that an HTLC pays, and it must keep every BOLT 11 row.
+func testBolt12DeleteOpenInvoice(t *testing.T, newDB bolt12DBMaker) {
+	t.Parallel()
+
+	tests := []struct {
+		name    string
+		bolt11  bool
+		noOffer bool
+		update  invpkg.InvoiceUpdateCallback
+		deleted bool
+	}{
+		{
+			name:    "open without htlc",
+			deleted: true,
+		},
+		{
+			name:   "open with accepted htlc",
+			update: acceptTestHtlc(1),
+		},
+		{
+			name:   "settled",
+			update: getUpdateInvoice(1, 10000),
+		},
+		{
+			name:    "no offer",
+			noOffer: true,
+		},
+		{
+			name:   "bolt11",
+			bolt11: true,
+		},
+	}
+
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			t.Parallel()
+
+			db := newDB(t, invpkg.WithBolt12())
+			ctx := t.Context()
+
+			offerID, offerHash := insertTestOffer(t, db)
+			offer, hash := fn.Some(offerID), fn.Some(offerHash)
+			if test.noOffer {
+				offer = fn.None[int64]()
+				hash = fn.None[[32]byte]()
+			}
+
+			invoice, payHash := newBolt12Invoice(
+				t, offer, testEnvelope(hash),
+			)
+			if test.bolt11 {
+				var err error
+				invoice, err = randInvoice(10000)
+				require.NoError(t, err)
+				payHash = invoice.Terms.PaymentPreimage.Hash()
+			}
+
+			addIndex, err := db.store.AddInvoice(
+				ctx, invoice, payHash,
+			)
+			require.NoError(t, err)
+
+			if test.update != nil {
+				_, err = db.store.UpdateInvoice(
+					ctx, invpkg.InvoiceRefByHash(payHash),
+					nil, test.update,
+				)
+				require.NoError(t, err)
+			}
+
+			deleted, err := db.store.DeleteOpenBolt12Invoice(
+				ctx, addIndex,
+			)
+			require.NoError(t, err)
+			require.Equal(t, test.deleted, deleted)
+
+			_, err = db.store.LookupInvoice(
+				ctx, invpkg.InvoiceRefByHash(payHash),
+			)
+			if !test.deleted {
+				require.NoError(t, err)
+
+				return
+			}
+			require.ErrorIs(t, err, invpkg.ErrInvoiceNotFound)
+
+			// An HTLC that the registry looked up before the
+			// delete finds no row when it updates the invoice
+			// after it. The registry fails that HTLC with
+			// ResultInvoiceNotFound.
+			_, err = db.store.UpdateInvoice(
+				ctx, invpkg.InvoiceRefByHash(payHash), nil,
+				acceptTestHtlc(2),
+			)
+			require.ErrorIs(t, err, invpkg.ErrInvoiceNotFound)
+		})
+	}
+}
+
+// acceptTestHtlc returns an update that accepts one HTLC and keeps the invoice
+// open, as the first shard of an MPP payment does.
+func acceptTestHtlc(htlcID uint64) invpkg.InvoiceUpdateCallback {
+	return func(*invpkg.Invoice) (*invpkg.InvoiceUpdateDesc, error) {
+		return &invpkg.InvoiceUpdateDesc{
+			UpdateType: invpkg.AddHTLCsUpdate,
+			AddHtlcs: map[models.CircuitKey]*invpkg.HtlcAcceptDesc{
+				{HtlcID: htlcID}: {
+					Amt:           5000,
+					CustomRecords: make(record.CustomSet),
+				},
+			},
+		}, nil
+	}
 }
 
 // testBolt12InvoiceRejectsAMP verifies that the store refuses an invoice that

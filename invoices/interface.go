@@ -96,6 +96,14 @@ type InvoiceDB interface {
 	// DeleteCanceledInvoices removes canceled invoices, preserving ordinary
 	// release history for both collected and failed HTLCs.
 	DeleteCanceledInvoices(ctx context.Context) error
+
+	// DeleteOpenBolt12Invoice deletes the BOLT 12 invoice with the given
+	// add index. It deletes only an invoice that answers an offer, is open
+	// and has no accepted HTLC. The check and the delete happen in one
+	// transaction. An invoice without an offer cannot be rebuilt, so it
+	// stays. It reports whether it deleted the invoice.
+	DeleteOpenBolt12Invoice(ctx context.Context, addIndex uint64) (bool,
+		error)
 }
 
 // Payload abstracts access to any additional fields provided in the final hop's

@@ -10,6 +10,29 @@ import (
 	"database/sql"
 )
 
+const deleteOpenBolt12Invoice = `-- name: DeleteOpenBolt12Invoice :execresult
+DELETE
+FROM invoices
+WHERE invoices.id = $1
+    AND state = 0
+    AND EXISTS (
+        SELECT 1
+        FROM bolt12_invoices
+        WHERE bolt12_invoices.invoice_id = invoices.id
+            AND bolt12_invoices.offer_id IS NOT NULL
+    )
+    AND NOT EXISTS (
+        SELECT 1
+        FROM invoice_htlcs
+        WHERE invoice_htlcs.invoice_id = invoices.id
+            AND invoice_htlcs.state = 0
+    )
+`
+
+func (q *Queries) DeleteOpenBolt12Invoice(ctx context.Context, id int64) (sql.Result, error) {
+	return q.db.ExecContext(ctx, deleteOpenBolt12Invoice, id)
+}
+
 const fetchBolt12Invoice = `-- name: FetchBolt12Invoice :one
 SELECT offer_id, envelope
 FROM bolt12_invoices

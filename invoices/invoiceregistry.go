@@ -853,7 +853,42 @@ func (i *InvoiceRegistry) cancelSingleHtlc(invoiceRef InvoiceRef,
 		i.notifyHodlSubscribers(resolution)
 	}
 
+	// A rebuilt BOLT 12 invoice that no HTLC pays is deleted. This runs
+	// on the event loop without the registry lock, so a new HTLC can be
+	// accepted after the cancel above. The store checks the state again in
+	// the delete transaction, and keeps a row that an HTLC pays.
+	//
+	// A client that got the Open event of the row keeps it after the
+	// delete, and no other event for the invoice follows.
+	if invoice.IsBolt12 && invoice.State == ContractOpen &&
+		len(invoice.HTLCSet(nil, HtlcStateAccepted)) == 0 {
+
+		i.deleteOpenBolt12Invoice(invoiceRef, invoice.AddIndex)
+	}
+
 	return nil
+}
+
+// deleteOpenBolt12Invoice deletes a BOLT 12 invoice of an offer that is open
+// and has no accepted HTLC. The store checks the conditions in the delete
+// transaction, so the caller can use an invoice copy that is out of date.
+func (i *InvoiceRegistry) deleteOpenBolt12Invoice(ref InvoiceRef,
+	addIndex uint64) {
+
+	// TODO: take the context from NotifyExitHopHtlc when it gets one.
+	// The event loop also calls this after an MPP timeout, and it has
+	// no context of an HTLC either.
+	deleted, err := i.idb.DeleteOpenBolt12Invoice(
+		context.TODO(), addIndex,
+	)
+	switch {
+	case err != nil:
+		log.Errorf("Failed to delete BOLT 12 invoice %v: %v", ref, err)
+
+	case deleted:
+		log.Debugf("Deleted BOLT 12 invoice %v with no accepted HTLC",
+			ref)
+	}
 }
 
 // processKeySend just-in-time inserts an invoice if this htlc is a keysend
@@ -1177,8 +1212,9 @@ func (i *InvoiceRegistry) notifyExitHopHtlcLocked(
 	// existing HTLCs to the interceptor.
 	//
 	// reconstructedBolt12 records that this HTLC rebuilt the BOLT 12
-	// invoice.
-	var reconstructedBolt12 bool
+	// invoice. keepRebuilt records that the HTLC was accepted or settled,
+	// so the rebuilt row stays.
+	var reconstructedBolt12, keepRebuilt bool
 	existingInvoice, err := i.idb.LookupInvoice(
 		context.Background(), invoiceRef,
 	)
@@ -1224,7 +1260,7 @@ func (i *InvoiceRegistry) notifyExitHopHtlcLocked(
 		//
 		// TODO: take the context from NotifyExitHopHtlc when it
 		// gets one.
-		_, addErr := i.idb.AddInvoice(
+		addIndex, addErr := i.idb.AddInvoice(
 			context.TODO(), reconstructed, ctx.hash,
 		)
 		if addErr != nil {
@@ -1236,6 +1272,17 @@ func (i *InvoiceRegistry) notifyExitHopHtlcLocked(
 				ResultInvoiceNotFound,
 			), nil, nil
 		}
+
+		// The row stays only when this HTLC gets an accept or a settle
+		// resolution. Any other outcome deletes it. No other HTLC pays
+		// the row, and the expiry watcher only gets an invoice with an
+		// accepted set. Without the delete, each failed first HTLC
+		// would leave a row behind.
+		defer func() {
+			if !keepRebuilt {
+				i.deleteOpenBolt12Invoice(invoiceRef, addIndex)
+			}
+		}()
 
 		existingInvoice = *reconstructed
 		reconstructedBolt12 = true
@@ -1456,6 +1503,8 @@ func (i *InvoiceRegistry) notifyExitHopHtlcLocked(
 	// If the htlc was settled, we will settle any previously accepted
 	// htlcs and notify our peer to settle them.
 	case *HtlcSettleResolution:
+		keepRebuilt = true
+
 		ctx.log(fmt.Sprintf("settle resolution result "+
 			"outcome: %v, at accept height: %v",
 			res.Outcome, res.AcceptHeight))
@@ -1510,6 +1559,8 @@ func (i *InvoiceRegistry) notifyExitHopHtlcLocked(
 	// If we accepted the htlc, subscribe to the hodl invoice and return
 	// an accept resolution with the htlc's accept time on it.
 	case *htlcAcceptResolution:
+		keepRebuilt = true
+
 		invoiceHtlc, ok := invoice.Htlcs[ctx.circuitKey]
 		if !ok {
 			return nil, nil, fmt.Errorf("accepted htlc: %v not"+
@@ -1556,8 +1607,9 @@ func (i *InvoiceRegistry) notifyExitHopHtlcLocked(
 
 	// The rebuilt row is a new invoice, so it gets its Open event here,
 	// before the event of its first HTLC. The event carries the invoice as
-	// it was stored, with its add index and without the HTLC.
-	if reconstructedBolt12 {
+	// it was stored, with its add index and without the HTLC. A row that
+	// the registry deletes again sends no Open event.
+	if reconstructedBolt12 && keepRebuilt {
 		rebuilt := existingInvoice
 		i.notifyClients(ctx.hash, &rebuilt, nil)
 	}

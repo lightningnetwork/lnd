@@ -185,7 +185,7 @@ func (r *OutboundConnection) Ping(ctx context.Context,
 	newConn, err := r.connectRPC(ctx, timeout)
 	if err != nil {
 		return fmt.Errorf("error connecting to the remote "+
-			"signing node through RPC: %v", err)
+			"signing node through RPC: %w", err)
 	}
 
 	defer func() {
@@ -252,10 +252,18 @@ func (r *OutboundConnection) connect(ctx context.Context,
 func (r *OutboundConnection) connectRPC(ctx context.Context,
 	timeout time.Duration) (*grpc.ClientConn, error) {
 
-	certBytes, err := os.ReadFile(r.cfg.TLSCertPath)
+	return dialRemoteSignerRPC(ctx, r.cfg, timeout)
+}
+
+// dialRemoteSignerRPC keeps both connection directions on the same pinned-TLS,
+// macaroon and bounded-dial path; the caller owns the returned connection.
+func dialRemoteSignerRPC(ctx context.Context, cfg lncfg.ConnectionCfg,
+	timeout time.Duration) (*grpc.ClientConn, error) {
+
+	certBytes, err := os.ReadFile(cfg.TLSCertPath)
 	if err != nil {
 		return nil, fmt.Errorf("error reading TLS cert file %v: %w",
-			r.cfg.TLSCertPath, err)
+			cfg.TLSCertPath, err)
 	}
 
 	cp := x509.NewCertPool()
@@ -264,10 +272,10 @@ func (r *OutboundConnection) connectRPC(ctx context.Context,
 			"certificate")
 	}
 
-	macBytes, err := os.ReadFile(r.cfg.MacaroonPath)
+	macBytes, err := os.ReadFile(cfg.MacaroonPath)
 	if err != nil {
 		return nil, fmt.Errorf("error reading macaroon file %v: %w",
-			r.cfg.MacaroonPath, err)
+			cfg.MacaroonPath, err)
 	}
 	mac := &macaroon.Macaroon{}
 	if err := mac.UnmarshalBinary(macBytes); err != nil {
@@ -290,7 +298,7 @@ func (r *OutboundConnection) connectRPC(ctx context.Context,
 	ctxt, cancel := context.WithTimeout(ctx, timeout)
 	defer cancel()
 
-	conn, err := grpc.DialContext(ctxt, r.cfg.RPCHost, opts...)
+	conn, err := grpc.DialContext(ctxt, cfg.RPCHost, opts...)
 	if err != nil {
 		return nil, fmt.Errorf("unable to connect to RPC server: %w",
 			err)

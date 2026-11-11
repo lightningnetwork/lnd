@@ -209,7 +209,7 @@ func (r *RPCKeyRing) SignPsbt(packet *psbt.Packet) ([]uint32, error) {
 	if err != nil {
 		considerShutdown(err)
 		return nil, fmt.Errorf("error signing PSBT in remote signer "+
-			"instance: %v", err)
+			"instance: %w", err)
 	}
 
 	signedPacket, err := psbt.NewFromRawBytes(
@@ -355,7 +355,7 @@ func (r *RPCKeyRing) FinalizePsbt(packet *psbt.Packet, _ string) error {
 		script, err := r.ComputeInputScript(tx, signDesc)
 		if err != nil {
 			return fmt.Errorf("error computing input script for "+
-				"input %d: %v", idx, err)
+				"input %d: %w", idx, err)
 		}
 
 		// Serialize the witness format from the stack representation to
@@ -435,7 +435,7 @@ func (r *RPCKeyRing) ECDH(keyDesc keychain.KeyDescriptor,
 	if err != nil {
 		considerShutdown(err)
 		return key, fmt.Errorf("error deriving shared key in remote "+
-			"signer instance: %v", err)
+			"signer instance: %w", err)
 	}
 
 	copy(key[:], resp.SharedKey)
@@ -467,7 +467,7 @@ func (r *RPCKeyRing) SignMessage(keyLoc keychain.KeyLocator,
 	if err != nil {
 		considerShutdown(err)
 		return nil, fmt.Errorf("error signing message in remote "+
-			"signer instance: %v", err)
+			"signer instance: %w", err)
 	}
 
 	wireSig, err := lnwire.NewSigFromECDSARawSignature(resp.Signature)
@@ -516,7 +516,7 @@ func (r *RPCKeyRing) SignMessageCompact(keyLoc keychain.KeyLocator,
 	if err != nil {
 		considerShutdown(err)
 		return nil, fmt.Errorf("error signing message in remote "+
-			"signer instance: %v", err)
+			"signer instance: %w", err)
 	}
 
 	// The signature in the response is zbase32 encoded, so we need to
@@ -631,7 +631,7 @@ func (r *RPCKeyRing) ComputeInputScript(tx *wire.MsgTx,
 		sig, err := r.remoteSign(tx, signDesc, nil)
 		if err != nil {
 			return nil, fmt.Errorf("error signing with remote"+
-				"instance: %v", err)
+				"instance: %w", err)
 		}
 
 		rawSig := sig.Serialize()
@@ -738,7 +738,7 @@ func (r *RPCKeyRing) MuSig2CreateSession(bipVersion input.MuSig2Version,
 	if err != nil {
 		considerShutdown(err)
 		return nil, fmt.Errorf("error creating MuSig2 session in "+
-			"remote signer instance: %v", err)
+			"remote signer instance: %w", err)
 	}
 
 	// De-Serialize all the info back into our native struct.
@@ -792,7 +792,7 @@ func (r *RPCKeyRing) MuSig2RegisterNonces(sessionID input.MuSig2SessionID,
 	if err != nil {
 		considerShutdown(err)
 		return false, fmt.Errorf("error registering MuSig2 nonces in "+
-			"remote signer instance: %v", err)
+			"remote signer instance: %w", err)
 	}
 
 	return resp.HaveAllNonces, nil
@@ -818,7 +818,7 @@ func (r *RPCKeyRing) MuSig2RegisterCombinedNonce(
 		considerShutdown(err)
 
 		return fmt.Errorf("error registering MuSig2 combined nonce "+
-			"in remote signer instance: %v", err)
+			"in remote signer instance: %w", err)
 	}
 
 	return nil
@@ -841,7 +841,7 @@ func (r *RPCKeyRing) MuSig2GetCombinedNonce(sessionID input.MuSig2SessionID) (
 		considerShutdown(err)
 
 		return [musig2.PubNonceSize]byte{}, fmt.Errorf("error getting "+
-			"MuSig2 combined nonce from remote signer instance: %v",
+			"MuSig2 combined nonce from remote signer instance: %w",
 			err)
 	}
 
@@ -876,7 +876,7 @@ func (r *RPCKeyRing) MuSig2Sign(sessionID input.MuSig2SessionID,
 	if err != nil {
 		considerShutdown(err)
 		return nil, fmt.Errorf("error signing MuSig2 session in "+
-			"remote signer instance: %v", err)
+			"remote signer instance: %w", err)
 	}
 
 	partialSig, err := input.DeserializePartialSignature(
@@ -884,7 +884,7 @@ func (r *RPCKeyRing) MuSig2Sign(sessionID input.MuSig2SessionID,
 	)
 	if err != nil {
 		return nil, fmt.Errorf("error parsing partial signature from "+
-			"remote signer: %v", err)
+			"remote signer: %w", err)
 	}
 
 	return partialSig, nil
@@ -908,7 +908,7 @@ func (r *RPCKeyRing) MuSig2CombineSig(sessionID input.MuSig2SessionID,
 		rawSig, err := input.SerializePartialSignature(partialSig)
 		if err != nil {
 			return nil, false, fmt.Errorf("error serializing "+
-				"partial signature: %v", err)
+				"partial signature: %w", err)
 		}
 		req.OtherPartialSignatures[idx] = rawSig[:]
 	}
@@ -920,7 +920,7 @@ func (r *RPCKeyRing) MuSig2CombineSig(sessionID input.MuSig2SessionID,
 	if err != nil {
 		considerShutdown(err)
 		return nil, false, fmt.Errorf("error combining MuSig2 "+
-			"signatures in remote signer instance: %v", err)
+			"signatures in remote signer instance: %w", err)
 	}
 
 	// The final signature is only available when we have all the other
@@ -932,7 +932,7 @@ func (r *RPCKeyRing) MuSig2CombineSig(sessionID input.MuSig2SessionID,
 	finalSig, err := schnorr.ParseSignature(resp.FinalSignature)
 	if err != nil {
 		return nil, false, fmt.Errorf("error parsing final signature: "+
-			"%v", err)
+			"%w", err)
 	}
 
 	return finalSig, resp.HaveAllSignatures, nil
@@ -966,7 +966,7 @@ func (r *RPCKeyRing) MuSig2Cleanup(sessionID input.MuSig2SessionID) error {
 	if err != nil {
 		considerShutdown(err)
 		return fmt.Errorf("error cleaning up MuSig2 session in remote "+
-			"signer instance: %v", err)
+			"signer instance: %w", err)
 	}
 
 	return nil
@@ -1022,13 +1022,13 @@ func (r *RPCKeyRing) remoteSign(tx *wire.MsgTx, signDesc *input.SignDescriptor,
 		)
 		if err != nil {
 			return nil, fmt.Errorf("error deriving address from "+
-				"public key %x: %v", pubKeyBytes, err)
+				"public key %x: %w", pubKeyBytes, err)
 		}
 
 		managedAddr, err := r.AddressInfo(addr)
 		if err != nil {
 			return nil, fmt.Errorf("error fetching address info "+
-				"for public key %x: %v", pubKeyBytes, err)
+				"for public key %x: %w", pubKeyBytes, err)
 		}
 
 		pubKeyAddr, ok := managedAddr.(waddrmgr.ManagedPubKeyAddress)
@@ -1061,7 +1061,7 @@ func (r *RPCKeyRing) remoteSign(tx *wire.MsgTx, signDesc *input.SignDescriptor,
 		if err != nil {
 			return nil, fmt.Errorf("error deriving key with "+
 				"family %d and index %d from the watch-only "+
-				"wallet: %v",
+				"wallet: %w",
 				signDesc.KeyDesc.KeyLocator.Family,
 				signDesc.KeyDesc.KeyLocator.Index, err)
 		}
@@ -1130,7 +1130,7 @@ func (r *RPCKeyRing) remoteSign(tx *wire.MsgTx, signDesc *input.SignDescriptor,
 
 	default:
 		return nil, fmt.Errorf("error assembling UTXO information, "+
-			"wallet returned err='%v' and sign descriptor is "+
+			"wallet returned err='%w' and sign descriptor is "+
 			"incomplete", err)
 	}
 
@@ -1209,7 +1209,7 @@ func (r *RPCKeyRing) remoteSign(tx *wire.MsgTx, signDesc *input.SignDescriptor,
 		blockBytes, err := controlBlock.ToBytes()
 		if err != nil {
 			return nil, fmt.Errorf("error serializing control "+
-				"block: %v", err)
+				"block: %w", err)
 		}
 
 		in.TaprootLeafScript = []*psbt.TaprootTapLeafScript{{
@@ -1234,7 +1234,7 @@ func (r *RPCKeyRing) remoteSign(tx *wire.MsgTx, signDesc *input.SignDescriptor,
 	if err != nil {
 		considerShutdown(err)
 		return nil, fmt.Errorf("error signing PSBT in remote signer "+
-			"instance: %v", err)
+			"instance: %w", err)
 	}
 
 	signedPacket, err := psbt.NewFromRawBytes(
@@ -1437,7 +1437,7 @@ func considerShutdown(err error) {
 	// The context attached to the client request has timed out. This can be
 	// due to not being able to reach the signing server, or it's taking too
 	// long to respond. In either case, request a shutdown.
-	case err == context.DeadlineExceeded:
+	case errors.Is(err, context.DeadlineExceeded):
 		fallthrough
 
 	// The signing server's context timed out before the client's due to

@@ -1,18 +1,32 @@
 package lnd
 
 import (
+	"context"
+	"crypto/tls"
+	"crypto/x509"
+	"errors"
 	"fmt"
 	"testing"
 	"time"
 
+	"github.com/lightningnetwork/lnd/cert"
 	"github.com/lightningnetwork/lnd/channeldb"
 	"github.com/lightningnetwork/lnd/fn/v2"
 	"github.com/lightningnetwork/lnd/graph/db/models"
 	"github.com/lightningnetwork/lnd/lnrpc"
+	"github.com/lightningnetwork/lnd/lnrpc/watchonlyrpc"
+	"github.com/lightningnetwork/lnd/lnwallet/rpcwallet"
 	"github.com/lightningnetwork/lnd/lnwire"
+	"github.com/lightningnetwork/lnd/rpcperms"
 	"github.com/lightningnetwork/lnd/signal"
 	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/mock"
 	"github.com/stretchr/testify/require"
+	"google.golang.org/grpc"
+	"google.golang.org/grpc/codes"
+	"google.golang.org/grpc/credentials"
+	"google.golang.org/grpc/keepalive"
+	"google.golang.org/grpc/status"
 	"google.golang.org/protobuf/proto"
 )
 
@@ -78,22 +92,26 @@ func TestAuxDataParser(t *testing.T) {
 	require.Equal(t, []byte{0x00, 0x00}, resp.CustomChannelData)
 }
 
-// TestStopDaemonBeforeRPCStartup makes sure StopDaemon can be called during
-// the wallet-unlocked startup window, before addDeps has populated the
-// rpcServer's server dependencies and while r.server is still nil. That
-// startup state can last for an extended period when lnd is waiting for an
-// outbound remote signer to connect before the full RPC server becomes active
-// when lnd is configured to use an outbound remote signer.
+// TestStopDaemonBeforeRPCStartup preserves shutdown before wallet loading, when
+// neither recovery access nor the full server dependencies exist.
 func TestStopDaemonBeforeRPCStartup(t *testing.T) {
+	// Arrange startup before wallet loading, using the normal waiting
+	// state.
 	interceptor, err := signal.Intercept()
 	require.NoError(t, err)
 
 	r := &rpcServer{
 		interceptor: interceptor,
 		server:      nil,
+		interceptorChain: rpcperms.NewInterceptorChain(
+			rpcsLog, true, nil,
+		),
 	}
 
+	// Act before addDeps or any wallet recovery reader has been installed.
 	resp, err := r.StopDaemon(t.Context(), &lnrpc.StopRequest{})
+
+	// Assert the early RPC still requests a normal daemon shutdown.
 	require.NoError(t, err)
 	require.Equal(t, "shutdown initiated, check logs for progress",
 		resp.Status)
@@ -154,6 +172,230 @@ func TestRpcCommitmentType(t *testing.T) {
 			)
 		})
 	}
+}
+
+// recoveryReaderMock observes the wallet query without introducing another
+// production interface or storing a duplicate copy of recovery progress.
+type recoveryReaderMock struct {
+	mock.Mock
+}
+
+// GetRecoveryInfo returns the test's current recovery result for one RPC.
+func (m *recoveryReaderMock) GetRecoveryInfo() (bool, float64, error) {
+	args := m.Called()
+	progress, _ := args.Get(1).(float64)
+
+	return args.Bool(0), progress, args.Error(2)
+}
+
+// TestStopDaemonRecoveryGuard preserves early shutdown before wallet startup
+// and enforces live recovery state before signer readiness, including errors.
+func TestStopDaemonRecoveryGuard(t *testing.T) {
+	cases := []struct {
+		name       string
+		known      bool
+		recovering bool
+		progress   float64
+		backendErr error
+		wantCode   codes.Code
+	}{
+		{
+			name:     "unlocked before wallet startup",
+			wantCode: codes.OK,
+		},
+		{
+			name:       "rescan before signer readiness",
+			known:      true,
+			recovering: true,
+			progress:   0.5,
+			wantCode:   codes.FailedPrecondition,
+		},
+		{
+			name:       "completed recovery",
+			known:      true,
+			recovering: true,
+			progress:   1,
+		},
+		{
+			name:       "recovery query failure",
+			known:      true,
+			backendErr: errors.New("wallet query failed"),
+			wantCode:   codes.Unknown,
+		},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			// Arrange a real signal handler and interceptor state.
+			// Wait for the previous handler's deferred global reset
+			// before reusing it.
+			var interceptor signal.Interceptor
+			require.Eventually(t, func() bool {
+				var err error
+				interceptor, err = signal.Intercept()
+
+				return err == nil
+			}, time.Second, time.Millisecond)
+			t.Cleanup(func() {
+				interceptor.RequestShutdown()
+				<-interceptor.ShutdownChannel()
+			})
+			chain := rpcperms.NewInterceptorChain(
+				rpcsLog, true, nil,
+			)
+			require.NoError(t, chain.Start())
+			t.Cleanup(func() {
+				require.NoError(t, chain.Stop())
+			})
+			chain.SetWalletUnlocked()
+			r := &rpcServer{
+				interceptor:      interceptor,
+				interceptorChain: chain,
+			}
+			reader := &recoveryReaderMock{}
+			if tc.known {
+				reader.On("GetRecoveryInfo").Return(
+					tc.recovering, tc.progress,
+					tc.backendErr,
+				).Once()
+				r.setRecoveryReader(reader.GetRecoveryInfo)
+			}
+
+			// Act through the RPC before addDeps has supplied
+			// r.server; the published recovery callback must
+			// suffice during startup.
+			response, err := r.StopDaemon(
+				t.Context(), &lnrpc.StopRequest{},
+			)
+
+			// Assert the live query is used exactly once when
+			// available, refusals carry a stable RPC code, and only
+			// permitted shutdown reaches the real signal handler.
+			reader.AssertExpectations(t)
+			require.Equal(t, tc.wantCode, status.Code(err))
+			if tc.wantCode != codes.OK {
+				require.Nil(t, response)
+				if tc.backendErr != nil {
+					require.ErrorIs(t, err, tc.backendErr)
+				}
+				select {
+				case <-interceptor.ShutdownChannel():
+					t.Fatal("rejected shutdown reached " +
+						"signal handler")
+
+				case <-time.After(10 * time.Millisecond):
+				}
+
+				return
+			}
+			require.NoError(t, err)
+			require.NotNil(t, response)
+			select {
+			case <-interceptor.ShutdownChannel():
+
+			case <-time.After(time.Second):
+				t.Fatal("permitted shutdown did not " +
+					"reach signal handler")
+			}
+		})
+	}
+}
+
+// TestRemoteSignerMandatoryMiddleware proves unregistered main-chain mandatory
+// middleware cannot block authenticated registration on the dedicated server.
+func TestRemoteSignerMandatoryMiddleware(t *testing.T) {
+	// Arrange the production dedicated-server startup path with mandatory
+	// middleware configured but never registered on the main chain.
+	// Transport TLS remains real; macaroon authorization has its separate
+	// daemon itest.
+	cfg := DefaultConfig()
+	cfg.NoMacaroons = true
+	cfg.RPCMiddleware.Enable = true
+	cfg.RPCMiddleware.Mandatory = []string{"unregistered"}
+	cfg.RemoteSigner.Enable = true
+	cfg.RemoteSigner.ExperimentalAllowInboundConnection = true
+	cfg.RemoteSigner.ExperimentalRPCListeners = []string{"127.0.0.1:0"}
+	mainChain := rpcperms.NewInterceptorChain(
+		rpcsLog, true, cfg.RPCMiddleware.Mandatory,
+	)
+	require.NoError(t, mainChain.Start())
+	t.Cleanup(func() {
+		require.NoError(t, mainChain.Stop())
+	})
+	mainChain.SetWalletUnlocked()
+	coordinator := rpcwallet.NewInboundConnection(time.Second, time.Second)
+	t.Cleanup(coordinator.Stop)
+	certBytes, keyBytes, err := cert.GenCertPair(
+		"mandatory middleware test", nil, nil, false, time.Hour,
+	)
+	require.NoError(t, err)
+	pair, err := tls.X509KeyPair(certBytes, keyBytes)
+	require.NoError(t, err)
+	tlsCredentials := credentials.NewTLS(cert.TLSConfFromCert(pair))
+	server, listeners, chain, err := startInboundWatchOnlyRPCServer(
+		&cfg, []grpc.ServerOption{
+			grpc.Creds(tlsCredentials),
+		}, keepalive.ServerParameters{}, keepalive.EnforcementPolicy{},
+		mainChain, coordinator,
+	)
+	require.NoError(t, err)
+	t.Cleanup(func() {
+		server.Stop()
+		require.NoError(t, chain.Stop())
+	})
+	roots := x509.NewCertPool()
+	require.True(t, roots.AppendCertsFromPEM(certBytes))
+	clientCredentials := credentials.NewClientTLSFromCert(roots, "")
+	connection, err := grpc.NewClient(
+		listeners[0].Addr().String(),
+		grpc.WithTransportCredentials(clientCredentials),
+	)
+	require.NoError(t, err)
+	t.Cleanup(func() {
+		require.NoError(t, connection.Close())
+	})
+	ctx, cancel := context.WithTimeout(t.Context(), 3*time.Second)
+	defer cancel()
+	client := watchonlyrpc.NewWatchOnlyClient(connection)
+	stream, err := client.SignCoordinatorStreams(ctx)
+	require.NoError(t, err)
+	challenge := make([]byte, 32)
+	version := watchonlyrpc.RegistrationVersion
+
+	// Act by registering over the actual TLS stream while the main server
+	// still has no middleware registration or active signing dependencies.
+	require.NoError(t, stream.Send(&watchonlyrpc.SignCoordinatorResponse{
+		RefRequestId: 1,
+		SignResponseType: &rpcwallet.RSRegistration{
+			SignerRegistration: &watchonlyrpc.SignerRegistration{
+				RegistrationChallenge: challenge,
+				RegistrationInfo:      version,
+			},
+		},
+	}))
+	response, err := stream.Recv()
+
+	// Assert registration completes with a connection-bound proof instead
+	// of waiting forever for middleware that can only register later.
+	require.NoError(t, err)
+	complete := response.GetRegistrationResponse().GetRegistrationComplete()
+	require.NotNil(t, complete)
+	require.NoError(t, watchonlyrpc.VerifyRegistrationProof(
+		stream.Context(), challenge, complete.GetRegistrationInfo(),
+		complete.GetSignature(),
+	))
+
+	// The probe follows proof verification; replying proves the dedicated
+	// stream can admit work without waiting for main-server middleware.
+	ping, err := stream.Recv()
+	require.NoError(t, err)
+	require.True(t, ping.GetPing())
+	require.NoError(t, stream.Send(&rpcwallet.RSResponse{
+		RefRequestId: ping.GetRequestId(),
+		SignResponseType: &watchonlyrpc.SignCoordinatorResponse_Pong{
+			Pong: true,
+		},
+	}))
+	require.NoError(t, coordinator.WaitUntilConnected(ctx))
 }
 
 // TestMarshalDBEdgeVersions checks that the graph RPC marshalers read the

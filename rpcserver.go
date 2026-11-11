@@ -608,6 +608,10 @@ type rpcServer struct {
 
 	server *server
 
+	// recoveryReader publishes the wallet dependency before signer startup
+	// waits, without racing addDeps or caching mutable recovery progress.
+	recoveryReader atomic.Pointer[func() (bool, float64, error)]
+
 	cfg *Config
 
 	// subServers are a set of sub-RPC servers that use the same gRPC and
@@ -6832,32 +6836,39 @@ func (r *rpcServer) GetNetworkInfo(ctx context.Context,
 	return netInfo, nil
 }
 
-// StopDaemon will send a shutdown request to the interrupt handler, triggering
-// a graceful shutdown of the daemon.
+// setRecoveryReader publishes the active wallet's recovery query before the
+// remote signer wait. StopDaemon uses the same reader throughout startup.
+func (r *rpcServer) setRecoveryReader(reader func() (bool, float64, error)) {
+	r.recoveryReader.Store(&reader)
+}
+
+// StopDaemon requests graceful shutdown unless live wallet recovery is still
+// in progress. Early startup remains interruptible before the wallet reader
+// exists; recovery refusals return FailedPrecondition and query errors retain
+// their cause.
 func (r *rpcServer) StopDaemon(_ context.Context,
 	_ *lnrpc.StopRequest) (*lnrpc.StopResponse, error) {
 
-	// StopDaemon is one of the few methods that can be called while the
-	// wallet is unlocked but the full RPC server is still starting. In
-	// that window addDeps has not yet populated r.server, so only perform
-	// the recovery-mode shutdown guard once those dependencies exist.
-	if r.server != nil && r.server.cc != nil && r.server.cc.Wallet != nil {
-		// Before we even consider a shutdown, are we currently in
-		// recovery mode? We don't want to allow shutting down during
-		// recovery because that would mean the user would have to
-		// manually continue the rescan process next time by using
-		// `lncli unlock --recovery_window X` otherwise some funds
-		// wouldn't be picked up.
-		isRecoveryMode, progress, err := r.server.cc.Wallet.
-			GetRecoveryInfo()
+	// Read only the safely published dependency, not r.server while addDeps
+	// can still be populating it. Query live progress rather than a
+	// snapshot.
+	reader := r.recoveryReader.Load()
+	if reader != nil {
+		recovering, progress, err := (*reader)()
 		if err != nil {
 			return nil, fmt.Errorf("unable to get wallet recovery "+
 				"info: %w", err)
 		}
-		if isRecoveryMode && progress < 1 {
-			return nil, fmt.Errorf("wallet recovery in progress, " +
-				"cannot shut down, please wait until rescan " +
-				"finishes")
+
+		// Let callers identify recovery refusals without parsing
+		// an operator-facing message.
+		if recovering && progress < 1 {
+			return nil, status.Error(
+				codes.FailedPrecondition,
+				"wallet recovery in progress, cannot "+
+					"shut down, please wait until rescan "+
+					"finishes",
+			)
 		}
 	}
 

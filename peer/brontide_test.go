@@ -4350,7 +4350,7 @@ func TestPendingChannelReestablishOnReconnect(t *testing.T) {
 	t.Parallel()
 
 	harness, err := createTestPeerWithChannel(
-		t, func(alice, bob *chanstate.OpenChannel) {
+		t, func(alice, bob *channeldb.OpenChannel) {
 			// SyncPending writes the caller's pending bit. The
 			// funding transaction is already set on the initiator,
 			// which is the "has broadcast" case above.

@@ -1459,6 +1459,7 @@ func (p *Brontide) loadActiveChannels(chans []*channeldb.OpenChannel) (
 				p.log.Errorf("Unable to create channel "+
 					"reestablish message for channel %v: "+
 					"%v", chanPoint, err)
+
 				continue
 			}
 

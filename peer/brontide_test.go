@@ -22,6 +22,7 @@ import (
 	"github.com/lightningnetwork/lnd/chanstate"
 	"github.com/lightningnetwork/lnd/contractcourt"
 	"github.com/lightningnetwork/lnd/fn/v2"
+	graphdb "github.com/lightningnetwork/lnd/graph/db"
 	"github.com/lightningnetwork/lnd/htlcswitch"
 	"github.com/lightningnetwork/lnd/input"
 	"github.com/lightningnetwork/lnd/lnpeer"
@@ -4319,6 +4320,90 @@ func TestRbfCloseCancelReleasesOnlyItsCaller(t *testing.T) {
 
 	case <-time.After(shortTimeout):
 	}
+}
+
+// TestPendingChannelReestablishOnReconnect verifies that a remembered pending
+// channel participates in state synchronization after a reconnect.
+//
+// BOLT 2, Message Retransmission, does not mention confirmation:
+//
+//	A funding node, upon disconnection, if it has broadcast the funding
+//	transaction: MUST remember the channel for reconnection.
+//
+//	A node, upon reconnection (unless the channel is in an error state):
+//	MUST transmit channel_reestablish for each channel.
+//
+// The fixture is that funding node. loadActiveChannels must return the
+// channel_reestablish that Start writes and record the handoff to the link
+// created after confirmation.
+func TestPendingChannelReestablishOnReconnect(t *testing.T) {
+	t.Parallel()
+
+	harness, err := createTestPeerWithChannel(
+		t, func(alice, bob *chanstate.OpenChannel) {
+			// SyncPending writes the caller's pending bit. The
+			// funding transaction is already set on the initiator,
+			// which is the "has broadcast" case above.
+			alice.IsPending = true
+			bob.IsPending = true
+		},
+	)
+	require.NoError(t, err)
+
+	peer := harness.peer
+
+	signer := input.NewMockSigner(
+		[]*btcec.PrivateKey{harness.privKey}, nil,
+	)
+	sigPool := lnwallet.NewSigPool(1, signer)
+	require.NoError(t, sigPool.Start())
+	t.Cleanup(func() {
+		require.NoError(t, sigPool.Stop())
+	})
+
+	peer.cfg.Signer = signer
+	peer.cfg.SigPool = sigPool
+	peer.cfg.ChannelGraph = graphdb.MakeTestGraph(t)
+
+	// Same query Start uses before loadActiveChannels.
+	channels, err := peer.cfg.ChannelDB.FetchOpenChannels(
+		peer.cfg.Addr.IdentityKey,
+	)
+	require.NoError(t, err)
+	require.Len(t, channels, 1)
+
+	// These three fields are the BOLT 2 precondition, not a local
+	// policy. Confirmation is not one of them.
+	dbChan := channels[0]
+	require.True(t, dbChan.IsInitiator, "funding node")
+	require.NotNil(t, dbChan.FundingTxn, "funding tx was broadcast")
+	require.True(t, dbChan.IsPending, "funding tx is unconfirmed")
+
+	// Build the message expected from the pending channel.
+	want, err := dbChan.ChanSyncMsg()
+	require.NoError(t, err)
+
+	msgs, err := peer.loadActiveChannels(channels)
+	require.NoError(t, err)
+
+	var found bool
+	for _, msg := range msgs {
+		got, ok := msg.(*lnwire.ChannelReestablish)
+		if !ok || got.ChanID != want.ChanID {
+			continue
+		}
+
+		found = true
+		_, sent := peer.chanSyncSent.Load(want.ChanID)
+		require.True(t, sent, "later link must not send a second "+
+			"channel_reestablish on this connection")
+
+		break
+	}
+
+	require.True(t, found, "funding node remembered pending channel %v "+
+		"but did not transmit channel_reestablish (BOLT 2, Message "+
+		"Retransmission)", want.ChanID)
 }
 
 // newTestCloseRequest allocates the channels used by a close caller.

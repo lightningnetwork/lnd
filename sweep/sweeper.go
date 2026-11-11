@@ -972,10 +972,9 @@ func (s *UtxoSweeper) markInputsPublished(tr *TxRecord, set InputSet) error {
 	return nil
 }
 
-// markInputsPublishFailed marks the list of inputs as failed to be published.
-func (s *UtxoSweeper) markInputsPublishFailed(set InputSet,
-	feeRate fn.Option[fn.Option[chainfee.SatPerKWeight]]) {
-
+// markInputsPublishFailed returns inputs to the retry queue. Failed attempts
+// do not change requested fee policy or successfully published fee history.
+func (s *UtxoSweeper) markInputsPublishFailed(set InputSet) {
 	// Reschedule sweep.
 	for _, inp := range set.Inputs() {
 		op := inp.OutPoint()
@@ -1002,15 +1001,6 @@ func (s *UtxoSweeper) markInputsPublishFailed(set InputSet,
 
 		// Update the input's state.
 		pi.state = PublishFailed
-
-		// An absent update preserves the rate. A present update may
-		// clear it so that the next attempt uses the estimator.
-		feeRate.WhenSome(func(rate fn.Option[chainfee.SatPerKWeight]) {
-			log.Debugf("Input(%v): updating starting fee rate "+
-				"[%v -> %v]", op,
-				pi.params.StartingFeeRate, rate)
-			pi.params.StartingFeeRate = rate
-		})
 	}
 }
 
@@ -1738,17 +1728,7 @@ func (s *UtxoSweeper) handleBumpEventTxFailed(resp *bumpResp) {
 	// the inputs specified by the set.
 	//
 	// TODO(yy): should we also remove the failed tx from db?
-	// A failed attempt leaves the requested starting rate unchanged,
-	// unless the budget can't pay it.
-	feeRate := fn.None[fn.Option[chainfee.SatPerKWeight]]()
-	if errors.Is(r.Err, errStartingFeeRateTooHigh) {
-		log.Warnf("Requested starting fee rate can't be paid from "+
-			"the budget, using the fee estimator instead: %v",
-			r.Err)
-
-		feeRate = fn.Some(fn.None[chainfee.SatPerKWeight]())
-	}
-	s.markInputsPublishFailed(resp.set, feeRate)
+	s.markInputsPublishFailed(resp.set)
 }
 
 // handleBumpEventTxReplaced handles the case where the sweeping tx has been
@@ -1999,9 +1979,7 @@ func (s *UtxoSweeper) handleUnknownSpendTx(inp *SweeperInput, tx *wire.MsgTx) {
 func (s *UtxoSweeper) handleBumpEventTxUnknownSpend(r *bumpResp) {
 	// Mark the inputs as publish failed, which means they will be retried
 	// later.
-	s.markInputsPublishFailed(
-		r.set, fn.None[fn.Option[chainfee.SatPerKWeight]](),
-	)
+	s.markInputsPublishFailed(r.set)
 
 	// Get all the inputs that are not spent in the current sweeping tx.
 	spentInputs := r.result.SpentInputs

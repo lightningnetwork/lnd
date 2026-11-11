@@ -235,9 +235,7 @@ func TestMarkInputsPublishFailed(t *testing.T) {
 	// Mark the test inputs. We expect the non-exist input and the
 	// inputInit to be skipped, and the final input to be marked as
 	// published.
-	s.markInputsPublishFailed(
-		set, fn.None[fn.Option[chainfee.SatPerKWeight]](),
-	)
+	s.markInputsPublishFailed(set)
 
 	// We expect unchanged number of pending inputs.
 	require.Len(s.inputs, 7)

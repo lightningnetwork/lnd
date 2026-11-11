@@ -22,6 +22,7 @@ import (
 	"github.com/lightningnetwork/lnd/lnwallet"
 	"github.com/lightningnetwork/lnd/lnwire"
 	"github.com/lightningnetwork/lnd/sweep"
+	"github.com/lightningnetwork/lnd/tlv"
 )
 
 var errPreimageMismatch = errors.New("revealed preimage does not match HTLC")
@@ -1007,6 +1008,98 @@ func (h *htlcTimeoutResolver) isSigHashDefault() bool {
 	)
 }
 
+// secondLevelResolutionBlob returns the aux resolution blob to sweep the
+// output of the confirmed second-level HTLC timeout tx with.
+//
+// For a pre-signed SigHashDefault second-level tx the blob is resolved anew
+// against that transaction: it is the exact transaction that confirmed, and
+// the aux resolver needs it to re-anchor its proofs. The AuxResolver is a
+// daemon-global option (present on every resolver whenever tapd is attached,
+// regardless of channel type), and SigHashDefault second-level txs only
+// exist on aux/custom (taproot asset) channels, so the gate guarantees this
+// never runs for a non-custom channel.
+//
+// In every other case the blob resolved at force close time is returned
+// unchanged. That includes aux channels whose second-level txs are signed
+// with SINGLE|ANYONECANPAY: the sweeper rebuilds those with extra inputs, so
+// the transaction that confirms is not the one we hold, and a blob resolved
+// against ours would point at a transaction that never made it on chain.
+func (h *htlcTimeoutResolver) secondLevelResolutionBlob(
+	witType input.WitnessType, spendingHeight uint32) fn.Option[tlv.Blob] {
+
+	resolutionBlob := h.htlcResolution.ResolutionBlob
+	if !h.isSigHashDefault() {
+		return resolutionBlob
+	}
+
+	h.AuxResolver.WhenSome(func(a lnwallet.AuxContractResolver) {
+		secondLevelTx := h.htlcResolution.SignedTimeoutTx
+		secondLevelReq, err := h.buildSecondLevelResolveReq(
+			witType, secondLevelTx, spendingHeight,
+		)
+		if err != nil {
+			h.log.Errorf("Unable to build second-level timeout "+
+				"ResolveReq (htlcID=%v): %v, falling back "+
+				"to original blob", h.htlc.HtlcIndex, err)
+
+			return
+		}
+
+		resolveBlob := a.ResolveContract(*secondLevelReq)
+		if err := resolveBlob.Err(); err != nil {
+			h.log.Errorf("Unable to re-resolve aux blob for "+
+				"second-level timeout output sweep "+
+				"(htlcID=%v): %v, falling back to original "+
+				"blob, output sweep may fail aux proof "+
+				"verification", h.htlc.HtlcIndex, err)
+
+			return
+		}
+
+		h.log.Infof("re-resolved aux blob for second-level timeout "+
+			"output sweep (htlcID=%v, secondLevelTxid=%v)",
+			h.htlc.HtlcIndex, secondLevelTx.TxHash())
+
+		resolutionBlob = resolveBlob.OkToSome()
+	})
+
+	return resolutionBlob
+}
+
+// buildSecondLevelResolveReq returns a ResolutionReq targeting the
+// just-confirmed second-level HTLC tx. The fast path clones the
+// ResolveReq preserved on htlcResolution at force-close time and updates
+// only the fields that differ for a second-level sweep. The slow path
+// (used when the resolver was recovered from the briefcase and the
+// in-memory ResolveReq is gone) reconstructs the request from historical
+// channel state.
+func (h *htlcTimeoutResolver) buildSecondLevelResolveReq(
+	witType input.WitnessType, secondLevelTx *wire.MsgTx,
+	spendingHeight uint32) (*lnwallet.ResolutionReq, error) {
+
+	if h.htlcResolution.ResolveReq != nil {
+		req := *h.htlcResolution.ResolveReq
+		req.Type = witType
+		req.SecondLevel = fn.Some(lnwallet.SecondLevelInfo{
+			Tx:          secondLevelTx,
+			BlockHeight: spendingHeight,
+		})
+
+		return &req, nil
+	}
+
+	chanState, err := h.FetchHistoricalChannel()
+	if err != nil {
+		return nil, fmt.Errorf("fetch historical channel: %w", err)
+	}
+
+	return lnwallet.NewSecondLevelResolveReq(
+		chanState, &h.htlc, h.htlcResolution.SignDetails,
+		h.htlcResolution.SweepSignDesc, h.htlcResolution.CsvDelay,
+		h.broadcastHeight, secondLevelTx, spendingHeight, witType,
+	)
+}
+
 // publishTimeoutTx directly broadcasts the pre-signed second-level HTLC
 // timeout transaction. This is used when the transaction was signed with
 // SigHashDefault (baked-in fees), where the sweeper's normal tx-rebuilding
@@ -1141,7 +1234,9 @@ func (h *htlcTimeoutResolver) sweepTimeoutTxOutput() error {
 		witType = input.HtlcOfferedTimeoutSecondLevel
 	}
 
-	resolutionBlob := h.htlcResolution.ResolutionBlob
+	resolutionBlob := h.secondLevelResolutionBlob(
+		witType, uint32(commitSpend.SpendingHeight),
+	)
 
 	// Let the sweeper sweep the second-level output now that the CSV/CLTV
 	// locks have expired.

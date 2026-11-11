@@ -177,6 +177,13 @@ type ChannelLinkConfig struct {
 	// clients have been restarted, or remote peer have been reconnected.
 	SyncStates bool
 
+	// ChanSyncMsgSent is set when this connection already queued
+	// channel_reestablish for the channel, before the link existed. The
+	// link still waits for the remote channel_reestablish, but it must
+	// not send a second copy. A second copy is not a reconnection, and
+	// peers fail the channel.
+	ChanSyncMsgSent bool
+
 	// BatchTicker is the ticker that determines the interval that we'll
 	// use to check the batch to see if there're any updates we should
 	// flush out. By batching updates into a single commit, we attempt to
@@ -277,7 +284,7 @@ type ChannelLinkConfig struct {
 	// time of the link being started, persisted shutdown info was found for
 	// the channel. This value being set means that we previously sent a
 	// Shutdown message to our peer, and so we should do so again on
-	// re-establish and should not allow anymore HTLC adds on the outgoing
+	// re-establish and should not allow any more HTLC adds in either
 	// direction of the link.
 	PreviouslySentShutdown fn.Option[lnwire.Shutdown]
 
@@ -964,9 +971,19 @@ func (l *channelLink) syncChanStates(ctx context.Context) error {
 		return fmt.Errorf("unable to generate chan sync message for "+
 			"ChannelPoint(%v)", l.channel.ChannelPoint())
 	}
-	if err := l.cfg.Peer.SendMessage(true, localChanSyncMsg); err != nil {
-		return fmt.Errorf("unable to send chan sync message for "+
-			"ChannelPoint(%v): %v", l.channel.ChannelPoint(), err)
+
+	// The peer already queued this message when the channel was pending.
+	// Transmit it once per connection.
+	if l.cfg.ChanSyncMsgSent {
+		l.log.Debugf("channel_reestablish already queued on this " +
+			"connection")
+	} else {
+		err := l.cfg.Peer.SendMessage(true, localChanSyncMsg)
+		if err != nil {
+			return fmt.Errorf("unable to send chan sync "+
+				"message for ChannelPoint(%v): %v",
+				l.channel.ChannelPoint(), err)
+		}
 	}
 
 	var msgsToReSend []lnwire.Message
@@ -4051,20 +4068,25 @@ func (l *channelLink) resumeLink(ctx context.Context) error {
 		}
 	}
 
-	// If a shutdown message has previously been sent on this link, then we
-	// need to make sure that we have disabled any HTLC adds on the outgoing
-	// direction of the link and that we re-resend the same shutdown message
-	// that we previously sent.
+	shutdownInfo, err := l.channel.State().ShutdownInfo()
+	if err != nil && !errors.Is(err, channeldb.ErrNoShutdownInfo) {
+		return fmt.Errorf("unable to fetch shutdown info: %w", err)
+	}
+	if shutdownInfo.IsSome() || l.cfg.PreviouslySentShutdown.IsSome() {
+		if !l.DisableAdds(Incoming) {
+			l.log.Warnf("Incoming link adds already disabled")
+		}
+		if !l.DisableAdds(Outgoing) {
+			l.log.Warnf("Outgoing link adds already disabled")
+		}
+	}
+
+	// Re-send the same shutdown message if one was previously sent.
 	//
 	// TODO(yy): we should either move this to chanCloser, or move all
 	// shutdown handling logic to be managed by the link, but not a mixed of
 	// partial management by two subsystems.
 	l.cfg.PreviouslySentShutdown.WhenSome(func(shutdown lnwire.Shutdown) {
-		// Immediately disallow any new outgoing HTLCs.
-		if !l.DisableAdds(Outgoing) {
-			l.log.Warnf("Outgoing link adds already disabled")
-		}
-
 		// Re-send the shutdown message the peer. Since syncChanStates
 		// would have sent any outstanding CommitSig, it is fine for us
 		// to immediately queue the shutdown message now.
@@ -4083,7 +4105,7 @@ func (l *channelLink) resumeLink(ctx context.Context) error {
 	// ensure that all acknowledgments that occur during channel
 	// resynchronization have taken affect, causing us only to pull unacked
 	// packets after starting to read from the downstream mailbox.
-	err := l.mailBox.ResetPackets()
+	err = l.mailBox.ResetPackets()
 	if err != nil {
 		l.log.Errorf("failed to reset packets: %v", err)
 	}

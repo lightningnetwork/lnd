@@ -1141,7 +1141,7 @@ func TestBroadcastImmediate(t *testing.T) {
 }
 
 // TestBroadcastRetryMempoolErrors checks backend uncertainty and transient
-// policy rejections return retry metadata even at the fee ceiling.
+// policy rejections remain retryable even at the fee ceiling.
 func TestBroadcastRetryMempoolErrors(t *testing.T) {
 	t.Parallel()
 
@@ -1198,10 +1198,8 @@ func TestBroadcastRetryMempoolErrors(t *testing.T) {
 			maxFeeRate := feeRate * 10
 			deadline := int32(10)
 
-			// A one-block deadline initializes directly at the cap.
-			// This checks retry metadata. A distant capped start
-			// still takes the zero-delta path, which permits
-			// re-estimation on the next block.
+			// A one-block deadline initializes directly at the cap,
+			// where no further increase is possible.
 			if tc.atCeiling {
 				deadline = 1
 			}
@@ -1226,9 +1224,9 @@ func TestBroadcastRetryMempoolErrors(t *testing.T) {
 			// must return without trying to publish the candidate.
 			resultChan := tp.Broadcast(req)
 
-			// Assert retry preserves cause and next fee, keeping
-			// the cap when no further increase is possible. Bound
-			// missing delivery so a regression fails promptly.
+			// Assert retry preserves the cause and sets no fee for
+			// the next attempt. Bound missing delivery so a
+			// regression fails promptly.
 			var result *BumpResult
 			select {
 			case result = <-resultChan:
@@ -1239,11 +1237,7 @@ func TestBroadcastRetryMempoolErrors(t *testing.T) {
 
 			require.Equal(t, TxFailed, result.Event)
 			require.ErrorIs(t, result.Err, tc.err)
-			if tc.atCeiling {
-				require.Equal(t, maxFeeRate, result.FeeRate)
-			} else {
-				require.Greater(t, result.FeeRate, feeRate)
-			}
+			require.Zero(t, result.FeeRate)
 		})
 	}
 }
@@ -1360,7 +1354,6 @@ func TestCreateAndPublishFail(t *testing.T) {
 	// Create a test feerate and return it from the mock fee function.
 	feerate := chainfee.SatPerKWeight(1000)
 	m.feeFunc.On("FeeRate").Return(feerate)
-	m.feeFunc.On("Increment").Return(true, nil).Once()
 
 	// Create a testing monitor record.
 	req := createTestBumpRequest()
@@ -2010,13 +2003,6 @@ func TestProcessRecordsSpent(t *testing.T) {
 	tp.subscriberChans.Store(requestID, subscriber)
 	tp.records.Store(requestID, recordConfirmed)
 
-	// Mock the fee function to increase feerate.
-	m.feeFunc.On("Increment").Return(true, nil).Once()
-
-	// Create a test feerate and return it from the mock fee function.
-	feerate := chainfee.SatPerKWeight(1000)
-	m.feeFunc.On("FeeRate").Return(feerate)
-
 	// Call processRecords and expect the results are notified back.
 	tp.processRecords()
 
@@ -2030,8 +2016,8 @@ func TestProcessRecordsSpent(t *testing.T) {
 		require.Equal(t, TxUnknownSpend, result.Event)
 		require.Equal(t, tx, result.Tx)
 
-		// We expect the fee rate to be updated.
-		require.Equal(t, feerate, result.FeeRate)
+		// An unknown spend does not create fee history.
+		require.Zero(t, result.FeeRate)
 
 		// No error should be set.
 		require.ErrorIs(t, result.Err, ErrUnknownSpent)
@@ -2285,11 +2271,11 @@ func TestHandleInitialBroadcastTxTooLarge(t *testing.T) {
 		t.Fatal("timeout waiting for subscriber to receive result")
 
 	case result := <-resultChan:
-		// We expect a TxFailed event so the inputs are retried, with
-		// the current fee rate attached for the next attempt.
+		// We expect a TxFailed event so the inputs are retried. The
+		// failed attempt sets no fee for the next one.
 		require.Equal(t, TxFailed, result.Event)
 		require.ErrorIs(t, result.Err, chain.ErrTxTooLarge)
-		require.Equal(t, feerate, result.FeeRate)
+		require.Zero(t, result.FeeRate)
 	}
 
 	// Validate the record was removed.

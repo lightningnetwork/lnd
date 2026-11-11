@@ -1738,11 +1738,10 @@ func (s *UtxoSweeper) handleBumpEventTxFailed(resp *bumpResp) {
 	// the inputs specified by the set.
 	//
 	// TODO(yy): should we also remove the failed tx from db?
-	feeRate := fn.Some(fn.Some(r.FeeRate))
-	switch {
-	case errors.Is(r.Err, errSpendCheckFailed):
-		feeRate = fn.None[fn.Option[chainfee.SatPerKWeight]]()
-	case errors.Is(r.Err, errStartingFeeRateTooHigh):
+	// A failed attempt leaves the requested starting rate unchanged,
+	// unless the budget can't pay it.
+	feeRate := fn.None[fn.Option[chainfee.SatPerKWeight]]()
+	if errors.Is(r.Err, errStartingFeeRateTooHigh) {
 		log.Warnf("Requested starting fee rate can't be paid from "+
 			"the budget, using the fee estimator instead: %v",
 			r.Err)
@@ -2000,7 +1999,9 @@ func (s *UtxoSweeper) handleUnknownSpendTx(inp *SweeperInput, tx *wire.MsgTx) {
 func (s *UtxoSweeper) handleBumpEventTxUnknownSpend(r *bumpResp) {
 	// Mark the inputs as publish failed, which means they will be retried
 	// later.
-	s.markInputsPublishFailed(r.set, fn.Some(fn.Some(r.result.FeeRate)))
+	s.markInputsPublishFailed(
+		r.set, fn.None[fn.Option[chainfee.SatPerKWeight]](),
+	)
 
 	// Get all the inputs that are not spent in the current sweeping tx.
 	spentInputs := r.result.SpentInputs
@@ -2009,8 +2010,8 @@ func (s *UtxoSweeper) handleBumpEventTxUnknownSpend(r *bumpResp) {
 	inputsToRetry := make([]input.Input, 0, len(r.set.Inputs()))
 
 	// Iterate all the inputs found in this bump and mark the ones spent by
-	// the third party as failed. The rest of inputs will then be updated
-	// with a new fee rate and be retried immediately.
+	// the third party as failed. Retry the remaining inputs immediately
+	// using their existing fee policy.
 	for _, inp := range r.set.Inputs() {
 		op := inp.OutPoint()
 		input, ok := s.inputs[op]
@@ -2035,7 +2036,7 @@ func (s *UtxoSweeper) handleBumpEventTxUnknownSpend(r *bumpResp) {
 		}
 
 		log.Debugf("Input(%v): updating params: immediate [%v -> true]",
-			op, r.result.FeeRate, input.params.Immediate)
+			op, input.params.Immediate)
 
 		input.params.Immediate = true
 		inputsToRetry = append(inputsToRetry, input)
@@ -2054,7 +2055,7 @@ func (s *UtxoSweeper) handleBumpEventTxUnknownSpend(r *bumpResp) {
 	inputs := s.updateSweeperInputs()
 
 	// Immediately sweep the remaining inputs - the previous inputs should
-	// now be swept with the updated StartingFeeRate immediately. We may
+	// now be swept using their original fee policy. We may
 	// also include more inputs in the new sweeping tx if new ones with the
 	// same deadline are offered.
 	s.sweepPendingInputs(inputs)

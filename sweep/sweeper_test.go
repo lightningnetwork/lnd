@@ -232,12 +232,12 @@ func TestMarkInputsPublishFailed(t *testing.T) {
 		inputPublishFailed, inputSwept, inputExcluded, inputFatal,
 	})
 
-	feeRate := chainfee.SatPerKWeight(1000)
-
 	// Mark the test inputs. We expect the non-exist input and the
 	// inputInit to be skipped, and the final input to be marked as
 	// published.
-	s.markInputsPublishFailed(set, fn.Some(fn.Some(feeRate)))
+	s.markInputsPublishFailed(
+		set, fn.None[fn.Option[chainfee.SatPerKWeight]](),
+	)
 
 	// We expect unchanged number of pending inputs.
 	require.Len(s.inputs, 7)
@@ -251,12 +251,12 @@ func TestMarkInputsPublishFailed(t *testing.T) {
 	// failed.
 	pi = s.inputs[inputPendingPublish.OutPoint()]
 	require.Equal(PublishFailed, pi.state)
-	require.Equal(feeRate, pi.params.StartingFeeRate.UnsafeFromSome())
+	require.True(pi.params.StartingFeeRate.IsNone())
 
 	// We expect the published input's is now marked as publish failed.
 	pi = s.inputs[inputPublished.OutPoint()]
 	require.Equal(PublishFailed, pi.state)
-	require.Equal(feeRate, pi.params.StartingFeeRate.UnsafeFromSome())
+	require.True(pi.params.StartingFeeRate.IsNone())
 
 	// We expect the publish failed input to stay unchanged.
 	pi = s.inputs[inputPublishFailed.OutPoint()]

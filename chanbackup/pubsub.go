@@ -119,6 +119,11 @@ type SubSwapper struct {
 
 	Swapper
 
+	// PostBackupFunc is an optional callback that is invoked after each
+	// successful backup file update with the new packed multi-channel
+	// backup.
+	PostBackupFunc func(PackedMulti)
+
 	quit chan struct{}
 	wg   sync.WaitGroup
 
@@ -310,9 +315,16 @@ func (s *SubSwapper) updateBackupFile(closedChans ...wire.OutPoint) error {
 	// Finally, we'll swap out the old backup for this new one in a single
 	// atomic step, combining the file already on-disk with this set of new
 	// channels.
-	err = s.Swapper.UpdateAndSwap(PackedMulti(b.Bytes()))
+	packedBackup := PackedMulti(b.Bytes())
+	err = s.Swapper.UpdateAndSwap(packedBackup)
 	if err != nil {
 		return fmt.Errorf("unable to update multi backup: %w", err)
+	}
+
+	// If a post-backup callback is registered, invoke it with the new
+	// packed backup.
+	if s.PostBackupFunc != nil {
+		s.PostBackupFunc(packedBackup)
 	}
 
 	return nil

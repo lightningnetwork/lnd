@@ -552,10 +552,22 @@ func runLocalClaimOutgoingHTLC(ht *lntest.HarnessTest,
 	ht.AssertNumPendingSweeps(bob, 2)
 	ht.AssertNumPendingSweeps(carol, 1)
 
-	// Bob's sweeper should sweep his outgoing HTLC immediately since it's
-	// expired. His to_local output cannot be swept due to the CSV lock.
-	// Carol's anchor sweep should be failed due to output being dust.
-	ht.AssertNumTxsInMempool(1)
+	// Bob's HTLC timeout input is mature, but it may be offered after the
+	// sweeper has processed the block that made it mature. If so, mine an
+	// empty block to trigger the next sweep round without confirming any
+	// txns that may be broadcast concurrently.
+	assertMaybeDeferredSweep := func() {
+		mempool := ht.GetRawMempool()
+		if len(mempool) == 0 {
+			ht.MineEmptyBlocks(1)
+			ht.AssertNumTxsInMempool(1)
+
+			return
+		}
+
+		require.Len(ht, mempool, 1)
+	}
+	assertMaybeDeferredSweep()
 
 	// Mine a block to confirm Bob's outgoing HTLC sweeping tx.
 	ht.MineBlocksAndAssertNumTxes(1, 1)
@@ -611,7 +623,7 @@ func runLocalClaimOutgoingHTLC(ht *lntest.HarnessTest,
 
 		// Bob's sweeper should now broadcast his second layer sweep
 		// due to the CSV on the HTLC timeout output.
-		ht.AssertNumTxsInMempool(1)
+		assertMaybeDeferredSweep()
 
 		// Next, we'll mine a final block that should confirm the
 		// sweeping transactions left.

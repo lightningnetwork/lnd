@@ -1077,8 +1077,6 @@ func TestChannelArbitratorLocalForceClosePendingHtlc(t *testing.T) {
 			},
 		},
 	}
-	closeTxid := closeTx.TxHash()
-
 	htlcOp := wire.OutPoint{
 		Hash:  closeTx.TxHash(),
 		Index: 0,
@@ -1225,10 +1223,12 @@ func TestChannelArbitratorLocalForceClosePendingHtlc(t *testing.T) {
 
 	// Notify resolver that the HTLC output of the commitment has been
 	// spent.
+	timeoutTx := outgoingRes.SignedTimeoutTx
+	timeoutTxid := timeoutTx.TxHash()
 	oldNotifier.SpendChan <- &chainntnfs.SpendDetail{
-		SpendingTx:    closeTx,
-		SpentOutPoint: &wire.OutPoint{},
-		SpenderTxHash: &closeTxid,
+		SpendingTx:    timeoutTx,
+		SpentOutPoint: &htlcOp,
+		SpenderTxHash: &timeoutTxid,
 	}
 
 	// Finally, we should also receive a resolution message instructing the
@@ -1257,6 +1257,7 @@ func TestChannelArbitratorLocalForceClosePendingHtlc(t *testing.T) {
 	}
 
 	// Notify resolver that the output of the timeout tx has been spent.
+	closeTxid := closeTx.TxHash()
 	oldNotifier.SpendChan <- &chainntnfs.SpendDetail{
 		SpendingTx:    closeTx,
 		SpentOutPoint: &wire.OutPoint{},

@@ -268,6 +268,7 @@ type failPaymentArgs struct {
 }
 
 type testPayment struct {
+	sequence uint64
 	info     paymentsdb.PaymentCreationInfo
 	attempts []paymentsdb.HTLCAttempt
 }
@@ -283,6 +284,7 @@ type mockControlTowerOld struct {
 	failAttempt     chan failAttemptArgs
 	failPayment     chan failPaymentArgs
 	fetchInFlight   chan struct{}
+	sequence        uint64
 
 	sync.Mutex
 }
@@ -320,9 +322,11 @@ func (m *mockControlTowerOld) InitPayment(_ context.Context,
 		return paymentsdb.ErrPaymentInFlight
 	}
 
+	m.sequence++
 	delete(m.failed, phash)
 	m.payments[phash] = &testPayment{
-		info: *c,
+		sequence: m.sequence,
+		info:     *c,
 	}
 
 	return nil
@@ -531,7 +535,8 @@ func (m *mockControlTowerOld) fetchPayment(phash lntypes.Hash) (
 	}
 
 	mp := &paymentsdb.MPPayment{
-		Info: &p.info,
+		SequenceNum: p.sequence,
+		Info:        &p.info,
 	}
 
 	reason, ok := m.failed[phash]
@@ -833,6 +838,11 @@ type mockMPPayment struct {
 }
 
 var _ paymentsdb.DBMPPayment = (*mockMPPayment)(nil)
+
+func (m *mockMPPayment) GetSequenceNum() uint64 {
+	args := m.Called()
+	return args.Get(0).(uint64)
+}
 
 func (m *mockMPPayment) GetState() *paymentsdb.MPPaymentState {
 	args := m.Called()

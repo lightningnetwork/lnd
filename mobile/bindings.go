@@ -156,3 +156,18 @@ func Start(extraArgs string, rpcReady Callback) {
 		rpcReady.OnResponse([]byte{})
 	}()
 }
+
+type LndStatusCallback interface {
+	OnResponse(lndStarted int32)
+}
+
+// ServiceStatus returns 1 if lnd has started up successfully, allowing the
+// caller to interact with the in-memory gRPC servers. If 0 is returned, the
+// caller should invoke `Start` to initialize lnd.
+//
+// ServiceStatus can also be used to determine when lnd has shut down, since
+// `stopDaemon` returns immediately and does not wait for the gRPC servers to be
+// fully closed.
+func ServiceStatus(callback LndStatusCallback) {
+	callback.OnResponse(atomic.LoadInt32(&lndStarted))
+}

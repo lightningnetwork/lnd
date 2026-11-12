@@ -79,7 +79,7 @@ func (c *HeightHintCache) CommitSpendHint(height uint32,
 	log.Tracef("Updating spend hint to height %d for %v", height,
 		spendRequests)
 
-	return kvdb.Batch(c.db, func(tx kvdb.RwTx) error {
+	return kvdb.Update(c.db, func(tx kvdb.RwTx) error {
 		spendHints := tx.ReadWriteBucket(spendHintBucket)
 		if spendHints == nil {
 			return chainntnfs.ErrCorruptedHeightHintCache
@@ -102,7 +102,7 @@ func (c *HeightHintCache) CommitSpendHint(height uint32,
 		}
 
 		return nil
-	})
+	}, func() {})
 }
 
 // QuerySpendHint returns the latest spend hint for an outpoint.
@@ -153,7 +153,7 @@ func (c *HeightHintCache) PurgeSpendHint(
 
 	log.Tracef("Removing spend hints for %v", spendRequests)
 
-	return kvdb.Batch(c.db, func(tx kvdb.RwTx) error {
+	return kvdb.Update(c.db, func(tx kvdb.RwTx) error {
 		spendHints := tx.ReadWriteBucket(spendHintBucket)
 		if spendHints == nil {
 			return chainntnfs.ErrCorruptedHeightHintCache
@@ -170,7 +170,7 @@ func (c *HeightHintCache) PurgeSpendHint(
 		}
 
 		return nil
-	})
+	}, func() {})
 }
 
 // CommitConfirmHint commits a confirm hint for the confirmation requests to the
@@ -185,7 +185,7 @@ func (c *HeightHintCache) CommitConfirmHint(height uint32,
 	log.Tracef("Updating confirm hints to height %d for %v", height,
 		confRequests)
 
-	return kvdb.Batch(c.db, func(tx kvdb.RwTx) error {
+	return kvdb.Update(c.db, func(tx kvdb.RwTx) error {
 		confirmHints := tx.ReadWriteBucket(confirmHintBucket)
 		if confirmHints == nil {
 			return chainntnfs.ErrCorruptedHeightHintCache
@@ -208,7 +208,7 @@ func (c *HeightHintCache) CommitConfirmHint(height uint32,
 		}
 
 		return nil
-	})
+	}, func() {})
 }
 
 // QueryConfirmHint returns the latest confirm hint for a confirmation request.
@@ -260,7 +260,7 @@ func (c *HeightHintCache) PurgeConfirmHint(
 
 	log.Tracef("Removing confirm hints for %v", confRequests)
 
-	return kvdb.Batch(c.db, func(tx kvdb.RwTx) error {
+	return kvdb.Update(c.db, func(tx kvdb.RwTx) error {
 		confirmHints := tx.ReadWriteBucket(confirmHintBucket)
 		if confirmHints == nil {
 			return chainntnfs.ErrCorruptedHeightHintCache
@@ -277,7 +277,7 @@ func (c *HeightHintCache) PurgeConfirmHint(
 		}
 
 		return nil
-	})
+	}, func() {})
 }
 
 // confHintKey returns the key that will be used to index the confirmation

@@ -42,6 +42,16 @@ db.postgres.timeout=0
 Connection timeout is disabled, to account for situations where the database
 might be slow for unexpected reasons.
 
+### Startup retry
+
+By default, LND retries connecting to Postgres at startup if the database is
+not yet available. This is useful in environments like Kubernetes where the
+database container may not be ready when LND starts.
+
+* `db.postgres.startup-max-retries=5` sets the maximum number of connection
+  attempts. Set to `0` to disable retries and fail immediately.
+* `db.postgres.startup-retry-delay=1s` sets the delay between retry attempts.
+
 Moreover for particular kv tables we also add the option to access the
 tables via a global lock (single wirter). This is a temorpary measure until 
 these particular tables have a native sql schema. This helps to mitigate

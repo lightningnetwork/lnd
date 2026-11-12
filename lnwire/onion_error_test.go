@@ -45,6 +45,13 @@ var onionFailures = []FailureMessage{
 	&FailIncorrectPaymentAmount{},
 	&FailFinalExpiryTooSoon{},
 	&FailMPPTimeout{},
+	&FailTemporaryTrampolineFailure{},
+	&FailTrampolineFeeOrExpiryInsufficient{
+		FeeBaseMsat:               500,
+		FeeProportionalMillionths: 1000,
+		CltvExpiryDelta:           36,
+	},
+	&FailUnknownNextTrampoline{},
 
 	NewFailIncorrectDetails(99, 100),
 	NewInvalidOnionVersion(testOnionHash[:]),

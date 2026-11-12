@@ -2552,6 +2552,108 @@ func (s *Switch) getLink(chanID lnwire.ChannelID) (ChannelLink, error) {
 	return link, nil
 }
 
+// LookupLinkByOutgoingSCID returns the link an HTLC with this outgoing SCID
+// forwards over. It applies the alias and privacy rules of getLinkByMapping
+// without mutating a packet.
+//
+// A local alias resolves whether or not the channel is public. A confirmed
+// SCID resolves only when the channel did not negotiate option-scid-alias, or
+// when the channel is public. The confirmed SCID of a private option-scid-alias
+// or zero-conf channel does not resolve. The peer's alias is not in these
+// indexes, so it does not resolve either.
+//
+// The switch only indexes links of online peers. An onion message cannot be
+// delivered to an offline peer, so a missing link is a miss.
+func (s *Switch) LookupLinkByOutgoingSCID(
+	scid lnwire.ShortChannelID) (ChannelLink, error) {
+
+	s.indexMtx.RLock()
+	defer s.indexMtx.RUnlock()
+
+	link, _, err := s.lookupLinkByOutgoingSCID(scid)
+
+	return link, err
+}
+
+// lookupLinkByOutgoingSCID is LookupLinkByOutgoingSCID without the lock. It
+// also returns the base SCID of the link, so that getLinkByMapping can
+// attribute an error to it.
+//
+// NOTE: This MUST be called with the indexMtx read lock held.
+func (s *Switch) lookupLinkByOutgoingSCID(
+	chanID lnwire.ShortChannelID) (ChannelLink, lnwire.ShortChannelID,
+	error) {
+
+	var noScid lnwire.ShortChannelID
+
+	if s.cfg.IsAlias(chanID) {
+		// Since chanID is an alias, we'll fetch the link via
+		// baseIndex.
+		baseScid, ok := s.baseIndex[chanID]
+		if !ok {
+			// No mapping exists, bail.
+			return nil, noScid, ErrChannelLinkNotFound
+		}
+
+		// A mapping exists, so use baseScid to find the link in the
+		// forwardingIndex.
+		link, ok := s.forwardingIndex[baseScid]
+		if !ok {
+			log.Debugf("Forwarding index not found using "+
+				"baseScid=%v", baseScid)
+
+			// Link not found, bail.
+			return nil, noScid, ErrChannelLinkNotFound
+		}
+
+		// Return the link without checking if it's private or not.
+		return link, baseScid, nil
+	}
+
+	// The chanID is a confirmed SCID. Attempt to fetch the base SCID from
+	// baseIndex.
+	baseScid, ok := s.baseIndex[chanID]
+	if !ok {
+		// chanID is not a key in base index meaning this channel did
+		// not have the option-scid-alias feature bit negotiated. We'll
+		// fetch the link and return it.
+		link, ok := s.forwardingIndex[chanID]
+		if !ok {
+			log.Debugf("Forwarding index not found using "+
+				"chanID=%v", chanID)
+
+			// The link wasn't found, bail out.
+			return nil, noScid, ErrChannelLinkNotFound
+		}
+
+		return link, chanID, nil
+	}
+
+	// Fetch the link whose internal SCID is baseScid.
+	link, ok := s.forwardingIndex[baseScid]
+	if !ok {
+		log.Debugf("Forwarding index not found using baseScid=%v",
+			baseScid)
+
+		// Link wasn't found, bail out.
+		return nil, noScid, ErrChannelLinkNotFound
+	}
+
+	// If the link is unadvertised, we fail since the real SCID was used to
+	// forward over it and this is a channel where the option-scid-alias
+	// feature bit was negotiated.
+	if link.IsUnadvertised() {
+		log.Debugf("Link is unadvertised, chanID=%v, baseScid=%v",
+			chanID, baseScid)
+
+		return nil, noScid, ErrChannelLinkNotFound
+	}
+
+	// The link is public so the confirmed SCID can be used to forward over
+	// it.
+	return link, baseScid, nil
+}
+
 // GetLinkByShortID attempts to return the link which possesses the target short
 // channel ID.
 func (s *Switch) GetLinkByShortID(chanID lnwire.ShortChannelID) (ChannelLink,
@@ -2621,77 +2723,15 @@ func (s *Switch) getLinkByMapping(pkt *htlcPacket) (ChannelLink, error) {
 	// sent back if the option-scid-alias feature bit was negotiated.
 	pkt.originalOutgoingChanID = chanID
 
-	if aliasID {
-		// Since outgoingChanID is an alias, we'll fetch the link via
-		// baseIndex.
-		baseScid, ok := s.baseIndex[chanID]
-		if !ok {
-			// No mapping exists, bail.
-			return nil, ErrChannelLinkNotFound
-		}
-
-		// A mapping exists, so use baseScid to find the link in the
-		// forwardingIndex.
-		link, ok := s.forwardingIndex[baseScid]
-		if !ok {
-			log.Debugf("Forwarding index not found using "+
-				"baseScid=%v", baseScid)
-
-			// Link not found, bail.
-			return nil, ErrChannelLinkNotFound
-		}
-
-		// Change the packet's outgoingChanID field so that errors are
-		// properly attributed.
-		pkt.outgoingChanID = baseScid
-
-		// Return the link without checking if it's private or not.
-		return link, nil
+	link, linkScid, err := s.lookupLinkByOutgoingSCID(chanID)
+	if err != nil {
+		return nil, err
 	}
 
-	// The outgoingChanID is a confirmed SCID. Attempt to fetch the base
-	// SCID from baseIndex.
-	baseScid, ok := s.baseIndex[chanID]
-	if !ok {
-		// outgoingChanID is not a key in base index meaning this
-		// channel did not have the option-scid-alias feature bit
-		// negotiated. We'll fetch the link and return it.
-		link, ok := s.forwardingIndex[chanID]
-		if !ok {
-			log.Debugf("Forwarding index not found using "+
-				"chanID=%v", chanID)
+	// Change the packet's outgoingChanID field so that errors are
+	// properly attributed.
+	pkt.outgoingChanID = linkScid
 
-			// The link wasn't found, bail out.
-			return nil, ErrChannelLinkNotFound
-		}
-
-		return link, nil
-	}
-
-	// Fetch the link whose internal SCID is baseScid.
-	link, ok := s.forwardingIndex[baseScid]
-	if !ok {
-		log.Debugf("Forwarding index not found using baseScid=%v",
-			baseScid)
-
-		// Link wasn't found, bail out.
-		return nil, ErrChannelLinkNotFound
-	}
-
-	// If the link is unadvertised, we fail since the real SCID was used to
-	// forward over it and this is a channel where the option-scid-alias
-	// feature bit was negotiated.
-	if link.IsUnadvertised() {
-		log.Debugf("Link is unadvertised, chanID=%v, baseScid=%v",
-			chanID, baseScid)
-
-		return nil, ErrChannelLinkNotFound
-	}
-
-	// The link is public so the confirmed SCID can be used to forward over
-	// it. We'll also replace pkt's outgoingChanID field so errors can
-	// properly be attributed in the calling function.
-	pkt.outgoingChanID = baseScid
 	return link, nil
 }
 

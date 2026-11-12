@@ -50,8 +50,9 @@ Follow these rules:
   without renaming sections. Sections that only exist in the newest
   version-wide release note document, such as `## BOLT 12 (Offers)` in
   `release-notes-0.22.0.md`, may be used as well.
-* Do not add a contributors section. It is generated when the release notes are
-  consolidated.
+* Do not add a contributors section. Authors, coauthors, and reviewers are
+  credited during [release consolidation](#contributor-attribution), after
+  review evidence is available. A fragment is not a final reviewer list.
 * Do not add entries directly to the version-wide `release-notes-<version>.md`
   files. They are only written when a release is prepared.
 
@@ -107,32 +108,33 @@ The fold is done by the Go program in `scripts/release-notes`:
    document with the same heading path, ordered by pull request number. It
    fails without changing anything if a section does not exist in the
    document.
-4. It generates the contributor names from the Git authors of the release's
+4. It seeds the contributor names from the Git authors of the release's
    commit range, `<from>..HEAD`, and merges them with the names already listed.
    `from` defaults to the newest final release tag of a lower version, e.g.
    `v0.21.5-beta` for `0.22.0`. Versions are compared rather than Git ancestry,
    since the tags of the previous version are on its release branch and not
    reachable from `master`. This follows Bitcoin Core, with merge commits
    excluded since lnd merges pull requests through GitHub. Names that only
-   differ in case are listed once, and bots are skipped.
+   differ in case are listed once, and names containing `[bot]` are skipped.
 
-   The list uses the Git author names as reported by `%aN`, rather than GitHub
-   handles or names chosen by hand. If one person appears under several names,
-   map them to a single name in a `.mailmap` file at the repository root, which
-   Git applies to `%aN`, instead of editing the generated list. That way the
-   fix also applies to future releases. Names already listed under an alias
-   are replaced with the `.mailmap` name on the next fold, while names added
-   by hand, such as co-authors, are kept.
+   The seed list uses Git author names as reported by `%aN`. If one person
+   appears under several names, map them to a single name in a `.mailmap`
+   file at the repository root, which Git applies to `%aN`, instead of editing
+   the generated list. That way the fix also applies to future releases.
+   Bare author aliases are replaced with the `.mailmap` name on the next fold;
+   other manually added names are kept. This does not collect GitHub reviews
+   or extract coauthor trailers; complete the
+   [contributor attribution audit](#contributor-attribution) below.
 5. It deletes the folded fragments, but keeps `unreleased/.gitkeep` so the
    directory stays in place.
 
 Review the result before committing it. Preserve the wording and pull request
-links of the entries, but edit ordering and transitions as needed, and check
-co-authored commits and the contributor list. The fold can be run again, e.g.
-for fragments that were added after a release candidate, without duplicating
-the existing entries or contributors. The pull request that finalizes
-`release-notes-<version>.md` carries the `no-changelog` label, since it has no
-entry of its own.
+links of the entries, but edit ordering and transitions as needed, and complete
+the contributor attribution audit after each fold. The fold can be run again,
+e.g. for fragments added after a release candidate, without duplicating the
+existing entries. Reconcile contributor names as described below. The PR that
+finalizes `release-notes-<version>.md` carries the `no-changelog` label because
+it has no entry of its own.
 
 After a patch release, its release note document is ported to `master` in a
 separate pull request as before. That pull request also deletes the fragments
@@ -152,6 +154,51 @@ commit.
 This deliberately leaves editorial consolidation as a single release-time
 change. Normal development pull requests therefore never contend on the same
 release note document.
+
+### Contributor Attribution
+
+After each fold, complete one alphabetical list of human contributors using
+`Name (@handle)` for verified accounts, without role labels.
+
+* Include authors, coauthors, and reviewers of merged PRs shipping in
+  `<from>..HEAD`, including `no-changelog` PRs, existing note entries, and
+  original/backport PRs.
+* Credit substantive human review or testing in submitted reviews, inline
+  feedback, or discussion, including earlier or dismissed reviews. Use the
+  [review guide](../review.md) and link evidence of what was checked or tested
+  and its result, or a concrete concern and its reasoning. Verification that
+  finds no issues counts; a finding need not cause a change. The release
+  manager judges the linked evidence. Exclude trivial or duplicate comments,
+  reminders, review requests, and unvalidated generated feedback. Exclude bots
+  and known automation, even when GitHub reports them as `User`.
+* Use Git/`.mailmap` names and verify handles through GitHub commit/account
+  associations or confirmed identities; never guess from names or emails.
+  If no Git name is known, use the account login as the name. If no handle can
+  be verified, keep the name alone and record why in the preparation PR.
+* After every fold, manually reconcile plain Git names with annotated credits
+  and list each person once. Remove a bare duplicate only after verifying the
+  identity match; preserve documented name-only credits. Keep brief identity
+  evidence and review links in the preparation PR.
+
+Set `from` to the fold's starting ref, `commit` to a shipping commit SHA, and
+`pr` to a shipping PR number to inspect authors, coauthors, and review evidence:
+
+```shell
+# Inspect the release range and find its associated merged PRs.
+git log --no-merges --format='%H %aN <%aE>%n%B' "$from..HEAD"
+gh api --paginate "repos/lightningnetwork/lnd/commits/$commit/pulls"
+
+# Read every page of submitted reviews, inline feedback, and discussion.
+gh api --paginate "repos/lightningnetwork/lnd/pulls/$pr/reviews"
+gh api --paginate "repos/lightningnetwork/lnd/pulls/$pr/comments"
+gh api --paginate "repos/lightningnetwork/lnd/issues/$pr/comments"
+```
+
+Complete the attribution audit before tagging each release candidate or final
+release, including reviews of the preparation PR submitted before the tag.
+Preserve verified credits and update the in-tree list before tagging. Copy the
+tagged contributor list verbatim into the GitHub release draft before
+publishing.
 
 [bitcoin-developer-notes]: https://github.com/bitcoin/bitcoin/blob/master/doc/developer-notes.md#release-notes
 [bitcoin-fragment]: https://github.com/bitcoin/bitcoin/blob/1566a4767afd3865ee466d1aa2ce8237cb5c27c1/doc/release-notes-36251.md

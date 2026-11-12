@@ -75,20 +75,13 @@ func (r *GraphNodeResolver) RemotePubFromSCID(ctx context.Context,
 
 	scidInt := scid.ToUint64()
 
-	// Check the cache first.
-	if cached, err := r.scidCache.Get(scidInt); err == nil {
-		pubKey, parseErr := btcec.ParsePubKey(cached.pubKeyBytes[:])
-		if parseErr == nil {
-			log.Tracef("Resolved SCID %v from cache to node %s",
-				scid,
-				hex.EncodeToString(cached.pubKeyBytes[:]))
-
+	// Local aliases are resolved live. An alias can be deleted or
+	// reassigned, and a cached peer would keep resolving after that.
+	// Announced SCIDs stay cached.
+	if !aliasmgr.IsAlias(scid) {
+		if pubKey, ok := r.cachedPubKey(scid, scidInt); ok {
 			return pubKey, nil
 		}
-
-		// Cache contained invalid data, fall through to DB lookup.
-		log.Debugf("Invalid cached pubkey for SCID %v: %v",
-			scid, parseErr)
 	}
 
 	log.Tracef("Resolving node public key for SCID %v from graph", scid)
@@ -160,16 +153,38 @@ func (r *GraphNodeResolver) resolveLocalAlias(
 		return nil, ErrSCIDNotResolved
 	}
 
-	var keyBytes [33]byte
-	copy(keyBytes[:], pubKey.SerializeCompressed())
-	r.cachePubKey(scid.ToUint64(), keyBytes)
-
+	// Do not cache. The next lookup must see a deletion or a
+	// reassignment.
 	return pubKey, nil
 }
 
-// cachePubKey caches the remote node key of a resolved SCID. We ignore the
-// return values as caching is best-effort and a failure just means the next
-// lookup will hit the database again.
+// cachedPubKey returns a cached remote node key. Invalid entries are
+// ignored so the caller falls through to the graph.
+func (r *GraphNodeResolver) cachedPubKey(scid lnwire.ShortChannelID,
+	scidInt uint64) (*btcec.PublicKey, bool) {
+
+	cached, err := r.scidCache.Get(scidInt)
+	if err != nil {
+		return nil, false
+	}
+
+	pubKey, parseErr := btcec.ParsePubKey(cached.pubKeyBytes[:])
+	if parseErr != nil {
+		log.Debugf("Invalid cached pubkey for SCID %v: %v",
+			scid, parseErr)
+
+		return nil, false
+	}
+
+	log.Tracef("Resolved SCID %v from cache to node %s", scid,
+		hex.EncodeToString(cached.pubKeyBytes[:]))
+
+	return pubKey, true
+}
+
+// cachePubKey caches the remote node key of a resolved announced SCID. We
+// ignore the return values as caching is best-effort and a failure just
+// means the next lookup will hit the database again.
 func (r *GraphNodeResolver) cachePubKey(scid uint64, keyBytes [33]byte) {
 	_, _ = r.scidCache.Put(scid, &cachedPubKey{pubKeyBytes: keyBytes})
 }

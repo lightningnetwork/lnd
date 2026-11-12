@@ -178,16 +178,74 @@ func TestRemotePubFromSCIDAnnouncedOrAlias(t *testing.T) {
 			require.NoError(t, err)
 			require.True(t, got.IsEqual(peerPub))
 
-			// A hit is cached. The second call must not ask again.
+			// Announced SCIDs are cached. Aliases are resolved
+			// live, so the second call asks the switch again.
 			askedSwitch = false
 			got, err = resolver.RemotePubFromSCID(
 				t.Context(), test.scid,
 			)
 			require.NoError(t, err)
 			require.True(t, got.IsEqual(peerPub))
-			require.False(t, askedSwitch)
+			require.Equal(t, test.askSwitch, askedSwitch)
 		})
 	}
+}
+
+// TestRemotePubFromSCIDAliasNotCached checks that deleting or reassigning a
+// local alias is visible on the next lookup. A cached peer would keep
+// resolving after either change.
+func TestRemotePubFromSCIDAliasNotCached(t *testing.T) {
+	t.Parallel()
+
+	ourPriv, err := btcec.NewPrivateKey()
+	require.NoError(t, err)
+
+	peerAPriv, err := btcec.NewPrivateKey()
+	require.NoError(t, err)
+	peerA := peerAPriv.PubKey()
+
+	peerBPriv, err := btcec.NewPrivateKey()
+	require.NoError(t, err)
+	peerB := peerBPriv.PubKey()
+
+	graph, err := graphdb.NewChannelGraph(graphdb.NewTestDB(t))
+	require.NoError(t, err)
+
+	alias := lnwire.ShortChannelID{
+		BlockHeight: aliasmgr.AliasStartBlockHeight,
+		TxIndex:     1,
+	}
+	links := map[lnwire.ShortChannelID]*btcec.PublicKey{
+		alias: peerA,
+	}
+	var calls int
+	resolver := NewGraphNodeResolver(
+		graph, ourPriv.PubKey(),
+		func(scid lnwire.ShortChannelID) (*btcec.PublicKey, bool) {
+			calls++
+			pub, ok := links[scid]
+
+			return pub, ok
+		},
+	)
+
+	got, err := resolver.RemotePubFromSCID(t.Context(), alias)
+	require.NoError(t, err)
+	require.True(t, got.IsEqual(peerA))
+	require.Equal(t, 1, calls)
+
+	// Deletion must not return the peer from the first lookup.
+	delete(links, alias)
+	_, err = resolver.RemotePubFromSCID(t.Context(), alias)
+	require.ErrorIs(t, err, ErrSCIDNotResolved)
+	require.Equal(t, 2, calls)
+
+	// Reassignment must return the new peer, not the deleted one.
+	links[alias] = peerB
+	got, err = resolver.RemotePubFromSCID(t.Context(), alias)
+	require.NoError(t, err)
+	require.True(t, got.IsEqual(peerB))
+	require.Equal(t, 3, calls)
 }
 
 // TestRemotePubFromSCIDGraphErrorSkipsPrivate checks that a graph error other

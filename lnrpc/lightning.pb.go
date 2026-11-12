@@ -606,8 +606,19 @@ type InvoiceHTLCState int32
 
 const (
 	InvoiceHTLCState_ACCEPTED InvoiceHTLCState = 0
+	//
+	//An ordinary HTLC settled irrevocably. AMP retains its existing
+	//preimage-release settlement semantics.
 	InvoiceHTLCState_SETTLED  InvoiceHTLCState = 1
 	InvoiceHTLCState_CANCELED InvoiceHTLCState = 2
+	//
+	//An ordinary HTLC released its preimage but its outcome is not final yet.
+	//It becomes SETTLED on final success or FAILED if the payer reclaims it.
+	InvoiceHTLCState_PENDING_SETTLE InvoiceHTLCState = 3
+	//
+	//An ordinary HTLC whose preimage was released but was not collected. This
+	//differs from CANCELED, which failed before preimage release.
+	InvoiceHTLCState_FAILED InvoiceHTLCState = 4
 )
 
 // Enum value maps for InvoiceHTLCState.
@@ -616,11 +627,15 @@ var (
 		0: "ACCEPTED",
 		1: "SETTLED",
 		2: "CANCELED",
+		3: "PENDING_SETTLE",
+		4: "FAILED",
 	}
 	InvoiceHTLCState_value = map[string]int32{
-		"ACCEPTED": 0,
-		"SETTLED":  1,
-		"CANCELED": 2,
+		"ACCEPTED":       0,
+		"SETTLED":        1,
+		"CANCELED":       2,
+		"PENDING_SETTLE": 3,
+		"FAILED":         4,
 	}
 )
 
@@ -1190,10 +1205,30 @@ func (ChannelEventUpdate_UpdateType) EnumDescriptor() ([]byte, []int) {
 type Invoice_InvoiceState int32
 
 const (
-	Invoice_OPEN     Invoice_InvoiceState = 0
-	Invoice_SETTLED  Invoice_InvoiceState = 1
+	Invoice_OPEN Invoice_InvoiceState = 0
+	//
+	//An ordinary invoice collected every released payment HTLC. A later
+	//duplicate HTLC can still be pending or fail while the parent stays
+	//SETTLED. Check the relevant finalized successful HTLC amounts before
+	//crediting. AMP retains its existing set-level settlement semantics;
+	//this state does not add an AMP-finality guarantee.
+	Invoice_SETTLED Invoice_InvoiceState = 1
+	//
+	//The invoice was canceled, possibly after releasing its preimage if
+	//collection failed. For ordinary invoices, check preimage_released;
+	//CANCELED alone does not mean the secret was never released. The amount
+	//actually collected is retained; cancellation does not refund successful
+	//HTLCs.
 	Invoice_CANCELED Invoice_InvoiceState = 2
 	Invoice_ACCEPTED Invoice_InvoiceState = 3
+	//
+	//An ordinary invoice released its preimage, but at least one HTLC still
+	//awaits its final outcome. The payer may reclaim a pending HTLC on
+	//chain, so its value must not yet be credited. Once every outcome is
+	//known the invoice becomes SETTLED only if every released payment HTLC
+	//succeeded. Otherwise it becomes CANCELED and retains the amount
+	//collected from successful HTLCs. AMP invoices do not enter this state.
+	Invoice_PENDING_SETTLE Invoice_InvoiceState = 4
 )
 
 // Enum value maps for Invoice_InvoiceState.
@@ -1203,12 +1238,14 @@ var (
 		1: "SETTLED",
 		2: "CANCELED",
 		3: "ACCEPTED",
+		4: "PENDING_SETTLE",
 	}
 	Invoice_InvoiceState_value = map[string]int32{
-		"OPEN":     0,
-		"SETTLED":  1,
-		"CANCELED": 2,
-		"ACCEPTED": 3,
+		"OPEN":           0,
+		"SETTLED":        1,
+		"CANCELED":       2,
+		"ACCEPTED":       3,
+		"PENDING_SETTLE": 4,
 	}
 )
 
@@ -12898,21 +12935,20 @@ type Invoice struct {
 	// Deprecated: Marked as deprecated in lightning.proto.
 	AmtPaid int64 `protobuf:"varint,18,opt,name=amt_paid,json=amtPaid,proto3" json:"amt_paid,omitempty"`
 	//
-	//The amount that was accepted for this invoice, in satoshis. This will ONLY
-	//be set if this invoice has been settled or accepted. We provide this field
-	//as if the invoice was created with a zero value, then we need to record what
-	//amount was ultimately accepted. Additionally, it's possible that the sender
-	//paid MORE that was specified in the original invoice. So we'll record that
-	//here as well.
+	//The amount accepted for this invoice, in satoshis. It can differ from the
+	//requested amount, including for zero-value invoices and overpayments.
+	//For ordinary invoices this aggregate can include accepted or PENDING_SETTLE
+	//HTLCs. Even a SETTLED parent can contain a later pending duplicate HTLC.
+	//Credit only the successful value of the relevant SETTLED HTLCs, rather than
+	//the requested amount or this aggregate alone. AMP retains its existing
+	//release-time accounting semantics.
 	//Note: Output only, don't specify for creating an invoice.
 	AmtPaidSat int64 `protobuf:"varint,19,opt,name=amt_paid_sat,json=amtPaidSat,proto3" json:"amt_paid_sat,omitempty"`
 	//
-	//The amount that was accepted for this invoice, in millisatoshis. This will
-	//ONLY be set if this invoice has been settled or accepted. We provide this
-	//field as if the invoice was created with a zero value, then we need to
-	//record what amount was ultimately accepted. Additionally, it's possible that
-	//the sender paid MORE that was specified in the original invoice. So we'll
-	//record that here as well.
+	//The amount accepted for this invoice, in millisatoshis. It has the same
+	//pending-value and retained-funds semantics as amt_paid_sat. For ordinary
+	//invoices, use the amounts and states of the relevant finalized successful
+	//HTLCs before crediting, including when the parent already reports SETTLED.
 	//Note: Output only, don't specify for creating an invoice.
 	AmtPaidMsat int64 `protobuf:"varint,20,opt,name=amt_paid_msat,json=amtPaidMsat,proto3" json:"amt_paid_msat,omitempty"`
 	//
@@ -12960,8 +12996,18 @@ type Invoice struct {
 	//can be used to override the defaults config values provided in by the
 	//global config. This field is only used if is_blinded is true.
 	BlindedPathConfig *BlindedPathConfig `protobuf:"bytes,30,opt,name=blinded_path_config,json=blindedPathConfig,proto3" json:"blinded_path_config,omitempty"`
-	unknownFields     protoimpl.UnknownFields
-	sizeCache         protoimpl.SizeCache
+	//
+	//Whether lnd committed to releasing the preimage for this ordinary invoice,
+	//including when collection later failed. This is derived from the invoice
+	//and HTLC states, not from whether lnd knows the preimage. It does not prove
+	//the payer received the preimage, and false does not guarantee the secret
+	//is unknown elsewhere. Clients must not infer preimage privacy from
+	//CANCELED alone when refunding a counterpart payment or reusing a hash.
+	//This field is not supported for AMP invoices and is false for them.
+	//Note: Output only, don't specify for creating an invoice.
+	PreimageReleased bool `protobuf:"varint,31,opt,name=preimage_released,json=preimageReleased,proto3" json:"preimage_released,omitempty"`
+	unknownFields    protoimpl.UnknownFields
+	sizeCache        protoimpl.SizeCache
 }
 
 func (x *Invoice) Reset() {
@@ -13197,6 +13243,13 @@ func (x *Invoice) GetBlindedPathConfig() *BlindedPathConfig {
 		return x.BlindedPathConfig
 	}
 	return nil
+}
+
+func (x *Invoice) GetPreimageReleased() bool {
+	if x != nil {
+		return x.PreimageReleased
+	}
+	return false
 }
 
 type BlindedPathConfig struct {
@@ -19908,7 +19961,7 @@ const file_lightning_proto_rawDesc = "" +
 	"\fsettle_index\x18\x02 \x01(\x04R\vsettleIndex\x12\x1f\n" +
 	"\vsettle_time\x18\x03 \x01(\x03R\n" +
 	"settleTime\x12\"\n" +
-	"\ramt_paid_msat\x18\x05 \x01(\x03R\vamtPaidMsat\"\xac\n" +
+	"\ramt_paid_msat\x18\x05 \x01(\x03R\vamtPaidMsat\"\xed\n" +
 	"\n" +
 	"\aInvoice\x12\x12\n" +
 	"\x04memo\x18\x01 \x01(\tR\x04memo\x12\x1d\n" +
@@ -19948,18 +20001,20 @@ const file_lightning_proto_rawDesc = "" +
 	"\x11amp_invoice_state\x18\x1c \x03(\v2#.lnrpc.Invoice.AmpInvoiceStateEntryR\x0fampInvoiceState\x12\x1d\n" +
 	"\n" +
 	"is_blinded\x18\x1d \x01(\bR\tisBlinded\x12H\n" +
-	"\x13blinded_path_config\x18\x1e \x01(\v2\x18.lnrpc.BlindedPathConfigR\x11blindedPathConfig\x1aK\n" +
+	"\x13blinded_path_config\x18\x1e \x01(\v2\x18.lnrpc.BlindedPathConfigR\x11blindedPathConfig\x12+\n" +
+	"\x11preimage_released\x18\x1f \x01(\bR\x10preimageReleased\x1aK\n" +
 	"\rFeaturesEntry\x12\x10\n" +
 	"\x03key\x18\x01 \x01(\rR\x03key\x12$\n" +
 	"\x05value\x18\x02 \x01(\v2\x0e.lnrpc.FeatureR\x05value:\x028\x01\x1aZ\n" +
 	"\x14AmpInvoiceStateEntry\x12\x10\n" +
 	"\x03key\x18\x01 \x01(\tR\x03key\x12,\n" +
-	"\x05value\x18\x02 \x01(\v2\x16.lnrpc.AMPInvoiceStateR\x05value:\x028\x01\"A\n" +
+	"\x05value\x18\x02 \x01(\v2\x16.lnrpc.AMPInvoiceStateR\x05value:\x028\x01\"U\n" +
 	"\fInvoiceState\x12\b\n" +
 	"\x04OPEN\x10\x00\x12\v\n" +
 	"\aSETTLED\x10\x01\x12\f\n" +
 	"\bCANCELED\x10\x02\x12\f\n" +
-	"\bACCEPTED\x10\x03J\x04\b\x02\x10\x03\"\xa3\x02\n" +
+	"\bACCEPTED\x10\x03\x12\x12\n" +
+	"\x0ePENDING_SETTLE\x10\x04J\x04\b\x02\x10\x03\"\xa3\x02\n" +
 	"\x11BlindedPathConfig\x12.\n" +
 	"\x11min_num_real_hops\x18\x01 \x01(\rH\x00R\x0eminNumRealHops\x88\x01\x01\x12\x1e\n" +
 	"\bnum_hops\x18\x02 \x01(\rH\x01R\anumHops\x88\x01\x01\x12'\n" +
@@ -20440,11 +20495,14 @@ const file_lightning_proto_rawDesc = "" +
 	"\x19GRAPH_CACHE_STATUS_FAILED\x10\x03*9\n" +
 	"\x0eNodeMetricType\x12\v\n" +
 	"\aUNKNOWN\x10\x00\x12\x1a\n" +
-	"\x16BETWEENNESS_CENTRALITY\x10\x01*;\n" +
+	"\x16BETWEENNESS_CENTRALITY\x10\x01*[\n" +
 	"\x10InvoiceHTLCState\x12\f\n" +
 	"\bACCEPTED\x10\x00\x12\v\n" +
 	"\aSETTLED\x10\x01\x12\f\n" +
-	"\bCANCELED\x10\x02*\xf6\x01\n" +
+	"\bCANCELED\x10\x02\x12\x12\n" +
+	"\x0ePENDING_SETTLE\x10\x03\x12\n" +
+	"\n" +
+	"\x06FAILED\x10\x04*\xf6\x01\n" +
 	"\x14PaymentFailureReason\x12\x17\n" +
 	"\x13FAILURE_REASON_NONE\x10\x00\x12\x1a\n" +
 	"\x16FAILURE_REASON_TIMEOUT\x10\x01\x12\x1b\n" +

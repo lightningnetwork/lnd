@@ -444,6 +444,10 @@ var allTestCases = []*lntest.TestCase{
 		TestFunc: testSendMultiPathPayment,
 	},
 	{
+		Name:     "MPP released sibling restart",
+		TestFunc: testMPPReleasedSiblingRestart,
+	},
+	{
 		Name:     "sendpayment amp invoice",
 		TestFunc: testSendPaymentAMPInvoice,
 	},

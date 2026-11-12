@@ -109,8 +109,17 @@ func randHTLCRapid(t *rapid.T, invoice *Invoice, amt lnwire.MilliSatoshi) (
 		htlc.State = HtlcStateSettled
 		htlc.ResolveTime = randInvoiceTime(invoice)
 
+	case ContractPendingSettle:
+		htlc.State = HtlcStatePendingSettle
+		htlc.ResolveTime = randInvoiceTime(invoice)
+
 	case ContractCanceled:
 		htlc.State = HtlcStateCanceled
+		if !invoice.IsAMP() {
+			htlc.State = rapid.SampledFrom([]HtlcState{
+				HtlcStateCanceled, HtlcStateFailed,
+			}).Draw(t, "canceledHtlcState")
+		}
 		htlc.ResolveTime = randInvoiceTime(invoice)
 
 	case ContractAccepted:
@@ -696,10 +705,16 @@ func generateTestInvoiceRapid(t *rapid.T, mpp bool, amp bool) *Invoice {
 
 	created := randTime()
 
-	const maxContractState = 3
+	const maxContractState = 4
 	state := ContractState(
 		rapid.IntRange(0, maxContractState).Draw(t, "ContractState"),
 	)
+
+	// AMP keeps its existing settled fixtures; only ordinary invoices
+	// produce the new pending state in this change.
+	if amp && state == ContractPendingSettle {
+		state = ContractSettled
+	}
 	var (
 		settled     time.Time
 		settleIndex uint64
@@ -733,7 +748,7 @@ func generateTestInvoiceRapid(t *rapid.T, mpp bool, amp bool) *Invoice {
 	}
 
 	for _, htlc := range invoice.Htlcs {
-		if htlc.State == HtlcStateSettled {
+		if htlc.State.PreimageReleased() {
 			invoice.AmtPaid += htlc.Amt
 		}
 	}

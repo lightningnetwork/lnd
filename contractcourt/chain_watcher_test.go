@@ -15,9 +15,11 @@ import (
 	"github.com/lightningnetwork/lnd/chanstate"
 	"github.com/lightningnetwork/lnd/fn/v2"
 	"github.com/lightningnetwork/lnd/input"
+	"github.com/lightningnetwork/lnd/kvdb"
 	lnmock "github.com/lightningnetwork/lnd/lntest/mock"
 	"github.com/lightningnetwork/lnd/lnwallet"
 	"github.com/lightningnetwork/lnd/lnwire"
+	"github.com/stretchr/testify/mock"
 	"github.com/stretchr/testify/require"
 )
 
@@ -732,6 +734,110 @@ func TestChainWatcherLocalForceCloseDetect(t *testing.T) {
 				testCase.remoteOutputOnly,
 				testCase.localOutputOnly,
 			)
+		})
+	}
+}
+
+// TestChainWatcherUnknownRemoteDataLoss checks that an unknown tweakless close
+// records lost-state evidence without prior channel reestablishment.
+func TestChainWatcherUnknownRemoteDataLoss(t *testing.T) {
+	tests := []struct {
+		name      string
+		failWrite bool
+	}{
+		{
+			name: "without reestablishment",
+		},
+		{
+			name:      "status write fails",
+			failWrite: true,
+		},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			t.Parallel()
+
+			// Arrange: Keep an older real channel DB while the peer
+			// has a later tweakless commitment. Seed no lost-state
+			// marker or reestablishment commitment point.
+			alice, bob, err := lnwallet.CreateTestChannels(
+				t, channeldb.SingleFunderTweaklessBit,
+			)
+			require.NoError(t, err)
+			states, err := executeStateTransitions(
+				t, 1000, alice, bob, 2,
+			)
+			require.NoError(t, err)
+			state := states[1]
+			require.False(t, state.HasChanStatus(
+				chanstate.ChanStatusLocalDataLoss,
+			))
+			_, err = state.DataLossCommitPoint()
+			require.ErrorIs(t, err, channeldb.ErrNoCommitPoint)
+
+			// Drive the confirmed-close handler synchronously; the
+			// constructor needs one spend registration. The close
+			// event can then be read without an observer goroutine.
+			notifier := &chainntnfs.MockChainNotifier{}
+			notifier.On("RegisterSpendNtfn", &state.FundingOutpoint,
+				mock.Anything, state.DeriveHeightHint()).Return(
+				&chainntnfs.SpendEvent{}, nil,
+			).Once()
+			watcher, err := newChainWatcher(chainWatcherConfig{
+				chanState: state,
+				notifier:  notifier,
+				signer:    alice.Signer,
+			})
+			require.NoError(t, err)
+			events := watcher.SubscribeChannelEvents()
+			defer events.Cancel()
+			set, err := newChainSet(state)
+			require.NoError(t, err)
+			commit := bob.State().LocalCommitment
+			hash := commit.CommitTx.TxHash()
+			spend := &chainntnfs.SpendDetail{
+				SpenderTxHash: &hash,
+				SpendingTx:    commit.CommitTx,
+			}
+			if test.failWrite {
+				require.NoError(t, testChannelStateDB(t, state).
+					GetParentDB().Close())
+			}
+
+			// Act: Handle the unknown remote commitment directly so
+			// its storage error and close event are observable.
+			handled, err := watcher.handleUnknownRemoteState(
+				spend, commit.CommitHeight, set,
+			)
+
+			// Assert: A failed write leaves the close unpublished.
+			// Success must persist the marker in a fresh DB read,
+			// proving it survives beyond the in-memory channel.
+			if test.failWrite {
+				require.ErrorIs(t, err, kvdb.ErrDatabaseNotOpen)
+				require.False(t, handled)
+				select {
+				case <-events.RemoteUnilateralClosure:
+					t.Fatal("close after failed write")
+				default:
+				}
+			} else {
+				require.NoError(t, err)
+				require.True(t, handled)
+				stored, err := state.Db.FetchChannel(
+					state.FundingOutpoint,
+				)
+				require.NoError(t, err)
+				require.True(t, stored.HasChanStatus(
+					chanstate.ChanStatusLocalDataLoss,
+				))
+				select {
+				case <-events.RemoteUnilateralClosure:
+				default:
+					t.Fatal("close was not published")
+				}
+			}
+			notifier.AssertExpectations(t)
 		})
 	}
 }

@@ -223,7 +223,9 @@ type LightningClient interface {
 	SubscribeInvoices(ctx context.Context, in *InvoiceSubscription, opts ...grpc.CallOption) (Lightning_SubscribeInvoicesClient, error)
 	// lncli: `deletecanceledinvoice`
 	//DeleteCanceledInvoice removes a canceled invoice from the database. If the
-	//invoice is not in the canceled state, an error will be returned.
+	//invoice is not in the canceled state, an error will be returned. Ordinary
+	//invoices whose preimage was released cannot be deleted, even if no funds
+	//were collected, so their release history is retained.
 	DeleteCanceledInvoice(ctx context.Context, in *DelCanceledInvoiceReq, opts ...grpc.CallOption) (*DelCanceledInvoiceResp, error)
 	// lncli: `decodepayreq`
 	//DecodePayReq takes an encoded payment request string and attempts to decode
@@ -1512,7 +1514,9 @@ type LightningServer interface {
 	SubscribeInvoices(*InvoiceSubscription, Lightning_SubscribeInvoicesServer) error
 	// lncli: `deletecanceledinvoice`
 	//DeleteCanceledInvoice removes a canceled invoice from the database. If the
-	//invoice is not in the canceled state, an error will be returned.
+	//invoice is not in the canceled state, an error will be returned. Ordinary
+	//invoices whose preimage was released cannot be deleted, even if no funds
+	//were collected, so their release history is retained.
 	DeleteCanceledInvoice(context.Context, *DelCanceledInvoiceReq) (*DelCanceledInvoiceResp, error)
 	// lncli: `decodepayreq`
 	//DecodePayReq takes an encoded payment request string and attempts to decode

@@ -302,7 +302,9 @@ service Lightning {
 
     /* lncli: `deletecanceledinvoice`
     DeleteCanceledInvoice removes a canceled invoice from the database. If the
-    invoice is not in the canceled state, an error will be returned.
+    invoice is not in the canceled state, an error will be returned. Ordinary
+    invoices whose preimage was released cannot be deleted, even if no funds
+    were collected, so their release history is retained.
     */
     rpc DeleteCanceledInvoice (DelCanceledInvoiceReq)
         returns (DelCanceledInvoiceResp);
@@ -3977,32 +3979,57 @@ message Invoice {
     int64 amt_paid = 18 [deprecated = true];
 
     /*
-    The amount that was accepted for this invoice, in satoshis. This will ONLY
-    be set if this invoice has been settled or accepted. We provide this field
-    as if the invoice was created with a zero value, then we need to record what
-    amount was ultimately accepted. Additionally, it's possible that the sender
-    paid MORE that was specified in the original invoice. So we'll record that
-    here as well.
+    The amount accepted for this invoice, in satoshis. It can differ from the
+    requested amount, including for zero-value invoices and overpayments.
+    For ordinary invoices this aggregate can include accepted or PENDING_SETTLE
+    HTLCs. Even a SETTLED parent can contain a later pending duplicate HTLC.
+    Credit only the successful value of the relevant SETTLED HTLCs, rather than
+    the requested amount or this aggregate alone. AMP retains its existing
+    release-time accounting semantics.
     Note: Output only, don't specify for creating an invoice.
     */
     int64 amt_paid_sat = 19;
 
     /*
-    The amount that was accepted for this invoice, in millisatoshis. This will
-    ONLY be set if this invoice has been settled or accepted. We provide this
-    field as if the invoice was created with a zero value, then we need to
-    record what amount was ultimately accepted. Additionally, it's possible that
-    the sender paid MORE that was specified in the original invoice. So we'll
-    record that here as well.
+    The amount accepted for this invoice, in millisatoshis. It has the same
+    pending-value and retained-funds semantics as amt_paid_sat. For ordinary
+    invoices, use the amounts and states of the relevant finalized successful
+    HTLCs before crediting, including when the parent already reports SETTLED.
     Note: Output only, don't specify for creating an invoice.
     */
     int64 amt_paid_msat = 20;
 
     enum InvoiceState {
         OPEN = 0;
+
+        /*
+        An ordinary invoice collected every released payment HTLC. A later
+        duplicate HTLC can still be pending or fail while the parent stays
+        SETTLED. Check the relevant finalized successful HTLC amounts before
+        crediting. AMP retains its existing set-level settlement semantics;
+        this state does not add an AMP-finality guarantee.
+        */
         SETTLED = 1;
+
+        /*
+        The invoice was canceled, possibly after releasing its preimage if
+        collection failed. For ordinary invoices, check preimage_released;
+        CANCELED alone does not mean the secret was never released. The amount
+        actually collected is retained; cancellation does not refund successful
+        HTLCs.
+        */
         CANCELED = 2;
         ACCEPTED = 3;
+
+        /*
+        An ordinary invoice released its preimage, but at least one HTLC still
+        awaits its final outcome. The payer may reclaim a pending HTLC on
+        chain, so its value must not yet be credited. Once every outcome is
+        known the invoice becomes SETTLED only if every released payment HTLC
+        succeeded. Otherwise it becomes CANCELED and retains the amount
+        collected from successful HTLCs. AMP invoices do not enter this state.
+        */
+        PENDING_SETTLE = 4;
     }
 
     /*
@@ -4067,6 +4094,18 @@ message Invoice {
     global config. This field is only used if is_blinded is true.
     */
     BlindedPathConfig blinded_path_config = 30;
+
+    /*
+    Whether lnd committed to releasing the preimage for this ordinary invoice,
+    including when collection later failed. This is derived from the invoice
+    and HTLC states, not from whether lnd knows the preimage. It does not prove
+    the payer received the preimage, and false does not guarantee the secret
+    is unknown elsewhere. Clients must not infer preimage privacy from
+    CANCELED alone when refunding a counterpart payment or reusing a hash.
+    This field is not supported for AMP invoices and is false for them.
+    Note: Output only, don't specify for creating an invoice.
+    */
+    bool preimage_released = 31;
 }
 
 message BlindedPathConfig {
@@ -4106,8 +4145,26 @@ message BlindedPathConfig {
 
 enum InvoiceHTLCState {
     ACCEPTED = 0;
+
+    /*
+    An ordinary HTLC settled irrevocably. AMP retains its existing
+    preimage-release settlement semantics.
+    */
     SETTLED = 1;
+
     CANCELED = 2;
+
+    /*
+    An ordinary HTLC released its preimage but its outcome is not final yet.
+    It becomes SETTLED on final success or FAILED if the payer reclaims it.
+    */
+    PENDING_SETTLE = 3;
+
+    /*
+    An ordinary HTLC whose preimage was released but was not collected. This
+    differs from CANCELED, which failed before preimage release.
+    */
+    FAILED = 4;
 }
 
 // Details of an HTLC that paid to an invoice

@@ -476,6 +476,33 @@ func fetchInvoiceNumByRef(invoiceIndex, payAddrIndex, setIDIndex kvdb.RBucket,
 func (d *DB) FetchPendingInvoices(_ context.Context) (
 	map[lntypes.Hash]invpkg.Invoice, error) {
 
+	return d.fetchInvoices(func(invoice *invpkg.Invoice) bool {
+		return invoice.IsPending()
+	})
+}
+
+// FetchPendingSettleInvoices returns all invoices that contain at least one
+// htlc whose final outcome is still pending. The KV backend has no index over
+// htlc states, so it discovers them by scanning the invoice bucket.
+func (d *DB) FetchPendingSettleInvoices(_ context.Context) (
+	map[lntypes.Hash]invpkg.Invoice, error) {
+
+	return d.fetchInvoices(func(invoice *invpkg.Invoice) bool {
+		for _, htlc := range invoice.Htlcs {
+			if htlc.State == invpkg.HtlcStatePendingSettle {
+				return true
+			}
+		}
+
+		return false
+	})
+}
+
+// fetchInvoices returns all invoices matching the given predicate. The result
+// is keyed by payment hash.
+func (d *DB) fetchInvoices(predicate func(*invpkg.Invoice) bool) (
+	map[lntypes.Hash]invpkg.Invoice, error) {
+
 	result := make(map[lntypes.Hash]invpkg.Invoice)
 
 	err := kvdb.View(d, func(tx kvdb.RTx) error {
@@ -510,7 +537,7 @@ func (d *DB) FetchPendingInvoices(_ context.Context) (
 				return err
 			}
 
-			if invoice.IsPending() {
+			if predicate(&invoice) {
 				var paymentHash lntypes.Hash
 				copy(paymentHash[:], k)
 				result[paymentHash] = invoice
@@ -878,6 +905,9 @@ func (k *kvInvoiceUpdater) Finalize(updateType invpkg.UpdateType) error {
 		// invoice. All HTLCs which were accepted are now canceled, so
 		// we persist this state.
 		return k.storeCancelHtlcsUpdate()
+
+	case invpkg.FinalizeHTLCsUpdate:
+		return k.storeFinalizeHtlcsUpdate()
 	}
 
 	return fmt.Errorf("unknown update type: %v", updateType)
@@ -925,18 +955,8 @@ func (k *kvInvoiceUpdater) storeAddHtlcsUpdate() error {
 		}
 	}
 
-	// If this is a non-AMP invoice, then the state can eventually go to
-	// ContractSettled, so we pass in nil value as part of
-	// setSettleMetaFields.
-	if !invoiceIsAMP && k.invoice.State == invpkg.ContractSettled {
-		err := k.setSettleMetaFields(nil)
-		if err != nil {
-			return err
-		}
-	}
-
-	// As we don't update the settle index above for AMP invoices, we'll do
-	// it here for each sub-AMP invoice that was settled.
+	// Ordinary invoices allocate their index at finalization. AMP keeps
+	// allocating its existing per-set settlement index at preimage release.
 	for settledSetID := range k.settledSetIDs {
 		err := k.setSettleMetaFields(&settledSetID)
 		if err != nil {
@@ -960,11 +980,22 @@ func (k *kvInvoiceUpdater) storeAddHtlcsUpdate() error {
 }
 
 // storeSettleHodlInvoiceUpdate updates the invoice in the database after
-// settling a hodl invoice.
+// releasing a hodl preimage. Finalization assigns its settlement index.
 func (k *kvInvoiceUpdater) storeSettleHodlInvoiceUpdate() error {
-	err := k.setSettleMetaFields(nil)
-	if err != nil {
-		return err
+	return k.serializeAndStoreInvoice()
+}
+
+// storeFinalizeHtlcsUpdate persists final ordinary outcomes and assigns the
+// first settlement index only once. Later duplicate HTLCs retain the parent
+// index, and AMP keeps allocating its set metadata in storeAddHtlcsUpdate.
+func (k *kvInvoiceUpdater) storeFinalizeHtlcsUpdate() error {
+	if k.invoice.State == invpkg.ContractSettled &&
+		k.invoice.SettleIndex == 0 {
+
+		err := k.setSettleMetaFields(nil)
+		if err != nil {
+			return err
+		}
 	}
 
 	return k.serializeAndStoreInvoice()
@@ -2214,7 +2245,8 @@ func delAMPSettleIndex(invoiceNum []byte, invoices,
 	return nil
 }
 
-// DeleteCanceledInvoices deletes all canceled invoices from the database.
+// DeleteCanceledInvoices deletes canceled invoices, preserving ordinary
+// invoices with settled or failed released HTLCs so release history survives.
 func (d *DB) DeleteCanceledInvoices(_ context.Context) error {
 	return kvdb.Update(d, func(tx kvdb.RwTx) error {
 		invoices := tx.ReadWriteBucket(invoiceBucket)
@@ -2257,6 +2289,19 @@ func (d *DB) DeleteCanceledInvoices(_ context.Context) error {
 
 			if invoice.State != invpkg.ContractCanceled {
 				return nil
+			}
+
+			// Failed collection does not undo release. Keep the
+			// history even when every released HTLC failed.
+			for _, htlc := range invoice.Htlcs {
+				if invoice.IsAMP() {
+					continue
+				}
+				if htlc.State == invpkg.HtlcStateSettled ||
+					htlc.State == invpkg.HtlcStateFailed {
+
+					return nil
+				}
 			}
 
 			// Delete the payment hash from the invoice index.

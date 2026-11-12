@@ -1797,6 +1797,46 @@ func TestFinalHtlcs(t *testing.T) {
 	require.ErrorIs(t, err, ErrHtlcUnknown)
 }
 
+// TestOnchainFinalHtlcsWithoutOptIn asserts that on-chain final htlc outcomes
+// are stored even if the user did not opt in to storing final resolutions,
+// because the invoice registry relies on them.
+func TestOnchainFinalHtlcsWithoutOptIn(t *testing.T) {
+	t.Parallel()
+
+	// Arrange: Use the default opt-out for final resolution history so
+	// recovery cannot depend on an operator enabling optional records.
+	fullDB, err := MakeTestDB(t)
+	require.NoError(t, err, "unable to make test database")
+
+	cdb := fullDB.ChannelStateDB()
+
+	chanID := lnwire.ShortChannelID{
+		BlockHeight: 1,
+		TxIndex:     2,
+		TxPosition:  3,
+	}
+
+	// Act: Persist both a successful claim and a payer reclaim through
+	// the on-chain path that must retain evidence for invoice recovery.
+	err = cdb.PutOnchainFinalHtlcOutcome(chanID, 1, true)
+	require.NoError(t, err)
+
+	err = cdb.PutOnchainFinalHtlcOutcome(chanID, 2, false)
+	require.NoError(t, err)
+
+	// Assert: Read each outcome back and distinguish its result and
+	// on-chain origin, including the failure that must prevent credit.
+	info, err := cdb.LookupFinalHtlc(chanID, 1)
+	require.NoError(t, err)
+	require.True(t, info.Settled)
+	require.False(t, info.Offchain)
+
+	info, err = cdb.LookupFinalHtlc(chanID, 2)
+	require.NoError(t, err)
+	require.False(t, info.Settled)
+	require.False(t, info.Offchain)
+}
+
 // TestHTLCsExtraData tests serialization and deserialization of HTLCs
 // combined with extra data.
 func TestHTLCsExtraData(t *testing.T) {

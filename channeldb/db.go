@@ -2179,13 +2179,15 @@ func (c *ChannelStateDB) LookupFinalHtlc(chanID lnwire.ShortChannelID,
 
 // PutOnchainFinalHtlcOutcome stores the final on-chain outcome of an htlc in
 // the database.
+//
+// NOTE: Unlike off-chain outcomes, on-chain outcomes are stored even if the
+// user did not opt in to storing final resolutions. The invoice registry
+// relies on them to learn the final outcome of an htlc it released the
+// preimage for if it missed the notification, for example because lnd shut
+// down right after the htlc was resolved. On-chain resolutions are rare, so
+// the records don't add up the way off-chain ones would.
 func (c *ChannelStateDB) PutOnchainFinalHtlcOutcome(
 	chanID lnwire.ShortChannelID, htlcID uint64, settled bool) error {
-
-	// Skip if the user did not opt in to storing final resolutions.
-	if !c.parent.storeFinalHtlcResolutions {
-		return nil
-	}
 
 	return kvdb.Update(c.backend, func(tx kvdb.RwTx) error {
 		finalHtlcsBucket, err := fetchFinalHtlcsBucketRw(tx, chanID)

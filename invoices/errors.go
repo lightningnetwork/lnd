@@ -32,6 +32,12 @@ var (
 	// an invoice while the invoice is not in the open state.
 	ErrInvoiceCannotAccept = errors.New("cannot accept invoice")
 
+	// ErrInvoiceCannotSettle is returned when an attempt is made to move an
+	// ordinary invoice to the settled state directly, rather than by
+	// finalizing its htlcs. AMP retains its existing settlement path.
+	ErrInvoiceCannotSettle = errors.New("invoice can only be settled " +
+		"by finalizing its htlcs")
+
 	// ErrInvoicePreimageMismatch is returned when the preimage doesn't
 	// match the invoice hash.
 	ErrInvoicePreimageMismatch = errors.New("preimage does not match")

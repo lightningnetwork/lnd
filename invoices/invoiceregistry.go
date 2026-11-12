@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"maps"
 	"sync"
 	"sync/atomic"
 	"time"
@@ -79,6 +80,14 @@ type RegistryConfig struct {
 	// HtlcInterceptor is an interface that allows the invoice registry to
 	// let clients intercept invoices before they are settled.
 	HtlcInterceptor HtlcInterceptor
+
+	// FinalHtlcSource supplies final outcomes for ordinary invoices after
+	// their preimages were released, including missed live notifications.
+	FinalHtlcSource FinalHtlcSource
+
+	// SettleReconcileInterval retries pending outcome discovery. Zero
+	// uses DefaultSettleReconcileInterval, and idle passes skip scans.
+	SettleReconcileInterval time.Duration
 }
 
 // htlcReleaseEvent describes an htlc auto-release event. It is used to release
@@ -154,6 +163,10 @@ type InvoiceRegistry struct {
 
 	expiryWatcher *InvoiceExpiryWatcher
 
+	// pendingSettles maps ordinary pending circuits to their invoice hash.
+	// The registry lock protects it through preimage release/finalization.
+	pendingSettles map[CircuitKey]lntypes.Hash
+
 	wg   sync.WaitGroup
 	quit chan struct{}
 }
@@ -181,16 +194,27 @@ func NewRegistry(idb InvoiceDB, expiryWatcher *InvoiceExpiryWatcher,
 		cfg:                 cfg,
 		htlcAutoReleaseChan: make(chan *htlcReleaseEvent),
 		expiryWatcher:       expiryWatcher,
+		pendingSettles:      make(map[CircuitKey]lntypes.Hash),
 		quit:                make(chan struct{}),
 	}
 }
 
 // scanInvoicesOnStart will scan all invoices on start and add active invoices
 // to the invoice expiry watcher while also attempting to delete all canceled
-// invoices.
+// invoices. It also restores ordinary HTLCs awaiting their final outcomes.
 func (i *InvoiceRegistry) scanInvoicesOnStart(ctx context.Context) error {
 	pendingInvoices, err := i.idb.FetchPendingInvoices(ctx)
 	if err != nil {
+		return err
+	}
+
+	// Parent state alone misses duplicate payments whose invoice was
+	// already settled before a later HTLC awaited its final outcome.
+	pendingSettle, err := i.idb.FetchPendingSettleInvoices(ctx)
+	if err != nil {
+		return err
+	}
+	if err := i.startSettleFinalizer(ctx, pendingSettle); err != nil {
 		return err
 	}
 
@@ -324,7 +348,8 @@ func (i *InvoiceRegistry) invoiceEventLoop() {
 			// invoice subscribers of cancel and accept events.
 			state := event.invoice.State
 			if state != ContractCanceled &&
-				state != ContractAccepted {
+				state != ContractAccepted &&
+				state != ContractPendingSettle {
 
 				i.dispatchToClients(event)
 			}
@@ -1300,6 +1325,13 @@ func (i *InvoiceRegistry) notifyExitHopHtlcLocked(
 
 	log.Tracef("Settlement resolution: %T %v", resolution, resolution)
 
+	// Wait for the final outcome of all htlcs we released the preimage
+	// for. We hold the registry lock until the links learn the
+	// resolutions below, so no outcome can arrive before this.
+	if _, ok := resolution.(*HtlcSettleResolution); ok {
+		i.trackPendingSettles(ctx.hash, invoice)
+	}
+
 	switch res := resolution.(type) {
 	case *HtlcFailResolution:
 		// Inspect latest htlc state on the invoice. If it is found,
@@ -1343,11 +1375,13 @@ func (i *InvoiceRegistry) notifyExitHopHtlcLocked(
 			"outcome: %v, at accept height: %v",
 			res.Outcome, res.AcceptHeight))
 
-		// Also settle any previously accepted htlcs. If a htlc is
-		// marked as settled, we should follow now and settle the htlc
-		// with our peer.
+		// Also settle any previously accepted htlcs. If we released
+		// the preimage of an htlc, we should follow now and settle the
+		// htlc with our peer.
 		setID := ctx.setID()
-		settledHtlcSet := invoice.HTLCSet(setID, HtlcStateSettled)
+		settledHtlcSet := invoice.HTLCSet(setID, HtlcStatePendingSettle)
+		finalHtlcSet := invoice.HTLCSet(setID, HtlcStateSettled)
+		maps.Copy(settledHtlcSet, finalHtlcSet)
 		for key, htlc := range settledHtlcSet {
 			preimage := res.Preimage
 			if htlc.AMP != nil && htlc.AMP.Preimage != nil {
@@ -1467,14 +1501,14 @@ func (i *InvoiceRegistry) SettleHodlInvoice(ctx context.Context,
 		case ContractCanceled:
 			return nil, ErrInvoiceAlreadyCanceled
 
-		case ContractSettled:
+		case ContractSettled, ContractPendingSettle:
 			return nil, ErrInvoiceAlreadySettled
 		}
 
 		return &InvoiceUpdateDesc{
 			UpdateType: SettleHodlInvoiceUpdate,
 			State: &InvoiceStateUpdateDesc{
-				NewState: ContractSettled,
+				NewState: ContractPendingSettle,
 				Preimage: &preimage,
 			},
 		}, nil
@@ -1501,14 +1535,19 @@ func (i *InvoiceRegistry) SettleHodlInvoice(ctx context.Context,
 	log.Debugf("Invoice%v: settled with preimage %v", invoiceRef,
 		invoice.Terms.PaymentPreimage)
 
-	// In the callback, we marked the invoice as settled. UpdateInvoice will
-	// have seen this and should have moved all htlcs that were accepted to
-	// the settled state. In the loop below, we go through all of these and
-	// notify links and resolvers that are waiting for resolution. Any htlcs
-	// that were already settled before, will be notified again. This isn't
-	// necessary but doesn't hurt either.
+	// Wait for the final outcome of the htlcs before the links and
+	// resolvers learn the preimage.
+	i.trackPendingSettles(hash, invoice)
+
+	// In the callback, we marked the invoice as pending settle.
+	// UpdateInvoice will have seen this and should have moved all htlcs
+	// that were accepted to the pending settle state. In the loop below,
+	// we go through all of these and notify links and resolvers that are
+	// waiting for resolution. Any htlcs that were already settled before,
+	// will be notified again. This isn't necessary but doesn't hurt
+	// either.
 	for key, htlc := range invoice.Htlcs {
-		if htlc.State != HtlcStateSettled {
+		if !htlc.State.PreimageReleased() {
 			continue
 		}
 

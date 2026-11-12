@@ -7101,7 +7101,8 @@ func (r *rpcServer) ListPayments(ctx context.Context,
 	return paymentsResp, nil
 }
 
-// DeleteCanceledInvoice remove a canceled invoice from the database.
+// DeleteCanceledInvoice removes a canceled invoice unless it carries ordinary
+// preimage-release history, which must survive even if collection failed.
 func (r *rpcServer) DeleteCanceledInvoice(ctx context.Context,
 	req *lnrpc.DelCanceledInvoiceReq) (*lnrpc.DelCanceledInvoiceResp,
 	error) {
@@ -7122,6 +7123,22 @@ func (r *rpcServer) DeleteCanceledInvoice(ctx context.Context,
 
 	if invoice.State != invoices.ContractCanceled {
 		return nil, invoices.ErrInvoiceNotCanceled
+	}
+
+	// Cancellation after release is a collection failure, not evidence the
+	// secret stayed private. Keep the record even when nothing was paid.
+	if !invoice.IsAMP() {
+		for _, htlc := range invoice.Htlcs {
+			if htlc.State == invoices.HtlcStateSettled ||
+				htlc.State == invoices.HtlcStateFailed {
+
+				return nil, status.Error(
+					codes.FailedPrecondition,
+					"cannot delete invoice after "+
+						"preimage release",
+				)
+			}
+		}
 	}
 
 	err = r.server.invoicesDB.DeleteInvoice(ctx,

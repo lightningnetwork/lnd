@@ -121,13 +121,15 @@ func resolveReplayedHtlc(ctx *invoiceUpdateCtx, inv *Invoice) (bool,
 	}
 
 	switch htlc.State {
-	case HtlcStateCanceled:
+	case HtlcStateCanceled, HtlcStateFailed:
 		return true, ctx.failRes(ResultReplayToCanceled), nil
 
 	case HtlcStateAccepted:
 		return true, ctx.acceptRes(resultReplayToAccepted), nil
 
-	case HtlcStateSettled:
+	// A replayed htlc whose settle isn't final yet must be settled again,
+	// otherwise we could withhold a preimage our peer already learned.
+	case HtlcStateSettled, HtlcStatePendingSettle:
 		var preimage *lntypes.Preimage
 		switch {
 		// AMP invoices store a separate preimage on each HTLC.
@@ -276,6 +278,12 @@ func updateMpp(ctx *invoiceUpdateCtx, inv *Invoice) (*InvoiceUpdateDesc,
 
 	htlcSet := inv.HTLCSet(setID, HtlcStateAccepted)
 
+	// AMP invoices remain open after a set settles. Reject fresh shards
+	// for that set before their update can fail the link carrying them.
+	if len(inv.HTLCSet(setID, HtlcStateSettled)) > 0 {
+		return nil, ctx.failRes(ResultInvoiceNotOpen), nil
+	}
+
 	// Check whether total amt matches other HTLCs in the set.
 	var newSetTotal lnwire.MilliSatoshi
 	for _, htlc := range htlcSet {
@@ -368,8 +376,14 @@ func updateMpp(ctx *invoiceUpdateCtx, inv *Invoice) (*InvoiceUpdateDesc,
 		htlcPreimage = *inv.Terms.PaymentPreimage
 	}
 
+	// Ordinary invoices wait for final outcomes. AMP keeps its existing
+	// release-time set settlement until its finality work is introduced.
+	newState := ContractPendingSettle
+	if ctx.amp != nil {
+		newState = ContractSettled
+	}
 	update.State = &InvoiceStateUpdateDesc{
-		NewState:      ContractSettled,
+		NewState:      newState,
 		Preimage:      inv.Terms.PaymentPreimage,
 		HTLCPreimages: htlcPreimages,
 		SetID:         setID,
@@ -555,7 +569,7 @@ func updateLegacy(ctx *invoiceUpdateCtx,
 	case ContractAccepted:
 		return &update, ctx.acceptRes(resultDuplicateToAccepted), nil
 
-	case ContractSettled:
+	case ContractSettled, ContractPendingSettle:
 		// Legacy settlement uses the invoice-level payment preimage.
 		preimage := inv.Terms.PaymentPreimage
 		if preimage == nil {
@@ -586,7 +600,7 @@ func updateLegacy(ctx *invoiceUpdateCtx,
 	}
 
 	update.State = &InvoiceStateUpdateDesc{
-		NewState: ContractSettled,
+		NewState: ContractPendingSettle,
 		Preimage: preimage,
 	}
 

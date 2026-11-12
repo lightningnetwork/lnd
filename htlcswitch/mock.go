@@ -36,6 +36,8 @@ import (
 	"github.com/lightningnetwork/lnd/lnwire"
 	"github.com/lightningnetwork/lnd/ticker"
 	"github.com/lightningnetwork/lnd/tlv"
+	testifymock "github.com/stretchr/testify/mock"
+	"github.com/stretchr/testify/require"
 )
 
 func isAlias(scid lnwire.ShortChannelID) bool {
@@ -1018,6 +1020,85 @@ type mockInvoiceRegistry struct {
 	settleChan chan lntypes.Hash
 
 	registry *invoices.InvoiceRegistry
+
+	// finalHtlcs delivers the final htlc outcomes reported by links to
+	// the registry, so that invoices settle once their htlcs are final.
+	finalHtlcs chan invoices.FinalHtlcOutcome
+}
+
+// mockFinalHtlcSource supplies arranged evidence while the registry fixture
+// owns live outcomes, without duplicating the final-outcome store.
+type mockFinalHtlcSource struct {
+	testifymock.Mock
+}
+
+// SubscribeFinalHtlcs returns the arranged live stream and cancellation
+// callback so the fixture controls the source lifetime explicitly.
+func (m *mockFinalHtlcSource) SubscribeFinalHtlcs() (
+	<-chan invoices.FinalHtlcOutcome, func(), error) {
+
+	args := m.Called()
+	outcomes, _ := args.Get(0).(<-chan invoices.FinalHtlcOutcome)
+	cancel, _ := args.Get(1).(func())
+
+	return outcomes, cancel, args.Error(2)
+}
+
+// LookupFinalHtlcs returns configured durable evidence; link tests normally
+// deliver results live, so nil represents an outcome not recorded yet.
+func (m *mockFinalHtlcSource) LookupFinalHtlcs(keys []invoices.CircuitKey) (
+	map[invoices.CircuitKey]invoices.FinalHtlcOutcome, error) {
+
+	args := m.Called(keys)
+	res, _ :=
+		args.Get(0).(map[invoices.CircuitKey]invoices.FinalHtlcOutcome)
+
+	return res, args.Error(1)
+}
+
+// InferFinalHtlcs returns only arranged channel evidence; these fixtures
+// normally exercise real final notifications instead of recovery inference.
+func (m *mockFinalHtlcSource) InferFinalHtlcs(keys []invoices.CircuitKey) (
+	map[invoices.CircuitKey]invoices.FinalHtlcOutcome, error) {
+
+	args := m.Called(keys)
+	res, _ :=
+		args.Get(0).(map[invoices.CircuitKey]invoices.FinalHtlcOutcome)
+
+	return res, args.Error(1)
+}
+
+var _ invoices.FinalHtlcSource = (*mockFinalHtlcSource)(nil)
+
+// finalHtlcNotifier wraps an htlc notifier and also delivers final htlc
+// outcomes to the registry.
+type finalHtlcNotifier struct {
+	htlcNotifier
+
+	outcomes chan invoices.FinalHtlcOutcome
+}
+
+// NotifyFinalHtlcEvent forwards the final outcome to the wrapped notifier and
+// the registry.
+func (f *finalHtlcNotifier) NotifyFinalHtlcEvent(key models.CircuitKey,
+	info channeldb.FinalHtlcInfo) {
+
+	f.htlcNotifier.NotifyFinalHtlcEvent(key, info)
+
+	f.outcomes <- invoices.FinalHtlcOutcome{
+		Key:      key,
+		Settled:  info.Settled,
+		Offchain: info.Offchain,
+	}
+}
+
+// htlcNotifier wraps the given notifier so that the registry learns about
+// the final outcome of htlcs.
+func (i *mockInvoiceRegistry) htlcNotifier(n htlcNotifier) htlcNotifier {
+	return &finalHtlcNotifier{
+		htlcNotifier: n,
+		outcomes:     i.finalHtlcs,
+	}
 }
 
 type mockChainNotifier struct {
@@ -1034,10 +1115,26 @@ func (m *mockChainNotifier) RegisterBlockEpochNtfn(*chainntnfs.BlockEpoch) (
 	}, nil
 }
 
+// newMockRegistry owns a real registry and an event bridge so link tests
+// learn final outcomes before their shared database is cleaned up.
 func newMockRegistry(t testing.TB) *mockInvoiceRegistry {
+	t.Helper()
+
 	cdb := channeldb.OpenForTesting(t, t.TempDir())
 
 	modifierMock := &invoices.MockHtlcModifier{}
+
+	// Buffer outcomes generously so that links never block on the
+	// registry.
+	finalHtlcs := make(chan invoices.FinalHtlcOutcome, 10_000)
+	source := &mockFinalHtlcSource{}
+	source.On("SubscribeFinalHtlcs").Return(
+		(<-chan invoices.FinalHtlcOutcome)(finalHtlcs), func() {}, nil,
+	).Once()
+	source.On("LookupFinalHtlcs", testifymock.Anything).
+		Return(nil, nil).Maybe()
+	source.On("InferFinalHtlcs", testifymock.Anything).
+		Return(nil, nil).Maybe()
 	registry := invoices.NewRegistry(
 		cdb,
 		invoices.NewInvoiceExpiryWatcher(
@@ -1047,12 +1144,20 @@ func newMockRegistry(t testing.TB) *mockInvoiceRegistry {
 		&invoices.RegistryConfig{
 			FinalCltvRejectDelta: 5,
 			HtlcInterceptor:      modifierMock,
+			FinalHtlcSource:      source,
 		},
 	)
-	registry.Start()
+	require.NoError(t, registry.Start())
+	t.Cleanup(func() {
+		// Stop consumers before this one expectation check and the
+		// earlier database cleanup closes their storage backend.
+		require.NoError(t, registry.Stop())
+		source.AssertExpectations(t)
+	})
 
 	return &mockInvoiceRegistry{
-		registry: registry,
+		registry:   registry,
+		finalHtlcs: finalHtlcs,
 	}
 }
 

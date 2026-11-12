@@ -625,3 +625,84 @@ func TestBip32DerivationFromAddress(t *testing.T) {
 		require.Equal(t, tc.expectedBip32Path, trD.Bip32Path)
 	}
 }
+
+// TestMaybeTweakPrivKeyPsbt asserts that the PSBT signing path derives the
+// same tweaked key as the direct signing path (maybeTweakPrivKey in
+// signer.go) for every tweak combination, regardless of the order in which
+// the tweak unknowns appear in the PSBT input. Second-level HTLC signing for
+// aux (taproot asset) channels attaches both the revocation (double) tweak
+// and the per-HTLC-index (single) tweak, and the remote signer receives them
+// via these unknowns.
+func TestMaybeTweakPrivKeyPsbt(t *testing.T) {
+	privKeyBytes, err := hex.DecodeString(
+		"e68abc8e2a7a5b9f0e4a3c7d8b9e6f5" +
+			"a4b3c2d1e0f9e8d7c6b5a4938271605",
+	)
+	require.NoError(t, err)
+	privKey, _ := btcec.PrivKeyFromBytes(privKeyBytes)
+
+	singleTweakBytes, err := hex.DecodeString(
+		"1234567890abcdef1234567890abcdef" +
+			"1234567890abcdef1234567890abcdef",
+	)
+	require.NoError(t, err)
+
+	doubleTweakBytes, err := hex.DecodeString(
+		"fedcba0987654321fedcba0987654321" +
+			"fedcba0987654321fedcba0987654321",
+	)
+	require.NoError(t, err)
+	doubleTweak, _ := btcec.PrivKeyFromBytes(doubleTweakBytes)
+
+	singleUnknown := &psbt.Unknown{
+		Key:   PsbtKeyTypeInputSignatureTweakSingle,
+		Value: singleTweakBytes,
+	}
+	doubleUnknown := &psbt.Unknown{
+		Key:   PsbtKeyTypeInputSignatureTweakDouble,
+		Value: doubleTweakBytes,
+	}
+
+	// The expected combined derivation: double (revocation) tweak first,
+	// then the single (HTLC index) tweak, matching maybeTweakPrivKey.
+	combined := input.TweakPrivKey(
+		input.DeriveRevocationPrivKey(privKey, doubleTweak),
+		singleTweakBytes,
+	)
+
+	testCases := []struct {
+		name     string
+		unknowns []*psbt.Unknown
+		expected *btcec.PrivateKey
+	}{{
+		name:     "no tweaks",
+		unknowns: nil,
+		expected: privKey,
+	}, {
+		name:     "single tweak only",
+		unknowns: []*psbt.Unknown{singleUnknown},
+		expected: input.TweakPrivKey(privKey, singleTweakBytes),
+	}, {
+		name:     "double tweak only",
+		unknowns: []*psbt.Unknown{doubleUnknown},
+		expected: input.DeriveRevocationPrivKey(privKey, doubleTweak),
+	}, {
+		name:     "both tweaks, single first",
+		unknowns: []*psbt.Unknown{singleUnknown, doubleUnknown},
+		expected: combined,
+	}, {
+		name:     "both tweaks, double first",
+		unknowns: []*psbt.Unknown{doubleUnknown, singleUnknown},
+		expected: combined,
+	}}
+
+	for _, tc := range testCases {
+		t.Run(tc.name, func(t *testing.T) {
+			result := maybeTweakPrivKeyPsbt(tc.unknowns, privKey)
+			require.Equal(
+				t, tc.expected.Serialize(),
+				result.Serialize(),
+			)
+		})
+	}
+}

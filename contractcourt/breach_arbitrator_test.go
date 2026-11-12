@@ -424,6 +424,15 @@ func (frs *failingRetributionStore) ForAll(cb func(*retributionInfo) error,
 	return frs.rs.ForAll(cb, reset)
 }
 
+func (frs *failingRetributionStore) RecordJusticeTxs(chanPoint *wire.OutPoint,
+	justiceTxs map[chainhash.Hash]*justiceTxCtx) error {
+
+	frs.mu.Lock()
+	defer frs.mu.Unlock()
+
+	return frs.rs.RecordJusticeTxs(chanPoint, justiceTxs)
+}
+
 // Parse the pubkeys in the breached outputs.
 func initBreachedOutputs() error {
 	for i := range breachedOutputs {
@@ -589,6 +598,27 @@ func (rs *mockRetributionStore) ForAll(cb func(*retributionInfo) error,
 		if err := cb(copyRetInfo(retInfo)); err != nil {
 			return err
 		}
+	}
+
+	return nil
+}
+
+func (rs *mockRetributionStore) RecordJusticeTxs(chanPoint *wire.OutPoint,
+	justiceTxs map[chainhash.Hash]*justiceTxCtx) error {
+
+	rs.mu.Lock()
+	defer rs.mu.Unlock()
+
+	retInfo, ok := rs.state[*chanPoint]
+	if !ok {
+		return errors.New("unknown retribution")
+	}
+
+	if retInfo.justiceTxs == nil {
+		retInfo.justiceTxs = make(map[chainhash.Hash]*justiceTxCtx)
+	}
+	for txid, jtx := range justiceTxs {
+		retInfo.justiceTxs[txid] = jtx
 	}
 
 	return nil
@@ -1587,6 +1617,7 @@ func testBreachSpends(t *testing.T, test breachTest) {
 		fn.Some[lnwallet.AuxContractResolver](
 			&lnwallet.MockAuxContractResolver{},
 		),
+		fn.None[lnwallet.AuxSigner](),
 	)
 	require.NoError(t, err, "unable to create breach retribution")
 
@@ -1802,6 +1833,7 @@ func TestBreachDelayedJusticeConfirmation(t *testing.T) {
 		fn.Some[lnwallet.AuxContractResolver](
 			&lnwallet.MockAuxContractResolver{},
 		),
+		fn.None[lnwallet.AuxSigner](),
 	)
 	require.NoError(t, err, "unable to create breach retribution")
 
@@ -2632,6 +2664,118 @@ func TestTaprootBriefcaseRoundTripFinalWitnessTypes(t *testing.T) {
 	)
 }
 
+// TestUpdateBreachInfoKeepsSecondLevelTweakOnCompaction verifies that an
+// HTLC output morphed to the second level keeps signing with its own tap
+// tweak after updateBreachInfo compacts the breached outputs slice. The sign
+// descriptor must not alias the array embedded in the breached output, as the
+// struct values shift once an earlier output is removed.
+func TestUpdateBreachInfoKeepsSecondLevelTweakOnCompaction(t *testing.T) {
+	t.Parallel()
+
+	revokeBasePriv, err := btcec.NewPrivateKey()
+	require.NoError(t, err)
+	commitSecret, err := btcec.NewPrivateKey()
+	require.NoError(t, err)
+
+	taprootPkScript, err := input.PayToTaprootScript(
+		revokeBasePriv.PubKey(),
+	)
+	require.NoError(t, err)
+
+	newHtlcOutput := func(index uint32) breachedOutput {
+		var tweak [32]byte
+		_, err := crand.Read(tweak[:])
+		require.NoError(t, err)
+
+		return breachedOutput{
+			amt:         1000,
+			outpoint:    wire.OutPoint{Index: index},
+			witnessType: input.TaprootHtlcAcceptedRevoke,
+			signDesc: input.SignDescriptor{
+				KeyDesc: keychain.KeyDescriptor{
+					PubKey: revokeBasePriv.PubKey(),
+				},
+				DoubleTweak: commitSecret,
+				Output: &wire.TxOut{
+					Value:    1000,
+					PkScript: taprootPkScript,
+				},
+			},
+			secondLevelTapTweak: tweak,
+		}
+	}
+
+	breachInfo := &retributionInfo{
+		breachedOutputs: []breachedOutput{
+			{
+				amt:         5000,
+				outpoint:    wire.OutPoint{Index: 0},
+				witnessType: input.TaprootCommitmentRevoke,
+				signDesc: input.SignDescriptor{
+					Output: &wire.TxOut{
+						PkScript: taprootPkScript,
+					},
+				},
+			},
+			newHtlcOutput(1),
+			newHtlcOutput(2),
+		},
+	}
+
+	// The remote party takes both HTLC outputs to the second level. A
+	// script path spend carries more than one witness element, so it is
+	// not our own revocation spend and the outputs are morphed.
+	secondLevelSpend := func(index int) spend {
+		return spend{
+			index: index,
+			detail: &chainntnfs.SpendDetail{
+				SpendingTx: &wire.MsgTx{
+					TxIn: []*wire.TxIn{{
+						Witness: wire.TxWitness{
+							{1}, {2}, {3},
+						},
+					}},
+					TxOut: []*wire.TxOut{{
+						Value:    900,
+						PkScript: taprootPkScript,
+					}},
+				},
+				SpenderInputIndex: 0,
+			},
+		}
+	}
+	updateBreachInfo(
+		breachInfo, []spend{secondLevelSpend(1), secondLevelSpend(2)},
+		fn.None[lnwallet.AuxContractResolver](),
+	)
+	require.Len(t, breachInfo.breachedOutputs, 3)
+
+	// Our justice tx then sweeps the commitment output, which is removed
+	// from the breached outputs and shifts the morphed outputs down by one
+	// slot.
+	updateBreachInfo(breachInfo, []spend{{
+		index: 0,
+		detail: &chainntnfs.SpendDetail{
+			SpendingTx: &wire.MsgTx{
+				TxIn: []*wire.TxIn{{
+					Witness: wire.TxWitness{{1}},
+				}},
+			},
+			SpenderInputIndex: 0,
+		},
+	}}, fn.None[lnwallet.AuxContractResolver]())
+	require.Len(t, breachInfo.breachedOutputs, 2)
+
+	for _, bo := range breachInfo.breachedOutputs {
+		require.Equal(
+			t, input.TaprootHtlcSecondLevelRevoke, bo.witnessType,
+		)
+		require.Equal(
+			t, bo.secondLevelTapTweak[:], bo.signDesc.TapTweak,
+		)
+	}
+}
+
 // TestUpdateBreachInfoCountsFinalTaprootRevokedFunds verifies that final
 // taproot revoked commitment outputs are included in the revoked-funds tally.
 func TestUpdateBreachInfoCountsFinalTaprootRevokedFunds(t *testing.T) {
@@ -2657,7 +2801,7 @@ func TestUpdateBreachInfoCountsFinalTaprootRevokedFunds(t *testing.T) {
 			SpendingTx:        &wire.MsgTx{TxIn: []*wire.TxIn{{}}},
 			SpenderInputIndex: 0,
 		},
-	}})
+	}}, fn.None[lnwallet.AuxContractResolver]())
 
 	// Assert: The amount contributes to both the total and revoked-funds
 	// tallies and is removed from the remaining breach set.

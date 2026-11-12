@@ -1561,6 +1561,7 @@ func TestHTLCDustLimit(t *testing.T) {
 		chainfee.SatPerKWeight(
 			aliceChannel.channelState.LocalCommitment.FeePerKw,
 		),
+		false,
 	))
 	htlcAmount := lnwire.NewMSatFromSatoshis(htlcSat)
 
@@ -1655,10 +1656,10 @@ func TestHTLCSigNumber(t *testing.T) {
 	require.NoError(t, err, "unable to get fee")
 
 	belowDust := btcutil.Amount(500) + HtlcTimeoutFee(
-		channeldb.SingleFunderTweaklessBit, feePerKw,
+		channeldb.SingleFunderTweaklessBit, feePerKw, false,
 	)
 	aboveDust := btcutil.Amount(1400) + HtlcSuccessFee(
-		channeldb.SingleFunderTweaklessBit, feePerKw,
+		channeldb.SingleFunderTweaklessBit, feePerKw, false,
 	)
 
 	// ===================================================================
@@ -1806,6 +1807,7 @@ func TestChannelBalanceDustLimit(t *testing.T) {
 		chainfee.SatPerKWeight(
 			aliceChannel.channelState.LocalCommitment.FeePerKw,
 		),
+		false,
 	)
 
 	htlcAmount := lnwire.NewMSatFromSatoshis(htlcSat)
@@ -5803,11 +5805,12 @@ func TestChanAvailableBalanceNearHtlcFee(t *testing.T) {
 	commitFee := lnwire.NewMSatFromSatoshis(
 		aliceChannel.channelState.LocalCommitment.CommitFee,
 	)
+	chanType := aliceChannel.channelState.ChanType
 	htlcTimeoutFee := lnwire.NewMSatFromSatoshis(
-		HtlcTimeoutFee(aliceChannel.channelState.ChanType, feeRate),
+		HtlcTimeoutFee(chanType, feeRate, false),
 	)
 	htlcSuccessFee := lnwire.NewMSatFromSatoshis(
-		HtlcSuccessFee(aliceChannel.channelState.ChanType, feeRate),
+		HtlcSuccessFee(chanType, feeRate, false),
 	)
 
 	// Helper method to check the current reported balance.
@@ -5974,11 +5977,12 @@ func TestChanCommitWeightDustHtlcs(t *testing.T) {
 	feeRate := chainfee.SatPerKWeight(
 		aliceChannel.channelState.LocalCommitment.FeePerKw,
 	)
+	chanType := aliceChannel.channelState.ChanType
 	htlcTimeoutFee := lnwire.NewMSatFromSatoshis(
-		HtlcTimeoutFee(aliceChannel.channelState.ChanType, feeRate),
+		HtlcTimeoutFee(chanType, feeRate, false),
 	)
 	htlcSuccessFee := lnwire.NewMSatFromSatoshis(
-		HtlcSuccessFee(aliceChannel.channelState.ChanType, feeRate),
+		HtlcSuccessFee(chanType, feeRate, false),
 	)
 
 	// Helper method to add an HTLC from Alice to Bob.
@@ -6734,6 +6738,7 @@ func TestChannelUnilateralCloseHtlcResolution(t *testing.T) {
 		aliceChannel.channelState.RemoteCurrentRevocation,
 		fn.Some[AuxLeafStore](&MockAuxLeafStore{}),
 		fn.Some[AuxContractResolver](&MockAuxContractResolver{}),
+		fn.None[AuxSigner](),
 	)
 	require.NoError(t, err, "unable to create alice close summary")
 
@@ -6880,6 +6885,7 @@ func TestChannelUnilateralClosePendingCommit(t *testing.T) {
 		aliceChannel.channelState.RemoteCurrentRevocation,
 		fn.Some[AuxLeafStore](&MockAuxLeafStore{}),
 		fn.Some[AuxContractResolver](&MockAuxContractResolver{}),
+		fn.None[AuxSigner](),
 	)
 	require.NoError(t, err, "unable to create alice close summary")
 
@@ -6901,6 +6907,7 @@ func TestChannelUnilateralClosePendingCommit(t *testing.T) {
 		&bobNextPoint,
 		fn.Some[AuxLeafStore](&MockAuxLeafStore{}),
 		fn.Some[AuxContractResolver](&MockAuxContractResolver{}),
+		fn.None[AuxSigner](),
 	)
 	require.NoError(t, err, "unable to create alice close summary")
 
@@ -7548,6 +7555,7 @@ func TestChanReserveLocalInitiatorDustHtlc(t *testing.T) {
 		chainfee.SatPerKWeight(
 			aliceChannel.channelState.LocalCommitment.FeePerKw,
 		),
+		false,
 	)
 
 	// Set Alice's channel reserve to be low enough to carry the value of
@@ -7727,6 +7735,7 @@ func TestNewBreachRetributionSkipsDustHtlcs(t *testing.T) {
 		aliceChannel.channelState, revokedStateNum, 100, breachTx,
 		fn.Some[AuxLeafStore](&MockAuxLeafStore{}),
 		fn.Some[AuxContractResolver](&MockAuxContractResolver{}),
+		fn.None[AuxSigner](),
 	)
 	require.NoError(t, err, "unable to create breach retribution")
 
@@ -10448,6 +10457,7 @@ func TestCreateHtlcRetribution(t *testing.T) {
 	hr, err := createHtlcRetribution(
 		aliceChannel.channelState, keyRing, commitHash,
 		dummyPrivate, leaseExpiry, htlc, fn.None[CommitAuxLeaves](),
+		nil, fn.None[AuxContractResolver](), nil, 0,
 	)
 	// Expect no error.
 	require.NoError(t, err)
@@ -10653,6 +10663,7 @@ func TestCreateBreachRetribution(t *testing.T) {
 				aliceChannel.channelState, keyRing,
 				dummyPrivate, leaseExpiry,
 				fn.None[CommitAuxLeaves](),
+				fn.None[AuxContractResolver](), 0,
 			)
 
 			// Check the error if expected.
@@ -10711,6 +10722,7 @@ func TestCreateBreachRetributionLegacy(t *testing.T) {
 	br, ourAmt, theirAmt, err := createBreachRetributionLegacy(
 		&revokedLog, aliceChannel.channelState, keyRing,
 		dummyPrivate, ourScript, theirScript, leaseExpiry,
+		fn.None[AuxContractResolver](), fn.None[AuxSigner](), 0,
 	)
 	require.NoError(t, err)
 
@@ -10805,7 +10817,8 @@ func TestCreateBreachRetributionLegacyDustHtlcs(t *testing.T) {
 	// Create the breach retribution using the legacy format.
 	br, _, _, err := createBreachRetributionLegacy(
 		&revokedLog, chanState, keyRing, dummyPrivate, ourScript,
-		theirScript, leaseExpiry,
+		theirScript, leaseExpiry, fn.None[AuxContractResolver](),
+		fn.None[AuxSigner](), 0,
 	)
 	require.NoError(t, err)
 
@@ -10852,6 +10865,7 @@ func testNewBreachRetribution(t *testing.T, chanType channeldb.ChannelType) {
 		aliceChannel.channelState, stateNum, breachHeight, breachTx,
 		fn.Some[AuxLeafStore](&MockAuxLeafStore{}),
 		fn.Some[AuxContractResolver](&MockAuxContractResolver{}),
+		fn.None[AuxSigner](),
 	)
 	require.ErrorIs(t, err, channeldb.ErrNoPastDeltas)
 
@@ -10861,6 +10875,7 @@ func testNewBreachRetribution(t *testing.T, chanType channeldb.ChannelType) {
 		aliceChannel.channelState, stateNum, breachHeight, nil,
 		fn.Some[AuxLeafStore](&MockAuxLeafStore{}),
 		fn.Some[AuxContractResolver](&MockAuxContractResolver{}),
+		fn.None[AuxSigner](),
 	)
 	require.ErrorIs(t, err, channeldb.ErrNoPastDeltas)
 
@@ -10908,6 +10923,7 @@ func testNewBreachRetribution(t *testing.T, chanType channeldb.ChannelType) {
 		aliceChannel.channelState, stateNum, breachHeight, breachTx,
 		fn.Some[AuxLeafStore](&MockAuxLeafStore{}),
 		fn.Some[AuxContractResolver](&MockAuxContractResolver{}),
+		fn.None[AuxSigner](),
 	)
 	require.NoError(t, err)
 
@@ -10921,6 +10937,7 @@ func testNewBreachRetribution(t *testing.T, chanType channeldb.ChannelType) {
 		aliceChannel.channelState, stateNum, breachHeight, nil,
 		fn.Some[AuxLeafStore](&MockAuxLeafStore{}),
 		fn.Some[AuxContractResolver](&MockAuxContractResolver{}),
+		fn.None[AuxSigner](),
 	)
 	require.NoError(t, err)
 	assertRetribution(br, 1, 0)
@@ -10931,6 +10948,7 @@ func testNewBreachRetribution(t *testing.T, chanType channeldb.ChannelType) {
 		aliceChannel.channelState, stateNum+1, breachHeight, breachTx,
 		fn.Some[AuxLeafStore](&MockAuxLeafStore{}),
 		fn.Some[AuxContractResolver](&MockAuxContractResolver{}),
+		fn.None[AuxSigner](),
 	)
 	require.ErrorIs(t, err, channeldb.ErrLogEntryNotFound)
 
@@ -10940,6 +10958,7 @@ func testNewBreachRetribution(t *testing.T, chanType channeldb.ChannelType) {
 		aliceChannel.channelState, stateNum+1, breachHeight, nil,
 		fn.Some[AuxLeafStore](&MockAuxLeafStore{}),
 		fn.Some[AuxContractResolver](&MockAuxContractResolver{}),
+		fn.None[AuxSigner](),
 	)
 	require.ErrorIs(t, err, channeldb.ErrLogEntryNotFound)
 }
@@ -10978,7 +10997,7 @@ func TestExtractPayDescs(t *testing.T) {
 	// scripts(`genHtlcScript`) as it should be tested independently.
 	incomingPDs, outgoingPDs, err := lnChan.extractPayDescs(
 		0, htlcs, lntypes.Dual[*CommitmentKeyRing]{}, lntypes.Local,
-		fn.None[CommitAuxLeaves](),
+		fn.None[CommitAuxLeaves](), false,
 	)
 	require.NoError(t, err)
 
@@ -11234,7 +11253,9 @@ func TestAsynchronousSendingContraint(t *testing.T) {
 
 	// |<----add-------
 	// make sure this htlc is non-dust for alice.
-	htlcFee := HtlcSuccessFee(channeldb.SingleFunderTweaklessBit, feePerKw)
+	htlcFee := HtlcSuccessFee(
+		channeldb.SingleFunderTweaklessBit, feePerKw, false,
+	)
 	// We need to take the remote dustlimit amount, because it the greater
 	// one.
 	htlcAmt2 := lnwire.NewMSatFromSatoshis(
@@ -11368,7 +11389,9 @@ func TestAsynchronousSendingWithFeeBuffer(t *testing.T) {
 	// commitment as well.
 	// |<----add-------
 	// make sure this htlc is non-dust for alice.
-	htlcFee := HtlcSuccessFee(channeldb.SingleFunderTweaklessBit, feePerKw)
+	htlcFee := HtlcSuccessFee(
+		channeldb.SingleFunderTweaklessBit, feePerKw, false,
+	)
 	htlcAmt2 := lnwire.NewMSatFromSatoshis(
 		aliceChannel.channelState.LocalChanCfg.DustLimit + htlcFee,
 	)
@@ -11452,7 +11475,9 @@ func TestAsynchronousSendingWithFeeBuffer(t *testing.T) {
 	//	---------------	|-----sig------>
 	//	<----rev-------	|---------------
 	// Update the non-dust amount because we updated the fee by 100%.
-	htlcFee = HtlcSuccessFee(channeldb.SingleFunderTweaklessBit, feePerKw*2)
+	htlcFee = HtlcSuccessFee(
+		channeldb.SingleFunderTweaklessBit, feePerKw*2, false,
+	)
 	htlcAmt3 := lnwire.NewMSatFromSatoshis(
 		aliceChannel.channelState.LocalChanCfg.DustLimit + htlcFee,
 	)
@@ -12705,4 +12730,662 @@ func TestAuxSigRejectionFailsCommitment(t *testing.T) {
 	err = bobChannel.ReceiveNewCommitment(aliceNewCommit.CommitSigs)
 	require.ErrorContains(t, err, "unable to validate aux sigs")
 	require.ErrorContains(t, err, "second level sig verification failed")
+}
+
+// TestHtlcFeesSigHashDefault verifies that HtlcTimeoutFee and
+// HtlcSuccessFee return non-zero baked-in fees for taproot channels
+// with sigHashDefault=true, using the fixed sigHashDefaultFeeRate.
+func TestHtlcFeesSigHashDefault(t *testing.T) {
+	t.Parallel()
+
+	taprootChanType := channeldb.SimpleTaprootFeatureBit |
+		channeldb.AnchorOutputsBit |
+		channeldb.ZeroHtlcTxFeeBit |
+		channeldb.SingleFunderTweaklessBit
+
+	// With sigHashDefault=false, taproot channels have zero
+	// second-level fees (zero-fee HTLC path).
+	timeoutFeeOff := HtlcTimeoutFee(taprootChanType, 0, false)
+	successFeeOff := HtlcSuccessFee(taprootChanType, 0, false)
+	require.Zero(t, timeoutFeeOff,
+		"taproot timeout fee should be zero without sigHashDefault")
+	require.Zero(t, successFeeOff,
+		"taproot success fee should be zero without sigHashDefault")
+
+	// With sigHashDefault=true these functions return the fee baked into
+	// the pre-signed second-level tx: 1.1x the relay floor over the
+	// anchor-inclusive weight. See TestSecondLevelFeeBudget for why it is
+	// pinned to the floor rather than the commitment fee rate.
+	feeRate := chainfee.SatPerKWeight(2500)
+	timeoutFeeOn := HtlcTimeoutFee(taprootChanType, feeRate, true)
+	successFeeOn := HtlcSuccessFee(taprootChanType, feeRate, true)
+	require.NotZero(t, timeoutFeeOn,
+		"taproot timeout fee should be non-zero with sigHashDefault")
+	require.NotZero(t, successFeeOn,
+		"taproot success fee should be non-zero with sigHashDefault")
+
+	floorRate := chainfee.FeePerKwFloor * 11 / 10
+	expectedTimeout := floorRate.FeeForWeight(
+		SecondLevelTimeoutWeight(),
+	)
+	expectedSuccess := floorRate.FeeForWeight(
+		SecondLevelSuccessWeight(),
+	)
+	require.Equal(t, expectedTimeout, timeoutFeeOn)
+	require.Equal(t, expectedSuccess, successFeeOn)
+
+	// On the on-chain budget aux channels put on an HTLC, the fee and the
+	// anchor must leave a second-level output above the taproot dust
+	// limit, with headroom to pay for the sweep that later claims it.
+	// See TestSecondLevelOutputFundsSweep for that sweep.
+	auxHtlcSat := btcutil.Amount(1200)
+	dustLimit := DustLimitForSize(input.P2TRSize)
+	require.Greater(t, auxHtlcSat-timeoutFeeOn-AnchorSize, dustLimit)
+	require.Greater(t, auxHtlcSat-successFeeOn-AnchorSize, dustLimit)
+
+	// The minimum is a property of the relay floor, so it does not move
+	// with the negotiated commitment fee rate.
+	highFeeRate := chainfee.SatPerKWeight(50_000)
+	timeoutFeeHigh := HtlcTimeoutFee(
+		taprootChanType, highFeeRate, true,
+	)
+	successFeeHigh := HtlcSuccessFee(
+		taprootChanType, highFeeRate, true,
+	)
+	require.Equal(t, timeoutFeeOn, timeoutFeeHigh,
+		"min second-level fee must not depend on the commit fee rate")
+	require.Equal(t, successFeeOn, successFeeHigh,
+		"min second-level fee must not depend on the commit fee rate")
+
+	// Non-taproot channel types should not be affected by
+	// sigHashDefault flag.
+	anchorChanType := channeldb.AnchorOutputsBit |
+		channeldb.ZeroHtlcTxFeeBit |
+		channeldb.SingleFunderTweaklessBit
+	anchorTimeoutFee := HtlcTimeoutFee(
+		anchorChanType, highFeeRate, true,
+	)
+	require.Zero(t, anchorTimeoutFee,
+		"non-taproot zero-fee channel should still have zero fee")
+}
+
+// TestHtlcIsDustSigHashDefault exercises the deterministic-HTLC dust boundary
+// of HtlcIsDust: under sigHashDefault the on-chain HTLC output value is the
+// HTLC amount minus both the baked-in second-level fee and the AnchorSize of
+// the embedded CPFP anchor, so the dust threshold sits at
+// dustLimit + fee + AnchorSize. Every incoming/outgoing x local/remote
+// combination is tested one satoshi below the threshold, at exact equality,
+// and one satoshi above.
+func TestHtlcIsDustSigHashDefault(t *testing.T) {
+	t.Parallel()
+
+	customChanType := channeldb.SimpleTaprootFeatureBit |
+		channeldb.AnchorOutputsBit |
+		channeldb.ZeroHtlcTxFeeBit |
+		channeldb.SingleFunderTweaklessBit |
+		channeldb.TapscriptRootBit
+
+	const (
+		feePerKw  = chainfee.SatPerKWeight(2500)
+		dustLimit = btcutil.Amount(354)
+	)
+
+	timeoutFee := HtlcTimeoutFee(customChanType, feePerKw, true)
+	successFee := HtlcSuccessFee(customChanType, feePerKw, true)
+
+	testCases := []struct {
+		name        string
+		incoming    bool
+		whoseCommit lntypes.ChannelParty
+		fee         btcutil.Amount
+	}{{
+		// Incoming HTLC on our commitment sweeps via the success tx.
+		name:        "incoming local",
+		incoming:    true,
+		whoseCommit: lntypes.Local,
+		fee:         successFee,
+	}, {
+		// Incoming HTLC on their commitment: they added it, so the
+		// second level is a timeout tx.
+		name:        "incoming remote",
+		incoming:    true,
+		whoseCommit: lntypes.Remote,
+		fee:         timeoutFee,
+	}, {
+		// Outgoing HTLC on our commitment times out via the timeout
+		// tx.
+		name:        "outgoing local",
+		incoming:    false,
+		whoseCommit: lntypes.Local,
+		fee:         timeoutFee,
+	}, {
+		// Outgoing HTLC on their commitment: they receive it, so the
+		// second level is a success tx.
+		name:        "outgoing remote",
+		incoming:    false,
+		whoseCommit: lntypes.Remote,
+		fee:         successFee,
+	}}
+
+	for _, tc := range testCases {
+		t.Run(tc.name, func(t *testing.T) {
+			threshold := dustLimit + tc.fee + AnchorSize
+
+			// One satoshi below the threshold the output value
+			// lands below the dust limit.
+			require.True(t, HtlcIsDust(
+				customChanType, tc.incoming, tc.whoseCommit,
+				feePerKw, threshold-1, dustLimit, true,
+			), "amount below threshold must be dust")
+
+			// At exact equality the output value equals the dust
+			// limit, which is spendable (strict less-than).
+			require.False(t, HtlcIsDust(
+				customChanType, tc.incoming, tc.whoseCommit,
+				feePerKw, threshold, dustLimit, true,
+			), "amount at threshold must not be dust")
+
+			// And one above is comfortably non-dust.
+			require.False(t, HtlcIsDust(
+				customChanType, tc.incoming, tc.whoseCommit,
+				feePerKw, threshold+1, dustLimit, true,
+			), "amount above threshold must not be dust")
+		})
+	}
+}
+
+// TestSecondLevelOutputFundsSweep builds the pre-signed second-level timeout
+// tx of an aux-channel HTLC with the fee actually baked in, and checks that
+// the output it leaves can pay for the sweep that claims it at the relay
+// floor, which is what the fee policy has to guarantee: the whole on-chain
+// BTC value of such an HTLC is a small fixed budget that pays the baked-in
+// fee, funds the CPFP anchor and must still leave an output that is non-dust
+// and able to fund its own sweep.
+//
+// It then shows why the fee is pinned to the relay floor instead of following
+// the negotiated commitment fee rate: at a realistic rate the fee alone
+// exceeds the whole budget, and a fee capped at what keeps the output above
+// dust leaves an output that can no longer afford its sweep.
+func TestSecondLevelOutputFundsSweep(t *testing.T) {
+	t.Parallel()
+
+	customChanType := channeldb.SimpleTaprootFeatureBit |
+		channeldb.AnchorOutputsBit |
+		channeldb.ZeroHtlcTxFeeBit |
+		channeldb.SingleFunderTweaklessBit |
+		channeldb.TapscriptRootBit
+
+	// auxHtlcSat is the on-chain BTC value aux channels put on an HTLC
+	// (taproot-assets' DefaultOnChainHtlcSat).
+	const auxHtlcSat = btcutil.Amount(1200)
+	dustLimit := DustLimitForSize(input.P2TRSize)
+
+	revPriv, err := btcec.NewPrivateKey()
+	require.NoError(t, err)
+	delayPriv, err := btcec.NewPrivateKey()
+	require.NoError(t, err)
+
+	// buildTimeoutTx builds the pre-signed timeout tx of the HTLC with
+	// the given fee baked in, the way the channel state machine does.
+	buildTimeoutTx := func(fee btcutil.Amount) *wire.MsgTx {
+		tx, err := CreateHtlcTimeoutTx(
+			customChanType, false, wire.OutPoint{Index: 1},
+			auxHtlcSat-fee, 100, 5, 0, revPriv.PubKey(),
+			delayPriv.PubKey(), input.NoneTapLeaf(), true,
+		)
+		require.NoError(t, err)
+
+		return tx
+	}
+
+	// The sweep of the second-level output is a single-input,
+	// single-output tx. At the relay floor it costs this much.
+	var sweepWeight input.TxWeightEstimator
+	sweepWeight.AddWitnessInput(input.TaprootSecondLevelHtlcWitnessSize)
+	sweepWeight.AddP2TROutput()
+	sweepFee := chainfee.FeePerKwFloor.FeeForWeight(sweepWeight.Weight())
+
+	// The fee market well above the relay floor, as any channel that
+	// negotiated a realistic commitment fee rate sees it.
+	busyRate := chainfee.SatPerKWeight(12_500)
+
+	// With the fee actually baked in, the HTLC output of the tx is above
+	// dust and the sweep that claims it at the relay floor still leaves
+	// an output above dust, so the value it carries can be claimed.
+	bakedFee := HtlcTimeoutFee(customChanType, busyRate, true)
+	tx := buildTimeoutTx(bakedFee)
+	require.Len(t, tx.TxOut, 2)
+	require.EqualValues(t, AnchorSize, tx.TxOut[1].Value)
+	require.Equal(t, auxHtlcSat-bakedFee-AnchorSize,
+		btcutil.Amount(tx.TxOut[0].Value))
+
+	secondLevelOut := btcutil.Amount(tx.TxOut[0].Value)
+	require.Greater(t, secondLevelOut, dustLimit)
+	require.Greater(t, secondLevelOut-sweepFee, dustLimit,
+		"the second-level output must fund its own sweep")
+
+	// Deriving the fee from the commitment fee rate instead is not an
+	// option: at a realistic rate the fee alone exceeds the HTLC's whole
+	// budget, so no tx could be built at all.
+	commitRateFee := busyRate.FeeForWeight(SecondLevelTimeoutWeight())
+	require.Greater(t, commitRateFee, auxHtlcSat,
+		"commit-rate fee would exceed the HTLC's whole BTC budget")
+
+	// Capping such a fee at what keeps the output at the dust limit does
+	// not help either: the tx can be built, but its output cannot pay
+	// for the sweep that claims it, so the value is stranded.
+	cappedFee := auxHtlcSat - AnchorSize - dustLimit
+	require.Less(t, cappedFee, commitRateFee,
+		"the cap would bind at a realistic commitment fee rate")
+	cappedTx := buildTimeoutTx(cappedFee)
+	cappedOut := btcutil.Amount(cappedTx.TxOut[0].Value)
+	require.Equal(t, dustLimit, cappedOut)
+	require.Less(t, cappedOut-sweepFee, dustLimit,
+		"an output at the dust limit cannot pay for its own sweep")
+}
+
+// sigHashDefaultBlob is the commitment blob the liveAuxSigner test double
+// treats as recording SigHashDefault. Any other blob records the default
+// sighash of the channel type.
+var sigHashDefaultBlob = tlv.Blob("sighash-default")
+
+// liveAuxSigner is an AuxSigner test double that answers HtlcSigHashType the
+// way a real aux signer does: a request that carries a channel ID is a
+// question about future state and is answered from the live feature
+// negotiation when that is known, any other request is answered from the
+// flag recorded in the given commitment blob.
+type liveAuxSigner struct {
+	*MockAuxSigner
+
+	// live is the negotiated answer. None means the peer has not
+	// (re)established the channel yet, so nothing is known.
+	live fn.Option[txscript.SigHashType]
+}
+
+// HtlcSigHashType answers from live negotiation for future state, and from
+// the commitment blob otherwise.
+func (l *liveAuxSigner) HtlcSigHashType(
+	req HtlcSigHashReq) fn.Option[txscript.SigHashType] {
+
+	if req.ChanID.IsSome() && l.live.IsSome() {
+		return l.live
+	}
+
+	blob := req.CommitBlob.UnwrapOr(nil)
+	if bytes.Equal(blob, sigHashDefaultBlob) {
+		return fn.Some(txscript.SigHashDefault)
+	}
+
+	return fn.None[txscript.SigHashType]()
+}
+
+// newLiveAuxSignerChannel creates a custom (tapscript root) channel instance
+// driven by a liveAuxSigner.
+func newLiveAuxSignerChannel(t *testing.T) (*LightningChannel,
+	*liveAuxSigner) {
+
+	t.Helper()
+
+	chanType := channeldb.SimpleTaprootFeatureBit |
+		channeldb.AnchorOutputsBit |
+		channeldb.ZeroHtlcTxFeeBit |
+		channeldb.SingleFunderTweaklessBit |
+		channeldb.TapscriptRootBit
+
+	aliceChannel, _, err := CreateTestChannels(t, chanType)
+	require.NoError(t, err)
+
+	signer := &liveAuxSigner{
+		MockAuxSigner: NewDefaultAuxSignerMock(t),
+	}
+	sigPool := NewSigPool(1, aliceChannel.Signer)
+	channel, err := NewLightningChannel(
+		aliceChannel.Signer, aliceChannel.channelState, sigPool,
+		WithLeafStore(&MockAuxLeafStore{}),
+		WithAuxSigner(signer),
+	)
+	require.NoError(t, err)
+
+	return channel, signer
+}
+
+// TestHtlcSigHashTypeFutureVsExisting asserts the rule the HTLC sighash type
+// is resolved by. Decisions about future commitments follow the aux signer's
+// live feature negotiation, which is picked up by RefreshHtlcSigHashType
+// once the channel is re-established. Decisions about a commitment that
+// already exists follow the flag recorded in that commitment's own blob and
+// never the live negotiation. A channel opened before both peers upgraded
+// therefore switches cleanly: its old commitments stay what they were built
+// as, and only the new ones use SigHashDefault.
+func TestHtlcSigHashTypeFutureVsExisting(t *testing.T) {
+	t.Parallel()
+
+	channel, signer := newLiveAuxSignerChannel(t)
+	chanType := channel.channelState.ChanType
+	legacySigHash := HtlcSigHashType(chanType)
+	noBlob := fn.None[tlv.Blob]()
+	defaultBlob := fn.Some(sigHashDefaultBlob)
+
+	// At construction the peer has not re-established the channel, so the
+	// aux signer answered from the latest local commitment, which
+	// predates the upgrade.
+	require.False(t, channel.IsChanSigHashDefault())
+	require.Equal(t, legacySigHash, channel.nextHtlcSigHashType())
+
+	// The peer re-establishes and the feature is now negotiated. Nothing
+	// changes until the channel is told to pick the live answer up.
+	signer.live = fn.Some(txscript.SigHashDefault)
+	require.False(t, channel.IsChanSigHashDefault())
+
+	channel.RefreshHtlcSigHashType()
+	require.True(t, channel.IsChanSigHashDefault())
+	require.Equal(
+		t, txscript.SigHashDefault, channel.nextHtlcSigHashType(),
+	)
+
+	// Existing commitments are untouched by the switch: one that was
+	// built before it still reports the legacy sighash, one built after
+	// reports SigHashDefault.
+	require.Equal(t, legacySigHash, channel.commitSigHashType(noBlob))
+	require.False(t, channel.commitSigHashDefault(noBlob))
+	require.True(t, channel.commitSigHashDefault(defaultBlob))
+
+	// The reverse holds as well. If the live negotiation is unknown again
+	// (a restart, before the peer reconnects) while the latest local
+	// commitment still predates the switch, new commitments fall back to
+	// that commitment's flag, and a commitment recorded as SigHashDefault
+	// keeps reporting SigHashDefault.
+	signer.live = fn.None[txscript.SigHashType]()
+	channel.RefreshHtlcSigHashType()
+	require.False(t, channel.IsChanSigHashDefault())
+	require.True(t, channel.commitSigHashDefault(defaultBlob))
+}
+
+// TestRestoredCommitmentUsesRecordedSigHash asserts that the HTLCs of a
+// commitment restored from disk are classified with the sighash recorded for
+// that commitment, not with the one new commitments use. An HTLC whose value
+// sits between the two dust thresholds has an output on a commitment built
+// with the legacy sighash and none on one built with SigHashDefault.
+func TestRestoredCommitmentUsesRecordedSigHash(t *testing.T) {
+	t.Parallel()
+
+	channel, signer := newLiveAuxSignerChannel(t)
+	state := channel.channelState
+	chanType := state.ChanType
+	feePerKw := chainfee.SatPerKWeight(state.LocalCommitment.FeePerKw)
+	dustLimit := state.LocalChanCfg.DustLimit
+
+	// Pick an incoming HTLC that is dust only under SigHashDefault.
+	htlcAmt := dustLimit + 100
+	require.False(t, HtlcIsDust(
+		chanType, true, lntypes.Local, feePerKw, htlcAmt, dustLimit,
+		false,
+	))
+	require.True(t, HtlcIsDust(
+		chanType, true, lntypes.Local, feePerKw, htlcAmt, dustLimit,
+		true,
+	))
+
+	localPoint := state.LocalChanCfg.RevocationBasePoint.PubKey
+	remotePoint := state.RemoteCurrentRevocation
+
+	restore := func(blob fn.Option[tlv.Blob]) *commitment {
+		diskCommit := state.LocalCommitment
+		diskCommit.CustomBlob = blob
+		diskCommit.Htlcs = []channeldb.HTLC{{
+			Amt:       lnwire.NewMSatFromSatoshis(htlcAmt),
+			Incoming:  true,
+			HtlcIndex: 0,
+			RHash:     [32]byte{1},
+		}}
+
+		commit, err := channel.diskCommitToMemCommit(
+			lntypes.Local, &diskCommit, localPoint, remotePoint,
+		)
+		require.NoError(t, err)
+		require.Len(t, commit.incomingHTLCs, 1)
+
+		return commit
+	}
+
+	// New commitments use SigHashDefault by now.
+	signer.live = fn.Some(txscript.SigHashDefault)
+	channel.RefreshHtlcSigHashType()
+	require.True(t, channel.IsChanSigHashDefault())
+
+	// A commitment recorded with the legacy sighash still has the HTLC
+	// output, so its script is restored.
+	legacy := restore(fn.None[tlv.Blob]())
+	require.NotEmpty(t, legacy.incomingHTLCs[0].ourPkScript)
+
+	// A commitment recorded with SigHashDefault trimmed the HTLC.
+	deterministic := restore(fn.Some(sigHashDefaultBlob))
+	require.Empty(t, deterministic.incomingHTLCs[0].ourPkScript)
+
+	// And the classification of a recorded commitment does not flip when
+	// new commitments go back to the legacy sighash.
+	signer.live = fn.None[txscript.SigHashType]()
+	channel.RefreshHtlcSigHashType()
+	require.False(t, channel.IsChanSigHashDefault())
+
+	deterministic = restore(fn.Some(sigHashDefaultBlob))
+	require.Empty(t, deterministic.incomingHTLCs[0].ourPkScript)
+}
+
+// TestHtlcResolutionsUseCommitmentSigHash asserts that the HTLC resolutions
+// of a commitment are derived with the sighash recorded in the blob of the
+// commitment being resolved, which the caller passes in, and not with the
+// one recorded for our latest local commitment. The two differ when the
+// remote party closes with a commitment built on the other side of a
+// sighash switch.
+func TestHtlcResolutionsUseCommitmentSigHash(t *testing.T) {
+	t.Parallel()
+
+	channel, signer := newLiveAuxSignerChannel(t)
+	state := channel.channelState
+	chanType := state.ChanType
+	feePerKw := chainfee.SatPerKWeight(state.LocalCommitment.FeePerKw)
+	dustLimit := state.RemoteChanCfg.DustLimit
+
+	// An HTLC that is dust only on a SigHashDefault commitment.
+	htlcAmt := dustLimit + 100
+	htlcs := []channeldb.HTLC{{
+		Amt:       lnwire.NewMSatFromSatoshis(htlcAmt),
+		Incoming:  true,
+		HtlcIndex: 0,
+		RHash:     [32]byte{1},
+	}}
+
+	keyRing := DeriveCommitmentKeys(
+		state.RemoteCurrentRevocation, lntypes.Remote, chanType,
+		&state.LocalChanCfg, &state.RemoteChanCfg,
+	)
+	commitTx := wire.NewMsgTx(2)
+
+	resolve := func(blob fn.Option[tlv.Blob]) (*HtlcResolutions, error) {
+		return extractHtlcResolutions(
+			feePerKw, lntypes.Remote, channel.Signer, htlcs,
+			keyRing, &state.LocalChanCfg, &state.RemoteChanCfg,
+			commitTx, 0, chanType, !state.IsInitiator, 0, state,
+			fn.None[CommitAuxLeaves](),
+			fn.None[AuxContractResolver](),
+			fn.Some[AuxSigner](signer), blob,
+		)
+	}
+
+	// Our latest local commitment records the legacy sighash. The remote
+	// commitment being resolved records SigHashDefault, under which the
+	// HTLC was trimmed, so there is nothing to resolve.
+	require.True(t, state.LocalCommitment.CustomBlob.IsNone())
+	res, err := resolve(fn.Some(sigHashDefaultBlob))
+	require.NoError(t, err)
+	require.Empty(t, res.IncomingHTLCs)
+	require.Empty(t, res.OutgoingHTLCs)
+
+	// The same HTLC on a commitment recorded with the legacy sighash is
+	// not dust and gets a resolution.
+	res, err = resolve(fn.None[tlv.Blob]())
+	require.NoError(t, err)
+	require.Len(t, res.IncomingHTLCs, 1)
+}
+
+// TestLegacyBreachRetributionUsesRevokedSigHash asserts that the HTLC dust
+// decisions of a breach retribution are made with the sighash recorded for
+// the revoked state itself, not with the one of our latest local commitment.
+func TestLegacyBreachRetributionUsesRevokedSigHash(t *testing.T) {
+	t.Parallel()
+
+	channel, signer := newLiveAuxSignerChannel(t)
+	chanState := channel.channelState
+	dummyPrivate, _ := btcec.PrivKeyFromBytes([]byte{1})
+	leaseExpiry, keyRing, _ := deriveDummyRetributionParams(chanState)
+
+	// An HTLC that is dust only on a SigHashDefault commitment. Its
+	// stored output index is non-negative, so the dust check is what
+	// decides whether it is part of the retribution.
+	dustLimit := chanState.RemoteChanCfg.DustLimit
+	htlcAmt := dustLimit + 100
+
+	retribution := func(blob fn.Option[tlv.Blob]) *BreachRetribution {
+		revokedLog := chanState.RemoteCommitment
+		revokedLog.CustomBlob = blob
+		revokedLog.Htlcs = []channeldb.HTLC{{
+			Incoming:    true,
+			Amt:         lnwire.NewMSatFromSatoshis(htlcAmt),
+			OutputIndex: 2,
+		}}
+
+		ourScript := &WitnessScriptDesc{
+			OutputScript: revokedLog.CommitTx.TxOut[0].PkScript,
+		}
+		theirScript := &WitnessScriptDesc{
+			OutputScript: revokedLog.CommitTx.TxOut[1].PkScript,
+		}
+
+		br, _, _, err := createBreachRetributionLegacy(
+			&revokedLog, chanState, keyRing, dummyPrivate,
+			ourScript, theirScript, leaseExpiry,
+			fn.None[AuxContractResolver](),
+			fn.Some[AuxSigner](signer), 0,
+		)
+		require.NoError(t, err)
+
+		return br
+	}
+
+	// Our latest local commitment records the legacy sighash.
+	require.True(t, chanState.LocalCommitment.CustomBlob.IsNone())
+
+	// The revoked state records SigHashDefault: the HTLC was trimmed.
+	br := retribution(fn.Some(sigHashDefaultBlob))
+	require.Empty(t, br.HtlcRetributions)
+
+	// The revoked state records the legacy sighash: the HTLC has an
+	// output that must be punished.
+	br = retribution(fn.None[tlv.Blob]())
+	require.Len(t, br.HtlcRetributions, 1)
+}
+
+// sigHashDefaultAuxSigner is an AuxSigner that reports SigHashDefault for
+// every request, standing in for a channel whose every commitment was built
+// with DeterministicHTLCs.
+type sigHashDefaultAuxSigner struct {
+	*MockAuxSigner
+}
+
+// HtlcSigHashType always answers SigHashDefault.
+func (s *sigHashDefaultAuxSigner) HtlcSigHashType(
+	_ HtlcSigHashReq) fn.Option[txscript.SigHashType] {
+
+	return fn.Some(txscript.SigHashDefault)
+}
+
+// TestSigHashDefaultResolutionSweepAmount asserts that the sweep sign
+// descriptor of a SigHashDefault second-level HTLC resolution describes the
+// output that is actually on chain. The pre-signed second-level tx splits
+// its value between the HTLC output and the CPFP anchor, so the descriptor
+// must carry the HTLC output's value with the anchor carved out. Signing a
+// taproot spend against any other value yields an invalid signature and the
+// output could never be swept.
+func TestSigHashDefaultResolutionSweepAmount(t *testing.T) {
+	t.Parallel()
+
+	chanType := channeldb.SimpleTaprootFeatureBit |
+		channeldb.TapscriptRootBit
+
+	aliceChannel, bobChannel, err := CreateTestChannels(t, chanType)
+	require.NoError(t, err)
+
+	// Build the commitments with SigHashDefault second-level HTLCs.
+	sigHashDefault := uint32(txscript.SigHashDefault)
+	aliceChannel.htlcSigHashType.Store(sigHashDefault)
+	bobChannel.htlcSigHashType.Store(sigHashDefault)
+
+	// One HTLC from Alice to Bob, locked into both commitments.
+	preimage := bytes.Repeat([]byte{7}, 32)
+	htlc := &lnwire.UpdateAddHTLC{
+		PaymentHash: sha256.Sum256(preimage),
+		Amount:      lnwire.NewMSatFromSatoshis(100_000),
+		Expiry:      uint32(10),
+	}
+	_, err = aliceChannel.AddHTLC(htlc, nil)
+	require.NoError(t, err)
+	_, err = bobChannel.ReceiveHTLC(htlc)
+	require.NoError(t, err)
+	require.NoError(t, ForceStateTransition(aliceChannel, bobChannel))
+
+	// The commitments on chain record SigHashDefault.
+	aliceChannel.auxSigner = fn.Some[AuxSigner](&sigHashDefaultAuxSigner{
+		MockAuxSigner: NewDefaultAuxSignerMock(t),
+	})
+	bobChannel.auxSigner = fn.Some[AuxSigner](&sigHashDefaultAuxSigner{
+		MockAuxSigner: NewDefaultAuxSignerMock(t),
+	})
+
+	assertSweepDesc := func(secondLevelTx *wire.MsgTx,
+		sweepDesc input.SignDescriptor) {
+
+		t.Helper()
+
+		// HTLC output first, CPFP anchor second.
+		require.Len(t, secondLevelTx.TxOut, 2)
+		htlcOut := secondLevelTx.TxOut[0]
+		require.EqualValues(
+			t, AnchorSize, secondLevelTx.TxOut[1].Value,
+		)
+
+		// The sweep descriptor targets exactly the HTLC output.
+		require.Equal(t, htlcOut.Value, sweepDesc.Output.Value)
+		require.Equal(t, htlcOut.PkScript, sweepDesc.Output.PkScript)
+
+		prevOut := sweepDesc.PrevOutputFetcher.FetchPrevOutput(
+			wire.OutPoint{},
+		)
+		require.Equal(t, htlcOut.Value, prevOut.Value)
+		require.Equal(t, htlcOut.PkScript, prevOut.PkScript)
+	}
+
+	// Alice offered the HTLC, so her force close yields the timeout path.
+	aliceClose, err := aliceChannel.ForceClose()
+	require.NoError(t, err)
+	aliceRes, err := aliceClose.ContractResolutions.UnwrapOrErr(
+		errors.New("no resolutions"),
+	)
+	require.NoError(t, err)
+	require.Len(t, aliceRes.HtlcResolutions.OutgoingHTLCs, 1)
+	outgoing := aliceRes.HtlcResolutions.OutgoingHTLCs[0]
+	require.NotNil(t, outgoing.SignedTimeoutTx)
+	assertSweepDesc(outgoing.SignedTimeoutTx, outgoing.SweepSignDesc)
+
+	// Bob accepted it, so his force close yields the success path.
+	bobClose, err := bobChannel.ForceClose()
+	require.NoError(t, err)
+	bobRes, err := bobClose.ContractResolutions.UnwrapOrErr(
+		errors.New("no resolutions"),
+	)
+	require.NoError(t, err)
+	require.Len(t, bobRes.HtlcResolutions.IncomingHTLCs, 1)
+	incoming := bobRes.HtlcResolutions.IncomingHTLCs[0]
+	require.NotNil(t, incoming.SignedSuccessTx)
+	assertSweepDesc(incoming.SignedSuccessTx, incoming.SweepSignDesc)
 }

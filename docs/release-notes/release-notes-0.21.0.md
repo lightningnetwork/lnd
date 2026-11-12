@@ -113,6 +113,12 @@
   channel arbitrator suppresses the duplicate event that would otherwise be
   emitted from `MarkChannelClosed` at the final confirmation depth.
 
+* [Fixed a data race in the `RotatingLogWriter`](https://github.com/lightningnetwork/lnd/pull/10886)
+  during startup. The `pipe` field was being read concurrently by `Write` while
+  being written by `InitLogRotator` and `Close`, which could trigger a race
+  condition. A `sync.RWMutex` is now used to synchronize access to the `pipe`
+  field, and `Close` sets `pipe` to `nil` under the lock to ensure idempotency.
+
 # New Features
 
 - [Basic Support](https://github.com/lightningnetwork/lnd/pull/9868) for onion

@@ -660,6 +660,47 @@ func assertRevocationLogEntryEqual(t *testing.T, c *ChannelCommitment,
 	}
 }
 
+// TestUpdateCommitmentRevocationAuxSigsRollback asserts that the revocation
+// aux sigs held in memory always match what was persisted. They are set on
+// the channel before the store writes them, so a write that fails must leave
+// the previous value in place. Otherwise a retransmission would send a blob
+// that is gone after a restart.
+func TestUpdateCommitmentRevocationAuxSigsRollback(t *testing.T) {
+	t.Parallel()
+
+	fullDB, err := MakeTestDB(t)
+	require.NoError(t, err, "unable to make test database")
+
+	cdb := fullDB.ChannelStateDB()
+	channel := createTestChannel(t, cdb)
+
+	commitment := channel.LocalCommitment
+	commitment.CommitHeight++
+
+	// A successful update persists the sigs.
+	firstSigs := fn.Some(tlv.Blob{1, 2, 3})
+	_, err = channel.UpdateCommitment(&commitment, nil, firstSigs)
+	require.NoError(t, err)
+	require.Equal(t, firstSigs, channel.RevocationAuxSigs)
+
+	// Once the channel is borked, further updates are refused by the
+	// store. The sigs of the refused update must not stick in memory.
+	require.NoError(t, channel.MarkBorked())
+
+	commitment.CommitHeight++
+	_, err = channel.UpdateCommitment(
+		&commitment, nil, fn.Some(tlv.Blob{4, 5, 6}),
+	)
+	require.ErrorIs(t, err, ErrChanBorked)
+	require.Equal(t, firstSigs, channel.RevocationAuxSigs)
+
+	// What is on disk is the first blob as well.
+	openChannels, err := cdb.FetchOpenChannels(channel.IdentityPub)
+	require.NoError(t, err)
+	require.Len(t, openChannels, 1)
+	require.Equal(t, firstSigs, openChannels[0].RevocationAuxSigs)
+}
+
 func TestChannelStateTransition(t *testing.T) {
 	t.Parallel()
 
@@ -736,7 +777,9 @@ func TestChannelStateTransition(t *testing.T) {
 		},
 	}
 
-	_, err = channel.UpdateCommitment(&commitment, unsignedAckedUpdates)
+	_, err = channel.UpdateCommitment(
+		&commitment, unsignedAckedUpdates, fn.None[tlv.Blob](),
+	)
 	require.NoError(t, err, "unable to update commitment")
 
 	// Assert that update is correctly written to the database.

@@ -1587,6 +1587,7 @@ func testBreachSpends(t *testing.T, test breachTest) {
 		fn.Some[lnwallet.AuxContractResolver](
 			&lnwallet.MockAuxContractResolver{},
 		),
+		fn.None[lnwallet.AuxSigner](),
 	)
 	require.NoError(t, err, "unable to create breach retribution")
 
@@ -1802,6 +1803,7 @@ func TestBreachDelayedJusticeConfirmation(t *testing.T) {
 		fn.Some[lnwallet.AuxContractResolver](
 			&lnwallet.MockAuxContractResolver{},
 		),
+		fn.None[lnwallet.AuxSigner](),
 	)
 	require.NoError(t, err, "unable to create breach retribution")
 

@@ -1,7 +1,9 @@
 package lnwallet
 
 import (
+	"github.com/btcsuite/btcd/txscript/v2"
 	"github.com/btcsuite/btcd/wire/v2"
+	"github.com/lightningnetwork/lnd/channeldb"
 	"github.com/lightningnetwork/lnd/fn/v2"
 	"github.com/lightningnetwork/lnd/input"
 	"github.com/lightningnetwork/lnd/lntypes"
@@ -192,7 +194,9 @@ type BaseAuxJob struct {
 	HTLC AuxHtlcDescriptor
 
 	// Incoming is a boolean that indicates if the HTLC is incoming or
-	// outgoing.
+	// outgoing from the LOCAL party's perspective. This is used with
+	// WhoseCommit to determine the correct HTLC script variant
+	// (sender vs receiver).
 	Incoming bool
 
 	// CommitBlob is the commitment transaction blob that contains the aux
@@ -202,6 +206,16 @@ type BaseAuxJob struct {
 	// HtlcLeaf is the aux tap leaf that corresponds to the HTLC being
 	// signed/verified.
 	HtlcLeaf input.AuxTapLeaf
+
+	// WhoseCommit indicates which party's commitment transaction the
+	// second-level HTLC belongs to.
+	WhoseCommit lntypes.ChannelParty
+
+	// HtlcTimeout, if set, overrides the timeout logic in
+	// generateHtlcSignature and verifyHtlcSignature. When nil,
+	// the timeout is derived from Incoming (the normal CommitSig
+	// convention). When set, it is used directly.
+	HtlcTimeout fn.Option[uint32]
 }
 
 // AuxSigJob is a struct that contains all the information needed to sign an
@@ -222,10 +236,24 @@ type AuxSigJob struct {
 	Cancel <-chan struct{}
 }
 
-// NewAuxSigJob creates a new AuxSigJob.
+// NewAuxSigJob creates a new AuxSigJob. The whoseCommit parameter indicates
+// which party's commitment the HTLC belongs to.
+//
+// HtlcTimeout is set explicitly to the CommitSig-time convention (an
+// incoming HTLC signs the counterparty's timeout tx, which carries the CLTV;
+// an outgoing HTLC signs their success tx, which has no locktime) so that
+// the aux signer never has to re-derive it from the direction. Callers with
+// a different convention (the revocation sign path, which signs the HTLC
+// paths of our own commitment) override the field after construction.
 func NewAuxSigJob(sigJob SignJob, keyRing CommitmentKeyRing, incoming bool,
 	htlc AuxHtlcDescriptor, commitBlob fn.Option[tlv.Blob],
-	htlcLeaf input.AuxTapLeaf, cancelChan <-chan struct{}) AuxSigJob {
+	htlcLeaf input.AuxTapLeaf, whoseCommit lntypes.ChannelParty,
+	cancelChan <-chan struct{}) AuxSigJob {
+
+	htlcTimeout := fn.None[uint32]()
+	if incoming {
+		htlcTimeout = fn.Some(htlc.Timeout)
+	}
 
 	return AuxSigJob{
 		SignDesc: sigJob.SignDesc,
@@ -236,6 +264,8 @@ func NewAuxSigJob(sigJob SignJob, keyRing CommitmentKeyRing, incoming bool,
 			Incoming:    incoming,
 			CommitBlob:  commitBlob,
 			HtlcLeaf:    htlcLeaf,
+			WhoseCommit: whoseCommit,
+			HtlcTimeout: htlcTimeout,
 		},
 		Resp:   make(chan AuxSigJobResp, 1),
 		Cancel: cancelChan,
@@ -267,19 +297,34 @@ type AuxVerifyJob struct {
 	BaseAuxJob
 }
 
-// NewAuxVerifyJob creates a new AuxVerifyJob.
+// NewAuxVerifyJob creates a new AuxVerifyJob for a signature the remote party
+// sent for a second-level HTLC of our own commitment, which is what
+// WhoseCommit is set to.
+//
+// HtlcTimeout is set explicitly to the CommitSig-time convention: on our
+// local commitment an outgoing HTLC's signature covers our timeout tx
+// (which carries the CLTV), while an incoming HTLC's signature covers our
+// success tx (no locktime). Callers with a different convention (the
+// revocation verify path) override the field after construction.
 func NewAuxVerifyJob(sig fn.Option[tlv.Blob], keyRing CommitmentKeyRing,
 	incoming bool, htlc AuxHtlcDescriptor, commitBlob fn.Option[tlv.Blob],
 	htlcLeaf input.AuxTapLeaf) AuxVerifyJob {
 
+	htlcTimeout := fn.None[uint32]()
+	if !incoming {
+		htlcTimeout = fn.Some(htlc.Timeout)
+	}
+
 	return AuxVerifyJob{
 		SigBlob: sig,
 		BaseAuxJob: BaseAuxJob{
-			KeyRing:    keyRing,
-			HTLC:       htlc,
-			Incoming:   incoming,
-			CommitBlob: commitBlob,
-			HtlcLeaf:   htlcLeaf,
+			KeyRing:     keyRing,
+			HTLC:        htlc,
+			Incoming:    incoming,
+			CommitBlob:  commitBlob,
+			HtlcLeaf:    htlcLeaf,
+			WhoseCommit: lntypes.Local,
+			HtlcTimeout: htlcTimeout,
 		},
 	}
 }
@@ -305,4 +350,69 @@ type AuxSigner interface {
 	// sig jobs.
 	VerifySecondLevelSigs(chanState AuxChanState, commitTx *wire.MsgTx,
 		verifyJob []AuxVerifyJob) error
+
+	// HtlcSigHashType returns the sighash type to use for HTLC
+	// second-level transactions for the given channel. The caller
+	// populates HtlcSigHashReq with either a ChanID (for live
+	// feature-negotiation lookups on new commitments) or a CommitBlob
+	// (for existing commitments where the blob is the source of truth),
+	// or both. The implementation decides the lookup strategy.
+	HtlcSigHashType(req HtlcSigHashReq) fn.Option[txscript.SigHashType]
+}
+
+// HtlcSigHashReq is the request passed to AuxSigner.HtlcSigHashType.
+// Callers populate either ChanID (for next-commitment signing/verification
+// where live feature negotiation is authoritative) or CommitBlob (for
+// existing commitments where the blob records what was actually used), or
+// both. Providing both lets the implementation consult live feature
+// negotiation when the peer is connected and fall back to the flag
+// recorded in the commitment blob when it is not (e.g. right after a
+// restart, before the peer has reconnected).
+type HtlcSigHashReq struct {
+	// ChanID identifies the channel for live feature-negotiation lookups.
+	// Set when determining the sighash for a new commitment being
+	// signed or verified.
+	ChanID fn.Option[lnwire.ChannelID]
+
+	// CommitBlob is the commitment custom blob that may contain a cached
+	// SigHashDefault flag. Set when resolving the sighash for an
+	// already-persisted commitment (breach, resolution).
+	CommitBlob fn.Option[tlv.Blob]
+}
+
+// ResolveHtlcSigHashType determines the sighash type to use for HTLC
+// second-level transactions. It queries the aux signer (if present) with the
+// given request. If the aux signer returns None (or is not present), it falls
+// back to the default HtlcSigHashType based on channel type.
+func ResolveHtlcSigHashType(chanType channeldb.ChannelType,
+	auxSigner fn.Option[AuxSigner],
+	req HtlcSigHashReq) txscript.SigHashType {
+
+	// A negotiated (non-default) HTLC sighash type is exclusively an
+	// aux/custom (taproot asset) channel feature. Such channels are the
+	// only ones that carry a tapscript root, so we gate on the channel
+	// type first: no non-custom channel can ever diverge from the
+	// standard sighash flags, regardless of aux signer state.
+	if !chanType.HasTapscriptRoot() {
+		return HtlcSigHashType(chanType)
+	}
+
+	sigHash := fn.FlatMapOption(
+		func(s AuxSigner) fn.Option[txscript.SigHashType] {
+			return s.HtlcSigHashType(req)
+		},
+	)(auxSigner)
+
+	// The only supported override is SigHashDefault: it is what the
+	// whole deterministic second-level flow (fixed parent, embedded
+	// anchor, direct publish) keys off of. Any other value would be
+	// used for signing while the resolvers still treat the tx as
+	// sweeper-malleable, invalidating the signature, so we reject it
+	// here and fall back to the channel's standard sighash flags.
+	override := sigHash.UnwrapOr(HtlcSigHashType(chanType))
+	if override != txscript.SigHashDefault {
+		return HtlcSigHashType(chanType)
+	}
+
+	return override
 }

@@ -1075,3 +1075,132 @@ func createTestChannelsForVectors(tc *testContext, chanType channeldb.ChannelTyp
 
 	return channelRemote, channelLocal
 }
+
+// TestSecondLevelAnchorScript asserts that the anchor script the second-level
+// tx builders append is the one the resolvers derive from the same delay key,
+// and that it needs a key.
+func TestSecondLevelAnchorScript(t *testing.T) {
+	t.Parallel()
+
+	delayPriv, err := btcec.NewPrivateKey()
+	require.NoError(t, err)
+	delayKey := delayPriv.PubKey()
+
+	tree, pkScript, err := SecondLevelAnchorScript(delayKey)
+	require.NoError(t, err)
+	require.Equal(t, delayKey, tree.InternalKey)
+
+	expectedTree, err := input.NewAnchorScriptTree(delayKey)
+	require.NoError(t, err)
+	expectedPkScript, err := input.PayToTaprootScript(
+		expectedTree.TaprootKey,
+	)
+	require.NoError(t, err)
+	require.Equal(t, expectedTree.TapscriptRoot, tree.TapscriptRoot)
+	require.Equal(t, expectedPkScript, pkScript)
+
+	// A different key yields a different script, so a tx built for one
+	// commitment point cannot be mistaken for another's.
+	otherPriv, err := btcec.NewPrivateKey()
+	require.NoError(t, err)
+	_, otherPkScript, err := SecondLevelAnchorScript(otherPriv.PubKey())
+	require.NoError(t, err)
+	require.NotEqual(t, pkScript, otherPkScript)
+
+	_, _, err = SecondLevelAnchorScript(nil)
+	require.ErrorContains(t, err, "needs a delay key")
+}
+
+// TestCreateHtlcTxAnchorOutput asserts the shape of the pre-signed
+// second-level HTLC transactions: with addAnchor set they gain a CPFP anchor
+// output keyed to the broadcaster's delay key, with its value carved out of
+// the HTLC output, and without it the transaction is unchanged.
+func TestCreateHtlcTxAnchorOutput(t *testing.T) {
+	t.Parallel()
+
+	chanType := channeldb.SimpleTaprootFeatureBit |
+		channeldb.AnchorOutputsBit |
+		channeldb.ZeroHtlcTxFeeBit |
+		channeldb.SingleFunderTweaklessBit |
+		channeldb.TapscriptRootBit
+
+	revPriv, err := btcec.NewPrivateKey()
+	require.NoError(t, err)
+	delayPriv, err := btcec.NewPrivateKey()
+	require.NoError(t, err)
+	revKey := revPriv.PubKey()
+	delayKey := delayPriv.PubKey()
+
+	_, anchorPkScript, err := SecondLevelAnchorScript(delayKey)
+	require.NoError(t, err)
+
+	op := wire.OutPoint{Index: 1}
+	htlcAmt := btcutil.Amount(100_000)
+	noLeaf := input.NoneTapLeaf()
+
+	timeoutTx := func(addAnchor bool) (*wire.MsgTx, error) {
+		return CreateHtlcTimeoutTx(
+			chanType, false, op, htlcAmt, 100, 5, 0, revKey,
+			delayKey, noLeaf, addAnchor,
+		)
+	}
+	successTx := func(addAnchor bool) (*wire.MsgTx, error) {
+		return CreateHtlcSuccessTx(
+			chanType, false, op, htlcAmt, 5, 0, revKey, delayKey,
+			noLeaf, addAnchor,
+		)
+	}
+
+	testCases := []struct {
+		name       string
+		build      func(bool) (*wire.MsgTx, error)
+		addAnchor  bool
+		numOutputs int
+		htlcValue  btcutil.Amount
+		anchor     *wire.TxOut
+	}{{
+		name:       "timeout without anchor",
+		build:      timeoutTx,
+		numOutputs: 1,
+		htlcValue:  htlcAmt,
+	}, {
+		name:       "timeout with anchor",
+		build:      timeoutTx,
+		addAnchor:  true,
+		numOutputs: 2,
+		htlcValue:  htlcAmt - AnchorSize,
+		anchor: &wire.TxOut{
+			Value:    int64(AnchorSize),
+			PkScript: anchorPkScript,
+		},
+	}, {
+		name:       "success without anchor",
+		build:      successTx,
+		numOutputs: 1,
+		htlcValue:  htlcAmt,
+	}, {
+		name:       "success with anchor",
+		build:      successTx,
+		addAnchor:  true,
+		numOutputs: 2,
+		htlcValue:  htlcAmt - AnchorSize,
+		anchor: &wire.TxOut{
+			Value:    int64(AnchorSize),
+			PkScript: anchorPkScript,
+		},
+	}}
+
+	for _, tc := range testCases {
+		t.Run(tc.name, func(t *testing.T) {
+			tx, err := tc.build(tc.addAnchor)
+			require.NoError(t, err)
+
+			require.Len(t, tx.TxOut, tc.numOutputs)
+			require.EqualValues(t, tc.htlcValue, tx.TxOut[0].Value)
+
+			if tc.anchor != nil {
+				require.Equal(t, tc.anchor, tx.TxOut[1])
+			}
+		})
+	}
+}

@@ -2480,7 +2480,7 @@ func (s *server) Start(ctx context.Context) error {
 			peeler := onionmessage.NewHopPeeler(
 				s.sphinxOnionMsg,
 				onionmessage.NewGraphNodeResolver(
-					s.graphDB, ourPub,
+					s.graphDB, ourPub, s.privateChannelPeer,
 				),
 				ourPub,
 			)
@@ -2708,6 +2708,7 @@ func (s *server) Start(ctx context.Context) error {
 		if !s.cfg.ProtocolOptions.NoOnionMessages() {
 			resolver := onionmessage.NewGraphNodeResolver(
 				s.graphDB, s.identityECDH.PubKey(),
+				s.privateChannelPeer,
 			)
 			s.onionActorFactory = onionmessage.NewOnionActorFactory(
 				s.sphinxOnionMsg, resolver, s,
@@ -4655,6 +4656,35 @@ func (s *server) handleCustomMessage(peer [33]byte, msg *lnwire.Custom) error {
 // messages.
 func (s *server) SubscribeCustomMessages() (*subscribe.Client, error) {
 	return s.customMessageServer.Subscribe()
+}
+
+// privateChannelPeer resolves the remote node of a channel from a local alias.
+// The switch maps the alias to its link the same way an HTLC forward does. It
+// only indexes links of online peers, which is where an onion message can be
+// delivered. The confirmed SCID of a private channel and the peer's alias are
+// not resolved here.
+func (s *server) privateChannelPeer(scid lnwire.ShortChannelID) (
+	*btcec.PublicKey, bool) {
+
+	if s.htlcSwitch == nil {
+		return nil, false
+	}
+
+	link, err := s.htlcSwitch.LookupLinkByOutgoingSCID(scid)
+	if err != nil {
+		return nil, false
+	}
+
+	peerPub := link.PeerPubKey()
+	pubKey, err := btcec.ParsePubKey(peerPub[:])
+	if err != nil {
+		srvrLog.Debugf("Invalid peer key for onion SCID %v: %v", scid,
+			err)
+
+		return nil, false
+	}
+
+	return pubKey, true
 }
 
 // SubscribeOnionMessages subscribes to a stream of incoming onion messages.

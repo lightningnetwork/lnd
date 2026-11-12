@@ -8,6 +8,64 @@ this wasn't _fully_ solved in `go1.13`, as the build system still includes the
 directory the binary is built into the binary itself. As a result, our scripts
 utilize a workaround needed until `go1.13.2`.  
 
+## Preparing a Release
+
+Release managers prepare artifacts before publishing the signed Git tag. When
+a version-bump pull request merges into a `v0.*-branch` release branch, a push
+that changes `build/version.go` automatically starts the release workflow.
+Consolidate the release-note fragments before merging the bump. The workflow
+checks those notes, builds all release architectures, and uploads the assets
+to a **draft** release. It creates an unsigned tag only inside its runner so
+the normal tag and binary-version checks run; it never pushes that tag.
+
+The release workflow must be present on the release branch. Development
+versions with patch number `.99` and versions whose tags already exist are
+skipped. Later pushes of signed tags do not rerun the build or replace assets.
+
+For each release candidate, final release, or patch release:
+
+1. Merge the version bump and wait for the automatic release workflow to
+   succeed. The draft records its exact build commit and links to that run.
+   Confirm that the linked run succeeded and all expected assets are present;
+   a draft left by a failed upload is not ready for signing or publication.
+2. Update your release-branch checkout to that exact commit. Compare
+   `git rev-parse HEAD` with the draft's build commit. If the upstream branch
+   has advanced, follow the retry procedure below to prepare its updated head
+   instead of signing another commit against the old assets. The tagging
+   helper still requires HEAD to match the current upstream branch.
+3. Create the signed tag with the existing helper, then push it to the
+   upstream remote printed by the helper. For example:
+
+   ```shell
+   # Sign the tested branch head after the helper verifies upstream/version.
+   ./scripts/tag-release.sh v0.21.0-beta.rc1 --branch v0.21.x-branch
+   # Publish the signed tag to that same upstream; the release stays a draft.
+   git push <upstream-remote> v0.21.0-beta.rc1
+   ```
+
+4. Review and finalize the draft's release notes, manifest signatures, and
+   required timestamp artifacts, then publish the draft manually. Push the
+   signed tag **before** publishing the draft so GitHub uses that signed tag
+   instead of creating an unsigned one. Existing release verification and
+   Docker image requirements still apply.
+
+### Retrying Preparation
+
+Notes or build failures leave the real tag unpublished. Correct the problem
+on the release branch and use the workflow's **Run workflow** action to prepare
+the current branch head again. Manual dispatch also requires the workflow to
+exist on the repository's default branch. It reads the version from the
+selected commit, so no tag input or local preflight command is needed.
+
+Before any same-version retry, including preparation after the branch
+advances, stop any active preparation runs for that version and delete its
+stale draft releases and assets through the Releases UI. Do not delete or
+replace a real tag or a published release. The upload action cannot reliably
+reuse drafts across paginated release lists and replaces matching assets
+individually, so a failed retry can leave partial or mixed assets. Start with
+a fresh draft and wait for its linked run to succeed before trusting its
+build commit and assets, signing the tag, or publishing the release.
+
 ## Building a New Release
 
 ### macOS

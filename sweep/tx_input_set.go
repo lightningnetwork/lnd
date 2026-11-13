@@ -40,7 +40,8 @@ type InputSet interface {
 	// limits. Inputs that cannot pay for their own weight at the relay fee
 	// rate are skipped. Return an error if no input can contribute to fees.
 	AddWalletInputs(wallet Wallet,
-		relayFeeRate chainfee.SatPerKWeight) error
+		relayFeeRate chainfee.SatPerKWeight,
+		excludedInputs fn.Set[wire.OutPoint]) error
 
 	// NeedWalletInput returns true if the input set needs more wallet
 	// inputs.
@@ -393,7 +394,8 @@ func (c walletCandidate) denserThan(other walletCandidate) bool {
 //
 // NOTE: must be called with the wallet lock held via `WithCoinSelectLock`.
 func (b *BudgetInputSet) AddWalletInputs(wallet Wallet,
-	relayFeeRate chainfee.SatPerKWeight) error {
+	relayFeeRate chainfee.SatPerKWeight,
+	excludedInputs fn.Set[wire.OutPoint]) error {
 	// Retrieve wallet utxos. Only consider confirmed utxos to prevent
 	// problems around RBF rules for unconfirmed inputs. This currently
 	// ignores the configured coin selection strategy.
@@ -430,6 +432,12 @@ func (b *BudgetInputSet) AddWalletInputs(wallet Wallet,
 	// mutating the estimator.
 	candidates := make([]walletCandidate, 0, len(utxos))
 	for _, utxo := range utxos {
+		// A diagnosed output cannot fund a survivor, even when its
+		// value density would otherwise make it the first choice.
+		if excludedInputs.Contains(utxo.OutPoint) {
+			continue
+		}
+
 		inp, err := createWalletTxInput(utxo)
 		if err != nil {
 			return err

@@ -249,48 +249,20 @@ func (c *ChannelActive) ProcessEvent(event ProtocolEvent, env *Environment,
 	// with a special SendPredicate, then go to the ShutdownPending where
 	// we'll wait for the remote to send their shutdown.
 	case *SendShutdown:
-		// If we have an upfront shutdown addr or a delivery addr then
-		// we'll use that. Otherwise, we'll generate a new delivery
-		// addr.
-		shutdownScript, err := env.LocalUpfrontShutdown.Alt(
-			msg.DeliveryAddr,
-		).UnwrapOrFuncErr(env.NewDeliveryScript)
-		if err != nil {
-			return nil, err
-		}
-
-		// We'll emit some daemon events to send the shutdown message
-		// and disable the channel on the network level. In this case,
-		// we don't need a post send event as receive their shutdown is
-		// what'll move us beyond the ShutdownPending state.
-		daemonEvents, closeeNonce, err := sendShutdownEvents(
-			env.ChanID, env.ChanPoint, shutdownScript,
-			env.ChanPeer, fn.None[ProtocolEvent](),
-			env.ChanObserver, env, msg.CloseeNonce,
+		return c.processSendShutdown(
+			msg.DeliveryAddr, fn.Some(msg.IdealFeeRate),
+			msg.CloseeNonce, env,
 		)
-		if err != nil {
-			return nil, err
-		}
 
-		chancloserLog.Infof("ChannelPoint(%v): sending shutdown msg, "+
-			"delivery_script=%x", env.ChanPoint, shutdownScript)
+	case *LocalCloseReq:
+		return c.processSendShutdown(
+			msg.DeliveryAddr, msg.TargetFeeRate,
+			fn.None[lnwire.Musig2Nonce](), env,
+		)
 
-		// From here, we'll transition to the shutdown pending state. In
-		// this state we await their shutdown message (self loop), then
-		// also the flushing event.
+	case *CancelPendingOffer:
 		return &CloseStateTransition{
-			NextState: &ShutdownPending{
-				IdealFeeRate: fn.Some(msg.IdealFeeRate),
-				ShutdownScripts: ShutdownScripts{
-					LocalDeliveryScript: shutdownScript,
-				},
-				NonceState: NonceState{
-					LocalCloseeNonce: closeeNonce,
-				},
-			},
-			NewEvents: fn.Some(RbfEvent{
-				ExternalEvents: daemonEvents,
-			}),
+			NextState: c,
 		}, nil
 
 	// When we receive a shutdown from the remote party, we'll validate the
@@ -381,6 +353,59 @@ func (c *ChannelActive) ProcessEvent(event ProtocolEvent, env *Environment,
 	}
 }
 
+// processSendShutdown validates or creates the local delivery script and
+// emits the daemon events needed to send the shutdown message, transitioning
+// ChannelActive into ShutdownPending.
+func (c *ChannelActive) processSendShutdown(
+	deliveryAddr fn.Option[lnwire.DeliveryAddress],
+	idealFeeOpt fn.Option[chainfee.SatPerVByte],
+	closeeNonce fn.Option[lnwire.Musig2Nonce], env *Environment,
+) (*CloseStateTransition, error) {
+
+	// If we have an upfront shutdown addr or a delivery addr then we'll
+	// use that. Otherwise, we'll generate a new delivery addr.
+	shutdownScript, err := env.LocalUpfrontShutdown.Alt(
+		deliveryAddr,
+	).UnwrapOrFuncErr(env.NewDeliveryScript)
+	if err != nil {
+		return nil, err
+	}
+
+	// We'll emit some daemon events to send the shutdown message and
+	// disable the channel on the network level. In this case, we don't need
+	// a post send event as receiving their shutdown is what'll move us
+	// beyond the ShutdownPending state.
+	daemonEvents, localCloseeNonce, err := sendShutdownEvents(
+		env.ChanID, env.ChanPoint, shutdownScript, env.ChanPeer,
+		fn.None[ProtocolEvent](), env.ChanObserver, env, closeeNonce,
+	)
+	if err != nil {
+		return nil, err
+	}
+
+	chancloserLog.Infof("ChannelPoint(%v): sending shutdown msg, "+
+		"delivery_script=%x", env.ChanPoint, shutdownScript)
+
+	// From here, we'll transition to the shutdown pending state. In this
+	// state we await their shutdown message (self loop), then also the
+	// flushing event.
+	return &CloseStateTransition{
+		NextState: &ShutdownPending{
+			IdealFeeRate: idealFeeOpt,
+			ShutdownScripts: ShutdownScripts{
+				LocalDeliveryScript: shutdownScript,
+			},
+			NonceState: NonceState{
+				LocalCloseeNonce: localCloseeNonce,
+			},
+			LocalCloseRequested: true,
+		},
+		NewEvents: fn.Some(RbfEvent{
+			ExternalEvents: daemonEvents,
+		}),
+	}, nil
+}
+
 // ProcessEvent takes a protocol event, and implements a state transition for
 // the state. Our path to this state will determine the set of valid events. If
 // we were the one that sent the shutdown, then we'll just wait on the
@@ -415,6 +440,42 @@ func (s *ShutdownPending) ProcessEvent(event ProtocolEvent, env *Environment,
 		// channel flushed event.
 		return &CloseStateTransition{
 			NextState: s,
+		}, nil
+
+	// Buffer a fee-bump request (or record the initial local close rate)
+	// while shutdown is pending.
+	case *LocalCloseReq:
+		nextState := *s
+		if !nextState.LocalCloseRequested &&
+			nextState.IdealFeeRate.IsNone() {
+
+			nextState.LocalCloseRequested = true
+			nextState.IdealFeeRate = msg.TargetFeeRate
+		} else {
+			msg.TargetFeeRate.WhenSome(func(rate chainfee.SatPerVByte) { //nolint:ll
+				nextState.PendingBump = fn.Some(
+					PendingLocalOffer{
+						TargetFeeRate: rate,
+						Seq:           msg.Seq,
+					},
+				)
+			})
+		}
+
+		return &CloseStateTransition{
+			NextState: &nextState,
+		}, nil
+
+	case *CancelPendingOffer:
+		nextState := *s
+		nextState.PendingBump.WhenSome(func(bump PendingLocalOffer) {
+			if bump.Seq == msg.Seq {
+				nextState.PendingBump = fn.None[PendingLocalOffer]() //nolint:ll
+			}
+		})
+
+		return &CloseStateTransition{
+			NextState: &nextState,
 		}, nil
 
 	// When we receive a shutdown from the remote party, we'll validate the
@@ -495,7 +556,9 @@ func (s *ShutdownPending) ProcessEvent(event ProtocolEvent, env *Environment,
 					LocalDeliveryScript:  s.LocalDeliveryScript, //nolint:ll
 					RemoteDeliveryScript: msg.ShutdownScript,    //nolint:ll
 				},
-				NonceState: updatedNonceState,
+				NonceState:          updatedNonceState,
+				LocalCloseRequested: s.LocalCloseRequested,
+				PendingBump:         s.PendingBump,
 			},
 			NewEvents: newEvents,
 		}, nil
@@ -538,9 +601,11 @@ func (s *ShutdownPending) ProcessEvent(event ProtocolEvent, env *Environment,
 		// We'll stay here until we receive the ChannelFlushed event.
 		return &CloseStateTransition{
 			NextState: &ChannelFlushing{
-				IdealFeeRate:    s.IdealFeeRate,
-				ShutdownScripts: s.ShutdownScripts,
-				NonceState:      s.NonceState,
+				IdealFeeRate:        s.IdealFeeRate,
+				ShutdownScripts:     s.ShutdownScripts,
+				NonceState:          s.NonceState,
+				LocalCloseRequested: s.LocalCloseRequested,
+				PendingBump:         s.PendingBump,
 			},
 			NewEvents: newEvents,
 		}, nil
@@ -588,6 +653,42 @@ func (c *ChannelFlushing) ProcessEvent(event ProtocolEvent, env *Environment,
 			NextState: c,
 		}, nil
 
+	// Buffer a fee-bump request while the channel is flushing so we offer
+	// the requested fee rate as soon as flushing completes.
+	case *LocalCloseReq:
+		nextState := *c
+		if !nextState.LocalCloseRequested &&
+			nextState.IdealFeeRate.IsNone() {
+
+			nextState.LocalCloseRequested = true
+			nextState.IdealFeeRate = msg.TargetFeeRate
+		} else {
+			msg.TargetFeeRate.WhenSome(func(rate chainfee.SatPerVByte) { //nolint:ll
+				nextState.PendingBump = fn.Some(
+					PendingLocalOffer{
+						TargetFeeRate: rate,
+						Seq:           msg.Seq,
+					},
+				)
+			})
+		}
+
+		return &CloseStateTransition{
+			NextState: &nextState,
+		}, nil
+
+	case *CancelPendingOffer:
+		nextState := *c
+		nextState.PendingBump.WhenSome(func(bump PendingLocalOffer) {
+			if bump.Seq == msg.Seq {
+				nextState.PendingBump = fn.None[PendingLocalOffer]() //nolint:ll
+			}
+		})
+
+		return &CloseStateTransition{
+			NextState: &nextState,
+		}, nil
+
 	// If we receive the ChannelFlushed event, then the coast is clear so
 	// we'll now morph into the dual peer state so we can handle any
 	// messages needed to drive forward the close process.
@@ -604,10 +705,22 @@ func (c *ChannelFlushing) ProcessEvent(event ProtocolEvent, env *Environment,
 		chancloserLog.Infof("ChannelPoint(%v): channel flushed! "+
 			"proceeding with co-op close", env.ChanPoint)
 
-		// If an ideal fee rate was specified, then we'll use that,
-		// otherwise we'll fall back to the default value given in the
-		// env.
-		idealFeeRate := c.IdealFeeRate.UnwrapOr(env.DefaultFeeRate)
+		// If an explicit fee bump arrived while we were waiting on
+		// shutdown or flushing, prefer its fee rate. Otherwise, fall
+		// back to the ideal fee rate or the environment default.
+		var (
+			idealFeeRate chainfee.SatPerVByte
+			explicitBump bool
+		)
+		c.PendingBump.WhenSome(func(bump PendingLocalOffer) {
+			idealFeeRate = bump.TargetFeeRate
+			explicitBump = true
+		})
+		if !explicitBump {
+			idealFeeRate = c.IdealFeeRate.UnwrapOr(
+				env.DefaultFeeRate,
+			)
+		}
 
 		// We'll then use that fee rate to determine the absolute fee
 		// we'd propose.
@@ -637,7 +750,7 @@ func (c *ChannelFlushing) ProcessEvent(event ProtocolEvent, env *Environment,
 		//
 		// TODO(roasbeef): also only proceed if was higher than fee in
 		// last round?
-		if closeTerms.LocalCanPayFees(absoluteFee) {
+		if closeTerms.LocalCanPayFees(absoluteFee) || explicitBump {
 			// Each time we go into this negotiation flow, we'll
 			// kick off our local state with a new close attempt.
 			// So we'll emit a internal event to drive forward that
@@ -1046,6 +1159,13 @@ func (c *ClosingNegotiation) ProcessEvent(event ProtocolEvent, env *Environment,
 			"chan state", env.ChanPoint, event)
 		// Drive forward the remote state based on the next event.
 		return processNegotiateEvent(c, event, env, lntypes.Remote)
+
+	case isType[*CancelPendingOffer](event):
+		// The local side already sent or superseded the buffered offer;
+		// treat late cancellation as a no-op.
+		return &CloseStateTransition{
+			NextState: c,
+		}, nil
 	}
 
 	return nil, fmt.Errorf("%w: received %T while in %v",
@@ -1130,185 +1250,197 @@ func (l *LocalCloseStart) ProcessEvent(event ProtocolEvent, env *Environment,
 	// If we receive a SendOfferEvent, then we'll use the specified fee
 	// rate to generate for the closing transaction with our ideal fee
 	// rate.
+	case *LocalCloseReq:
+		return l.processSendOffer(
+			msg.TargetFeeRate.UnwrapOr(env.DefaultFeeRate), env,
+		)
+
 	case *SendOfferEvent:
-		// given the state of the local/remote outputs.
-		// First, we'll figure out the absolute fee rate we should pay
-		localTxOut, remoteTxOut := l.DeriveCloseTxOuts()
-		absoluteFee := env.FeeEstimator.EstimateFee(
-			env.ChanType, localTxOut, remoteTxOut, nil,
-			msg.TargetFeeRate.FeePerKWeight(),
-		)
-
-		// If we can't actually pay for fees here, then we'll just do a
-		// noop back to the same state to await a new fee rate.
-		if !l.LocalCanPayFees(absoluteFee) {
-			chancloserLog.Infof("ChannelPoint(%v): unable to pay "+
-				"fee=%v with local balance %v, skipping "+
-				"closing_complete", env.ChanPoint, absoluteFee,
-				l.LocalBalance)
-
-			return &CloseStateTransition{
-				NextState: &CloseErr{
-					CloseChannelTerms: l.CloseChannelTerms,
-					Party:             lntypes.Local,
-					ErrState: NewErrStateCantPayForFee(
-						l.LocalBalance.ToSatoshis(),
-						absoluteFee,
-					),
-				},
-			}, nil
-		}
-
-		// Now that we know what fee we want to pay, we'll create a new
-		// signature over our co-op close transaction. For our
-		// proposals, we'll just always use the known RBF sequence
-		// value.
-		localScript := l.LocalDeliveryScript
-
-		var closeOpts []lnwallet.ChanCloseOpt
-		closeOpts = append(closeOpts,
-			lnwallet.WithCustomSequence(mempool.MaxRBFSequence),
-			lnwallet.WithCustomPayer(lntypes.Local),
-		)
-
-		// For taproot channels, we need to use the LocalMusigSession
-		// for signing when we're the closer (sending closing_complete).
-		if env.IsTaproot() {
-			// Initialize with the remote's closee nonce for
-			// signing. This may be using the very first nonce they
-			// send in shutdown, or the nonce they sent in
-			// ClosingSig after responding to our prior offer.
-			initLocalMusigCloseeNonce(
-				env, l.NonceState.RemoteCloseeNonce,
-			)
-
-			// Generate our JIT closer nonce. This sets the internal
-			// localNonce field in LocalMusigSession.
-			_, err := env.LocalMusigSession.ClosingNonce()
-			if err != nil {
-				return nil, fmt.Errorf("failed to generate "+
-					"JIT closer nonce: %w", err)
-			}
-
-			//nolint:ll
-			musigOpts, err := env.LocalMusigSession.ProposalClosingOpts()
-			if err != nil {
-				return nil, fmt.Errorf("failed to get musig "+
-					"closing opts: %w", err)
-			}
-			closeOpts = append(closeOpts, musigOpts...)
-		}
-
-		rawSig, closeTx, closeBalance, err := env.CloseSigner.CreateCloseProposal( //nolint:ll
-			absoluteFee, localScript, l.RemoteDeliveryScript,
-			closeOpts...,
-		)
-		if err != nil {
-			return nil, fmt.Errorf("unable to create close "+
-				"proposal: %w", err)
-		}
-
-		// Depending on the channel type, we'll be encoding a normal
-		// sig, or a musig2 partial sig.
-		var (
-			wireSig         lnwire.Sig
-			musigPartialSig *lnwallet.MusigPartialSig
-		)
-
-		// Depending on the channel type, we'll either have a partial
-		// signature, or a regular signature.
-		switch {
-		case env.IsTaproot():
-			var ok bool
-			musigPartialSig, ok = rawSig.(*lnwallet.MusigPartialSig)
-			if !ok {
-				return nil, fmt.Errorf("expected "+
-					"MusigPartialSig for taproot "+
-					"channel, got %T", rawSig)
-			}
-
-			// Convert to schnorr shell format for wire sig.
-			schnorrSig := musigPartialSig.ToSchnorrShell()
-			wireSig, err = lnwire.NewSigFromSignature(schnorrSig)
-			if err != nil {
-				return nil, err
-			}
-		default:
-			// For non-taproot channels, use regular signature
-			// conversion.
-			wireSig, err = lnwire.NewSigFromSignature(rawSig)
-			if err != nil {
-				return nil, err
-			}
-		}
-
-		chancloserLog.Infof("closing w/ local_addr=%x, "+
-			"remote_addr=%x, fee=%v", localScript[:],
-			l.RemoteDeliveryScript[:], absoluteFee)
-
-		chancloserLog.Infof("proposing closing_tx=%v",
-			spew.Sdump(closeTx))
-
-		var noClosee, noCloser bool
-		switch {
-		case remoteTxOut == nil:
-			noClosee = true
-		case closeBalance < lnwallet.DustLimitForSize(len(localScript)):
-			noCloser = true
-		}
-
-		// Create the appropriate signature structures based on channel
-		// type.
-		closingSigs, taprootClosingSigs, err := encodeClosingSignatures(
-			env, wireSig, musigPartialSig, noCloser, noClosee,
-		)
-		if err != nil {
-			return nil, err
-		}
-
-		closingCompleteMsg := &lnwire.ClosingComplete{
-			ChannelID:          env.ChanID,
-			CloserScript:       l.LocalDeliveryScript,
-			CloseeScript:       l.RemoteDeliveryScript,
-			FeeSatoshis:        absoluteFee,
-			LockTime:           env.BlockHeight,
-			ClosingSigs:        closingSigs,
-			TaprootClosingSigs: taprootClosingSigs,
-		}
-
-		// TODO(roasbeef): type alias for protocol event
-		sendEvent := protofsm.DaemonEventSet{&protofsm.SendMsgEvent[ProtocolEvent]{ //nolint:ll
-			TargetPeer: env.ChanPeer,
-			Msgs:       []lnwire.Message{closingCompleteMsg},
-		}}
-
-		chancloserLog.Infof("ChannelPoint(%v): sending closing sig "+
-			"to remote party, fee_sats=%v", env.ChanPoint,
-			absoluteFee)
-
-		// For taproot channels, stash the full MusigPartialSig so
-		// LocalOfferSent can combine signatures without re-signing.
-		var localMusigSig fn.Option[lnwallet.MusigPartialSig]
-		if musigPartialSig != nil {
-			localMusigSig = fn.Some(*musigPartialSig)
-		}
-
-		return &CloseStateTransition{
-			NextState: &LocalOfferSent{
-				ProposedFee:       absoluteFee,
-				ProposedFeeRate:   msg.TargetFeeRate,
-				LocalSig:          wireSig,
-				LocalMusigSig:     localMusigSig,
-				CloseChannelTerms: l.CloseChannelTerms,
-			},
-			NewEvents: fn.Some(RbfEvent{
-				ExternalEvents: sendEvent,
-			}),
-		}, nil
+		return l.processSendOffer(msg.TargetFeeRate, env)
 	}
 
 	return nil, fmt.Errorf("%w: received %T while in LocalCloseStart",
 		ErrInvalidStateTransition, event)
+}
+
+// processSendOffer attempts to construct and send a closing_complete offer at
+// targetFeeRate, or transitions to CloseErr if the local balance cannot cover
+// the fee.
+func (l *LocalCloseStart) processSendOffer(targetFeeRate chainfee.SatPerVByte,
+	env *Environment) (*CloseStateTransition, error) {
+	// given the state of the local/remote outputs.
+	// First, we'll figure out the absolute fee rate we should pay
+	localTxOut, remoteTxOut := l.DeriveCloseTxOuts()
+	absoluteFee := env.FeeEstimator.EstimateFee(
+		env.ChanType, localTxOut, remoteTxOut, nil,
+		targetFeeRate.FeePerKWeight(),
+	)
+
+	// If we can't actually pay for fees here, then we'll just do a
+	// noop back to the same state to await a new fee rate.
+	if !l.LocalCanPayFees(absoluteFee) {
+		chancloserLog.Infof("ChannelPoint(%v): unable to pay "+
+			"fee=%v with local balance %v, skipping "+
+			"closing_complete", env.ChanPoint, absoluteFee,
+			l.LocalBalance)
+
+		return &CloseStateTransition{
+			NextState: &CloseErr{
+				CloseChannelTerms: l.CloseChannelTerms,
+				Party:             lntypes.Local,
+				ErrState: NewErrStateCantPayForFee(
+					l.LocalBalance.ToSatoshis(),
+					absoluteFee,
+				),
+			},
+		}, nil
+	}
+
+	// Now that we know what fee we want to pay, we'll create a new
+	// signature over our co-op close transaction. For our
+	// proposals, we'll just always use the known RBF sequence
+	// value.
+	localScript := l.LocalDeliveryScript
+
+	var closeOpts []lnwallet.ChanCloseOpt
+	closeOpts = append(closeOpts,
+		lnwallet.WithCustomSequence(mempool.MaxRBFSequence),
+		lnwallet.WithCustomPayer(lntypes.Local),
+	)
+
+	// For taproot channels, we need to use the LocalMusigSession
+	// for signing when we're the closer (sending closing_complete).
+	if env.IsTaproot() {
+		// Initialize with the remote's closee nonce for
+		// signing. This may be using the very first nonce they
+		// send in shutdown, or the nonce they sent in
+		// ClosingSig after responding to our prior offer.
+		initLocalMusigCloseeNonce(
+			env, l.NonceState.RemoteCloseeNonce,
+		)
+
+		// Generate our JIT closer nonce. This sets the internal
+		// localNonce field in LocalMusigSession.
+		_, err := env.LocalMusigSession.ClosingNonce()
+		if err != nil {
+			return nil, fmt.Errorf("failed to generate "+
+				"JIT closer nonce: %w", err)
+		}
+
+		musigOpts, err := env.LocalMusigSession.ProposalClosingOpts()
+		if err != nil {
+			return nil, fmt.Errorf("failed to get musig "+
+				"closing opts: %w", err)
+		}
+		closeOpts = append(closeOpts, musigOpts...)
+	}
+
+	rawSig, closeTx, closeBalance, err := env.CloseSigner.CreateCloseProposal( //nolint:ll
+		absoluteFee, localScript, l.RemoteDeliveryScript,
+		closeOpts...,
+	)
+	if err != nil {
+		return nil, fmt.Errorf("unable to create close "+
+			"proposal: %w", err)
+	}
+
+	// Depending on the channel type, we'll be encoding a normal
+	// sig, or a musig2 partial sig.
+	var (
+		wireSig         lnwire.Sig
+		musigPartialSig *lnwallet.MusigPartialSig
+	)
+
+	// Depending on the channel type, we'll either have a partial
+	// signature, or a regular signature.
+	switch {
+	case env.IsTaproot():
+		var ok bool
+		musigPartialSig, ok = rawSig.(*lnwallet.MusigPartialSig)
+		if !ok {
+			return nil, fmt.Errorf("expected "+
+				"MusigPartialSig for taproot "+
+				"channel, got %T", rawSig)
+		}
+
+		// Convert to schnorr shell format for wire sig.
+		schnorrSig := musigPartialSig.ToSchnorrShell()
+		wireSig, err = lnwire.NewSigFromSignature(schnorrSig)
+		if err != nil {
+			return nil, err
+		}
+	default:
+		// For non-taproot channels, use regular signature
+		// conversion.
+		wireSig, err = lnwire.NewSigFromSignature(rawSig)
+		if err != nil {
+			return nil, err
+		}
+	}
+
+	chancloserLog.Infof("closing w/ local_addr=%x, "+
+		"remote_addr=%x, fee=%v", localScript[:],
+		l.RemoteDeliveryScript[:], absoluteFee)
+
+	chancloserLog.Infof("proposing closing_tx=%v",
+		spew.Sdump(closeTx))
+
+	var noClosee, noCloser bool
+	switch {
+	case remoteTxOut == nil:
+		noClosee = true
+	case closeBalance < lnwallet.DustLimitForSize(len(localScript)):
+		noCloser = true
+	}
+
+	// Create the appropriate signature structures based on channel
+	// type.
+	closingSigs, taprootClosingSigs, err := encodeClosingSignatures(
+		env, wireSig, musigPartialSig, noCloser, noClosee,
+	)
+	if err != nil {
+		return nil, err
+	}
+
+	closingCompleteMsg := &lnwire.ClosingComplete{
+		ChannelID:          env.ChanID,
+		CloserScript:       l.LocalDeliveryScript,
+		CloseeScript:       l.RemoteDeliveryScript,
+		FeeSatoshis:        absoluteFee,
+		LockTime:           env.BlockHeight,
+		ClosingSigs:        closingSigs,
+		TaprootClosingSigs: taprootClosingSigs,
+	}
+
+	// TODO(roasbeef): type alias for protocol event
+	sendEvent := protofsm.DaemonEventSet{&protofsm.SendMsgEvent[ProtocolEvent]{ //nolint:ll
+		TargetPeer: env.ChanPeer,
+		Msgs:       []lnwire.Message{closingCompleteMsg},
+	}}
+
+	chancloserLog.Infof("ChannelPoint(%v): sending closing sig "+
+		"to remote party, fee_sats=%v", env.ChanPoint,
+		absoluteFee)
+
+	// For taproot channels, stash the full MusigPartialSig so
+	// LocalOfferSent can combine signatures without re-signing.
+	var localMusigSig fn.Option[lnwallet.MusigPartialSig]
+	if musigPartialSig != nil {
+		localMusigSig = fn.Some(*musigPartialSig)
+	}
+
+	return &CloseStateTransition{
+		NextState: &LocalOfferSent{
+			ProposedFee:       absoluteFee,
+			ProposedFeeRate:   targetFeeRate,
+			LocalSig:          wireSig,
+			LocalMusigSig:     localMusigSig,
+			CloseChannelTerms: l.CloseChannelTerms,
+		},
+		NewEvents: fn.Some(RbfEvent{
+			ExternalEvents: sendEvent,
+		}),
+	}, nil
 }
 
 // selectTaprootPartialSigWithNonce selects the PartialSigWithNonce to use from
@@ -1642,6 +1774,22 @@ func (l *LocalOfferSent) ProcessEvent(event ProtocolEvent, env *Environment,
 			lnutils.SpewLogClosure(closeTx),
 		)
 
+		var internalEvents []ProtocolEvent
+		l.PendingOffer.WhenSome(func(offer PendingLocalOffer) {
+			internalEvents = append(
+				internalEvents, &SendOfferEvent{
+					TargetFeeRate: offer.TargetFeeRate,
+				},
+			)
+		})
+
+		newEvents := protofsm.EmittedEvent[ProtocolEvent]{
+			ExternalEvents: broadcastEvent,
+		}
+		if len(internalEvents) > 0 {
+			newEvents.InternalEvent = internalEvents
+		}
+
 		return &CloseStateTransition{
 			NextState: &ClosePending{
 				CloseTx:           closeTx,
@@ -1649,9 +1797,32 @@ func (l *LocalOfferSent) ProcessEvent(event ProtocolEvent, env *Environment,
 				CloseChannelTerms: l.CloseChannelTerms,
 				Party:             lntypes.Local,
 			},
-			NewEvents: fn.Some(protofsm.EmittedEvent[ProtocolEvent]{
-				ExternalEvents: broadcastEvent,
-			}),
+			NewEvents: fn.Some(newEvents),
+		}, nil
+
+	case *LocalCloseReq:
+		nextState := *l
+		nextState.PendingOffer = fn.Some(PendingLocalOffer{
+			TargetFeeRate: msg.TargetFeeRate.UnwrapOr(
+				env.DefaultFeeRate,
+			),
+			Seq: msg.Seq,
+		})
+
+		return &CloseStateTransition{
+			NextState: &nextState,
+		}, nil
+
+	case *CancelPendingOffer:
+		nextState := *l
+		nextState.PendingOffer.WhenSome(func(offer PendingLocalOffer) {
+			if offer.Seq == msg.Seq {
+				nextState.PendingOffer = fn.None[PendingLocalOffer]() //nolint:ll
+			}
+		})
+
+		return &CloseStateTransition{
+			NextState: &nextState,
 		}, nil
 	}
 
@@ -2229,6 +2400,22 @@ func (c *ClosePending) ProcessEvent(event ProtocolEvent, env *Environment,
 			}),
 		}, nil
 
+	case *LocalCloseReq:
+		offer := &SendOfferEvent{
+			TargetFeeRate: msg.TargetFeeRate.UnwrapOr(
+				env.DefaultFeeRate,
+			),
+		}
+
+		return &CloseStateTransition{
+			NextState: &LocalCloseStart{
+				CloseChannelTerms: c.CloseChannelTerms,
+			},
+			NewEvents: fn.Some(protofsm.EmittedEvent[ProtocolEvent]{
+				InternalEvent: []ProtocolEvent{offer},
+			}),
+		}, nil
+
 	// If we get an offer received event, then we're doing a state
 	// transition to the RemoteCloseStart, as the remote peer wants to sign
 	// a new closing tx.
@@ -2278,6 +2465,22 @@ func (c *CloseErr) ProcessEvent(event ProtocolEvent, env *Environment,
 			},
 			NewEvents: fn.Some(protofsm.EmittedEvent[ProtocolEvent]{
 				InternalEvent: []ProtocolEvent{msg},
+			}),
+		}, nil
+
+	case *LocalCloseReq:
+		offer := &SendOfferEvent{
+			TargetFeeRate: msg.TargetFeeRate.UnwrapOr(
+				env.DefaultFeeRate,
+			),
+		}
+
+		return &CloseStateTransition{
+			NextState: &LocalCloseStart{
+				CloseChannelTerms: c.CloseChannelTerms,
+			},
+			NewEvents: fn.Some(protofsm.EmittedEvent[ProtocolEvent]{
+				InternalEvent: []ProtocolEvent{offer},
 			}),
 		}, nil
 

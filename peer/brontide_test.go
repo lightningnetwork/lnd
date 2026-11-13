@@ -19,6 +19,7 @@ import (
 	"github.com/btcsuite/btcd/wire/v2"
 	"github.com/lightningnetwork/lnd/actor"
 	"github.com/lightningnetwork/lnd/chainntnfs"
+	"github.com/lightningnetwork/lnd/channeldb"
 	"github.com/lightningnetwork/lnd/chanstate"
 	"github.com/lightningnetwork/lnd/contractcourt"
 	"github.com/lightningnetwork/lnd/fn/v2"
@@ -27,10 +28,13 @@ import (
 	"github.com/lightningnetwork/lnd/input"
 	"github.com/lightningnetwork/lnd/lnpeer"
 	"github.com/lightningnetwork/lnd/lntest/wait"
+	"github.com/lightningnetwork/lnd/lntypes"
 	"github.com/lightningnetwork/lnd/lnwallet"
+	"github.com/lightningnetwork/lnd/lnwallet/chainfee"
 	"github.com/lightningnetwork/lnd/lnwallet/chancloser"
 	"github.com/lightningnetwork/lnd/lnwire"
 	"github.com/lightningnetwork/lnd/msgmux"
+	"github.com/lightningnetwork/lnd/protofsm"
 	"github.com/lightningnetwork/lnd/routing/route"
 	"github.com/lightningnetwork/lnd/tlv"
 	"github.com/lightningnetwork/lnd/tor"
@@ -4425,4 +4429,590 @@ func useTestCloseRouter(t *testing.T, p *Brontide) {
 	t.Cleanup(router.Stop)
 	p.msgRouter = fn.Some[msgmux.Router](router)
 	p.globalMsgRouter = true
+}
+
+// rbfIssueFeeEstimator records the fee rate of every offer the closer builds,
+// and keeps the local balance too small to sign one.
+type rbfIssueFeeEstimator struct {
+	fees chan chainfee.SatPerKWeight
+}
+
+func (f *rbfIssueFeeEstimator) EstimateFee(_ channeldb.ChannelType,
+	_, _ *wire.TxOut, _ []*wire.TxOut,
+	fee chainfee.SatPerKWeight) btcutil.Amount {
+
+	f.fees <- fee
+	return 1000
+}
+
+type rbfIssueObserver struct {
+	chancloser.ChanStateObserver
+}
+
+func (*rbfIssueObserver) FinalBalances() fn.Option[chancloser.ShutdownBalances] { //nolint:ll
+	return fn.None[chancloser.ShutdownBalances]()
+}
+
+func (*rbfIssueObserver) DisableIncomingAdds() error {
+	return nil
+}
+
+// startIssueRbfMachine starts an RBF closer in the given state and stores it
+// as the peer's closer for the channel.
+func startIssueRbfMachine(t *testing.T, p *Brontide, point wire.OutPoint,
+	initial chancloser.RbfState, fees *rbfIssueFeeEstimator,
+) *chancloser.RbfChanCloser {
+
+	t.Helper()
+	machine := protofsm.NewStateMachine(chancloser.RbfChanCloserCfg{
+		InitialState: initial,
+		Env: &chancloser.Environment{
+			ChainParams:    p.cfg.Wallet.Cfg.NetParams,
+			ChanPoint:      point,
+			ChanObserver:   &rbfIssueObserver{},
+			FeeEstimator:   fees,
+			DefaultFeeRate: 1,
+		},
+	})
+	machine.Start(t.Context())
+	t.Cleanup(machine.Stop)
+	p.activeChanCloses.Store(
+		lnwire.NewChanIDFromOutPoint(point), makeRbfCloser(&machine),
+	)
+
+	return &machine
+}
+
+// newIssueBump returns a CloseChannel fee bump request to 5000 sat/kw.
+func newIssueBump(ctx context.Context,
+	point *wire.OutPoint) *htlcswitch.ChanClose {
+
+	req := newTestCloseRequest(point, 10)
+	req.Ctx = ctx
+	req.CloseType = contractcourt.CloseRegular
+	req.TargetFeePerKw = 5000
+
+	return req
+}
+
+func newIssueTerms(t *testing.T) *chancloser.CloseChannelTerms {
+	return &chancloser.CloseChannelTerms{
+		ShutdownScripts: chancloser.ShutdownScripts{
+			LocalDeliveryScript:  genScript(t, p2wshAddress),
+			RemoteDeliveryScript: genScript(t, p2wshAddress),
+		},
+	}
+}
+
+func newIssueNegotiation(t *testing.T,
+	local chancloser.AsymmetricPeerState) *chancloser.ClosingNegotiation {
+
+	terms := newIssueTerms(t)
+
+	return &chancloser.ClosingNegotiation{
+		PeerState: lntypes.Dual[chancloser.AsymmetricPeerState]{
+			Local: local,
+			Remote: &chancloser.RemoteCloseStart{
+				CloseChannelTerms: terms,
+			},
+		},
+		CloseChannelTerms: terms,
+	}
+}
+
+func enableTestRbfClose(t *testing.T, p *Brontide, h *peerTestCtx) {
+	t.Helper()
+	rbfBits := lnwire.NewRawFeatureVector(lnwire.RbfCoopCloseOptional)
+	p.cfg.Features = lnwire.NewFeatureVector(rbfBits, lnwire.Features)
+	p.remoteFeatures = lnwire.NewFeatureVector(rbfBits, lnwire.Features)
+	require.True(t, p.rbfCoopCloseAllowed(h.channel.ChanType()))
+}
+
+func requireCloseReqTaken(t *testing.T, p *Brontide, req *htlcswitch.ChanClose,
+	msg string) {
+
+	t.Helper()
+	taken := make(chan struct{})
+	go func() {
+		p.HandleLocalCloseChanReqs(req)
+		close(taken)
+	}()
+	select {
+	case <-taken:
+	case <-time.After(timeout):
+		t.Fatalf("%s: the channel manager did not take a second "+
+			"close request within %v", msg, timeout)
+	}
+}
+
+func requireFeeOffered(t *testing.T, fees *rbfIssueFeeEstimator,
+	want chainfee.SatPerKWeight) {
+
+	t.Helper()
+	var seen []chainfee.SatPerKWeight
+	deadline := time.After(timeout)
+	for {
+		select {
+		case fee := <-fees.fees:
+			if fee == want {
+				return
+			}
+			seen = append(seen, fee)
+
+		case <-deadline:
+			t.Fatalf("no offer at the requested %v within %v; "+
+				"offers built: %v", want, timeout, seen)
+		}
+	}
+}
+
+// TestRbfBumpDuringRestoredShutdown verifies that a fee bump arriving while a
+// close is in ShutdownPending is buffered and evaluated once shutdown finishes.
+func TestRbfBumpDuringRestoredShutdown(t *testing.T) {
+	t.Parallel()
+
+	h, err := createTestPeerWithChannel(t, noUpdate)
+	require.NoError(t, err)
+	p := h.peer
+	point := h.channel.ChannelPoint()
+	fees := &rbfIssueFeeEstimator{
+		fees: make(chan chainfee.SatPerKWeight, 4),
+	}
+	scripts := newIssueTerms(t).ShutdownScripts
+	machine := startIssueRbfMachine(
+		t, p, point, &chancloser.ShutdownPending{
+			ShutdownScripts: scripts,
+			IdealFeeRate:    fn.Some(chainfee.SatPerVByte(1)),
+		}, fees,
+	)
+
+	req := newIssueBump(t.Context(), &point)
+	require.NoError(t, p.startRbfChanCloser(newRPCShutdownInit(req), point))
+
+	// The peer's Shutdown arrives and the channel flushes with zero local
+	// balance, so the buffered bump should produce ErrStateCantPayForFee.
+	machine.SendEvent(t.Context(), &chancloser.ShutdownReceived{
+		ShutdownScript: genScript(t, p2wshAddress),
+	})
+	machine.SendEvent(t.Context(), &chancloser.ChannelFlushed{
+		ShutdownBalances: chancloser.ShutdownBalances{
+			RemoteBalance: 10_000_000,
+		},
+	})
+
+	requireFeeOffered(t, fees, req.TargetFeePerKw)
+
+	select {
+	case err := <-req.ErrChan(t.Context()):
+		require.ErrorContains(t, err, "cannot pay for fee")
+	case <-time.After(timeout):
+		t.Fatal("caller did not receive unpayable-fee error")
+	}
+}
+
+// TestRbfBumpWaitKeepsChannelManagerFree verifies that a fee bump while Local
+// is in LocalOfferSent never blocks the peer's channelManager goroutine.
+func TestRbfBumpWaitKeepsChannelManagerFree(t *testing.T) {
+	t.Parallel()
+
+	h, err := createTestPeerWithChannel(t, noUpdate)
+	require.NoError(t, err)
+	p := h.peer
+	point := h.channel.ChannelPoint()
+	enableTestRbfClose(t, p, h)
+	fees := &rbfIssueFeeEstimator{
+		fees: make(chan chainfee.SatPerKWeight, 4),
+	}
+	startIssueRbfMachine(t, p, point, newIssueNegotiation(t,
+		&chancloser.LocalOfferSent{CloseChannelTerms: newIssueTerms(t)},
+	), fees)
+	t.Cleanup(func() { p.Disconnect(context.Canceled) })
+
+	p.HandleLocalCloseChanReqs(newIssueBump(t.Context(), &point))
+	requireCloseReqTaken(
+		t, p, newIssueBump(t.Context(), &point), "bump waiting",
+	)
+}
+
+// TestRbfBumpWaitEndsOnCallerCancel verifies that cancelling a bump caller's
+// context releases its registration and leaves channelManager responsive.
+func TestRbfBumpWaitEndsOnCallerCancel(t *testing.T) {
+	t.Parallel()
+
+	h, err := createTestPeerWithChannel(t, noUpdate)
+	require.NoError(t, err)
+	p := h.peer
+	point := h.channel.ChannelPoint()
+	chanID := lnwire.NewChanIDFromOutPoint(point)
+	enableTestRbfClose(t, p, h)
+	fees := &rbfIssueFeeEstimator{
+		fees: make(chan chainfee.SatPerKWeight, 4),
+	}
+	startIssueRbfMachine(t, p, point, newIssueNegotiation(t,
+		&chancloser.LocalOfferSent{CloseChannelTerms: newIssueTerms(t)},
+	), fees)
+	t.Cleanup(func() { p.Disconnect(context.Canceled) })
+
+	ctx, cancel := context.WithCancel(t.Context())
+	p.HandleLocalCloseChanReqs(newIssueBump(ctx, &point))
+	err = wait.Predicate(func() bool {
+		return p.activeCloseReqs.peek(chanID) != nil
+	}, timeout)
+	require.NoError(t, err)
+	cancel()
+	err = wait.Predicate(func() bool {
+		return p.activeCloseReqs.peek(chanID) == nil
+	}, timeout)
+	require.NoError(t, err)
+
+	requireCloseReqTaken(
+		t, p, newIssueBump(t.Context(), &point), "caller cancelled",
+	)
+}
+
+// TestRbfBumpWithoutClosePending verifies that fee bumps proceed immediately
+// when Local is in CloseErr or LocalCloseStart.
+func TestRbfBumpWithoutClosePending(t *testing.T) {
+	t.Parallel()
+
+	for _, name := range []string{"CloseErr", "LocalCloseStart"} {
+		t.Run(name, func(t *testing.T) {
+			t.Parallel()
+
+			h, err := createTestPeerWithChannel(t, noUpdate)
+			require.NoError(t, err)
+			p := h.peer
+			point := h.channel.ChannelPoint()
+			fees := &rbfIssueFeeEstimator{
+				fees: make(chan chainfee.SatPerKWeight, 4),
+			}
+			terms := newIssueTerms(t)
+			var local chancloser.AsymmetricPeerState = &chancloser.LocalCloseStart{ //nolint:ll
+				CloseChannelTerms: terms,
+			}
+			if name == "CloseErr" {
+				local = &chancloser.CloseErr{
+					CloseChannelTerms: terms,
+					Party:             lntypes.Local,
+					ErrState: chancloser.NewErrStateCantPayForFee( //nolint:ll
+						0, 1000,
+					),
+				}
+			}
+			startIssueRbfMachine(
+				t, p, point, newIssueNegotiation(t, local), fees, //nolint:ll
+			)
+			t.Cleanup(func() { p.Disconnect(context.Canceled) })
+
+			req := newIssueBump(t.Context(), &point)
+			require.NoError(t, p.startRbfChanCloser(
+				newRPCShutdownInit(req), point,
+			))
+			requireFeeOffered(t, fees, req.TargetFeePerKw)
+		})
+	}
+}
+
+// TestRbfCloseFinWipesChannelAndLink verifies that CloseFin tears down the
+// closer, activeChannels entry, and switch link for both locally initiated and
+// remote-initiated RBF cooperative closes.
+func TestRbfCloseFinWipesChannelAndLink(t *testing.T) {
+	t.Parallel()
+
+	for _, tc := range []struct {
+		name           string
+		localInitiated bool
+		withLink       bool
+	}{
+		{
+			name:           "local_initiated",
+			localInitiated: true,
+			withLink:       true,
+		},
+		{
+			name:           "remote_initiated",
+			localInitiated: false,
+			withLink:       true,
+		},
+		{
+			name:           "restored_no_link",
+			localInitiated: false,
+			withLink:       false,
+		},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			harness, err := createTestPeerWithChannel(t, noUpdate)
+			require.NoError(t, err)
+			alicePeer := harness.peer
+			bobChan := harness.channel
+			chanPoint := bobChan.ChannelPoint()
+			chanID := lnwire.NewChanIDFromOutPoint(chanPoint)
+
+			removedLinks := make(chan lnwire.ChannelID, 1)
+			harness.mockSwitch.removedLinks = removedLinks
+			if tc.withLink {
+				harness.mockSwitch.links = append(
+					harness.mockSwitch.links,
+					newMockUpdateHandler(chanID),
+				)
+			}
+			useTestCloseRouter(t, alicePeer)
+			rbfCloser := initTestRbfCloser(t, alicePeer, bobChan)
+			t.Cleanup(func() {
+				alicePeer.Disconnect(context.Canceled)
+			})
+
+			var closeReq *htlcswitch.ChanClose
+			if tc.localInitiated {
+				closeReq = newTestCloseRequest(&chanPoint, 5)
+				alicePeer.activeCloseReqs.add(chanID, closeReq)
+				stateSub := rbfCloser.RegisterStateEvents()
+				alicePeer.cg.WgAdd(1)
+				go func() {
+					defer alicePeer.cg.WgDone()
+					alicePeer.observeRbfCloseUpdates(
+						rbfCloser, closeReq, stateSub,
+					)
+				}()
+			}
+			closingTx := wire.NewMsgTx(2)
+			rbfCloser.SendEvent(t.Context(), &chancloser.SpendEvent{
+				Tx: closingTx,
+			})
+			// The closer, channel, and switch link must all be
+			// removed.
+			err = wait.Predicate(func() bool {
+				_, closerFound := alicePeer.activeChanCloses.Load( //nolint:ll
+					chanID,
+				)
+				_, chanFound := alicePeer.activeChannels.Load( //nolint:ll
+					chanID,
+				)
+
+				return !closerFound && !chanFound &&
+					!rbfCloser.IsRunning()
+			}, timeout)
+			require.NoError(t, err)
+			if tc.withLink {
+				select {
+				case removedID := <-removedLinks:
+					require.Equal(t, chanID, removedID)
+				case <-time.After(timeout):
+					t.Fatal("switch link not removed")
+				}
+			}
+			if tc.localInitiated {
+				select {
+				case update := <-closeReq.Updates:
+					cu, ok := update.(*ChannelCloseUpdate)
+					require.True(t, ok, "got %T", update)
+					require.True(t, cu.Success)
+					var gotHash chainhash.Hash
+					copy(gotHash[:], cu.ClosingTxid)
+					require.Equal(
+						t, closingTx.TxHash(), gotHash,
+					)
+				case <-time.After(timeout):
+					t.Fatal("missing close confirmation")
+				}
+			}
+		})
+	}
+}
+
+// TestRbfCloseErrDoesNotLeakOnRetry verifies that an unpayable fee bump exits
+// its observer on CloseErr without later emitting a late cancellation that
+// re-notifies a subsequent retry caller.
+func TestRbfCloseErrDoesNotLeakOnRetry(t *testing.T) {
+	t.Parallel()
+
+	h, err := createTestPeerWithChannel(t, noUpdate)
+	require.NoError(t, err)
+	p := h.peer
+	point := h.channel.ChannelPoint()
+	fees := &rbfIssueFeeEstimator{
+		fees: make(chan chainfee.SatPerKWeight, 4),
+	}
+	terms := newIssueTerms(t)
+	terms.LocalBalance = 0
+	startIssueRbfMachine(t, p, point, newIssueNegotiation(t,
+		&chancloser.LocalCloseStart{CloseChannelTerms: terms},
+	), fees)
+	t.Cleanup(func() { p.Disconnect(context.Canceled) })
+
+	// First bump fails with CloseErr and resolves caller 1.
+	ctx1, cancel1 := context.WithCancel(t.Context())
+	req1 := newIssueBump(ctx1, &point)
+	require.NoError(t, p.startRbfChanCloser(
+		newRPCShutdownInit(req1), point,
+	))
+	requireFeeOffered(t, fees, req1.TargetFeePerKw)
+	select {
+	case err := <-req1.ErrChan(t.Context()):
+		require.ErrorContains(t, err, "cannot pay for fee")
+	case <-time.After(timeout):
+		t.Fatal("caller 1 did not receive unpayable-fee error")
+	}
+
+	// Register caller 2 and cancel caller 1; caller 2 must not receive
+	// caller 1's stale CloseErr.
+	chanID := lnwire.NewChanIDFromOutPoint(point)
+	req2 := newIssueBump(t.Context(), &point)
+	p.activeCloseReqs.add(chanID, req2)
+	machineAny, ok := p.activeChanCloses.Load(chanID)
+	require.True(t, ok)
+	machineAny.WhenRight(func(m *chancloser.RbfChanCloser) {
+		sub := m.RegisterStateEvents()
+		p.cg.WgAdd(1)
+		go func() {
+			defer p.cg.WgDone()
+			p.observeRbfCloseUpdates(m, req2, sub)
+		}()
+	})
+	cancel1()
+	select {
+	case err := <-req2.ErrChan(t.Context()):
+		t.Fatalf("caller 2 got stale err: %v", err)
+	case <-time.After(shortTimeout):
+	}
+}
+
+// TestRbfReportErrorAnswersCallersAndRetiresCloser verifies that when the RBF
+// FSM errors out, ReportError aborts waiting RPC callers with the FSM error,
+// retires the stopped closer when no active channel remains, and replaces it
+// cleanly when an active channel is present.
+func TestRbfReportErrorAnswersCallersAndRetiresCloser(t *testing.T) {
+	t.Parallel()
+
+	t.Run("active_channel_replaces_and_answers", func(t *testing.T) {
+		t.Parallel()
+
+		h, err := createTestPeerWithChannel(t, noUpdate)
+		require.NoError(t, err)
+		p := h.peer
+		point := h.channel.ChannelPoint()
+		chanID := lnwire.NewChanIDFromOutPoint(point)
+		useTestCloseRouter(t, p)
+
+		oldCloser := initTestRbfCloser(t, p, h.channel)
+		t.Cleanup(func() { p.Disconnect(context.Canceled) })
+
+		req := newTestCloseRequest(&point, 5)
+		p.activeCloseReqs.add(chanID, req)
+		stateSub := oldCloser.RegisterStateEvents()
+		p.cg.WgAdd(1)
+		go func() {
+			defer p.cg.WgDone()
+			p.observeRbfCloseUpdates(oldCloser, req, stateSub)
+		}()
+
+		fsmErr := errors.New("test fsm transition error")
+		go newChanErrorReporter(chanID, p).ReportError(fsmErr)
+		select {
+		case out := <-p.outgoingQueue:
+			_, ok := out.msg.(*lnwire.Error)
+			require.True(t, ok, "expected lnwire.Error")
+		case <-time.After(timeout):
+			t.Fatal("expected error message on outgoingQueue")
+		}
+		oldCloser.Stop()
+
+		select {
+		case gotErr := <-req.ErrChan(t.Context()):
+			require.ErrorIs(t, gotErr, fsmErr)
+		case <-time.After(timeout):
+			t.Fatal("waiting caller was not answered")
+		}
+
+		// A fresh live replacement closer should be installed.
+		err = wait.Predicate(func() bool {
+			cur, found := p.activeChanCloses.Load(chanID)
+			if !found {
+				return false
+			}
+			var replaced *chancloser.RbfChanCloser
+			cur.WhenRight(func(c *chancloser.RbfChanCloser) { //nolint:ll
+				replaced = c
+			})
+
+			return replaced != nil && replaced != oldCloser &&
+				replaced.IsRunning()
+		}, timeout)
+		require.NoError(t, err)
+	})
+
+	t.Run("missing_channel_retires_closer", func(t *testing.T) {
+		t.Parallel()
+
+		h, err := createTestPeerWithChannel(t, noUpdate)
+		require.NoError(t, err)
+		p := h.peer
+		point := h.channel.ChannelPoint()
+		chanID := lnwire.NewChanIDFromOutPoint(point)
+		useTestCloseRouter(t, p)
+
+		oldCloser := initTestRbfCloser(t, p, h.channel)
+		t.Cleanup(func() { p.Disconnect(context.Canceled) })
+
+		p.activeChannels.Delete(chanID)
+		req := newTestCloseRequest(&point, 5)
+		p.activeCloseReqs.add(chanID, req)
+
+		fsmErr := errors.New("test fsm transition error")
+		go newChanErrorReporter(chanID, p).ReportError(fsmErr)
+		select {
+		case out := <-p.outgoingQueue:
+			_, ok := out.msg.(*lnwire.Error)
+			require.True(t, ok, "expected lnwire.Error")
+		case <-time.After(timeout):
+			t.Fatal("expected error message on outgoingQueue")
+		}
+
+		select {
+		case gotErr := <-req.ErrChan(t.Context()):
+			require.ErrorIs(t, gotErr, fsmErr)
+		case <-time.After(timeout):
+			t.Fatal("waiting caller was not answered")
+		}
+		_, found := p.activeChanCloses.Load(chanID)
+		require.False(t, found)
+		err = wait.Predicate(func() bool {
+			return !oldCloser.IsRunning()
+		}, timeout)
+		require.NoError(t, err)
+	})
+}
+
+// TestRbfIsSameLiveCloserRejectsReplacedOrStopped verifies the identity and
+// liveness guard used before binding an RPC caller to an RBF closer.
+func TestRbfIsSameLiveCloserRejectsReplacedOrStopped(t *testing.T) {
+	t.Parallel()
+
+	h, err := createTestPeerWithChannel(t, noUpdate)
+	require.NoError(t, err)
+	p := h.peer
+	point := h.channel.ChannelPoint()
+	chanID := lnwire.NewChanIDFromOutPoint(point)
+	fees := &rbfIssueFeeEstimator{
+		fees: make(chan chainfee.SatPerKWeight, 4),
+	}
+	t.Cleanup(func() { p.Disconnect(context.Canceled) })
+
+	first := startIssueRbfMachine(
+		t, p, point, &chancloser.ChannelActive{}, fees,
+	)
+	require.True(t, p.isSameLiveRbfCloser(chanID, first))
+
+	// Stopping the same closer must fail the liveness check even while it
+	// remains in activeChanCloses.
+	first.Stop()
+	require.False(t, p.isSameLiveRbfCloser(chanID, first))
+
+	// Replacing the map entry with a fresh closer must reject the old one.
+	second := startIssueRbfMachine(
+		t, p, point, &chancloser.ChannelActive{}, fees,
+	)
+	require.False(t, p.isSameLiveRbfCloser(chanID, first))
+	require.True(t, p.isSameLiveRbfCloser(chanID, second))
 }

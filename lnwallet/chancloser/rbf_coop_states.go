@@ -75,7 +75,7 @@ type ProtocolEvent interface {
 type ProtocolEvents interface {
 	SendShutdown | ShutdownReceived | ShutdownComplete | ChannelFlushed |
 		SendOfferEvent | OfferReceivedEvent | LocalSigReceived |
-		SpendEvent
+		SpendEvent | LocalCloseReq | CancelPendingOffer
 }
 
 // SpendEvent indicates that a transaction spending the funding outpoint has
@@ -115,6 +115,45 @@ type SendShutdown struct {
 
 // protocolSealed indicates that this struct is a ProtocolEvent instance.
 func (s *SendShutdown) protocolSealed() {}
+
+// PendingLocalOffer holds a fee-bump request buffered while the state machine
+// cannot yet send a new closing_complete offer.
+type PendingLocalOffer struct {
+	// TargetFeeRate is the requested fee rate for the next offer.
+	TargetFeeRate chainfee.SatPerVByte
+
+	// Seq identifies the caller request so a cancelled caller only retracts
+	// its own unstarted bump.
+	Seq uint64
+}
+
+// LocalCloseReq represents a local cooperative close or fee-bump request. It
+// is valid in every state of the RBF closer, avoiding out-of-band state polling
+// and blocking waits.
+type LocalCloseReq struct {
+	// DeliveryAddr is the address we'd like to receive the funds to on the
+	// initial shutdown. Ignored once shutdown has already begun.
+	DeliveryAddr fn.Option[lnwire.DeliveryAddress]
+
+	// TargetFeeRate is the explicit fee rate requested by the caller, or
+	// None when resuming a shutdown from persisted state.
+	TargetFeeRate fn.Option[chainfee.SatPerVByte]
+
+	// Seq uniquely identifies this request when buffered.
+	Seq uint64
+}
+
+// protocolSealed indicates that this struct is a ProtocolEvent instance.
+func (l *LocalCloseReq) protocolSealed() {}
+
+// CancelPendingOffer retracts a buffered fee-bump request if it has not yet
+// been sent and still matches Seq.
+type CancelPendingOffer struct {
+	Seq uint64
+}
+
+// protocolSealed indicates that this struct is a ProtocolEvent instance.
+func (c *CancelPendingOffer) protocolSealed() {}
 
 // ShutdownReceived indicates that we received a shutdown event so we need to
 // enter the flushing state.
@@ -492,6 +531,14 @@ type ShutdownPending struct {
 	// NonceState tracks the nonces exchanged during shutdown for taproot
 	// channels.
 	NonceState NonceState
+
+	// LocalCloseRequested is true once a local close or restart shutdown
+	// has been initiated.
+	LocalCloseRequested bool
+
+	// PendingBump holds a fee-bump request that arrived while shutdown was
+	// already pending.
+	PendingBump fn.Option[PendingLocalOffer]
 }
 
 // String returns the name of the state for ShutdownPending.
@@ -536,6 +583,14 @@ type ChannelFlushing struct {
 	// NonceState tracks the nonces exchanged during shutdown for taproot
 	// channels.
 	NonceState NonceState
+
+	// LocalCloseRequested is true once a local close or restart shutdown
+	// has been initiated.
+	LocalCloseRequested bool
+
+	// PendingBump holds a fee-bump request that arrived while the channel
+	// was flushing.
+	PendingBump fn.Option[PendingLocalOffer]
 }
 
 // String returns the name of the state for ChannelFlushing.
@@ -753,7 +808,7 @@ func (l *LocalCloseStart) String() string {
 // event.
 func (l *LocalCloseStart) ShouldRouteTo(event ProtocolEvent) bool {
 	switch event.(type) {
-	case *SendOfferEvent:
+	case *SendOfferEvent, *LocalCloseReq:
 		return true
 	default:
 		return false
@@ -796,6 +851,10 @@ type LocalOfferSent struct {
 	// signatures without re-signing, which prevents nonce reuse across
 	// RBF iterations. Only set for taproot channels.
 	LocalMusigSig fn.Option[lnwallet.MusigPartialSig]
+
+	// PendingOffer holds a fee-bump request that arrived while waiting for
+	// the remote party's signature on the current offer.
+	PendingOffer fn.Option[PendingLocalOffer]
 }
 
 // String returns the name of the state for LocalOfferSent, including proposed.
@@ -807,7 +866,7 @@ func (l *LocalOfferSent) String() string {
 // event.
 func (l *LocalOfferSent) ShouldRouteTo(event ProtocolEvent) bool {
 	switch event.(type) {
-	case *LocalSigReceived:
+	case *LocalSigReceived, *LocalCloseReq, *CancelPendingOffer:
 		return true
 	default:
 		return false
@@ -868,13 +927,14 @@ func (c *ClosePending) ShouldRouteTo(event ProtocolEvent) bool {
 		return true
 	default:
 		switch {
-		case c.Party == lntypes.Local && isType[*SendOfferEvent](event):
+		case c.Party == lntypes.Local &&
+			(isType[*SendOfferEvent](event) ||
+				isType[*LocalCloseReq](event)):
 			return true
 
 		case c.Party == lntypes.Remote && isType[*OfferReceivedEvent](
 			event,
 		):
-
 			return true
 		}
 
@@ -970,13 +1030,14 @@ func (c *CloseErr) ShouldRouteTo(event ProtocolEvent) bool {
 		return true
 	default:
 		switch {
-		case c.Party == lntypes.Local && isType[*SendOfferEvent](event):
+		case c.Party == lntypes.Local &&
+			(isType[*SendOfferEvent](event) ||
+				isType[*LocalCloseReq](event)):
 			return true
 
 		case c.Party == lntypes.Remote && isType[*OfferReceivedEvent](
 			event,
 		):
-
 			return true
 		}
 

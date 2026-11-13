@@ -244,6 +244,12 @@ func (s *StateMachine[Event, Env]) Stop() {
 	})
 }
 
+// Done returns a channel that is closed once the state machine has been asked
+// to stop.
+func (s *StateMachine[Event, Env]) Done() <-chan struct{} {
+	return s.quit
+}
+
 // SendEvent sends a new event to the state machine.
 //
 // TODO(roasbeef): bool if processed?

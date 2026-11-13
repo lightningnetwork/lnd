@@ -16,6 +16,7 @@ import (
 	"github.com/btcsuite/btcd/chaincfg/v2"
 	"github.com/btcsuite/btcd/chainhash/v2"
 	"github.com/btcsuite/btcd/psbt/v2"
+	"github.com/btcsuite/btcd/txscript/v2"
 	"github.com/btcsuite/btcd/wire/v2"
 	"github.com/davecgh/go-spew/spew"
 	"github.com/lightningnetwork/lnd/input"
@@ -772,4 +773,359 @@ func clonePsbt(t *testing.T, p *psbt.Packet) *psbt.Packet {
 	newPacket, err := psbt.NewFromRawBytes(&buf, false)
 	require.NoError(t, err, "error unserializing PSBT")
 	return newPacket
+}
+
+// TestTxWithFinalSigScripts makes sure that the final signature script of every
+// input is filled in, and that a PSBT is rejected if the final signature script
+// of an input can't be known before the input is signed.
+func TestTxWithFinalSigScripts(t *testing.T) {
+	t.Parallel()
+
+	_, pubKey := btcec.PrivKeyFromBytes(localPrivkey)
+	_, otherPubKey := btcec.PrivKeyFromBytes(remotePrivkey)
+	pubKeyBytes := pubKey.SerializeCompressed()
+
+	p2wkh, err := input.WitnessPubKeyHash(pubKeyBytes)
+	require.NoError(t, err)
+
+	multiSigScript, err := input.GenMultiSigScript(
+		pubKeyBytes, otherPubKey.SerializeCompressed(),
+	)
+	require.NoError(t, err)
+
+	p2wsh, err := input.WitnessScriptHash(multiSigScript)
+	require.NoError(t, err)
+
+	p2tr, err := txscript.PayToTaprootScript(pubKey)
+	require.NoError(t, err)
+
+	np2wkh, err := input.GenerateP2SH(p2wkh)
+	require.NoError(t, err)
+
+	np2wsh, err := input.GenerateP2SH(p2wsh)
+	require.NoError(t, err)
+
+	p2pkh, err := input.GenerateP2PKH(pubKeyBytes)
+	require.NoError(t, err)
+
+	bareP2SH, err := input.GenerateP2SH(multiSigScript)
+	require.NoError(t, err)
+
+	// pushData returns a script that pushes the given data. A push of up
+	// to 75 bytes is the length of the data, followed by the data.
+	pushData := func(data []byte) []byte {
+		return append([]byte{byte(len(data))}, data...)
+	}
+
+	// newPacket returns a PSBT with an input for each of the given output
+	// scripts. Each input spends output 1 of its own previous transaction,
+	// and has both UTXO fields set.
+	newPacket := func(pkScripts [][]byte) *psbt.Packet {
+		tx := wire.NewMsgTx(2)
+		inputs := make([]psbt.PInput, 0, len(pkScripts))
+		for idx, pkScript := range pkScripts {
+			prevTx := wire.NewMsgTx(2)
+			prevTx.AddTxIn(&wire.TxIn{
+				PreviousOutPoint: wire.OutPoint{
+					Index: uint32(idx),
+				},
+			})
+			prevTx.AddTxOut(&wire.TxOut{
+				Value:    1000,
+				PkScript: p2wkh,
+			})
+			prevTx.AddTxOut(&wire.TxOut{
+				Value:    100_000,
+				PkScript: pkScript,
+			})
+
+			tx.AddTxIn(&wire.TxIn{
+				PreviousOutPoint: wire.OutPoint{
+					Hash:  prevTx.TxHash(),
+					Index: 1,
+				},
+			})
+			inputs = append(inputs, psbt.PInput{
+				WitnessUtxo: &wire.TxOut{
+					Value:    100_000,
+					PkScript: pkScript,
+				},
+				NonWitnessUtxo: prevTx,
+			})
+		}
+		tx.AddTxOut(&wire.TxOut{Value: 50_000, PkScript: p2tr})
+
+		return &psbt.Packet{
+			UnsignedTx: tx,
+			Inputs:     inputs,
+			Outputs:    make([]psbt.POutput, len(tx.TxOut)),
+		}
+	}
+
+	// The following functions change the inputs of a PSBT.
+	noWitnessUtxo := func(p *psbt.Packet) {
+		for idx := range p.Inputs {
+			p.Inputs[idx].WitnessUtxo = nil
+		}
+	}
+	noNonWitnessUtxo := func(p *psbt.Packet) {
+		for idx := range p.Inputs {
+			p.Inputs[idx].NonWitnessUtxo = nil
+		}
+	}
+	redeemScripts := func(scripts ...[]byte) func(*psbt.Packet) {
+		return func(p *psbt.Packet) {
+			for idx, script := range scripts {
+				p.Inputs[idx].RedeemScript = script
+			}
+		}
+	}
+	finalScriptSig := func(script []byte) func(*psbt.Packet) {
+		return func(p *psbt.Packet) {
+			p.Inputs[0].FinalScriptSig = script
+		}
+	}
+
+	testCases := []struct {
+		name string
+
+		// pkScripts are the scripts of the outputs that the inputs
+		// spend.
+		pkScripts [][]byte
+
+		// modify holds the changes to apply to the PSBT before the
+		// test.
+		modify []func(*psbt.Packet)
+
+		// sigScripts are the expected signature scripts of the inputs.
+		sigScripts [][]byte
+
+		// expectedErr is a part of the expected error, if any.
+		expectedErr string
+	}{{
+		name:       "native SegWit, both UTXO fields",
+		pkScripts:  [][]byte{p2wkh, p2wsh, p2tr},
+		sigScripts: [][]byte{nil, nil, nil},
+	}, {
+		name:       "native SegWit, witness UTXO only",
+		pkScripts:  [][]byte{p2wkh, p2wsh, p2tr},
+		modify:     []func(*psbt.Packet){noNonWitnessUtxo},
+		sigScripts: [][]byte{nil, nil, nil},
+	}, {
+		name:       "native SegWit, non-witness UTXO only",
+		pkScripts:  [][]byte{p2wkh, p2wsh, p2tr},
+		modify:     []func(*psbt.Packet){noWitnessUtxo},
+		sigScripts: [][]byte{nil, nil, nil},
+	}, {
+		name:      "nested SegWit, both UTXO fields",
+		pkScripts: [][]byte{np2wkh, np2wsh},
+		modify: []func(*psbt.Packet){
+			redeemScripts(p2wkh, p2wsh),
+		},
+		sigScripts: [][]byte{pushData(p2wkh), pushData(p2wsh)},
+	}, {
+		name:      "nested SegWit, witness UTXO only",
+		pkScripts: [][]byte{np2wkh, np2wsh},
+		modify: []func(*psbt.Packet){
+			redeemScripts(p2wkh, p2wsh), noNonWitnessUtxo,
+		},
+		sigScripts: [][]byte{pushData(p2wkh), pushData(p2wsh)},
+	}, {
+		// Electrum leaves out the witness UTXO.
+		name:      "nested SegWit, non-witness UTXO only",
+		pkScripts: [][]byte{np2wkh, np2wsh},
+		modify: []func(*psbt.Packet){
+			redeemScripts(p2wkh, p2wsh), noWitnessUtxo,
+		},
+		sigScripts: [][]byte{pushData(p2wkh), pushData(p2wsh)},
+	}, {
+		name:      "native and nested SegWit",
+		pkScripts: [][]byte{p2tr, np2wkh, p2wkh, np2wsh},
+		modify: []func(*psbt.Packet){
+			redeemScripts(nil, p2wkh, nil, p2wsh),
+		},
+		sigScripts: [][]byte{
+			nil, pushData(p2wkh), nil, pushData(p2wsh),
+		},
+	}, {
+		name:      "matching final signature script",
+		pkScripts: [][]byte{np2wkh},
+		modify: []func(*psbt.Packet){
+			redeemScripts(p2wkh), finalScriptSig(pushData(p2wkh)),
+		},
+		sigScripts: [][]byte{pushData(p2wkh)},
+	}, {
+		name:        "nested SegWit without redeem script",
+		pkScripts:   [][]byte{p2wkh, np2wkh},
+		expectedErr: "input 1: P2SH input has no redeem script",
+	}, {
+		// A finalizer may remove the redeem script, and only keep the
+		// witness UTXO and the final scripts.
+		name:      "finalized nested SegWit",
+		pkScripts: [][]byte{np2wkh},
+		modify: []func(*psbt.Packet){
+			noNonWitnessUtxo, finalScriptSig(pushData(p2wkh)),
+		},
+		expectedErr: "input 0: P2SH input has no redeem script",
+	}, {
+		name:      "redeem script not a witness program",
+		pkScripts: [][]byte{bareP2SH},
+		modify: []func(*psbt.Packet){
+			redeemScripts(multiSigScript),
+		},
+		expectedErr: "input 0: P2SH input is not nested SegWit",
+	}, {
+		name:      "redeem script of another output",
+		pkScripts: [][]byte{np2wkh},
+		modify: []func(*psbt.Packet){
+			redeemScripts(p2wsh),
+		},
+		expectedErr: "input 0: redeem script does not match",
+	}, {
+		name:        "P2PKH in witness UTXO",
+		pkScripts:   [][]byte{p2pkh},
+		modify:      []func(*psbt.Packet){noNonWitnessUtxo},
+		expectedErr: "input 0: not a SegWit spend",
+	}, {
+		name:        "bare P2SH in witness UTXO",
+		pkScripts:   [][]byte{bareP2SH},
+		modify:      []func(*psbt.Packet){noNonWitnessUtxo},
+		expectedErr: "input 0: P2SH input has no redeem script",
+	}, {
+		name:        "empty script in witness UTXO",
+		pkScripts:   [][]byte{nil},
+		modify:      []func(*psbt.Packet){noNonWitnessUtxo},
+		expectedErr: "input 0: not a SegWit spend",
+	}, {
+		name:      "native SegWit with final signature script",
+		pkScripts: [][]byte{p2wkh},
+		modify: []func(*psbt.Packet){
+			finalScriptSig(pushData(p2wkh)),
+		},
+		expectedErr: "input 0: final signature script is not",
+	}, {
+		name:      "nested SegWit with other final signature script",
+		pkScripts: [][]byte{np2wkh},
+		modify: []func(*psbt.Packet){
+			redeemScripts(p2wkh), finalScriptSig(pushData(p2wsh)),
+		},
+		expectedErr: "input 0: final signature script is not",
+	}, {
+		name:      "non-witness UTXO of another transaction",
+		pkScripts: [][]byte{p2wkh},
+		modify: []func(*psbt.Packet){
+			func(p *psbt.Packet) {
+				txIn := p.UnsignedTx.TxIn[0]
+				txIn.PreviousOutPoint.Hash = chainhash.Hash{1}
+			},
+		},
+		expectedErr: "input 0: non-witness UTXO is not the " +
+			"transaction",
+	}, {
+		name:      "non-witness UTXO without spent output",
+		pkScripts: [][]byte{p2wkh},
+		modify: []func(*psbt.Packet){
+			func(p *psbt.Packet) {
+				txIn := p.UnsignedTx.TxIn[0]
+				txIn.PreviousOutPoint.Index = 2
+			},
+		},
+		expectedErr: "input 0: non-witness UTXO has no output 2",
+	}, {
+		// Converted to a 32-bit int, this index would be negative.
+		name:      "non-witness UTXO without spent output, high index",
+		pkScripts: [][]byte{p2wkh},
+		modify: []func(*psbt.Packet){
+			func(p *psbt.Packet) {
+				txIn := p.UnsignedTx.TxIn[0]
+				txIn.PreviousOutPoint.Index = 1 << 31
+			},
+		},
+		expectedErr: "input 0: non-witness UTXO has no output " +
+			"2147483648",
+	}, {
+		name:      "UTXO fields with different scripts",
+		pkScripts: [][]byte{p2wkh},
+		modify: []func(*psbt.Packet){
+			func(p *psbt.Packet) {
+				p.Inputs[0].WitnessUtxo.PkScript = p2tr
+			},
+		},
+		expectedErr: "input 0: witness UTXO and non-witness UTXO " +
+			"differ",
+	}, {
+		name:      "UTXO fields with different values",
+		pkScripts: [][]byte{p2wkh},
+		modify: []func(*psbt.Packet){
+			func(p *psbt.Packet) {
+				p.Inputs[0].WitnessUtxo.Value++
+			},
+		},
+		expectedErr: "input 0: witness UTXO and non-witness UTXO " +
+			"differ",
+	}, {
+		name:      "no UTXO information",
+		pkScripts: [][]byte{p2wkh},
+		modify: []func(*psbt.Packet){
+			noWitnessUtxo, noNonWitnessUtxo,
+		},
+		expectedErr: "input 0: no UTXO information",
+	}, {
+		name:      "PSBT inputs don't match transaction inputs",
+		pkScripts: [][]byte{p2wkh, p2wkh},
+		modify: []func(*psbt.Packet){
+			func(p *psbt.Packet) {
+				p.Inputs = p.Inputs[:1]
+			},
+		},
+		expectedErr: "PSBT has 1 inputs, but its transaction has 2",
+	}}
+
+	for _, tc := range testCases {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+
+			packet := newPacket(tc.pkScripts)
+			for _, modify := range tc.modify {
+				modify(packet)
+			}
+
+			// The PSBT itself must not be changed, so we compare
+			// its serialization before and after.
+			var before bytes.Buffer
+			require.NoError(t, packet.Serialize(&before))
+
+			tx, err := txWithFinalSigScripts(packet)
+
+			var after bytes.Buffer
+			require.NoError(t, packet.Serialize(&after))
+			require.Equal(t, before.Bytes(), after.Bytes())
+
+			if tc.expectedErr != "" {
+				require.ErrorContains(t, err, tc.expectedErr)
+				require.Nil(t, tx)
+
+				return
+			}
+
+			require.NoError(t, err)
+			require.Len(t, tx.TxIn, len(tc.sigScripts))
+
+			// Apart from the signature scripts, the transaction
+			// must be the unsigned one. As it has no witness data,
+			// its TXID covers all other fields.
+			expectedTx := packet.UnsignedTx.Copy()
+			for idx, txIn := range tx.TxIn {
+				require.Equal(
+					t, tc.sigScripts[idx],
+					txIn.SignatureScript, "input %d", idx,
+				)
+				require.Empty(t, txIn.Witness, "input %d", idx)
+
+				expectedTx.TxIn[idx].SignatureScript =
+					tc.sigScripts[idx]
+			}
+			require.Equal(t, expectedTx.TxHash(), tx.TxHash())
+		})
+	}
 }

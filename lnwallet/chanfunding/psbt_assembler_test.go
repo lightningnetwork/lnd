@@ -441,12 +441,40 @@ func TestPsbtVerify(t *testing.T) {
 		},
 	}
 
-	// Create a simple assembler and ask it to provision a channel to get
-	// the funding intent.
-	a := NewPsbtAssembler(chanCapacity, nil, &params, true)
+	// Loop through all our test cases.
+	for _, tc := range testCases {
+		t.Run(tc.name, func(t *testing.T) {
+			// Each case gets its own intent, so no case can leave
+			// state behind for the next one, such as a closed
+			// PsbtReady channel. Then we create a new pending PSBT
+			// that we can manipulate.
+			psbtIntent := newTestPsbtIntent(t, tc.shouldPublish)
+			_, amt, pendingPsbt, err := psbtIntent.FundingParams()
+			require.NoError(t, err, "unable to get funding params")
+
+			err = tc.doVerify(amt, pendingPsbt, psbtIntent)
+			if tc.expectedErr != "" {
+				require.EqualError(t, err, tc.expectedErr)
+
+				return
+			}
+
+			require.NoError(t, err)
+		})
+	}
+}
+
+// newTestPsbtIntent returns a PSBT intent for a channel of the test capacity,
+// with the test keys bound so that its funding output is known.
+func newTestPsbtIntent(t *testing.T, shouldPublish bool) *PsbtIntent {
+	t.Helper()
+
+	a := NewPsbtAssembler(chanCapacity, nil, &params, shouldPublish)
 	intent, err := a.ProvisionChannel(&Request{LocalAmt: chanCapacity})
 	require.NoError(t, err, "error provisioning channel")
-	psbtIntent := intent.(*PsbtIntent)
+
+	psbtIntent, ok := intent.(*PsbtIntent)
+	require.True(t, ok, "unexpected intent type %T", intent)
 
 	// Bind our test keys to get the funding parameters.
 	_, localPubkey := btcec.PrivKeyFromBytes(localPrivkey)
@@ -455,29 +483,7 @@ func TestPsbtVerify(t *testing.T) {
 		&keychain.KeyDescriptor{PubKey: localPubkey}, remotePubkey,
 	)
 
-	// Loop through all our test cases.
-	for _, tc := range testCases {
-		t.Run(tc.name, func(t *testing.T) {
-			// Reset the state from a previous test and create a new
-			// pending PSBT that we can manipulate.
-			psbtIntent.shouldPublish = tc.shouldPublish
-			psbtIntent.State = PsbtOutputKnown
-			_, amt, pendingPsbt, err := psbtIntent.FundingParams()
-			if err != nil {
-				t.Fatalf("unable to get funding params: %v", err)
-			}
-
-			err = tc.doVerify(amt, pendingPsbt, psbtIntent)
-			if err != nil && tc.expectedErr == "" {
-				t.Fatalf("unexpected error, got '%v' wanted "+
-					"'%v'", err, tc.expectedErr)
-			}
-			if err != nil && err.Error() != tc.expectedErr {
-				t.Fatalf("unexpected error, got '%v' wanted "+
-					"'%v'", err, tc.expectedErr)
-			}
-		})
-	}
+	return psbtIntent
 }
 
 // TestPsbtFinalize tests the PSBT finalization process more deeply than just

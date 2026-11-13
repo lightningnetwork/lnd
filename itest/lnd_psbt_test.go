@@ -24,6 +24,7 @@ import (
 	"github.com/lightningnetwork/lnd/lnrpc/walletrpc"
 	"github.com/lightningnetwork/lnd/lntest"
 	"github.com/lightningnetwork/lnd/lntest/node"
+	"github.com/lightningnetwork/lnd/lntest/rpc"
 	"github.com/lightningnetwork/lnd/lnwallet/chanfunding"
 	"github.com/stretchr/testify/require"
 )
@@ -77,6 +78,14 @@ var psbtFundingTestCases = []*lntest.TestCase{
 				ht, true, lnrpc.CommitmentType_SIMPLE_TAPROOT,
 			)
 		},
+	},
+	{
+		Name:     "psbt skip finalize nested segwit",
+		TestFunc: testPsbtChanFundingNestedSkipFinalize,
+	},
+	{
+		Name:     "psbt external funding nested segwit",
+		TestFunc: testPsbtChanFundingNestedExternal,
 	},
 }
 
@@ -477,6 +486,312 @@ func runPsbtChanFundingExternal(ht *lntest.HarnessTest, private bool,
 	}
 	resp := dave.RPC.AddInvoice(invoice)
 	ht.CompletePaymentRequests(carol, []string{resp.PaymentRequest})
+}
+
+// testPsbtChanFundingNestedSkipFinalize opens two channels in one batch, which
+// the opener funds with a nested SegWit coin of its own wallet. The first
+// channel skips the finalize step, and the second one publishes the batch
+// transaction. Signing the nested SegWit input changes the TXID of the
+// transaction, but both channels must use the TXID of the published one.
+func testPsbtChanFundingNestedSkipFinalize(ht *lntest.HarnessTest) {
+	const chanSize = funding.MaxBtcFundingAmount
+
+	// Carol opens both channels and funds them with her only coin, which
+	// is a nested SegWit one.
+	carol := ht.NewNode("carol", nil)
+	dave := ht.NewNode("dave", nil)
+	alice := ht.NewNode("Alice", nil)
+	coin := fundNestedSegWitCoin(ht, carol, btcutil.SatoshiPerBitcoin)
+
+	ht.EnsureConnected(carol, dave)
+	ht.EnsureConnected(carol, alice)
+
+	pendingChanID := ht.Random32Bytes()
+	pendingChanID2 := ht.Random32Bytes()
+
+	// The first channel doesn't publish the batch transaction, so it can
+	// skip the finalize step.
+	chanUpdates, tempPsbt := ht.OpenChannelPsbt(
+		carol, dave, lntest.OpenChannelParams{
+			Amt: chanSize,
+			FundingShim: &lnrpc.FundingShim{
+				Shim: &lnrpc.FundingShim_PsbtShim{
+					PsbtShim: &lnrpc.PsbtShim{
+						PendingChanId: pendingChanID,
+						NoPublish:     true,
+					},
+				},
+			},
+		},
+	)
+
+	// The second channel publishes the batch transaction once its funding
+	// flow is complete.
+	chanUpdates2, psbtBytes2 := ht.OpenChannelPsbt(
+		carol, alice, lntest.OpenChannelParams{
+			Amt: chanSize,
+			FundingShim: &lnrpc.FundingShim{
+				Shim: &lnrpc.FundingShim_PsbtShim{
+					PsbtShim: &lnrpc.PsbtShim{
+						PendingChanId: pendingChanID2,
+						BasePsbt:      tempPsbt,
+					},
+				},
+			},
+		},
+	)
+
+	// Fund the batch with the nested SegWit coin. The template lists the
+	// coin as input, so no other coin is selected.
+	fundResp := carol.RPC.FundPsbt(&walletrpc.FundPsbtRequest{
+		Template: &walletrpc.FundPsbtRequest_Psbt{
+			Psbt: addTemplateInput(ht, psbtBytes2, coin),
+		},
+		Fees: &walletrpc.FundPsbtRequest_SatPerVbyte{
+			SatPerVbyte: 2,
+		},
+	})
+	fundedPsbt := assertNestedSegWitInput(ht, fundResp.FundedPsbt, coin)
+
+	// Verify the PSBT for both channels. Only the first one skips the
+	// finalize step.
+	carol.RPC.FundingStateStep(&lnrpc.FundingTransitionMsg{
+		Trigger: &lnrpc.FundingTransitionMsg_PsbtVerify{
+			PsbtVerify: &lnrpc.FundingPsbtVerify{
+				PendingChanId: pendingChanID,
+				FundedPsbt:    fundResp.FundedPsbt,
+				SkipFinalize:  true,
+			},
+		},
+	})
+	carol.RPC.FundingStateStep(&lnrpc.FundingTransitionMsg{
+		Trigger: &lnrpc.FundingTransitionMsg_PsbtVerify{
+			PsbtVerify: &lnrpc.FundingPsbtVerify{
+				PendingChanId: pendingChanID2,
+				FundedPsbt:    fundResp.FundedPsbt,
+			},
+		},
+	})
+
+	// Only sign the batch transaction once the first channel is pending,
+	// which means its peer signed its commitment transaction.
+	chanPoint := receiveChanPending(ht, chanUpdates)
+	ht.AssertNumTxsInMempool(0)
+
+	finalizeRes := carol.RPC.FinalizePsbt(&walletrpc.FinalizePsbtRequest{
+		FundedPsbt: fundResp.FundedPsbt,
+	})
+	carol.RPC.FundingStateStep(&lnrpc.FundingTransitionMsg{
+		Trigger: &lnrpc.FundingTransitionMsg_PsbtFinalize{
+			PsbtFinalize: &lnrpc.FundingPsbtFinalize{
+				PendingChanId: pendingChanID2,
+				SignedPsbt:    finalizeRes.SignedPsbt,
+			},
+		},
+	})
+	chanPoint2 := receiveChanPending(ht, chanUpdates2)
+
+	// Signing the nested SegWit input changed the TXID, and both channels
+	// must use the TXID of the published transaction.
+	var finalTx wire.MsgTx
+	err := finalTx.Deserialize(bytes.NewReader(finalizeRes.RawFinalTx))
+	require.NoError(ht, err)
+
+	txHash := finalTx.TxHash()
+	require.NotEqual(ht, fundedPsbt.UnsignedTx.TxHash(), txHash)
+	require.Equal(ht, txHash[:], chanPoint.GetFundingTxidBytes())
+	require.Equal(ht, txHash[:], chanPoint2.GetFundingTxidBytes())
+
+	block := ht.MineBlocksAndAssertNumTxes(6, 1)[0]
+	ht.AssertTxInBlock(block, txHash)
+	ht.AssertChannelActive(carol, chanPoint)
+	ht.AssertChannelActive(carol, chanPoint2)
+}
+
+// testPsbtChanFundingNestedExternal opens two channels in one batch, which a
+// third party funds with a nested SegWit coin, signs and publishes. The opener
+// never sees the signed transaction, so both channels skip the finalize step.
+// Signing the nested SegWit input changes the TXID of the transaction, but both
+// channels must use the TXID of the published one.
+func testPsbtChanFundingNestedExternal(ht *lntest.HarnessTest) {
+	const chanSize = funding.MaxBtcFundingAmount
+
+	// Carol opens both channels, and Alice, the third party, funds them
+	// with a nested SegWit coin. Carol needs her own coin only for the
+	// anchor reserve.
+	carol := ht.NewNode("carol", nil)
+	dave := ht.NewNode("dave", nil)
+	alice := ht.NewNode("Alice", nil)
+	ht.FundCoins(50_000, carol)
+	coin := fundNestedSegWitCoin(ht, alice, btcutil.SatoshiPerBitcoin)
+
+	ht.EnsureConnected(carol, dave)
+	ht.EnsureConnected(carol, alice)
+
+	pendingChanID := ht.Random32Bytes()
+	pendingChanID2 := ht.Random32Bytes()
+
+	// Neither channel publishes the batch transaction, Alice does that.
+	chanUpdates, tempPsbt := ht.OpenChannelPsbt(
+		carol, dave, lntest.OpenChannelParams{
+			Amt: chanSize,
+			FundingShim: &lnrpc.FundingShim{
+				Shim: &lnrpc.FundingShim_PsbtShim{
+					PsbtShim: &lnrpc.PsbtShim{
+						PendingChanId: pendingChanID,
+						NoPublish:     true,
+					},
+				},
+			},
+		},
+	)
+	chanUpdates2, psbtBytes2 := ht.OpenChannelPsbt(
+		carol, alice, lntest.OpenChannelParams{
+			Amt: chanSize,
+			FundingShim: &lnrpc.FundingShim{
+				Shim: &lnrpc.FundingShim_PsbtShim{
+					PsbtShim: &lnrpc.PsbtShim{
+						PendingChanId: pendingChanID2,
+						NoPublish:     true,
+						BasePsbt:      tempPsbt,
+					},
+				},
+			},
+		},
+	)
+
+	// Alice funds the batch with her nested SegWit coin. The template
+	// lists the coin as input, so no other coin is selected.
+	fundResp := alice.RPC.FundPsbt(&walletrpc.FundPsbtRequest{
+		Template: &walletrpc.FundPsbtRequest_Psbt{
+			Psbt: addTemplateInput(ht, psbtBytes2, coin),
+		},
+		Fees: &walletrpc.FundPsbtRequest_SatPerVbyte{
+			SatPerVbyte: 2,
+		},
+	})
+	fundedPsbt := assertNestedSegWitInput(ht, fundResp.FundedPsbt, coin)
+
+	// Carol never sees the signed transaction, so both channels skip the
+	// finalize step.
+	for _, pendingID := range [][]byte{pendingChanID, pendingChanID2} {
+		carol.RPC.FundingStateStep(&lnrpc.FundingTransitionMsg{
+			Trigger: &lnrpc.FundingTransitionMsg_PsbtVerify{
+				PsbtVerify: &lnrpc.FundingPsbtVerify{
+					PendingChanId: pendingID,
+					FundedPsbt:    fundResp.FundedPsbt,
+					SkipFinalize:  true,
+				},
+			},
+		})
+	}
+	chanPoint := receiveChanPending(ht, chanUpdates)
+	chanPoint2 := receiveChanPending(ht, chanUpdates2)
+	ht.AssertNumPendingOpenChannels(carol, 2)
+
+	// Now that both channels are pending, Alice signs and publishes the
+	// batch transaction.
+	finalizeRes := alice.RPC.FinalizePsbt(&walletrpc.FinalizePsbtRequest{
+		FundedPsbt: fundResp.FundedPsbt,
+	})
+	ht.AssertNumTxsInMempool(0)
+
+	var finalTx wire.MsgTx
+	err := finalTx.Deserialize(bytes.NewReader(finalizeRes.RawFinalTx))
+	require.NoError(ht, err)
+
+	_, err = ht.SendRawTransaction(&finalTx, false)
+	require.NoError(ht, err)
+
+	// Signing the nested SegWit input changed the TXID, and both channels
+	// must use the TXID of the published transaction.
+	txHash := finalTx.TxHash()
+	require.NotEqual(ht, fundedPsbt.UnsignedTx.TxHash(), txHash)
+	require.Equal(ht, txHash[:], chanPoint.GetFundingTxidBytes())
+	require.Equal(ht, txHash[:], chanPoint2.GetFundingTxidBytes())
+
+	block := ht.MineBlocksAndAssertNumTxes(6, 1)[0]
+	ht.AssertTxInBlock(block, txHash)
+	ht.AssertChannelActive(carol, chanPoint)
+	ht.AssertChannelActive(carol, chanPoint2)
+}
+
+// fundNestedSegWitCoin sends a nested SegWit coin of the given amount to the
+// node, and returns the outpoint of the coin.
+func fundNestedSegWitCoin(ht *lntest.HarnessTest, hn *node.HarnessNode,
+	amt btcutil.Amount) wire.OutPoint {
+
+	tx := ht.FundCoinsNP2WKH(amt, hn)
+	for idx, txOut := range tx.TxOut {
+		if txOut.Value != int64(amt) ||
+			!txscript.IsPayToScriptHash(txOut.PkScript) {
+
+			continue
+		}
+
+		return wire.OutPoint{
+			Hash:  tx.TxHash(),
+			Index: uint32(idx),
+		}
+	}
+
+	require.Fail(ht, "nested SegWit coin not found")
+
+	return wire.OutPoint{}
+}
+
+// addTemplateInput returns the given PSBT with the coin added as an input. If
+// such a PSBT is used as template to fund a PSBT, no other coin is selected.
+func addTemplateInput(ht *lntest.HarnessTest, rawPsbt []byte,
+	coin wire.OutPoint) []byte {
+
+	packet, err := psbt.NewFromRawBytes(bytes.NewReader(rawPsbt), false)
+	require.NoError(ht, err)
+
+	packet.UnsignedTx.AddTxIn(&wire.TxIn{PreviousOutPoint: coin})
+	packet.Inputs = append(packet.Inputs, psbt.PInput{})
+
+	var buf bytes.Buffer
+	require.NoError(ht, packet.Serialize(&buf))
+
+	return buf.Bytes()
+}
+
+// assertNestedSegWitInput checks that the funded PSBT only spends the given
+// coin, and that it is a nested SegWit coin with a redeem script. It returns
+// the decoded PSBT.
+func assertNestedSegWitInput(ht *lntest.HarnessTest, rawPsbt []byte,
+	coin wire.OutPoint) *psbt.Packet {
+
+	packet, err := psbt.NewFromRawBytes(bytes.NewReader(rawPsbt), false)
+	require.NoError(ht, err)
+
+	require.Len(ht, packet.UnsignedTx.TxIn, 1)
+	require.Equal(ht, coin, packet.UnsignedTx.TxIn[0].PreviousOutPoint)
+
+	utxo := packet.Inputs[0].WitnessUtxo
+	require.NotNil(ht, utxo)
+	require.True(ht, txscript.IsPayToScriptHash(utxo.PkScript))
+	require.NotEmpty(ht, packet.Inputs[0].RedeemScript)
+
+	return packet
+}
+
+// receiveChanPending waits for the channel pending update of a channel opening
+// and returns the channel point from it.
+func receiveChanPending(ht *lntest.HarnessTest,
+	stream rpc.OpenChanClient) *lnrpc.ChannelPoint {
+
+	resp := ht.ReceiveOpenChannelUpdate(stream)
+	upd, ok := resp.Update.(*lnrpc.OpenStatusUpdate_ChanPending)
+	require.Truef(ht, ok, "expected channel pending update, got %v", resp)
+
+	return &lnrpc.ChannelPoint{
+		FundingTxid: &lnrpc.ChannelPoint_FundingTxidBytes{
+			FundingTxidBytes: upd.ChanPending.Txid,
+		},
+		OutputIndex: upd.ChanPending.OutputIndex,
+	}
 }
 
 // runPsbtChanFundingSingleStep checks whether PSBT funding works also when

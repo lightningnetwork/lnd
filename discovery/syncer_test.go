@@ -2309,30 +2309,71 @@ func TestGossipSyncerSyncTransitions(t *testing.T) {
 		}
 	}
 
+	// assertFullSyncMsgSent asserts that the syncer sends a
+	// GossipTimestampRange message requesting all future updates. The
+	// syncer stamps the message with its own clock, so we can't
+	// assert an exact first timestamp: a second boundary may be
+	// crossed between the syncer stamping the message and the test
+	// sampling its own expectation, making an exact comparison
+	// flaky. Instead, we assert that the stamped first timestamp
+	// falls within [startTime, now], where startTime is sampled
+	// just before the syncer is started.
+	assertFullSyncMsgSent := func(t *testing.T,
+		msgChan chan []lnwire.Message, g *GossipSyncer,
+		startTime time.Time) {
+
+		t.Helper()
+
+		var msgSent lnwire.Message
+		select {
+		case msgs := <-msgChan:
+			require.Len(t, msgs, 1, "expected to send a single "+
+				"message at a time")
+			msgSent = msgs[0]
+
+		case <-time.After(time.Second):
+			require.FailNowf(t, "no message sent",
+				"expected to send %T message",
+				&lnwire.GossipTimestampRange{})
+		}
+
+		require.IsType(t, &lnwire.GossipTimestampRange{}, msgSent)
+		rangeMsg, _ := msgSent.(*lnwire.GossipTimestampRange)
+
+		require.Equal(t, g.cfg.chainHash, rangeMsg.ChainHash)
+		require.Equal(
+			t, uint32(math.MaxUint32), rangeMsg.TimestampRange,
+		)
+
+		firstTimestamp := rangeMsg.FirstTimestamp
+		require.GreaterOrEqual(
+			t, firstTimestamp, uint32(startTime.Unix()),
+			"first timestamp predates the syncer's start",
+		)
+		require.LessOrEqual(
+			t, firstTimestamp, uint32(time.Now().Unix()),
+			"first timestamp is in the future",
+		)
+	}
+
 	tests := []struct {
 		name          string
 		entrySyncType SyncerType
 		finalSyncType SyncerType
 		assert        func(t *testing.T, msgChan chan []lnwire.Message,
-			syncer *GossipSyncer)
+			syncer *GossipSyncer, startTime time.Time)
 	}{
 		{
 			name:          "active to passive",
 			entrySyncType: ActiveSync,
 			finalSyncType: PassiveSync,
 			assert: func(t *testing.T, mChan chan []lnwire.Message,
-				g *GossipSyncer) {
+				g *GossipSyncer, startTime time.Time) {
 
 				// When we first boot up, we expect that we
 				// send out a message that indicates we want
 				// all the updates from here on.
-				firstTimestamp := uint32(time.Now().Unix())
-				assertMsgSent(
-					t, mChan, &lnwire.GossipTimestampRange{
-						FirstTimestamp: firstTimestamp,
-						TimestampRange: math.MaxUint32,
-					},
-				)
+				assertFullSyncMsgSent(t, mChan, g, startTime)
 
 				// When transitioning from active to passive, we
 				// should expect to see a new local update
@@ -2348,11 +2389,7 @@ func TestGossipSyncerSyncTransitions(t *testing.T) {
 					},
 				)
 
-				syncState := g.syncState()
-				if syncState != chansSynced {
-					t.Fatalf("expected syncerState %v, "+
-						"got %v", chansSynced, syncState)
-				}
+				require.Equal(t, chansSynced, g.syncState())
 			},
 		},
 		{
@@ -2360,24 +2397,16 @@ func TestGossipSyncerSyncTransitions(t *testing.T) {
 			entrySyncType: PassiveSync,
 			finalSyncType: ActiveSync,
 			assert: func(t *testing.T, msgChan chan []lnwire.Message,
-				g *GossipSyncer) {
+				g *GossipSyncer, startTime time.Time) {
 
 				// When transitioning from historical to active,
 				// we should expect to see a new local update
 				// horizon sent to the remote peer indicating
 				// that it would like to receive any future
 				// updates.
-				firstTimestamp := uint32(time.Now().Unix())
-				assertMsgSent(t, msgChan, &lnwire.GossipTimestampRange{
-					FirstTimestamp: firstTimestamp,
-					TimestampRange: math.MaxUint32,
-				})
+				assertFullSyncMsgSent(t, msgChan, g, startTime)
 
-				syncState := g.syncState()
-				if syncState != chansSynced {
-					t.Fatalf("expected syncerState %v, "+
-						"got %v", chansSynced, syncState)
-				}
+				require.Equal(t, chansSynced, g.syncState())
 			},
 		},
 	}
@@ -2403,7 +2432,10 @@ func TestGossipSyncerSyncTransitions(t *testing.T) {
 			syncer.setSyncType(test.entrySyncType)
 
 			// We'll then start the syncer in order to process the
-			// request.
+			// request. We sample the current time just before, as
+			// any GossipTimestampRange the syncer sends from here
+			// on is stamped no earlier than this.
+			startTime := time.Now()
 			syncer.Start()
 			defer syncer.Stop()
 
@@ -2412,16 +2444,12 @@ func TestGossipSyncerSyncTransitions(t *testing.T) {
 
 			// The syncer should now have the expected final
 			// SyncerType that the test expects.
-			syncType := syncer.SyncType()
-			if syncType != test.finalSyncType {
-				t.Fatalf("expected syncType %v, got %v",
-					test.finalSyncType, syncType)
-			}
+			require.Equal(t, test.finalSyncType, syncer.SyncType())
 
 			// Finally, we'll run a set of assertions for each test
 			// to ensure the syncer performed its expected duties
 			// after processing its sync transition.
-			test.assert(t, msgChan, syncer)
+			test.assert(t, msgChan, syncer, startTime)
 		})
 	}
 }

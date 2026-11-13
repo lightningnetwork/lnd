@@ -405,6 +405,60 @@ out:
 					}
 				}(msg)
 
+			case *chainntnfs.HistoricalSpendDispatch:
+				// In order to ensure we don't block the caller
+				// on what may be a long rescan, we'll launch a
+				// goroutine to do so in the background.
+				//
+				// TODO(wilmer): add retry logic if rescan fails?
+				b.wg.Add(1)
+
+				//nolint:ll
+				go func(msg *chainntnfs.HistoricalSpendDispatch) {
+					defer b.wg.Done()
+
+					spendDetails, err := b.historicalSpendDetails(
+						msg.SpendRequest,
+						msg.StartHeight, msg.EndHeight,
+					)
+					if err != nil {
+						chainntnfs.Log.Errorf("Rescan to "+
+							"determine the spend "+
+							"details of %v within "+
+							"range %d-%d failed: %v",
+							msg.SpendRequest,
+							msg.StartHeight,
+							msg.EndHeight, err)
+
+						return
+					}
+
+					chainntnfs.Log.Infof("Historical "+
+						"spend dispatch finished "+
+						"for request %v (start=%v "+
+						"end=%v) with details: %v",
+						msg.SpendRequest,
+						msg.StartHeight, msg.EndHeight,
+						spendDetails)
+
+					// If the historical dispatch finished
+					// without error, we will invoke
+					// UpdateSpendDetails even if none were
+					// found. This allows the notifier to
+					// begin safely updating the height hint
+					// cache at tip, since any pending
+					// rescans have now completed.
+					err = b.txNotifier.UpdateSpendDetails(
+						msg.SpendRequest, spendDetails,
+					)
+					if err != nil {
+						chainntnfs.Log.Errorf("Unable "+
+							"to update spend "+
+							"details of %v: %v",
+							msg.SpendRequest, err)
+					}
+				}(msg)
+
 			case *blockEpochRegistration:
 				chainntnfs.Log.Infof("New block epoch subscription")
 
@@ -698,6 +752,66 @@ func (b *BtcdNotifier) confDetailsManually(confRequest chainntnfs.ConfRequest,
 	return nil, chainntnfs.TxNotFoundManually, nil
 }
 
+// historicalSpendDetails attempts to manually scan the chain within the given
+// height range for a transaction that spends the given outpoint/output script.
+// If one is found, the spend details are assembled and returned to the caller.
+// If the spend is not found, a nil spend detail will be returned.
+func (b *BtcdNotifier) historicalSpendDetails(
+	spendRequest chainntnfs.SpendRequest, startHeight, endHeight uint32) (
+	*chainntnfs.SpendDetail, error) {
+
+	// Begin scanning blocks at every height to determine if the outpoint
+	// was spent.
+	for height := endHeight; height >= startHeight && height > 0; height-- {
+		// Ensure we haven't been requested to shut down before
+		// processing the next height.
+		select {
+		case <-b.quit:
+			return nil, chainntnfs.ErrChainNotifierShuttingDown
+		default:
+		}
+
+		// First, we'll fetch the block for the current height.
+		blockHash, err := b.chainConn.GetBlockHash(int64(height))
+		if err != nil {
+			return nil, fmt.Errorf("unable to retrieve hash for "+
+				"block with height %d: %v", height, err)
+		}
+		block, err := b.GetBlock(blockHash)
+		if err != nil {
+			return nil, fmt.Errorf("unable to retrieve block "+
+				"with hash %v: %v", blockHash, err)
+		}
+
+		// Then, we'll manually go over every input in every transaction
+		// in it and determine whether it spends the request in
+		// question. If we find one, we'll dispatch the spend details.
+		for _, tx := range block.Transactions {
+			matches, inputIdx, err := spendRequest.MatchesTx(tx)
+			if err != nil {
+				return nil, err
+			}
+			if !matches {
+				continue
+			}
+
+			txCopy := tx.Copy()
+			txHash := txCopy.TxHash()
+			spendOutPoint := &txCopy.TxIn[inputIdx].PreviousOutPoint
+
+			return &chainntnfs.SpendDetail{
+				SpentOutPoint:     spendOutPoint,
+				SpenderTxHash:     &txHash,
+				SpendingTx:        txCopy,
+				SpenderInputIndex: inputIdx,
+				SpendingHeight:    int32(height),
+			}, nil
+		}
+	}
+
+	return nil, nil
+}
+
 // handleBlockConnected applies a chain update for a new block. Any watched
 // transactions included this block will processed to either send notifications
 // now or after numConfirmations confs.
@@ -834,31 +948,11 @@ func (b *BtcdNotifier) RegisterSpendNtfn(outpoint *wire.OutPoint,
 	// rather than an outpoint, as there aren't any additional checks we can
 	// make for scripts.
 	if outpoint == nil || *outpoint == chainntnfs.ZeroOutPoint {
-		startHash, err := b.chainConn.GetBlockHash(
-			int64(ntfn.HistoricalDispatch.StartHeight),
-		)
-		if err != nil {
-			return nil, err
+		select {
+		case b.notificationRegistry <- ntfn.HistoricalDispatch:
+		case <-b.quit:
+			return nil, chainntnfs.ErrChainNotifierShuttingDown
 		}
-
-		// TODO(wilmer): add retry logic if rescan fails?
-		_, addrs, _, err := txscript.ExtractPkScriptAddrs(
-			pkScript, b.chainParams,
-		)
-		if err != nil {
-			return nil, fmt.Errorf("unable to parse address: %w",
-				err)
-		}
-
-		asyncResult := b.chainConn.RescanAsync(startHash, addrs, nil)
-		go func() {
-			if rescanErr := asyncResult.Receive(); rescanErr != nil {
-				chainntnfs.Log.Errorf("Rescan to determine "+
-					"the spend details of %v failed: %v",
-					ntfn.HistoricalDispatch.SpendRequest,
-					rescanErr)
-			}
-		}()
 
 		return ntfn.Event, nil
 	}
@@ -888,16 +982,8 @@ func (b *BtcdNotifier) RegisterSpendNtfn(outpoint *wire.OutPoint,
 	}
 
 	// Since the outpoint was spent, as it no longer exists within the UTXO
-	// set, we'll determine when it happened by scanning the chain. We'll
-	// begin by fetching the block hash of our starting height.
-	startHash, err := b.chainConn.GetBlockHash(
-		int64(ntfn.HistoricalDispatch.StartHeight),
-	)
-	if err != nil {
-		return nil, fmt.Errorf("unable to get block hash for height "+
-			"%d: %v", ntfn.HistoricalDispatch.StartHeight, err)
-	}
-
+	// set, we'll determine when it happened by scanning the chain.
+	//
 	// As a minimal optimization, we'll query the backend's transaction
 	// index (if enabled) to determine if we have a better rescan starting
 	// height. We can do this as the GetRawTransaction call will return the
@@ -942,38 +1028,17 @@ func (b *BtcdNotifier) RegisterSpendNtfn(outpoint *wire.OutPoint,
 		// now update the starting height to be the spent height to make
 		// sure we won't miss it in the rescan.
 		if spentHeight != ntfn.HistoricalDispatch.StartHeight {
-			startHash, err = b.chainConn.GetBlockHash(
-				int64(spentHeight),
-			)
-			if err != nil {
-				return nil, fmt.Errorf("unable to get block "+
-					"hash for height %d: %v",
-					blockHeader.Height, err)
-			}
-
 			ntfn.HistoricalDispatch.StartHeight = spentHeight
 		}
 	}
 
-	// Now that we've determined the best starting point for our rescan,
-	// we can go ahead and dispatch it.
-	//
-	// In order to ensure that we don't block the caller on what may be a
-	// long rescan, we'll launch a new goroutine to handle the async result
-	// of the rescan. We purposefully prevent from adding this goroutine to
-	// the WaitGroup as we cannot wait for a quit signal due to the
-	// asyncResult channel not being exposed.
-	//
-	// TODO(wilmer): add retry logic if rescan fails?
-	asyncResult := b.chainConn.RescanAsync(
-		startHash, nil, []*wire.OutPoint{outpoint},
-	)
-	go func() {
-		if rescanErr := asyncResult.Receive(); rescanErr != nil {
-			chainntnfs.Log.Errorf("Rescan to determine the spend "+
-				"details of %v failed: %v", outpoint, rescanErr)
-		}
-	}()
+	// Now that we've determined the starting point of our rescan, we can
+	// dispatch it and return.
+	select {
+	case b.notificationRegistry <- ntfn.HistoricalDispatch:
+	case <-b.quit:
+		return nil, chainntnfs.ErrChainNotifierShuttingDown
+	}
 
 	return ntfn.Event, nil
 }

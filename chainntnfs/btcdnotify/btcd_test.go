@@ -6,6 +6,7 @@ package btcdnotify
 import (
 	"bytes"
 	"testing"
+	"time"
 
 	"github.com/btcsuite/btcd/chainhash/v2"
 	"github.com/btcsuite/btcd/integration/rpctest"
@@ -206,4 +207,124 @@ func TestHistoricalConfDetailsNoTxIndex(t *testing.T) {
 		t.Fatal("should have found the transaction by manually " +
 			"scanning the chain, but did not")
 	}
+}
+
+// TestHistoricalSpendDetails ensures that we correctly retrieve historical
+// spend details of outpoints and output scripts by manually scanning the
+// chain.
+func TestHistoricalSpendDetails(t *testing.T) {
+	t.Parallel()
+
+	harness := unittest.NewMiner(t, unittest.NetParams, nil, true, 25)
+
+	notifier := setUpNotifier(t, harness)
+
+	// We'll create an output and note the height it confirmed at to use as
+	// the start of the scanned range.
+	outpoint, output, privKey := chainntnfs.CreateSpendableOutput(
+		t, harness,
+	)
+	_, startHeight, err := harness.Client.GetBestBlock()
+	require.NoError(t, err, "unable to retrieve current height")
+
+	opReq, err := chainntnfs.NewSpendRequest(outpoint, output.PkScript)
+	require.NoError(t, err, "unable to create spend request")
+	scriptReq, err := chainntnfs.NewSpendRequest(nil, output.PkScript)
+	require.NoError(t, err, "unable to create spend request")
+
+	// Since the output has yet to be spent, no spend details should be
+	// found for either request.
+	for _, req := range []chainntnfs.SpendRequest{opReq, scriptReq} {
+		details, err := notifier.historicalSpendDetails(
+			req, uint32(startHeight), uint32(startHeight),
+		)
+		require.NoError(t, err, "unable to retrieve spend details")
+		require.Nil(t, details)
+	}
+
+	// We'll now spend the output, confirm the spend and bury it under a
+	// few more blocks.
+	spendTx := chainntnfs.CreateSpendTx(t, outpoint, output, privKey)
+	spendTxid, err := harness.Client.SendRawTransaction(spendTx, true)
+	require.NoError(t, err, "unable to broadcast tx")
+	err = chainntnfs.WaitForMempoolTx(harness, spendTxid)
+	require.NoError(t, err, "tx not relayed to miner")
+
+	_, err = harness.Client.Generate(1)
+	require.NoError(t, err, "unable to generate block")
+	_, spendHeight, err := harness.Client.GetBestBlock()
+	require.NoError(t, err, "unable to retrieve current height")
+
+	_, err = harness.Client.Generate(3)
+	require.NoError(t, err, "unable to generate blocks")
+	_, endHeight, err := harness.Client.GetBestBlock()
+	require.NoError(t, err, "unable to retrieve current height")
+
+	// The spend should now be found for both requests.
+	for _, req := range []chainntnfs.SpendRequest{opReq, scriptReq} {
+		details, err := notifier.historicalSpendDetails(
+			req, uint32(startHeight), uint32(endHeight),
+		)
+		require.NoError(t, err, "unable to retrieve spend details")
+		require.NotNil(t, details)
+		require.Equal(t, *outpoint, *details.SpentOutPoint)
+		require.Equal(t, *spendTxid, *details.SpenderTxHash)
+		require.Equal(t, uint32(0), details.SpenderInputIndex)
+		require.Equal(t, spendHeight, details.SpendingHeight)
+	}
+
+	// A range that ends before the spend should not find it.
+	details, err := notifier.historicalSpendDetails(
+		scriptReq, uint32(startHeight), uint32(spendHeight)-1,
+	)
+	require.NoError(t, err, "unable to retrieve spend details")
+	require.Nil(t, details)
+}
+
+// TestHistoricalSpendDispatchUnspent ensures that a historical spend dispatch
+// for an output script that has not been spent completes, so that the spend
+// hint of the request is committed.
+func TestHistoricalSpendDispatchUnspent(t *testing.T) {
+	t.Parallel()
+
+	harness := unittest.NewMiner(t, unittest.NetParams, nil, true, 25)
+
+	notifier := setUpNotifier(t, harness)
+
+	epochClient, err := notifier.RegisterBlockEpochNtfn(nil)
+	require.NoError(t, err, "unable to register for block epoch")
+	defer epochClient.Cancel()
+
+	_, output, _ := chainntnfs.CreateSpendableOutput(t, harness)
+	_, height, err := harness.Client.GetBestBlock()
+	require.NoError(t, err, "unable to retrieve current height")
+
+	// Wait for the notifier to process the output's block, so that
+	// registering with its height as the hint dispatches a historical
+	// rescan.
+	timeout := time.After(10 * time.Second)
+	for caughtUp := false; !caughtUp; {
+		select {
+		case epoch := <-epochClient.Epochs:
+			caughtUp = epoch.Height == height
+
+		case <-timeout:
+			t.Fatalf("notifier did not reach height %d", height)
+		}
+	}
+
+	_, err = notifier.RegisterSpendNtfn(
+		nil, output.PkScript, uint32(height),
+	)
+	require.NoError(t, err, "unable to register spend ntfn")
+
+	req, err := chainntnfs.NewSpendRequest(nil, output.PkScript)
+	require.NoError(t, err, "unable to create spend request")
+
+	// Once the historical dispatch completes without finding a spend, the
+	// spend hint of the request is committed at the current height.
+	require.Eventually(t, func() bool {
+		hint, err := notifier.spendHintCache.QuerySpendHint(req)
+		return err == nil && hint == uint32(height)
+	}, 10*time.Second, 50*time.Millisecond)
 }

@@ -120,61 +120,13 @@ func testBolt12InvoiceRequest(ht *lntest.HarnessTest) {
 	require.NoError(ht, err, "CreateOffer")
 	ht.Logf("Alice offer: %s", offerResp.Offer)
 
-	offer, err := bolt12.DecodeOfferString(
-		offerResp.Offer, time.Now(), *harnessNetParams.GenesisHash,
-	)
-	require.NoError(ht, err)
-
 	// Step 2: Bob subscribes to onion messages for the reply.
-	msgClient, msgCancel := bob.RPC.SubscribeOnionMessages()
-	defer msgCancel()
-
-	bobMessages := make(chan *lnrpc.OnionMessageUpdate, 1)
-	go func() {
-		for {
-			msg, recvErr := msgClient.Recv()
-			if recvErr != nil {
-				return
-			}
-
-			select {
-			case bobMessages <- msg:
-			case <-ht.Context().Done():
-				return
-			}
-		}
-	}()
+	bobMessages := subscribeOnionMessages(ht, bob)
 
 	// Step 3: Build a signed invoice request.
-	payerKey, err := btcec.NewPrivateKey()
-	require.NoError(ht, err)
-
-	// The request copies the offer fields and sets invreq_chain, because
-	// an absent invreq_chain means mainnet and the node runs on regtest.
-	ir, err := bolt12.NewInvoiceRequestFromOffer(
-		offer, payerKey.PubKey(), []byte("itest-payer-metadata"),
-		*harnessNetParams.GenesisHash,
+	ir, signedIRBytes := buildInvoiceRequest(
+		ht, offerResp.Offer, 50000,
 	)
-	require.NoError(ht, err)
-
-	amt := bolt12.TUint64(50000)
-	ir.InvreqAmount = tlv.SomeRecordT(
-		tlv.RecordT[tlv.TlvType82, bolt12.TUint64]{
-			Val: amt,
-		},
-	)
-
-	// SignInvoiceRequest validates the writer rules before it signs.
-	sig, err := bolt12.SignInvoiceRequest(ir, payerKey)
-	require.NoError(ht, err)
-
-	ir.Signature = tlv.SomeRecordT(
-		tlv.NewPrimitiveRecord[tlv.TlvType240, [64]byte](sig),
-	)
-
-	signedIRBytes, err := ir.EncodeSigned()
-	require.NoError(ht, err)
-	ht.Logf("Signed invreq: %d bytes", len(signedIRBytes))
 
 	// Step 4: Send the invoice request to Alice twice, and expect each
 	// invoice on Bob's subscription. The first reply path starts at Bob.
@@ -213,6 +165,75 @@ func testBolt12InvoiceRequest(ht *lntest.HarnessTest) {
 		[]*sphinx.HopInfo{aliceToBobHop, bobHop},
 	)
 	expectInvoiceReply(ht, bobMessages, ir, alicePubKey)
+}
+
+// subscribeOnionMessages subscribes hn to onion messages for the test. The
+// subscription is cancelled when the test ends.
+func subscribeOnionMessages(ht *lntest.HarnessTest,
+	hn *node.HarnessNode) <-chan *lnrpc.OnionMessageUpdate {
+
+	msgClient, msgCancel := hn.RPC.SubscribeOnionMessages()
+	ht.Cleanup(msgCancel)
+
+	messages := make(chan *lnrpc.OnionMessageUpdate, 1)
+	go func() {
+		for {
+			msg, recvErr := msgClient.Recv()
+			if recvErr != nil {
+				return
+			}
+
+			select {
+			case messages <- msg:
+			case <-ht.Context().Done():
+				return
+			}
+		}
+	}()
+
+	return messages
+}
+
+// buildInvoiceRequest builds and signs an invoice request for the offer with
+// a fresh payer key.
+func buildInvoiceRequest(ht *lntest.HarnessTest, offerStr string,
+	amtMsat uint64) (*bolt12.InvoiceRequest, []byte) {
+
+	offer, err := bolt12.DecodeOfferString(
+		offerStr, time.Now(), *harnessNetParams.GenesisHash,
+	)
+	require.NoError(ht, err)
+
+	payerKey, err := btcec.NewPrivateKey()
+	require.NoError(ht, err)
+
+	// The request copies the offer fields and sets invreq_chain, because
+	// an absent invreq_chain means mainnet and the node runs on regtest.
+	ir, err := bolt12.NewInvoiceRequestFromOffer(
+		offer, payerKey.PubKey(), []byte("itest-payer-metadata"),
+		*harnessNetParams.GenesisHash,
+	)
+	require.NoError(ht, err)
+
+	ir.InvreqAmount = tlv.SomeRecordT(
+		tlv.RecordT[tlv.TlvType82, bolt12.TUint64]{
+			Val: bolt12.TUint64(amtMsat),
+		},
+	)
+
+	// SignInvoiceRequest validates the writer rules before it signs.
+	sig, err := bolt12.SignInvoiceRequest(ir, payerKey)
+	require.NoError(ht, err)
+
+	ir.Signature = tlv.SomeRecordT(
+		tlv.NewPrimitiveRecord[tlv.TlvType240, [64]byte](sig),
+	)
+
+	signedIRBytes, err := ir.EncodeSigned()
+	require.NoError(ht, err)
+	ht.Logf("Signed invreq: %d bytes", len(signedIRBytes))
+
+	return ir, signedIRBytes
 }
 
 // sendInvoiceRequest sends the signed invoice request from the payer to the

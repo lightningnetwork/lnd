@@ -248,6 +248,14 @@ func TestPsbtIntentBasePsbt(t *testing.T) {
 func TestPsbtVerify(t *testing.T) {
 	t.Parallel()
 
+	// Signing an input that spends a native SegWit output doesn't change
+	// the TXID of the transaction.
+	_, inputPubKey := btcec.PrivKeyFromBytes(localPrivkey)
+	nativePkScript, err := input.WitnessPubKeyHash(
+		inputPubKey.SerializeCompressed(),
+	)
+	require.NoError(t, err)
+
 	testCases := []struct {
 		name          string
 		expectedErr   string
@@ -369,7 +377,8 @@ func TestPsbtVerify(t *testing.T) {
 				i *PsbtIntent) error {
 
 				txOut := &wire.TxOut{
-					Value: int64(chanCapacity/2) + 1,
+					Value:    int64(chanCapacity/2) + 1,
+					PkScript: nativePkScript,
 				}
 				p.UnsignedTx.TxIn = []*wire.TxIn{
 					{},
@@ -392,9 +401,10 @@ func TestPsbtVerify(t *testing.T) {
 					return err
 				}
 
-				if i.FinalTX != p.UnsignedTx {
+				finalTxid := i.FinalTX.TxHash()
+				if finalTxid != p.UnsignedTx.TxHash() {
 					return fmt.Errorf("expected final TX " +
-						"to be set")
+						"to have the unsigned TXID")
 				}
 				if i.State != PsbtFinalized {
 					return fmt.Errorf("expected state to " +
@@ -1126,6 +1136,444 @@ func TestTxWithFinalSigScripts(t *testing.T) {
 					tc.sigScripts[idx]
 			}
 			require.Equal(t, expectedTx.TxHash(), tx.TxHash())
+		})
+	}
+}
+
+// testSpendType is the type of an output that a test transaction spends.
+type testSpendType uint8
+
+const (
+	// testSpendP2WKH is a native P2WKH output.
+	testSpendP2WKH testSpendType = iota
+
+	// testSpendNP2WKH is a P2WKH output nested in P2SH.
+	testSpendNP2WKH
+
+	// testSpendNP2WSH is a P2WSH output nested in P2SH. Its witness script
+	// is a 1-of-1 multisig script, because the PSBT finalizer of btcd only
+	// builds witnesses of multisig scripts for P2WSH.
+	testSpendNP2WSH
+)
+
+// testSpend is an output that pays to the test key, together with everything
+// that is needed to sign for it.
+type testSpend struct {
+	// txOut is the output that is spent.
+	txOut *wire.TxOut
+
+	// redeemScript is the redeem script of a nested SegWit output.
+	redeemScript []byte
+
+	// witnessScript is the witness script of a P2WSH output.
+	witnessScript []byte
+
+	// signScript is the script that the signature commits to.
+	signScript []byte
+}
+
+// newTestSpend returns an output of the given type that pays to the key of
+// localPrivkey. Its value is enough to fund a test channel on its own.
+func newTestSpend(t *testing.T, spendType testSpendType) *testSpend {
+	t.Helper()
+
+	_, pubKey := btcec.PrivKeyFromBytes(localPrivkey)
+	pubKeyBytes := pubKey.SerializeCompressed()
+
+	var (
+		spend          testSpend
+		witnessProgram []byte
+		err            error
+	)
+	switch spendType {
+	case testSpendP2WKH, testSpendNP2WKH:
+		witnessProgram, err = input.WitnessPubKeyHash(pubKeyBytes)
+		require.NoError(t, err)
+
+		spend.signScript = witnessProgram
+
+	case testSpendNP2WSH:
+		spend.witnessScript, err = txscript.NewScriptBuilder().
+			AddOp(txscript.OP_1).AddData(pubKeyBytes).
+			AddOp(txscript.OP_1).AddOp(txscript.OP_CHECKMULTISIG).
+			Script()
+		require.NoError(t, err)
+
+		witnessProgram, err = input.WitnessScriptHash(
+			spend.witnessScript,
+		)
+		require.NoError(t, err)
+
+		spend.signScript = spend.witnessScript
+	}
+
+	pkScript := witnessProgram
+	if spendType != testSpendP2WKH {
+		spend.redeemScript = witnessProgram
+
+		pkScript, err = input.GenerateP2SH(witnessProgram)
+		require.NoError(t, err)
+	}
+
+	spend.txOut = &wire.TxOut{
+		Value:    int64(chanCapacity) + 10_000,
+		PkScript: pkScript,
+	}
+
+	return &spend
+}
+
+// addTestSpends adds an input to the PSBT for each of the given outputs. Each
+// input spends its own previous transaction and has both UTXO fields set, like
+// the inputs of a PSBT that lnd's wallet funds.
+func addTestSpends(packet *psbt.Packet, spends []*testSpend) {
+	for idx, spend := range spends {
+		prevTx := wire.NewMsgTx(2)
+		prevTx.AddTxIn(&wire.TxIn{
+			PreviousOutPoint: wire.OutPoint{Index: uint32(idx)},
+		})
+		prevTx.AddTxOut(spend.txOut)
+
+		packet.UnsignedTx.AddTxIn(&wire.TxIn{
+			PreviousOutPoint: wire.OutPoint{Hash: prevTx.TxHash()},
+		})
+		packet.Inputs = append(packet.Inputs, psbt.PInput{
+			NonWitnessUtxo: prevTx,
+			WitnessUtxo: &wire.TxOut{
+				Value:    spend.txOut.Value,
+				PkScript: spend.txOut.PkScript,
+			},
+			RedeemScript:  spend.redeemScript,
+			WitnessScript: spend.witnessScript,
+		})
+	}
+}
+
+// testPrevOutFetcher returns a fetcher for the outputs that the inputs of the
+// PSBT spend. Every input must have a witness UTXO.
+func testPrevOutFetcher(packet *psbt.Packet) *txscript.MultiPrevOutFetcher {
+	prevOuts := make(map[wire.OutPoint]*wire.TxOut)
+	for idx, txIn := range packet.UnsignedTx.TxIn {
+		prevOuts[txIn.PreviousOutPoint] = packet.Inputs[idx].WitnessUtxo
+	}
+
+	return txscript.NewMultiPrevOutFetcher(prevOuts)
+}
+
+// signTestSpends adds a signature of the test key to every input of the PSBT.
+// The inputs must spend the given outputs, in that order.
+func signTestSpends(t *testing.T, packet *psbt.Packet, spends []*testSpend) {
+	t.Helper()
+
+	privKey, pubKey := btcec.PrivKeyFromBytes(localPrivkey)
+
+	tx := packet.UnsignedTx
+	sigHashes := txscript.NewTxSigHashes(tx, testPrevOutFetcher(packet))
+	for idx, spend := range spends {
+		sig, err := txscript.RawTxInWitnessSignature(
+			tx, sigHashes, idx, spend.txOut.Value,
+			spend.signScript, txscript.SigHashAll, privKey,
+		)
+		require.NoError(t, err)
+
+		packet.Inputs[idx].PartialSigs = []*psbt.PartialSig{{
+			PubKey:    pubKey.SerializeCompressed(),
+			Signature: sig,
+		}}
+	}
+}
+
+// extractSignedTx finalizes the signed PSBT with the finalizer of btcd,
+// extracts the signed transaction, and checks that all its inputs are valid.
+func extractSignedTx(t *testing.T, packet *psbt.Packet) *wire.MsgTx {
+	t.Helper()
+
+	require.NoError(t, psbt.MaybeFinalizeAll(packet))
+
+	tx, err := psbt.Extract(packet)
+	require.NoError(t, err)
+
+	fetcher := testPrevOutFetcher(packet)
+	sigHashes := txscript.NewTxSigHashes(tx, fetcher)
+	for idx, txIn := range tx.TxIn {
+		prevOut := fetcher.FetchPrevOutput(txIn.PreviousOutPoint)
+		vm, err := txscript.NewEngine(
+			prevOut.PkScript, tx, idx,
+			txscript.StandardVerifyFlags, nil, sigHashes,
+			prevOut.Value, fetcher,
+		)
+		require.NoError(t, err)
+		require.NoError(t, vm.Execute(), "input %d", idx)
+	}
+
+	return tx
+}
+
+// requirePsbtReady checks whether the PsbtReady channel of the intent was
+// closed, which tells the funding manager to continue.
+func requirePsbtReady(t *testing.T, intent *PsbtIntent, ready bool) {
+	t.Helper()
+
+	select {
+	case _, ok := <-intent.PsbtReady:
+		require.True(t, ready, "PSBT ready was signaled")
+		require.False(t, ok, "PSBT ready channel was not closed")
+
+	default:
+		require.False(t, ready, "PSBT ready was not signaled")
+	}
+}
+
+// TestPsbtVerifySkipFinalize makes sure that a channel that skips the PSBT
+// finalize step is keyed to the TXID of the signed transaction. Signing a
+// nested SegWit input adds a signature script, so that TXID is not the one of
+// the unsigned transaction.
+func TestPsbtVerifySkipFinalize(t *testing.T) {
+	t.Parallel()
+
+	testCases := []struct {
+		name       string
+		spendTypes []testSpendType
+	}{{
+		name:       "P2SH-P2WKH",
+		spendTypes: []testSpendType{testSpendNP2WKH},
+	}, {
+		name:       "P2SH-P2WSH",
+		spendTypes: []testSpendType{testSpendNP2WSH},
+	}, {
+		name: "native and nested SegWit",
+		spendTypes: []testSpendType{
+			testSpendP2WKH, testSpendNP2WKH, testSpendNP2WSH,
+		},
+	}}
+
+	for _, tc := range testCases {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+
+			intent := newTestPsbtIntent(t, false)
+			_, _, packet, err := intent.FundingParams()
+			require.NoError(t, err)
+
+			spends := make([]*testSpend, 0, len(tc.spendTypes))
+			for _, spendType := range tc.spendTypes {
+				spends = append(
+					spends, newTestSpend(t, spendType),
+				)
+			}
+			addTestSpends(packet, spends)
+
+			require.NoError(t, intent.Verify(packet, true))
+			require.Equal(t, PsbtFinalized, intent.State)
+			requirePsbtReady(t, intent, true)
+
+			_, err = intent.CompileFundingTx()
+			require.NoError(t, err)
+
+			chanPoint, err := intent.ChanPoint()
+			require.NoError(t, err)
+
+			// Sign a copy of the PSBT like a wallet would. The
+			// channel must use the TXID of the signed transaction,
+			// which differs from the unsigned TXID.
+			signPacket := clonePsbt(t, packet)
+			signTestSpends(t, signPacket, spends)
+			signedTx := extractSignedTx(t, signPacket)
+
+			require.Equal(t, signedTx.TxHash(), chanPoint.Hash)
+			require.NotEqual(
+				t, packet.UnsignedTx.TxHash(), chanPoint.Hash,
+			)
+		})
+	}
+}
+
+// TestPsbtVerifySkipFinalizeReject makes sure that a PSBT is rejected if the
+// TXID of the signed transaction can't be known when the finalize step is
+// skipped, and that the intent is left as it was. The user can then retry with
+// the same PSBT and the finalize step, or fix the PSBT and skip the finalize
+// step again.
+func TestPsbtVerifySkipFinalizeReject(t *testing.T) {
+	t.Parallel()
+
+	// rejectPsbt returns an intent that rejected a PSBT in the verify step
+	// with skip_finalize, that PSBT, and the output its only input spends.
+	rejectPsbt := func(t *testing.T) (*PsbtIntent, *psbt.Packet,
+		*testSpend) {
+
+		t.Helper()
+
+		intent := newTestPsbtIntent(t, false)
+		_, _, packet, err := intent.FundingParams()
+		require.NoError(t, err)
+
+		// Without the redeem script, the signature script of the
+		// nested SegWit input can't be known.
+		spend := newTestSpend(t, testSpendNP2WKH)
+		addTestSpends(packet, []*testSpend{spend})
+		packet.Inputs[0].RedeemScript = nil
+
+		err = intent.Verify(packet, true)
+		require.ErrorContains(t, err, "cannot skip finalize step")
+		require.ErrorContains(
+			t, err, "input 0: P2SH input has no redeem script",
+		)
+
+		require.Equal(t, PsbtOutputKnown, intent.State)
+		require.Nil(t, intent.PendingPsbt)
+		require.Nil(t, intent.FinalTX)
+		requirePsbtReady(t, intent, false)
+
+		return intent, packet, spend
+	}
+
+	// The same PSBT can be used with the finalize step.
+	t.Run("retry with finalize step", func(t *testing.T) {
+		t.Parallel()
+
+		intent, packet, _ := rejectPsbt(t)
+
+		require.NoError(t, intent.Verify(packet, false))
+		require.Equal(t, PsbtVerified, intent.State)
+		requirePsbtReady(t, intent, false)
+	})
+
+	// With the redeem script added back, the finalize step can be skipped
+	// again, and the channel uses the TXID of the signed transaction.
+	t.Run("retry with redeem script", func(t *testing.T) {
+		t.Parallel()
+
+		intent, packet, spend := rejectPsbt(t)
+		packet.Inputs[0].RedeemScript = spend.redeemScript
+
+		require.NoError(t, intent.Verify(packet, true))
+		require.Equal(t, PsbtFinalized, intent.State)
+		requirePsbtReady(t, intent, true)
+
+		_, err := intent.CompileFundingTx()
+		require.NoError(t, err)
+
+		chanPoint, err := intent.ChanPoint()
+		require.NoError(t, err)
+
+		signPacket := clonePsbt(t, packet)
+		signTestSpends(t, signPacket, []*testSpend{spend})
+		signedTx := extractSignedTx(t, signPacket)
+		require.Equal(t, signedTx.TxHash(), chanPoint.Hash)
+	})
+}
+
+// TestPsbtVerifySkipFinalizeBatch makes sure that all channels of a batch that
+// skip the PSBT finalize step use the TXID of the signed transaction, and that
+// they don't change the PSBT they share.
+func TestPsbtVerifySkipFinalizeBatch(t *testing.T) {
+	t.Parallel()
+
+	// The second channel has another remote key, so it gets its own
+	// funding output.
+	intent1 := newTestPsbtIntent(t, false)
+	intent2 := newTestPsbtIntent(t, false)
+	_, localPubkey := btcec.PrivKeyFromBytes(localPrivkey)
+	_, otherPubkey := btcec.PrivKeyFromBytes([]byte{7, 8, 9})
+	intent2.BindKeys(
+		&keychain.KeyDescriptor{PubKey: localPubkey}, otherPubkey,
+	)
+
+	_, _, packet, err := intent1.FundingParams()
+	require.NoError(t, err)
+
+	_, fundingOutput2, err := intent2.FundingOutput()
+	require.NoError(t, err)
+
+	packet.UnsignedTx.AddTxOut(fundingOutput2)
+	packet.Outputs = append(packet.Outputs, psbt.POutput{})
+
+	spends := []*testSpend{
+		newTestSpend(t, testSpendP2WKH),
+		newTestSpend(t, testSpendNP2WKH),
+	}
+	addTestSpends(packet, spends)
+
+	var before bytes.Buffer
+	require.NoError(t, packet.Serialize(&before))
+
+	require.NoError(t, intent1.Verify(packet, true))
+	require.NoError(t, intent2.Verify(packet, true))
+
+	var after bytes.Buffer
+	require.NoError(t, packet.Serialize(&after))
+	require.Equal(t, before.Bytes(), after.Bytes())
+
+	_, err = intent1.CompileFundingTx()
+	require.NoError(t, err)
+
+	_, err = intent2.CompileFundingTx()
+	require.NoError(t, err)
+
+	chanPoint1, err := intent1.ChanPoint()
+	require.NoError(t, err)
+
+	chanPoint2, err := intent2.ChanPoint()
+	require.NoError(t, err)
+
+	signPacket := clonePsbt(t, packet)
+	signTestSpends(t, signPacket, spends)
+	signedTx := extractSignedTx(t, signPacket)
+
+	require.Equal(t, signedTx.TxHash(), chanPoint1.Hash)
+	require.Equal(t, signedTx.TxHash(), chanPoint2.Hash)
+	require.NotEqual(t, chanPoint1.Index, chanPoint2.Index)
+
+	// The intents keep copies of the transaction, so changing the PSBT
+	// afterwards doesn't change them.
+	packet.UnsignedTx.LockTime = 1
+	packet.UnsignedTx.TxIn[0].Sequence = 1
+	require.Equal(t, chanPoint1.Hash, intent1.FinalTX.TxHash())
+	require.Equal(t, chanPoint2.Hash, intent2.FinalTX.TxHash())
+}
+
+// TestPsbtFinalizeNested makes sure that a channel that goes through the PSBT
+// finalize step is keyed to the TXID of the signed transaction if it spends
+// nested SegWit inputs, whether the channel publishes the transaction or not.
+func TestPsbtFinalizeNested(t *testing.T) {
+	t.Parallel()
+
+	for _, shouldPublish := range []bool{true, false} {
+		name := fmt.Sprintf("publish=%v", shouldPublish)
+		t.Run(name, func(t *testing.T) {
+			t.Parallel()
+
+			intent := newTestPsbtIntent(t, shouldPublish)
+			_, _, packet, err := intent.FundingParams()
+			require.NoError(t, err)
+
+			spends := []*testSpend{
+				newTestSpend(t, testSpendNP2WKH),
+				newTestSpend(t, testSpendNP2WSH),
+			}
+			addTestSpends(packet, spends)
+
+			require.NoError(t, intent.Verify(packet, false))
+			require.Equal(t, PsbtVerified, intent.State)
+
+			// Sign a copy of the PSBT like a wallet would, and let
+			// the intent finalize it.
+			signPacket := clonePsbt(t, packet)
+			signTestSpends(t, signPacket, spends)
+			require.NoError(t, intent.Finalize(signPacket))
+			requirePsbtReady(t, intent, true)
+
+			_, err = intent.CompileFundingTx()
+			require.NoError(t, err)
+
+			chanPoint, err := intent.ChanPoint()
+			require.NoError(t, err)
+
+			signedTx := extractSignedTx(t, signPacket)
+			require.Equal(t, signedTx.TxHash(), chanPoint.Hash)
+			require.NotEqual(
+				t, packet.UnsignedTx.TxHash(), chanPoint.Hash,
+			)
 		})
 	}
 }

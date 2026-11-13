@@ -131,7 +131,10 @@ type PsbtIntent struct {
 
 	// FinalTX is the final, signed and ready to be published wire format
 	// transaction. This is only set after the PsbtFinalize step was
-	// completed successfully.
+	// completed successfully. If the finalize step was skipped, this is
+	// a copy of the unsigned transaction in which every input has its
+	// final signature script, but no witness. It has the same TXID as the
+	// signed transaction, which is all we need it for.
 	FinalTX *wire.MsgTx
 
 	// PsbtReady is an error channel the funding manager will listen for
@@ -290,10 +293,30 @@ func (i *PsbtIntent) Verify(packet *psbt.Packet, skipFinalize bool) error {
 	}
 
 	// In case we aren't going to publish any transaction, we now have
-	// everything we need and can skip the Finalize step.
-	i.PendingPsbt = packet
+	// everything we need and can skip the Finalize step. We then never see
+	// the signed transaction, but the channel point must use its TXID.
+	// Signing a nested SegWit input adds a signature script, which changes
+	// the TXID. So we add the final signature script of every input to a
+	// copy of the unsigned transaction. This happens before any state
+	// change, so a rejected PSBT leaves the intent as it was.
 	if !i.shouldPublish && skipFinalize {
-		i.FinalTX = packet.UnsignedTx
+		finalTx, err := txWithFinalSigScripts(packet)
+		if err != nil {
+			return fmt.Errorf("cannot skip finalize step, TXID of "+
+				"signed transaction is unknown, use the "+
+				"finalize step instead: %w", err)
+		}
+
+		finalTxid := finalTx.TxHash()
+		unsignedTxid := packet.UnsignedTx.TxHash()
+		if finalTxid != unsignedTxid {
+			log.Infof("Skipping PSBT finalize step, funding TXID "+
+				"is %v once signed, unsigned TXID is %v",
+				finalTxid, unsignedTxid)
+		}
+
+		i.PendingPsbt = packet
+		i.FinalTX = finalTx
 		i.State = PsbtFinalized
 
 		// Signal the funding manager that it can now continue with its
@@ -305,7 +328,9 @@ func (i *PsbtIntent) Verify(packet *psbt.Packet, skipFinalize bool) error {
 		return nil
 	}
 
+	i.PendingPsbt = packet
 	i.State = PsbtVerified
+
 	return nil
 }
 

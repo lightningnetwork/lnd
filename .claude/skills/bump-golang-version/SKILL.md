@@ -1,134 +1,110 @@
 ---
 name: bump-golang-version
-description: Updates Go version across lnd codebase. Use when bumping Go toolchain version or minimum Go version. Handles Dockerfiles, GitHub workflows, go.mod files, and documentation.
+description: Updates the Go versions lnd pins. Use when bumping the Go toolchain (build/CI/Docker/release) version or the minimum Go version (go.mod language version and docs/INSTALL.md), or when checking that all Go version pins are consistent. Drives scripts/bump_go.py, which finds every pin, rewrites it, fetches the official archive checksums from go.dev and verifies the result.
 allowed-tools: Read, Edit, Grep, Glob, Bash
 ---
 
-# Bump Golang Version
+# Bump the Go Version
 
-This skill handles updating Go versions across the lnd codebase. There are two types of version updates that typically happen together.
+lnd pins two Go versions, and `scripts/bump_go.py` handles both.
 
-## Overview
+- **Toolchain:** the Go release used to build lnd. It appears as Makefile
+  `GO_VERSION`, in the CI and release workflows, in every `golang:` Docker image,
+  in `.golangci.yml`, and in the build docs (`mobile/README.md`,
+  `docs/ci-runs.md`, the setup-go cache-key example).
+- **Minimum:** the `go` directive in every tracked `go.mod`, which is the oldest
+  Go that can build lnd. `docs/INSTALL.md` names it and lists the official
+  archive URLs and SHA256 checksums for it.
 
-The lnd project uses two different Go versions:
-1. **Toolchain Version** (e.g., 1.25.5) - Used for builds, CI/CD, and Docker images
-2. **Minimum Go Version** (e.g., 1.24.11) - Minimum required version in go.mod files
+The script does all the edits. Don't change version strings by hand, and never
+type a checksum: the script takes checksums from go.dev's release feed
+(`https://go.dev/dl/?mode=json&include=all`). It was checked by replaying the
+two most recent bumps, `d67c9edf8` (toolchain 1.27.1 → 1.27.3, minimum 1.26.8 →
+1.26.10) and `aab1e4661` (minimum → 1.27.3). Both reproduced the real commits
+exactly.
 
-**Important**: LND supports the last two major Go versions. The minimum go.mod version is typically one major version behind the toolchain version (e.g., toolchain 1.25.x with minimum 1.24.x).
+The script lives in `.claude/skills/bump-golang-version/scripts/`, and it finds
+the repo root itself. Below, `$S` is that directory.
 
-## Instructions
+## Step 1: Inspect the current state
 
-### Step 1: Determine Version Type
-
-Ask the user which version(s) they want to update:
-- Toolchain version only (build/CI)
-- Minimum go.mod version only
-- Both (most common)
-
-Get the new version number(s) from the user.
-
-### Step 2: Update Toolchain Version (if requested)
-
-Update the **toolchain version** in these files (use Grep to find current version first):
-
-#### Core Build Files
-1. **Makefile**: Update `GO_VERSION = X.XX.X`
-2. **.github/workflows/main.yml**: Update `GO_VERSION: X.XX.X` in the env section
-3. **.github/workflows/release.yaml**: Update `GO_VERSION: X.XX.X`
-4. **.golangci.yml**: Update version reference
-
-#### Docker Files (Format: `FROM golang:X.XX.X-alpine`)
-5. **Dockerfile**
-6. **dev.Dockerfile**
-7. **docker/btcd/Dockerfile**
-8. **lnrpc/Dockerfile**
-9. **make/builder.Dockerfile**
-10. **tools/Dockerfile**
-
-#### Scripts
-11. **lnrpc/gen_protos_docker.sh**: Update golang image version
-
-**Note**: .github/actions/setup-go/action.yml contains version references in comments for the cache key examples, update those too.
-
-### Step 3: Update Minimum Go Version (if requested)
-
-Update the **minimum go version** in go.mod files:
-
-#### Go Module Files (Format: `go X.XX.XX`)
-1. **go.mod** (main)
-2. **healthcheck/go.mod**
-3. **kvdb/go.mod**
-4. **sqldb/go.mod**
-5. **tlv/go.mod**
-6. **tools/go.mod**
-7. **tools/linters/go.mod**
-8. **tor/go.mod**
-
-**Important**: The minimum version is typically one major version behind the toolchain to support the last two major Go versions (e.g., toolchain 1.25.5, minimum 1.24.11).
-
-### Step 4: Update Documentation
-
-Update **docs/INSTALL.md**:
-- Update minimum version text (e.g., "minimum version of `1.24.11`")
-- Update all download URLs for different architectures:
-  - linux-amd64
-  - linux-armv6l
-  - (check file for complete list)
-- **CRITICAL**: Update SHA256 checksums for each download URL
-  - You MUST fetch the correct checksums from https://go.dev/dl/
-  - DO NOT skip this step or leave incorrect checksums
-
-### Step 5: Verify Changes
-
-1. Search for any remaining references to old versions:
-   ```bash
-   git grep -n "OLD_VERSION"
-   ```
-
-2. Run the linter to check for issues:
-   ```bash
-   make lint
-   ```
-
-3. Verify that files match the pattern from previous commits
-
-### Step 6: Create Commits
-
-Create two separate commits following the project's convention:
-
-**Commit 1: Toolchain Version Update**
-```
-build: update CI+release version to Go X.XX.X
-
-This updates the toolchain which we require to build the LND
-executable.
+```bash
+python3 $S/bump_go.py status
 ```
 
-**Commit 2: Minimum Go Version Update**
+`status` prints every pin with its file and line. It fails if the toolchain
+pins disagree, if the minimum pins disagree, if an `INSTALL.md` checksum doesn't
+match go.dev, or if a pinned file no longer matches its rule. Fix any failure
+before bumping. `set` refuses to start on an inconsistent tree.
+
+## Step 2: Choose the versions
+
+Ask the user for the target versions if they didn't give them. The script
+rejects versions that aren't stable releases on go.dev, and a minimum that is
+newer than the toolchain.
+
+Policy: lnd supports the last two Go releases, so the minimum is usually the
+latest patch of the previous major release. The script warns, but doesn't fail,
+when the minimum falls further behind. Sometimes the minimum has to be newer
+than that, as with `aab1e4661`, where btcwallet required Go 1.27.3. In that case
+explain why in the commit message.
+
+## Step 3: Apply
+
+```bash
+python3 $S/bump_go.py set --toolchain 1.27.5              # toolchain only
+python3 $S/bump_go.py set --min 1.26.12                   # minimum only
+python3 $S/bump_go.py set --toolchain 1.28.1 --min 1.27.5 # both
 ```
-mod: update the minimum go version to X.XX.XX
 
-We update the minimum required go version to build the LND
-executable to the latest minor release of go X.XX.XX.
+After rewriting, `set` runs the full `status` check again and confirms each kind
+of pin has the requested value. It then searches the whole tree (except `go.sum`,
+release notes and the skills) for any old version that is no longer pinned. A
+`FAIL leftover` line means the old version shows up somewhere the script has no
+rule for. Decide whether that place is a pin:
+- **If it is a pin,** add a rule to `RULES` in `bump_go.py` and re-run. Don't
+  edit the file by hand, because the next bump would miss it again.
+- **If it isn't a pin** (e.g. a historical mention), check the line, add its
+  file to `SCAN_EXCLUDE`, and re-run.
+
+The script's exit status is the result. Exit 0 means every pin is consistent
+and every checksum is verified.
+
+## Step 4: Verify the build
+
+```bash
+git diff --stat
+go build ./... && make lint
 ```
 
-## Important Notes
+When the toolchain moves to a new **major** release, also regenerate the protos
+(`make rpc`). Fix anything the new release flags, as in `6b54a387c build: fix
+Go 1.27 compatibility` and `dd5231087 lnrpc: regenerate protos with Go 1.27`.
+Put those fixes in separate commits before the bump.
 
-- **LND supports the last two major Go versions** - minimum version is one major version behind toolchain
-- All comments in the codebase mention "If you change this please also update GO_VERSION in Makefile (then run `make lint` to see where else it needs to be updated as well)"
-- Always verify you've found all references by searching the codebase
-- docs/INSTALL.md requires SHA256 checksums - these MUST be fetched from go.dev/dl/
+## Step 5: Commit
 
-## Example Workflow
+Follow recent history and use one commit per bump, with a `build:` prefix:
 
-```
-User: "Bump Go toolchain to 1.25.6 and minimum to 1.24.12"
-Assistant:
-1. Greps for current version in Makefile
-2. Updates all 12 toolchain files to 1.25.6
-3. Updates all 9 go.mod files to 1.24.12
-4. Updates docs/INSTALL.md with new checksums
-5. Verifies with git grep
-6. Runs make lint
-7. Creates two commits with proper messages
-```
+| Change | Subject | Example |
+|---|---|---|
+| Both | `build: bump Go language and toolchain versions` | `d67c9edf8` |
+| Minimum only | `build: require Go <min>` | `aab1e4661` |
+| Toolchain only | `build: update toolchain to Go <toolchain>` | |
+
+In the body, state the new versions and the reason, e.g. keeping the previous
+release supported, or a dependency that requires the new minimum (link it).
+Open the PR with the `no-changelog` label, as #11383 did for both a toolchain
+and a minimum bump.
+
+## Release branches
+
+Go bumps are usually backported to the supported release branches (#11383
+carried both `backport-v0.20.x-branch` and `backport-v0.21.x-branch`). Use the
+`lnd-backport` skill for that. If a backport conflicts on version pins, run the
+script on the release branch rather than resolving the pins by hand.
+
+The script also works on release branches. A rule is skipped when none of its
+files exist, e.g. older trees without `docs/ci-runs.md`. It fails when a file
+exists but the pattern no longer matches it. Check out the script from `master`
+first, because release branches don't contain the skill.

@@ -257,35 +257,23 @@ func (r *ServerShell) CreateSubServer(
 // transitions the PENDING record to a final FAILED state, ensuring attempts are
 // not "orphaned" in an initialized but not actually dispatched state.
 //
-// A client interacting with this RPC must handle four distinct categories of
-// outcomes, determined by the gRPC status code:
+// The outcome is carried in the response body, as exactly one of:
 //
-// 1. SUCCESS (gRPC code OK): A definitive confirmation that the HTLC has been
-// successfully dispatched and is now in-flight. The client can proceed to track
-// the payment's final result via the TrackOnion RPC.
+// 1. Accepted: the switch owns the attempt, either freshly dispatched or held
+// from an earlier call (already_registered). The client tracks the result
+// with TrackOnion.
 //
-// 2. DUPLICATE ACKNOWLEDGMENT (gRPC code AlreadyExists): This is not a
-// payment-level failure. It is a definitive acknowledgment that a request with
-// the same attempt id has already been successfully processed. A retrying
-// client should interpret this as a success and proceed to tracking the
-// payment's result.
+// 2. Rejected: the switch declined the HTLC before taking ownership of it, so
+// it provably never left this node. The wire failure is always present and
+// decodable. The client may fail the attempt and try another route.
 //
-// 3. INDEFINITE FAILURE (gRPC code Unavailable or DeadlineExceeded): The state
-// of the HTLC dispatch is unknown. This is returned if the server fails during
-// the critical initial step of writing the PENDING record, or if the server is
-// shutting down. The client MUST retry the *exact same request* with the
-// original attempt id to resolve this ambiguity. A client MUST NOT treat this
-// as a definitive failure and move on to a new attempt ID; doing so risks a
-// duplicate in-flight HTLC.
+// 3. Ambiguous: the server cannot say whether the switch took ownership. The
+// client MUST retry the exact same request and MUST NOT record a terminal
+// outcome in the meantime.
 //
-// 4. DEFINITIVE FAILURE (gRPC code FailedPrecondition, InvalidArgument, etc.):
-// The HTLC was not and will not be dispatched. The client should fail the
-// attempt and may retry with a new route. To prevent orphaned records, the
-// server transitions the PENDING attempt to a FAILED state.
-//
-// In the case of a FailedPrecondition or Unavailable failure, the gRPC error
-// may include a SendOnionFailureDetails message with additional context for
-// logging and pathfinding.
+// A gRPC error means the call failed rather than the HTLC: a malformed request,
+// an auth failure, a transport problem, or a server not running this
+// sub-server.
 func (s *Server) SendOnion(_ context.Context,
 	req *SendOnionRequest) (*SendOnionResponse, error) {
 
@@ -302,43 +290,49 @@ func (s *Server) SendOnion(_ context.Context,
 	attemptID := req.AttemptId
 	initErr := s.cfg.AttemptStore.InitAttempt(attemptID)
 	if initErr != nil {
-		// A record for this attempt ID already exists. This indicates a
-		// client-side retry of a request that was already successfully
-		// registered. We return a distinct error to signal that the
-		// dispatch request is acknowledged and that the caller can
-		// safely proceed to track the result.
+		// A record for this attempt ID already exists, so a prior
+		// SendOnion was already registered. This is an acknowledgement
+		// rather than a failure: the caller should stop retrying and
+		// track the attempt.
 		if errors.Is(initErr, htlcswitch.ErrPaymentIDAlreadyExists) {
 			log.Debugf("Attempt id=%v already exists", attemptID)
 
-			return nil, status.Errorf(codes.AlreadyExists,
-				"payment with attempt ID %d already exists",
-				attemptID)
+			return acknowledged(), nil
 		}
 
-		// If we receive an initialization error, we'll return the error
-		// directly to the caller so they can handle the ambiguity.
+		// We cannot tell whether the record was written, so the caller
+		// must retry to resolve it.
 		log.Errorf("Unable to initialize attempt id=%d: %v", attemptID,
 			initErr)
 
-		return nil, marshallDispatchFailure(initErr)
+		return ambiguous(initErr), nil
 	}
 
-	// Perform all RPC-level pre-dispatch checks.
-	chanID, htlcAdd, validationErr := s.validateAndPrepareOnion(req)
-
-	// If request validation fails, we transition the attempt from an
-	// initialized to a terminally failed state to prevent an orphaned
-	// attempt. An orphaned PENDING record would cause any subsequent
-	// TrackOnion call for this attempt to hang indefinitely.
+	// Perform the pre-dispatch checks. A malformed request is an RPC error,
+	// while a request we simply cannot serve right now is a rejection: it
+	// is well formed, provably undispatched, and the caller can act on it.
+	//
+	// Either way the attempt moves to a terminal state. An orphaned PENDING
+	// record would cause any subsequent TrackOnion call for this attempt to
+	// hang indefinitely.
+	chanID, htlcAdd, rejection, validationErr := s.validateAndPrepareOnion(
+		req,
+	)
 	if validationErr != nil {
 		log.Warnf("Validation failed for attempt %d: %v. Failing "+
 			"pending attempt.", req.AttemptId, validationErr)
 
 		s.failPendingAttempt(req.AttemptId, "validation failure")
 
-		// Return the original, more specific validation error to the
-		// client.
 		return nil, validationErr
+	}
+	if rejection != nil {
+		log.Warnf("Cannot serve attempt %d: %v. Failing pending "+
+			"attempt.", req.AttemptId, rejection)
+
+		s.failPendingAttempt(req.AttemptId, "pre-dispatch rejection")
+
+		return rejected(rejection), nil
 	}
 
 	log.Debugf("Dispatching HTLC attempt(id=%v, amt=%v) for payment=%x "+
@@ -348,31 +342,122 @@ func (s *Server) SendOnion(_ context.Context,
 	// With the attempt initialized, we now dispatch the HTLC.
 	dispatchErr := s.cfg.HtlcDispatcher.SendHTLC(chanID, attemptID, htlcAdd)
 	if dispatchErr != nil {
-		// If the dispatcher returns ErrDuplicateAdd, we treat it as an
-		// acknowledgment of a prior successful dispatch, not an error.
+		// If the dispatcher returns ErrDuplicateAdd, the switch already
+		// holds a circuit for this attempt, so we acknowledge it rather
+		// than fail it. The registration check above should catch every
+		// retry, so reaching this means the attempt id is also in use
+		// by another dispatcher. Log it loudly.
 		if errors.Is(dispatchErr, htlcswitch.ErrDuplicateAdd) {
-			log.Debugf("Duplicate dispatch for attempt id=%v",
-				attemptID)
+			log.Errorf("Circuit already exists for attempt id=%v "+
+				"that had no registration", attemptID)
 
-			return nil, status.Errorf(codes.AlreadyExists,
-				"payment with attempt ID %d already exists",
-				attemptID)
+			return acknowledged(), nil
 		}
 
-		// For any other dispatch error, we transition the attempt to a
-		// failed state to prevent an orphaned record.
+		// Any other error from SendHTLC means this call queued
+		// nothing on the link, so we record the attempt as failed. A
+		// retry is then acknowledged and TrackOnion returns the
+		// failure rather than waiting.
 		log.Warnf("Dispatch failed for attempt %d: %v. Failing "+
 			"pending attempt.", req.AttemptId, dispatchErr)
 
 		s.failPendingAttempt(req.AttemptId, "dispatch failure")
 
-		// Translate the internal dispatch error into a gRPC status
-		// with rich details for the client.
-		return nil, marshallDispatchFailure(dispatchErr)
+		return marshallDispatchOutcome(dispatchErr), nil
 	}
 
-	// The onion attempt was successfully dispatched.
-	return &SendOnionResponse{}, nil
+	// The switch has taken ownership of the attempt.
+	return dispatched(), nil
+}
+
+// dispatched reports that the switch has taken ownership of a freshly
+// dispatched attempt.
+func dispatched() *SendOnionResponse {
+	return &SendOnionResponse{
+		Outcome: &SendOnionResponse_Accepted{
+			Accepted: &Accepted{},
+		},
+	}
+}
+
+// acknowledged reports that the switch already held this attempt, so the
+// caller should stop retrying and track it.
+func acknowledged() *SendOnionResponse {
+	return &SendOnionResponse{
+		Outcome: &SendOnionResponse_Accepted{
+			Accepted: &Accepted{
+				AlreadyRegistered: true,
+			},
+		},
+	}
+}
+
+// ambiguous reports that we cannot tell whether the switch took ownership.
+func ambiguous(err error) *SendOnionResponse {
+	return &SendOnionResponse{
+		Outcome: &SendOnionResponse_Ambiguous{
+			Ambiguous: &Ambiguous{Reason: err.Error()},
+		},
+	}
+}
+
+// rejected reports that the switch declined the HTLC before taking ownership
+// of it, carrying the wire failure that explains why.
+//
+// A rejection we cannot describe is reported as ambiguous instead: a definite
+// verdict the caller cannot act on is worse than admitting uncertainty, since
+// it has nothing to hand its router and nothing to penalise with. Reporting
+// ambiguity costs one retry, which the caller resolves by tracking the
+// terminal state recorded for the attempt.
+func rejected(failure lnwire.FailureMessage) *SendOnionResponse {
+	// A rejection without a wire failure cannot be described, and would
+	// panic the encode below.
+	if failure == nil {
+		err := errors.New("rejection carried no wire failure")
+		log.Errorf("%v, reporting as ambiguous", err)
+
+		return ambiguous(err)
+	}
+
+	var buf bytes.Buffer
+	err := lnwire.EncodeFailure(&buf, failure, 0)
+	if err != nil {
+		log.Errorf("Failed to encode wire failure, reporting as "+
+			"ambiguous so the caller can resolve it by "+
+			"tracking: %v", err)
+
+		return ambiguous(err)
+	}
+
+	return &SendOnionResponse{
+		Outcome: &SendOnionResponse_Rejected{
+			Rejected: &Rejected{
+				WireFailure: buf.Bytes(),
+			},
+		},
+	}
+}
+
+// marshallDispatchOutcome converts a non-duplicate SendHTLC error into the
+// outcome the caller receives.
+//
+// A ClearTextError is raised before the switch commits a circuit for the
+// attempt, so no HTLC for it exists at all and the caller may try another
+// route. That is a rejection. Any other error is reported as ambiguous. The
+// attempt is still recorded as failed by the caller of this function, so a
+// retry is acknowledged and tracking resolves it to that recorded failure.
+//
+// NOTE: lnd's router reads a SendHTLC error with the same predicate, in
+// handleSwitchErr (routing/payment_lifecycle.go). Both rely on the switch
+// returning a ClearTextError only before it commits a circuit, so a change to
+// that guarantee affects both.
+func marshallDispatchOutcome(err error) *SendOnionResponse {
+	var clearTextErr htlcswitch.ClearTextError
+	if errors.As(err, &clearTextErr) {
+		return rejected(clearTextErr.WireMessage())
+	}
+
+	return ambiguous(err)
 }
 
 // failPendingAttempt is a helper which transitions the given attempt from an
@@ -396,11 +481,16 @@ func (s *Server) failPendingAttempt(attemptID uint64, context string) {
 }
 
 // validateAndPrepareOnion performs the pre-checks and preparation for a
-// SendOnion request. It returns the channel ID, the HTLC to be sent, and any
-// validation error. All returned errors are gRPC status errors suitable for
-// returning directly to the caller.
+// SendOnion request. It returns the channel ID, the HTLC to be sent, an
+// optional rejection, and any validation error. All returned errors are gRPC
+// status errors suitable for returning directly to the caller.
+//
+// It returns a rejection when the request is well formed but cannot be served
+// from this node's current state, which is a domain outcome rather than an RPC
+// error, and an error only when the request itself is unusable.
 func (s *Server) validateAndPrepareOnion(req *SendOnionRequest) (
-	lnwire.ShortChannelID, *lnwire.UpdateAddHTLC, error) {
+	lnwire.ShortChannelID, *lnwire.UpdateAddHTLC, lnwire.FailureMessage,
+	error) {
 
 	var (
 		chanID  lnwire.ShortChannelID
@@ -415,14 +505,14 @@ func (s *Server) validateAndPrepareOnion(req *SendOnionRequest) (
 			len(req.OnionBlob), lnwire.OnionPacketSize,
 		)
 
-		return chanID, htlcAdd, err
+		return chanID, htlcAdd, nil, err
 	}
 
 	if len(req.PaymentHash) == 0 {
 		err = status.Error(
 			codes.InvalidArgument, "payment hash is required")
 
-		return chanID, htlcAdd, err
+		return chanID, htlcAdd, nil, err
 	}
 
 	if req.Amount <= 0 {
@@ -430,7 +520,7 @@ func (s *Server) validateAndPrepareOnion(req *SendOnionRequest) (
 			"amount must be greater than zero",
 		)
 
-		return chanID, htlcAdd, err
+		return chanID, htlcAdd, nil, err
 	}
 
 	var (
@@ -447,7 +537,7 @@ func (s *Server) validateAndPrepareOnion(req *SendOnionRequest) (
 				"first_hop_chan_id",
 		)
 
-		return chanID, htlcAdd, err
+		return chanID, htlcAdd, nil, err
 
 	case channelIDSet:
 		// Case 1: The caller provided the first hop chan id directly.
@@ -462,18 +552,21 @@ func (s *Server) validateAndPrepareOnion(req *SendOnionRequest) (
 				"invalid first hop pubkey=%x: %v",
 				req.FirstHopPubkey, parseErr)
 
-			return chanID, htlcAdd, err
+			return chanID, htlcAdd, nil, err
 		}
 
 		// Find an eligible channel ID for the given first-hop pubkey.
 		chanID, err = s.findEligibleChannelID(firstHop, amount)
 		if err != nil {
-			err = status.Errorf(codes.FailedPrecondition,
-				"unable to find eligible channel for "+
-					"pubkey=%x: %v",
+			// Well formed, but we have no channel to this peer.
+			// Nothing was dispatched, and the caller can act on
+			// that, so report it as a rejection carrying the wire
+			// failure a hop would have sent.
+			log.Debugf("No channel for pubkey=%x: %v",
 				firstHop.SerializeCompressed(), err)
 
-			return chanID, htlcAdd, err
+			return chanID, htlcAdd, &lnwire.FailUnknownNextPeer{},
+				nil
 		}
 	}
 
@@ -483,7 +576,7 @@ func (s *Server) validateAndPrepareOnion(req *SendOnionRequest) (
 			"invalid payment_hash=%x: %v", req.PaymentHash,
 			parseErr)
 
-		return chanID, htlcAdd, err
+		return chanID, htlcAdd, nil, err
 	}
 
 	var blindingPoint lnwire.BlindingPointRecord
@@ -493,7 +586,7 @@ func (s *Server) validateAndPrepareOnion(req *SendOnionRequest) (
 			err = status.Errorf(codes.InvalidArgument,
 				"invalid blinding point: %v", parseErr)
 
-			return chanID, htlcAdd, err
+			return chanID, htlcAdd, nil, err
 		}
 
 		blindingPoint = tlv.SomeRecordT(
@@ -516,12 +609,15 @@ func (s *Server) validateAndPrepareOnion(req *SendOnionRequest) (
 		ExtraData:     lnwire.ExtraOpaqueData(req.ExtraData),
 	}
 
-	return chanID, htlcAdd, err
+	return chanID, htlcAdd, nil, err
 }
 
-// findEligibleChannelID attempts to find an eligible channel based on the
-// provided public key and the amount to be sent. It returns a channel ID that
-// can carry the given payment amount.
+// findEligibleChannelID picks a channel to the peer with the given public key
+// for an HTLC of the given amount. It prefers a channel that can carry the
+// amount. If the peer has channels but none can, it still returns one, so that
+// the switch reports the precise failure for that channel, such as a temporary
+// channel failure, rather than this server inventing one. It returns an error
+// only when there is no channel to the peer at all.
 func (s *Server) findEligibleChannelID(pubKey *btcec.PublicKey,
 	amount lnwire.MilliSatoshi) (lnwire.ShortChannelID, error) {
 
@@ -534,6 +630,17 @@ func (s *Server) findEligibleChannelID(pubKey *btcec.PublicKey,
 			fmt.Errorf("failed to retrieve channels: %w", err)
 	}
 
+	if len(links) == 0 {
+		return lnwire.ShortChannelID{},
+			fmt.Errorf("no channel to peer %x", pubKeyArray)
+	}
+
+	// fallback is the channel to hand the switch when none can carry the
+	// amount: the eligible channel with the most bandwidth, or any channel
+	// if none is eligible.
+	fallback := links[0]
+	fallbackEligible := fallback.EligibleToForward()
+
 	for _, link := range links {
 		log.Tracef("Considering channel link scid=%v",
 			link.ShortChanID())
@@ -541,6 +648,13 @@ func (s *Server) findEligibleChannelID(pubKey *btcec.PublicKey,
 		// Ensure the link is eligible to forward payments.
 		if !link.EligibleToForward() {
 			continue
+		}
+
+		if !fallbackEligible ||
+			link.Bandwidth() > fallback.Bandwidth() {
+
+			fallback = link
+			fallbackEligible = true
 		}
 
 		// Check if the channel has sufficient bandwidth.
@@ -552,9 +666,11 @@ func (s *Server) findEligibleChannelID(pubKey *btcec.PublicKey,
 		}
 	}
 
-	return lnwire.ShortChannelID{},
-		fmt.Errorf("no suitable channel found for amount: %d msat",
-			amount)
+	log.Debugf("No channel to peer %x can carry %v, handing scid=%v to "+
+		"the switch to report why", pubKeyArray, amount,
+		fallback.ShortChanID())
+
+	return fallback.ShortChanID(), nil
 }
 
 // TrackOnion provides callers the means to query whether or not a payment
@@ -936,123 +1052,6 @@ func (s *Server) DisableRemoteRouter(ctx context.Context,
 	}
 
 	return &DisableRemoteRouterResponse{}, nil
-}
-
-// marshallDispatchFailure translates an error from the underlying HTLC switch
-// into a gRPC status error with rich, structurally-classified details.
-func marshallDispatchFailure(err error) error {
-	details := &SendOnionFailureDetails{
-		ErrorMessage: err.Error(),
-	}
-
-	var (
-		rpcCode        codes.Code
-		clearTextErr   htlcswitch.ClearTextError
-		indefiniteFail *IndefiniteFailure
-		definiteFail   *DefiniteFailure
-	)
-
-	switch {
-	// Handle definite failures.
-	case errors.As(err, &clearTextErr):
-		rpcCode = codes.FailedPrecondition
-
-		var buf bytes.Buffer
-		encodeErr := lnwire.EncodeFailure(
-			&buf, clearTextErr.WireMessage(), 0,
-		)
-		if encodeErr != nil {
-			// The failure is still definite — the switch rejected
-			// the HTLC — we just can't serialize the specific
-			// wire-level reason. We return a DefiniteFailure
-			// so the client can fail the attempt rather than
-			// retrying indefinitely.
-			log.Errorf("Failed to encode ClearTextError wire "+
-				"message: %v", encodeErr)
-
-			definiteFail = &DefiniteFailure{}
-
-			break
-		}
-
-		definiteFail = &DefiniteFailure{
-			LocalFailure: &LocalFailure{
-				WireMessage: buf.Bytes(),
-			},
-		}
-
-	// Handle indefinite failures with specific reasons. These errors
-	// cannot provide acknowledgement on whether or not an htlc for the
-	// given attempt ID has been processed by the server. We signal this
-	// with a specific failure reasons and a top-level gRPC status of
-	// Unavailable. The client MUST retry to resolve the ambiguity.
-	case errors.Is(err, htlcswitch.ErrSwitchExiting):
-		rpcCode = codes.Unavailable
-		indefiniteFail = &IndefiniteFailure{
-			Reason: IndefiniteFailureCode_SWITCH_EXITING,
-		}
-
-	case errors.Is(err, htlcswitch.ErrAmbiguousAttemptInit):
-		rpcCode = codes.Unavailable
-		indefiniteFail = &IndefiniteFailure{
-			Reason: IndefiniteFailureCode_HTLC_INIT_FAILED,
-		}
-
-	// Consider unclassified errors as indefinite for safety.
-	default:
-		rpcCode = codes.Unavailable
-		indefiniteFail = &IndefiniteFailure{
-			Reason: IndefiniteFailureCode_REASON_UNKNOWN,
-		}
-	}
-
-	// Classify the failure as either definite or indefinite.
-	if definiteFail != nil {
-		details.FailureClass =
-			&SendOnionFailureDetails_DefiniteFailure{
-				DefiniteFailure: definiteFail,
-			}
-	} else {
-		details.FailureClass =
-			&SendOnionFailureDetails_IndefiniteFailure{
-				IndefiniteFailure: indefiniteFail,
-			}
-	}
-
-	// Create the gRPC status and attach the structured details.
-	st := status.New(rpcCode, err.Error())
-	stWithDetails, attachErr := st.WithDetails(details)
-	if attachErr != nil {
-		log.Warnf("Unable to attach details to SendOnion error: %v",
-			attachErr)
-
-		return st.Err()
-	}
-
-	return stWithDetails.Err()
-}
-
-// GetSendOnionFailureDetails inspects a gRPC error from a SendOnion call and
-// extracts the rich failure details, if present. It returns the details struct
-// directly, allowing the caller to inspect all fields. It returns nil if no
-// such details are found.
-func GetSendOnionFailureDetails(rpcErr error) *SendOnionFailureDetails {
-	st, ok := status.FromError(rpcErr)
-	if !ok {
-		// Not a gRPC status error.
-		return nil
-	}
-
-	// Search for the specific failure details message within the status.
-	for _, detail := range st.Details() {
-		if failure, ok := detail.(*SendOnionFailureDetails); ok {
-			// We found the details, return them directly.
-			return failure
-		}
-	}
-
-	// No details were found.
-	return nil
 }
 
 // marshallFailureDetails creates the FailureDetails message for the

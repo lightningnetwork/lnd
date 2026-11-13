@@ -14,6 +14,7 @@ import (
 // mockPayer is a mock implementation of the htlcswitch.Payer interface.
 type mockPayer struct {
 	sendErr         error
+	sentFirstHop    *lnwire.ShortChannelID
 	getResultResult *htlcswitch.PaymentResult
 	getResultErr    error
 	resultChan      chan *htlcswitch.PaymentResult
@@ -22,6 +23,8 @@ type mockPayer struct {
 // SendHTLC is a mock implementation of the SendHTLC method.
 func (m *mockPayer) SendHTLC(firstHop lnwire.ShortChannelID,
 	attemptID uint64, htlc *lnwire.UpdateAddHTLC) error {
+
+	m.sentFirstHop = &firstHop
 
 	return m.sendErr
 }
@@ -73,11 +76,55 @@ func (m *mockRouteProcessor) UnmarshallRoute(route *lnrpc.Route) (
 	return m.unmarshallRoute, m.unmarshallErr
 }
 
+// mockChannelInfoAccessor is a mock implementation of the ChannelInfoAccessor
+// interface that returns a fixed set of links.
+type mockChannelInfoAccessor struct {
+	links []htlcswitch.ChannelInfoProvider
+	err   error
+}
+
+// GetLinksByPubkey returns the mocked links and error.
+func (m *mockChannelInfoAccessor) GetLinksByPubkey(
+	_ [33]byte) ([]htlcswitch.ChannelInfoProvider, error) {
+
+	return m.links, m.err
+}
+
+// mockChannelLink is a mock channel link exposing only what the SendOnion
+// handler reads when choosing a first hop.
+type mockChannelLink struct {
+	htlcswitch.ChannelInfoProvider
+	scid      lnwire.ShortChannelID
+	eligible  bool
+	bandwidth lnwire.MilliSatoshi
+}
+
+// ShortChanID returns the mocked short channel ID.
+func (m *mockChannelLink) ShortChanID() lnwire.ShortChannelID {
+	return m.scid
+}
+
+// EligibleToForward returns whether the mocked link may forward.
+func (m *mockChannelLink) EligibleToForward() bool {
+	return m.eligible
+}
+
+// Bandwidth returns the mocked bandwidth.
+func (m *mockChannelLink) Bandwidth() lnwire.MilliSatoshi {
+	return m.bandwidth
+}
+
+// MayAddOutgoingHtlc always permits the HTLC.
+func (m *mockChannelLink) MayAddOutgoingHtlc(lnwire.MilliSatoshi) error {
+	return nil
+}
+
 // mockAttemptStore is a mock implementation of the AttemptStore interface.
 type mockAttemptStore struct {
 	htlcswitch.AttemptStore
 	initErr    error
 	failErr    error
+	failCalls  int
 	deleteErr  error
 	deleteResp map[uint64]htlcswitch.DeletionStatus
 }
@@ -87,9 +134,11 @@ func (m *mockAttemptStore) InitAttempt(attemptID uint64) error {
 	return m.initErr
 }
 
-// FailPendingAttempt returns the mocked failErr.
+// FailPendingAttempt records the call and returns the mocked failErr.
 func (m *mockAttemptStore) FailPendingAttempt(attemptID uint64,
 	reason *htlcswitch.LinkError) error {
+
+	m.failCalls++
 
 	return m.failErr
 }

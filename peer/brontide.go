@@ -4407,11 +4407,11 @@ func (p *Brontide) observeRbfCloseUpdatesWithSeq(
 	)
 
 	maybeNotifyTxBroadcast := func(state chancloser.AsymmetricPeerState,
-		party lntypes.ChannelParty) {
+		party lntypes.ChannelParty) bool {
 
 		// First, check to see if we have an error to report to the
-		// caller. If so, then we''ll return that error and exit, as the
-		// stream will exit as well.
+		// caller. If so, then we'll report it and signal the observer
+		// to exit immediately.
 		if closeErr, ok := state.(*chancloser.CloseErr); ok {
 			// We hit an error during the last state transition, so
 			// we'll extract the error then send it to the
@@ -4423,7 +4423,7 @@ func (p *Brontide) observeRbfCloseUpdatesWithSeq(
 
 			p.reportRbfCloseErr(closeReq, err)
 
-			return
+			return true
 		}
 
 		closePending, ok := state.(*chancloser.ClosePending)
@@ -4431,7 +4431,7 @@ func (p *Brontide) observeRbfCloseUpdatesWithSeq(
 		// If this isn't the close pending state, we aren't at the
 		// terminal state yet.
 		if !ok {
-			return
+			return false
 		}
 
 		// Only notify if the fee rate is greater.
@@ -4443,7 +4443,7 @@ func (p *Brontide) observeRbfCloseUpdatesWithSeq(
 				"a higher fee rate of %v", closeReq.ChanPoint,
 				newFeeRate, lastFeeRate)
 
-			return
+			return false
 		}
 
 		feeRate := closePending.FeeRate
@@ -4466,14 +4466,16 @@ func (p *Brontide) observeRbfCloseUpdatesWithSeq(
 			}:
 
 			case <-closeReq.Done():
-				return
+				return false
 
 			case <-p.cg.Done():
-				return
+				return false
 			}
 		}
 
 		lastTxids.SetForParty(party, closingTxid)
+
+		return false
 	}
 
 	peerLog.Infof("Observing RBF close updates for channel %v",
@@ -4494,14 +4496,20 @@ func (p *Brontide) observeRbfCloseUpdatesWithSeq(
 				// Each side may have gained a new co-op close
 				// tx, so we'll examine both to see if they've
 				// changed.
-				maybeNotifyTxBroadcast(
+				localDone := maybeNotifyTxBroadcast(
 					peerState.GetForParty(lntypes.Local),
 					lntypes.Local,
 				)
-				maybeNotifyTxBroadcast(
+				if localDone {
+					return
+				}
+				remoteDone := maybeNotifyTxBroadcast(
 					peerState.GetForParty(lntypes.Remote),
 					lntypes.Remote,
 				)
+				if remoteDone {
+					return
+				}
 
 			// Otherwise, if we're transition to CloseFin, then we
 			// know that we're done.

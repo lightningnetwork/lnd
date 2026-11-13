@@ -446,21 +446,10 @@ func (s *ShutdownPending) ProcessEvent(event ProtocolEvent, env *Environment,
 	// while shutdown is pending.
 	case *LocalCloseReq:
 		nextState := *s
-		if !nextState.LocalCloseRequested &&
-			nextState.IdealFeeRate.IsNone() {
-
-			nextState.LocalCloseRequested = true
-			nextState.IdealFeeRate = msg.TargetFeeRate
-		} else {
-			msg.TargetFeeRate.WhenSome(func(rate chainfee.SatPerVByte) { //nolint:ll
-				nextState.PendingBump = fn.Some(
-					PendingLocalOffer{
-						TargetFeeRate: rate,
-						Seq:           msg.Seq,
-					},
-				)
-			})
-		}
+		applyLocalCloseReqToPending(
+			&nextState.LocalCloseRequested, &nextState.IdealFeeRate,
+			&nextState.PendingBump, msg,
+		)
 
 		return &CloseStateTransition{
 			NextState: &nextState,
@@ -468,11 +457,7 @@ func (s *ShutdownPending) ProcessEvent(event ProtocolEvent, env *Environment,
 
 	case *CancelPendingOffer:
 		nextState := *s
-		nextState.PendingBump.WhenSome(func(bump PendingLocalOffer) {
-			if bump.Seq == msg.Seq {
-				nextState.PendingBump = fn.None[PendingLocalOffer]() //nolint:ll
-			}
-		})
+		cancelPendingBump(&nextState.PendingBump, msg.Seq)
 
 		return &CloseStateTransition{
 			NextState: &nextState,
@@ -657,21 +642,10 @@ func (c *ChannelFlushing) ProcessEvent(event ProtocolEvent, env *Environment,
 	// the requested fee rate as soon as flushing completes.
 	case *LocalCloseReq:
 		nextState := *c
-		if !nextState.LocalCloseRequested &&
-			nextState.IdealFeeRate.IsNone() {
-
-			nextState.LocalCloseRequested = true
-			nextState.IdealFeeRate = msg.TargetFeeRate
-		} else {
-			msg.TargetFeeRate.WhenSome(func(rate chainfee.SatPerVByte) { //nolint:ll
-				nextState.PendingBump = fn.Some(
-					PendingLocalOffer{
-						TargetFeeRate: rate,
-						Seq:           msg.Seq,
-					},
-				)
-			})
-		}
+		applyLocalCloseReqToPending(
+			&nextState.LocalCloseRequested, &nextState.IdealFeeRate,
+			&nextState.PendingBump, msg,
+		)
 
 		return &CloseStateTransition{
 			NextState: &nextState,
@@ -679,11 +653,7 @@ func (c *ChannelFlushing) ProcessEvent(event ProtocolEvent, env *Environment,
 
 	case *CancelPendingOffer:
 		nextState := *c
-		nextState.PendingBump.WhenSome(func(bump PendingLocalOffer) {
-			if bump.Seq == msg.Seq {
-				nextState.PendingBump = fn.None[PendingLocalOffer]() //nolint:ll
-			}
-		})
+		cancelPendingBump(&nextState.PendingBump, msg.Seq)
 
 		return &CloseStateTransition{
 			NextState: &nextState,
@@ -790,6 +760,36 @@ func (c *ChannelFlushing) ProcessEvent(event ProtocolEvent, env *Environment,
 		return nil, fmt.Errorf("%w: received %T while in "+
 			"ChannelFlushing", ErrInvalidStateTransition, msg)
 	}
+}
+
+// applyLocalCloseReqToPending records an initial local close fee rate or
+// buffers a fee-bump request while the closer is in ShutdownPending or
+// ChannelFlushing.
+func applyLocalCloseReqToPending(localRequested *bool,
+	idealFeeRate *fn.Option[chainfee.SatPerVByte],
+	pendingBump *fn.Option[PendingLocalOffer], msg *LocalCloseReq) {
+
+	if !*localRequested && idealFeeRate.IsNone() {
+		*localRequested = true
+		*idealFeeRate = msg.TargetFeeRate
+		return
+	}
+
+	msg.TargetFeeRate.WhenSome(func(rate chainfee.SatPerVByte) {
+		*pendingBump = fn.Some(PendingLocalOffer{
+			TargetFeeRate: rate,
+			Seq:           msg.Seq,
+		})
+	})
+}
+
+// cancelPendingBump clears pendingBump if its sequence matches seq.
+func cancelPendingBump(pendingBump *fn.Option[PendingLocalOffer], seq uint64) {
+	pendingBump.WhenSome(func(bump PendingLocalOffer) {
+		if bump.Seq == seq {
+			*pendingBump = fn.None[PendingLocalOffer]()
+		}
+	})
 }
 
 // processNegotiateEvent is a helper function that processes a new event to
@@ -2391,30 +2391,12 @@ func (c *ClosePending) ProcessEvent(event ProtocolEvent, env *Environment,
 	// transition to the LocalCloseStart state, so we can sign a new closing
 	// tx.
 	case *SendOfferEvent:
-		return &CloseStateTransition{
-			NextState: &LocalCloseStart{
-				CloseChannelTerms: c.CloseChannelTerms,
-			},
-			NewEvents: fn.Some(protofsm.EmittedEvent[ProtocolEvent]{
-				InternalEvent: []ProtocolEvent{msg},
-			}),
-		}, nil
+		return transitionToLocalOffer(c.CloseChannelTerms, msg)
 
 	case *LocalCloseReq:
-		offer := &SendOfferEvent{
-			TargetFeeRate: msg.TargetFeeRate.UnwrapOr(
-				env.DefaultFeeRate,
-			),
-		}
-
-		return &CloseStateTransition{
-			NextState: &LocalCloseStart{
-				CloseChannelTerms: c.CloseChannelTerms,
-			},
-			NewEvents: fn.Some(protofsm.EmittedEvent[ProtocolEvent]{
-				InternalEvent: []ProtocolEvent{offer},
-			}),
-		}, nil
+		return transitionToLocalOffer(c.CloseChannelTerms, &SendOfferEvent{ //nolint:ll
+			TargetFeeRate: msg.TargetFeeRate.UnwrapOr(env.DefaultFeeRate), //nolint:ll
+		})
 
 	// If we get an offer received event, then we're doing a state
 	// transition to the RemoteCloseStart, as the remote peer wants to sign
@@ -2459,30 +2441,12 @@ func (c *CloseErr) ProcessEvent(event ProtocolEvent, env *Environment,
 	// transition to the LocalCloseStart state, so we can sign a new closing
 	// tx.
 	case *SendOfferEvent:
-		return &CloseStateTransition{
-			NextState: &LocalCloseStart{
-				CloseChannelTerms: c.CloseChannelTerms,
-			},
-			NewEvents: fn.Some(protofsm.EmittedEvent[ProtocolEvent]{
-				InternalEvent: []ProtocolEvent{msg},
-			}),
-		}, nil
+		return transitionToLocalOffer(c.CloseChannelTerms, msg)
 
 	case *LocalCloseReq:
-		offer := &SendOfferEvent{
-			TargetFeeRate: msg.TargetFeeRate.UnwrapOr(
-				env.DefaultFeeRate,
-			),
-		}
-
-		return &CloseStateTransition{
-			NextState: &LocalCloseStart{
-				CloseChannelTerms: c.CloseChannelTerms,
-			},
-			NewEvents: fn.Some(protofsm.EmittedEvent[ProtocolEvent]{
-				InternalEvent: []ProtocolEvent{offer},
-			}),
-		}, nil
+		return transitionToLocalOffer(c.CloseChannelTerms, &SendOfferEvent{ //nolint:ll
+			TargetFeeRate: msg.TargetFeeRate.UnwrapOr(env.DefaultFeeRate), //nolint:ll
+		})
 
 	// If we get an offer received event, then we're doing a state
 	// transition to the RemoteCloseStart, as the remote peer wants to sign
@@ -2501,4 +2465,19 @@ func (c *CloseErr) ProcessEvent(event ProtocolEvent, env *Environment,
 			NextState: c,
 		}, nil
 	}
+}
+
+// transitionToLocalOffer transitions from a terminal or error peer state back
+// into LocalCloseStart with offer queued as an internal event.
+func transitionToLocalOffer(terms *CloseChannelTerms,
+	offer *SendOfferEvent) (*CloseStateTransition, error) {
+
+	return &CloseStateTransition{
+		NextState: &LocalCloseStart{
+			CloseChannelTerms: terms,
+		},
+		NewEvents: fn.Some(protofsm.EmittedEvent[ProtocolEvent]{
+			InternalEvent: []ProtocolEvent{offer},
+		}),
+	}, nil
 }

@@ -4820,3 +4820,60 @@ func TestRbfCloseFinWipesChannelAndLink(t *testing.T) {
 		})
 	}
 }
+
+// TestRbfCloseErrDoesNotLeakOnRetry verifies that an unpayable fee bump exits
+// its observer on CloseErr without later emitting a late cancellation that
+// re-notifies a subsequent retry caller.
+func TestRbfCloseErrDoesNotLeakOnRetry(t *testing.T) {
+	t.Parallel()
+
+	h, err := createTestPeerWithChannel(t, noUpdate)
+	require.NoError(t, err)
+	p := h.peer
+	point := h.channel.ChannelPoint()
+	fees := &rbfIssueFeeEstimator{
+		fees: make(chan chainfee.SatPerKWeight, 4),
+	}
+	terms := newIssueTerms(t)
+	terms.LocalBalance = 0
+	startIssueRbfMachine(t, p, point, newIssueNegotiation(t,
+		&chancloser.LocalCloseStart{CloseChannelTerms: terms},
+	), fees)
+	t.Cleanup(func() { p.Disconnect(context.Canceled) })
+
+	// First bump fails with CloseErr and resolves caller 1.
+	ctx1, cancel1 := context.WithCancel(t.Context())
+	req1 := newIssueBump(ctx1, &point)
+	require.NoError(t, p.startRbfChanCloser(
+		newRPCShutdownInit(req1), point,
+	))
+	requireFeeOffered(t, fees, req1.TargetFeePerKw)
+	select {
+	case err := <-req1.ErrChan(t.Context()):
+		require.ErrorContains(t, err, "cannot pay for fee")
+	case <-time.After(timeout):
+		t.Fatal("caller 1 did not receive unpayable-fee error")
+	}
+
+	// Register caller 2 and cancel caller 1; caller 2 must not receive
+	// caller 1's stale CloseErr.
+	chanID := lnwire.NewChanIDFromOutPoint(point)
+	req2 := newIssueBump(t.Context(), &point)
+	p.activeCloseReqs.add(chanID, req2)
+	machineAny, ok := p.activeChanCloses.Load(chanID)
+	require.True(t, ok)
+	machineAny.WhenRight(func(m *chancloser.RbfChanCloser) {
+		sub := m.RegisterStateEvents()
+		p.cg.WgAdd(1)
+		go func() {
+			defer p.cg.WgDone()
+			p.observeRbfCloseUpdates(m, req2, sub)
+		}()
+	})
+	cancel1()
+	select {
+	case err := <-req2.ErrChan(t.Context()):
+		t.Fatalf("caller 2 got stale err: %v", err)
+	case <-time.After(shortTimeout):
+	}
+}

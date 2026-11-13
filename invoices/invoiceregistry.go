@@ -1315,6 +1315,15 @@ func (i *InvoiceRegistry) notifyExitHopHtlcLocked(
 		return nil, nil, err
 	}
 
+	if !isReplayed && !reconstructedBolt12 && existingInvoice.IsBolt12 &&
+		existingInvoice.State == ContractOpen {
+
+		res := i.checkLaterBolt12Htlc(ctx, &existingInvoice)
+		if res != nil {
+			return res, nil, nil
+		}
+	}
+
 	resolution := replayResolution
 	invoice := &existingInvoice
 	var updateSubscribers bool
@@ -1629,6 +1638,44 @@ func (i *InvoiceRegistry) notifyExitHopHtlcLocked(
 	}
 
 	return resolution, invoiceToExpire, nil
+}
+
+// checkLaterBolt12Htlc checks a later HTLC of an open BOLT 12 invoice that an
+// earlier HTLC stored. It returns a fail resolution when the HTLC must be
+// refused, or nil when the HTLC can go on. The rebuild checked the invoice
+// expiry and the offer for the first HTLC, so a later HTLC must pass the same
+// checks. The invoice can expire, and the offer can be disabled, after the
+// first HTLC. No HTLC of the set has settled. A refused HTLC lets the set time
+// out, and the invoice is then deleted.
+func (i *InvoiceRegistry) checkLaterBolt12Htlc(ctx *invoiceUpdateCtx,
+	invoice *Invoice) HtlcResolution {
+
+	// The invoice expires after its last second, as the rebuild reads it.
+	expiry := invoice.CreationDate.Add(invoice.Terms.Expiry)
+	if i.cfg.Clock.Now().Unix() > expiry.Unix() {
+		log.Debugf("Refusing HTLC for expired BOLT 12 invoice "+
+			"hash=%v", ctx.hash)
+
+		return ctx.failRes(ResultInvoiceNotOpen)
+	}
+
+	// An invoice without an offer has nothing to disable.
+	if len(invoice.OfferHash) == 0 || i.cfg.Bolt12Reconstructor == nil {
+		return nil
+	}
+
+	// TODO: take the context from NotifyExitHopHtlc when it gets one.
+	err := i.cfg.Bolt12Reconstructor.CheckOfferActive(
+		context.TODO(), invoice.OfferHash,
+	)
+	if err != nil {
+		log.Debugf("Refusing HTLC for BOLT 12 invoice hash=%v: %v",
+			ctx.hash, err)
+
+		return ctx.failRes(ResultInvoiceNotOpen)
+	}
+
+	return nil
 }
 
 // SettleHodlInvoice sets the preimage of a hodl invoice.

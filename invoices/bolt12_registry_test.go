@@ -58,6 +58,15 @@ func (f *fakeReconstructor) ReconstructInvoice(context.Context, []byte,
 	return &invoice, nil
 }
 
+// CheckOfferActive refuses the offer once it is disabled.
+func (f *fakeReconstructor) CheckOfferActive(context.Context, []byte) error {
+	if f.disabled.Load() {
+		return errTestOfferDisabled
+	}
+
+	return nil
+}
+
 // newBolt12RegistryContext creates a registry over a BOLT 12 enabled SQLite
 // store with one offer, and a reconstructor for an invoice of that offer. The
 // options change the registry config.
@@ -211,6 +220,37 @@ func TestBolt12SettlesWhileOfferActive(t *testing.T) {
 	checkSettleResolution(t, resolution, preimage)
 }
 
+// TestBolt12RefusesShardAfterOfferDisabled verifies that a later shard is
+// refused when the offer is disabled after the first shard arrived. No shard
+// settles, so the payment of the disabled offer never completes.
+func TestBolt12RefusesShardAfterOfferDisabled(t *testing.T) {
+	t.Parallel()
+
+	ctx, reconstructor, preimage, pathID := newBolt12RegistryContext(t)
+
+	resolution, hodlChan := notifyBolt12Shard(t, ctx, preimage, pathID, 1)
+	require.Nil(t, resolution)
+
+	reconstructor.disabled.Store(true)
+
+	resolution, _ = notifyBolt12Shard(t, ctx, preimage, pathID, 2)
+	checkFailResolution(t, resolution, invpkg.ResultInvoiceNotOpen)
+
+	// The first shard is still held, not settled.
+	select {
+	case <-hodlChan:
+		t.Fatal("first shard was resolved")
+
+	default:
+	}
+
+	invoice, err := ctx.registry.LookupInvoice(
+		t.Context(), preimage.Hash(),
+	)
+	require.NoError(t, err)
+	require.Equal(t, invpkg.ContractOpen, invoice.State)
+}
+
 // TestBolt12RefusesFirstShardOfDisabledOffer verifies that no invoice is
 // created when the first shard arrives for a disabled offer.
 func TestBolt12RefusesFirstShardOfDisabledOffer(t *testing.T) {
@@ -224,6 +264,38 @@ func TestBolt12RefusesFirstShardOfDisabledOffer(t *testing.T) {
 
 	_, err := ctx.registry.LookupInvoice(t.Context(), preimage.Hash())
 	require.ErrorIs(t, err, invpkg.ErrInvoiceNotFound)
+}
+
+// TestBolt12SettlesInvoiceWithoutOffer verifies that the disabled-offer check
+// skips an invoice that answers an invoice request without an offer. Such an
+// invoice is stored when it is created, so it never goes through the
+// reconstructor, and it has no offer to disable.
+func TestBolt12SettlesInvoiceWithoutOffer(t *testing.T) {
+	t.Parallel()
+
+	ctx, reconstructor, preimage, pathID := newBolt12RegistryContext(t)
+
+	// The reconstructor reports every offer as disabled, so a settled
+	// payment proves that the check did not run.
+	reconstructor.disabled.Store(true)
+
+	encoded, err := envelope.Encode(
+		testRegistryEnvelope(reconstructor.invoice.InvreqPayerID),
+	)
+	require.NoError(t, err)
+
+	invoice := *reconstructor.invoice
+	invoice.OfferID = fn.None[int64]()
+	invoice.OfferHash = nil
+	invoice.Bolt12Envelope = encoded
+	_, err = ctx.registry.AddInvoice(t.Context(), &invoice, preimage.Hash())
+	require.NoError(t, err)
+
+	resolution, _ := notifyBolt12Shard(t, ctx, preimage, pathID, 1)
+	require.Nil(t, resolution)
+
+	resolution, _ = notifyBolt12Shard(t, ctx, preimage, pathID, 2)
+	checkSettleResolution(t, resolution, preimage)
 }
 
 // TestBolt12RebuildNeedsEnvelopeAndPathID verifies that an HTLC for an unknown
@@ -519,6 +591,60 @@ func TestBolt12NoOpenEventForDeletedRow(t *testing.T) {
 
 	case <-time.After(testTimeout):
 		t.Fatal("no invoice event")
+	}
+}
+
+// TestBolt12LaterShardExpiry verifies that a later shard settles up to the last
+// second of the stored invoice and is refused after it. The rebuild checks the
+// expiry only for the first shard.
+func TestBolt12LaterShardExpiry(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name    string
+		elapsed time.Duration
+		settles bool
+	}{
+		{
+			name:    "last second",
+			elapsed: 10 * time.Second,
+			settles: true,
+		},
+		{
+			name:    "after expiry",
+			elapsed: 11 * time.Second,
+		},
+	}
+
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			t.Parallel()
+
+			ctx, reconstructor, preimage, pathID :=
+				newBolt12RegistryContext(t)
+
+			// The invoice expires before the MPP timeout, so the
+			// first shard is still held when the second arrives.
+			reconstructor.invoice.Terms.Expiry = 10 * time.Second
+
+			resolution, _ := notifyBolt12Shard(
+				t, ctx, preimage, pathID, 1,
+			)
+			require.Nil(t, resolution)
+
+			ctx.clock.SetTime(testTime.Add(test.elapsed))
+			resolution, _ = notifyBolt12Shard(
+				t, ctx, preimage, pathID, 2,
+			)
+			if test.settles {
+				checkSettleResolution(t, resolution, preimage)
+
+				return
+			}
+			checkFailResolution(
+				t, resolution, invpkg.ResultInvoiceNotOpen,
+			)
+		})
 	}
 }
 

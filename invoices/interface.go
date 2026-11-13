@@ -292,6 +292,12 @@ type Bolt12Reconstructor interface {
 	ReconstructInvoice(ctx context.Context, envelope []byte,
 		pathID chainhash.Hash,
 		paymentHash lntypes.Hash) (*Invoice, error)
+
+	// CheckOfferActive returns an error when the offer with the given
+	// hash is unknown or disabled. An offer can be disabled after the first
+	// HTLC of a set arrives, so the check must run for each later HTLC of
+	// an open BOLT 12 invoice.
+	CheckOfferActive(ctx context.Context, offerHash []byte) error
 }
 
 // HtlcModifier is an interface that allows an intercept client to register

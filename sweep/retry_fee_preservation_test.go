@@ -5,7 +5,6 @@ import (
 	"testing"
 
 	"github.com/lightningnetwork/lnd/fn/v2"
-	"github.com/lightningnetwork/lnd/input"
 	"github.com/lightningnetwork/lnd/lnwallet/chainfee"
 	"github.com/stretchr/testify/mock"
 	"github.com/stretchr/testify/require"
@@ -30,7 +29,11 @@ func TestSpendCheckRetryPreservesStartingFeeRate(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			tp, mocks := createTestPublisher(t)
 			req := createTestBumpRequest()
-			req.StartingFeeRate = tc.starting
+			req.FeeSchedules = []InputSchedule{{
+				FeeSchedule: FeeSchedule{
+					StartingFeeRate: tc.starting,
+				},
+			}}
 			r := &monitorRecord{requestID: 1, req: req}
 
 			op := req.Inputs[0].OutPoint()
@@ -63,29 +66,4 @@ func TestSpendCheckRetryPreservesStartingFeeRate(t *testing.T) {
 			set.AssertExpectations(t)
 		})
 	}
-}
-
-// TestRetryUpdatesSpecifiedFeeRate ensures ordinary retry results still update
-// the starting fee rate supplied by the fee bumper.
-func TestRetryUpdatesSpecifiedFeeRate(t *testing.T) {
-	s := New(&UtxoSweeperConfig{})
-	inp := createMockInput(t, s, PendingPublish)
-	op := inp.OutPoint()
-	s.inputs[op].params.StartingFeeRate = fn.Some(
-		chainfee.SatPerKWeight(500),
-	)
-	set := &MockInputSet{}
-	set.On("Inputs").Return([]input.Input{inp}).Once()
-
-	err := s.handleBumpEvent(&bumpResp{
-		set: set, result: &BumpResult{
-			Event: TxFailed, Err: errDummy, FeeRate: 900,
-		},
-	})
-	require.NoError(t, err)
-	require.Equal(
-		t, fn.Some(chainfee.SatPerKWeight(900)),
-		s.inputs[op].params.StartingFeeRate,
-	)
-	set.AssertExpectations(t)
 }

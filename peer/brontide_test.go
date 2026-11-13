@@ -4877,3 +4877,142 @@ func TestRbfCloseErrDoesNotLeakOnRetry(t *testing.T) {
 	case <-time.After(shortTimeout):
 	}
 }
+
+// TestRbfReportErrorAnswersCallersAndRetiresCloser verifies that when the RBF
+// FSM errors out, ReportError aborts waiting RPC callers with the FSM error,
+// retires the stopped closer when no active channel remains, and replaces it
+// cleanly when an active channel is present.
+func TestRbfReportErrorAnswersCallersAndRetiresCloser(t *testing.T) {
+	t.Parallel()
+
+	t.Run("active_channel_replaces_and_answers", func(t *testing.T) {
+		t.Parallel()
+
+		h, err := createTestPeerWithChannel(t, noUpdate)
+		require.NoError(t, err)
+		p := h.peer
+		point := h.channel.ChannelPoint()
+		chanID := lnwire.NewChanIDFromOutPoint(point)
+		useTestCloseRouter(t, p)
+
+		oldCloser := initTestRbfCloser(t, p, h.channel)
+		t.Cleanup(func() { p.Disconnect(context.Canceled) })
+
+		req := newTestCloseRequest(&point, 5)
+		p.activeCloseReqs.add(chanID, req)
+		stateSub := oldCloser.RegisterStateEvents()
+		p.cg.WgAdd(1)
+		go func() {
+			defer p.cg.WgDone()
+			p.observeRbfCloseUpdates(oldCloser, req, stateSub)
+		}()
+
+		fsmErr := errors.New("test fsm transition error")
+		go newChanErrorReporter(chanID, p).ReportError(fsmErr)
+		select {
+		case out := <-p.outgoingQueue:
+			_, ok := out.msg.(*lnwire.Error)
+			require.True(t, ok, "expected lnwire.Error")
+		case <-time.After(timeout):
+			t.Fatal("expected error message on outgoingQueue")
+		}
+		oldCloser.Stop()
+
+		select {
+		case gotErr := <-req.ErrChan(t.Context()):
+			require.ErrorIs(t, gotErr, fsmErr)
+		case <-time.After(timeout):
+			t.Fatal("waiting caller was not answered")
+		}
+
+		// A fresh live replacement closer should be installed.
+		err = wait.Predicate(func() bool {
+			cur, found := p.activeChanCloses.Load(chanID)
+			if !found {
+				return false
+			}
+			var replaced *chancloser.RbfChanCloser
+			cur.WhenRight(func(c *chancloser.RbfChanCloser) { //nolint:ll
+				replaced = c
+			})
+
+			return replaced != nil && replaced != oldCloser &&
+				replaced.IsRunning()
+		}, timeout)
+		require.NoError(t, err)
+	})
+
+	t.Run("missing_channel_retires_closer", func(t *testing.T) {
+		t.Parallel()
+
+		h, err := createTestPeerWithChannel(t, noUpdate)
+		require.NoError(t, err)
+		p := h.peer
+		point := h.channel.ChannelPoint()
+		chanID := lnwire.NewChanIDFromOutPoint(point)
+		useTestCloseRouter(t, p)
+
+		oldCloser := initTestRbfCloser(t, p, h.channel)
+		t.Cleanup(func() { p.Disconnect(context.Canceled) })
+
+		p.activeChannels.Delete(chanID)
+		req := newTestCloseRequest(&point, 5)
+		p.activeCloseReqs.add(chanID, req)
+
+		fsmErr := errors.New("test fsm transition error")
+		go newChanErrorReporter(chanID, p).ReportError(fsmErr)
+		select {
+		case out := <-p.outgoingQueue:
+			_, ok := out.msg.(*lnwire.Error)
+			require.True(t, ok, "expected lnwire.Error")
+		case <-time.After(timeout):
+			t.Fatal("expected error message on outgoingQueue")
+		}
+
+		select {
+		case gotErr := <-req.ErrChan(t.Context()):
+			require.ErrorIs(t, gotErr, fsmErr)
+		case <-time.After(timeout):
+			t.Fatal("waiting caller was not answered")
+		}
+		_, found := p.activeChanCloses.Load(chanID)
+		require.False(t, found)
+		err = wait.Predicate(func() bool {
+			return !oldCloser.IsRunning()
+		}, timeout)
+		require.NoError(t, err)
+	})
+}
+
+// TestRbfIsSameLiveCloserRejectsReplacedOrStopped verifies the identity and
+// liveness guard used before binding an RPC caller to an RBF closer.
+func TestRbfIsSameLiveCloserRejectsReplacedOrStopped(t *testing.T) {
+	t.Parallel()
+
+	h, err := createTestPeerWithChannel(t, noUpdate)
+	require.NoError(t, err)
+	p := h.peer
+	point := h.channel.ChannelPoint()
+	chanID := lnwire.NewChanIDFromOutPoint(point)
+	fees := &rbfIssueFeeEstimator{
+		fees: make(chan chainfee.SatPerKWeight, 4),
+	}
+	t.Cleanup(func() { p.Disconnect(context.Canceled) })
+
+	first := startIssueRbfMachine(
+		t, p, point, &chancloser.ChannelActive{}, fees,
+	)
+	require.True(t, p.isSameLiveRbfCloser(chanID, first))
+
+	// Stopping the same closer must fail the liveness check even while it
+	// remains in activeChanCloses.
+	first.Stop()
+	require.False(t, p.isSameLiveRbfCloser(chanID, first))
+
+	// Replacing the map entry with a fresh closer must reject the old one.
+	second := startIssueRbfMachine(
+		t, p, point, &chancloser.ChannelActive{}, fees,
+	)
+	require.False(t, p.isSameLiveRbfCloser(chanID, first))
+	require.True(t, p.isSameLiveRbfCloser(chanID, second))
+}

@@ -4598,20 +4598,49 @@ func (c *chanErrorReporter) ReportError(chanErr error) {
 			err)
 	}
 
+	// Capture the point before aborting callers so actor cleanup can still
+	// find it if the channel is already gone from activeChannels. Take the
+	// failed closer out of activeChanCloses and answer any waiting callers
+	// before re-initializing so callers never lose their observer when the
+	// stopped FSM exits and cannot bind to the stopped closer.
+	chanPoint, _ := c.peer.chanPointForCloser(c.chanID)
+	oldCloser, hadCloser := c.peer.activeChanCloses.LoadAndDelete(c.chanID)
+	c.peer.abortRemainingCloseReqs(c.chanID, chanErr)
+
 	// After we send the error message to the peer, we'll re-initialize the
 	// coop close state machine as they may send a shutdown message to
 	// retry the coop close.
 	lnChan, ok := c.peer.activeChannels.Load(c.chanID)
-	if !ok {
+	if !ok || lnChan == nil {
+		if ok && lnChan == nil {
+			c.peer.log.Debugf("channel %v is pending, not "+
+				"re-initializing coop close state machine",
+				c.chanID)
+		}
+		if hadCloser {
+			c.peer.unregisterRbfCloseActor(chanPoint)
+			oldCloser.WhenRight(func(r *chancloser.RbfChanCloser) {
+				go func() {
+					c.peer.msgRouter.WhenSome(func(m msgmux.Router) { //nolint:ll
+						_ = m.UnregisterEndpoint(
+							r.Name(),
+						)
+					})
+					r.Stop()
+				}()
+			})
+		}
+
 		return
 	}
 
-	if lnChan == nil {
-		c.peer.log.Debugf("channel %v is pending, not "+
-			"re-initializing coop close state machine",
-			c.chanID)
-
-		return
+	// Stop the old FSM asynchronously without unregistering from
+	// msgRouter, since initRbfChanCloser below synchronously replaces the
+	// same endpoint.
+	if hadCloser {
+		oldCloser.WhenRight(func(r *chancloser.RbfChanCloser) {
+			go r.Stop()
+		})
 	}
 
 	if _, err := c.peer.initRbfChanCloser(lnChan); err != nil {
@@ -5030,7 +5059,7 @@ func (p *Brontide) startRbfChanCloser(shutdown shutdownInit,
 			// and its caller waits on a close nothing reaches.
 			// Answer it here. The state subscription is dropped by
 			// hand, since no observer will run to drop it.
-			if _, live := p.activeChanCloses.Load(chanID); !live {
+			if !p.isSameLiveRbfCloser(chanID, rbfCloser) {
 				rbfCloser.RemoveStateSub(coopCloseStates)
 				p.claimAndAnswerRetiredCaller(chanID, req)
 
@@ -5063,6 +5092,32 @@ func (p *Brontide) startRbfChanCloser(shutdown shutdownInit,
 	})
 
 	return nil
+}
+
+// isSameLiveRbfCloser reports whether chanID is still mapped to rbfCloser and
+// that rbfCloser has not been asked to stop.
+func (p *Brontide) isSameLiveRbfCloser(chanID lnwire.ChannelID,
+	rbfCloser *chancloser.RbfChanCloser) bool {
+
+	current, live := p.activeChanCloses.Load(chanID)
+	if !live {
+		return false
+	}
+
+	var same bool
+	current.WhenRight(func(cur *chancloser.RbfChanCloser) {
+		same = cur == rbfCloser
+	})
+	if !same {
+		return false
+	}
+
+	select {
+	case <-rbfCloser.Done():
+		return false
+	default:
+		return true
+	}
 }
 
 // handleLocalCloseReq kicks-off the workflow to execute a cooperative or

@@ -69,11 +69,7 @@ func request_Invoices_CancelInvoice_0(ctx context.Context, marshaler runtime.Mar
 	var protoReq CancelInvoiceMsg
 	var metadata runtime.ServerMetadata
 
-	newReader, berr := utilities.IOReaderFactory(req.Body)
-	if berr != nil {
-		return nil, metadata, status.Errorf(codes.InvalidArgument, "%v", berr)
-	}
-	if err := marshaler.NewDecoder(newReader()).Decode(&protoReq); err != nil && err != io.EOF {
+	if err := marshaler.NewDecoder(req.Body).Decode(&protoReq); err != nil && err != io.EOF {
 		return nil, metadata, status.Errorf(codes.InvalidArgument, "%v", err)
 	}
 
@@ -86,11 +82,7 @@ func local_request_Invoices_CancelInvoice_0(ctx context.Context, marshaler runti
 	var protoReq CancelInvoiceMsg
 	var metadata runtime.ServerMetadata
 
-	newReader, berr := utilities.IOReaderFactory(req.Body)
-	if berr != nil {
-		return nil, metadata, status.Errorf(codes.InvalidArgument, "%v", berr)
-	}
-	if err := marshaler.NewDecoder(newReader()).Decode(&protoReq); err != nil && err != io.EOF {
+	if err := marshaler.NewDecoder(req.Body).Decode(&protoReq); err != nil && err != io.EOF {
 		return nil, metadata, status.Errorf(codes.InvalidArgument, "%v", err)
 	}
 
@@ -103,11 +95,7 @@ func request_Invoices_AddHoldInvoice_0(ctx context.Context, marshaler runtime.Ma
 	var protoReq AddHoldInvoiceRequest
 	var metadata runtime.ServerMetadata
 
-	newReader, berr := utilities.IOReaderFactory(req.Body)
-	if berr != nil {
-		return nil, metadata, status.Errorf(codes.InvalidArgument, "%v", berr)
-	}
-	if err := marshaler.NewDecoder(newReader()).Decode(&protoReq); err != nil && err != io.EOF {
+	if err := marshaler.NewDecoder(req.Body).Decode(&protoReq); err != nil && err != io.EOF {
 		return nil, metadata, status.Errorf(codes.InvalidArgument, "%v", err)
 	}
 
@@ -120,11 +108,7 @@ func local_request_Invoices_AddHoldInvoice_0(ctx context.Context, marshaler runt
 	var protoReq AddHoldInvoiceRequest
 	var metadata runtime.ServerMetadata
 
-	newReader, berr := utilities.IOReaderFactory(req.Body)
-	if berr != nil {
-		return nil, metadata, status.Errorf(codes.InvalidArgument, "%v", berr)
-	}
-	if err := marshaler.NewDecoder(newReader()).Decode(&protoReq); err != nil && err != io.EOF {
+	if err := marshaler.NewDecoder(req.Body).Decode(&protoReq); err != nil && err != io.EOF {
 		return nil, metadata, status.Errorf(codes.InvalidArgument, "%v", err)
 	}
 
@@ -137,11 +121,7 @@ func request_Invoices_SettleInvoice_0(ctx context.Context, marshaler runtime.Mar
 	var protoReq SettleInvoiceMsg
 	var metadata runtime.ServerMetadata
 
-	newReader, berr := utilities.IOReaderFactory(req.Body)
-	if berr != nil {
-		return nil, metadata, status.Errorf(codes.InvalidArgument, "%v", berr)
-	}
-	if err := marshaler.NewDecoder(newReader()).Decode(&protoReq); err != nil && err != io.EOF {
+	if err := marshaler.NewDecoder(req.Body).Decode(&protoReq); err != nil && err != io.EOF {
 		return nil, metadata, status.Errorf(codes.InvalidArgument, "%v", err)
 	}
 
@@ -154,11 +134,7 @@ func local_request_Invoices_SettleInvoice_0(ctx context.Context, marshaler runti
 	var protoReq SettleInvoiceMsg
 	var metadata runtime.ServerMetadata
 
-	newReader, berr := utilities.IOReaderFactory(req.Body)
-	if berr != nil {
-		return nil, metadata, status.Errorf(codes.InvalidArgument, "%v", berr)
-	}
-	if err := marshaler.NewDecoder(newReader()).Decode(&protoReq); err != nil && err != io.EOF {
+	if err := marshaler.NewDecoder(req.Body).Decode(&protoReq); err != nil && err != io.EOF {
 		return nil, metadata, status.Errorf(codes.InvalidArgument, "%v", err)
 	}
 
@@ -207,7 +183,7 @@ func request_Invoices_HtlcModifier_0(ctx context.Context, marshaler runtime.Mars
 	var metadata runtime.ServerMetadata
 	stream, err := client.HtlcModifier(ctx)
 	if err != nil {
-		grpclog.Infof("Failed to start streaming: %v", err)
+		grpclog.Errorf("Failed to start streaming: %v", err)
 		return nil, metadata, err
 	}
 	dec := marshaler.NewDecoder(req.Body)
@@ -218,11 +194,11 @@ func request_Invoices_HtlcModifier_0(ctx context.Context, marshaler runtime.Mars
 			return err
 		}
 		if err != nil {
-			grpclog.Infof("Failed to decode request: %v", err)
+			grpclog.Errorf("Failed to decode request: %v", err)
 			return err
 		}
 		if err := stream.Send(&protoReq); err != nil {
-			grpclog.Infof("Failed to send request: %v", err)
+			grpclog.Errorf("Failed to send request: %v", err)
 			return err
 		}
 		return nil
@@ -234,12 +210,12 @@ func request_Invoices_HtlcModifier_0(ctx context.Context, marshaler runtime.Mars
 			}
 		}
 		if err := stream.CloseSend(); err != nil {
-			grpclog.Infof("Failed to terminate client stream: %v", err)
+			grpclog.Errorf("Failed to terminate client stream: %v", err)
 		}
 	}()
 	header, err := stream.Header()
 	if err != nil {
-		grpclog.Infof("Failed to get header from client: %v", err)
+		grpclog.Errorf("Failed to get header from client: %v", err)
 		return nil, metadata, err
 	}
 	metadata.HeaderMD = header
@@ -372,21 +348,21 @@ func RegisterInvoicesHandlerServer(ctx context.Context, mux *runtime.ServeMux, s
 // RegisterInvoicesHandlerFromEndpoint is same as RegisterInvoicesHandler but
 // automatically dials to "endpoint" and closes the connection when "ctx" gets done.
 func RegisterInvoicesHandlerFromEndpoint(ctx context.Context, mux *runtime.ServeMux, endpoint string, opts []grpc.DialOption) (err error) {
-	conn, err := grpc.DialContext(ctx, endpoint, opts...)
+	conn, err := grpc.NewClient(endpoint, opts...)
 	if err != nil {
 		return err
 	}
 	defer func() {
 		if err != nil {
 			if cerr := conn.Close(); cerr != nil {
-				grpclog.Infof("Failed to close conn to %s: %v", endpoint, cerr)
+				grpclog.Errorf("Failed to close conn to %s: %v", endpoint, cerr)
 			}
 			return
 		}
 		go func() {
 			<-ctx.Done()
 			if cerr := conn.Close(); cerr != nil {
-				grpclog.Infof("Failed to close conn to %s: %v", endpoint, cerr)
+				grpclog.Errorf("Failed to close conn to %s: %v", endpoint, cerr)
 			}
 		}()
 	}()

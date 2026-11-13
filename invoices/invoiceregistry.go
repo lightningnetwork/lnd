@@ -88,6 +88,11 @@ type RegistryConfig struct {
 	// SettleReconcileInterval retries pending outcome discovery. Zero
 	// uses DefaultSettleReconcileInterval, and idle passes skip scans.
 	SettleReconcileInterval time.Duration
+
+	// Bolt12Reconstructor rebuilds BOLT 12 invoices from the invoice
+	// envelopes of their first HTLCs. When nil, the registry rebuilds no
+	// invoice.
+	Bolt12Reconstructor Bolt12Reconstructor
 }
 
 // htlcReleaseEvent describes an htlc auto-release event. It is used to release
@@ -1056,6 +1061,7 @@ func (i *InvoiceRegistry) NotifyExitHopHtlc(rHash lntypes.Hash,
 		metadata:             payload.Metadata(),
 		pathID:               payload.PathID(),
 		totalAmtMsat:         payload.TotalAmtMsat(),
+		invoiceEnvelope:      payload.InvoiceEnvelope(),
 	}
 
 	// Only spontaneous AMP and keysend processing needs replay detection
@@ -1169,10 +1175,71 @@ func (i *InvoiceRegistry) notifyExitHopHtlcLocked(
 
 	// Look up the current invoice state to detect replays and provide
 	// existing HTLCs to the interceptor.
+	//
+	// reconstructedBolt12 records that this HTLC rebuilt the BOLT 12
+	// invoice.
+	var reconstructedBolt12 bool
 	existingInvoice, err := i.idb.LookupInvoice(
 		context.Background(), invoiceRef,
 	)
 	switch {
+	case (errors.Is(err, ErrInvoiceNotFound) ||
+		errors.Is(err, ErrNoInvoicesCreated) ||
+		errors.Is(err, ErrInvRefEquivocation)) &&
+		ctx.invoiceEnvelope != nil &&
+		ctx.pathID != nil &&
+		i.cfg.Bolt12Reconstructor != nil:
+
+		// The rebuild runs when the store has no row for the HTLC,
+		// the HTLC carries an invoice envelope and a payment path id,
+		// and the registry has a Bolt12Reconstructor. This runs under
+		// i.Lock(), so only the first shard of a payment rebuilds and
+		// stores the invoice. Later shards find the stored row.
+		//
+		// TODO: the canceled-invoice GC can delete a canceled BOLT 12
+		// invoice, and this case then rebuilds it before its expiry.
+		log.Debugf("Attempting BOLT 12 invoice reconstruction "+
+			"for hash=%v", ctx.hash)
+
+		// TODO: take the context from NotifyExitHopHtlc when it
+		// gets one.
+		reconstructed, rErr := i.cfg.Bolt12Reconstructor.
+			ReconstructInvoice(
+				context.TODO(), ctx.invoiceEnvelope,
+				*ctx.pathID, ctx.hash,
+			)
+		if rErr != nil {
+			log.Debugf("BOLT 12 reconstruction failed: %v",
+				rErr)
+
+			return NewFailResolution(
+				ctx.circuitKey, ctx.currentHeight,
+				ResultInvoiceNotFound,
+			), nil, nil
+		}
+
+		// The first shard stores the reconstructed invoice. The store
+		// sets the add index of the new row, and the registry sends its
+		// Open event below.
+		//
+		// TODO: take the context from NotifyExitHopHtlc when it
+		// gets one.
+		_, addErr := i.idb.AddInvoice(
+			context.TODO(), reconstructed, ctx.hash,
+		)
+		if addErr != nil {
+			log.Errorf("Failed to insert reconstructed "+
+				"invoice: %v", addErr)
+
+			return NewFailResolution(
+				ctx.circuitKey, ctx.currentHeight,
+				ResultInvoiceNotFound,
+			), nil, nil
+		}
+
+		existingInvoice = *reconstructed
+		reconstructedBolt12 = true
+
 	case errors.Is(err, ErrInvoiceNotFound) ||
 		errors.Is(err, ErrNoInvoicesCreated) ||
 		errors.Is(err, ErrInvRefEquivocation):
@@ -1485,6 +1552,14 @@ func (i *InvoiceRegistry) notifyExitHopHtlcLocked(
 
 	default:
 		panic("unknown action")
+	}
+
+	// The rebuilt row is a new invoice, so it gets its Open event here,
+	// before the event of its first HTLC. The event carries the invoice as
+	// it was stored, with its add index and without the HTLC.
+	if reconstructedBolt12 {
+		rebuilt := existingInvoice
+		i.notifyClients(ctx.hash, &rebuilt, nil)
 	}
 
 	// Now that the links have been notified of any state changes to their

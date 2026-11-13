@@ -33,6 +33,7 @@ type mockPayload struct {
 	metadata      []byte
 	pathID        *chainhash.Hash
 	totalAmtMsat  lnwire.MilliSatoshi
+	envelope      []byte
 }
 
 func (p *mockPayload) MultiPath() *record.MPP {
@@ -63,6 +64,11 @@ func (p *mockPayload) CustomRecords() record.CustomSet {
 
 func (p *mockPayload) Metadata() []byte {
 	return p.metadata
+}
+
+// InvoiceEnvelope returns the invoice envelope that the test payload carries.
+func (p *mockPayload) InvoiceEnvelope() []byte {
+	return p.envelope
 }
 
 type mockChainNotifier struct {

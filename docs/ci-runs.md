@@ -289,7 +289,7 @@ seed corpus without replacing existing seeds.
 | `ci-hold.yml` | PR opened, labeled, or unlabeled (`pull_request_target`) | Adds `ci-hold` to new PRs and re-runs CI when it's removed. |
 | `cancel-pr-ci.yml` | PR closed (`pull_request_target`) | Cancels the PR's unfinished CI runs. |
 | `govulncheck.yml` | Relevant Go and dependency changes, merge queue, master, Mondays at 09:00 UTC, or dispatch | Builds release binaries and scans them. Findings are advisory while the existing baseline is remediated; scan errors fail the job. |
-| `release.yaml` | `v*` tag push | Checks release notes and builds a draft release with reproducible binaries. |
+| `release.yaml` | Push changing `build/version.go` on `v0.*-branch`, or manual dispatch | Checks release notes and builds a draft release with reproducible binaries. |
 | `verify-release.yaml` | Published release or dispatch | Verifies signatures and release binaries. |
 | `docker.yml` | `v*` tag push or daily at midnight UTC | Builds and pushes multi-architecture images, and checks signing-key expiry without gating the image build. |
 | `backport.yml` | Merged PR with `backport-v*` labels | Opens backport PRs. See the [backport guide](backport-workflow.md). |

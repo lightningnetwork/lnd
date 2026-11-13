@@ -1108,6 +1108,12 @@ func (l *channelLink) syncChanStates(ctx context.Context) error {
 			},
 		)
 
+		// The aux negotiator now knows the features negotiated for
+		// this channel, which it may not have when the channel state
+		// machine was created. Pick up the HTLC sighash type that
+		// follows from them before any new commitment is created.
+		l.refreshHtlcSigHashType()
+
 		var (
 			openedCircuits []CircuitKey
 			closedCircuits []CircuitKey
@@ -2278,6 +2284,20 @@ func (l *channelLink) getFeeRate() chainfee.SatPerKWeight {
 	return l.channel.CommitFeeRate()
 }
 
+// refreshHtlcSigHashType re-resolves the HTLC sighash type of the channel
+// from the live feature negotiation and hands the mailbox a dust closure that
+// reflects it. The mailbox captured the closure when it was attached, before
+// the channel was reestablished, so without the refresh it would keep
+// classifying HTLCs with the old dust threshold while the channel uses the
+// new one, and the dust exposure check would mix the two.
+func (l *channelLink) refreshHtlcSigHashType() {
+	l.channel.RefreshHtlcSigHashType()
+
+	if l.mailBox != nil {
+		l.mailBox.SetDustClosure(l.getDustClosure())
+	}
+}
+
 // getDustClosure returns a closure that can be used by the switch or mailbox
 // to evaluate whether a given HTLC is dust.
 //
@@ -2287,7 +2307,8 @@ func (l *channelLink) getDustClosure() dustClosure {
 	remoteDustLimit := l.channel.State().RemoteChanCfg.DustLimit
 	chanType := l.channel.State().ChanType
 
-	return dustHelper(chanType, localDustLimit, remoteDustLimit)
+	return dustHelper(chanType, localDustLimit, remoteDustLimit,
+		l.channel.IsChanSigHashDefault())
 }
 
 // getCommitFee returns either the local or remote CommitFee in satoshis. This
@@ -2455,7 +2476,7 @@ type dustClosure func(feerate chainfee.SatPerKWeight, incoming bool,
 
 // dustHelper is used to construct the dustClosure.
 func dustHelper(chantype chanstate.ChannelType, localDustLimit,
-	remoteDustLimit btcutil.Amount) dustClosure {
+	remoteDustLimit btcutil.Amount, sigHashDefault bool) dustClosure {
 
 	isDust := func(feerate chainfee.SatPerKWeight, incoming bool,
 		whoseCommit lntypes.ChannelParty, amt btcutil.Amount) bool {
@@ -2469,7 +2490,7 @@ func dustHelper(chantype chanstate.ChannelType, localDustLimit,
 
 		return lnwallet.HtlcIsDust(
 			chantype, incoming, whoseCommit, feerate, amt,
-			dustLimit,
+			dustLimit, sigHashDefault,
 		)
 	}
 

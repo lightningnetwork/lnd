@@ -1398,7 +1398,8 @@ message PendingSweep {
 
     /*
     The budget for this sweep, expressed in satoshis. This is the maximum amount
-    that can be spent as fees to sweep this output.
+    that can be targeted as fees to sweep this output. Change below the dust
+    limit may be added to the final fee on top of this amount.
     */
     uint64 budget = 13;
 
@@ -1461,12 +1462,13 @@ message BumpFeeRequest {
     bool immediate = 6;
 
     /*
-    Optional. The max amount in sats that can be used as the fees. Setting this
-    value greater than the input's value may result in CPFP - one or more wallet
-    utxos will be used to pay the fees specified by the budget. If not set, for
-    new inputs, by default 50% of the input's value will be treated as the
-    budget for fee bumping; for existing inputs, their current budgets will be
-    retained.
+    Optional. The max amount in sats that can be targeted as the fees. Change
+    below the dust limit may be added to the final fee on top of this amount.
+    Setting this value greater than the input's value may result in CPFP - one
+    or more wallet utxos will be used to pay the fees specified by the budget.
+    If not set, for new inputs, by default 50% of the input's value will be
+    treated as the budget for fee bumping; for existing inputs, their current
+    budgets will be retained.
     */
     uint64 budget = 7;
 
@@ -1509,8 +1511,10 @@ message BumpForceCloseFeeRequest {
     bool immediate = 4;
 
     /*
-    Optional. The max amount in sats that can be used as the fees. For already
-    registered anchor outputs if not set explicitly the old value will be used.
+    Optional. The max amount in sats that can be targeted as the fees. Change
+    below the dust limit may be added to the final fee on top of this amount.
+    For already registered anchor outputs if not set explicitly the old value
+    will be used.
     For channel force closes which have no HTLCs in their commitment transaction
     this value has to be set to an appropriate amount to pay for the cpfp
     transaction of the force closed channel otherwise the fee bumping will fail.

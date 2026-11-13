@@ -9,6 +9,7 @@ import (
 
 	"github.com/btcsuite/btcd/btcutil/v2"
 	"github.com/btcsuite/btcd/chainhash/v2"
+	"github.com/btcsuite/btcd/txscript/v2"
 	"github.com/btcsuite/btcd/wire/v2"
 	"github.com/btcsuite/btcwallet/chain"
 	"github.com/lightningnetwork/lnd/chainntnfs"
@@ -18,6 +19,7 @@ import (
 	"github.com/lightningnetwork/lnd/lntypes"
 	"github.com/lightningnetwork/lnd/lnwallet"
 	"github.com/lightningnetwork/lnd/lnwallet/chainfee"
+	"github.com/lightningnetwork/lnd/tlv"
 	"github.com/stretchr/testify/mock"
 	"github.com/stretchr/testify/require"
 )
@@ -173,7 +175,7 @@ func TestBumpRequestMaxFeeRateAllowed(t *testing.T) {
 
 	// Define a test budget and calculates its fee rate.
 	budget := btcutil.Amount(1000)
-	budgetFeeRate := chainfee.NewSatPerKWeight(budget, weight)
+	budgetFeeRate := chainfee.NewSatPerKWeightFloor(budget, weight)
 
 	testCases := []struct {
 		name               string
@@ -379,6 +381,54 @@ func TestUpdateRecord(t *testing.T) {
 	require.Equal(t, utxoIndex, record.outpointToTxIndex)
 }
 
+// TestSweepTxCtxExceedsBudget checks that only the exact dust amount discarded
+// into the fee is allowed above the budget.
+func TestSweepTxCtxExceedsBudget(t *testing.T) {
+	t.Parallel()
+
+	testCases := []struct {
+		name          string
+		fee           btcutil.Amount
+		discardedDust btcutil.Amount
+		budget        btcutil.Amount
+		exceeds       bool
+	}{
+		{
+			name:    "fee within budget",
+			fee:     1_000,
+			budget:  1_000,
+			exceeds: false,
+		},
+		{
+			name:          "discarded dust above budget",
+			fee:           1_001,
+			discardedDust: 1,
+			budget:        1_000,
+			exceeds:       false,
+		},
+		{
+			name:          "unexplained amount above budget",
+			fee:           1_002,
+			discardedDust: 1,
+			budget:        1_000,
+			exceeds:       true,
+		},
+	}
+
+	for _, tc := range testCases {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+
+			ctx := &sweepTxCtx{
+				fee:           tc.fee,
+				discardedDust: tc.discardedDust,
+			}
+			require.Equal(t, tc.exceeds,
+				ctx.exceedsBudget(tc.budget))
+		})
+	}
+}
+
 // mockers wraps a list of mocked interfaces used inside tx publisher.
 type mockers struct {
 	signer    *input.MockInputSigner
@@ -517,6 +567,182 @@ func TestCreateAndCheckTx(t *testing.T) {
 			require.ErrorIs(t, err, tc.expectedErr)
 		})
 	}
+}
+
+// TestCreateAndCheckTxAtBudgetBoundary checks that a sweep tx created at the
+// budget-derived max fee rate passes the budget check, even when the tx's
+// change is below the dust limit and is added to the fee. Before the fix, the
+// max fee rate was rounded to the nearest sat/kw, so the target fee could
+// exceed the budget, and discarded dust always pushed the final fee above it.
+// Both made the tx fail the budget check on every attempt.
+func TestCreateAndCheckTxAtBudgetBoundary(t *testing.T) {
+	t.Parallel()
+
+	const (
+		// numWalletInputs is the number of P2WKH inputs without a
+		// required output. Together with the input below, they give
+		// a tx weight of 2522 wu, which is large enough for a
+		// rounded-up fee rate to overshoot the budget.
+		numWalletInputs  = 7
+		walletInputValue = 10_000
+
+		// budget is chosen so that the budget-derived fee rate,
+		// rounded to the nearest sat/kw, gives a fee above it.
+		budget = btcutil.Amount(100_024)
+
+		// dust is the change left over after paying the target fee,
+		// which is below the dust limit of the change script.
+		dust = btcutil.Amount(100)
+	)
+
+	tp, m := createTestPublisher(t)
+
+	// The aux sweeper's extra output isn't accounted for when deriving
+	// the max fee rate from the budget, so remove it to keep the tx
+	// weight the same in both places.
+	tp.cfg.AuxSweeper = fn.None[AuxSweeper]()
+
+	// Create an input with a required output, so that the tx still has an
+	// output after the dust change is discarded.
+	requiredOutput := &wire.TxOut{
+		Value:    10_000,
+		PkScript: make([]byte, input.P2WPKHSize),
+	}
+	requiredInput := &input.MockInput{}
+	defer requiredInput.AssertExpectations(t)
+
+	requiredInput.On("WitnessType").Return(input.WitnessKeyHash)
+	requiredInput.On("RequiredTxOut").Return(requiredOutput)
+	requiredInput.On("RequiredLockTime").Return(uint32(0), false)
+	requiredInput.On("UnconfParent").Return(nil)
+	requiredInput.On("ResolutionBlob").Return(fn.None[tlv.Blob]())
+	requiredInput.On("OutPoint").Return(wire.OutPoint{Index: 1})
+	requiredInput.On("BlocksToMaturity").Return(uint32(0))
+	requiredInput.On("CraftInputScript", mock.Anything, mock.Anything,
+		mock.Anything, mock.Anything, mock.Anything,
+	).Return(&input.Script{}, nil)
+
+	inputs := []input.Input{requiredInput}
+	for range numWalletInputs {
+		inp := createTestInput(walletInputValue, input.WitnessKeyHash)
+		inputs = append(inputs, &inp)
+	}
+
+	req := &BumpRequest{
+		DeliveryAddress: changePkScript,
+		Inputs:          inputs,
+		Budget:          budget,
+		MaxFeeRate:      chainfee.SatPerKWeight(1_000_000),
+	}
+
+	// The budget, not the MaxFeeRate, bounds the max fee rate.
+	maxFeeRate, err := req.MaxFeeRateAllowed()
+	require.NoError(t, err)
+
+	weight, err := calcSweepTxWeight(
+		inputs, [][]byte{changePkScript.DeliveryAddress},
+	)
+	require.NoError(t, err)
+	require.EqualValues(t, 2522, weight)
+
+	// Rounding the budget-derived fee rate to the nearest sat/kw would
+	// give a fee above the budget, while the floored rate doesn't.
+	roundedRate := chainfee.NewSatPerKWeight(budget, weight)
+	require.Greater(t, roundedRate.FeeForWeight(weight), budget)
+
+	targetFee := maxFeeRate.FeeForWeight(weight)
+	require.LessOrEqual(t, targetFee, budget)
+
+	// The discarded dust takes the final fee above the budget.
+	require.Greater(t, targetFee+dust, budget)
+	require.Less(t, dust, lnwallet.DustLimitForSize(
+		len(changePkScript.DeliveryAddress),
+	))
+
+	// Fund the required input so that exactly the dust is left over after
+	// the required output, the target fee and the wallet inputs.
+	walletTotal := btcutil.Amount(numWalletInputs * walletInputValue)
+	requiredValue := btcutil.Amount(requiredOutput.Value) + targetFee +
+		dust - walletTotal
+	requiredInput.On("SignDesc").Return(&input.SignDescriptor{
+		Output: &wire.TxOut{Value: int64(requiredValue)},
+	})
+
+	// The fee function has reached its ending fee rate, which is the max
+	// fee rate allowed by the budget.
+	m.feeFunc.On("FeeRate").Return(maxFeeRate)
+	m.signer.On("ComputeInputScript", mock.Anything,
+		mock.Anything).Return(&input.Script{}, nil)
+	m.wallet.On("CheckMempoolAcceptance", mock.Anything).Return(nil).Once()
+
+	r := &monitorRecord{
+		req:         req,
+		feeFunction: m.feeFunc,
+	}
+
+	sweepCtx, err := tp.createAndCheckTx(r)
+	require.NoError(t, err)
+
+	// The dust is added to the fee, and the tx only has the required
+	// output.
+	require.Equal(t, targetFee+dust, sweepCtx.fee)
+	require.Equal(t, dust, sweepCtx.discardedDust)
+	require.Len(t, sweepCtx.tx.TxOut, 1)
+}
+
+// TestPrepareSweepTxAtBudgetBoundaryWithoutRequiredOutput checks that an
+// anchor CPFP at its budget-derived maximum fee rate remains publishable when
+// its change would otherwise be dust. Since there is no required output, the
+// fee must be reduced just enough to retain a standard change output.
+func TestPrepareSweepTxAtBudgetBoundaryWithoutRequiredOutput(t *testing.T) {
+	t.Parallel()
+
+	const (
+		budget           = btcutil.Amount(100_000)
+		anchorValue      = int64(330)
+		walletInputValue = int64(99_671)
+	)
+
+	anchor := createTestInput(anchorValue, input.CommitmentAnchor)
+	walletInput := createTestInput(
+		walletInputValue, input.WitnessKeyHash,
+	)
+	inputs := []input.Input{&anchor, &walletInput}
+
+	req := &BumpRequest{
+		DeliveryAddress: changePkScript,
+		Inputs:          inputs,
+		Budget:          budget,
+		MaxFeeRate:      chainfee.SatPerKWeight(1_000_000),
+	}
+
+	feeRate, err := req.MaxFeeRateAllowed()
+	require.NoError(t, err)
+
+	weight, err := calcSweepTxWeight(
+		inputs, [][]byte{changePkScript.DeliveryAddress},
+	)
+	require.NoError(t, err)
+	require.EqualValues(t, 767, weight)
+
+	targetFee := feeRate.FeeForWeight(weight)
+	require.EqualValues(t, 99_999, targetFee)
+
+	prepared, err := prepareSweepTx(
+		inputs, changePkScript, feeRate, 0, fn.None[AuxSweeper](),
+	)
+	require.NoError(t, err)
+
+	changeFloor := lnwallet.DustLimitForSize(
+		len(changePkScript.DeliveryAddress),
+	)
+	require.EqualValues(t, 330, changeFloor)
+	require.EqualValues(t, 99_671, prepared.fee)
+	require.Zero(t, prepared.discardedDust)
+
+	changeOutputs := prepared.changeOutputs.UnwrapOr(nil)
+	require.Len(t, changeOutputs, 1)
+	require.EqualValues(t, changeFloor, changeOutputs[0].Value)
 }
 
 // createTestBumpRequest creates a new bump request.
@@ -2424,6 +2650,7 @@ func TestPrepareSweepTx(t *testing.T) {
 	// Create test inputs with different values.
 	inp1 := createTestInput(1000000, input.WitnessKeyHash)
 	inp2 := createTestInput(2000000, input.WitnessKeyHash)
+	dustInp := createTestInput(100, input.WitnessKeyHash)
 
 	// Test fee rate and height.
 	feeRate := chainfee.SatPerKWeight(1000)
@@ -2543,6 +2770,15 @@ func TestPrepareSweepTx(t *testing.T) {
 			expectedErr:    ErrNotEnoughInputs,
 		},
 		{
+			name:           "insufficient value for change output",
+			inputs:         []input.Input{&dustInp},
+			changePkScript: changePkScript,
+			feeRate:        0,
+			currentHeight:  currentHeight,
+			auxSweeper:     fn.None[AuxSweeper](),
+			expectedErr:    ErrTxNoOutput,
+		},
+		{
 			name: "immature locktime",
 			inputs: []input.Input{
 				createTestInputWithLocktime(
@@ -2562,7 +2798,7 @@ func TestPrepareSweepTx(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			t.Parallel()
 
-			fee, changeOuts, locktime, err := prepareSweepTx(
+			prepared, err := prepareSweepTx(
 				tc.inputs,
 				tc.changePkScript,
 				tc.feeRate,
@@ -2579,10 +2815,62 @@ func TestPrepareSweepTx(t *testing.T) {
 			// For successful cases, run additional checks.
 			require.NoError(t, err)
 			if tc.checkResults != nil {
-				tc.checkResults(t, fee, changeOuts, locktime)
+				tc.checkResults(
+					t, prepared.fee, prepared.changeOutputs,
+					prepared.locktime,
+				)
 			}
 		})
 	}
+}
+
+// TestPrepareSweepTxTracksDiscardedDust checks that change below the dust
+// limit is reported separately from the target fee.
+func TestPrepareSweepTxTracksDiscardedDust(t *testing.T) {
+	t.Parallel()
+
+	const feeRate = chainfee.SatPerKWeight(1_000)
+
+	requiredOutput := &wire.TxOut{
+		Value:    1_000,
+		PkScript: []byte{txscript.OP_TRUE},
+	}
+
+	var estimator input.TxWeightEstimator
+	require.NoError(t,
+		input.WitnessKeyHash.AddWeightEstimation(&estimator))
+	estimator.AddTxOutput(requiredOutput)
+	estimator.AddP2TROutput()
+	targetFee := feeRate.FeeForWeight(estimator.Weight())
+
+	mockInput := &input.MockInput{}
+	mockInput.On("WitnessType").Return(input.WitnessKeyHash).Maybe()
+	mockInput.On("UnconfParent").Return(nil).Maybe()
+	mockInput.On("RequiredTxOut").Return(requiredOutput).Maybe()
+	mockInput.On("SignDesc").Return(&input.SignDescriptor{
+		Output: &wire.TxOut{
+			Value: requiredOutput.Value + int64(targetFee) + 1,
+		},
+	}).Maybe()
+	mockInput.On("RequiredLockTime").Return(uint32(0), false).Maybe()
+	mockInput.On("OutPoint").Return(wire.OutPoint{}).Maybe()
+	defer mockInput.AssertExpectations(t)
+
+	prepared, err := prepareSweepTx(
+		[]input.Input{mockInput}, changePkScript, feeRate, 0,
+		fn.None[AuxSweeper](),
+	)
+	require.NoError(t, err)
+	require.Equal(t, targetFee+1, prepared.fee)
+	require.EqualValues(t, 1, prepared.discardedDust)
+	require.True(t, prepared.changeOutputs.IsNone())
+
+	ctx := &sweepTxCtx{
+		fee:           prepared.fee,
+		discardedDust: prepared.discardedDust,
+	}
+	require.False(t, ctx.exceedsBudget(targetFee))
+	require.True(t, ctx.exceedsBudget(targetFee-1))
 }
 
 // createTestInputWithLocktime creates a test input with a specific locktime

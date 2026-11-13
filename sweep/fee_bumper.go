@@ -147,8 +147,9 @@ func (e BumpEvent) Unknown() bool {
 // BumpRequest is used by the caller to give the Bumper the necessary info to
 // create and manage potential fee bumps for a set of inputs.
 type BumpRequest struct {
-	// Budget gives the total amount that can be used as fees by these
-	// inputs.
+	// Budget gives the total amount that can be targeted as fees by these
+	// inputs. Change below the dust limit may be added to the final fee on
+	// top of this amount.
 	Budget btcutil.Amount
 
 	// Inputs is the set of inputs to sweep.
@@ -219,7 +220,7 @@ func (r *BumpRequest) MaxFeeRateAllowed() (chainfee.SatPerKWeight, error) {
 	// sets the budget to be proportional to the input value, the fee rate
 	// can be very high and we need to make sure it doesn't exceed the max
 	// fee rate.
-	maxFeeRateAllowed := chainfee.NewSatPerKWeight(r.Budget, size)
+	maxFeeRateAllowed := chainfee.NewSatPerKWeightFloor(r.Budget, size)
 	if maxFeeRateAllowed > r.MaxFeeRate {
 		log.Debugf("Budget feerate %v exceeds MaxFeeRate %v, use "+
 			"MaxFeeRate instead, txWeight=%v", maxFeeRateAllowed,
@@ -639,10 +640,13 @@ func (t *TxPublisher) createAndCheckTx(r *monitorRecord) (*sweepTxCtx, error) {
 		return sweepCtx, fmt.Errorf("create sweep tx: %w", err)
 	}
 
-	// Sanity check the budget still covers the fee.
-	if sweepCtx.fee > req.Budget {
-		return sweepCtx, fmt.Errorf("%w: budget=%v, fee=%v",
-			ErrNotEnoughBudget, req.Budget, sweepCtx.fee)
+	// Sanity check that the budget covers the target fee. Change below the
+	// dust limit is unavoidably added to the fee, so allow only that exact
+	// amount above the budget.
+	if sweepCtx.exceedsBudget(req.Budget) {
+		return sweepCtx, fmt.Errorf("%w: budget=%v, fee=%v, "+
+			"discarded_dust=%v", ErrNotEnoughBudget, req.Budget,
+			sweepCtx.fee, sweepCtx.discardedDust)
 	}
 
 	// If we had an extra txOut, then we'll update the result to include
@@ -1551,11 +1555,21 @@ type sweepTxCtx struct {
 
 	fee btcutil.Amount
 
+	// discardedDust is the exact change amount below the dust limit that
+	// was added to the transaction fee.
+	discardedDust btcutil.Amount
+
 	extraTxOut fn.Option[SweepOutput]
 
 	// outpointToTxIndex maps the outpoint of the inputs to their index in
 	// the sweep transaction.
 	outpointToTxIndex map[wire.OutPoint]int
+}
+
+// exceedsBudget returns true if the transaction's target fee before discarded
+// dust exceeds the fee budget.
+func (s *sweepTxCtx) exceedsBudget(budget btcutil.Amount) bool {
+	return s.fee-s.discardedDust > budget
 }
 
 // createSweepTx creates a sweeping tx based on the given inputs, change
@@ -1565,7 +1579,7 @@ func (t *TxPublisher) createSweepTx(inputs []input.Input,
 	feeRate chainfee.SatPerKWeight) (*sweepTxCtx, error) {
 
 	// Validate and calculate the fee and change amount.
-	txFee, changeOutputsOpt, locktimeOpt, err := prepareSweepTx(
+	prepared, err := prepareSweepTx(
 		inputs, changePkScript, feeRate, t.currentHeight.Load(),
 		t.cfg.AuxSweeper,
 	)
@@ -1618,7 +1632,7 @@ func (t *TxPublisher) createSweepTx(inputs []input.Input,
 
 	// If we have change outputs to add, then add it the sweep transaction
 	// here.
-	changeOutputsOpt.WhenSome(func(changeOuts []SweepOutput) {
+	prepared.changeOutputs.WhenSome(func(changeOuts []SweepOutput) {
 		for i := range changeOuts {
 			sweepTx.AddTxOut(&changeOuts[i].TxOut)
 		}
@@ -1626,7 +1640,9 @@ func (t *TxPublisher) createSweepTx(inputs []input.Input,
 
 	// We'll default to using the current block height as locktime, if none
 	// of the inputs commits to a different locktime.
-	sweepTx.LockTime = uint32(locktimeOpt.UnwrapOr(t.currentHeight.Load()))
+	sweepTx.LockTime = uint32(
+		prepared.locktime.UnwrapOr(t.currentHeight.Load()),
+	)
 
 	prevInputFetcher, err := input.MultiPrevOutFetcher(inputs)
 	if err != nil {
@@ -1688,14 +1704,24 @@ func (t *TxPublisher) createSweepTx(inputs []input.Input,
 
 			return fn.None[SweepOutput]()
 		},
-	)(changeOutputsOpt)
+	)(prepared.changeOutputs)
 
 	return &sweepTxCtx{
 		tx:                sweepTx,
-		fee:               txFee,
+		fee:               prepared.fee,
+		discardedDust:     prepared.discardedDust,
 		extraTxOut:        fn.FlattenOption(extraTxOut),
 		outpointToTxIndex: outpointToTxIndex,
 	}, nil
+}
+
+// sweepTxPreparation contains the amounts and transaction fields calculated
+// before a sweep transaction is assembled and signed.
+type sweepTxPreparation struct {
+	fee           btcutil.Amount
+	discardedDust btcutil.Amount
+	changeOutputs fn.Option[[]SweepOutput]
+	locktime      fn.Option[int32]
 }
 
 // prepareSweepTx returns the tx fee, a set of optional change outputs and an
@@ -1704,13 +1730,13 @@ func (t *TxPublisher) createSweepTx(inputs []input.Input,
 // 2. check the locktimes are the same.
 // 3. check the inputs cover the outputs.
 //
-// NOTE: if the change amount is below dust, it will be added to the tx fee.
+// NOTE: if the change amount is below dust, it will be added to the tx fee when
+// another output remains. Otherwise, the fee is reduced to retain a standard
+// change output.
 func prepareSweepTx(inputs []input.Input, changePkScript lnwallet.AddrWithKey,
 	feeRate chainfee.SatPerKWeight, currentHeight int32,
-	auxSweeper fn.Option[AuxSweeper]) (
-	btcutil.Amount, fn.Option[[]SweepOutput], fn.Option[int32], error) {
+	auxSweeper fn.Option[AuxSweeper]) (*sweepTxPreparation, error) {
 
-	noChange := fn.None[[]SweepOutput]()
 	noLocktime := fn.None[int32]()
 
 	// Given the set of inputs we have, if we have an aux sweeper, then
@@ -1732,7 +1758,7 @@ func prepareSweepTx(inputs []input.Input, changePkScript lnwallet.AddrWithKey,
 		},
 	)
 	if err != nil {
-		return 0, noChange, noLocktime, err
+		return nil, err
 	}
 
 	// We also add the extra change output to the change pk scripts.
@@ -1752,7 +1778,7 @@ func prepareSweepTx(inputs []input.Input, changePkScript lnwallet.AddrWithKey,
 		inputs, nil, feeRate, 0, changePkScripts,
 	)
 	if err != nil {
-		return 0, noChange, noLocktime, err
+		return nil, err
 	}
 
 	txFee := estimator.fee()
@@ -1796,7 +1822,7 @@ func prepareSweepTx(inputs []input.Input, changePkScript lnwallet.AddrWithKey,
 
 		// Check if the lock time has reached
 		if lt > uint32(currentHeight) {
-			return 0, noChange, noLocktime,
+			return nil,
 				fmt.Errorf("%w: current height is %v, "+
 					"locktime is %v", ErrLocktimeImmature,
 					currentHeight, lt)
@@ -1805,7 +1831,7 @@ func prepareSweepTx(inputs []input.Input, changePkScript lnwallet.AddrWithKey,
 		// If another input commits to a different locktime, they
 		// cannot be combined in the same transaction.
 		if locktime != -1 && locktime != int32(lt) {
-			return 0, noChange, noLocktime, ErrLocktimeConflict
+			return nil, ErrLocktimeConflict
 		}
 
 		// Update the locktime for next iteration.
@@ -1818,13 +1844,14 @@ func prepareSweepTx(inputs []input.Input, changePkScript lnwallet.AddrWithKey,
 			"input_sum=%v, output_sum=%v", totalInput,
 			requiredOutput+txFee)
 
-		return 0, noChange, noLocktime, ErrNotEnoughInputs
+		return nil, ErrNotEnoughInputs
 	}
 
 	// The value remaining after the required output and fees is the
 	// change output.
 	changeAmt := totalInput - requiredOutput - txFee
 	changeOuts := make([]SweepOutput, 0, 2)
+	discardedDust := btcutil.Amount(0)
 
 	extraChangeOut.WhenSome(func(o SweepOutput) {
 		changeOuts = append(changeOuts, o)
@@ -1836,26 +1863,36 @@ func prepareSweepTx(inputs []input.Input, changePkScript lnwallet.AddrWithKey,
 		len(changePkScript.DeliveryAddress),
 	)
 
+	addChangeOutput := true
 	switch {
-	// If the change amount is dust, we'll move it into the fees, and
-	// ignore it.
+	// If there is no required output, discarding dust change would leave
+	// the transaction without any outputs. Reduce the fee just enough to
+	// create a standard change output instead.
+	case changeAmt < changeFloor && requiredOutput == 0:
+		feeReduction := changeFloor - changeAmt
+		if feeReduction > txFee {
+			return nil, ErrTxNoOutput
+		}
+
+		log.Infof("Change amt %v below dustlimit %v, reducing fee "+
+			"by %v to retain the change output", changeAmt,
+			changeFloor, feeReduction)
+
+		txFee -= feeReduction
+		changeAmt = changeFloor
+
+	// If the change amount is dust and another output remains, move the
+	// change into the fee and omit the change output.
 	case changeAmt < changeFloor:
 		log.Infof("Change amt %v below dustlimit %v, not adding "+
 			"change output", changeAmt, changeFloor)
 
-		// If there's no required output, and the change output is a
-		// dust, it means we are creating a tx without any outputs. In
-		// this case we'll return an error. This could happen when
-		// creating a tx that has an anchor as the only input.
-		if requiredOutput == 0 {
-			return 0, noChange, noLocktime, ErrTxNoOutput
-		}
-
-		// The dust amount is added to the fee.
+		discardedDust = changeAmt
 		txFee += changeAmt
+		addChangeOutput = false
+	}
 
-	// Otherwise, we'll actually recognize it as a change output.
-	default:
+	if addChangeOutput {
 		changeOuts = append(changeOuts, SweepOutput{
 			TxOut: wire.TxOut{
 				Value:    int64(changeAmt),
@@ -1878,13 +1915,20 @@ func prepareSweepTx(inputs []input.Input, changePkScript lnwallet.AddrWithKey,
 	}
 
 	log.Debugf("Creating sweep tx for %v inputs (%s) using %v, "+
-		"tx_weight=%v, tx_fee=%v, locktime=%v, parents_count=%v, "+
-		"parents_fee=%v, parents_weight=%v, current_height=%v",
+		"tx_weight=%v, tx_fee=%v, discarded_dust=%v, "+
+		"locktime=%v, parents_count=%v, parents_fee=%v, "+
+		"parents_weight=%v, current_height=%v",
 		len(inputs), inputTypeSummary(inputs), feeRate,
-		estimator.weight(), txFee, locktimeOpt, len(estimator.parents),
-		estimator.parentsFee, estimator.parentsWeight, currentHeight)
+		estimator.weight(), txFee, discardedDust, locktimeOpt,
+		len(estimator.parents), estimator.parentsFee,
+		estimator.parentsWeight, currentHeight)
 
-	return txFee, changeOutsOpt, locktimeOpt, nil
+	return &sweepTxPreparation{
+		fee:           txFee,
+		discardedDust: discardedDust,
+		changeOutputs: changeOutsOpt,
+		locktime:      locktimeOpt,
+	}, nil
 }
 
 // handleReplacementTxError handles the error returned from creating the

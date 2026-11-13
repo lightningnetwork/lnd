@@ -3219,7 +3219,8 @@ type PendingSweep struct {
 	Immediate bool `protobuf:"varint,12,opt,name=immediate,proto3" json:"immediate,omitempty"`
 	//
 	//The budget for this sweep, expressed in satoshis. This is the maximum amount
-	//that can be spent as fees to sweep this output.
+	//that can be targeted as fees to sweep this output. Change below the dust
+	//limit may be added to the final fee on top of this amount.
 	Budget uint64 `protobuf:"varint,13,opt,name=budget,proto3" json:"budget,omitempty"`
 	//
 	//The deadline height used for this output when perform fee bumping.
@@ -3486,12 +3487,13 @@ type BumpFeeRequest struct {
 	//the sweeper will sweep this input without waiting for the next block.
 	Immediate bool `protobuf:"varint,6,opt,name=immediate,proto3" json:"immediate,omitempty"`
 	//
-	//Optional. The max amount in sats that can be used as the fees. Setting this
-	//value greater than the input's value may result in CPFP - one or more wallet
-	//utxos will be used to pay the fees specified by the budget. If not set, for
-	//new inputs, by default 50% of the input's value will be treated as the
-	//budget for fee bumping; for existing inputs, their current budgets will be
-	//retained.
+	//Optional. The max amount in sats that can be targeted as the fees. Change
+	//below the dust limit may be added to the final fee on top of this amount.
+	//Setting this value greater than the input's value may result in CPFP - one
+	//or more wallet utxos will be used to pay the fees specified by the budget.
+	//If not set, for new inputs, by default 50% of the input's value will be
+	//treated as the budget for fee bumping; for existing inputs, their current
+	//budgets will be retained.
 	Budget uint64 `protobuf:"varint,7,opt,name=budget,proto3" json:"budget,omitempty"`
 	// Optional. The deadline delta in number of blocks that the output
 	// should be spent within. This translates internally to the width of the
@@ -3657,8 +3659,10 @@ type BumpForceCloseFeeRequest struct {
 	//related to the selected force close transaction.
 	Immediate bool `protobuf:"varint,4,opt,name=immediate,proto3" json:"immediate,omitempty"`
 	//
-	//Optional. The max amount in sats that can be used as the fees. For already
-	//registered anchor outputs if not set explicitly the old value will be used.
+	//Optional. The max amount in sats that can be targeted as the fees. Change
+	//below the dust limit may be added to the final fee on top of this amount.
+	//For already registered anchor outputs if not set explicitly the old value
+	//will be used.
 	//For channel force closes which have no HTLCs in their commitment transaction
 	//this value has to be set to an appropriate amount to pay for the cpfp
 	//transaction of the force closed channel otherwise the fee bumping will fail.

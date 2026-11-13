@@ -62,8 +62,9 @@ type Params struct {
 	// decide its urgency and adjust its feerate used.
 	DeadlineHeight fn.Option[int32]
 
-	// Budget specifies the maximum amount of satoshis that can be spent on
-	// fees for this sweep.
+	// Budget specifies the maximum amount of satoshis that can be targeted
+	// as fees for this sweep. Change below the dust limit may be added to
+	// the final fee on top of this amount.
 	Budget btcutil.Amount
 
 	// Immediate indicates that the input should be swept immediately

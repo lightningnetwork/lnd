@@ -9,6 +9,7 @@ import (
 	"github.com/btcsuite/btcd/btcutil/v2"
 	"github.com/btcsuite/btcd/chainhash/v2"
 	"github.com/btcsuite/btcd/wire/v2"
+	"github.com/btcsuite/btcwallet/chain"
 	"github.com/lightningnetwork/lnd/chainio"
 	"github.com/lightningnetwork/lnd/chainntnfs"
 	"github.com/lightningnetwork/lnd/fn/v2"
@@ -50,6 +51,11 @@ type Params struct {
 	// Use NoInputBatch when an independent input only needs transaction
 	// isolation.
 	ExclusiveGroup *uint64
+
+	// ParentConfirmed records caller-known parent confirmation. For an
+	// exclusive group, it excludes alternatives even if this input was
+	// previously removed and is now offered as new.
+	ParentConfirmed bool
 
 	// NoInputBatch prevents this input from being batched with other sweep
 	// inputs. Wallet inputs may still be added to fund the sweep. Unlike an
@@ -132,6 +138,7 @@ const (
 	// state won't be retried. This could happen,
 	// - when a pending input has too many failed publish attempts;
 	// - the input has been spent by another party;
+	// - a singleton mempool probe isolated an input-attributable failure;
 	// - unknown broadcast error is returned.
 	Fatal
 )
@@ -362,6 +369,10 @@ type UtxoSweeper struct {
 	// to sweep.
 	inputs InputsMap
 
+	// excludedWalletInputs contains wallet UTXOs diagnosed as invalid. They
+	// remain excluded from coin selection for the lifetime of the sweeper.
+	excludedWalletInputs fn.Set[wire.OutPoint]
+
 	currentOutputScript fn.Option[lnwallet.AddrWithKey]
 
 	relayFeeRate chainfee.SatPerKWeight
@@ -455,14 +466,15 @@ type sweepInputMessage struct {
 // New returns a new Sweeper instance.
 func New(cfg *UtxoSweeperConfig) *UtxoSweeper {
 	s := &UtxoSweeper{
-		cfg:               cfg,
-		newInputs:         make(chan *sweepInputMessage),
-		spendChan:         make(chan *chainntnfs.SpendDetail),
-		updateReqs:        make(chan *updateReq),
-		pendingSweepsReqs: make(chan *pendingSweepsReq),
-		quit:              make(chan struct{}),
-		inputs:            make(InputsMap),
-		bumpRespChan:      make(chan *bumpResp, 100),
+		cfg:                  cfg,
+		newInputs:            make(chan *sweepInputMessage),
+		spendChan:            make(chan *chainntnfs.SpendDetail),
+		updateReqs:           make(chan *updateReq),
+		pendingSweepsReqs:    make(chan *pendingSweepsReq),
+		quit:                 make(chan struct{}),
+		inputs:               make(InputsMap),
+		excludedWalletInputs: fn.NewSet[wire.OutPoint](),
+		bumpRespChan:         make(chan *bumpResp, 100),
 	}
 
 	// Mount the block consumer.
@@ -684,7 +696,7 @@ func (s *UtxoSweeper) collector() {
 			// sweeper.
 			if input.params.Immediate {
 				inputs := s.updateSweeperInputs()
-				s.sweepPendingInputs(inputs)
+				s.sweepPendingInputs(inputs, nil)
 			}
 
 		// A spend of one of our inputs is detected. Signal sweep
@@ -709,7 +721,7 @@ func (s *UtxoSweeper) collector() {
 			// Perform an sweep immediately if asked.
 			if req.params.Immediate {
 				inputs := s.updateSweeperInputs()
-				s.sweepPendingInputs(inputs)
+				s.sweepPendingInputs(inputs, nil)
 			}
 
 		case resp := <-s.bumpRespChan:
@@ -737,7 +749,7 @@ func (s *UtxoSweeper) collector() {
 				}))
 
 			// Attempt to sweep any pending inputs.
-			s.sweepPendingInputs(inputs)
+			s.sweepPendingInputs(inputs, nil)
 
 			// Notify we've processed the block.
 			s.NotifyBlockProcessed(beat, nil)
@@ -755,6 +767,10 @@ func (s *UtxoSweeper) collector() {
 // future sweep transactions that would fail. In addition sweep transactions of
 // those inputs will be removed from the wallet.
 func (s *UtxoSweeper) removeExclusiveGroup(group uint64, op wire.OutPoint) {
+	// Publisher requests can outlive their tracked inputs. Deliver the
+	// exclusion even when no alternative remains in the live input map.
+	s.cfg.Publisher.NotifyExclusiveGroup(group, op)
+
 	for outpoint, input := range s.inputs {
 
 		// Skip the input that caused the exclusive group to be removed.
@@ -838,7 +854,10 @@ func (s *UtxoSweeper) signalResult(pi *SweeperInput, result Result) {
 
 // sweep takes a set of preselected inputs, creates a sweep tx and publishes
 // the tx. The output address is only marked as used if the publish succeeds.
-func (s *UtxoSweeper) sweep(set InputSet) error {
+// walletConflicts follows this attempt until publication or normal block retry.
+func (s *UtxoSweeper) sweep(set InputSet,
+	walletConflicts fn.Set[wire.OutPoint]) error {
+
 	// Generate an output script if there isn't an unused script available.
 	if s.currentOutputScript.IsNone() {
 		addr, err := s.cfg.GenSweepScript().Unpack()
@@ -872,6 +891,16 @@ func (s *UtxoSweeper) sweep(set InputSet) error {
 		// TODO(yy): pass the strategy here.
 	}
 
+	// Retain group identity before publication; a later failed attempt
+	// may remove the tracked input while this request remains accepted.
+	for _, inp := range req.Inputs {
+		pi, ok := s.inputs[inp.OutPoint()]
+		if ok && pi.params.ExclusiveGroup != nil {
+			req.ExclusiveGroup = pi.params.ExclusiveGroup
+			break
+		}
+	}
+
 	// Reschedule the inputs that we just tried to sweep. This is done in
 	// case the following publish fails, we'd like to update the inputs'
 	// publish attempts and rescue them in the next sweep.
@@ -885,7 +914,7 @@ func (s *UtxoSweeper) sweep(set InputSet) error {
 	// subscribing to the result chan and listen for future updates about
 	// this tx.
 	s.wg.Add(1)
-	go s.monitorFeeBumpResult(set, resp)
+	go s.monitorFeeBumpResult(set, resp, walletConflicts)
 
 	return nil
 }
@@ -979,6 +1008,7 @@ func (s *UtxoSweeper) markInputsPublishFailed(set InputSet,
 	// Reschedule sweep.
 	for _, inp := range set.Inputs() {
 		op := inp.OutPoint()
+
 		pi, ok := s.inputs[op]
 		if !ok {
 			// It could be that this input is an additional wallet
@@ -1263,6 +1293,12 @@ func (s *UtxoSweeper) handleNewInput(input *sweepInputMessage) error {
 		s.handleExistingInput(input, pi)
 
 		return nil
+	}
+
+	// Diagnosis may have removed this anchor before its parent confirmed.
+	// The resolver's explicit confirmation still excludes alternatives.
+	if input.params.ParentConfirmed && input.params.ExclusiveGroup != nil {
+		s.removeExclusiveGroup(*input.params.ExclusiveGroup, outpoint)
 	}
 
 	// This is a new input, and we want to query the mempool to see if this
@@ -1590,9 +1626,12 @@ func (s *UtxoSweeper) updateSweeperInputs() InputsMap {
 	return inputs
 }
 
-// sweepPendingInputs is called when the ticker fires. It will create clusters
-// and attempt to create and publish the sweeping transactions.
-func (s *UtxoSweeper) sweepPendingInputs(inputs InputsMap) {
+// sweepPendingInputs clusters inputs and attempts to publish their sweeps.
+// walletConflicts excludes transient funders within an immediate retry chain;
+// normal block retries supply nil so those funders can be considered again.
+func (s *UtxoSweeper) sweepPendingInputs(inputs InputsMap,
+	walletConflicts fn.Set[wire.OutPoint]) {
+
 	log.Debugf("Sweeping %v inputs", len(inputs))
 
 	// Cluster all of our inputs based on the specific Aggregator.
@@ -1610,14 +1649,18 @@ func (s *UtxoSweeper) sweepPendingInputs(inputs InputsMap) {
 		relayFeeRate := s.cfg.FeeEstimator.RelayFeePerKW()
 
 		return s.cfg.Wallet.WithCoinSelectLock(func() error {
-			// Try to add inputs from our wallet.
-			err := set.AddWalletInputs(s.cfg.Wallet, relayFeeRate)
+			// Combine permanent quarantine with this retry chain's
+			// temporary conflicts without changing either set.
+			err := set.AddWalletInputs(
+				s.cfg.Wallet, relayFeeRate,
+				s.excludedWalletInputs.Union(walletConflicts),
+			)
 			if err != nil {
 				return err
 			}
 
 			// Create sweeping transaction for each set.
-			err = s.sweep(set)
+			err = s.sweep(set, walletConflicts)
 			if err != nil {
 				return err
 			}
@@ -1634,7 +1677,7 @@ func (s *UtxoSweeper) sweepPendingInputs(inputs InputsMap) {
 		} else {
 			// Sweep the set of inputs that don't need the wallet
 			// inputs.
-			err = s.sweep(set)
+			err = s.sweep(set, walletConflicts)
 		}
 
 		if err != nil {
@@ -1652,6 +1695,11 @@ type bumpResp struct {
 
 	// set is the input set that was used in the bump attempt.
 	set InputSet
+
+	// walletConflicts carries transient exclusions across asynchronous
+	// retries of this set. Each continuation copies it before adding an
+	// outpoint, so independent monitors never share mutable history.
+	walletConflicts fn.Set[wire.OutPoint]
 }
 
 // monitorFeeBumpResult subscribes to the passed result chan to listen for
@@ -1659,7 +1707,8 @@ type bumpResp struct {
 //
 // NOTE: must run as a goroutine.
 func (s *UtxoSweeper) monitorFeeBumpResult(set InputSet,
-	resultChan <-chan *BumpResult) {
+	resultChan <-chan *BumpResult,
+	walletConflicts fn.Set[wire.OutPoint]) {
 
 	defer s.wg.Done()
 
@@ -1672,9 +1721,16 @@ func (s *UtxoSweeper) monitorFeeBumpResult(set InputSet,
 				continue
 			}
 
+			// Accepted publication ends the immediate retry chain.
+			// Other terminal results also release its temporary
+			// exclusions.
+			if r.Event != TxFailed {
+				walletConflicts = nil
+			}
 			resp := &bumpResp{
-				result: r,
-				set:    set,
+				result:          r,
+				set:             set,
+				walletConflicts: walletConflicts,
 			}
 
 			// Send the result back to the main event loop.
@@ -1687,30 +1743,33 @@ func (s *UtxoSweeper) monitorFeeBumpResult(set InputSet,
 				return
 			}
 
-			// The sweeping tx has been confirmed, we can exit the
-			// monitor now.
+			// Terminal results remove the publisher subscription.
+			// Exit instead of waiting forever.
 			//
 			// TODO(yy): can instead remove the spend subscription
 			// in sweeper and rely solely on this event to mark
 			// inputs as Swept?
-			if r.Event == TxConfirmed || r.Event == TxFailed {
-				// Exit if the tx is failed to be created.
-				if r.Tx == nil {
-					log.Debugf("Received %v for nil tx, "+
-						"exit monitor", r.Event)
+			switch r.Event {
+			case TxConfirmed, TxFailed, TxFatal, TxUnknownSpend:
+			default:
+				continue
+			}
 
-					return
-				}
-
-				log.Debugf("Received %v for sweep tx %v, exit "+
-					"fee bump monitor", r.Event,
-					r.Tx.TxHash())
-
-				// Cancel the rebroadcasting of the failed tx.
-				s.cfg.Wallet.CancelRebroadcast(r.Tx.TxHash())
+			// Exit if the tx failed before it was created.
+			if r.Tx == nil {
+				log.Debugf("Received %v for nil tx, "+
+					"exit monitor", r.Event)
 
 				return
 			}
+
+			log.Debugf("Received %v for sweep tx %v, "+
+				"exit fee bump monitor", r.Event, r.Tx.TxHash())
+
+			// The publisher no longer monitors this transaction.
+			s.cfg.Wallet.CancelRebroadcast(r.Tx.TxHash())
+
+			return
 
 		case <-s.quit:
 			log.Debugf("Sweeper shutting down, exit fee " +
@@ -1732,6 +1791,14 @@ func (s *UtxoSweeper) handleBumpEventTxFailed(resp *bumpResp) {
 			err)
 	}
 
+	// A diagnosed bad input means the publisher isolated one input via
+	// no-broadcast probes. Handle it separately so the bad input becomes
+	// fatal while the rest of the set can be retried.
+	if r.BadInput != nil {
+		s.handleBumpEventBadInputs(resp)
+		return
+	}
+
 	// NOTE: When marking the inputs as failed, we are using the input set
 	// instead of the inputs found in the tx. This is fine for current
 	// version of the sweeper because we always create a tx using ALL of
@@ -1750,6 +1817,75 @@ func (s *UtxoSweeper) handleBumpEventTxFailed(resp *bumpResp) {
 		feeRate = fn.Some(fn.None[chainfee.SatPerKWeight]())
 	}
 	s.markInputsPublishFailed(resp.set, feeRate)
+}
+
+// handleBumpEventBadInputs handles a failed tx after the fee bumper diagnosed a
+// singleton bad input using no-broadcast mempool probes.
+func (s *UtxoSweeper) handleBumpEventBadInputs(resp *bumpResp) {
+	r := resp.result
+	inputs := resp.set.Inputs()
+
+	log.Warnf("Fee bump attempt failed for requestID=%v after "+
+		"bad-input diagnosis: %v; inputs:\n%v", r.requestID, r.Err,
+		inputTypeSummary(inputs))
+
+	badInput := *r.BadInput
+	// Keep each input's preference while discarding the failed aggregate
+	// curve. The next set recalculates its own budget and fee trajectory.
+	s.markInputsPublishFailed(
+		resp.set, fn.None[fn.Option[chainfee.SatPerKWeight]](),
+	)
+
+	// An unconfirmed spend is reversible. Keep its subscription and state
+	// retryable, but let valid siblings progress without sharing its batch.
+	if errors.Is(r.Err, chain.ErrMempoolConflict) {
+		// Reuse readiness checks, but retry only this batch's
+		// survivors. Earlier isolated conflicts could otherwise
+		// alternate batches forever and prevent a healthy sibling from
+		// being published.
+		pending := s.updateSweeperInputs()
+		retryInputs := make(InputsMap, len(inputs))
+		for _, inp := range inputs {
+			op := inp.OutPoint()
+			if op == badInput {
+				continue
+			}
+			if pi, ok := pending[op]; ok {
+				retryInputs[op] = pi
+			}
+		}
+
+		// Keep earlier conflicted funders excluded when the next
+		// asynchronous result arrives. Copy before extending history
+		// so a split retry cannot mutate another monitor's snapshot.
+		if len(retryInputs) != 0 {
+			walletConflicts := resp.walletConflicts.Copy()
+			walletConflicts.Add(badInput)
+			s.sweepPendingInputs(retryInputs, walletConflicts)
+		}
+
+		return
+	}
+
+	// Wallet inputs are added only to the transient input set. Quarantine a
+	// diagnosed wallet UTXO so coin selection cannot recreate the same
+	// rejected batch every block.
+	pi, ok := s.inputs[badInput]
+	if !ok {
+		s.excludedWalletInputs.Add(badInput)
+		log.Warnf("Quarantined diagnosed wallet input %v", badInput)
+
+		return
+	}
+
+	if pi.terminated() {
+		log.Errorf("Skipped marking bad input=%v as fatal due to "+
+			"unexpected state=%v", badInput, pi.state)
+
+		return
+	}
+
+	s.markInputFatal(pi, nil, r.Err)
 }
 
 // handleBumpEventTxReplaced handles the case where the sweeping tx has been
@@ -2057,5 +2193,5 @@ func (s *UtxoSweeper) handleBumpEventTxUnknownSpend(r *bumpResp) {
 	// now be swept with the updated StartingFeeRate immediately. We may
 	// also include more inputs in the new sweeping tx if new ones with the
 	// same deadline are offered.
-	s.sweepPendingInputs(inputs)
+	s.sweepPendingInputs(inputs, nil)
 }

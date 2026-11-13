@@ -232,9 +232,10 @@ func (m *MockInputSet) FeeRate() chainfee.SatPerKWeight {
 
 // AddWalletInputs adds wallet inputs to the set until its budget is covered.
 func (m *MockInputSet) AddWalletInputs(wallet Wallet,
-	relayFeeRate chainfee.SatPerKWeight) error {
+	relayFeeRate chainfee.SatPerKWeight,
+	excludedInputs fn.Set[wire.OutPoint]) error {
 
-	args := m.Called(wallet, relayFeeRate)
+	args := m.Called(wallet, relayFeeRate, excludedInputs)
 
 	return args.Error(0)
 }
@@ -292,6 +293,12 @@ func (m *MockBumper) Broadcast(req *BumpRequest) <-chan *BumpResult {
 	}
 
 	return args.Get(0).(chan *BumpResult)
+}
+
+// NotifyExclusiveGroup verifies conclusive group decisions forwarded to the
+// publisher, including when no tracked alternative remains.
+func (m *MockBumper) NotifyExclusiveGroup(group uint64, winner wire.OutPoint) {
+	m.Called(group, winner)
 }
 
 // MockFeeFunction is a mock implementation of the FeeFunction interface.

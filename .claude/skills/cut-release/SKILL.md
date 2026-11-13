@@ -1,6 +1,6 @@
 ---
 name: cut-release
-description: Cut an lnd release or release candidate. Use when the user wants to release a version (e.g. "release 0.20.3", "cut rc2 for 0.21.2"), bump build/version.go for a release, create/push a signed release tag, or walk the post-tag publish and signing steps. Always asks which version and whether it is an rc or the final, and checks the series is still supported. Covers both major (0.X.0) and patch (0.X.Y) releases.
+description: Cut an lnd release or release candidate. Use when the user wants to release a version (e.g. "release 0.20.3", "cut rc2 for 0.21.2"), bump build/version.go for a release, fold the docs/release-notes/unreleased fragments into the release notes, port patch release notes to master, create/push a signed release tag, or walk the post-tag publish and signing steps. Always asks which version and whether it is an rc or the final, and checks the series is still supported. Covers both major (0.X.0) and patch (0.X.Y) releases.
 allowed-tools: Read, Edit, Bash, Grep, Glob, AskUserQuestion
 ---
 
@@ -81,21 +81,60 @@ code changed since the last rc, a final is probably wrong and another rc is
 needed. Raise it with the user — do not decide it silently, and do not override
 their answer either; just make sure they are choosing with the diff in view.
 
-## Step 2: Make sure the release notes are ready
+## Step 2: Fold the release note fragments
 
-Release notes for a version live on the release branch at
-`docs/release-notes/release-notes-<version>.md` (e.g.
-`release-notes-0.21.2.md`). Before a **final** release, check that:
+Release notes are no longer written in a shared document while development is
+going on. Each PR adds a fragment at
+`docs/release-notes/unreleased/<PR>.md`. The fragment has no version, and the
+backport bot carries it to the release branch along with the change.
+Preparing a release means **folding** those fragments into
+`docs/release-notes/release-notes-<version>.md`. `docs/release-notes/README.md`
+on `master` describes the process in full.
 
-- Every backported PR in the release is mentioned. CI enforces this per-PR via
-  `scripts/check-release-notes.sh` (a PR must reference its own number under
-  `docs/release-notes/`, unless it carries the `no-changelog` label), so gaps
-  usually come from manually cherry-picked commits.
-- The **Contributors (Alphabetical Order)** section lists everyone.
+The fold is part of every release, **rc and final alike**. CI
+(`scripts/check-release-notes-consistency.sh`, which ignores `no-changelog`)
+rejects a PR that bumps `build/version.go` to a release version unless two
+things hold: `release-notes-<version>.md` exists, and `unreleased/` contains
+nothing except `.gitkeep`. A final release also needs a non-empty contributors
+section.
 
-Release notes for patch versions also get ported to `master` in a separate
-`docs:`-prefixed PR (see `bd6e91a36 docs: add 0.20.2 and 0.20.3 release notes
-to master`). That port is independent of the tag and can happen after.
+The fold tool is a Go program in `scripts/release-notes`, run with
+`make release-notes`. It exists **only on `master`**; the release branches have
+the CI checks but not the tool. The tool uses only the standard library and works
+on relative paths from the repo root, so build it from a `master` checkout and
+run the binary at the root of the release-branch checkout:
+
+```bash
+# In a master checkout (major release: just use make there instead).
+go build -o /tmp/release-notes ./scripts/release-notes
+
+# At the root of the bump branch (created in Step 3), with tags fetched,
+# because contributors are generated from <from>..HEAD.
+git fetch origin --tags
+/tmp/release-notes <version> [<from-tag>]     # e.g. 0.21.9
+# On master for a major release:
+make release-notes version=0.22.0 [from=v0.21.9-beta]
+```
+
+The tool does the following:
+- **Notes file:** it creates `release-notes-<version>.md` from the template if
+  it's missing, or extends the existing one.
+- **Already-announced fragments:** it deletes fragments whose PR another
+  release note document already announces.
+- **Folding:** it appends each remaining fragment under its matching heading,
+  in PR order, and deletes the fragment. It keeps `unreleased/.gitkeep`.
+- **Contributors:** it merges in the git authors (`%aN`) of `<from>..HEAD`.
+  `from` defaults to the newest final tag of a lower version, such as
+  `v0.21.8-beta` for `0.21.9`.
+- **Re-runs:** it can run again, e.g. for fragments that land after an rc,
+  without adding duplicate entries or contributors.
+- **Failure:** if a fragment uses a heading that the document doesn't have, it
+  fails without changing anything.
+
+Review the result before committing. Keep each entry's wording and PR link, and
+only adjust ordering and transitions. Check co-authored commits and the
+contributor list. If one person appears under two names, fix it with a `.mailmap`
+entry rather than editing the generated list.
 
 ## Step 3: The version bump PR
 
@@ -113,8 +152,12 @@ Branch naming convention (follow the existing ones):
 git checkout -b bump-v0.21.2-final origin/v0.21.x-branch
 ```
 
-Edit **only** `build/version.go` — one file, one line changed in the common
-case:
+The bump PR carries two things: the version change in `build/version.go` and
+the fold from Step 2 (the new or extended `release-notes-<version>.md`, plus
+the deleted fragments). Put the fold in its own `docs:` commit before the
+`build:` commit. The later port to `master` is then easy to check against it.
+
+The version change is one line in the common case:
 
 - **rc → next rc:** `AppPreRelease = "beta.rc1"` → `"beta.rc2"`
 - **rc → final:** `AppPreRelease = "beta.rc1"` → `"beta"`
@@ -131,6 +174,8 @@ Commit, push to the **fork** (`origin` is upstream and rejects new branches),
 and open the PR against the release branch:
 
 ```bash
+git add -A docs/release-notes
+git commit -m "docs: fold release notes for v0.21.2"
 git commit -am "build: bump version to v0.21.2"
 git push -u fork bump-v0.21.2-final
 gh pr create --repo lightningnetwork/lnd \
@@ -138,17 +183,27 @@ gh pr create --repo lightningnetwork/lnd \
   --base v0.21.x-branch \
   --label no-changelog --label no-itest \
   --title "build: bump version to v0.21.2" \
-  --body "Bumps the version from \`0.21.2-beta.rc1\` to \`0.21.2-beta\`, dropping the release candidate suffix for the final v0.21.2 release."
+  --body "Bumps the version from \`0.21.2-beta.rc1\` to \`0.21.2-beta\` and folds the release note fragments in \`docs/release-notes/unreleased\` into \`release-notes-0.21.2.md\`."
 ```
 
 The commit subject is `build: bump version to <tag-without-beta-suffix-noise>`,
 matching history (`build: bump version to v0.20.2`,
 `build: bump version to v0.21.2-beta.rc1`).
 
-Both labels matter: `no-changelog` skips the release-notes check, `no-itest`
-skips the integration-test suite for a one-line constant change. Apply them at
-PR creation — the changelog check only honors the label if it is present when
+Both labels matter. `no-changelog` skips the per-PR release-notes check: the
+bump has no fragment of its own. The consistency check still runs either way.
+`no-itest` skips the integration-test suite. Apply both labels when you create
+the PR, because the changelog check only honors the label if it's present when
 the PR event fires.
+
+**Re-fold right before merging.** Backports keep landing on the release branch
+while the bump PR waits, and each one brings a new fragment. Just before the
+merge, rebase onto the latest release branch and check
+`git ls-tree --name-only origin/<release-branch> docs/release-notes/unreleased/`.
+If any fragment besides `.gitkeep` is there, run the fold again and push.
+v0.21.7 went wrong this way: the bump PR wasn't rebased after #11540's backport
+merged, so its fragment was never folded, and the notes had to move to v0.21.8
+(#11565).
 
 ## Step 4: Create and push the signed tag
 
@@ -159,8 +214,17 @@ commit and use the helper — it exists so you cannot tag the wrong thing:
 git fetch origin
 git checkout v0.21.x-branch
 git merge --ff-only origin/v0.21.x-branch
+scripts/check-release-notes-consistency.sh release
 ./scripts/tag-release.sh v0.21.2-beta --branch v0.21.x-branch
 ```
+
+The consistency check confirms that the commit you're about to tag has
+`release-notes-<version>.md` and an empty `unreleased/`. On `master`,
+`tag-release.sh` runs this check itself (#11562). The release branches' copies
+of `tag-release.sh` predate that change, so run it by hand there. If it fails,
+don't tag: fold the leftover fragments in a new PR first. A tag pushed on an
+unready commit is burned, since `release.yaml` runs the same check against the
+tagged commit.
 
 Use `merge --ff-only` rather than a plain `pull`: if the local branch has drifted
 it fails loudly instead of building a merge commit that would then get tagged.
@@ -257,7 +321,15 @@ missing image and re-drafts an otherwise good release.
 
 ## Step 7: Follow-ups
 
-- Port the release notes to `master` if not already done (Step 2).
+- **Port a patch release's notes to `master`** in a `docs:` PR, for example
+  #11567 "docs: port latest release notes to master". Copy
+  `release-notes-<version>.md` from the release branch
+  (`git checkout origin/<release-branch> -- docs/release-notes/release-notes-<version>.md`),
+  and delete every fragment on `master` whose PR it announces. Those changes
+  are released now. Without the port, `master` keeps fragments that a later
+  major-release fold would announce a second time. Once the port is in,
+  `master`'s consistency check fails any PR that leaves an announced fragment
+  behind. The port carries `no-changelog`.
 - For a **major** release only: the release branch now enters maintenance mode
   for patch releases, and `master` should already be on `<next-minor>.99-beta`
   from when the branch was created.
@@ -270,6 +342,11 @@ missing image and re-drafts an otherwise good release.
   an existing manifest.
 - `docs/signing_release_candidate.md` — signer onboarding and the signing flow.
 - `scripts/tag-release.sh` — the guarded tagging helper.
+- `docs/release-notes/README.md` (on `master`) — the fragment workflow and the
+  fold.
+- `scripts/release-notes/` (on `master`) — the fold tool.
+- `scripts/check-release-notes-consistency.sh` — the release-readiness check
+  (`pr` and `release` modes).
 
 ## Common mistakes
 
@@ -287,3 +364,11 @@ missing image and re-drafts an otherwise good release.
   disallows new branches. Push to `fork`.
 - Bumping to final when code landed after the last rc. Cut another rc instead.
 - Forgetting `no-changelog`/`no-itest` at PR creation time.
+- Editing `release-notes-<version>.md` by hand instead of folding, or
+  treating the fold as a final-only step. rc bumps need it too.
+- Merging the bump PR without re-checking `unreleased/` on the release branch.
+  A backport that merged in the meantime leaves a fragment behind, and the
+  version can't be tagged.
+- Tagging on a release branch without running
+  `scripts/check-release-notes-consistency.sh release` first. That branch's
+  `tag-release.sh` doesn't check it.

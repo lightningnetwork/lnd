@@ -12,7 +12,7 @@ automatically. You can also invoke one by name, for example `/lnd-backport`.
 | Skill | Use it to |
 |-------|-----------|
 | [`lnd-backport`](lnd-backport/SKILL.md) | Create a backport of a merged PR onto a release branch, or repair a bot `BACKPORT-CONFLICT` draft. It rebuilds the backport commit by commit, resolves conflicts to match the parent, checks dependencies, and writes a commit-by-commit parity table into the PR description. |
-| [`cut-release`](cut-release/SKILL.md) | Cut a release or release candidate: bump the version, create a signed tag with `scripts/tag-release.sh`, and walk through the CI, signing and publish steps. |
+| [`cut-release`](cut-release/SKILL.md) | Cut a release or release candidate: fold the `unreleased/` release note fragments, bump the version, create a signed tag with `scripts/tag-release.sh`, walk through the CI, signing and publish steps, and port patch release notes to `master`. |
 | [`bump-golang-version`](bump-golang-version/SKILL.md) | Update the Go toolchain version and the minimum Go version across Dockerfiles, workflows, `go.mod` files and `docs/INSTALL.md`. |
 
 Skills that apply beyond lnd (code review, security analysis, Docker

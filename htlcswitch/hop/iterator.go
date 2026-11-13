@@ -271,8 +271,12 @@ func deriveBlindedRouteFinalHopForwardingInfo(
 		}
 	}
 
+	// The registry rebuilds a BOLT 12 invoice from the optional envelope.
+	invoiceEnvelope := routeData.InvoiceEnvelope.ValOpt().UnwrapOr(nil)
+
 	payload.FwdInfo = ForwardingInfo{
-		PathID: pathID,
+		PathID:          pathID,
+		InvoiceEnvelope: invoiceEnvelope,
 	}
 
 	return payload, routeRole, nil

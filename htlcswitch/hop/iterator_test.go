@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"encoding/binary"
 	"errors"
+	"reflect"
 	"testing"
 
 	"github.com/btcsuite/btcd/btcec/v2"
@@ -98,7 +99,7 @@ func TestSphinxHopIteratorForwardingInstructions(t *testing.T) {
 		}
 
 		fwdInfo := pld.ForwardingInfo()
-		if fwdInfo != testCase.expectedFwdInfo {
+		if !reflect.DeepEqual(fwdInfo, testCase.expectedFwdInfo) {
 			t.Fatalf("#%v: wrong fwding info: expected %v, got %v",
 				i, spew.Sdump(testCase.expectedFwdInfo),
 				spew.Sdump(fwdInfo))
@@ -843,4 +844,48 @@ func TestBlindedRouteDummyHopPeeledLocally(t *testing.T) {
 	require.Equal(t, uint32(0), fwdInfo.OutgoingCLTV)
 	require.NotNil(t, fwdInfo.PathID)
 	require.Equal(t, secret, fwdInfo.PathID[:])
+}
+
+// TestFinalHopInvoiceEnvelope verifies that the payload of a blinded final hop
+// gives the invoice envelope of its encrypted data, from which the registry
+// rebuilds a BOLT 12 invoice.
+func TestFinalHopInvoiceEnvelope(t *testing.T) {
+	t.Parallel()
+
+	envelope := []byte{0xde, 0xad, 0xbe, 0xef}
+	data, err := record.EncodeBlindedRouteData(
+		record.NewFinalHopBlindedRouteData(
+			&record.PaymentConstraints{
+				MaxCltvExpiry:   1000,
+				HtlcMinimumMsat: 1,
+			}, make([]byte, 32), envelope,
+		),
+	)
+	require.NoError(t, err)
+
+	nodeKey, err := btcec.NewPrivateKey()
+	require.NoError(t, err)
+
+	iterator := &sphinxHopIterator{
+		blindingKit: BlindingKit{
+			Processor:      &mockProcessor{},
+			IncomingAmount: 10000,
+			IncomingCltv:   500,
+			UpdateAddBlinding: tlv.SomeRecordT(
+				//nolint:ll
+				tlv.NewPrimitiveRecord[lnwire.BlindingPointTlvType](nodeKey.PubKey()),
+			),
+		},
+		router: sphinx.NewRouter(
+			&sphinx.PrivKeyECDH{PrivKey: nodeKey},
+			sphinx.NewMemoryReplayLog(),
+		),
+	}
+
+	payload, _, err := parseAndValidateRecipientData(
+		iterator, &Payload{encryptedData: data}, true,
+		RouteRoleCleartext,
+	)
+	require.NoError(t, err)
+	require.Equal(t, envelope, payload.InvoiceEnvelope())
 }

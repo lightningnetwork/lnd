@@ -713,6 +713,11 @@ type Brontide struct {
 	// reachable here.
 	activeCloseReqs *closeReqRegistry
 
+	// rbfBumpSeq assigns a unique sequence number to each RPC RBF close
+	// or fee-bump request so a cancelled caller only retracts its own
+	// unstarted bump.
+	rbfBumpSeq atomic.Uint64
+
 	// linkFailures decouples link failure producers from the channelManager
 	// that consumes them. Each link reports at most one failure, and the
 	// unbounded queue preserves every report without making a link wait for
@@ -1943,7 +1948,7 @@ func (p *Brontide) unregisterRbfCloseActor(chanPoint wire.OutPoint) {
 // machine and the router endpoint it registered. Callers should prefer this
 // over calling activeChanCloses.Delete directly so none of them can drift
 // out of sync with the active closers map.
-func (p *Brontide) deleteActiveChanCloser(chanID lnwire.ChannelID,
+func (p *Brontide) retireChanCloserResources(chanID lnwire.ChannelID,
 	chanPoint wire.OutPoint) {
 
 	// Take the closer out of the map first. Everything below is done once
@@ -1979,13 +1984,19 @@ func (p *Brontide) deleteActiveChanCloser(chanID lnwire.ChannelID,
 		})
 	}
 
+	p.unregisterRbfCloseActor(chanPoint)
+}
+
+func (p *Brontide) deleteActiveChanCloser(chanID lnwire.ChannelID,
+	chanPoint wire.OutPoint) {
+
+	p.retireChanCloserResources(chanID, chanPoint)
+
 	// Tell any caller still waiting that the close is over. A caller that
 	// knows a different reason answers it before retiring the closer, so
 	// the claim below then finds nothing left to report and this is the
 	// fallback for the paths that retire a closer on their own.
 	p.abortRemainingCloseReqs(chanID, ErrCoopCloseAbortedByLinkFailure)
-
-	p.unregisterRbfCloseActor(chanPoint)
 }
 
 // abandonChanClosers answers every caller still waiting on this peer, and
@@ -4375,6 +4386,18 @@ func (p *Brontide) observeRbfCloseUpdates(chanCloser *chancloser.RbfChanCloser,
 	closeReq *htlcswitch.ChanClose,
 	coopCloseStates chancloser.RbfStateSub) {
 
+	p.observeRbfCloseUpdatesWithSeq(
+		chanCloser, closeReq, coopCloseStates, 0,
+	)
+}
+
+// observeRbfCloseUpdatesWithSeq observes state transitions for a single RPC
+// caller and cancels any buffered fee bump identified by bumpSeq if the caller
+// exits before it is sent.
+func (p *Brontide) observeRbfCloseUpdatesWithSeq(
+	chanCloser *chancloser.RbfChanCloser, closeReq *htlcswitch.ChanClose,
+	coopCloseStates chancloser.RbfStateSub, bumpSeq uint64) {
+
 	newStateChan := coopCloseStates.NewItemCreated.ChanOut()
 	defer chanCloser.RemoveStateSub(coopCloseStates)
 
@@ -4483,23 +4506,14 @@ func (p *Brontide) observeRbfCloseUpdates(chanCloser *chancloser.RbfChanCloser,
 			// Otherwise, if we're transition to CloseFin, then we
 			// know that we're done.
 			case *chancloser.CloseFin:
-				// To clean up, we'll remove the chan closer
-				// from the active map, and send the final
-				// update to the client.
-				closingTxid := closeState.ConfirmedTx.TxHash()
-
-				chanID := lnwire.NewChanIDFromOutPoint(
-					*closeReq.ChanPoint,
-				)
-
-				p.reportRbfCloseSuccess(chanID, closingTxid)
-
-				p.deleteActiveChanCloser(
-					chanID, *closeReq.ChanPoint,
-				)
-
+				// The per-closer lifecycle sentinel owns final,
+				// success delivery, and channel/link teardown
+				// so local and remote closes clean up equally.
 				return
 			}
+
+		case <-chanCloser.Done():
+			return
 
 		// The caller is gone: either it cancelled, or the peer is
 		// shutting down. Nothing will read an outcome, so give up the
@@ -4510,6 +4524,15 @@ func (p *Brontide) observeRbfCloseUpdates(chanCloser *chancloser.RbfChanCloser,
 				*closeReq.ChanPoint,
 			)
 			p.releaseCloseReq(chanID, closeReq)
+			if bumpSeq != 0 {
+				ctx, cancel := p.cg.Create(context.Background())
+				chanCloser.SendEvent(
+					ctx, &chancloser.CancelPendingOffer{
+						Seq: bumpSeq,
+					},
+				)
+				cancel()
+			}
 
 			return
 
@@ -4593,27 +4616,26 @@ func (c *chanErrorReporter) ReportError(chanErr error) {
 	}
 }
 
-// chanFlushEventSentinel is used to send the RBF coop close state machine the
-// channel flushed event. We'll wait until the state machine enters the
-// ChannelFlushing state, then request the link to send the event once flushed.
+// rbfCloserLifecycleSentinel watches the lifecycle of a single RBF chan closer
+// state machine: it notifies the link to emit ChannelFlushed once when the
+// closer enters ChannelFlushing, and tears down the closer, active channel, and
+// switch link once the closer reaches CloseFin.
 //
 // NOTE: This MUST be run as a goroutine.
-func (p *Brontide) chanFlushEventSentinel(chanCloser *chancloser.RbfChanCloser,
+func (p *Brontide) rbfCloserLifecycleSentinel(
+	chanCloser *chancloser.RbfChanCloser,
 	link htlcswitch.ChannelUpdateHandler,
-	channel *lnwallet.LightningChannel) {
+	channel *lnwallet.LightningChannel,
+	coopCloseStates chancloser.RbfStateSub) {
 
 	defer p.cg.WgDone()
-
-	// If there's no link, then the channel has already been flushed, so we
-	// don't need to continue.
-	if link == nil {
-		return
-	}
-
-	coopCloseStates := chanCloser.RegisterStateEvents()
 	defer chanCloser.RemoveStateSub(coopCloseStates)
 
+	ctx, cancel := p.cg.Create(context.Background())
+	defer cancel()
+
 	newStateChan := coopCloseStates.NewItemCreated.ChanOut()
+	flushRegistered := false
 
 	sendChanFlushed := func() {
 		chanState := channel.StateSnapshot()
@@ -4626,15 +4648,11 @@ func (p *Brontide) chanFlushEventSentinel(chanCloser *chancloser.RbfChanCloser,
 			LocalBalance:  chanState.LocalBalance,
 			RemoteBalance: chanState.RemoteBalance,
 		}
-		ctx := context.Background()
 		chanCloser.SendEvent(ctx, &chancloser.ChannelFlushed{
 			ShutdownBalances: chanBalances,
 		})
 	}
 
-	// We'll wait until the channel enters the ChannelFlushing state. We
-	// exit after a success loop. As after the first RBF iteration, the
-	// channel will always be flushed.
 	for {
 		select {
 		case newState, ok := <-newStateChan:
@@ -4642,22 +4660,44 @@ func (p *Brontide) chanFlushEventSentinel(chanCloser *chancloser.RbfChanCloser,
 				return
 			}
 
-			if _, ok := newState.(*chancloser.ChannelFlushing); ok {
+			switch closeState := newState.(type) {
+			case *chancloser.ChannelFlushing:
+				if link == nil || flushRegistered {
+					continue
+				}
+				flushRegistered = true
+
 				peerLog.Infof("ChannelPoint(%v): rbf coop "+
 					"close is awaiting a flushed state, "+
-					"registering with link..., ",
+					"registering with link...",
 					channel.ChannelPoint())
-
-				// Request the link to send the event once the
-				// channel is flushed. We only need this event
-				// sent once, so we can exit now.
-				ctx, cancel := p.cg.Create(context.Background())
-				defer cancel()
 
 				_ = link.OnFlushedOnce(ctx, sendChanFlushed)
 
+			case *chancloser.CloseFin:
+				chanPoint := channel.ChannelPoint()
+				chanID := lnwire.NewChanIDFromOutPoint(
+					chanPoint,
+				)
+
+				var closingTxid chainhash.Hash
+				if closeState.ConfirmedTx != nil {
+					closingTxid = closeState.ConfirmedTx.TxHash() //nolint:ll
+				}
+
+				// Retire the closer from activeChanCloses
+				// before delivering success so a concurrent
+				// caller cannot register after takeAll and be
+				// left stranded.
+				p.retireChanCloserResources(chanID, chanPoint)
+				p.reportRbfCloseSuccess(chanID, closingTxid)
+				p.WipeChannel(&chanPoint)
+
 				return
 			}
+
+		case <-chanCloser.Done():
+			return
 
 		case <-p.cg.Done():
 			return
@@ -4785,6 +4825,7 @@ func (p *Brontide) initRbfChanCloser(
 
 	ctx := context.Background()
 	chanCloser := protofsm.NewStateMachine(protoCfg)
+	coopCloseStates := chanCloser.RegisterStateEvents()
 	chanCloser.Start(ctx)
 
 	// Finally, we'll register this new endpoint with the message router so
@@ -4795,6 +4836,7 @@ func (p *Brontide) initRbfChanCloser(
 		return r.RegisterEndpoint(&chanCloser)
 	})
 	if err != nil {
+		chanCloser.RemoveStateSub(coopCloseStates)
 		chanCloser.Stop()
 
 		return nil, fmt.Errorf("unable to register endpoint for co-op "+
@@ -4815,6 +4857,7 @@ func (p *Brontide) initRbfChanCloser(
 			channel.ChannelPoint(), p, p.cfg.ActorSystem,
 		)
 		if err := actorWrapper.registerActor(); err != nil {
+			chanCloser.RemoveStateSub(coopCloseStates)
 			chanCloser.Stop()
 			p.deleteActiveChanCloser(
 				chanID, channel.ChannelPoint(),
@@ -4826,10 +4869,11 @@ func (p *Brontide) initRbfChanCloser(
 	}
 
 	// Now that we've created the rbf closer state machine, we'll launch a
-	// new goroutine to eventually send in the ChannelFlushed event once
-	// needed.
+	// new goroutine to manage flushing and CloseFin teardown.
 	p.cg.WgAdd(1)
-	go p.chanFlushEventSentinel(&chanCloser, link, channel)
+	go p.rbfCloserLifecycleSentinel(
+		&chanCloser, link, channel, coopCloseStates,
+	)
 
 	return &chanCloser, nil
 }
@@ -4857,6 +4901,22 @@ func shutdownStartFeeRate(s shutdownInit) fn.Option[chainfee.SatPerKWeight] {
 	})(s)
 
 	return fn.FlattenOption(feeRateOpt)
+}
+
+// shutdownStartCtx returns the caller context from an RPC close request, or
+// context.Background() for a restart-initiated shutdown.
+func shutdownStartCtx(s shutdownInit) context.Context {
+	var reqOpt fn.Option[*htlcswitch.ChanClose]
+	whenRPCShutdown(s, func(req *htlcswitch.ChanClose) {
+		reqOpt = fn.Some(req)
+	})
+
+	req := reqOpt.UnwrapOr(nil)
+	if req != nil && req.Ctx != nil {
+		return req.Ctx
+	}
+
+	return context.Background()
 }
 
 // shutdownStartAddr returns the delivery address that should be used when
@@ -4906,60 +4966,9 @@ func newRPCShutdownInit(req *htlcswitch.ChanClose) shutdownInit {
 	)
 }
 
-// waitUntilRbfCoastClear waits until the RBF co-op close state machine has
-// advanced to a terminal state before attempting another fee bump.
-func waitUntilRbfCoastClear(ctx context.Context,
-	rbfCloser *chancloser.RbfChanCloser) error {
-
-	coopCloseStates := rbfCloser.RegisterStateEvents()
-	newStateChan := coopCloseStates.NewItemCreated.ChanOut()
-	defer rbfCloser.RemoveStateSub(coopCloseStates)
-
-	isTerminalState := func(newState chancloser.RbfState) bool {
-		// If we're not in the negotiation sub-state, then we aren't at
-		// the terminal state yet.
-		state, ok := newState.(*chancloser.ClosingNegotiation)
-		if !ok {
-			return false
-		}
-
-		localState := state.PeerState.GetForParty(lntypes.Local)
-
-		// If this isn't the close pending state, we aren't at the
-		// terminal state yet.
-		_, ok = localState.(*chancloser.ClosePending)
-
-		return ok
-	}
-
-	// Before we enter the subscription loop below, check to see if we're
-	// already in the terminal state.
-	rbfState, err := rbfCloser.CurrentState()
-	if err != nil {
-		return err
-	}
-	if isTerminalState(rbfState) {
-		return nil
-	}
-
-	peerLog.Debugf("Waiting for RBF iteration to complete...")
-
-	for {
-		select {
-		case newState := <-newStateChan:
-			if isTerminalState(newState) {
-				return nil
-			}
-
-		case <-ctx.Done():
-			return fmt.Errorf("context canceled")
-		}
-	}
-}
-
 // startRbfChanCloser kicks off the co-op close process using the new RBF based
 // co-op close protocol. This is called when we're the one that's initiating
-// the cooperative channel close.
+// the cooperative channel close, or requesting a fee bump.
 //
 // TODO(roasbeef): just accept the two shutdown pointer params instead??
 func (p *Brontide) startRbfChanCloser(shutdown shutdownInit,
@@ -4983,50 +4992,24 @@ func (p *Brontide) startRbfChanCloser(shutdown shutdownInit,
 			chanPoint)
 	}
 
-	defaultFeePerKw, err := shutdownStartFeeRate(
-		shutdown,
-	).UnwrapOrFuncErr(func() (chainfee.SatPerKWeight, error) {
-		return p.cfg.FeeEstimator.EstimateFeePerKW(
-			p.cfg.CoopCloseTargetConfs,
-		)
-	})
-	if err != nil {
-		return fmt.Errorf("unable to estimate fee: %w", err)
-	}
-
-	// A failure inside the callback cannot be returned through it, so it is
-	// recorded here and returned below. A caller that is not told the close
-	// never started waits on a request nothing is left to resolve.
-	var startErr error
+	targetFeeOpt := fn.MapOption(func(fee chainfee.SatPerKWeight) chainfee.SatPerVByte { //nolint:ll
+		return fee.FeePerVByte()
+	})(shutdownStartFeeRate(shutdown))
 
 	chanCloser.WhenRight(func(rbfCloser *chancloser.RbfChanCloser) {
-		peerLog.Infof("ChannelPoint(%v): rbf-coop close requested, "+
-			"sending shutdown", chanPoint)
-
-		rbfState, err := rbfCloser.CurrentState()
-		if err != nil {
-			peerLog.Warnf("ChannelPoint(%v): unable to get "+
-				"current state for rbf-coop close: %v",
-				chanPoint, err)
-
-			// No caller has been recorded yet, so this is the only
-			// path that can answer the one that asked for the
-			// close.
-			startErr = fmt.Errorf("unable to get current state "+
-				"for rbf-coop close: %w", err)
-
-			return
-		}
+		peerLog.Infof("ChannelPoint(%v): rbf-coop close requested",
+			chanPoint)
 
 		coopCloseStates := rbfCloser.RegisterStateEvents()
+		var bumpSeq uint64
 
 		// Before we send our event below, we'll launch a goroutine to
-		// watch for the final terminal state to send updates to the RPC
-		// client. We only need to do this if there's an RPC caller.
+		// watch for updates and send them to the RPC client. We only
+		// need to do this if there's an RPC caller.
 		var rpcShutdown bool
 		whenRPCShutdown(shutdown, func(req *htlcswitch.ChanClose) {
 			rpcShutdown = true
-
+			bumpSeq = p.rbfBumpSeq.Add(1)
 			// Record the caller against the channel so that
 			// retiring the closer can tell it how the close
 			// ended. The RBF closer itself carries no request.
@@ -5049,8 +5032,9 @@ func (p *Brontide) startRbfChanCloser(shutdown shutdownInit,
 			go func() {
 				defer p.cg.WgDone()
 
-				p.observeRbfCloseUpdates(
+				p.observeRbfCloseUpdatesWithSeq(
 					rbfCloser, req, coopCloseStates,
+					bumpSeq,
 				)
 			}()
 		})
@@ -5058,59 +5042,19 @@ func (p *Brontide) startRbfChanCloser(shutdown shutdownInit,
 		if !rpcShutdown {
 			defer rbfCloser.RemoveStateSub(coopCloseStates)
 		}
+		sendBaseCtx := shutdownStartCtx(shutdown)
 
-		ctx, _ := p.cg.Create(context.Background())
-		feeRate := defaultFeePerKw.FeePerVByte()
+		sendCtx, cancelSend := p.cg.Create(sendBaseCtx)
+		defer cancelSend()
 
-		// Depending on the state of the state machine, we'll either
-		// kick things off by sending shutdown, or attempt to send a new
-		// offer to the remote party.
-		switch rbfState.(type) {
-		// The channel is still active, so we'll now kick off the co-op
-		// close process by instructing it to send a shutdown message to
-		// the remote party.
-		case *chancloser.ChannelActive:
-			rbfCloser.SendEvent(
-				context.Background(),
-				&chancloser.SendShutdown{
-					IdealFeeRate: feeRate,
-					DeliveryAddr: shutdownStartAddr(
-						shutdown,
-					),
-				},
-			)
-
-		// If we haven't yet sent an offer (didn't have enough funds at
-		// the prior fee rate), or we've sent an offer, then we'll
-		// trigger a new offer event.
-		case *chancloser.ClosingNegotiation:
-			// Before we send the event below, we'll wait until
-			// we're in a semi-terminal state.
-			err := waitUntilRbfCoastClear(ctx, rbfCloser)
-			if err != nil {
-				peerLog.Warnf("ChannelPoint(%v): unable to "+
-					"wait for coast to clear: %v",
-					chanPoint, err)
-
-				return
-			}
-
-			event := chancloser.ProtocolEvent(
-				&chancloser.SendOfferEvent{
-					TargetFeeRate: feeRate,
-				},
-			)
-			rbfCloser.SendEvent(ctx, event)
-
-		default:
-			peerLog.Warnf("ChannelPoint(%v): unexpected state "+
-				"for rbf-coop close: %T", chanPoint, rbfState)
-		}
+		rbfCloser.SendEvent(sendCtx, &chancloser.LocalCloseReq{
+			DeliveryAddr:  shutdownStartAddr(shutdown),
+			TargetFeeRate: targetFeeOpt,
+			Seq:           bumpSeq,
+		})
 	})
 
-	// A callback that failed before the close could start is reported
-	// to the caller here, since nothing else owns the request yet.
-	return startErr
+	return nil
 }
 
 // handleLocalCloseReq kicks-off the workflow to execute a cooperative or

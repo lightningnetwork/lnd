@@ -462,10 +462,33 @@ type Invoice struct {
 	// not tied to an offer.
 	OfferID fn.Option[int64]
 
+	// Bolt12Envelope is the invoice envelope that the payment of a BOLT 12
+	// invoice carried. It is the authoritative source of the BOLT 12
+	// order data. The store writes it and refuses a BOLT 12 invoice
+	// without it. It is nil for BOLT 11.
+	Bolt12Envelope []byte
+
+	// OfferHash is the 32-byte SHA256 hash of the TLV-encoded offer. It
+	// is the external identifier in RPC responses. The store decodes it
+	// from Bolt12Envelope on read. It is nil for an invoice that answers
+	// no offer.
+	OfferHash []byte
+
 	// InvreqPayerID is the 33-byte compressed pubkey from the
-	// invreq_payer_id TLV (type 88) in the invoice request. Nil
-	// for BOLT 11.
+	// invreq_payer_id TLV (type 88) in the invoice request. The store
+	// decodes it from Bolt12Envelope on read. Nil for BOLT 11.
 	InvreqPayerID []byte
+
+	// InvreqQuantity is the number of items requested by the payer
+	// (invreq_quantity, TLV type 86). The store decodes it from
+	// Bolt12Envelope on read. Zero when the request has no
+	// invreq_quantity, and for BOLT 11.
+	InvreqQuantity uint64
+
+	// InvreqPayerNote is the invreq_payer_note of the invoice request
+	// (TLV type 89). The store decodes it from Bolt12Envelope on read. Nil
+	// when the request has no note, and for BOLT 11.
+	InvreqPayerNote []byte
 }
 
 // HTLCSet returns the set of HTLCs belonging to setID and in the provided
@@ -522,7 +545,10 @@ func (i *Invoice) HTLCSetCompliment(setID *[32]byte,
 func (i *Invoice) IsKeysend() bool {
 	// TODO(positiveblue): look for a more reliable way to tests if
 	// an invoice is keysend.
-	return len(i.PaymentRequest) == 0 && !i.IsAMP()
+	//
+	// A settled BOLT 12 invoice also has no payment request, because the
+	// signed lni1... string is not kept after it is sent to the payer.
+	return len(i.PaymentRequest) == 0 && !i.IsAMP() && !i.IsBolt12
 }
 
 // IsAMP returns true if the invoice is an AMP invoice.

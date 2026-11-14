@@ -10,6 +10,7 @@ import (
 	"github.com/btcsuite/btcd/btcec/v2"
 	sphinx "github.com/lightningnetwork/lightning-onion"
 	"github.com/lightningnetwork/lnd/bolt12"
+	"github.com/lightningnetwork/lnd/bolt12handler/envelope"
 	"github.com/lightningnetwork/lnd/clock"
 	"github.com/lightningnetwork/lnd/fn/v2"
 	"github.com/lightningnetwork/lnd/invoices"
@@ -38,7 +39,8 @@ func TestHandleInvoiceRequest_FullFlow(t *testing.T) {
 
 	handler, err := NewHandler(
 		store, notifier, replier, newPrivKeySigner(nodeKey),
-		builder, clock.NewDefaultClock(), testChainHash(),
+		testPathIDKey(nodeKey), builder, clock.NewDefaultClock(),
+		testChainHash(),
 		testFinalCLTVDelta,
 	)
 	require.NoError(t, err)
@@ -118,6 +120,12 @@ func TestHandleInvoiceRequest_FullFlow(t *testing.T) {
 		payInfos[0].CltvExpiryDelta,
 	)
 	require.Equal(t, builder.gotPathID, inv.Terms.PaymentAddr[:])
+
+	// The envelope binds the invoice to the offer it answers.
+	data, err := envelope.Decode(builder.gotEnvelope)
+	require.NoError(t, err)
+	require.Equal(t, fn.Some(stored.Hash), data.OfferHash)
+
 	require.Equal(t,
 		payerKey.PubKey().SerializeCompressed(), inv.InvreqPayerID,
 	)
@@ -314,7 +322,8 @@ func TestHandleInvoiceRequestErrors(t *testing.T) {
 			handler, err := NewHandler(
 				store, notifier,
 				&mockReplier{err: tc.replyErr},
-				newPrivKeySigner(nodeKey), nil,
+				newPrivKeySigner(nodeKey),
+				testPathIDKey(nodeKey), nil,
 				clock.NewTestClock(now), testChainHash(),
 				testFinalCLTVDelta,
 			)
@@ -376,4 +385,17 @@ func TestHandleInvoiceRequestErrors(t *testing.T) {
 			require.Empty(t, notifier.invoices)
 		})
 	}
+}
+
+// TestNewHandlerZeroPathIDKey verifies that a handler refuses the zero path id
+// key, because anybody can compute path ids under it.
+func TestNewHandlerZeroPathIDKey(t *testing.T) {
+	t.Parallel()
+
+	_, err := NewHandler(
+		newMockOfferStore(), nopNotifier{}, &mockReplier{},
+		newPrivKeySigner(testKey(t)), PathIDKey{}, nil,
+		clock.NewDefaultClock(), testChainHash(), testFinalCLTVDelta,
+	)
+	require.ErrorContains(t, err, "no path id key")
 }

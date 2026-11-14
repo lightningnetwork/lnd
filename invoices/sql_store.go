@@ -11,7 +11,9 @@ import (
 	"strconv"
 	"time"
 
+	"github.com/lightningnetwork/lnd/bolt12handler/envelope"
 	"github.com/lightningnetwork/lnd/clock"
+	"github.com/lightningnetwork/lnd/fn/v2"
 	"github.com/lightningnetwork/lnd/graph/db/models"
 	"github.com/lightningnetwork/lnd/lntypes"
 	"github.com/lightningnetwork/lnd/lnwire"
@@ -53,6 +55,16 @@ var (
 type SQLInvoiceQueries interface { //nolint:interfacebloat
 	InsertInvoice(ctx context.Context, arg sqlc.InsertInvoiceParams) (int64,
 		error)
+
+	// InsertBolt12Invoice stores the BOLT 12 data of an invoice in its
+	// side table. Only a store with BOLT 12 enabled calls it.
+	InsertBolt12Invoice(ctx context.Context,
+		arg sqlc.InsertBolt12InvoiceParams) error
+
+	// FetchBolt12Invoice returns the BOLT 12 data of an invoice, or
+	// sql.ErrNoRows for an invoice that is not a BOLT 12 invoice.
+	FetchBolt12Invoice(ctx context.Context,
+		invoiceID int64) (sqlc.FetchBolt12InvoiceRow, error)
 
 	// TODO(bhandras): remove this once migrations have been separated out.
 	InsertMigratedInvoice(ctx context.Context,
@@ -223,6 +235,11 @@ type SQLStore struct {
 // SQLStoreOptions holds the options for the SQL store.
 type SQLStoreOptions struct {
 	paginationLimit int
+
+	// bolt12 enables the BOLT 12 side table. Its migration is only
+	// applied in builds with the development migrations, so a store
+	// without this option never queries it.
+	bolt12 bool
 }
 
 // defaultSQLStoreOptions returns the default options for the SQL store.
@@ -241,6 +258,15 @@ type SQLStoreOption func(*SQLStoreOptions)
 func WithPaginationLimit(limit int) SQLStoreOption {
 	return func(o *SQLStoreOptions) {
 		o.paginationLimit = limit
+	}
+}
+
+// WithBolt12 lets the store read and write the BOLT 12 side table. The
+// caller sets it only when BOLT 12 is enabled, which also guarantees that the
+// table exists.
+func WithBolt12() SQLStoreOption {
+	return func(o *SQLStoreOptions) {
+		o.bolt12 = true
 	}
 }
 
@@ -336,6 +362,30 @@ func (i *SQLStore) AddInvoice(ctx context.Context,
 		return 0, err
 	}
 
+	if newInvoice.IsBolt12 && !i.opts.bolt12 {
+		return 0, ErrBolt12Disabled
+	}
+
+	// The read path does not load the BOLT 12 data of an AMP invoice, so
+	// the store refuses such an invoice.
+	if newInvoice.IsBolt12 && newInvoice.IsAMP() {
+		return 0, ErrBolt12AMP
+	}
+
+	// Every read of a BOLT 12 invoice decodes its envelope, so the store
+	// only takes an envelope that decodes.
+	if newInvoice.IsBolt12 {
+		if len(newInvoice.Bolt12Envelope) == 0 {
+			return 0, ErrBolt12NoEnvelope
+		}
+
+		_, err := envelope.Decode(newInvoice.Bolt12Envelope)
+		if err != nil {
+			return 0, fmt.Errorf("%w: %w", ErrBolt12BadEnvelope,
+				err)
+		}
+	}
+
 	var (
 		writeTxOpts = sqldb.WriteTxOpt()
 		invoiceID   int64
@@ -353,6 +403,11 @@ func (i *SQLStore) AddInvoice(ctx context.Context,
 		invoiceID, err = db.InsertInvoice(ctx, insertInvoiceParams)
 		if err != nil {
 			return fmt.Errorf("unable to insert invoice: %w", err)
+		}
+
+		err = insertBolt12Invoice(ctx, db, invoiceID, newInvoice)
+		if err != nil {
+			return err
 		}
 
 		// TODO(positiveblue): if invocies do not have custom features
@@ -392,6 +447,36 @@ func (i *SQLStore) AddInvoice(ctx context.Context,
 	newInvoice.AddIndex = uint64(invoiceID)
 
 	return newInvoice.AddIndex, nil
+}
+
+// insertBolt12Invoice stores the BOLT 12 data of the invoice with the given ID
+// in its side table.
+func insertBolt12Invoice(ctx context.Context, db SQLInvoiceQueries,
+	invoiceID int64, invoice *Invoice) error {
+
+	// A BOLT 11 invoice has no side table row.
+	if !invoice.IsBolt12 {
+		return nil
+	}
+
+	params := sqlc.InsertBolt12InvoiceParams{
+		InvoiceID: invoiceID,
+		Envelope:  invoice.Bolt12Envelope,
+	}
+
+	// An invoice that answers an invoice request without an offer has no
+	// offer link.
+	invoice.OfferID.WhenSome(func(id int64) {
+		params.OfferID = sqldb.SQLInt64(id)
+	})
+
+	err := db.InsertBolt12Invoice(ctx, params)
+	if err != nil {
+		return fmt.Errorf("unable to insert BOLT 12 data of "+
+			"invoice(id=%d): %w", invoiceID, err)
+	}
+
+	return nil
 }
 
 // getInvoiceByRef fetches the invoice with the given reference. The reference
@@ -477,9 +562,10 @@ func getInvoiceByRef(ctx context.Context,
 }
 
 // fetchInvoice fetches the common invoice data and the AMP state for the
-// invoice with the given reference.
-func fetchInvoice(ctx context.Context, db SQLInvoiceQueries, ref InvoiceRef) (
-	*Invoice, error) {
+// invoice with the given reference. If bolt12 is true, it also reads the
+// BOLT 12 side table.
+func fetchInvoice(ctx context.Context, db SQLInvoiceQueries, ref InvoiceRef,
+	bolt12 bool) (*Invoice, error) {
 
 	// Fetch the invoice from the database.
 	sqlInvoice, err := getInvoiceByRef(ctx, db, ref)
@@ -523,7 +609,7 @@ func fetchInvoice(ctx context.Context, db SQLInvoiceQueries, ref InvoiceRef) (
 
 	// Fetch the rest of the invoice data and fill the invoice struct.
 	_, invoice, err := fetchInvoiceData(
-		ctx, db, sqlInvoice, setID, fetchAmpHtlcs,
+		ctx, db, sqlInvoice, setID, fetchAmpHtlcs, bolt12,
 	)
 	if err != nil {
 		return nil, err
@@ -756,7 +842,7 @@ func (i *SQLStore) LookupInvoice(ctx context.Context,
 
 	readTxOpt := sqldb.ReadTxOpt()
 	txErr := i.db.ExecTx(ctx, readTxOpt, func(db SQLInvoiceQueries) error {
-		invoice, err = fetchInvoice(ctx, db, ref)
+		invoice, err = fetchInvoice(ctx, db, ref, i.opts.bolt12)
 
 		return err
 	}, sqldb.NoOpReset)
@@ -794,6 +880,7 @@ func (i *SQLStore) FetchPendingInvoices(ctx context.Context) (
 			for _, row := range rows {
 				hash, invoice, err := fetchInvoiceData(
 					ctx, db, row, nil, true,
+					i.opts.bolt12,
 				)
 				if err != nil {
 					return err
@@ -911,6 +998,7 @@ func (i *SQLStore) InvoicesSettledSince(ctx context.Context, idx uint64) (
 			for _, row := range rows {
 				_, invoice, err := fetchInvoiceData(
 					ctx, db, row, nil, true,
+					i.opts.bolt12,
 				)
 				if err != nil {
 					return fmt.Errorf("unable to fetch "+
@@ -977,6 +1065,7 @@ func (i *SQLStore) InvoicesSettledSince(ctx context.Context, idx uint64) (
 			_, invoice, err := fetchInvoiceData(
 				ctx, db, sqlInvoice,
 				(*[32]byte)(ampInvoice.SetID), true,
+				i.opts.bolt12,
 			)
 			if err != nil {
 				return fmt.Errorf("unable to fetch "+
@@ -1061,6 +1150,7 @@ func (i *SQLStore) InvoicesAddedSince(ctx context.Context, idx uint64) (
 			for _, row := range rows {
 				_, invoice, err := fetchInvoiceData(
 					ctx, db, row, nil, true,
+					i.opts.bolt12,
 				)
 				if err != nil {
 					return err
@@ -1194,6 +1284,7 @@ func (i *SQLStore) QueryInvoices(ctx context.Context,
 			for _, row := range rows {
 				_, invoice, err := fetchInvoiceData(
 					ctx, db, row, nil, true,
+					i.opts.bolt12,
 				)
 				if err != nil {
 					return err
@@ -1618,7 +1709,7 @@ func (i *SQLStore) UpdateInvoice(ctx context.Context, ref InvoiceRef,
 			ref.refModifier = HtlcSetOnlyModifier
 		}
 
-		invoice, err := fetchInvoice(ctx, db, ref)
+		invoice, err := fetchInvoice(ctx, db, ref, i.opts.bolt12)
 		if err != nil {
 			return err
 		}
@@ -1733,10 +1824,12 @@ func (i *SQLStore) DeleteCanceledInvoices(ctx context.Context) error {
 // fetchInvoiceData fetches additional data for the given invoice. If the
 // invoice is AMP and the setID is not nil, then it will also fetch the AMP
 // state and HTLCs for the given setID, otherwise for all AMP sub invoices of
-// the invoice. If fetchAmpHtlcs is true, it will also fetch the AMP HTLCs.
+// the invoice. If fetchAmpHtlcs is true, it will also fetch the AMP HTLCs. If
+// bolt12 is true and the invoice is not AMP, it also fills the BOLT 12 fields
+// from the side table.
 func fetchInvoiceData(ctx context.Context, db SQLInvoiceQueries,
-	row sqlc.Invoice, setID *[32]byte, fetchAmpHtlcs bool) (*lntypes.Hash,
-	*Invoice, error) {
+	row sqlc.Invoice, setID *[32]byte, fetchAmpHtlcs bool,
+	bolt12 bool) (*lntypes.Hash, *Invoice, error) {
 
 	// Unmarshal the common data.
 	hash, invoice, err := unmarshalInvoice(row)
@@ -1752,6 +1845,13 @@ func fetchInvoiceData(ctx context.Context, db SQLInvoiceQueries,
 	}
 
 	invoice.Terms.Features = features
+
+	if bolt12 && !invoice.IsAMP() {
+		err := fetchBolt12Invoice(ctx, db, row.ID, invoice)
+		if err != nil {
+			return nil, nil, err
+		}
+	}
 
 	// If this is an AMP invoice, we'll need fetch the AMP state along
 	// with the HTLCs (if requested).
@@ -1781,6 +1881,47 @@ func fetchInvoiceData(ctx context.Context, db SQLInvoiceQueries,
 	}
 
 	return hash, invoice, nil
+}
+
+// fetchBolt12Invoice fills the BOLT 12 fields of the invoice with the given ID
+// from the envelope in its side table. An invoice without a row is not a BOLT
+// 12 invoice and stays unchanged.
+//
+// List calls run this query once per invoice. That keeps the shared invoice
+// queries free of the development table, at the cost of one extra query per
+// row while BOLT 12 is enabled.
+func fetchBolt12Invoice(ctx context.Context, db SQLInvoiceQueries,
+	invoiceID int64, invoice *Invoice) error {
+
+	row, err := db.FetchBolt12Invoice(ctx, invoiceID)
+	switch {
+	case errors.Is(err, sql.ErrNoRows):
+		return nil
+
+	case err != nil:
+		return fmt.Errorf("unable to fetch BOLT 12 data of "+
+			"invoice(id=%d): %w", invoiceID, err)
+	}
+
+	data, err := envelope.Decode(row.Envelope)
+	if err != nil {
+		return fmt.Errorf("unable to decode BOLT 12 envelope of "+
+			"invoice(id=%d): %w", invoiceID, err)
+	}
+
+	invoice.IsBolt12 = true
+	if row.OfferID.Valid {
+		invoice.OfferID = fn.Some(row.OfferID.Int64)
+	}
+	invoice.Bolt12Envelope = row.Envelope
+	data.OfferHash.WhenSome(func(hash [32]byte) {
+		invoice.OfferHash = hash[:]
+	})
+	invoice.InvreqPayerID = data.PayerID[:]
+	invoice.InvreqQuantity = data.Quantity
+	invoice.InvreqPayerNote = data.PayerNote
+
+	return nil
 }
 
 // getInvoiceFeatures fetches the invoice features for the given invoice id.

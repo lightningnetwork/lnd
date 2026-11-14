@@ -1,15 +1,20 @@
 package bolt12handler
 
 import (
+	"bytes"
 	"errors"
 	"testing"
 	"time"
 
 	"github.com/btcsuite/btcd/btcec/v2"
+	sphinx "github.com/lightningnetwork/lightning-onion"
 	"github.com/lightningnetwork/lnd/bolt12"
+	"github.com/lightningnetwork/lnd/bolt12handler/envelope"
 	"github.com/lightningnetwork/lnd/fn/v2"
+	"github.com/lightningnetwork/lnd/keychain"
 	"github.com/lightningnetwork/lnd/lntypes"
 	"github.com/lightningnetwork/lnd/lnwire"
+	"github.com/lightningnetwork/lnd/record"
 	"github.com/lightningnetwork/lnd/routing"
 	"github.com/lightningnetwork/lnd/tlv"
 	"github.com/stretchr/testify/require"
@@ -29,7 +34,9 @@ func TestGenerateInvoice_HappyPath(t *testing.T) {
 
 	ir := testInvoiceRequest(t, offer, payerKey, 10000)
 
-	result, err := GenerateInvoice(testInvoiceConfig(nodeKey), ir)
+	result, err := GenerateInvoice(
+		testInvoiceConfig(nodeKey), ir, [32]byte{},
+	)
 	require.NoError(t, err)
 
 	require.NotEmpty(t, result.Encoded)
@@ -174,7 +181,7 @@ func TestGenerateInvoiceAmount(t *testing.T) {
 			})
 
 			result, err := GenerateInvoice(
-				testInvoiceConfig(nodeKey), ir,
+				testInvoiceConfig(nodeKey), ir, [32]byte{},
 			)
 			if tc.wantErr != nil {
 				require.ErrorIs(t, err, tc.wantErr)
@@ -209,7 +216,9 @@ func TestGenerateInvoice_BlindedPath(t *testing.T) {
 
 	ir := testInvoiceRequest(t, offer, payerKey, 10000)
 
-	result, err := GenerateInvoice(testInvoiceConfig(nodeKey), ir)
+	result, err := GenerateInvoice(
+		testInvoiceConfig(nodeKey), ir, [32]byte{},
+	)
 	require.NoError(t, err)
 
 	decoded, err := bolt12.DecodeInvoiceString(
@@ -234,16 +243,18 @@ type fakePathBuilder struct {
 	result *PaymentPathResult
 	err    error
 
-	gotAmount uint64
-	gotPathID []byte
+	gotAmount   uint64
+	gotPathID   []byte
+	gotEnvelope []byte
 }
 
 // BuildPaymentPaths returns the fixed result and error.
-func (f *fakePathBuilder) BuildPaymentPaths(amountMsat uint64,
-	pathID []byte) (*PaymentPathResult, error) {
+func (f *fakePathBuilder) BuildPaymentPaths(amountMsat uint64, pathID []byte,
+	invoiceEnvelope []byte) (*PaymentPathResult, error) {
 
 	f.gotAmount = amountMsat
 	f.gotPathID = pathID
+	f.gotEnvelope = invoiceEnvelope
 
 	return f.result, f.err
 }
@@ -301,7 +312,7 @@ func TestGenerateInvoicePathBuilder(t *testing.T) {
 			ir := testInvoiceRequest(t, offer, payerKey, 0)
 
 			path, err := buildSingleHopBlindedPath(
-				nodeKey.PubKey(), []byte{1},
+				nodeKey.PubKey(), []byte{1}, nil,
 			)
 			require.NoError(t, err)
 
@@ -322,7 +333,7 @@ func TestGenerateInvoicePathBuilder(t *testing.T) {
 			cfg := testInvoiceConfig(nodeKey)
 			cfg.PathBuilder = builder
 
-			result, err := GenerateInvoice(cfg, ir)
+			result, err := GenerateInvoice(cfg, ir, [32]byte{})
 			require.NoError(t, err)
 
 			require.EqualValues(t, 10000, builder.gotAmount)
@@ -381,7 +392,7 @@ func TestGenerateInvoiceIssuerID(t *testing.T) {
 			offer := testOffer(t, nodeKey, 10000)
 
 			path, err := buildSingleHopBlindedPath(
-				nodeKey.PubKey(), []byte{1},
+				nodeKey.PubKey(), []byte{1}, nil,
 			)
 			require.NoError(t, err)
 
@@ -407,7 +418,7 @@ func TestGenerateInvoiceIssuerID(t *testing.T) {
 			ir := testInvoiceRequest(t, offer, payerKey, 0)
 
 			result, err := GenerateInvoice(
-				testInvoiceConfig(nodeKey), ir,
+				testInvoiceConfig(nodeKey), ir, [32]byte{},
 			)
 			if tc.wantErr != nil {
 				require.ErrorIs(t, err, tc.wantErr)
@@ -419,6 +430,194 @@ func TestGenerateInvoiceIssuerID(t *testing.T) {
 				t, nodeKey.PubKey(),
 				result.Invoice.InvoiceNodeID.UnwrapOrFailV(t),
 			)
+		})
+	}
+}
+
+// TestGenerateInvoiceMissingPayerID verifies that an invoice request without
+// invreq_payer_id gets no invoice, so no envelope carries an empty payer id.
+func TestGenerateInvoiceMissingPayerID(t *testing.T) {
+	t.Parallel()
+
+	nodeKey := testKey(t)
+	offer := testOffer(t, nodeKey, 10000)
+
+	payerKey, _ := btcec.PrivKeyFromBytes([]byte{0xFF})
+	ir := testInvoiceRequest(t, offer, payerKey, 10000)
+	ir.InvreqPayerID = tlv.OptionalRecordT[
+		tlv.TlvType88, *btcec.PublicKey,
+	]{}
+
+	_, err := GenerateInvoice(testInvoiceConfig(nodeKey), ir, [32]byte{})
+	require.ErrorIs(t, err, errMissingPayerID)
+}
+
+// TestGenerateInvoiceEnvelope verifies that the path builder gets an envelope
+// with the invoice state.
+func TestGenerateInvoiceEnvelope(t *testing.T) {
+	t.Parallel()
+
+	nodeKey := testKey(t)
+	offer := testOffer(t, nodeKey, 10000)
+	setQuantityMax(offer, 10)
+
+	payerKey, _ := btcec.PrivKeyFromBytes([]byte{0xFF})
+	ir := testInvoiceRequest(t, offer, payerKey, 30000)
+	ir.InvreqQuantity = tlv.SomeRecordT(
+		tlv.RecordT[tlv.TlvType86, bolt12.TUint64]{Val: 3},
+	)
+
+	builder := &fakePathBuilder{err: errors.New("no route")}
+	cfg := testInvoiceConfig(nodeKey)
+	cfg.PathBuilder = builder
+	offerHash := [32]byte{0x09}
+
+	result, err := GenerateInvoice(cfg, ir, offerHash)
+	require.NoError(t, err)
+
+	data, err := envelope.Decode(builder.gotEnvelope)
+	require.NoError(t, err)
+
+	createdAt := result.Invoice.InvoiceCreatedAt.UnwrapOrFailV(t)
+	require.Equal(t, &envelope.Data{
+		OfferHash: fn.Some(offerHash),
+		PayerID:   [33]byte(payerKey.PubKey().SerializeCompressed()),
+		CreatedAt: uint64(createdAt),
+		Amount:    30000,
+		Quantity:  3,
+	}, data)
+}
+
+// TestGenerateInvoicePathID verifies that the path id of the invoice
+// authenticates its envelope and gives the preimage of the invoice.
+func TestGenerateInvoicePathID(t *testing.T) {
+	t.Parallel()
+
+	nodeKey := testKey(t)
+	offer := testOffer(t, nodeKey, 10000)
+	payerKey, _ := btcec.PrivKeyFromBytes([]byte{0xFF})
+	ir := testInvoiceRequest(t, offer, payerKey, 10000)
+
+	builder := &fakePathBuilder{err: errors.New("no route")}
+	cfg := testInvoiceConfig(nodeKey)
+	cfg.PathBuilder = builder
+
+	result, err := GenerateInvoice(cfg, ir, [32]byte{})
+	require.NoError(t, err)
+	require.Equal(t, result.PathID[:], builder.gotPathID)
+
+	preimage, ok := cfg.PathIDKey.checkPaymentPathID(
+		builder.gotPathID, EnvelopeBinding(builder.gotEnvelope),
+	)
+	require.True(t, ok)
+	require.Equal(t, result.Preimage, preimage)
+	require.Equal(t, preimage.Hash(), result.PaymentHash)
+}
+
+// TestGenerateInvoiceFallbackEnvelope verifies that the final hop of the
+// single-hop fallback path carries the envelope.
+func TestGenerateInvoiceFallbackEnvelope(t *testing.T) {
+	t.Parallel()
+
+	nodeKey := testKey(t)
+	offer := testOffer(t, nodeKey, 10000)
+	payerKey, _ := btcec.PrivKeyFromBytes([]byte{0xFF})
+	ir := testInvoiceRequest(t, offer, payerKey, 10000)
+
+	builder := &fakePathBuilder{err: errors.New("no route")}
+	cfg := testInvoiceConfig(nodeKey)
+	cfg.PathBuilder = builder
+
+	result, err := GenerateInvoice(cfg, ir, [32]byte{})
+	require.NoError(t, err)
+
+	path := result.Invoice.InvoicePaths.UnwrapOrFailV(t).Paths[0]
+	router := sphinx.NewRouter(
+		&keychain.PrivKeyECDH{PrivKey: nodeKey}, nil,
+	)
+	plainText, err := router.DecryptBlindedHopData(
+		path.BlindingPoint, path.Hops[0].EncryptedData,
+	)
+	require.NoError(t, err)
+
+	routeData, err := record.DecodeBlindedRouteData(
+		bytes.NewReader(plainText),
+	)
+	require.NoError(t, err)
+	require.Equal(
+		t, builder.gotEnvelope,
+		routeData.InvoiceEnvelope.UnwrapOrFailV(t),
+	)
+}
+
+// TestGenerateInvoiceZeroPathIDKey verifies that GenerateInvoice refuses a
+// config without a path id key.
+func TestGenerateInvoiceZeroPathIDKey(t *testing.T) {
+	t.Parallel()
+
+	nodeKey := testKey(t)
+	offer := testOffer(t, nodeKey, 10000)
+	payerKey, _ := btcec.PrivKeyFromBytes([]byte{0xFF})
+	ir := testInvoiceRequest(t, offer, payerKey, 10000)
+
+	cfg := testInvoiceConfig(nodeKey)
+	cfg.PathIDKey = PathIDKey{}
+
+	_, err := GenerateInvoice(cfg, ir, [32]byte{})
+	require.ErrorContains(t, err, "no path id key")
+}
+
+// TestGenerateInvoicePayerNote verifies that the envelope carries a payer note
+// up to the cap, and that a longer note gets no invoice.
+func TestGenerateInvoicePayerNote(t *testing.T) {
+	t.Parallel()
+
+	nodeKey := testKey(t)
+	offer := testOffer(t, nodeKey, 10000)
+	payerKey, _ := btcec.PrivKeyFromBytes([]byte{0xFF})
+
+	tests := []struct {
+		name    string
+		noteLen int
+		wantErr error
+	}{
+		{
+			name:    "note at the cap",
+			noteLen: envelope.MaxPayerNoteLen,
+		},
+		{
+			name:    "note over the cap",
+			noteLen: envelope.MaxPayerNoteLen + 1,
+			wantErr: errPayerNoteTooLong,
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+
+			note := bytes.Repeat([]byte{'a'}, tc.noteLen)
+			ir := testInvoiceRequest(t, offer, payerKey, 10000)
+			ir.InvreqPayerNote = tlv.SomeRecordT(
+				tlv.NewPrimitiveRecord[tlv.TlvType89](note),
+			)
+
+			builder := &fakePathBuilder{err: errors.New("no route")}
+			cfg := testInvoiceConfig(nodeKey)
+			cfg.PathBuilder = builder
+
+			_, err := GenerateInvoice(cfg, ir, [32]byte{})
+			if tc.wantErr != nil {
+				require.ErrorIs(t, err, tc.wantErr)
+				require.Nil(t, builder.gotEnvelope)
+
+				return
+			}
+			require.NoError(t, err)
+
+			data, err := envelope.Decode(builder.gotEnvelope)
+			require.NoError(t, err)
+			require.Equal(t, note, data.PayerNote)
 		})
 	}
 }

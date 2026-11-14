@@ -23,9 +23,37 @@ import (
 // used here. LDK and eclair derive their offer id from that root instead, so
 // those values differ for the same offer.
 func OfferHash(m lnwire.PureTLVMessage) ([32]byte, error) {
+	return hashRecords(m, offerAllowedRange)
+}
+
+// OfferHashWithoutPaths returns the offer hash of a message with offer_paths
+// left out. A node binds the blinded paths of an offer to this hash because
+// the hash exists before the paths do. An invoice_request over such a path
+// mirrors the fields that the hash covers.
+func OfferHashWithoutPaths(m lnwire.PureTLVMessage) ([32]byte, error) {
+	return hashRecords(m, func(typ tlv.Type) bool {
+		return offerAllowedRange(typ) && typ != offerPathsType
+	})
+}
+
+// InvoiceRequestHash returns the SHA-256 of the records of a message in the
+// invoice_request TLV ranges, with invreq_paths left out. An invoice mirrors
+// these ranges of the request it answers, so a request and its invoice hash to
+// the same value. The signature is outside these ranges.
+func InvoiceRequestHash(m lnwire.PureTLVMessage) ([32]byte, error) {
+	return hashRecords(m, func(typ tlv.Type) bool {
+		return invreqAllowedRange(typ) && typ != invreqPathsType
+	})
+}
+
+// hashRecords returns the SHA-256 of the encoding of the records of a message
+// whose type keep accepts.
+func hashRecords(m lnwire.PureTLVMessage, keep func(tlv.Type) bool) ([32]byte,
+	error) {
+
 	var records []tlv.Record
 	for _, r := range m.AllRecords() {
-		if offerAllowedRange(r.Type()) {
+		if keep(r.Type()) {
 			records = append(records, r)
 		}
 	}

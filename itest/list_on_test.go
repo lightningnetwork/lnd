@@ -872,6 +872,10 @@ var allTestCases = []*lntest.TestCase{
 		TestFunc: testPostgresNetworkSeparation,
 	},
 	{
+		Name:     "local payment dispatch guard",
+		TestFunc: testLocalPaymentDispatchGuard,
+	},
+	{
 		Name:     "send onion",
 		TestFunc: testSendOnion,
 	},

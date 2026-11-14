@@ -3,9 +3,11 @@ package onionmessage
 import (
 	"context"
 	"encoding/hex"
+	"errors"
 
 	"github.com/btcsuite/btcd/btcec/v2"
 	"github.com/lightninglabs/neutrino/cache/lru"
+	"github.com/lightningnetwork/lnd/aliasmgr"
 	graphdb "github.com/lightningnetwork/lnd/graph/db"
 	"github.com/lightningnetwork/lnd/lnwire"
 )
@@ -30,12 +32,20 @@ func (c *cachedPubKey) Size() (uint64, error) {
 	return 1, nil
 }
 
+// PrivateChannelLookup resolves the remote node of a channel from one of our
+// local aliases. The resolver calls it only for a SCID in the alias range.
+type PrivateChannelLookup func(scid lnwire.ShortChannelID) (
+	*btcec.PublicKey, bool)
+
 // GraphNodeResolver resolves node public keys from short channel IDs using the
-// channel graph. It maintains an LRU cache to avoid repeated database lookups
-// for frequently used SCIDs.
+// announced channels in the graph, then our local aliases. It maintains an LRU
+// cache to avoid repeated database lookups for frequently used SCIDs.
 type GraphNodeResolver struct {
 	graph  *graphdb.ChannelGraph
 	ourPub *btcec.PublicKey
+
+	// privateChannels resolves our local aliases.
+	privateChannels PrivateChannelLookup
 
 	// scidCache is an LRU cache mapping SCID (as uint64) to the remote
 	// node's compressed public key bytes.
@@ -46,11 +56,13 @@ type GraphNodeResolver struct {
 // graph and our node's public key. It initializes an LRU cache for SCID
 // lookups.
 func NewGraphNodeResolver(graph *graphdb.ChannelGraph,
-	ourPub *btcec.PublicKey) *GraphNodeResolver {
+	ourPub *btcec.PublicKey,
+	privateChannels PrivateChannelLookup) *GraphNodeResolver {
 
 	return &GraphNodeResolver{
-		graph:  graph,
-		ourPub: ourPub,
+		graph:           graph,
+		ourPub:          ourPub,
+		privateChannels: privateChannels,
 		scidCache: lru.NewCache[uint64, *cachedPubKey](
 			defaultSCIDCacheSize,
 		),
@@ -63,25 +75,26 @@ func (r *GraphNodeResolver) RemotePubFromSCID(ctx context.Context,
 
 	scidInt := scid.ToUint64()
 
-	// Check the cache first.
-	if cached, err := r.scidCache.Get(scidInt); err == nil {
-		pubKey, parseErr := btcec.ParsePubKey(cached.pubKeyBytes[:])
-		if parseErr == nil {
-			log.Tracef("Resolved SCID %v from cache to node %s",
-				scid,
-				hex.EncodeToString(cached.pubKeyBytes[:]))
-
+	// Local aliases are resolved live. An alias can be deleted or
+	// reassigned, and a cached peer would keep resolving after that.
+	// Announced SCIDs stay cached.
+	if !aliasmgr.IsAlias(scid) {
+		if pubKey, ok := r.cachedPubKey(scid, scidInt); ok {
 			return pubKey, nil
 		}
-
-		// Cache contained invalid data, fall through to DB lookup.
-		log.Debugf("Invalid cached pubkey for SCID %v: %v",
-			scid, parseErr)
 	}
 
 	log.Tracef("Resolving node public key for SCID %v from graph", scid)
 
 	edge, _, _, err := r.graph.FetchChannelEdgesByID(ctx, scid.ToUint64())
+
+	// The graph also holds our own unannounced channels. An edge without
+	// an auth proof is one of them, so it resolves only by local alias.
+	if errors.Is(err, graphdb.ErrEdgeNotFound) ||
+		(err == nil && edge.AuthProof == nil) {
+
+		return r.resolveLocalAlias(scid)
+	}
 	if err != nil {
 		log.Debugf("Failed to fetch channel edges for SCID %v: %v",
 			scid, err)
@@ -107,15 +120,71 @@ func (r *GraphNodeResolver) RemotePubFromSCID(ctx context.Context,
 		return nil, err
 	}
 
-	// Cache the result for future lookups. We ignore the return values as
-	// caching is best-effort and a failure just means the next lookup will
-	// hit the database again.
-	_, _ = r.scidCache.Put(scidInt, &cachedPubKey{
-		pubKeyBytes: otherNodeKeyBytes,
-	})
+	var keyBytes [33]byte
+	copy(keyBytes[:], otherNodeKeyBytes[:])
+	r.cachePubKey(scidInt, keyBytes)
 
 	log.Tracef("Resolved SCID %v to node %s", scid,
 		hex.EncodeToString(pubKey.SerializeCompressed()))
 
 	return pubKey, nil
+}
+
+// resolveLocalAlias resolves a SCID that is not an announced channel. BOLT 4
+// resolves a next-hop short_channel_id only if it "corresponds to an announced
+// short_channel_id or a local alias for a channel". The confirmed SCID of an
+// unannounced channel is neither, so it is refused. A non-alias miss returns
+// before the local lookup, so a random SCID does not scan any channel set.
+func (r *GraphNodeResolver) resolveLocalAlias(
+	scid lnwire.ShortChannelID) (*btcec.PublicKey, error) {
+
+	if !aliasmgr.IsAlias(scid) || r.privateChannels == nil {
+		log.Debugf("SCID %v is not an announced channel or a local "+
+			"alias", scid)
+
+		return nil, ErrSCIDNotResolved
+	}
+
+	pubKey, ok := r.privateChannels(scid)
+	if !ok || pubKey == nil {
+		log.Debugf("SCID %v is not a local alias of an active channel",
+			scid)
+
+		return nil, ErrSCIDNotResolved
+	}
+
+	// Do not cache. The next lookup must see a deletion or a
+	// reassignment.
+	return pubKey, nil
+}
+
+// cachedPubKey returns a cached remote node key. Invalid entries are
+// ignored so the caller falls through to the graph.
+func (r *GraphNodeResolver) cachedPubKey(scid lnwire.ShortChannelID,
+	scidInt uint64) (*btcec.PublicKey, bool) {
+
+	cached, err := r.scidCache.Get(scidInt)
+	if err != nil {
+		return nil, false
+	}
+
+	pubKey, parseErr := btcec.ParsePubKey(cached.pubKeyBytes[:])
+	if parseErr != nil {
+		log.Debugf("Invalid cached pubkey for SCID %v: %v",
+			scid, parseErr)
+
+		return nil, false
+	}
+
+	log.Tracef("Resolved SCID %v from cache to node %s", scid,
+		hex.EncodeToString(cached.pubKeyBytes[:]))
+
+	return pubKey, true
+}
+
+// cachePubKey caches the remote node key of a resolved announced SCID. We
+// ignore the return values as caching is best-effort and a failure just
+// means the next lookup will hit the database again.
+func (r *GraphNodeResolver) cachePubKey(scid uint64, keyBytes [33]byte) {
+	_, _ = r.scidCache.Put(scid, &cachedPubKey{pubKeyBytes: keyBytes})
 }

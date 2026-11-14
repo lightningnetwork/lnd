@@ -17,17 +17,35 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
+// dropWait is how long a test waits to confirm that a message was dropped.
+const dropWait = 5 * time.Second
+
 // onionMessageTestCase defines a test case for onion message forwarding.
+// Channel creation and SCID selection stay in the test body. A case is
+// either a path builder, the already-open Bob-Carol channel, or a channel
+// opened from openChannel.
 type onionMessageTestCase struct {
 	name string
 
-	// setup is called before building the blinded path to perform any
-	// additional setup (e.g., opening channels for SCID tests).
-	setup func(ht *lntest.HarnessTest, alice, bob, carol *node.HarnessNode)
+	// expectDrop is true when the next hop must not resolve and Carol
+	// must not receive the message.
+	expectDrop bool
 
-	// buildPath builds the blinded path for the test. It returns the
-	// blinded path info, the final hop payloads, the first hop node,
-	// and the expected receiving peer pubkey for validation.
+	// useExisting forwards via the confirmed SCID of the Bob-Carol
+	// channel opened with the network.
+	useExisting bool
+
+	// openChannel, if set, opens a Bob-Carol channel with these params
+	// and forwards via its SCID.
+	openChannel *lntest.OpenChannelParams
+
+	// useAlias selects the first alias of that channel instead of the
+	// confirmed SCID.
+	useAlias bool
+
+	// buildPath builds a blinded path that does not come from a channel
+	// SCID. It returns the blinded path, the final hop payloads, the
+	// first hop node, and the expected receiving peer pubkey.
 	buildPath func(ht *lntest.HarnessTest, alice, bob,
 		carol *node.HarnessNode) (
 		blindedPath *sphinx.BlindedPathInfo,
@@ -49,14 +67,31 @@ func testOnionMessageForwarding(ht *lntest.HarnessTest) {
 	// silently drop the message. The Bob -> Carol channel also doubles
 	// as the SCID source for the "forward via scid" test case, which
 	// keeps the per-test setup minimal.
+	//
+	// Bob and Carol also enable option-scid-alias, so the private
+	// channel cases can resolve a local alias.
+	scidAliasArgs := []string{
+		"--protocol.option-scid-alias",
+		"--protocol.anchors",
+	}
 	chanPoints, nodes := ht.CreateSimpleNetwork(
-		[][]string{nil, nil, nil},
+		[][]string{nil, scidAliasArgs, scidAliasArgs},
 		lntest.OpenChannelParams{
 			Amt: btcutil.Amount(100_000),
 		},
 	)
 	alice, bob, carol := nodes[0], nodes[1], nodes[2]
 	bobCarolChan := chanPoints[1]
+
+	privateParams := &lntest.OpenChannelParams{
+		Amt:     btcutil.Amount(100_000),
+		Private: true,
+	}
+	aliasParams := &lntest.OpenChannelParams{
+		Amt:       btcutil.Amount(100_000),
+		Private:   true,
+		ScidAlias: true,
+	}
 
 	testCases := []onionMessageTestCase{
 		{
@@ -74,41 +109,80 @@ func testOnionMessageForwarding(ht *lntest.HarnessTest) {
 			},
 		},
 		{
-			name: "forward via scid",
-			setup: func(ht *lntest.HarnessTest, alice, bob,
-				carol *node.HarnessNode) {
-
-				// The Bob -> Carol channel was opened up
-				// front; just wait for it to be in the graph
-				// so the SCID can be resolved.
-				ht.AssertChannelInGraph(bob, bobCarolChan)
-			},
-			buildPath: func(ht *lntest.HarnessTest, alice, bob,
-				carol *node.HarnessNode) (
-				*sphinx.BlindedPathInfo,
-				[]*lnwire.FinalHopTLV,
-				*node.HarnessNode, []byte,
-			) {
-
-				return buildForwardSCIDPath(ht, bob, carol)
-			},
+			name:        "forward via scid",
+			useExisting: true,
 		},
 		{
 			name:      "forward concatenated path",
 			buildPath: buildConcatenatedPath,
 		},
+		{
+			// BOLT 4 resolves only an announced SCID or a local
+			// alias. The confirmed SCID of a private channel is
+			// in the local graph and must not resolve.
+			name:        "drop via private channel confirmed scid",
+			expectDrop:  true,
+			openChannel: privateParams,
+		},
+		{
+			// A local alias is not in the graph, so Bob resolves
+			// it through the HTLC switch.
+			name:        "forward via private channel alias",
+			openChannel: aliasParams,
+			useAlias:    true,
+		},
 	}
 
 	for _, tc := range testCases {
 		success := ht.Run(tc.name, func(t *testing.T) {
-			// Run optional setup.
-			if tc.setup != nil {
-				tc.setup(ht, alice, bob, carol)
-			}
+			var (
+				blindedPath   *sphinx.BlindedPathInfo
+				finalPayloads []*lnwire.FinalHopTLV
+				firstHop      *node.HarnessNode
+				expectedPeer  []byte
+			)
+			if tc.buildPath != nil {
+				blindedPath, finalPayloads, firstHop,
+					expectedPeer = tc.buildPath(
+					ht, alice, bob, carol,
+				)
+			} else {
+				var channel *lnrpc.Channel
+				if tc.useExisting {
+					ht.AssertChannelInGraph(
+						bob, bobCarolChan,
+					)
+					channel = ht.QueryChannelByChanPoint(
+						bob, bobCarolChan,
+					)
+				} else {
+					chanPoint := ht.OpenChannel(
+						bob, carol, *tc.openChannel,
+					)
+					channel = ht.QueryChannelByChanPoint(
+						bob, chanPoint,
+					)
+				}
 
-			// Build the blinded path for this test case.
-			blindedPath, finalPayloads, firstHop, expectedPeer :=
-				tc.buildPath(ht, alice, bob, carol)
+				var scid lnwire.ShortChannelID
+				if tc.useAlias {
+					require.NotEmpty(
+						ht, channel.AliasScids,
+					)
+					scid = lnwire.NewShortChanIDFromInt(
+						channel.AliasScids[0],
+					)
+				} else {
+					scid = lnwire.NewShortChanIDFromInt(
+						channel.ChanId,
+					)
+				}
+
+				blindedPath, finalPayloads, firstHop,
+					expectedPeer = buildForwardSCIDPath(
+					ht, bob, carol, scid,
+				)
+			}
 
 			// Build the onion message.
 			onionMsg, _ := onionmessage.BuildOnionMessage(
@@ -143,6 +217,19 @@ func testOnionMessageForwarding(ht *lntest.HarnessTest) {
 				Onion:   onionMsg.OnionBlob,
 			}
 			alice.RPC.SendOnionMessage(aliceMsg)
+
+			// A dropped message must not reach Carol.
+			if tc.expectDrop {
+				select {
+				case <-messages:
+					ht.Fatalf("carol received a dropped " +
+						"onion message")
+
+				case <-time.After(dropWait):
+				}
+
+				return
+			}
 
 			// Wait for Carol to receive the message.
 			select {
@@ -227,7 +314,7 @@ func buildForwardNextNodePath(ht *lntest.HarnessTest, bob,
 // Requires a channel between Bob and Carol to exist.
 // Path: Alice -> Bob -> Carol (Bob uses SCID to identify Carol).
 func buildForwardSCIDPath(ht *lntest.HarnessTest, bob,
-	carol *node.HarnessNode) (
+	carol *node.HarnessNode, scid lnwire.ShortChannelID) (
 	*sphinx.BlindedPathInfo, []*lnwire.FinalHopTLV,
 	*node.HarnessNode, []byte,
 ) {
@@ -238,14 +325,8 @@ func buildForwardSCIDPath(ht *lntest.HarnessTest, bob,
 	carolPubKey, err := btcec.ParsePubKey(carol.PubKey[:])
 	require.NoError(ht.T, err)
 
-	// Get the SCID of the Bob-Carol channel from Bob's perspective.
-	channels := bob.RPC.ListChannels(&lnrpc.ListChannelsRequest{
-		Peer: carol.PubKey[:],
-	})
-	require.Len(ht.T, channels.Channels, 1, "expected one channel")
-	scid := lnwire.NewShortChanIDFromInt(channels.Channels[0].ChanId)
-
-	// Bob's payload: forward to Carol via SCID.
+	// Bob's payload: forward to Carol via the caller-supplied SCID. The
+	// caller picks the confirmed SCID or a local alias.
 	nextNode := fn.NewRight[*btcec.PublicKey](scid)
 	bobData := record.NewNonFinalBlindedRouteDataOnionMessage(
 		nextNode, nil, nil,

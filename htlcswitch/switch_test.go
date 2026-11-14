@@ -527,6 +527,17 @@ func testSwitchForwardMapping(t *testing.T, alicePrivate, aliceZeroConf,
 		outgoingSCID = aliceAlias
 	}
 
+	// Onion message forwarding uses the same rules. The lookup must agree
+	// with the forward below.
+	gotLink, err := s.LookupLinkByOutgoingSCID(outgoingSCID)
+	if expectErr {
+		require.ErrorIs(t, err, ErrChannelLinkNotFound)
+		require.Nil(t, gotLink)
+	} else {
+		require.NoError(t, err)
+		require.Equal(t, aliceChannelLink, gotLink)
+	}
+
 	packet := &htlcPacket{
 		incomingChanID: bobScid,
 		incomingHTLCID: 0,
@@ -568,6 +579,49 @@ func testSwitchForwardMapping(t *testing.T, alicePrivate, aliceZeroConf,
 			t.Fatal("expected alice to receive packet")
 		}
 	}
+}
+
+// TestLookupLinkByOutgoingSCIDUnknownAlias checks that a peer alias, which
+// is not in the switch indexes, does not resolve. The alias and privacy
+// matrix is covered by TestSwitchForwardMapping.
+func TestLookupLinkByOutgoingSCIDUnknownAlias(t *testing.T) {
+	t.Parallel()
+
+	alicePeer, err := newMockServer(
+		t, "alice", testStartingHeight, nil, testDefaultDelta,
+	)
+	require.NoError(t, err)
+
+	s, err := initSwitchWithTempDB(t, testStartingHeight)
+	require.NoError(t, err)
+	require.NoError(t, s.Start())
+	t.Cleanup(func() { _ = s.Stop() })
+
+	chanID, _ := genID()
+	alias := lnwire.ShortChannelID{
+		BlockHeight: 16_000_015,
+		TxIndex:     9,
+		TxPosition:  9,
+	}
+	confirmed := lnwire.ShortChannelID{
+		BlockHeight: 506000,
+		TxIndex:     10,
+		TxPosition:  10,
+	}
+	link := newMockChannelLink(
+		s, chanID, confirmed, emptyScid, alicePeer, true, true, false,
+		true,
+	)
+	link.addAlias(alias)
+	require.NoError(t, s.AddLink(link))
+
+	// A peer alias is one past the local alias and is not indexed.
+	peerAlias := alias
+	peerAlias.TxPosition++
+
+	missing, err := s.LookupLinkByOutgoingSCID(peerAlias)
+	require.ErrorIs(t, err, ErrChannelLinkNotFound)
+	require.Nil(t, missing)
 }
 
 // TestSwitchSendHTLCMapping tests that SendHTLC will properly route packets to

@@ -603,13 +603,13 @@ func TestLookupLinkByOutgoingSCIDUnknownAlias(t *testing.T) {
 		TxIndex:     9,
 		TxPosition:  9,
 	}
-	real := lnwire.ShortChannelID{
+	confirmed := lnwire.ShortChannelID{
 		BlockHeight: 506000,
 		TxIndex:     10,
 		TxPosition:  10,
 	}
 	link := newMockChannelLink(
-		s, chanID, real, emptyScid, alicePeer, true, true, false,
+		s, chanID, confirmed, emptyScid, alicePeer, true, true, false,
 		true,
 	)
 	link.addAlias(alias)

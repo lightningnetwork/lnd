@@ -146,7 +146,6 @@ func testOnionMessageForwarding(ht *lntest.HarnessTest) {
 					expectedPeer = tc.buildPath(
 					ht, alice, bob, carol,
 				)
-
 			} else {
 				var channel *lnrpc.Channel
 				if tc.useExisting {

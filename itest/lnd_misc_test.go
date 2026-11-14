@@ -184,8 +184,10 @@ func testListChannels(ht *lntest.HarnessTest) {
 		alice, chanPoint, lntest.WithPeerAliasLookup(),
 	)
 
-	// Since Alice is the initiator, she pays the commit fee.
-	aliceBalance := int64(chanAmt) - aliceChannel.CommitFee - int64(pushAmt)
+	// Since Alice is the initiator, she pays the commitment fee and funds
+	// both anchor outputs.
+	aliceBalance := int64(chanAmt) - aliceChannel.CommitFee -
+		int64(pushAmt) - 2*anchorSize
 
 	bobAlias := bob.RPC.GetInfo().Alias
 

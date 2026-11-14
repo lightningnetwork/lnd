@@ -206,7 +206,7 @@ func TestCommitmentTypeNegotiation(t *testing.T) {
 			expectsErr: nil,
 		},
 		{
-			name: "explicit tweakless",
+			name: "explicit tweakless rejected",
 			channelFeatures: lnwire.NewRawFeatureVector(
 				lnwire.StaticRemoteKeyRequired,
 			),
@@ -218,13 +218,7 @@ func TestCommitmentTypeNegotiation(t *testing.T) {
 				lnwire.StaticRemoteKeyOptional,
 				lnwire.AnchorsZeroFeeHtlcTxOptional,
 			),
-			expectsCommitType: lnwallet.CommitmentTypeTweakless,
-			expectsChanType: (*lnwire.ChannelType)(
-				lnwire.NewRawFeatureVector(
-					lnwire.StaticRemoteKeyRequired,
-				),
-			),
-			expectsErr: nil,
+			expectsErr: lnwire.ErrChanTypeDeprecated,
 		},
 		{
 			// An empty channel type asks for the legacy commitment
@@ -256,7 +250,7 @@ func TestCommitmentTypeNegotiation(t *testing.T) {
 				lnwire.StaticRemoteKeyOptional,
 				lnwire.AnchorsZeroFeeHtlcTxOptional,
 			),
-			expectsCommitType: lnwallet.CommitmentTypeAnchorsZeroFeeHtlcTx,
+			expectsCommitType: lnwallet.CommitmentTypeAnchorsZeroFeeHtlcTx, //nolint:ll
 			expectsChanType: (*lnwire.ChannelType)(
 				lnwire.NewRawFeatureVector(
 					lnwire.StaticRemoteKeyRequired,
@@ -266,7 +260,7 @@ func TestCommitmentTypeNegotiation(t *testing.T) {
 			expectsErr: nil,
 		},
 		{
-			name:            "default tweakless",
+			name:            "default tweakless rejected",
 			channelFeatures: nil,
 			localFeatures: lnwire.NewRawFeatureVector(
 				lnwire.StaticRemoteKeyRequired,
@@ -275,19 +269,11 @@ func TestCommitmentTypeNegotiation(t *testing.T) {
 			remoteFeatures: lnwire.NewRawFeatureVector(
 				lnwire.StaticRemoteKeyOptional,
 			),
-			expectsCommitType: lnwallet.CommitmentTypeTweakless,
-			expectsChanType: (*lnwire.ChannelType)(
-				lnwire.NewRawFeatureVector(
-					lnwire.StaticRemoteKeyRequired,
-				),
-			),
-			expectsErr: nil,
+			expectsErr: ErrNoAnchorSupport,
 		},
 		{
-			// Without mutual support for static remote key there is
-			// nothing left to fall back on but the legacy type.
-			// Note that the test runs both peer orderings, so it
-			// covers either side being the one that lacks it.
+			// Without mutual anchor support there is no acceptable
+			// fallback type. The test runs both peer orderings.
 			name:            "default legacy rejected",
 			channelFeatures: nil,
 			localFeatures:   lnwire.NewRawFeatureVector(),
@@ -295,7 +281,7 @@ func TestCommitmentTypeNegotiation(t *testing.T) {
 				lnwire.StaticRemoteKeyOptional,
 				lnwire.AnchorsZeroFeeHtlcTxOptional,
 			),
-			expectsErr: ErrDeprecatedChanType,
+			expectsErr: ErrNoAnchorSupport,
 		},
 
 		// Test cases for final taproot channels with explicit
@@ -450,13 +436,7 @@ func TestCommitmentTypeNegotiation(t *testing.T) {
 				lnwire.StaticRemoteKeyOptional,
 				lnwire.SimpleTaprootChannelsOptionalStaging,
 			),
-			expectsCommitType: lnwallet.CommitmentTypeTweakless,
-			expectsChanType: (*lnwire.ChannelType)(
-				lnwire.NewRawFeatureVector(
-					lnwire.StaticRemoteKeyRequired,
-				),
-			),
-			expectsErr: nil,
+			expectsErr: ErrNoAnchorSupport,
 		},
 		{
 			//nolint:ll
@@ -470,13 +450,7 @@ func TestCommitmentTypeNegotiation(t *testing.T) {
 				lnwire.StaticRemoteKeyOptional,
 				lnwire.SimpleTaprootChannelsOptionalFinal,
 			),
-			expectsCommitType: lnwallet.CommitmentTypeTweakless,
-			expectsChanType: (*lnwire.ChannelType)(
-				lnwire.NewRawFeatureVector(
-					lnwire.StaticRemoteKeyRequired,
-				),
-			),
-			expectsErr: nil,
+			expectsErr: ErrNoAnchorSupport,
 		},
 	}
 

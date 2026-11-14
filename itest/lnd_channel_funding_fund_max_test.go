@@ -89,7 +89,7 @@ func testChannelFundMaxError(ht *lntest.HarnessTest) {
 			// for min chan size and not excessive fees.
 			feeRate:            1,
 			chanOpenShouldFail: true,
-			expectedErrStr: "available funds(0.00017877 BTC) " +
+			expectedErrStr: "available funds(0.00007834 BTC) " +
 				"below the minimum amount(0.00020000 BTC)",
 		},
 		// Expects, that if the maximum funding amount for a channel is
@@ -118,8 +118,8 @@ func testChannelFundMaxError(ht *lntest.HarnessTest) {
 			initialWalletBalance: 20_000_000,
 			pushAmt:              lnd.MaxFundingAmount - 1_000,
 			chanOpenShouldFail:   true,
-			expectedErrStr: "funder balance too small (-8050000) " +
-				"with fee=9050 sat, minimum=708 sat required",
+			expectedErrStr: "funder balance too small (-2470000) " +
+				"with fee=2810 sat, minimum=708 sat required",
 		},
 	}
 
@@ -164,13 +164,12 @@ func testChannelFundMaxWalletAmount(ht *lntest.HarnessTest) {
 	var testCases = []*chanFundMaxTestCase{
 		{
 			name: "wallet amount > min chan " +
-				"size (37000sat)",
-			initialWalletBalance: 37_000,
-			// The transaction fee to open the channel must be
+				"size (60000sat)",
+			initialWalletBalance: 60_000,
+			// The transaction fee and anchor reserve must be
 			// subtracted from Alice's balance.
-			// (since wallet balance < max-chan-size)
-			expectedBalanceAlice: btcutil.Amount(37_000) -
-				fundingFee(1, false),
+			expectedBalanceAlice: btcutil.Amount(60_000) -
+				fundingFee(1, true) - reserveAmount,
 		},
 		{
 			name: "wallet amount > max chan size " +
@@ -282,7 +281,7 @@ func runFundMaxTestCase(ht *lntest.HarnessTest, alice, bob *node.HarnessNode,
 
 	commitType := testCase.commitmentType
 	if commitType == lnrpc.CommitmentType_UNKNOWN_COMMITMENT_TYPE {
-		commitType = lnrpc.CommitmentType_STATIC_REMOTE_KEY
+		commitType = lnrpc.CommitmentType_ANCHORS
 	}
 
 	// The parameters to try opening the channel with.

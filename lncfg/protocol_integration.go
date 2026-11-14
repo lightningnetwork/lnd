@@ -37,9 +37,11 @@ type ProtocolOptions struct {
 	// the experimental taproot overlay chan type.
 	TaprootOverlayChans bool `long:"simple-taproot-overlay-chans" description:"if set, then lnd will create and accept requests for channels using the taproot overlay commitment type"`
 
-	// Anchors enables anchor commitments.
-	// TODO(halseth): transition itests to anchors instead!
-	Anchors bool `long:"anchors" description:"enable support for anchor commitments"`
+	// Anchors is retained as a no-op for integration test compatibility.
+	Anchors bool `long:"anchors" description:"deprecated; anchor commitment support is always enabled"`
+
+	// NoAnchors disables anchor support for compatibility tests.
+	NoAnchors bool `long:"no-anchors" description:"disable anchor commitment support for compatibility tests"`
 
 	// RbfCoopClose should be set if we want to signal that we support for
 	// the new experimental RBF coop close feature.
@@ -145,10 +147,10 @@ func (l *ProtocolOptions) Wumbo() bool {
 	return l.WumboChans
 }
 
-// NoAnchorCommitments returns true if we have disabled support for the anchor
-// commitment type.
+// NoAnchorCommitments returns true when an integration test explicitly disables
+// anchor commitments. Production nodes cannot disable anchors.
 func (l *ProtocolOptions) NoAnchorCommitments() bool {
-	return !l.Anchors
+	return l.NoAnchors
 }
 
 // NoScriptEnforcementLease returns true if we have disabled support for the

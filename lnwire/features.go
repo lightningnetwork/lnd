@@ -241,12 +241,16 @@ const (
 	// new RBF-based co-op close protocol is supported.
 	RbfCoopCloseOptional = 61
 
-	// RbfCoopCloseRequiredStaging is a required feature bit that signals
-	// that the new RBF-based co-op close protocol is supported.
+	// RbfCoopCloseRequiredStaging is the historical required feature bit
+	// for the staging RBF cooperative-close protocol. It is retained only
+	// for recognizing historical feature vectors and must not be advertised
+	// or used for negotiation.
 	RbfCoopCloseRequiredStaging = 160
 
-	// RbfCoopCloseOptionalStaging is an optional feature bit that signals
-	// that the new RBF-based co-op close protocol is supported.
+	// RbfCoopCloseOptionalStaging is the historical optional feature bit
+	// for the staging RBF cooperative-close protocol. It is retained only
+	// for recognizing historical feature vectors and must not be advertised
+	// or used for negotiation.
 	RbfCoopCloseOptionalStaging = 161
 
 	// ScriptEnforcedLeaseRequired is a required feature bit that signals

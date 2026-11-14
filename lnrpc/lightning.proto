@@ -1106,8 +1106,7 @@ message EstimateFeeResponse {
     // The total fee in satoshis.
     int64 fee_sat = 1;
 
-    // Deprecated, use sat_per_vbyte.
-    // The fee rate in satoshi/vbyte.
+    // Removed, use sat_per_vbyte.
     int64 feerate_sat_per_byte = 2 [deprecated = true];
 
     // The fee rate in satoshi/vbyte.
@@ -1129,9 +1128,7 @@ message SendManyRequest {
     // transaction.
     uint64 sat_per_vbyte = 4;
 
-    // Deprecated, use sat_per_vbyte.
-    // A manual fee rate set in sat/vbyte that should be used when crafting the
-    // transaction.
+    // Removed, use sat_per_vbyte.
     int64 sat_per_byte = 5 [deprecated = true];
 
     // An optional label for the transaction, limited to 500 characters.
@@ -1167,9 +1164,7 @@ message SendCoinsRequest {
     // transaction.
     uint64 sat_per_vbyte = 4;
 
-    // Deprecated, use sat_per_vbyte.
-    // A manual fee rate set in sat/vbyte that should be used when crafting the
-    // transaction.
+    // Removed, use sat_per_vbyte.
     int64 sat_per_byte = 5 [deprecated = true];
 
     /*
@@ -2125,9 +2120,7 @@ message CloseChannelRequest {
     // confirmed by.
     int32 target_conf = 3;
 
-    // Deprecated, use sat_per_vbyte.
-    // A manual fee rate set in sat/vbyte that should be used when crafting the
-    // closure transaction.
+    // Removed, use sat_per_vbyte.
     int64 sat_per_byte = 4 [deprecated = true];
 
     /*
@@ -2385,9 +2378,7 @@ message OpenChannelRequest {
     // confirmed by.
     int32 target_conf = 6;
 
-    // Deprecated, use sat_per_vbyte.
-    // A manual fee rate set in sat/vbyte that should be used when crafting the
-    // funding transaction.
+    // Removed, use sat_per_vbyte.
     int64 sat_per_byte = 7 [deprecated = true];
 
     // Whether this channel should be private, not announced to the greater

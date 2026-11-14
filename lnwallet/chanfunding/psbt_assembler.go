@@ -1,6 +1,7 @@
 package chanfunding
 
 import (
+	"bytes"
 	"errors"
 	"fmt"
 	"sync"
@@ -130,7 +131,10 @@ type PsbtIntent struct {
 
 	// FinalTX is the final, signed and ready to be published wire format
 	// transaction. This is only set after the PsbtFinalize step was
-	// completed successfully.
+	// completed successfully. If the finalize step was skipped, this is
+	// a copy of the unsigned transaction in which every input has its
+	// final signature script, but no witness. It has the same TXID as the
+	// signed transaction, which is all we need it for.
 	FinalTX *wire.MsgTx
 
 	// PsbtReady is an error channel the funding manager will listen for
@@ -289,10 +293,30 @@ func (i *PsbtIntent) Verify(packet *psbt.Packet, skipFinalize bool) error {
 	}
 
 	// In case we aren't going to publish any transaction, we now have
-	// everything we need and can skip the Finalize step.
-	i.PendingPsbt = packet
+	// everything we need and can skip the Finalize step. We then never see
+	// the signed transaction, but the channel point must use its TXID.
+	// Signing a nested SegWit input adds a signature script, which changes
+	// the TXID. So we add the final signature script of every input to a
+	// copy of the unsigned transaction. This happens before any state
+	// change, so a rejected PSBT leaves the intent as it was.
 	if !i.shouldPublish && skipFinalize {
-		i.FinalTX = packet.UnsignedTx
+		finalTx, err := txWithFinalSigScripts(packet)
+		if err != nil {
+			return fmt.Errorf("cannot skip finalize step, TXID of "+
+				"signed transaction is unknown, use the "+
+				"finalize step instead: %w", err)
+		}
+
+		finalTxid := finalTx.TxHash()
+		unsignedTxid := packet.UnsignedTx.TxHash()
+		if finalTxid != unsignedTxid {
+			log.Infof("Skipping PSBT finalize step, funding TXID "+
+				"is %v once signed, unsigned TXID is %v",
+				finalTxid, unsignedTxid)
+		}
+
+		i.PendingPsbt = packet
+		i.FinalTX = finalTx
 		i.State = PsbtFinalized
 
 		// Signal the funding manager that it can now continue with its
@@ -304,7 +328,9 @@ func (i *PsbtIntent) Verify(packet *psbt.Packet, skipFinalize bool) error {
 		return nil
 	}
 
+	i.PendingPsbt = packet
 	i.State = PsbtVerified
+
 	return nil
 }
 
@@ -638,4 +664,149 @@ func verifyAllInputsSegWit(txIns []*wire.TxIn, ins []psbt.PInput) error {
 	}
 
 	return nil
+}
+
+// txWithFinalSigScripts returns a copy of the unsigned transaction of the given
+// PSBT in which every input has the signature script it must have once it is
+// signed. Signing only adds witness data on top of that, and witness data is
+// not part of the TXID. So the returned transaction has the TXID of the signed
+// transaction. An error is returned if the final signature script of an input
+// can't be known before the input is signed.
+func txWithFinalSigScripts(packet *psbt.Packet) (*wire.MsgTx, error) {
+	txIns := packet.UnsignedTx.TxIn
+	if len(packet.Inputs) != len(txIns) {
+		return nil, fmt.Errorf("PSBT has %d inputs, but its "+
+			"transaction has %d", len(packet.Inputs), len(txIns))
+	}
+
+	tx := packet.UnsignedTx.Copy()
+	for idx, txIn := range tx.TxIn {
+		sigScript, err := finalSigScript(txIn, &packet.Inputs[idx])
+		if err != nil {
+			return nil, fmt.Errorf("input %d: %w", idx, err)
+		}
+
+		// We set the signature script of every input and clear its
+		// witness, so the result doesn't depend on what the unsigned
+		// transaction contains.
+		txIn.SignatureScript = sigScript
+		txIn.Witness = nil
+	}
+
+	return tx, nil
+}
+
+// finalSigScript returns the signature script that the given input must have
+// once it is signed. By consensus (BIP-141), the signature script of a native
+// SegWit input must be empty, and the one of a nested SegWit input must be
+// exactly one push of its redeem script. The signature script of any other
+// input depends on its signature, so an error is returned for it.
+func finalSigScript(txIn *wire.TxIn, pIn *psbt.PInput) ([]byte, error) {
+	pkScript, err := prevOutPkScript(txIn, pIn)
+	if err != nil {
+		return nil, err
+	}
+
+	var sigScript []byte
+	switch {
+	// A native SegWit input keeps its empty signature script.
+	case txscript.IsWitnessProgram(pkScript):
+
+	// A nested SegWit input pushes its redeem script, which must be a
+	// witness program that hashes to the P2SH script of the output.
+	case txscript.IsPayToScriptHash(pkScript):
+		sigScript, err = nestedSegWitSigScript(
+			pkScript, pIn.RedeemScript,
+		)
+		if err != nil {
+			return nil, err
+		}
+
+	default:
+		return nil, errors.New("not a SegWit spend")
+	}
+
+	// If the PSBT already contains a final signature script for the input,
+	// it must be the one we expect. Otherwise, the signed transaction would
+	// have a different TXID.
+	if pIn.FinalScriptSig != nil &&
+		!bytes.Equal(pIn.FinalScriptSig, sigScript) {
+
+		return nil, errors.New("final signature script is not the " +
+			"expected one for the input type")
+	}
+
+	return sigScript, nil
+}
+
+// nestedSegWitSigScript returns the signature script of an input that spends
+// the given P2SH output with the given redeem script, which must be a witness
+// program. The signature script is exactly one push of the redeem script.
+func nestedSegWitSigScript(pkScript, redeemScript []byte) ([]byte, error) {
+	if len(redeemScript) == 0 {
+		return nil, errors.New("P2SH input has no redeem script " +
+			"(finalizing a PSBT may remove it)")
+	}
+
+	if !txscript.IsWitnessProgram(redeemScript) {
+		return nil, errors.New("P2SH input is not nested SegWit, its " +
+			"redeem script is not a witness program")
+	}
+
+	p2shScript, err := input.GenerateP2SH(redeemScript)
+	if err != nil {
+		return nil, err
+	}
+
+	if !bytes.Equal(p2shScript, pkScript) {
+		return nil, errors.New("redeem script does not match the " +
+			"P2SH script of the input")
+	}
+
+	return txscript.NewScriptBuilder().AddData(redeemScript).Script()
+}
+
+// prevOutPkScript returns the pkScript of the output that the given input
+// spends, as described by the UTXO fields of the PSBT input. A non-witness UTXO
+// must be the transaction the input spends from, so its hash is checked against
+// the outpoint of the input. If both UTXO fields are set, they must describe
+// the same output.
+func prevOutPkScript(txIn *wire.TxIn, pIn *psbt.PInput) ([]byte, error) {
+	var nonWitnessUtxo *wire.TxOut
+	if pIn.NonWitnessUtxo != nil {
+		prevOut := txIn.PreviousOutPoint
+		if pIn.NonWitnessUtxo.TxHash() != prevOut.Hash {
+			return nil, errors.New("non-witness UTXO is not the " +
+				"transaction the input spends from")
+		}
+
+		// We compare as uint64, because converting the index to int
+		// would make a large index negative on 32-bit platforms.
+		prevTxOuts := pIn.NonWitnessUtxo.TxOut
+		if uint64(prevOut.Index) >= uint64(len(prevTxOuts)) {
+			return nil, fmt.Errorf("non-witness UTXO has no "+
+				"output %d", prevOut.Index)
+		}
+
+		nonWitnessUtxo = prevTxOuts[prevOut.Index]
+	}
+
+	switch {
+	case pIn.WitnessUtxo != nil && nonWitnessUtxo != nil:
+		if !psbt.TxOutsEqual(pIn.WitnessUtxo, nonWitnessUtxo) {
+			return nil, errors.New("witness UTXO and non-witness " +
+				"UTXO differ")
+		}
+
+		return pIn.WitnessUtxo.PkScript, nil
+
+	case pIn.WitnessUtxo != nil:
+		return pIn.WitnessUtxo.PkScript, nil
+
+	case nonWitnessUtxo != nil:
+		return nonWitnessUtxo.PkScript, nil
+
+	default:
+		return nil, errors.New("no UTXO information")
+	}
 }

@@ -2672,13 +2672,24 @@ message FundingPsbtVerify {
     Can only be used if the no_publish flag was set to true in the OpenChannel
     call meaning that the caller is solely responsible for publishing the final
     funding transaction. If skip_finalize is set to true then lnd will not wait
-    for a FundingPsbtFinalize state step and instead assumes that a transaction
-    with the same TXID as the passed in PSBT will eventually confirm.
-    IT IS ABSOLUTELY IMPERATIVE that the TXID of the transaction that is
-    eventually published does have the _same TXID_ as the verified PSBT. That
-    means no inputs or outputs can change, only signatures can be added. If the
-    TXID changes between this call and the publish step then the channel will
-    never be created and the funds will be in limbo.
+    for a FundingPsbtFinalize state step and instead assumes that the signed
+    version of the passed in PSBT will eventually confirm.
+    lnd computes the TXID of that signed transaction from the PSBT. Signing a
+    native SegWit input only adds witness data, which does not change the
+    TXID. Signing a nested SegWit (P2SH) input also sets its scriptSig to a
+    push of the redeem script, which does change the TXID, so lnd adds that
+    scriptSig itself. Every nested SegWit input must therefore have its redeem
+    script in the PSBT. Inputs whose final scriptSig is not known before
+    signing are rejected. With nested SegWit inputs, the expected TXID differs
+    from the TXID of the unsigned transaction in the PSBT. The chan_pending
+    update of the OpenChannel call contains the expected TXID.
+    IT IS ABSOLUTELY IMPERATIVE that the transaction that is eventually
+    published has that _same TXID_. Signing may only add witness data and the
+    scriptSigs of nested SegWit inputs described above. The version, the lock
+    time, the inputs (their order, outpoints and sequences) and the outputs
+    must stay exactly as in the PSBT. If the TXID changes between this call
+    and the publish step then the channel will never be created and the funds
+    will be in limbo.
     */
     bool skip_finalize = 3;
 }

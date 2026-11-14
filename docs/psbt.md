@@ -12,6 +12,16 @@ To avoid possible malleability, all inputs to a funding transaction must be segw
 spends, meaning that P2PKH and normal P2SH cannot be used. An error will be
 returned if any inputs are not segwit spends.
 
+With the `skip_finalize` flag of the PSBT verify step (see the
+[example script](#example-nodejs-script)), `lnd` never sees the signed funding
+transaction. It then computes the TXID that the signed transaction will have.
+Signing a native segwit input (P2WPKH, P2WSH, P2TR) only adds witness data,
+which does not change the TXID. Signing a nested segwit input (P2SH-P2WPKH,
+P2SH-P2WSH) also sets its scriptSig to a push of its redeem script, which does
+change the TXID, so `lnd` adds that scriptSig itself. The PSBT must therefore
+contain the redeem script of every nested segwit input. Inputs whose final
+scriptSig can't be known before signing are rejected.
+
 ## Creating/funding a PSBT
 
 The first step for every transaction that is constructed using a PSBT flow is to
@@ -899,7 +909,7 @@ function maybePublishPSBT() {
     console.log(`
 PSBT verification successful!
 You can now sign and publish the transaction.
-Make sure the TXID does not change!
+Make sure its TXID matches the expected TXID shown once the channels are pending!
 `);
 }
 ```

@@ -67,7 +67,8 @@ func TestNodeAnnSignatureWithLegacyV2OnionAddr(t *testing.T) {
 	require.Len(t, decoded.Addresses, 3)
 	require.NoError(t, netann.ValidateNodeAnnSignature(&decoded))
 
-	node := models.NodeFromWireAnnouncement(&decoded)
+	node, err := models.NodeFromWireAnnouncement(&decoded)
+	require.NoError(t, err)
 	require.Len(t, node.Addresses, 3)
 
 	var sawV2, sawV3, sawTCP bool

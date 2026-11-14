@@ -2,7 +2,9 @@ package itest
 
 import (
 	"github.com/btcsuite/btcd/btcutil/v2"
+	"github.com/btcsuite/btcd/txscript/v2"
 	"github.com/btcsuite/btcd/wire/v2"
+	"github.com/lightningnetwork/lnd/lnrpc"
 	"github.com/lightningnetwork/lnd/lntest"
 	"github.com/lightningnetwork/lnd/lntest/node"
 	"github.com/lightningnetwork/lnd/lnwallet"
@@ -55,6 +57,10 @@ var walletTestCases = []*lntest.TestCase{
 		TestFunc: func(ht *lntest.HarnessTest) {
 			runTestListUnspentRestart(ht, ht.FundCoinsP2TR)
 		},
+	},
+	{
+		Name:     "internal address type p2wkh",
+		TestFunc: testInternalAddressTypeP2WKH,
 	},
 }
 
@@ -125,4 +131,81 @@ func runTestListUnspentRestart(ht *lntest.HarnessTest, fundCoins fundMethod) {
 
 	// Alice should have no UTXO.
 	ht.AssertNumUTXOs(alice, 0)
+}
+
+// testInternalAddressTypeP2WKH checks that a node started with
+// --internal-address-type=p2wkh never pays itself to a P2TR output: not in the
+// change of SendCoins, not in the change of a channel funding transaction, not
+// in a cooperative close and not in the sweep after a force close.
+func testInternalAddressTypeP2WKH(ht *lntest.HarnessTest) {
+	alice := ht.NewNodeWithCoins(
+		"Alice", []string{"--internal-address-type=p2wkh"},
+	)
+	bob := ht.NewNode("Bob", nil)
+	ht.EnsureConnected(alice, bob)
+
+	// Send coins to a P2WKH address of Bob, so every output of the
+	// transaction is P2WKH unless the change is P2TR.
+	addr := bob.RPC.NewAddress(&lnrpc.NewAddressRequest{
+		Type: lnrpc.AddressType_WITNESS_PUBKEY_HASH,
+	})
+	alice.RPC.SendCoins(&lnrpc.SendCoinsRequest{
+		Addr:       addr.Address,
+		Amount:     100_000,
+		TargetConf: 6,
+	})
+	block := ht.MineBlocksAndAssertNumTxes(1, 1)[0]
+	assertNoP2TROutputs(ht, block.Transactions[1])
+
+	// Open a channel funded by Alice's wallet and check its change.
+	chanAmt := btcutil.Amount(500_000)
+	cp := ht.OpenChannel(alice, bob, lntest.OpenChannelParams{
+		Amt: chanAmt,
+	})
+	fundingTxid := ht.GetChanPointFundingTxid(cp)
+	assertNoP2TROutputs(
+		ht, ht.Miner().GetRawTransaction(fundingTxid).MsgTx(),
+	)
+
+	// Both nodes signal option_shutdown_anysegwit, so without the option
+	// Alice would use a P2TR delivery address. Bob has no balance in the
+	// channel, so all outputs of the closing transaction are Alice's.
+	closingTxid := ht.CloseChannel(alice, cp)
+	assertNoP2TROutputs(
+		ht, ht.Miner().GetRawTransaction(closingTxid).MsgTx(),
+	)
+
+	// Finally, force close a channel and check the sweep of Alice's
+	// to_local output.
+	cp = ht.OpenChannel(alice, bob, lntest.OpenChannelParams{
+		Amt: chanAmt,
+	})
+	stream, _ := ht.CloseChannelAssertPending(alice, cp, true)
+	ht.AssertStreamChannelForceClosed(alice, cp, false, stream)
+	ht.AssertNumPendingForceClose(alice, 1)
+
+	// The sweeper broadcasts the sweep at DefaultCSV-1.
+	ht.MineEmptyBlocks(node.DefaultCSV - 1)
+	ht.AssertNumPendingSweeps(alice, 1)
+
+	sweepTx := ht.GetNumTxsFromMempool(1)[0]
+	assertNoP2TROutputs(ht, sweepTx)
+	ht.MineBlocksAndAssertNumTxes(1, 1)
+}
+
+// assertNoP2TROutputs asserts that the given transaction has no P2TR outputs
+// and at least one P2WKH output.
+func assertNoP2TROutputs(ht *lntest.HarnessTest, tx *wire.MsgTx) {
+	var numP2WKH int
+	for _, txOut := range tx.TxOut {
+		require.Falsef(ht, txscript.IsPayToTaproot(txOut.PkScript),
+			"tx %v has a P2TR output", tx.TxHash())
+
+		if txscript.IsPayToWitnessPubKeyHash(txOut.PkScript) {
+			numP2WKH++
+		}
+	}
+
+	require.Positivef(ht, numP2WKH, "tx %v has no P2WKH output",
+		tx.TxHash())
 }

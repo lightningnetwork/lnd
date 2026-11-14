@@ -7511,6 +7511,148 @@ func (r *rpcServer) FeeReport(ctx context.Context,
 // 0.000001, or 0.0001%.
 const minFeeRate = 1e-6
 
+// channelPolicyFromRequest validates a PolicyUpdateRequest and converts it
+// into the channel policy that is applied to the target channels.
+func channelPolicyFromRequest(req *lnrpc.PolicyUpdateRequest,
+	maxOutgoingCltvExpiry uint32,
+	acceptPositiveInboundFees bool) (routing.ChannelPolicy, error) {
+
+	// In a partial update, a field the caller didn't mark is left
+	// unchanged. Reject non-zero values for such fields, as they would
+	// otherwise be silently ignored.
+	partial := req.PartialUpdate
+	keepBaseFee := partial != nil && !partial.BaseFeeMsat
+	keepFeeRate := partial != nil && !partial.FeeRate
+	keepTimeLockDelta := partial != nil && !partial.TimeLockDelta
+
+	if keepBaseFee && req.BaseFeeMsat != 0 {
+		return routing.ChannelPolicy{}, status.Errorf(
+			codes.InvalidArgument, "base_fee_msat set but not "+
+				"marked in partial_update",
+		)
+	}
+	if keepFeeRate && (req.FeeRate != 0 || req.FeeRatePpm != 0) {
+		return routing.ChannelPolicy{}, status.Errorf(
+			codes.InvalidArgument, "fee_rate or fee_rate_ppm set "+
+				"but not marked in partial_update",
+		)
+	}
+	if keepTimeLockDelta && req.TimeLockDelta != 0 {
+		return routing.ChannelPolicy{}, status.Errorf(
+			codes.InvalidArgument, "time_lock_delta set but not "+
+				"marked in partial_update",
+		)
+	}
+
+	var feeRateFixed uint32
+
+	switch {
+	// The request should use either the fee rate in percent, or the new
+	// ppm rate, but not both.
+	case req.FeeRate != 0 && req.FeeRatePpm != 0:
+		errMsg := "cannot set both FeeRate and FeeRatePpm at the " +
+			"same time"
+
+		return routing.ChannelPolicy{}, status.Errorf(
+			codes.InvalidArgument, "%v", errMsg,
+		)
+
+	// If the request is using fee_rate.
+	case req.FeeRate != 0:
+		// As a sanity check, if the fee isn't zero, we'll ensure that
+		// the passed fee rate is below 1e-6, or the lowest allowed
+		// non-zero fee rate expressible within the protocol.
+		if req.FeeRate != 0 && req.FeeRate < minFeeRate {
+			return routing.ChannelPolicy{}, fmt.Errorf("fee rate "+
+				"of %v is too small, min fee rate is %v",
+				req.FeeRate, minFeeRate)
+		}
+
+		// We'll also need to convert the floating point fee rate we
+		// accept over RPC to the fixed point rate that we use within
+		// the protocol. We do this by multiplying the passed fee rate
+		// by the fee base. This gives us the fixed point, scaled by 1
+		// million that's used within the protocol.
+		//
+		// Because of the inaccurate precision of the IEEE 754
+		// standard, we need to round the product of feerate and
+		// feebase.
+		feeRateFixed = uint32(math.Round(req.FeeRate * feeBase))
+
+	// Otherwise, we use the fee_rate_ppm parameter.
+	case req.FeeRatePpm != 0:
+		feeRateFixed = req.FeeRatePpm
+	}
+
+	// We'll also ensure that the user isn't setting a CLTV delta that
+	// won't give outgoing HTLCs enough time to fully resolve if needed.
+	if !keepTimeLockDelta {
+		err := validateChannelPolicyTimeLockDelta(
+			req.TimeLockDelta, maxOutgoingCltvExpiry,
+		)
+		if err != nil {
+			return routing.ChannelPolicy{}, err
+		}
+	}
+
+	// By default, positive inbound fees are rejected.
+	if !acceptPositiveInboundFees && req.InboundFee != nil {
+		if req.InboundFee.BaseFeeMsat > 0 {
+			return routing.ChannelPolicy{}, fmt.Errorf("positive "+
+				"values for inbound base fee msat are not "+
+				"supported: %v", req.InboundFee.BaseFeeMsat)
+		}
+		if req.InboundFee.FeeRatePpm > 0 {
+			return routing.ChannelPolicy{}, fmt.Errorf("positive "+
+				"values for inbound fee rate ppm are not "+
+				"supported: %v", req.InboundFee.FeeRatePpm)
+		}
+	}
+
+	// If no inbound fees have been specified, we indicate with an empty
+	// option that the previous inbound fee should be retained during the
+	// edge update.
+	inboundFee := fn.None[models.InboundFee]()
+	if req.InboundFee != nil {
+		inboundFee = fn.Some(models.InboundFee{
+			Base: req.InboundFee.BaseFeeMsat,
+			Rate: req.InboundFee.FeeRatePpm,
+		})
+	}
+
+	// An empty option keeps the current value of the field.
+	feeSchema := routing.FeeSchema{
+		InboundFee: inboundFee,
+	}
+	if !keepBaseFee {
+		feeSchema.BaseFee = fn.Some(
+			lnwire.MilliSatoshi(req.BaseFeeMsat),
+		)
+	}
+	if !keepFeeRate {
+		feeSchema.FeeRate = fn.Some(feeRateFixed)
+	}
+
+	timeLockDelta := fn.None[uint32]()
+	if !keepTimeLockDelta {
+		timeLockDelta = fn.Some(req.TimeLockDelta)
+	}
+
+	maxHtlc := lnwire.MilliSatoshi(req.MaxHtlcMsat)
+	var minHtlc *lnwire.MilliSatoshi
+	if req.MinHtlcMsatSpecified {
+		min := lnwire.MilliSatoshi(req.MinHtlcMsat)
+		minHtlc = &min
+	}
+
+	return routing.ChannelPolicy{
+		FeeSchema:     feeSchema,
+		TimeLockDelta: timeLockDelta,
+		MaxHTLC:       maxHtlc,
+		MinHTLC:       minHtlc,
+	}, nil
+}
+
 // UpdateChannelPolicy allows the caller to update the channel forwarding policy
 // for all channels globally, or a particular channel.
 func (r *rpcServer) UpdateChannelPolicy(ctx context.Context,
@@ -7537,96 +7679,12 @@ func (r *rpcServer) UpdateChannelPolicy(ctx context.Context,
 		return nil, fmt.Errorf("unknown scope: %v", scope)
 	}
 
-	var feeRateFixed uint32
-
-	switch {
-	// The request should use either the fee rate in percent, or the new
-	// ppm rate, but not both.
-	case req.FeeRate != 0 && req.FeeRatePpm != 0:
-		errMsg := "cannot set both FeeRate and FeeRatePpm at the " +
-			"same time"
-
-		return nil, status.Errorf(codes.InvalidArgument, "%v", errMsg)
-
-	// If the request is using fee_rate.
-	case req.FeeRate != 0:
-		// As a sanity check, if the fee isn't zero, we'll ensure that
-		// the passed fee rate is below 1e-6, or the lowest allowed
-		// non-zero fee rate expressible within the protocol.
-		if req.FeeRate != 0 && req.FeeRate < minFeeRate {
-			return nil, fmt.Errorf("fee rate of %v is too "+
-				"small, min fee rate is %v", req.FeeRate,
-				minFeeRate)
-		}
-
-		// We'll also need to convert the floating point fee rate we
-		// accept over RPC to the fixed point rate that we use within
-		// the protocol. We do this by multiplying the passed fee rate
-		// by the fee base. This gives us the fixed point, scaled by 1
-		// million that's used within the protocol.
-		//
-		// Because of the inaccurate precision of the IEEE 754
-		// standard, we need to round the product of feerate and
-		// feebase.
-		feeRateFixed = uint32(math.Round(req.FeeRate * feeBase))
-
-	// Otherwise, we use the fee_rate_ppm parameter.
-	case req.FeeRatePpm != 0:
-		feeRateFixed = req.FeeRatePpm
-	}
-
-	// We'll also ensure that the user isn't setting a CLTV delta that
-	// won't give outgoing HTLCs enough time to fully resolve if needed.
-	if err := validateChannelPolicyTimeLockDelta(
-		req.TimeLockDelta, r.cfg.MaxOutgoingCltvExpiry,
-	); err != nil {
+	chanPolicy, err := channelPolicyFromRequest(
+		req, r.cfg.MaxOutgoingCltvExpiry,
+		r.cfg.AcceptPositiveInboundFees,
+	)
+	if err != nil {
 		return nil, err
-	}
-
-	// By default, positive inbound fees are rejected.
-	if !r.cfg.AcceptPositiveInboundFees && req.InboundFee != nil {
-		if req.InboundFee.BaseFeeMsat > 0 {
-			return nil, fmt.Errorf("positive values for inbound "+
-				"base fee msat are not supported: %v",
-				req.InboundFee.BaseFeeMsat)
-		}
-		if req.InboundFee.FeeRatePpm > 0 {
-			return nil, fmt.Errorf("positive values for inbound "+
-				"fee rate ppm are not supported: %v",
-				req.InboundFee.FeeRatePpm)
-		}
-	}
-
-	// If no inbound fees have been specified, we indicate with an empty
-	// option that the previous inbound fee should be retained during the
-	// edge update.
-	inboundFee := fn.None[models.InboundFee]()
-	if req.InboundFee != nil {
-		inboundFee = fn.Some(models.InboundFee{
-			Base: req.InboundFee.BaseFeeMsat,
-			Rate: req.InboundFee.FeeRatePpm,
-		})
-	}
-
-	baseFeeMsat := lnwire.MilliSatoshi(req.BaseFeeMsat)
-	feeSchema := routing.FeeSchema{
-		BaseFee:    baseFeeMsat,
-		FeeRate:    feeRateFixed,
-		InboundFee: inboundFee,
-	}
-
-	maxHtlc := lnwire.MilliSatoshi(req.MaxHtlcMsat)
-	var minHtlc *lnwire.MilliSatoshi
-	if req.MinHtlcMsatSpecified {
-		min := lnwire.MilliSatoshi(req.MinHtlcMsat)
-		minHtlc = &min
-	}
-
-	chanPolicy := routing.ChannelPolicy{
-		FeeSchema:     feeSchema,
-		TimeLockDelta: req.TimeLockDelta,
-		MaxHTLC:       maxHtlc,
-		MinHTLC:       minHtlc,
 	}
 
 	rpcsLog.Debugf("[updatechanpolicy] updating channel policy, "+

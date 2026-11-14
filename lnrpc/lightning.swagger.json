@@ -6770,6 +6770,23 @@
       ],
       "default": "SCRIPT_TYPE_PUBKEY_HASH"
     },
+    "lnrpcPartialPolicyUpdate": {
+      "type": "object",
+      "properties": {
+        "base_fee_msat": {
+          "type": "boolean",
+          "description": "If true, base_fee_msat is applied."
+        },
+        "fee_rate": {
+          "type": "boolean",
+          "description": "If true, fee_rate or fee_rate_ppm is applied. If both are zero, the fee\nrate is set to zero."
+        },
+        "time_lock_delta": {
+          "type": "boolean",
+          "description": "If true, time_lock_delta is applied."
+        }
+      }
+    },
     "lnrpcPayReq": {
       "type": "object",
       "properties": {
@@ -7182,6 +7199,10 @@
         "create_missing_edge": {
           "type": "boolean",
           "description": "Under unknown circumstances a channel can exist with a missing edge in\nthe graph database. This can cause an 'edge not found' error when calling\n`getchaninfo` and/or cause the default channel policy to be used during\nforwards. Setting this flag will recreate the edge if not found, allowing\nupdating this channel policy and fixing the missing edge problem for this\nchannel permanently. For fields not set in this command, the default\npolicy will be created."
+        },
+        "partial_update": {
+          "$ref": "#/definitions/lnrpcPartialPolicyUpdate",
+          "description": "If set, base_fee_msat, fee_rate/fee_rate_ppm and time_lock_delta are only\napplied if marked in this message. An unmarked field keeps its current\nvalue and must be left at zero. inbound_fee and the HTLC limits are not\naffected. With create_missing_edge, a recreated edge has no current\nvalue, so an unmarked field takes the default policy. If unset, the\nthree fields are always applied, with unset values treated as zero."
         }
       }
     },

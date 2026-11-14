@@ -4785,6 +4785,18 @@ message InboundFee {
     int32 fee_rate_ppm = 2;
 }
 
+message PartialPolicyUpdate {
+    // If true, base_fee_msat is applied.
+    bool base_fee_msat = 1;
+
+    // If true, fee_rate or fee_rate_ppm is applied. If both are zero, the fee
+    // rate is set to zero.
+    bool fee_rate = 2;
+
+    // If true, time_lock_delta is applied.
+    bool time_lock_delta = 3;
+}
+
 message PolicyUpdateRequest {
     oneof scope {
         // If set, then this update applies to all currently active channels.
@@ -4830,6 +4842,14 @@ message PolicyUpdateRequest {
     // channel permanently. For fields not set in this command, the default
     // policy will be created.
     bool create_missing_edge = 11;
+
+    // If set, base_fee_msat, fee_rate/fee_rate_ppm and time_lock_delta are only
+    // applied if marked in this message. An unmarked field keeps its current
+    // value and must be left at zero. inbound_fee and the HTLC limits are not
+    // affected. With create_missing_edge, a recreated edge has no current
+    // value, so an unmarked field takes the default policy. If unset, the
+    // three fields are always applied, with unset values treated as zero.
+    PartialPolicyUpdate partial_update = 12;
 }
 
 enum UpdateFailure {

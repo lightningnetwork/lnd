@@ -175,6 +175,10 @@ var allTestCases = []*lntest.TestCase{
 		TestFunc: testUpdateChannelPolicyFeeRateAccuracy,
 	},
 	{
+		Name:     "update channel policy partial",
+		TestFunc: testUpdateChannelPolicyPartial,
+	},
+	{
 		Name:     "unannounced channels",
 		TestFunc: testUnannouncedChannels,
 	},

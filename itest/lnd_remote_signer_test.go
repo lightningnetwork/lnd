@@ -117,6 +117,10 @@ var remoteSignerTestCases = []*lntest.TestCase{
 		TestFunc: testRemoteSignerSignOutputRaw,
 	},
 	{
+		Name:     "derive and store key",
+		TestFunc: testRemoteSignerDeriveAndStoreKey,
+	},
+	{
 		Name:     "sign output raw outbound",
 		TestFunc: testRemoteSignerSignOutputRawOutbound,
 	},
@@ -658,6 +662,21 @@ func testRemoteSignerSignOutputRaw(ht *lntest.HarnessTest) {
 
 func testRemoteSignerSignOutputRawOutbound(ht *lntest.HarnessTest) {
 	executeRemoteSignerTestCase(ht, signOutputRawTestCase(true))
+}
+
+func deriveAndStoreKeyTestCase(isOutbound bool) remoteSignerTestCase {
+	return remoteSignerTestCase{
+		sendCoins:  true,
+		isOutbound: isOutbound,
+		fn: func(tt *lntest.HarnessTest, wo, carol *node.HarnessNode) {
+			runDeriveAndStoreKey(tt, wo)
+			runDeriveAndStoreKeySigning(tt, wo)
+		},
+	}
+}
+
+func testRemoteSignerDeriveAndStoreKey(ht *lntest.HarnessTest) {
+	executeRemoteSignerTestCase(ht, deriveAndStoreKeyTestCase(false))
 }
 
 func signVerifyMsgTestCase(isOutbound bool) remoteSignerTestCase {

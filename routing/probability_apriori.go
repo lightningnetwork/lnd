@@ -236,6 +236,13 @@ func (p *AprioriEstimator) getNodeProbability(now time.Time,
 			totalWeight++
 			probabilitiesTotal += p.prevSuccessProbability
 
+		// A half-penalty failure expresses a soft, pair-specific
+		// "second chance" penalty. It isn't meant to penalize sibling
+		// channels of the same node, so we leave the node-level
+		// weighting untouched and only apply the penalty in the
+		// pair-specific calculation below.
+		case result.HalfPenalty:
+
 		// Weigh failures in accordance with their age. The base
 		// probability of a failure is considered zero, so nothing needs
 		// to be added to probabilitiesTotal.
@@ -371,6 +378,15 @@ func (p *AprioriEstimator) calculateProbability(
 	// probability 0. Over time the probability recovers to the node
 	// probability. It would be as if this channel was never tried before.
 	weight := p.getWeight(timeSinceLastFailure)
+
+	// A half-penalty failure represents a softer "second chance" penalty,
+	// so we halve its weight contribution. A fresh half-penalty therefore
+	// halves the node probability instead of zeroing it out, and the
+	// recovery follows the same exponential decay.
+	if lastPairResult.HalfPenalty {
+		weight *= 0.5
+	}
+
 	probability := nodeProbability * (1 - weight)
 
 	return probability

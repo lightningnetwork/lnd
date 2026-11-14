@@ -67,6 +67,7 @@ func (r *RbfMsgMapper) MapMsg(wireMsg msgmux.PeerMsg) fn.Option[ProtocolEvent] {
 		return someEvent(&ShutdownReceived{
 			BlockHeight:         r.bestHeight(),
 			ShutdownScript:      msg.Address,
+			CustomRecords:       msg.CustomRecords,
 			RemoteShutdownNonce: remoteShutdownNonce,
 		})
 

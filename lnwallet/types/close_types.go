@@ -76,4 +76,13 @@ type AuxCloseDesc struct {
 	// to. This will be None if the remote party will not have an output on
 	// the co-op close transaction.
 	RemoteCloseOutput fn.Option[CloseOutput]
+
+	// FeeIndependent is true if the aux outputs are requested once for a
+	// whole close negotiation and reused for every close transaction of
+	// it, whatever fee that transaction pays. That's the case with the
+	// RBF close flow, where the fee changes from one close transaction to
+	// the next. The aux closer then derives its outputs and their order
+	// without regard to the close fee or the amounts of the close
+	// outputs, and CloseFee is zero.
+	FeeIndependent bool
 }

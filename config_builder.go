@@ -512,6 +512,7 @@ func (d *DefaultWalletImpl) BuildWalletConfig(ctx context.Context,
 			rootKeyStore, "lnd", walletInitParams.StatelessInit,
 			macaroons.IPLockChecker, macaroons.IPRangeLockChecker,
 			macaroons.CustomChecker(interceptorChain),
+			macaroons.ProtectorChecker(interceptorChain),
 		)
 		if err != nil {
 			err := fmt.Errorf("unable to set up macaroon "+

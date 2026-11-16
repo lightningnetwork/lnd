@@ -656,6 +656,7 @@ func (db *DB) GetBackends(ctx context.Context, chanDBPath,
 		NoFreelistSync:    db.Bolt.NoFreelistSync,
 		AutoCompact:       db.Bolt.AutoCompact,
 		AutoCompactMinAge: db.Bolt.AutoCompactMinAge,
+		MmapPopulate:      db.Bolt.MmapPopulate,
 	})
 	if err != nil {
 		return nil, fmt.Errorf("error opening bolt DB: %w", err)
@@ -669,6 +670,7 @@ func (db *DB) GetBackends(ctx context.Context, chanDBPath,
 		NoFreelistSync:    db.Bolt.NoFreelistSync,
 		AutoCompact:       db.Bolt.AutoCompact,
 		AutoCompactMinAge: db.Bolt.AutoCompactMinAge,
+		MmapPopulate:      db.Bolt.MmapPopulate,
 	})
 	if err != nil {
 		return nil, fmt.Errorf("error opening macaroon DB: %w", err)
@@ -682,6 +684,7 @@ func (db *DB) GetBackends(ctx context.Context, chanDBPath,
 		NoFreelistSync:    db.Bolt.NoFreelistSync,
 		AutoCompact:       db.Bolt.AutoCompact,
 		AutoCompactMinAge: db.Bolt.AutoCompactMinAge,
+		MmapPopulate:      db.Bolt.MmapPopulate,
 	})
 	if err != nil {
 		return nil, fmt.Errorf("error opening decayed log DB: %w", err)
@@ -700,6 +703,7 @@ func (db *DB) GetBackends(ctx context.Context, chanDBPath,
 				NoFreelistSync:    db.Bolt.NoFreelistSync,
 				AutoCompact:       db.Bolt.AutoCompact,
 				AutoCompactMinAge: db.Bolt.AutoCompactMinAge,
+				MmapPopulate:      db.Bolt.MmapPopulate,
 			},
 		)
 		if err != nil {
@@ -721,6 +725,7 @@ func (db *DB) GetBackends(ctx context.Context, chanDBPath,
 				NoFreelistSync:    db.Bolt.NoFreelistSync,
 				AutoCompact:       db.Bolt.AutoCompact,
 				AutoCompactMinAge: db.Bolt.AutoCompactMinAge,
+				MmapPopulate:      db.Bolt.MmapPopulate,
 			},
 		)
 		if err != nil {

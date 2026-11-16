@@ -1065,8 +1065,9 @@ func (d *DefaultDatabaseBuilder) BuildDatabase(
 	cfg := d.cfg
 	if cfg.DB.Backend == lncfg.BoltBackend {
 		d.logger.Infof("Opening bbolt database, sync_freelist=%v, "+
-			"auto_compact=%v", !cfg.DB.Bolt.NoFreelistSync,
-			cfg.DB.Bolt.AutoCompact)
+			"auto_compact=%v, mmap_populate=%v",
+			!cfg.DB.Bolt.NoFreelistSync, cfg.DB.Bolt.AutoCompact,
+			cfg.DB.Bolt.MmapPopulate)
 	}
 
 	startOpenTime := time.Now()

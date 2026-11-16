@@ -20,14 +20,16 @@ Two entry points:
 - **Create a new backport.** Same rebuild, then push it to the fork and open the
   PR yourself (see step 7).
 
-The scripts live next to this file in `.claude/skills/lnd-backport/scripts/`.
-Set `$S` from a checkout of `master`, before you create any worktree, because
-release branches don't contain the skill. `$SP` is any scratch directory
-outside the repo.
+The `git`/`gh` helper scripts live next to this file in
+`.claude/skills/lnd-backport/scripts/`. The import-conflict resolver is a Go
+tool in `scripts/resolve-v2-imports`. Release branches contain neither, so set
+`$S` and build the tool from a checkout of `master` before you create any
+worktree. `$SP` is any scratch directory outside the repo.
 
 ```bash
 S=$(git rev-parse --show-toplevel)/.claude/skills/lnd-backport/scripts
 SP=$(mktemp -d)
+go build -o $SP/resolve-v2-imports ./scripts/resolve-v2-imports
 ```
 
 ## 1. Gather the facts
@@ -92,7 +94,7 @@ conflict hunk can carry lines from earlier master-only PRs. Recurring cases:
 
 | Conflict shape | Resolution |
 |---|---|
-| Import block, master uses `btcutil/v2`, `chainhash/v2` or `wire/v2` | Keep the branch's v1 imports. Add only the new non-v2 imports the parent adds. Use `$S/resolve_v2_imports.py <files>` then `gofmt -w`. |
+| Import block, master uses `btcutil/v2`, `chainhash/v2` or `wire/v2` | Keep the branch's v1 imports. Add only the new non-v2 imports the parent adds. Run `$SP/resolve-v2-imports <files>`. It gofmts the result and refuses any conflict that contains code. |
 | Branch-only context such as `tc := tc` or `outpoint := outpoint`, and the incoming side is empty | Keep the branch side. Don't import master's cleanups. |
 | The parent rewrites a whole block that contains branch-only lines | Take the parent's block. The branch-only lines go away with it. Note this in the table. |
 | The incoming hunk includes fields, functions or tests that the parent doesn't add | Take only what the parent adds. Find where the extra code came from with `git log -S'<symbol>' origin/master -- <file>`, and name that commit in the table. |

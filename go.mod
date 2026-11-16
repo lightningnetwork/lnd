@@ -229,3 +229,6 @@ replace github.com/lightningnetwork/lnd/kvdb => ./kvdb
 replace github.com/lightningnetwork/lnd/queue => ./queue
 
 replace github.com/lightningnetwork/lnd/ticker => ./ticker
+
+// TODO: remove once btcsuite/btcwallet#1518 is merged and tagged.
+replace github.com/btcsuite/btcwallet/walletdb => github.com/djkazic/btcwallet/walletdb v1.7.1-0.20261116215800-aaf6918d545f

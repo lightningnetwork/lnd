@@ -804,7 +804,7 @@ jobs:
     # Only runs in the nightly tier.
     needs: ci-gate
     if: ${{ !cancelled() && needs.ci-gate.outputs.tier == 'nightly' }}
-    runs-on: macos-14
+    runs-on: macos-26
     steps:
       - name: Git checkout
         uses: actions/checkout@v5

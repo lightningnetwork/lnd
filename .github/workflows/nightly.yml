@@ -50,6 +50,9 @@ jobs:
           RESULT: ${{ needs.ci.result }}
           RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
           LABEL: nightly-failure
+          # Optional repository variable containing a user or team mention,
+          # for example @lightningnetwork/code-review.
+          MENTION: ${{ vars.NIGHTLY_CI_MENTION }}
         run: |
           issue=$(gh issue list --label "$LABEL" --state open --limit 1 \
             --json number --jq '.[0].number // empty')
@@ -62,14 +65,25 @@ jobs:
             exit 0
           fi
 
-          failed=$(gh api --paginate \
+          unsuccessful=$(gh api --paginate \
             "repos/${GH_REPO}/actions/runs/${GITHUB_RUN_ID}/jobs?per_page=100" \
             --jq '.jobs[] | select(.conclusion == "failure" or
-              .conclusion == "timed_out") | "- [\(.name)](\(.html_url))"') ||
-            failed="(failed to list the jobs)"
-          body=$(printf '%s\n\n%s\n\n%s\n' \
-            "The [nightly run](${RUN_URL}) on ${GITHUB_SHA:0:12} finished with result \`${RESULT}\`." \
-            "Failed jobs:" "${failed:-(none reported)}")
+              .conclusion == "timed_out" or
+              .conclusion == "cancelled" or
+              .conclusion == "action_required" or
+              .conclusion == "stale") |
+              "- [\(.name)](\(.html_url)) (`\(.conclusion)`)"') ||
+            unsuccessful="(failed to list the jobs)"
+
+          if [[ -n "$MENTION" ]]; then
+            body=$(printf '%s\n\n%s\n\n%s\n\n%s\n' "$MENTION" \
+              "The [nightly run](${RUN_URL}) on ${GITHUB_SHA:0:12} finished with result \`${RESULT}\`." \
+              "Unsuccessful jobs:" "${unsuccessful:-(none reported)}")
+          else
+            body=$(printf '%s\n\n%s\n\n%s\n' \
+              "The [nightly run](${RUN_URL}) on ${GITHUB_SHA:0:12} finished with result \`${RESULT}\`." \
+              "Unsuccessful jobs:" "${unsuccessful:-(none reported)}")
+          fi
 
           if [[ -n "$issue" ]]; then
             gh issue comment "$issue" --body "$body"

@@ -1,0 +1,95 @@
+name: Nightly watchdog
+
+# This workflow is independent of nightly.yml so it can report when the
+# Nightly workflow itself, including its reporting job, doesn't run or finish.
+on:
+  schedule:
+    # Seven hours after the Nightly workflow starts.
+    - cron: "0 10 * * *"
+  workflow_dispatch:
+
+permissions: {}
+
+jobs:
+  watchdog:
+    name: Check Nightly monitoring
+    if: github.repository == 'lightningnetwork/lnd'
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    permissions:
+      actions: read
+      issues: write
+    steps:
+      - name: Check latest scheduled Nightly run
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+          LABEL: nightly-monitor-failure
+          # Optional repository variable containing a user or team mention,
+          # for example @lightningnetwork/code-review.
+          MENTION: ${{ vars.NIGHTLY_CI_MENTION }}
+        run: |
+          issue=$(gh issue list --label "$LABEL" --state open --limit 1 \
+            --json number --jq '.[0].number // empty')
+
+          run=$(gh api \
+            "repos/${GH_REPO}/actions/workflows/nightly.yml/runs?event=schedule&per_page=1" \
+            --jq '.workflow_runs[0] // empty')
+
+          problem=""
+          run_url="${GITHUB_SERVER_URL}/${GH_REPO}/actions/workflows/nightly.yml"
+          if [[ -z "$run" ]]; then
+            problem="No scheduled Nightly workflow run was found."
+          else
+            run_id=$(jq -r '.id' <<< "$run")
+            run_url=$(jq -r '.html_url' <<< "$run")
+            created_at=$(jq -r '.created_at' <<< "$run")
+            status=$(jq -r '.status' <<< "$run")
+            created_epoch=$(date -d "$created_at" +%s)
+            age_seconds=$(( $(date +%s) - created_epoch ))
+
+            if (( age_seconds > 108000 )); then
+              problem="The latest scheduled Nightly run is more than 30 hours old."
+            elif [[ "$status" != "completed" ]]; then
+              if (( age_seconds > 21600 )); then
+                problem="The latest scheduled Nightly run has not completed after six hours."
+              else
+                # A recent run is still making normal progress.
+                exit 0
+              fi
+            else
+              report_result=$(gh api --paginate \
+                "repos/${GH_REPO}/actions/runs/${run_id}/jobs?per_page=100" \
+                --jq '.jobs[] | select(.name == "Report nightly result") |
+                  .conclusion' | tail -n 1)
+
+              if [[ "$report_result" != "success" ]]; then
+                problem="The latest scheduled Nightly run did not complete its reporting job successfully (result: ${report_result:-missing})."
+              fi
+            fi
+          fi
+
+          if [[ -z "$problem" ]]; then
+            if [[ -n "$issue" ]]; then
+              gh issue close "$issue" --comment \
+                "Nightly monitoring recovered; the latest reporting job completed successfully."
+            fi
+            exit 0
+          fi
+
+          if [[ -n "$MENTION" ]]; then
+            body=$(printf '%s\n\n%s\n\nLatest run: %s\n' "$MENTION" \
+              "$problem" "$run_url")
+          else
+            body=$(printf '%s\n\nLatest run: %s\n' "$problem" \
+              "$run_url")
+          fi
+
+          if [[ -n "$issue" ]]; then
+            gh issue comment "$issue" --body "$body"
+          else
+            gh label create "$LABEL" --color b60205 --force \
+              --description "Tracks failures in Nightly CI monitoring"
+            gh issue create --title "Nightly CI monitoring failure" \
+              --label "$LABEL" --body "$body"
+          fi

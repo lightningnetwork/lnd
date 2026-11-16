@@ -2901,39 +2901,9 @@ func (s *server) Start(ctx context.Context) error {
 
 		// If peers are specified as a config option, we'll add those
 		// peers first.
-		for _, peerAddrCfg := range s.cfg.AddPeers {
-			parsedPubkey, parsedHost, err := lncfg.ParseLNAddressPubkey(
-				peerAddrCfg,
-			)
-			if err != nil {
-				startErr = fmt.Errorf("unable to parse peer "+
-					"pubkey from config: %v", err)
-				return
-			}
-			addr, err := parseAddr(parsedHost, s.cfg.net)
-			if err != nil {
-				startErr = fmt.Errorf("unable to parse peer "+
-					"address provided as a config option: "+
-					"%v", err)
-				return
-			}
-
-			peerAddr := &lnwire.NetAddress{
-				IdentityKey: parsedPubkey,
-				Address:     addr,
-				ChainNet:    s.cfg.ActiveNetParams.Net,
-			}
-
-			err = s.ConnectToPeer(
-				peerAddr, true,
-				s.cfg.ConnectionTimeout,
-			)
-			if err != nil {
-				startErr = fmt.Errorf("unable to connect to "+
-					"peer address provided as a config "+
-					"option: %v", err)
-				return
-			}
+		if err := s.connectToConfigPeers(); err != nil {
+			startErr = err
+			return
 		}
 
 		// Subscribe to NodeAnnouncements that advertise new addresses
@@ -5507,6 +5477,51 @@ func (s *server) removePeerUnsafe(ctx context.Context, p *peer.Brontide) {
 
 		s.peerNotifier.NotifyPeerOffline(pubKey)
 	}()
+}
+
+// connectToConfigPeers requests a persistent connection to every peer given
+// via the addpeer config option. A peer that is already connected is skipped,
+// since the listener is active at this point and the peer may have connected
+// to us before we got to it.
+func (s *server) connectToConfigPeers() error {
+	for _, peerAddrCfg := range s.cfg.AddPeers {
+		parsedPubkey, parsedHost, err := lncfg.ParseLNAddressPubkey(
+			peerAddrCfg,
+		)
+		if err != nil {
+			return fmt.Errorf("unable to parse peer pubkey from "+
+				"config: %w", err)
+		}
+		addr, err := parseAddr(parsedHost, s.cfg.net)
+		if err != nil {
+			return fmt.Errorf("unable to parse peer address "+
+				"provided as a config option: %w", err)
+		}
+
+		peerAddr := &lnwire.NetAddress{
+			IdentityKey: parsedPubkey,
+			Address:     addr,
+			ChainNet:    s.cfg.ActiveNetParams.Net,
+		}
+
+		err = s.ConnectToPeer(peerAddr, true, s.cfg.ConnectionTimeout)
+
+		// Being connected to the peer is the goal of the option, so
+		// an existing connection is not an error.
+		var alreadyConnected *errPeerAlreadyConnected
+		if errors.As(err, &alreadyConnected) {
+			srvrLog.Infof("Peer %v provided as a config option is "+
+				"already connected", peerAddr)
+
+			continue
+		}
+		if err != nil {
+			return fmt.Errorf("unable to connect to peer address "+
+				"provided as a config option: %w", err)
+		}
+	}
+
+	return nil
 }
 
 // ConnectToPeer requests that the server connect to a Lightning Network peer

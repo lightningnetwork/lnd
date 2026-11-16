@@ -3,11 +3,13 @@ package lnd
 import (
 	"context"
 	"errors"
+	"fmt"
 	"net"
 	"path/filepath"
 	"testing"
 	"time"
 
+	"github.com/btcsuite/btcd/btcec/v2"
 	"github.com/btcsuite/btcd/chaincfg/v2"
 	"github.com/btcsuite/btcd/wire/v2"
 	"github.com/lightningnetwork/lnd/aliasmgr"
@@ -17,6 +19,7 @@ import (
 	"github.com/lightningnetwork/lnd/lncfg"
 	"github.com/lightningnetwork/lnd/lntest/mock"
 	"github.com/lightningnetwork/lnd/lnwire"
+	"github.com/lightningnetwork/lnd/peer"
 	"github.com/lightningnetwork/lnd/signal"
 	"github.com/lightningnetwork/lnd/tor"
 	"github.com/stretchr/testify/require"
@@ -512,4 +515,41 @@ func TestOfferChains(t *testing.T) {
 
 	regtest := *chaincfg.RegressionNetParams.GenesisHash
 	require.Equal(t, [][32]byte{regtest}, offerChains(regtest))
+}
+
+// TestConnectToConfigPeersAlreadyConnected asserts that a peer given via the
+// addpeer config option that is already connected does not cause an error, as
+// this happens when the peer connects to us before we connect to it.
+func TestConnectToConfigPeersAlreadyConnected(t *testing.T) {
+	t.Parallel()
+
+	newPub := func() []byte {
+		priv, err := btcec.NewPrivateKey()
+		require.NoError(t, err)
+
+		return priv.PubKey().SerializeCompressed()
+	}
+	pub1, pub2 := newPub(), newPub()
+
+	s := &server{
+		cfg: &Config{
+			AddPeers: []string{
+				fmt.Sprintf("%x@127.0.0.1:9735", pub1),
+				fmt.Sprintf("%x@127.0.0.1:9736", pub2),
+			},
+			net:             &tor.ClearNet{},
+			Dev:             &lncfg.DevConfig{},
+			ActiveNetParams: chainreg.BitcoinRegTestNetParams,
+		},
+		peersByPub: map[string]*peer.Brontide{
+			string(pub1): {},
+			string(pub2): {},
+		},
+	}
+
+	require.NoError(t, s.connectToConfigPeers())
+
+	// Any other error is still fatal.
+	s.cfg.AddPeers = []string{"invalid"}
+	require.Error(t, s.connectToConfigPeers())
 }

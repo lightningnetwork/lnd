@@ -2,15 +2,20 @@ package lnd
 
 import (
 	"errors"
+	"fmt"
 	"net"
 	"testing"
 	"time"
 
+	"github.com/btcsuite/btcd/btcec/v2"
 	"github.com/btcsuite/btcd/wire"
 	"github.com/lightningnetwork/lnd/aliasmgr"
+	"github.com/lightningnetwork/lnd/chainreg"
 	graphdb "github.com/lightningnetwork/lnd/graph/db"
 	models "github.com/lightningnetwork/lnd/graph/db/models"
+	"github.com/lightningnetwork/lnd/lncfg"
 	"github.com/lightningnetwork/lnd/lnwire"
+	"github.com/lightningnetwork/lnd/peer"
 	"github.com/lightningnetwork/lnd/tor"
 	"github.com/stretchr/testify/require"
 )
@@ -304,4 +309,35 @@ func TestWithoutV2Onion(t *testing.T) {
 	// An all-v2 input filters to an empty slice; callers such as
 	// fetchNodeAdvertisedAddrs treat this as "no advertised address".
 	require.Empty(t, withoutV2Onion([]net.Addr{v2, v2}))
+}
+
+// TestConnectToConfigPeersAlreadyConnected asserts that a peer given via the
+// addpeer config option that is already connected does not cause an error, as
+// this happens when the peer connects to us before we connect to it.
+func TestConnectToConfigPeersAlreadyConnected(t *testing.T) {
+	t.Parallel()
+
+	priv, err := btcec.NewPrivateKey()
+	require.NoError(t, err)
+	pub := priv.PubKey().SerializeCompressed()
+	connected := fmt.Sprintf("%x@127.0.0.1:9735", pub)
+
+	s := &server{
+		cfg: &Config{
+			AddPeers:        []string{connected},
+			net:             &tor.ClearNet{},
+			Dev:             &lncfg.DevConfig{},
+			ActiveNetParams: chainreg.BitcoinRegTestNetParams,
+		},
+		peersByPub: map[string]*peer.Brontide{
+			string(pub): {},
+		},
+	}
+
+	require.NoError(t, s.connectToConfigPeers())
+
+	// The connected peer must not end the loop early, so an invalid entry
+	// after it is still reached and is fatal.
+	s.cfg.AddPeers = []string{connected, "invalid"}
+	require.Error(t, s.connectToConfigPeers())
 }

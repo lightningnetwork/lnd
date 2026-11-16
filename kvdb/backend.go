@@ -206,6 +206,7 @@ func compactAndSwap(cfg *BoltBackendConfig) error {
 		srcPath:   sourceFilePath,
 		dstPath:   tempDestFilePath,
 		dbTimeout: cfg.DBTimeout,
+		mmapFlags: mmapFlags(cfg.MmapPopulate),
 	}
 	initialSize, newSize, err := c.execute()
 	if err != nil {

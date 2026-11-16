@@ -129,7 +129,9 @@ func TestBoltMmapPopulate(t *testing.T) {
 	require.NoError(t, err)
 	require.NoError(t, db.Close())
 
-	// The second call opens the existing database file.
+	// The second call opens the existing database file, after compacting
+	// it first.
+	cfg.AutoCompact = true
 	db, err = GetBoltBackend(cfg)
 	require.NoError(t, err)
 	t.Cleanup(func() {

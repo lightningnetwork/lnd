@@ -75,19 +75,16 @@ jobs:
               "- [\(.name)](\(.html_url)) (`\(.conclusion)`)"') ||
             unsuccessful="(failed to list the jobs)"
 
-          if [[ -n "$MENTION" ]]; then
-            body=$(printf '%s\n\n%s\n\n%s\n\n%s\n' "$MENTION" \
-              "The [nightly run](${RUN_URL}) on ${GITHUB_SHA:0:12} finished with result \`${RESULT}\`." \
-              "Unsuccessful jobs:" "${unsuccessful:-(none reported)}")
-          else
-            body=$(printf '%s\n\n%s\n\n%s\n' \
-              "The [nightly run](${RUN_URL}) on ${GITHUB_SHA:0:12} finished with result \`${RESULT}\`." \
-              "Unsuccessful jobs:" "${unsuccessful:-(none reported)}")
-          fi
+          body=$(printf '%s\n\n%s\n\n%s\n' \
+            "The [nightly run](${RUN_URL}) on ${GITHUB_SHA:0:12} finished with result \`${RESULT}\`." \
+            "Unsuccessful jobs:" "${unsuccessful:-(none reported)}")
 
           if [[ -n "$issue" ]]; then
             gh issue comment "$issue" --body "$body"
           else
+            if [[ -n "$MENTION" ]]; then
+              body=$(printf '%s\n\n%s' "$MENTION" "$body")
+            fi
             gh label create "$LABEL" --color b60205 --force \
               --description "Tracks a failing nightly CI run"
             gh issue create --title "Nightly CI failure" --label "$LABEL" \

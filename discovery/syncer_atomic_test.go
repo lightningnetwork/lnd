@@ -56,7 +56,7 @@ func TestGossipSyncerSingleBacklogSend(t *testing.T) {
 	// Now we'll kick off the test by making a syncer that uses our blocking
 	// send function.
 	msgChan, syncer, chanSeries := newTestSyncer(
-		lnwire.NewShortChanIDFromInt(10), defaultEncoding,
+		lnwire.NewShortChanIDFromInt(10),
 		defaultChunkSize, true, true, true,
 	)
 

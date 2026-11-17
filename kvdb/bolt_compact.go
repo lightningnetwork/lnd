@@ -99,15 +99,24 @@ func (cmd *compacter) execute() (int64, int64, error) {
 		}
 	}()
 
-	// Open destination database.
+	// Open destination database. It is a temporary file that only replaces
+	// the source database once the compaction succeeded and is removed
+	// otherwise. There is therefore no need to sync it to disk on every
+	// commit, we do so once at the end instead.
 	dst, err := bbolt.Open(cmd.dstPath, fi.Mode(), &bbolt.Options{
 		Timeout: cmd.dbTimeout,
+		NoSync:  true,
 	})
 	if err != nil {
 		return 0, 0, fmt.Errorf("error opening destination database: "+
 			"%w", err)
 	}
+	dstClosed := false
 	defer func() {
+		if dstClosed {
+			return
+		}
+
 		if err := dst.Close(); err != nil {
 			log.Errorf("Compact error: closing dest DB: %v", err)
 		}
@@ -116,6 +125,19 @@ func (cmd *compacter) execute() (int64, int64, error) {
 	// Run compaction.
 	if err := cmd.compact(dst, src); err != nil {
 		return 0, 0, fmt.Errorf("error running compaction: %w", err)
+	}
+
+	// Make sure the compacted database is on disk and closed without an
+	// error before it is used.
+	if err := dst.Sync(); err != nil {
+		return 0, 0, fmt.Errorf("error syncing destination database: "+
+			"%w", err)
+	}
+
+	dstClosed = true
+	if err := dst.Close(); err != nil {
+		return 0, 0, fmt.Errorf("error closing destination database: "+
+			"%w", err)
 	}
 
 	// Report stats on new size.

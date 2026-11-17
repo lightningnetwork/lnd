@@ -8,33 +8,56 @@ import (
 // PollInterval is a constant specifying a 200 ms interval.
 const PollInterval = 200 * time.Millisecond
 
-// Predicate is a helper test function that will wait for a timeout period of
-// time until the passed predicate returns true. This function is helpful as
-// timing doesn't always line up well when running integration tests with
-// several running lnd nodes. This function gives callers a way to assert that
-// some property is upheld within a particular time frame.
-//
-// TODO(yy): build a counter here so we know how many times we've tried the
-// `pred`.
+// Predicate is a helper function that waits for a specified timeout period
+// until the provided predicate returns true. This is useful in scenarios where
+// timing is uncertain, allowing callers to assert that a condition becomes true
+// within a given time frame.
 func Predicate(pred func() bool, timeout time.Duration) error {
-	exitTimer := time.After(timeout)
-	result := make(chan bool, 1)
+	var (
+		// exitTimer is a channel that signals when the timeout period
+		// has elapsed. All predicate calls must complete before this
+		// signal.
+		exitTimer = time.After(timeout)
+
+		// predCallCount tracks how many times the predicate function
+		// has been called.
+		predCallCount int
+	)
 
 	for {
-		<-time.After(PollInterval)
+		// Wait for the polling interval before subsequent predicate
+		// calls.
+		if predCallCount > 0 {
+			<-time.After(PollInterval)
+		}
+
+		// exitPredGoroutine is closed to signal termination of the
+		// goroutine running the predicate, preventing leaks if a
+		// timeout occurs.
+		exitPredGoroutine := make(chan struct{})
+
+		// predResult receives the boolean result from the predicate
+		// function.
+		predResult := make(chan bool, 1)
 
 		go func() {
-			result <- pred()
+			select {
+			case predResult <- pred():
+			case <-exitPredGoroutine:
+			}
 		}()
 
-		// Each time we call the pred(), we expect a result to be
-		// returned otherwise it will timeout.
+		predCallCount++
+
+		// Wait for either the predicate to return or the timeout to
+		// occur.
 		select {
 		case <-exitTimer:
-			return fmt.Errorf("predicate not satisfied after " +
-				"time out")
+			close(exitPredGoroutine)
+			return fmt.Errorf("predicate not satisfied before "+
+				"timeout (pred_call_count=%d)", predCallCount)
 
-		case succeed := <-result:
+		case succeed := <-predResult:
 			if succeed {
 				return nil
 			}

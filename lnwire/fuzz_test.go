@@ -786,6 +786,26 @@ func FuzzFailInvalidBlinding(f *testing.F) {
 	})
 }
 
+func FuzzFailTemporaryTrampolineFailure(f *testing.F) {
+	f.Fuzz(func(t *testing.T, data []byte) {
+		onionFailureHarness(t, data, CodeTemporaryTrampolineFailure)
+	})
+}
+
+func FuzzFailTrampolineFeeOrExpiryInsufficient(f *testing.F) {
+	f.Fuzz(func(t *testing.T, data []byte) {
+		onionFailureHarness(
+			t, data, CodeTrampolineFeeOrExpiryInsufficient,
+		)
+	})
+}
+
+func FuzzFailUnknownNextTrampoline(f *testing.F) {
+	f.Fuzz(func(t *testing.T, data []byte) {
+		onionFailureHarness(t, data, CodeUnknownNextTrampoline)
+	})
+}
+
 func FuzzClosingSig(f *testing.F) {
 	f.Fuzz(func(t *testing.T, data []byte) {
 		wireMsgHarness(t, data, MsgClosingSig)

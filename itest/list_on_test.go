@@ -872,6 +872,10 @@ var allTestCases = []*lntest.TestCase{
 		TestFunc: testEstimateOnChainFeeAutoSelectedInputs,
 	},
 	{
+		Name:     "sendcoins dry run",
+		TestFunc: testSendCoinsDryRun,
+	},
+	{
 		Name:     "postgres network separation",
 		TestFunc: testPostgresNetworkSeparation,
 	},

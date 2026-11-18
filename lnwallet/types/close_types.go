@@ -57,6 +57,31 @@ type AuxCloseShapeDesc struct {
 	AuxShutdownReq
 }
 
+// AuxCloseTemplateDesc describes a channel close for which the auxiliary
+// close outputs are requested once, for every close transaction of the
+// negotiation. It carries what the auxiliary outputs depend on: the final
+// channel state and the shutdown terms of both parties. Nothing in it
+// changes with the close fee.
+type AuxCloseTemplateDesc struct {
+	AuxShutdownReq
+
+	// LocalDeliveryScript is the script the local party's funds are paid
+	// to.
+	LocalDeliveryScript lnwire.DeliveryAddress
+
+	// LocalShutdownRecords are the custom records the local party sent
+	// with its shutdown message.
+	LocalShutdownRecords lnwire.CustomRecords
+
+	// RemoteDeliveryScript is the script the remote party's funds are
+	// paid to.
+	RemoteDeliveryScript lnwire.DeliveryAddress
+
+	// RemoteShutdownRecords are the custom records the remote party sent
+	// with its shutdown message.
+	RemoteShutdownRecords lnwire.CustomRecords
+}
+
 // AuxCloseDesc is used to describe the channel close that is being performed.
 type AuxCloseDesc struct {
 	AuxShutdownReq

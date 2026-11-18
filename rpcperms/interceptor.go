@@ -134,10 +134,12 @@ var (
 //	  | RPC State Interceptor            |
 //	  +----------------------------------+
 //	  | Macaroon Interceptor             |
-//	  +----------------------------------+--------> +---------------------+
-//	  | RPC Macaroon Middleware Handler  |<-------- | External Middleware |
-//	  +----------------------------------+          |   - modify request |
-//	  | Prometheus Interceptor           |          +---------------------+
+//	  +----------------------------------+-------> +---------------------+
+//	  | RPC Macaroon Middleware Handler  |<------- | External Middleware |
+//	  +----------------------------------+         |   - modify request |
+//	  | Protector Caveat Interceptor     |         +---------------------+
+//	  +----------------------------------+
+//	  | Prometheus Interceptor           |
 //	  +-+--------------------------------+
 //	    | validated gRPC request from client
 //	+---v--------------------------------+
@@ -606,6 +608,18 @@ func (r *InterceptorChain) CreateServerOpts() []grpc.ServerOption {
 		strmInterceptors, r.middlewareStreamServerInterceptor(),
 	)
 
+	// Add the protector caveat enforcement interceptors. These must run
+	// after (inside of) the middleware interceptors: a registered
+	// middleware is allowed to replace the request message, and the
+	// protector field rules must be enforced against the final request
+	// that the handler will actually execute.
+	unaryInterceptors = append(
+		unaryInterceptors, r.ProtectorUnaryServerInterceptor(),
+	)
+	strmInterceptors = append(
+		strmInterceptors, r.ProtectorStreamServerInterceptor(),
+	)
+
 	// Get interceptors for Prometheus to gather gRPC performance metrics.
 	// If monitoring is disabled, GetPromInterceptors() will return empty
 	// slices.
@@ -855,6 +869,13 @@ func (r *InterceptorChain) checkMacaroon(ctx context.Context,
 
 // MacaroonUnaryServerInterceptor is a GRPC interceptor that checks whether the
 // request is authorized by the included macaroons.
+//
+// NOTE: This interceptor validates the macaroon but does NOT enforce protector
+// caveats, since a middleware running after it may still replace the request.
+// Any server composed from this interceptor must also include
+// ProtectorUnaryServerInterceptor after (inside of) the middleware
+// interceptors, otherwise macaroons carrying protector caveats validate
+// without their field restrictions being enforced.
 func (r *InterceptorChain) MacaroonUnaryServerInterceptor() grpc.UnaryServerInterceptor {
 	return func(ctx context.Context, req interface{},
 		info *grpc.UnaryServerInfo,
@@ -871,6 +892,11 @@ func (r *InterceptorChain) MacaroonUnaryServerInterceptor() grpc.UnaryServerInte
 
 // MacaroonStreamServerInterceptor is a GRPC interceptor that checks whether
 // the request is authorized by the included macaroons.
+//
+// NOTE: This interceptor validates the macaroon but does NOT enforce protector
+// caveats; ProtectorStreamServerInterceptor must also be part of the chain,
+// after (inside of) the middleware interceptors. See
+// MacaroonUnaryServerInterceptor for details.
 func (r *InterceptorChain) MacaroonStreamServerInterceptor() grpc.StreamServerInterceptor {
 	return func(srv interface{}, ss grpc.ServerStream,
 		info *grpc.StreamServerInfo, handler grpc.StreamHandler) error {

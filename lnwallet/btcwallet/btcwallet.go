@@ -1713,9 +1713,11 @@ func (b *BtcWallet) IsSynced() (bool, int64, error) {
 		return false, bestTimestamp, nil
 	}
 
-	// If the wallet hasn't yet fully synced to the node's best chain tip,
-	// then we're not yet fully synced.
-	if syncState.Height < bestHeight {
+	// The wallet is only synced if its full block stamp matches the chain
+	// source. Comparing the height alone can produce a false positive while
+	// a reorg replaces a block at the same height, or while the wallet is
+	// rolling back from a tip ahead of the chain source.
+	if syncState.Height != bestHeight || syncState.Hash != *bestHash {
 		return false, bestTimestamp, nil
 	}
 

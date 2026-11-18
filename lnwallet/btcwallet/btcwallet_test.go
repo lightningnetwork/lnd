@@ -5,9 +5,11 @@ import (
 	"testing"
 
 	"github.com/btcsuite/btcd/btcjson"
+	"github.com/btcsuite/btcd/chainhash/v2"
 	"github.com/btcsuite/btcd/rpcclient"
 	"github.com/btcsuite/btcd/wire"
 	"github.com/btcsuite/btcwallet/chain"
+	"github.com/btcsuite/btcwallet/waddrmgr"
 	"github.com/btcsuite/btcwallet/wallet"
 	"github.com/lightningnetwork/lnd/lnmock"
 	"github.com/lightningnetwork/lnd/lnwallet"
@@ -15,6 +17,145 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
+<<<<<<< HEAD
+=======
+// lockedOutpointWallet simulates an output held by btcwallet's memory locker.
+type lockedOutpointWallet struct {
+	wallet.Interface
+	leaseCalled bool
+}
+
+// syncStateWallet is a minimal wallet backend for testing IsSynced.
+type syncStateWallet struct {
+	wallet.Interface
+
+	chainSynced bool
+	syncState   waddrmgr.BlockStamp
+}
+
+// ChainSynced reports whether the chain backend has completed its initial
+// synchronization.
+func (w *syncStateWallet) ChainSynced() bool {
+	return w.chainSynced
+}
+
+// SyncedTo returns the wallet's current processed block stamp.
+func (w *syncStateWallet) SyncedTo() waddrmgr.BlockStamp {
+	return w.syncState
+}
+
+// LockedOutpoint reports that the test output is already locked in memory.
+func (w *lockedOutpointWallet) LockedOutpoint(wire.OutPoint) bool {
+	return true
+}
+
+// LeaseOutput records an unexpected attempt to lease the locked output.
+func (w *lockedOutpointWallet) LeaseOutput(wtxmgr.LockID, wire.OutPoint,
+	time.Duration) (time.Time, error) {
+
+	w.leaseCalled = true
+	return time.Time{}, nil
+}
+
+// TestLeaseOutputRejectsInMemoryLock verifies that the legacy lease path
+// preserves the in-memory double-lock guard.
+func TestLeaseOutputRejectsInMemoryLock(t *testing.T) {
+	t.Parallel()
+
+	backend := &lockedOutpointWallet{}
+	wallet := &BtcWallet{wallet: backend}
+
+	_, err := wallet.LeaseOutput(
+		wtxmgr.LockID{}, wire.OutPoint{}, time.Minute,
+	)
+	require.ErrorIs(t, err, wtxmgr.ErrOutputAlreadyLocked)
+	require.False(t, backend.leaseCalled)
+}
+
+// TestIsSyncedBlockStamp ensures that IsSynced compares the complete wallet
+// block stamp with the chain source, not only its height.
+func TestIsSyncedBlockStamp(t *testing.T) {
+	t.Parallel()
+
+	bestHash := chainhash.Hash{1}
+	otherHash := chainhash.Hash{2}
+
+	testCases := []struct {
+		name      string
+		syncState waddrmgr.BlockStamp
+		expSynced bool
+	}{
+		{
+			name: "wallet behind",
+			syncState: waddrmgr.BlockStamp{
+				Hash:   otherHash,
+				Height: 9,
+			},
+		},
+		{
+			name: "wallet ahead",
+			syncState: waddrmgr.BlockStamp{
+				Hash:   otherHash,
+				Height: 11,
+			},
+		},
+		{
+			name: "competing tip",
+			syncState: waddrmgr.BlockStamp{
+				Hash:   otherHash,
+				Height: 10,
+			},
+		},
+		{
+			name: "matching tip",
+			syncState: waddrmgr.BlockStamp{
+				Hash:      bestHash,
+				Height:    10,
+				Timestamp: time.Now(),
+			},
+			expSynced: true,
+		},
+	}
+
+	for _, testCase := range testCases {
+		t.Run(testCase.name, func(t *testing.T) {
+			t.Parallel()
+
+			chainBackend := &lnmock.MockChain{}
+			chainBackend.On("GetBestBlock").Return(
+				&bestHash, int32(10), nil,
+			).Once()
+			if testCase.expSynced {
+				header := &wire.BlockHeader{
+					Timestamp: time.Now(),
+				}
+				chainBackend.On(
+					"GetBlockHeader", &bestHash,
+				).Return(
+					header, nil,
+				).Once()
+			}
+
+			walletBackend := &syncStateWallet{
+				chainSynced: true,
+				syncState:   testCase.syncState,
+			}
+			wallet := &BtcWallet{
+				wallet: walletBackend,
+				cfg: &Config{
+					ChainSource: chainBackend,
+				},
+			}
+
+			synced, _, err := wallet.IsSynced()
+			require.NoError(t, err)
+			require.Equal(t, testCase.expSynced, synced)
+			chainBackend.AssertExpectations(t)
+		})
+	}
+}
+
+>>>>>>> f3ec7f32a (lnwallet: require matching tip when synced)
 type previousOutpointsTest struct {
 	name     string
 	tx       *wire.MsgTx

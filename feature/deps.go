@@ -75,6 +75,9 @@ var deps = depDesc{
 	lnwire.ZeroConfOptional: {
 		lnwire.ScidAliasOptional: {},
 	},
+	lnwire.RbfCoopCloseOptional: {
+		lnwire.ShutdownAnySegwitOptional: {},
+	},
 	lnwire.SimpleTaprootChannelsOptionalStaging: {
 		lnwire.AnchorsZeroFeeHtlcTxOptional: {},
 		lnwire.ExplicitChannelTypeOptional:  {},
@@ -82,6 +85,7 @@ var deps = depDesc{
 	lnwire.SimpleTaprootChannelsOptionalFinal: {
 		lnwire.AnchorsZeroFeeHtlcTxOptional: {},
 		lnwire.ExplicitChannelTypeOptional:  {},
+		lnwire.RbfCoopCloseOptional:         {},
 	},
 	lnwire.SimpleTaprootOverlayChansOptional: {
 		lnwire.SimpleTaprootChannelsOptionalStaging: {},

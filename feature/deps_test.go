@@ -143,6 +143,49 @@ var depTests = []depTest{
 		),
 		expErr: ErrMissingFeatureDep{lnwire.PaymentAddrOptional},
 	},
+	{
+		name: "simple close missing shutdown anysegwit",
+		raw: lnwire.NewRawFeatureVector(
+			lnwire.RbfCoopCloseOptional,
+		),
+		expErr: ErrMissingFeatureDep{
+			lnwire.ShutdownAnySegwitOptional,
+		},
+	},
+	{
+		name: "simple taproot missing simple close",
+		raw: lnwire.NewRawFeatureVector(
+			lnwire.StaticRemoteKeyOptional,
+			lnwire.AnchorsZeroFeeHtlcTxOptional,
+			lnwire.ExplicitChannelTypeOptional,
+			lnwire.SimpleTaprootChannelsOptionalFinal,
+		),
+		expErr: ErrMissingFeatureDep{lnwire.RbfCoopCloseOptional},
+	},
+	{
+		name: "simple taproot missing transitive anysegwit",
+		raw: lnwire.NewRawFeatureVector(
+			lnwire.StaticRemoteKeyOptional,
+			lnwire.AnchorsZeroFeeHtlcTxOptional,
+			lnwire.ExplicitChannelTypeOptional,
+			lnwire.RbfCoopCloseOptional,
+			lnwire.SimpleTaprootChannelsOptionalFinal,
+		),
+		expErr: ErrMissingFeatureDep{
+			lnwire.ShutdownAnySegwitOptional,
+		},
+	},
+	{
+		name: "simple taproot complete dependencies",
+		raw: lnwire.NewRawFeatureVector(
+			lnwire.StaticRemoteKeyOptional,
+			lnwire.AnchorsZeroFeeHtlcTxOptional,
+			lnwire.ExplicitChannelTypeOptional,
+			lnwire.ShutdownAnySegwitOptional,
+			lnwire.RbfCoopCloseOptional,
+			lnwire.SimpleTaprootChannelsOptionalFinal,
+		),
+	},
 }
 
 // TestValidateDeps tests that ValidateDeps correctly asserts whether or not the

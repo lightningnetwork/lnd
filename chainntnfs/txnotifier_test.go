@@ -2515,6 +2515,104 @@ func TestTxNotifierNtfnDone(t *testing.T) {
 	}
 }
 
+// TestTxNotifierNtfnDoneAlreadyMature ensures that when a historical rescan
+// matches a transaction (or spend) that already confirmed deeper than the
+// reorg-safety limit, the notifier still delivers a Done signal. The per-block
+// finality sweep in ConnectTip only fires Done for requests maturing at the
+// connecting height, so without an explicit dispatch-time signal an
+// already-mature registration would never see Done and a caller blocking on it
+// (e.g. lndclient's WithDoneChan) would hang forever.
+func TestTxNotifierNtfnDoneAlreadyMature(t *testing.T) {
+	t.Parallel()
+
+	// The notifier starts already well past the point at which our
+	// transaction/spend confirmed: with a starting height of 200 and a
+	// reorg-safety limit of 100, anything that confirmed at or below height
+	// 100 is already buried past the reorg-safety limit at dispatch time.
+	const (
+		startingHeight   = 200
+		reorgSafetyLimit = 100
+		matureConfHeight = 50
+	)
+
+	hintCache := newMockHintCache()
+	n := chainntnfs.NewTxNotifier(
+		startingHeight, reorgSafetyLimit, hintCache, hintCache,
+	)
+
+	// Register a confirmation and a spend notification, both of which will
+	// trigger a historical rescan since the notifier has no prior view of
+	// the chain.
+	confNtfn, err := n.RegisterConf(
+		&chainntnfs.ZeroHash, testRawScript, 1, 1,
+	)
+	require.NoError(t, err, "unable to register conf ntfn")
+	require.NotNil(t, confNtfn.HistoricalDispatch)
+
+	op := wire.OutPoint{Index: 1}
+	spendNtfn, err := n.RegisterSpend(&op, testRawScript, 1)
+	require.NoError(t, err, "unable to register spend ntfn")
+	require.NotNil(t, spendNtfn.HistoricalDispatch)
+
+	// Complete the historical confirmation rescan with details indicating
+	// the transaction confirmed deeply in the past (reorg-safe height
+	// matureConfHeight+reorgSafetyLimit = 150, well below the current tip
+	// of 200).
+	confDetails := &chainntnfs.TxConfirmation{
+		BlockHeight: matureConfHeight,
+	}
+	err = n.UpdateConfDetails(
+		confNtfn.HistoricalDispatch.ConfRequest, confDetails,
+	)
+	require.NoError(t, err, "unable to update conf details")
+
+	// The confirmation must be dispatched...
+	select {
+	case <-confNtfn.Event.Confirmed:
+	default:
+		t.Fatal("expected to receive confirmation notification")
+	}
+
+	// ...and, since the transaction is already buried past the reorg-safety
+	// limit, Done must fire without waiting for further blocks.
+	select {
+	case <-confNtfn.Event.Done:
+	default:
+		t.Fatal("expected done notification for confirmation")
+	}
+
+	// Now do the same for the spend: complete the historical rescan with a
+	// spend that happened deeply in the past.
+	msgTx := &wire.MsgTx{
+		TxIn: []*wire.TxIn{
+			{PreviousOutPoint: op, Witness: testWitness},
+		},
+	}
+	spendDetails := &chainntnfs.SpendDetail{
+		SpentOutPoint:     &op,
+		SpenderTxHash:     &chainntnfs.ZeroHash,
+		SpendingTx:        msgTx,
+		SpenderInputIndex: 0,
+		SpendingHeight:    matureConfHeight,
+	}
+	err = n.UpdateSpendDetails(
+		spendNtfn.HistoricalDispatch.SpendRequest, spendDetails,
+	)
+	require.NoError(t, err, "unable to update spend details")
+
+	select {
+	case <-spendNtfn.Event.Spend:
+	default:
+		t.Fatal("expected to receive spend notification")
+	}
+
+	select {
+	case <-spendNtfn.Event.Done:
+	default:
+		t.Fatal("expected to receive done notification for spend")
+	}
+}
+
 // TestTxNotifierTearDown ensures that the TxNotifier properly alerts clients
 // that it is shutting down and will be unable to deliver notifications.
 func TestTxNotifierTearDown(t *testing.T) {

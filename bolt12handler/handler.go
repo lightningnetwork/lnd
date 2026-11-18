@@ -43,6 +43,7 @@ type Handler struct {
 	notifier           InvoiceNotifier
 	replier            OnionReplier
 	signer             NodeSigner
+	pathIDKey          PathIDKey
 	paymentPathBuilder PaymentPathBuilder
 	clock              clock.Clock
 
@@ -78,11 +79,12 @@ type Handler struct {
 
 // NewHandler creates a new BOLT 12 invoice request handler. It returns an error
 // when the offer store, the notifier, the replier, the signer or the clock is
-// nil. The path builder can be nil, and the handler then uses a single-hop
-// blinded path. The final CLTV delta must be at least routing.MinCLTVDelta,
-// and it must leave room for routing.BlockPadding in a uint16.
+// nil. It also returns an error when the path id key is the zero key.
+// The path builder can be nil. The handler then uses a single-hop blinded
+// path. The final CLTV delta must be at least routing.MinCLTVDelta. It must
+// also leave room for routing.BlockPadding in a uint16.
 func NewHandler(offerStore offers.Store, notifier InvoiceNotifier,
-	replier OnionReplier, signer NodeSigner,
+	replier OnionReplier, signer NodeSigner, pathIDKey PathIDKey,
 	paymentPathBuilder PaymentPathBuilder, clk clock.Clock,
 	activeChain [32]byte, finalCLTVDelta uint16) (*Handler, error) {
 
@@ -98,6 +100,9 @@ func NewHandler(offerStore offers.Store, notifier InvoiceNotifier,
 
 	case signer == nil:
 		return nil, errors.New("handler has no signer")
+
+	case pathIDKey == PathIDKey{}:
+		return nil, errors.New("handler has no path id key")
 
 	case clk == nil:
 		return nil, errors.New("handler has no clock")
@@ -117,6 +122,7 @@ func NewHandler(offerStore offers.Store, notifier InvoiceNotifier,
 		notifier:           notifier,
 		replier:            replier,
 		signer:             signer,
+		pathIDKey:          pathIDKey,
 		paymentPathBuilder: paymentPathBuilder,
 		clock:              clk,
 		activeChain:        activeChain,
@@ -167,10 +173,11 @@ func (h *Handler) HandleInvoiceRequest(ctx context.Context, invreqBytes []byte,
 
 	result, err := GenerateInvoice(&InvoiceConfig{
 		Signer:         h.signer,
+		PathIDKey:      h.pathIDKey,
 		PathBuilder:    h.paymentPathBuilder,
 		Clock:          h.clock,
 		FinalCLTVDelta: h.finalCLTVDelta,
-	}, ir)
+	}, ir, offer.Hash)
 	if err != nil {
 		return fmt.Errorf("generate invoice: %w", err)
 	}

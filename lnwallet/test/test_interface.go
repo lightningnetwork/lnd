@@ -2182,28 +2182,29 @@ func testReorgWalletBalance(r *rpctest.Harness, w *lnwallet.LightningWallet,
 	txid := tx.TxHash()
 	err = waitForMempoolTx(r, &txid)
 	require.NoError(t, err, "tx not relayed to miner")
+
+	// Record the balance including the unconfirmed change output. Once the
+	// transaction confirms, this is the balance the wallet should report
+	// with one confirmation.
+	expectedBalance, err := w.ConfirmedBalance(
+		0, lnwallet.DefaultAccountName,
+	)
+	require.NoError(t, err, "unable to query for balance")
+
 	_, err = r.Client.Generate(50)
 	require.NoError(t, err, "unable to generate blocks on passed node")
 
-	// Give wallet time to catch up.
+	// Wait for both chain sync and the relevant transaction notification.
 	err = waitForWalletSync(r, w)
 	require.NoError(t, err, "unable to sync wallet")
-
-	// Get the original balance.
-	origBalance, err := w.ConfirmedBalance(1, lnwallet.DefaultAccountName)
-	require.NoError(t, err, "unable to query for balance")
+	err = waitForWalletBalance(w, expectedBalance)
+	require.NoError(t, err, "unable to sync wallet balance")
 
 	// Now we cause a reorganization as follows.
 	// Step 1: create a new miner and start it.
 	r2 := unittest.NewMiner(
 		t, r.ActiveNet, []string{"--txindex"}, false, 0,
 	)
-	newBalance, err := w.ConfirmedBalance(1, lnwallet.DefaultAccountName)
-	require.NoError(t, err, "unable to query for balance")
-	if origBalance != newBalance {
-		t.Fatalf("wallet balance incorrect, should have %v, "+
-			"instead have %v", origBalance, newBalance)
-	}
 
 	// Step 2: connect the miner to the passed miner and wait for
 	// synchronization.
@@ -2225,18 +2226,15 @@ func testReorgWalletBalance(r *rpctest.Harness, w *lnwallet.LightningWallet,
 			time.Sleep(100 * time.Millisecond)
 			select {
 			case <-timeout:
-				t.Fatalf("timeout waiting for miner disconnect")
+				require.FailNow(t, "miner disconnect timeout")
 			default:
 			}
 			err = r2.Client.AddNode(r.P2PAddress(), rpcclient.ANRemove)
-			if err != nil {
-				t.Fatalf("unable to disconnect mining nodes: %v",
-					err)
-			}
+			require.NoError(
+				t, err, "unable to disconnect mining nodes",
+			)
 			peers, err = r2.Client.GetPeerInfo()
-			if err != nil {
-				t.Fatalf("unable to get peer info: %v", err)
-			}
+			require.NoError(t, err, "unable to get peer info")
 			stillConnected = false
 			for _, peer := range peers {
 				if peer.Addr == r.P2PAddress() {
@@ -2246,50 +2244,38 @@ func testReorgWalletBalance(r *rpctest.Harness, w *lnwallet.LightningWallet,
 			}
 		}
 		_, err = r.Client.Generate(2)
-		if err != nil {
-			t.Fatalf("unable to generate blocks on passed node: %v",
-				err)
-		}
+		require.NoError(
+			t, err, "unable to generate blocks on passed node",
+		)
 		_, err = r2.Client.Generate(3)
-		if err != nil {
-			t.Fatalf("unable to generate blocks on created node: %v",
-				err)
-		}
+		require.NoError(
+			t, err, "unable to generate blocks on created node",
+		)
 
 		// Step 5: Reconnect the miners and wait for them to synchronize.
 		err = r2.Client.AddNode(r.P2PAddress(), rpcclient.ANAdd)
 		if err != nil {
-			switch err := err.(type) {
-			case *btcjson.RPCError:
-				if err.Code != -8 {
-					t.Fatalf("unable to connect mining "+
-						"nodes together: %v", err)
-				}
-			default:
-				t.Fatalf("unable to connect mining nodes "+
-					"together: %v", err)
-			}
+			var rpcErr *btcjson.RPCError
+			require.ErrorAs(t, err, &rpcErr)
+			require.Equal(t, btcjson.RPCErrorCode(-8), rpcErr.Code)
 		}
 		err = rpctest.JoinNodes([]*rpctest.Harness{r2, r},
 			rpctest.Blocks)
-		if err != nil {
-			t.Fatalf("unable to synchronize mining nodes: %v", err)
-		}
+		require.NoError(t, err, "unable to synchronize mining nodes")
 
-		// Give wallet time to catch up.
+		// Wait for both chain sync and wallet state to catch up.
 		err = waitForWalletSync(r, w)
-		if err != nil {
-			t.Fatalf("unable to sync wallet: %v", err)
-		}
+		require.NoError(t, err, "unable to sync wallet")
+		err = waitForWalletBalance(w, expectedBalance)
+		require.NoError(t, err, "unable to sync wallet balance")
 	}
 
 	// Now we check that the wallet balance stays the same.
-	newBalance, err = w.ConfirmedBalance(1, lnwallet.DefaultAccountName)
+	newBalance, err := w.ConfirmedBalance(1, lnwallet.DefaultAccountName)
 	require.NoError(t, err, "unable to query for balance")
-	if origBalance != newBalance {
-		t.Fatalf("wallet balance incorrect, should have %v, "+
-			"instead have %v", origBalance, newBalance)
-	}
+	require.Equal(
+		t, expectedBalance, newBalance, "wallet balance incorrect",
+	)
 }
 
 // testChangeOutputSpendConfirmation ensures that when we attempt to spend a
@@ -3003,93 +2989,89 @@ func waitForMempoolTx(r *rpctest.Harness, txid *chainhash.Hash) error {
 	return nil
 }
 
-// waitForWalletSync blocks until the LightningWallet's chain backend has fully
-// caught up to the best block known by the mining harness, or the timeout
-// elapses. It performs two distinct checks that correspond to different layers
-// of the sync pipeline:
-//
-// Layer 1 — header sync (ChainIO.GetBestBlock):
-// BtcWallet.GetBestBlock delegates straight to the underlying chain client
-// (e.g. the neutrino ChainService). This reflects whether the P2P layer has
-// downloaded block *headers* up to the miner's tip. An 80-byte header is all
-// that is needed here; no transaction data is involved yet.
-//
-// Layer 2 — full wallet sync (IsSynced):
-// IsSynced checks three internal btcwallet conditions in sequence:
-//
-//	a. ChainSynced() — a boolean flag set only when the chain client fires
-//	   its dedicated "synced" notification to btcwallet. The header may
-//	   already be present at layer 1 while this flag is still false.
-//	b. waddrmgr SyncedTo height — after neutrino matches a compact filter
-//	   and fetches the full block, btcwallet walks every transaction,
-//	   updates balances and UTXO state, and writes results to the DB. Only
-//	   once that write completes does the address manager advance its sync
-//	   height. On slower backends (e.g. postgres) this step is the common
-//	   bottleneck.
-//	c. A timestamp sanity check (irrelevant in regtest).
-//
-// After a reorg, btcwallet must first *undo* the invalidated blocks (reverse
-// UTXO/balance changes) and then *redo* the new chain, doubling the DB write
-// pressure compared with a normal forward sync.
-//
-// When this function times out, the error message identifies which layer was
-// stuck so the reader knows where to look:
-//   - "height lag"  → stuck at layer 1; neutrino has not fetched the header.
-//   - "IsSynced() never returned true" → layer 1 is fine; the bottleneck is
-//     the chain-sync notification or the address-manager transaction walk.
-func waitForWalletSync(r *rpctest.Harness, w *lnwallet.LightningWallet) error {
-	var (
-		synced                  bool
-		err                     error
-		bestHash, knownHash     *chainhash.Hash
-		bestHeight, knownHeight int32
+// waitForWalletBalance waits until the wallet has processed the relevant
+// transaction notifications for its current chain tip. The chain backend can
+// report that it is synced before btcwallet handles the corresponding
+// FilteredBlockConnected notification and updates its UTXO set.
+func waitForWalletBalance(w *lnwallet.LightningWallet,
+	expected btcutil.Amount) error {
 
-		// heightsMatched tracks whether the last poll found matching
-		// heights so the timeout message can distinguish between a
-		// layer-1 header lag and a layer-2 internal-state lag.
-		heightsMatched bool
-	)
-
-	// Use a single ticker rather than time.Tick inside the loop; the
-	// latter leaks a goroutine on every iteration because the returned
-	// channel is never stopped.
 	ticker := time.NewTicker(100 * time.Millisecond)
 	defer ticker.Stop()
 
-	// Neutrino syncs via P2P (header announcements + compact filter
-	// fetches) which is slower than a direct RPC client, especially
-	// under load (e.g. postgres backend). Use a generous timeout to
-	// avoid spurious failures.
-	timeout := time.After(2 * time.Minute)
-	for !synced {
-		select {
-		case <-timeout:
-			// Report which sync layer was stuck so a future
-			// investigator knows where to look.
-			if !heightsMatched {
-				return fmt.Errorf("timeout waiting for wallet "+
-					"sync: chain tip at height=%d "+
-					"hash=%v, wallet ChainIO at "+
-					"height=%d hash=%v — stuck at "+
-					"layer 1 (header/P2P sync)",
-					bestHeight, bestHash,
-					knownHeight, knownHash)
-			}
+	timeout := time.NewTimer(2 * time.Minute)
+	defer timeout.Stop()
 
-			return fmt.Errorf("timeout waiting for wallet "+
-				"sync: heights matched at %d but "+
-				"IsSynced() never returned true — "+
-				"stuck at layer 2 (chain-sync "+
-				"notification or address-manager "+
-				"transaction walk, check "+
-				"ChainSynced() and waddrmgr "+
-				"SyncedTo height)",
-				bestHeight)
+	var balance btcutil.Amount
+	for {
+		select {
+		case <-timeout.C:
+			return fmt.Errorf("wallet balance sync timeout: "+
+				"expected=%v, actual=%v", expected, balance)
+
 		case <-ticker.C:
 		}
 
-		// Layer 1 check: verify the chain backend has downloaded the
-		// header for the miner's current tip.
+		var err error
+		balance, err = w.ConfirmedBalance(
+			1, lnwallet.DefaultAccountName,
+		)
+		if err != nil {
+			return err
+		}
+		if balance == expected {
+			return nil
+		}
+	}
+}
+
+// waitForWalletSync waits for both the wallet's chain source and its internal
+// state to catch up to the mining harness. During a reorg, matching heights do
+// not imply matching tips, so the height and hash must be checked together.
+func waitForWalletSync(r *rpctest.Harness, w *lnwallet.LightningWallet) error {
+	const (
+		chainTipErr = "wallet chain tip sync timeout: " +
+			"miner height=%d hash=%v, " +
+			"wallet height=%d hash=%v"
+		walletStateErr = "wallet state sync timeout at height=%d " +
+			"hash=%v"
+	)
+
+	var (
+		bestHash, knownHash     *chainhash.Hash
+		bestHeight, knownHeight int32
+		tipsMatch               bool
+	)
+
+	// Use a single stoppable ticker for the entire polling loop.
+	ticker := time.NewTicker(100 * time.Millisecond)
+	defer ticker.Stop()
+
+	// Neutrino learns about new blocks over P2P and then scans compact
+	// filters before btcwallet updates its state. A reorg requires it to
+	// process both the disconnected and connected branches, which can take
+	// longer on a busy CI runner.
+	timeout := time.NewTimer(2 * time.Minute)
+	defer timeout.Stop()
+
+	for {
+		select {
+		case <-timeout.C:
+			if !tipsMatch {
+				return fmt.Errorf(
+					chainTipErr, bestHeight, bestHash,
+					knownHeight, knownHash,
+				)
+			}
+
+			return fmt.Errorf(
+				walletStateErr, bestHeight, bestHash,
+			)
+
+		case <-ticker.C:
+		}
+
+		var err error
 		bestHash, bestHeight, err = r.Client.GetBestBlock()
 		if err != nil {
 			return err
@@ -3098,24 +3080,20 @@ func waitForWalletSync(r *rpctest.Harness, w *lnwallet.LightningWallet) error {
 		if err != nil {
 			return err
 		}
-		heightsMatched = knownHeight == bestHeight
-		if !heightsMatched {
+
+		tipsMatch = knownHeight == bestHeight && *knownHash == *bestHash
+		if !tipsMatch {
 			continue
 		}
-		if *knownHash != *bestHash {
-			return fmt.Errorf("hash at height %d doesn't match: "+
-				"expected %s, got %s", bestHeight, bestHash,
-				knownHash)
-		}
 
-		// Layer 2 check: verify btcwallet has processed all
-		// transactions in the new blocks and considers itself synced.
-		synced, _, err = w.IsSynced()
+		synced, _, err := w.IsSynced()
 		if err != nil {
 			return err
 		}
+		if synced {
+			return nil
+		}
 	}
-	return nil
 }
 
 // testSingleFunderExternalFundingTx tests that the wallet is able to properly

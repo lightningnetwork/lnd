@@ -4,10 +4,13 @@
 package switchrpc
 
 import (
+	"context"
+
 	"github.com/lightningnetwork/lnd/htlcswitch"
 	"github.com/lightningnetwork/lnd/lnrpc"
+	"github.com/lightningnetwork/lnd/lntypes"
+	"github.com/lightningnetwork/lnd/lnwire"
 	"github.com/lightningnetwork/lnd/macaroons"
-	"github.com/lightningnetwork/lnd/routing"
 	"github.com/lightningnetwork/lnd/routing/route"
 )
 
@@ -34,7 +37,7 @@ type Config struct {
 
 	// HtlcDispatcher provides the means by which payment attempts can
 	// be dispatched.
-	HtlcDispatcher routing.PaymentAttemptDispatcher
+	HtlcDispatcher HtlcDispatcher
 
 	// AttemptStore provides the means by which the RPC server can manage
 	// the state of an HTLC attempt, including initializing and failing it.
@@ -53,6 +56,29 @@ type Config struct {
 	// state.
 	RemoteRouterController RemoteRouterController
 }
+
+// HtlcDispatcher is the subset of the switch used to dispatch HTLC attempts
+// and wait for their results. It is kept separate from the router's
+// PaymentAttemptDispatcher so that RPC callers, which may abandon a wait, can
+// use the context-aware result lookup without changing the router.
+type HtlcDispatcher interface {
+	// SendHTLC forwards a fully encoded HTLC to the given first hop.
+	SendHTLC(firstHop lnwire.ShortChannelID, attemptID uint64,
+		htlcAdd *lnwire.UpdateAddHTLC) error
+
+	// GetAttemptResultWithContext returns a channel that delivers the
+	// result of the given attempt. The wait is abandoned, and the channel
+	// closed, when ctx is cancelled or the switch shuts down. A closed
+	// channel is not a result: the HTLC may still be in flight.
+	GetAttemptResultWithContext(ctx context.Context, attemptID uint64,
+		paymentHash lntypes.Hash,
+		deobfuscator htlcswitch.ErrorDecrypter) (
+		<-chan *htlcswitch.PaymentResult, error)
+}
+
+// The switch is assigned to Config.HtlcDispatcher by reflection, so check at
+// compile time that it implements the interface.
+var _ HtlcDispatcher = (*htlcswitch.Switch)(nil)
 
 // RemoteRouterController defines a restricted interface for managing the remote
 // router state.

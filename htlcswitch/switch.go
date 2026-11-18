@@ -578,6 +578,37 @@ func (s *Switch) HasAttemptResult(attemptID uint64) (bool, error) {
 func (s *Switch) GetAttemptResult(attemptID uint64, paymentHash lntypes.Hash,
 	deobfuscator ErrorDecrypter) (<-chan *PaymentResult, error) {
 
+	// A background context is never cancelled, so the wait ends only on a
+	// result or switch shutdown.
+	return s.getAttemptResult(
+		context.Background(), attemptID, paymentHash, deobfuscator,
+	)
+}
+
+// GetAttemptResultWithContext behaves like GetAttemptResult, but also stops
+// waiting when ctx is cancelled. It is meant for callers that may abandon the
+// wait, such as an RPC handler whose client disconnects or times out. On
+// cancellation the result subscription is released and the returned channel
+// is closed without a value. As with switch shutdown, a closed channel says
+// nothing about the HTLC, which may still be in flight.
+//
+// NOTE: lnd's router must keep using GetAttemptResult. Passing a payment's
+// context here would stop the wait when the payment times out while its
+// HTLCs are still in flight, leaving them untracked until restart. A caller
+// that needs cancellation must pass a context that lives as long as it does.
+func (s *Switch) GetAttemptResultWithContext(ctx context.Context,
+	attemptID uint64, paymentHash lntypes.Hash,
+	deobfuscator ErrorDecrypter) (<-chan *PaymentResult, error) {
+
+	return s.getAttemptResult(ctx, attemptID, paymentHash, deobfuscator)
+}
+
+// getAttemptResult is the shared body of GetAttemptResult and
+// GetAttemptResultWithContext.
+func (s *Switch) getAttemptResult(ctx context.Context, attemptID uint64,
+	paymentHash lntypes.Hash, deobfuscator ErrorDecrypter) (
+	<-chan *PaymentResult, error) {
+
 	var (
 		nChan <-chan *networkResult
 		err   error
@@ -640,6 +671,23 @@ func (s *Switch) GetAttemptResult(attemptID uint64, paymentHash lntypes.Hash,
 			// don't send any result in this case since the HTLC is
 			// still in flight.
 			close(resultChan)
+			return
+
+		case <-ctx.Done():
+			// The caller abandoned the wait. Release the
+			// subscription so it does not linger until the HTLC
+			// resolves. This is a no-op if nChan was never
+			// registered with the store.
+			//
+			// A result that arrives at the same moment may be
+			// dropped here. It is already persisted, so a later
+			// lookup reads it back.
+			log.Debugf("Abandoning wait for attemptID=%v: %v",
+				attemptID, ctx.Err())
+
+			s.attemptStore.UnsubscribeResult(attemptID, nChan)
+			close(resultChan)
+
 			return
 		}
 

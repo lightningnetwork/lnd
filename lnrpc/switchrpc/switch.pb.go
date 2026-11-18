@@ -22,62 +22,6 @@ const (
 	_ = protoimpl.EnforceVersion(protoimpl.MaxVersion - 20)
 )
 
-// IndefiniteFailureCode provides the specific reason for an indefinite failure.
-type IndefiniteFailureCode int32
-
-const (
-	// The reason is unknown. This is the default and is used for failures
-	// where the server could not classify the error, such as bare gRPC
-	// transport errors observed by the client.
-	IndefiniteFailureCode_REASON_UNKNOWN IndefiniteFailureCode = 0
-	// The server is in the process of shutting down.
-	IndefiniteFailureCode_SWITCH_EXITING IndefiniteFailureCode = 1
-	// A critical failure occurred when the server attempted to write the
-	// idempotency record for the payment attempt.
-	IndefiniteFailureCode_HTLC_INIT_FAILED IndefiniteFailureCode = 2
-)
-
-// Enum value maps for IndefiniteFailureCode.
-var (
-	IndefiniteFailureCode_name = map[int32]string{
-		0: "REASON_UNKNOWN",
-		1: "SWITCH_EXITING",
-		2: "HTLC_INIT_FAILED",
-	}
-	IndefiniteFailureCode_value = map[string]int32{
-		"REASON_UNKNOWN":   0,
-		"SWITCH_EXITING":   1,
-		"HTLC_INIT_FAILED": 2,
-	}
-)
-
-func (x IndefiniteFailureCode) Enum() *IndefiniteFailureCode {
-	p := new(IndefiniteFailureCode)
-	*p = x
-	return p
-}
-
-func (x IndefiniteFailureCode) String() string {
-	return protoimpl.X.EnumStringOf(x.Descriptor(), protoreflect.EnumNumber(x))
-}
-
-func (IndefiniteFailureCode) Descriptor() protoreflect.EnumDescriptor {
-	return file_switchrpc_switch_proto_enumTypes[0].Descriptor()
-}
-
-func (IndefiniteFailureCode) Type() protoreflect.EnumType {
-	return &file_switchrpc_switch_proto_enumTypes[0]
-}
-
-func (x IndefiniteFailureCode) Number() protoreflect.EnumNumber {
-	return protoreflect.EnumNumber(x)
-}
-
-// Deprecated: Use IndefiniteFailureCode.Descriptor instead.
-func (IndefiniteFailureCode) EnumDescriptor() ([]byte, []int) {
-	return file_switchrpc_switch_proto_rawDescGZIP(), []int{0}
-}
-
 // AttemptDeletionStatus describes the outcome of a single attempt deletion.
 type AttemptDeletionStatus int32
 
@@ -122,11 +66,11 @@ func (x AttemptDeletionStatus) String() string {
 }
 
 func (AttemptDeletionStatus) Descriptor() protoreflect.EnumDescriptor {
-	return file_switchrpc_switch_proto_enumTypes[1].Descriptor()
+	return file_switchrpc_switch_proto_enumTypes[0].Descriptor()
 }
 
 func (AttemptDeletionStatus) Type() protoreflect.EnumType {
-	return &file_switchrpc_switch_proto_enumTypes[1]
+	return &file_switchrpc_switch_proto_enumTypes[0]
 }
 
 func (x AttemptDeletionStatus) Number() protoreflect.EnumNumber {
@@ -135,7 +79,7 @@ func (x AttemptDeletionStatus) Number() protoreflect.EnumNumber {
 
 // Deprecated: Use AttemptDeletionStatus.Descriptor instead.
 func (AttemptDeletionStatus) EnumDescriptor() ([]byte, []int) {
-	return file_switchrpc_switch_proto_rawDescGZIP(), []int{1}
+	return file_switchrpc_switch_proto_rawDescGZIP(), []int{0}
 }
 
 type SendOnionRequest struct {
@@ -274,10 +218,33 @@ func (x *SendOnionRequest) GetExtraData() []byte {
 	return nil
 }
 
-// SendOnionResponse is an empty message. A gRPC status of OK or AlreadyExists
-// indicates a successful dispatch acknowledgment.
+// SendOnionResponse reports what the switch did with the attempt. Exactly one
+// outcome is always set.
+//
+// A gRPC error from SendOnion means the call itself failed, for example a
+// malformed request, an auth failure, a transport problem, or a server not
+// running this sub-server. It never describes what happened to an HTLC, which
+// an earlier call with the same attempt_id may already have dispatched. After
+// any gRPC error the caller MUST NOT conclude that the HTLC was not
+// dispatched, and MUST NOT send a replacement under a new attempt_id until
+// this one is answered Rejected or TrackOnion reports it failed.
+//
+// A caller that receives an outcome it does not recognise, or a response with
+// no outcome set at all, MUST treat it as Ambiguous and retry the same
+// attempt_id. It MUST NOT treat it as success, failure, or an empty response.
+// An unhandled gRPC error is loud, while an unhandled response field is
+// silent, so a caller built against an older version of this service could
+// otherwise misread a newer server's answer as "nothing happened". Treating
+// the unknown case as Ambiguous limits the cost of a misread to a wasted retry
+// rather than a lost or duplicated payment.
 type SendOnionResponse struct {
-	state         protoimpl.MessageState `protogen:"open.v1"`
+	state protoimpl.MessageState `protogen:"open.v1"`
+	// Types that are valid to be assigned to Outcome:
+	//
+	//	*SendOnionResponse_Accepted
+	//	*SendOnionResponse_Rejected
+	//	*SendOnionResponse_Ambiguous
+	Outcome       isSendOnionResponse_Outcome `protobuf_oneof:"outcome"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -312,41 +279,97 @@ func (*SendOnionResponse) Descriptor() ([]byte, []int) {
 	return file_switchrpc_switch_proto_rawDescGZIP(), []int{1}
 }
 
-// SendOnionFailureDetails provides structured details for a dispatch failure
-// and is attached to a FailedPrecondition or Unavailable gRPC status.
-type SendOnionFailureDetails struct {
-	state protoimpl.MessageState `protogen:"open.v1"`
-	// A human-readable message for logging and debugging.
-	ErrorMessage string `protobuf:"bytes,1,opt,name=error_message,json=errorMessage,proto3" json:"error_message,omitempty"`
-	// Structured detail for the dispatch failure, grouped by outcome. The
-	// gRPC status code determines the client's primary action
-	// (FailedPrecondition = definitive failure, Unavailable = retry). The
-	// detail within provides context for logging, pathfinding, and forward
-	// compatibility.
-	//
-	// Types that are valid to be assigned to FailureClass:
-	//
-	//	*SendOnionFailureDetails_DefiniteFailure
-	//	*SendOnionFailureDetails_IndefiniteFailure
-	FailureClass  isSendOnionFailureDetails_FailureClass `protobuf_oneof:"failure_class"`
-	unknownFields protoimpl.UnknownFields
-	sizeCache     protoimpl.SizeCache
+func (x *SendOnionResponse) GetOutcome() isSendOnionResponse_Outcome {
+	if x != nil {
+		return x.Outcome
+	}
+	return nil
 }
 
-func (x *SendOnionFailureDetails) Reset() {
-	*x = SendOnionFailureDetails{}
+func (x *SendOnionResponse) GetAccepted() *Accepted {
+	if x != nil {
+		if x, ok := x.Outcome.(*SendOnionResponse_Accepted); ok {
+			return x.Accepted
+		}
+	}
+	return nil
+}
+
+func (x *SendOnionResponse) GetRejected() *Rejected {
+	if x != nil {
+		if x, ok := x.Outcome.(*SendOnionResponse_Rejected); ok {
+			return x.Rejected
+		}
+	}
+	return nil
+}
+
+func (x *SendOnionResponse) GetAmbiguous() *Ambiguous {
+	if x != nil {
+		if x, ok := x.Outcome.(*SendOnionResponse_Ambiguous); ok {
+			return x.Ambiguous
+		}
+	}
+	return nil
+}
+
+type isSendOnionResponse_Outcome interface {
+	isSendOnionResponse_Outcome()
+}
+
+type SendOnionResponse_Accepted struct {
+	Accepted *Accepted `protobuf:"bytes,1,opt,name=accepted,proto3,oneof"`
+}
+
+type SendOnionResponse_Rejected struct {
+	Rejected *Rejected `protobuf:"bytes,2,opt,name=rejected,proto3,oneof"`
+}
+
+type SendOnionResponse_Ambiguous struct {
+	Ambiguous *Ambiguous `protobuf:"bytes,3,opt,name=ambiguous,proto3,oneof"`
+}
+
+func (*SendOnionResponse_Accepted) isSendOnionResponse_Outcome() {}
+
+func (*SendOnionResponse_Rejected) isSendOnionResponse_Outcome() {}
+
+func (*SendOnionResponse_Ambiguous) isSendOnionResponse_Outcome() {}
+
+// Accepted means the switch has taken ownership of this attempt. Await the
+// result with TrackOnion.
+//
+// Do NOT conclude success or failure from this message. It reports who owns
+// the attempt, not how it ended.
+type Accepted struct {
+	state protoimpl.MessageState `protogen:"open.v1"`
+	// Set when the switch already held this attempt from an earlier call,
+	// either because the attempt was already registered or because a circuit
+	// for it already existed. Required behaviour is identical either way; this
+	// is diagnostic.
+	//
+	// A circuit without a registration should not occur in correct operation.
+	// It means the attempt_id is also in use by another dispatcher, such as
+	// lnd's own router, so the result later tracked may belong to that
+	// dispatcher's HTLC. Keep attempt_ids unique.
+	AlreadyRegistered bool `protobuf:"varint,1,opt,name=already_registered,json=alreadyRegistered,proto3" json:"already_registered,omitempty"`
+	unknownFields     protoimpl.UnknownFields
+	sizeCache         protoimpl.SizeCache
+}
+
+func (x *Accepted) Reset() {
+	*x = Accepted{}
 	mi := &file_switchrpc_switch_proto_msgTypes[2]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
 
-func (x *SendOnionFailureDetails) String() string {
+func (x *Accepted) String() string {
 	return protoimpl.X.MessageStringOf(x)
 }
 
-func (*SendOnionFailureDetails) ProtoMessage() {}
+func (*Accepted) ProtoMessage() {}
 
-func (x *SendOnionFailureDetails) ProtoReflect() protoreflect.Message {
+func (x *Accepted) ProtoReflect() protoreflect.Message {
 	mi := &file_switchrpc_switch_proto_msgTypes[2]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
@@ -358,85 +381,49 @@ func (x *SendOnionFailureDetails) ProtoReflect() protoreflect.Message {
 	return mi.MessageOf(x)
 }
 
-// Deprecated: Use SendOnionFailureDetails.ProtoReflect.Descriptor instead.
-func (*SendOnionFailureDetails) Descriptor() ([]byte, []int) {
+// Deprecated: Use Accepted.ProtoReflect.Descriptor instead.
+func (*Accepted) Descriptor() ([]byte, []int) {
 	return file_switchrpc_switch_proto_rawDescGZIP(), []int{2}
 }
 
-func (x *SendOnionFailureDetails) GetErrorMessage() string {
+func (x *Accepted) GetAlreadyRegistered() bool {
 	if x != nil {
-		return x.ErrorMessage
+		return x.AlreadyRegistered
 	}
-	return ""
+	return false
 }
 
-func (x *SendOnionFailureDetails) GetFailureClass() isSendOnionFailureDetails_FailureClass {
-	if x != nil {
-		return x.FailureClass
-	}
-	return nil
-}
-
-func (x *SendOnionFailureDetails) GetDefiniteFailure() *DefiniteFailure {
-	if x != nil {
-		if x, ok := x.FailureClass.(*SendOnionFailureDetails_DefiniteFailure); ok {
-			return x.DefiniteFailure
-		}
-	}
-	return nil
-}
-
-func (x *SendOnionFailureDetails) GetIndefiniteFailure() *IndefiniteFailure {
-	if x != nil {
-		if x, ok := x.FailureClass.(*SendOnionFailureDetails_IndefiniteFailure); ok {
-			return x.IndefiniteFailure
-		}
-	}
-	return nil
-}
-
-type isSendOnionFailureDetails_FailureClass interface {
-	isSendOnionFailureDetails_FailureClass()
-}
-
-type SendOnionFailureDetails_DefiniteFailure struct {
-	DefiniteFailure *DefiniteFailure `protobuf:"bytes,2,opt,name=definite_failure,json=definiteFailure,proto3,oneof"`
-}
-
-type SendOnionFailureDetails_IndefiniteFailure struct {
-	IndefiniteFailure *IndefiniteFailure `protobuf:"bytes,3,opt,name=indefinite_failure,json=indefiniteFailure,proto3,oneof"`
-}
-
-func (*SendOnionFailureDetails_DefiniteFailure) isSendOnionFailureDetails_FailureClass() {}
-
-func (*SendOnionFailureDetails_IndefiniteFailure) isSendOnionFailureDetails_FailureClass() {}
-
-// DefiniteFailure is a guarantee that the HTLC was not and will not be
-// dispatched. The client should fail the payment attempt and may retry with a
-// new route.
-type DefiniteFailure struct {
+// Rejected means the switch declined the HTLC before taking ownership of it.
+// The HTLC provably never left this node, so no funds are at risk and the
+// caller MAY fail this attempt and try another route.
+type Rejected struct {
 	state protoimpl.MessageState `protogen:"open.v1"`
-	// A failure with a clear, unencrypted reason that occurred at our
-	// node before the HTLC was dispatched.
-	LocalFailure  *LocalFailure `protobuf:"bytes,1,opt,name=local_failure,json=localFailure,proto3" json:"local_failure,omitempty"`
+	// The BOLT #4 wire failure explaining the rejection, including any
+	// channel update, as encoded by lnwire.EncodeFailure.
+	//
+	// This is always present and always decodable. A rejection the switch
+	// cannot describe is reported as Ambiguous, because a definite verdict
+	// the caller cannot act on is worse than admitting uncertainty. The caller
+	// would have nothing to give its router and nothing to penalise with.
+	WireFailure   []byte `protobuf:"bytes,1,opt,name=wire_failure,json=wireFailure,proto3" json:"wire_failure,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
 
-func (x *DefiniteFailure) Reset() {
-	*x = DefiniteFailure{}
+func (x *Rejected) Reset() {
+	*x = Rejected{}
 	mi := &file_switchrpc_switch_proto_msgTypes[3]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
 
-func (x *DefiniteFailure) String() string {
+func (x *Rejected) String() string {
 	return protoimpl.X.MessageStringOf(x)
 }
 
-func (*DefiniteFailure) ProtoMessage() {}
+func (*Rejected) ProtoMessage() {}
 
-func (x *DefiniteFailure) ProtoReflect() protoreflect.Message {
+func (x *Rejected) ProtoReflect() protoreflect.Message {
 	mi := &file_switchrpc_switch_proto_msgTypes[3]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
@@ -448,46 +435,52 @@ func (x *DefiniteFailure) ProtoReflect() protoreflect.Message {
 	return mi.MessageOf(x)
 }
 
-// Deprecated: Use DefiniteFailure.ProtoReflect.Descriptor instead.
-func (*DefiniteFailure) Descriptor() ([]byte, []int) {
+// Deprecated: Use Rejected.ProtoReflect.Descriptor instead.
+func (*Rejected) Descriptor() ([]byte, []int) {
 	return file_switchrpc_switch_proto_rawDescGZIP(), []int{3}
 }
 
-func (x *DefiniteFailure) GetLocalFailure() *LocalFailure {
+func (x *Rejected) GetWireFailure() []byte {
 	if x != nil {
-		return x.LocalFailure
+		return x.WireFailure
 	}
 	return nil
 }
 
-// IndefiniteFailure indicates that the state of the HTLC dispatch is unknown.
-// This could be due to a transport-level failure or a server-side issue where
-// the idempotency record may or may not have been written. The client MUST
-// retry the exact same request to resolve the ambiguity. Clients can optionally
-// use this code to implement more nuanced behavior, such as logging or emitting
-// more detailed metrics.
-type IndefiniteFailure struct {
+// Ambiguous means the state of the dispatch is unknown. The switch may or may
+// not hold the attempt.
+//
+// The caller MUST retry the same attempt_id until it receives Accepted or
+// Rejected, and MUST NOT record a terminal outcome for the attempt in the
+// meantime. Retrying is safe because the switch recognises an attempt it
+// already holds and answers Accepted rather than dispatching a second HTLC.
+type Ambiguous struct {
 	state protoimpl.MessageState `protogen:"open.v1"`
-	// A stable, machine-readable code for the indefinite failure.
-	Reason        IndefiniteFailureCode `protobuf:"varint,1,opt,name=reason,proto3,enum=switchrpc.IndefiniteFailureCode" json:"reason,omitempty"`
+	// A human-readable reason that can be used for logging and metrics.
+	//
+	// Behaviour MUST NOT branch on this value. Every ambiguous outcome
+	// requires the same action, and a caller that treats one reason
+	// differently from another will eventually treat one of them unsafely.
+	// It is free text rather than an enum for exactly that reason.
+	Reason        string `protobuf:"bytes,1,opt,name=reason,proto3" json:"reason,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
 
-func (x *IndefiniteFailure) Reset() {
-	*x = IndefiniteFailure{}
+func (x *Ambiguous) Reset() {
+	*x = Ambiguous{}
 	mi := &file_switchrpc_switch_proto_msgTypes[4]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
 
-func (x *IndefiniteFailure) String() string {
+func (x *Ambiguous) String() string {
 	return protoimpl.X.MessageStringOf(x)
 }
 
-func (*IndefiniteFailure) ProtoMessage() {}
+func (*Ambiguous) ProtoMessage() {}
 
-func (x *IndefiniteFailure) ProtoReflect() protoreflect.Message {
+func (x *Ambiguous) ProtoReflect() protoreflect.Message {
 	mi := &file_switchrpc_switch_proto_msgTypes[4]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
@@ -499,16 +492,16 @@ func (x *IndefiniteFailure) ProtoReflect() protoreflect.Message {
 	return mi.MessageOf(x)
 }
 
-// Deprecated: Use IndefiniteFailure.ProtoReflect.Descriptor instead.
-func (*IndefiniteFailure) Descriptor() ([]byte, []int) {
+// Deprecated: Use Ambiguous.ProtoReflect.Descriptor instead.
+func (*Ambiguous) Descriptor() ([]byte, []int) {
 	return file_switchrpc_switch_proto_rawDescGZIP(), []int{4}
 }
 
-func (x *IndefiniteFailure) GetReason() IndefiniteFailureCode {
+func (x *Ambiguous) GetReason() string {
 	if x != nil {
 		return x.Reason
 	}
-	return IndefiniteFailureCode_REASON_UNKNOWN
+	return ""
 }
 
 type TrackOnionRequest struct {
@@ -587,6 +580,15 @@ func (x *TrackOnionRequest) GetHopPubkeys() [][]byte {
 	return nil
 }
 
+// TrackOnionResponse reports how a dispatched attempt ended. A preimage means
+// the HTLC settled. failure_details means the HTLC failed and is no longer in
+// flight, so the caller MAY fail the attempt.
+//
+// NOTE: A response with no result set, or a result the caller does not
+// recognise, means the attempt may still be live. The caller MUST keep
+// tracking it and MUST NOT treat it as failed. A gRPC error means the call
+// failed, not the attempt, with one exception. NotFound means the server holds
+// no record for this attempt_id, and retrying will not change that.
 type TrackOnionResponse struct {
 	state protoimpl.MessageState `protogen:"open.v1"`
 	// The final result of the payment attempt, which is either a preimage
@@ -842,6 +844,9 @@ func (*FailureDetails_SwitchError) isFailureDetails_Failure() {}
 // ForwardingFailure represents an HTLC failure that occurred at a remote node
 // in the payment route. The onion error was successfully decrypted, revealing
 // the failing hop.
+//
+// An empty wire_message means the failing hop at failure_source_index is
+// known but its failure message could not be decoded.
 type ForwardingFailure struct {
 	state protoimpl.MessageState `protogen:"open.v1"`
 	// failure_source_index is the 0-based index of the node within the payment
@@ -1397,17 +1402,18 @@ const file_switchrpc_switch_proto_rawDesc = "" +
 	"\x03key\x18\x01 \x01(\x04R\x03key\x12\x14\n" +
 	"\x05value\x18\x02 \x01(\fR\x05value:\x028\x01B\x11\n" +
 	"\x0f_blinding_pointB\r\n" +
-	"\v_extra_data\"\x13\n" +
-	"\x11SendOnionResponse\"\xe7\x01\n" +
-	"\x17SendOnionFailureDetails\x12#\n" +
-	"\rerror_message\x18\x01 \x01(\tR\ferrorMessage\x12G\n" +
-	"\x10definite_failure\x18\x02 \x01(\v2\x1a.switchrpc.DefiniteFailureH\x00R\x0fdefiniteFailure\x12M\n" +
-	"\x12indefinite_failure\x18\x03 \x01(\v2\x1c.switchrpc.IndefiniteFailureH\x00R\x11indefiniteFailureB\x0f\n" +
-	"\rfailure_class\"O\n" +
-	"\x0fDefiniteFailure\x12<\n" +
-	"\rlocal_failure\x18\x01 \x01(\v2\x17.switchrpc.LocalFailureR\flocalFailure\"M\n" +
-	"\x11IndefiniteFailure\x128\n" +
-	"\x06reason\x18\x01 \x01(\x0e2 .switchrpc.IndefiniteFailureCodeR\x06reason\"\xac\x01\n" +
+	"\v_extra_data\"\xba\x01\n" +
+	"\x11SendOnionResponse\x121\n" +
+	"\baccepted\x18\x01 \x01(\v2\x13.switchrpc.AcceptedH\x00R\baccepted\x121\n" +
+	"\brejected\x18\x02 \x01(\v2\x13.switchrpc.RejectedH\x00R\brejected\x124\n" +
+	"\tambiguous\x18\x03 \x01(\v2\x14.switchrpc.AmbiguousH\x00R\tambiguousB\t\n" +
+	"\aoutcome\"9\n" +
+	"\bAccepted\x12-\n" +
+	"\x12already_registered\x18\x01 \x01(\bR\x11alreadyRegistered\"-\n" +
+	"\bRejected\x12!\n" +
+	"\fwire_failure\x18\x01 \x01(\fR\vwireFailure\"#\n" +
+	"\tAmbiguous\x12\x16\n" +
+	"\x06reason\x18\x01 \x01(\tR\x06reason\"\xac\x01\n" +
 	"\x11TrackOnionRequest\x12!\n" +
 	"\fpayment_hash\x18\x01 \x01(\fR\vpaymentHash\x12\x1d\n" +
 	"\n" +
@@ -1459,11 +1465,7 @@ const file_switchrpc_switch_proto_rawDesc = "" +
 	"attempt_id\x18\x01 \x01(\x04R\tattemptId\x128\n" +
 	"\x06status\x18\x02 \x01(\x0e2 .switchrpc.AttemptDeletionStatusR\x06status\"\x1c\n" +
 	"\x1aDisableRemoteRouterRequest\"\x1d\n" +
-	"\x1bDisableRemoteRouterResponse*U\n" +
-	"\x15IndefiniteFailureCode\x12\x12\n" +
-	"\x0eREASON_UNKNOWN\x10\x00\x12\x12\n" +
-	"\x0eSWITCH_EXITING\x10\x01\x12\x14\n" +
-	"\x10HTLC_INIT_FAILED\x10\x02*k\n" +
+	"\x1bDisableRemoteRouterResponse*k\n" +
 	"\x15AttemptDeletionStatus\x12\x0f\n" +
 	"\vDELETION_OK\x10\x00\x12\x14\n" +
 	"\x10DELETION_PENDING\x10\x01\x12\x16\n" +
@@ -1490,62 +1492,60 @@ func file_switchrpc_switch_proto_rawDescGZIP() []byte {
 	return file_switchrpc_switch_proto_rawDescData
 }
 
-var file_switchrpc_switch_proto_enumTypes = make([]protoimpl.EnumInfo, 2)
+var file_switchrpc_switch_proto_enumTypes = make([]protoimpl.EnumInfo, 1)
 var file_switchrpc_switch_proto_msgTypes = make([]protoimpl.MessageInfo, 20)
 var file_switchrpc_switch_proto_goTypes = []any{
-	(IndefiniteFailureCode)(0),          // 0: switchrpc.IndefiniteFailureCode
-	(AttemptDeletionStatus)(0),          // 1: switchrpc.AttemptDeletionStatus
-	(*SendOnionRequest)(nil),            // 2: switchrpc.SendOnionRequest
-	(*SendOnionResponse)(nil),           // 3: switchrpc.SendOnionResponse
-	(*SendOnionFailureDetails)(nil),     // 4: switchrpc.SendOnionFailureDetails
-	(*DefiniteFailure)(nil),             // 5: switchrpc.DefiniteFailure
-	(*IndefiniteFailure)(nil),           // 6: switchrpc.IndefiniteFailure
-	(*TrackOnionRequest)(nil),           // 7: switchrpc.TrackOnionRequest
-	(*TrackOnionResponse)(nil),          // 8: switchrpc.TrackOnionResponse
-	(*FailureDetails)(nil),              // 9: switchrpc.FailureDetails
-	(*ForwardingFailure)(nil),           // 10: switchrpc.ForwardingFailure
-	(*LocalFailure)(nil),                // 11: switchrpc.LocalFailure
-	(*SwitchError)(nil),                 // 12: switchrpc.SwitchError
-	(*UnreadableFailure)(nil),           // 13: switchrpc.UnreadableFailure
-	(*BuildOnionRequest)(nil),           // 14: switchrpc.BuildOnionRequest
-	(*BuildOnionResponse)(nil),          // 15: switchrpc.BuildOnionResponse
-	(*DeleteAttemptsRequest)(nil),       // 16: switchrpc.DeleteAttemptsRequest
-	(*DeleteAttemptsResponse)(nil),      // 17: switchrpc.DeleteAttemptsResponse
-	(*AttemptDeletionResult)(nil),       // 18: switchrpc.AttemptDeletionResult
-	(*DisableRemoteRouterRequest)(nil),  // 19: switchrpc.DisableRemoteRouterRequest
-	(*DisableRemoteRouterResponse)(nil), // 20: switchrpc.DisableRemoteRouterResponse
-	nil,                                 // 21: switchrpc.SendOnionRequest.CustomRecordsEntry
-	(*lnrpc.Route)(nil),                 // 22: lnrpc.Route
+	(AttemptDeletionStatus)(0),          // 0: switchrpc.AttemptDeletionStatus
+	(*SendOnionRequest)(nil),            // 1: switchrpc.SendOnionRequest
+	(*SendOnionResponse)(nil),           // 2: switchrpc.SendOnionResponse
+	(*Accepted)(nil),                    // 3: switchrpc.Accepted
+	(*Rejected)(nil),                    // 4: switchrpc.Rejected
+	(*Ambiguous)(nil),                   // 5: switchrpc.Ambiguous
+	(*TrackOnionRequest)(nil),           // 6: switchrpc.TrackOnionRequest
+	(*TrackOnionResponse)(nil),          // 7: switchrpc.TrackOnionResponse
+	(*FailureDetails)(nil),              // 8: switchrpc.FailureDetails
+	(*ForwardingFailure)(nil),           // 9: switchrpc.ForwardingFailure
+	(*LocalFailure)(nil),                // 10: switchrpc.LocalFailure
+	(*SwitchError)(nil),                 // 11: switchrpc.SwitchError
+	(*UnreadableFailure)(nil),           // 12: switchrpc.UnreadableFailure
+	(*BuildOnionRequest)(nil),           // 13: switchrpc.BuildOnionRequest
+	(*BuildOnionResponse)(nil),          // 14: switchrpc.BuildOnionResponse
+	(*DeleteAttemptsRequest)(nil),       // 15: switchrpc.DeleteAttemptsRequest
+	(*DeleteAttemptsResponse)(nil),      // 16: switchrpc.DeleteAttemptsResponse
+	(*AttemptDeletionResult)(nil),       // 17: switchrpc.AttemptDeletionResult
+	(*DisableRemoteRouterRequest)(nil),  // 18: switchrpc.DisableRemoteRouterRequest
+	(*DisableRemoteRouterResponse)(nil), // 19: switchrpc.DisableRemoteRouterResponse
+	nil,                                 // 20: switchrpc.SendOnionRequest.CustomRecordsEntry
+	(*lnrpc.Route)(nil),                 // 21: lnrpc.Route
 }
 var file_switchrpc_switch_proto_depIdxs = []int32{
-	21, // 0: switchrpc.SendOnionRequest.custom_records:type_name -> switchrpc.SendOnionRequest.CustomRecordsEntry
-	5,  // 1: switchrpc.SendOnionFailureDetails.definite_failure:type_name -> switchrpc.DefiniteFailure
-	6,  // 2: switchrpc.SendOnionFailureDetails.indefinite_failure:type_name -> switchrpc.IndefiniteFailure
-	11, // 3: switchrpc.DefiniteFailure.local_failure:type_name -> switchrpc.LocalFailure
-	0,  // 4: switchrpc.IndefiniteFailure.reason:type_name -> switchrpc.IndefiniteFailureCode
-	9,  // 5: switchrpc.TrackOnionResponse.failure_details:type_name -> switchrpc.FailureDetails
-	11, // 6: switchrpc.FailureDetails.local_failure:type_name -> switchrpc.LocalFailure
-	10, // 7: switchrpc.FailureDetails.forwarding_failure:type_name -> switchrpc.ForwardingFailure
-	13, // 8: switchrpc.FailureDetails.unreadable_failure:type_name -> switchrpc.UnreadableFailure
-	12, // 9: switchrpc.FailureDetails.switch_error:type_name -> switchrpc.SwitchError
-	22, // 10: switchrpc.BuildOnionRequest.route:type_name -> lnrpc.Route
-	18, // 11: switchrpc.DeleteAttemptsResponse.results:type_name -> switchrpc.AttemptDeletionResult
-	1,  // 12: switchrpc.AttemptDeletionResult.status:type_name -> switchrpc.AttemptDeletionStatus
-	2,  // 13: switchrpc.Switch.SendOnion:input_type -> switchrpc.SendOnionRequest
-	7,  // 14: switchrpc.Switch.TrackOnion:input_type -> switchrpc.TrackOnionRequest
-	14, // 15: switchrpc.Switch.BuildOnion:input_type -> switchrpc.BuildOnionRequest
-	16, // 16: switchrpc.Switch.DeleteAttempts:input_type -> switchrpc.DeleteAttemptsRequest
-	19, // 17: switchrpc.Switch.DisableRemoteRouter:input_type -> switchrpc.DisableRemoteRouterRequest
-	3,  // 18: switchrpc.Switch.SendOnion:output_type -> switchrpc.SendOnionResponse
-	8,  // 19: switchrpc.Switch.TrackOnion:output_type -> switchrpc.TrackOnionResponse
-	15, // 20: switchrpc.Switch.BuildOnion:output_type -> switchrpc.BuildOnionResponse
-	17, // 21: switchrpc.Switch.DeleteAttempts:output_type -> switchrpc.DeleteAttemptsResponse
-	20, // 22: switchrpc.Switch.DisableRemoteRouter:output_type -> switchrpc.DisableRemoteRouterResponse
-	18, // [18:23] is the sub-list for method output_type
-	13, // [13:18] is the sub-list for method input_type
-	13, // [13:13] is the sub-list for extension type_name
-	13, // [13:13] is the sub-list for extension extendee
-	0,  // [0:13] is the sub-list for field type_name
+	20, // 0: switchrpc.SendOnionRequest.custom_records:type_name -> switchrpc.SendOnionRequest.CustomRecordsEntry
+	3,  // 1: switchrpc.SendOnionResponse.accepted:type_name -> switchrpc.Accepted
+	4,  // 2: switchrpc.SendOnionResponse.rejected:type_name -> switchrpc.Rejected
+	5,  // 3: switchrpc.SendOnionResponse.ambiguous:type_name -> switchrpc.Ambiguous
+	8,  // 4: switchrpc.TrackOnionResponse.failure_details:type_name -> switchrpc.FailureDetails
+	10, // 5: switchrpc.FailureDetails.local_failure:type_name -> switchrpc.LocalFailure
+	9,  // 6: switchrpc.FailureDetails.forwarding_failure:type_name -> switchrpc.ForwardingFailure
+	12, // 7: switchrpc.FailureDetails.unreadable_failure:type_name -> switchrpc.UnreadableFailure
+	11, // 8: switchrpc.FailureDetails.switch_error:type_name -> switchrpc.SwitchError
+	21, // 9: switchrpc.BuildOnionRequest.route:type_name -> lnrpc.Route
+	17, // 10: switchrpc.DeleteAttemptsResponse.results:type_name -> switchrpc.AttemptDeletionResult
+	0,  // 11: switchrpc.AttemptDeletionResult.status:type_name -> switchrpc.AttemptDeletionStatus
+	1,  // 12: switchrpc.Switch.SendOnion:input_type -> switchrpc.SendOnionRequest
+	6,  // 13: switchrpc.Switch.TrackOnion:input_type -> switchrpc.TrackOnionRequest
+	13, // 14: switchrpc.Switch.BuildOnion:input_type -> switchrpc.BuildOnionRequest
+	15, // 15: switchrpc.Switch.DeleteAttempts:input_type -> switchrpc.DeleteAttemptsRequest
+	18, // 16: switchrpc.Switch.DisableRemoteRouter:input_type -> switchrpc.DisableRemoteRouterRequest
+	2,  // 17: switchrpc.Switch.SendOnion:output_type -> switchrpc.SendOnionResponse
+	7,  // 18: switchrpc.Switch.TrackOnion:output_type -> switchrpc.TrackOnionResponse
+	14, // 19: switchrpc.Switch.BuildOnion:output_type -> switchrpc.BuildOnionResponse
+	16, // 20: switchrpc.Switch.DeleteAttempts:output_type -> switchrpc.DeleteAttemptsResponse
+	19, // 21: switchrpc.Switch.DisableRemoteRouter:output_type -> switchrpc.DisableRemoteRouterResponse
+	17, // [17:22] is the sub-list for method output_type
+	12, // [12:17] is the sub-list for method input_type
+	12, // [12:12] is the sub-list for extension type_name
+	12, // [12:12] is the sub-list for extension extendee
+	0,  // [0:12] is the sub-list for field type_name
 }
 
 func init() { file_switchrpc_switch_proto_init() }
@@ -1554,9 +1554,10 @@ func file_switchrpc_switch_proto_init() {
 		return
 	}
 	file_switchrpc_switch_proto_msgTypes[0].OneofWrappers = []any{}
-	file_switchrpc_switch_proto_msgTypes[2].OneofWrappers = []any{
-		(*SendOnionFailureDetails_DefiniteFailure)(nil),
-		(*SendOnionFailureDetails_IndefiniteFailure)(nil),
+	file_switchrpc_switch_proto_msgTypes[1].OneofWrappers = []any{
+		(*SendOnionResponse_Accepted)(nil),
+		(*SendOnionResponse_Rejected)(nil),
+		(*SendOnionResponse_Ambiguous)(nil),
 	}
 	file_switchrpc_switch_proto_msgTypes[5].OneofWrappers = []any{}
 	file_switchrpc_switch_proto_msgTypes[6].OneofWrappers = []any{
@@ -1576,7 +1577,7 @@ func file_switchrpc_switch_proto_init() {
 		File: protoimpl.DescBuilder{
 			GoPackagePath: reflect.TypeOf(x{}).PkgPath(),
 			RawDescriptor: unsafe.Slice(unsafe.StringData(file_switchrpc_switch_proto_rawDesc), len(file_switchrpc_switch_proto_rawDesc)),
-			NumEnums:      2,
+			NumEnums:      1,
 			NumMessages:   20,
 			NumExtensions: 0,
 			NumServices:   1,

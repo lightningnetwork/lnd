@@ -1245,3 +1245,143 @@ func TestMarkerCollision(t *testing.T) {
 		"marked for external lifecycle management",
 	)
 }
+
+// numSubscribers returns the number of channels registered for the attempt.
+func numSubscribers(store *networkResultStore, attemptID uint64) int {
+	store.resultsMtx.Lock()
+	defer store.resultsMtx.Unlock()
+
+	return len(store.results[attemptID])
+}
+
+// TestNetworkResultStoreUnsubscribe asserts that an abandoned subscriber is
+// removed from the store, that removal is a no-op once the subscriber has
+// been notified, and that remaining subscribers still receive the result.
+func TestNetworkResultStoreUnsubscribe(t *testing.T) {
+	t.Parallel()
+
+	db := channeldb.OpenForTesting(t, t.TempDir())
+	store, err := newNetworkResultStore(db, false)
+	require.NoError(t, err)
+
+	const id = 1
+	require.NoError(t, store.InitAttempt(id))
+
+	abandoned, err := store.SubscribeResult(id)
+	require.NoError(t, err)
+	active, err := store.SubscribeResult(id)
+	require.NoError(t, err)
+	require.Equal(t, 2, numSubscribers(store, id))
+
+	// Removing the abandoned subscriber leaves only the active one.
+	store.UnsubscribeResult(id, abandoned)
+	require.Equal(t, 1, numSubscribers(store, id))
+	store.resultsMtx.Lock()
+	remaining := (<-chan *networkResult)(store.results[id][0])
+	require.True(t, remaining == active)
+	store.resultsMtx.Unlock()
+
+	// Removing it again is a no-op.
+	store.UnsubscribeResult(id, abandoned)
+	require.Equal(t, 1, numSubscribers(store, id))
+
+	// Removing the last subscriber deletes the map entry.
+	store.UnsubscribeResult(id, active)
+	store.resultsMtx.Lock()
+	_, ok := store.results[id]
+	store.resultsMtx.Unlock()
+	require.False(t, ok)
+
+	// A fresh subscriber still receives the result, while the removed
+	// ones do not.
+	active, err = store.SubscribeResult(id)
+	require.NoError(t, err)
+
+	result := &networkResult{
+		msg:          &lnwire.UpdateFulfillHTLC{},
+		unencrypted:  true,
+		isResolution: true,
+	}
+	require.NoError(t, store.StoreResult(id, result))
+
+	select {
+	case <-active:
+	case <-time.After(time.Second):
+		t.Fatalf("active subscriber did not receive result")
+	}
+	require.Empty(t, abandoned)
+
+	// Unsubscribing after delivery is a no-op.
+	store.UnsubscribeResult(id, active)
+	require.Zero(t, numSubscribers(store, id))
+}
+
+// TestNetworkResultStoreUnsubscribeRace races subscriber removal against
+// result delivery and asserts that every subscriber that was not removed
+// receives the result and that delivery never blocks.
+func TestNetworkResultStoreUnsubscribeRace(t *testing.T) {
+	t.Parallel()
+
+	db := channeldb.OpenForTesting(t, t.TempDir())
+	store, err := newNetworkResultStore(db, false)
+	require.NoError(t, err)
+
+	const (
+		id      = 7
+		numSubs = 50
+	)
+	require.NoError(t, store.InitAttempt(id))
+
+	subs := make([]<-chan *networkResult, numSubs)
+	for i := range subs {
+		subs[i], err = store.SubscribeResult(id)
+		require.NoError(t, err)
+	}
+
+	result := &networkResult{
+		msg:          &lnwire.UpdateFulfillHTLC{},
+		unencrypted:  true,
+		isResolution: true,
+	}
+
+	// Remove every even subscriber while the result is stored. A shared
+	// start signal releases all goroutines together so the removals and
+	// the delivery actually overlap.
+	var (
+		wg    sync.WaitGroup
+		start = make(chan struct{})
+	)
+	for i := 0; i < numSubs; i += 2 {
+		wg.Add(1)
+		go func(sub <-chan *networkResult) {
+			defer wg.Done()
+			<-start
+			store.UnsubscribeResult(id, sub)
+		}(subs[i])
+	}
+
+	stored := make(chan error, 1)
+	go func() {
+		<-start
+		stored <- store.StoreResult(id, result)
+	}()
+
+	close(start)
+	wg.Wait()
+	select {
+	case err := <-stored:
+		require.NoError(t, err)
+	case <-time.After(5 * time.Second):
+		t.Fatalf("StoreResult blocked")
+	}
+
+	// Odd subscribers were never removed and must see the result.
+	for i := 1; i < numSubs; i += 2 {
+		select {
+		case <-subs[i]:
+		case <-time.After(time.Second):
+			t.Fatalf("subscriber %d did not receive result", i)
+		}
+	}
+	require.Zero(t, numSubscribers(store, id))
+}

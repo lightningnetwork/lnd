@@ -15,6 +15,10 @@ var (
 	// the route data.
 	ErrSCIDEmpty = errors.New("short channel ID empty")
 
+	// ErrSCIDNotResolved is returned when a next-hop short channel ID is
+	// not an announced channel or a local alias of an active channel.
+	ErrSCIDNotResolved = errors.New("short channel ID not resolved")
+
 	// ErrSamePeerCycle is returned when a forwarding onion message
 	// would be sent back to the same peer it was received from.
 	ErrSamePeerCycle = errors.New("onion message cycle: next " +

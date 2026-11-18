@@ -77,6 +77,14 @@ type BoltBackendConfig struct {
 	// ReadOnly specifies if the database should be opened in read-only
 	// mode.
 	ReadOnly bool
+
+	// MmapPopulate specifies if the database file should be prefaulted
+	// when it is memory mapped: the kernel reads the whole file into the
+	// page cache sequentially up front, rather than it being faulted in
+	// page by page as it is accessed. This is only useful if the file fits
+	// into the available memory. It is only supported on Linux and ignored
+	// on other platforms.
+	MmapPopulate bool
 }
 
 // GetBoltBackend opens (or creates if doesn't exits) a bbolt backed database
@@ -92,10 +100,7 @@ func GetBoltBackend(cfg *BoltBackendConfig) (Backend, error) {
 			}
 		}
 
-		return Create(
-			BoltBackendName, dbFilePath,
-			cfg.NoFreelistSync, cfg.DBTimeout, cfg.ReadOnly,
-		)
+		return Create(BoltBackendName, boltArgs(cfg, dbFilePath)...)
 	}
 
 	// This is an existing database. We might want to compact it on startup
@@ -106,10 +111,33 @@ func GetBoltBackend(cfg *BoltBackendConfig) (Backend, error) {
 		}
 	}
 
-	return Open(
-		BoltBackendName, dbFilePath,
-		cfg.NoFreelistSync, cfg.DBTimeout, cfg.ReadOnly,
-	)
+	return Open(BoltBackendName, boltArgs(cfg, dbFilePath)...)
+}
+
+// boltArgs returns the arguments the bolt driver expects to create or open
+// the database file at the given path.
+func boltArgs(cfg *BoltBackendConfig, dbFilePath string) []interface{} {
+	args := []interface{}{
+		dbFilePath, cfg.NoFreelistSync, cfg.DBTimeout, cfg.ReadOnly,
+	}
+
+	// The mmap flags are an optional argument of the driver, so we only
+	// pass them if there are any to set.
+	if flags := mmapFlags(cfg.MmapPopulate); flags != 0 {
+		args = append(args, flags)
+	}
+
+	return args
+}
+
+// mmapFlags returns the additional flags to use when memory mapping a bolt
+// database file.
+func mmapFlags(populate bool) int {
+	if !populate {
+		return 0
+	}
+
+	return mmapPopulateFlag
 }
 
 // compactAndSwap will attempt to write a new temporary DB file to disk with
@@ -178,6 +206,7 @@ func compactAndSwap(cfg *BoltBackendConfig) error {
 		srcPath:   sourceFilePath,
 		dstPath:   tempDestFilePath,
 		dbTimeout: cfg.DBTimeout,
+		mmapFlags: mmapFlags(cfg.MmapPopulate),
 	}
 	initialSize, newSize, err := c.execute()
 	if err != nil {

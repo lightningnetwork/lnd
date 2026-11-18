@@ -39,8 +39,6 @@ github.com/btcsuite/btclog v1.0.0/go.mod h1:w7xnGOhwT3lmrS4H3b/D1XAXxvh+tbhUm8xe
 github.com/btcsuite/btclog/v2 v2.0.1-0.20250602222548-9967d19bb084 h1:y3bvkt8ki0KX35eUEU8XShRHusz1S+55QwXUTmxn888=
 github.com/btcsuite/btclog/v2 v2.0.1-0.20250602222548-9967d19bb084/go.mod h1:XItGUfVOxotJL8kkuk2Hj3EVow5KCugXl3wWfQ6K0AE=
 github.com/btcsuite/btcutil v0.0.0-20190425235716-9e5f4b9a998d/go.mod h1:+5NJ2+qvTyV9exUAL/rxXi3DcLg2Ts+ymUAY5y4NvMg=
-github.com/btcsuite/btcwallet/walletdb v1.6.0 h1:Yund5XbdqFxNW7+R2Sxs02bMC5fMrmORj4GN8MV55no=
-github.com/btcsuite/btcwallet/walletdb v1.6.0/go.mod h1:q9xif0Csp52GVb3l252BbHCuyiCnuEbrPWu/HAsvaYc=
 github.com/btcsuite/go-socks v0.0.0-20170105172521-4720035b7bfd/go.mod h1:HHNXQzUsZCxOoE+CPiyCTO6x34Zs86zZUiwtpXoGdtg=
 github.com/btcsuite/goleveldb v0.0.0-20160330041536-7834afc9e8cd/go.mod h1:F+uVaaLLH7j4eDXPRvw78tMflu7Ie2bzYOH4Y8rRKBY=
 github.com/btcsuite/goleveldb v1.0.0/go.mod h1:QiK9vBlgftBg6rWQIj6wFzbPfRjiykIEhBH4obrXJ/I=
@@ -78,6 +76,8 @@ github.com/dhui/dktest v0.4.0 h1:z05UmuXZHO/bgj/ds2bGMBu8FI4WA+Ag/m3ghL+om7M=
 github.com/dhui/dktest v0.4.0/go.mod h1:v/Dbz1LgCBOi2Uki2nUqLBGa83hWBGFMu5MrgMDCc78=
 github.com/distribution/reference v0.6.0 h1:0IXCQ5g4/QMHHkarYzh5l+u8T3t73zM5QvfrDyIgxBk=
 github.com/distribution/reference v0.6.0/go.mod h1:BbU0aIcezP1/5jX/8MP0YiH4SdvB5Y4f/wlDRiLyi3E=
+github.com/djkazic/btcwallet/walletdb v1.7.1-0.20261116215800-aaf6918d545f h1:anGcRfH5VMS/AOGd53ONwclCYIkefBAcAkkFe8HVZnE=
+github.com/djkazic/btcwallet/walletdb v1.7.1-0.20261116215800-aaf6918d545f/go.mod h1:6PIedFjOYs/ok2tz+ItDrGB6uXt3DXaDPfuqg0OK/H0=
 github.com/docker/cli v28.1.1+incompatible h1:eyUemzeI45DY7eDPuwUcmDyDj1pM98oD5MdSpiItp8k=
 github.com/docker/cli v28.1.1+incompatible/go.mod h1:JLrzqnKDaYBop7H2jaqPtU4hHvMKP+vjCwu2uszcLI8=
 github.com/docker/docker v28.1.1+incompatible h1:49M11BFLsVO1gxY9UX9p/zwkE/rswggs8AdFmXQw51I=

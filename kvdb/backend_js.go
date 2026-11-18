@@ -39,6 +39,14 @@ type BoltBackendConfig struct {
 	// ReadOnly specifies if the database should be opened in read-only
 	// mode.
 	ReadOnly bool
+
+	// MmapPopulate specifies if the database file should be prefaulted
+	// when it is memory mapped: the kernel reads the whole file into the
+	// page cache sequentially up front, rather than it being faulted in
+	// page by page as it is accessed. This is only useful if the file fits
+	// into the available memory. It is only supported on Linux and ignored
+	// on other platforms.
+	MmapPopulate bool
 }
 
 // GetBoltBackend opens (or creates if doesn't exits) a bbolt backed database

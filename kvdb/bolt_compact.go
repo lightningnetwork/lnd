@@ -46,6 +46,10 @@ type compacter struct {
 
 	// dbTimeout specifies the timeout value used when opening the db.
 	dbTimeout time.Duration
+
+	// mmapFlags are additional flags to use when memory mapping the source
+	// database, which is read in full during the compaction.
+	mmapFlags int
 }
 
 // execute opens the source and destination databases and then compacts the
@@ -86,8 +90,9 @@ func (cmd *compacter) execute() (int64, int64, error) {
 	// Open source database. We open it in read only mode to avoid (and fix)
 	// possible freelist sync problems.
 	src, err := bbolt.Open(cmd.srcPath, 0444, &bbolt.Options{
-		ReadOnly: true,
-		Timeout:  cmd.dbTimeout,
+		ReadOnly:  true,
+		Timeout:   cmd.dbTimeout,
+		MmapFlags: cmd.mmapFlags,
 	})
 	if err != nil {
 		return 0, 0, fmt.Errorf("error opening source database: %w",

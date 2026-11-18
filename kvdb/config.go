@@ -34,6 +34,8 @@ const (
 )
 
 // BoltConfig holds bolt configuration.
+//
+//nolint:ll
 type BoltConfig struct {
 	NoFreelistSync bool `long:"nofreelistsync" description:"Whether the databases used within lnd should sync their freelist to disk. This is set to true by default, meaning we don't sync the free-list resulting in improved memory performance during operation, but with an increase in startup time."`
 
@@ -42,4 +44,6 @@ type BoltConfig struct {
 	AutoCompactMinAge time.Duration `long:"auto-compact-min-age" description:"How long ago the last compaction of a database file must be for it to be considered for auto compaction again. Can be set to 0 to compact on every startup."`
 
 	DBTimeout time.Duration `long:"dbtimeout" description:"Specify the timeout value used when opening the database."`
+
+	MmapPopulate bool `long:"mmap-populate" description:"Whether the database files should be prefaulted into memory when they are opened, by memory mapping them with MAP_POPULATE. The kernel then reads each file sequentially up front, which can considerably speed up startup on storage with a high per-request latency such as network volumes. This is only useful if the database files fit into the available memory. Only supported on Linux, ignored on other platforms."`
 }

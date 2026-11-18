@@ -229,6 +229,7 @@ func NewBoltBackendCreator(active bool, dbPath,
 			AutoCompact:       boltCfg.AutoCompact,
 			AutoCompactMinAge: boltCfg.AutoCompactMinAge,
 			DBTimeout:         boltCfg.DBTimeout,
+			MmapPopulate:      boltCfg.MmapPopulate,
 		}
 
 		db, err := kvdb.GetBoltBackend(cfg)

@@ -4,6 +4,7 @@ import (
 	"testing"
 
 	"github.com/btcsuite/btcwallet/walletdb"
+	"github.com/stretchr/testify/require"
 )
 
 func TestBolt(t *testing.T) {
@@ -92,4 +93,55 @@ func TestBolt(t *testing.T) {
 			test.test(t, f.NewBackend())
 		})
 	}
+}
+
+// TestBoltMmapPopulate asserts that a bolt backend can be created, written to
+// and opened again with the mmap populate option set.
+func TestBoltMmapPopulate(t *testing.T) {
+	t.Parallel()
+
+	var (
+		bucket = []byte("bucket")
+		key    = []byte("key")
+		value  = []byte("value")
+	)
+
+	cfg := &BoltBackendConfig{
+		DBPath:         t.TempDir(),
+		DBFileName:     "test.db",
+		NoFreelistSync: true,
+		DBTimeout:      DefaultDBTimeout,
+		MmapPopulate:   true,
+	}
+
+	// The first call creates the database file.
+	db, err := GetBoltBackend(cfg)
+	require.NoError(t, err)
+
+	err = Update(db, func(tx RwTx) error {
+		b, err := tx.CreateTopLevelBucket(bucket)
+		if err != nil {
+			return err
+		}
+
+		return b.Put(key, value)
+	}, func() {})
+	require.NoError(t, err)
+	require.NoError(t, db.Close())
+
+	// The second call opens the existing database file, after compacting
+	// it first.
+	cfg.AutoCompact = true
+	db, err = GetBoltBackend(cfg)
+	require.NoError(t, err)
+	t.Cleanup(func() {
+		require.NoError(t, db.Close())
+	})
+
+	err = View(db, func(tx RTx) error {
+		require.Equal(t, value, tx.ReadBucket(bucket).Get(key))
+
+		return nil
+	}, func() {})
+	require.NoError(t, err)
 }

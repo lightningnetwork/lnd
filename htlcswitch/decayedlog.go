@@ -48,6 +48,7 @@ func NewBoltBackendCreator(dbPath,
 			AutoCompact:       boltCfg.AutoCompact,
 			AutoCompactMinAge: boltCfg.AutoCompactMinAge,
 			DBTimeout:         boltCfg.DBTimeout,
+			MmapPopulate:      boltCfg.MmapPopulate,
 		}
 
 		// Use default path for log database.

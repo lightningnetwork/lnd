@@ -123,8 +123,54 @@ func TestDVarBytesDeclaredLength(t *testing.T) {
 	err = tlv.DVarBytes(
 		bytes.NewReader(nil), &decoded, &buf, math.MaxUint64,
 	)
-	require.ErrorIs(t, err, tlv.ErrRecordTooLarge)
+	require.ErrorIs(t, err, io.EOF)
 	require.Nil(t, decoded)
+}
+
+// TestDVarBytesChunkBoundaryEOF verifies that a record truncated exactly at a
+// chunk boundary is reported as io.ErrUnexpectedEOF, matching the contract of
+// reading the record in a single call.
+func TestDVarBytesChunkBoundaryEOF(t *testing.T) {
+	t.Parallel()
+
+	var (
+		decoded []byte
+		buf     [8]byte
+	)
+
+	err := tlv.DVarBytes(
+		bytes.NewReader(make([]byte, tlv.MaxRecordSize)), &decoded, &buf,
+		2*tlv.MaxRecordSize,
+	)
+	require.ErrorIs(t, err, io.ErrUnexpectedEOF)
+	require.Nil(t, decoded)
+}
+
+// TestDVarBytesAllocationBound verifies that the number of allocations made
+// when decoding a record does not scale with the record size within the
+// record size limit.
+func TestDVarBytesAllocationBound(t *testing.T) {
+	allocsForSize := func(size int) float64 {
+		value := bytes.Repeat([]byte{42}, size)
+		reader := bytes.NewReader(value)
+
+		return testing.AllocsPerRun(100, func() {
+			reader.Reset(value)
+
+			var (
+				decoded []byte
+				buf     [8]byte
+			)
+			if err := tlv.DVarBytes(
+				reader, &decoded, &buf, uint64(size),
+			); err != nil {
+
+				t.Fatal(err)
+			}
+		})
+	}
+
+	require.Equal(t, allocsForSize(1), allocsForSize(tlv.MaxRecordSize))
 }
 
 type fieldEncoder struct {

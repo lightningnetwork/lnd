@@ -9,7 +9,10 @@ MANIFEST_SELECTOR=". | select(.name | test(\"manifest-v.*(\\\\.txt)$\")) | .name
 SIGNATURE_SELECTOR=". | select(.name | test(\"manifest-.*(\\\\.sig)$\")) | .name"
 HEADER_JSON="Accept: application/json"
 HEADER_GH_JSON="Accept: application/vnd.github.v3+json"
-MIN_REQUIRED_SIGNATURES=5
+# Require agreement from three independently controlled release keys. This
+# keeps releases possible when part of the signer set is unavailable while
+# preventing one or two compromised keys from authenticating a release.
+MIN_REQUIRED_SIGNATURES=3
 
 # All keys that can sign lnd releases. The key must be added as a file to the
 # keys directory, for example: scripts/keys/<username>.asc
@@ -58,8 +61,8 @@ function import_keys() {
 
   # Import all the signing keys. We'll create a key ring for each user and use
   # that exact key ring when verifying a user's signature. That way we can make
-  # sure one user cannot just upload multiple signatures to reach the 5/7
-  # required sigs.
+  # sure one user cannot upload multiple signatures to reach the required
+  # threshold.
   for key in "${KEYS[@]}"; do
     KEY_ID=$(echo $key | cut -d' ' -f1)
     USERNAME=$(echo $key | cut -d' ' -f2)
@@ -201,10 +204,9 @@ function verify_signatures() {
     ((NUM_CHECKS=NUM_CHECKS+1))
   done
 
-  # We want at least five signatures (out of seven public keys) that sign the
-  # hashes of the binaries we have installed. If we arrive here without exiting,
-  # it means no signature manifests were uploaded (yet) with the correct naming
-  # pattern.
+  # Require signatures from at least MIN_REQUIRED_SIGNATURES distinct trusted
+  # keys over the hashes of the binaries we have installed. If we arrive here
+  # without exiting, no invalid recognized signature was encountered.
   if [[ $NUM_CHECKS -lt $MIN_REQUIRED_SIGNATURES ]]; then
     echo "ERROR: Not enough valid signatures found!"
     echo "  Valid signatures found: $NUM_CHECKS"

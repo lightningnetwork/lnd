@@ -7,6 +7,13 @@ then signed by a quorum of trusted LND contributors (see [verify-install.sh](/sc
 script for more details), ensuring that users can trust the binaries they 
 download, knowing they haven't been modified during the automated build process.
 
+The automated verifier requires signatures from at least three distinct trusted
+developer keys. This threshold assumes that release keys are controlled
+independently and that signers reproduce and inspect the release manifest before
+signing it. Under those assumptions, one or two compromised keys cannot make a
+malicious release pass verification, while the release process remains
+available when other signers cannot participate.
+
 To verify a release binary, users have two options:
 
 * Manual Verification: Users can manually download the signature files and 

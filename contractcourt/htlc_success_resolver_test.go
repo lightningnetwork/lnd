@@ -528,11 +528,13 @@ func TestHtlcSuccessSingleStageClassification(t *testing.T) {
 	require.Empty(t, ctx.htlcNotifier.finalHtlcEvents)
 }
 
-// TestHtlcSuccessMatchSecondLevelOutput tests matching the success transaction
-// output against the sweep descriptor.
-func TestHtlcSuccessMatchSecondLevelOutput(t *testing.T) {
+// TestMatchSecondLevelOutput tests matching a second-level transaction output
+// against an expected sweep output.
+func TestMatchSecondLevelOutput(t *testing.T) {
+	// Arrange a canonical second-level transaction with the expected sweep
+	// output at a nonzero index so each table case starts from valid data.
 	claim := wire.OutPoint{Index: 2}
-	newMatch := func() (*htlcSuccessResolver, *wire.MsgTx) {
+	newMatch := func() (*wire.TxOut, *wire.MsgTx) {
 		resolution := newSuccessTestResolution(claim)
 		tx := &wire.MsgTx{
 			TxIn: []*wire.TxIn{
@@ -547,14 +549,14 @@ func TestHtlcSuccessMatchSecondLevelOutput(t *testing.T) {
 			},
 		}
 
-		return &htlcSuccessResolver{
-			htlcResolution: resolution,
-		}, tx
+		return resolution.SweepSignDesc.Output, tx
 	}
 
 	testCases := []struct {
-		name        string
-		prepare     func(*htlcSuccessResolver, *wire.MsgTx) *wire.MsgTx
+		name    string
+		prepare func(
+			*wire.TxOut, *wire.MsgTx,
+		) (*wire.TxOut, *wire.MsgTx)
 		matches     bool
 		expectedErr error
 	}{
@@ -564,59 +566,72 @@ func TestHtlcSuccessMatchSecondLevelOutput(t *testing.T) {
 		},
 		{
 			name: "commitment descriptor decoy",
-			prepare: func(resolver *htlcSuccessResolver,
-				tx *wire.MsgTx) *wire.MsgTx {
+			prepare: func(expected *wire.TxOut,
+				tx *wire.MsgTx) (*wire.TxOut, *wire.MsgTx) {
 
 				// This decoy proves the matcher uses the sweep
 				// descriptor, not the commitment descriptor.
-				resolution := &resolver.htlcResolution
-				signDetails := resolution.SignDetails
-				tx.TxOut[1] = cloneTxOut(
-					signDetails.SignDesc.Output,
-				)
+				tx.TxOut[1] = cloneTxOut(testSignDesc.Output)
 
-				return tx
+				return expected, tx
+			},
+		},
+		{
+			name: "value mismatch",
+			prepare: func(expected *wire.TxOut,
+				tx *wire.MsgTx) (*wire.TxOut, *wire.MsgTx) {
+
+				tx.TxOut[1].Value++
+
+				return expected, tx
+			},
+		},
+		{
+			name: "script mismatch",
+			prepare: func(expected *wire.TxOut,
+				tx *wire.MsgTx) (*wire.TxOut, *wire.MsgTx) {
+
+				tx.TxOut[1].PkScript = []byte{txscript.OP_FALSE}
+
+				return expected, tx
 			},
 		},
 		{
 			name: "missing indexed output",
-			prepare: func(_ *htlcSuccessResolver,
-				tx *wire.MsgTx) *wire.MsgTx {
+			prepare: func(expected *wire.TxOut,
+				tx *wire.MsgTx) (*wire.TxOut, *wire.MsgTx) {
 
 				tx.TxOut = tx.TxOut[:1]
 
-				return tx
+				return expected, tx
 			},
 		},
 		{
 			name: "missing expected output",
-			prepare: func(resolver *htlcSuccessResolver,
-				tx *wire.MsgTx) *wire.MsgTx {
+			prepare: func(_ *wire.TxOut,
+				tx *wire.MsgTx) (*wire.TxOut, *wire.MsgTx) {
 
-				resolution := &resolver.htlcResolution
-				resolution.SweepSignDesc.Output = nil
-
-				return tx
+				return nil, tx
 			},
-			expectedErr: errInvalidSuccessResolver,
+			expectedErr: errInvalidSecondLevelOutput,
 		},
 		{
 			name: "nil indexed output",
-			prepare: func(_ *htlcSuccessResolver,
-				tx *wire.MsgTx) *wire.MsgTx {
+			prepare: func(expected *wire.TxOut,
+				tx *wire.MsgTx) (*wire.TxOut, *wire.MsgTx) {
 
 				tx.TxOut[1] = nil
 
-				return tx
+				return expected, tx
 			},
 			expectedErr: errInvalidSpendDetails,
 		},
 		{
 			name: "nil transaction",
-			prepare: func(_ *htlcSuccessResolver,
-				_ *wire.MsgTx) *wire.MsgTx {
+			prepare: func(expected *wire.TxOut,
+				_ *wire.MsgTx) (*wire.TxOut, *wire.MsgTx) {
 
-				return nil
+				return expected, nil
 			},
 			expectedErr: errInvalidSpendDetails,
 		},
@@ -624,13 +639,21 @@ func TestHtlcSuccessMatchSecondLevelOutput(t *testing.T) {
 
 	for _, testCase := range testCases {
 		t.Run(testCase.name, func(t *testing.T) {
-			resolver, tx := newMatch()
+			// Arrange a valid transaction and clone it. Apply only
+			// the case-specific mutation.
+			expected, tx := newMatch()
 			if testCase.prepare != nil {
-				tx = testCase.prepare(resolver, tx)
+				expected, tx = testCase.prepare(expected, tx)
 			}
 
-			outpoint, matches, err :=
-				resolver.matchSecondLevelOutput(tx, 1)
+			// Act by matching the committed index against the
+			// expected sweep output.
+			outpoint, matches, err := matchSecondLevelOutput(
+				tx, 1, expected,
+			)
+
+			// Assert malformed inputs return their sentinel. Formed
+			// inputs report an outpoint only for a complete match.
 			if testCase.expectedErr != nil {
 				require.ErrorIs(t, err, testCase.expectedErr)
 				return

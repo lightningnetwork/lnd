@@ -59,8 +59,7 @@ Signed base64 encoded PSBT or hex encoded raw wire TX (or path to file): `
 	// of memory issues or other weird errors.
 	psbtMaxFileSize = 1024 * 1024
 
-	channelTypeTweakless = "tweakless"
-	channelTypeAnchors   = "anchors"
+	channelTypeAnchors = "anchors"
 
 	// channelTypeSimpleTaproot selects the production taproot channel
 	// type (feature bits 80/81). This is the recommended taproot variant.
@@ -267,10 +266,9 @@ var openChannelCommand = cli.Command{
 		cli.StringFlag{
 			Name: "channel_type",
 			Usage: fmt.Sprintf("(optional) the type of channel to "+
-				"propose to the remote peer (%q, %q, %q, %q). "+
+				"propose to the remote peer (%q, %q, %q). "+
 				"%q is accepted as a deprecated alias for %q",
-				channelTypeTweakless, channelTypeAnchors,
-				channelTypeSimpleTaproot,
+				channelTypeAnchors, channelTypeSimpleTaproot,
 				channelTypeSimpleTaprootStaging,
 				channelTypeSimpleTaprootFinalAlias,
 				channelTypeSimpleTaproot),
@@ -461,8 +459,6 @@ func openChannel(ctx *cli.Context) error {
 	switch channelType {
 	case "":
 		break
-	case channelTypeTweakless:
-		req.CommitmentType = lnrpc.CommitmentType_STATIC_REMOTE_KEY
 	case channelTypeAnchors:
 		req.CommitmentType = lnrpc.CommitmentType_ANCHORS
 	case channelTypeSimpleTaproot, channelTypeSimpleTaprootFinalAlias:

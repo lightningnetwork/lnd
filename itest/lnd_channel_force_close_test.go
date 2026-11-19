@@ -1438,8 +1438,9 @@ func testFailingChannel(ht *lntest.HarnessTest) {
 	ht.AssertNumPendingForceClose(alice, 1)
 	ht.AssertNumPendingForceClose(carol, 1)
 
-	// Carol will use the correct preimage to resolve the HTLC on-chain.
-	ht.AssertNumPendingSweeps(carol, 1)
+	// Carol will use the correct preimage to resolve the HTLC on-chain. Her
+	// anchor sweep is also pending.
+	ht.AssertNumPendingSweeps(carol, 2)
 
 	flakePreimageSettlement(ht)
 
@@ -1450,8 +1451,9 @@ func testFailingChannel(ht *lntest.HarnessTest) {
 	// Alice's commit output should be offered to her sweeper.
 	ht.MineBlocksAndAssertNumTxes(2, 1)
 
-	// Alice's should have one pending sweep request for her commit output.
-	ht.AssertNumPendingSweeps(alice, 1)
+	// Alice should have pending sweep requests for her commit output and
+	// anchor.
+	ht.AssertNumPendingSweeps(alice, 2)
 
 	// Mine Alice's sweeping tx.
 	ht.MineBlocksAndAssertNumTxes(1, 1)

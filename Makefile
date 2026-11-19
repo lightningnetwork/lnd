@@ -241,6 +241,13 @@ release-notes:
 	if [ "$(version)" = "" ]; then echo "Must specify version=<major>.<minor>.<patch>!"; exit 1; fi
 	$(GOCC) run ./scripts/release-notes "$(version)" $(from)
 
+#? bump-go: Check that all Go version pins agree, or bump them with toolchain=<X.Y.Z> and/or min=<X.Y.Z>
+bump-go:
+	@$(call print, "Checking Go version pins.")
+	$(GOCC) run ./scripts/bump-go $(if $(toolchain)$(min),set \
+		$(if $(toolchain),-toolchain $(toolchain)) \
+		$(if $(min),-min $(min)),status)
+
 docker-tools:
 	@$(call print, "Building tools docker image.")
 	docker build -t lnd-tools $(DOCKER_BUILD_ARGS) $(TOOLS_DIR)

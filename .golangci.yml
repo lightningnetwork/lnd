@@ -3,7 +3,7 @@ version: "2"
 run:
   # If you change this please also update GO_VERSION in Makefile (then run
   # `make lint` to see where else it needs to be updated as well).
-  go: "1.27.3"
+  go: "1.27.4"
 
   # Package loading can take nine minutes on CI runners; allow time for
   # analysis as well while keeping the overall run bounded.

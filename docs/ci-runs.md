@@ -227,7 +227,7 @@ but can dispatch the workflow.
 
 ## Setup and caches
 
-Most build jobs remove unused runner toolsets, install Go 1.27.3 through
+Most build jobs remove unused runner toolsets, install Go 1.27.4 through
 `.github/actions/setup-go`, and set `GOTMPDIR` to a directory under
 `$RUNNER_TEMP`, because `/tmp` on the `ubuntu-26.04` image is a small tmpfs.
 Nothing on a runner survives the job; reuse comes from Actions caches.

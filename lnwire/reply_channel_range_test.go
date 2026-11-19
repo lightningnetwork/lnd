@@ -110,13 +110,6 @@ func TestReplyChannelRangeEmpty(t *testing.T) {
 				"00000000000000000000000000000000100000002" +
 				"01000100",
 		},
-		{
-			name:    "empty zlib encoding",
-			encType: EncodingSortedZlib,
-			encodedHex: "00000000000000000000000000000000000000" +
-				"0000000000000000000000000000000001000000" +
-				"0201000101",
-		},
 	}
 
 	for _, test := range emptyChannelsTests {
@@ -329,18 +322,6 @@ func TestReplyChannelRangeDecode(t *testing.T) {
 			},
 		},
 		{
-			name: "zlib encoding",
-			hex: "01080f9188f13cb7b2c71f2a335e3a4fc328bf5beb4360" +
-				"12afca590b1a11466e2206000006400000006e010016" +
-				"01789c636000833e08659309a65878be010010a9023a",
-			expEncoding: EncodingSortedZlib,
-			expSCIDs: []string{
-				"0:0:142",
-				"0:0:15465",
-				"0:4:3318",
-			},
-		},
-		{
 			name: "plain encoding including timestamps",
 			hex: "01080f9188f13cb7b2c71f2a335e3a4fc328bf5beb43601" +
 				"2afca590b1a11466e22060001ddde000005dc0100190" +
@@ -370,14 +351,23 @@ func TestReplyChannelRangeDecode(t *testing.T) {
 			},
 		},
 		{
-			name: "unsupported encoding",
+			name: "zlib encoding rejected",
+			hex: "01080f9188f13cb7b2c71f2a335e3a4fc328bf5beb4360" +
+				"12afca590b1a11466e2206000006400000006e010016" +
+				"01789c636000833e08659309a65878be010010a9023a",
+			expError: "zlib encoding (type 1) is no longer" +
+				" supported",
+		},
+		{
+			name: "zlib encoding with timestamps rejected",
 			hex: "01080f9188f13cb7b2c71f2a335e3a4fc328bf5beb" +
 				"436012afca590b1a11466e22060001ddde000005dc01" +
 				"001801789c63600001036730c55e710d4cbb3d3c0800" +
 				"17c303b1012201789c63606a3ac8c0577e9481bd622d" +
 				"8327d7060686ad150c53a3ff0300554707db03180000" +
 				"0457000008ae00000d050000115c000015b300001a0a",
-			expError: "unsupported encoding",
+			expError: "zlib encoding (type 1) is no longer" +
+				" supported",
 		},
 	}
 

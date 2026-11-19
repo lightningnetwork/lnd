@@ -88,7 +88,8 @@ type mockConfirmationEvent struct {
 
 // RegisterSpendNtfn creates a new mock spend event.
 func (m *mockChainNotifier) RegisterSpendNtfn(outpoint *wire.OutPoint,
-	pkScript []byte, heightHint uint32) (*chainntnfs.SpendEvent, error) {
+	pkScript []byte, heightHint uint32,
+	_ ...chainntnfs.SpendOption) (*chainntnfs.SpendEvent, error) {
 
 	// The base mock already has SpendChan, use that.
 	spendEvent := &chainntnfs.SpendEvent{

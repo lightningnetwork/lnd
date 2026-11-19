@@ -106,6 +106,206 @@ func (h *htlcTimeoutResolver) isTaprootFinal() bool {
 	return h.chanType.IsTaprootFinal()
 }
 
+// taprootHtlcCommitmentScript returns the authoritative script of the HTLC
+// output on the commitment transaction. These stored commitment outputs, and
+// never a script reconstructed from a control-block proof, define the program
+// against which tapscript spends must be verified.
+func (h *htlcTimeoutResolver) taprootHtlcCommitmentScript() ([]byte, error) {
+	var output *wire.TxOut
+	if h.htlcResolution.SignedTimeoutTx != nil {
+		if h.htlcResolution.SignDetails == nil {
+			return nil, errors.New(
+				"missing local HTLC sign details",
+			)
+		}
+
+		output = h.htlcResolution.SignDetails.SignDesc.Output
+	} else {
+		output = h.htlcResolution.SweepSignDesc.Output
+	}
+
+	if output == nil {
+		return nil, errors.New("missing commitment HTLC output")
+	}
+	if len(output.PkScript) == 0 {
+		return nil, errors.New("missing commitment HTLC script")
+	}
+
+	return output.PkScript, nil
+}
+
+// taprootSuccessHashes identifies the canonical success path without using a
+// candidate spend's script or keys. HTLC trees order sender leaves as
+// {success, timeout} and receiver leaves as {timeout, success}, with an
+// optional auxiliary leaf appended third. Btcd pairs the first two leaves, so
+// the independently hashed timeout leaf authenticates their shared edge. The
+// hash-keyed LeafProofIndex can select a duplicate auxiliary occurrence;
+// therefore a verified stored proof supplies only an optional success hash.
+type taprootSuccessHashes struct {
+	timeoutLeafHash    chainhash.Hash
+	storedProofSibling fn.Option[chainhash.Hash]
+}
+
+// canonicalTaprootSuccessHashes derives success identities from the trusted
+// timeout resolution. The timeout leaf hash remains authoritative even when a
+// stored proof is unavailable or was selected for a duplicate leaf.
+func (h *htlcTimeoutResolver) canonicalTaprootSuccessHashes() (
+	taprootSuccessHashes, error) {
+
+	timeoutScript, controlBytes, err := h.taprootTimeoutProof()
+	if err != nil {
+		return taprootSuccessHashes{}, err
+	}
+
+	identities := taprootSuccessHashes{
+		timeoutLeafHash: txscript.NewBaseTapLeaf(
+			timeoutScript,
+		).TapHash(),
+	}
+
+	commitScript, err := h.taprootHtlcCommitmentScript()
+	if err != nil {
+		return identities, nil
+	}
+	_, witnessProgram, err := txscript.ExtractWitnessProgramInfo(
+		commitScript,
+	)
+	if err != nil || len(witnessProgram) != 32 {
+		return identities, nil
+	}
+
+	controlBlock, err := txscript.ParseControlBlock(controlBytes)
+	if err != nil {
+		return identities, nil
+	}
+	if err := txscript.VerifyTaprootLeafCommitment(
+		controlBlock, witnessProgram, timeoutScript,
+	); err != nil {
+		return identities, nil
+	}
+
+	if len(controlBlock.InclusionProof) < chainhash.HashSize {
+		return identities, nil
+	}
+
+	var sibling chainhash.Hash
+	copy(sibling[:], controlBlock.InclusionProof[:chainhash.HashSize])
+	identities.storedProofSibling = fn.Some(sibling)
+
+	return identities, nil
+}
+
+// taprootTimeoutProof returns the trusted timeout script and its stored
+// control block. Missing or truncated trusted resolution data is an error;
+// malformed proof bytes are handled as an unavailable optional identity by
+// canonicalTaprootSuccessHashes.
+func (h *htlcTimeoutResolver) taprootTimeoutProof() ([]byte, []byte, error) {
+	if h.htlcResolution.SignedTimeoutTx == nil {
+		script := h.htlcResolution.SweepSignDesc.WitnessScript
+		if len(script) == 0 {
+			return nil, nil, errors.New(
+				"missing remote timeout script",
+			)
+		}
+
+		return script, h.htlcResolution.SweepSignDesc.ControlBlock, nil
+	}
+
+	timeoutTx := h.htlcResolution.SignedTimeoutTx
+	if len(timeoutTx.TxIn) == 0 || timeoutTx.TxIn[0] == nil {
+		return nil, nil, errors.New("missing local timeout input")
+	}
+
+	witness := timeoutTx.TxIn[0].Witness
+	if len(witness) < 2 || len(witness[len(witness)-2]) == 0 {
+		return nil, nil, errors.New("missing local timeout script")
+	}
+
+	return witness[len(witness)-2], witness[len(witness)-1], nil
+}
+
+// isTaprootPreimageSpend authenticates success against the authoritative
+// commitment output. False identifies valid non-success; errors identify
+// malformed notifier data or invalid commitment proofs.
+func (h *htlcTimeoutResolver) isTaprootPreimageSpend(
+	spend *chainntnfs.SpendDetail) (bool, error) {
+
+	spendingInput, err := validatedSpendInput(spend, h.outpoint())
+	if err != nil {
+		return false, err
+	}
+	witness := input.StripTaprootAnnex(spendingInput.Witness)
+	if len(witness) == 1 {
+		return false, nil
+	}
+	if len(witness) < 2 {
+		return false, errors.New("truncated tapscript witness")
+	}
+	revealedScript := witness[len(witness)-2]
+	controlBlock, err := txscript.ParseControlBlock(witness[len(witness)-1])
+	if err != nil {
+		return false, fmt.Errorf("parse taproot control block: %w", err)
+	}
+	commitScript, err := h.taprootHtlcCommitmentScript()
+	if err != nil {
+		return false, err
+	}
+	version, witnessProgram, err := txscript.ExtractWitnessProgramInfo(
+		commitScript,
+	)
+	if err != nil || version != 1 || len(witnessProgram) != 32 {
+		return false, errors.New("invalid taproot commitment script")
+	}
+	if err := txscript.VerifyTaprootLeafCommitment(
+		controlBlock, witnessProgram, revealedScript,
+	); err != nil {
+		return false, fmt.Errorf("verify taproot leaf: %w", err)
+	}
+	if controlBlock.LeafVersion != txscript.BaseLeafVersion {
+		return false, nil
+	}
+	identities, err := h.canonicalTaprootSuccessHashes()
+	if err != nil {
+		return false, err
+	}
+	// The canonical success leaf is paired with the independently hashed
+	// timeout leaf. This remains true when a duplicate timeout leaf makes
+	// the stored timeout proof unavailable.
+	isSuccess := false
+	if len(controlBlock.InclusionProof) >= chainhash.HashSize {
+		var sibling chainhash.Hash
+		copy(sibling[:], controlBlock.InclusionProof[:32])
+		isSuccess = sibling == identities.timeoutLeafHash
+	}
+	// A verified timeout proof names the canonical success leaf by hash.
+	// This also authenticates an indistinguishable duplicate success leaf
+	// without using candidate-supplied keys.
+	candidateHash := txscript.NewBaseTapLeaf(revealedScript).TapHash()
+	identities.storedProofSibling.WhenSome(func(sibling chainhash.Hash) {
+		isSuccess = isSuccess || candidateHash == sibling
+	})
+	if !isSuccess {
+		return false, nil
+	}
+	preimageIndex := taprootRemotePreimageIndex
+	witnessSize := remoteTaprootWitnessSuccessSize
+	if h.htlcResolution.SignedTimeoutTx != nil {
+		preimageIndex = localPreimageIndex
+		witnessSize = localTaprootWitnessSuccessSize
+	}
+	if !checkSizeAndIndex(witness, witnessSize, preimageIndex) {
+		return false, errors.New("invalid taproot success witness")
+	}
+	var preimage lntypes.Preimage
+	copy(preimage[:], witness[preimageIndex])
+	if !preimage.Matches(h.htlc.RHash) {
+		return false, fmt.Errorf("%w: preimage %v, htlc hash %v",
+			errPreimageMismatch, preimage, h.htlc.RHash)
+	}
+
+	return true, nil
+}
+
 // outpoint returns the outpoint of the HTLC output we're attempting to sweep.
 func (h *htlcTimeoutResolver) outpoint() wire.OutPoint {
 	// The primary key for this resolver will be the outpoint of the HTLC
@@ -291,10 +491,8 @@ func (h *htlcTimeoutResolver) chainDetailsToWatch() (*wire.OutPoint, []byte, err
 	}
 
 	// If SignedTimeoutTx is not nil, this is the local party's commitment,
-	// and we'll need to grab watch the output that our timeout transaction
-	// points to. We can directly grab the outpoint, then also extract the
-	// witness script (the last element of the witness stack) to
-	// re-construct the pkScript we need to watch.
+	// and we'll need to watch the output that our timeout transaction points
+	// to. The outpoint can be read directly from the transaction input.
 	//
 	//nolint:ll
 	outPointToWatch := h.htlcResolution.SignedTimeoutTx.TxIn[0].PreviousOutPoint
@@ -305,34 +503,10 @@ func (h *htlcTimeoutResolver) chainDetailsToWatch() (*wire.OutPoint, []byte, err
 		err           error
 	)
 	switch {
-	// For taproot channels, then final witness element is the control
-	// block, and the one before it the witness script. We can use both of
-	// these together to reconstruct the taproot output key, then map that
-	// into a v1 witness program.
+	// A control block can select the wrong duplicate leaf, so Taproot watch
+	// registration must use the independently stored commitment output.
 	case h.isTaproot():
-		// First, we'll parse the control block into something we can
-		// use.
-		ctrlBlockBytes := witness[len(witness)-1]
-		ctrlBlock, err := txscript.ParseControlBlock(ctrlBlockBytes)
-		if err != nil {
-			return nil, nil, err
-		}
-
-		// With the control block, we'll grab the witness script, then
-		// use that to derive the tapscript root.
-		witnessScript := witness[len(witness)-2]
-		tapscriptRoot := ctrlBlock.RootHash(witnessScript)
-
-		// Once we have the root, then we can derive the output key
-		// from the internal key, then turn that into a witness
-		// program.
-		outputKey := txscript.ComputeTaprootOutputKey(
-			ctrlBlock.InternalKey, tapscriptRoot,
-		)
-		scriptToWatch, err = txscript.PayToTaprootScript(outputKey)
-		if err != nil {
-			return nil, nil, err
-		}
+		scriptToWatch, err = h.taprootHtlcCommitmentScript()
 
 	// For regular channels, the witness script is the last element on the
 	// stack. We can then use this to re-derive the output that we're
@@ -436,6 +610,26 @@ func isPreimageSpend(isTaproot bool, spend *chainntnfs.SpendDetail,
 			localPreimageIndex,
 		)
 	}
+}
+
+// isPreimageSpend classifies a validated spend as success, non-success, or
+// malformed. Only true authorizes claim cleanup; false leaves the spend to the
+// existing timeout path, while an error must propagate before cleanup.
+func (h *htlcTimeoutResolver) isPreimageSpend(
+	spend *chainntnfs.SpendDetail) (bool, error) {
+
+	if h.isTaproot() {
+		return h.isTaprootPreimageSpend(spend)
+	}
+
+	_, err := validatedSpendInput(spend, h.outpoint())
+	if err != nil {
+		return false, err
+	}
+
+	return isPreimageSpend(
+		false, spend, !h.isRemoteCommitOutput(),
+	), nil
 }
 
 // checkSizeAndIndex checks that the witness is of the expected size and that
@@ -949,12 +1143,15 @@ func (h *htlcTimeoutResolver) consumeSpendEvents(resultChan chan *spendResult,
 			log.Debugf("Found mempool spend of HTLC output %s "+
 				"in tx=%s", op, spendDetail.SpenderTxHash)
 
-			// Check whether the spend reveals the preimage, if not
-			// continue the loop.
-			hasPreimage := isPreimageSpend(
-				h.isTaproot(), spendDetail,
-				!h.isRemoteCommitOutput(),
-			)
+			// Authenticated success leaves; non-success stays under
+			// observation, while malformed data propagates.
+			hasPreimage, err := h.isPreimageSpend(spendDetail)
+			if err != nil {
+				result.err = err
+				resultChan <- result
+
+				return
+			}
 			if !hasPreimage {
 				log.Debugf("HTLC output %s spent doesn't "+
 					"reveal preimage", op)
@@ -1017,10 +1214,13 @@ func (h *htlcTimeoutResolver) waitHtlcSpendAndCheckPreimage() (
 		return nil, err
 	}
 
-	// If the spend reveals the pre-image, then we'll enter the clean up
-	// workflow to pass the preimage back to the incoming link, add it to
-	// the witness cache, and exit.
-	if isPreimageSpend(h.isTaproot(), spend, !h.isRemoteCommitOutput()) {
+	// Only authenticated success authorizes cleanup; non-success keeps the
+	// timeout path and malformed data returns before cleanup.
+	hasPreimage, err := h.isPreimageSpend(spend)
+	if err != nil {
+		return nil, err
+	}
+	if hasPreimage {
 		return nil, h.claimCleanUp(spend)
 	}
 
@@ -1202,10 +1402,13 @@ func (h *htlcTimeoutResolver) resolveRemoteCommitOutput() error {
 		return err
 	}
 
-	// If the spend reveals the preimage, then we'll enter the clean up
-	// workflow to pass the preimage back to the incoming link, add it to
-	// the witness cache, and exit.
-	if isPreimageSpend(h.isTaproot(), spend, !h.isRemoteCommitOutput()) {
+	// Only authenticated success authorizes cleanup; non-success keeps the
+	// timeout path and malformed data returns before cleanup.
+	hasPreimage, err := h.isPreimageSpend(spend)
+	if err != nil {
+		return err
+	}
+	if hasPreimage {
 		return h.claimCleanUp(spend)
 	}
 
@@ -1240,10 +1443,13 @@ func (h *htlcTimeoutResolver) resolveTimeoutTx() error {
 		return err
 	}
 
-	// If the spend reveals the preimage, then we'll enter the clean up
-	// workflow to pass the preimage back to the incoming link, add it to
-	// the witness cache, and exit.
-	if isPreimageSpend(h.isTaproot(), spend, !h.isRemoteCommitOutput()) {
+	// Only authenticated success authorizes cleanup; non-success keeps the
+	// timeout path and malformed data returns before cleanup.
+	hasPreimage, err := h.isPreimageSpend(spend)
+	if err != nil {
+		return err
+	}
+	if hasPreimage {
 		return h.claimCleanUp(spend)
 	}
 

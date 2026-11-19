@@ -33,6 +33,18 @@ func PutChannelCloseSummary(tx kvdb.RwTx, chanID []byte,
 	return closedChanBucket.Put(chanID, b.Bytes())
 }
 
+var (
+	// closedChannelBucket stores summarization information concerning
+	// previously open, but now closed channels.
+	closedChannelBucket = []byte("closed-chan-bucket")
+)
+
+// ClosedChannelBucketKey returns the top-level closed-channel summary bucket
+// key.
+func ClosedChannelBucketKey() []byte {
+	return closedChannelBucket
+}
+
 // SerializeChannelCloseSummary serializes a channel close summary.
 func SerializeChannelCloseSummary(w io.Writer,
 	cs *ChannelCloseSummary) error {

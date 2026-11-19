@@ -3460,3 +3460,255 @@ func TestLocalOfferSentUsesStoredSig(t *testing.T) {
 			"NonceState (not NextCloseeNonce from ClosingSig)",
 	)
 }
+
+// TestRbfLocalCloseReqBuffering verifies that LocalCloseReq is absorbed across
+// ShutdownPending, ChannelFlushing, and LocalOfferSent without error, and that
+// CancelPendingOffer only retracts a matching buffered bump.
+func TestRbfLocalCloseReqBuffering(t *testing.T) {
+	t.Parallel()
+	ctx := t.Context()
+
+	localBalance := lnwire.NewMSatFromSatoshis(500_000)
+	remoteBalance := lnwire.NewMSatFromSatoshis(500_000)
+	initialRate := chainfee.FeePerKwFloor.FeePerVByte()
+	bumpRate := initialRate * 5
+	bumpAbsFee := btcutil.Amount(5000)
+
+	t.Run("bump_in_shutdown_pending_and_flushing", func(t *testing.T) {
+		startingState := &ShutdownPending{
+			IdealFeeRate: fn.Some(initialRate),
+			ShutdownScripts: ShutdownScripts{
+				LocalDeliveryScript: localAddr,
+			},
+			LocalCloseRequested: true,
+		}
+		closeHarness := newCloser(t, &harnessCfg{
+			initialState: fn.Some[ProtocolState](startingState),
+		})
+		defer closeHarness.stopAndAssert()
+
+		// Send a bump while still in ShutdownPending.
+		closeHarness.chanCloser.SendEvent(ctx, &LocalCloseReq{
+			TargetFeeRate: fn.Some(bumpRate),
+			Seq:           1,
+		})
+		closeHarness.assertStateTransitions(&ShutdownPending{})
+
+		// Receive remote shutdown and transition to ChannelFlushing.
+		closeHarness.expectFinalBalances(fn.None[ShutdownBalances]())
+		closeHarness.expectIncomingAddsDisabled()
+		closeHarness.chanCloser.SendEvent(ctx, &ShutdownReceived{
+			ShutdownScript: remoteAddr,
+		})
+		closeHarness.assertStateTransitions(&ChannelFlushing{})
+
+		// Send another bump while flushing; it should supersede the
+		// previous one.
+		higherRate := bumpRate * 2
+		closeHarness.chanCloser.SendEvent(ctx, &LocalCloseReq{
+			TargetFeeRate: fn.Some(higherRate),
+			Seq:           2,
+		})
+		closeHarness.assertStateTransitions(&ChannelFlushing{})
+
+		// Cancelling the superseded seq must not clear seq 2.
+		closeHarness.chanCloser.SendEvent(ctx, &CancelPendingOffer{
+			Seq: 1,
+		})
+		closeHarness.assertStateTransitions(&ChannelFlushing{})
+
+		// Once flushed, the closer should immediately propose at
+		// higherRate.
+		balanceAfterClose := localBalance.ToSatoshis() - bumpAbsFee
+		flushEvent := &ChannelFlushed{
+			ShutdownBalances: ShutdownBalances{
+				LocalBalance:  localBalance,
+				RemoteBalance: remoteBalance,
+			},
+		}
+		closeHarness.expectHalfSignerIteration(
+			flushEvent, balanceAfterClose, bumpAbsFee, noDustExpect,
+			false,
+		)
+	})
+
+	t.Run("bump_in_shutdown_pending_unpayable_enters_close_err", func(t *testing.T) { //nolint:ll
+		startingState := &ShutdownPending{
+			IdealFeeRate: fn.Some(initialRate),
+			ShutdownScripts: ShutdownScripts{
+				LocalDeliveryScript: localAddr,
+			},
+		}
+		closeHarness := newCloser(t, &harnessCfg{
+			initialState: fn.Some[ProtocolState](startingState),
+		})
+		defer closeHarness.stopAndAssert()
+
+		closeHarness.chanCloser.SendEvent(ctx, &LocalCloseReq{
+			TargetFeeRate: fn.Some(bumpRate),
+			Seq:           1,
+		})
+		closeHarness.assertStateTransitions(&ShutdownPending{})
+
+		closeHarness.expectFinalBalances(fn.None[ShutdownBalances]())
+		closeHarness.expectIncomingAddsDisabled()
+		closeHarness.chanCloser.SendEvent(ctx, &ShutdownReceived{
+			ShutdownScript: remoteAddr,
+		})
+		closeHarness.assertStateTransitions(&ChannelFlushing{})
+
+		closeHarness.expectFeeEstimate(bumpAbsFee, 2)
+		closeHarness.chanCloser.SendEvent(ctx, &ChannelFlushed{
+			ShutdownBalances: ShutdownBalances{
+				LocalBalance:  0,
+				RemoteBalance: remoteBalance,
+			},
+		})
+		closeHarness.assertStateTransitions(
+			&ClosingNegotiation{}, &ClosingNegotiation{},
+		)
+		negState := assertStateT[*ClosingNegotiation](closeHarness)
+		_, isCloseErr := negState.PeerState.GetForParty(
+			lntypes.Local,
+		).(*CloseErr)
+		require.True(t, isCloseErr)
+	})
+
+	t.Run("bump_in_local_offer_sent_fires_after_sig", func(t *testing.T) {
+		closeTerms := &CloseChannelTerms{
+			ShutdownScripts: ShutdownScripts{
+				LocalDeliveryScript:  localAddr,
+				RemoteDeliveryScript: remoteAddr,
+			},
+			ShutdownBalances: ShutdownBalances{
+				LocalBalance:  localBalance,
+				RemoteBalance: remoteBalance,
+			},
+		}
+		startingState := &ClosingNegotiation{
+			PeerState: lntypes.Dual[AsymmetricPeerState]{
+				Local: &LocalOfferSent{
+					CloseChannelTerms: closeTerms,
+					ProposedFee:       1000,
+					ProposedFeeRate:   initialRate,
+					LocalSig:          localSigWire,
+				},
+				Remote: &RemoteCloseStart{
+					CloseChannelTerms: closeTerms,
+				},
+			},
+			CloseChannelTerms: closeTerms,
+		}
+		closeHarness := newCloser(t, &harnessCfg{
+			initialState: fn.Some[ProtocolState](startingState),
+		})
+		defer closeHarness.stopAndAssert()
+
+		// Buffer a bump while awaiting the peer's ClosingSig.
+		closeHarness.chanCloser.SendEvent(ctx, &LocalCloseReq{
+			TargetFeeRate: fn.Some(bumpRate),
+			Seq:           7,
+		})
+		closeHarness.assertStateTransitions(&ClosingNegotiation{})
+
+		// Completing the first round should broadcast tx 1 and
+		// immediately emit a second offer at bumpRate.
+		closeHarness.expectCloseFinalized(
+			&localSig, &remoteSig, localAddr, remoteAddr, 1000,
+			localBalance.ToSatoshis()-1000, true,
+		)
+		balanceAfterBump := localBalance.ToSatoshis() - bumpAbsFee
+		closeHarness.expectFeeEstimate(bumpAbsFee, 1)
+		closeHarness.expectNewCloseSig(
+			localAddr, remoteAddr, bumpAbsFee, balanceAfterBump,
+		)
+		closeHarness.expectMsgSent(singleMsgMatcher(
+			func(cc *lnwire.ClosingComplete) bool {
+				return cc.FeeSatoshis == bumpAbsFee
+			},
+		))
+
+		closeHarness.chanCloser.SendEvent(ctx, &LocalSigReceived{
+			SigMsg: lnwire.ClosingSig{
+				CloserScript: localAddr,
+				CloseeScript: remoteAddr,
+				ClosingSigs: lnwire.ClosingSigs{
+					CloserAndClosee: newSigTlv[tlv.TlvType3]( //nolint:ll
+						remoteWireSig,
+					),
+				},
+			},
+		})
+		closeHarness.assertStateTransitions(
+			&ClosingNegotiation{}, &ClosingNegotiation{},
+			&ClosingNegotiation{},
+		)
+		negState := assertStateT[*ClosingNegotiation](closeHarness)
+		offerSent, ok := negState.PeerState.GetForParty(
+			lntypes.Local,
+		).(*LocalOfferSent)
+		require.True(t, ok)
+		require.Equal(t, bumpAbsFee, offerSent.ProposedFee)
+		require.Equal(t, bumpRate, offerSent.ProposedFeeRate)
+		closeHarness.waitForMsgSent()
+	})
+
+	t.Run("cancelled_bump_in_local_offer_sent_not_offered", func(t *testing.T) { //nolint:ll
+		closeTerms := &CloseChannelTerms{
+			ShutdownScripts: ShutdownScripts{
+				LocalDeliveryScript:  localAddr,
+				RemoteDeliveryScript: remoteAddr,
+			},
+			ShutdownBalances: ShutdownBalances{
+				LocalBalance:  localBalance,
+				RemoteBalance: remoteBalance,
+			},
+		}
+		startingState := &ClosingNegotiation{
+			PeerState: lntypes.Dual[AsymmetricPeerState]{
+				Local: &LocalOfferSent{
+					CloseChannelTerms: closeTerms,
+					ProposedFee:       1000,
+					ProposedFeeRate:   initialRate,
+					LocalSig:          localSigWire,
+				},
+				Remote: &RemoteCloseStart{
+					CloseChannelTerms: closeTerms,
+				},
+			},
+			CloseChannelTerms: closeTerms,
+		}
+		closeHarness := newCloser(t, &harnessCfg{
+			initialState: fn.Some[ProtocolState](startingState),
+		})
+		defer closeHarness.stopAndAssert()
+
+		closeHarness.chanCloser.SendEvent(ctx, &LocalCloseReq{
+			TargetFeeRate: fn.Some(bumpRate),
+			Seq:           9,
+		})
+		closeHarness.assertStateTransitions(&ClosingNegotiation{})
+		closeHarness.chanCloser.SendEvent(ctx, &CancelPendingOffer{
+			Seq: 9,
+		})
+		closeHarness.assertStateTransitions(&ClosingNegotiation{})
+
+		closeHarness.expectCloseFinalized(
+			&localSig, &remoteSig, localAddr, remoteAddr, 1000,
+			localBalance.ToSatoshis()-1000, true,
+		)
+		closeHarness.chanCloser.SendEvent(ctx, &LocalSigReceived{
+			SigMsg: lnwire.ClosingSig{
+				CloserScript: localAddr,
+				CloseeScript: remoteAddr,
+				ClosingSigs: lnwire.ClosingSigs{
+					CloserAndClosee: newSigTlv[tlv.TlvType3]( //nolint:ll
+						remoteWireSig,
+					),
+				},
+			},
+		})
+		closeHarness.assertLocalClosePending()
+		closeHarness.assertNoStateTransitions()
+	})
+}

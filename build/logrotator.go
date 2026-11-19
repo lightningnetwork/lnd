@@ -2,10 +2,12 @@ package build
 
 import (
 	"compress/gzip"
+	"errors"
 	"fmt"
 	"io"
 	"os"
 	"path/filepath"
+	"sync"
 
 	"github.com/jrick/logrotate/rotator"
 	"github.com/klauspost/compress/zstd"
@@ -18,6 +20,10 @@ type RotatingLogWriter struct {
 	pipe *io.PipeWriter
 
 	rotator *rotator.Rotator
+	runErr  chan error
+
+	closeOnce sync.Once
+	closeErr  error
 }
 
 // NewRotatingLogWriter creates a new file rotating log writer.
@@ -34,25 +40,13 @@ func NewRotatingLogWriter() *RotatingLogWriter {
 func (r *RotatingLogWriter) InitLogRotator(cfg *FileLoggerConfig,
 	logFile string) error {
 
-	logDir, _ := filepath.Split(logFile)
-	err := os.MkdirAll(logDir, 0700)
-	if err != nil {
-		return fmt.Errorf("failed to create log directory: %w", err)
-	}
-
-	r.rotator, err = rotator.New(
-		logFile, int64(cfg.MaxLogFileSize*1024), false, cfg.MaxLogFiles,
-	)
-	if err != nil {
-		return fmt.Errorf("failed to create file rotator: %w", err)
-	}
-
-	// Reject unknown compressors.
+	// Reject unknown compressors before opening the log file.
 	if !SupportedLogCompressor(cfg.Compressor) {
 		return fmt.Errorf("unknown log compressor: %v", cfg.Compressor)
 	}
 
 	var c rotator.Compressor
+	var err error
 	switch cfg.Compressor {
 	case Gzip:
 		c = gzip.NewWriter(nil)
@@ -65,20 +59,35 @@ func (r *RotatingLogWriter) InitLogRotator(cfg *FileLoggerConfig,
 		}
 	}
 
+	logDir, _ := filepath.Split(logFile)
+	err = os.MkdirAll(logDir, 0700)
+	if err != nil {
+		return fmt.Errorf("failed to create log directory: %w", err)
+	}
+
+	r.rotator, err = rotator.New(
+		logFile, int64(cfg.MaxLogFileSize*1024), false, cfg.MaxLogFiles,
+	)
+	if err != nil {
+		return fmt.Errorf("failed to create file rotator: %w", err)
+	}
+
 	// Apply the compressor and its file suffix to the log rotator.
 	r.rotator.SetCompressor(c, logCompressors[cfg.Compressor])
 
-	// Run rotator as a goroutine now but make sure we catch any errors
-	// that happen in case something with the rotation goes wrong during
-	// runtime (like running out of disk space or not being allowed to
-	// create a new logfile for whatever reason).
+	// Run the rotator from a single goroutine so parallel callers are
+	// serialized by the pipe before they access the rotator.
 	pr, pw := io.Pipe()
+	r.runErr = make(chan error, 1)
 	go func() {
 		err := r.rotator.Run(pr)
-		if err != nil {
-			_, _ = fmt.Fprintf(os.Stderr,
-				"failed to run file rotator: %v\n", err)
+		if errors.Is(err, io.EOF) {
+			err = nil
 		}
+
+		// Propagate runtime rotation errors to blocked and future writers.
+		_ = pr.CloseWithError(err)
+		r.runErr <- err
 	}()
 
 	r.pipe = pw
@@ -88,8 +97,8 @@ func (r *RotatingLogWriter) InitLogRotator(cfg *FileLoggerConfig,
 
 // Write writes the byte slice to the log rotator, if present.
 func (r *RotatingLogWriter) Write(b []byte) (int, error) {
-	if r.rotator != nil {
-		return r.rotator.Write(b)
+	if r.pipe != nil {
+		return r.pipe.Write(b)
 	}
 
 	return len(b), nil
@@ -97,9 +106,21 @@ func (r *RotatingLogWriter) Write(b []byte) (int, error) {
 
 // Close closes the underlying log rotator if it has already been created.
 func (r *RotatingLogWriter) Close() error {
-	if r.rotator != nil {
-		return r.rotator.Close()
-	}
+	r.closeOnce.Do(func() {
+		if r.pipe == nil {
+			if r.rotator != nil {
+				r.closeErr = r.rotator.Close()
+			}
 
-	return nil
+			return
+		}
+
+		pipeErr := r.pipe.Close()
+		runErr := <-r.runErr
+		rotatorErr := r.rotator.Close()
+
+		r.closeErr = errors.Join(pipeErr, runErr, rotatorErr)
+	})
+
+	return r.closeErr
 }

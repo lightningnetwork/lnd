@@ -187,6 +187,7 @@ func (s *SphinxErrorDecrypter) DecryptError(reason lnwire.OpaqueReason) (
 	r := bytes.NewReader(failure.Message)
 	failureMsg, err := lnwire.DecodeFailure(r, 0)
 	if err != nil {
+		log.Debug("Unable to decode authenticated HTLC failure message")
 		return NewUnknownForwardingError(failure.SenderIdx), nil
 	}
 

@@ -1189,55 +1189,11 @@ func (l *LightningWallet) enforceNewReservedValue(fundingIntent chanfunding.Inte
 // CurrentNumAnchorChans returns the current number of non-private anchor
 // channels the wallet should be ready to fee bump if needed.
 func (l *LightningWallet) CurrentNumAnchorChans() (int, error) {
-	// Count all anchor channels that are open or pending
-	// open, or waiting close.
-	chans, err := l.Cfg.Database.FetchAllChannels()
-	if err != nil {
-		return 0, err
-	}
-
-	var numAnchors int
-	cntChannel := func(c *chanstate.OpenChannel) {
-		// We skip private channels, as we assume they won't be used
-		// for routing.
-		if c.ChannelFlags&lnwire.FFAnnounceChannel == 0 {
-			return
-		}
-
-		// Count anchor channels.
-		if c.ChanType.HasAnchors() {
-			numAnchors++
-		}
-	}
-
-	for _, c := range chans {
-		cntChannel(c)
-	}
-
-	// We also count pending close channels.
-	pendingClosed, err := l.Cfg.Database.FetchClosedChannels(
-		true,
-	)
-	if err != nil {
-		return 0, err
-	}
-
-	for _, c := range pendingClosed {
-		c, err := l.Cfg.Database.FetchHistoricalChannel(
-			&c.ChanPoint,
-		)
-		if err != nil {
-			// We don't have a guarantee that all channels re found
-			// in the historical channels bucket, so we continue.
-			walletLog.Warnf("Unable to fetch historical "+
-				"channel: %v", err)
-			continue
-		}
-
-		cntChannel(c)
-	}
-
-	return numAnchors, nil
+	// Count the public anchor channels that are open, pending open,
+	// waiting close, or pending close. This reads only each channel's info
+	// record rather than its full state, which avoids deserializing every
+	// channel's commitments and revocation data.
+	return l.Cfg.Database.CountPublicAnchorChannels()
 }
 
 // CheckReservedValue checks whether publishing a transaction with the given

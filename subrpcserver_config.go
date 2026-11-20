@@ -25,6 +25,7 @@ import (
 	"github.com/lightningnetwork/lnd/lnrpc/peersrpc"
 	"github.com/lightningnetwork/lnd/lnrpc/routerrpc"
 	"github.com/lightningnetwork/lnd/lnrpc/signrpc"
+	"github.com/lightningnetwork/lnd/lnrpc/switchrpc"
 	"github.com/lightningnetwork/lnd/lnrpc/walletrpc"
 	"github.com/lightningnetwork/lnd/lnrpc/watchtowerrpc"
 	"github.com/lightningnetwork/lnd/lnrpc/wtclientrpc"
@@ -82,6 +83,11 @@ type subRPCServerConfigs struct {
 	// fees.
 	RouterRPC *routerrpc.Config `group:"routerrpc" namespace:"routerrpc"`
 
+	// SwitchRPC is a sub-RPC server that allows clients to directly
+	// interact with the forwarding system (Switch) of the daemon to send
+	// onion attempts (HTLCs) and manipulate the Switch result store.
+	SwitchRPC *switchrpc.Config `group:"switchrpc" namespace:"switchrpc"`
+
 	// WatchtowerRPC is a sub-RPC server that exposes functionality allowing
 	// clients to monitor and control their embedded watchtower.
 	WatchtowerRPC *watchtowerrpc.Config `group:"watchtowerrpc" namespace:"watchtowerrpc"`
@@ -129,7 +135,8 @@ func (s *subRPCServerConfigs) PopulateDependencies(cfg *Config,
 	parseAddr func(addr string) (net.Addr, error),
 	rpcLogger btclog.Logger, aliasMgr *aliasmgr.Manager,
 	auxDataParser fn.Option[AuxDataParser],
-	invoiceHtlcModifier *invoices.HtlcModificationInterceptor) error {
+	invoiceHtlcModifier *invoices.HtlcModificationInterceptor,
+	offerCreator fn.Option[devrpc.OfferCreator]) error {
 
 	// First, we'll use reflect to obtain a version of the config struct
 	// that allows us to programmatically inspect its fields.
@@ -312,6 +319,36 @@ func (s *subRPCServerConfigs) PopulateDependencies(cfg *Config,
 				reflect.ValueOf(aliasMgr),
 			)
 
+		case *switchrpc.Config:
+			subCfgValue := extractReflectValue(subCfg)
+
+			subCfgValue.FieldByName("NetworkDir").Set(
+				reflect.ValueOf(networkDir),
+			)
+			subCfgValue.FieldByName("MacService").Set(
+				reflect.ValueOf(macService),
+			)
+
+			subCfgValue.FieldByName("HtlcDispatcher").Set(
+				reflect.ValueOf(htlcSwitch),
+			)
+
+			subCfgValue.FieldByName("ChannelInfoAccessor").Set(
+				reflect.ValueOf(htlcSwitch),
+			)
+
+			subCfgValue.FieldByName("RouteProcessor").Set(
+				reflect.ValueOf(routerBackend),
+			)
+
+			subCfgValue.FieldByName("AttemptStore").Set(
+				reflect.ValueOf(htlcSwitch.AttemptStore()),
+			)
+
+			subCfgValue.FieldByName("RemoteRouterController").Set(
+				reflect.ValueOf(htlcSwitch),
+			)
+
 		case *watchtowerrpc.Config:
 			subCfgValue := extractReflectValue(subCfg)
 
@@ -354,6 +391,12 @@ func (s *subRPCServerConfigs) PopulateDependencies(cfg *Config,
 			subCfgValue.FieldByName("Switch").Set(
 				reflect.ValueOf(htlcSwitch),
 			)
+
+			offerCreator.WhenSome(func(c devrpc.OfferCreator) {
+				subCfgValue.FieldByName("OfferCreator").Set(
+					reflect.ValueOf(c),
+				)
+			})
 
 		case *peersrpc.Config:
 			subCfgValue := extractReflectValue(subCfg)

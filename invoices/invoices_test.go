@@ -1,6 +1,7 @@
 package invoices_test
 
 import (
+	"context"
 	"crypto/rand"
 	"database/sql"
 	"fmt"
@@ -214,6 +215,14 @@ func TestInvoices(t *testing.T) {
 			name: "AddInvoiceInvalidFeatureDeps",
 			test: testAddInvoiceInvalidFeatureDeps,
 		},
+		{
+			name: "FinalizeHtlcs",
+			test: testFinalizeHtlcs,
+		},
+		{
+			name: "SettleCollection",
+			test: testSettleCollection,
+		},
 	}
 
 	makeKeyValueDB := func(t *testing.T) invpkg.InvoiceDB {
@@ -281,28 +290,51 @@ func TestInvoices(t *testing.T) {
 	}
 }
 
-// TestInvoiceIsPending tests that pending invoices are those which are either
-// in ContractOpen or in ContractAccepted state.
+// TestInvoiceIsPending checks the public parent-state classification used
+// when discovering invoices that still need processing after a restart.
 func TestInvoiceIsPending(t *testing.T) {
 	t.Parallel()
 
-	contractStates := []invpkg.ContractState{
-		invpkg.ContractOpen, invpkg.ContractSettled,
-		invpkg.ContractCanceled, invpkg.ContractAccepted,
+	// Arrange: Specify the expected result for each persisted parent state
+	// so released ordinary payments remain discoverable before finality.
+	tests := []struct {
+		state   invpkg.ContractState
+		pending bool
+	}{
+		{
+			state:   invpkg.ContractOpen,
+			pending: true,
+		},
+		{
+			state:   invpkg.ContractSettled,
+			pending: false,
+		},
+		{
+			state:   invpkg.ContractCanceled,
+			pending: false,
+		},
+		{
+			state:   invpkg.ContractAccepted,
+			pending: true,
+		},
+		{
+			state:   invpkg.ContractPendingSettle,
+			pending: true,
+		},
 	}
 
-	for _, state := range contractStates {
+	for _, test := range tests {
 		invoice := invpkg.Invoice{
-			State: state,
+			State: test.state,
 		}
 
-		// We expect that an invoice is pending if it's either in
-		// ContractOpen or ContractAccepted state.
-		open := invpkg.ContractOpen
-		accepted := invpkg.ContractAccepted
-		pending := (state == open || state == accepted)
+		// Act: Query the public classification from just the invoice
+		// state, as callers selecting pending parents do.
+		pending := invoice.IsPending()
 
-		require.Equal(t, pending, invoice.IsPending())
+		// Assert: Compare with the explicit contract instead of
+		// deriving the expectation from the same predicate as the code.
+		require.Equal(t, test.pending, pending, "state %v", test.state)
 	}
 }
 
@@ -408,7 +440,7 @@ func testInvoiceWorkflowImpl(t *testing.T, test invWorkflowTest,
 	// now have the settled bit toggle to true and a non-default
 	// SettledDate
 	payAmt := fakeInvoice.Terms.Value * 2
-	_, err = db.UpdateInvoice(ctxb, ref, nil, getUpdateInvoice(0, payAmt))
+	_, err = settleInvoice(db, ref, 0, payAmt)
 	require.NoError(t, err, "unable to settle invoice")
 	dbInvoice2, err := db.LookupInvoice(ctxb, ref)
 	require.NoError(t, err, "unable to fetch invoice")
@@ -989,11 +1021,7 @@ func testInvoiceAddTimeSeries(t *testing.T,
 		paymentHash := invoice.Terms.PaymentPreimage.Hash()
 
 		ref := invpkg.InvoiceRefByHash(paymentHash)
-		_, err := db.UpdateInvoice(
-			ctxb, ref, nil, getUpdateInvoice(
-				htlcID, invoice.Terms.Value,
-			),
-		)
+		_, err := settleInvoice(db, ref, htlcID, invoice.Terms.Value)
 		if err != nil {
 			t.Fatalf("unable to settle invoice: %v", err)
 		}
@@ -1274,9 +1302,7 @@ func testFetchPendingInvoices(t *testing.T,
 		}
 
 		ref := invpkg.InvoiceRefByHash(paymentHash)
-		_, err = db.UpdateInvoice(
-			ctxb, ref, nil, getUpdateInvoice(htlcID, amt),
-		)
+		_, err = settleInvoice(db, ref, htlcID, amt)
 		require.NoError(t, err)
 
 		settleTestInvoice(invoice, htlcID, settleIndex)
@@ -1352,10 +1378,7 @@ func testFetchPendingInvoicesAccepted(t *testing.T,
 	settledHash := settledInvoice.Terms.PaymentPreimage.Hash()
 	_, err = db.AddInvoice(ctxb, settledInvoice, settledHash)
 	require.NoError(t, err)
-	_, err = db.UpdateInvoice(
-		ctxb, invpkg.InvoiceRefByHash(settledHash), nil,
-		getUpdateInvoice(2, amt),
-	)
+	_, err = settleInvoice(db, invpkg.InvoiceRefByHash(settledHash), 2, amt)
 	require.NoError(t, err)
 
 	// Add a canceled invoice – it must also NOT appear in the pending
@@ -1422,9 +1445,7 @@ func testDuplicateSettleInvoice(t *testing.T,
 
 	// With the invoice in the DB, we'll now attempt to settle the invoice.
 	ref := invpkg.InvoiceRefByHash(payHash)
-	dbInvoice, err := db.UpdateInvoice(
-		ctxb, ref, nil, getUpdateInvoice(0, amt),
-	)
+	dbInvoice, err := settleInvoice(db, ref, 0, amt)
 	require.NoError(t, err, "unable to settle invoice")
 
 	// We'll update what we expect the settle invoice to be so that our
@@ -1504,9 +1525,7 @@ func testQueryInvoices(t *testing.T,
 		// We'll only settle half of all invoices created.
 		if i%2 == 0 {
 			ref := invpkg.InvoiceRefByHash(paymentHash)
-			_, err := db.UpdateInvoice(
-				ctxb, ref, nil, getUpdateInvoice(htlcID, amt),
-			)
+			_, err := settleInvoice(db, ref, htlcID, amt)
 			if err != nil {
 				t.Fatalf("unable to settle invoice: %v", err)
 			}
@@ -1879,7 +1898,7 @@ func getUpdateInvoice(htlcID uint64,
 	return func(invoice *invpkg.Invoice) (*invpkg.InvoiceUpdateDesc,
 		error) {
 
-		if invoice.State == invpkg.ContractSettled {
+		if invoice.State.PreimageReleased() {
 			return nil, invpkg.ErrInvoiceAlreadySettled
 		}
 
@@ -1894,13 +1913,53 @@ func getUpdateInvoice(htlcID uint64,
 			UpdateType: invpkg.AddHTLCsUpdate,
 			State: &invpkg.InvoiceStateUpdateDesc{
 				Preimage: invoice.Terms.PaymentPreimage,
-				NewState: invpkg.ContractSettled,
+				NewState: invpkg.ContractPendingSettle,
 			},
 			AddHtlcs: htlcs,
 		}
 
 		return update, nil
 	}
+}
+
+// getFinalizeHtlcs returns an invoice update callback that records the final
+// outcome of the given htlcs, which must be pending settlement.
+func getFinalizeHtlcs(settled bool,
+	keys ...models.CircuitKey) invpkg.InvoiceUpdateCallback {
+
+	return func(invoice *invpkg.Invoice) (*invpkg.InvoiceUpdateDesc,
+		error) {
+
+		finalize := make(map[models.CircuitKey]bool, len(keys))
+		for _, key := range keys {
+			finalize[key] = settled
+		}
+
+		return &invpkg.InvoiceUpdateDesc{
+			UpdateType:    invpkg.FinalizeHTLCsUpdate,
+			FinalizeHtlcs: finalize,
+		}, nil
+	}
+}
+
+// settleInvoice settles the invoice with a single htlc, and then records that
+// the htlc is irrevocably settled, as the registry does once it learns the
+// final outcome of the htlc.
+func settleInvoice(db invpkg.InvoiceDB, ref invpkg.InvoiceRef, htlcID uint64,
+	amt lnwire.MilliSatoshi) (*invpkg.Invoice, error) {
+
+	ctxb := context.Background()
+	inv, err := db.UpdateInvoice(
+		ctxb, ref, nil, getUpdateInvoice(htlcID, amt),
+	)
+	if err != nil {
+		return inv, err
+	}
+
+	return db.UpdateInvoice(
+		ctxb, ref, nil,
+		getFinalizeHtlcs(true, models.CircuitKey{HtlcID: htlcID}),
+	)
 }
 
 // testCustomRecords tests that custom records are properly recorded in the
@@ -2714,11 +2773,9 @@ func testDeleteInvoices(t *testing.T,
 
 		// Settle the second invoice.
 		if i == 1 {
-			invoice, err = db.UpdateInvoice(
-				ctxb, invpkg.InvoiceRefByHash(paymentHash), nil,
-				getUpdateInvoice(
-					uint64(i), invoice.Terms.Value,
-				),
+			invoice, err = settleInvoice(
+				db, invpkg.InvoiceRefByHash(paymentHash),
+				uint64(i), invoice.Terms.Value,
 			)
 			require.NoError(t, err, "unable to settle invoice")
 		}
@@ -2863,4 +2920,135 @@ func testAddInvoiceInvalidFeatureDeps(t *testing.T,
 	require.Error(t, err, feature.NewErrMissingFeatureDep(
 		lnwire.PaymentAddrOptional,
 	))
+}
+
+// testFinalizeHtlcs asserts that an invoice waits for every final outcome,
+// then cancels on partial collection while preserving the received funds.
+func testFinalizeHtlcs(t *testing.T,
+	makeDB func(t *testing.T) invpkg.InvoiceDB) {
+
+	t.Parallel()
+
+	// Arrange an ordinary invoice with two released shards so final
+	// outcome accounting is exercised through the actual database.
+	db := makeDB(t)
+	ctxb := t.Context()
+
+	amt := lnwire.NewMSatFromSatoshis(1000)
+	invoice, err := randInvoice(amt)
+	require.NoError(t, err)
+
+	payHash := invoice.Terms.PaymentPreimage.Hash()
+	_, err = db.AddInvoice(ctxb, invoice, payHash)
+	require.NoError(t, err)
+
+	// Act by releasing both preimages in one invoice transaction, before
+	// either child has a final outcome from the channel or resolver.
+	htlc0 := models.CircuitKey{HtlcID: 0}
+	htlc1 := models.CircuitKey{HtlcID: 1}
+	ref := invpkg.InvoiceRefByHash(payHash)
+	dbInvoice, err := db.UpdateInvoice(ctxb, ref, nil,
+		func(inv *invpkg.Invoice) (*invpkg.InvoiceUpdateDesc, error) {
+			htlcs := make(
+				map[models.CircuitKey]*invpkg.HtlcAcceptDesc,
+			)
+			for _, key := range []models.CircuitKey{htlc0, htlc1} {
+				htlcs[key] = &invpkg.HtlcAcceptDesc{
+					Amt:           amt / 2,
+					CustomRecords: make(record.CustomSet),
+				}
+			}
+
+			return &invpkg.InvoiceUpdateDesc{
+				UpdateType: invpkg.AddHTLCsUpdate,
+				AddHtlcs:   htlcs,
+				State: &invpkg.InvoiceStateUpdateDesc{
+					NewState: invpkg.ContractPendingSettle,
+					Preimage: inv.Terms.PaymentPreimage,
+				},
+			}, nil
+		},
+	)
+	require.NoError(t, err)
+
+	// Assert provisional credit without a final settlement index or date.
+	// Both discovery queries must retain the unresolved payment.
+	require.Equal(t, invpkg.ContractPendingSettle, dbInvoice.State)
+	require.Equal(t, amt, dbInvoice.AmtPaid)
+	require.Zero(t, dbInvoice.SettleIndex)
+	require.True(t, dbInvoice.SettleDate.IsZero())
+	for _, htlc := range dbInvoice.Htlcs {
+		require.Equal(t, invpkg.HtlcStatePendingSettle, htlc.State)
+	}
+
+	pending, err := db.FetchPendingInvoices(ctxb)
+	require.NoError(t, err)
+	require.Contains(t, pending, payHash)
+
+	pendingSettle, err := db.FetchPendingSettleInvoices(ctxb)
+	require.NoError(t, err)
+	require.Contains(t, pendingSettle, payHash)
+
+	// An invoice can't be settled directly.
+	_, err = db.UpdateInvoice(ctxb, ref, nil,
+		func(inv *invpkg.Invoice) (*invpkg.InvoiceUpdateDesc, error) {
+			return &invpkg.InvoiceUpdateDesc{
+				UpdateType: invpkg.AddHTLCsUpdate,
+				State: &invpkg.InvoiceStateUpdateDesc{
+					NewState: invpkg.ContractSettled,
+					Preimage: inv.Terms.PaymentPreimage,
+				},
+			}, nil
+		},
+	)
+	require.ErrorIs(t, err, invpkg.ErrInvoiceCannotSettle)
+
+	// The first htlc settles. The invoice keeps waiting for the second.
+	dbInvoice, err = db.UpdateInvoice(
+		ctxb, ref, nil, getFinalizeHtlcs(true, htlc0),
+	)
+	require.NoError(t, err)
+	require.Equal(t, invpkg.ContractPendingSettle, dbInvoice.State)
+	require.Equal(t, amt, dbInvoice.AmtPaid)
+	require.Equal(
+		t, invpkg.HtlcStateSettled, dbInvoice.Htlcs[htlc0].State,
+	)
+
+	// Repeating a final success must identify the duplicate, rather than
+	// allowing an unrelated database error to satisfy this rejection.
+	_, err = db.UpdateInvoice(
+		ctxb, ref, nil, getFinalizeHtlcs(true, htlc0),
+	)
+	require.ErrorIs(t, err, invpkg.ErrHTLCAlreadySettled)
+
+	// The payer reclaims the second htlc on chain. The invoice is canceled
+	// but retains the amount collected from the first htlc.
+	dbInvoice, err = db.UpdateInvoice(
+		ctxb, ref, nil, getFinalizeHtlcs(false, htlc1),
+	)
+	require.NoError(t, err)
+	require.Equal(t, invpkg.ContractCanceled, dbInvoice.State)
+	require.Equal(t, amt/2, dbInvoice.AmtPaid)
+	require.Zero(t, dbInvoice.SettleIndex)
+	require.True(t, dbInvoice.SettleDate.IsZero())
+	require.Equal(
+		t, invpkg.HtlcStateFailed, dbInvoice.Htlcs[htlc1].State,
+	)
+
+	// The stored invoice matches.
+	stored, err := db.LookupInvoice(ctxb, ref)
+	require.NoError(t, err)
+	require.Equal(t, invpkg.ContractCanceled, stored.State)
+	require.Equal(t, amt/2, stored.AmtPaid)
+	require.Zero(t, stored.SettleIndex)
+	require.Equal(t, invpkg.HtlcStateSettled, stored.Htlcs[htlc0].State)
+	require.Equal(t, invpkg.HtlcStateFailed, stored.Htlcs[htlc1].State)
+
+	pending, err = db.FetchPendingInvoices(ctxb)
+	require.NoError(t, err)
+	require.NotContains(t, pending, payHash)
+
+	pendingSettle, err = db.FetchPendingSettleInvoices(ctxb)
+	require.NoError(t, err)
+	require.NotContains(t, pendingSettle, payHash)
 }

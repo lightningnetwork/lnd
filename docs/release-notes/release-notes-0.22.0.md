@@ -132,6 +132,9 @@
 
 ## Deprecations
 
+* The `etcd` database backend will be deprecated in the release following
+  v0.22.
+
 # Technical and Architectural Updates
 
 ## BOLT Spec Updates
@@ -192,6 +195,13 @@
   offer and stores it. The `offers` table migration is a development
   migration for now, so a normal build does not change the database
   schema.
+
+* [BOLT 12 invoice request
+  handler](https://github.com/lightningnetwork/lnd/pull/11340): add the
+  experimental `protocol.bolt12-offers` flag, which needs a build with the `dev`
+  and `test_native_sql` tags and native SQL. Add a handler that answers an
+  invoice request for a stored offer with a signed invoice and notifies invoice
+  subscribers. The node does not route invoice requests to the handler yet.
 
 ## Testing
 

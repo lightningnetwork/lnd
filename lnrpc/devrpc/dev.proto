@@ -37,6 +37,13 @@ service Dev {
     once interop is confirmed.
     */
     rpc Quiesce (QuiescenceRequest) returns (QuiescenceResponse);
+
+    /* lncli: `createoffer`
+    CreateOffer creates a new BOLT 12 offer. The offer is persisted in the
+    offer store and the encoded offer string (lno1...) is returned. The node
+    must run with --protocol.bolt12-offers.
+    */
+    rpc CreateOffer (CreateOfferRequest) returns (CreateOfferResponse);
 }
 
 message ImportGraphResponse {
@@ -51,4 +58,31 @@ message QuiescenceResponse {
     // Indicates whether or not we hold the initiator role or not once the
     // negotiation completes
     bool initiator = 1;
+}
+
+message CreateOfferRequest {
+    // A UTF-8 description of the purpose of the payment. Required when
+    // amount_msat is set.
+    string description = 1;
+
+    // The amount expected per item in millisatoshis. Zero or unset means
+    // the payer chooses the amount.
+    uint64 amount_msat = 2;
+
+    // Seconds since epoch after which the offer expires. Zero or unset
+    // means no expiry.
+    uint64 absolute_expiry = 3;
+
+    // Maximum number of items that can be requested in a single invoice.
+    // Zero means unlimited. If not set, quantity selection is not
+    // supported.
+    optional uint64 quantity_max = 4;
+}
+
+message CreateOfferResponse {
+    // The bech32-encoded offer string (lno1...).
+    string offer = 1;
+
+    // The 32-byte offer hash: the SHA256 of the offer's TLV records.
+    bytes offer_hash = 2;
 }

@@ -41,4 +41,9 @@ func main() {
 		_, _ = fmt.Fprintln(os.Stderr, err)
 		os.Exit(1)
 	}
+
+	// A graceful shutdown may still have been forced by a failure, such as
+	// a health check giving up on the chain backend. Report it so process
+	// managers can tell it apart from a deliberate stop.
+	os.Exit(int(shutdownInterceptor.ExitCode()))
 }

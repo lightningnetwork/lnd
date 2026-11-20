@@ -6,6 +6,7 @@ package devrpc
 import (
 	"context"
 	"encoding/hex"
+	"errors"
 	"fmt"
 	"strconv"
 	"strings"
@@ -22,7 +23,10 @@ import (
 	"github.com/lightningnetwork/lnd/lnrpc"
 	"github.com/lightningnetwork/lnd/lntypes"
 	"github.com/lightningnetwork/lnd/lnwire"
+	"github.com/lightningnetwork/lnd/offers"
 	"google.golang.org/grpc"
+	"google.golang.org/grpc/codes"
+	"google.golang.org/grpc/status"
 	"gopkg.in/macaroon-bakery.v2/bakery"
 )
 
@@ -42,6 +46,10 @@ var (
 			Action: "write",
 		}},
 		"/devrpc.Dev/Quiesce": {{
+			Entity: "offchain",
+			Action: "write",
+		}},
+		"/devrpc.Dev/CreateOffer": {{
 			Entity: "offchain",
 			Action: "write",
 		}},
@@ -386,4 +394,47 @@ func (s *Server) Quiesce(_ context.Context, in *QuiescenceRequest) (
 	case <-s.quit:
 		return nil, fmt.Errorf("server shutting down")
 	}
+}
+
+// errBolt12Disabled is returned by CreateOffer when the node runs without
+// BOLT 12 offers.
+var errBolt12Disabled = status.Error(codes.FailedPrecondition, "BOLT 12 "+
+	"offers are disabled: start lnd with --protocol.bolt12-offers in a "+
+	"development build with native SQL")
+
+// CreateOffer creates a persisted BOLT 12 offer and returns its encoded
+// string and offer hash.
+func (s *Server) CreateOffer(ctx context.Context,
+	req *CreateOfferRequest) (*CreateOfferResponse, error) {
+
+	if s.cfg.OfferCreator == nil {
+		return nil, errBolt12Disabled
+	}
+
+	// BOLT 12 requires a description for an offer with an amount. The
+	// encoder enforces it too, but its error has no gRPC code.
+	if req.AmountMsat > 0 && req.Description == "" {
+		return nil, status.Error(codes.InvalidArgument, "an offer "+
+			"with an amount requires a description")
+	}
+
+	result, err := s.cfg.OfferCreator.CreateOffer(
+		ctx, req.Description, req.AmountMsat, req.AbsoluteExpiry,
+		fn.OptionFromPtr(req.QuantityMax),
+	)
+	switch {
+	case errors.Is(err, offers.ErrExpiryNotInFuture):
+		return nil, status.Error(codes.InvalidArgument, err.Error())
+
+	case errors.Is(err, offers.ErrOfferExists):
+		return nil, status.Error(codes.AlreadyExists, err.Error())
+
+	case err != nil:
+		return nil, err
+	}
+
+	return &CreateOfferResponse{
+		Offer:     result.Encoded,
+		OfferHash: result.Hash[:],
+	}, nil
 }

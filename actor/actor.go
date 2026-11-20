@@ -2,6 +2,7 @@ package actor
 
 import (
 	"context"
+	"errors"
 	"sync"
 
 	"github.com/lightningnetwork/lnd/fn/v2"
@@ -34,6 +35,13 @@ type ActorConfig[M Message, R any] struct {
 	// MailboxFactory is an optional factory for creating the actor's
 	// mailbox. If nil, a default ChannelMailbox will be used.
 	MailboxFactory MailboxFactory[M, R]
+
+	// MailboxOverflowLimit is the hard cap on the default mailbox's
+	// overflow queue, which absorbs sends made from inside a receive turn
+	// when the mailbox is full. A send that would exceed it fails with
+	// ErrMailboxOverflow. Zero selects DefaultMailboxOverflowLimit. It has
+	// no effect when MailboxFactory is set.
+	MailboxOverflowLimit int
 }
 
 // envelope wraps a message with its associated promise. This allows the sender
@@ -77,6 +85,11 @@ type Actor[M Message, R any] struct {
 
 	// ref is the cached ActorRef for this actor.
 	ref ActorRef[M, R]
+
+	// done is closed once the actor's processing goroutine has exited, or
+	// when Stop is called on an actor that was never started. After it is
+	// closed no Receive is running or will run.
+	done chan struct{}
 }
 
 // NewActor creates a new actor instance with the given ID and behavior.
@@ -116,7 +129,11 @@ func NewActor[M Message, R any](cfg ActorConfig[M, R]) (*Actor[M, R],
 	if cfg.MailboxFactory != nil {
 		mailbox = cfg.MailboxFactory(ctx, mailboxCapacity)
 	} else {
-		mailbox = NewChannelMailbox[M, R](ctx, mailboxCapacity)
+		mailbox = NewChannelMailbox[M, R](
+			ctx, mailboxCapacity,
+			WithMailboxID(cfg.ID),
+			WithOverflowLimit(cfg.MailboxOverflowLimit),
+		)
 	}
 
 	actor := &Actor[M, R]{
@@ -126,6 +143,7 @@ func NewActor[M Message, R any](cfg ActorConfig[M, R]) (*Actor[M, R],
 		ctx:      ctx,
 		cancel:   cancel,
 		dlo:      cfg.DLO,
+		done:     make(chan struct{}),
 	}
 
 	// Create and cache the actor's own reference.
@@ -149,9 +167,16 @@ func (a *Actor[M, R]) Start() {
 // process is the main event loop for the actor. It continuously monitors its
 // mailbox for incoming messages and its context for cancellation signals.
 func (a *Actor[M, R]) process() {
+	// Signal the join only once the loop and the drain below are finished.
+	defer close(a.done)
+
 	// Use the new iterator pattern for receiving messages.
 	for env := range a.mailbox.Receive(a.ctx) {
-		result := a.behavior.Receive(a.ctx, env.message)
+		// Mark the context as this actor's receive turn, so sends the
+		// behavior makes with it never park on a full mailbox.
+		turnCtx, endTurn := beginTurn(a.ctx, a.id)
+		result := a.behavior.Receive(turnCtx, env.message)
+		endTurn()
 
 		// If a promise was provided (i.e., it was an "ask"
 		// operation), complete the promise with the result from
@@ -187,7 +212,41 @@ func (a *Actor[M, R]) Stop() {
 		log.Infof("Actor %s: stopping", a.id)
 
 		a.cancel()
+
+		// An actor that was never started has no goroutine to join,
+		// and can no longer be started, so release its waiters here.
+		a.startOnce.Do(func() {
+			close(a.done)
+		})
 	})
+}
+
+// Done returns a channel that is closed once the actor has fully stopped: its
+// processing goroutine has exited, so no Receive is running and none will
+// run again, and every message left in its mailbox has been drained to the
+// DLO or failed. It is closed only after Stop, or a closed mailbox, ends the
+// loop.
+func (a *Actor[M, R]) Done() <-chan struct{} {
+	return a.done
+}
+
+// StopAndWait stops the actor and blocks until it has fully stopped or ctx is
+// done. A nil error is a join: the behavior's last Receive has returned and
+// no other will start, so the owner may close resources the behavior uses.
+// If ctx expires first, the error is ctx's and nothing is implied about
+// whether a Receive is still running. A Receive blocked on something other
+// than the context it was passed keeps the actor from stopping, so behaviors
+// must watch that context.
+func (a *Actor[M, R]) StopAndWait(ctx context.Context) error {
+	a.Stop()
+
+	select {
+	case <-a.done:
+		return nil
+
+	case <-ctx.Done():
+		return ctx.Err()
+	}
 }
 
 // actorRefImpl provides a concrete implementation of the ActorRef interface. It
@@ -208,6 +267,24 @@ func (ref *actorRefImpl[M, R]) Tell(ctx context.Context, msg M) {
 	}
 
 	env := envelope[M, R]{message: msg, promise: nil}
+
+	// A send made from inside a receive turn must not park the sending
+	// actor, so it takes the mailbox's non-blocking in-turn path.
+	if sender, ok := ref.inTurnSender(ctx); ok {
+		if err := sender.SendInTurn(env); err != nil {
+			if ref.actor.ctx.Err() != nil {
+				ref.trySendToDLO(msg)
+				return
+			}
+
+			// Tell has no way to report the failure, so make it
+			// loud. A sender that needs the signal can use TryTell.
+			log.Errorf("Actor %s: in-turn Tell of %s dropped: %v",
+				ref.actor.id, msg.MessageType(), err)
+		}
+
+		return
+	}
 
 	// Use mailbox Send method which internally checks both contexts.
 	if !ref.actor.mailbox.Send(ctx, env) {
@@ -248,6 +325,19 @@ func (ref *actorRefImpl[M, R]) Ask(ctx context.Context, msg M) Future[R] {
 
 	env := envelope[M, R]{message: msg, promise: promise}
 
+	// As with Tell, a send from inside a receive turn never parks.
+	if sender, ok := ref.inTurnSender(ctx); ok {
+		if err := sender.SendInTurn(env); err != nil {
+			if ref.actor.ctx.Err() != nil {
+				err = ErrActorTerminated
+			}
+
+			promise.Complete(fn.Err[R](err))
+		}
+
+		return promise.Future()
+	}
+
 	// Use mailbox Send method which internally checks both contexts.
 	if !ref.actor.mailbox.Send(ctx, env) {
 		// Determine the error based on what failed.
@@ -266,6 +356,91 @@ func (ref *actorRefImpl[M, R]) Ask(ctx context.Context, msg M) Future[R] {
 	// Return the future associated with the promise, allowing the caller to
 	// await the response.
 	return promise.Future()
+}
+
+// inTurnSender returns the mailbox's non-blocking send path if ctx belongs to
+// an active receive turn and the mailbox supports one.
+func (ref *actorRefImpl[M, R]) inTurnSender(
+	ctx context.Context) (inTurnSender[M, R], bool) {
+
+	if _, ok := activeTurn(ctx); !ok {
+		return nil, false
+	}
+
+	sender, ok := ref.actor.mailbox.(inTurnSender[M, R])
+
+	return sender, ok
+}
+
+// TryTell enqueues a message only if the mailbox can take it immediately,
+// returning ErrMailboxFull rather than waiting for room. Unlike Tell it never
+// blocks, whichever goroutine calls it.
+func (ref *actorRefImpl[M, R]) TryTell(ctx context.Context, msg M) error {
+	// A caller that has already given up shouldn't have its message
+	// enqueued. TrySend never waits, so this is the only way the context
+	// participates.
+	if err := ctx.Err(); err != nil {
+		return err
+	}
+
+	env := envelope[M, R]{message: msg, promise: nil}
+	if err := ref.trySend(env); err != nil {
+		// A terminated actor will never drain its mailbox, so the
+		// message is dead and belongs in the DLO. A full mailbox is
+		// transient and stays the caller's problem.
+		if errors.Is(err, ErrActorTerminated) {
+			ref.trySendToDLO(msg)
+		}
+
+		return err
+	}
+
+	return nil
+}
+
+// TryAsk is the non-blocking form of Ask. If the mailbox can't take the
+// message immediately, the returned Future is already completed with the
+// reason, so the caller never waits to learn that the send failed.
+func (ref *actorRefImpl[M, R]) TryAsk(ctx context.Context,
+	msg M) Future[R] {
+
+	promise := NewPromise[R]()
+
+	if err := ctx.Err(); err != nil {
+		promise.Complete(fn.Err[R](err))
+		return promise.Future()
+	}
+
+	env := envelope[M, R]{message: msg, promise: promise}
+	if err := ref.trySend(env); err != nil {
+		promise.Complete(fn.Err[R](err))
+	}
+
+	return promise.Future()
+}
+
+// trySend makes a single non-blocking delivery attempt and classifies a
+// failure. The mailbox reports only whether it accepted the envelope, so the
+// reason is recovered from the actor and mailbox state afterwards.
+func (ref *actorRefImpl[M, R]) trySend(env envelope[M, R]) error {
+	if ref.actor.ctx.Err() != nil {
+		return ErrActorTerminated
+	}
+
+	if ref.actor.mailbox.TrySend(env) {
+		return nil
+	}
+
+	switch {
+	case ref.actor.ctx.Err() != nil:
+		return ErrActorTerminated
+
+	case ref.actor.mailbox.IsClosed():
+		return ErrMailboxClosed
+
+	default:
+		return ErrMailboxFull
+	}
 }
 
 // trySendToDLO attempts to send the message to the actor's DLO if configured.

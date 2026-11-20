@@ -8,6 +8,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"math"
 	"slices"
 	"sync"
 
@@ -3730,14 +3731,12 @@ func (lc *LightningChannel) createCommitDiff(newCommit *commitment,
 
 // getUnsignedAckedUpdates returns all remote log updates that we haven't
 // signed for yet ourselves.
-func (lc *LightningChannel) getUnsignedAckedUpdates() []channeldb.LogUpdate {
+func (lc *LightningChannel) getUnsignedAckedUpdates(
+	lastLocalCommitted uint64) []channeldb.LogUpdate {
+
 	// Fetch the last remote update that we have signed for.
 	lastRemoteCommitted :=
 		lc.commitChains.Remote.tail().messageIndices.Remote
-
-	// Fetch the last remote update that we have acked.
-	lastLocalCommitted :=
-		lc.commitChains.Local.tail().messageIndices.Remote
 
 	// We'll now run through the remote update log to locate the items that
 	// we haven't signed for yet. This will be the set of items we need to
@@ -5278,7 +5277,10 @@ func genHtlcSigValidationJobs(chanState *chanstate.OpenChannel,
 			SigHash:   sigHash,
 		})
 
-		if len(auxHtlcSigs) > i {
+		// Only taproot overlay channels carry aux signatures, so we
+		// don't attach or persist aux data a peer sends for any other
+		// channel type. This matches the per-HTLC count check below.
+		if chanType.HasTapscriptRoot() && len(auxHtlcSigs) > i {
 			auxSig := auxHtlcSigs[i]
 			auxVerifyJob := NewAuxVerifyJob(
 				auxSig, *keyRing, incoming,
@@ -5853,6 +5855,19 @@ func (lc *LightningChannel) RevokeCurrentCommitment() (*lnwire.RevokeAndAck,
 	lc.Lock()
 	defer lc.Unlock()
 
+	// Check the next tail before changing the in-memory commitment chain. A
+	// larger list cannot be written to the existing uint16 disk format.
+	lastLocalCommitted := lc.commitChains.Local.tip().messageIndices.Remote
+	unsignedAckedUpdates := lc.getUnsignedAckedUpdates(
+		lastLocalCommitted,
+	)
+	if len(unsignedAckedUpdates) > math.MaxUint16 {
+		return nil, nil, nil, fmt.Errorf(
+			"too many unsigned acked updates: %d exceeds %d",
+			len(unsignedAckedUpdates), math.MaxUint16,
+		)
+	}
+
 	revocationMsg, err := lc.generateRevocation(lc.currentHeight)
 	if err != nil {
 		return nil, nil, nil, err
@@ -5870,11 +5885,6 @@ func (lc *LightningChannel) RevokeCurrentCommitment() (*lnwire.RevokeAndAck,
 	// persistent storage.
 	chainTail := lc.commitChains.Local.tail()
 	newCommitment := chainTail.toDiskCommit(lntypes.Local)
-
-	// Get the unsigned acked remotes updates that are currently in memory.
-	// We need them after a restart to sync our remote commitment with what
-	// is committed locally.
-	unsignedAckedUpdates := lc.getUnsignedAckedUpdates()
 
 	finalHtlcs, err := lc.channelState.UpdateCommitment(
 		newCommitment, unsignedAckedUpdates,
@@ -8429,10 +8439,17 @@ func (lc *LightningChannel) ForceClose(opts ...ForceCloseOpt) (
 	// If we've detected local data loss for this channel, then we won't
 	// allow a force close, as it may be the case that we have a dated
 	// version of the commitment, or this is actually a channel shell.
-	if lc.channelState.HasChanStatus(channeldb.ChanStatusLocalDataLoss) {
-		return nil, fmt.Errorf("%w: channel_state=%v",
+	hasRestoredShell := lc.channelState.HasChanStatus(
+		channeldb.ChanStatusLocalDataLoss,
+	) || lc.channelState.HasChanStatus(
+		channeldb.ChanStatusRestored,
+	)
+	if hasRestoredShell {
+		return nil, fmt.Errorf(
+			"%w: channel_state=%v",
 			ErrForceCloseLocalDataLoss,
-			lc.channelState.ChanStatus())
+			lc.channelState.ChanStatus(),
+		)
 	}
 
 	commitTx, err := lc.getSignedCommitTx()
@@ -8697,6 +8714,8 @@ type chanCloseOpt struct {
 	customLockTime fn.Option[uint32]
 
 	customPayer fn.Option[lntypes.ChannelParty]
+
+	omitRemoteOutput bool
 }
 
 // ChanCloseOpt is a closure type that cen be used to modify the set of default
@@ -8714,6 +8733,13 @@ func defaultCloseOpts() *chanCloseOpt {
 func WithCoopCloseMusigSession(session *MusigSession) ChanCloseOpt {
 	return func(opts *chanCloseOpt) {
 		opts.musigSession = session
+	}
+}
+
+// WithOmittedRemoteCloseOutput omits the remote party's closing output.
+func WithOmittedRemoteCloseOutput() ChanCloseOpt {
+	return func(opts *chanCloseOpt) {
+		opts.omitRemoteOutput = true
 	}
 }
 
@@ -8812,6 +8838,9 @@ func (lc *LightningChannel) CreateCloseProposal(proposedFee btcutil.Amount,
 		closeTxOpts = append(closeTxOpts, WithExtraTxCloseOutputs(
 			opts.extraCloseOutputs,
 		))
+	}
+	if opts.omitRemoteOutput {
+		closeTxOpts = append(closeTxOpts, withOmittedRemoteTxOutput())
 	}
 	if opts.customSort != nil {
 		closeTxOpts = append(
@@ -8926,6 +8955,9 @@ func (lc *LightningChannel) CompleteCooperativeClose(
 		closeTxOpts = append(closeTxOpts, WithExtraTxCloseOutputs(
 			opts.extraCloseOutputs,
 		))
+	}
+	if opts.omitRemoteOutput {
+		closeTxOpts = append(closeTxOpts, withOmittedRemoteTxOutput())
 	}
 	if opts.customSort != nil {
 		closeTxOpts = append(
@@ -9711,6 +9743,8 @@ type closeTxOpts struct {
 	customSequence fn.Option[uint32]
 
 	customLockTime fn.Option[uint32]
+
+	omitRemoteOutput bool
 }
 
 // defaultCloseTxOpts returns a closeTxOpts struct with default values.
@@ -9723,6 +9757,12 @@ func defaultCloseTxOpts() closeTxOpts {
 // CloseTxOpt is a functional option that allows us to modify how the closing
 // transaction is created.
 type CloseTxOpt func(*closeTxOpts)
+
+func withOmittedRemoteTxOutput() CloseTxOpt {
+	return func(o *closeTxOpts) {
+		o.omitRemoteOutput = true
+	}
+}
 
 // WithRBFCloseTx signals that the cooperative close tx should signal RBF.
 func WithRBFCloseTx() CloseTxOpt {
@@ -9821,7 +9861,7 @@ func CreateCooperativeCloseTx(fundingTxIn wire.TxIn,
 	}
 
 	var remoteOutputIdx fn.Option[int]
-	haveRemoteOutput := theirBalance >= remoteDust
+	haveRemoteOutput := theirBalance >= remoteDust && !opts.omitRemoteOutput
 	if haveRemoteOutput {
 		// If a party's script is an OP_RETURN, then we set their
 		// balance to zero.

@@ -5,6 +5,7 @@ import (
 	"encoding/binary"
 	"fmt"
 	"io"
+	"math"
 
 	"github.com/btcsuite/btcd/btcec/v2"
 	"github.com/lightningnetwork/lnd/fn/v2"
@@ -106,6 +107,14 @@ func SerializeHtlcs(b io.Writer, htlcs ...HTLC) error {
 		)
 		copy(onionAndExtraData, htlc.OnionBlob[:])
 		copy(onionAndExtraData[lnwire.OnionPacketSize:], htlc.ExtraData)
+
+		// Refuse to write an HTLC that the reader would reject, as a
+		// single unreadable HTLC makes the whole channel unreadable.
+		if len(onionAndExtraData) > maxVarBytesLen {
+			return fmt.Errorf("htlc onion and extra data too "+
+				"large: %d > max %d", len(onionAndExtraData),
+				maxVarBytesLen)
+		}
 
 		if err := WriteElements(b,
 			//nolint:ll
@@ -513,6 +522,11 @@ func extractCommitTlvData(c *ChannelCommitment) commitTlvData {
 
 // SerializeLogUpdates serializes provided list of updates to a stream.
 func SerializeLogUpdates(w io.Writer, logUpdates []LogUpdate) error {
+	if len(logUpdates) > math.MaxUint16 {
+		return fmt.Errorf("too many log updates: %d exceeds %d",
+			len(logUpdates), math.MaxUint16)
+	}
+
 	numUpdates := uint16(len(logUpdates))
 	if err := binary.Write(w, byteOrder, numUpdates); err != nil {
 		return err

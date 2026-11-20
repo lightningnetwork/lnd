@@ -1,9 +1,17 @@
 name: Release build
 
 on:
+  # Build the merged version bump before a maintainer publishes its tag.
   push:
-    tags:
-      - 'v*'
+    branches:
+      - 'v0.*-branch'
+    paths:
+      - 'build/version.go'
+  workflow_dispatch:
+
+permissions:
+  # Upload the prepared assets to a draft without publishing the release.
+  contents: write
 
 defaults:
   run:
@@ -36,25 +44,57 @@ jobs:
           go-version: '${{ env.GO_VERSION }}'
           cache: 'false'
 
-      - name: Set env
-        run: echo "RELEASE_VERSION=${GITHUB_REF#refs/*/}" >> $GITHUB_ENV
+      - name: Prepare release version
+        id: version
+        run: |
+          # Reuse the binary's version so tag selection follows build.Version.
+          version=$(go run ./cmd/lnd --version | awk '{print $3}')
 
+          # Development branches use patch 99 and have no release to prepare.
+          if [[ "$version" =~ ^[0-9]+\.[0-9]+\.99(-|$) ]]; then
+            echo "Skipping development version $version"
+            exit 0
+          fi
+
+          # A fetched tag means preparation is over; preserve its assets.
+          tag="v$version"
+          if git show-ref --verify --quiet "refs/tags/$tag"; then
+            echo "Skipping already tagged release $tag"
+            exit 0
+          fi
+
+          # Satisfy the normal build checks locally; the human signs later.
+          git -c tag.gpgSign=false tag "$tag"
+          echo "RELEASE_VERSION=$tag" >> "$GITHUB_ENV"
+
+      # An unset version skips preparation; failures still stop later steps.
       - name: check release notes are ready
+        if: env.RELEASE_VERSION != ''
         run: scripts/check-release-notes-consistency.sh release
 
       - name: build release for all architectures
-        run: make release tag=${{ env.RELEASE_VERSION }}
+        if: env.RELEASE_VERSION != ''
+        run: make release "tag=$RELEASE_VERSION"
 
+      # Stage the tested commit and assets without creating a public Git tag.
       - name: Create Release
+        if: env.RELEASE_VERSION != ''
         uses: lightninglabs/gh-actions/action-gh-release@c7149b6a7818d1c39b36b69e727569897b6f2c5a
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         with:
           name: lnd ${{ env.RELEASE_VERSION }}
+          tag_name: ${{ env.RELEASE_VERSION }}
+          target_commitish: ${{ github.sha }}
           draft: true
           prerelease: false
           files: lnd-${{ env.RELEASE_VERSION }}/*
           body: |
+            Prepared from commit `${{ github.sha }}` by
+            [this workflow run](${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}).
+            Wait for that run to succeed, then sign and push this exact commit's
+            tag before publishing this draft.
+
             # Database Migrations
             TODO
 

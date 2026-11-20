@@ -238,6 +238,35 @@ func (as *ActorSystem) Shutdown() error {
 	return nil
 }
 
+// ShutdownAndWait is Shutdown followed by a join: a nil return means every
+// actor that was managed by the system has fully stopped, so no Receive is
+// running and none will start. If ctx is done first, its error is returned and
+// some actors may still be stopping.
+func (as *ActorSystem) ShutdownAndWait(ctx context.Context) error {
+	as.mu.RLock()
+	var dones []<-chan struct{}
+	for _, actor := range as.actors {
+		if j, ok := actor.(interface{ Done() <-chan struct{} }); ok {
+			dones = append(dones, j.Done())
+		}
+	}
+	as.mu.RUnlock()
+
+	if err := as.Shutdown(); err != nil {
+		return err
+	}
+
+	for _, done := range dones {
+		select {
+		case <-done:
+		case <-ctx.Done():
+			return ctx.Err()
+		}
+	}
+
+	return nil
+}
+
 // StopAndRemoveActor stops a specific actor by its ID and removes it from the
 // ActorSystem's management. It returns true if the actor was found and stopped,
 // false otherwise.

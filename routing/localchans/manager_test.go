@@ -14,6 +14,7 @@ import (
 	"github.com/lightningnetwork/lnd/channeldb"
 	"github.com/lightningnetwork/lnd/chanstate"
 	"github.com/lightningnetwork/lnd/discovery"
+	"github.com/lightningnetwork/lnd/fn/v2"
 	"github.com/lightningnetwork/lnd/funding"
 	"github.com/lightningnetwork/lnd/graph/db/models"
 	"github.com/lightningnetwork/lnd/keychain"
@@ -55,12 +56,17 @@ func TestManager(t *testing.T) {
 	localMultisigKey := localMultisigPrivKey.PubKey()
 	remoteMultisigPrivKey, _ := btcec.NewPrivateKey()
 	remoteMultisigKey := remoteMultisigPrivKey.PubKey()
+	const (
+		newBaseFee = lnwire.MilliSatoshi(100)
+		newFeeRate = uint32(200)
+		newDelta   = uint32(80)
+	)
 	newPolicy := routing.ChannelPolicy{
 		FeeSchema: routing.FeeSchema{
-			BaseFee: 100,
-			FeeRate: 200,
+			BaseFee: fn.Some(newBaseFee),
+			FeeRate: fn.Some(newFeeRate),
 		},
-		TimeLockDelta: 80,
+		TimeLockDelta: fn.Some(newDelta),
 		MaxHTLC:       5000,
 	}
 
@@ -82,13 +88,13 @@ func TestManager(t *testing.T) {
 		}
 
 		policy := chanPolicies[chanPointValid]
-		if policy.TimeLockDelta != newPolicy.TimeLockDelta {
+		if policy.TimeLockDelta != newDelta {
 			t.Fatal("unexpected time lock delta")
 		}
-		if policy.BaseFee != newPolicy.BaseFee {
+		if policy.BaseFee != newBaseFee {
 			t.Fatal("unexpected base fee")
 		}
-		if uint32(policy.FeeRate) != newPolicy.FeeRate {
+		if uint32(policy.FeeRate) != newFeeRate {
 			t.Fatal("unexpected base fee")
 		}
 		if policy.MaxHTLC != newPolicy.MaxHTLC {
@@ -110,13 +116,14 @@ func TestManager(t *testing.T) {
 			if !policy.MessageFlags.HasMaxHtlc() {
 				t.Fatal("expected max htlc flag")
 			}
-			if policy.TimeLockDelta != uint16(newPolicy.TimeLockDelta) {
+			if uint32(policy.TimeLockDelta) != newDelta {
 				t.Fatal("unexpected time lock delta")
 			}
-			if policy.FeeBaseMSat != newPolicy.BaseFee {
+			if policy.FeeBaseMSat != newBaseFee {
 				t.Fatal("unexpected base fee")
 			}
-			if uint32(policy.FeeProportionalMillionths) != newPolicy.FeeRate {
+			feeRate := uint32(policy.FeeProportionalMillionths)
+			if feeRate != newFeeRate {
 				t.Fatal("unexpected base fee")
 			}
 			if policy.MaxHTLC != newPolicy.MaxHTLC {
@@ -568,4 +575,217 @@ func TestCreateEdgeHigher(t *testing.T) {
 	require.NoError(t, err)
 	require.Equal(t, expectedInfo, info)
 	require.Equal(t, expectedEdge, edge)
+}
+
+// TestUpdatePolicyKeepFields checks that the unset fields of a policy update
+// leave the matching fields of the existing edge unchanged, both on the edge
+// sent to the gossiper and on the policy sent to the links.
+func TestUpdatePolicyKeepFields(t *testing.T) {
+	t.Parallel()
+
+	const (
+		curBaseFee  = lnwire.MilliSatoshi(500)
+		curFeeRate  = lnwire.MilliSatoshi(700)
+		curTimeLock = uint16(40)
+
+		// The defaults a recreated edge starts out with.
+		defBaseFee  = lnwire.MilliSatoshi(1000)
+		defFeeRate  = lnwire.MilliSatoshi(2)
+		defTimeLock = uint16(144)
+
+		zeroFee = lnwire.MilliSatoshi(0)
+	)
+
+	chanPoint := wire.OutPoint{Hash: chainhash.Hash{1}, Index: 2}
+	info, err := models.NewV1Channel(
+		0, chainhash.Hash{}, route.Vertex{}, route.Vertex{},
+		&models.ChannelV1Fields{},
+		models.WithCapacity(btcutil.Amount(1000)),
+		models.WithChannelPoint(chanPoint),
+	)
+	require.NoError(t, err)
+
+	tests := []struct {
+		name         string
+		policy       routing.ChannelPolicy
+		missingEdge  bool
+		wantBaseFee  lnwire.MilliSatoshi
+		wantFeeRate  lnwire.MilliSatoshi
+		wantTimeLock uint16
+	}{
+		{
+			name:         "keep all",
+			policy:       routing.ChannelPolicy{},
+			wantBaseFee:  curBaseFee,
+			wantFeeRate:  curFeeRate,
+			wantTimeLock: curTimeLock,
+		},
+		{
+			name: "set fee rate to zero only",
+			policy: routing.ChannelPolicy{
+				FeeSchema: routing.FeeSchema{
+					FeeRate: fn.Some(uint32(0)),
+				},
+			},
+			wantBaseFee:  curBaseFee,
+			wantFeeRate:  0,
+			wantTimeLock: curTimeLock,
+		},
+		{
+			name: "set time lock delta only",
+			policy: routing.ChannelPolicy{
+				TimeLockDelta: fn.Some(uint32(80)),
+			},
+			wantBaseFee:  curBaseFee,
+			wantFeeRate:  curFeeRate,
+			wantTimeLock: 80,
+		},
+		{
+			name: "set all fields",
+			policy: routing.ChannelPolicy{
+				FeeSchema: routing.FeeSchema{
+					BaseFee: fn.Some(zeroFee),
+					FeeRate: fn.Some(uint32(0)),
+				},
+				TimeLockDelta: fn.Some(uint32(80)),
+			},
+			wantBaseFee:  0,
+			wantFeeRate:  0,
+			wantTimeLock: 80,
+		},
+		{
+			// A recreated edge has no current values, so the kept
+			// fields fall back to the default policy.
+			name: "missing edge keeps default fees",
+			policy: routing.ChannelPolicy{
+				TimeLockDelta: fn.Some(uint32(80)),
+			},
+			missingEdge:  true,
+			wantBaseFee:  defBaseFee,
+			wantFeeRate:  defFeeRate,
+			wantTimeLock: 80,
+		},
+		{
+			name:         "missing edge keeps all defaults",
+			policy:       routing.ChannelPolicy{},
+			missingEdge:  true,
+			wantBaseFee:  defBaseFee,
+			wantFeeRate:  defFeeRate,
+			wantTimeLock: defTimeLock,
+		},
+	}
+
+	selfPriv, err := btcec.NewPrivateKey()
+	require.NoError(t, err)
+	remotePriv, err := btcec.NewPrivateKey()
+	require.NoError(t, err)
+
+	bounds := chanstate.ChannelStateBounds{
+		MaxPendingAmount: 999000,
+		MinHTLC:          1,
+	}
+	openChan := &chanstate.OpenChannel{
+		FundingOutpoint: chanPoint,
+		IdentityPub:     remotePriv.PubKey(),
+		LocalChanCfg: chanstate.ChannelConfig{
+			ChannelStateBounds: bounds,
+			MultiSigKey: keychain.KeyDescriptor{
+				PubKey: selfPriv.PubKey(),
+			},
+		},
+		RemoteChanCfg: chanstate.ChannelConfig{
+			ChannelStateBounds: bounds,
+			MultiSigKey: keychain.KeyDescriptor{
+				PubKey: remotePriv.PubKey(),
+			},
+		},
+	}
+	fetchChannel := func(wire.OutPoint) (*chanstate.OpenChannel, error) {
+		return openChan, nil
+	}
+
+	// newEdge returns the current policy of the channel.
+	const maxHtlcFlag = lnwire.ChanUpdateRequiredMaxHtlc
+	newEdge := func() *models.ChannelEdgePolicy {
+		return &models.ChannelEdgePolicy{
+			Version:                   lnwire.GossipVersion1,
+			FeeBaseMSat:               curBaseFee,
+			FeeProportionalMillionths: curFeeRate,
+			TimeLockDelta:             curTimeLock,
+			MinHTLC:                   1,
+			MaxHTLC:                   5000,
+			MessageFlags:              maxHtlcFlag,
+		}
+	}
+
+	type fwdPolicies = map[wire.OutPoint]models.ForwardingPolicy
+	type edgeCallback = func(*models.ChannelEdgeInfo,
+		*models.ChannelEdgePolicy) error
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+
+			var (
+				gotEdges    []discovery.EdgeWithInfo
+				gotPolicies fwdPolicies
+			)
+
+			manager := Manager{
+				UpdateForwardingPolicies: func(p fwdPolicies) {
+					gotPolicies = p
+				},
+				PropagateChanPolicyUpdate: func(
+					e []discovery.EdgeWithInfo) error {
+
+					gotEdges = e
+					return nil
+				},
+				ForAllOutgoingChannels: func(_ context.Context,
+					cb edgeCallback, _ func()) error {
+
+					if tc.missingEdge {
+						return nil
+					}
+
+					return cb(info, newEdge())
+				},
+				FetchChannel: fetchChannel,
+				SelfPub:      selfPriv.PubKey(),
+				DefaultRoutingPolicy: models.ForwardingPolicy{
+					MinHTLCOut:    1,
+					MaxHTLC:       5000,
+					BaseFee:       defBaseFee,
+					FeeRate:       defFeeRate,
+					TimeLockDelta: uint32(defTimeLock),
+				},
+				AddEdge: func(context.Context,
+					*models.ChannelEdgeInfo) error {
+
+					return nil
+				},
+			}
+
+			failed, err := manager.UpdatePolicy(
+				t.Context(), tc.policy, tc.missingEdge,
+				chanPoint,
+			)
+			require.NoError(t, err)
+			require.Empty(t, failed)
+
+			require.Len(t, gotEdges, 1)
+			edge := gotEdges[0].Edge
+			require.Equal(t, tc.wantBaseFee, edge.FeeBaseMSat)
+			require.Equal(t, tc.wantFeeRate,
+				edge.FeeProportionalMillionths)
+			require.Equal(t, tc.wantTimeLock, edge.TimeLockDelta)
+
+			fwd := gotPolicies[chanPoint]
+			require.Equal(t, tc.wantBaseFee, fwd.BaseFee)
+			require.Equal(t, tc.wantFeeRate, fwd.FeeRate)
+			require.EqualValues(
+				t, tc.wantTimeLock, fwd.TimeLockDelta,
+			)
+		})
+	}
 }

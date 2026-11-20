@@ -17,12 +17,13 @@ import (
 // decodePayReq decodes the invoice payment request if present. This is needed,
 // because not all information is stored in dedicated invoice fields. If there
 // is no payment request present, a dummy request will be returned. This can
-// happen with just-in-time inserted keysend invoices.
+// happen with just-in-time inserted keysend invoices. A BOLT 12 invoice also
+// gets the dummy request, because zpay32 cannot decode its lni1 string.
 func decodePayReq(invoice *invoices.Invoice,
 	activeNetParams *chaincfg.Params) (*zpay32.Invoice, error) {
 
 	paymentRequest := string(invoice.PaymentRequest)
-	if paymentRequest == "" {
+	if paymentRequest == "" || invoice.IsBolt12 {
 		preimage := invoice.Terms.PaymentPreimage
 		if preimage == nil {
 			return &zpay32.Invoice{}, nil
@@ -79,6 +80,12 @@ func CreateRPCInvoice(invoice *invoices.Invoice,
 	satAmtPaid := invoice.AmtPaid.ToSatoshis()
 
 	isSettled := invoice.State == invoices.ContractSettled
+	isAMP := invoice.IsAMP()
+
+	// State records the release decision, unlike a known preimage, which
+	// ordinary invoices can have before payment. Preserve legacy settled
+	// headers even when their original HTLC records are unavailable.
+	preimageReleased := !isAMP && invoice.State.PreimageReleased()
 
 	var state lnrpc.Invoice_InvoiceState
 	switch invoice.State {
@@ -93,6 +100,9 @@ func CreateRPCInvoice(invoice *invoices.Invoice,
 
 	case invoices.ContractAccepted:
 		state = lnrpc.Invoice_ACCEPTED
+
+	case invoices.ContractPendingSettle:
+		state = lnrpc.Invoice_PENDING_SETTLE
 
 	default:
 		return nil, fmt.Errorf("unknown invoice state %v",
@@ -109,8 +119,21 @@ func CreateRPCInvoice(invoice *invoices.Invoice,
 			state = lnrpc.InvoiceHTLCState_SETTLED
 		case invoices.HtlcStateCanceled:
 			state = lnrpc.InvoiceHTLCState_CANCELED
+		case invoices.HtlcStateFailed:
+			state = lnrpc.InvoiceHTLCState_FAILED
+		case invoices.HtlcStatePendingSettle:
+			state = lnrpc.InvoiceHTLCState_PENDING_SETTLE
 		default:
 			return nil, fmt.Errorf("unknown state %v", htlc.State)
+		}
+
+		// A canceled parent can still carry release history after every
+		// released child failed. Keep this separate from the predicate
+		// used for active claims and paid-value accounting.
+		if !isAMP && (htlc.State.PreimageReleased() ||
+			htlc.State == invoices.HtlcStateFailed) {
+
+			preimageReleased = true
 		}
 
 		rpcHtlc := lnrpc.InvoiceHTLC{
@@ -154,8 +177,13 @@ func CreateRPCInvoice(invoice *invoices.Invoice,
 			}
 		}
 
-		// Only report resolved times if htlc is resolved.
-		if htlc.State != invoices.HtlcStateAccepted {
+		// Preimage release records a timestamp internally, but a
+		// pending HTLC has no final resolution time to expose to RPC
+		// callers.
+		if htlc.State == invoices.HtlcStateSettled ||
+			htlc.State == invoices.HtlcStateCanceled ||
+			htlc.State == invoices.HtlcStateFailed {
+
 			rpcHtlc.ResolveTime = htlc.ResolveTime.Unix()
 		}
 
@@ -194,9 +222,10 @@ func CreateRPCInvoice(invoice *invoices.Invoice,
 		Features:    CreateRPCFeatures(invoice.Terms.Features),
 		IsKeysend:   invoice.IsKeysend(),
 		PaymentAddr: invoice.Terms.PaymentAddr[:],
-		IsAmp:       invoice.IsAMP(),
+		IsAmp:       isAMP,
 		IsBlinded:   invoice.IsBlinded(),
 	}
+	rpcInvoice.PreimageReleased = preimageReleased
 
 	rpcInvoice.AmpInvoiceState = make(map[string]*lnrpc.AMPInvoiceState)
 	for setID, ampState := range invoice.AMPState {

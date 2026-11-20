@@ -63,12 +63,17 @@ type Querier interface {
 	// Migration-specific batch fetch that returns payment data along with HTLC
 	// attempt counts for structural validation during KV to SQL migration.
 	FetchPaymentsByIDsMig(ctx context.Context, paymentIds []int64) ([]FetchPaymentsByIDsMigRow, error)
-	// FetchPendingInvoices returns all invoices in a pending state (open or
-	// accepted). The invoices_state_idx index on the state column makes this a
-	// fast index scan rather than a full table scan. id_cursor is an exclusive
-	// lower bound on the primary key used for cursor-based pagination; the caller
-	// must supply 0 when starting from the beginning.
+	// FetchPendingInvoices returns all invoices in a pending state (open,
+	// accepted or pending settle). The invoices_state_idx index on the state column
+	// makes this a fast index scan rather than a full table scan. id_cursor is an
+	// exclusive lower bound on the primary key used for cursor-based pagination;
+	// the caller must supply 0 when starting from the beginning.
 	FetchPendingInvoices(ctx context.Context, arg FetchPendingInvoicesParams) ([]Invoice, error)
+	// FetchPendingSettleInvoices returns all invoices containing at least one HTLC
+	// whose final outcome is still pending, including children of settled parents.
+	// The parent-state pending filter cannot recover those duplicate payments.
+	// id_cursor is an exclusive lower bound for cursor-based pagination.
+	FetchPendingSettleInvoices(ctx context.Context, arg FetchPendingSettleInvoicesParams) ([]Invoice, error)
 	FetchRouteLevelFirstHopCustomRecords(ctx context.Context, htlcAttemptIndices []int64) ([]PaymentAttemptFirstHopCustomRecord, error)
 	FetchSettledAMPSubInvoices(ctx context.Context, arg FetchSettledAMPSubInvoicesParams) ([]FetchSettledAMPSubInvoicesRow, error)
 	// FilterInvoicesByAddIndex returns invoices whose add_index (primary key id)
@@ -144,6 +149,16 @@ type Querier interface {
 	GetNodesByIDs(ctx context.Context, ids []int64) ([]GraphNode, error)
 	GetNodesByLastUpdateRange(ctx context.Context, arg GetNodesByLastUpdateRangeParams) ([]GraphNode, error)
 	GetOfferByHash(ctx context.Context, hash []byte) (Offer, error)
+	// Return the gossip version that the preferred-channel mapping selects for the
+	// channel with the given funding outpoint. Every version of a channel shares
+	// its outpoint and SCID, so at most one of them has a mapping row. The caller
+	// passes the gossip versions to consider, so that the lookup can use the
+	// (version, outpoint) index instead of scanning every channel.
+	GetPreferredChannelVersionByOutpoint(ctx context.Context, arg GetPreferredChannelVersionByOutpointParams) (int16, error)
+	// Return the gossip version that the preferred-channel mapping selects for an
+	// SCID, so that readers follow the rule UpsertPreferredChannel applies instead
+	// of ranking the versions again.
+	GetPreferredChannelVersionBySCID(ctx context.Context, scid []byte) (int16, error)
 	GetPruneEntriesForHeights(ctx context.Context, heights []int64) ([]GraphPruneLog, error)
 	GetPruneHashByHeight(ctx context.Context, blockHeight int64) ([]byte, error)
 	GetPruneTip(ctx context.Context) (GraphPruneLog, error)
@@ -232,7 +247,8 @@ type Querier interface {
 	ListChannelsWithPoliciesForCachePaginated(ctx context.Context, arg ListChannelsWithPoliciesForCachePaginatedParams) ([]ListChannelsWithPoliciesForCachePaginatedRow, error)
 	ListChannelsWithPoliciesPaginated(ctx context.Context, arg ListChannelsWithPoliciesPaginatedParams) ([]ListChannelsWithPoliciesPaginatedRow, error)
 	ListNodeIDsAndPubKeys(ctx context.Context, arg ListNodeIDsAndPubKeysParams) ([]ListNodeIDsAndPubKeysRow, error)
-	ListNodesPaginated(ctx context.Context, arg ListNodesPaginatedParams) ([]GraphNode, error)
+	ListPreferredChannelsPaginated(ctx context.Context, arg ListPreferredChannelsPaginatedParams) ([]ListPreferredChannelsPaginatedRow, error)
+	ListPreferredNodesPaginated(ctx context.Context, arg ListPreferredNodesPaginatedParams) ([]ListPreferredNodesPaginatedRow, error)
 	NextInvoiceSettleIndex(ctx context.Context) (int64, error)
 	NodeExists(ctx context.Context, arg NodeExistsParams) (bool, error)
 	OnAMPSubInvoiceCanceled(ctx context.Context, arg OnAMPSubInvoiceCanceledParams) error
@@ -257,6 +273,12 @@ type Querier interface {
 	UpsertNode(ctx context.Context, arg UpsertNodeParams) (int64, error)
 	UpsertNodeAddress(ctx context.Context, arg UpsertNodeAddressParams) error
 	UpsertNodeExtraType(ctx context.Context, arg UpsertNodeExtraTypeParams) error
+	// Recompute the preferred channel for a given SCID and upsert the result.
+	// Priority: v2 with policies > v1 with policies > v2 bare > v1 bare.
+	UpsertPreferredChannel(ctx context.Context, scid []byte) error
+	// Recompute the preferred node for a given pub_key and upsert the result.
+	// Priority: v2 announced > v1 announced > v2 shell > v1 shell.
+	UpsertPreferredNode(ctx context.Context, pubKey []byte) error
 	UpsertPruneLogEntry(ctx context.Context, arg UpsertPruneLogEntryParams) error
 	// We use a separate upsert for our own node since we want to be less strict
 	// about the last_update field. For our own node, we always want to

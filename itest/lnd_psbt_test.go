@@ -3,8 +3,6 @@ package itest
 import (
 	"bytes"
 	"encoding/hex"
-	"errors"
-	"fmt"
 	"testing"
 	"time"
 
@@ -26,7 +24,6 @@ import (
 	"github.com/lightningnetwork/lnd/lnrpc/walletrpc"
 	"github.com/lightningnetwork/lnd/lntest"
 	"github.com/lightningnetwork/lnd/lntest/node"
-	"github.com/lightningnetwork/lnd/lntest/wait"
 	"github.com/lightningnetwork/lnd/lnwallet/chanfunding"
 	"github.com/stretchr/testify/require"
 )
@@ -2045,21 +2042,21 @@ func testFundPsbtCustomLock(ht *lntest.HarnessTest) {
 	require.Empty(ht, leasesRespAfter.LockedUtxos)
 }
 
-// testFundPsbtConfirmationLease verifies the complete persisted lease
-// lifecycle. The lease must survive wall-clock expiry before confirmation, a
-// shallow reorg, and a node restart, then release at its requested spend depth.
-func testFundPsbtConfirmationLease(ht *lntest.HarnessTest) {
-	const (
-		releaseDepth       = uint32(3)
-		lockDurationSecond = uint64(1)
-	)
-
-	alice := ht.NewNodeWithCoins("Alice", nil)
+// testFundPsbtNoExpiryLease verifies that an unused input stays reserved across
+// restart, can be owner-released, and needs no lease after its first spend.
+func testFundPsbtNoExpiryLease(ht *lntest.HarnessTest) {
+	// Arrange one confirmed input so its absence from eligible candidates
+	// proves reservation, and its reappearance proves owner cancellation.
+	alice := ht.NewNode("Alice", nil)
+	ht.FundNumCoins(alice, 1)
+	input := ht.AssertNumUTXOsConfirmed(alice, 1)[0].Outpoint
 	lockID := ht.Random32Bytes()
 	aliceAddr := alice.RPC.NewAddress(&lnrpc.NewAddressRequest{
 		Type: lnrpc.AddressType_WITNESS_PUBKEY_HASH,
 	})
 
+	// Act by funding without a timeout or a user-supplied confirmation
+	// count. The selected input remains unused until the later publication.
 	fundResp := alice.RPC.FundPsbt(&walletrpc.FundPsbtRequest{
 		Template: &walletrpc.FundPsbtRequest_Raw{
 			Raw: &walletrpc.TxTemplate{
@@ -2071,121 +2068,67 @@ func testFundPsbtConfirmationLease(ht *lntest.HarnessTest) {
 		Fees: &walletrpc.FundPsbtRequest_SatPerVbyte{
 			SatPerVbyte: 2,
 		},
-		MinConfs:                    1,
-		CustomLockId:                lockID,
-		LockExpirationSeconds:       lockDurationSecond,
-		InputReleaseAfterSpendConfs: releaseDepth,
+		MinConfs:           1,
+		CustomLockId:       lockID,
+		InputLeaseNoExpiry: true,
 	})
-	require.NotEmpty(ht, fundResp.LockedUtxos)
-	for _, lease := range fundResp.LockedUtxos {
-		require.Equal(ht, releaseDepth, lease.ReleaseAfterSpendConfs)
-		require.Zero(ht, lease.ConfirmedSpendHeight)
-	}
 
-	// assertLeaseState waits for every lease created by this request to
-	// report the expected persisted spend height.
-	assertLeaseState := func(expectedSpendHeight int32) {
-		err := wait.NoError(func() error {
-			leases := alice.RPC.ListLeases().LockedUtxos
-			if len(leases) != len(fundResp.LockedUtxos) {
-				return fmt.Errorf("expected %d leases, got %d",
-					len(fundResp.LockedUtxos), len(leases))
-			}
+	// Assert the funding response reports the selected input's policy, and
+	// restarting before broadcast preserves both the policy and exclusion.
+	require.Len(ht, fundResp.LockedUtxos, 1)
+	require.True(ht, fundResp.LockedUtxos[0].NoExpiry)
+	require.Equal(
+		ht, lntest.LnrpcOutpointToStr(input),
+		lntest.LnrpcOutpointToStr(fundResp.LockedUtxos[0].Outpoint),
+	)
+	ht.RestartNode(alice)
+	leases := alice.RPC.ListLeases().LockedUtxos
+	require.Len(ht, leases, 1)
+	require.True(ht, leases[0].NoExpiry)
+	require.Equal(ht, lockID, leases[0].Id)
+	ht.AssertNumUTXOsConfirmed(alice, 0)
 
-			for _, lease := range leases {
-				if !bytes.Equal(lockID, lease.Id) {
-					return fmt.Errorf(
-						"lease ID %x", lease.Id,
-					)
-				}
-				if lease.Expiration == 0 {
-					return errors.New("zero expiration")
-				}
-				if lease.ReleaseAfterSpendConfs !=
-					releaseDepth {
-
-					return fmt.Errorf(
-						"depth: want %d, got %d",
-						releaseDepth,
-						lease.ReleaseAfterSpendConfs,
-					)
-				}
-				if lease.ConfirmedSpendHeight !=
-					expectedSpendHeight {
-
-					return fmt.Errorf(
-						"height: want %d, got %d",
-						expectedSpendHeight,
-						lease.ConfirmedSpendHeight,
-					)
-				}
-			}
-
-			return nil
-		}, defaultTimeout)
-		require.NoError(ht, err)
-	}
-
-	// assertLeaseReleased waits until spend maturity removes every lease
-	// created by this request.
-	assertLeaseReleased := func() {
-		err := wait.NoError(func() error {
-			leases := alice.RPC.ListLeases().LockedUtxos
-			if len(leases) != 0 {
-				return fmt.Errorf("expected no leases, got %d",
-					len(leases))
-			}
-
-			return nil
-		}, defaultTimeout)
-		require.NoError(ht, err)
-	}
-
-	// Let the wall-clock deadline pass before broadcasting. A
-	// confirmation-controlled lease must remain active for this entire gap.
-	time.Sleep(2 * time.Second)
-	assertLeaseState(0)
-
-	finalizeResp := alice.RPC.FinalizePsbt(
-		&walletrpc.FinalizePsbtRequest{
-			FundedPsbt: fundResp.FundedPsbt,
+	// Act through owner cancellation while the input is still unspent. This
+	// must restore eligibility without waiting for a block or a deadline.
+	_, err := alice.RPC.WalletKit.ReleaseOutput(
+		ht.Context(), &walletrpc.ReleaseOutputRequest{
+			Id:       lockID,
+			Outpoint: input,
 		},
 	)
+	require.NoError(ht, err)
+	ht.AssertUTXOInWallet(alice, input, "")
+	require.Empty(ht, alice.RPC.ListLeases().LockedUtxos)
+
+	// Reacquire the input through LeaseOutput before spending the original
+	// PSBT, covering both entry points without creating a second lifetime.
+	leaseResp, err := alice.RPC.WalletKit.LeaseOutput(
+		ht.Context(), &walletrpc.LeaseOutputRequest{
+			Id:       lockID,
+			Outpoint: input,
+			NoExpiry: true,
+		},
+	)
+	require.NoError(ht, err)
+	require.True(ht, leaseResp.NoExpiry)
+	ht.AssertNumUTXOsConfirmed(alice, 0)
+	finalizeResp := alice.RPC.FinalizePsbt(&walletrpc.FinalizePsbtRequest{
+		FundedPsbt: fundResp.FundedPsbt,
+	})
 	alice.RPC.PublishTransaction(&walletrpc.Transaction{
 		TxHex: finalizeResp.RawFinalTx,
 	})
+	ht.MineBlocksAndAssertNumTxes(1, 1)
 
-	var finalTx wire.MsgTx
-	err := finalTx.Deserialize(bytes.NewReader(finalizeResp.RawFinalTx))
-	require.NoError(ht, err)
-
-	spendBlock := ht.MineBlocksAndAssertNumTxes(1, 1)[0]
-	spendHeight := int32(ht.CurrentHeight())
-	ht.AssertTxInBlock(spendBlock, finalTx.TxHash())
-	assertLeaseState(spendHeight)
-
-	// Disconnect the spending block and extend the replacement chain
-	// without the transaction. The lease must retain its disconnected-spend
-	// marker.
-	spendBlockHash := spendBlock.BlockHash()
-	require.NoError(ht, ht.Miner().InvalidateBlock(&spendBlockHash))
-	ht.MineEmptyBlocks(2)
-	assertLeaseState(-1)
-
-	// The disconnected state is durable across process restart.
-	ht.RestartNode(alice)
-	assertLeaseState(-1)
-
-	// Reconfirm the transaction. The lease remains through depth two and is
-	// released when the third confirmation connects.
-	reconfirmedBlock := ht.MineBlocksAndAssertNumTxes(1, 1)[0]
-	reconfirmedHeight := int32(ht.CurrentHeight())
-	ht.AssertTxInBlock(reconfirmedBlock, finalTx.TxHash())
-	assertLeaseState(reconfirmedHeight)
-
-	ht.MineEmptyBlocks(1)
-	assertLeaseState(reconfirmedHeight)
-
-	ht.MineEmptyBlocks(1)
-	assertLeaseReleased()
+	// Assert after wallet synchronization that the first confirmed spend
+	// removes the lease. Only the spending transaction's output and change
+	// are selectable; spend tracking excludes the original input without a
+	// retained reservation.
+	for _, utxo := range ht.AssertNumUTXOsConfirmed(alice, 2) {
+		require.NotEqual(
+			ht, lntest.LnrpcOutpointToStr(input),
+			lntest.LnrpcOutpointToStr(utxo.Outpoint),
+		)
+	}
+	require.Empty(ht, alice.RPC.ListLeases().LockedUtxos)
 }

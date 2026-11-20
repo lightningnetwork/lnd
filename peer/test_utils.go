@@ -2,6 +2,7 @@ package peer
 
 import (
 	"bytes"
+	"context"
 	crand "crypto/rand"
 	"encoding/binary"
 	"io"
@@ -339,6 +340,7 @@ func createTestPeerWithChannel(t *testing.T, updateChan func(a,
 	chanID := lnwire.NewChanIDFromOutPoint(channelAlice.ChannelPoint())
 	alicePeer.activeChannels.Store(chanID, channelAlice)
 
+	alicePeer.linkFailures.Start()
 	alicePeer.cg.WgAdd(1)
 	go alicePeer.channelManager()
 
@@ -425,6 +427,11 @@ func (m *mockUpdateHandler) HandleChannelUpdate(msg lnwire.Message) {}
 // ChanID returns the mockUpdateHandler's cid.
 func (m *mockUpdateHandler) ChanID() lnwire.ChannelID { return m.cid }
 
+// ShortChanID returns the mockUpdateHandler's cid.
+func (m *mockUpdateHandler) ShortChanID() lnwire.ShortChannelID {
+	return lnwire.NewShortChanIDFromInt(0)
+}
+
 // Bandwidth currently returns a dummy value.
 func (m *mockUpdateHandler) Bandwidth() lnwire.MilliSatoshi { return 0 }
 
@@ -486,21 +493,33 @@ func (m *mockUpdateHandler) IsFlushing(dir htlcswitch.LinkDirection) bool {
 	return false
 }
 
-func (m *mockUpdateHandler) OnFlushedOnce(hook func()) {
+func (m *mockUpdateHandler) OnFlushedOnce(
+	ctx context.Context, hook func(),
+) error {
+	// Forward the hook to the tracking channel when it is configured.
 	if m.flushHooks != nil {
-		m.flushHooks <- hook
-
-		return
+		select {
+		case m.flushHooks <- hook:
+			return nil
+		case <-ctx.Done():
+			return ctx.Err()
+		}
 	}
 
 	hook()
-}
-func (m *mockUpdateHandler) OnCommitOnce(
-	_ htlcswitch.LinkDirection, hook func(),
-) {
 
-	hook()
+	return nil
 }
+
+func (m *mockUpdateHandler) OnCommitOnce(
+	_ context.Context, _ htlcswitch.LinkDirection, hook func(),
+) error {
+	// The commit hook fires immediately for the mock.
+	hook()
+
+	return nil
+}
+
 func (m *mockUpdateHandler) InitStfu() <-chan fn.Result[lntypes.ChannelParty] {
 	// TODO(proofofkeags): Implement
 	c := make(chan fn.Result[lntypes.ChannelParty], 1)

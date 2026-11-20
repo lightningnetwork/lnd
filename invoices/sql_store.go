@@ -73,6 +73,12 @@ type SQLInvoiceQueries interface { //nolint:interfacebloat
 	FetchPendingInvoices(ctx context.Context,
 		arg sqlc.FetchPendingInvoicesParams) ([]sqlc.Invoice, error)
 
+	// FetchPendingSettleInvoices returns invoices containing at least one
+	// pending-settle HTLC, ordered by id ascending.
+	FetchPendingSettleInvoices(ctx context.Context,
+		arg sqlc.FetchPendingSettleInvoicesParams) ([]sqlc.Invoice,
+		error)
+
 	// FilterInvoicesBySettleIndex returns settled invoices whose
 	// settle_index is >= the given bound, ordered by id ascending. The
 	// caller must always supply a concrete lower bound so the planner can
@@ -761,9 +767,8 @@ func (i *SQLStore) LookupInvoice(ctx context.Context,
 	return *invoice, nil
 }
 
-// FetchPendingInvoices returns all the invoices that are currently in a
-// "pending" state. An invoice is pending if it has been created but not yet
-// settled or canceled.
+// FetchPendingInvoices returns all invoices that are currently in a pending
+// state.
 func (i *SQLStore) FetchPendingInvoices(ctx context.Context) (
 	map[lntypes.Hash]Invoice, error) {
 
@@ -808,6 +813,56 @@ func (i *SQLStore) FetchPendingInvoices(ctx context.Context) (
 	if err != nil {
 		return nil, fmt.Errorf("unable to fetch pending invoices: %w",
 			err)
+	}
+
+	return invoices, nil
+}
+
+// FetchPendingSettleInvoices returns all invoices containing at least one htlc
+// whose final outcome is still pending.
+func (i *SQLStore) FetchPendingSettleInvoices(ctx context.Context) (
+	map[lntypes.Hash]Invoice, error) {
+
+	var invoices map[lntypes.Hash]Invoice
+
+	readTxOpt := sqldb.ReadTxOpt()
+	err := i.db.ExecTx(ctx, readTxOpt, func(db SQLInvoiceQueries) error {
+		var cursor int64
+		limit := int32(i.opts.paginationLimit)
+		for {
+			params := sqlc.FetchPendingSettleInvoicesParams{
+				IDCursor: cursor,
+				NumLimit: limit,
+			}
+
+			rows, err := db.FetchPendingSettleInvoices(ctx, params)
+			if err != nil && !errors.Is(err, sql.ErrNoRows) {
+				return fmt.Errorf("unable to get pending-"+
+					"settle invoices from db: %w", err)
+			}
+
+			for _, row := range rows {
+				hash, invoice, err := fetchInvoiceData(
+					ctx, db, row, nil, true,
+				)
+				if err != nil {
+					return err
+				}
+
+				invoices[*hash] = *invoice
+				cursor = row.ID
+			}
+
+			if int32(len(rows)) < limit {
+				return nil
+			}
+		}
+	}, func() {
+		invoices = make(map[lntypes.Hash]Invoice)
+	})
+	if err != nil {
+		return nil, fmt.Errorf("unable to fetch pending-settle "+
+			"invoices: %w", err)
 	}
 
 	return invoices, nil
@@ -1655,7 +1710,8 @@ func (i *SQLStore) DeleteInvoice(ctx context.Context,
 	return nil
 }
 
-// DeleteCanceledInvoices removes all canceled invoices from the database.
+// DeleteCanceledInvoices removes canceled invoices, preserving ordinary
+// invoices with settled or failed released HTLCs and their release history.
 func (i *SQLStore) DeleteCanceledInvoices(ctx context.Context) error {
 	writeTxOpt := sqldb.WriteTxOpt()
 	err := i.db.ExecTx(ctx, writeTxOpt, func(db SQLInvoiceQueries) error {

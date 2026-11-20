@@ -20,8 +20,8 @@ on:
     types: [created]
 
 permissions:
-  # The action mints an App installation token internally; the GITHUB_TOKEN
-  # handed to this shim is unused, so we minimise it.
+  # The job-scoped token authorizes the caller before the action reads any App
+  # or Claude credential. The action mints a narrower App token afterward.
   contents: read
 
 jobs:
@@ -30,13 +30,25 @@ jobs:
     # comments that look like a /gateway command so unrelated comments don't
     # spin up a no-op runner. `contains` (not `startsWith`) because the runtime
     # accepts the command at column 0 of any line, including multi-line bodies.
+    #
+    # Also skip comments from anyone who is neither a repo/org member (OWNER,
+    # MEMBER, COLLABORATOR) nor the PR author: no command is open to them, so
+    # their comments would only boot a runner to be refused. This is a cost
+    # pre-filter, not the permission check; the runtime still verifies every
+    # command against the collaborators API. An org member whose membership
+    # is private can appear as CONTRIBUTOR here, so their commands are skipped
+    # until they make their membership public.
     if: >-
       ${{
         (github.event_name == 'issue_comment'
           && github.event.issue.pull_request != null
-          && contains(github.event.comment.body, '/gateway')) ||
+          && contains(github.event.comment.body, '/gateway')
+          && (contains(fromJSON('["OWNER","MEMBER","COLLABORATOR"]'), github.event.comment.author_association)
+            || github.event.comment.user.login == github.event.issue.user.login)) ||
         (github.event_name == 'pull_request_review_comment'
-          && contains(github.event.comment.body, '/gateway'))
+          && contains(github.event.comment.body, '/gateway')
+          && (contains(fromJSON('["OWNER","MEMBER","COLLABORATOR"]'), github.event.comment.author_association)
+            || github.event.comment.user.login == github.event.pull_request.user.login))
       }}
     runs-on: ubuntu-latest
     # A GitHub timeout cancels the job before gateway can post an error,
@@ -46,12 +58,14 @@ jobs:
     env:
       GATEWAY_REVIEW_MODE: multi
     steps:
-      - uses: lightninglabs/gateway-action@a590b9838c3ba7f8a75bb137c857c4167f1690d0 # v0.7.1
+      - uses: lightninglabs/gateway-action@254f0cbd39bcf5fe7ef29120267f7e33a3f0db9b # v0.7.2
         with:
           # Pin the private runtime to an immutable commit (matches the action
           # SHA-pin above) so runtime upgrades go through an lnd PR, not a moved
-          # tag. Without this, runtime_ref defaults to the v0.7.1 tag.
-          runtime_ref: 2c05e707a656864136fd38c83a9924f890dca529 # gateway v0.7.1
+          # tag. Without this, runtime_ref defaults to the v0.7.2 tag. Bump it
+          # together with the action pin above: the v0.7.2 runtime needs the
+          # job token that gateway-action v0.7.2 passes.
+          runtime_ref: abe5c3a2149a1be17f141989b5bb0833857145e3 # gateway v0.7.2
           event_name:      ${{ github.event_name }}
           event_action:    ${{ github.event.action }}
           repo:            ${{ github.repository }}

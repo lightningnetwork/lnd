@@ -89,39 +89,56 @@ A change that is only made on a release branch adds its fragment to
 ## Preparing a Release
 
 Major releases are prepared on `master` before the first release candidate,
-patch releases on their release branch. In both cases:
+patch releases on their release branch. In both cases, fold the fragments into
+the release note document of the new version:
 
-1. Start with `release-notes-<version>.md`, creating it from
+```shell
+make release-notes version=<major>.<minor>.<patch> [from=<previous-version-tag>]
+```
+
+The fold is done by the Go program in `scripts/release-notes`:
+
+1. It starts with `release-notes-<version>.md`, creating it from
    `release-notes-template.md` if it does not exist yet.
-2. Move each fragment of `unreleased/` into the matching section of that file.
-   Preserve the wording and pull request links, but edit ordering and
-   transitions as needed. For a major release, skip fragments whose pull
-   request is already announced in an earlier patch release.
-3. Generate the contributor names from the release's Git commit range, then
-   sort them case-insensitively and remove duplicates. Check co-authored
-   commits and bots manually before publishing the list. This follows Bitcoin
-   Core, with merge commits excluded since lnd merges pull requests through
-   GitHub:
-
-   ```shell
-   git log --no-merges --format='* %aN' <previous-version>..<new-version> | sort -fiu
-   ```
+2. It deletes the fragments whose pull request is already announced in another
+   release note document. For a major release, these are the changes that
+   were backported to a patch release of the previous version.
+3. It appends the entries of each remaining fragment to the section of the
+   document with the same heading path, ordered by pull request number. It
+   fails without changing anything if a section does not exist in the
+   document.
+4. It generates the contributor names from the Git authors of the release's
+   commit range, `<from>..HEAD`, and merges them with the names already listed.
+   `from` defaults to the newest final release tag of a lower version, e.g.
+   `v0.21.5-beta` for `0.22.0`. Versions are compared rather than Git ancestry,
+   since the tags of the previous version are on its release branch and not
+   reachable from `master`. This follows Bitcoin Core, with merge commits
+   excluded since lnd merges pull requests through GitHub. Names that only
+   differ in case are listed once, and bots are skipped.
 
    The list uses the Git author names as reported by `%aN`, rather than GitHub
    handles or names chosen by hand. If one person appears under several names,
    map them to a single name in a `.mailmap` file at the repository root, which
    Git applies to `%aN`, instead of editing the generated list. That way the
-   fix also applies to future releases.
+   fix also applies to future releases. Names already listed under an alias
+   are replaced with the `.mailmap` name on the next fold, while names added
+   by hand, such as co-authors, are kept.
+5. It deletes the folded fragments, but keeps `unreleased/.gitkeep` so the
+   directory stays in place.
 
-4. Delete the incorporated fragments in the same pull request that finalizes
-   `release-notes-<version>.md`, but keep `unreleased/.gitkeep` so the
-   directory stays in place. That pull request carries the `no-changelog`
-   label, since it has no entry of its own.
+Review the result before committing it. Preserve the wording and pull request
+links of the entries, but edit ordering and transitions as needed, and check
+co-authored commits and the contributor list. The fold can be run again, e.g.
+for fragments that were added after a release candidate, without duplicating
+the existing entries or contributors. The pull request that finalizes
+`release-notes-<version>.md` carries the `no-changelog` label, since it has no
+entry of its own.
 
 After a patch release, its release note document is ported to `master` in a
 separate pull request as before. That pull request also deletes the fragments
 on `master` that the patch release announced, since those changes have now
-been released.
+been released. Cherry-picking the pull request that folded the fragments on
+the release branch deletes them along with the rest of the port.
 
 CI enforces these steps independently of the `no-changelog` label. A pull
 request fails if it leaves a fragment behind whose pull request is already

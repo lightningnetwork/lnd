@@ -120,9 +120,14 @@ type SignCoordinator struct {
 	// the remote signer.
 	requestTimeout time.Duration
 
-	// connectionTimeout is the maximum time we will wait for the remote
-	// signer to connect.
-	connectionTimeout time.Duration
+	// startupTimeout is the maximum time we will wait for the remote
+	// signer to connect to us during startup. A value of 0 means that we
+	// wait indefinitely.
+	//
+	// NOTE: This is the startup timeout, and is distinct from the
+	// connection timeout in lncfg.ConnectionCfg, which bounds a single
+	// attempt at establishing an outbound connection.
+	startupTimeout time.Duration
 
 	// sendMu serializes stream send operations, since gRPC stream Send is
 	// not safe for concurrent use from multiple goroutines. We use a
@@ -141,18 +146,18 @@ var _ RemoteSignerRequests = (*SignCoordinator)(nil)
 
 // NewSignCoordinator creates a new instance of the SignCoordinator.
 func NewSignCoordinator(requestTimeout time.Duration,
-	connectionTimeout time.Duration) *SignCoordinator {
+	startupTimeout time.Duration) *SignCoordinator {
 
 	respsMap := &lnutils.SyncMap[uint64, requestInfo]{}
 
 	s := &SignCoordinator{
-		responses:         respsMap,
-		receiveErrChan:    make(chan error, 1),
-		clientReady:       make(chan struct{}),
-		clientConnected:   false,
-		quit:              make(chan struct{}),
-		requestTimeout:    requestTimeout,
-		connectionTimeout: connectionTimeout,
+		responses:       respsMap,
+		receiveErrChan:  make(chan error, 1),
+		clientReady:     make(chan struct{}),
+		clientConnected: false,
+		quit:            make(chan struct{}),
+		requestTimeout:  requestTimeout,
+		startupTimeout:  startupTimeout,
 		// Note that the disconnected channel is not initialized here,
 		// as no code listens to it until the Run method has been called
 		// and set the field.
@@ -502,8 +507,9 @@ func (s *SignCoordinator) StartReceiving() {
 }
 
 // WaitUntilConnected waits until the remote signer has connected. If the remote
-// signer does not connect within the configured connection timeout, or if the
-// passed context is canceled, an error is returned.
+// signer does not connect within the configured startup timeout, or if the
+// passed context is canceled, an error is returned. A startup timeout of 0
+// means that we wait indefinitely for the remote signer to connect.
 func (s *SignCoordinator) WaitUntilConnected(ctx context.Context) error {
 	// As the Run method will redefine the clientReady channel once it
 	// returns, we need copy the pointer to the current clientReady channel
@@ -513,9 +519,11 @@ func (s *SignCoordinator) WaitUntilConnected(ctx context.Context) error {
 	currentClientReady := s.clientReady
 	s.mu.Unlock()
 
+	// A startup timeout of 0 means that we wait indefinitely, which we
+	// achieve by leaving the timeout channel nil so that it never fires.
 	var timeout <-chan time.Time
-	if s.connectionTimeout > 0 {
-		timer := time.NewTimer(s.connectionTimeout)
+	if s.startupTimeout > 0 {
+		timer := time.NewTimer(s.startupTimeout)
 		defer timer.Stop()
 		timeout = timer.C
 	}

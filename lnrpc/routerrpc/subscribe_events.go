@@ -180,6 +180,9 @@ func rpcFailureResolution(invoiceFailure invoices.FailResolutionResult) (
 	case invoices.ResultExpiryTooSoon:
 		return FailureDetail_INVOICE_EXPIRY_TOO_SOON, nil
 
+	case invoices.ResultHtlcSetExpiryTooSoon:
+		return FailureDetail_INVOICE_EXPIRY_TOO_SOON, nil
+
 	case invoices.ResultCanceled:
 		return FailureDetail_INVOICE_CANCELED, nil
 

@@ -1481,8 +1481,32 @@ func assertTimeLockSwept(ht *lntest.HarnessTest, carol, dave *node.HarnessNode,
 
 	// Carol should sweep her funds immediately, as they are not
 	// timelocked.
-	ht.AssertNumPendingSweeps(carol, 2)
+	carolSweeps := ht.AssertNumPendingSweeps(carol, 2)
 	ht.AssertNumPendingSweeps(dave, 2)
+
+	// Retain Carol's commitment claim from the pending sweeps. Its
+	// outpoint stays fixed when the sweeper replaces the spending
+	// transaction, so confirmation can be checked without a txid race.
+	var carolOutpoint *wire.OutPoint
+	for _, sweep := range carolSweeps {
+		if sweep.WitnessType !=
+			walletrpc.WitnessType_COMMITMENT_TO_REMOTE_CONFIRMED {
+
+			continue
+		}
+
+		// Keep conversion available without optional RPC servers for
+		// unit coverage. PendingSweeps includes the txid string used
+		// by the existing formatter and canonical wire parser.
+		outpoint, err := wire.NewOutPointFromString(
+			lntest.LnrpcOutpointToStr(sweep.Outpoint),
+		)
+		require.NoError(ht, err)
+		carolOutpoint = outpoint
+
+		break
+	}
+	require.NotNil(ht, carolOutpoint)
 
 	// We expect Carol to sweep her funds and her anchor in a single sweep
 	// tx. In addition, Dave will attempt to sweep his anchor output but
@@ -1500,8 +1524,9 @@ func assertTimeLockSwept(ht *lntest.HarnessTest, carol, dave *node.HarnessNode,
 	// he can sweep her outputs.
 	ht.AssertNumPendingForceClose(dave, 1)
 
-	// Mine the sweep (and anchor) tx(ns).
-	ht.MineBlocksAndAssertNumTxes(1, expectedTxes)
+	// Confirm the commitment claim even if its sweep is replaced after
+	// the mempool check. Keep the transaction count and chain-sync checks.
+	ht.MineBlockAndAssertOutpointSpent(expectedTxes, *carolOutpoint)
 
 	// Now Carol should consider the channel fully closed.
 	ht.AssertNumPendingForceClose(carol, 0)

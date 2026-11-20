@@ -35,6 +35,12 @@ type Registry interface {
 
 	// HodlUnsubscribeAll unsubscribes from all htlc resolutions.
 	HodlUnsubscribeAll(subscriber chan<- interface{})
+
+	// LookupAMPHtlcPreimage returns the child preimage of a settled AMP
+	// HTLC that pays to the given hash within the given set. False is
+	// returned if no such settled HTLC is known.
+	LookupAMPHtlcPreimage(ctx context.Context, setID [32]byte,
+		hash lntypes.Hash) (lntypes.Preimage, bool, error)
 }
 
 // CustomHtlcChecker identifies HTLCs whose final-hop amount validation is

@@ -24,6 +24,8 @@ type updateHTLCTest struct {
 func TestUpdateHTLC(t *testing.T) {
 	t.Parallel()
 
+	// Arrange accepted, released and final children with fixed timestamps
+	// so the cases distinguish preimage release from a final resolution.
 	testNow := time.Now()
 	setID := [32]byte{0x01}
 	ampRecord := record.NewAMP([32]byte{0x02}, setID, 3)
@@ -130,7 +132,7 @@ func TestUpdateHTLC(t *testing.T) {
 				AcceptTime:        testNow,
 				ResolveTime:       testNow,
 				Expiry:            40,
-				State:             HtlcStateSettled,
+				State:             HtlcStatePendingSettle,
 				CustomRecords:     make(record.CustomSet),
 				WireCustomRecords: make(lnwire.CustomRecords),
 				AMP:               nil,
@@ -743,6 +745,8 @@ func TestUpdateHTLC(t *testing.T) {
 		},
 	}
 
+	// Act on each independent child; the helper applies the returned
+	// transition and asserts the complete child and any expected error.
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
 			testUpdateHTLC(t, test, testNow)
@@ -750,8 +754,14 @@ func TestUpdateHTLC(t *testing.T) {
 	}
 }
 
+// testUpdateHTLC applies one transition to a copy, preserving the table's
+// original child while checking both its resulting state and timestamp.
 func testUpdateHTLC(t *testing.T, test updateHTLCTest, now time.Time) {
+	// Arrange an isolated child so another case cannot inherit mutations.
 	htlc := test.input.Copy()
+
+	// Act through the shared state selector, applying only changes it
+	// requests, as the invoice updater does when storing a resolution.
 	stateChanged, state, err := getUpdatedHtlcState(
 		htlc, test.invState, test.setID,
 	)
@@ -760,6 +770,8 @@ func testUpdateHTLC(t *testing.T, test updateHTLCTest, now time.Time) {
 		htlc.ResolveTime = now
 	}
 
+	// Assert the full returned state and error, including preservation of
+	// a released child's timestamp when no transition is permitted.
 	require.Equal(t, test.expErr, err)
 	require.Equal(t, test.output, *htlc)
 }
@@ -864,6 +876,8 @@ func TestResolveReplayedHtlcSettled(t *testing.T) {
 		t.Run(test.name, func(t *testing.T) {
 			t.Parallel()
 
+			// Arrange an existing final child and its recorded
+			// preimage, checking the stored replay evidence.
 			circuitKey := CircuitKey{HtlcID: 1}
 			ctx := &invoiceUpdateCtx{
 				hash:       test.paymentHash,
@@ -882,9 +896,15 @@ func TestResolveReplayedHtlcSettled(t *testing.T) {
 				},
 			}
 
+			// Act through replay resolution before new-shard
+			// checks.
 			replayed, resolution, err := resolveReplayedHtlc(
 				ctx, invoice,
 			)
+
+			// Assert replay is recognized and returns the
+			// appropriate preimage or validation error without
+			// creating a new HTLC.
 			require.True(t, replayed)
 
 			switch {
@@ -949,6 +969,147 @@ func TestUpdateInvoiceRejectsAmpInvoiceInLegacyPath(t *testing.T) {
 	requireFailResolution(t, resolution, ResultHtlcInvoiceTypeMismatch)
 }
 
+// TestUpdateMppRejectsStaleShard asserts that an MPP or AMP set cannot settle
+// using a previously accepted shard whose expiry is now too close.
+func TestUpdateMppRejectsStaleShard(t *testing.T) {
+	t.Parallel()
+
+	testCases := []struct {
+		name             string
+		isAMP            bool
+		finalDelta       int32
+		finalRejectDelta int32
+	}{
+		{
+			name:             "mpp invoice delta",
+			finalDelta:       4,
+			finalRejectDelta: 2,
+		},
+		{
+			name:             "amp invoice delta",
+			isAMP:            true,
+			finalDelta:       4,
+			finalRejectDelta: 2,
+		},
+		{
+			name:             "mpp reject delta",
+			finalDelta:       2,
+			finalRejectDelta: 4,
+		},
+		{
+			name:             "amp reject delta",
+			isAMP:            true,
+			finalDelta:       2,
+			finalRejectDelta: 4,
+		},
+	}
+
+	for _, testCase := range testCases {
+		t.Run(testCase.name, func(t *testing.T) {
+			t.Parallel()
+
+			const (
+				currentHeight = int32(10)
+				totalAmt      = lnwire.MilliSatoshi(100)
+			)
+
+			preimage := lntypes.Preimage{1}
+			payAddr := [32]byte{2}
+			setID := [32]byte{3}
+			features := lnwire.NewFeatureVector(
+				nil, lnwire.Features,
+			)
+
+			ctx := &invoiceUpdateCtx{
+				hash:                 preimage.Hash(),
+				circuitKey:           CircuitKey{HtlcID: 2},
+				amtPaid:              40,
+				expiry:               20,
+				currentHeight:        currentHeight,
+				finalCltvRejectDelta: testCase.finalRejectDelta,
+				mpp: record.NewMPP(
+					totalAmt, payAddr,
+				),
+				customRecords:     make(record.CustomSet),
+				wireCustomRecords: make(lnwire.CustomRecords),
+			}
+
+			htlc := &InvoiceHTLC{
+				Amt:         60,
+				MppTotalAmt: totalAmt,
+				Expiry:      13,
+				State:       HtlcStateAccepted,
+			}
+
+			if testCase.isAMP {
+				ampRecord := record.NewAMP(
+					[32]byte{4}, setID, 0,
+				)
+				ctx.amp = record.NewAMP([32]byte{5}, setID, 1)
+				htlc.AMP = &InvoiceHtlcAMPData{
+					Record: *ampRecord,
+					Hash:   lntypes.Hash{6},
+				}
+				features = lnwire.NewFeatureVector(
+					lnwire.NewRawFeatureVector(
+						lnwire.AMPRequired,
+					),
+					lnwire.Features,
+				)
+			}
+
+			invoice := &Invoice{
+				State: ContractOpen,
+				Terms: ContractTerm{
+					FinalCltvDelta:  testCase.finalDelta,
+					PaymentPreimage: &preimage,
+					PaymentAddr:     payAddr,
+					Value:           totalAmt,
+					Features:        features,
+				},
+				Htlcs: map[CircuitKey]*InvoiceHTLC{
+					{HtlcID: 1}: htlc,
+				},
+			}
+			if testCase.isAMP {
+				otherSetID := [32]byte{9}
+				otherRecord := record.NewAMP(
+					[32]byte{8}, otherSetID, 0,
+				)
+				invoice.Htlcs[CircuitKey{HtlcID: 3}] =
+					&InvoiceHTLC{
+						Amt:         60,
+						MppTotalAmt: totalAmt,
+						Expiry:      20,
+						State:       HtlcStateAccepted,
+						AMP: &InvoiceHtlcAMPData{
+							Record: *otherRecord,
+							Hash:   lntypes.Hash{7},
+						},
+					}
+			}
+
+			update, resolution, err := updateMpp(ctx, invoice)
+			require.NoError(t, err)
+			require.NotNil(t, update)
+			require.Equal(t, CancelHTLCsUpdate, update.UpdateType)
+			require.Equal(
+				t, map[CircuitKey]struct{}{{HtlcID: 1}: {}},
+				update.CancelHtlcs,
+			)
+			require.Empty(t, update.AddHtlcs)
+			if testCase.isAMP {
+				require.Equal(t, (*SetID)(&setID), update.SetID)
+			} else {
+				require.Nil(t, update.SetID)
+			}
+			requireFailResolution(
+				t, resolution, ResultHtlcSetExpiryTooSoon,
+			)
+		})
+	}
+}
+
 // TestUpdateLegacyRejectsNilPreimageSettle checks the outcome when a legacy
 // settlement has no invoice-level preimage.
 func TestUpdateLegacyRejectsNilPreimageSettle(t *testing.T) {
@@ -972,12 +1133,17 @@ func TestUpdateLegacyRejectsNilPreimageSettle(t *testing.T) {
 		t.Run(test.name, func(t *testing.T) {
 			t.Parallel()
 
+			// Arrange the open/paid paths without a preimage
+			// so neither can produce a fulfill for a new circuit.
 			ctx, invoice := newLegacyUpdateTestContext(
 				t, test.state,
 			)
 			invoice.Terms.PaymentPreimage = nil
 
+			// Act through legacy admission rather than replay.
 			update, resolution, err := updateLegacy(ctx, invoice)
+			// Assert normal rejection without an update or an
+			// internal error that would fail the link.
 			require.NoError(t, err)
 			require.Nil(t, update)
 			requireFailResolution(
@@ -1063,6 +1229,49 @@ func TestUpdateLegacyValidatesKeysendRecord(t *testing.T) {
 			requireSettleResolution(t, resolution, ResultSettled)
 		})
 	}
+}
+
+// TestUpdateMppRejectsSettledAmpSet checks that a fresh shard for a paid AMP
+// set is rejected without an updater error that would fail the channel link.
+func TestUpdateMppRejectsSettledAmpSet(t *testing.T) {
+	t.Parallel()
+
+	// Arrange a reusable AMP invoice with one paid set and a fresh circuit
+	// for that same set. A partial amount avoids preimage reconstruction,
+	// isolating the closed-set admission guard.
+	settledSetID := [32]byte{1}
+	ctx, invoice := newLegacyUpdateTestContext(t, ContractOpen)
+	ctx.circuitKey = CircuitKey{HtlcID: 2}
+	ctx.amtPaid = 400
+	ctx.mpp = record.NewMPP(1000, invoice.Terms.PaymentAddr)
+	ctx.amp = record.NewAMP([32]byte{3}, settledSetID, 1)
+	invoice.Terms.PaymentPreimage = nil
+	invoice.Terms.Features = lnwire.NewFeatureVector(
+		lnwire.NewRawFeatureVector(lnwire.AMPRequired), lnwire.Features,
+	)
+	invoice.AmtPaid = 1000
+	invoice.Htlcs[CircuitKey{HtlcID: 1}] = &InvoiceHTLC{
+		Amt:         1000,
+		MppTotalAmt: 1000,
+		State:       HtlcStateSettled,
+		AMP: &InvoiceHtlcAMPData{
+			Record: *record.NewAMP([32]byte{4}, settledSetID, 0),
+		},
+	}
+
+	// Act through new-shard admission so rejection must be a normal HTLC
+	// resolution rather than an updater error that fails its channel link.
+	update, resolution, err := updateInvoice(ctx, invoice)
+
+	// Assert rejection preserves the paid set and its accounting, while
+	// returning no invoice update and no internal error to the link.
+	require.NoError(t, err)
+	require.Nil(t, update)
+	requireFailResolution(t, resolution, ResultInvoiceNotOpen)
+	require.Equal(t, ContractOpen, invoice.State)
+	require.Equal(t, lnwire.MilliSatoshi(1000), invoice.AmtPaid)
+	require.Zero(t, invoice.SettleIndex)
+	require.Len(t, invoice.Htlcs, 1)
 }
 
 // newLegacyUpdateTestContext creates a minimal legacy invoice and update

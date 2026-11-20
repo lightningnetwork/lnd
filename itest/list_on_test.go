@@ -11,6 +11,10 @@ import (
 
 var allTestCases = []*lntest.TestCase{
 	{
+		Name:     "link failure force close",
+		TestFunc: testLinkFailureForceClose,
+	},
+	{
 		Name:     "local reputation log only",
 		TestFunc: testLocalReputationLogOnly,
 	},
@@ -37,6 +41,10 @@ var allTestCases = []*lntest.TestCase{
 	{
 		Name:     "data loss protection",
 		TestFunc: testDataLossProtection,
+	},
+	{
+		Name:     "breach conf hint isolated by script",
+		TestFunc: testBreachConfHintPoisonedByFakeFunding,
 	},
 	{
 		Name:     "send all coins",
@@ -167,6 +175,10 @@ var allTestCases = []*lntest.TestCase{
 		TestFunc: testUpdateChannelPolicyFeeRateAccuracy,
 	},
 	{
+		Name:     "update channel policy partial",
+		TestFunc: testUpdateChannelPolicyPartial,
+	},
+	{
 		Name:     "unannounced channels",
 		TestFunc: testUnannouncedChannels,
 	},
@@ -263,6 +275,10 @@ var allTestCases = []*lntest.TestCase{
 		TestFunc: testMaxChannelSize,
 	},
 	{
+		Name:     "reject absurd commit feerate",
+		TestFunc: testRejectAbsurdCommitFeerate,
+	},
+	{
 		Name:     "wumbo channels",
 		TestFunc: testWumboChannels,
 	},
@@ -315,8 +331,8 @@ var allTestCases = []*lntest.TestCase{
 		TestFunc: testFundPsbtCustomLock,
 	},
 	{
-		Name:     "fund psbt confirmation lease",
-		TestFunc: testFundPsbtConfirmationLease,
+		Name:     "fund psbt no expiry lease",
+		TestFunc: testFundPsbtNoExpiryLease,
 	},
 	{
 		Name:     "resolution handoff",
@@ -430,6 +446,10 @@ var allTestCases = []*lntest.TestCase{
 	{
 		Name:     "send multi path payment",
 		TestFunc: testSendMultiPathPayment,
+	},
+	{
+		Name:     "MPP released sibling restart",
+		TestFunc: testMPPReleasedSiblingRestart,
 	},
 	{
 		Name:     "sendpayment amp invoice",
@@ -590,6 +610,14 @@ var allTestCases = []*lntest.TestCase{
 	{
 		Name:     "onion message forwarding",
 		TestFunc: testOnionMessageForwarding,
+	},
+	{
+		Name:     "create offer",
+		TestFunc: testCreateOffer,
+	},
+	{
+		Name:     "bolt12 invoice request",
+		TestFunc: testBolt12InvoiceRequest,
 	},
 	{
 		Name:     "sign verify message with addr",
@@ -846,6 +874,22 @@ var allTestCases = []*lntest.TestCase{
 	{
 		Name:     "postgres network separation",
 		TestFunc: testPostgresNetworkSeparation,
+	},
+	{
+		Name:     "send onion",
+		TestFunc: testSendOnion,
+	},
+	{
+		Name:     "send onion twice",
+		TestFunc: testSendOnionTwice,
+	},
+	{
+		Name:     "send onion concurrency",
+		TestFunc: testSendOnionConcurrency,
+	},
+	{
+		Name:     "track onion",
+		TestFunc: testTrackOnion,
 	},
 }
 

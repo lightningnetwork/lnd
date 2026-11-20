@@ -743,6 +743,14 @@ func (ctx *testCtx) createAnnouncementWithoutProof(blockHeight uint32,
 		).Return(info.fundingTx, nil).Once()
 
 	case fundingTxPrepTypeInvalidOutput:
+		fundingTx := wire.NewMsgTx(2)
+		_, txOut, err := input.GenFundingPkScript(
+			remoteKeyPub1.SerializeCompressed(),
+			remoteKeyPriv2.PubKey().SerializeCompressed(), 1000,
+		)
+		require.NoError(ctx.t, err)
+		fundingTx.TxOut = append(fundingTx.TxOut, txOut)
+
 		ctx.chain.On(
 			"GetBlockHash", int64(blockHeight),
 		).Return(&chainhash.Hash{}, nil).Once()
@@ -750,7 +758,9 @@ func (ctx *testCtx) createAnnouncementWithoutProof(blockHeight uint32,
 		ctx.chain.On(
 			"GetBlock", tmock.Anything,
 		).Return(
-			&wire.MsgBlock{Transactions: []*wire.MsgTx{{}}}, nil,
+			&wire.MsgBlock{
+				Transactions: []*wire.MsgTx{fundingTx},
+			}, nil,
 		).Once()
 
 	case fundingTxPrepTypeSpent:
@@ -3693,6 +3703,83 @@ out:
 	}
 }
 
+func TestPeerAliasCollisionValidation(t *testing.T) {
+	t.Parallel()
+
+	ctx, err := createTestCtx(t, 0, false)
+	require.NoError(t, err)
+	ctx.gossiper.cfg.AssumeChannelValid = true
+
+	chanAnn, err := ctx.createChannelAnnouncement(
+		100, selfKeyPriv, remoteKeyPriv1,
+		withFundingTxPrep(fundingTxPrepTypeNone),
+	)
+	require.NoError(t, err)
+	channelUpdate, err := createUpdateAnnouncement(
+		100, 0, selfKeyPriv, testTimestamp,
+	)
+	require.NoError(t, err)
+
+	channelPoint := wire.OutPoint{Index: 1}
+	alias := lnwire.ShortChannelID{BlockHeight: 200}
+	collisionErr := errors.New("peer alias collides with another channel")
+
+	sendLocalMsg(t, ctx, chanAnn, ChannelPoint(channelPoint))
+
+	var validationCalls int
+	var validatedPoint wire.OutPoint
+	var validatedAlias lnwire.ShortChannelID
+	ctx.gossiper.cfg.ValidatePeerAlias = func(
+		gotPoint wire.OutPoint, gotAlias lnwire.ShortChannelID) error {
+
+		validationCalls++
+		validatedPoint = gotPoint
+		validatedAlias = gotAlias
+
+		return collisionErr
+	}
+
+	originalSignAliasUpdate := ctx.gossiper.cfg.SignAliasUpdate
+	var signCalls int
+	ctx.gossiper.cfg.SignAliasUpdate = func(
+		update *lnwire.ChannelUpdate1) (*ecdsa.Signature, error) {
+
+		signCalls++
+		return originalSignAliasUpdate(update)
+	}
+
+	err = mustProcess(t, ctx.gossiper.ProcessLocalAnnouncement(
+		channelUpdate, RemoteAlias(&alias),
+	))
+	require.ErrorIs(t, err, collisionErr)
+	require.Equal(t, 1, validationCalls)
+	require.Equal(t, channelPoint, validatedPoint)
+	require.Equal(t, alias, validatedAlias)
+	require.Zero(t, signCalls)
+
+	ctx.gossiper.cfg.GetAlias = func(lnwire.ChannelID) (
+		lnwire.ShortChannelID, error) {
+
+		return alias, nil
+	}
+
+	info, edge1, _, err := ctx.router.GetChannelByID(
+		chanAnn.ShortChannelID,
+	)
+	require.NoError(t, err)
+	require.NotNil(t, edge1)
+
+	updates, err := ctx.gossiper.processChanPolicyUpdate(
+		t.Context(), []EdgeWithInfo{{Info: info, Edge: edge1}},
+	)
+	require.NoError(t, err)
+	require.Empty(t, updates)
+	require.Equal(t, 2, validationCalls)
+	require.Equal(t, channelPoint, validatedPoint)
+	require.Equal(t, alias, validatedAlias)
+	require.Zero(t, signCalls)
+}
+
 // TestProcessChannelAnnouncementOptionalMsgFields ensures that the gossiper can
 // properly handled optional message fields provided by the caller when
 // processing a channel announcement.
@@ -4580,9 +4667,8 @@ func TestChanAnnBanningChanPeer(t *testing.T) {
 	require.False(t, nodePeer.disconnected.Load())
 }
 
-// TestChannelOnChainRejectionZombie tests that if we fail validating a channel
-// due to some sort of on-chain rejection (no funding transaction, or invalid
-// UTXO), then we'll mark the channel as a zombie.
+// TestChannelOnChainRejectionZombie tests which on-chain validation failures
+// mark a channel as a zombie.
 func TestChannelOnChainRejectionZombie(t *testing.T) {
 	t.Parallel()
 
@@ -4599,7 +4685,9 @@ func TestChannelOnChainRejectionZombie(t *testing.T) {
 
 	// We expect this to fail as the transaction isn't present in the
 	// chain (nor the block).
-	assertChanChainRejection(t, ctx, chanAnn, ErrNoFundingTransaction)
+	assertChanChainRejection(
+		t, ctx, chanAnn, ErrNoFundingTransaction, true,
+	)
 
 	// Next, we'll make another channel edge, but actually add it to the
 	// graph this time.
@@ -4610,19 +4698,22 @@ func TestChannelOnChainRejectionZombie(t *testing.T) {
 
 	// Instead now, we'll remove it from the set of UTXOs which should
 	// cause the spentness validation to fail.
-	assertChanChainRejection(t, ctx, chanAnn, ErrChannelSpent)
+	assertChanChainRejection(t, ctx, chanAnn, ErrChannelSpent, true)
 
-	// If we cause the funding transaction the chain to fail validation, we
-	// should see similar behavior.
+	// A funding script mismatch only proves that this announcement is
+	// invalid. It must not poison the SCID for a later valid announcement.
 	chanAnn, err = ctx.createRemoteChannelAnnouncement(
 		3, withFundingTxPrep(fundingTxPrepTypeInvalidOutput),
 	)
 	require.NoError(t, err)
-	assertChanChainRejection(t, ctx, chanAnn, ErrInvalidFundingOutput)
+	assertChanChainRejection(
+		t, ctx, chanAnn, ErrInvalidFundingOutput, false,
+	)
 }
 
 func assertChanChainRejection(t *testing.T, ctx *testCtx,
-	edge *lnwire.ChannelAnnouncement1, expectedErr error) {
+	edge *lnwire.ChannelAnnouncement1, expectedErr error,
+	expectZombie bool) {
 
 	t.Helper()
 
@@ -4644,10 +4735,10 @@ func assertChanChainRejection(t *testing.T, ctx *testCtx,
 	err := mustProcess(t, errPromise.Future())
 	require.ErrorIs(t, err, expectedErr)
 
-	// This channel should now be present in the zombie channel index.
+	// Check whether the rejection added the channel to the zombie index.
 	isZombie, err := ctx.router.IsZombieEdge(edge.ShortChannelID)
 	require.NoError(t, err)
-	require.True(t, isZombie, "edge should be marked as zombie")
+	require.Equal(t, expectZombie, isZombie)
 }
 
 // TestRecoverGossipPanic tests that the finalizeGossipProcessing function

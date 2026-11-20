@@ -18,6 +18,11 @@ import (
 	"github.com/lightningnetwork/lnd/tlv"
 )
 
+// maxVarBytesLen is the largest variable length byte slice ReadElement will
+// decode. Writers of persisted state must stay within it, or the record they
+// write can never be read back.
+const maxVarBytesLen = 66000
+
 var byteOrder = binary.BigEndian
 
 // UnknownElementType is an error returned when the codec is unable to encode or
@@ -380,7 +385,7 @@ func ReadElement(r io.Reader, element interface{}) error { //nolint:funlen
 		}
 
 	case *[]byte:
-		bytes, err := wire.ReadVarBytes(r, 0, 66000, "[]byte")
+		bytes, err := wire.ReadVarBytes(r, 0, maxVarBytesLen, "[]byte")
 		if err != nil {
 			return err
 		}

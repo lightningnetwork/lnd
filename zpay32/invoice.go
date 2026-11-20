@@ -109,6 +109,25 @@ var (
 	ErrDuplicatePaymentHash = errors.New(
 		"invoice contains multiple payment hashes",
 	)
+
+	// ErrDuplicatePaymentAddr is returned when an invoice contains more
+	// than one payment address (`s`) field.
+	ErrDuplicatePaymentAddr = errors.New(
+		"invoice contains multiple payment addresses",
+	)
+
+	// ErrInvalidFixedFieldLength is returned when one of the fixed length
+	// tagged fields (p, h, s, n) has a data length other than the one
+	// BOLT 11 specifies for it.
+	ErrInvalidFixedFieldLength = errors.New(
+		"invalid data length for fixed length field",
+	)
+
+	// ErrHighSSignature is returned when an invoice carrying an explicit
+	// destination (`n` field) has a signature that isn't in low-S form.
+	ErrHighSSignature = errors.New(
+		"invoice signature is not in low-S form",
+	)
 )
 
 // MessageSigner is passed to the Encode method to provide a signature

@@ -1027,6 +1027,41 @@ func TestDecodeDuplicatePaymentHashes(t *testing.T) {
 	}
 }
 
+// TestDecodeHighSWithDestination checks that Decode rejects a high-S
+// signature when the invoice carries an explicit `n` field, and accepts the
+// low-S form of the same signature. The two invoices differ only in the
+// signature, so the rejection can only come from the low-S check.
+func TestDecodeHighSWithDestination(t *testing.T) {
+	t.Parallel()
+
+	highS := "lnbc25m1p70xwfzpp5qqqsyqcyq5rqwzqfqqqsyqcyq5rqwzqfqqqsyq" +
+		"cyq5rqwzqfqypqdpl2pkx2ctnv5sxxmmwwd5kgetjypeh2ursdae8g6t" +
+		"wvus8g6rfwvs8qun0dfjkxaqnp4q0n326hr8v9zprg8gsvezcch06gfa" +
+		"qqhde2aj730yg0durunfhv66sp5zyg3zyg3zyg3zyg3zyg3zyg3zyg3z" +
+		"yg3zyg3zyg3zyg3zyg3zygs9qrsgq4dnj26gykrcyg6rw2pyk7sshrg8" +
+		"890l9q0vxvvnq7c6q7n7fhn4uhw89rghjljt2a4q0he7ka3cefq84r79" +
+		"w4n2cthhrhtyzqtc99qcpl325ac"
+	lowS := "lnbc25m1p70xwfzpp5qqqsyqcyq5rqwzqfqqqsyqcyq5rqwzqfqqqsyq" +
+		"cyq5rqwzqfqypqdpl2pkx2ctnv5sxxmmwwd5kgetjypeh2ursdae8g6t" +
+		"wvus8g6rfwvs8qun0dfjkxaqnp4q0n326hr8v9zprg8gsvezcch06gfa" +
+		"qqhde2aj730yg0durunfhv66sp5zyg3zyg3zyg3zyg3zyg3zyg3zyg3z" +
+		"yg3zyg3zyg3zyg3zyg3zygs9qrsgq4dnj26gykrcyg6rw2pyk7sshrg8" +
+		"890l9q0vxvvnq7c6q7n7fhn4ng3c6uhgdqd54z2lsgxpfzw8x5wdeh4d" +
+		"ug768mhgedvs2e4z7a0sq6zvx67"
+
+	_, err := Decode(highS, &chaincfg.MainNetParams)
+	require.ErrorIs(t, err, ErrHighSSignature)
+
+	invoice, err := Decode(lowS, &chaincfg.MainNetParams)
+	require.NoError(t, err)
+	require.True(t, invoice.PaymentAddr.IsSome())
+	require.Equal(
+		t, "03e7156ae33b0a208d0744199163177e909e80176e55d97a2f22"+
+			"1ede0f934dd9ad",
+		hex.EncodeToString(invoice.Destination.SerializeCompressed()),
+	)
+}
+
 // TestNewInvoice tests that providing the optional arguments to the NewInvoice
 // method creates an Invoice that encodes to the expected string.
 func TestNewInvoice(t *testing.T) {

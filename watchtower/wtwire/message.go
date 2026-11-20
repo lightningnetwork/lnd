@@ -174,7 +174,8 @@ func WriteMessage(w io.Writer, msg Message, pver uint32) (int, error) {
 }
 
 // ReadMessage reads, validates, and parses the next Watchtower message from r
-// for the provided protocol version.
+// for the provided protocol version. If r is an io.LimitedReader, its limit
+// must describe the entire message frame, including the message type.
 func ReadMessage(r io.Reader, pver uint32) (Message, error) {
 	// First, we'll read out the first two bytes of the message so we can
 	// create the proper empty message.
@@ -191,7 +192,21 @@ func ReadMessage(r io.Reader, pver uint32) (Message, error) {
 	if err != nil {
 		return nil, err
 	}
-	if err := msg.Decode(r, pver); err != nil {
+	// A limited reader identifies an explicitly bounded message frame.
+	maxPayload := msg.MaxPayloadLength(pver)
+	if framed, ok := r.(*io.LimitedReader); ok &&
+		framed.N > int64(maxPayload) {
+
+		return nil, fmt.Errorf("message payload of type %v exceeds "+
+			"maximum %d bytes", msgType, maxPayload)
+	}
+
+	budget := int64(maxPayload)
+	if framed, ok := r.(*io.LimitedReader); ok {
+		budget = min(budget, framed.N)
+	}
+	limited := &io.LimitedReader{R: r, N: budget}
+	if err := msg.Decode(limited, pver); err != nil {
 		return nil, err
 	}
 

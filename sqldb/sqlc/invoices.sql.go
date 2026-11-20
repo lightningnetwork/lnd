@@ -24,6 +24,13 @@ const deleteCanceledInvoices = `-- name: DeleteCanceledInvoices :execresult
 DELETE
 FROM invoices
 WHERE state = 2
+  -- Keep ordinary release history even when every released HTLC failed.
+  AND (is_amp OR NOT EXISTS (
+    SELECT 1
+    FROM invoice_htlcs
+    WHERE invoice_id = invoices.id
+      AND state IN (2, 4) -- HtlcStateSettled, HtlcStateFailed
+  ))
 `
 
 func (q *Queries) DeleteCanceledInvoices(ctx context.Context) (sql.Result, error) {
@@ -68,7 +75,7 @@ const fetchPendingInvoices = `-- name: FetchPendingInvoices :many
 SELECT
     invoices.id, invoices.hash, invoices.preimage, invoices.settle_index, invoices.settled_at, invoices.memo, invoices.amount_msat, invoices.cltv_delta, invoices.expiry, invoices.payment_addr, invoices.payment_request, invoices.payment_request_hash, invoices.state, invoices.amount_paid_msat, invoices.is_amp, invoices.is_hodl, invoices.is_keysend, invoices.created_at
 FROM invoices
-WHERE state IN (0, 3) -- 0 = ContractOpen, 3 = ContractAccepted
+WHERE state IN (0, 3, 4) -- 0 = ContractOpen, 3 = ContractAccepted, 4 = ContractPendingSettle
   AND id > $1
 ORDER BY id ASC
 LIMIT $2
@@ -79,13 +86,78 @@ type FetchPendingInvoicesParams struct {
 	NumLimit int32
 }
 
-// FetchPendingInvoices returns all invoices in a pending state (open or
-// accepted). The invoices_state_idx index on the state column makes this a
-// fast index scan rather than a full table scan. id_cursor is an exclusive
-// lower bound on the primary key used for cursor-based pagination; the caller
-// must supply 0 when starting from the beginning.
+// FetchPendingInvoices returns all invoices in a pending state (open,
+// accepted or pending settle). The invoices_state_idx index on the state column
+// makes this a fast index scan rather than a full table scan. id_cursor is an
+// exclusive lower bound on the primary key used for cursor-based pagination;
+// the caller must supply 0 when starting from the beginning.
 func (q *Queries) FetchPendingInvoices(ctx context.Context, arg FetchPendingInvoicesParams) ([]Invoice, error) {
 	rows, err := q.db.QueryContext(ctx, fetchPendingInvoices, arg.IDCursor, arg.NumLimit)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []Invoice
+	for rows.Next() {
+		var i Invoice
+		if err := rows.Scan(
+			&i.ID,
+			&i.Hash,
+			&i.Preimage,
+			&i.SettleIndex,
+			&i.SettledAt,
+			&i.Memo,
+			&i.AmountMsat,
+			&i.CltvDelta,
+			&i.Expiry,
+			&i.PaymentAddr,
+			&i.PaymentRequest,
+			&i.PaymentRequestHash,
+			&i.State,
+			&i.AmountPaidMsat,
+			&i.IsAmp,
+			&i.IsHodl,
+			&i.IsKeysend,
+			&i.CreatedAt,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Close(); err != nil {
+		return nil, err
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const fetchPendingSettleInvoices = `-- name: FetchPendingSettleInvoices :many
+SELECT
+    invoices.id, invoices.hash, invoices.preimage, invoices.settle_index, invoices.settled_at, invoices.memo, invoices.amount_msat, invoices.cltv_delta, invoices.expiry, invoices.payment_addr, invoices.payment_request, invoices.payment_request_hash, invoices.state, invoices.amount_paid_msat, invoices.is_amp, invoices.is_hodl, invoices.is_keysend, invoices.created_at
+FROM invoices
+INNER JOIN (
+    SELECT DISTINCT invoice_id
+    FROM invoice_htlcs
+    WHERE state = 3 -- HtlcStatePendingSettle
+) pending_settle ON pending_settle.invoice_id = invoices.id
+WHERE invoices.id > $1
+ORDER BY invoices.id ASC
+LIMIT $2
+`
+
+type FetchPendingSettleInvoicesParams struct {
+	IDCursor int64
+	NumLimit int32
+}
+
+// FetchPendingSettleInvoices returns all invoices containing at least one HTLC
+// whose final outcome is still pending, including children of settled parents.
+// The parent-state pending filter cannot recover those duplicate payments.
+// id_cursor is an exclusive lower bound for cursor-based pagination.
+func (q *Queries) FetchPendingSettleInvoices(ctx context.Context, arg FetchPendingSettleInvoicesParams) ([]Invoice, error) {
+	rows, err := q.db.QueryContext(ctx, fetchPendingSettleInvoices, arg.IDCursor, arg.NumLimit)
 	if err != nil {
 		return nil, err
 	}
@@ -256,7 +328,7 @@ SELECT
     invoices.id, invoices.hash, invoices.preimage, invoices.settle_index, invoices.settled_at, invoices.memo, invoices.amount_msat, invoices.cltv_delta, invoices.expiry, invoices.payment_addr, invoices.payment_request, invoices.payment_request_hash, invoices.state, invoices.amount_paid_msat, invoices.is_amp, invoices.is_hodl, invoices.is_keysend, invoices.created_at
 FROM invoices
 WHERE id >= $1
-  AND (NOT $2 OR state IN (0, 3)) -- 0 = ContractOpen, 3 = ContractAccepted
+  AND (NOT $2 OR state IN (0, 3, 4)) -- 0 = ContractOpen, 3 = ContractAccepted, 4 = ContractPendingSettle
   AND created_at >= $3
   AND created_at < $4
 ORDER BY id ASC
@@ -334,7 +406,7 @@ SELECT
     invoices.id, invoices.hash, invoices.preimage, invoices.settle_index, invoices.settled_at, invoices.memo, invoices.amount_msat, invoices.cltv_delta, invoices.expiry, invoices.payment_addr, invoices.payment_request, invoices.payment_request_hash, invoices.state, invoices.amount_paid_msat, invoices.is_amp, invoices.is_hodl, invoices.is_keysend, invoices.created_at
 FROM invoices
 WHERE id <= $1
-  AND (NOT $2 OR state IN (0, 3)) -- 0 = ContractOpen, 3 = ContractAccepted
+  AND (NOT $2 OR state IN (0, 3, 4)) -- 0 = ContractOpen, 3 = ContractAccepted, 4 = ContractPendingSettle
   AND created_at >= $3
   AND created_at < $4
 ORDER BY id DESC

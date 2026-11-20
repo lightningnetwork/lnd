@@ -99,5 +99,5 @@ func (m *CreateSessionReply) MsgType() MessageType {
 //
 // This is part of the wtwire.Message interface.
 func (m *CreateSessionReply) MaxPayloadLength(uint32) uint32 {
-	return 2 + 3 + MaxCreateSessionReplyDataLength
+	return 2 + 2 + 3 + MaxCreateSessionReplyDataLength
 }

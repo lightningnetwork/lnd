@@ -72,12 +72,32 @@ ifneq ($(workers),)
 LINT_WORKERS = --concurrency=$(workers)
 endif
 
+# CI sets the checked-out merge's base so only issues on changed lines are
+# reported. Other runs retain the baseline configured in .golangci.yml.
+ifneq ($(LINT_BASE),)
+LINT_DIFF = --new-from-rev=$(LINT_BASE)
+endif
+
 # Docker cache mounting strategy:
 # - CI (GitHub Actions): Use bind mounts to host paths that GA caches persist.
 # - Local: Use Docker named volumes (much faster on macOS/Windows due to
 #   avoiding slow host-syncing overhead).
 # Paths inside container must match GOCACHE/GOMODCACHE in tools/Dockerfile.
 ifdef CI
+# In CI, build the tools image through BuildKit with the GitHub Actions
+# cache backend, so the expensive layer that compiles the custom linter
+# is restored from the cache store instead of being rebuilt on every
+# cold runner. Only the nightly run writes a new snapshot: an exported
+# image is roughly 650 MiB, and exporting from every PR would evict the
+# shared Go build caches. The runner exposes the required credentials;
+# see the lint job in .github/workflows/main.yml. Local builds (no CI)
+# keep the default local layer cache and don't need the flags.
+export DOCKER_BUILD_ARGS = --load --progress=plain --cache-from type=gha
+ifdef LINT_WRITE_CACHE
+# A cache export is only an optimization. If GitHub's cache service is
+# unavailable or rate-limits us, keep the lint result green.
+DOCKER_BUILD_ARGS += --cache-to type=gha,mode=min,ignore-error=true
+endif
 # CI mode: bind mount to host paths that GitHub Actions caches.
 DOCKER_TOOLS_BASE = docker run \
   --rm \
@@ -213,11 +233,17 @@ docker-release: docker-release-cache
 
 	# Run the actual compilation inside the docker image. We pass in all flags
 	# that we might want to overwrite in manual tests.
-	$(DOCKER_RELEASE_HELPER) make release tag="$(tag)" sys="$(sys)" COMMIT="$(COMMIT)" 
+	$(DOCKER_RELEASE_HELPER) make release tag="$(tag)" sys="$(sys)" COMMIT="$(COMMIT)"
+
+#? release-notes: Fold the release note fragments into the release notes of version=<major>.<minor>.<patch>, listing the contributors since from=<tag> (defaults to the newest release tag below version)
+release-notes:
+	@$(call print, "Folding release note fragments.")
+	if [ "$(version)" = "" ]; then echo "Must specify version=<major>.<minor>.<patch>!"; exit 1; fi
+	$(GOCC) run ./scripts/release-notes "$(version)" $(from)
 
 docker-tools:
 	@$(call print, "Building tools docker image.")
-	docker build -q -t lnd-tools $(TOOLS_DIR)
+	docker build -t lnd-tools $(DOCKER_BUILD_ARGS) $(TOOLS_DIR)
 
 scratch: build
 
@@ -381,7 +407,7 @@ check-go-version: check-go-version-dockerfile check-go-version-yaml
 #? lint-source: Run static code analysis
 lint-source: docker-tools
 	@$(call print, "Linting source.")
-	$(DOCKER_TOOLS_LINT) custom-gcl run -v $(LINT_WORKERS)
+	$(DOCKER_TOOLS_LINT) custom-gcl run -v $(LINT_WORKERS) $(LINT_DIFF)
 
 #? lint-config-check: Verify that the lint config is up to date
 #  We use the official linter here not our custom one because for checking the
@@ -416,7 +442,7 @@ lint-module: docker-tools
 lint-module-run:
 	$(DOCKER_TOOLS_LINT_BASE) \
 		--workdir "/build/$(module)" \
-		lnd-tools custom-gcl run -v $(LINT_WORKERS) \
+		lnd-tools custom-gcl run -v $(LINT_WORKERS) $(LINT_DIFF) \
 		-c "$(lint_config)"
 
 #? protolint: Lint proto files using protolint

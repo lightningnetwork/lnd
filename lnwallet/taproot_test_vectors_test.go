@@ -188,10 +188,12 @@ type taprootTestContext struct {
 	remotePaymentBasepointSecret       *btcec.PrivateKey
 	localDelayedPaymentBasepointSecret *btcec.PrivateKey
 	remoteRevocationBasepointSecret    *btcec.PrivateKey
+	localRevocationBasepointSecret     *btcec.PrivateKey
 	localHtlcBasepointSecret           *btcec.PrivateKey
 	remoteHtlcBasepointSecret          *btcec.PrivateKey
 
-	localPerCommitSecret lntypes.Hash
+	localPerCommitSecret  lntypes.Hash
+	remotePerCommitSecret lntypes.Hash
 
 	fundingAmount btcutil.Amount
 	dustLimit     btcutil.Amount
@@ -230,6 +232,9 @@ func newTaprootTestContext(t *testing.T) *taprootTestContext {
 	tc.remoteRevocationBasepointSecret = deriveKeyFromSeed(
 		seed, "remote-revocation-basepoint",
 	)
+	tc.localRevocationBasepointSecret = deriveKeyFromSeed(
+		seed, "local-revocation-basepoint",
+	)
 	tc.localHtlcBasepointSecret = deriveKeyFromSeed(
 		seed, "local-htlc-basepoint",
 	)
@@ -237,11 +242,17 @@ func newTaprootTestContext(t *testing.T) *taprootTestContext {
 		seed, "remote-htlc-basepoint",
 	)
 
-	// Derive per-commitment secret from the seed as well.
+	// Derive the per-commitment secrets of both commitments from the seed
+	// as well.
 	h := sha256.New()
 	h.Write(seed)
 	h.Write([]byte("local-per-commit-secret"))
 	copy(tc.localPerCommitSecret[:], h.Sum(nil))
+
+	h.Reset()
+	h.Write(seed)
+	h.Write([]byte("remote-per-commit-secret"))
+	copy(tc.remotePerCommitSecret[:], h.Sum(nil))
 
 	return tc
 }
@@ -249,6 +260,35 @@ func newTaprootTestContext(t *testing.T) *taprootTestContext {
 // commitPoint returns the per-commitment point derived from the secret.
 func (tc *taprootTestContext) commitPoint() *btcec.PublicKey {
 	return input.ComputeCommitmentPoint(tc.localPerCommitSecret[:])
+}
+
+// remoteCommitPoint returns the per-commitment point of the remote
+// commitment.
+func (tc *taprootTestContext) remoteCommitPoint() *btcec.PublicKey {
+	return input.ComputeCommitmentPoint(tc.remotePerCommitSecret[:])
+}
+
+// remoteCommitKeys returns the revocation key and the local and remote HTLC
+// keys of the remote commitment. These are derived from the remote
+// per-commitment point, and the revocation key uses the local revocation
+// basepoint, since it's the local party that can punish a breach of the
+// remote commitment.
+func (tc *taprootTestContext) remoteCommitKeys() (*btcec.PublicKey,
+	*btcec.PublicKey, *btcec.PublicKey) {
+
+	commitPt := tc.remoteCommitPoint()
+
+	revocationPubkey := input.DeriveRevocationPubkey(
+		tc.localRevocationBasepointSecret.PubKey(), commitPt,
+	)
+	localHtlcPubkey := input.TweakPubKey(
+		tc.localHtlcBasepointSecret.PubKey(), commitPt,
+	)
+	remoteHtlcPubkey := input.TweakPubKey(
+		tc.remoteHtlcBasepointSecret.PubKey(), commitPt,
+	)
+
+	return revocationPubkey, localHtlcPubkey, remoteHtlcPubkey
 }
 
 // TaprootTestVectors is the top-level JSON structure for taproot test vectors.
@@ -285,6 +325,8 @@ type KeySet struct {
 	LocalDelayedPaymentBasepoint       string `json:"local_delayed_payment_basepoint"`        //nolint:ll
 	RemoteRevocationBasepointSecret    string `json:"remote_revocation_basepoint_secret"`     //nolint:ll
 	RemoteRevocationBasepoint          string `json:"remote_revocation_basepoint"`            //nolint:ll
+	LocalRevocationBasepointSecret     string `json:"local_revocation_basepoint_secret"`      //nolint:ll
+	LocalRevocationBasepoint           string `json:"local_revocation_basepoint"`             //nolint:ll
 
 	LocalHtlcBasepointSecret  string `json:"local_htlc_basepoint_secret"`
 	LocalHtlcBasepoint        string `json:"local_htlc_basepoint"`
@@ -294,12 +336,20 @@ type KeySet struct {
 	LocalPerCommitSecret string `json:"local_per_commit_secret"`
 	LocalPerCommitPoint  string `json:"local_per_commit_point"`
 
-	// Derived per-commitment keys.
+	RemotePerCommitSecret string `json:"remote_per_commit_secret"`
+	RemotePerCommitPoint  string `json:"remote_per_commit_point"`
+
+	// Derived per-commitment keys of the local commitment.
 	DerivedLocalDelayedPubkey  string `json:"derived_local_delayed_pubkey"`
 	DerivedRevocationPubkey    string `json:"derived_revocation_pubkey"`
 	DerivedLocalHtlcPubkey     string `json:"derived_local_htlc_pubkey"`
 	DerivedRemoteHtlcPubkey    string `json:"derived_remote_htlc_pubkey"`
 	DerivedRemotePaymentPubkey string `json:"derived_remote_payment_pubkey"`
+
+	// Derived per-commitment keys of the remote commitment.
+	RemoteCommitRevocationPubkey string `json:"remote_commit_revocation_pubkey"`  //nolint:ll
+	RemoteCommitLocalHtlcPubkey  string `json:"remote_commit_local_htlc_pubkey"`  //nolint:ll
+	RemoteCommitRemoteHtlcPubkey string `json:"remote_commit_remote_htlc_pubkey"` //nolint:ll
 }
 
 // ScriptVectorEntry represents a single tapscript tree decomposition.
@@ -317,8 +367,15 @@ type ScriptVectorEntry struct {
 // FundingScriptVector holds the funding output vector.
 type FundingScriptVector struct {
 	FundingTxHex string `json:"funding_tx_hex"`
-	CombinedKey  string `json:"combined_key"`
-	PkScript     string `json:"pkscript"`
+
+	// CombinedFundingKey is the x-only MuSig2 aggregate of both funding
+	// keys, which is used as the taproot internal key.
+	CombinedFundingKey string `json:"combined_funding_key"`
+
+	// FundingKey is the x-only BIP 86 tweaked output key.
+	FundingKey string `json:"funding_key"`
+
+	PkScript string `json:"pkscript"`
 }
 
 // ScriptVectors holds all script test vectors.
@@ -388,6 +445,9 @@ func (tc *taprootTestContext) generateParams() TestVectorParams {
 	// For tweakless channels, the remote payment key is untweaked.
 	remotePaymentPubkey := tc.remotePaymentBasepointSecret.PubKey()
 
+	remoteRevocationPubkey, remoteCommitLocalHtlcPubkey,
+		remoteCommitRemoteHtlcPubkey := tc.remoteCommitKeys()
+
 	return TestVectorParams{
 		Seed:                  taprootVectorSeedHex,
 		FundingAmountSatoshis: int64(tc.fundingAmount),
@@ -430,6 +490,12 @@ func (tc *taprootTestContext) generateParams() TestVectorParams {
 			RemoteRevocationBasepoint: pubHex(
 				tc.remoteRevocationBasepointSecret.PubKey(),
 			),
+			LocalRevocationBasepointSecret: privHex(
+				tc.localRevocationBasepointSecret,
+			),
+			LocalRevocationBasepoint: pubHex(
+				tc.localRevocationBasepointSecret.PubKey(),
+			),
 
 			LocalHtlcBasepointSecret: privHex(
 				tc.localHtlcBasepointSecret,
@@ -449,11 +515,26 @@ func (tc *taprootTestContext) generateParams() TestVectorParams {
 			),
 			LocalPerCommitPoint: pubHex(commitPt),
 
+			RemotePerCommitSecret: hex.EncodeToString(
+				tc.remotePerCommitSecret[:],
+			),
+			RemotePerCommitPoint: pubHex(tc.remoteCommitPoint()),
+
 			DerivedLocalDelayedPubkey:  pubHex(localDelayedPubkey),
 			DerivedRevocationPubkey:    pubHex(revocationPubkey),
 			DerivedLocalHtlcPubkey:     pubHex(localHtlcPubkey),
 			DerivedRemoteHtlcPubkey:    pubHex(remoteHtlcPubkey),
 			DerivedRemotePaymentPubkey: pubHex(remotePaymentPubkey),
+
+			RemoteCommitRevocationPubkey: pubHex(
+				remoteRevocationPubkey,
+			),
+			RemoteCommitLocalHtlcPubkey: pubHex(
+				remoteCommitLocalHtlcPubkey,
+			),
+			RemoteCommitRemoteHtlcPubkey: pubHex(
+				remoteCommitRemoteHtlcPubkey,
+			),
 		},
 	}
 }
@@ -486,14 +567,27 @@ func (tc *taprootTestContext) generateFundingVector() FundingScriptVector {
 	var txBuf bytes.Buffer
 	require.NoError(t, fundingTx.Serialize(&txBuf))
 
-	// Extract the combined key from the pkScript. For P2TR, the pkScript
-	// is OP_1 <32-byte-key>, so the key starts at byte 2.
-	combinedKeyBytes := pkScript[2:]
+	// The combined funding key is the MuSig2 aggregate of both funding
+	// keys before the BIP 86 tweak is applied.
+	combinedKey, _, _, err := musig2.AggregateKeys(
+		[]*btcec.PublicKey{
+			tc.localFundingPrivkey.PubKey(),
+			tc.remoteFundingPrivkey.PubKey(),
+		}, true,
+	)
+	require.NoError(t, err)
+
+	// Extract the BIP 86 tweaked output key from the pkScript. For P2TR,
+	// the pkScript is OP_1 <32-byte-key>, so the key starts at byte 2.
+	fundingKeyBytes := pkScript[2:]
 
 	return FundingScriptVector{
 		FundingTxHex: hex.EncodeToString(txBuf.Bytes()),
-		CombinedKey:  hex.EncodeToString(combinedKeyBytes),
-		PkScript:     scriptHex(pkScript),
+		CombinedFundingKey: hex.EncodeToString(
+			schnorr.SerializePubKey(combinedKey.FinalKey),
+		),
+		FundingKey: hex.EncodeToString(fundingKeyBytes),
+		PkScript:   scriptHex(pkScript),
 	}
 }
 
@@ -555,9 +649,11 @@ func secondLevelScriptTreeToEntry(
 	scripts := make(map[string]string)
 	leafHashes := make(map[string]string)
 
-	successScript := tree.SuccessTapLeaf.Script
-	scripts["success"] = scriptHex(successScript)
-	leafHashes["success"] = leafHash(successScript)
+	// Both second level outputs pay to the same delay script as the
+	// to_local output, so we name the leaf after it.
+	delayScript := tree.SuccessTapLeaf.Script
+	scripts["delay"] = scriptHex(delayScript)
+	leafHashes["delay"] = leafHash(delayScript)
 
 	return ScriptVectorEntry{
 		Scripts:       scripts,
@@ -645,7 +741,17 @@ func (tc *taprootTestContext) generateScriptVectors() ScriptVectors {
 	require.NoError(t, err)
 	payHash0 := preimage0.Hash()
 
-	// 4. Offered HTLC (local commit).
+	// The remote commitment uses its own set of keys, derived from the
+	// remote per-commitment point and the local revocation basepoint.
+	remoteRevocationPubkey, remoteCommitLocalHtlcPubkey,
+		remoteCommitRemoteHtlcPubkey := tc.remoteCommitKeys()
+
+	// The HTLC scripts are generated the same way GenTaprootHtlcScript
+	// does: offered and accepted are relative to the owner of the
+	// commitment, so an HTLC we offer is an offered HTLC on our
+	// commitment, and an accepted HTLC on theirs.
+	//
+	// 4. Offered HTLC (local commit): we're the sender.
 	offeredLocalTree, err := input.SenderHTLCScriptTaproot(
 		localHtlcPubkey, remoteHtlcPubkey, revocationPubkey,
 		payHash0[:], lntypes.Local, noAux,
@@ -653,26 +759,26 @@ func (tc *taprootTestContext) generateScriptVectors() ScriptVectors {
 	)
 	require.NoError(t, err)
 
-	// 5. Offered HTLC (remote commit).
+	// 5. Offered HTLC (remote commit): the remote party is the sender.
 	offeredRemoteTree, err := input.SenderHTLCScriptTaproot(
-		localHtlcPubkey, remoteHtlcPubkey, revocationPubkey,
-		payHash0[:], lntypes.Remote, noAux,
+		remoteCommitRemoteHtlcPubkey, remoteCommitLocalHtlcPubkey,
+		remoteRevocationPubkey, payHash0[:], lntypes.Remote, noAux,
 		input.WithProdScripts(),
 	)
 	require.NoError(t, err)
 
-	// 6. Accepted HTLC (local commit).
+	// 6. Accepted HTLC (local commit): the remote party is the sender.
 	acceptedLocalTree, err := input.ReceiverHTLCScriptTaproot(
-		500, localHtlcPubkey, remoteHtlcPubkey, revocationPubkey,
+		500, remoteHtlcPubkey, localHtlcPubkey, revocationPubkey,
 		payHash0[:], lntypes.Local, noAux,
 		input.WithProdScripts(),
 	)
 	require.NoError(t, err)
 
-	// 7. Accepted HTLC (remote commit).
+	// 7. Accepted HTLC (remote commit): we're the sender.
 	acceptedRemoteTree, err := input.ReceiverHTLCScriptTaproot(
-		500, localHtlcPubkey, remoteHtlcPubkey, revocationPubkey,
-		payHash0[:], lntypes.Remote, noAux,
+		500, remoteCommitLocalHtlcPubkey, remoteCommitRemoteHtlcPubkey,
+		remoteRevocationPubkey, payHash0[:], lntypes.Remote, noAux,
 		input.WithProdScripts(),
 	)
 	require.NoError(t, err)
@@ -829,7 +935,7 @@ func createTaprootTestChannelsForVectors(tc *taprootTestContext,
 			PubKey: tc.localDelayedPaymentBasepointSecret.PubKey(),
 		},
 		RevocationBasePoint: keychain.KeyDescriptor{
-			PubKey: tc.localPaymentBasepointSecret.PubKey(),
+			PubKey: tc.localRevocationBasepointSecret.PubKey(),
 		},
 	}
 
@@ -934,6 +1040,7 @@ func createTaprootTestChannelsForVectors(tc *taprootTestContext,
 		tc.localFundingPrivkey,
 		tc.localPaymentBasepointSecret,
 		tc.localDelayedPaymentBasepointSecret,
+		tc.localRevocationBasepointSecret,
 		tc.localHtlcBasepointSecret,
 	}
 	remoteKeys := []*btcec.PrivateKey{
@@ -1342,8 +1449,12 @@ func verifyTaprootVectors(t *testing.T) {
 
 		t.Run("funding", func(t *testing.T) {
 			require.Equal(t,
-				stored.Scripts.Funding.CombinedKey,
-				scripts.Funding.CombinedKey,
+				stored.Scripts.Funding.CombinedFundingKey,
+				scripts.Funding.CombinedFundingKey,
+			)
+			require.Equal(t,
+				stored.Scripts.Funding.FundingKey,
+				scripts.Funding.FundingKey,
 			)
 			require.Equal(t,
 				stored.Scripts.Funding.PkScript,

@@ -4,6 +4,7 @@ import (
 	"encoding/hex"
 	"fmt"
 	"testing"
+	"time"
 
 	"github.com/btcsuite/btcd/btcec/v2"
 	"github.com/btcsuite/btcd/chainhash/v2"
@@ -11,6 +12,8 @@ import (
 	"github.com/lightningnetwork/lnd/chanstate"
 	"github.com/lightningnetwork/lnd/graph/db/models"
 	"github.com/lightningnetwork/lnd/invoices"
+	"github.com/lightningnetwork/lnd/lnrpc"
+	"github.com/lightningnetwork/lnd/lntypes"
 	"github.com/lightningnetwork/lnd/lnwire"
 	"github.com/lightningnetwork/lnd/routing/route"
 	"github.com/lightningnetwork/lnd/zpay32"
@@ -27,6 +30,149 @@ var (
 	_       = pubKeyY.SetByteSlice(pubkeyBytes)
 	pubkey  = btcec.NewPublicKey(new(btcec.FieldVal).SetInt(4), pubKeyY)
 )
+
+// TestCreateRPCInvoiceFinalHtlcOutcomes verifies that RPC callers see pending
+// releases without final timestamps and can distinguish released collection
+// failures from cancellations that did not release the invoice preimage.
+func TestCreateRPCInvoiceFinalHtlcOutcomes(t *testing.T) {
+	t.Parallel()
+
+	// Arrange snapshots with known preimages so release history must come
+	// from payment outcomes rather than secret availability. Stored times
+	// also distinguish final outcomes from provisional pending timestamps.
+	const amount = lnwire.MilliSatoshi(1000)
+	resolvedAt := time.Unix(10, 0)
+	preimage := lntypes.Preimage{1}
+	testCases := []struct {
+		name         string
+		state        invoices.ContractState
+		htlcStates   []invoices.HtlcState
+		rpcState     lnrpc.Invoice_InvoiceState
+		rpcHtlcState []lnrpc.InvoiceHTLCState
+		amtPaid      lnwire.MilliSatoshi
+		resolveTime  int64
+		released     bool
+	}{
+		{
+			name:  "pending outcomes",
+			state: invoices.ContractPendingSettle,
+			htlcStates: []invoices.HtlcState{
+				invoices.HtlcStatePendingSettle,
+				invoices.HtlcStatePendingSettle,
+			},
+			rpcState: lnrpc.Invoice_PENDING_SETTLE,
+			rpcHtlcState: []lnrpc.InvoiceHTLCState{
+				lnrpc.InvoiceHTLCState_PENDING_SETTLE,
+				lnrpc.InvoiceHTLCState_PENDING_SETTLE,
+			},
+			amtPaid:     amount,
+			resolveTime: 0,
+			released:    true,
+		},
+		{
+			name:  "mixed final outcomes",
+			state: invoices.ContractCanceled,
+			htlcStates: []invoices.HtlcState{
+				invoices.HtlcStateSettled,
+				invoices.HtlcStateFailed,
+			},
+			rpcState: lnrpc.Invoice_CANCELED,
+			rpcHtlcState: []lnrpc.InvoiceHTLCState{
+				lnrpc.InvoiceHTLCState_SETTLED,
+				lnrpc.InvoiceHTLCState_FAILED,
+			},
+			amtPaid:     amount / 2,
+			resolveTime: resolvedAt.Unix(),
+			released:    true,
+		},
+		{
+			name:  "canceled before release",
+			state: invoices.ContractCanceled,
+			htlcStates: []invoices.HtlcState{
+				invoices.HtlcStateCanceled,
+			},
+			rpcState: lnrpc.Invoice_CANCELED,
+			rpcHtlcState: []lnrpc.InvoiceHTLCState{
+				lnrpc.InvoiceHTLCState_CANCELED,
+			},
+			resolveTime: resolvedAt.Unix(),
+		},
+		{
+			name:  "all released HTLCs failed",
+			state: invoices.ContractCanceled,
+			htlcStates: []invoices.HtlcState{
+				invoices.HtlcStateFailed,
+			},
+			rpcState: lnrpc.Invoice_CANCELED,
+			rpcHtlcState: []lnrpc.InvoiceHTLCState{
+				lnrpc.InvoiceHTLCState_FAILED,
+			},
+			resolveTime: resolvedAt.Unix(),
+			released:    true,
+		},
+		{
+			name:     "legacy settled without HTLCs",
+			state:    invoices.ContractSettled,
+			rpcState: lnrpc.Invoice_SETTLED,
+			amtPaid:  amount,
+			released: true,
+		},
+	}
+
+	for _, tc := range testCases {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+
+			// Arrange invoice fields without request parsing.
+			// Circuit IDs distinguish children in the ordered
+			// RPC response without involving a backend.
+			invoice := &invoices.Invoice{
+				State:   tc.state,
+				AmtPaid: tc.amtPaid,
+				Terms: invoices.ContractTerm{
+					Value:           amount,
+					PaymentPreimage: &preimage,
+				},
+			}
+			invoice.Htlcs = make(
+				map[models.CircuitKey]*invoices.InvoiceHTLC,
+			)
+			for n, state := range tc.htlcStates {
+				key := models.CircuitKey{
+					HtlcID: uint64(n),
+				}
+				invoice.Htlcs[key] = &invoices.InvoiceHTLC{
+					State:       state,
+					Amt:         amount / 2,
+					ResolveTime: resolvedAt,
+				}
+			}
+
+			// Act through the mapper used by invoice responses
+			// and subscriptions, without involving storage.
+			rpcInvoice, err := CreateRPCInvoice(invoice, nil)
+
+			// Assert states, release history and credit at the RPC
+			// boundary. Pending children hide provisional times;
+			// final children expose their actual resolution time.
+			require.NoError(t, err)
+			require.Equal(t, tc.rpcState, rpcInvoice.State)
+			require.Equal(
+				t, tc.released, rpcInvoice.PreimageReleased,
+			)
+			require.EqualValues(
+				t, tc.amtPaid, rpcInvoice.AmtPaidMsat,
+			)
+			require.Len(t, rpcInvoice.Htlcs, len(tc.rpcHtlcState))
+			for n, htlc := range rpcInvoice.Htlcs {
+				require.Equal(t, tc.rpcHtlcState[n], htlc.State)
+				require.Equal(
+					t, tc.resolveTime, htlc.ResolveTime,
+				)
+			}
+		})
+	}
+}
 
 // TestAddInvoiceRejectsCltvAboveMaxIncoming asserts that invoice creation
 // rejects final CLTV deltas above the supported maximum.

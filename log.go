@@ -38,6 +38,7 @@ import (
 	"github.com/lightningnetwork/lnd/lnrpc/peersrpc"
 	"github.com/lightningnetwork/lnd/lnrpc/routerrpc"
 	"github.com/lightningnetwork/lnd/lnrpc/signrpc"
+	"github.com/lightningnetwork/lnd/lnrpc/switchrpc"
 	"github.com/lightningnetwork/lnd/lnrpc/verrpc"
 	"github.com/lightningnetwork/lnd/lnrpc/walletrpc"
 	"github.com/lightningnetwork/lnd/lnwallet"
@@ -113,12 +114,15 @@ func genSubLogger(root *build.SubLoggerManager,
 	interceptor signal.Interceptor) func(string) btclog.Logger {
 
 	// Create a shutdown function which will request shutdown from our
-	// interceptor if it is listening.
+	// interceptor if it is listening. A critical error is a failure, so
+	// the process exits with a non-zero code unless a more specific one
+	// was already recorded.
 	shutdown := func() {
 		if !interceptor.Listening() {
 			return
 		}
 
+		interceptor.SetExitCode(signal.ExitCodeCriticalError)
 		interceptor.RequestShutdown()
 	}
 
@@ -192,6 +196,7 @@ func SetupLoggers(root *build.SubLoggerManager, interceptor signal.Interceptor) 
 
 	AddSubLogger(root, routing.Subsystem, interceptor, routing.UseLogger)
 	AddSubLogger(root, routerrpc.Subsystem, interceptor, routerrpc.UseLogger)
+	AddSubLogger(root, switchrpc.Subsystem, interceptor, switchrpc.UseLogger)
 	AddSubLogger(root, chanfitness.Subsystem, interceptor, chanfitness.UseLogger)
 	AddSubLogger(root, verrpc.Subsystem, interceptor, verrpc.UseLogger)
 	AddSubLogger(root, healthcheck.Subsystem, interceptor, healthcheck.UseLogger)

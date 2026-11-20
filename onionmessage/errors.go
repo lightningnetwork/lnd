@@ -30,4 +30,20 @@ var (
 
 	// ErrNodeNotFound is returned when the node is not found in the graph.
 	ErrNodeNotFound = errors.New("node not found in graph")
+
+	// ErrInvalidForwardPayload is returned when the payload of a
+	// forwarding onion message carries a record other than the encrypted
+	// recipient data.
+	ErrInvalidForwardPayload = errors.New("invalid forwarding onion " +
+		"message payload")
+
+	// ErrMissingEncryptedData is returned when the payload of a forwarding
+	// onion message has no encrypted recipient data.
+	ErrMissingEncryptedData = errors.New("missing encrypted recipient " +
+		"data")
+
+	// ErrForwardPathID is returned when the decrypted recipient data of a
+	// forwarding onion message contains a path ID, which only the final
+	// hop may receive.
+	ErrForwardPathID = errors.New("path ID in forwarding onion message")
 )

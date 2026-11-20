@@ -6,8 +6,10 @@ import (
 	"time"
 
 	"github.com/btcsuite/btcd/btcutil/v2"
+	"github.com/lightningnetwork/lnd/amp"
 	"github.com/lightningnetwork/lnd/chainreg"
 	"github.com/lightningnetwork/lnd/lnrpc"
+	"github.com/lightningnetwork/lnd/lnrpc/invoicesrpc"
 	"github.com/lightningnetwork/lnd/lnrpc/routerrpc"
 	"github.com/lightningnetwork/lnd/lntest"
 	"github.com/lightningnetwork/lnd/lntest/node"
@@ -89,7 +91,9 @@ func testSendMultiPathPayment(ht *lntest.HarnessTest) {
 	require.GreaterOrEqual(ht, succeeded, minExpectedShards,
 		"expected shards not reached")
 
-	// Make sure Bob show the invoice as settled for the full amount.
+	// The payer can finish before Bob locks in the settle. Wait through
+	// the existing address-based assertion before checking final credit.
+	ht.AssertInvoiceSettled(mts.bob, invoices[0].PaymentAddr)
 	inv := mts.bob.RPC.LookupInvoice(rHash)
 
 	require.EqualValues(ht, paymentAmt, inv.AmtPaidSat,
@@ -238,6 +242,146 @@ func testSendToRouteMultiPath(ht *lntest.HarnessTest) {
 
 	// Finally, close all channels.
 	mts.closeChannels()
+}
+
+// testMPPReleasedSiblingRestart checks ordinary MPP recovery when the same
+// channel also receives a fresh shard for an already-settled AMP set.
+func testMPPReleasedSiblingRestart(ht *lntest.HarnessTest) {
+	const (
+		ampAmount = btcutil.Amount(1000)
+		mppAmount = btcutil.Amount(2000)
+	)
+
+	// Arrange one real channel and onion router. A long commit interval
+	// batches the ordinary shards with the closed-set shard. First pay an
+	// AMP set normally, retaining the parent's existing AMP semantics.
+	points, nodes := ht.CreateSimpleNetwork(
+		[][]string{
+			{
+				"--channel-commit-interval=5s",
+			},
+			nil,
+		},
+		lntest.OpenChannelParams{
+			Amt: 100_000,
+		},
+	)
+	alice, bob := nodes[0], nodes[1]
+	scenario := &mppTestScenario{
+		ht: ht,
+	}
+	ampInvoice := bob.RPC.AddInvoice(&lnrpc.Invoice{
+		Value: int64(ampAmount),
+		IsAmp: true,
+	})
+	setID := ht.Random32Bytes()
+	sharer, err := amp.NewSeedSharer()
+	require.NoError(ht, err)
+	child := sharer.Child(0)
+	ampRoute := scenario.buildRoute(
+		ampAmount, alice, []*node.HarnessNode{bob},
+	)
+	finalHop := ampRoute.Hops[len(ampRoute.Hops)-1]
+	finalHop.TlvPayload = true
+	finalHop.MppRecord = &lnrpc.MPPRecord{
+		PaymentAddr:  ampInvoice.PaymentAddr,
+		TotalAmtMsat: int64(ampAmount * 1000),
+	}
+	finalHop.AmpRecord = &lnrpc.AMPRecord{
+		RootShare:  child.Share[:],
+		SetId:      setID,
+		ChildIndex: child.Index,
+	}
+	paidSet := alice.RPC.SendToRouteV2(&routerrpc.SendToRouteRequest{
+		PaymentHash: child.Hash[:],
+		Route:       ampRoute,
+	})
+	require.Nil(ht, paidSet.Failure)
+	ht.AssertInvoiceSettled(bob, ampInvoice.PaymentAddr)
+	ht.AssertNumActiveHtlcs(alice, 0)
+	ht.AssertNumActiveHtlcs(bob, 0)
+
+	// Clear the payer's completed record so its local set-ID duplicate
+	// check does not stop the fresh onion before it reaches the receiver.
+	// Bob must still reject the set using his persisted invoice state.
+	alice.RPC.DeleteAllPayments()
+
+	// Holding the ordinary invoice lets us disconnect its payer before
+	// releasing the preimage, making the pending/restart window explicit
+	// instead of racing a fast settle acknowledgement.
+	preimage := lntypes.Preimage(ht.Random32Bytes())
+	hash := preimage.Hash()
+	invoice := bob.RPC.AddHoldInvoice(&invoicesrpc.AddHoldInvoiceRequest{
+		Hash:  hash[:],
+		Value: int64(mppAmount),
+	})
+	invoiceStream := bob.RPC.SubscribeSingleInvoice(hash[:])
+	stream := alice.RPC.SendPayment(&routerrpc.SendPaymentRequest{
+		PaymentRequest:   invoice.PaymentRequest,
+		MaxParts:         2,
+		MaxShardSizeMsat: uint64(mppAmount * 1000 / 2),
+		FeeLimitMsat:     noFeeLimitMsat,
+	})
+	ht.AssertPaymentStatusFromStream(stream, lnrpc.Payment_IN_FLIGHT)
+
+	// Act by sending a distinct child to the closed set alongside the MPP
+	// shards. Its partial amount follows the previously failing updater
+	// path; it must return a normal invoice rejection without failing the
+	// channel that carries the ordinary payment.
+	lateChild := sharer.Child(1)
+	lateRoute := scenario.buildRoute(
+		ampAmount/2, alice, []*node.HarnessNode{bob},
+	)
+	lateHop := lateRoute.Hops[len(lateRoute.Hops)-1]
+	lateHop.TlvPayload = true
+	lateHop.MppRecord = &lnrpc.MPPRecord{
+		PaymentAddr:  ampInvoice.PaymentAddr,
+		TotalAmtMsat: int64(ampAmount * 1000),
+	}
+	lateHop.AmpRecord = &lnrpc.AMPRecord{
+		RootShare:  lateChild.Share[:],
+		SetId:      setID,
+		ChildIndex: lateChild.Index,
+	}
+	rejected := alice.RPC.SendToRouteV2(&routerrpc.SendToRouteRequest{
+		PaymentHash: lateChild.Hash[:],
+		Route:       lateRoute,
+	})
+	require.NotNil(ht, rejected.Failure)
+	require.Equal(ht, lnrpc.Failure_INCORRECT_OR_UNKNOWN_PAYMENT_DETAILS,
+		rejected.Failure.Code)
+	ht.AssertInvoiceState(invoiceStream, lnrpc.Invoice_ACCEPTED)
+
+	restartAlice := ht.SuspendNode(alice)
+	bob.RPC.SettleInvoice(preimage[:])
+	pending := ht.AssertInvoiceState(
+		invoiceStream, lnrpc.Invoice_PENDING_SETTLE,
+	)
+	require.Len(ht, pending.Htlcs, 2)
+	require.Zero(ht, pending.SettleIndex)
+	ht.RestartNode(bob)
+	stillPending := bob.RPC.LookupInvoice(hash[:])
+	require.Equal(ht, lnrpc.Invoice_PENDING_SETTLE, stillPending.State)
+
+	// Assert that reconnect uses the persistent replay log's processed path
+	// to recover both released children. Only the actual successful MPP and
+	// initial AMP set may contribute to final invoice/channel value.
+	require.NoError(ht, restartAlice())
+	ht.EnsureConnected(alice, bob)
+	ht.AssertPaymentStatus(alice, hash, lnrpc.Payment_SUCCEEDED)
+	ht.AssertInvoiceSettled(bob, pending.PaymentAddr)
+	settled := bob.RPC.LookupInvoice(hash[:])
+	require.EqualValues(ht, mppAmount, settled.AmtPaidSat)
+	require.NotZero(ht, settled.SettleIndex)
+	for _, htlc := range settled.Htlcs {
+		require.Equal(ht, lnrpc.InvoiceHTLCState_SETTLED, htlc.State)
+	}
+	ht.AssertNumActiveHtlcs(alice, 0)
+	ht.AssertNumActiveHtlcs(bob, 0)
+	totalPaid := int64(ampAmount + mppAmount)
+	ht.AssertAmountPaid("ordinary and AMP", alice, points[0], totalPaid, 0)
+	ht.AssertAmountPaid("ordinary and AMP", bob, points[0], 0, totalPaid)
+	ht.AssertChannelLocalBalance(bob, points[0], totalPaid)
 }
 
 // mppTestScenario defines a test scenario used for testing MPP-related tests.

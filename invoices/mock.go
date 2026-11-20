@@ -56,6 +56,15 @@ func (m *MockInvoiceDB) FetchPendingInvoices(ctx context.Context) (
 	return args.Get(0).(map[lntypes.Hash]Invoice), args.Error(1)
 }
 
+// FetchPendingSettleInvoices returns the configured recovery candidates so
+// startup tests can distinguish child-state discovery from pending parents.
+func (m *MockInvoiceDB) FetchPendingSettleInvoices(ctx context.Context) (
+	map[lntypes.Hash]Invoice, error) {
+
+	args := m.Called(ctx)
+	return args.Get(0).(map[lntypes.Hash]Invoice), args.Error(1)
+}
+
 func (m *MockInvoiceDB) QueryInvoices(q InvoiceQuery) (InvoiceSlice, error) {
 	args := m.Called(q)
 	invoiceSlice, _ := args.Get(0).(InvoiceSlice)

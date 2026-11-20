@@ -840,20 +840,21 @@ type SpendHintCache interface {
 }
 
 // ConfirmHintCache is an interface whose duty is to cache confirm hints for
-// transactions. A confirm hint is defined as the earliest height in the chain
-// at which a transaction could have been included in a block.
+// confirmation requests. A confirm hint is defined as the earliest height in
+// the chain at which a transaction matching the request could have been
+// included in a block.
 type ConfirmHintCache interface {
-	// CommitConfirmHint commits a confirm hint for the transactions to the
-	// cache.
+	// CommitConfirmHint commits a confirm hint for the confirmation
+	// requests to the cache.
 	CommitConfirmHint(height uint32, confRequests ...ConfRequest) error
 
-	// QueryConfirmHint returns the latest confirm hint for a transaction
-	// hash. ErrConfirmHintNotFound is returned if a confirm hint does not
-	// exist within the cache for the transaction hash.
+	// QueryConfirmHint returns the latest confirm hint for a confirmation
+	// request. ErrConfirmHintNotFound is returned if a confirm hint does
+	// not exist within the cache for the request.
 	QueryConfirmHint(confRequest ConfRequest) (uint32, error)
 
-	// PurgeConfirmHint removes the confirm hint for the transactions from
-	// the cache.
+	// PurgeConfirmHint removes the confirm hints for the confirmation
+	// requests from the cache.
 	PurgeConfirmHint(confRequests ...ConfRequest) error
 }
 

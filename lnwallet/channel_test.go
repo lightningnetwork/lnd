@@ -8434,6 +8434,25 @@ func TestForceCloseFailLocalDataLoss(t *testing.T) {
 	require.ErrorIs(t, err, ErrForceCloseLocalDataLoss)
 }
 
+// TestForceCloseRestoredChannel verifies that a channel restored from an SCB
+// cannot enter the local force-close path without a local commitment.
+func TestForceCloseRestoredChannel(t *testing.T) {
+	t.Parallel()
+
+	aliceChannel, _, err := CreateTestChannels(
+		t, channeldb.SingleFunderBit,
+	)
+	require.NoError(t, err)
+
+	err = aliceChannel.channelState.ApplyChanStatus(
+		channeldb.ChanStatusRestored,
+	)
+	require.NoError(t, err)
+
+	_, err = aliceChannel.ForceClose()
+	require.ErrorIs(t, err, ErrForceCloseLocalDataLoss)
+}
+
 // TestForceCloseBorkedState tests that once we force close a channel, it's
 // marked as borked in the database. Additionally, all calls to mutate channel
 // state should also fail.
@@ -12601,6 +12620,37 @@ func TestAuxSigNotRequiredOnPlainChannel(t *testing.T) {
 	require.NoError(t, bobChannel.ReceiveNewCommitment(
 		aliceNewCommit.CommitSigs,
 	))
+}
+
+// TestAuxSigIgnoredOnPlainChannel tests that aux signatures sent for a channel
+// without the tapscript root bit are neither attached to the HTLC nor stored
+// with it. Only overlay channels use aux signatures, so the HTLC records of a
+// plain channel must not carry any.
+func TestAuxSigIgnoredOnPlainChannel(t *testing.T) {
+	t.Parallel()
+
+	plainChanType := taprootOverlayChanType &^ channeldb.TapscriptRootBit
+	aliceChannel, bobChannel := createAuxHtlcChannels(t, plainChanType, 1)
+
+	mockAuxSignerWithSigs(bobChannel, 1)
+
+	aliceNewCommit, err := aliceChannel.SignNextCommitment(ctxb)
+	require.NoError(t, err, "unable to sign commitment")
+
+	require.NoError(t, bobChannel.ReceiveNewCommitment(
+		aliceNewCommit.CommitSigs,
+	))
+
+	// Revoking persists the new local commitment, whose HTLC must not
+	// carry the aux signature.
+	_, _, _, err = bobChannel.RevokeCurrentCommitment()
+	require.NoError(t, err, "unable to revoke commitment")
+
+	htlcs := bobChannel.channelState.LocalCommitment.Htlcs
+	require.Len(t, htlcs, 1)
+
+	sigType := uint64(htlcCustomSigType.TypeVal())
+	require.NotContains(t, htlcs[0].CustomRecords, sigType)
 }
 
 // TestAuxSigNotRequiredWithoutAuxSigner tests that an overlay channel on a node

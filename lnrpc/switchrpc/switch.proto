@@ -1,0 +1,388 @@
+syntax = "proto3";
+
+package switchrpc;
+
+import "lightning.proto";
+
+option go_package = "github.com/lightningnetwork/lnd/lnrpc/switchrpc";
+
+// Switch is a service that offers advanced interaction with the HTLC fowarding
+// subsystem of the daemon.
+service Switch {
+    /*
+    SendOnion provides an idempotent API for dispatching a pre-formed onion
+    packet, which is the primary entry point for a remote router.
+
+    To safely handle network failures, a client can and should retry this RPC
+    after a timeout or disconnection. Retries MUST use the exact same
+    attempt_id to allow the server to correctly detect duplicate requests.
+
+    A client interacting with this RPC must handle four distinct categories
+    of outcomes, determined by the gRPC status code:
+
+    1. SUCCESS (gRPC code OK): A definitive confirmation that the HTLC has
+    been successfully dispatched. The client can proceed to track the
+    payment's final result via the TrackOnion RPC.
+
+    2. DUPLICATE ACKNOWLEDGMENT (gRPC code AlreadyExists): A definitive
+    acknowledgment that a request with the same attempt_id has already
+    been successfully processed. A retrying client should interpret this
+    as a success and proceed to tracking the payment's result.
+
+    3. INDEFINITE FAILURE (gRPC code Unavailable or DeadlineExceeded): The
+    state of the HTLC dispatch is unknown. The client MUST retry the exact
+    same request to resolve the ambiguity. A client MUST NOT treat this as
+    a definitive failure and move on to a new attempt ID; doing so risks a
+    duplicate in-flight HTLC.
+
+    4. DEFINITIVE FAILURE (gRPC code FailedPrecondition, InvalidArgument,
+    etc.): The HTLC was not and will not be dispatched. The client should
+    fail the attempt and may retry with a new route and/or attempt_id.
+
+    In the case of a FailedPrecondition or Unavailable failure, the gRPC
+    error may include a SendOnionFailureDetails message with additional
+    context for logging and pathfinding.
+    */
+    rpc SendOnion (SendOnionRequest) returns (SendOnionResponse);
+
+    /*
+    TrackOnion allows callers to query whether or not a payment dispatched via
+    SendOnion succeeded or failed.
+
+    This RPC is designed to be called after a successful dispatch has been
+    explicitly confirmed via the SendOnion RPC. It should not be used to
+    determine whether an HTLC dispatch was received in an ambiguous network
+    scenario. That ambiguity must be resolved by retrying the idempotent
+    SendOnion RPC until a definitive acknowledgement is received from the Switch
+    RPC server.
+
+    Once dispatch is confirmed, TrackOnion provides the mechanism to wait for
+    the result of the in-flight HTLC. A client must handle three distinct
+    categories of outcomes:
+
+    1. PAYMENT SUCCESS (gRPC code OK, preimage set): The payment settled
+    successfully. The response contains the payment preimage.
+
+    2. PAYMENT FAILURE (gRPC code OK, failure_details set): The payment failed
+    at the application level. The failure_details oneof describes the specific
+    failure type: a ForwardingFailure from a remote hop, a LocalFailure
+    from the local node, an UnreadableFailure if the error could not be
+    decoded, or a SwitchError for other switch-level failures. When
+    encrypted_error_data is populated, the client may perform its own
+    decryption.
+
+    3. QUERY FAILURE (gRPC error status): The query itself could not be
+    completed. NotFound indicates the payment ID is unknown. Unavailable
+    signals the switch is shutting down. Canceled or DeadlineExceeded
+    reflects client-side timeouts. These are safe to retry.
+    */
+    rpc TrackOnion (TrackOnionRequest) returns (TrackOnionResponse);
+
+    /*
+    BuildOnion attempts to build an onion packet for the specified route.
+    */
+    rpc BuildOnion (BuildOnionRequest) returns (BuildOnionResponse);
+
+    /*
+    DeleteAttempts removes terminal (settled or failed) payment attempt records
+    from the server's attempt store. The client explicitly names the attempt
+    IDs to delete, enabling online garbage collection of completed attempt
+    data.
+
+    The server processes each attempt ID independently and reports per-ID
+    results. Pending (in-flight) attempts are never deleted; they are reported
+    with a DELETION_PENDING status. Unknown attempt IDs are reported with
+    DELETION_NOT_FOUND. Unprocessable records are reported with
+    DELETION_FAILED. The overall RPC succeeds (gRPC OK) as long as the
+    request could be processed, even if individual attempts were not deleted.
+
+    Clients MUST only delete attempts whose outcome (settled or failed) has
+    been durably recorded and will never need to be retried. Deleting an
+    attempt removes the server's idempotency protection for that attempt ID.
+    */
+    rpc DeleteAttempts (DeleteAttemptsRequest) returns (DeleteAttemptsResponse);
+
+    /*
+    DisableRemoteRouter marks the database as no longer being used by a remote
+    router. This is useful for migrating from a remote router setup back to the
+    default embedded router. This RPC will fail if there are any attempt entries
+    remaining in the network result store.
+    */
+    rpc DisableRemoteRouter (DisableRemoteRouterRequest)
+        returns (DisableRemoteRouterResponse);
+}
+
+message SendOnionRequest {
+    // The raw onion packet to be sent across the network.
+    bytes onion_blob = 1;
+
+    // The attempt ID uniquely identifying this payment attempt. The caller can
+    // expect to track results for the payment via this attempt ID.
+    uint64 attempt_id = 2;
+
+    // The first hop's public key where the onion will be sent.
+    // The first hop must be specified either by channel ID or public key.
+    bytes first_hop_pubkey = 3;
+
+    // The channel id of the channel that must be taken to the first hop.
+    // The first hop must be specified either by channel ID or public key.
+    uint64 first_hop_chan_id = 4;
+
+    // The total amount in millisatoshis required to complete a payment over
+    // this route. This value includes the cumulative fees at each hop. The HTLC
+    // extended to the first-hop in the route will need to have at least this
+    // many (milli)satoshis.
+    int64 amount = 5;
+
+    // The absolute timelock or CLTV value that should be extended to the first
+    // hop in the route. All other hops will decrement the time-lock as
+    // described by the onion.
+    uint32 timelock = 6;
+
+    // The payment hash associated with the HTLC. This is needed for tracking
+    // and debugging purposes.
+    bytes payment_hash = 7;
+
+    // The optional blinding point to use when constructing the HTLC.
+    // If set, this will be used to blind the next hop in the route.
+    optional bytes blinding_point = 8;
+
+    // Optional custom TLV records to include in the UpdateAddHTLC message.
+    map<uint64, bytes> custom_records = 9;
+
+    // Optional opaque extra data to attach to the UpdateAddHTLC message.
+    optional bytes extra_data = 10;
+}
+
+// SendOnionResponse is an empty message. A gRPC status of OK or AlreadyExists
+// indicates a successful dispatch acknowledgment.
+message SendOnionResponse {
+}
+
+// SendOnionFailureDetails provides structured details for a dispatch failure
+// and is attached to a FailedPrecondition or Unavailable gRPC status.
+message SendOnionFailureDetails {
+    // A human-readable message for logging and debugging.
+    string error_message = 1;
+
+    // Structured detail for the dispatch failure, grouped by outcome. The
+    // gRPC status code determines the client's primary action
+    // (FailedPrecondition = definitive failure, Unavailable = retry). The
+    // detail within provides context for logging, pathfinding, and forward
+    // compatibility.
+    oneof failure_class {
+        DefiniteFailure definite_failure = 2;
+        IndefiniteFailure indefinite_failure = 3;
+    }
+}
+
+// DefiniteFailure is a guarantee that the HTLC was not and will not be
+// dispatched. The client should fail the payment attempt and may retry with a
+// new route.
+message DefiniteFailure {
+    // A failure with a clear, unencrypted reason that occurred at our
+    // node before the HTLC was dispatched.
+    LocalFailure local_failure = 1;
+}
+
+// IndefiniteFailure indicates that the state of the HTLC dispatch is unknown.
+// This could be due to a transport-level failure or a server-side issue where
+// the idempotency record may or may not have been written. The client MUST
+// retry the exact same request to resolve the ambiguity. Clients can optionally
+// use this code to implement more nuanced behavior, such as logging or emitting
+// more detailed metrics.
+message IndefiniteFailure {
+    // A stable, machine-readable code for the indefinite failure.
+    IndefiniteFailureCode reason = 1;
+}
+
+// IndefiniteFailureCode provides the specific reason for an indefinite failure.
+enum IndefiniteFailureCode {
+    // The reason is unknown. This is the default and is used for failures
+    // where the server could not classify the error, such as bare gRPC
+    // transport errors observed by the client.
+    REASON_UNKNOWN = 0;
+
+    // The server is in the process of shutting down.
+    SWITCH_EXITING = 1;
+
+    // A critical failure occurred when the server attempted to write the
+    // idempotency record for the payment attempt.
+    HTLC_INIT_FAILED = 2;
+}
+
+message TrackOnionRequest {
+    // The payment hash associated with the HTLC. This is needed for tracking
+    // and debugging purposes.
+    bytes payment_hash = 1;
+
+    // The attempt ID uniquely identifying this payment attempt. The caller can
+    // expect to track results for the payment via this attempt ID.
+    uint64 attempt_id = 2;
+
+    // Optional: The session key that was used to construct the onion packet.
+    // This is required by the server to decrypt any failure message.
+    optional bytes session_key = 3;
+
+    // Optional: The public keys of the nodes in the route, used with the
+    // session_key to decrypt any failure message.
+    repeated bytes hop_pubkeys = 4;
+}
+
+message TrackOnionResponse {
+    // The final result of the payment attempt, which is either a preimage
+    // (success) or detailed failure information.
+    oneof result {
+        // The preimage obtained by making the payment. If this field is set,
+        // the payment succeeded.
+        bytes preimage = 1;
+
+        // The application-level failure for the payment attempt. If this field
+        // is set, the payment attempt failed.
+        FailureDetails failure_details = 2;
+    }
+}
+
+// FailureDetails provides structured information about why a payment attempt
+// failed on the network. This message is included in a successful
+// TrackOnionResponse when the queried attempt ultimately failed.
+message FailureDetails {
+    // A human-readable error_message for logging or display.
+    string error_message = 1;
+
+    // The failure contains specific, structured details about the error.
+    // Exactly one variant is set when this message is present.
+    oneof failure {
+        // local_failure is set when the failure originates at the local
+        // node (e.g. unable to forward due to insufficient balance,
+        // channel policy violations, or other link-level rejections). The
+        // wire message is available in plaintext without onion decryption.
+        LocalFailure local_failure = 2;
+
+        // forwarding_failure is set when the HTLC was forwarded into the
+        // network and a remote node returned an error. The onion error
+        // was successfully decrypted, yielding the failure source index.
+        // The wire_message may be empty if the inner failure could not
+        // be decoded.
+        ForwardingFailure forwarding_failure = 3;
+
+        // encrypted_error_data contains the raw onion-encrypted error
+        // blob. This is returned when no decryption keys were provided
+        // in the TrackOnionRequest (i.e. no session key or hop public
+        // keys), deferring decryption entirely to the client.
+        bytes encrypted_error_data = 4;
+
+        // unreadable_failure indicates that decryption keys were provided
+        // and decryption was attempted, but failed. The original error
+        // cannot be recovered.
+        UnreadableFailure unreadable_failure = 5;
+
+        // switch_error indicates an unexpected internal error that does
+        // not fall into any of the above categories.
+        SwitchError switch_error = 6;
+    }
+}
+
+// ForwardingFailure represents an HTLC failure that occurred at a remote node
+// in the payment route. The onion error was successfully decrypted, revealing
+// the failing hop.
+message ForwardingFailure {
+    // failure_source_index is the 0-based index of the node within the payment
+    // route that reported the failure. Index 0 refers to the local node.
+    uint32 failure_source_index = 1;
+
+    // The raw, serialized lnwire.FailureMessage reported by the failing node.
+    // This field may be empty if the failure message could not be decoded.
+    bytes wire_message = 2;
+}
+
+// LocalFailure represents a failure that originates at the local node. No
+// onion decryption is involved because the failure occurred before the HTLC
+// left our node.
+message LocalFailure {
+    // The raw, serialized `lnwire.FailureMessage`.
+    bytes wire_message = 1;
+}
+
+// SwitchError indicates that an error occurred within the switch subsystem.
+message SwitchError {
+}
+
+// UnreadableFailure indicates that decryption keys were provided and
+// decryption was attempted, but failed. The original failure information
+// cannot be recovered.
+message UnreadableFailure {
+}
+
+// BuildOnionRequest includes the necessary information to construct a Sphinx
+// onion packet.
+message BuildOnionRequest {
+    // The route for which the onion packet should be built.
+    lnrpc.Route route = 1;
+
+    // The payment hash associated with the HTLC.
+    bytes payment_hash = 2;
+
+    // A session key for onion packet construction, if not provided, a new one
+    // will be generated.
+    optional bytes session_key = 3;
+}
+
+// BuildOnionResponse contains the constructed onion packet.
+message BuildOnionResponse {
+    // The constructed onion packet in bytes.
+    bytes onion_blob = 1;
+
+    // The session key used for building the onion packet.
+    bytes session_key = 2;
+
+    // The serialized public keys of all nodes along the route for the
+    // constructed onion.
+    repeated bytes hop_pubkeys = 3;
+}
+
+message DeleteAttemptsRequest {
+    // The attempt IDs to delete from the server's attempt store. Only terminal
+    // (settled or failed) attempts will be deleted. Pending (in-flight)
+    // attempts are skipped and reported with a DELETION_PENDING status.
+    repeated uint64 attempt_ids = 1;
+}
+
+message DeleteAttemptsResponse {
+    // Per-attempt deletion outcomes. The order corresponds to the order of
+    // attempt_ids in the request.
+    repeated AttemptDeletionResult results = 1;
+}
+
+// AttemptDeletionResult reports the outcome of deleting a single attempt.
+message AttemptDeletionResult {
+    // The attempt ID this result corresponds to.
+    uint64 attempt_id = 1;
+
+    // The outcome of the deletion for this attempt.
+    AttemptDeletionStatus status = 2;
+}
+
+// AttemptDeletionStatus describes the outcome of a single attempt deletion.
+enum AttemptDeletionStatus {
+    // The attempt result was successfully deleted from the store.
+    DELETION_OK = 0;
+
+    // The attempt is still in-flight (pending) and cannot be safely deleted.
+    DELETION_PENDING = 1;
+
+    // The attempt ID was not found in the store. This may indicate a client
+    // bug (wrong ID, wrong backend) since the server has no record of this
+    // attempt ever existing.
+    DELETION_NOT_FOUND = 2;
+
+    // The attempt record exists but could not be processed (e.g.
+    // deserialization error). The record remains in the store.
+    DELETION_FAILED = 3;
+}
+
+message DisableRemoteRouterRequest {
+}
+
+message DisableRemoteRouterResponse {
+}

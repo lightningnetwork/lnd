@@ -7,3 +7,9 @@ package lncfg
 // features that also require a build-tag to activate.
 type ExperimentalProtocol struct {
 }
+
+// Bolt12OffersEnabled returns false, because a release build has no BOLT 12
+// offers.
+func (p ExperimentalProtocol) Bolt12OffersEnabled() bool {
+	return false
+}

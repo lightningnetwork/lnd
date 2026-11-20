@@ -214,7 +214,9 @@ func (a *OnionPeerActor) Receive(ctx context.Context,
 		return fn.Err[*Response](err)
 	}
 
-	// Handle the routing action.
+	// Handle the routing action. A delivered message also gives the path
+	// id of the path it arrived on.
+	var pathID []byte
 	payload := fn.ElimEither(routingAction,
 		func(fwdAction forwardAction) *lnwire.OnionMessagePayload {
 			log.DebugS(logCtx, "Forwarding onion message",
@@ -247,6 +249,8 @@ func (a *OnionPeerActor) Receive(ctx context.Context,
 			log.DebugS(logCtx, "Delivering onion message "+
 				"to self")
 
+			pathID = dlvrAction.pathID
+
 			return dlvrAction.payload
 		})
 
@@ -259,6 +263,8 @@ func (a *OnionPeerActor) Receive(ctx context.Context,
 		Peer:      a.peerPubKey,
 		PathKey:   pathKeyArr,
 		OnionBlob: req.msg.OnionBlob,
+		Delivered: routingAction.IsRight(),
+		PathID:    pathID,
 	}
 
 	// If we have a payload, add its contents to our update.

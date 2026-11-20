@@ -323,8 +323,11 @@ func testLeaderHealthCheck(ht *lntest.HarnessTest) {
 	proxy.Stop(ht.T)
 
 	// Wait for Carol-1 to stop. If the health check wouldn't properly work
-	// this call would timeout and trigger a test failure.
-	require.NoError(ht.T, carol.WaitForProcessExit())
+	// this call would timeout and trigger a test failure. A failed leader
+	// health check exits with signal.ExitCodeLeaderStatus.
+	require.ErrorContains(
+		ht.T, carol.WaitForProcessExit(), "exit status 15",
+	)
 
 	// Now that Carol-1 is shut down we should fail over to Carol-2.
 	failoverTimeout := time.Duration(2*leaderSessionTTL) * time.Second

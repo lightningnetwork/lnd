@@ -30,7 +30,9 @@ import (
 	"github.com/lightningnetwork/lnd/actor"
 	"github.com/lightningnetwork/lnd/aliasmgr"
 	"github.com/lightningnetwork/lnd/autopilot"
+	"github.com/lightningnetwork/lnd/bolt12handler"
 	"github.com/lightningnetwork/lnd/brontide"
+	"github.com/lightningnetwork/lnd/build"
 	"github.com/lightningnetwork/lnd/chainio"
 	"github.com/lightningnetwork/lnd/chainreg"
 	"github.com/lightningnetwork/lnd/chanacceptor"
@@ -69,6 +71,7 @@ import (
 	"github.com/lightningnetwork/lnd/lnwire"
 	"github.com/lightningnetwork/lnd/nat"
 	"github.com/lightningnetwork/lnd/netann"
+	"github.com/lightningnetwork/lnd/offers"
 	"github.com/lightningnetwork/lnd/onionmessage"
 	paymentsdb "github.com/lightningnetwork/lnd/payments/db"
 	"github.com/lightningnetwork/lnd/peer"
@@ -79,6 +82,7 @@ import (
 	"github.com/lightningnetwork/lnd/routing"
 	"github.com/lightningnetwork/lnd/routing/localchans"
 	"github.com/lightningnetwork/lnd/routing/route"
+	"github.com/lightningnetwork/lnd/signal"
 	"github.com/lightningnetwork/lnd/subscribe"
 	"github.com/lightningnetwork/lnd/sweep"
 	"github.com/lightningnetwork/lnd/ticker"
@@ -234,6 +238,10 @@ type server struct {
 	cfg *Config
 
 	implCfg *ImplementationCfg
+
+	// interceptor is used to request a shutdown of the daemon, and to
+	// record the exit code that explains why.
+	interceptor signal.Interceptor
 
 	// identityECDH is an ECDH capable wrapper for the private key used
 	// to authenticate any incoming connections.
@@ -462,6 +470,13 @@ type server struct {
 	// turned off).
 	onionLimiter onionmessage.IngressLimiter
 
+	// bolt12Handler handles incoming BOLT 12 invoice requests and
+	// generates signed invoices in response.
+	bolt12Handler *bolt12handler.Handler
+
+	// offerStore persists and queries BOLT 12 offers.
+	offerStore offers.Store
+
 	// txPublisher is a publisher with fee-bumping capability.
 	txPublisher *sweep.TxPublisher
 
@@ -664,6 +679,70 @@ func noiseDial(idKey keychain.SingleKeyECDH,
 	}
 }
 
+// subscribeFinalInvoiceHtlcs converts final switch events into invoice
+// outcomes. Cancellation joins the forwarder so registry shutdown cannot
+// leave a sender blocked on the invoice consumer.
+func (s *server) subscribeFinalInvoiceHtlcs() (
+	<-chan invoices.FinalHtlcOutcome, func(), error) {
+
+	client, err := s.htlcNotifier.SubscribeHtlcEvents()
+	if err != nil {
+		return nil, nil, err
+	}
+
+	outcomes := make(chan invoices.FinalHtlcOutcome)
+	quit := make(chan struct{})
+
+	var wg sync.WaitGroup
+	wg.Add(1)
+	go func() {
+		defer wg.Done()
+		defer close(outcomes)
+
+		for {
+			var update interface{}
+			select {
+			case u, ok := <-client.Updates():
+				if !ok {
+					return
+				}
+				update = u
+
+			case <-quit:
+				return
+			}
+
+			event, ok := update.(*htlcswitch.FinalHtlcEvent)
+			if !ok {
+				continue
+			}
+
+			outcome := invoices.FinalHtlcOutcome{
+				Key:      event.CircuitKey,
+				Settled:  event.Settled,
+				Offchain: event.Offchain,
+			}
+
+			select {
+			case outcomes <- outcome:
+			case <-quit:
+				return
+			}
+		}
+	}()
+
+	var once sync.Once
+	cancel := func() {
+		once.Do(func() {
+			close(quit)
+			client.Cancel()
+			wg.Wait()
+		})
+	}
+
+	return outcomes, cancel, nil
+}
+
 // newServer creates a new instance of the server which is to listen using the
 // passed listener address.
 //
@@ -677,7 +756,7 @@ func newServer(ctx context.Context, cfg *Config, listenAddrs []net.Addr,
 	leaderElector cluster.LeaderElector,
 	implCfg *ImplementationCfg,
 	remoteSignerClientFactory func() (rpcwallet.RemoteSignerClient,
-		error)) (*server, error) {
+		error), interceptor signal.Interceptor) (*server, error) {
 
 	var (
 		err         error
@@ -802,6 +881,7 @@ func newServer(ctx context.Context, cfg *Config, listenAddrs []net.Addr,
 	s := &server{
 		cfg:            cfg,
 		implCfg:        implCfg,
+		interceptor:    interceptor,
 		graphDB:        dbs.GraphDB,
 		v1Graph:        v1Graph,
 		chanStateDB:    chanStateDB,
@@ -856,6 +936,8 @@ func newServer(ctx context.Context, cfg *Config, listenAddrs []net.Addr,
 
 		onionMessageServer: subscribe.NewServer(),
 
+		offerStore: dbs.OfferDB,
+
 		actorSystem: actor.NewActorSystem(),
 
 		tlsManager: tlsManager,
@@ -876,11 +958,38 @@ func newServer(ctx context.Context, cfg *Config, listenAddrs []net.Addr,
 		clock.NewDefaultClock(), cfg.Invoices.HoldExpiryDelta,
 		uint32(currentHeight), currentHash, cc.ChainNotifier,
 	)
+
+	s.htlcNotifier = htlcswitch.NewHtlcNotifier(time.Now)
+
+	// The registry learns from the final htlc outcomes when an invoice it
+	// released the preimage for is irrevocably settled.
+	registryConfig.FinalHtlcSource = invoices.NewFinalHtlcSource(
+		chanStateDB, s.subscribeFinalInvoiceHtlcs,
+	)
+
 	s.invoices = invoices.NewRegistry(
 		dbs.InvoiceDB, expiryWatcher, &registryConfig,
 	)
 
-	s.htlcNotifier = htlcswitch.NewHtlcNotifier(time.Now)
+	// BOLT 12 needs native SQL, so set it up only with the offer store.
+	if s.offerStore != nil {
+		signer := bolt12handler.NewKeyRingSigner(
+			cc.KeyRing, nodeKeyDesc.KeyLocator,
+			nodeKeyECDH.PubKey(),
+		)
+		replier := bolt12handler.NewServerOnionReplier(s)
+
+		// Use the final CLTV delta of BOLT 11 invoices.
+		s.bolt12Handler, err = bolt12handler.NewHandler(
+			s.offerStore, s.invoices, replier, signer, nil,
+			clock.NewDefaultClock(),
+			*s.cfg.ActiveNetParams.GenesisHash,
+			uint16(cfg.Bitcoin.TimeLockDelta),
+		)
+		if err != nil {
+			return nil, err
+		}
+	}
 
 	thresholdSats := btcutil.Amount(cfg.MaxFeeExposure)
 	thresholdMSats := lnwire.NewMSatFromSatoshis(thresholdSats)
@@ -929,6 +1038,7 @@ func newServer(ctx context.Context, cfg *Config, listenAddrs []net.Addr,
 		)
 	}
 
+	//nolint:ll
 	s.htlcSwitch, err = htlcswitch.New(htlcswitch.Config{
 		DB:                   dbs.ChanStateDB,
 		FetchAllOpenChannels: s.chanStateDB.FetchAllOpenChannels,
@@ -951,23 +1061,24 @@ func newServer(ctx context.Context, cfg *Config, listenAddrs []net.Addr,
 
 			peer.HandleLocalCloseChanReqs(request)
 		},
-		FwdingLog:              dbs.ChanStateDB.ForwardingLog(),
-		SwitchPackager:         channeldb.NewSwitchPackager(),
-		ExtractErrorEncrypter:  s.sphinxPayment.ExtractErrorEncrypter,
-		FetchLastChannelUpdate: s.fetchLastChanUpdate(),
-		Notifier:               s.cc.ChainNotifier,
-		HtlcNotifier:           s.htlcNotifier,
-		ReputationManager:      repMgrIface,
-		FwdEventTicker:         ticker.New(htlcswitch.DefaultFwdEventInterval),
-		LogEventTicker:         ticker.New(htlcswitch.DefaultLogInterval),
-		AckEventTicker:         ticker.New(htlcswitch.DefaultAckInterval),
-		AllowCircularRoute:     cfg.AllowCircularRoute,
-		RejectHTLC:             cfg.RejectHTLC,
-		Clock:                  clock.NewDefaultClock(),
-		MailboxDeliveryTimeout: cfg.Htlcswitch.MailboxDeliveryTimeout,
-		MaxFeeExposure:         thresholdMSats,
-		SignAliasUpdate:        s.signAliasUpdate,
-		IsAlias:                aliasmgr.IsAlias,
+		FwdingLog:                dbs.ChanStateDB.ForwardingLog(),
+		SwitchPackager:           channeldb.NewSwitchPackager(),
+		ExtractErrorEncrypter:    s.sphinxPayment.ExtractErrorEncrypter,
+		FetchLastChannelUpdate:   s.fetchLastChanUpdate(),
+		Notifier:                 s.cc.ChainNotifier,
+		HtlcNotifier:             s.htlcNotifier,
+		ReputationManager:        repMgrIface,
+		FwdEventTicker:           ticker.New(htlcswitch.DefaultFwdEventInterval),
+		LogEventTicker:           ticker.New(htlcswitch.DefaultLogInterval),
+		AckEventTicker:           ticker.New(htlcswitch.DefaultAckInterval),
+		AllowCircularRoute:       cfg.AllowCircularRoute,
+		RejectHTLC:               cfg.RejectHTLC,
+		Clock:                    clock.NewDefaultClock(),
+		MailboxDeliveryTimeout:   cfg.Htlcswitch.MailboxDeliveryTimeout,
+		MaxFeeExposure:           thresholdMSats,
+		SignAliasUpdate:          s.signAliasUpdate,
+		IsAlias:                  aliasmgr.IsAlias,
+		ExternalPaymentLifecycle: build.SwitchRPC,
 	}, uint32(currentHeight))
 	if err != nil {
 		return nil, err
@@ -1001,7 +1112,17 @@ func newServer(ctx context.Context, cfg *Config, listenAddrs []net.Addr,
 		IsChannelActive:          s.htlcSwitch.HasActiveLink,
 		ApplyChannelUpdate:       s.applyChannelUpdate,
 		DB:                       s.chanStateDB,
-		Graph:                    dbs.GraphDB,
+
+		// The manager signs v1 channel updates from the stored
+		// policies, so it reads the v1 graph.
+		//
+		// TODO(gossip-v2): once lnd can build and sign v2 channel
+		// updates, enable and disable a channel on every version it is
+		// announced on, rather than on the preferred version only.
+		// Otherwise nodes on the other version keep seeing the old
+		// status. This means toggling DisableFlags for v2 instead of
+		// ChannelFlags.
+		Graph: v1Graph,
 	}
 
 	chanStatusMgr, err := netann.NewChanStatusManager(chanStatusMgrCfg)
@@ -1199,6 +1320,7 @@ func newServer(ctx context.Context, cfg *Config, listenAddrs []net.Addr,
 		ClosedSCIDs:               s.fetchClosedChannelSCIDs(),
 		TrafficShaper:             implCfg.TrafficShaper,
 		KeepFailedPaymentAttempts: cfg.KeepFailedPaymentAttempts,
+		ExternalPaymentLifecycle:  build.SwitchRPC,
 	})
 	if err != nil {
 		return nil, fmt.Errorf("can't create router: %w", err)
@@ -1251,6 +1373,7 @@ func newServer(ctx context.Context, cfg *Config, listenAddrs []net.Addr,
 		MaxChannelUpdateBurst:   cfg.Gossip.MaxChannelUpdateBurst,
 		ChannelUpdateInterval:   cfg.Gossip.ChannelUpdateInterval,
 		IsAlias:                 aliasmgr.IsAlias,
+		ValidatePeerAlias:       s.validatePeerAlias,
 		SignAliasUpdate:         s.signAliasUpdate,
 		FindBaseByAlias:         s.aliasMgr.FindBaseSCID,
 		GetAlias:                s.aliasMgr.GetPeerAlias,
@@ -1580,7 +1703,15 @@ func newServer(ctx context.Context, cfg *Config, listenAddrs []net.Addr,
 	deleteAliasEdge := func(scid lnwire.ShortChannelID) (
 		*models.ChannelEdgePolicy, error) {
 
-		info, e1, e2, err := s.graphDB.FetchChannelEdgesByID(
+		// The funding manager re-adds the channel with the returned
+		// policy and announces it with a v1 channel update, so the
+		// lookup and the deletion both stay on v1.
+		//
+		// TODO(gossip-v2): once the funding manager can announce
+		// channels on v2, delete the alias edge on every version it
+		// was added with, and re-add each version with that version's
+		// policy, instead of using the preferred version.
+		info, e1, e2, err := s.v1Graph.FetchChannelEdgesByID(
 			context.TODO(), scid.ToUint64(),
 		)
 		if errors.Is(err, graphdb.ErrEdgeNotFound) {
@@ -1604,7 +1735,7 @@ func newServer(ctx context.Context, cfg *Config, listenAddrs []net.Addr,
 			ourPolicy = e2
 		}
 
-		if ourPolicy == nil {
+		if info == nil || ourPolicy == nil {
 			// Something is wrong, so return an error.
 			return nil, fmt.Errorf("we don't have an edge")
 		}
@@ -1612,6 +1743,7 @@ func newServer(ctx context.Context, cfg *Config, listenAddrs []net.Addr,
 		err = s.v1Graph.DeleteChannelEdges(
 			context.TODO(), false, false, scid.ToUint64(),
 		)
+
 		return ourPolicy, err
 	}
 
@@ -1799,6 +1931,7 @@ func newServer(ctx context.Context, cfg *Config, listenAddrs []net.Addr,
 			s.cfg.MaxCommitFeeRateAnchors * 1000).FeePerKWeight(),
 		DeleteAliasEdge:      deleteAliasEdge,
 		AliasManager:         s.aliasMgr,
+		ValidatePeerAlias:    s.validatePeerAlias,
 		IsSweeperOutpoint:    s.sweeper.IsSweeperOutpoint,
 		AuxFundingController: implCfg.AuxFundingController,
 		AuxSigner:            implCfg.AuxSigner,
@@ -2130,6 +2263,9 @@ func (s *server) createLivenessMonitor(ctx context.Context, cfg *Config,
 		cfg.HealthChecks.ChainCheck.Timeout,
 		cfg.HealthChecks.ChainCheck.Backoff,
 		chainBackendAttempts,
+		healthcheck.WithFailureCallback(exitCodeOnFailure(
+			s.interceptor, signal.ExitCodeChainBackend,
+		)),
 	)
 
 	diskCheck := healthcheck.NewObservation(
@@ -2156,6 +2292,9 @@ func (s *server) createLivenessMonitor(ctx context.Context, cfg *Config,
 		cfg.HealthChecks.DiskCheck.Timeout,
 		cfg.HealthChecks.DiskCheck.Backoff,
 		cfg.HealthChecks.DiskCheck.Attempts,
+		healthcheck.WithFailureCallback(exitCodeOnFailure(
+			s.interceptor, signal.ExitCodeDiskSpace,
+		)),
 	)
 
 	tlsHealthCheck := healthcheck.NewObservation(
@@ -2180,6 +2319,9 @@ func (s *server) createLivenessMonitor(ctx context.Context, cfg *Config,
 		cfg.HealthChecks.TLSCheck.Timeout,
 		cfg.HealthChecks.TLSCheck.Backoff,
 		cfg.HealthChecks.TLSCheck.Attempts,
+		healthcheck.WithFailureCallback(exitCodeOnFailure(
+			s.interceptor, signal.ExitCodeTLSCert,
+		)),
 	)
 
 	checks := []*healthcheck.Observation{
@@ -2204,6 +2346,9 @@ func (s *server) createLivenessMonitor(ctx context.Context, cfg *Config,
 			cfg.HealthChecks.TorConnection.Timeout,
 			cfg.HealthChecks.TorConnection.Backoff,
 			cfg.HealthChecks.TorConnection.Attempts,
+			healthcheck.WithFailureCallback(exitCodeOnFailure(
+				s.interceptor, signal.ExitCodeTorConnection,
+			)),
 		)
 		checks = append(checks, torConnectionCheck)
 	}
@@ -2248,6 +2393,9 @@ func (s *server) createLivenessMonitor(ctx context.Context, cfg *Config,
 			outerTimeout,
 			cfg.HealthChecks.RemoteSigner.Backoff,
 			cfg.HealthChecks.RemoteSigner.Attempts,
+			healthcheck.WithFailureCallback(exitCodeOnFailure(
+				s.interceptor, signal.ExitCodeRemoteSigner,
+			)),
 		)
 		checks = append(checks, rsConnectionCheck)
 	}
@@ -2290,6 +2438,9 @@ func (s *server) createLivenessMonitor(ctx context.Context, cfg *Config,
 			cfg.HealthChecks.LeaderCheck.Timeout,
 			cfg.HealthChecks.LeaderCheck.Backoff,
 			cfg.HealthChecks.LeaderCheck.Attempts,
+			healthcheck.WithFailureCallback(exitCodeOnFailure(
+				s.interceptor, signal.ExitCodeLeaderStatus,
+			)),
 		)
 
 		checks = append(checks, leaderCheck)
@@ -2305,6 +2456,18 @@ func (s *server) createLivenessMonitor(ctx context.Context, cfg *Config,
 	)
 
 	return nil
+}
+
+// exitCodeOnFailure returns a health check failure callback that records code
+// as the exit code of the process. The monitor fires it right before it
+// requests shutdown through the critical logger, which records the generic
+// critical error code, so the code for the failed check is the one kept.
+func exitCodeOnFailure(interceptor signal.Interceptor,
+	code signal.ExitCode) func() {
+
+	return func() {
+		interceptor.SetExitCode(code)
+	}
 }
 
 // Started returns true if the server has been started, and false otherwise.
@@ -2373,6 +2536,32 @@ func (s *server) Start(ctx context.Context) error {
 		if err := s.onionMessageServer.Start(); err != nil {
 			startErr = err
 			return
+		}
+
+		if s.bolt12Handler != nil {
+			cleanup = cleanup.add(func() error {
+				s.bolt12Handler.Stop()
+
+				return nil
+			})
+			resolver := bolt12handler.NewGraphIntroResolver(
+				s.graphDB,
+			)
+			ourPub := s.identityECDH.PubKey()
+			peeler := onionmessage.NewHopPeeler(
+				s.sphinxOnionMsg,
+				onionmessage.NewGraphNodeResolver(
+					s.graphDB, ourPub,
+				),
+				ourPub,
+			)
+			err := s.bolt12Handler.Start(
+				ctx, s, resolver, peeler,
+			)
+			if err != nil {
+				startErr = err
+				return
+			}
 		}
 
 		if s.hostAnn != nil {
@@ -2902,8 +3091,13 @@ func (s *server) Stop() error {
 		if err := s.sphinxPayment.Stop(); err != nil {
 			srvrLog.Warnf("failed to stop sphinx: %v", err)
 		}
+		// Stop the invoice registry first. A running invoice request
+		// can wait in the registry until the registry stops.
 		if err := s.invoices.Stop(); err != nil {
 			srvrLog.Warnf("failed to stop invoices: %v", err)
+		}
+		if s.bolt12Handler != nil {
+			s.bolt12Handler.Stop()
 		}
 		if err := s.interceptableSwitch.Stop(); err != nil {
 			srvrLog.Warnf("failed to stop interceptable "+
@@ -4539,6 +4733,45 @@ func (s *server) SubscribeOnionMessages() (*subscribe.Client, error) {
 	return s.onionMessageServer.Subscribe()
 }
 
+// offerChains returns the offer_chains of an offer for the chain with the
+// given genesis hash. BOLT 12 says to omit the field for Bitcoin mainnet,
+// which a reader assumes when the field is absent. Other chains need it, so
+// that a payer can check the chain.
+func offerChains(genesisHash chainhash.Hash) [][32]byte {
+	if genesisHash == *chaincfg.MainNetParams.GenesisHash {
+		return nil
+	}
+
+	return [][32]byte{genesisHash}
+}
+
+// CreateOffer creates a new BOLT 12 offer, persists it in the offer
+// store, and returns the encoded offer string and offer hash. The caller
+// checks that the offer store is set.
+func (s *server) CreateOffer(ctx context.Context,
+	description string, amountMsat uint64,
+	absoluteExpiry uint64,
+	quantityMax fn.Option[uint64]) (*offers.CreateOfferResult, error) {
+
+	identity := fn.NewLeft[
+		*btcec.PublicKey, []lnwire.BlindedPath,
+	](s.identityECDH.PubKey())
+
+	chains := offerChains(*s.cfg.ActiveNetParams.GenesisHash)
+
+	return offers.CreateOffer(
+		ctx, s.offerStore, clock.NewDefaultClock(),
+		offers.CreateOfferParams{
+			Identity:       identity,
+			Description:    description,
+			AmountMsat:     amountMsat,
+			AbsoluteExpiry: absoluteExpiry,
+			QuantityMax:    quantityMax,
+			Chains:         chains,
+		},
+	)
+}
+
 // notifyOpenChannelPeerEvent updates the access manager's maps and then calls
 // the channelNotifier's NotifyOpenChannelEvent.
 func (s *server) notifyOpenChannelPeerEvent(op wire.OutPoint,
@@ -5568,6 +5801,62 @@ func (s *server) fetchLastChanUpdate() func(lnwire.ShortChannelID) (
 	}
 }
 
+// validatePeerAlias prevents a peer from naming an unrelated channel in its
+// channel_ready alias. Callers repeat this check before signing because the
+// graph can gain an edge after the alias is first received. Aliases inside
+// the reserved alias range are exempt, since nodes allocate aliases from
+// that range independently and equal aliases across peers are legitimate.
+func (s *server) validatePeerAlias(outpoint wire.OutPoint,
+	alias lnwire.ShortChannelID) error {
+
+	return validatePeerAlias(
+		outpoint, alias, s.graphBuilder.GetChannelByID,
+	)
+}
+
+type chanAliasLookup func(lnwire.ShortChannelID) (
+	*models.ChannelEdgeInfo,
+	*models.ChannelEdgePolicy,
+	*models.ChannelEdgePolicy,
+	error,
+)
+
+func validatePeerAlias(outpoint wire.OutPoint,
+	alias lnwire.ShortChannelID, lookup chanAliasLookup,
+) error {
+
+	// Aliases inside the reserved alias range are always accepted: each
+	// node allocates its own aliases from that range independently, so
+	// two peers can legitimately use the same alias SCID. Only a collision
+	// with a channel SCID outside that range is rejected, since a real
+	// channel SCID can never fall inside the alias range, and a peer
+	// claiming one names a channel it doesn't own.
+	if aliasmgr.IsAlias(alias) {
+		return nil
+	}
+
+	info, _, _, err := lookup(alias)
+	if errors.Is(err, graphdb.ErrEdgeNotFound) ||
+		errors.Is(err, graphdb.ErrGraphNoEdgesFound) ||
+		errors.Is(err, graphdb.ErrGraphNotFound) {
+
+		return nil
+	}
+	if err != nil {
+		return fmt.Errorf(
+			"lookup peer alias %v: %w", alias, err,
+		)
+	}
+	if info.ChannelPoint != outpoint {
+		return fmt.Errorf(
+			"peer alias %v collides with channel %v",
+			alias, info.ChannelPoint,
+		)
+	}
+
+	return nil
+}
+
 // applyChannelUpdate applies the channel update to the different sub-systems of
 // the server. The useAlias boolean denotes whether or not to send an alias in
 // place of the real SCID.
@@ -5586,6 +5875,11 @@ func (s *server) applyChannelUpdate(update *lnwire.ChannelUpdate1,
 	if useAlias {
 		foundAlias, _ := s.aliasMgr.GetPeerAlias(chanID)
 		if foundAlias != defaultAlias {
+			if err := s.validatePeerAlias(
+				*op, foundAlias,
+			); err != nil {
+				return err
+			}
 			peerAlias = &foundAlias
 		}
 	}

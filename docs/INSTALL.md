@@ -93,7 +93,7 @@ following build dependencies are required:
 
 ### Installing Go
 
-`lnd` is written in Go, with a minimum version of `1.26.10` (or, in case this
+`lnd` is written in Go, with a minimum version of `1.27.3` (or, in case this
 document gets out of date, whatever the Go version in the main `go.mod` file
 requires). To install, run one of the following commands for your OS:
 
@@ -101,15 +101,15 @@ requires). To install, run one of the following commands for your OS:
   <summary>Linux (x86-64)</summary>
 
   ```
-  wget https://dl.google.com/go/go1.26.10.linux-amd64.tar.gz
-  echo "ccfe7ae822d2c2f41f4fe7c956199967a4dac22d0ee0d2b2bfdb440aab3b20c5  go1.26.10.linux-amd64.tar.gz" | sha256sum --check
+  wget https://dl.google.com/go/go1.27.3.linux-amd64.tar.gz
+  echo "65efbc80fdc1fa2cd2631cad5b481777a68e8725f34e89f50fc6ac714e379b40  go1.27.3.linux-amd64.tar.gz" | sha256sum --check
   ```
 
-  The command above should output `go1.26.10.linux-amd64.tar.gz: OK`. If it
+  The command above should output `go1.27.3.linux-amd64.tar.gz: OK`. If it
   doesn't, then the target REPO HAS BEEN MODIFIED, and you shouldn't install
   this version of Go. If it matches, then proceed to install Go:
   ```
-  sudo rm -rf /usr/local/go && sudo tar -C /usr/local -xzf go1.26.10.linux-amd64.tar.gz
+  sudo rm -rf /usr/local/go && sudo tar -C /usr/local -xzf go1.27.3.linux-amd64.tar.gz
   export PATH=$PATH:/usr/local/go/bin
   ```
 </details>
@@ -118,15 +118,15 @@ requires). To install, run one of the following commands for your OS:
   <summary>Linux (ARMv6)</summary>
 
   ```
-  wget https://dl.google.com/go/go1.26.10.linux-armv6l.tar.gz
-  echo "7d89fd32259eb0ff647381e8c3465dc32ccfc7f71cb7b9bcd95604c3481f5109  go1.26.10.linux-armv6l.tar.gz" | sha256sum --check
+  wget https://dl.google.com/go/go1.27.3.linux-armv6l.tar.gz
+  echo "d6f4e11dd7157030d7ac11c51c8f73201a2db932d593c3106b1da11cc32bfdf8  go1.27.3.linux-armv6l.tar.gz" | sha256sum --check
   ```
 
-  The command above should output `go1.26.10.linux-armv6l.tar.gz: OK`. If it
+  The command above should output `go1.27.3.linux-armv6l.tar.gz: OK`. If it
   isn't, then the target REPO HAS BEEN MODIFIED, and you shouldn't install
   this version of Go. If it matches, then proceed to install Go:
   ```
-  sudo rm -rf /usr/local/go && sudo tar -C /usr/local -xzf go1.26.10.linux-armv6l.tar.gz
+  sudo rm -rf /usr/local/go && sudo tar -C /usr/local -xzf go1.27.3.linux-armv6l.tar.gz
   export PATH=$PATH:/usr/local/go/bin
   ```
 

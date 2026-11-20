@@ -81,9 +81,11 @@ flowchart LR
 `BudgetAggregator` implements this interface by grouping inputs with the same
 deadline together. Inputs with the same deadline express the same time
 sensitivity, so it makes sense to sweep them in the same transaction. Once
-grouped, inputs in each batch are sorted based on their budgets. The only
-exception is inputs with the `ExclusiveGroup` flag set, which will be swept
-alone.
+grouped, inputs in each batch are sorted based on their budgets. Inputs with an
+`ExclusiveGroup` or the `NoInputBatch` flag set are instead placed in their own
+input set. `ExclusiveGroup` models mutually exclusive alternatives, while
+`NoInputBatch` isolates an independent sweep input without excluding any other
+input. Wallet inputs may still be added to either type of set to fund its fee.
 
 Once the batching is finished, an `InputSet` is returned, which is an interface
 used to decide whether a wallet UTXO is needed or not when creating the
@@ -110,6 +112,50 @@ perform an RBF again in the coming blocks.
 `TxPublisher` implements the `Bumper` interface. When a transaction is created
 for the first time, unless its budget has been used up, `TxPublisher` will
 guarantee that the initial publish meets the RBF requirements.
+
+`TxPublisher` diagnoses constructed, non-fee mempool rejections with
+no-broadcast subset probes. It first attributes immediately available confirmed
+spends through `TxUnknownSpend`. If historical delivery is still pending for a
+multi-input missing-input failure, it instead isolates a rejected singleton.
+Underfunded probes, including small anchors, progressively borrow normal funding
+inputs and validate that group separately after rejection. A funding fee
+rejection proves input availability only, allowing missing-input attribution
+without treating it as script-validity evidence. Other funding failures remain
+inconclusive. An RBF fee rejection alone never identifies a bad input; its cause
+is retained even when funding cannot be checked. Probes use the failed attempt's
+fee and address policy and are never published, stored, or monitored. Auxiliary
+sweep logic is not bypassed.
+
+`UtxoSweeper` applies the resulting `BadInput` evidence. Permanent script or
+missing-input attribution terminates only that tracked input, or quarantines a
+diagnosed wallet UTXO. Survivors retain their requested starting rates while
+the new set recalculates its aggregate fee curve. Confirmed third-party spends
+retain the existing fee line. A backend- reported singleton mempool conflict
+remains retryable with its spend subscription intact; valid siblings are
+resubmitted without it. Temporary wallet exclusions accumulate across that
+immediate retry chain and clear when it ends or returns to normal block
+retries. Eligible diagnosis keeps unattributed conflicts retryable without fee
+escalation. Other requests use the normal retry-fee policy. Fee initialization
+follows existing budget and zero-delta retry paths. Transient backend failures
+and fee refusals (RBF, relay minimum or mempool minimum) during probing
+retain their cause and follow normal
+retry-fee policy, including retries at the cap. Full-RBF fee refusals retain
+whole-set retries instead of input attribution. Other aborted, unchanged-set
+diagnoses must advance their fee and become fatal if advancement fails; known
+terminal rejections with skipped or completed singleton-free diagnosis retain
+the whole-set fatal outcome.
+
+A rejected replacement does not displace an already accepted transaction.
+`TxPublisher` retains monitoring until an actual spend is attributed or the
+sweeper conclusively excludes its input. Requests retain their exclusive-group
+identity after tracked-input removal, so the confirmed anchor resolver excludes
+alternative commitments even when either anchor was previously removed. Retained
+rejected attempts then release monitoring even at the fee cap; legacy fee-only
+retention keeps its existing policy. Terminal cleanup identifies the accepted
+transaction. Initial
+bad-input diagnosis is therefore not applied to rejected replacements.
+Terminal results also release the fee-bump monitor and cancel rebroadcast when
+they identify a transaction.
 
 #### `FeeFunction`
 

@@ -767,7 +767,7 @@ func TestRemoteSignerDisconnects(t *testing.T) {
 	// Use a timeout longer than the connection timeout so the coordinator
 	// returns ErrConnectTimeout because of a disconnect, instead of the
 	// context deadline error for the ping request.
-	pingTimeout := coordinator.connectionTimeout + (1 * time.Second)
+	pingTimeout := coordinator.startupTimeout + (1 * time.Second)
 	startTime := time.Now()
 
 	var wg sync.WaitGroup
@@ -819,7 +819,7 @@ func TestRemoteSignerDisconnects(t *testing.T) {
 	// Ensure that the Ping request goroutine returned after the connection
 	// timeout, but before the ping timeout was reached, which indicates
 	// that the request was canceled because the remote signer disconnected.
-	require.Greater(t, time.Since(startTime), coordinator.connectionTimeout)
+	require.Greater(t, time.Since(startTime), coordinator.startupTimeout)
 	require.Less(t, time.Since(startTime), pingTimeout)
 
 	// Verify the responses map is empty after all responses are received
@@ -854,7 +854,7 @@ func TestWaitUntilConnectedNoTimeout(t *testing.T) {
 		waitErrChan <- coordinator.WaitUntilConnected(ctx)
 	}()
 
-	// With connectionTimeout == 0, there is no internal timeout path, so
+	// With startupTimeout == 0, there is no internal timeout path, so
 	// WaitUntilConnected must stay blocked until the handshake completes or
 	// the ctx is canceled.
 	select {

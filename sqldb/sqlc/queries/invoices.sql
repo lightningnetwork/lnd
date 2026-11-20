@@ -48,17 +48,34 @@ INNER JOIN amp_sub_invoices a
 ON i.id = a.invoice_id AND a.set_id = $1;
 
 -- name: FetchPendingInvoices :many
--- FetchPendingInvoices returns all invoices in a pending state (open or
--- accepted). The invoices_state_idx index on the state column makes this a
--- fast index scan rather than a full table scan. id_cursor is an exclusive
--- lower bound on the primary key used for cursor-based pagination; the caller
--- must supply 0 when starting from the beginning.
+-- FetchPendingInvoices returns all invoices in a pending state (open,
+-- accepted or pending settle). The invoices_state_idx index on the state column
+-- makes this a fast index scan rather than a full table scan. id_cursor is an
+-- exclusive lower bound on the primary key used for cursor-based pagination;
+-- the caller must supply 0 when starting from the beginning.
 SELECT
     invoices.*
 FROM invoices
-WHERE state IN (0, 3) -- 0 = ContractOpen, 3 = ContractAccepted
+WHERE state IN (0, 3, 4) -- 0 = ContractOpen, 3 = ContractAccepted, 4 = ContractPendingSettle
   AND id > @id_cursor
 ORDER BY id ASC
+LIMIT @num_limit;
+
+-- name: FetchPendingSettleInvoices :many
+-- FetchPendingSettleInvoices returns all invoices containing at least one HTLC
+-- whose final outcome is still pending, including children of settled parents.
+-- The parent-state pending filter cannot recover those duplicate payments.
+-- id_cursor is an exclusive lower bound for cursor-based pagination.
+SELECT
+    invoices.*
+FROM invoices
+INNER JOIN (
+    SELECT DISTINCT invoice_id
+    FROM invoice_htlcs
+    WHERE state = 3 -- HtlcStatePendingSettle
+) pending_settle ON pending_settle.invoice_id = invoices.id
+WHERE invoices.id > @id_cursor
+ORDER BY invoices.id ASC
 LIMIT @num_limit;
 
 -- name: FilterInvoicesBySettleIndex :many
@@ -103,7 +120,7 @@ SELECT
     invoices.*
 FROM invoices
 WHERE id >= @add_index_get
-  AND (NOT @pending_only OR state IN (0, 3)) -- 0 = ContractOpen, 3 = ContractAccepted
+  AND (NOT @pending_only OR state IN (0, 3, 4)) -- 0 = ContractOpen, 3 = ContractAccepted, 4 = ContractPendingSettle
   AND created_at >= @created_after
   AND created_at < @created_before
 ORDER BY id ASC
@@ -119,7 +136,7 @@ SELECT
     invoices.*
 FROM invoices
 WHERE id <= @add_index_let
-  AND (NOT @pending_only OR state IN (0, 3)) -- 0 = ContractOpen, 3 = ContractAccepted
+  AND (NOT @pending_only OR state IN (0, 3, 4)) -- 0 = ContractOpen, 3 = ContractAccepted, 4 = ContractPendingSettle
   AND created_at >= @created_after
   AND created_at < @created_before
 ORDER BY id DESC
@@ -163,7 +180,14 @@ WHERE (
 -- name: DeleteCanceledInvoices :execresult
 DELETE
 FROM invoices
-WHERE state = 2;
+WHERE state = 2
+  -- Keep ordinary release history even when every released HTLC failed.
+  AND (is_amp OR NOT EXISTS (
+    SELECT 1
+    FROM invoice_htlcs
+    WHERE invoice_id = invoices.id
+      AND state IN (2, 4) -- HtlcStateSettled, HtlcStateFailed
+  ));
 
 -- name: InsertInvoiceHTLC :one
 INSERT INTO invoice_htlcs (

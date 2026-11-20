@@ -106,8 +106,7 @@ func (b *readWriteBucket) Get(key []byte) []byte {
 	// Fetch the associated value.
 	val, err := b.tx.stm.Get(string(makeValueKey(b.id, key)))
 	if err != nil {
-		// TODO: we should return the error once the
-		// kvdb inteface is extended.
+		b.tx.recordReadError(err)
 		return nil
 	}
 
@@ -133,8 +132,7 @@ func (b *readWriteBucket) NestedReadWriteBucket(key []byte) walletdb.ReadWriteBu
 	bucketKey := makeBucketKey(b.id, key)
 	bucketVal, err := b.tx.stm.Get(string(bucketKey))
 	if err != nil {
-		// TODO: we should return the error once the
-		// kvdb inteface is extended.
+		b.tx.recordReadError(err)
 		return nil
 	}
 
@@ -385,8 +383,7 @@ func (b *readWriteBucket) SetSequence(v uint64) error {
 func (b *readWriteBucket) Sequence() uint64 {
 	val, err := b.tx.stm.Get(string(makeSequenceKey(b.id)))
 	if err != nil {
-		// TODO: This update kvdb interface such that error
-		// may be returned here.
+		b.tx.recordReadError(err)
 		return 0
 	}
 

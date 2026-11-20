@@ -1577,9 +1577,9 @@ func validateInvoiceWrite(inv *Invoice) error {
 	return nil
 }
 
-// defaultInvoiceRelativeExpiry is the spec-defined fallback when an invoice
+// DefaultInvoiceRelativeExpiry is the spec-defined fallback when an invoice
 // omits invoice_relative_expiry: two hours from creation.
-const defaultInvoiceRelativeExpiry uint32 = 7200
+const DefaultInvoiceRelativeExpiry = 7200 * time.Second
 
 // validateInvoiceExpiry rejects an invoice whose effective expiry is strictly
 // before now. The effective expiry is invoice_created_at +
@@ -1600,7 +1600,7 @@ func validateInvoiceExpiry(inv *Invoice, now time.Time) error {
 	}
 
 	relExpiry := inv.InvoiceRelativeExp.ValOpt().UnwrapOr(
-		TUint32(defaultInvoiceRelativeExpiry),
+		TUint32(DefaultInvoiceRelativeExpiry / time.Second),
 	)
 
 	// invoice_created_at + the relative expiry can overflow uint64 for an

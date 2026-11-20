@@ -33,11 +33,12 @@ type WalletKitClient interface {
 	//successive invocations of this RPC. Outputs can be unlocked before their
 	//expiration through `ReleaseOutput`.
 	//
-	//A non-zero release_after_spend_confs selects a confirmation-controlled
-	//lifetime. Such a lease ignores its wall-clock expiration and releases at
-	//the requested spend depth or through ReleaseOutput. The RPC fails if the
-	//wallet cannot apply this option. Renewing the same lease with the same ID
-	//and a zero depth preserves an existing non-zero depth.
+	//Set no_expiry to reserve an unused output without a timeout. The owner
+	//must release an abandoned reservation; the first confirmed spend removes
+	//it automatically. This requires wallet support for the requested lifetime.
+	//
+	//Renewing the same lease with the same ID and no_expiry unset preserves
+	//its existing lifetime.
 	LeaseOutput(ctx context.Context, in *LeaseOutputRequest, opts ...grpc.CallOption) (*LeaseOutputResponse, error)
 	// lncli: `wallet releaseoutput`
 	//ReleaseOutput unlocks an output, allowing it to be available for coin
@@ -329,13 +330,13 @@ type WalletKitClient interface {
 	//After either selecting or verifying the inputs, all input UTXOs are locked
 	//with an internal app ID.
 	//
-	//A non-zero input_release_after_spend_confs applies a
-	//confirmation-controlled lifetime to every input lease this RPC acquires.
-	//Those leases ignore wall-clock expiration and release at the requested
-	//spend depth or through ReleaseOutput. The RPC fails if the wallet cannot
-	//apply this option. Wallet capability is checked even when coin selection
-	//does not need to acquire an input lease. A custom_lock_id is required for a
-	//confirmation-controlled lease.
+	//Set input_lease_no_expiry to reserve acquired inputs without a timeout
+	//until owner release or their first confirmed spend. A custom_lock_id is
+	//required and must be persisted before funding so abandoned inputs can be
+	//released. This requires wallet support for the requested lifetime.
+	//
+	//Wallet capability is checked even when coin selection does not need to
+	//acquire an input lease.
 	//
 	//NOTE: If this method returns without an error, it is the caller's
 	//responsibility to either spend the locked UTXOs (by finalizing and then
@@ -665,11 +666,12 @@ type WalletKitServer interface {
 	//successive invocations of this RPC. Outputs can be unlocked before their
 	//expiration through `ReleaseOutput`.
 	//
-	//A non-zero release_after_spend_confs selects a confirmation-controlled
-	//lifetime. Such a lease ignores its wall-clock expiration and releases at
-	//the requested spend depth or through ReleaseOutput. The RPC fails if the
-	//wallet cannot apply this option. Renewing the same lease with the same ID
-	//and a zero depth preserves an existing non-zero depth.
+	//Set no_expiry to reserve an unused output without a timeout. The owner
+	//must release an abandoned reservation; the first confirmed spend removes
+	//it automatically. This requires wallet support for the requested lifetime.
+	//
+	//Renewing the same lease with the same ID and no_expiry unset preserves
+	//its existing lifetime.
 	LeaseOutput(context.Context, *LeaseOutputRequest) (*LeaseOutputResponse, error)
 	// lncli: `wallet releaseoutput`
 	//ReleaseOutput unlocks an output, allowing it to be available for coin
@@ -961,13 +963,13 @@ type WalletKitServer interface {
 	//After either selecting or verifying the inputs, all input UTXOs are locked
 	//with an internal app ID.
 	//
-	//A non-zero input_release_after_spend_confs applies a
-	//confirmation-controlled lifetime to every input lease this RPC acquires.
-	//Those leases ignore wall-clock expiration and release at the requested
-	//spend depth or through ReleaseOutput. The RPC fails if the wallet cannot
-	//apply this option. Wallet capability is checked even when coin selection
-	//does not need to acquire an input lease. A custom_lock_id is required for a
-	//confirmation-controlled lease.
+	//Set input_lease_no_expiry to reserve acquired inputs without a timeout
+	//until owner release or their first confirmed spend. A custom_lock_id is
+	//required and must be persisted before funding so abandoned inputs can be
+	//released. This requires wallet support for the requested lifetime.
+	//
+	//Wallet capability is checked even when coin selection does not need to
+	//acquire an input lease.
 	//
 	//NOTE: If this method returns without an error, it is the caller's
 	//responsibility to either spend the locked UTXOs (by finalizing and then

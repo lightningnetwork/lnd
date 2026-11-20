@@ -60,6 +60,7 @@ import (
 	"github.com/lightningnetwork/lnd/labels"
 	"github.com/lightningnetwork/lnd/lncfg"
 	"github.com/lightningnetwork/lnd/lnrpc"
+	"github.com/lightningnetwork/lnd/lnrpc/devrpc"
 	"github.com/lightningnetwork/lnd/lnrpc/invoicesrpc"
 	"github.com/lightningnetwork/lnd/lnrpc/routerrpc"
 	"github.com/lightningnetwork/lnd/lnrpc/walletrpc"
@@ -681,6 +682,54 @@ func newRPCServer(cfg *Config, interceptorChain *rpcperms.InterceptorChain,
 	}
 }
 
+// addPermissions adds the macaroon permissions of the main RPC server, of
+// the sub-servers and of the external subservers to the interceptor chain.
+func (r *rpcServer) addPermissions(macService *macaroons.Service,
+	subServerPerms []lnrpc.MacaroonPerms) error {
+
+	// We merge the set of sub server macaroon permissions with the main
+	// RPC server permissions so we can unite them under a single set of
+	// interceptors.
+	for m, ops := range MainRPCServerPermissions() {
+		err := r.interceptorChain.AddPermission(m, ops)
+		if err != nil {
+			return err
+		}
+	}
+
+	for _, subServerPerm := range subServerPerms {
+		for method, ops := range subServerPerm {
+			err := r.interceptorChain.AddPermission(method, ops)
+			if err != nil {
+				return err
+			}
+		}
+	}
+
+	// External subserver possibly need to register their own permissions
+	// and macaroon validator.
+	for method, ops := range r.implCfg.ExternalValidator.Permissions() {
+		err := r.interceptorChain.AddPermission(method, ops)
+		if err != nil {
+			return err
+		}
+
+		// Give the external subservers the possibility to also use
+		// their own validator to check any macaroons attached to calls
+		// to this method. This allows them to have their own root key
+		// ID database and permission entities.
+		err = macService.RegisterExternalValidator(
+			method, r.implCfg.ExternalValidator,
+		)
+		if err != nil {
+			return fmt.Errorf("could not register external "+
+				"macaroon validator: %v", err)
+		}
+	}
+
+	return nil
+}
+
 // addDeps populates all dependencies needed by the RPC server, and any
 // of the sub-servers that it maintains. When this is done, the RPC server can
 // be started, and start accepting RPC calls.
@@ -794,6 +843,13 @@ func (r *rpcServer) addDeps(ctx context.Context, s *server,
 		subServerPerms []lnrpc.MacaroonPerms
 	)
 
+	// The dev RPC creates offers only when the node runs with BOLT 12
+	// offers.
+	var offerCreator fn.Option[devrpc.OfferCreator]
+	if s.offerStore != nil {
+		offerCreator = fn.Some[devrpc.OfferCreator](s)
+	}
+
 	// Before we create any of the sub-servers, we need to ensure that all
 	// the dependencies they need are properly populated within each sub
 	// server configuration struct.
@@ -807,7 +863,7 @@ func (r *rpcServer) addDeps(ctx context.Context, s *server,
 		genInvoiceFeatures, genAmpInvoiceFeatures,
 		s.getNodeAnnouncement, s.updateAndBroadcastSelfNode, parseAddr,
 		rpcsLog, s.aliasMgr, r.implCfg.AuxDataParser,
-		invoiceHtlcModifier,
+		invoiceHtlcModifier, offerCreator,
 	)
 	if err != nil {
 		return err
@@ -830,44 +886,9 @@ func (r *rpcServer) addDeps(ctx context.Context, s *server,
 		subServerPerms = append(subServerPerms, macPerms)
 	}
 
-	// Next, we need to merge the set of sub server macaroon permissions
-	// with the main RPC server permissions so we can unite them under a
-	// single set of interceptors.
-	for m, ops := range MainRPCServerPermissions() {
-		err := r.interceptorChain.AddPermission(m, ops)
-		if err != nil {
-			return err
-		}
-	}
-
-	for _, subServerPerm := range subServerPerms {
-		for method, ops := range subServerPerm {
-			err := r.interceptorChain.AddPermission(method, ops)
-			if err != nil {
-				return err
-			}
-		}
-	}
-
-	// External subserver possibly need to register their own permissions
-	// and macaroon validator.
-	for method, ops := range r.implCfg.ExternalValidator.Permissions() {
-		err := r.interceptorChain.AddPermission(method, ops)
-		if err != nil {
-			return err
-		}
-
-		// Give the external subservers the possibility to also use
-		// their own validator to check any macaroons attached to calls
-		// to this method. This allows them to have their own root key
-		// ID database and permission entities.
-		err = macService.RegisterExternalValidator(
-			method, r.implCfg.ExternalValidator,
-		)
-		if err != nil {
-			return fmt.Errorf("could not register external "+
-				"macaroon validator: %v", err)
-		}
+	err = r.addPermissions(macService, subServerPerms)
+	if err != nil {
+		return err
 	}
 
 	// Finally, with all the set up complete, add the last dependencies to
@@ -5699,6 +5720,7 @@ func (r *rpcServer) SubscribeChannelEvents(req *lnrpc.ChannelEventSubscription,
 			if errors.Is(updateStream.Context().Err(), context.Canceled) {
 				return nil
 			}
+
 			return updateStream.Context().Err()
 
 		case <-r.quit:
@@ -6212,7 +6234,9 @@ func (r *rpcServer) GetTransactions(ctx context.Context,
 		return nil, err
 	}
 
-	return lnrpc.RPCTransactionDetails(txns, firstIdx, lastIdx), nil
+	return lnrpc.RPCTransactionDetails(
+		txns, firstIdx, lastIdx, req.Reverse,
+	), nil
 }
 
 // DescribeGraph returns a description of the latest graph state from the PoV
@@ -6241,11 +6265,10 @@ func (r *rpcServer) DescribeGraph(ctx context.Context,
 		}
 	}
 
-	// Obtain the pointer to the V1 channel graph. This will provide a
-	// consistent view of the graph due to bolt db's transactional model.
-	//
-	// TODO(elle): switch to a cross-version graph view when available.
-	graph := r.server.v1Graph
+	// Obtain the pointer to the cross-version channel graph. This will
+	// provide a consistent view of the graph due to bolt db's
+	// transactional model.
+	graph := r.server.graphDB
 
 	// First iterate through all the known nodes (connected or unconnected
 	// within the graph), collating their current state into the RPC
@@ -6329,19 +6352,18 @@ func marshalDBEdge(edgeInfo *models.ChannelEdgeInfo,
 	includeAuthProof bool) *lnrpc.ChannelEdge {
 
 	// Make sure the policies match the node they belong to. c1 should point
-	// to the policy for NodeKey1, and c2 for NodeKey2.
-	if c1 != nil && c1.ChannelFlags&lnwire.ChanUpdateDirection == 1 ||
-		c2 != nil && c2.ChannelFlags&lnwire.ChanUpdateDirection == 0 {
-
+	// to the policy for NodeKey1, and c2 for NodeKey2. IsNode1 reads the
+	// direction from the field that each gossip version carries it in.
+	if c1 != nil && !c1.IsNode1() || c2 != nil && c2.IsNode1() {
 		c2, c1 = c1, c2
 	}
 
 	var lastUpdate int64
 	if c1 != nil {
-		lastUpdate = c1.LastUpdate.Unix()
+		lastUpdate = policyLastUpdate(c1)
 	}
-	if c2 != nil && c2.LastUpdate.Unix() > lastUpdate {
-		lastUpdate = c2.LastUpdate.Unix()
+	if c2 != nil && policyLastUpdate(c2) > lastUpdate {
+		lastUpdate = policyLastUpdate(c2)
 	}
 
 	customRecords := marshalExtraOpaqueData(edgeInfo.ExtraOpaqueData)
@@ -6394,7 +6416,7 @@ func marshalPolicyExtraOpaqueData(data []byte) map[uint64][]byte {
 func marshalDBRoutingPolicy(
 	policy *models.ChannelEdgePolicy) *lnrpc.RoutingPolicy {
 
-	disabled := policy.ChannelFlags&lnwire.ChanUpdateDisabled != 0
+	disabled := policy.IsDisabled()
 
 	customRecords := marshalPolicyExtraOpaqueData(policy.ExtraOpaqueData)
 	inboundFee := policy.InboundFee.UnwrapOr(lnwire.Fee{})
@@ -6406,12 +6428,24 @@ func marshalDBRoutingPolicy(
 		FeeBaseMsat:      int64(policy.FeeBaseMSat),
 		FeeRateMilliMsat: int64(policy.FeeProportionalMillionths),
 		Disabled:         disabled,
-		LastUpdate:       uint32(policy.LastUpdate.Unix()),
+		LastUpdate:       uint32(policyLastUpdate(policy)),
 		CustomRecords:    customRecords,
 
 		InboundFeeBaseMsat:      inboundFee.BaseFee,
 		InboundFeeRateMilliMsat: inboundFee.FeeRate,
 	}
+}
+
+// policyLastUpdate returns the unix time of a policy's last update. A v2 policy
+// is ordered by the block height it was announced at rather than by a
+// timestamp, so it has no unix time, and zero is returned for it. The RPC has
+// no field for the block height yet.
+func policyLastUpdate(policy *models.ChannelEdgePolicy) int64 {
+	if policy.Version != lnwire.GossipVersion1 {
+		return 0
+	}
+
+	return policy.LastUpdate.Unix()
 }
 
 // GetNodeMetrics returns all available node metrics calculated from the
@@ -7067,7 +7101,8 @@ func (r *rpcServer) ListPayments(ctx context.Context,
 	return paymentsResp, nil
 }
 
-// DeleteCanceledInvoice remove a canceled invoice from the database.
+// DeleteCanceledInvoice removes a canceled invoice unless it carries ordinary
+// preimage-release history, which must survive even if collection failed.
 func (r *rpcServer) DeleteCanceledInvoice(ctx context.Context,
 	req *lnrpc.DelCanceledInvoiceReq) (*lnrpc.DelCanceledInvoiceResp,
 	error) {
@@ -7088,6 +7123,22 @@ func (r *rpcServer) DeleteCanceledInvoice(ctx context.Context,
 
 	if invoice.State != invoices.ContractCanceled {
 		return nil, invoices.ErrInvoiceNotCanceled
+	}
+
+	// Cancellation after release is a collection failure, not evidence the
+	// secret stayed private. Keep the record even when nothing was paid.
+	if !invoice.IsAMP() {
+		for _, htlc := range invoice.Htlcs {
+			if htlc.State == invoices.HtlcStateSettled ||
+				htlc.State == invoices.HtlcStateFailed {
+
+				return nil, status.Error(
+					codes.FailedPrecondition,
+					"cannot delete invoice after "+
+						"preimage release",
+				)
+			}
+		}
 	}
 
 	err = r.server.invoicesDB.DeleteInvoice(ctx,
@@ -7460,6 +7511,148 @@ func (r *rpcServer) FeeReport(ctx context.Context,
 // 0.000001, or 0.0001%.
 const minFeeRate = 1e-6
 
+// channelPolicyFromRequest validates a PolicyUpdateRequest and converts it
+// into the channel policy that is applied to the target channels.
+func channelPolicyFromRequest(req *lnrpc.PolicyUpdateRequest,
+	maxOutgoingCltvExpiry uint32,
+	acceptPositiveInboundFees bool) (routing.ChannelPolicy, error) {
+
+	// In a partial update, a field the caller didn't mark is left
+	// unchanged. Reject non-zero values for such fields, as they would
+	// otherwise be silently ignored.
+	partial := req.PartialUpdate
+	keepBaseFee := partial != nil && !partial.BaseFeeMsat
+	keepFeeRate := partial != nil && !partial.FeeRate
+	keepTimeLockDelta := partial != nil && !partial.TimeLockDelta
+
+	if keepBaseFee && req.BaseFeeMsat != 0 {
+		return routing.ChannelPolicy{}, status.Errorf(
+			codes.InvalidArgument, "base_fee_msat set but not "+
+				"marked in partial_update",
+		)
+	}
+	if keepFeeRate && (req.FeeRate != 0 || req.FeeRatePpm != 0) {
+		return routing.ChannelPolicy{}, status.Errorf(
+			codes.InvalidArgument, "fee_rate or fee_rate_ppm set "+
+				"but not marked in partial_update",
+		)
+	}
+	if keepTimeLockDelta && req.TimeLockDelta != 0 {
+		return routing.ChannelPolicy{}, status.Errorf(
+			codes.InvalidArgument, "time_lock_delta set but not "+
+				"marked in partial_update",
+		)
+	}
+
+	var feeRateFixed uint32
+
+	switch {
+	// The request should use either the fee rate in percent, or the new
+	// ppm rate, but not both.
+	case req.FeeRate != 0 && req.FeeRatePpm != 0:
+		errMsg := "cannot set both FeeRate and FeeRatePpm at the " +
+			"same time"
+
+		return routing.ChannelPolicy{}, status.Errorf(
+			codes.InvalidArgument, "%v", errMsg,
+		)
+
+	// If the request is using fee_rate.
+	case req.FeeRate != 0:
+		// As a sanity check, if the fee isn't zero, we'll ensure that
+		// the passed fee rate is below 1e-6, or the lowest allowed
+		// non-zero fee rate expressible within the protocol.
+		if req.FeeRate != 0 && req.FeeRate < minFeeRate {
+			return routing.ChannelPolicy{}, fmt.Errorf("fee rate "+
+				"of %v is too small, min fee rate is %v",
+				req.FeeRate, minFeeRate)
+		}
+
+		// We'll also need to convert the floating point fee rate we
+		// accept over RPC to the fixed point rate that we use within
+		// the protocol. We do this by multiplying the passed fee rate
+		// by the fee base. This gives us the fixed point, scaled by 1
+		// million that's used within the protocol.
+		//
+		// Because of the inaccurate precision of the IEEE 754
+		// standard, we need to round the product of feerate and
+		// feebase.
+		feeRateFixed = uint32(math.Round(req.FeeRate * feeBase))
+
+	// Otherwise, we use the fee_rate_ppm parameter.
+	case req.FeeRatePpm != 0:
+		feeRateFixed = req.FeeRatePpm
+	}
+
+	// We'll also ensure that the user isn't setting a CLTV delta that
+	// won't give outgoing HTLCs enough time to fully resolve if needed.
+	if !keepTimeLockDelta {
+		err := validateChannelPolicyTimeLockDelta(
+			req.TimeLockDelta, maxOutgoingCltvExpiry,
+		)
+		if err != nil {
+			return routing.ChannelPolicy{}, err
+		}
+	}
+
+	// By default, positive inbound fees are rejected.
+	if !acceptPositiveInboundFees && req.InboundFee != nil {
+		if req.InboundFee.BaseFeeMsat > 0 {
+			return routing.ChannelPolicy{}, fmt.Errorf("positive "+
+				"values for inbound base fee msat are not "+
+				"supported: %v", req.InboundFee.BaseFeeMsat)
+		}
+		if req.InboundFee.FeeRatePpm > 0 {
+			return routing.ChannelPolicy{}, fmt.Errorf("positive "+
+				"values for inbound fee rate ppm are not "+
+				"supported: %v", req.InboundFee.FeeRatePpm)
+		}
+	}
+
+	// If no inbound fees have been specified, we indicate with an empty
+	// option that the previous inbound fee should be retained during the
+	// edge update.
+	inboundFee := fn.None[models.InboundFee]()
+	if req.InboundFee != nil {
+		inboundFee = fn.Some(models.InboundFee{
+			Base: req.InboundFee.BaseFeeMsat,
+			Rate: req.InboundFee.FeeRatePpm,
+		})
+	}
+
+	// An empty option keeps the current value of the field.
+	feeSchema := routing.FeeSchema{
+		InboundFee: inboundFee,
+	}
+	if !keepBaseFee {
+		feeSchema.BaseFee = fn.Some(
+			lnwire.MilliSatoshi(req.BaseFeeMsat),
+		)
+	}
+	if !keepFeeRate {
+		feeSchema.FeeRate = fn.Some(feeRateFixed)
+	}
+
+	timeLockDelta := fn.None[uint32]()
+	if !keepTimeLockDelta {
+		timeLockDelta = fn.Some(req.TimeLockDelta)
+	}
+
+	maxHtlc := lnwire.MilliSatoshi(req.MaxHtlcMsat)
+	var minHtlc *lnwire.MilliSatoshi
+	if req.MinHtlcMsatSpecified {
+		min := lnwire.MilliSatoshi(req.MinHtlcMsat)
+		minHtlc = &min
+	}
+
+	return routing.ChannelPolicy{
+		FeeSchema:     feeSchema,
+		TimeLockDelta: timeLockDelta,
+		MaxHTLC:       maxHtlc,
+		MinHTLC:       minHtlc,
+	}, nil
+}
+
 // UpdateChannelPolicy allows the caller to update the channel forwarding policy
 // for all channels globally, or a particular channel.
 func (r *rpcServer) UpdateChannelPolicy(ctx context.Context,
@@ -7486,96 +7679,12 @@ func (r *rpcServer) UpdateChannelPolicy(ctx context.Context,
 		return nil, fmt.Errorf("unknown scope: %v", scope)
 	}
 
-	var feeRateFixed uint32
-
-	switch {
-	// The request should use either the fee rate in percent, or the new
-	// ppm rate, but not both.
-	case req.FeeRate != 0 && req.FeeRatePpm != 0:
-		errMsg := "cannot set both FeeRate and FeeRatePpm at the " +
-			"same time"
-
-		return nil, status.Errorf(codes.InvalidArgument, "%v", errMsg)
-
-	// If the request is using fee_rate.
-	case req.FeeRate != 0:
-		// As a sanity check, if the fee isn't zero, we'll ensure that
-		// the passed fee rate is below 1e-6, or the lowest allowed
-		// non-zero fee rate expressible within the protocol.
-		if req.FeeRate != 0 && req.FeeRate < minFeeRate {
-			return nil, fmt.Errorf("fee rate of %v is too "+
-				"small, min fee rate is %v", req.FeeRate,
-				minFeeRate)
-		}
-
-		// We'll also need to convert the floating point fee rate we
-		// accept over RPC to the fixed point rate that we use within
-		// the protocol. We do this by multiplying the passed fee rate
-		// by the fee base. This gives us the fixed point, scaled by 1
-		// million that's used within the protocol.
-		//
-		// Because of the inaccurate precision of the IEEE 754
-		// standard, we need to round the product of feerate and
-		// feebase.
-		feeRateFixed = uint32(math.Round(req.FeeRate * feeBase))
-
-	// Otherwise, we use the fee_rate_ppm parameter.
-	case req.FeeRatePpm != 0:
-		feeRateFixed = req.FeeRatePpm
-	}
-
-	// We'll also ensure that the user isn't setting a CLTV delta that
-	// won't give outgoing HTLCs enough time to fully resolve if needed.
-	if err := validateChannelPolicyTimeLockDelta(
-		req.TimeLockDelta, r.cfg.MaxOutgoingCltvExpiry,
-	); err != nil {
+	chanPolicy, err := channelPolicyFromRequest(
+		req, r.cfg.MaxOutgoingCltvExpiry,
+		r.cfg.AcceptPositiveInboundFees,
+	)
+	if err != nil {
 		return nil, err
-	}
-
-	// By default, positive inbound fees are rejected.
-	if !r.cfg.AcceptPositiveInboundFees && req.InboundFee != nil {
-		if req.InboundFee.BaseFeeMsat > 0 {
-			return nil, fmt.Errorf("positive values for inbound "+
-				"base fee msat are not supported: %v",
-				req.InboundFee.BaseFeeMsat)
-		}
-		if req.InboundFee.FeeRatePpm > 0 {
-			return nil, fmt.Errorf("positive values for inbound "+
-				"fee rate ppm are not supported: %v",
-				req.InboundFee.FeeRatePpm)
-		}
-	}
-
-	// If no inbound fees have been specified, we indicate with an empty
-	// option that the previous inbound fee should be retained during the
-	// edge update.
-	inboundFee := fn.None[models.InboundFee]()
-	if req.InboundFee != nil {
-		inboundFee = fn.Some(models.InboundFee{
-			Base: req.InboundFee.BaseFeeMsat,
-			Rate: req.InboundFee.FeeRatePpm,
-		})
-	}
-
-	baseFeeMsat := lnwire.MilliSatoshi(req.BaseFeeMsat)
-	feeSchema := routing.FeeSchema{
-		BaseFee:    baseFeeMsat,
-		FeeRate:    feeRateFixed,
-		InboundFee: inboundFee,
-	}
-
-	maxHtlc := lnwire.MilliSatoshi(req.MaxHtlcMsat)
-	var minHtlc *lnwire.MilliSatoshi
-	if req.MinHtlcMsatSpecified {
-		min := lnwire.MilliSatoshi(req.MinHtlcMsat)
-		minHtlc = &min
-	}
-
-	chanPolicy := routing.ChannelPolicy{
-		FeeSchema:     feeSchema,
-		TimeLockDelta: req.TimeLockDelta,
-		MaxHTLC:       maxHtlc,
-		MinHTLC:       minHtlc,
 	}
 
 	rpcsLog.Debugf("[updatechanpolicy] updating channel policy, "+

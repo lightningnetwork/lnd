@@ -22,6 +22,7 @@ import (
 	"github.com/lightningnetwork/lnd/chanstate"
 	"github.com/lightningnetwork/lnd/contractcourt"
 	"github.com/lightningnetwork/lnd/fn/v2"
+	graphdb "github.com/lightningnetwork/lnd/graph/db"
 	"github.com/lightningnetwork/lnd/htlcswitch"
 	"github.com/lightningnetwork/lnd/input"
 	"github.com/lightningnetwork/lnd/lnpeer"
@@ -45,6 +46,56 @@ var (
 	// p2wshAddress is a valid pay to witness script hash address.
 	p2wshAddress = "bc1qrp33g0q5c5txsp9arysrx4k6zdkfs4nce4xj0gdcccefvpysxf3qccfmv3"
 )
+
+// stoppedHookUpdateHandler models a link whose event loop is reporting a
+// failure while the peer tries to register a close hook. The event loop only
+// stops after the failure report has left the link.
+type stoppedHookUpdateHandler struct {
+	*mockUpdateHandler
+
+	blockCommit     bool
+	hookStarted     chan struct{}
+	htlcManagerDone chan struct{}
+}
+
+func (s *stoppedHookUpdateHandler) waitForManager(
+	ctx context.Context) error {
+
+	close(s.hookStarted)
+
+	select {
+	case <-s.htlcManagerDone:
+		return htlcswitch.ErrLinkShuttingDown
+	case <-ctx.Done():
+		return ctx.Err()
+	}
+}
+
+func (s *stoppedHookUpdateHandler) OnCommitOnce(
+	ctx context.Context, _ htlcswitch.LinkDirection, hook func(),
+) error {
+	// The commit hook blocks on the manager until the test releases it.
+	if s.blockCommit {
+		return s.waitForManager(ctx)
+	}
+
+	hook()
+
+	return nil
+}
+
+func (s *stoppedHookUpdateHandler) OnFlushedOnce(
+	ctx context.Context, hook func(),
+) error {
+	// The flush hook mirrors commit blocking for the opposite case.
+	if !s.blockCommit {
+		return s.waitForManager(ctx)
+	}
+
+	hook()
+
+	return nil
+}
 
 // TestPeerChannelClosureShutdownResponseLinkRemoved tests the shutdown
 // response we get if the link for the channel can't be found in the
@@ -373,6 +424,99 @@ func TestPeerChannelClosureFlushDrivesNegotiation(t *testing.T) {
 	notifier.ConfChan <- &chainntnfs.TxConfirmation{}
 }
 
+// TestCloseHookRegistrationDoesNotBlockLinkFailure verifies that a link can
+// hand its failure to the peer while the peer is registering either legacy
+// close hook. The failure report must leave the link before its event loop can
+// stop, and stopping the event loop is what releases hook registration.
+func TestCloseHookRegistrationDoesNotBlockLinkFailure(t *testing.T) {
+	testCases := []struct {
+		name        string
+		blockCommit bool
+	}{
+		{name: "commit hook", blockCommit: true},
+		{name: "flush hook"},
+	}
+
+	for _, testCase := range testCases {
+		t.Run(testCase.name, func(t *testing.T) {
+			harness, err := createTestPeerWithChannel(t, noUpdate)
+			require.NoError(t, err)
+
+			alicePeer := harness.peer
+			chanPoint := harness.channel.ChannelPoint()
+			chanID := lnwire.NewChanIDFromOutPoint(chanPoint)
+			mockLink := &stoppedHookUpdateHandler{
+				mockUpdateHandler: newMockUpdateHandler(chanID),
+				blockCommit:       testCase.blockCommit,
+				hookStarted:       make(chan struct{}),
+				htlcManagerDone:   make(chan struct{}),
+			}
+			harness.mockSwitch.links = []htlcswitch.
+				ChannelUpdateHandler{
+				mockLink,
+			}
+
+			alicePeer.chanCloseMsgs <- &closeMsg{
+				cid: chanID,
+				msg: lnwire.NewShutdown(
+					chanID, genScript(t, p2wshAddress),
+				),
+			}
+
+			if !testCase.blockCommit {
+				select {
+				case out := <-alicePeer.outgoingQueue:
+					_, ok := out.msg.(*lnwire.Shutdown)
+					require.True(t, ok)
+				case <-time.After(timeout):
+					t.Fatal("shutdown was not queued")
+				}
+			}
+
+			select {
+			case <-mockLink.hookStarted:
+			case <-time.After(timeout):
+				t.Fatal("close hook registration did not start")
+			}
+
+			reported := make(chan struct{})
+			report := linkFailureReport{
+				chanPoint: chanPoint,
+				linkErr: htlcswitch.LinkFailureError{
+					FailureAction: htlcswitch.
+						LinkFailureForceNone,
+				},
+			}
+			go func() {
+				select {
+				case alicePeer.linkFailures.ChanIn() <- report:
+					close(reported)
+				case <-alicePeer.cg.Done():
+				}
+			}()
+
+			select {
+			case <-reported:
+				close(mockLink.htlcManagerDone)
+			case <-time.After(timeout):
+				t.Fatal("link failure remained blocked " +
+					"on peer manager")
+			}
+
+			select {
+			case out := <-alicePeer.outgoingQueue:
+				_, ok := out.msg.(*lnwire.Error)
+				require.Truef(t, ok, "expected Error, got %T",
+					out.msg)
+				out.errChan <- nil
+			case <-time.After(timeout):
+				t.Fatal("peer manager did not process " +
+					"link failure")
+			}
+		})
+	}
+}
+
 // TestLinkFailureRetiresRestoredLegacyCloser retires a restored closer after
 // link failure.
 func TestLinkFailureRetiresRestoredLegacyCloser(t *testing.T) {
@@ -476,15 +620,15 @@ func TestLinkFailureRetiresRestoredLegacyCloser(t *testing.T) {
 		reconnectedLink,
 	}
 
+	reconnectedPeer.linkFailures.Start()
 	reconnectedPeer.cg.WgAdd(1)
 	go reconnectedPeer.channelManager()
 	t.Cleanup(func() {
 		reconnectedPeer.Disconnect(errors.New("test complete"))
 		reconnectedPeer.cg.WgWait()
 	})
-	reconnectedPeer.linkFailures <- linkFailureReport{
+	reconnectedPeer.linkFailures.ChanIn() <- linkFailureReport{
 		chanPoint: chanPoint,
-		chanID:    chanID,
 		linkErr: htlcswitch.LinkFailureError{
 			FailureAction: htlcswitch.LinkFailureForceNone,
 		},
@@ -557,9 +701,8 @@ func TestLinkFailureNotifiesLocalCloseRequest(t *testing.T) {
 	case <-time.After(timeout):
 		t.Fatal("peer did not send Shutdown")
 	}
-	alicePeer.linkFailures <- linkFailureReport{
+	alicePeer.linkFailures.ChanIn() <- linkFailureReport{
 		chanPoint: chanPoint,
-		chanID:    chanID,
 		linkErr: htlcswitch.LinkFailureError{
 			FailureAction: htlcswitch.LinkFailureForceNone,
 		},
@@ -2940,6 +3083,17 @@ func TestAlwaysSendChannelUpdate(t *testing.T) {
 	assertMsgSent(t, harness.mockConn, lnwire.MsgChannelUpdate)
 }
 
+// TestLogForceCloseResultWithoutTx verifies that a deferred local force close
+// can return without a transaction while waiting for the remote close.
+func TestLogForceCloseResultWithoutTx(t *testing.T) {
+	t.Parallel()
+
+	testPeer := NewBrontide(Config{})
+	require.NotPanics(t, func() {
+		testPeer.logForceCloseResult(lnwire.ShortChannelID{}, nil, nil)
+	})
+}
+
 // TODO(yy): add test for `addActiveChannel` and `handleNewActiveChannel` once
 // we have interfaced `lnwallet.LightningChannel` and
 // `*contractcourt.ChainArbitrator`.
@@ -3581,7 +3735,13 @@ func TestRbfCoopCloseAllowed(t *testing.T) {
 			name:     "both signal staging, plain channel",
 			peer:     newPeer(stagingBit, stagingBit),
 			chanType: chanstate.SingleFunderTweaklessBit,
-			allowed:  true,
+			allowed:  false,
+		},
+		{
+			name:     "local staging, remote final, plain channel",
+			peer:     newPeer(stagingBit, rbfBit),
+			chanType: chanstate.SingleFunderTweaklessBit,
+			allowed:  false,
 		},
 		{
 			name:     "both signal, simple taproot channel",
@@ -3592,12 +3752,6 @@ func TestRbfCoopCloseAllowed(t *testing.T) {
 		{
 			name:     "both signal, aux (overlay) channel",
 			peer:     newPeer(rbfBit, rbfBit),
-			chanType: overlayChan,
-			allowed:  false,
-		},
-		{
-			name:     "both signal staging, aux (overlay) channel",
-			peer:     newPeer(stagingBit, stagingBit),
 			chanType: overlayChan,
 			allowed:  false,
 		},
@@ -4166,6 +4320,90 @@ func TestRbfCloseCancelReleasesOnlyItsCaller(t *testing.T) {
 
 	case <-time.After(shortTimeout):
 	}
+}
+
+// TestPendingChannelReestablishOnReconnect verifies that a remembered pending
+// channel participates in state synchronization after a reconnect.
+//
+// BOLT 2, Message Retransmission, does not mention confirmation:
+//
+//	A funding node, upon disconnection, if it has broadcast the funding
+//	transaction: MUST remember the channel for reconnection.
+//
+//	A node, upon reconnection (unless the channel is in an error state):
+//	MUST transmit channel_reestablish for each channel.
+//
+// The fixture is that funding node. loadActiveChannels must return the
+// channel_reestablish that Start writes and record the handoff to the link
+// created after confirmation.
+func TestPendingChannelReestablishOnReconnect(t *testing.T) {
+	t.Parallel()
+
+	harness, err := createTestPeerWithChannel(
+		t, func(alice, bob *chanstate.OpenChannel) {
+			// SyncPending writes the caller's pending bit. The
+			// funding transaction is already set on the initiator,
+			// which is the "has broadcast" case above.
+			alice.IsPending = true
+			bob.IsPending = true
+		},
+	)
+	require.NoError(t, err)
+
+	peer := harness.peer
+
+	signer := input.NewMockSigner(
+		[]*btcec.PrivateKey{harness.privKey}, nil,
+	)
+	sigPool := lnwallet.NewSigPool(1, signer)
+	require.NoError(t, sigPool.Start())
+	t.Cleanup(func() {
+		require.NoError(t, sigPool.Stop())
+	})
+
+	peer.cfg.Signer = signer
+	peer.cfg.SigPool = sigPool
+	peer.cfg.ChannelGraph = graphdb.MakeTestGraph(t)
+
+	// Same query Start uses before loadActiveChannels.
+	channels, err := peer.cfg.ChannelDB.FetchOpenChannels(
+		peer.cfg.Addr.IdentityKey,
+	)
+	require.NoError(t, err)
+	require.Len(t, channels, 1)
+
+	// These three fields are the BOLT 2 precondition, not a local
+	// policy. Confirmation is not one of them.
+	dbChan := channels[0]
+	require.True(t, dbChan.IsInitiator, "funding node")
+	require.NotNil(t, dbChan.FundingTxn, "funding tx was broadcast")
+	require.True(t, dbChan.IsPending, "funding tx is unconfirmed")
+
+	// Build the message expected from the pending channel.
+	want, err := dbChan.ChanSyncMsg()
+	require.NoError(t, err)
+
+	msgs, err := peer.loadActiveChannels(channels)
+	require.NoError(t, err)
+
+	var found bool
+	for _, msg := range msgs {
+		got, ok := msg.(*lnwire.ChannelReestablish)
+		if !ok || got.ChanID != want.ChanID {
+			continue
+		}
+
+		found = true
+		_, sent := peer.chanSyncSent.Load(want.ChanID)
+		require.True(t, sent, "later link must not send a second "+
+			"channel_reestablish on this connection")
+
+		break
+	}
+
+	require.True(t, found, "funding node remembered pending channel %v "+
+		"but did not transmit channel_reestablish (BOLT 2, Message "+
+		"Retransmission)", want.ChanID)
 }
 
 // newTestCloseRequest allocates the channels used by a close caller.

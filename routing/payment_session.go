@@ -6,6 +6,7 @@ import (
 
 	"github.com/btcsuite/btcd/btcec/v2"
 	"github.com/btcsuite/btclog/v2"
+	"github.com/lightningnetwork/lnd/fn/v2"
 	graphdb "github.com/lightningnetwork/lnd/graph/db"
 	"github.com/lightningnetwork/lnd/graph/db/models"
 	"github.com/lightningnetwork/lnd/lnutils"
@@ -195,6 +196,35 @@ type paymentSession struct {
 
 	// log is a payment session-specific logger.
 	log btclog.Logger
+
+	// opts holds optional configuration for the payment session.
+	opts sessionOptions
+}
+
+// sessionOptions holds optional configuration for a payment session.
+type sessionOptions struct {
+	// origin is an optional RouteOrigin that determines where routes can
+	// start. When set, the pathfinder terminates at any vertex for which
+	// IsOrigin returns true.
+	origin fn.Option[RouteOrigin]
+}
+
+// defaultSessionOptions returns sessionOptions with default values.
+func defaultSessionOptions() sessionOptions {
+	return sessionOptions{}
+}
+
+// sessionOption is a functional option for configuring a payment session.
+type sessionOption func(*sessionOptions)
+
+// withOrigin sets the RouteOrigin for this payment session.
+func withOrigin(o RouteOrigin) sessionOption {
+	return func(opts *sessionOptions) {
+		if o == nil {
+			return
+		}
+		opts.origin = fn.Some(o)
+	}
 }
 
 // newPaymentSession instantiates a new payment session.
@@ -202,7 +232,8 @@ func newPaymentSession(p *LightningPayment, selfNode route.Vertex,
 	getBandwidthHints func(Graph) (bandwidthHints, error),
 	graphSessFactory GraphSessionFactory,
 	missionControl MissionControlQuerier,
-	pathFindingConfig PathFindingConfig) (*paymentSession, error) {
+	pathFindingConfig PathFindingConfig,
+	options ...sessionOption) (*paymentSession, error) {
 
 	edges, err := RouteHintsToEdges(p.RouteHints, p.Target)
 	if err != nil {
@@ -223,6 +254,11 @@ func newPaymentSession(p *LightningPayment, selfNode route.Vertex,
 
 	logPrefix := fmt.Sprintf("PaymentSession(%x):", p.Identifier())
 
+	opts := defaultSessionOptions()
+	for _, o := range options {
+		o(&opts)
+	}
+
 	return &paymentSession{
 		selfNode:          selfNode,
 		additionalEdges:   edges,
@@ -234,6 +270,7 @@ func newPaymentSession(p *LightningPayment, selfNode route.Vertex,
 		missionControl:    missionControl,
 		minShardAmt:       DefaultShardMinAmt,
 		log:               log.WithPrefix(logPrefix),
+		opts:              opts,
 	}, nil
 }
 
@@ -308,7 +345,10 @@ func (p *paymentSession) RequestRoute(maxAmt, feeLimit lnwire.MilliSatoshi,
 		maxAmt = *p.payment.MaxShardAmt
 	}
 
-	var path []*unifiedEdge
+	var (
+		sourceVertex route.Vertex
+		path         []*unifiedEdge
+	)
 	findPath := func(graph graphdb.NodeTraverser) error {
 		// We'll also obtain a set of bandwidthHints from the lower
 		// layer for each of our outbound channels. This will allow the
@@ -323,15 +363,21 @@ func (p *paymentSession) RequestRoute(maxAmt, feeLimit lnwire.MilliSatoshi,
 
 		p.log.Debugf("pathfinding for amt=%v", maxAmt)
 
+		// Use the configured origin if one was provided,
+		// otherwise default to the session's own node.
+		origin := p.opts.origin.UnwrapOr(
+			&singleOrigin{p.selfNode},
+		)
+
 		// Find a route for the current amount.
-		path, _, err = p.pathFinder(
+		sourceVertex, path, _, err = p.pathFinder(
 			&graphParams{
 				additionalEdges: p.additionalEdges,
 				bandwidthHints:  bandwidthHints,
 				graph:           graph,
 			},
 			restrictions, &p.pathFindingConfig,
-			p.selfNode, p.selfNode, p.payment.Target,
+			p.selfNode, origin, p.payment.Target,
 			maxAmt, p.payment.TimePref, finalHtlcExpiry,
 		)
 		if err != nil {
@@ -347,6 +393,7 @@ func (p *paymentSession) RequestRoute(maxAmt, feeLimit lnwire.MilliSatoshi,
 		err := p.graphSessFactory.GraphSession(
 			context.TODO(),
 			findPath, func() {
+				sourceVertex = route.Vertex{}
 				path = nil
 			},
 		)
@@ -440,7 +487,7 @@ func (p *paymentSession) RequestRoute(maxAmt, feeLimit lnwire.MilliSatoshi,
 		// this into a route by applying the time-lock and fee
 		// requirements.
 		route, err := newRoute(
-			p.selfNode, path, height,
+			sourceVertex, path, height,
 			finalHopParams{
 				amt:         maxAmt,
 				totalAmt:    p.payment.Amount,

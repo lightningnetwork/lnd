@@ -1,6 +1,7 @@
 package graphdb
 
 import (
+	"context"
 	"sync"
 	"sync/atomic"
 )
@@ -21,7 +22,7 @@ type graphCacheState struct {
 	updateMtx sync.Mutex
 	loading   bool
 
-	pendingUpdates []func(*GraphCache)
+	pendingUpdates []func(context.Context, *GraphCache)
 }
 
 // newGraphCacheState constructs a graph cache state with a new cache instance.
@@ -65,13 +66,15 @@ func (s *graphCacheState) beginPopulation() {
 // finishPopulation replays any buffered mutations and marks the cache as ready
 // when the initial population completed successfully. If population failed,
 // buffered mutations are discarded since the cache won't be used for reads.
-func (s *graphCacheState) finishPopulation(loaded bool) {
+// The mutations are replayed with the population's context, since the
+// contexts of the calls that buffered them may be done by now.
+func (s *graphCacheState) finishPopulation(ctx context.Context, loaded bool) {
 	s.updateMtx.Lock()
 	defer s.updateMtx.Unlock()
 
 	if loaded {
 		for _, update := range s.pendingUpdates {
-			update(s.graphCache)
+			update(ctx, s.graphCache)
 		}
 
 		s.loaded.Store(true)
@@ -83,9 +86,12 @@ func (s *graphCacheState) finishPopulation(loaded bool) {
 	s.loading = false
 }
 
-// applyUpdate applies a cache mutation immediately or buffers it when the
-// cache is still being populated.
-func (s *graphCacheState) applyUpdate(update func(cache *GraphCache)) {
+// applyUpdate applies a cache mutation immediately, with the given context, or
+// buffers it when the cache is still being populated. A buffered mutation is
+// replayed with the population's context instead, see finishPopulation.
+func (s *graphCacheState) applyUpdate(ctx context.Context,
+	update func(ctx context.Context, cache *GraphCache)) {
+
 	s.updateMtx.Lock()
 	defer s.updateMtx.Unlock()
 
@@ -101,5 +107,5 @@ func (s *graphCacheState) applyUpdate(update func(cache *GraphCache)) {
 		return
 	}
 
-	update(s.graphCache)
+	update(ctx, s.graphCache)
 }

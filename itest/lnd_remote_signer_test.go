@@ -725,12 +725,18 @@ func testOutboundRSMacaroonEnforcement(ht *lntest.HarnessTest) {
 	remoteSignerHost := fmt.Sprintf(
 		"localhost:%d", port.NextAvailablePort(),
 	)
+
+	// The watch-only node starts waiting for the signer to connect after it
+	// has written its macaroons. Before the signer connects, this test
+	// still has to open a stream with the invoice macaroon and start the
+	// signer node, which can take a while on slow CI runners and remote
+	// database backends. Give the signer the default timeout to connect.
 	watchOnlyArgs := []string{
 		"--remotesigner.enable",
 		"--remotesigner.experimentalallowinboundconnection",
 		fmt.Sprintf("--remotesigner.experimentalrpclisten=%s",
 			remoteSignerHost),
-		"--remotesigner.timeout=15s",
+		fmt.Sprintf("--remotesigner.timeout=%v", wait.DefaultTimeout),
 		"--remotesigner.experimentalrequesttimeout=15s",
 	}
 
@@ -750,9 +756,11 @@ func testOutboundRSMacaroonEnforcement(ht *lntest.HarnessTest) {
 	// The watch-only node writes its non-admin macaroons during startup,
 	// before it fully transitions to the ready state. Wait for the invoice
 	// macaroon to exist before we try to use it below, otherwise this test
-	// can race that file creation on slower CI runners.
+	// can race that file creation on slower CI runners. Opening the
+	// database can take a while on remote backends, so use the default
+	// timeout.
 	_, err := watchOnly.ReadMacaroon(
-		watchOnly.Cfg.InvoiceMacPath, 15*time.Second,
+		watchOnly.Cfg.InvoiceMacPath, wait.DefaultTimeout,
 	)
 	require.NoError(ht, err)
 

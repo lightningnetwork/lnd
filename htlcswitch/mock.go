@@ -36,6 +36,8 @@ import (
 	"github.com/lightningnetwork/lnd/lnwire"
 	"github.com/lightningnetwork/lnd/ticker"
 	"github.com/lightningnetwork/lnd/tlv"
+	testifymock "github.com/stretchr/testify/mock"
+	"github.com/stretchr/testify/require"
 )
 
 func isAlias(scid lnwire.ShortChannelID) bool {
@@ -502,7 +504,8 @@ func newMockIteratorDecoder() *mockIteratorDecoder {
 }
 
 func (p *mockIteratorDecoder) DecodeHopIterator(r io.Reader, rHash []byte,
-	cltv uint32) (hop.Iterator, lnwire.FailCode) {
+	cltv uint32, _ lnwire.MilliSatoshi,
+	_ lnwire.BlindingPointRecord) (hop.Iterator, lnwire.FailCode) {
 
 	var b [4]byte
 	_, err := r.Read(b[:])
@@ -552,6 +555,7 @@ func (p *mockIteratorDecoder) DecodeHopIterators(id []byte,
 	for _, req := range reqs {
 		iterator, failcode := p.DecodeHopIterator(
 			req.OnionReader, req.RHash, req.IncomingCltv,
+			req.IncomingAmount, req.BlindingPoint,
 		)
 
 		if p.decodeFail {
@@ -970,11 +974,15 @@ func (f *mockChannelLink) IsFlushing(linkDirection LinkDirection) bool {
 	// TODO(proofofkeags): Implement
 	return false
 }
-func (f *mockChannelLink) OnFlushedOnce(func()) {
-	// TODO(proofofkeags): Implement
+func (f *mockChannelLink) OnFlushedOnce(context.Context, func()) error {
+	// TODO(proofofkeags): Implement.
+	return nil
 }
-func (f *mockChannelLink) OnCommitOnce(LinkDirection, func()) {
-	// TODO(proofofkeags): Implement
+func (f *mockChannelLink) OnCommitOnce(
+	context.Context, LinkDirection, func(),
+) error {
+	// TODO(proofofkeags): Implement.
+	return nil
 }
 func (f *mockChannelLink) InitStfu() <-chan fn.Result[lntypes.ChannelParty] {
 	// TODO(proofofkeags): Implement
@@ -1012,6 +1020,85 @@ type mockInvoiceRegistry struct {
 	settleChan chan lntypes.Hash
 
 	registry *invoices.InvoiceRegistry
+
+	// finalHtlcs delivers the final htlc outcomes reported by links to
+	// the registry, so that invoices settle once their htlcs are final.
+	finalHtlcs chan invoices.FinalHtlcOutcome
+}
+
+// mockFinalHtlcSource supplies arranged evidence while the registry fixture
+// owns live outcomes, without duplicating the final-outcome store.
+type mockFinalHtlcSource struct {
+	testifymock.Mock
+}
+
+// SubscribeFinalHtlcs returns the arranged live stream and cancellation
+// callback so the fixture controls the source lifetime explicitly.
+func (m *mockFinalHtlcSource) SubscribeFinalHtlcs() (
+	<-chan invoices.FinalHtlcOutcome, func(), error) {
+
+	args := m.Called()
+	outcomes, _ := args.Get(0).(<-chan invoices.FinalHtlcOutcome)
+	cancel, _ := args.Get(1).(func())
+
+	return outcomes, cancel, args.Error(2)
+}
+
+// LookupFinalHtlcs returns configured durable evidence; link tests normally
+// deliver results live, so nil represents an outcome not recorded yet.
+func (m *mockFinalHtlcSource) LookupFinalHtlcs(keys []invoices.CircuitKey) (
+	map[invoices.CircuitKey]invoices.FinalHtlcOutcome, error) {
+
+	args := m.Called(keys)
+	res, _ :=
+		args.Get(0).(map[invoices.CircuitKey]invoices.FinalHtlcOutcome)
+
+	return res, args.Error(1)
+}
+
+// InferFinalHtlcs returns only arranged channel evidence; these fixtures
+// normally exercise real final notifications instead of recovery inference.
+func (m *mockFinalHtlcSource) InferFinalHtlcs(keys []invoices.CircuitKey) (
+	map[invoices.CircuitKey]invoices.FinalHtlcOutcome, error) {
+
+	args := m.Called(keys)
+	res, _ :=
+		args.Get(0).(map[invoices.CircuitKey]invoices.FinalHtlcOutcome)
+
+	return res, args.Error(1)
+}
+
+var _ invoices.FinalHtlcSource = (*mockFinalHtlcSource)(nil)
+
+// finalHtlcNotifier wraps an htlc notifier and also delivers final htlc
+// outcomes to the registry.
+type finalHtlcNotifier struct {
+	htlcNotifier
+
+	outcomes chan invoices.FinalHtlcOutcome
+}
+
+// NotifyFinalHtlcEvent forwards the final outcome to the wrapped notifier and
+// the registry.
+func (f *finalHtlcNotifier) NotifyFinalHtlcEvent(key models.CircuitKey,
+	info channeldb.FinalHtlcInfo) {
+
+	f.htlcNotifier.NotifyFinalHtlcEvent(key, info)
+
+	f.outcomes <- invoices.FinalHtlcOutcome{
+		Key:      key,
+		Settled:  info.Settled,
+		Offchain: info.Offchain,
+	}
+}
+
+// htlcNotifier wraps the given notifier so that the registry learns about
+// the final outcome of htlcs.
+func (i *mockInvoiceRegistry) htlcNotifier(n htlcNotifier) htlcNotifier {
+	return &finalHtlcNotifier{
+		htlcNotifier: n,
+		outcomes:     i.finalHtlcs,
+	}
 }
 
 type mockChainNotifier struct {
@@ -1028,10 +1115,26 @@ func (m *mockChainNotifier) RegisterBlockEpochNtfn(*chainntnfs.BlockEpoch) (
 	}, nil
 }
 
+// newMockRegistry owns a real registry and an event bridge so link tests
+// learn final outcomes before their shared database is cleaned up.
 func newMockRegistry(t testing.TB) *mockInvoiceRegistry {
+	t.Helper()
+
 	cdb := channeldb.OpenForTesting(t, t.TempDir())
 
 	modifierMock := &invoices.MockHtlcModifier{}
+
+	// Buffer outcomes generously so that links never block on the
+	// registry.
+	finalHtlcs := make(chan invoices.FinalHtlcOutcome, 10_000)
+	source := &mockFinalHtlcSource{}
+	source.On("SubscribeFinalHtlcs").Return(
+		(<-chan invoices.FinalHtlcOutcome)(finalHtlcs), func() {}, nil,
+	).Once()
+	source.On("LookupFinalHtlcs", testifymock.Anything).
+		Return(nil, nil).Maybe()
+	source.On("InferFinalHtlcs", testifymock.Anything).
+		Return(nil, nil).Maybe()
 	registry := invoices.NewRegistry(
 		cdb,
 		invoices.NewInvoiceExpiryWatcher(
@@ -1041,12 +1144,20 @@ func newMockRegistry(t testing.TB) *mockInvoiceRegistry {
 		&invoices.RegistryConfig{
 			FinalCltvRejectDelta: 5,
 			HtlcInterceptor:      modifierMock,
+			FinalHtlcSource:      source,
 		},
 	)
-	registry.Start()
+	require.NoError(t, registry.Start())
+	t.Cleanup(func() {
+		// Stop consumers before this one expectation check and the
+		// earlier database cleanup closes their storage backend.
+		require.NoError(t, registry.Stop())
+		source.AssertExpectations(t)
+	})
 
 	return &mockInvoiceRegistry{
-		registry: registry,
+		registry:   registry,
+		finalHtlcs: finalHtlcs,
 	}
 }
 
@@ -1203,4 +1314,31 @@ func (h *mockHTLCNotifier) NotifySettleEvent(key HtlcKey,
 func (h *mockHTLCNotifier) NotifyFinalHtlcEvent(key models.CircuitKey,
 	info channeldb.FinalHtlcInfo) {
 
+}
+
+// mockErrorDecryptor is a mock implementation of the ErrorDecrypter interface
+// that allows tests to control the outcome of a DecryptError call.
+type mockErrorDecryptor struct {
+	// result is the ForwardingError to be returned when the mock's
+	// DecryptError method is called.
+	result *ForwardingError
+
+	// err is the error to be returned when the mock's DecryptError method
+	// is called.
+	err error
+}
+
+// DecryptError is a mock implementation of the DecryptError method. It simply
+// returns the values that are configured in the mockErrorDecryptor struct,
+// allowing tests to simulate both successful and failed decryptions.
+//
+// NOTE: This is part of the ErrorDecrypter interface.
+func (m *mockErrorDecryptor) DecryptError(reason lnwire.OpaqueReason) (
+	*ForwardingError, error) {
+
+	if m.err != nil {
+		return nil, m.err
+	}
+
+	return m.result, nil
 }

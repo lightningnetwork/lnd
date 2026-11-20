@@ -2,9 +2,10 @@
 #
 # tag-release.sh creates a signed annotated git tag for an lnd release after
 # verifying (a) HEAD is in sync with the upstream lightningnetwork/lnd
-# branch, and (b) build/version.go at HEAD matches the requested tag. Guards
-# against tagging a commit that has not been merged upstream yet, or one
-# whose embedded version disagrees with the tag.
+# branch, (b) build/version.go at HEAD matches the requested tag, and (c) all
+# release note fragments have been folded. Guards against tagging a commit
+# that has not been merged upstream yet, whose embedded version disagrees with
+# the tag, or whose release notes aren't ready.
 
 set -euo pipefail
 
@@ -147,6 +148,9 @@ Bump AppMajor/AppMinor/AppPatch/AppPreRelease and commit before tagging.
 EOF
   exit 1
 fi
+
+echo "Checking release notes..."
+scripts/check-release-notes-consistency.sh release
 
 echo "Creating signed tag ${TAG} at ${HEAD_SHA}."
 git tag -s -m "${TAG}" "${TAG}"

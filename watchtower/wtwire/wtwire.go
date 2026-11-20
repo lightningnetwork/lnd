@@ -188,7 +188,13 @@ func ReadElement(r io.Reader, element interface{}) error {
 		}
 
 	case *[]byte:
-		bytes, err := wire.ReadVarBytes(r, 0, 66000, "[]byte")
+		maxLen := uint32(66000)
+		if limited, ok := r.(*io.LimitedReader); ok &&
+			limited.N < int64(maxLen) {
+
+			maxLen = uint32(max(limited.N, 0))
+		}
+		bytes, err := wire.ReadVarBytes(r, 0, maxLen, "[]byte")
 		if err != nil {
 			return err
 		}

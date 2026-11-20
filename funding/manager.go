@@ -108,7 +108,32 @@ const (
 	// can have. After this point, pending channel opens will start to be
 	// rejected.
 	pendingChansLimit = 50
+
+	// commitFeeConfTarget is the conf target we use when we need a fee
+	// rate for a commitment transaction. We target the near blocks so
+	// that we can execute a timely unilateral close if needed. It is
+	// shared by the outbound fee we pay and the bound we place on the
+	// fee rate an inbound initiator may impose, so the two can't drift
+	// apart; see maxRemoteCommitFeeRate.
+	commitFeeConfTarget = 3
+
+	// maxCommitFeeRateMultiplier is the multiple of our own commitment fee
+	// rate estimate that we'll tolerate as the initial fee rate of a
+	// channel opened by a remote peer. BOLT-02 requires that we fail a
+	// channel whose feerate_per_kw we consider "unreasonably large", but
+	// leaves the threshold up to each implementation. Both CLN and Eclair
+	// settle on 10x their own estimate, so we do the same.
+	maxCommitFeeRateMultiplier = 10
 )
+
+// minCommitFeeRateCap is the floor we place on the maximum commitment fee rate
+// we'll accept from a channel initiator. Our fee estimator can report a very
+// low rate on a quiet chain, or fall back to the relay fee entirely, and we
+// don't want that to make us reject a channel opened at a rate that's high
+// relative to our estimate yet perfectly sane in absolute terms. At 100
+// sat/vbyte a commitment transaction confirms under any realistic mempool
+// condition, so we never treat anything at or below it as unreasonable.
+var minCommitFeeRateCap = chainfee.SatPerKVByte(100 * 1000).FeePerKWeight()
 
 var (
 	// ErrFundingManagerShuttingDown is an error returned when attempting to
@@ -551,6 +576,9 @@ type Config struct {
 	// AliasManager is an implementation of the aliasHandler interface that
 	// abstracts away the handling of many alias functions.
 	AliasManager aliasHandler
+
+	// ValidatePeerAlias rejects an alias that names a different channel.
+	ValidatePeerAlias func(wire.OutPoint, lnwire.ShortChannelID) error
 
 	// IsSweeperOutpoint queries the sweeper store for successfully
 	// published sweeps. This is useful to decide for the internal wallet
@@ -1431,6 +1459,62 @@ func (f *Manager) ProcessFundingMsg(msg lnwire.Message, peer lnpeer.Peer) {
 	}
 }
 
+// maxRemoteCommitFeeRate returns the highest commitment fee rate we're willing
+// to accept from the initiator of an inbound channel. The bound scales with our
+// own view of the current network fee rate, but never drops below
+// minCommitFeeRateCap, so a low or stale estimate can't make us turn away
+// channels opened at an absolutely reasonable rate.
+func (f *Manager) maxRemoteCommitFeeRate() chainfee.SatPerKWeight {
+	// We use the same conf target we'd use for a channel we open
+	// ourselves, so that the bound tracks the rate we consider necessary
+	// for a timely unilateral close.
+	ourFeeRate, err := f.cfg.FeeEstimator.EstimateFeePerKW(
+		commitFeeConfTarget,
+	)
+	if err != nil {
+		// A fee estimate isn't essential here: without one we simply
+		// fall back to the absolute bound rather than failing an
+		// otherwise valid channel.
+		log.Warnf("Unable to estimate commitment fee rate, using "+
+			"static bound of %v: %v", minCommitFeeRateCap, err)
+
+		return minCommitFeeRateCap
+	}
+
+	maxFeeRate := ourFeeRate * maxCommitFeeRateMultiplier
+	if maxFeeRate < minCommitFeeRateCap {
+		return minCommitFeeRateCap
+	}
+
+	return maxFeeRate
+}
+
+// checkCommitFeeRate fails the funding flow if the commitment fee rate the
+// initiator proposed in open_channel is above the bound we derive from our
+// own fee estimate, as BOLT-02 requires. It reports whether the flow was
+// failed, and so whether the caller must return.
+//
+// The bound is consulted only after the caller's cheap admission checks have
+// passed, so a peer that is over its pending-channel limit can't drive fee
+// estimation work on the funding goroutine.
+func (f *Manager) checkCommitFeeRate(peer lnpeer.Peer, cid *chanIdentifier,
+	msg *lnwire.OpenChannel) bool {
+
+	commitFeeRate := chainfee.SatPerKWeight(msg.FeePerKiloWeight)
+	maxCommitFeeRate := f.maxRemoteCommitFeeRate()
+	if commitFeeRate <= maxCommitFeeRate {
+		return false
+	}
+
+	f.failFundingFlow(
+		peer, cid, lnwallet.ErrCommitFeeRateTooLarge(
+			commitFeeRate, maxCommitFeeRate,
+		),
+	)
+
+	return true
+}
+
 // fundeeProcessOpenChannel creates an initial 'ChannelReservation' within the
 // wallet, then responds to the source peer with an accept channel message
 // progressing the funding workflow.
@@ -1553,6 +1637,14 @@ func (f *Manager) fundeeProcessOpenChannel(peer lnpeer.Peer,
 
 	if len(pendingChans) > pendingChansLimit {
 		f.failFundingFlow(peer, cid, lnwire.ErrMaxPendingChannels)
+		return
+	}
+
+	// Enforce BOLT-02: the receiver MUST fail the channel if it considers
+	// feerate_per_kw unreasonably large. The initiator pays the commitment
+	// fee out of its own balance, so an absurd rate burns most of the
+	// channel capacity before either party can use it.
+	if f.checkCommitFeeRate(peer, cid, msg) {
 		return
 	}
 
@@ -4167,6 +4259,21 @@ func (f *Manager) handleChannelReady(peer lnpeer.Peer,
 		// AliasScid. The peer may resend channel_ready to rotate or
 		// update their alias for invoice route hints.
 		if channel.NegotiatedAliasFeature() && msg.AliasScid != nil {
+			if f.cfg.ValidatePeerAlias != nil {
+				err := f.cfg.ValidatePeerAlias(
+					channel.FundingOutpoint, *msg.AliasScid,
+				)
+				if err != nil {
+					log.Errorf("rejecting peer "+
+						"alias: %v", err)
+					f.handleChannelReadyBarriers.Delete(
+						msg.ChanID,
+					)
+
+					return
+				}
+			}
+
 			err := f.cfg.AliasManager.PutPeerAlias(
 				chanID, *msg.AliasScid,
 			)
@@ -4195,6 +4302,102 @@ func (f *Manager) handleChannelReady(peer lnpeer.Peer,
 
 		f.processChannelReady(peer, msg)
 	}()
+}
+
+// handleChannelReadyAlias handles the alias fields of a channel_ready
+// message. It validates and stores the peer's alias, and creates a local alias
+// with a channel_ready reply when the channel doesn't have one yet. It returns
+// false when a step fails and channel_ready handling should stop.
+func (f *Manager) handleChannelReadyAlias(peer lnpeer.Peer,
+	channel *channeldb.OpenChannel, msg *lnwire.ChannelReady,
+	firstVerNonce *musig2.Nonces) bool {
+
+	chanID := msg.ChanID
+
+	if !channel.NegotiatedAliasFeature() {
+		return true
+	}
+
+	// If the AliasScid field is nil, we must fail out. We will most
+	// likely not be able to route through the peer.
+	if msg.AliasScid == nil {
+		log.Debugf("Consider closing ChannelID(%v), peer does not "+
+			"implement the option-scid-alias feature properly",
+			chanID)
+
+		return false
+	}
+
+	if f.cfg.ValidatePeerAlias != nil {
+		err := f.cfg.ValidatePeerAlias(
+			channel.FundingOutpoint, *msg.AliasScid,
+		)
+		if err != nil {
+			log.Errorf("rejecting peer alias: %v", err)
+			return false
+		}
+	}
+
+	// We'll store the AliasScid so that invoice creation can use it.
+	err := f.cfg.AliasManager.PutPeerAlias(chanID, *msg.AliasScid)
+	if err != nil {
+		log.Errorf("unable to store peer's alias: %v", err)
+		return false
+	}
+
+	// If we do not have an alias stored, we'll create one now. This is
+	// only used in the upgrade case where a user toggles the
+	// option-scid-alias feature-bit to on. We'll also send the
+	// channel_ready message here in case the link is created before
+	// sendChannelReady is called.
+	aliases := f.cfg.AliasManager.GetAliases(
+		channel.ShortChannelID,
+	)
+	if len(aliases) != 0 {
+		return true
+	}
+
+	// No aliases were found so we'll request and store an alias and use
+	// it in the channel_ready message.
+	alias, err := f.cfg.AliasManager.RequestAlias()
+	if err != nil {
+		log.Errorf("unable to request alias: %v", err)
+		return false
+	}
+
+	err = f.cfg.AliasManager.AddLocalAlias(
+		alias, channel.ShortChannelID, false, false,
+	)
+	if err != nil {
+		log.Errorf("unable to add local alias: %v", err)
+		return false
+	}
+
+	secondPoint, err := channel.SecondCommitmentPoint()
+	if err != nil {
+		log.Errorf("unable to fetch second commitment point: %v",
+			err)
+		return false
+	}
+
+	channelReadyMsg := lnwire.NewChannelReady(
+		chanID, secondPoint,
+	)
+	channelReadyMsg.AliasScid = &alias
+
+	if firstVerNonce != nil {
+		channelReadyMsg.NextLocalNonce = lnwire.SomeMusig2Nonce( //nolint:ll
+			firstVerNonce.PubNonce,
+		)
+	}
+
+	err = peer.SendMessage(true, channelReadyMsg)
+	if err != nil {
+		log.Errorf("unable to send channel_ready: %v", err)
+		return false
+	}
+
+	return true
 }
 
 // processChannelReady completes the channel_ready handling after any required
@@ -4251,75 +4454,8 @@ func (f *Manager) processChannelReady(peer lnpeer.Peer,
 	// call to InsertNextRevocation in case the call to PutPeerAlias fails.
 	// If it were to fail on the first call to processChannelReady, we
 	// wouldn't want the channel to be usable yet.
-	if channel.NegotiatedAliasFeature() {
-		// If the AliasScid field is nil, we must fail out. We will
-		// most likely not be able to route through the peer.
-		if msg.AliasScid == nil {
-			log.Debugf("Consider closing ChannelID(%v), peer "+
-				"does not implement the option-scid-alias "+
-				"feature properly", chanID)
-			return
-		}
-
-		// We'll store the AliasScid so that invoice creation can use
-		// it.
-		err = f.cfg.AliasManager.PutPeerAlias(chanID, *msg.AliasScid)
-		if err != nil {
-			log.Errorf("unable to store peer's alias: %v", err)
-			return
-		}
-
-		// If we do not have an alias stored, we'll create one now.
-		// This is only used in the upgrade case where a user toggles
-		// the option-scid-alias feature-bit to on. We'll also send the
-		// channel_ready message here in case the link is created
-		// before sendChannelReady is called.
-		aliases := f.cfg.AliasManager.GetAliases(
-			channel.ShortChannelID,
-		)
-		if len(aliases) == 0 {
-			// No aliases were found so we'll request and store an
-			// alias and use it in the channel_ready message.
-			alias, err := f.cfg.AliasManager.RequestAlias()
-			if err != nil {
-				log.Errorf("unable to request alias: %v", err)
-				return
-			}
-
-			err = f.cfg.AliasManager.AddLocalAlias(
-				alias, channel.ShortChannelID, false, false,
-			)
-			if err != nil {
-				log.Errorf("unable to add local alias: %v",
-					err)
-				return
-			}
-
-			secondPoint, err := channel.SecondCommitmentPoint()
-			if err != nil {
-				log.Errorf("unable to fetch second "+
-					"commitment point: %v", err)
-				return
-			}
-
-			channelReadyMsg := lnwire.NewChannelReady(
-				chanID, secondPoint,
-			)
-			channelReadyMsg.AliasScid = &alias
-
-			if firstVerNonce != nil {
-				channelReadyMsg.NextLocalNonce = lnwire.SomeMusig2Nonce( //nolint:ll
-					firstVerNonce.PubNonce,
-				)
-			}
-
-			err = peer.SendMessage(true, channelReadyMsg)
-			if err != nil {
-				log.Errorf("unable to send channel_ready: %v",
-					err)
-				return
-			}
-		}
+	if !f.handleChannelReadyAlias(peer, channel, msg, firstVerNonce) {
+		return
 	}
 
 	// If the RemoteNextRevocation is set, it means that we have
@@ -5032,10 +5168,12 @@ func (f *Manager) handleInitFundingMsg(msg *InitFundingMsg) {
 	}
 
 	// First, we'll query the fee estimator for a fee that should get the
-	// commitment transaction confirmed by the next few blocks (conf target
-	// of 3). We target the near blocks here to ensure that we'll be able
-	// to execute a timely unilateral channel closure if needed.
-	commitFeePerKw, err := f.cfg.FeeEstimator.EstimateFeePerKW(3)
+	// commitment transaction confirmed by the next few blocks. We target
+	// the near blocks here to ensure that we'll be able to execute a
+	// timely unilateral channel closure if needed.
+	commitFeePerKw, err := f.cfg.FeeEstimator.EstimateFeePerKW(
+		commitFeeConfTarget,
+	)
 	if err != nil {
 		msg.Err <- err
 		return

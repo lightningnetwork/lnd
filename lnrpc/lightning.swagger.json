@@ -1762,7 +1762,7 @@
         ]
       },
       "delete": {
-        "summary": "lncli: `deletecanceledinvoice`\nDeleteCanceledInvoice removes a canceled invoice from the database. If the\ninvoice is not in the canceled state, an error will be returned.",
+        "summary": "lncli: `deletecanceledinvoice`\nDeleteCanceledInvoice removes a canceled invoice from the database. If the\ninvoice is not in the canceled state, an error will be returned. Ordinary\ninvoices whose preimage was released cannot be deleted, even if no funds\nwere collected, so their release history is retained.",
         "operationId": "Lightning_DeleteCanceledInvoice",
         "responses": {
           "200": {
@@ -2665,7 +2665,7 @@
         "parameters": [
           {
             "name": "start_height",
-            "description": "The height from which to list transactions, inclusive. If this value is\ngreater than end_height, transactions will be read in reverse.",
+            "description": "The height from which to list transactions, inclusive. If this value is\ngreater than end_height, the wallet reads the blocks in reverse, so\npagination (index_offset/max_transactions) walks the result set starting\nfrom the newest transaction rather than the oldest. For this comparison\nan end_height of -1 counts as the chain tip, not as a negative height,\nso start_height=0 with end_height=-1 (or an omitted end_height) walks\nthe result set from the oldest transaction. The ordering of the\ntransactions within the response is governed by the reverse flag either\nway.",
             "in": "query",
             "required": false,
             "type": "integer",
@@ -2673,7 +2673,7 @@
           },
           {
             "name": "end_height",
-            "description": "The height until which to list transactions, inclusive. To include\nunconfirmed transactions, this value should be set to -1, which will\nreturn transactions from start_height until the current chain tip and\nunconfirmed transactions. If no end_height is provided, the call will\ndefault to this option.",
+            "description": "The height until which to list transactions, inclusive. To include\nunconfirmed transactions, this value should be set to -1, which will\nreturn transactions from start_height until the current chain tip and\nunconfirmed transactions. If no end_height is provided, the call will\ndefault to this option. A value of -1 is treated as the chain tip when\ndetermining the read direction described for start_height, so it never\ncauses the blocks to be read in reverse on its own.",
             "in": "query",
             "required": false,
             "type": "integer",
@@ -2701,6 +2701,13 @@
             "required": false,
             "type": "integer",
             "format": "int64"
+          },
+          {
+            "name": "reverse",
+            "description": "If set, the transactions will be returned in reverse order, with the\noldest transaction first and unconfirmed transactions last. Otherwise,\nthe default ordering is used, which lists unconfirmed transactions\nfirst, followed by the most recent confirmed transactions down to the\noldest. Transactions with the same number of confirmations (e.g. several\ntransactions in the same block, or several unconfirmed transactions)\nkeep the order produced by the wallet in both modes, so the reverse\nordering is not an exact mirror of the default one for such ties.\n\nThis flag does not affect which transactions are selected: pagination\n(index_offset/max_transactions) walks the result set starting from the\noldest transaction (or from the newest when start_height is greater\nthan end_height), regardless of this flag, so the same page is selected\neither way; only the order of the transactions within the response\nchanges. This flag only applies to GetTransactions and is ignored by\nSubscribeTransactions.",
+            "in": "query",
+            "required": false,
+            "type": "boolean"
           }
         ],
         "tags": [
@@ -2871,7 +2878,7 @@
         "parameters": [
           {
             "name": "start_height",
-            "description": "The height from which to list transactions, inclusive. If this value is\ngreater than end_height, transactions will be read in reverse.",
+            "description": "The height from which to list transactions, inclusive. If this value is\ngreater than end_height, the wallet reads the blocks in reverse, so\npagination (index_offset/max_transactions) walks the result set starting\nfrom the newest transaction rather than the oldest. For this comparison\nan end_height of -1 counts as the chain tip, not as a negative height,\nso start_height=0 with end_height=-1 (or an omitted end_height) walks\nthe result set from the oldest transaction. The ordering of the\ntransactions within the response is governed by the reverse flag either\nway.",
             "in": "query",
             "required": false,
             "type": "integer",
@@ -2879,7 +2886,7 @@
           },
           {
             "name": "end_height",
-            "description": "The height until which to list transactions, inclusive. To include\nunconfirmed transactions, this value should be set to -1, which will\nreturn transactions from start_height until the current chain tip and\nunconfirmed transactions. If no end_height is provided, the call will\ndefault to this option.",
+            "description": "The height until which to list transactions, inclusive. To include\nunconfirmed transactions, this value should be set to -1, which will\nreturn transactions from start_height until the current chain tip and\nunconfirmed transactions. If no end_height is provided, the call will\ndefault to this option. A value of -1 is treated as the chain tip when\ndetermining the read direction described for start_height, so it never\ncauses the blocks to be read in reverse on its own.",
             "in": "query",
             "required": false,
             "type": "integer",
@@ -2907,6 +2914,13 @@
             "required": false,
             "type": "integer",
             "format": "int64"
+          },
+          {
+            "name": "reverse",
+            "description": "If set, the transactions will be returned in reverse order, with the\noldest transaction first and unconfirmed transactions last. Otherwise,\nthe default ordering is used, which lists unconfirmed transactions\nfirst, followed by the most recent confirmed transactions down to the\noldest. Transactions with the same number of confirmations (e.g. several\ntransactions in the same block, or several unconfirmed transactions)\nkeep the order produced by the wallet in both modes, so the reverse\nordering is not an exact mirror of the default one for such ties.\n\nThis flag does not affect which transactions are selected: pagination\n(index_offset/max_transactions) walks the result set starting from the\noldest transaction (or from the newest when start_height is greater\nthan end_height), regardless of this flag, so the same page is selected\neither way; only the order of the transactions within the response\nchanges. This flag only applies to GetTransactions and is ignored by\nSubscribeTransactions.",
+            "in": "query",
+            "required": false,
+            "type": "boolean"
           }
         ],
         "tags": [
@@ -3085,9 +3099,11 @@
         "OPEN",
         "SETTLED",
         "CANCELED",
-        "ACCEPTED"
+        "ACCEPTED",
+        "PENDING_SETTLE"
       ],
-      "default": "OPEN"
+      "default": "OPEN",
+      "description": " - SETTLED: An ordinary invoice collected every released payment HTLC. A later\nduplicate HTLC can still be pending or fail while the parent stays\nSETTLED. Check the relevant finalized successful HTLC amounts before\ncrediting. AMP retains its existing set-level settlement semantics;\nthis state does not add an AMP-finality guarantee.\n - CANCELED: The invoice was canceled, possibly after releasing its preimage if\ncollection failed. For ordinary invoices, check preimage_released;\nCANCELED alone does not mean the secret was never released. The amount\nactually collected is retained; cancellation does not refund successful\nHTLCs.\n - PENDING_SETTLE: An ordinary invoice released its preimage, but at least one HTLC still\nawaits its final outcome. The payer may reclaim a pending HTLC on\nchain, so its value must not yet be credited. Once every outcome is\nknown the invoice becomes SETTLED only if every released payment HTLC\nsucceeded. Otherwise it becomes CANCELED and retains the amount\ncollected from successful HTLCs. AMP invoices do not enter this state."
     },
     "PaymentPaymentStatus": {
       "type": "string",
@@ -5871,12 +5887,12 @@
         "amt_paid_sat": {
           "type": "string",
           "format": "int64",
-          "description": "The amount that was accepted for this invoice, in satoshis. This will ONLY\nbe set if this invoice has been settled or accepted. We provide this field\nas if the invoice was created with a zero value, then we need to record what\namount was ultimately accepted. Additionally, it's possible that the sender\npaid MORE that was specified in the original invoice. So we'll record that\nhere as well.\nNote: Output only, don't specify for creating an invoice."
+          "description": "The amount accepted for this invoice, in satoshis. It can differ from the\nrequested amount, including for zero-value invoices and overpayments.\nFor ordinary invoices this aggregate can include accepted or PENDING_SETTLE\nHTLCs. Even a SETTLED parent can contain a later pending duplicate HTLC.\nCredit only the successful value of the relevant SETTLED HTLCs, rather than\nthe requested amount or this aggregate alone. AMP retains its existing\nrelease-time accounting semantics.\nNote: Output only, don't specify for creating an invoice."
         },
         "amt_paid_msat": {
           "type": "string",
           "format": "int64",
-          "description": "The amount that was accepted for this invoice, in millisatoshis. This will\nONLY be set if this invoice has been settled or accepted. We provide this\nfield as if the invoice was created with a zero value, then we need to\nrecord what amount was ultimately accepted. Additionally, it's possible that\nthe sender paid MORE that was specified in the original invoice. So we'll\nrecord that here as well.\nNote: Output only, don't specify for creating an invoice."
+          "description": "The amount accepted for this invoice, in millisatoshis. It has the same\npending-value and retained-funds semantics as amt_paid_sat. For ordinary\ninvoices, use the amounts and states of the relevant finalized successful\nHTLCs before crediting, including when the parent already reports SETTLED.\nNote: Output only, don't specify for creating an invoice."
         },
         "state": {
           "$ref": "#/definitions/InvoiceInvoiceState",
@@ -5925,6 +5941,10 @@
         "blinded_path_config": {
           "$ref": "#/definitions/lnrpcBlindedPathConfig",
           "description": "Config values to use when creating blinded paths for this invoice. These\ncan be used to override the defaults config values provided in by the\nglobal config. This field is only used if is_blinded is true."
+        },
+        "preimage_released": {
+          "type": "boolean",
+          "description": "Whether lnd committed to releasing the preimage for this ordinary invoice,\nincluding when collection later failed. This is derived from the invoice\nand HTLC states, not from whether lnd knows the preimage. It does not prove\nthe payer received the preimage, and false does not guarantee the secret\nis unknown elsewhere. Clients must not infer preimage privacy from\nCANCELED alone when refunding a counterpart payment or reusing a hash.\nThis field is not supported for AMP invoices and is false for them.\nNote: Output only, don't specify for creating an invoice."
         }
       }
     },
@@ -6000,9 +6020,12 @@
       "enum": [
         "ACCEPTED",
         "SETTLED",
-        "CANCELED"
+        "CANCELED",
+        "PENDING_SETTLE",
+        "FAILED"
       ],
-      "default": "ACCEPTED"
+      "default": "ACCEPTED",
+      "description": " - SETTLED: An ordinary HTLC settled irrevocably. AMP retains its existing\npreimage-release settlement semantics.\n - PENDING_SETTLE: An ordinary HTLC released its preimage but its outcome is not final yet.\nIt becomes SETTLED on final success or FAILED if the payer reclaims it.\n - FAILED: An ordinary HTLC whose preimage was released but was not collected. This\ndiffers from CANCELED, which failed before preimage release."
     },
     "lnrpcKeyDescriptor": {
       "type": "object",
@@ -6747,6 +6770,23 @@
       ],
       "default": "SCRIPT_TYPE_PUBKEY_HASH"
     },
+    "lnrpcPartialPolicyUpdate": {
+      "type": "object",
+      "properties": {
+        "base_fee_msat": {
+          "type": "boolean",
+          "description": "If true, base_fee_msat is applied."
+        },
+        "fee_rate": {
+          "type": "boolean",
+          "description": "If true, fee_rate or fee_rate_ppm is applied. If both are zero, the fee\nrate is set to zero."
+        },
+        "time_lock_delta": {
+          "type": "boolean",
+          "description": "If true, time_lock_delta is applied."
+        }
+      }
+    },
     "lnrpcPayReq": {
       "type": "object",
       "properties": {
@@ -7159,6 +7199,10 @@
         "create_missing_edge": {
           "type": "boolean",
           "description": "Under unknown circumstances a channel can exist with a missing edge in\nthe graph database. This can cause an 'edge not found' error when calling\n`getchaninfo` and/or cause the default channel policy to be used during\nforwards. Setting this flag will recreate the edge if not found, allowing\nupdating this channel policy and fixing the missing edge problem for this\nchannel permanently. For fields not set in this command, the default\npolicy will be created."
+        },
+        "partial_update": {
+          "$ref": "#/definitions/lnrpcPartialPolicyUpdate",
+          "description": "If set, base_fee_msat, fee_rate/fee_rate_ppm and time_lock_delta are only\napplied if marked in this message. An unmarked field keeps its current\nvalue and must be left at zero. inbound_fee and the HTLC limits are not\naffected. With create_missing_edge, a recreated edge has no current\nvalue, so an unmarked field takes the default policy. If unset, the\nthree fields are always applied, with unset values treated as zero."
         }
       }
     },
@@ -7437,6 +7481,10 @@
           "type": "string",
           "format": "byte",
           "description": "Custom channel data that might be populated in custom channels."
+        },
+        "source_pub_key": {
+          "type": "string",
+          "description": "The source node from whose perspective the route was built. Defaults to\nthe node's own public key."
         }
       },
       "description": "A path through the channel graph which runs over one or more channels in\nsuccession. This struct carries all the information required to craft the\nSphinx onion packet, and send the payment along the first hop in the path. A\nroute is only selected as valid if all the channels have sufficient capacity to\ncarry the initial payment amount after fees are accounted for."

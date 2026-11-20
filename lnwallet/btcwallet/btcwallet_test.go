@@ -439,3 +439,42 @@ func TestCheckMempoolAcceptance(t *testing.T) {
 	err = wallet.CheckMempoolAcceptance(tx)
 	rt.NoError(err)
 }
+
+// TestChangeKeyScope checks that the change key scope follows the configured
+// internal address type.
+func TestChangeKeyScope(t *testing.T) {
+	t.Parallel()
+
+	testCases := []struct {
+		name     string
+		addrType lnwallet.AddressType
+		expected *waddrmgr.KeyScope
+	}{
+		{
+			name:     "not set",
+			addrType: lnwallet.UnknownAddressType,
+			expected: nil,
+		},
+		{
+			name:     "p2tr",
+			addrType: lnwallet.TaprootPubkey,
+			expected: nil,
+		},
+		{
+			name:     "p2wkh",
+			addrType: lnwallet.WitnessPubKey,
+			expected: &waddrmgr.KeyScopeBIP0084,
+		},
+	}
+
+	for _, tc := range testCases {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+
+			wallet := &BtcWallet{
+				cfg: &Config{InternalAddressType: tc.addrType},
+			}
+			require.Equal(t, tc.expected, wallet.changeKeyScope())
+		})
+	}
+}

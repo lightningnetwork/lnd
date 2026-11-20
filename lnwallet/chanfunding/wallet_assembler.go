@@ -258,6 +258,11 @@ type WalletConfig struct {
 	// DustLimit is the current dust limit. We'll use this to ensure that
 	// we don't make dust outputs on the funding transaction.
 	DustLimit btcutil.Amount
+
+	// ChangeAddressType is the type of the change output that is created
+	// by the coin selection. It must match the type of the address
+	// returned by the ChangeAddr closure of the funding request.
+	ChangeAddressType ChangeAddressType
 }
 
 // WalletAssembler is an instance of the Assembler interface that is backed by
@@ -345,11 +350,11 @@ func (w *WalletAssembler) ProvisionChannel(r *Request) (Intent, error) {
 		// transaction and what a change output would look like. Since
 		// a channel funding is always either a P2WSH or P2TR output,
 		// we can use just P2WSH here (both of these output types have
-		// the same length). And we currently don't support specifying a
-		// change output type, so we always use P2TR.
+		// the same length). The change output type is set by the
+		// wallet config.
 		var fundingOutputWeight input.TxWeightEstimator
 		fundingOutputWeight.AddP2WSHOutput()
-		changeType := P2TRChangeAddress
+		changeType := w.cfg.ChangeAddressType
 
 		var (
 			coins                []wallet.Coin

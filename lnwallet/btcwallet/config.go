@@ -8,6 +8,7 @@ import (
 	"github.com/btcsuite/btcd/wire/v2"
 	"github.com/btcsuite/btcwallet/chain"
 	"github.com/btcsuite/btcwallet/wallet"
+	"github.com/lightningnetwork/lnd/lnwallet"
 )
 
 var (
@@ -71,6 +72,11 @@ type Config struct {
 	// CoinSelectionStrategy is the strategy that is used for selecting
 	// coins when funding a transaction.
 	CoinSelectionStrategy wallet.CoinSelectionStrategy
+
+	// InternalAddressType is the address type that is used for the change
+	// outputs of transactions created by the wallet. If this is not set,
+	// btcwallet's default (P2TR) is used.
+	InternalAddressType lnwallet.AddressType
 
 	// WatchOnly indicates that the wallet was initialized with public key
 	// material only and does not contain any private keys.

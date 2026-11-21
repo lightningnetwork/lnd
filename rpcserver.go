@@ -5229,16 +5229,7 @@ func createRPCOpenChannel(ctx context.Context, r *rpcServer,
 		channel.UnsettledBalance += channel.PendingHtlcs[i].Amount
 	}
 
-	// If we initiated opening the channel, the zero height remote balance
-	// is the push amount. Otherwise, our starting balance is the push
-	// amount. If there is no push amount, these values will simply be zero.
-	if dbChannel.IsInitiator {
-		amt := dbChannel.InitialRemoteBalance.ToSatoshis()
-		channel.PushAmountSat = uint64(amt)
-	} else {
-		amt := dbChannel.InitialLocalBalance.ToSatoshis()
-		channel.PushAmountSat = uint64(amt)
-	}
+	channel.PushAmountSat = channelPushAmountSat(dbChannel)
 
 	if len(dbChannel.LocalShutdownScript) > 0 {
 		_, addresses, _, err := txscript.ExtractPkScriptAddrs(
@@ -5300,6 +5291,15 @@ func createRPCOpenChannel(ctx context.Context, r *rpcServer,
 	}
 
 	return channel, nil
+}
+
+// channelPushAmountSat returns the opening balance of the non-initiating peer.
+func channelPushAmountSat(channel *chanstate.OpenChannel) uint64 {
+	if channel.IsInitiator {
+		return uint64(channel.InitialRemoteBalance.ToSatoshis())
+	}
+
+	return uint64(channel.InitialLocalBalance.ToSatoshis())
 }
 
 // createRPCClosedChannel creates an *lnrpc.ClosedChannelSummary from a
@@ -5380,6 +5380,8 @@ func (r *rpcServer) createRPCClosedChannel(
 	case channeldb.ErrChannelNotFound:
 
 	case nil:
+		channel.PushAmountSat = channelPushAmountSat(histChan)
+
 		if histChan.IsZeroConf() && histChan.ZeroConfConfirmed() {
 			// If the channel was zero-conf, it may have confirmed.
 			// Populate the confirmed SCID if so.

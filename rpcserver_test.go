@@ -7,6 +7,7 @@ import (
 	"time"
 
 	"github.com/lightningnetwork/lnd/channeldb"
+	"github.com/lightningnetwork/lnd/chanstate"
 	"github.com/lightningnetwork/lnd/fn/v2"
 	"github.com/lightningnetwork/lnd/graph/db/models"
 	"github.com/lightningnetwork/lnd/invoices"
@@ -574,5 +575,27 @@ func TestChannelPolicyFromRequest(t *testing.T) {
 			tc.want.InboundFee = fn.None[models.InboundFee]()
 			require.Equal(t, tc.want, got)
 		})
+	}
+}
+
+// TestChannelPushAmountSat checks both views of the same opening commitment.
+func TestChannelPushAmountSat(t *testing.T) {
+	t.Parallel()
+
+	const funderBalance = lnwire.MilliSatoshi(9_000_000)
+	for _, push := range []lnwire.MilliSatoshi{0, 123_456} {
+		funder := &chanstate.OpenChannel{
+			IsInitiator:          true,
+			InitialLocalBalance:  funderBalance,
+			InitialRemoteBalance: push,
+		}
+		peer := &chanstate.OpenChannel{
+			InitialLocalBalance:  push,
+			InitialRemoteBalance: funderBalance,
+		}
+
+		want := uint64(push.ToSatoshis())
+		require.Equal(t, want, channelPushAmountSat(funder))
+		require.Equal(t, want, channelPushAmountSat(peer))
 	}
 }

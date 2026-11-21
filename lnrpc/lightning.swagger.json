@@ -4368,6 +4368,11 @@
           "type": "string",
           "format": "byte",
           "description": "The TLV encoded custom channel data records for this output, which might\nbe set for custom channels."
+        },
+        "push_amount_sat": {
+          "type": "string",
+          "format": "uint64",
+          "description": "The amount in satoshis that the channel initiator pushed to the other peer\nwhen opening the channel. Zero if no funds were pushed or this node no\nlonger has the opening balances for the channel."
         }
       }
     },

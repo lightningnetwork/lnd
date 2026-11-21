@@ -407,6 +407,11 @@ func testCoopCloseRBFWithReorg(ht *lntest.HarnessTest) {
 				bobClosedChan.CloseType)
 		}
 
+		// Both peers should report the original push from Alice to Bob.
+		wantPush := uint64(params.PushAmt)
+		require.Equal(ht, wantPush, aliceClosedChan.PushAmountSat)
+		require.Equal(ht, wantPush, bobClosedChan.PushAmountSat)
+
 		return nil
 	}, defaultTimeout)
 	require.NoError(ht, err)

@@ -5447,8 +5447,13 @@ type ChannelCloseSummary struct {
 	// The TLV encoded custom channel data records for this output, which might
 	// be set for custom channels.
 	CustomChannelData []byte `protobuf:"bytes,16,opt,name=custom_channel_data,json=customChannelData,proto3" json:"custom_channel_data,omitempty"`
-	unknownFields     protoimpl.UnknownFields
-	sizeCache         protoimpl.SizeCache
+	//
+	//The amount in satoshis that the channel initiator pushed to the other peer
+	//when opening the channel. Zero if no funds were pushed or this node no
+	//longer has the opening balances for the channel.
+	PushAmountSat uint64 `protobuf:"varint,17,opt,name=push_amount_sat,json=pushAmountSat,proto3" json:"push_amount_sat,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
 }
 
 func (x *ChannelCloseSummary) Reset() {
@@ -5591,6 +5596,13 @@ func (x *ChannelCloseSummary) GetCustomChannelData() []byte {
 		return x.CustomChannelData
 	}
 	return nil
+}
+
+func (x *ChannelCloseSummary) GetPushAmountSat() uint64 {
+	if x != nil {
+		return x.PushAmountSat
+	}
+	return 0
 }
 
 type Resolution struct {
@@ -19355,7 +19367,7 @@ const file_lightning_proto_rawDesc = "" +
 	"\x12ListAliasesRequest\"E\n" +
 	"\x13ListAliasesResponse\x12.\n" +
 	"\n" +
-	"alias_maps\x18\x01 \x03(\v2\x0f.lnrpc.AliasMapR\taliasMaps\"\xe6\x06\n" +
+	"alias_maps\x18\x01 \x03(\v2\x0f.lnrpc.AliasMapR\taliasMaps\"\x8e\a\n" +
 	"\x13ChannelCloseSummary\x12#\n" +
 	"\rchannel_point\x18\x01 \x01(\tR\fchannelPoint\x12\x1b\n" +
 	"\achan_id\x18\x02 \x01(\x04B\x020\x01R\x06chanId\x12\x1d\n" +
@@ -19376,7 +19388,8 @@ const file_lightning_proto_rawDesc = "" +
 	"\valias_scids\x18\x0e \x03(\x04R\n" +
 	"aliasScids\x12;\n" +
 	"\x18zero_conf_confirmed_scid\x18\x0f \x01(\x04B\x020\x01R\x15zeroConfConfirmedScid\x12.\n" +
-	"\x13custom_channel_data\x18\x10 \x01(\fR\x11customChannelData\"\x8a\x01\n" +
+	"\x13custom_channel_data\x18\x10 \x01(\fR\x11customChannelData\x12&\n" +
+	"\x0fpush_amount_sat\x18\x11 \x01(\x04R\rpushAmountSat\"\x8a\x01\n" +
 	"\vClosureType\x12\x15\n" +
 	"\x11COOPERATIVE_CLOSE\x10\x00\x12\x15\n" +
 	"\x11LOCAL_FORCE_CLOSE\x10\x01\x12\x16\n" +

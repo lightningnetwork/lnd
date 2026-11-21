@@ -1740,6 +1740,13 @@ message ChannelCloseSummary {
     // The TLV encoded custom channel data records for this output, which might
     // be set for custom channels.
     bytes custom_channel_data = 16;
+
+    /*
+    The amount in satoshis that the channel initiator pushed to the other peer
+    when opening the channel. Zero if no funds were pushed or this node no
+    longer has the opening balances for the channel.
+    */
+    uint64 push_amount_sat = 17;
 }
 
 enum ResolutionType {

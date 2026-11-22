@@ -29,7 +29,7 @@ func TestGossipSyncerQueueTimestampRange(t *testing.T) {
 	// Enable timestamp queries (third flag set to true).
 	msgChan, syncer, _ := newTestSyncer(
 		lnwire.ShortChannelID{BlockHeight: latestKnownHeight},
-		defaultEncoding, defaultChunkSize,
+		defaultChunkSize,
 		true, true, true,
 	)
 
@@ -68,7 +68,7 @@ func TestGossipSyncerQueueTimestampRangeFull(t *testing.T) {
 	// processed. Enable timestamp queries.
 	_, syncer, _ := newTestSyncer(
 		lnwire.ShortChannelID{BlockHeight: latestKnownHeight},
-		defaultEncoding, defaultChunkSize,
+		defaultChunkSize,
 		true, true, true,
 	)
 
@@ -104,7 +104,7 @@ func TestGossipSyncerQueueTimestampRangeConcurrent(t *testing.T) {
 	// Create and start a test syncer. Enable timestamp queries.
 	msgChan, syncer, _ := newTestSyncer(
 		lnwire.ShortChannelID{BlockHeight: latestKnownHeight},
-		defaultEncoding, defaultChunkSize,
+		defaultChunkSize,
 		true, true, true,
 	)
 	syncer.Start()
@@ -183,7 +183,7 @@ func TestGossipSyncerQueueShutdown(t *testing.T) {
 	// Create and start a test syncer. Enable timestamp queries.
 	_, syncer, _ := newTestSyncer(
 		lnwire.ShortChannelID{BlockHeight: latestKnownHeight},
-		defaultEncoding, defaultChunkSize,
+		defaultChunkSize,
 		true, true, true,
 	)
 	syncer.Start()
@@ -256,7 +256,7 @@ func TestGossipSyncerQueueInvariants(t *testing.T) {
 		// Create a test syncer. Enable timestamp queries.
 		msgChan, syncer, _ := newTestSyncer(
 			lnwire.ShortChannelID{BlockHeight: latestKnownHeight},
-			defaultEncoding, defaultChunkSize,
+			defaultChunkSize,
 			true, true, true,
 		)
 
@@ -366,7 +366,7 @@ func TestGossipSyncerQueueOrder(t *testing.T) {
 	// Enable timestamp queries.
 	msgChan, syncer, chanSeries := newTestSyncer(
 		lnwire.ShortChannelID{BlockHeight: latestKnownHeight},
-		defaultEncoding, defaultChunkSize,
+		defaultChunkSize,
 		true, true, true,
 	)
 

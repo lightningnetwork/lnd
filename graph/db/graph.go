@@ -967,6 +967,8 @@ func (c *VersionedGraph) FilterKnownChanIDs(ctx context.Context,
 
 			return nil, err
 		}
+
+		unknown = append(unknown, info.ShortChannelID.ToUint64())
 	}
 
 	return unknown, nil

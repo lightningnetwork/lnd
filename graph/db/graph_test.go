@@ -3631,6 +3631,15 @@ func testFilterKnownChanIDsZombieRevival(t *testing.T,
 		scid3 = lnwire.ShortChannelID{BlockHeight: 3}
 	)
 
+	// Add one live channel, so the graph has edges and the filter has to
+	// tell known channels apart from unknown ones.
+	node1 := createTestVertex(t, v)
+	require.NoError(t, graph.AddNode(ctx, node1))
+	node2 := createTestVertex(t, v)
+	require.NoError(t, graph.AddNode(ctx, node2))
+	channel, _ := createEdge(v, 100, 0, 0, 0, node1, node2)
+	require.NoError(t, graph.AddChannelEdge(ctx, channel))
+
 	vGraph := NewVersionedGraph(graph, v)
 	isZombie := func(scid lnwire.ShortChannelID) bool {
 		zombie, _, _, err := vGraph.IsZombieEdge(
@@ -3667,7 +3676,7 @@ func testFilterKnownChanIDsZombieRevival(t *testing.T,
 
 	// Call FilterKnownChanIDs with an isStillZombie call-back that would
 	// result in the current zombies still be considered as zombies.
-	_, err = vGraph.FilterKnownChanIDs(ctx, []ChannelUpdateInfo{
+	unknown, err := vGraph.FilterKnownChanIDs(ctx, []ChannelUpdateInfo{
 		{ShortChannelID: scid1, Version: v},
 		{ShortChannelID: scid2, Version: v},
 		{ShortChannelID: scid3, Version: v},
@@ -3679,11 +3688,12 @@ func testFilterKnownChanIDsZombieRevival(t *testing.T,
 	require.True(t, isZombie(scid1))
 	require.True(t, isZombie(scid2))
 	require.False(t, isZombie(scid3))
+	require.Equal(t, []uint64{scid3.ToUint64()}, unknown)
 
 	// Now call it again but this time with an isStillZombie call-back
 	// that would result in channel with SCID 2 no longer being
 	// considered a zombie.
-	_, err = vGraph.FilterKnownChanIDs(ctx, []ChannelUpdateInfo{
+	unknown, err = vGraph.FilterKnownChanIDs(ctx, []ChannelUpdateInfo{
 		{ShortChannelID: scid1, Version: v},
 		{
 			ShortChannelID: scid2,
@@ -3696,10 +3706,16 @@ func testFilterKnownChanIDsZombieRevival(t *testing.T,
 	})
 	require.NoError(t, err)
 
-	// Show that SCID 2 has been marked as live.
+	// Show that SCID 2 has been marked as live, and that it's returned
+	// with the unknown channels, so that it's queried for. Otherwise
+	// nothing would fetch its announcement, and it would stay missing
+	// from the graph.
 	require.True(t, isZombie(scid1))
 	require.False(t, isZombie(scid2))
 	require.False(t, isZombie(scid3))
+	require.ElementsMatch(
+		t, []uint64{scid2.ToUint64(), scid3.ToUint64()}, unknown,
+	)
 }
 
 // testFilterKnownChanIDs tests that we're able to properly perform the set

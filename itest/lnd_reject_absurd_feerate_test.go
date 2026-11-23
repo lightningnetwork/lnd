@@ -36,6 +36,17 @@ func testRejectAbsurdCommitFeerate(ht *lntest.HarnessTest) {
 	// A feerate no realistic mempool needs a commitment to beat.
 	const absurdFeeRate = chainfee.SatPerKWeight(100000)
 
+	// The anchor commitment fee cap Alice runs with, in sat/vbyte, and the
+	// same cap in sat/kw. Anchor channels never propose a rate above it,
+	// so both the absurd rate and the reserve case rate must sit at or
+	// below it.
+	const anchorFeeCapSatPerVByte = 400
+	anchorFeeCap := chainfee.SatPerKVByte(
+		anchorFeeCapSatPerVByte * 1000,
+	).FeePerKWeight()
+	require.LessOrEqual(ht, int64(absurdFeeRate), int64(anchorFeeCap),
+		"the anchor fee cap must not lower the absurd rate")
+
 	// Start a fee service per node. --fee.url is appended after the
 	// harness's own value, and the last occurrence of a scalar option
 	// wins, so each node ends up with its own estimator.
@@ -56,12 +67,12 @@ func testRejectAbsurdCommitFeerate(ht *lntest.HarnessTest) {
 
 	// Bob is the fundee and enforces both checks. Alice is the initiator,
 	// and is given a high anchor fee cap so that the rate she may propose
-	// is not what limits the absurd case below (the default cap is 10
-	// sat/vbyte). The cap has no effect on a tweakless channel, which is
-	// what the reserve case opens.
+	// is not what limits the absurd case or the reserve case below (the
+	// default cap is 10 sat/vbyte).
 	alice := ht.NewNodeWithCoins("Alice", []string{
 		"--fee.url=" + aliceFees.URL(),
-		"--max-commit-fee-rate-anchors=400",
+		fmt.Sprintf("--max-commit-fee-rate-anchors=%d",
+			anchorFeeCapSatPerVByte),
 	})
 	bob := ht.NewNode("Bob", []string{
 		"--fee.url=" + bobFees.URL(),
@@ -139,22 +150,31 @@ func testRejectAbsurdCommitFeerate(ht *lntest.HarnessTest) {
 	// refusing the open. The fundee is pushed nothing, so it sits at zero
 	// and is trivially at or below the same reserve.
 	//
-	// The channel is opened tweakless, whose commitment weight has no
-	// anchor outputs, so the whole commitment fee comes off the amount
-	// left over after it.
+	// The channel is an anchor channel, so the initiator pays both the
+	// commitment fee at the anchor commitment weight and the value of the
+	// two anchor outputs out of its balance.
 	const (
 		reserveChanAmt = btcutil.Amount(100_000)
-		commitWeight   = input.CommitWeight
+		commitWeight   = input.AnchorCommitWeight
+		anchorsValue   = 2 * lnwallet.AnchorSize
 	)
 
 	// Just under the fifth-of-capacity cap the fundee enforces.
 	initiatorReserve := uint64(reserveChanAmt/5) - 1
 
-	// The smallest commitment fee that drops the initiator's balance to or
-	// below the reserve it named, and the feerate that produces it.
-	minFee := uint64(reserveChanAmt) - initiatorReserve
+	// The smallest commitment fee that, together with the anchors, drops
+	// the initiator's balance to or below the reserve it named, and the
+	// feerate that produces it. With a 100,000 sat channel and a 19,999
+	// sat reserve this is a fee of 79,341 sat, or 70,589 sat/kw at the
+	// 1,124 weight anchor commitment.
+	minFee := uint64(reserveChanAmt-anchorsValue) - initiatorReserve
 	minFeeRate := (minFee*1000 + commitWeight - 1) / commitWeight
 	reserveCaseFeeRate := chainfee.SatPerKWeight(minFeeRate)
+
+	// Alice proposes her estimate capped at the anchor fee cap, so the
+	// rate must fit under the cap for her to propose it unchanged.
+	require.LessOrEqual(ht, int64(reserveCaseFeeRate), int64(anchorFeeCap),
+		"the anchor fee cap must not lower the reserve case rate")
 
 	// The fundee's own rate must leave its feerate bound clear of the
 	// rate the initiator proposes, or the feerate check would reject the
@@ -165,7 +185,7 @@ func testRejectAbsurdCommitFeerate(ht *lntest.HarnessTest) {
 		"the reserve case needs the feerate check not to fire first")
 
 	fee := reserveCaseFeeRate.FeeForWeight(commitWeight)
-	initiatorBalance := reserveChanAmt - fee
+	initiatorBalance := reserveChanAmt - fee - anchorsValue
 
 	ht.Logf("reserve case: capacity=%v, fee=%v, initiator balance=%v, "+
 		"reserve=%v", int64(reserveChanAmt), int64(fee),
@@ -196,7 +216,7 @@ func testRejectAbsurdCommitFeerate(ht *lntest.HarnessTest) {
 	params := lntest.OpenChannelParams{
 		Amt:                  reserveChanAmt,
 		Private:              true,
-		CommitmentType:       lnrpc.CommitmentType_STATIC_REMOTE_KEY,
+		CommitmentType:       lnrpc.CommitmentType_ANCHORS,
 		RemoteChanReserveSat: initiatorReserve,
 	}
 	ht.OpenChannelAssertErr(
@@ -211,7 +231,7 @@ func testRejectAbsurdCommitFeerate(ht *lntest.HarnessTest) {
 	ht.OpenChannel(alice, bob, lntest.OpenChannelParams{
 		Amt:                  reserveChanAmt,
 		Private:              true,
-		CommitmentType:       lnrpc.CommitmentType_STATIC_REMOTE_KEY,
+		CommitmentType:       lnrpc.CommitmentType_ANCHORS,
 		RemoteChanReserveSat: initiatorReserve,
 	})
 

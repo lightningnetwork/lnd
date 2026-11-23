@@ -1299,6 +1299,18 @@ func newServer(ctx context.Context, cfg *Config, listenAddrs []net.Addr,
 		AssumeChannelValid:  cfg.Routing.AssumeChannelValid,
 		StrictZombiePruning: strictPruning,
 		IsAlias:             aliasmgr.IsAlias,
+		IsClosedChannel: func(chanPoint wire.OutPoint) (bool, error) {
+			_, err := chanStateDB.FetchClosedChannel(&chanPoint)
+			switch {
+			case errors.Is(err, channeldb.ErrClosedChannelNotFound):
+				return false, nil
+
+			case err != nil:
+				return false, err
+			}
+
+			return true, nil
+		},
 	})
 	if err != nil {
 		return nil, fmt.Errorf("can't create graph builder: %w", err)

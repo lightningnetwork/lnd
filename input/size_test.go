@@ -1590,6 +1590,90 @@ func TestWitnessSizes(t *testing.T) {
 	}
 }
 
+// TestHtlcRevokeSizeUpperBound asserts that the witness generated for the
+// revoked HTLC witness types never exceeds the size reported by
+// SizeUpperBound. The witness types are named from our perspective, while the
+// HTLC script on the remote party's commitment is named from theirs, so an HTLC
+// we offered is spent with the accepted HTLC script and vice versa.
+func TestHtlcRevokeSizeUpperBound(t *testing.T) {
+	t.Parallel()
+
+	testCases := []struct {
+		name        string
+		witnessType input.StandardWitnessType
+		confirmed   bool
+	}{
+		{
+			name:        "offered revoke",
+			witnessType: input.HtlcOfferedRevoke,
+		},
+		{
+			name:        "offered revoke confirmed",
+			witnessType: input.HtlcOfferedRevoke,
+			confirmed:   true,
+		},
+		{
+			name:        "accepted revoke",
+			witnessType: input.HtlcAcceptedRevoke,
+		},
+		{
+			name:        "accepted revoke confirmed",
+			witnessType: input.HtlcAcceptedRevoke,
+			confirmed:   true,
+		},
+	}
+
+	for _, tc := range testCases {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+
+			// An HTLC we offered is a received HTLC on the remote
+			// party's commitment, and vice versa.
+			var (
+				witScript []byte
+				err       error
+			)
+			switch tc.witnessType {
+			case input.HtlcOfferedRevoke:
+				witScript, err = input.ReceiverHTLCScript(
+					testCLTVExpiry, testPubkey, testPubkey,
+					testPubkey, testHash160, tc.confirmed,
+				)
+
+			case input.HtlcAcceptedRevoke:
+				witScript, err = input.SenderHTLCScript(
+					testPubkey, testPubkey, testPubkey,
+					testHash160, tc.confirmed,
+				)
+			}
+			require.NoError(t, err)
+
+			signDesc := &input.SignDescriptor{
+				WitnessScript: witScript,
+				KeyDesc: keychain.KeyDescriptor{
+					PubKey: testPubkey,
+				},
+				DoubleTweak: testPrivkey,
+				Output:      &wire.TxOut{Value: 1000},
+			}
+
+			genWitness := tc.witnessType.WitnessGenerator(
+				&dummySigner{}, signDesc,
+			)
+			script, err := genWitness(testTx, nil, 0)
+			require.NoError(t, err)
+
+			upperBound, _, err := tc.witnessType.SizeUpperBound()
+			require.NoError(t, err)
+
+			witnessSize := lntypes.WeightUnit(
+				script.Witness.SerializeSize(),
+			)
+			require.LessOrEqual(t, witnessSize, upperBound)
+		})
+	}
+}
+
 // genTimeoutTx creates a signed HTLC second level timeout tx.
 func genTimeoutTx(t *testing.T,
 	chanType channeldb.ChannelType) *wire.MsgTx {

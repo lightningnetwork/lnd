@@ -911,13 +911,17 @@ func (wt StandardWitnessType) SizeUpperBound() (lntypes.WeightUnit,
 		return ToLocalPenaltyWitnessSize, false, nil
 
 	// The revocation output on a revoked HTLC that we offered to the remote
-	// party.
+	// party. On the remote party's commitment this is a received HTLC, so
+	// the witness carries the accepted HTLC script. We use the confirmed
+	// size since it is an upper bound for both legacy and anchor channels.
 	case HtlcOfferedRevoke:
-		return OfferedHtlcPenaltyWitnessSize, false, nil
+		return AcceptedHtlcPenaltyWitnessSizeConfirmed, false, nil
 
-	// The revocation output on a revoked HTLC that was sent to us.
+	// The revocation output on a revoked HTLC that was sent to us. On the
+	// remote party's commitment this is an offered HTLC, so the witness
+	// carries the offered HTLC script.
 	case HtlcAcceptedRevoke:
-		return AcceptedHtlcPenaltyWitnessSize, false, nil
+		return OfferedHtlcPenaltyWitnessSizeConfirmed, false, nil
 
 	// The revocation output of a second level output of an HTLC.
 	case HtlcSecondLevelRevoke:

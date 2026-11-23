@@ -159,7 +159,7 @@ func (tx *readWriteTx) Commit() error {
 	return nil
 }
 
-// OnCommit sets the commit callback (overriding if already set).
+// OnCommit adds a callback that's run once the transaction commits.
 func (tx *readWriteTx) OnCommit(cb func()) {
 	tx.stm.OnCommit(cb)
 }

@@ -291,8 +291,6 @@ github.com/lightningnetwork/lnd/fn/v2 v2.0.10 h1:8GiXDXmF9QPnphLVxcn0KAgDTfRsyQo
 github.com/lightningnetwork/lnd/fn/v2 v2.0.10/go.mod h1:wg3OyJ9eS14Az8HAZMMxqVjJ+nkKw97uPF/45ICOvs4=
 github.com/lightningnetwork/lnd/tlv v1.4.1 h1:cCx8H4mC6TZ2Pc0aNEYxTqdZoRQA7+XNJa95gciKXNU=
 github.com/lightningnetwork/lnd/tlv v1.4.1/go.mod h1:RvxxfVTCctKzKVWJDyQZqSdu3JV7OjaiQGF06hBCZ+s=
-github.com/lightningnetwork/lnd/tor v1.2.0 h1:Xled9KE+rdTPEMDVJE5VrSoMNkJq6EfH3NCF6pLP4h4=
-github.com/lightningnetwork/lnd/tor v1.2.0/go.mod h1:tB6/Hsk5nIm6xkOPaidd4q1at4x4gF6Bpu/t2UQxYgM=
 github.com/ltcsuite/ltcd v0.0.0-20190101042124-f37f8bf35796 h1:sjOGyegMIhvgfq5oaue6Td+hxZuf3tDC8lAPrFldqFw=
 github.com/ltcsuite/ltcd v0.0.0-20190101042124-f37f8bf35796/go.mod h1:3p7ZTf9V1sNPI5H8P3NkTFF4LuwMdPl2DodF60qAKqY=
 github.com/ltcsuite/ltcutil v0.0.0-20181217130922-17f3b04680b6/go.mod h1:8Vg/LTOO0KYa/vlHWJ6XZAevPQThGH5sufO0Hrou/lA=

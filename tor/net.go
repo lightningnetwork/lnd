@@ -111,9 +111,22 @@ func (p *ProxyNet) Dial(network, address string,
 	)
 }
 
+// skipProxy reports whether a lookup or connection for host should bypass Tor,
+// which is the case for clearnet hosts once SkipProxyForClearNetTargets is set.
+// Dial applies the same rule, so a host we'd connect to directly is also
+// resolved directly.
+func (p *ProxyNet) skipProxy(host string) bool {
+	return p.SkipProxyForClearNetTargets && !IsOnionHost(host)
+}
+
 // LookupHost uses the Tor LookupHost function in order to resolve hosts over
-// Tor.
+// Tor, unless SkipProxyForClearNetTargets is set and the host isn't an onion
+// host, in which case the host is resolved directly.
 func (p *ProxyNet) LookupHost(host string) ([]string, error) {
+	if p.skipProxy(host) {
+		return (&ClearNet{}).LookupHost(host)
+	}
+
 	return LookupHost(host, p.SOCKS)
 }
 
@@ -129,12 +142,26 @@ func (p *ProxyNet) LookupSRV(service, proto,
 }
 
 // ResolveTCPAddr uses the Tor ResolveTCPAddr function in order to resolve TCP
-// addresses over Tor.
+// addresses over Tor, unless SkipProxyForClearNetTargets is set and the host
+// isn't an onion host, in which case the address is resolved directly.
 func (p *ProxyNet) ResolveTCPAddr(network, address string) (*net.TCPAddr, error) {
 	switch network {
 	case "tcp", "tcp4", "tcp6", "onion":
 	default:
 		return nil, errors.New("cannot dial non-tcp network via Tor")
 	}
+
+	host, _, err := net.SplitHostPort(address)
+	if err != nil {
+		return nil, err
+	}
+	if p.skipProxy(host) {
+		if network == "onion" {
+			network = "tcp"
+		}
+
+		return (&ClearNet{}).ResolveTCPAddr(network, address)
+	}
+
 	return ResolveTCPAddr(address, p.SOCKS)
 }

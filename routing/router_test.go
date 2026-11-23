@@ -3,6 +3,7 @@ package routing
 import (
 	"bytes"
 	"context"
+	"errors"
 	"fmt"
 	"image/color"
 	"math"
@@ -2066,6 +2067,13 @@ func TestInboundOutbound(t *testing.T) {
 			outgoingRate: 100,
 		},
 		{
+			name:         "capped positive inbound fee rate",
+			incomingBase: 0,
+			incomingRate: 20_000_000,
+			outgoingBase: 0,
+			outgoingRate: 0,
+		},
+		{
 			name:         "small negative inbound and outbound fee",
 			incomingBase: -10,
 			incomingRate: -50,
@@ -2147,16 +2155,18 @@ func testInboundOutboundFee(t *testing.T, outgoingAmt uint64, inBase,
 
 	// We compute the incoming amount based on the outgoing amount, which
 	// mimicks the path finding process.
-	incomingAmt := incomingFromOutgoing(
+	incomingAmt, err := incomingFromOutgoing(
 		lnwire.MilliSatoshi(outgoingAmt), incomingEdge,
 		outgoingEdge,
 	)
+	require.NoError(t, err)
 
 	// We do the reverse and compute the outgoing amount based on the
 	// incoming amount.
-	outgoingAmtNew := outgoingFromIncoming(
+	outgoingAmtNew, err := outgoingFromIncoming(
 		incomingAmt, incomingEdge, outgoingEdge,
 	)
+	require.NoError(t, err)
 
 	// We require that the incoming amount is always larger than or equal to
 	// the outgoing amount, because total fees (=incoming-outgoing) should
@@ -2178,6 +2188,83 @@ func testInboundOutboundFee(t *testing.T, outgoingAmt uint64, inBase,
 		t, int64(outgoingAmtNew), int64(outgoingAmt), debugStr,
 		"expected outgoingAmtNew >= outgoingAmt",
 	)
+}
+
+func TestIncomingFromOutgoingCheckedArithmetic(t *testing.T) {
+	incoming := &unifiedEdge{inboundFees: models.InboundFee{Base: -10}}
+	outgoing := &unifiedEdge{policy: &models.CachedEdgePolicy{
+		FeeBaseMSat: 5,
+	}}
+	amount, err := incomingFromOutgoing(100, incoming, outgoing)
+	require.NoError(t, err)
+	require.Equal(t, lnwire.MilliSatoshi(100), amount)
+
+	_, err = incomingFromOutgoing(
+		lnwire.MilliSatoshi(^uint64(0)), incoming, outgoing,
+	)
+	require.Error(t, err)
+}
+
+// TestSenderAmtBackwardPassFeeOverflow asserts that a fee which can't be
+// represented is reported as a fee overflow, and not as a missing channel.
+func TestSenderAmtBackwardPassFeeOverflow(t *testing.T) {
+	t.Parallel()
+
+	// The last hop is a local channel, for which edge selection doesn't
+	// look at the outbound fee. The fee of the previous hop is based on
+	// this policy, so the base fee pushes the incoming amount out of
+	// range.
+	unifiers := []*edgeUnifier{{
+		edges: []*unifiedEdge{{
+			policy: &models.CachedEdgePolicy{ChannelID: 1},
+		}},
+	}, {
+		localChan: true,
+		edges: []*unifiedEdge{{
+			policy: &models.CachedEdgePolicy{
+				ChannelID: 2,
+				FeeBaseMSat: lnwire.MilliSatoshi(
+					^uint64(0) - 1,
+				),
+			},
+		}},
+	}}
+
+	_, _, err := senderAmtBackwardPass(
+		unifiers, fn.Some(lnwire.MilliSatoshi(1000)),
+		&mockBandwidthHints{},
+	)
+
+	var overflowErr ErrFeeOverflow
+	require.ErrorAs(t, err, &overflowErr)
+	require.Equal(t, 0, overflowErr.position)
+
+	var noChanErr ErrNoChannel
+	require.False(t, errors.As(err, &noChanErr))
+	require.ErrorContains(t, err, "fee overflow at node index 0")
+}
+
+func TestOutgoingFromIncomingWideArithmetic(t *testing.T) {
+	incoming := &unifiedEdge{policy: &models.CachedEdgePolicy{}}
+	outgoing := &unifiedEdge{policy: &models.CachedEdgePolicy{
+		FeeBaseMSat: 1,
+	}}
+
+	amount, err := outgoingFromIncoming(
+		lnwire.MilliSatoshi(^uint64(0)), incoming, outgoing,
+	)
+	require.NoError(t, err)
+	require.Equal(t, lnwire.MilliSatoshi(^uint64(0)-1), amount)
+
+	outgoing.policy.FeeBaseMSat = 100
+	_, err = outgoingFromIncoming(1, incoming, outgoing)
+	require.Error(t, err)
+
+	outgoing.policy.FeeBaseMSat = 0
+	outgoing.policy.FeeProportionalMillionths = lnwire.MilliSatoshi(1 << 63)
+	amount, err = outgoingFromIncoming(10, incoming, outgoing)
+	require.NoError(t, err)
+	require.Equal(t, lnwire.MilliSatoshi(1), amount)
 }
 
 // FuzzInboundOutbound tests the incoming and outgoing amount calculation

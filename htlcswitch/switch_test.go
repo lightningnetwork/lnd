@@ -2925,7 +2925,7 @@ func TestLocalPaymentNoForwardingEvents(t *testing.T) {
 
 	// We'll now craft and send a payment from Alice to Bob.
 	amount := lnwire.NewMSatFromSatoshis(btcutil.SatoshiPerBitcoin)
-	htlcAmt, totalTimelock, hops := generateHops(
+	htlcAmt, totalTimelock, hops := generateHops(t,
 		amount, testStartingHeight, n.firstBobChannelLink,
 	)
 
@@ -2984,7 +2984,7 @@ func TestMultiHopPaymentForwardingEvents(t *testing.T) {
 	// Carol via Bob.
 	const numPayments = 10
 	finalAmt := lnwire.NewMSatFromSatoshis(100000)
-	htlcAmt, totalTimelock, hops := generateHops(
+	htlcAmt, totalTimelock, hops := generateHops(t,
 		finalAmt, testStartingHeight, n.firstBobChannelLink,
 		n.carolChannelLink,
 	)
@@ -3140,7 +3140,7 @@ func TestUpdateFailMalformedHTLCErrorConversion(t *testing.T) {
 		// With the decoder modified, we'll now attempt to send a
 		// payment from Alice to carol.
 		finalAmt := lnwire.NewMSatFromSatoshis(100000)
-		htlcAmt, totalTimelock, hops := generateHops(
+		htlcAmt, totalTimelock, hops := generateHops(t,
 			finalAmt, testStartingHeight, n.firstBobChannelLink,
 			n.carolChannelLink,
 		)
@@ -3663,8 +3663,10 @@ func (n *threeHopNetwork) sendThreeHopPayment(t *testing.T) (*lnwire.UpdateAddHT
 
 	amount := lnwire.NewMSatFromSatoshis(btcutil.SatoshiPerBitcoin)
 
-	htlcAmt, totalTimelock, hops := generateHops(amount, testStartingHeight,
-		n.firstBobChannelLink, n.carolChannelLink)
+	htlcAmt, totalTimelock, hops := generateHops(
+		t, amount, testStartingHeight,
+		n.firstBobChannelLink, n.carolChannelLink,
+	)
 	blob, err := generateRoute(hops...)
 	if err != nil {
 		t.Fatal(err)
@@ -4754,7 +4756,7 @@ func TestSwitchDustForwarding(t *testing.T) {
 	sendDustHtlcs(t, n, false, amt, aliceBobFirstHop, numHTLCs)
 
 	// Generate the parameters needed for Bob to send another dust HTLC.
-	_, timelock, hops := generateHops(
+	_, timelock, hops := generateHops(t,
 		amt, testStartingHeight, n.aliceChannelLink,
 	)
 
@@ -4836,7 +4838,7 @@ func TestSwitchDustForwarding(t *testing.T) {
 
 	// Generate the parameters needed for bob to send a non-dust HTLC.
 	nondustAmt := lnwire.NewMSatFromSatoshis(10_000)
-	_, _, hops = generateHops(
+	_, _, hops = generateHops(t,
 		nondustAmt, testStartingHeight, n.aliceChannelLink,
 	)
 
@@ -4876,7 +4878,7 @@ func TestSwitchDustForwarding(t *testing.T) {
 	// Introduce Carol into the mix and assert that sending a multi-hop
 	// dust HTLC to Alice will fail. Bob should fail back the HTLC with a
 	// temporary channel failure.
-	carolAmt, carolTimelock, carolHops := generateHops(
+	carolAmt, carolTimelock, carolHops := generateHops(t,
 		amt, testStartingHeight, n.secondBobChannelLink,
 		n.aliceChannelLink,
 	)
@@ -4914,7 +4916,7 @@ func TestSwitchDustForwarding(t *testing.T) {
 	)
 
 	// Send an HTLC from Alice to Carol and assert that it gets failed.
-	htlcAmt, totalTimelock, aliceHops := generateHops(
+	htlcAmt, totalTimelock, aliceHops := generateHops(t,
 		amt, testStartingHeight, n.firstBobChannelLink,
 		n.carolChannelLink,
 	)
@@ -4978,7 +4980,7 @@ func sendDustHtlcs(t *testing.T, n *threeHopNetwork, alice bool,
 	}
 
 	// Create hops that will be used in the onion payload.
-	htlcAmt, totalTimelock, hops := generateHops(
+	htlcAmt, totalTimelock, hops := generateHops(t,
 		amt, testStartingHeight, destLink,
 	)
 

@@ -475,8 +475,9 @@ func TestChannelLinkSingleHopPayment(t *testing.T) {
 	}
 
 	amount := lnwire.NewMSatFromSatoshis(btcutil.SatoshiPerBitcoin)
-	htlcAmt, totalTimelock, hops := generateHops(amount, testStartingHeight,
-		n.bobChannelLink)
+	htlcAmt, totalTimelock, hops := generateHops(
+		t, amount, testStartingHeight, n.bobChannelLink,
+	)
 
 	// Wait for:
 	// * HTLC add request to be sent to bob.
@@ -592,7 +593,7 @@ func testChannelLinkMultiHopPayment(t *testing.T,
 	}
 
 	amount := lnwire.NewMSatFromSatoshis(btcutil.SatoshiPerBitcoin)
-	htlcAmt, totalTimelock, hops := generateHops(amount,
+	htlcAmt, totalTimelock, hops := generateHops(t, amount,
 		testStartingHeight,
 		n.firstBobChannelLink, n.carolChannelLink)
 
@@ -871,7 +872,7 @@ func TestChannelLinkCancelFullCommitment(t *testing.T) {
 	count := int(maxInflightHtlcs)
 	amt := lnwire.NewMSatFromSatoshis(20000)
 
-	htlcAmt, totalTimelock, hopsForwards := generateHops(amt,
+	htlcAmt, totalTimelock, hopsForwards := generateHops(t, amt,
 		testStartingHeight, n.bobChannelLink)
 
 	firstHop := n.aliceChannelLink.ShortChanID()
@@ -966,7 +967,7 @@ func TestExitNodeHTLCTimelockExceedsPayload(t *testing.T) {
 	t.Cleanup(n.stop)
 
 	const amount = btcutil.SatoshiPerBitcoin
-	htlcAmt, htlcExpiry, hops := generateHops(
+	htlcAmt, htlcExpiry, hops := generateHops(t,
 		amount, testStartingHeight, n.firstBobChannelLink,
 	)
 
@@ -1005,7 +1006,7 @@ func TestExitNodeTimelockPayloadExceedsHTLC(t *testing.T) {
 	t.Cleanup(n.stop)
 
 	const amount = btcutil.SatoshiPerBitcoin
-	htlcAmt, htlcExpiry, hops := generateHops(
+	htlcAmt, htlcExpiry, hops := generateHops(t,
 		amount, testStartingHeight, n.firstBobChannelLink,
 	)
 
@@ -1063,7 +1064,7 @@ func TestExitNodeHTLCUnderpaysPayloadAmount(t *testing.T) {
 			underpaymentRand%(amount-1) + 1,
 		)
 
-		htlcAmt, htlcExpiry, hops := generateHops(
+		htlcAmt, htlcExpiry, hops := generateHops(t,
 			amount, testStartingHeight, n.firstBobChannelLink,
 		)
 
@@ -1109,7 +1110,7 @@ func TestExitNodeHTLCExceedsAmountPayload(t *testing.T) {
 			overpaymentRand%(amount-1) + 1,
 		)
 
-		htlcAmt, htlcExpiry, hops := generateHops(amount,
+		htlcAmt, htlcExpiry, hops := generateHops(t, amount,
 			testStartingHeight, n.firstBobChannelLink)
 
 		// In order to exercise this case, we'll now _manually_ modify
@@ -1153,7 +1154,7 @@ func TestLinkForwardTimelockPolicyMismatch(t *testing.T) {
 	// Generate the route over two hops, ignoring the total time lock that
 	// we'll need to use for the first HTLC in order to have a sufficient
 	// time-lock value to account for the decrements over the entire route.
-	htlcAmt, htlcExpiry, hops := generateHops(amount, testStartingHeight,
+	htlcAmt, htlcExpiry, hops := generateHops(t, amount, testStartingHeight,
 		n.firstBobChannelLink, n.carolChannelLink)
 	htlcExpiry -= 2
 
@@ -1209,7 +1210,7 @@ func TestLinkForwardFeePolicyMismatch(t *testing.T) {
 
 	// Generate the route over two hops, ignoring the amount we _should_
 	// actually send in order to be able to cover fees.
-	_, htlcExpiry, hops := generateHops(amountNoFee, testStartingHeight,
+	_, htlcExpiry, hops := generateHops(t, amountNoFee, testStartingHeight,
 		n.firstBobChannelLink, n.carolChannelLink)
 
 	// Next, we'll make the payment which'll send an HTLC with our
@@ -1264,8 +1265,10 @@ func TestLinkForwardMinHTLCPolicyMismatch(t *testing.T) {
 
 	// With the amount set, we'll generate a route over 2 hops within the
 	// network that attempts to pay out our specified amount.
-	htlcAmt, htlcExpiry, hops := generateHops(amountNoFee, testStartingHeight,
-		n.firstBobChannelLink, n.carolChannelLink)
+	htlcAmt, htlcExpiry, hops := generateHops(
+		t, amountNoFee, testStartingHeight,
+		n.firstBobChannelLink, n.carolChannelLink,
+	)
 
 	// Next, we'll make the payment which'll send an HTLC with our
 	// specified parameters to the first hop in the route.
@@ -1322,7 +1325,7 @@ func TestLinkForwardMaxHTLCPolicyMismatch(t *testing.T) {
 	// attempts to pay out an amount greater than the max HTLC we're about to
 	// set.
 	amountNoFee := maxHtlc + 1
-	htlcAmt, htlcExpiry, hops := generateHops(
+	htlcAmt, htlcExpiry, hops := generateHops(t,
 		amountNoFee, testStartingHeight, n.firstBobChannelLink,
 		n.carolChannelLink,
 	)
@@ -1383,7 +1386,7 @@ func TestUpdateForwardingPolicy(t *testing.T) {
 	aliceBandwidthBefore := n.aliceChannelLink.Bandwidth()
 
 	amountNoFee := lnwire.NewMSatFromSatoshis(10)
-	htlcAmt, htlcExpiry, hops := generateHops(amountNoFee,
+	htlcAmt, htlcExpiry, hops := generateHops(t, amountNoFee,
 		testStartingHeight,
 		n.firstBobChannelLink, n.carolChannelLink)
 
@@ -1527,8 +1530,10 @@ func TestChannelLinkMultiHopInsufficientPayment(t *testing.T) {
 	// has 3 BTC total capacity. As a result, this payment should be
 	// rejected.
 	amount := lnwire.NewMSatFromSatoshis(4 * btcutil.SatoshiPerBitcoin)
-	htlcAmt, totalTimelock, hops := generateHops(amount, testStartingHeight,
-		n.firstBobChannelLink, n.carolChannelLink)
+	htlcAmt, totalTimelock, hops := generateHops(
+		t, amount, testStartingHeight,
+		n.firstBobChannelLink, n.carolChannelLink,
+	)
 
 	// Wait for:
 	// * HTLC add request to be sent to from Alice to Bob.
@@ -1608,8 +1613,10 @@ func TestChannelLinkMultiHopUnknownPaymentHash(t *testing.T) {
 
 	amount := lnwire.NewMSatFromSatoshis(btcutil.SatoshiPerBitcoin)
 
-	htlcAmt, totalTimelock, hops := generateHops(amount, testStartingHeight,
-		n.firstBobChannelLink, n.carolChannelLink)
+	htlcAmt, totalTimelock, hops := generateHops(
+		t, amount, testStartingHeight,
+		n.firstBobChannelLink, n.carolChannelLink,
+	)
 	blob, err := generateRoute(hops...)
 	if err != nil {
 		t.Fatal(err)
@@ -1699,8 +1706,10 @@ func TestChannelLinkMultiHopUnknownNextHop(t *testing.T) {
 	aliceBandwidthBefore := n.aliceChannelLink.Bandwidth()
 
 	amount := lnwire.NewMSatFromSatoshis(btcutil.SatoshiPerBitcoin)
-	htlcAmt, totalTimelock, hops := generateHops(amount, testStartingHeight,
-		n.firstBobChannelLink, n.carolChannelLink)
+	htlcAmt, totalTimelock, hops := generateHops(
+		t, amount, testStartingHeight,
+		n.firstBobChannelLink, n.carolChannelLink,
+	)
 
 	// Remove bob's outgoing link with Carol. This will cause him to fail
 	// back the payment to Alice since he is unaware of Carol when the
@@ -1816,8 +1825,10 @@ func TestChannelLinkMultiHopDecodeError(t *testing.T) {
 	aliceBandwidthBefore := n.aliceChannelLink.Bandwidth()
 
 	amount := lnwire.NewMSatFromSatoshis(btcutil.SatoshiPerBitcoin)
-	htlcAmt, totalTimelock, hops := generateHops(amount, testStartingHeight,
-		n.firstBobChannelLink, n.carolChannelLink)
+	htlcAmt, totalTimelock, hops := generateHops(
+		t, amount, testStartingHeight,
+		n.firstBobChannelLink, n.carolChannelLink,
+	)
 
 	receiver := n.carolServer
 	firstHop := n.firstBobChannelLink.ShortChanID()
@@ -1901,7 +1912,7 @@ func TestChannelLinkExpiryTooSoonExitNode(t *testing.T) {
 	// after the current true height. This is less than the test invoice
 	// cltv delta of 6, so we expect the incoming htlc to be failed by the
 	// exit hop.
-	htlcAmt, totalTimelock, hops := generateHops(amount,
+	htlcAmt, totalTimelock, hops := generateHops(t, amount,
 		startingHeight-1, n.firstBobChannelLink)
 
 	// Now we'll send out the payment from Alice to Bob.
@@ -1961,7 +1972,7 @@ func TestChannelLinkExpiryTooSoonMidNode(t *testing.T) {
 	// policy time lock delta is 6 blocks). There is an expiry grace delta
 	// of 3 blocks relative to the current height, meaning that htlc will
 	// not be sent out by the middle hop.
-	htlcAmt, totalTimelock, hops := generateHops(amount,
+	htlcAmt, totalTimelock, hops := generateHops(t, amount,
 		startingHeight-3, n.firstBobChannelLink, n.carolChannelLink)
 
 	// Now we'll send out the payment from Alice to Bob.
@@ -2053,8 +2064,9 @@ func TestChannelLinkSingleHopMessageOrdering(t *testing.T) {
 	t.Cleanup(n.stop)
 
 	amount := lnwire.NewMSatFromSatoshis(btcutil.SatoshiPerBitcoin)
-	htlcAmt, totalTimelock, hops := generateHops(amount, testStartingHeight,
-		n.firstBobChannelLink)
+	htlcAmt, totalTimelock, hops := generateHops(
+		t, amount, testStartingHeight, n.firstBobChannelLink,
+	)
 
 	// Wait for:
 	// * HTLC add request to be sent to bob.
@@ -2726,8 +2738,9 @@ func TestChannelLinkBandwidthConsistency(t *testing.T) {
 	// with an ID of 0 as this is their first HTLC. The bandwidth should
 	// remain unchanged (but Alice will need to pay the fee for the extra
 	// HTLC).
-	htlcAmt, totalTimelock, hops := generateHops(htlcAmt, testStartingHeight,
-		coreLink)
+	htlcAmt, totalTimelock, hops := generateHops(
+		t, htlcAmt, testStartingHeight, coreLink,
+	)
 	blob, err := generateRoute(hops...)
 	require.NoError(t, err, "unable to gen route")
 	invoice, htlc, _, err = generatePayment(
@@ -2841,8 +2854,9 @@ func TestChannelLinkBandwidthConsistency(t *testing.T) {
 
 	// Finally, we'll test the scenario of failing an HTLC received by the
 	// remote node. This should result in no perceived bandwidth changes.
-	htlcAmt, totalTimelock, hops = generateHops(htlcAmt, testStartingHeight,
-		coreLink)
+	htlcAmt, totalTimelock, hops = generateHops(
+		t, htlcAmt, testStartingHeight, coreLink,
+	)
 	blob, err = generateRoute(hops...)
 	require.NoError(t, err, "unable to gen route")
 	invoice, htlc, _, err = generatePayment(
@@ -4028,8 +4042,9 @@ func TestChannelRetransmission(t *testing.T) {
 		aliceBandwidthBefore := n.aliceChannelLink.Bandwidth()
 
 		amount := lnwire.NewMSatFromSatoshis(btcutil.SatoshiPerBitcoin)
-		htlcAmt, totalTimelock, hops := generateHops(amount, testStartingHeight,
-			n.firstBobChannelLink)
+		htlcAmt, totalTimelock, hops := generateHops(
+			t, amount, testStartingHeight, n.firstBobChannelLink,
+		)
 
 		// Send payment which should fail because we intercept the
 		// update and commit messages.
@@ -4352,7 +4367,7 @@ func TestChannelLinkShutdownDuringForward(t *testing.T) {
 	// incoming link to block when it tries to submit the packet to the nil
 	// htlcPlex.
 	amount := lnwire.NewMSatFromSatoshis(btcutil.SatoshiPerBitcoin)
-	htlcAmt, totalTimelock, hops := generateHops(
+	htlcAmt, totalTimelock, hops := generateHops(t,
 		amount, testStartingHeight,
 		n.firstBobChannelLink, n.carolChannelLink,
 	)
@@ -4574,8 +4589,10 @@ func TestChannelLinkAcceptDuplicatePayment(t *testing.T) {
 
 	// We'll start off by making a payment from Alice to Carol. We'll
 	// manually generate this request so we can control all the parameters.
-	htlcAmt, totalTimelock, hops := generateHops(amount, testStartingHeight,
-		n.firstBobChannelLink, n.carolChannelLink)
+	htlcAmt, totalTimelock, hops := generateHops(
+		t, amount, testStartingHeight,
+		n.firstBobChannelLink, n.carolChannelLink,
+	)
 	blob, err := generateRoute(hops...)
 	if err != nil {
 		t.Fatal(err)
@@ -4657,7 +4674,7 @@ func TestChannelLinkAcceptOverpay(t *testing.T) {
 	// We'll request a route to send 10k satoshis via Alice -> Bob ->
 	// Carol.
 	amount := lnwire.NewMSatFromSatoshis(btcutil.SatoshiPerBitcoin)
-	htlcAmt, totalTimelock, hops := generateHops(
+	htlcAmt, totalTimelock, hops := generateHops(t,
 		amount, testStartingHeight,
 		n.firstBobChannelLink, n.carolChannelLink,
 	)
@@ -6236,7 +6253,8 @@ func TestExpectedFee(t *testing.T) {
 			BaseFee: test.baseFee,
 			FeeRate: test.feeRate,
 		}
-		fee := ExpectedFee(f, test.htlcAmt)
+		fee, err := ExpectedFee(f, test.htlcAmt)
+		require.NoError(t, err)
 		if fee != test.expected {
 			t.Errorf(
 				"expected fee to be (%v), instead got (%v)",
@@ -6280,7 +6298,7 @@ func TestForwardingAsymmetricTimeLockPolicies(t *testing.T) {
 	// send a payment from Alice -> Carol. This should succeed as normal,
 	// even though Bob has asymmetric time lock policies.
 	amount := lnwire.NewMSatFromSatoshis(btcutil.SatoshiPerBitcoin)
-	htlcAmt, totalTimelock, hops := generateHops(
+	htlcAmt, totalTimelock, hops := generateHops(t,
 		amount, testStartingHeight, n.firstBobChannelLink,
 		n.carolChannelLink,
 	)
@@ -6335,6 +6353,127 @@ func TestCheckHtlcForward(t *testing.T) {
 	link.attachFailAliasUpdate(failAliasUpdate)
 
 	var hash [32]byte
+
+	for _, tc := range []struct {
+		name        string
+		incoming    lnwire.MilliSatoshi
+		inbound     models.InboundFee
+		wantFailure bool
+	}{
+		{"below threshold", 1009, models.InboundFee{}, true},
+		{"at threshold", 1010, models.InboundFee{}, false},
+		{"above threshold", 1011, models.InboundFee{}, false},
+		{"negative inbound cancellation", 1000,
+			models.InboundFee{Base: -10}, false},
+		{"discount below outgoing", 999,
+			models.InboundFee{Base: -20}, true},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			result := link.CheckHtlcForward(
+				hash, tc.incoming, 1000, 200, 150,
+				tc.inbound, 0,
+				lnwire.ShortChannelID{}, nil,
+			)
+			if tc.wantFailure {
+				require.NotNil(t, result)
+				msg := result.WireMessage()
+				_, ok := msg.(*lnwire.FailFeeInsufficient)
+				require.True(t, ok)
+			} else {
+				require.Nil(t, result)
+			}
+		})
+	}
+
+	t.Run("fee arithmetic overflow", func(t *testing.T) {
+		overflowLink := channelLink{
+			cfg: link.cfg, log: log,
+			channel: testChannel.channel,
+		}
+		overflowLink.cfg.FwrdingPolicy.BaseFee = ^lnwire.MilliSatoshi(0)
+		overflowLink.cfg.FwrdingPolicy.FeeRate = 1_000_000
+		overflowLink.attachFailAliasUpdate(failAliasUpdate)
+		result := overflowLink.CheckHtlcForward(
+			hash, 1000, 1000, 200, 150, models.InboundFee{}, 0,
+			lnwire.ShortChannelID{}, nil,
+		)
+		require.NotNil(t, result)
+		_, ok := result.WireMessage().(*lnwire.FailFeeInsufficient)
+		require.True(t, ok)
+	})
+
+	t.Run("outbound fee outside signed range", func(t *testing.T) {
+		wideLink := channelLink{
+			cfg: link.cfg, log: log, channel: testChannel.channel,
+		}
+		wideLink.cfg.FwrdingPolicy.FeeRate = 3_200_000_000
+		wideLink.attachFailAliasUpdate(failAliasUpdate)
+		amount := lnwire.MilliSatoshi(3_000_000_000_000_000)
+		result := wideLink.CheckHtlcForward(
+			hash, amount, amount, 200, 150, models.InboundFee{}, 0,
+			lnwire.ShortChannelID{}, nil,
+		)
+		require.NotNil(t, result)
+		_, ok := result.WireMessage().(*lnwire.FailFeeInsufficient)
+		require.True(t, ok)
+	})
+
+	t.Run("inbound arithmetic overflow", func(t *testing.T) {
+		cases := []struct {
+			base    lnwire.MilliSatoshi
+			amount  lnwire.MilliSatoshi
+			inbound models.InboundFee
+		}{
+			{^lnwire.MilliSatoshi(0), 1000, models.InboundFee{}},
+			{0, ^lnwire.MilliSatoshi(0) - 1,
+				models.InboundFee{Rate: 10_000_000}},
+			{1 << 63, 1000, models.InboundFee{}},
+		}
+		for _, tc := range cases {
+			badLink := channelLink{
+				cfg: link.cfg, log: log,
+				channel: testChannel.channel,
+			}
+			badLink.cfg.FwrdingPolicy.BaseFee = tc.base
+			badLink.attachFailAliasUpdate(failAliasUpdate)
+			result := badLink.CheckHtlcForward(
+				hash, ^lnwire.MilliSatoshi(0), tc.amount,
+				200, 150,
+				tc.inbound, 0, lnwire.ShortChannelID{}, nil,
+			)
+			require.NotNil(t, result)
+			msg := result.WireMessage()
+			_, ok := msg.(*lnwire.FailFeeInsufficient)
+			require.True(t, ok)
+		}
+	})
+
+	t.Run("matching and stale proportional policy", func(t *testing.T) {
+		rateLink := channelLink{
+			cfg: link.cfg, log: log,
+			channel: testChannel.channel,
+		}
+		rateLink.cfg.FwrdingPolicy.FeeRate = 100_000
+		rateLink.attachFailAliasUpdate(failAliasUpdate)
+		for _, tc := range []struct {
+			incoming lnwire.MilliSatoshi
+			fail     bool
+		}{{1109, true}, {1110, false}, {1111, false}} {
+			result := rateLink.CheckHtlcForward(
+				hash, tc.incoming, 1000, 200, 150,
+				models.InboundFee{}, 0,
+				lnwire.ShortChannelID{}, nil,
+			)
+			if tc.fail {
+				require.NotNil(t, result)
+				msg := result.WireMessage()
+				_, ok := msg.(*lnwire.FailFeeInsufficient)
+				require.True(t, ok)
+			} else {
+				require.Nil(t, result)
+			}
+		}
+	})
 
 	t.Run("satisfied", func(t *testing.T) {
 		result := link.CheckHtlcForward(
@@ -6650,8 +6789,9 @@ func TestChannelLinkCanceledInvoice(t *testing.T) {
 
 	// Prepare an alice -> bob payment.
 	amount := lnwire.NewMSatFromSatoshis(btcutil.SatoshiPerBitcoin)
-	htlcAmt, totalTimelock, hops := generateHops(amount, testStartingHeight,
-		n.bobChannelLink)
+	htlcAmt, totalTimelock, hops := generateHops(
+		t, amount, testStartingHeight, n.bobChannelLink,
+	)
 
 	firstHop := n.bobChannelLink.ShortChanID()
 
@@ -6721,7 +6861,7 @@ func newHodlInvoiceTestCtx(t *testing.T) (*hodlInvoiceTestCtx, error) {
 	}
 
 	amount := lnwire.NewMSatFromSatoshis(btcutil.SatoshiPerBitcoin)
-	htlcAmt, totalTimelock, hops := generateHops(
+	htlcAmt, totalTimelock, hops := generateHops(t,
 		amount, testStartingHeight, n.bobChannelLink,
 	)
 
@@ -8184,8 +8324,30 @@ func TestTotalForwardingFee(t *testing.T) {
 		t.Run(test.name, func(t *testing.T) {
 			t.Parallel()
 
-			got := TotalForwardingFee(amt, outFee, test.inboundFee)
+			got, err := TotalForwardingFee(
+				amt, outFee, test.inboundFee,
+			)
+			require.NoError(t, err)
 			require.Equal(t, test.want, got)
 		})
 	}
+}
+
+// TestAdvertisedFee asserts that the advertised fee is returned for a valid
+// policy and that an overflowing policy surfaces an error instead of a panic.
+func TestAdvertisedFee(t *testing.T) {
+	t.Parallel()
+
+	link := &channelLink{cfg: ChannelLinkConfig{
+		FwrdingPolicy: models.ForwardingPolicy{
+			BaseFee: 10, FeeRate: 100_000,
+		},
+	}}
+	value, err := link.AdvertisedFee(1000)
+	require.NoError(t, err)
+	require.Equal(t, lnwire.MilliSatoshi(110), value)
+
+	link.cfg.FwrdingPolicy.BaseFee = ^lnwire.MilliSatoshi(0)
+	_, err = link.AdvertisedFee(1000)
+	require.Error(t, err)
 }

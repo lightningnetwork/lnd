@@ -292,8 +292,9 @@ type ChannelLink interface {
 	// charges to forward the given outgoing amount (base fee plus the
 	// proportional fee). It is the fee the node advertised for this link,
 	// as distinct from the (possibly larger) fee actually offered by the
-	// incoming HTLC.
-	AdvertisedFee(amtToForward lnwire.MilliSatoshi) lnwire.MilliSatoshi
+	// incoming HTLC. An error is returned if the fee overflows.
+	AdvertisedFee(amtToForward lnwire.MilliSatoshi) (lnwire.MilliSatoshi,
+		error)
 
 	// CheckHtlcForward should return a nil error if the passed HTLC details
 	// satisfy the current forwarding policy fo the target link. Otherwise,

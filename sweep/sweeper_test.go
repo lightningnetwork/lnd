@@ -129,7 +129,7 @@ func TestMarkInputsPublished(t *testing.T) {
 	mockStore := NewMockSweeperStore()
 
 	// Create a test TxRecord and a dummy error.
-	dummyTR := &TxRecord{}
+	dummyTR := &TxRecord{FeeRate: 5000}
 	dummyErr := errors.New("dummy error")
 
 	// Create a mock input set.
@@ -141,13 +141,18 @@ func TestMarkInputsPublished(t *testing.T) {
 		Store: mockStore,
 	})
 
-	// Create two inputs with different states.
+	// Create three inputs with different states.
 	// - inputInit specifies a newly created input.
 	// - inputPendingPublish specifies an input about to be published.
+	// - inputPublished specifies an input whose tx is being replaced.
 	var (
 		inputInit           = createMockInput(t, s, Init)
 		inputPendingPublish = createMockInput(t, s, PendingPublish)
+		inputPublished      = createMockInput(t, s, Published)
 	)
+
+	// The published input carries the fee rate of the tx being replaced.
+	s.inputs[inputPublished.OutPoint()].lastFeeRate = 1000
 
 	// First, check that when an error is returned from db, it's properly
 	// returned here.
@@ -164,24 +169,36 @@ func TestMarkInputsPublished(t *testing.T) {
 	// Mock the store to return nil
 	mockStore.On("StoreTx", dummyTR).Return(nil).Once()
 
-	// Mark the test inputs. We expect the non-exist input and the
-	// inputInit to be skipped, and the final input to be marked as
-	// published.
-	set.On("Inputs").Return([]input.Input{inputInit, inputPendingPublish})
+	// Mark the test inputs. We expect the inputInit to be skipped, the
+	// inputPendingPublish to be marked as published, and the
+	// inputPublished to get the new fee rate.
+	set.On("Inputs").Return([]input.Input{
+		inputInit, inputPendingPublish, inputPublished,
+	})
 
 	err = s.markInputsPublished(dummyTR, set)
 	require.NoError(err)
 
 	// We expect unchanged number of pending inputs.
-	require.Len(s.inputs, 2)
+	require.Len(s.inputs, 3)
 
-	// We expect the init input's state to stay unchanged.
+	// We expect the init input's state and fee rate to stay unchanged.
 	require.Equal(Init,
 		s.inputs[inputInit.OutPoint()].state)
+	require.Zero(s.inputs[inputInit.OutPoint()].lastFeeRate)
 
 	// We expect the pending-publish input's is now marked as published.
 	require.Equal(Published,
 		s.inputs[inputPendingPublish.OutPoint()].state)
+	require.Equal(chainfee.SatPerKWeight(5000),
+		s.inputs[inputPendingPublish.OutPoint()].lastFeeRate)
+
+	// We expect the published input to stay published and to report the
+	// fee rate of the replacement tx.
+	require.Equal(Published,
+		s.inputs[inputPublished.OutPoint()].state)
+	require.Equal(chainfee.SatPerKWeight(5000),
+		s.inputs[inputPublished.OutPoint()].lastFeeRate)
 
 	// Assert mocked statements are executed as expected.
 	mockStore.AssertExpectations(t)

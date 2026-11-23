@@ -3350,25 +3350,37 @@ func (c *KVStore) delChannelEdgeUnsafe(edges, edgeIndex, chanIndex,
 func makeZombiePubkeys(node1, node2 [33]byte, e1, e2 *time.Time) ([33]byte,
 	[33]byte) {
 
+	// Work out which side is stale, then fill in that side's key. Each slot
+	// is only ever set from its own node's key, so the keys can't end up in
+	// the wrong slot, which would leave the channel impossible to
+	// resurrect.
+	var stale1, stale2 bool
 	switch {
-	// If we don't have either edge policy, we'll return both pubkeys so
-	// that the channel can be resurrected by either party.
+	// If we don't have either edge policy, both sides are stale, so that
+	// the channel can be resurrected by either party.
 	case e1 == nil && e2 == nil:
-		return node1, node2
+		stale1, stale2 = true, true
 
 	// If we're missing edge1, or if both edges are present but edge1 is
-	// older, we'll return edge1's pubkey and a blank pubkey for edge2. This
-	// means that only an update from edge1 will be able to resurrect the
-	// channel.
+	// older, only an update from node1 can resurrect the channel.
 	case e1 == nil || (e2 != nil && e1.Before(*e2)):
-		return node1, [33]byte{}
+		stale1 = true
 
-	// Otherwise, we're missing edge2 or edge2 is the older side, so we
-	// return a blank pubkey for edge1. In this case, only an update from
-	// edge2 can resurect the channel.
+	// Otherwise, we're missing edge2 or edge2 is the older side, so only an
+	// update from node2 can resurrect the channel.
 	default:
-		return [33]byte{}, node1
+		stale2 = true
 	}
+
+	var key1, key2 [33]byte
+	if stale1 {
+		key1 = node1
+	}
+	if stale2 {
+		key2 = node2
+	}
+
+	return key1, key2
 }
 
 // UpdateEdgePolicy updates the edge routing policy for a single directed edge

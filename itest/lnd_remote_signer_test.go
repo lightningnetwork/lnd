@@ -398,6 +398,10 @@ func executeRemoteSignerTestCase(ht *lntest.HarnessTest,
 		_, watchOnly, carol = prepareInboundRemoteSignerTest(ht, tc)
 	}
 
+	// Stop the watch-only node before harness cleanup can stop its signer
+	// and remove the credentials used by the remote signer health check.
+	defer ht.Shutdown(watchOnly)
+
 	tc.fn(ht, watchOnly, carol)
 }
 

@@ -396,6 +396,8 @@ func TestNeedWalletInput(t *testing.T) {
 func TestAddWalletInputsReturnErr(t *testing.T) {
 	t.Parallel()
 
+	// Arrange wallet failures and unusable UTXOs to check error
+	// propagation.
 	wallet := &MockWallet{}
 	defer wallet.AssertExpectations(t)
 
@@ -413,7 +415,9 @@ func TestAddWalletInputsReturnErr(t *testing.T) {
 
 	// Check that the error is returned from
 	// ListUnspentWitnessFromDefaultAccount.
-	err := set.AddWalletInputs(wallet, chainfee.FeePerKwFloor)
+	err := set.AddWalletInputs(
+		wallet, chainfee.FeePerKwFloor, fn.NewSet[wire.OutPoint](),
+	)
 	require.ErrorIs(t, err, dummyErr)
 
 	// Create an utxo with unknown address type to trigger an error.
@@ -426,7 +430,9 @@ func TestAddWalletInputsReturnErr(t *testing.T) {
 		min, max).Return([]*lnwallet.Utxo{utxo}, nil).Once()
 
 	// Check that the error is returned from createWalletTxInput.
-	err = set.AddWalletInputs(wallet, chainfee.FeePerKwFloor)
+	err = set.AddWalletInputs(
+		wallet, chainfee.FeePerKwFloor, fn.NewSet[wire.OutPoint](),
+	)
 	require.Error(t, err)
 
 	// Mock the wallet to return empty utxos.
@@ -434,7 +440,9 @@ func TestAddWalletInputsReturnErr(t *testing.T) {
 		min, max).Return([]*lnwallet.Utxo{}, nil).Once()
 
 	// Check that the error is returned from not having wallet inputs.
-	err = set.AddWalletInputs(wallet, chainfee.FeePerKwFloor)
+	err = set.AddWalletInputs(
+		wallet, chainfee.FeePerKwFloor, fn.NewSet[wire.OutPoint](),
+	)
 	require.ErrorIs(t, err, ErrNotEnoughInputs)
 }
 
@@ -443,6 +451,7 @@ func TestAddWalletInputsReturnErr(t *testing.T) {
 func TestAddWalletInputsNotEnoughInputs(t *testing.T) {
 	t.Parallel()
 
+	// Arrange a required output and a wallet coin below its full budget.
 	wallet := &MockWallet{}
 	defer wallet.AssertExpectations(t)
 
@@ -490,7 +499,9 @@ func TestAddWalletInputsNotEnoughInputs(t *testing.T) {
 
 	// Add wallet inputs to the input set, which should return no error
 	// although the wallet cannot cover the budget.
-	err := set.AddWalletInputs(wallet, chainfee.FeePerKwFloor)
+	err := set.AddWalletInputs(
+		wallet, chainfee.FeePerKwFloor, fn.NewSet[wire.OutPoint](),
+	)
 	require.NoError(t, err)
 
 	// Check that the budget set is updated.
@@ -502,6 +513,7 @@ func TestAddWalletInputsNotEnoughInputs(t *testing.T) {
 func TestAddWalletInputsEmptyWalletSuccess(t *testing.T) {
 	t.Parallel()
 
+	// Arrange committed and spendable inputs with an empty wallet.
 	wallet := &MockWallet{}
 	defer wallet.AssertExpectations(t)
 
@@ -516,7 +528,7 @@ func TestAddWalletInputsEmptyWalletSuccess(t *testing.T) {
 	mockInput1 := &input.MockInput{}
 	defer mockInput1.AssertExpectations(t)
 
-	mockInput1.On("RequiredTxOut").Return(&wire.TxOut{})
+	mockInput1.On("RequiredTxOut").Return(&wire.TxOut{}).Times(3)
 
 	// Mock methods used when weighting the input.
 	mockInput1.On("WitnessType").Return(input.WitnessKeyHash)
@@ -539,7 +551,7 @@ func TestAddWalletInputsEmptyWalletSuccess(t *testing.T) {
 	mockInput2 := &input.MockInput{}
 	defer mockInput2.AssertExpectations(t)
 
-	mockInput2.On("RequiredTxOut").Return(nil)
+	mockInput2.On("RequiredTxOut").Return(nil).Times(3)
 
 	// Mock methods used when weighting the input.
 	mockInput2.On("WitnessType").Return(input.WitnessKeyHash)
@@ -567,7 +579,9 @@ func TestAddWalletInputsEmptyWalletSuccess(t *testing.T) {
 
 	// Add wallet inputs to the input set, which should return no error
 	// although the wallet is empty.
-	err := set.AddWalletInputs(wallet, chainfee.FeePerKwFloor)
+	err := set.AddWalletInputs(
+		wallet, chainfee.FeePerKwFloor, fn.NewSet[wire.OutPoint](),
+	)
 	require.NoError(t, err)
 }
 
@@ -621,7 +635,9 @@ func TestAddWalletInputsLargestFirst(t *testing.T) {
 		int32(1), int32(math.MaxInt32),
 	).Return(utxos, nil).Once()
 
-	require.NoError(t, set.AddWalletInputs(wallet, chainfee.FeePerKwFloor))
+	require.NoError(t, set.AddWalletInputs(
+		wallet, chainfee.FeePerKwFloor, fn.NewSet[wire.OutPoint](),
+	))
 	require.Equal(t, 2, len(set.inputs))
 	require.EqualValues(
 		t, budget, set.inputs[1].SignDesc().Output.Value,
@@ -656,7 +672,9 @@ func TestAddWalletInputsManySmallUtxos(t *testing.T) {
 		int32(1), int32(math.MaxInt32),
 	).Return(newP2WKHUtxos(numUtxos, utxoValue, 0), nil).Once()
 
-	require.NoError(t, set.AddWalletInputs(wallet, chainfee.FeePerKwFloor))
+	require.NoError(t, set.AddWalletInputs(
+		wallet, chainfee.FeePerKwFloor, fn.NewSet[wire.OutPoint](),
+	))
 
 	// Every UTXO is needed to cover the budget, so all of them are added
 	// and the set no longer needs wallet inputs.
@@ -695,7 +713,9 @@ func TestAddWalletInputsWeightLimit(t *testing.T) {
 
 	// The set is still swept with the inputs that fit, as at least one of
 	// them can pay fees.
-	require.NoError(t, set.AddWalletInputs(wallet, chainfee.FeePerKwFloor))
+	require.NoError(t, set.AddWalletInputs(
+		wallet, chainfee.FeePerKwFloor, fn.NewSet[wire.OutPoint](),
+	))
 
 	// Some wallet inputs are added, but the weight limit stops the
 	// selection before the wallet is exhausted.
@@ -777,7 +797,9 @@ func TestAddWalletInputsSmallUtxosOnly(t *testing.T) {
 		int32(1), int32(math.MaxInt32),
 	).Return(utxos, nil).Once()
 
-	require.NoError(t, set.AddWalletInputs(wallet, chainfee.FeePerKwFloor))
+	require.NoError(t, set.AddWalletInputs(
+		wallet, chainfee.FeePerKwFloor, fn.NewSet[wire.OutPoint](),
+	))
 
 	// The budget of 500_000 needs ten UTXOs of 50_000.
 	require.Len(t, set.inputs, 1+budget/utxoValue)
@@ -861,7 +883,10 @@ func TestAddWalletInputsRelayFeeBoundary(t *testing.T) {
 				int32(1), int32(math.MaxInt32),
 			).Return([]*lnwallet.Utxo{utxo}, nil).Once()
 
-			err := set.AddWalletInputs(wallet, relayFeeRate)
+			err := set.AddWalletInputs(
+				wallet, relayFeeRate,
+				fn.NewSet[wire.OutPoint](),
+			)
 			require.ErrorIs(t, err, tc.expectedErr)
 			if tc.shouldAdd {
 				require.Len(t, set.inputs, 2)
@@ -880,6 +905,7 @@ func TestAddWalletInputsRelayFeeBoundary(t *testing.T) {
 func TestAddWalletInputsSuccess(t *testing.T) {
 	t.Parallel()
 
+	// Arrange a required output and two wallet coins that meet its budget.
 	wallet := &MockWallet{}
 	defer wallet.AssertExpectations(t)
 
@@ -892,7 +918,7 @@ func TestAddWalletInputsSuccess(t *testing.T) {
 
 	// Create a mock input that has required outputs.
 	mockInput := &input.MockInput{}
-	mockInput.On("RequiredTxOut").Return(&wire.TxOut{})
+	mockInput.On("RequiredTxOut").Return(&wire.TxOut{}).Times(3)
 	defer mockInput.AssertExpectations(t)
 
 	// Create a pending input that requires 10k satoshis.
@@ -905,12 +931,12 @@ func TestAddWalletInputsSuccess(t *testing.T) {
 		},
 	}
 
-	// Mock methods used in loggings.
-	//
-	// NOTE: these methods are not functional as they are only used for
-	// loggings in debug or trace mode so we use arbitrary values.
-	mockInput.On("OutPoint").Return(wire.OutPoint{Hash: chainhash.Hash{1}})
-	mockInput.On("WitnessType").Return(input.CommitmentAnchor)
+	// Supply identity for validation and logging, and a witness type
+	// for the upstream transaction-weight bound during wallet selection.
+	mockInput.On("OutPoint").Return(
+		wire.OutPoint{Hash: chainhash.Hash{1}},
+	).Times(2)
+	mockInput.On("WitnessType").Return(input.CommitmentAnchor).Twice()
 
 	// Mock the method used when checking for CPFP requirements.
 	mockInput.On("UnconfParent").Return(nil).Maybe()
@@ -932,7 +958,9 @@ func TestAddWalletInputsSuccess(t *testing.T) {
 	require.NoError(t, err)
 
 	// Add wallet inputs to the input set.
-	err = set.AddWalletInputs(wallet, chainfee.FeePerKwFloor)
+	err = set.AddWalletInputs(
+		wallet, chainfee.FeePerKwFloor, fn.NewSet[wire.OutPoint](),
+	)
 	require.NoError(t, err)
 
 	// Check that the budget set is updated.
@@ -1031,7 +1059,9 @@ func TestAddWalletInputsAnchorSmallUtxos(t *testing.T) {
 		int32(1), int32(math.MaxInt32),
 	).Return(newP2WKHUtxos(numUtxos, utxoValue, 0), nil).Once()
 
-	require.NoError(t, set.AddWalletInputs(wallet, chainfee.FeePerKwFloor))
+	require.NoError(t, set.AddWalletInputs(
+		wallet, chainfee.FeePerKwFloor, fn.NewSet[wire.OutPoint](),
+	))
 
 	// The anchor plus ten UTXOs of 50_000 cover the budget of 500_000.
 	require.Len(t, set.inputs, 1+budget/utxoValue)
@@ -1067,7 +1097,9 @@ func TestAddWalletInputsTopUpAfterLargeUtxo(t *testing.T) {
 		int32(1), int32(math.MaxInt32),
 	).Return(utxos, nil).Once()
 
-	require.NoError(t, set.AddWalletInputs(wallet, chainfee.FeePerKwFloor))
+	require.NoError(t, set.AddWalletInputs(
+		wallet, chainfee.FeePerKwFloor, fn.NewSet[wire.OutPoint](),
+	))
 
 	// The large UTXO is added first, then eight UTXOs of 50_000 top up
 	// the budget.
@@ -1118,7 +1150,9 @@ func TestAddWalletInputsValueDensityOrder(t *testing.T) {
 		int32(1), int32(math.MaxInt32),
 	).Return(utxos, nil).Once()
 
-	require.NoError(t, set.AddWalletInputs(wallet, chainfee.FeePerKwFloor))
+	require.NoError(t, set.AddWalletInputs(
+		wallet, chainfee.FeePerKwFloor, fn.NewSet[wire.OutPoint](),
+	))
 
 	// The P2TR UTXO alone covers the budget.
 	require.Len(t, set.inputs, 2)
@@ -1209,8 +1243,10 @@ func TestAddWalletInputsExactDensityOrder(t *testing.T) {
 				int32(1), int32(math.MaxInt32),
 			).Return(tc.utxos, nil).Once()
 
-			require.NoError(t,
-				set.AddWalletInputs(wallet, relayFeeRate))
+			require.NoError(t, set.AddWalletInputs(
+				wallet, relayFeeRate,
+				fn.NewSet[wire.OutPoint](),
+			))
 
 			// Only the P2TR UTXO pays for its own weight, so it is
 			// the only wallet input added.

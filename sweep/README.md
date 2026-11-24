@@ -111,6 +111,50 @@ perform an RBF again in the coming blocks.
 for the first time, unless its budget has been used up, `TxPublisher` will
 guarantee that the initial publish meets the RBF requirements.
 
+`TxPublisher` diagnoses constructed, non-fee mempool rejections with
+no-broadcast subset probes. It first attributes immediately available confirmed
+spends through `TxUnknownSpend`. If historical delivery is still pending for a
+multi-input missing-input failure, it instead isolates a rejected singleton.
+Underfunded probes, including small anchors, progressively borrow normal funding
+inputs and validate that group separately after rejection. A funding fee
+rejection proves input availability only, allowing missing-input attribution
+without treating it as script-validity evidence. Other funding failures remain
+inconclusive. An RBF fee rejection alone never identifies a bad input; its cause
+is retained even when funding cannot be checked. Probes use the failed attempt's
+fee and address policy and are never published, stored, or monitored. Auxiliary
+sweep logic is not bypassed.
+
+`UtxoSweeper` applies the resulting `BadInput` evidence. Permanent script or
+missing-input attribution terminates only that tracked input, or quarantines a
+diagnosed wallet UTXO. Survivors retain their requested starting rates while
+the new set recalculates its aggregate fee curve. Confirmed third-party spends
+retain the existing fee line. A backend- reported singleton mempool conflict
+remains retryable with its spend subscription intact; valid siblings are
+resubmitted without it. Temporary wallet exclusions accumulate across that
+immediate retry chain and clear when it ends or returns to normal block
+retries. Eligible diagnosis keeps unattributed conflicts retryable without fee
+escalation. Other requests use the normal retry-fee policy. Fee initialization
+follows existing budget and zero-delta retry paths. Transient backend failures
+and fee refusals (RBF, relay minimum or mempool minimum) during probing
+retain their cause and follow normal
+retry-fee policy, including retries at the cap. Full-RBF fee refusals retain
+whole-set retries instead of input attribution. Other aborted, unchanged-set
+diagnoses must advance their fee and become fatal if advancement fails; known
+terminal rejections with skipped or completed singleton-free diagnosis retain
+the whole-set fatal outcome.
+
+A rejected replacement does not displace an already accepted transaction.
+`TxPublisher` retains monitoring until an actual spend is attributed or the
+sweeper conclusively excludes its input. Requests retain their exclusive-group
+identity after tracked-input removal, so the confirmed anchor resolver excludes
+alternative commitments even when either anchor was previously removed. Retained
+rejected attempts then release monitoring even at the fee cap; legacy fee-only
+retention keeps its existing policy. Terminal cleanup identifies the accepted
+transaction. Initial
+bad-input diagnosis is therefore not applied to rejected replacements.
+Terminal results also release the fee-bump monitor and cancel rebroadcast when
+they identify a transaction.
+
 #### `FeeFunction`
 
 `FeeFunction` is an interface that specifies a function over a starting fee

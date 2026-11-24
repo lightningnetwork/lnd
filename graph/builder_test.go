@@ -2139,8 +2139,51 @@ func TestPruneOurClosedChannels(t *testing.T) {
 	)
 	require.NoError(t, err)
 	closedPoint := closedInfo.ChannelPoint
-	ctx.builder.cfg.IsClosedChannel = func(op wire.OutPoint) (bool, error) {
+	ctx.builder.cfg.IsClosedChannel = func(op wire.OutPoint,
+		_ lnwire.ShortChannelID) (bool, error) {
+
 		return op == closedPoint, nil
+	}
+
+	require.NoError(t, ctx.builder.pruneZombieChans())
+	assertChannelsPruned(t, ctx.graph, testChannels, 1)
+}
+
+// TestPruneOurClosedChannelsWithoutOutpoint checks that the closed lookup gets
+// the short channel ID of each of our channels, so that an edge we learned
+// from gossip with AssumeChannelValid set, which has no funding outpoint, is
+// pruned too once it has closed, and that a failed lookup for one channel
+// doesn't stop the others from being pruned.
+func TestPruneOurClosedChannelsWithoutOutpoint(t *testing.T) {
+	t.Parallel()
+
+	freshPolicy := func() *testChannelPolicy {
+		return &testChannelPolicy{LastUpdate: time.Now()}
+	}
+	testChannels := []*testChannel{
+		symmetricTestChannel("self", "a", 100000, freshPolicy(), 1),
+		symmetricTestChannel("self", "b", 100000, freshPolicy(), 2),
+	}
+
+	testGraph, err := createTestGraphFromChannels(
+		t, true, testChannels, "self",
+	)
+	require.NoError(t, err)
+
+	ctx := createTestCtxFromGraphInstanceAssumeValid(
+		t, 100, testGraph, false, false,
+	)
+
+	// The lookup only knows channel 1 by its short channel ID, as it
+	// would for a gossiped edge, and fails for channel 2.
+	ctx.builder.cfg.IsClosedChannel = func(_ wire.OutPoint,
+		scid lnwire.ShortChannelID) (bool, error) {
+
+		if scid.ToUint64() == 2 {
+			return false, errors.New("unreadable summary")
+		}
+
+		return scid.ToUint64() == 1, nil
 	}
 
 	require.NoError(t, ctx.builder.pruneZombieChans())

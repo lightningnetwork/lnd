@@ -95,6 +95,53 @@ func WithIncludeBlock() NotifierOption {
 	}
 }
 
+// SpendOptions is the caller-selected policy for a spend notification.
+type SpendOptions struct {
+	// NumConfs is the number of confirmations required before the spend is
+	// delivered as mature.
+	NumConfs uint32
+}
+
+// DefaultSpendOptions preserves the historical one-confirmation spend
+// notification behavior for callers that do not supply an option.
+func DefaultSpendOptions() *SpendOptions {
+	return &SpendOptions{NumConfs: 1}
+}
+
+// SpendOption changes one aspect of a spend notification policy.
+type SpendOption func(*SpendOptions)
+
+// WithSpendNumConfs requests delivery only after the spending transaction has
+// reached numConfs confirmations. Registration rejects values outside the
+// notifier's supported reorg window.
+func WithSpendNumConfs(numConfs uint32) SpendOption {
+	return func(o *SpendOptions) {
+		// Store the requested depth here so every notifier backend
+		// applies the same maturity policy through TxNotifier.
+		o.NumConfs = numConfs
+	}
+}
+
+// ParseSpendOptions applies caller options to the compatibility default and
+// rejects values no notifier is allowed to support. A concrete TxNotifier
+// performs its possibly smaller reorg-window check during registration.
+func ParseSpendOptions(optFuncs ...SpendOption) (*SpendOptions, error) {
+	opts := DefaultSpendOptions()
+	for _, optFunc := range optFuncs {
+		// Apply options in call order so the last value follows the
+		// established functional-option convention.
+		optFunc(opts)
+	}
+
+	if opts.NumConfs == 0 || opts.NumConfs > MaxNumConfs {
+		// Reject unsupported depths before a backend installs watches
+		// or mutates registration state.
+		return nil, ErrNumConfsOutOfRange
+	}
+
+	return opts, nil
+}
+
 // ChainNotifier represents a trusted source to receive notifications concerning
 // targeted events on the Bitcoin blockchain. The interface specification is
 // intentionally general in order to support a wide array of chain notification
@@ -143,13 +190,14 @@ type ChainNotifier interface {
 	// light clients. It denotes the earliest height in the blockchain in
 	// which the target output could have been spent.
 	//
-	// NOTE: The notification should only be triggered when the spending
-	// transaction receives a single confirmation.
+	// By default, the notification is triggered when the spending
+	// transaction receives one confirmation. A SpendOption can request a
+	// deeper notification within the notifier's supported reorg window.
 	//
 	// NOTE: Dispatching notifications to multiple clients subscribed to a
 	// spend of the same outpoint MUST be supported.
 	RegisterSpendNtfn(outpoint *wire.OutPoint, pkScript []byte,
-		heightHint uint32) (*SpendEvent, error)
+		heightHint uint32, opts ...SpendOption) (*SpendEvent, error)
 
 	// RegisterBlockEpochNtfn registers an intent to be notified of each
 	// new block connected to the tip of the main chain. The returned

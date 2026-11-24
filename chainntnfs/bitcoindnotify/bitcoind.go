@@ -717,13 +717,16 @@ func (b *BitcoindNotifier) notifyBlockEpochClient(epochClient *blockEpochRegistr
 // Once a spend of has been detected, the details of the spending event will be
 // sent across the 'Spend' channel.
 func (b *BitcoindNotifier) RegisterSpendNtfn(outpoint *wire.OutPoint,
-	pkScript []byte, heightHint uint32) (*chainntnfs.SpendEvent, error) {
+	pkScript []byte, heightHint uint32,
+	opts ...chainntnfs.SpendOption) (*chainntnfs.SpendEvent, error) {
 
 	// Register the conf notification with the TxNotifier. A non-nil value
 	// for `dispatch` will be returned if we are required to perform a
 	// manual scan for the confirmation. Otherwise the notifier will begin
 	// watching at tip for the transaction to confirm.
-	ntfn, err := b.txNotifier.RegisterSpend(outpoint, pkScript, heightHint)
+	ntfn, err := b.txNotifier.RegisterSpend(
+		outpoint, pkScript, heightHint, opts...,
+	)
 	if err != nil {
 		return nil, err
 	}

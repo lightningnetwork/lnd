@@ -2450,6 +2450,20 @@ func updateState(batchTick chan time.Time, link *channelLink,
 	return nil
 }
 
+// requireDevBuild fails the test immediately if the binary was built without
+// the dev tag. Tests that set a hodl mask depend on it, since the production
+// hodl.Mask never reports a flag as active, so those tests otherwise only fail
+// later with an unrelated timeout or assertion. The tag is always set by make
+// unit and CI.
+func requireDevBuild(t *testing.T) {
+	t.Helper()
+
+	if !build.IsDevBuild() {
+		t.Fatalf("%s depends on hodl flags and must be run with "+
+			"'-tags=dev' (e.g. via 'make unit')", t.Name())
+	}
+}
+
 // TestChannelLinkBandwidthConsistency ensures that the reported bandwidth of a
 // given ChannelLink is properly updated in response to downstream messages
 // from the switch, and upstream messages from its channel peer.
@@ -2457,9 +2471,8 @@ func updateState(batchTick chan time.Time, link *channelLink,
 // TODO(roasbeef): add sync hook into packet processing so can eliminate all
 // sleep in this test and the one below
 func TestChannelLinkBandwidthConsistency(t *testing.T) {
-	if !build.IsDevBuild() {
-		t.Fatalf("htlcswitch tests must be run with '-tags dev")
-	}
+	requireDevBuild(t)
+
 	t.Parallel()
 
 	// TODO(roasbeef): replace manual bit twiddling with concept of
@@ -3243,9 +3256,7 @@ func TestChannelLinkTrimCircuitsPending(t *testing.T) {
 // TestChannelLinkTrimCircuitsNoCommit checks that the switch and link properly trim
 // circuits if the ADDs corresponding to open circuits are never committed.
 func TestChannelLinkTrimCircuitsNoCommit(t *testing.T) {
-	if !build.IsDevBuild() {
-		t.Fatalf("htlcswitch tests must be run with '-tags dev")
-	}
+	requireDevBuild(t)
 
 	t.Parallel()
 
@@ -5501,6 +5512,8 @@ func testChannelLinkBatchPreimageWrite(t *testing.T, disconnect bool) {
 // references in the event that internal retransmission continues as a result of
 // not properly cleaning up Add/SettleFailRefs.
 func TestChannelLinkCleanupSpuriousResponses(t *testing.T) {
+	requireDevBuild(t)
+
 	t.Parallel()
 
 	const chanAmt = btcutil.SatoshiPerBitcoin * 5
@@ -7525,6 +7538,8 @@ func TestPendingCommitTicker(t *testing.T) {
 // TestPipelineSettle tests that a link should only pipeline a settle if the
 // related add is fully locked-in meaning it is on both sides' commitment txns.
 func TestPipelineSettle(t *testing.T) {
+	requireDevBuild(t)
+
 	t.Parallel()
 
 	const chanAmt = btcutil.SatoshiPerBitcoin * 5

@@ -222,6 +222,8 @@ replace github.com/lightningnetwork/lnd/cert => ./cert
 
 replace github.com/lightningnetwork/lnd/clock => ./clock
 
+replace github.com/lightningnetwork/lnd/fn/v2 => ./fn
+
 replace github.com/lightningnetwork/lnd/healthcheck => ./healthcheck
 
 replace github.com/lightningnetwork/lnd/kvdb => ./kvdb

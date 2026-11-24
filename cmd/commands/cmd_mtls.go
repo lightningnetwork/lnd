@@ -12,7 +12,6 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
-	"strings"
 
 	"github.com/lightningnetwork/lnd/internal/rpcclientallowlist"
 	"github.com/urfave/cli"
@@ -72,7 +71,8 @@ func allowMTLSClientAction(ctx *cli.Context) error {
 	return allowMTLSClient(ctx.String("cert"), ctx.String("allowlist"))
 }
 
-func newMTLSClient(keyPath, csrPath string) (err error) {
+// newMTLSClient generates a private key and a certificate signing request.
+func newMTLSClient(keyPath, csrPath string) error {
 	if keyPath == "" || csrPath == "" {
 		return errors.New("keyout and csrout are required")
 	}
@@ -101,80 +101,92 @@ func newMTLSClient(keyPath, csrPath string) (err error) {
 	if err != nil {
 		return err
 	}
-	keyFile, err := os.OpenFile(
-		keyPath, os.O_WRONLY|os.O_CREATE|os.O_EXCL, 0600,
-	)
-	if err != nil {
-		return err
-	}
-	// Remove the output if a later step fails.
-	defer func() {
-		if err != nil {
-			_ = os.Remove(keyPath)
-		}
-	}()
-	_, err = keyFile.Write(pem.EncodeToMemory(&pem.Block{
+	keyPEM := pem.EncodeToMemory(&pem.Block{
 		Type: "EC PRIVATE KEY", Bytes: keyDER,
-	}))
-	if closeErr := keyFile.Close(); err == nil {
-		err = closeErr
-	}
-	if err != nil {
+	})
+	if err := writeMTLSOutput(keyPath, keyPEM, 0600); err != nil {
 		return err
 	}
-	csrFile, err := os.OpenFile(
-		csrPath, os.O_WRONLY|os.O_CREATE|os.O_EXCL, 0644,
-	)
-	if err != nil {
-		return err
-	}
-	// Remove the output if a later step fails.
-	defer func() {
-		if err != nil {
-			_ = os.Remove(csrPath)
-		}
-	}()
-	_, err = csrFile.Write(pem.EncodeToMemory(&pem.Block{
+
+	// If the request cannot be written, roll back the key we just created.
+	csrPEM := pem.EncodeToMemory(&pem.Block{
 		Type: "CERTIFICATE REQUEST", Bytes: csrDER,
-	}))
-	if closeErr := csrFile.Close(); err == nil {
+	})
+	if err := writeMTLSOutput(csrPath, csrPEM, 0644); err != nil {
+		_ = os.Remove(keyPath)
+
+		return err
+	}
+
+	return nil
+}
+
+// writeMTLSOutput writes a new enrollment file without replacing an existing
+// file. If writing or closing fails, it removes the incomplete file.
+func writeMTLSOutput(path string, contents []byte, mode os.FileMode) error {
+	file, err := os.OpenFile(path, os.O_WRONLY|os.O_CREATE|os.O_EXCL, mode)
+	if err != nil {
+		return err
+	}
+
+	_, err = file.Write(contents)
+	if closeErr := file.Close(); err == nil {
 		err = closeErr
+	}
+	if err != nil {
+		_ = os.Remove(path)
 	}
 
 	return err
 }
 
+// allowMTLSClient enrolls a certificate without contacting the daemon.
 func allowMTLSClient(certPath, allowPath string) error {
 	if certPath == "" || allowPath == "" {
 		return errors.New("cert and allowlist are required")
 	}
-	certPEM, err := os.ReadFile(certPath)
+	cert, err := readMTLSLeaf(certPath)
 	if err != nil {
 		return err
+	}
+
+	return addMTLSFingerprint(allowPath, sha256.Sum256(cert.Raw))
+}
+
+// readMTLSLeaf loads exactly one PEM certificate and rejects CA certificates.
+func readMTLSLeaf(certPath string) (*x509.Certificate, error) {
+	certPEM, err := os.ReadFile(certPath)
+	if err != nil {
+		return nil, err
 	}
 	certPEM = bytes.TrimSpace(certPEM)
 	if !bytes.HasPrefix(certPEM, []byte("-----BEGIN CERTIFICATE-----")) ||
 		bytes.Count(certPEM, []byte("-----BEGIN ")) != 1 {
 
-		return errors.New("cert must contain exactly one " +
+		return nil, errors.New("cert must contain exactly one " +
 			"PEM certificate")
 	}
 	block, rest := pem.Decode(certPEM)
 	if block == nil || block.Type != "CERTIFICATE" ||
 		len(bytes.TrimSpace(rest)) != 0 {
 
-		return errors.New("cert must contain exactly one " +
+		return nil, errors.New("cert must contain exactly one " +
 			"PEM certificate")
 	}
 	cert, err := x509.ParseCertificate(block.Bytes)
 	if err != nil {
-		return fmt.Errorf("parse certificate: %w", err)
+		return nil, fmt.Errorf("parse certificate: %w", err)
 	}
 	if cert.IsCA {
-		return errors.New("cert must be a leaf, not a CA")
+		return nil, errors.New("cert must be a leaf, not a CA")
 	}
-	fingerprint := sha256.Sum256(cert.Raw)
 
+	return cert, nil
+}
+
+// addMTLSFingerprint serializes cooperating writers and replaces the file
+// only after validating the existing entries.
+func addMTLSFingerprint(allowPath string, fingerprint [sha256.Size]byte) error {
 	// Cooperating writers fail rather than race. A crash can leave a stale
 	// lock.
 	lockPath := allowPath + ".lock"
@@ -213,7 +225,7 @@ func allowMTLSClient(certPath, allowPath string) error {
 	if _, ok := entries[fingerprint]; ok {
 		return nil
 	}
-	if len(contents) > 0 && !strings.HasSuffix(string(contents), "\n") {
+	if len(contents) > 0 && contents[len(contents)-1] != '\n' {
 		contents = append(contents, '\n')
 	}
 	contents = append(contents, []byte(fmt.Sprintf("%x\n", fingerprint))...)

@@ -440,23 +440,15 @@ func Main(cfg *Config, lisCfg ListenerCfg, implCfg *ImplementationCfg,
 		return mkErr("error starting gRPC listener", err)
 	}
 
-	// Now start the REST proxy for our gRPC server above. We'll ensure
-	// we direct LND to connect to its loopback address rather than a
-	// wildcard to prevent certificate issues when accessing the proxy
-	// externally.
+	// Use the in-process gateway for mTLS. With only the locality check
+	// enabled, the built-in WalletUnlocker uses this hop while other REST
+	// calls keep their normal TCP peer address for macaroon caveats.
 	var gatewayDial func(context.Context, string) (net.Conn, error)
 	usePrivateGateway := clientAuth != nil || localWalletOnly
 	if len(cfg.RESTListeners) > 0 && usePrivateGateway {
-		private := bufconn.Listen(64 * 1024)
-		defer private.Close()
-		go func() {
-			_ = grpcServer.Serve(rpcGatewayListener{private})
-		}()
-		gatewayDial = func(ctx context.Context, _ string) (net.Conn,
-			error) {
-
-			return private.DialContext(ctx)
-		}
+		var stopGateway func()
+		gatewayDial, stopGateway = startPrivateRESTGateway(grpcServer)
+		defer stopGateway()
 	}
 
 	stopProxy, err := startRestProxy(
@@ -1076,6 +1068,25 @@ func startGrpcListen(cfg *Config, grpcServer *grpc.Server,
 	wg.Wait()
 
 	return nil
+}
+
+// startPrivateRESTGateway serves gRPC over the in-process gateway connection.
+func startPrivateRESTGateway(server *grpc.Server) (
+	func(context.Context, string) (net.Conn, error), func()) {
+
+	listener := bufconn.Listen(64 * 1024)
+	go func() {
+		_ = server.Serve(rpcGatewayListener{listener})
+	}()
+
+	dial := func(ctx context.Context, _ string) (net.Conn, error) {
+		return listener.DialContext(ctx)
+	}
+	stop := func() {
+		_ = listener.Close()
+	}
+
+	return dial, stop
 }
 
 // startRestProxy starts the given REST proxy on the listeners found in the

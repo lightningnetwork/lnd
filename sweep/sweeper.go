@@ -1905,7 +1905,21 @@ func (s *UtxoSweeper) handleBumpEventTxReplaced(resp *bumpResp) error {
 	// Get the old record for logging purpose.
 	oldTxid := oldTx.TxHash()
 	record, err := s.cfg.Store.GetTx(oldTxid)
-	if err != nil {
+	switch {
+	// The fee bumper can name a replaced tx that was never recorded here:
+	// it adopts a replacement before broadcasting it, so a replacement
+	// the backend refuses becomes the next ReplacedTx, and the results of
+	// bumps for the same record can arrive out of order. Carry on, so
+	// the replaced tx is no longer rebroadcast and the replacing tx gets
+	// its record. Returning here would leave the replaced tx rebroadcast
+	// on every block and fail every later replacement of these inputs.
+	case errors.Is(err, ErrTxNotFound):
+		log.Warnf("No record for replaced tx %v, recording its "+
+			"replacement %v anyway", oldTxid, tr.Txid)
+
+		record = &TxRecord{Txid: oldTxid}
+
+	case err != nil:
 		log.Errorf("Fetch tx record for %v: %v", oldTxid, err)
 		return err
 	}

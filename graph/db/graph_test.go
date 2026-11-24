@@ -3631,14 +3631,15 @@ func testFilterKnownChanIDsZombieRevival(t *testing.T,
 		scid3 = lnwire.ShortChannelID{BlockHeight: 3}
 	)
 
-	// Add one live channel, so the graph has edges and the filter has to
-	// tell known channels apart from unknown ones.
+	// Add one live channel, which both queries below include, so the
+	// filter has to tell a known channel apart from unknown ones.
 	node1 := createTestVertex(t, v)
 	require.NoError(t, graph.AddNode(ctx, node1))
 	node2 := createTestVertex(t, v)
 	require.NoError(t, graph.AddNode(ctx, node2))
 	channel, _ := createEdge(v, 100, 0, 0, 0, node1, node2)
 	require.NoError(t, graph.AddChannelEdge(ctx, channel))
+	liveSCID := lnwire.NewShortChanIDFromInt(channel.ChannelID)
 
 	vGraph := NewVersionedGraph(graph, v)
 	isZombie := func(scid lnwire.ShortChannelID) bool {
@@ -3677,6 +3678,7 @@ func testFilterKnownChanIDsZombieRevival(t *testing.T,
 	// Call FilterKnownChanIDs with an isStillZombie call-back that would
 	// result in the current zombies still be considered as zombies.
 	unknown, err := vGraph.FilterKnownChanIDs(ctx, []ChannelUpdateInfo{
+		{ShortChannelID: liveSCID, Version: v},
 		{ShortChannelID: scid1, Version: v},
 		{ShortChannelID: scid2, Version: v},
 		{ShortChannelID: scid3, Version: v},
@@ -3694,6 +3696,7 @@ func testFilterKnownChanIDsZombieRevival(t *testing.T,
 	// that would result in channel with SCID 2 no longer being
 	// considered a zombie.
 	unknown, err = vGraph.FilterKnownChanIDs(ctx, []ChannelUpdateInfo{
+		{ShortChannelID: liveSCID, Version: v},
 		{ShortChannelID: scid1, Version: v},
 		{
 			ShortChannelID: scid2,

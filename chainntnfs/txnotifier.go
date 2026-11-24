@@ -128,10 +128,10 @@ type confNtfnSet struct {
 	// until all of them complete without finding the transaction.
 	//
 	// A backend that fails a scan never reports its result, so the count
-	// stays above zero. The set then remains in rescanPending, which keeps
-	// its hint from advancing. The persisted hint's origin is above the
-	// unverified range, so a restart will scan that range again. Details
-	// found by any other scan, or at tip, are still dispatched.
+	// stays above zero. A restart can retry the prefix from an earlier
+	// subscriber's hint unless an error prevented an unsafe cached hint
+	// from being removed. Details found by any scan or at tip are still
+	// dispatched.
 	pendingRescans uint32
 
 	// details serves as a cache of the confirmation details of a
@@ -177,10 +177,10 @@ type spendNtfnSet struct {
 	// until all of them complete without finding a spend.
 	//
 	// A backend that fails a scan never reports its result, so the count
-	// stays above zero. The set then remains in rescanPending, which keeps
-	// its hint from advancing. The persisted hint's origin is above the
-	// unverified range, so a restart will scan that range again. Details
-	// found by any other scan, or at tip, are still dispatched.
+	// stays above zero. A restart can retry the prefix from an earlier
+	// subscriber's hint unless an error prevented an unsafe legacy hint
+	// from being removed. Details found by any scan or at tip are still
+	// dispatched.
 	pendingRescans uint32
 
 	// details serves as a cache of the spend details for an outpoint/output
@@ -838,13 +838,24 @@ func (n *TxNotifier) RegisterConf(txid *chainhash.Hash, pkScript []byte,
 
 	endHeight := n.currentHeight
 	if scanPrefix {
-		// A scan is already pending or complete, but it started after
-		// this subscriber's height hint. Scan only the uncovered
-		// prefix, which ends at the tip at most: after a reorg, blocks
-		// above it will be connected again and seen there. The
-		// persisted hint needs no change: its origin is above this
-		// subscriber's hint, so a restart before the prefix completes
-		// scans from that hint again.
+		// Only a visible legacy height above the requested start can
+		// skip this prefix on restart. Disabled queries return zero.
+		// If the cache fails, still serve the live subscription.
+		hint, err := QueryConfirmHintWithOrigin(
+			n.confirmHintCache, ntfn.ConfRequest,
+		)
+		if err == nil && hint.Origin == 0 && hint.Height > heightHint {
+			err = n.confirmHintCache.PurgeConfirmHint(
+				ntfn.ConfRequest,
+			)
+		}
+		if err != nil && !errors.Is(err, ErrConfirmHintNotFound) {
+			Log.Errorf("Unable to invalidate legacy confirm hint "+
+				"for %v: %v", ntfn.ConfRequest, err)
+		}
+
+		// Bound the uncovered prefix by the current tip. Higher
+		// blocks will be seen when they reconnect after a reorg.
 		startHeight = ntfn.HeightHint
 		endHeight = min(confSet.coverageStart-1, n.currentHeight)
 		confSet.coverageStart = startHeight
@@ -1331,13 +1342,24 @@ func (n *TxNotifier) RegisterSpend(outpoint *wire.OutPoint, pkScript []byte,
 
 	endHeight := n.currentHeight
 	if scanPrefix {
-		// A scan is already pending or complete, but it started after
-		// this subscriber's height hint. Scan only the uncovered
-		// prefix, which ends at the tip at most: after a reorg, blocks
-		// above it will be connected again and seen there. The
-		// persisted hint needs no change: its origin is above this
-		// subscriber's hint, so a restart before the prefix completes
-		// scans from that hint again.
+		// Only a visible legacy height above the requested start can
+		// skip this prefix on restart. Disabled queries return zero.
+		// If the cache fails, still serve the live subscription.
+		hint, err := QuerySpendHintWithOrigin(
+			n.spendHintCache, ntfn.SpendRequest,
+		)
+		if err == nil && hint.Origin == 0 && hint.Height > heightHint {
+			err = n.spendHintCache.PurgeSpendHint(
+				ntfn.SpendRequest,
+			)
+		}
+		if err != nil && !errors.Is(err, ErrSpendHintNotFound) {
+			Log.Errorf("Unable to invalidate legacy spend hint "+
+				"for %v: %v", ntfn.SpendRequest, err)
+		}
+
+		// Bound the uncovered prefix by the current tip. Higher
+		// blocks will be seen when they reconnect after a reorg.
 		startHeight = ntfn.HeightHint
 		endHeight = min(spendSet.coverageStart-1, n.currentHeight)
 		spendSet.coverageStart = startHeight

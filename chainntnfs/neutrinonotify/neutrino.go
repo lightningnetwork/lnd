@@ -754,13 +754,14 @@ func (n *NeutrinoNotifier) notifyBlockEpochClient(epochClient *blockEpochRegistr
 
 // extendHistoricalDispatch extends an initial historical scan through blocks
 // connected while the filter update was in flight. A supplemental scan covers
-// only a fixed prefix and must retain its original end height.
+// only a fixed prefix and must also stop at the surviving tip after a reorg.
 func extendHistoricalDispatch(endHeight *uint32, supplemental bool,
 	currentHeight uint32) {
 
-	if !supplemental {
-		*endHeight = currentHeight
+	if supplemental {
+		currentHeight = min(*endHeight, currentHeight)
 	}
+	*endHeight = currentHeight
 }
 
 // RegisterSpendNtfn registers an intent to be notified once the target
@@ -848,7 +849,7 @@ func (n *NeutrinoNotifier) RegisterSpendNtfn(outpoint *wire.OutPoint,
 	// An initial scan ends at the txNotifier height observed during
 	// registration. Extend that scan through any blocks connected while the
 	// filter update was in flight. A supplemental scan ends below the range
-	// that is already covered and must retain that boundary.
+	// that is already covered and is capped at the surviving tip.
 	extendHistoricalDispatch(
 		&ntfn.HistoricalDispatch.EndHeight,
 		ntfn.HistoricalDispatch.Supplemental, currentHeight,
@@ -1018,7 +1019,7 @@ func (n *NeutrinoNotifier) RegisterConfirmationsNtfn(txid *chainhash.Hash,
 	// An initial scan ends at the txNotifier height observed during
 	// registration. Extend that scan through any blocks connected while the
 	// filter update was in flight. A supplemental scan ends below the range
-	// that is already covered and must retain that boundary.
+	// that is already covered and is capped at the surviving tip.
 	extendHistoricalDispatch(
 		&ntfn.HistoricalDispatch.EndHeight,
 		ntfn.HistoricalDispatch.Supplemental, currentHeight,

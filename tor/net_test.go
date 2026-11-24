@@ -25,8 +25,8 @@ func TestProxyNetSkipProxyLookups(t *testing.T) {
 
 	const (
 		clearHost = "localhost"
-		onionHost = "duckduckgogg42xjoc72x3sjasowoarfbgcmvfimaftt6twag" +
-			"swzczad.onion"
+		onionHost = "duckduckgogg42xjoc72x3sjasowoarfbgcmvfimaftt6" +
+			"twagswzczad.onion"
 	)
 	require.True(t, IsOnionHost(onionHost))
 

@@ -40,19 +40,21 @@ var (
 // selected from those features.
 //
 // The legacy and static remote key commitment types are never selected,
-// whether requested explicitly or reached by falling back.
+// whether requested explicitly or reached by falling back. The only exception
+// is an explicit static remote key request when allowStaticRemoteKey is set,
+// which only integration builds can do.
 //
 // On success, the returned ChannelType is non-nil and is signaled on the wire.
 // An error is returned if the requested type is unsupported or deprecated, or
 // if no supported default type can be selected.
 func negotiateCommitmentType(desiredChanType *lnwire.ChannelType, local,
-	remote *lnwire.FeatureVector) (*lnwire.ChannelType,
-	lnwallet.CommitmentType, error) {
+	remote *lnwire.FeatureVector, allowStaticRemoteKey bool) (
+	*lnwire.ChannelType, lnwallet.CommitmentType, error) {
 
 	// If a specific channel type was provided, verify it's supported.
 	if desiredChanType != nil {
 		commitType, err := explicitNegotiateCommitmentType(
-			*desiredChanType, local, remote,
+			*desiredChanType, local, remote, allowStaticRemoteKey,
 		)
 
 		return desiredChanType, commitType, err
@@ -76,7 +78,8 @@ func negotiateCommitmentType(desiredChanType *lnwire.ChannelType, local,
 // feature bits, we also make sure each feature is supported by both peers. An
 // error is returned if either peer does not support said channel type.
 func explicitNegotiateCommitmentType(channelType lnwire.ChannelType, local,
-	remote *lnwire.FeatureVector) (lnwallet.CommitmentType, error) {
+	remote *lnwire.FeatureVector,
+	allowStaticRemoteKey bool) (lnwallet.CommitmentType, error) {
 
 	channelFeatures := lnwire.RawFeatureVector(channelType)
 
@@ -230,9 +233,15 @@ func explicitNegotiateCommitmentType(channelType lnwire.ChannelType, local,
 		return lnwallet.CommitmentTypeAnchorsZeroFeeHtlcTx, nil
 
 	// The static remote key type is retained for existing channels, but is
-	// no longer accepted for new ones.
+	// no longer accepted for new ones outside of integration tests.
 	case channelFeatures.OnlyContains(lnwire.StaticRemoteKeyRequired):
-		return 0, lnwire.ErrChanTypeDeprecated
+		if !allowStaticRemoteKey {
+			return 0, lnwire.ErrChanTypeDeprecated
+		}
+		if !hasFeatures(local, remote, lnwire.StaticRemoteKeyOptional) {
+			return 0, errUnsupportedChannelType
+		}
+		return lnwallet.CommitmentTypeTweakless, nil
 
 	// Simple taproot channels only (final feature bits).
 	case channelFeatures.OnlyContains(

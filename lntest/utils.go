@@ -158,8 +158,10 @@ func CommitTypeHasAnchors(commitType lnrpc.CommitmentType) bool {
 // commitment type.
 func NodeArgsForCommitType(commitType lnrpc.CommitmentType) []string {
 	switch commitType {
+	// New static remote key channels can only be opened through the dev
+	// config of an integration build.
 	case lnrpc.CommitmentType_STATIC_REMOTE_KEY:
-		return []string{"--protocol.no-anchors"}
+		return []string{"--dev.allow-static-remote-key"}
 	case lnrpc.CommitmentType_ANCHORS:
 		return []string{}
 	case lnrpc.CommitmentType_SCRIPT_ENFORCED_LEASE:

@@ -69,9 +69,7 @@ func testDeprecatedCommitTypesRejected(ht *lntest.HarnessTest) {
 
 	// A node that does not advertise anchors cannot cause the opener to
 	// silently fall back to static remote key.
-	legacyPeerArgs := lntest.NodeArgsForCommitType(
-		lnrpc.CommitmentType_STATIC_REMOTE_KEY,
-	)
+	legacyPeerArgs := []string{"--protocol.no-anchors"}
 	legacyPeer := ht.NewNodeWithCoins("LegacyPeer", legacyPeerArgs)
 	ht.EnsureConnected(carol, legacyPeer)
 	ht.OpenChannelAssertErr(

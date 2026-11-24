@@ -2342,10 +2342,20 @@ func (r *rpcServer) parseOpenChannelReq(in *lnrpc.OpenChannelRequest,
 	// Legacy and static remote key commitments are retained for existing
 	// channels, but are no longer opened. Reject them here so the caller
 	// gets a clear error before we touch the wallet or the peer.
-	case lnrpc.CommitmentType_LEGACY,
-		lnrpc.CommitmentType_STATIC_REMOTE_KEY:
-
+	case lnrpc.CommitmentType_LEGACY:
 		return nil, funding.ErrDeprecatedChanType
+
+	// Only integration builds can allow new static remote key channels, so
+	// that tests keep covering the existing ones.
+	case lnrpc.CommitmentType_STATIC_REMOTE_KEY:
+		if !r.cfg.Dev.GetAllowStaticRemoteKey() {
+			return nil, funding.ErrDeprecatedChanType
+		}
+
+		channelType = new(lnwire.ChannelType)
+		*channelType = lnwire.ChannelType(*lnwire.NewRawFeatureVector(
+			lnwire.StaticRemoteKeyRequired,
+		))
 
 	case lnrpc.CommitmentType_ANCHORS:
 		channelType = new(lnwire.ChannelType)

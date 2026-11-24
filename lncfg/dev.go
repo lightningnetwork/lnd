@@ -66,6 +66,13 @@ func (d *DevConfig) GetMinFwdHistoryAge() time.Duration {
 	return 0
 }
 
+// GetAllowStaticRemoteKey returns the config value `AllowStaticRemoteKey`,
+// which is always false for production build. New static remote key channels
+// can only be opened in integration builds.
+func (d *DevConfig) GetAllowStaticRemoteKey() bool {
+	return false
+}
+
 // ChannelCloseConfs returns the config value for channel close confirmations
 // override, which is always None for production build.
 func (d *DevConfig) ChannelCloseConfs() fn.Option[uint32] {

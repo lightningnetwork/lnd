@@ -23,6 +23,10 @@ func TestCommitmentTypeNegotiation(t *testing.T) {
 		zeroConf          bool
 		scidAlias         bool
 		expectsErr        error
+
+		// allowStaticRemoteKey mirrors the dev config option that
+		// lets integration tests open static remote key channels.
+		allowStaticRemoteKey bool
 	}{
 		{
 			name: "explicit type without remote negotiation bit",
@@ -219,6 +223,43 @@ func TestCommitmentTypeNegotiation(t *testing.T) {
 				lnwire.AnchorsZeroFeeHtlcTxOptional,
 			),
 			expectsErr: lnwire.ErrChanTypeDeprecated,
+		},
+		{
+			name: "explicit tweakless allowed by dev config",
+			channelFeatures: lnwire.NewRawFeatureVector(
+				lnwire.StaticRemoteKeyRequired,
+			),
+			localFeatures: lnwire.NewRawFeatureVector(
+				lnwire.StaticRemoteKeyOptional,
+				lnwire.AnchorsZeroFeeHtlcTxOptional,
+			),
+			remoteFeatures: lnwire.NewRawFeatureVector(
+				lnwire.StaticRemoteKeyOptional,
+				lnwire.AnchorsZeroFeeHtlcTxOptional,
+			),
+			allowStaticRemoteKey: true,
+			expectsCommitType:    lnwallet.CommitmentTypeTweakless,
+			expectsChanType: (*lnwire.ChannelType)(
+				lnwire.NewRawFeatureVector(
+					lnwire.StaticRemoteKeyRequired,
+				),
+			),
+			expectsErr: nil,
+		},
+		{
+			// The dev config only permits an explicit request, so
+			// a peer without static remote key support is still
+			// refused.
+			name: "explicit tweakless allowed but unsupported",
+			channelFeatures: lnwire.NewRawFeatureVector(
+				lnwire.StaticRemoteKeyRequired,
+			),
+			localFeatures: lnwire.NewRawFeatureVector(
+				lnwire.StaticRemoteKeyOptional,
+			),
+			remoteFeatures:       lnwire.NewRawFeatureVector(),
+			allowStaticRemoteKey: true,
+			expectsErr:           errUnsupportedChannelType,
 		},
 		{
 			// An empty channel type asks for the legacy commitment
@@ -473,6 +514,7 @@ func TestCommitmentTypeNegotiation(t *testing.T) {
 
 			lChan, lCommit, err := negotiateCommitmentType(
 				channelType, localFeatures, remoteFeatures,
+				testCase.allowStaticRemoteKey,
 			)
 
 			var (
@@ -498,6 +540,7 @@ func TestCommitmentTypeNegotiation(t *testing.T) {
 
 			rChan, rCommit, err := negotiateCommitmentType(
 				channelType, remoteFeatures, localFeatures,
+				testCase.allowStaticRemoteKey,
 			)
 
 			if rChan != nil {

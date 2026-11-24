@@ -1761,6 +1761,7 @@ func newServer(ctx context.Context, cfg *Config, listenAddrs []net.Addr,
 			ProcessChannelReadyWait: cfg.Dev.ChannelReadyWait(),
 			MaxWaitNumBlocksFundingConf: cfg.Dev.
 				GetMaxWaitNumBlocksFundingConf(),
+			AllowStaticRemoteKey: cfg.Dev.GetAllowStaticRemoteKey(),
 		}
 
 		reservationTimeout = cfg.Dev.GetReservationTimeout()

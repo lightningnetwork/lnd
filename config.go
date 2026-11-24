@@ -2631,7 +2631,7 @@ func logWarningsForDeprecation(cfg Config) {
 // A release build does not apply them, so BOLT 12 tables exist only in a build
 // with the development migrations.
 var bolt12Migrations = []string{
-	"000016_offers",
+	"000017_offers",
 }
 
 // validateBolt12Offers makes sure that the node can run BOLT 12 offers. The

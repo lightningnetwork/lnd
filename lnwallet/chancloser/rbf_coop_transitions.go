@@ -1246,7 +1246,7 @@ func encodeClosingSignatures(env *Environment, wireSig lnwire.Sig,
 func (l *LocalCloseStart) ProcessEvent(event ProtocolEvent, env *Environment,
 ) (*CloseStateTransition, error) {
 
-	switch msg := event.(type) { //nolint:gocritic
+	switch msg := event.(type) {
 	// If we receive a SendOfferEvent, then we'll use the specified fee
 	// rate to generate for the closing transaction with our ideal fee
 	// rate.

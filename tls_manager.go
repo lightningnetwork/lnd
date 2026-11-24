@@ -67,6 +67,9 @@ type TLSManagerCfg struct {
 type TLSManager struct {
 	cfg *TLSManagerCfg
 
+	rpcClientAuth *rpcClientAuth
+	rpcTLSConfig  *tls.Config
+
 	// tlsReloader is able to reload the certificate with the
 	// GetCertificate function. In getConfig, tlsCfg.GetCertificate is
 	// pointed towards t.tlsReloader.GetCertificateFunc(). When
@@ -156,6 +159,12 @@ func (t *TLSManager) getConfig() ([]grpc.ServerOption, []grpc.DialOption,
 		),
 	}
 
+	restTLSConfig := tlsCfg
+	if t.rpcClientAuth != nil {
+		t.rpcTLSConfig = t.rpcClientAuth.grpcTLS(tlsCfg)
+		restTLSConfig = t.rpcClientAuth.publicTLS(tlsCfg)
+	}
+
 	// Return a function closure that can be used to listen on a given
 	// address with the current TLS config.
 	restListen := func(addr net.Addr) (net.Listener, error) {
@@ -165,7 +174,7 @@ func (t *TLSManager) getConfig() ([]grpc.ServerOption, []grpc.DialOption,
 			return lncfg.ListenOnAddress(addr)
 		}
 
-		return lncfg.TLSListenOnAddress(addr, tlsCfg)
+		return lncfg.TLSListenOnAddress(addr, restTLSConfig)
 	}
 
 	return serverOpts, restDialOpts, restListen, cleanUp, nil

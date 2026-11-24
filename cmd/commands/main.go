@@ -116,6 +116,10 @@ func getClientConn(ctx *cli.Context, skipMacaroons bool) *grpc.ClientConn {
 		),
 	}
 
+	clientCert, err := profile.clientCertificate()
+	if err != nil {
+		fatal(err)
+	}
 	if profile.Insecure {
 		opts = append(opts, grpc.WithInsecure())
 	} else {
@@ -129,15 +133,11 @@ func getClientConn(ctx *cli.Context, skipMacaroons bool) *grpc.ClientConn {
 		// there is no certificate pool, we expect the server to use a
 		// non-self-signed certificate such as a certificate obtained
 		// from Let's Encrypt.
-		var creds credentials.TransportCredentials
-		if certPool != nil {
-			creds = credentials.NewClientTLSFromCert(certPool, "")
-		} else {
-			// Fallback to the system pool. Using an empty tls
-			// config is an alternative to x509.SystemCertPool().
-			// That call is not supported on Windows.
-			creds = credentials.NewTLS(&tls.Config{})
+		tlsConfig := &tls.Config{RootCAs: certPool}
+		if clientCert != nil {
+			tlsConfig.Certificates = []tls.Certificate{*clientCert}
 		}
+		creds := credentials.NewTLS(tlsConfig)
 
 		opts = append(opts, grpc.WithTransportCredentials(creds))
 	}
@@ -377,6 +377,16 @@ func Main() {
 			Usage:     "The path to lnd's TLS certificate.",
 			TakesFile: true,
 			EnvVar:    envVarTLSCertPath,
+		},
+		cli.StringFlag{
+			Name:      "tlsclientcertpath",
+			Usage:     "Path to the TLS client certificate (PEM).",
+			TakesFile: true,
+		},
+		cli.StringFlag{
+			Name:      "tlsclientkeypath",
+			Usage:     "Path to the TLS client private key (PEM).",
+			TakesFile: true,
 		},
 		cli.StringFlag{
 			Name:   "chain, c",

@@ -43,6 +43,7 @@ import (
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/credentials"
 	"google.golang.org/grpc/keepalive"
+	"google.golang.org/grpc/test/bufconn"
 	"gopkg.in/macaroon-bakery.v2/bakery"
 	"gopkg.in/macaroon.v2"
 )
@@ -308,6 +309,20 @@ func Main(cfg *Config, lisCfg ListenerCfg, implCfg *ImplementationCfg,
 		HTTPHeaderTimeout: cfg.HTTPHeaderTimeout,
 	}
 	tlsManager := NewTLSManager(tlsManagerCfg)
+	var clientAuth *rpcClientAuth
+	if cfg.RPCClientCAPath != "" {
+		var err error
+		clientAuth, err = newRPCClientAuth(
+			cfg.RPCClientCAPath, cfg.RPCClientAllowlistPath,
+		)
+		if err != nil {
+			return mkErr("error loading RPC client authentication", err)
+		}
+		tlsManager.rpcClientAuth = clientAuth
+		authCtx, cancel := context.WithCancel(ctx)
+		defer cancel()
+		go clientAuth.watch(authCtx)
+	}
 	serverOpts, restDialOpts, restListen, cleanUp,
 		err := tlsManager.SetCertificateBeforeUnlock()
 	if err != nil {
@@ -375,6 +390,14 @@ func Main(cfg *Config, lisCfg ListenerCfg, implCfg *ImplementationCfg,
 		PermitWithoutStream: cfg.GRPC.ClientAllowPingWithoutStream,
 	}
 
+	if clientAuth != nil {
+		serverOpts = append(serverOpts,
+			grpc.Creds(credentials.NewTLS(tlsManager.rpcTLSConfig)),
+			grpc.ChainUnaryInterceptor(clientAuth.unary),
+			grpc.ChainStreamInterceptor(clientAuth.stream),
+		)
+	}
+
 	rpcServerOpts := interceptorChain.CreateServerOpts()
 	serverOpts = append(serverOpts, rpcServerOpts...)
 	serverOpts = append(
@@ -409,8 +432,19 @@ func Main(cfg *Config, lisCfg ListenerCfg, implCfg *ImplementationCfg,
 	// we direct LND to connect to its loopback address rather than a
 	// wildcard to prevent certificate issues when accessing the proxy
 	// externally.
+	var gatewayDial func(context.Context, string) (net.Conn, error)
+	if clientAuth != nil && len(cfg.RESTListeners) > 0 {
+		private := bufconn.Listen(64 * 1024)
+		defer private.Close()
+		go func() {
+			_ = grpcServer.Serve(rpcGatewayListener{private})
+		}()
+		gatewayDial = func(ctx context.Context, _ string) (net.Conn, error) {
+			return private.DialContext(ctx)
+		}
+	}
 	stopProxy, err := startRestProxy(
-		ctx, cfg, rpcServer, restDialOpts, restListen,
+		ctx, cfg, rpcServer, restDialOpts, restListen, clientAuth, gatewayDial,
 	)
 	if err != nil {
 		return mkErr("error starting REST proxy", err)
@@ -1031,7 +1065,9 @@ func startGrpcListen(cfg *Config, grpcServer *grpc.Server,
 // config.
 func startRestProxy(ctx context.Context, cfg *Config, rpcServer *rpcServer,
 	restDialOpts []grpc.DialOption,
-	restListen func(net.Addr) (net.Listener, error)) (func(), error) {
+	restListen func(net.Addr) (net.Listener, error),
+	clientAuth *rpcClientAuth,
+	gatewayDial func(context.Context, string) (net.Conn, error)) (func(), error) {
 
 	// We use the first RPC listener as the destination for our REST proxy.
 	// If the listener is set to listen on all interfaces, we replace it
@@ -1047,6 +1083,11 @@ func startRestProxy(ctx context.Context, cfg *Config, rpcServer *rpcServer,
 		restProxyDest = strings.Replace(
 			restProxyDest, "[::]", "[::1]", 1,
 		)
+	}
+
+	if gatewayDial != nil {
+		restProxyDest = "passthrough:///lnd-rest-gateway"
+		restDialOpts = append(restDialOpts, grpc.WithContextDialer(gatewayDial))
 	}
 
 	var shutdownFuncs []func()
@@ -1128,10 +1169,13 @@ func startRestProxy(ctx context.Context, cfg *Config, rpcServer *rpcServer,
 			// through the following chain:
 			// req ---> CORS handler --> WS proxy --->
 			//   REST proxy --> gRPC endpoint
-			corsHandler := allowCORS(restHandler, cfg.RestCORS)
+			handler := allowCORS(restHandler, cfg.RestCORS)
+			if clientAuth != nil {
+				handler = clientAuth.httpHandler(handler)
+			}
 
 			wg.Done()
-			err := http.Serve(lis, corsHandler)
+			err := http.Serve(lis, handler)
 			if err != nil && !lnrpc.IsClosedConnError(err) {
 				rpcsLog.Error(err)
 			}

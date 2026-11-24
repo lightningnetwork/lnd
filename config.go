@@ -385,14 +385,16 @@ type Config struct {
 	DataDir      string `short:"b" long:"datadir" description:"The directory to store lnd's data within"`
 	SyncFreelist bool   `long:"sync-freelist" description:"Whether the databases used within lnd should sync their freelist to disk. This is disabled by default resulting in improved memory performance during operation, but with an increase in startup time."`
 
-	TLSCertPath        string        `long:"tlscertpath" description:"Path to write the TLS certificate for lnd's RPC and REST services"`
-	TLSKeyPath         string        `long:"tlskeypath" description:"Path to write the TLS private key for lnd's RPC and REST services"`
-	TLSExtraIPs        []string      `long:"tlsextraip" description:"Adds an extra ip to the generated certificate"`
-	TLSExtraDomains    []string      `long:"tlsextradomain" description:"Adds an extra domain to the generated certificate"`
-	TLSAutoRefresh     bool          `long:"tlsautorefresh" description:"Re-generate TLS certificate and key if the IPs or domains are changed"`
-	TLSDisableAutofill bool          `long:"tlsdisableautofill" description:"Do not include the interface IPs or the system hostname in TLS certificate, use first --tlsextradomain as Common Name instead, if set"`
-	TLSCertDuration    time.Duration `long:"tlscertduration" description:"The duration for which the auto-generated TLS certificate will be valid for"`
-	TLSEncryptKey      bool          `long:"tlsencryptkey" description:"Automatically encrypts the TLS private key and generates ephemeral TLS key pairs when the wallet is locked or not initialized"`
+	RPCClientCAPath        string        `long:"rpcclientcapath" description:"Path to the PEM CA bundle for RPC client authentication"`
+	RPCClientAllowlistPath string        `long:"rpcclientallowlistpath" description:"Path to the SHA-256 certificate allowlist for RPC client authentication"`
+	TLSCertPath            string        `long:"tlscertpath" description:"Path to write the TLS certificate for lnd's RPC and REST services"`
+	TLSKeyPath             string        `long:"tlskeypath" description:"Path to write the TLS private key for lnd's RPC and REST services"`
+	TLSExtraIPs            []string      `long:"tlsextraip" description:"Adds an extra ip to the generated certificate"`
+	TLSExtraDomains        []string      `long:"tlsextradomain" description:"Adds an extra domain to the generated certificate"`
+	TLSAutoRefresh         bool          `long:"tlsautorefresh" description:"Re-generate TLS certificate and key if the IPs or domains are changed"`
+	TLSDisableAutofill     bool          `long:"tlsdisableautofill" description:"Do not include the interface IPs or the system hostname in TLS certificate, use first --tlsextradomain as Common Name instead, if set"`
+	TLSCertDuration        time.Duration `long:"tlscertduration" description:"The duration for which the auto-generated TLS certificate will be valid for"`
+	TLSEncryptKey          bool          `long:"tlsencryptkey" description:"Automatically encrypts the TLS private key and generates ephemeral TLS key pairs when the wallet is locked or not initialized"`
 
 	NoMacaroons     bool          `long:"no-macaroons" description:"Disable macaroon authentication, can only be used if server is not listening on a public interface."`
 	AdminMacPath    string        `long:"adminmacaroonpath" description:"Path to write the admin macaroon for lnd's RPC and REST services if it doesn't exist"`
@@ -1135,6 +1137,14 @@ func ValidateConfig(cfg Config, interceptor signal.Interceptor, fileParser,
 	cfg.DataDir = CleanAndExpandPath(cfg.DataDir)
 	cfg.TLSCertPath = CleanAndExpandPath(cfg.TLSCertPath)
 	cfg.TLSKeyPath = CleanAndExpandPath(cfg.TLSKeyPath)
+	cfg.RPCClientCAPath = CleanAndExpandPath(cfg.RPCClientCAPath)
+	cfg.RPCClientAllowlistPath = CleanAndExpandPath(cfg.RPCClientAllowlistPath)
+	if (cfg.RPCClientCAPath == "") != (cfg.RPCClientAllowlistPath == "") {
+		return nil, fmt.Errorf("rpcclientcapath and rpcclientallowlistpath must be set together")
+	}
+	if cfg.RPCClientCAPath != "" && !cfg.DisableRest && cfg.DisableRestTLS {
+		return nil, fmt.Errorf("RPC client authentication requires TLS on the REST listener")
+	}
 	cfg.LetsEncryptDir = CleanAndExpandPath(cfg.LetsEncryptDir)
 	cfg.AdminMacPath = CleanAndExpandPath(cfg.AdminMacPath)
 	cfg.ReadMacPath = CleanAndExpandPath(cfg.ReadMacPath)

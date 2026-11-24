@@ -2,12 +2,14 @@ package commands
 
 import (
 	"bytes"
+	"crypto/tls"
 	"crypto/x509"
 	"encoding/json"
 	"errors"
 	"fmt"
 	"os"
 	"path"
+	"path/filepath"
 	"strings"
 
 	"github.com/lightningnetwork/lnd/lncfg"
@@ -24,15 +26,17 @@ var (
 // profileEntry is a struct that represents all settings for one specific
 // profile.
 type profileEntry struct {
-	Name        string            `json:"name"`
-	RPCServer   string            `json:"rpcserver"`
-	LndDir      string            `json:"lnddir"`
-	Network     string            `json:"network"`
-	NoMacaroons bool              `json:"no-macaroons,omitempty"` // nolint:tagliatelle
-	TLSCert     string            `json:"tlscert"`
-	Macaroons   *macaroonJar      `json:"macaroons"`
-	Metadata    map[string]string `json:"metadata,omitempty"`
-	Insecure    bool              `json:"insecure,omitempty"`
+	Name              string            `json:"name"`
+	RPCServer         string            `json:"rpcserver"`
+	LndDir            string            `json:"lnddir"`
+	Network           string            `json:"network"`
+	NoMacaroons       bool              `json:"no-macaroons,omitempty"` // nolint:tagliatelle
+	TLSCert           string            `json:"tlscert"`
+	TLSClientCertPath string            `json:"tlsclientcertpath,omitempty"`
+	TLSClientKeyPath  string            `json:"tlsclientkeypath,omitempty"`
+	Macaroons         *macaroonJar      `json:"macaroons"`
+	Metadata          map[string]string `json:"metadata,omitempty"`
+	Insecure          bool              `json:"insecure,omitempty"`
 }
 
 // cert returns the profile's TLS certificate as a x509 certificate pool.
@@ -47,6 +51,49 @@ func (e *profileEntry) cert() (*x509.CertPool, error) {
 			"certificate")
 	}
 	return cp, nil
+}
+
+// setClientCertificatePaths requires the flags to select a whole identity.
+// Never mix a profile certificate with a private key from a flag.
+func (e *profileEntry) setClientCertificatePaths(ctx *cli.Context, store bool) error {
+	certSet := ctx.GlobalIsSet("tlsclientcertpath")
+	keySet := ctx.GlobalIsSet("tlsclientkeypath")
+	if !certSet && !keySet {
+		return nil
+	}
+	cert := lncfg.CleanAndExpandPath(ctx.GlobalString("tlsclientcertpath"))
+	key := lncfg.CleanAndExpandPath(ctx.GlobalString("tlsclientkeypath"))
+	if !certSet || !keySet || cert == "" || key == "" {
+		return fmt.Errorf("tlsclientcertpath and tlsclientkeypath must both be set")
+	}
+	if store {
+		var err error
+		cert, err = filepath.Abs(cert)
+		if err != nil {
+			return err
+		}
+		key, err = filepath.Abs(key)
+		if err != nil {
+			return err
+		}
+	}
+	e.TLSClientCertPath, e.TLSClientKeyPath = cert, key
+	return nil
+}
+
+func (e *profileEntry) clientCertificate() (*tls.Certificate, error) {
+	cert, key := e.TLSClientCertPath, e.TLSClientKeyPath
+	if cert == "" && key == "" {
+		return nil, nil
+	}
+	if e.Insecure || cert == "" || key == "" {
+		return nil, fmt.Errorf("TLS client authentication requires both certificate and key paths and cannot use insecure mode")
+	}
+	pair, err := tls.LoadX509KeyPair(cert, key)
+	if err != nil {
+		return nil, fmt.Errorf("load TLS client identity: %w", err)
+	}
+	return &pair, nil
 }
 
 // getGlobalOptions returns the global connection options. If a profile file
@@ -102,7 +149,11 @@ func getGlobalOptions(ctx *cli.Context, skipMacaroons bool) (*profileEntry,
 	// profile to use. Now we just need to make sure it does exist.
 	for _, prof := range f.Profiles {
 		if prof.Name == profileName {
-			return prof, nil
+			selected := *prof
+			if err := selected.setClientCertificatePaths(ctx, false); err != nil {
+				return nil, err
+			}
+			return &selected, nil
 		}
 	}
 
@@ -157,6 +208,15 @@ func profileFromContext(ctx *cli.Context, store, skipMacaroons bool) (
 		TLSCert:     string(tlsCert),
 		Metadata:    metadata,
 		Insecure:    insecure,
+	}
+
+	if err := entry.setClientCertificatePaths(ctx, store); err != nil {
+		return nil, err
+	}
+	if store {
+		if _, err := entry.clientCertificate(); err != nil {
+			return nil, err
+		}
 	}
 
 	// If we aren't using macaroons in general (flag --no-macaroons) or

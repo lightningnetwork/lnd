@@ -22,13 +22,18 @@ func TestMTLSCommandRegistration(t *testing.T) {
 	dir := t.TempDir()
 	app := cli.NewApp()
 	app.Commands = []cli.Command{mtlsCommand}
-	err := app.Run([]string{"lncli", "mtls", "new-client", "--keyout", filepath.Join(dir, "key"), "--csrout", filepath.Join(dir, "csr")})
+	err := app.Run([]string{
+		"lncli", "mtls", "new-client", "--keyout",
+		filepath.Join(dir, "key"), "--csrout",
+		filepath.Join(dir, "csr"),
+	})
 	require.NoError(t, err)
 }
 
 func TestMTLSOfflineEnrollment(t *testing.T) {
 	dir := t.TempDir()
-	keyPath, csrPath := filepath.Join(dir, "client.key"), filepath.Join(dir, "client.csr")
+	keyPath := filepath.Join(dir, "client.key")
+	csrPath := filepath.Join(dir, "client.csr")
 	require.NoError(t, newMTLSClient(keyPath, csrPath))
 	keyPEM, err := os.ReadFile(keyPath)
 	require.NoError(t, err)
@@ -48,13 +53,19 @@ func TestMTLSOfflineEnrollment(t *testing.T) {
 	csr, err := x509.ParseCertificateRequest(block.Bytes)
 	require.NoError(t, err)
 	require.NoError(t, csr.CheckSignature())
-	require.True(t, key.PublicKey.Equal(csr.PublicKey.(*ecdsa.PublicKey)))
+	csrKey, ok := csr.PublicKey.(*ecdsa.PublicKey)
+	require.True(t, ok)
+	require.True(t, key.PublicKey.Equal(csrKey))
 	require.Error(t, newMTLSClient(keyPath, csrPath))
 	samePath := filepath.Join(dir, "same")
-	require.Error(t, newMTLSClient(samePath, filepath.Join(dir, ".", "same")))
+	require.Error(t, newMTLSClient(
+		samePath, filepath.Join(dir, ".", "same"),
+	))
 	alias := filepath.Join(dir, "alias")
 	if os.Symlink(dir, alias) == nil {
-		require.Error(t, newMTLSClient(samePath, filepath.Join(alias, "same")))
+		require.Error(t, newMTLSClient(
+			samePath, filepath.Join(alias, "same"),
+		))
 		_, err = os.Stat(samePath)
 		require.ErrorIs(t, err, os.ErrNotExist)
 	}
@@ -66,16 +77,27 @@ func TestMTLSOfflineEnrollment(t *testing.T) {
 	require.NoError(t, err)
 	require.Equal(t, csrPEM, existing)
 
-	template := &x509.Certificate{SerialNumber: big.NewInt(1), NotBefore: time.Now().Add(-time.Hour), NotAfter: time.Now().Add(time.Hour), KeyUsage: x509.KeyUsageDigitalSignature}
-	der, err := x509.CreateCertificate(rand.Reader, template, template, csr.PublicKey, key)
+	template := &x509.Certificate{
+		SerialNumber: big.NewInt(1),
+		NotBefore:    time.Now().Add(-time.Hour),
+		NotAfter:     time.Now().Add(time.Hour),
+		KeyUsage:     x509.KeyUsageDigitalSignature,
+	}
+	der, err := x509.CreateCertificate(
+		rand.Reader, template, template, csr.PublicKey, key,
+	)
 	require.NoError(t, err)
 	certPath := filepath.Join(dir, "client.crt")
-	require.NoError(t, os.WriteFile(certPath, pem.EncodeToMemory(&pem.Block{Type: "CERTIFICATE", Bytes: der}), 0600))
+	require.NoError(t, os.WriteFile(certPath, pem.EncodeToMemory(&pem.Block{
+		Type: "CERTIFICATE", Bytes: der,
+	}), 0600))
 	allowPath := filepath.Join(dir, "allowlist")
 	require.NoError(t, os.WriteFile(allowPath, []byte("# retained"), 0640))
 	allowLink := filepath.Join(dir, "allowlink")
 	if os.Symlink(allowPath, allowLink) == nil {
-		require.ErrorContains(t, allowMTLSClient(certPath, allowLink), "regular file")
+		require.ErrorContains(
+			t, allowMTLSClient(certPath, allowLink), "regular file",
+		)
 	}
 	require.NoError(t, allowMTLSClient(certPath, allowPath))
 	fingerprint := sha256.Sum256(der)
@@ -99,9 +121,14 @@ func TestMTLSOfflineEnrollment(t *testing.T) {
 	require.Equal(t, "invalid\n", string(actual))
 	certPEM, err := os.ReadFile(certPath)
 	require.NoError(t, err)
-	malformed := append([]byte("-----BEGIN CERTIFICATE-----\nbad prefix\n"), certPEM...)
+	malformed := append(
+		[]byte("-----BEGIN CERTIFICATE-----\nbad prefix\n"), certPEM...,
+	)
 	require.NoError(t, os.WriteFile(certPath, malformed, 0600))
-	require.ErrorContains(t, allowMTLSClient(certPath, allowPath), "exactly one PEM certificate")
+	require.ErrorContains(
+		t, allowMTLSClient(certPath, allowPath),
+		"exactly one PEM certificate",
+	)
 	require.NoError(t, os.WriteFile(certPath, certPEM, 0600))
 	require.NoError(t, os.WriteFile(allowPath+".lock", nil, 0600))
 	require.ErrorContains(t, allowMTLSClient(certPath, allowPath), "lock")

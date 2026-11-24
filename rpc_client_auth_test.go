@@ -39,12 +39,20 @@ func TestRPCClientAuthentication(t *testing.T) {
 	defer cancel()
 
 	ca := makeRPCTestCertificate(t, 1, nil, 0)
-	serverCert := makeRPCTestCertificate(t, 2, &ca, x509.ExtKeyUsageServerAuth)
+	serverCert := makeRPCTestCertificate(
+		t, 2, &ca, x509.ExtKeyUsageServerAuth,
+	)
 	client := makeRPCTestCertificate(t, 3, &ca, x509.ExtKeyUsageClientAuth)
-	replacement := makeRPCTestCertificate(t, 4, &ca, x509.ExtKeyUsageClientAuth)
+	replacement := makeRPCTestCertificate(
+		t, 4, &ca, x509.ExtKeyUsageClientAuth,
+	)
 	untrustedCA := makeRPCTestCertificate(t, 5, nil, 0)
-	untrusted := makeRPCTestCertificate(t, 6, &untrustedCA, x509.ExtKeyUsageClientAuth)
-	serverOnly := makeRPCTestCertificate(t, 7, &ca, x509.ExtKeyUsageServerAuth)
+	untrusted := makeRPCTestCertificate(
+		t, 6, &untrustedCA, x509.ExtKeyUsageClientAuth,
+	)
+	serverOnly := makeRPCTestCertificate(
+		t, 7, &ca, x509.ExtKeyUsageServerAuth,
+	)
 
 	dir := t.TempDir()
 	caPath := filepath.Join(dir, "ca.pem")
@@ -56,9 +64,12 @@ func TestRPCClientAuthentication(t *testing.T) {
 		t.Helper()
 		var contents string
 		for _, cert := range certs {
-			contents += fmt.Sprintf("%x # client\n", sha256.Sum256(cert.Certificate[0]))
+			fingerprint := sha256.Sum256(cert.Certificate[0])
+			contents += fmt.Sprintf("%x # client\n", fingerprint)
 		}
-		require.NoError(t, os.WriteFile(allowPath+".tmp", []byte(contents), 0600))
+		require.NoError(t, os.WriteFile(
+			allowPath+".tmp", []byte(contents), 0600,
+		))
 		require.NoError(t, os.Rename(allowPath+".tmp", allowPath))
 	}
 
@@ -76,10 +87,14 @@ func TestRPCClientAuthentication(t *testing.T) {
 	clientTLS := func(cert *tls.Certificate) *tls.Config {
 		cfg := &tls.Config{RootCAs: roots, ServerName: "localhost"}
 		if cert != nil {
-			cfg.GetClientCertificate = func(*tls.CertificateRequestInfo) (*tls.Certificate, error) {
+			cfg.GetClientCertificate = func(
+				*tls.CertificateRequestInfo,
+			) (*tls.Certificate, error) {
+
 				return cert, nil
 			}
 		}
+
 		return cfg
 	}
 	public, private := bufconn.Listen(65536), bufconn.Listen(65536)
@@ -95,19 +110,28 @@ func TestRPCClientAuthentication(t *testing.T) {
 	go func() { _ = grpcServer.Serve(public) }()
 	go func() { _ = grpcServer.Serve(rpcGatewayListener{private}) }()
 
-	dialOptions := func(listener *bufconn.Listener, cert *tls.Certificate) []grpc.DialOption {
+	dialOptions := func(listener *bufconn.Listener,
+		cert *tls.Certificate) []grpc.DialOption {
+
 		return []grpc.DialOption{
-			grpc.WithContextDialer(func(ctx context.Context, _ string) (net.Conn, error) {
+			grpc.WithContextDialer(func(ctx context.Context,
+				_ string) (net.Conn, error) {
+
 				return listener.DialContext(ctx)
 			}),
-			grpc.WithTransportCredentials(credentials.NewTLS(clientTLS(cert))),
+			grpc.WithTransportCredentials(
+				credentials.NewTLS(clientTLS(cert)),
+			),
 		}
 	}
 	grpcClient := func(cert *tls.Certificate) lnrpc.StateClient {
 		t.Helper()
-		conn, err := grpc.NewClient("passthrough:///test", dialOptions(public, cert)...)
+		conn, err := grpc.NewClient(
+			"passthrough:///test", dialOptions(public, cert)...,
+		)
 		require.NoError(t, err)
 		t.Cleanup(func() { _ = conn.Close() })
+
 		return lnrpc.NewStateClient(conn)
 	}
 
@@ -115,15 +139,17 @@ func TestRPCClientAuthentication(t *testing.T) {
 	restCtx, stopREST := context.WithCancel(ctx)
 	defer stopREST()
 	require.NoError(t, lnrpc.RegisterStateHandlerFromEndpoint(
-		restCtx, mux, "passthrough:///gateway", dialOptions(private, nil),
+		restCtx, mux, "passthrough:///gateway",
+		dialOptions(private, nil),
 	))
 	var lastRemoteAddr atomic.Value
-	httpServer := httptest.NewUnstartedServer(policy.httpHandler(http.HandlerFunc(
+	handler := policy.httpHandler(http.HandlerFunc(
 		func(w http.ResponseWriter, r *http.Request) {
 			lastRemoteAddr.Store(r.RemoteAddr)
 			mux.ServeHTTP(w, r)
 		},
-	)))
+	))
+	httpServer := httptest.NewUnstartedServer(handler)
 	httpServer.TLS = policy.publicTLS(baseTLS)
 	httpServer.StartTLS()
 	t.Cleanup(httpServer.Close)
@@ -133,7 +159,9 @@ func TestRPCClientAuthentication(t *testing.T) {
 		return &http.Client{Transport: transport, Timeout: time.Second}
 	}
 	getREST := func(c *http.Client) (int, error) {
-		req, err := http.NewRequestWithContext(ctx, http.MethodGet, httpServer.URL+"/v1/state", nil)
+		req, err := http.NewRequestWithContext(
+			ctx, http.MethodGet, httpServer.URL+"/v1/state", nil,
+		)
 		if err != nil {
 			return 0, err
 		}
@@ -144,11 +172,16 @@ func TestRPCClientAuthentication(t *testing.T) {
 		defer resp.Body.Close()
 		// Drain the response so the next call can reuse the connection.
 		_, err = io.Copy(io.Discard, resp.Body)
+
 		return resp.StatusCode, err
 	}
 
-	for _, cert := range []*tls.Certificate{nil, &replacement, &untrusted, &serverOnly} {
-		_, err := grpcClient(cert).GetState(ctx, &lnrpc.GetStateRequest{})
+	for _, cert := range []*tls.Certificate{
+		nil, &replacement, &untrusted, &serverOnly,
+	} {
+		_, err := grpcClient(cert).GetState(
+			ctx, &lnrpc.GetStateRequest{},
+		)
 		require.Equal(t, codes.Unavailable, status.Code(err))
 		_, err = getREST(restClient(cert))
 		require.Error(t, err)
@@ -165,7 +198,8 @@ func TestRPCClientAuthentication(t *testing.T) {
 
 	// Reload registers a replacement without invalidating the old client.
 	writeAllowlist(client, replacement)
-	secondRPC, secondREST := grpcClient(&replacement), restClient(&replacement)
+	secondRPC := grpcClient(&replacement)
+	secondREST := restClient(&replacement)
 	require.Eventually(t, func() bool {
 		code, err := getREST(secondREST)
 		return err == nil && code == http.StatusOK
@@ -181,7 +215,9 @@ func TestRPCClientAuthentication(t *testing.T) {
 
 	// A malformed replacement must not partially apply. An empty but
 	// valid file, by contrast, removes all entries.
-	require.NoError(t, os.WriteFile(allowPath+".tmp", []byte("bad fingerprint\n"), 0600))
+	require.NoError(t, os.WriteFile(
+		allowPath+".tmp", []byte("bad fingerprint\n"), 0600,
+	))
 	require.NoError(t, os.Rename(allowPath+".tmp", allowPath))
 	// Inspect the malformed file with a separate policy, so the watch
 	// goroutine remains the only writer to the live policy.
@@ -190,7 +226,7 @@ func TestRPCClientAuthentication(t *testing.T) {
 	_, err = firstRPC.GetState(ctx, &lnrpc.GetStateRequest{})
 	require.NoError(t, err)
 
-	// The same live connections must no longer admit calls after revocation.
+	// The same live connections must not admit calls after revocation.
 	writeAllowlist(replacement)
 	require.Eventually(t, func() bool {
 		_, err := firstRPC.GetState(ctx, &lnrpc.GetStateRequest{})
@@ -199,7 +235,9 @@ func TestRPCClientAuthentication(t *testing.T) {
 	code, err = getREST(firstREST)
 	require.NoError(t, err)
 	require.Equal(t, http.StatusUnauthorized, code)
-	stream, err := firstRPC.SubscribeState(ctx, &lnrpc.SubscribeStateRequest{})
+	stream, err := firstRPC.SubscribeState(
+		ctx, &lnrpc.SubscribeStateRequest{},
+	)
 	require.NoError(t, err)
 	_, err = stream.Recv()
 	require.Equal(t, codes.Unauthenticated, status.Code(err))
@@ -244,11 +282,19 @@ func makeRPCTestCertificate(t *testing.T, serial int64, ca *tls.Certificate,
 	} else {
 		template.ExtKeyUsage = []x509.ExtKeyUsage{usage}
 		template.DNSNames = []string{"localhost"}
-		parent, signer = ca.Leaf, ca.PrivateKey.(*ecdsa.PrivateKey)
+		parent = ca.Leaf
+		var ok bool
+		signer, ok = ca.PrivateKey.(*ecdsa.PrivateKey)
+		require.True(t, ok)
 	}
-	der, err := x509.CreateCertificate(rand.Reader, template, parent, &key.PublicKey, signer)
+	der, err := x509.CreateCertificate(
+		rand.Reader, template, parent, &key.PublicKey, signer,
+	)
 	require.NoError(t, err)
 	leaf, err := x509.ParseCertificate(der)
 	require.NoError(t, err)
-	return tls.Certificate{Certificate: [][]byte{der}, PrivateKey: key, Leaf: leaf}
+
+	return tls.Certificate{
+		Certificate: [][]byte{der}, PrivateKey: key, Leaf: leaf,
+	}
 }

@@ -11,7 +11,8 @@ import (
 	"strings"
 )
 
-// Parse returns the fingerprints in a list. Blank lines and comments are ignored.
+// Parse returns the fingerprints in a list. Blank lines and comments are
+// ignored.
 func Parse(r io.Reader) (map[[sha256.Size]byte]struct{}, error) {
 	result := make(map[[sha256.Size]byte]struct{})
 	scanner := bufio.NewScanner(r)
@@ -23,15 +24,26 @@ func Parse(r io.Reader) (map[[sha256.Size]byte]struct{}, error) {
 		}
 		var fingerprint [sha256.Size]byte
 		if len(entry) != hex.EncodedLen(len(fingerprint)) {
-			return nil, fmt.Errorf("line %d: %w", line, errors.New("expected a 64-digit hex SHA-256 fingerprint"))
+			return nil, fmt.Errorf(
+				"line %d: %w", line, errors.New(
+					"expected a 64-digit hex "+
+						"SHA-256 fingerprint",
+				),
+			)
 		}
-		if _, err := hex.Decode(fingerprint[:], []byte(entry)); err != nil {
-			return nil, fmt.Errorf("line %d: expected a 64-digit hex SHA-256 fingerprint", line)
+		_, err := hex.Decode(fingerprint[:], []byte(entry))
+		if err != nil {
+			return nil, fmt.Errorf(
+				"line %d: expected a 64-digit hex "+
+					"SHA-256 fingerprint",
+				line,
+			)
 		}
 		result[fingerprint] = struct{}{}
 	}
 	if err := scanner.Err(); err != nil {
 		return nil, fmt.Errorf("read allowlist: %w", err)
 	}
+
 	return result, nil
 }

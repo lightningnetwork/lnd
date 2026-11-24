@@ -30,7 +30,9 @@ func TestProfileClientTLS(t *testing.T) {
 		NotAfter:     time.Now().Add(time.Hour),
 		ExtKeyUsage:  []x509.ExtKeyUsage{x509.ExtKeyUsageClientAuth},
 	}
-	der, err := x509.CreateCertificate(rand.Reader, template, template, &key.PublicKey, key)
+	der, err := x509.CreateCertificate(
+		rand.Reader, template, template, &key.PublicKey, key,
+	)
 	require.NoError(t, err)
 	keyDER, err := x509.MarshalPKCS8PrivateKey(key)
 	require.NoError(t, err)
@@ -49,7 +51,11 @@ func TestProfileClientTLS(t *testing.T) {
 		require.NoError(t, set.Parse(args))
 		app := cli.NewApp()
 		global := cli.NewContext(app, set, nil)
-		return cli.NewContext(app, flag.NewFlagSet("command", flag.ContinueOnError), global)
+
+		return cli.NewContext(
+			app, flag.NewFlagSet("command", flag.ContinueOnError),
+			global,
+		)
 	}
 
 	var original profileEntry
@@ -80,7 +86,8 @@ func TestProfileClientTLS(t *testing.T) {
 	), false))
 	require.Equal(t, certPath, loaded.TLSClientCertPath)
 	require.NoError(t, loaded.setClientCertificatePaths(flags(
-		"--tlsclientcertpath=another.pem", "--tlsclientkeypath=another.key",
+		"--tlsclientcertpath=another.pem",
+		"--tlsclientkeypath=another.key",
 	), false))
 	require.Equal(t, "another.pem", loaded.TLSClientCertPath)
 	require.Equal(t, "another.key", loaded.TLSClientKeyPath)

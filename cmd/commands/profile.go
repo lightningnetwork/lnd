@@ -26,11 +26,12 @@ var (
 // profileEntry is a struct that represents all settings for one specific
 // profile.
 type profileEntry struct {
-	Name              string            `json:"name"`
-	RPCServer         string            `json:"rpcserver"`
-	LndDir            string            `json:"lnddir"`
-	Network           string            `json:"network"`
-	NoMacaroons       bool              `json:"no-macaroons,omitempty"` // nolint:tagliatelle
+	Name      string `json:"name"`
+	RPCServer string `json:"rpcserver"`
+	LndDir    string `json:"lnddir"`
+	Network   string `json:"network"`
+	//nolint:tagliatelle
+	NoMacaroons       bool              `json:"no-macaroons,omitempty"`
 	TLSCert           string            `json:"tlscert"`
 	TLSClientCertPath string            `json:"tlsclientcertpath,omitempty"`
 	TLSClientKeyPath  string            `json:"tlsclientkeypath,omitempty"`
@@ -55,7 +56,9 @@ func (e *profileEntry) cert() (*x509.CertPool, error) {
 
 // setClientCertificatePaths requires the flags to select a whole identity.
 // Never mix a profile certificate with a private key from a flag.
-func (e *profileEntry) setClientCertificatePaths(ctx *cli.Context, store bool) error {
+func (e *profileEntry) setClientCertificatePaths(ctx *cli.Context,
+	store bool) error {
+
 	certSet := ctx.GlobalIsSet("tlsclientcertpath")
 	keySet := ctx.GlobalIsSet("tlsclientkeypath")
 	if !certSet && !keySet {
@@ -64,7 +67,8 @@ func (e *profileEntry) setClientCertificatePaths(ctx *cli.Context, store bool) e
 	cert := lncfg.CleanAndExpandPath(ctx.GlobalString("tlsclientcertpath"))
 	key := lncfg.CleanAndExpandPath(ctx.GlobalString("tlsclientkeypath"))
 	if !certSet || !keySet || cert == "" || key == "" {
-		return fmt.Errorf("tlsclientcertpath and tlsclientkeypath must both be set")
+		return fmt.Errorf("tlsclientcertpath and tlsclientkeypath " +
+			"must both be set")
 	}
 	if store {
 		var err error
@@ -78,6 +82,7 @@ func (e *profileEntry) setClientCertificatePaths(ctx *cli.Context, store bool) e
 		}
 	}
 	e.TLSClientCertPath, e.TLSClientKeyPath = cert, key
+
 	return nil
 }
 
@@ -87,12 +92,15 @@ func (e *profileEntry) clientCertificate() (*tls.Certificate, error) {
 		return nil, nil
 	}
 	if e.Insecure || cert == "" || key == "" {
-		return nil, fmt.Errorf("TLS client authentication requires both certificate and key paths and cannot use insecure mode")
+		return nil, fmt.Errorf("TLS client authentication requires " +
+			"both certificate and key paths and cannot use " +
+			"insecure mode")
 	}
 	pair, err := tls.LoadX509KeyPair(cert, key)
 	if err != nil {
 		return nil, fmt.Errorf("load TLS client identity: %w", err)
 	}
+
 	return &pair, nil
 }
 
@@ -150,9 +158,11 @@ func getGlobalOptions(ctx *cli.Context, skipMacaroons bool) (*profileEntry,
 	for _, prof := range f.Profiles {
 		if prof.Name == profileName {
 			selected := *prof
-			if err := selected.setClientCertificatePaths(ctx, false); err != nil {
+			err := selected.setClientCertificatePaths(ctx, false)
+			if err != nil {
 				return nil, err
 			}
+
 			return &selected, nil
 		}
 	}

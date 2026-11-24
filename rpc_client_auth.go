@@ -14,7 +14,6 @@ import (
 	"time"
 
 	"github.com/lightningnetwork/lnd/internal/rpcclientallowlist"
-
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/credentials"
@@ -37,16 +36,21 @@ func newRPCClientAuth(caPath, allowlistPath string) (*rpcClientAuth, error) {
 	if err != nil {
 		return nil, fmt.Errorf("read RPC client CA: %w", err)
 	}
+
 	roots := x509.NewCertPool()
 	if !roots.AppendCertsFromPEM(pem) {
 		return nil, errors.New("RPC client CA file has no certificates")
 	}
 
-	a := &rpcClientAuth{roots: roots, path: allowlistPath}
-	if err := a.reload(); err != nil {
+	auth := &rpcClientAuth{
+		roots: roots,
+		path:  allowlistPath,
+	}
+	if err := auth.reload(); err != nil {
 		return nil, err
 	}
-	return a, nil
+
+	return auth, nil
 }
 
 func (a *rpcClientAuth) reload() error {
@@ -62,6 +66,7 @@ func (a *rpcClientAuth) reload() error {
 	}
 	allow := rpcClientFingerprints(entries)
 	a.allow.Store(&allow)
+
 	return nil
 }
 
@@ -77,8 +82,8 @@ func (a *rpcClientAuth) watch(ctx context.Context) {
 		case <-ticker.C:
 			if err := a.reload(); err != nil {
 				if err.Error() != lastError {
-					rpcsLog.Warnf("Keeping previous RPC client "+
-						"allowlist: %v", err)
+					rpcsLog.Warnf("Keeping previous "+
+						"RPC client allowlist: %v", err)
 				}
 				lastError = err.Error()
 			} else {
@@ -93,13 +98,18 @@ func (a *rpcClientAuth) verify(state tls.ConnectionState) error {
 		return errors.New("RPC client certificate is not verified")
 	}
 	leaf := state.PeerCertificates[0]
-	if now := time.Now(); now.Before(leaf.NotBefore) || now.After(leaf.NotAfter) {
-		return errors.New("RPC client certificate is outside its validity period")
+	now := time.Now()
+	if now.Before(leaf.NotBefore) || now.After(leaf.NotAfter) {
+		return errors.New("RPC client certificate is outside its " +
+			"validity period")
 	}
+
 	fingerprint := sha256.Sum256(leaf.Raw)
 	if _, ok := (*a.allow.Load())[fingerprint]; !ok {
-		return errors.New("RPC client certificate is not in the allowlist")
+		return errors.New("RPC client certificate is not in " +
+			"the allowlist")
 	}
+
 	return nil
 }
 
@@ -109,6 +119,7 @@ func (a *rpcClientAuth) publicTLS(base *tls.Config) *tls.Config {
 	cfg.ClientCAs = a.roots
 	cfg.VerifyConnection = a.verify
 	cfg.SessionTicketsDisabled = true
+
 	return cfg
 }
 
@@ -120,12 +131,17 @@ func (a *rpcClientAuth) grpcTLS(base *tls.Config) *tls.Config {
 	private := base.Clone()
 	private.NextProtos = []string{"h2"}
 	private.SessionTicketsDisabled = true
-	public.GetConfigForClient = func(hello *tls.ClientHelloInfo) (*tls.Config, error) {
+
+	public.GetConfigForClient = func(hello *tls.ClientHelloInfo) (
+		*tls.Config, error) {
+
 		if _, ok := hello.Conn.RemoteAddr().(rpcGatewayAddr); ok {
 			return private, nil
 		}
+
 		return nil, nil
 	}
+
 	return public
 }
 
@@ -141,7 +157,10 @@ func (a *rpcClientAuth) authorize(ctx context.Context) error {
 			return nil
 		}
 	}
-	return status.Error(codes.Unauthenticated, "RPC client certificate not authorized")
+
+	return status.Error(
+		codes.Unauthenticated, "RPC client certificate not authorized",
+	)
 }
 
 func (a *rpcClientAuth) unary(ctx context.Context, req any,
@@ -150,6 +169,7 @@ func (a *rpcClientAuth) unary(ctx context.Context, req any,
 	if err := a.authorize(ctx); err != nil {
 		return nil, err
 	}
+
 	return handler(ctx, req)
 }
 
@@ -159,6 +179,7 @@ func (a *rpcClientAuth) stream(srv any, stream grpc.ServerStream,
 	if err := a.authorize(stream.Context()); err != nil {
 		return err
 	}
+
 	return handler(srv, stream)
 }
 
@@ -169,6 +190,7 @@ func (a *rpcClientAuth) httpHandler(next http.Handler) http.Handler {
 				http.StatusUnauthorized)
 			return
 		}
+
 		next.ServeHTTP(w, r)
 	})
 }
@@ -186,6 +208,7 @@ func (l rpcGatewayListener) Accept() (net.Conn, error) {
 	if err != nil {
 		return nil, err
 	}
+
 	return rpcGatewayConn{conn}, nil
 }
 

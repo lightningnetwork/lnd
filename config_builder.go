@@ -291,7 +291,8 @@ func (d *DefaultWalletImpl) RegisterRestSubserver(ctx context.Context,
 	mux *proxy.ServeMux, restProxyDest string,
 	restDialOpts []grpc.DialOption) error {
 
-	if gateway, ok := ctx.Value(walletRESTGatewayKey{}).(*walletRESTGateway); ok {
+	gateway, ok := ctx.Value(walletRESTGatewayKey{}).(*walletRESTGateway)
+	if ok {
 		restProxyDest, restDialOpts = gateway.dest, gateway.opts
 	}
 

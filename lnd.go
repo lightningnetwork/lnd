@@ -316,7 +316,9 @@ func Main(cfg *Config, lisCfg ListenerCfg, implCfg *ImplementationCfg,
 			cfg.RPCClientCAPath, cfg.RPCClientAllowlistPath,
 		)
 		if err != nil {
-			return mkErr("error loading RPC client authentication", err)
+			return mkErr(
+				"error loading RPC client authentication", err,
+			)
 		}
 		tlsManager.rpcClientAuth = clientAuth
 		authCtx, cancel := context.WithCancel(ctx)
@@ -391,7 +393,8 @@ func Main(cfg *Config, lisCfg ListenerCfg, implCfg *ImplementationCfg,
 	}
 
 	if clientAuth != nil {
-		serverOpts = append(serverOpts,
+		serverOpts = append(
+			serverOpts,
 			grpc.Creds(credentials.NewTLS(tlsManager.rpcTLSConfig)),
 			grpc.ChainUnaryInterceptor(clientAuth.unary),
 			grpc.ChainStreamInterceptor(clientAuth.stream),
@@ -400,7 +403,8 @@ func Main(cfg *Config, lisCfg ListenerCfg, implCfg *ImplementationCfg,
 
 	localWalletOnly := cfg.restrictWalletUnlocker(clientAuth)
 	if localWalletOnly {
-		serverOpts = append(serverOpts,
+		serverOpts = append(
+			serverOpts,
 			grpc.ChainUnaryInterceptor(localWalletUnlockerUnary),
 			grpc.ChainStreamInterceptor(localWalletUnlockerStream),
 		)
@@ -441,18 +445,23 @@ func Main(cfg *Config, lisCfg ListenerCfg, implCfg *ImplementationCfg,
 	// wildcard to prevent certificate issues when accessing the proxy
 	// externally.
 	var gatewayDial func(context.Context, string) (net.Conn, error)
-	if len(cfg.RESTListeners) > 0 && (clientAuth != nil || localWalletOnly) {
+	usePrivateGateway := clientAuth != nil || localWalletOnly
+	if len(cfg.RESTListeners) > 0 && usePrivateGateway {
 		private := bufconn.Listen(64 * 1024)
 		defer private.Close()
 		go func() {
 			_ = grpcServer.Serve(rpcGatewayListener{private})
 		}()
-		gatewayDial = func(ctx context.Context, _ string) (net.Conn, error) {
+		gatewayDial = func(ctx context.Context, _ string) (net.Conn,
+			error) {
+
 			return private.DialContext(ctx)
 		}
 	}
+
 	stopProxy, err := startRestProxy(
-		ctx, cfg, rpcServer, restDialOpts, restListen, clientAuth, gatewayDial,
+		ctx, cfg, rpcServer, restDialOpts, restListen, clientAuth,
+		gatewayDial,
 	)
 	if err != nil {
 		return mkErr("error starting REST proxy", err)
@@ -1075,7 +1084,8 @@ func startRestProxy(ctx context.Context, cfg *Config, rpcServer *rpcServer,
 	restDialOpts []grpc.DialOption,
 	restListen func(net.Addr) (net.Listener, error),
 	clientAuth *rpcClientAuth,
-	gatewayDial func(context.Context, string) (net.Conn, error)) (func(), error) {
+	gatewayDial func(context.Context, string) (net.Conn, error),
+) (func(), error) {
 
 	// We use the first RPC listener as the destination for our REST proxy.
 	// If the listener is set to listen on all interfaces, we replace it
@@ -1108,7 +1118,9 @@ func startRestProxy(ctx context.Context, cfg *Config, rpcServer *rpcServer,
 	ctx, cancel := context.WithCancel(ctx)
 	shutdownFuncs = append(shutdownFuncs, cancel)
 	if walletGateway != nil {
-		ctx = context.WithValue(ctx, walletRESTGatewayKey{}, walletGateway)
+		ctx = context.WithValue(
+			ctx, walletRESTGatewayKey{}, walletGateway,
+		)
 	}
 
 	// We'll set up a proxy that will forward REST calls to the GRPC
@@ -1184,9 +1196,15 @@ func startRestProxy(ctx context.Context, cfg *Config, rpcServer *rpcServer,
 
 			wg.Done()
 			server := &http.Server{
-				Handler: handler,
-				ConnContext: func(ctx context.Context, conn net.Conn) context.Context {
-					return context.WithValue(ctx, walletPeerKey{}, conn.RemoteAddr())
+				Handler:           handler,
+				ReadHeaderTimeout: cfg.HTTPHeaderTimeout,
+				ConnContext: func(ctx context.Context,
+					conn net.Conn) context.Context {
+
+					return context.WithValue(
+						ctx, walletPeerKey{},
+						conn.RemoteAddr(),
+					)
 				},
 			}
 			err := server.Serve(lis)

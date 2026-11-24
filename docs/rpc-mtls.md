@@ -10,21 +10,40 @@ require a macaroon still require one.
 
 ## Register a client and enable mTLS
 
-1. Generate a private key and a certificate signing request on the client.
-   Have your CA issue a certificate with the `clientAuth` extended key usage.
-   Keep the private key on the client. If the CA uses intermediates, supply the
-   leaf first, then the intermediates, in the client's PEM certificate file.
-2. On the lnd host, save the trusted client CA certificates in a PEM file.
-   This file contains public certificates, not the CA private key. Generate
-   the SHA-256 fingerprint of the client's leaf certificate:
+1. On the client machine, generate a private key and a certificate signing
+   request (CSR). The command needs no connection to lnd and will not overwrite
+   existing files. Choose a private output directory for the key, especially
+   on Windows, where new files inherit the directory's access controls:
 
    ```sh
-   openssl x509 -in client.pem -outform DER | openssl dgst -sha256 -r
+   lncli mtls new-client --keyout=client.key --csrout=client.csr
    ```
 
-   Put the first field of the output (64 hex digits, without colons) in the
-   allowlist file. Use one fingerprint per line. Blank lines and comments
-   starting with `#` are allowed, so you can label each entry.
+   Send only `client.csr` to your CA. Have it issue a certificate with the
+   `clientAuth` extended key usage. Keep `client.key` on the client. If the
+   CA uses intermediates, put the signed leaf first and then the intermediates
+   in the client's PEM certificate file.
+2. On the lnd host, save the trusted client CA certificates in a PEM file.
+   This file contains public certificates, not the CA private key. Verify that
+   the signed certificate belongs to the client you intend to enroll, then
+   add its leaf certificate to the allowlist. Pass a PEM file containing only
+   the leaf, not the full chain:
+
+   ```sh
+   lncli mtls allow-client --cert=client-leaf.pem \
+     --allowlist=/etc/lnd/rpc-clients.allow
+   ```
+
+   This command does not connect to lnd. It records the SHA-256 fingerprint
+   of the leaf (64 hex digits, without colons), and has no effect if the
+   fingerprint is already present. The allowlist also accepts blank lines
+   and comments starting with `#`. Run enrollment as the allowlist owner and
+   use the configured path in a trusted directory. The command replaces the
+   file by rename (atomic on Unix), preserving its permission bits but not
+   its ownership or ACLs. Verify that lnd's account can read it. If a command
+   is interrupted and leaves a `.lock` file, verify that no enrollment is
+   running before removing the lock. Do not edit the allowlist while the
+   command is running.
 3. Set both paths in `lnd.conf`, or pass them to `lnd` as flags, then restart:
 
    ```ini
@@ -36,6 +55,19 @@ With neither path set, lnd keeps its existing TLS behavior. If REST is enabled,
 it must use TLS (`no-rest-tls` is incompatible with mTLS). Keep the allowlist
 and CA file writable only by trusted operators. You don't need to change lnd's
 server certificate; clients still verify it as before.
+
+Without mTLS, the main RPC listener accepts WalletUnlocker calls only from a
+loopback or Unix-domain connection. This applies to gRPC and REST, including
+WebSocket requests. lnd checks the immediate transport peer and does not trust
+forwarding headers. A local reverse proxy or other local process can therefore
+make a remote client's request appear local; secure access to such proxies and
+the local network namespace. Other RPC authorization remains unchanged.
+
+To keep a remote unlock workflow without mTLS, set
+`allowremotewalletunlocker=true` in `lnd.conf` or pass
+`--allowremotewalletunlocker`. Only use this option if a trusted proxy or
+private network controls access to RPC. The option does not disable client
+certificate checks when mTLS is enabled.
 
 ## Connect with lncli or REST
 

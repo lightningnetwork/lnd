@@ -509,6 +509,38 @@ jobs:
       - name: Install bitcoind
         run: ./scripts/install_bitcoind.sh $BITCOIN_VERSION
 
+      # The Postgres test fixtures start their server through dockertest,
+      # which checks for the image locally and only pulls when it is absent
+      # (dockertest/dockertest.go). On a cold runner that means exactly one
+      # pull, but that pull is subject to Docker Hub's anonymous rate limit,
+      # and when it is refused the failure surfaces as a stack of migration
+      # test failures rather than as the infrastructure error it is. Pulling
+      # here first, with a bounded retry, turns a rate limit into one legible
+      # failing step instead of a dozen confusing test failures.
+      #
+      # Both tags the repo ships are pulled: sqldb/postgres_fixture.go uses
+      # postgres:11 (PostgresTag) and sqldb/v2/postgres_fixture.go uses
+      # postgres:15. One image layer each, so the cost is a few seconds.
+      - name: Pre-pull Postgres images
+        run: |
+          set -euo pipefail
+
+          for image in postgres:11 postgres:15; do
+            for attempt in 1 2 3; do
+              if docker pull "$image"; then
+                break
+              fi
+
+              if [ "$attempt" -eq 3 ]; then
+                echo "failed to pull $image after $attempt attempts" >&2
+                exit 1
+              fi
+
+              echo "pull of $image failed, retrying in $((attempt * 15))s" >&2
+              sleep $((attempt * 15))
+            done
+          done
+
       - name: Run ${{ matrix.unit_type }}
         run: make ${{ matrix.unit_type }}
 

@@ -2,7 +2,9 @@ package tor
 
 import (
 	"net"
+	"strconv"
 	"testing"
+	"time"
 
 	"github.com/stretchr/testify/require"
 )
@@ -48,9 +50,42 @@ func TestProxyNetSkipProxyLookups(t *testing.T) {
 	_, err = proxied.ResolveTCPAddr("tcp", clearHost+":8333")
 	require.Error(t, err)
 
-	// Onion hosts always go through the proxy.
+	// Onion hosts always go through the proxy. The error has to name the
+	// proxy, as the system resolver would fail on an onion host too.
 	_, err = skipping.LookupHost(onionHost)
-	require.Error(t, err)
+	require.ErrorContains(t, err, deadSOCKS)
 	_, err = skipping.ResolveTCPAddr("tcp", onionHost+":8333")
-	require.Error(t, err)
+	require.ErrorContains(t, err, deadSOCKS)
+}
+
+// TestDialSkipProxyHostname checks that a direct dial to a clearnet hostname
+// with SkipProxyForClearNetTargets set doesn't need Tor at all, including for
+// the connection's remote address.
+func TestDialSkipProxyHostname(t *testing.T) {
+	t.Parallel()
+
+	// Nothing listens on this address, so anything that goes through the
+	// SOCKS proxy fails.
+	dead, err := net.Listen("tcp", "127.0.0.1:0")
+	require.NoError(t, err)
+	deadSOCKS := dead.Addr().String()
+	require.NoError(t, dead.Close())
+
+	l, err := net.Listen("tcp", "127.0.0.1:0")
+	require.NoError(t, err)
+	t.Cleanup(func() { _ = l.Close() })
+
+	_, port, err := net.SplitHostPort(l.Addr().String())
+	require.NoError(t, err)
+
+	conn, err := Dial(
+		net.JoinHostPort("localhost", port), deadSOCKS, false, true,
+		time.Second,
+	)
+	require.NoError(t, err)
+	t.Cleanup(func() { _ = conn.Close() })
+
+	remote, ok := conn.RemoteAddr().(*net.TCPAddr)
+	require.True(t, ok)
+	require.Equal(t, port, strconv.Itoa(remote.Port))
 }

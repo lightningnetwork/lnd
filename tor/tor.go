@@ -57,7 +57,7 @@ func Dial(address, socksAddr string, streamIsolation bool,
 	skipProxyForClearNetTargets bool,
 	timeout time.Duration) (net.Conn, error) {
 
-	conn, err := dialProxy(
+	conn, direct, err := dialProxy(
 		address, socksAddr, streamIsolation,
 		skipProxyForClearNetTargets, timeout,
 	)
@@ -65,11 +65,20 @@ func Dial(address, socksAddr string, streamIsolation bool,
 		return nil, fmt.Errorf("dial proxy failed: %w", err)
 	}
 
+	// A connection that skipped the proxy already reports the peer's own
+	// address, so there's nothing to resolve, and resolving the host
+	// through Tor here would make the dial depend on Tor after all.
+	if direct {
+		return conn, nil
+	}
+
 	// Now that the connection is established, we'll create our internal
 	// proxyConn that will serve in populating the correct remote address
 	// of the connection, rather than using the proxy's address.
 	remoteAddr, err := ParseAddr(address, socksAddr)
 	if err != nil {
+		conn.Close()
+
 		return nil, err
 	}
 
@@ -88,10 +97,11 @@ func Dial(address, socksAddr string, streamIsolation bool,
 //
 // skipProxyForClearNetTargets argument allows the dialer to directly connect
 // to the provided address if it does not represent an union service, skipping
-// the SOCKS proxy.
+// the SOCKS proxy. The returned bool is true when it did, so the connection is
+// a direct one.
 func dialProxy(address, socksAddr string, streamIsolation bool,
 	skipProxyForClearNetTargets bool,
-	timeout time.Duration) (net.Conn, error) {
+	timeout time.Duration) (net.Conn, bool, error) {
 
 	// If we were requested to force stream isolation for this connection,
 	// we'll populate the authentication credentials with random data as
@@ -100,7 +110,7 @@ func dialProxy(address, socksAddr string, streamIsolation bool,
 	if streamIsolation {
 		var b [16]byte
 		if _, err := rand.Read(b[:]); err != nil {
-			return nil, err
+			return nil, false, err
 		}
 
 		auth = &proxy.Auth{
@@ -113,23 +123,27 @@ func dialProxy(address, socksAddr string, streamIsolation bool,
 	if skipProxyForClearNetTargets {
 		host, _, err := net.SplitHostPort(address)
 		if err != nil {
-			return nil, err
+			return nil, false, err
 		}
 
 		// The SOCKS proxy is skipped if the target
 		// is not an union address.
 		if !IsOnionHost(host) {
-			return clearDialer.Dial("tcp", address)
+			conn, err := clearDialer.Dial("tcp", address)
+
+			return conn, true, err
 		}
 	}
 
 	// Establish the connection through Tor's SOCKS proxy.
 	dialer, err := proxy.SOCKS5("tcp", socksAddr, auth, clearDialer)
 	if err != nil {
-		return nil, fmt.Errorf("establish sock proxy: %w", err)
+		return nil, false, fmt.Errorf("establish sock proxy: %w", err)
 	}
 
-	return dialer.Dial("tcp", address)
+	conn, err := dialer.Dial("tcp", address)
+
+	return conn, false, err
 }
 
 // LookupHost performs DNS resolution on a given host via Tor's native resolver.
@@ -153,7 +167,7 @@ func LookupSRV(service, proto, name, socksAddr,
 	timeout time.Duration) (string, []*net.SRV, error) {
 
 	// Connect to the DNS server we'll be using to query SRV records.
-	conn, err := dialProxy(
+	conn, _, err := dialProxy(
 		dnsServer, socksAddr, streamIsolation,
 		skipProxyForClearNetTargets, timeout,
 	)

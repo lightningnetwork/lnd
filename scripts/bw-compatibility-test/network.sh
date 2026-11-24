@@ -115,10 +115,14 @@ function setup_network() {
 
   mine 7
 
+  # Wait for each node to learn its public channels before refreshing local
+  # policies. Initial policy updates can be sent before the announcement is
+  # public and never reach remote nodes.
   wait_graph_sync alice 3
   wait_graph_sync bob 3
   wait_graph_sync charlie 3
   wait_graph_sync dave 3
+  do_for advertise_channel_policies alice bob charlie dave
 }
 
 # fund_node funds the specified node with 5 BTC.
@@ -171,30 +175,65 @@ function open_channel() {
   echo "🔗 Opened channel between $node1 and $node2"
 }
 
-# Function to check if a node's graph has the expected number of channels
+# Reannounce the default policy for all of this node's channels.
+advertise_channel_policies() {
+  local node="$1"
+  local result
+  result=$("$node" updatechanpolicy --base_fee_msat 1000 --fee_rate_ppm 1 \
+    --time_lock_delta 80) || return 1
+
+  if ! jq -e '.failed_updates | length == 0' <<< "$result" > /dev/null; then
+    echo "❌ Error: $node could not reannounce its channel policies: $result" >&2
+    return 1
+  fi
+}
+
+# Wait for all channel announcements before refreshing local policies.
 wait_graph_sync() {
   if [[ $# -ne 2 ]]; then
-       echo "❌ Error: graph_synced requires exactly 2 arguments (node and num_chans)"
-       echo "Usage: graph_synced <node> <num_chans>"
-       return 1
+    echo "Usage: wait_graph_sync <node> <num_chans>"
+    return 1
   fi
 
   local node="$1"
   local num_chans="$2"
+  local deadline=$((SECONDS + GRAPH_SYNC_TIMEOUT))
+  local graph
 
   while :; do
-    num_channels=$($node getnetworkinfo | jq -r '.num_channels')
-
-    # Ensure num_channels is a valid number before proceeding
-    if [[ "$num_channels" =~ ^[0-9]+$ ]]; then
-      echo -ne "⌛ $node sees $num_channels channels...\r"
-
-      if [[ "$num_channels" -eq num_chans ]]; then
-        echo "👀 $node sees all the channels!"
-        break  # Exit loop when num_channels reaches num_chans
-      fi
+    if graph=$("$node" describegraph) && jq -e --argjson count "$num_chans" \
+      '(.edges | length) == $count' <<< "$graph" > /dev/null; then
+      echo "👀 $node sees all $num_chans channels!"
+      return 0
     fi
 
+    if (( SECONDS >= deadline )); then
+      echo "❌ Error: $node did not learn all $num_chans channels within ${GRAPH_SYNC_TIMEOUT}s" >&2
+      return 1
+    fi
+    sleep 1
+  done
+}
+
+# A channel announcement can arrive before its routing policies. Wait for the
+# route we actually need, without attempting or retrying the payment itself.
+wait_for_route() {
+  local from_node="$1"
+  local to_node="$2"
+  local amount="$3"
+  local deadline=$((SECONDS + GRAPH_SYNC_TIMEOUT))
+  local info dest output
+
+  info=$("$to_node" getinfo) || return 1
+  dest=$(jq -er '.identity_pubkey' <<< "$info") || return 1
+
+  until output=$("$from_node" queryroutes "$dest" "$amount" 2>&1) &&
+    jq -e '.routes | length > 0' <<< "$output" > /dev/null; do
+    if (( SECONDS >= deadline )); then
+      echo "❌ Error: no route from $from_node to $to_node for $amount sat within ${GRAPH_SYNC_TIMEOUT}s" >&2
+      echo "$output" >&2
+      return 1
+    fi
     sleep 1
   done
 }
@@ -209,10 +248,13 @@ send_payment() {
 
   local from_node="$1"
   local to_node="$2"
+  local amount=10000
+
+  wait_for_route "$from_node" "$to_node" "$amount" || return 1
 
   # Generate invoice and capture error output
   local invoice_output
-  if ! invoice_output=$($to_node addinvoice 10000 2>&1); then
+  if ! invoice_output=$("$to_node" addinvoice "$amount" 2>&1); then
       echo "❌ Error: Failed to generate invoice from $to_node"
       echo "📜 Details: $invoice_output"
       return 1

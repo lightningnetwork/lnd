@@ -520,6 +520,7 @@ func Main() {
 		trackPaymentCommand,
 		versionCommand,
 		profileSubCommand,
+		mtlsCommand,
 		getStateCommand,
 		deletePaymentsCommand,
 		sendCustomCommand,

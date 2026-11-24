@@ -1,20 +1,19 @@
 package lnd
 
 import (
-	"bufio"
 	"context"
 	"crypto/sha256"
 	"crypto/tls"
 	"crypto/x509"
-	"encoding/hex"
 	"errors"
 	"fmt"
 	"net"
 	"net/http"
 	"os"
-	"strings"
 	"sync/atomic"
 	"time"
+
+	"github.com/lightningnetwork/lnd/internal/rpcclientallowlist"
 
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/codes"
@@ -57,38 +56,13 @@ func (a *rpcClientAuth) reload() error {
 	}
 	defer f.Close()
 
-	allow := make(rpcClientFingerprints)
-	scanner := bufio.NewScanner(f)
-	for line := 1; scanner.Scan(); line++ {
-		entry, _, _ := strings.Cut(scanner.Text(), "#")
-		fingerprint, err := parseRPCClientFingerprint(entry)
-		if err != nil {
-			return fmt.Errorf("RPC client allowlist line %d: %w", line, err)
-		}
-		if fingerprint != nil {
-			allow[*fingerprint] = struct{}{}
-		}
+	entries, err := rpcclientallowlist.Parse(f)
+	if err != nil {
+		return fmt.Errorf("RPC client allowlist: %w", err)
 	}
-	if err := scanner.Err(); err != nil {
-		return fmt.Errorf("read RPC client allowlist: %w", err)
-	}
-
+	allow := rpcClientFingerprints(entries)
 	a.allow.Store(&allow)
 	return nil
-}
-
-func parseRPCClientFingerprint(entry string) (*[sha256.Size]byte, error) {
-	entry = strings.TrimSpace(entry)
-	if entry == "" {
-		return nil, nil
-	}
-	var fingerprint [sha256.Size]byte
-	if len(entry) == hex.EncodedLen(len(fingerprint)) {
-		if _, err := hex.Decode(fingerprint[:], []byte(entry)); err == nil {
-			return &fingerprint, nil
-		}
-	}
-	return nil, errors.New("expected a 64-digit hex SHA-256 fingerprint")
 }
 
 func (a *rpcClientAuth) watch(ctx context.Context) {

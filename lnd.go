@@ -398,6 +398,14 @@ func Main(cfg *Config, lisCfg ListenerCfg, implCfg *ImplementationCfg,
 		)
 	}
 
+	localWalletOnly := cfg.restrictWalletUnlocker(clientAuth)
+	if localWalletOnly {
+		serverOpts = append(serverOpts,
+			grpc.ChainUnaryInterceptor(localWalletUnlockerUnary),
+			grpc.ChainStreamInterceptor(localWalletUnlockerStream),
+		)
+	}
+
 	rpcServerOpts := interceptorChain.CreateServerOpts()
 	serverOpts = append(serverOpts, rpcServerOpts...)
 	serverOpts = append(
@@ -433,7 +441,7 @@ func Main(cfg *Config, lisCfg ListenerCfg, implCfg *ImplementationCfg,
 	// wildcard to prevent certificate issues when accessing the proxy
 	// externally.
 	var gatewayDial func(context.Context, string) (net.Conn, error)
-	if clientAuth != nil && len(cfg.RESTListeners) > 0 {
+	if len(cfg.RESTListeners) > 0 && (clientAuth != nil || localWalletOnly) {
 		private := bufconn.Listen(64 * 1024)
 		defer private.Close()
 		go func() {
@@ -1085,10 +1093,9 @@ func startRestProxy(ctx context.Context, cfg *Config, rpcServer *rpcServer,
 		)
 	}
 
-	if gatewayDial != nil {
-		restProxyDest = "passthrough:///lnd-rest-gateway"
-		restDialOpts = append(restDialOpts, grpc.WithContextDialer(gatewayDial))
-	}
+	restProxyDest, restDialOpts, walletGateway := restGatewayOptions(
+		restProxyDest, restDialOpts, gatewayDial, clientAuth != nil,
+	)
 
 	var shutdownFuncs []func()
 	shutdown := func() {
@@ -1100,6 +1107,9 @@ func startRestProxy(ctx context.Context, cfg *Config, rpcServer *rpcServer,
 	// Start a REST proxy for our gRPC server.
 	ctx, cancel := context.WithCancel(ctx)
 	shutdownFuncs = append(shutdownFuncs, cancel)
+	if walletGateway != nil {
+		ctx = context.WithValue(ctx, walletRESTGatewayKey{}, walletGateway)
+	}
 
 	// We'll set up a proxy that will forward REST calls to the GRPC
 	// server.
@@ -1133,11 +1143,7 @@ func startRestProxy(ctx context.Context, cfg *Config, rpcServer *rpcServer,
 		return nil, err
 	}
 
-	// Wrap the default grpc-gateway handler with the WebSocket handler.
-	restHandler := lnrpc.NewWebSocketProxy(
-		mux, rpcsLog, cfg.WSPingInterval, cfg.WSPongWait,
-		lnrpc.LndClientStreamingURIs,
-	)
+	restHandler := newWalletRESTHandler(mux, cfg, clientAuth)
 
 	// Use a WaitGroup so we can be sure the instructions on how to input the
 	// password is the last thing to be printed to the console.
@@ -1172,10 +1178,18 @@ func startRestProxy(ctx context.Context, cfg *Config, rpcServer *rpcServer,
 			handler := allowCORS(restHandler, cfg.RestCORS)
 			if clientAuth != nil {
 				handler = clientAuth.httpHandler(handler)
+			} else if cfg.restrictWalletUnlocker(clientAuth) {
+				handler = localWalletUnlockerHTTP(handler)
 			}
 
 			wg.Done()
-			err := http.Serve(lis, handler)
+			server := &http.Server{
+				Handler: handler,
+				ConnContext: func(ctx context.Context, conn net.Conn) context.Context {
+					return context.WithValue(ctx, walletPeerKey{}, conn.RemoteAddr())
+				},
+			}
+			err := server.Serve(lis)
 			if err != nil && !lnrpc.IsClosedConnError(err) {
 				rpcsLog.Error(err)
 			}

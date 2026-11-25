@@ -423,7 +423,9 @@ func TestParseDescription(t *testing.T) {
 	}
 
 	for i, test := range tests {
-		description, err := parseDescription(test.data)
+		description, err := parseDescription(
+			test.data, lnwire.ValidBoltText,
+		)
 		if (err == nil) != test.valid {
 			t.Errorf("description decoding test %d failed: %v", i, err)
 			return
@@ -903,7 +905,10 @@ func TestParseTaggedFields(t *testing.T) {
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
 			var invoice Invoice
-			gotErr := parseTaggedFields(&invoice, tc.data, netParams)
+			gotErr := parseTaggedFields(
+				&invoice, tc.data, netParams,
+				lnwire.ValidBoltText,
+			)
 			if !errors.Is(gotErr, tc.wantErr) {
 				t.Fatalf("Unexpected error. want=%v got=%v",
 					tc.wantErr, gotErr)

@@ -35,7 +35,9 @@ func decodePayReq(invoice *invoices.Invoice,
 	}
 
 	var err error
-	decoded, err := zpay32.Decode(paymentRequest, activeNetParams)
+	decoded, err := zpay32.DecodeStoredInvoice(
+		paymentRequest, activeNetParams,
+	)
 	if err != nil {
 		return nil, fmt.Errorf("unable to decode payment "+
 			"request: %v", err)

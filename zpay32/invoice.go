@@ -429,11 +429,6 @@ func validateInvoice(invoice *Invoice) error {
 	if invoice.Description == nil && invoice.DescriptionHash == nil {
 		return fmt.Errorf("neither description nor description hash set")
 	}
-	if invoice.Description != nil &&
-		!lnwire.ValidBoltText([]byte(*invoice.Description)) {
-
-		return ErrInvalidUTF8Description
-	}
 
 	// Check that we support the field lengths.
 	if len(invoice.PaymentHash) != 32 {

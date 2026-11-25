@@ -4428,7 +4428,8 @@ func TestExtractAnnounceParamsHtlcBounds(t *testing.T) {
 				},
 			}
 
-			minHtlc, maxHtlc := manager.extractAnnounceParams(channel)
+			minHtlc, maxHtlc := manager.extractAnnounceParams(
+				channel)
 			require.Equal(t, test.wantMin, minHtlc)
 			require.Equal(t, test.wantMax, maxHtlc)
 		})

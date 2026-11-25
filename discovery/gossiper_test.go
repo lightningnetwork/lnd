@@ -56,6 +56,7 @@ func init() {
 		for j := i + 1; j < len(keys); j++ {
 			if bytes.Compare(keys[i].PubKey().SerializeCompressed(),
 				keys[j].PubKey().SerializeCompressed()) > 0 {
+
 				keys[i], keys[j] = keys[j], keys[i]
 			}
 		}
@@ -823,6 +824,7 @@ func (ctx *testCtx) createAnnouncementWithoutProof(blockHeight uint32,
 	// sort them before building the announcement.
 	if bytes.Compare(key1.SerializeCompressed(),
 		key2.SerializeCompressed()) > 0 {
+
 		key1, key2 = key2, key1
 	}
 
@@ -883,6 +885,7 @@ func (ctx *testCtx) createChannelAnnouncement(blockHeight uint32, key1,
 	// announcement so every signature lands in the right position.
 	if bytes.Compare(key1.PubKey().SerializeCompressed(),
 		key2.PubKey().SerializeCompressed()) > 0 {
+
 		key1, key2 = key2, key1
 	}
 

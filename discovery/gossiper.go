@@ -65,17 +65,19 @@ const (
 	// that we'll hold onto.
 	maxFutureMessages = 1000
 
-	// futureMsgMinSize is the minimum cache charge for a future message. Using
-	// the maximum wire body size preserves the count limit for ordinary
-	// messages while allowing larger decoded objects to receive a larger
-	// charge.
+	// futureMsgMinSize is the minimum cache charge for a future message.
+	// Using the maximum wire body size preserves the count limit for
+	// ordinary messages while allowing larger decoded objects to receive a
+	// larger charge.
 	futureMsgMinSize = lnwire.MaxMsgBody
 
-	// maxFutureMsgCacheSize is the retained-memory budget for future messages.
+	// maxFutureMsgCacheSize is the retained-memory budget for future
+	// messages.
 	maxFutureMsgCacheSize = maxFutureMessages * futureMsgMinSize
 
-	// futureFeatureEntrySize conservatively accounts for the map bucket, key,
-	// top-hash, and overflow storage retained by each decoded feature bit.
+	// futureFeatureEntrySize conservatively accounts for the map bucket,
+	// key, top-hash, and overflow storage retained by each decoded feature
+	// bit.
 	futureFeatureEntrySize = 16
 
 	// DefaultSubBatchDelay is the default delay we'll use when
@@ -3643,13 +3645,14 @@ func (d *AuthenticatedGossiper) handleAnnSig(ctx context.Context,
 		ann.ShortChannelID)
 
 	// By the specification, channel announcement proofs should be sent
-	// after some number of confirmations after channel was registered in
-	// bitcoin blockchain. Therefore, we check if the proof is mature. We only
-	// defer remote proofs: the funding manager creates our own half after its
-	// required confirmation depth and never sends it again, so caching it in
-	// the evictable, in-memory future message cache could lose it for good.
-	// Processing it immediately persists it in the waiting proof store and
-	// reliably delivers it to our counterparty.
+	// after some number of confirmations after the channel was registered
+	// in the bitcoin blockchain. Therefore, we check if the proof is
+	// mature. We only defer remote proofs: the funding manager creates our
+	// own half after its required confirmation depth and never sends it
+	// again, so caching it in the evictable, in-memory future message
+	// cache could lose it for good. Processing it immediately persists it
+	// in the waiting proof store and reliably delivers it to our
+	// counterparty.
 	d.Lock()
 	premature := nMsg.isRemote && d.isPremature(
 		ann.ShortChannelID, d.cfg.ProofMatureDelta, nMsg,

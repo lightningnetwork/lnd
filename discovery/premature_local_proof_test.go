@@ -41,15 +41,15 @@ func testPrematureLocalProof(t *testing.T, loss string) {
 	batch, err := tCtx.createLocalAnnouncements(startHeight + 1)
 	require.NoError(t, err, "can't generate announcements")
 
-	require.NoError(t, mustProcess(t, tCtx.gossiper.ProcessLocalAnnouncement(
-		batch.chanAnn,
-	)))
+	require.NoError(t, mustProcess(
+		t, tCtx.gossiper.ProcessLocalAnnouncement(batch.chanAnn),
+	))
 
 	// The funding manager hands the gossiper our half, and the gossiper
 	// reports success.
-	require.NoError(t, mustProcess(t, tCtx.gossiper.ProcessLocalAnnouncement(
-		batch.localProofAnn,
-	)))
+	require.NoError(t, mustProcess(
+		t, tCtx.gossiper.ProcessLocalAnnouncement(batch.localProofAnn),
+	))
 
 	gossiper, notifier := tCtx.gossiper, tCtx.notifier
 	switch loss {
@@ -139,12 +139,12 @@ func TestLocalProofSkipsFutureCache(t *testing.T) {
 	batch, err := tCtx.createLocalAnnouncements(startHeight + 1)
 	require.NoError(t, err)
 
-	require.NoError(t, mustProcess(t, tCtx.gossiper.ProcessLocalAnnouncement(
-		batch.chanAnn,
-	)))
-	require.NoError(t, mustProcess(t, tCtx.gossiper.ProcessLocalAnnouncement(
-		batch.localProofAnn,
-	)))
+	require.NoError(t, mustProcess(
+		t, tCtx.gossiper.ProcessLocalAnnouncement(batch.chanAnn),
+	))
+	require.NoError(t, mustProcess(
+		t, tCtx.gossiper.ProcessLocalAnnouncement(batch.localProofAnn),
+	))
 
 	// The local half must not be sitting in the future message cache: it is
 	// durably stored by the normal proof pipeline instead.

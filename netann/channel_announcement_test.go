@@ -48,7 +48,8 @@ func TestValidateChannelAnn1NodeIDOrder(t *testing.T) {
 			}
 
 			err := ValidateChannelAnn(ann, nil)
-			require.ErrorContains(t, err, "node IDs are not ordered")
+			require.ErrorContains(t, err, "node IDs are not "+
+				"ordered")
 		})
 	}
 }

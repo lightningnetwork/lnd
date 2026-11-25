@@ -24,7 +24,7 @@ func denseChanAnn(t *testing.T) *lnwire.ChannelAnnouncement1 {
 	body.Write(bytes.Repeat([]byte{0xff}, featLen))
 	body.Write(make([]byte, 32+8))
 	key := append([]byte{0x02}, bytes.Repeat([]byte{0x11}, 32)...)
-	for i := 0; i < 4; i++ {
+	for range 4 {
 		body.Write(key)
 	}
 
@@ -47,7 +47,7 @@ func TestFutureMsgCacheRetainedMemory(t *testing.T) {
 	// One peer sends maxFutureMessages of them, each with a far-future
 	// short_channel_id.
 	cache := newFutureMsgCache(maxFutureMsgCacheSize)
-	for i := 0; i < maxFutureMessages; i++ {
+	for i := range maxFutureMessages {
 		_, _ = cache.Put(cache.nextMsgID(), &cachedFutureMsg{
 			msg:    &networkMsg{msg: ann, isRemote: true},
 			height: uint32(1_000_000 + i),
@@ -57,7 +57,10 @@ func TestFutureMsgCacheRetainedMemory(t *testing.T) {
 
 	var retained int
 	cache.Range(func(_ uint64, m *cachedFutureMsg) bool {
-		a := m.msg.msg.(*lnwire.ChannelAnnouncement1)
+		a, ok := m.msg.msg.(*lnwire.ChannelAnnouncement1)
+		if !ok {
+			t.Fatal("unexpected cached message type")
+		}
 		retained += a.Features.NumFeatures()
 
 		return true
@@ -86,7 +89,7 @@ func TestFutureMsgCacheWeightedEviction(t *testing.T) {
 	// A cache sized for two dense announcements retains exactly two and
 	// evicts the oldest on the third insert.
 	cache := newFutureMsgCache(2 * entrySize)
-	for i := 0; i < 3; i++ {
+	for range 3 {
 		_, err := cache.Put(cache.nextMsgID(), &cachedFutureMsg{
 			msg:  &networkMsg{msg: ann, isRemote: true},
 			size: entrySize,
@@ -105,7 +108,7 @@ func TestFutureMsgCacheWeightedEviction(t *testing.T) {
 	// Ordinary (empty) messages still fit up to the count bound when each
 	// is charged the minimum size.
 	ordinary := newFutureMsgCache(maxFutureMsgCacheSize)
-	for i := 0; i < maxFutureMessages; i++ {
+	for range maxFutureMessages {
 		_, err := ordinary.Put(ordinary.nextMsgID(), &cachedFutureMsg{
 			size: futureMsgMinSize,
 		})

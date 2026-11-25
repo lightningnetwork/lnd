@@ -208,6 +208,18 @@ func prepareRemoteSignerTest(ht *lntest.HarnessTest, tc remoteSignerTestCase) (
 	return signer, watchOnly, carol
 }
 
+func executeRemoteSignerTestCase(ht *lntest.HarnessTest,
+	tc remoteSignerTestCase) {
+
+	_, watchOnly, carol := prepareRemoteSignerTest(ht, tc)
+
+	// Stop the watch-only node before harness cleanup can stop its signer
+	// and remove the credentials used by the remote signer health check.
+	defer ht.Shutdown(watchOnly)
+
+	tc.fn(ht, watchOnly, carol)
+}
+
 // testRemoteSignerRadomSeed tests that a watch-only wallet can use a remote
 // signing wallet to perform any signing or ECDH operations.
 func testRemoteSignerRadomSeed(ht *lntest.HarnessTest) {
@@ -219,8 +231,7 @@ func testRemoteSignerRadomSeed(ht *lntest.HarnessTest) {
 		},
 	}
 
-	_, watchOnly, carol := prepareRemoteSignerTest(ht, tc)
-	tc.fn(ht, watchOnly, carol)
+	executeRemoteSignerTestCase(ht, tc)
 }
 
 func testRemoteSignerAccountImport(ht *lntest.HarnessTest) {
@@ -234,8 +245,7 @@ func testRemoteSignerAccountImport(ht *lntest.HarnessTest) {
 		},
 	}
 
-	_, watchOnly, carol := prepareRemoteSignerTest(ht, tc)
-	tc.fn(ht, watchOnly, carol)
+	executeRemoteSignerTestCase(ht, tc)
 }
 
 func testRemoteSignerTapscriptImport(ht *lntest.HarnessTest) {
@@ -252,8 +262,7 @@ func testRemoteSignerTapscriptImport(ht *lntest.HarnessTest) {
 		},
 	}
 
-	_, watchOnly, carol := prepareRemoteSignerTest(ht, tc)
-	tc.fn(ht, watchOnly, carol)
+	executeRemoteSignerTestCase(ht, tc)
 }
 
 func testRemoteSignerChannelOpen(ht *lntest.HarnessTest) {
@@ -265,8 +274,7 @@ func testRemoteSignerChannelOpen(ht *lntest.HarnessTest) {
 		},
 	}
 
-	_, watchOnly, carol := prepareRemoteSignerTest(ht, tc)
-	tc.fn(ht, watchOnly, carol)
+	executeRemoteSignerTestCase(ht, tc)
 }
 
 func testRemoteSignerChannelFundingInputTypes(ht *lntest.HarnessTest) {
@@ -278,8 +286,7 @@ func testRemoteSignerChannelFundingInputTypes(ht *lntest.HarnessTest) {
 		},
 	}
 
-	_, watchOnly, carol := prepareRemoteSignerTest(ht, tc)
-	tc.fn(ht, watchOnly, carol)
+	executeRemoteSignerTestCase(ht, tc)
 }
 
 func testRemoteSignerAsyncPayments(ht *lntest.HarnessTest) {
@@ -291,8 +298,7 @@ func testRemoteSignerAsyncPayments(ht *lntest.HarnessTest) {
 		},
 	}
 
-	_, watchOnly, carol := prepareRemoteSignerTest(ht, tc)
-	tc.fn(ht, watchOnly, carol)
+	executeRemoteSignerTestCase(ht, tc)
 }
 
 func testRemoteSignerAsyncPaymentsTaproot(ht *lntest.HarnessTest) {
@@ -309,8 +315,7 @@ func testRemoteSignerAsyncPaymentsTaproot(ht *lntest.HarnessTest) {
 		commitType: lnrpc.CommitmentType_SIMPLE_TAPROOT,
 	}
 
-	_, watchOnly, carol := prepareRemoteSignerTest(ht, tc)
-	tc.fn(ht, watchOnly, carol)
+	executeRemoteSignerTestCase(ht, tc)
 }
 
 func testRemoteSignerAsyncPaymentsTaprootFinal(ht *lntest.HarnessTest) {
@@ -327,8 +332,7 @@ func testRemoteSignerAsyncPaymentsTaprootFinal(ht *lntest.HarnessTest) {
 		commitType: lnrpc.CommitmentType_SIMPLE_TAPROOT_FINAL,
 	}
 
-	_, watchOnly, carol := prepareRemoteSignerTest(ht, tc)
-	tc.fn(ht, watchOnly, carol)
+	executeRemoteSignerTestCase(ht, tc)
 }
 
 func testRemoteSignerSharedKey(ht *lntest.HarnessTest) {
@@ -339,8 +343,7 @@ func testRemoteSignerSharedKey(ht *lntest.HarnessTest) {
 		},
 	}
 
-	_, watchOnly, carol := prepareRemoteSignerTest(ht, tc)
-	tc.fn(ht, watchOnly, carol)
+	executeRemoteSignerTestCase(ht, tc)
 }
 
 func testRemoteSignerBumpFee(ht *lntest.HarnessTest) {
@@ -352,8 +355,7 @@ func testRemoteSignerBumpFee(ht *lntest.HarnessTest) {
 		},
 	}
 
-	_, watchOnly, carol := prepareRemoteSignerTest(ht, tc)
-	tc.fn(ht, watchOnly, carol)
+	executeRemoteSignerTestCase(ht, tc)
 }
 
 func testRemoteSignerPSBT(ht *lntest.HarnessTest) {
@@ -382,8 +384,7 @@ func testRemoteSignerPSBT(ht *lntest.HarnessTest) {
 		},
 	}
 
-	_, watchOnly, carol := prepareRemoteSignerTest(ht, tc)
-	tc.fn(ht, watchOnly, carol)
+	executeRemoteSignerTestCase(ht, tc)
 }
 
 func testRemoteSignerSignOutputRaw(ht *lntest.HarnessTest) {
@@ -395,8 +396,7 @@ func testRemoteSignerSignOutputRaw(ht *lntest.HarnessTest) {
 		},
 	}
 
-	_, watchOnly, carol := prepareRemoteSignerTest(ht, tc)
-	tc.fn(ht, watchOnly, carol)
+	executeRemoteSignerTestCase(ht, tc)
 }
 
 func testRemoteSignerSignVerifyMsg(ht *lntest.HarnessTest) {
@@ -408,8 +408,7 @@ func testRemoteSignerSignVerifyMsg(ht *lntest.HarnessTest) {
 		},
 	}
 
-	_, watchOnly, carol := prepareRemoteSignerTest(ht, tc)
-	tc.fn(ht, watchOnly, carol)
+	executeRemoteSignerTestCase(ht, tc)
 }
 
 func testRemoteSignerTaproot(ht *lntest.HarnessTest) {
@@ -441,8 +440,7 @@ func testRemoteSignerTaproot(ht *lntest.HarnessTest) {
 		},
 	}
 
-	_, watchOnly, carol := prepareRemoteSignerTest(ht, tc)
-	tc.fn(ht, watchOnly, carol)
+	executeRemoteSignerTestCase(ht, tc)
 }
 
 // deriveCustomScopeAccounts derives the first 255 default accounts of the custom lnd

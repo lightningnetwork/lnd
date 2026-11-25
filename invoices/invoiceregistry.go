@@ -421,6 +421,16 @@ func (i *InvoiceRegistry) dispatchToClients(event *invoiceEvent) {
 
 	clients := i.copyClients()
 	for clientID, client := range clients {
+		// We won't deliver any events until the backlog has been
+		// processed. This must come before the index checks below, as
+		// the backlog advances the indices of the client to those it
+		// delivered.
+		select {
+		case <-client.backlogDelivered:
+		case <-i.quit:
+			return
+		}
+
 		// Before we dispatch this event, we'll check
 		// to ensure that this client hasn't already
 		// received this notification in order to
@@ -463,14 +473,6 @@ func (i *InvoiceRegistry) dispatchToClients(event *invoiceEvent) {
 				"settle_index=%v, new settle event index=%v",
 				clientID, client.settleIndex,
 				invoice.SettleIndex)
-		}
-
-		select {
-		case <-client.backlogDelivered:
-			// We won't deliver any events until the backlog has
-			// been processed.
-		case <-i.quit:
-			return
 		}
 
 		err := client.notify(&invoiceEvent{
@@ -535,6 +537,31 @@ func (i *InvoiceRegistry) deliverBacklogEvents(ctx context.Context,
 
 	log.Debugf("Delivering %d added invoices and %d settled invoices "+
 		"for client %v", len(addEvents), len(settleEvents), client.id)
+
+	// A live event for an invoice that is part of the backlog may already
+	// be waiting for the backlog to finish, as the client is registered
+	// before the database is read. Advance the indices of the client to
+	// the last events we deliver, so that dispatchToClients skips those
+	// events instead of delivering them a second time. The indices are
+	// only read by the dispatcher once backlogDelivered is closed. The
+	// backlog of added invoices holds invoices in any state, but only
+	// open and settled ones are forwarded to the client. We don't advance
+	// past the others, so that a live add event for them is still
+	// delivered.
+	for _, addEvent := range addEvents {
+		if addEvent.State != ContractOpen &&
+			addEvent.State != ContractSettled {
+
+			continue
+		}
+
+		client.addIndex = max(client.addIndex, addEvent.AddIndex)
+	}
+	for _, settleEvent := range settleEvents {
+		client.settleIndex = max(
+			client.settleIndex, settleEvent.SettleIndex,
+		)
+	}
 
 	// If we have any to deliver, then we'll append them to the end of the
 	// notification queue in order to catch up the client before delivering

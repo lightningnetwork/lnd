@@ -27,7 +27,17 @@ func getTestDsn(dbName string) string {
 
 var testPostgres *embeddedpostgres.EmbeddedPostgres
 
-const testMaxConnections = 200
+const (
+	// testServerMaxConnections is the connection limit of the embedded
+	// postgres server.
+	testServerMaxConnections = 200
+
+	// testMaxConnections is the limit on open connections that is shared by
+	// all pools of the test backends. It is lower than the server limit to
+	// leave room for the short-lived admin connections that fixtures use to
+	// create databases.
+	testMaxConnections = testServerMaxConnections - 50
+)
 
 // StartEmbeddedPostgres starts an embedded postgres instance. This only needs
 // to be done once, because NewFixture will create random new databases on every
@@ -41,7 +51,7 @@ func StartEmbeddedPostgres() (func() error, error) {
 			StartParameters(
 				map[string]string{
 					"max_connections": fmt.Sprintf(
-						"%d", testMaxConnections,
+						"%d", testServerMaxConnections,
 					),
 				},
 			),
@@ -147,6 +157,7 @@ func (b *fixture[T]) Dump() (map[string]interface{}, error) {
 	if err != nil {
 		return nil, err
 	}
+	defer dbConn.Close()
 
 	rows, err := dbConn.Query(
 		"SELECT tablename FROM pg_catalog.pg_tables WHERE schemaname='public'",

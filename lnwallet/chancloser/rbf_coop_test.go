@@ -834,14 +834,16 @@ func (r *rbfCloserTestHarness) assertSingleRemoteRbfIteration(
 	ctx := context.Background()
 
 	// When we receive the signature below, our local state machine should
-	// move to finalize the close.
-	r.expectRemoteCloseFinalized(
-		&localSig, &remoteSig, initEvent.SigMsg.CloseeScript,
-		initEvent.SigMsg.CloserScript,
-		absoluteFee, balanceAfterClose, false,
-	)
-
+	// move to finalize the close. If the caller doesn't send the init event
+	// here, the event that triggers the iteration is already in flight, so
+	// the caller must have registered these expectations before sending it.
 	if sendInit {
+		r.expectRemoteCloseFinalized(
+			&localSig, &remoteSig, initEvent.SigMsg.CloseeScript,
+			initEvent.SigMsg.CloserScript,
+			absoluteFee, balanceAfterClose, false,
+		)
+
 		r.chanCloser.SendEvent(ctx, initEvent)
 	}
 
@@ -1982,7 +1984,14 @@ func TestRbfChannelFlushingTransitions(t *testing.T) {
 
 		// Now we'll send in the channel flushed event, and assert that
 		// this triggers a remote RBF iteration (we process their early
-		// offer and send our sig).
+		// offer and send our sig). The state machine handles the
+		// cached offer on its own goroutine as soon as it sees the
+		// flush event, so all mock expectations must be registered
+		// before the event is sent.
+		closeHarness.expectRemoteCloseFinalized(
+			&localSig, &remoteSig, localAddr, remoteAddr,
+			absoluteFee, absoluteFee, false,
+		)
 		closeHarness.chanCloser.SendEvent(ctx, &flushEvent)
 		closeHarness.assertSingleRemoteRbfIteration(
 			remoteOffer, absoluteFee, absoluteFee, sequence, true,

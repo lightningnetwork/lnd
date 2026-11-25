@@ -172,22 +172,6 @@ func NewBitcoindBackend(t *testing.T, netParams *chaincfg.Params,
 		}
 	}
 
-	var conn *chain.BitcoindConn
-	err = wait.NoError(func() error {
-		var err error
-		conn, err = chain.NewBitcoindConn(cfg)
-		if err != nil {
-			return err
-		}
-
-		return conn.Start()
-	}, 10*time.Second)
-	if err != nil {
-		t.Fatalf("unable to establish connection to bitcoind at %v: "+
-			"%v", tempBitcoindDir, err)
-	}
-	t.Cleanup(conn.Stop)
-
 	// Assert that the connection with the miner is made.
 	//
 	// Create a new RPC client.
@@ -203,6 +187,13 @@ func NewBitcoindBackend(t *testing.T, netParams *chaincfg.Params,
 
 	rpcClient, err := rpcclient.New(&rpcCfg, nil)
 	require.NoError(t, err, "failed to create RPC client")
+
+	// Wait for the bitcoind RPC server to accept requests before using it.
+	err = wait.NoError(func() error {
+		_, err := rpcClient.GetBlockChainInfo()
+		return err
+	}, 10*time.Second)
+	require.NoError(t, err, "unable to reach bitcoind RPC")
 
 	// Connect to the miner node.
 	err = rpcClient.AddNode(miner.P2PAddress(), rpcclient.ANAdd)
@@ -232,6 +223,27 @@ func NewBitcoindBackend(t *testing.T, netParams *chaincfg.Params,
 
 	// Tear down the rpc client.
 	rpcClient.Shutdown()
+
+	// Only now connect to bitcoind. In RPC polling mode the chain
+	// connection starts polling from bitcoind's height at the time it is
+	// started. Starting it before bitcoind has synced would make it replay
+	// every historical block, including the tip, to any client that
+	// registers while it is still catching up.
+	var conn *chain.BitcoindConn
+	err = wait.NoError(func() error {
+		var err error
+		conn, err = chain.NewBitcoindConn(cfg)
+		if err != nil {
+			return err
+		}
+
+		return conn.Start()
+	}, 10*time.Second)
+	if err != nil {
+		t.Fatalf("unable to establish connection to bitcoind at %v: "+
+			"%v", tempBitcoindDir, err)
+	}
+	t.Cleanup(conn.Stop)
 
 	return conn
 }

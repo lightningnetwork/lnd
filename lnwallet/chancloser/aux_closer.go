@@ -6,6 +6,7 @@ import (
 	"github.com/lightningnetwork/lnd/lnwallet"
 	"github.com/lightningnetwork/lnd/lnwallet/types"
 	"github.com/lightningnetwork/lnd/lnwire"
+	"github.com/lightningnetwork/lnd/routing/route"
 )
 
 // AuxCloseOutputs is used to specify extra outputs that should be used when
@@ -58,11 +59,32 @@ type AuxChanCloser interface {
 		error)
 
 	// AuxCloseOutputs returns the set of custom outputs that should be used
-	// to construct the co-op close transaction.
+	// to construct the co-op close transaction. The legacy close
+	// negotiation asks for them anew for every fee that is proposed.
 	AuxCloseOutputs(desc types.AuxCloseDesc) (fn.Option[AuxCloseOutputs],
+		error)
+
+	// AuxCloseTemplate returns the custom outputs every close transaction
+	// of an RBF close negotiation carries, along with the sort of those
+	// transactions. They're requested once per negotiation, without a
+	// fee, so neither the outputs nor their order may depend on the close
+	// fee or the amounts of the settled outputs. The aux closer keeps the
+	// template for the whole close of the channel: a later call with the
+	// same description, after a reconnect or a restart, returns the same
+	// template, and a call with a different description fails.
+	AuxCloseTemplate(
+		desc types.AuxCloseTemplateDesc) (fn.Option[AuxCloseOutputs],
 		error)
 
 	// FinalizeClose is called after the close transaction has been agreed
 	// upon.
 	FinalizeClose(desc types.AuxCloseDesc, closeTx *wire.MsgTx) error
+
+	// SupportsRbfClose returns true if the channel identified by the
+	// given channel ID can be closed with the RBF co-op close flow with
+	// the given peer. The RBF feature bits are negotiated at the peer
+	// level, so this is how an aux channel opts into the flow on a
+	// per-channel basis: both peers need an aux closer that drives the
+	// aux hooks from within the RBF state machine.
+	SupportsRbfClose(chanID lnwire.ChannelID, peer route.Vertex) bool
 }

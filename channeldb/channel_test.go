@@ -1386,13 +1386,15 @@ func TestShutdownInfo(t *testing.T) {
 	tests := []struct {
 		name      string
 		localInit bool
+		rbf       bool
 	}{
 		{
 			name:      "local node initiated",
 			localInit: true,
 		},
 		{
-			name:      "remote node initiated",
+			name:      "remote node initiated RBF close",
+			rbf:       true,
 			localInit: false,
 		},
 	}
@@ -1402,12 +1404,12 @@ func TestShutdownInfo(t *testing.T) {
 		t.Run(test.name, func(t *testing.T) {
 			t.Parallel()
 
-			testShutdownInfo(t, test.localInit)
+			testShutdownInfo(t, test.localInit, test.rbf)
 		})
 	}
 }
 
-func testShutdownInfo(t *testing.T, locallyInitiated bool) {
+func testShutdownInfo(t *testing.T, locallyInitiated, rbf bool) {
 	fullDB, err := MakeTestDB(t)
 	require.NoError(t, err, "unable to make test database")
 
@@ -1418,13 +1420,14 @@ func testShutdownInfo(t *testing.T, locallyInitiated bool) {
 
 	// We haven't persisted any shutdown info for this channel yet.
 	_, err = channel.ShutdownInfo()
-	require.Error(t, err, ErrNoShutdownInfo)
+	require.ErrorIs(t, err, ErrNoShutdownInfo)
 
 	// Construct a new delivery script and create a new ShutdownInfo object.
 	script := []byte{1, 3, 4, 5}
 
 	// Create a ShutdownInfo struct.
 	shutdownInfo := NewShutdownInfo(script, locallyInitiated)
+	shutdownInfo.Rbf.Val = rbf
 
 	// Persist the shutdown info.
 	require.NoError(t, channel.MarkShutdownSent(shutdownInfo))
@@ -1438,6 +1441,7 @@ func testShutdownInfo(t *testing.T, locallyInitiated bool) {
 	info.WhenSome(func(info ShutdownInfo) {
 		require.EqualValues(t, script, info.DeliveryScript.Val)
 		require.Equal(t, locallyInitiated, info.LocalInitiator.Val)
+		require.Equal(t, rbf, info.Rbf.Val)
 	})
 }
 

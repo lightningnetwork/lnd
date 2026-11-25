@@ -134,6 +134,7 @@ func (l *chanObserver) MarkShutdownSent(deliveryAddr []byte,
 	isInitiator bool) error {
 
 	shutdownInfo := channeldb.NewShutdownInfo(deliveryAddr, isInitiator)
+	shutdownInfo.Rbf.Val = true
 	return l.chanView.MarkShutdownSent(shutdownInfo)
 }
 

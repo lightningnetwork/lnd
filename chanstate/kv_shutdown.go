@@ -51,6 +51,10 @@ func EncodeShutdownInfo(s *ShutdownInfo, w io.Writer) error {
 		s.LocalInitiator.Record(),
 	}
 
+	if s.Rbf.Val {
+		records = append(records, s.Rbf.Record())
+	}
+
 	stream, err := tlv.NewStream(records...)
 	if err != nil {
 		return err
@@ -68,6 +72,7 @@ func DecodeShutdownInfo(b []byte) (*ShutdownInfo, error) {
 	records := []tlv.RecordProducer{
 		&info.DeliveryScript,
 		&info.LocalInitiator,
+		&info.Rbf,
 	}
 
 	_, err := tlvStream.ExtractRecords(records...)

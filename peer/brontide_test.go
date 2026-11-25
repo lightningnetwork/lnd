@@ -806,7 +806,8 @@ func initTestRbfCloser(t *testing.T, p *Brontide,
 	rbfBits := lnwire.NewRawFeatureVector(lnwire.RbfCoopCloseOptional)
 	p.cfg.Features = lnwire.NewFeatureVector(rbfBits, lnwire.Features)
 	p.remoteFeatures = lnwire.NewFeatureVector(rbfBits, lnwire.Features)
-	require.True(t, p.rbfCoopCloseAllowed(channel.ChanType()))
+	chanID := lnwire.NewChanIDFromOutPoint(channel.ChannelPoint())
+	require.True(t, p.rbfCoopCloseAllowed(chanID, channel.ChanType()))
 
 	closer, err := p.initRbfChanCloser(channel)
 	require.NoError(t, err)
@@ -3690,25 +3691,53 @@ func TestHasActiveChannels(t *testing.T) {
 	require.Equal(t, int32(0), peer.numActiveChans.Load())
 }
 
+// rbfGateAuxCloser is an aux closer stub that only answers the RBF close
+// support query.
+type rbfGateAuxCloser struct {
+	chancloser.AuxChanCloser
+
+	supported bool
+}
+
+func (r *rbfGateAuxCloser) SupportsRbfClose(lnwire.ChannelID,
+	route.Vertex) bool {
+
+	return r.supported
+}
+
 // TestRbfCoopCloseAllowed asserts that the per-channel RBF coop close
-// predicate excludes aux channels (channel types carrying a tapscript root)
-// even when both peers have negotiated the RBF coop close feature, while
-// permitting it for all other channel types.
+// predicate requires both peers to have negotiated the RBF coop close
+// feature, and for aux channels (channel types carrying a tapscript root)
+// additionally requires an aux closer that supports the RBF flow for the
+// channel.
 func TestRbfCoopCloseAllowed(t *testing.T) {
 	t.Parallel()
 
-	newPeer := func(local, remote *lnwire.RawFeatureVector) *Brontide {
+	newPeer := func(local, remote *lnwire.RawFeatureVector,
+		auxCloser fn.Option[chancloser.AuxChanCloser]) *Brontide {
+
 		return &Brontide{
 			cfg: Config{
 				Features: lnwire.NewFeatureVector(
 					local, lnwire.Features,
 				),
+				AuxChanCloser: auxCloser,
 			},
 			remoteFeatures: lnwire.NewFeatureVector(
 				remote, lnwire.Features,
 			),
 		}
 	}
+
+	var (
+		noAux    = fn.None[chancloser.AuxChanCloser]()
+		auxNoRbf = fn.Some[chancloser.AuxChanCloser](
+			&rbfGateAuxCloser{supported: false},
+		)
+		auxRbf = fn.Some[chancloser.AuxChanCloser](
+			&rbfGateAuxCloser{supported: true},
+		)
+	)
 
 	var (
 		noBits = lnwire.NewRawFeatureVector()
@@ -3731,43 +3760,67 @@ func TestRbfCoopCloseAllowed(t *testing.T) {
 	}{
 		{
 			name:     "both signal, plain channel",
-			peer:     newPeer(rbfBit, rbfBit),
+			peer:     newPeer(rbfBit, rbfBit, noAux),
 			chanType: chanstate.SingleFunderTweaklessBit,
 			allowed:  true,
 		},
 		{
 			name:     "both signal staging, plain channel",
-			peer:     newPeer(stagingBit, stagingBit),
+			peer:     newPeer(stagingBit, stagingBit, noAux),
 			chanType: chanstate.SingleFunderTweaklessBit,
 			allowed:  false,
 		},
 		{
 			name:     "local staging, remote final, plain channel",
-			peer:     newPeer(stagingBit, rbfBit),
+			peer:     newPeer(stagingBit, rbfBit, noAux),
 			chanType: chanstate.SingleFunderTweaklessBit,
 			allowed:  false,
 		},
 		{
 			name:     "both signal, simple taproot channel",
-			peer:     newPeer(rbfBit, rbfBit),
+			peer:     newPeer(rbfBit, rbfBit, noAux),
 			chanType: chanstate.SimpleTaprootFeatureBit,
 			allowed:  true,
 		},
 		{
-			name:     "both signal, aux (overlay) channel",
-			peer:     newPeer(rbfBit, rbfBit),
+			name:     "both signal, aux channel, no aux closer",
+			peer:     newPeer(rbfBit, rbfBit, noAux),
 			chanType: overlayChan,
 			allowed:  false,
 		},
 		{
+			name:     "both signal, aux channel, closer w/o rbf",
+			peer:     newPeer(rbfBit, rbfBit, auxNoRbf),
+			chanType: overlayChan,
+			allowed:  false,
+		},
+		{
+			name:     "both signal, aux channel, aux closer w/ rbf",
+			peer:     newPeer(rbfBit, rbfBit, auxRbf),
+			chanType: overlayChan,
+			allowed:  true,
+		},
+		{
+			name:     "plain channel, aux closer w/o rbf",
+			peer:     newPeer(rbfBit, rbfBit, auxNoRbf),
+			chanType: chanstate.SimpleTaprootFeatureBit,
+			allowed:  true,
+		},
+		{
 			name:     "only local signals, plain channel",
-			peer:     newPeer(rbfBit, noBits),
+			peer:     newPeer(rbfBit, noBits, noAux),
 			chanType: chanstate.SingleFunderTweaklessBit,
 			allowed:  false,
 		},
 		{
-			name:     "neither signals, aux (overlay) channel",
-			peer:     newPeer(noBits, noBits),
+			name:     "only local signals, aux channel, rbf",
+			peer:     newPeer(rbfBit, noBits, auxRbf),
+			chanType: overlayChan,
+			allowed:  false,
+		},
+		{
+			name:     "neither signals, aux channel, rbf",
+			peer:     newPeer(noBits, noBits, auxRbf),
 			chanType: overlayChan,
 			allowed:  false,
 		},
@@ -3777,14 +3830,117 @@ func TestRbfCoopCloseAllowed(t *testing.T) {
 		t.Run(test.name, func(t *testing.T) {
 			t.Parallel()
 
+			chanID := lnwire.NewChanIDFromOutPoint(wire.OutPoint{})
 			require.Equal(
 				t, test.allowed,
 				test.peer.rbfCoopCloseAllowed(
-					test.chanType,
+					chanID, test.chanType,
 				),
 			)
 		})
 	}
+}
+
+// TestRestartLegacyOverlayClose keeps the original close on chain when
+// both peers gain support for RBF cooperative close.
+func TestRestartLegacyOverlayClose(t *testing.T) {
+	t.Parallel()
+
+	harness, err := createTestPeerWithChannel(t, noUpdate)
+	require.NoError(t, err)
+
+	channel := harness.channel
+	state := channel.State()
+	state.ChanType |= chanstate.SimpleTaprootFeatureBit |
+		chanstate.TapscriptRootBit
+
+	script := genScript(t, p2wshAddress)
+	require.NoError(t, state.MarkShutdownSent(
+		channeldb.NewShutdownInfo(script, true),
+	))
+	closeTx := wire.NewMsgTx(2)
+	chanPoint := channel.ChannelPoint()
+	closeTx.AddTxIn(wire.NewTxIn(&chanPoint, nil, nil))
+	closeTx.AddTxOut(wire.NewTxOut(1000, script))
+	require.NoError(t, state.MarkCoopBroadcasted(closeTx, lntypes.Local))
+
+	cfg := harness.peer.cfg
+	bits := lnwire.NewRawFeatureVector(lnwire.RbfCoopCloseOptional)
+	cfg.Features = lnwire.NewFeatureVector(bits, lnwire.Features)
+	cfg.AuxChanCloser = fn.Some[chancloser.AuxChanCloser](
+		&rbfGateAuxCloser{supported: true},
+	)
+	peer := NewBrontide(cfg)
+	peer.remoteFeatures = cfg.Features
+
+	chanID := lnwire.NewChanIDFromOutPoint(chanPoint)
+	require.True(t, peer.rbfCoopCloseAllowed(chanID, state.ChanType))
+	shutdown, err := peer.restartCoopClose(channel)
+	require.NoError(t, err)
+	require.Nil(t, shutdown)
+
+	_, hasCloser := peer.activeChanCloses.Load(chanID)
+	require.False(t, hasCloser)
+	storedTx, err := state.BroadcastedCooperative()
+	require.NoError(t, err)
+	require.Equal(t, closeTx.TxHash(), storedTx.TxHash())
+}
+
+// TestReconnectSkipsUnsupportedOverlayClose checks that a peer can reconnect
+// and resume its other channels even if it can no longer resume an RBF close.
+func TestReconnectSkipsUnsupportedOverlayClose(t *testing.T) {
+	t.Parallel()
+
+	closing, err := createTestPeerWithChannel(t, noUpdate)
+	require.NoError(t, err)
+
+	closingState := closing.channel.State()
+	closingState.ChanType |= chanstate.TapscriptRootBit
+	shutdown := channeldb.NewShutdownInfo(genScript(t, p2wshAddress), true)
+	shutdown.Rbf.Val = true
+	require.NoError(t, closingState.MarkShutdownSent(shutdown))
+
+	pending, err := createTestPeerWithChannel(
+		t, func(alice, bob *chanstate.OpenChannel) {
+			alice.IsPending = true
+			bob.IsPending = true
+			alice.FundingOutpoint.Index++
+			bob.FundingOutpoint.Index++
+		},
+	)
+	require.NoError(t, err)
+	pendingState := pending.channel.State()
+
+	signer := input.NewMockSigner(
+		[]*btcec.PrivateKey{closing.privKey, pending.privKey}, nil,
+	)
+	sigPool := lnwallet.NewSigPool(1, signer)
+	require.NoError(t, sigPool.Start())
+	t.Cleanup(func() {
+		require.NoError(t, sigPool.Stop())
+	})
+
+	cfg := closing.peer.cfg
+	cfg.Signer = signer
+	cfg.SigPool = sigPool
+	cfg.ChannelGraph = graphdb.MakeTestGraph(t)
+	reconnected := NewBrontide(cfg)
+	reconnected.remoteFeatures = lnwire.EmptyFeatureVector()
+
+	msgs, err := reconnected.loadActiveChannels(
+		[]*chanstate.OpenChannel{closingState, pendingState},
+	)
+	require.NoError(t, err)
+	require.Len(t, msgs, 1)
+	wantSync, err := pendingState.ChanSyncMsg()
+	require.NoError(t, err)
+	require.Equal(t, wantSync, msgs[0])
+
+	closingID := lnwire.NewChanIDFromOutPoint(closingState.FundingOutpoint)
+	_, hasCloser := reconnected.activeChanCloses.Load(closingID)
+	require.False(t, hasCloser)
+	_, active := reconnected.activeChannels.Load(closingID)
+	require.False(t, active)
 }
 
 // TestObserveRbfCloseOrdering suppresses success after another path claims
@@ -4525,7 +4681,8 @@ func enableTestRbfClose(t *testing.T, p *Brontide, h *peerTestCtx) {
 	rbfBits := lnwire.NewRawFeatureVector(lnwire.RbfCoopCloseOptional)
 	p.cfg.Features = lnwire.NewFeatureVector(rbfBits, lnwire.Features)
 	p.remoteFeatures = lnwire.NewFeatureVector(rbfBits, lnwire.Features)
-	require.True(t, p.rbfCoopCloseAllowed(h.channel.ChanType()))
+	chanID := lnwire.NewChanIDFromOutPoint(h.channel.ChannelPoint())
+	require.True(t, p.rbfCoopCloseAllowed(chanID, h.channel.ChanType()))
 }
 
 func requireCloseReqTaken(t *testing.T, p *Brontide, req *htlcswitch.ChanClose,

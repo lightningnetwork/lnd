@@ -3375,6 +3375,175 @@ func TestValidateInvoiceErrorWrite(t *testing.T) {
 	}
 }
 
+// boltTextCases covers the BOLT 1 Unicode rules for all textual BOLT 12
+// fields.
+func boltTextCases() []struct {
+	name  string
+	text  string
+	valid bool
+} {
+
+	return []struct {
+		name  string
+		text  string
+		valid bool
+	}{
+		{name: "Cc control", text: "description\t"},
+		{name: "Cf format", text: "description\u200b"},
+		{name: "Co private use", text: "description\ue000"},
+		{name: "Zl line separator", text: "description\u2028"},
+		{name: "Zp paragraph separator", text: "description\u2029"},
+		{name: "NUL", text: "description\x00"},
+		{name: "malformed UTF-8", text: "description\xff"},
+		{name: "Japanese", text: "ナンセンス 1杯", valid: true},
+		{name: "emoji", text: "description \U0001f369", valid: true},
+		{name: "combining mark", text: "cafe\u0301", valid: true},
+	}
+}
+
+// TestBoltTextFields verifies strict text validation on offers, invoice
+// requests and invoices in both directions.
+func TestBoltTextFields(t *testing.T) {
+	t.Parallel()
+
+	t.Run("offer", func(t *testing.T) {
+		t.Parallel()
+
+		for _, tc := range boltTextCases() {
+			o := validBobOffer(t)
+			o.OfferDescription = tlv.SomeRecordT(
+				tlv.NewPrimitiveRecord[tlv.TlvType10](
+					tlv.Blob(tc.text),
+				),
+			)
+			o.OfferIssuer = tlv.SomeRecordT(
+				tlv.NewPrimitiveRecord[tlv.TlvType18](
+					tlv.Blob(tc.text),
+				),
+			)
+
+			err := validateOfferWrite(o)
+			if tc.valid {
+				require.NoError(t, err)
+			} else {
+				require.ErrorIs(t, err, ErrInvalidUTF8)
+			}
+
+			err = validateOfferRead(
+				o, time.Unix(1_700_000_000, 0),
+				bitcoinMainnetGenesisHash, nil,
+			)
+			if tc.valid {
+				require.NoError(t, err)
+			} else {
+				require.ErrorIs(t, err, ErrInvalidUTF8)
+			}
+		}
+	})
+
+	t.Run("invoice request", func(t *testing.T) {
+		t.Parallel()
+
+		for _, tc := range boltTextCases() {
+			ir := validInvoiceRequest(t)
+			ir.OfferDescription = tlv.SomeRecordT(
+				tlv.NewPrimitiveRecord[tlv.TlvType10](
+					tlv.Blob(tc.text),
+				),
+			)
+			ir.OfferIssuer = tlv.SomeRecordT(
+				tlv.NewPrimitiveRecord[tlv.TlvType18](
+					tlv.Blob(tc.text),
+				),
+			)
+			ir.InvreqPayerNote = tlv.SomeRecordT(
+				tlv.NewPrimitiveRecord[tlv.TlvType89](
+					tlv.Blob(tc.text),
+				),
+			)
+
+			err := validateInvoiceRequestWrite(ir)
+			if tc.valid {
+				require.NoError(t, err)
+			} else {
+				require.ErrorIs(t, err, ErrInvalidUTF8)
+			}
+
+			err = ValidateInvoiceRequestRead(
+				ir, bitcoinMainnetGenesisHash, nil,
+			)
+			if tc.valid {
+				priv, _ := bobKey()
+				sig, signErr := SignInvoiceRequest(ir, priv)
+				require.NoError(t, signErr)
+				ir.Signature = tlv.SomeRecordT(
+					tlv.NewPrimitiveRecord[tlv.TlvType240](
+						sig,
+					),
+				)
+				err = ValidateInvoiceRequestRead(
+					ir, bitcoinMainnetGenesisHash, nil,
+				)
+				require.NoError(t, err)
+			} else {
+				require.ErrorIs(t, err, ErrInvalidUTF8)
+			}
+		}
+	})
+
+	t.Run("invoice", func(t *testing.T) {
+		t.Parallel()
+
+		for _, tc := range boltTextCases() {
+			inv := validInvoice(t)
+			inv.OfferDescription = tlv.SomeRecordT(
+				tlv.NewPrimitiveRecord[tlv.TlvType10](
+					tlv.Blob(tc.text),
+				),
+			)
+			inv.OfferIssuer = tlv.SomeRecordT(
+				tlv.NewPrimitiveRecord[tlv.TlvType18](
+					tlv.Blob(tc.text),
+				),
+			)
+			inv.InvreqPayerNote = tlv.SomeRecordT(
+				tlv.NewPrimitiveRecord[tlv.TlvType89](
+					tlv.Blob(tc.text),
+				),
+			)
+
+			err := validateInvoiceWrite(inv)
+			if tc.valid {
+				require.NoError(t, err)
+			} else {
+				require.ErrorIs(t, err, ErrInvalidUTF8)
+			}
+
+			err = validateInvoiceRead(
+				inv, bitcoinMainnetGenesisHash,
+				InvoiceKnownFeatures{},
+			)
+			if tc.valid {
+				priv, _ := bobKey()
+				sig, signErr := SignInvoice(inv, priv)
+				require.NoError(t, signErr)
+				inv.Signature = tlv.SomeRecordT(
+					tlv.NewPrimitiveRecord[tlv.TlvType240](
+						sig,
+					),
+				)
+				err = validateInvoiceRead(
+					inv, bitcoinMainnetGenesisHash,
+					InvoiceKnownFeatures{},
+				)
+				require.NoError(t, err)
+			} else {
+				require.ErrorIs(t, err, ErrInvalidUTF8)
+			}
+		}
+	})
+}
+
 // TestValidateOfferReadVectors parses and evaluates all test vectors in
 // offers-test.json to verify that every valid vector passes all decoding and
 // validation stages and every invalid vector is rejected at some stage.
@@ -3511,4 +3680,20 @@ func findRecord(records []tlv.Record, typ uint64) (*tlv.Record, bool) {
 	}
 
 	return nil, false
+}
+
+// TestBoltTextUnassigned checks that offers use different BOLT 1 rules
+// when authored locally and when received.
+func TestBoltTextUnassigned(t *testing.T) {
+	t.Parallel()
+
+	o := validBobOffer(t)
+	o.OfferDescription = tlv.SomeRecordT(
+		tlv.NewPrimitiveRecord[tlv.TlvType10](tlv.Blob("text \u0378")),
+	)
+
+	require.ErrorIs(t, validateOfferWrite(o), ErrInvalidUTF8)
+	require.NoError(t, validateOfferRead(
+		o, time.Unix(1_700_000_000, 0), bitcoinMainnetGenesisHash, nil,
+	))
 }

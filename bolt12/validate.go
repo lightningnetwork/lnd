@@ -7,7 +7,6 @@ import (
 	"math/bits"
 	"slices"
 	"time"
-	"unicode/utf8"
 
 	"github.com/btcsuite/btcd/btcec/v2"
 	"github.com/btcsuite/btcd/chaincfg/v2"
@@ -288,12 +287,12 @@ func validateInvoiceErrorWrite(ie *InvoiceError) error {
 
 	// The spec's "explanatory string" is a type-5 UTF-8 message, so an
 	// empty or non-UTF-8 blob carries no explanation and fails the
-	// requirement even though IsSome passes. checkUTF8 mirrors the
+	// requirement even though IsSome passes. checkUTF8ForWrite mirrors the
 	// treatment every other BOLT 12 UTF-8 field receives.
 	if len(ie.Error.ValOpt().UnwrapOr(nil)) == 0 {
 		return ErrEmptyError
 	}
-	if err := checkUTF8(ie.Error, "error"); err != nil {
+	if err := checkUTF8ForWrite(ie.Error, "error"); err != nil {
 		return err
 	}
 
@@ -539,8 +538,18 @@ func validateInvoiceRequestWrite(ir *InvoiceRequest) error {
 	// NOT CHECKED HERE: the bits are the caller's own, and the reader
 	// rejects unknown even bits using the known bits passed to it.
 
-	// check UTF-8 constraints and BIP 353
-	err := checkUTF8(ir.InvreqPayerNote, "invreq_payer_note")
+	// Check UTF-8 constraints and BIP 353.
+	if err := checkUTF8ForWrite(
+		ir.OfferDescription, "offer_description",
+	); err != nil {
+		return err
+	}
+	if err := checkUTF8ForWrite(
+		ir.OfferIssuer, "offer_issuer",
+	); err != nil {
+		return err
+	}
+	err := checkUTF8ForWrite(ir.InvreqPayerNote, "invreq_payer_note")
 	if err != nil {
 		return err
 	}
@@ -780,6 +789,20 @@ func ValidateInvoiceRequestRead(ir *InvoiceRequest,
 	//   - MUST reject the invoice request if name or domain contain any
 	//     bytes which are not 0-9, a-z, A-Z, -, _ or .
 	if err := checkBip353Name(ir.InvreqBip353Name); err != nil {
+		return err
+	}
+
+	if err := checkUTF8(
+		ir.OfferDescription, "offer_description",
+	); err != nil {
+		return err
+	}
+	if err := checkUTF8(ir.OfferIssuer, "offer_issuer"); err != nil {
+		return err
+	}
+	if err := checkUTF8(
+		ir.InvreqPayerNote, "invreq_payer_note",
+	); err != nil {
 		return err
 	}
 
@@ -1269,17 +1292,19 @@ func validateOfferWrite(o *Offer) error {
 
 	// Defense in depth: the reader rejects a non-UTF-8 text field, so the
 	// writer does not emit one.
-	if err := checkUTF8(o.OfferCurrency, "offer_currency"); err != nil {
+	if err := checkUTF8ForWrite(
+		o.OfferCurrency, "offer_currency",
+	); err != nil {
 		return err
 	}
 
-	if err := checkUTF8(
+	if err := checkUTF8ForWrite(
 		o.OfferDescription, "offer_description",
 	); err != nil {
 		return err
 	}
 
-	if err := checkUTF8(o.OfferIssuer, "offer_issuer"); err != nil {
+	if err := checkUTF8ForWrite(o.OfferIssuer, "offer_issuer"); err != nil {
 		return err
 	}
 
@@ -1359,12 +1384,25 @@ func checkAmountPositive[T tlv.TlvType](
 	})
 }
 
-// checkUTF8 validates that a blob field contains valid UTF-8.
+// checkUTF8ForWrite validates a locally authored BOLT 1 text field.
+func checkUTF8ForWrite[T tlv.TlvType](opt tlv.OptionalRecordT[T, tlv.Blob],
+	name string) error {
+
+	return fn.MapOptionZ(opt.ValOpt(), func(data tlv.Blob) error {
+		if !lnwire.ValidBoltTextForWrite(data) {
+			return fmt.Errorf("%w: %s", ErrInvalidUTF8, name)
+		}
+
+		return nil
+	})
+}
+
+// checkUTF8 validates that a blob field contains BOLT 1-valid UTF-8 text.
 func checkUTF8[T tlv.TlvType](opt tlv.OptionalRecordT[T, tlv.Blob],
 	name string) error {
 
 	return fn.MapOptionZ(opt.ValOpt(), func(data tlv.Blob) error {
-		if !utf8.Valid(data) {
+		if !lnwire.ValidBoltText(data) {
 			return fmt.Errorf("%w: %s", ErrInvalidUTF8, name)
 		}
 
@@ -1571,6 +1609,22 @@ func validateInvoiceWrite(inv *Invoice) error {
 
 			return nil
 		}); err != nil {
+		return err
+	}
+
+	if err := checkUTF8ForWrite(
+		inv.OfferDescription, "offer_description",
+	); err != nil {
+		return err
+	}
+	if err := checkUTF8ForWrite(
+		inv.OfferIssuer, "offer_issuer",
+	); err != nil {
+		return err
+	}
+	if err := checkUTF8ForWrite(
+		inv.InvreqPayerNote, "invreq_payer_note",
+	); err != nil {
 		return err
 	}
 
@@ -1986,6 +2040,20 @@ func validateInvoiceRead(inv *Invoice, activeChain [32]byte,
 	// handled outside this codec. invreq_amount equality is enforced by
 	// validateInvoiceAgainstRequest; the fallback ignore rules by
 	// usableFallbackAddresses.
+
+	if err := checkUTF8(
+		inv.OfferDescription, "offer_description",
+	); err != nil {
+		return err
+	}
+	if err := checkUTF8(inv.OfferIssuer, "offer_issuer"); err != nil {
+		return err
+	}
+	if err := checkUTF8(
+		inv.InvreqPayerNote, "invreq_payer_note",
+	); err != nil {
+		return err
+	}
 
 	// - MUST reject the invoice if signature is not a valid signature using
 	//   invoice_node_id as described in Signature Calculation.

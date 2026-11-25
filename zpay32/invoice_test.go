@@ -1183,6 +1183,71 @@ func TestNewInvoice(t *testing.T) {
 	}
 }
 
+// invoiceDescriptionTextCases covers the BOLT 1 Unicode rules shared by
+// invoice description parsing, construction and encoding.
+func invoiceDescriptionTextCases() []struct {
+	name  string
+	text  string
+	valid bool
+} {
+	return []struct {
+		name  string
+		text  string
+		valid bool
+	}{
+		{name: "Cc control", text: "coffee\t"},
+		{name: "Cf format", text: "coffee\u200b"},
+		{name: "Co private use", text: "coffee\ue000"},
+		{name: "Zl line separator", text: "coffee\u2028"},
+		{name: "Zp paragraph separator", text: "coffee\u2029"},
+		{name: "NUL", text: "coffee\x00"},
+		{name: "malformed UTF-8", text: "coffee\xff"},
+		{name: "Japanese", text: "ナンセンス 1杯", valid: true},
+		{name: "emoji", text: "coffee \U0001f369", valid: true},
+		{name: "combining mark", text: "cafe\u0301", valid: true},
+		{name: "Cn unassigned", text: "coffee \u0378", valid: true},
+	}
+}
+
+// TestInvoiceDescriptionBoltText verifies that local invoice construction and
+// direct encoding reject the same invalid descriptions as the decoder.
+func TestInvoiceDescriptionBoltText(t *testing.T) {
+	t.Parallel()
+
+	for _, tc := range invoiceDescriptionTextCases() {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+
+			invoice, err := NewInvoice(
+				&chaincfg.MainNetParams, testPaymentHash,
+				time.Unix(1496314658, 0), Description(tc.text),
+			)
+			if tc.valid && tc.name != "Cn unassigned" {
+				require.NoError(t, err)
+				_, err = invoice.Encode(testMessageSigner)
+				require.NoError(t, err)
+				return
+			}
+
+			require.ErrorIs(t, err, ErrInvalidUTF8Description)
+
+			// A directly built invoice takes the same validation path in
+			// Encode and must not be sanitized into a different string.
+			invoice = &Invoice{
+				Net:         &chaincfg.MainNetParams,
+				PaymentHash: &testPaymentHash,
+				Timestamp:   time.Unix(1496314658, 0),
+				Description: &tc.text,
+				Features: lnwire.NewFeatureVector(
+					nil, lnwire.Features,
+				),
+			}
+			_, err = invoice.Encode(testMessageSigner)
+			require.ErrorIs(t, err, ErrInvalidUTF8Description)
+		})
+	}
+}
+
 // TestMaxInvoiceLength tests that attempting to decode an invoice greater than
 // maxInvoiceLength fails with ErrInvoiceTooLarge.
 func TestMaxInvoiceLength(t *testing.T) {

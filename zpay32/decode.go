@@ -7,7 +7,6 @@ import (
 	"fmt"
 	"strings"
 	"time"
-	"unicode/utf8"
 
 	"github.com/btcsuite/btcd/address/v2"
 	"github.com/btcsuite/btcd/address/v2/bech32"
@@ -483,7 +482,7 @@ func parseDescription(data []byte) (*string, error) {
 		return nil, err
 	}
 
-	if !utf8.Valid(base256Data) {
+	if !lnwire.ValidBoltText(base256Data) {
 		return nil, ErrInvalidUTF8Description
 	}
 

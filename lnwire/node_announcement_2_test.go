@@ -107,11 +107,11 @@ func TestNodeAnn2EncodeDecode(t *testing.T) {
 
 		// Alias record (optional).
 		0x03, // type.
-		0x20, // length (32).
+		0x1f, // length (31).
 		0x4c, 0x69, 0x67, 0x68, 0x74, 0x6e, 0x69, 0x6e,
 		0x67, 0x20, 0x4e, 0x6f, 0x64, 0x65, 0x20, 0x54,
 		0x65, 0x73, 0x74, 0x20, 0x41, 0x6c, 0x69, 0x61,
-		0x73, 0x20, 0x4e, 0x61, 0x6d, 0x65, 0x21, 0x00, // value.
+		0x73, 0x20, 0x4e, 0x61, 0x6d, 0x65, 0x21, // value.
 
 		// NodeID record.
 		0x04, // type.
@@ -263,6 +263,44 @@ func TestNodeAnn2AddressesIgnorePortZero(t *testing.T) {
 
 	// Only the usable addresses remain, in field order.
 	require.Equal(t, []net.Addr{ip4, ip6, onn, dns}, decoded.Addresses())
+}
+
+// TestNodeAlias2BoltText verifies BOLT 1 text validation on both the V2
+// encoder and decoder.
+func TestNodeAlias2BoltText(t *testing.T) {
+	t.Parallel()
+
+	for _, tc := range aliasTextCases() {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+
+			alias := NodeAlias2(tc.text)
+			err := ValidateNodeAlias2(alias)
+			if tc.valid {
+				require.NoError(t, err)
+			} else {
+				require.Error(t, err)
+			}
+
+			var buf bytes.Buffer
+			err = nodeAlias2Encoder(&buf, &alias, nil)
+			if tc.valid {
+				require.NoError(t, err)
+				require.Equal(t, []byte(tc.text), buf.Bytes())
+			} else {
+				require.Error(t, err)
+				return
+			}
+
+			var decoded NodeAlias2
+			err = nodeAlias2Decoder(
+				bytes.NewReader(buf.Bytes()), &decoded, nil,
+				uint64(buf.Len()),
+			)
+			require.NoError(t, err)
+			require.Equal(t, alias, decoded)
+		})
+	}
 }
 
 // TestNodeAnn2AddrDecodeTruncated asserts that each fixed width address decoder

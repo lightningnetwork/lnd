@@ -403,6 +403,25 @@ func TestParseDescription(t *testing.T) {
 		},
 	}
 
+	for _, tc := range invoiceDescriptionTextCases() {
+		data, err := bech32.ConvertBits([]byte(tc.text), 8, 5, true)
+		require.NoError(t, err)
+
+		text := tc.text
+		testCase := struct {
+			data        []byte
+			valid       bool
+			result      *string
+			expectedErr error
+		}{data: data, valid: tc.valid, result: &text}
+		if !tc.valid {
+			testCase.expectedErr = ErrInvalidUTF8Description
+			testCase.result = nil
+		}
+
+		tests = append(tests, testCase)
+	}
+
 	for i, test := range tests {
 		description, err := parseDescription(test.data)
 		if (err == nil) != test.valid {

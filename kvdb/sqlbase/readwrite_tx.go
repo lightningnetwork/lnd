@@ -15,8 +15,8 @@ type readWriteTx struct {
 	db *db
 	tx *sql.Tx
 
-	// onCommit gets called upon commit.
-	onCommit func()
+	// onCommit holds the callbacks to run, in order, upon commit.
+	onCommit []func()
 
 	// active is true if the transaction hasn't been committed yet.
 	active bool
@@ -171,8 +171,10 @@ func (tx *readWriteTx) Commit() error {
 
 	// Try committing the transaction.
 	err := tx.tx.Commit()
-	if err == nil && tx.onCommit != nil {
-		tx.onCommit()
+	if err == nil {
+		for _, cb := range tx.onCommit {
+			cb()
+		}
 	}
 
 	// Unlock the transaction regardless of the error result.
@@ -182,9 +184,10 @@ func (tx *readWriteTx) Commit() error {
 	return err
 }
 
-// OnCommit sets the commit callback (overriding if already set).
+// OnCommit adds a callback that's run once the transaction commits. Callbacks
+// run in the order they were added.
 func (tx *readWriteTx) OnCommit(cb func()) {
-	tx.onCommit = cb
+	tx.onCommit = append(tx.onCommit, cb)
 }
 
 // QueryRow executes a QueryRow call with a timeout context.

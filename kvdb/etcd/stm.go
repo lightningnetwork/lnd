@@ -189,8 +189,8 @@ type stm struct {
 	// revision stores the snapshot revision after first read.
 	revision int64
 
-	// onCommit gets called upon commit.
-	onCommit func()
+	// onCommit holds the callbacks to run, in order, upon commit.
+	onCommit []func()
 
 	// callCount tracks the number of times we called into etcd.
 	callCount int
@@ -1039,10 +1039,10 @@ func (s *stm) Del(key string) {
 	}
 }
 
-// OnCommit sets the callback that is called upon committing the STM
-// transaction.
+// OnCommit adds a callback that's run once the STM transaction commits.
+// Callbacks run in the order they were added.
 func (s *stm) OnCommit(cb func()) {
-	s.onCommit = cb
+	s.onCommit = append(s.onCommit, cb)
 }
 
 // Prefetch will prefetch the passed keys and prefixes in one transaction.
@@ -1153,8 +1153,8 @@ func (s *stm) commit() (CommitStats, error) {
 
 	// Call the commit callback if the transaction was successful.
 	if txnresp.Succeeded {
-		if s.onCommit != nil {
-			s.onCommit()
+		for _, cb := range s.onCommit {
+			cb()
 		}
 
 		return stats, nil
@@ -1207,4 +1207,8 @@ func (s *stm) rollback(clearReadSet bool) {
 	}
 
 	s.wset = make(map[string]stmPut)
+
+	// The callbacks belong to the attempt being rolled back. A retry runs
+	// the transaction again, which adds them again.
+	s.onCommit = nil
 }

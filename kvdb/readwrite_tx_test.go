@@ -12,10 +12,14 @@ func testTxManualCommit(t *testing.T, db walletdb.DB) {
 	require.NoError(t, err)
 	require.NotNil(t, tx)
 
-	committed := false
-
+	// Every callback must run on commit, in the order it was added, not
+	// just the last one.
+	var committed []int
 	tx.OnCommit(func() {
-		committed = true
+		committed = append(committed, 1)
+	})
+	tx.OnCommit(func() {
+		committed = append(committed, 2)
 	})
 
 	apple, err := tx.CreateTopLevelBucket([]byte("apple"))
@@ -30,7 +34,7 @@ func testTxManualCommit(t *testing.T, db walletdb.DB) {
 	require.NoError(t, tx.DeleteTopLevelBucket([]byte("banana")))
 
 	require.NoError(t, tx.Commit())
-	require.True(t, committed)
+	require.Equal(t, []int{1, 2}, committed)
 }
 
 func testTxRollback(t *testing.T, db walletdb.DB) {

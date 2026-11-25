@@ -108,6 +108,17 @@ type Config struct {
 	// IsAlias returns whether a passed ShortChannelID is an alias. This is
 	// only used for our local channels.
 	IsAlias func(scid lnwire.ShortChannelID) bool
+
+	// IsClosedChannel returns whether one of our own channels has been
+	// closed. The channel is identified by its funding outpoint, which is
+	// the zero outpoint for an edge we learned from gossip with
+	// AssumeChannelValid set, so its short channel ID is passed too. Our
+	// own channels are otherwise never pruned as zombies, so this is what
+	// removes them from the graph once they've closed when spentness isn't
+	// tracked (AssumeChannelValid), and stops us from re-announcing them.
+	// If nil, our own channels are never pruned here.
+	IsClosedChannel func(chanPoint wire.OutPoint,
+		scid lnwire.ShortChannelID) (bool, error)
 }
 
 // Builder builds and maintains a view of the Lightning Network graph.
@@ -643,6 +654,59 @@ func (b *Builder) pruneZombieChans() error {
 				chansToPrune[disabledEdge.Info.ChannelID] =
 					struct{}{}
 			}
+		}
+	}
+
+	// Our own channels are exempt from the checks above, as the
+	// sub-system above us keeps their updates fresh. Once one of them has
+	// closed though, nothing else removes it from the graph when we don't
+	// watch for spends, so we prune it here.
+	if b.cfg.IsClosedChannel != nil {
+		// Collect our channels first, and only look up whether they've
+		// closed once the graph traversal is done, so we never open a
+		// second database transaction while the traversal's is still
+		// open.
+		var ourChans []*models.ChannelEdgeInfo
+		err := b.v1Graph.ForEachNodeChannel(
+			context.TODO(), b.cfg.SelfNode,
+			func(info *models.ChannelEdgeInfo, _,
+				_ *models.ChannelEdgePolicy) error {
+
+				ourChans = append(ourChans, info)
+
+				return nil
+			}, func() {
+				ourChans = nil
+			},
+		)
+		if err != nil && !errors.Is(err, graphdb.ErrGraphNoEdgesFound) {
+			return fmt.Errorf("unable to fetch our channels: %w",
+				err)
+		}
+
+		for _, info := range ourChans {
+			chanID := info.ChannelID
+			closed, err := b.cfg.IsClosedChannel(
+				info.ChannelPoint,
+				lnwire.NewShortChanIDFromInt(chanID),
+			)
+			if err != nil {
+				// A failed lookup only skips this channel, so
+				// it can't hold up the rest of the prune.
+				log.Errorf("Unable to check if our "+
+					"ChannelID(%v) is closed: %v", chanID,
+					err)
+
+				continue
+			}
+			if !closed {
+				continue
+			}
+
+			log.Debugf("Our ChannelID(%v) is closed, collecting "+
+				"to prune", chanID)
+
+			chansToPrune[chanID] = struct{}{}
 		}
 	}
 

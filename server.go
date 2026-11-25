@@ -1299,6 +1299,11 @@ func newServer(ctx context.Context, cfg *Config, listenAddrs []net.Addr,
 		AssumeChannelValid:  cfg.Routing.AssumeChannelValid,
 		StrictZombiePruning: strictPruning,
 		IsAlias:             aliasmgr.IsAlias,
+		IsClosedChannel: func(chanPoint wire.OutPoint,
+			scid lnwire.ShortChannelID) (bool, error) {
+
+			return isClosedChannel(chanStateDB, chanPoint, scid)
+		},
 	})
 	if err != nil {
 		return nil, fmt.Errorf("can't create graph builder: %w", err)
@@ -6289,4 +6294,65 @@ func (s *server) setSelfNode(ctx context.Context, nodePub route.Vertex,
 	s.currentNodeAnn = nodeAnn
 
 	return nil
+}
+
+// closedChannelSource is the part of the channel state database that's needed
+// to tell whether one of our channels has closed.
+type closedChannelSource interface {
+	// FetchClosedChannel returns the close summary of the channel with the
+	// given funding outpoint.
+	FetchClosedChannel(chanID *wire.OutPoint) (
+		*channeldb.ChannelCloseSummary, error)
+
+	// FetchClosedChannels returns all close summaries, or only the pending
+	// ones if pendingOnly is set.
+	FetchClosedChannels(pendingOnly bool) (
+		[]*channeldb.ChannelCloseSummary, error)
+}
+
+// isClosedChannel returns whether we have a close summary for one of our
+// channels. The channel is looked up by its funding outpoint, unless that's the
+// zero outpoint, as it is for an edge we only know from gossip. Then we fall
+// back to matching its short channel ID against our close summaries. That's a
+// scan, but it's only for such edges, once per prune.
+func isClosedChannel(db closedChannelSource, chanPoint wire.OutPoint,
+	scid lnwire.ShortChannelID) (bool, error) {
+
+	if chanPoint == (wire.OutPoint{}) {
+		return isClosedSCID(db, scid)
+	}
+
+	_, err := db.FetchClosedChannel(&chanPoint)
+	if errors.Is(err, channeldb.ErrClosedChannelNotFound) {
+		return false, nil
+	}
+
+	return err == nil, err
+}
+
+// isClosedSCID returns whether we have a close summary for the channel with the
+// given short channel ID. An all-zero ID never matches, as a channel whose
+// funding never confirmed can be archived without one.
+func isClosedSCID(db closedChannelSource,
+	scid lnwire.ShortChannelID) (bool, error) {
+
+	if scid.ToUint64() == 0 {
+		return false, nil
+	}
+
+	summaries, err := db.FetchClosedChannels(false)
+	if errors.Is(err, channeldb.ErrNoClosedChannels) {
+		return false, nil
+	}
+	if err != nil {
+		return false, err
+	}
+
+	for _, summary := range summaries {
+		if summary.ShortChanID == scid {
+			return true, nil
+		}
+	}
+
+	return false, nil
 }

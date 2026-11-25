@@ -61,9 +61,12 @@ type recyclePoolTest struct {
 // TestGenericRecyclePoolTests generically tests that pools derived from the
 // base Recycle pool properly are properly configured.
 func TestConcreteRecyclePoolTests(t *testing.T) {
+	// The intervals are long enough that no entry can expire while a test
+	// runs, so a returned item can only be missing from the queue if it
+	// was never returned.
 	const (
-		gcInterval     = time.Second
-		expiryInterval = 250 * time.Millisecond
+		gcInterval     = time.Minute
+		expiryInterval = time.Minute
 	)
 
 	tests := []recyclePoolTest{
@@ -104,18 +107,25 @@ func testRecyclePool(t *testing.T, test recyclePoolTest) {
 	// Return the item to the pool.
 	returnGeneric(t, p, r1)
 
-	// Take items from the pool until we find the original. We expect at
-	// most two, in the event that a fresh item is populated after the
-	// first is taken.
-	for i := 0; i < 2; i++ {
-		// Wait a small duration to ensure the tests are reliable, and
-		// don't to active the non-blocking case unintentionally.
-		<-time.After(time.Millisecond)
+	// Take items from the pool until we find the original. The pool only
+	// promises best-effort reuse: GCQueue.Take hands out a freshly
+	// allocated item whenever the queue manager goroutine does not respond
+	// within a millisecond, which happens on a loaded machine. Such a take
+	// does not consume a queued item, so the original is still in the
+	// queue and will be delivered by a later take. The gc and expiry
+	// intervals used by the caller are far longer than this loop, so the
+	// original cannot be released before it is found. If the pool really
+	// lost the item, we fail after a generous deadline rather than hang
+	// until the test binary's timeout.
+	deadline := time.Now().Add(30 * time.Second)
+	for {
+		if time.Now().After(deadline) {
+			t.Fatalf("original item not found")
+		}
 
 		r2 := takeGeneric(t, p)
 
-		// Take an item, skipping those whose pointer does not match the
-		// one we dirtied.
+		// Skip items whose pointer does not match the one we dirtied.
 		if r1 != r2 {
 			continue
 		}
@@ -125,8 +135,6 @@ func testRecyclePool(t *testing.T, test recyclePoolTest) {
 
 		return
 	}
-
-	t.Fatalf("original item not found")
 }
 
 func takeGeneric(t *testing.T, p interface{}) pool.Recycler {

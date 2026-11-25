@@ -822,6 +822,29 @@ func ConfDetailsFromTxIndex(chainConn TxIndexConn, r ConfRequest,
 		"tx %v in block %v", r.TxID, blockHash)
 }
 
+// HeightHint is a cached historical scan boundary for a request. When Height
+// is at least Origin, the request is known not to have confirmed, or been
+// spent, in any block from Origin up to, but not including, Height. A later
+// registration can therefore skip to Height only if its own height hint is at
+// least Origin. Height can be below Origin when the scan origin was above the
+// notifier's tip; such a hint is not used to skip any blocks. An Origin of zero
+// marks a legacy hint whose scan origin was not recorded.
+type HeightHint struct {
+	// Height is the height from which a new historical scan must begin.
+	Height uint32
+
+	// Origin is the earliest height covered by the scans that established
+	// Height.
+	Origin uint32
+}
+
+// ConfirmHints maps confirmation requests to the height hints to persist for
+// them.
+type ConfirmHints map[ConfRequest]HeightHint
+
+// SpendHints maps spend requests to the height hints to persist for them.
+type SpendHints map[SpendRequest]HeightHint
+
 // SpendHintCache is an interface whose duty is to cache spend hints for
 // outpoints. A spend hint is defined as the earliest height in the chain at
 // which an outpoint could have been spent within.
@@ -837,6 +860,20 @@ type SpendHintCache interface {
 	// PurgeSpendHint removes the spend hint for the outpoints from the
 	// cache.
 	PurgeSpendHint(spendRequests ...SpendRequest) error
+}
+
+// SpendHintCacheWithOrigin extends SpendHintCache with origin-aware hints. A
+// cache that does not implement this interface remains source-compatible, but
+// TxNotifier will not use its legacy hints to skip historical scans because
+// their covered range cannot be established safely.
+type SpendHintCacheWithOrigin interface {
+	SpendHintCache
+
+	// CommitSpendHints commits the given origin-aware spend hints.
+	CommitSpendHints(hints SpendHints) error
+
+	// QuerySpendHintWithOrigin returns the latest origin-aware spend hint.
+	QuerySpendHintWithOrigin(spendRequest SpendRequest) (HeightHint, error)
 }
 
 // ConfirmHintCache is an interface whose duty is to cache confirm hints for
@@ -856,6 +893,95 @@ type ConfirmHintCache interface {
 	// PurgeConfirmHint removes the confirm hints for the confirmation
 	// requests from the cache.
 	PurgeConfirmHint(confRequests ...ConfRequest) error
+}
+
+// ConfirmHintCacheWithOrigin extends ConfirmHintCache with origin-aware hints.
+// A cache that does not implement this interface remains source-compatible,
+// but TxNotifier will not use its legacy hints to skip historical scans because
+// their covered range cannot be established safely.
+type ConfirmHintCacheWithOrigin interface {
+	ConfirmHintCache
+
+	// CommitConfirmHints commits the given origin-aware confirmation hints.
+	CommitConfirmHints(hints ConfirmHints) error
+
+	// QueryConfirmHintWithOrigin returns the latest origin-aware confirm
+	// hint.
+	QueryConfirmHintWithOrigin(confRequest ConfRequest) (HeightHint, error)
+}
+
+// CommitSpendHints commits origin-aware hints when the cache supports them.
+// Legacy caches receive one height-only write per request.
+func CommitSpendHints(cache SpendHintCache, hints SpendHints) error {
+	if cache, ok := cache.(SpendHintCacheWithOrigin); ok {
+		return cache.CommitSpendHints(hints)
+	}
+
+	requestsByHeight := make(map[uint32][]SpendRequest)
+	for request, hint := range hints {
+		requestsByHeight[hint.Height] = append(
+			requestsByHeight[hint.Height], request,
+		)
+	}
+	for height, requests := range requestsByHeight {
+		err := cache.CommitSpendHint(height, requests...)
+		if err != nil {
+			return err
+		}
+	}
+
+	return nil
+}
+
+// CommitConfirmHints commits origin-aware hints when the cache supports them.
+// Legacy caches receive one height-only write per request.
+func CommitConfirmHints(cache ConfirmHintCache, hints ConfirmHints) error {
+	if cache, ok := cache.(ConfirmHintCacheWithOrigin); ok {
+		return cache.CommitConfirmHints(hints)
+	}
+
+	requestsByHeight := make(map[uint32][]ConfRequest)
+	for request, hint := range hints {
+		requestsByHeight[hint.Height] = append(
+			requestsByHeight[hint.Height], request,
+		)
+	}
+	for height, requests := range requestsByHeight {
+		err := cache.CommitConfirmHint(height, requests...)
+		if err != nil {
+			return err
+		}
+	}
+
+	return nil
+}
+
+// QuerySpendHintWithOrigin queries an origin-aware spend hint. Legacy caches
+// are deliberately ignored: without an origin, repeatedly trusting their
+// height could recreate the missed-event bug this metadata prevents.
+func QuerySpendHintWithOrigin(cache SpendHintCache,
+	request SpendRequest) (HeightHint, error) {
+
+	cacheWithOrigin, ok := cache.(SpendHintCacheWithOrigin)
+	if !ok {
+		return HeightHint{}, ErrSpendHintNotFound
+	}
+
+	return cacheWithOrigin.QuerySpendHintWithOrigin(request)
+}
+
+// QueryConfirmHintWithOrigin queries an origin-aware confirm hint. Legacy
+// caches are deliberately ignored: without an origin, repeatedly trusting
+// their height could recreate the missed-event bug this metadata prevents.
+func QueryConfirmHintWithOrigin(cache ConfirmHintCache,
+	request ConfRequest) (HeightHint, error) {
+
+	cacheWithOrigin, ok := cache.(ConfirmHintCacheWithOrigin)
+	if !ok {
+		return HeightHint{}, ErrConfirmHintNotFound
+	}
+
+	return cacheWithOrigin.QueryConfirmHintWithOrigin(request)
 }
 
 // MempoolWatcher defines an interface that allows the caller to query

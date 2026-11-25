@@ -41,6 +41,8 @@ type HeightHintCache struct {
 // and ConfirmHintCache interfaces.
 var _ chainntnfs.SpendHintCache = (*HeightHintCache)(nil)
 var _ chainntnfs.ConfirmHintCache = (*HeightHintCache)(nil)
+var _ chainntnfs.SpendHintCacheWithOrigin = (*HeightHintCache)(nil)
+var _ chainntnfs.ConfirmHintCacheWithOrigin = (*HeightHintCache)(nil)
 
 // NewHeightHintCache returns a new height hint cache backed by a database.
 func NewHeightHintCache(cfg CacheConfig, db kvdb.Backend) (*HeightHintCache,
@@ -68,16 +70,16 @@ func (c *HeightHintCache) initBuckets() error {
 	})
 }
 
-// CommitSpendHint commits a spend hint for the outpoints to the cache.
-func (c *HeightHintCache) CommitSpendHint(height uint32,
-	spendRequests ...chainntnfs.SpendRequest) error {
+// CommitSpendHints commits the given spend hints to the cache in a single
+// transaction.
+func (c *HeightHintCache) CommitSpendHints(
+	hints chainntnfs.SpendHints) error {
 
-	if len(spendRequests) == 0 {
+	if len(hints) == 0 {
 		return nil
 	}
 
-	log.Tracef("Updating spend hint to height %d for %v", height,
-		spendRequests)
+	log.Tracef("Updating spend hints %v", hints)
 
 	return kvdb.Batch(c.db, func(tx kvdb.RwTx) error {
 		spendHints := tx.ReadWriteBucket(spendHintBucket)
@@ -85,18 +87,17 @@ func (c *HeightHintCache) CommitSpendHint(height uint32,
 			return chainntnfs.ErrCorruptedHeightHintCache
 		}
 
-		var hint bytes.Buffer
-		if err := WriteElement(&hint, height); err != nil {
-			return err
-		}
-
-		for _, spendRequest := range spendRequests {
-			spendRequest := spendRequest
+		for spendRequest, hint := range hints {
 			spendHintKey, err := spendHintKey(&spendRequest)
 			if err != nil {
 				return err
 			}
-			err = spendHints.Put(spendHintKey, hint.Bytes())
+
+			value, err := encodeHeightHint(hint)
+			if err != nil {
+				return err
+			}
+			err = spendHints.Put(spendHintKey, value)
 			if err != nil {
 				return err
 			}
@@ -106,17 +107,31 @@ func (c *HeightHintCache) CommitSpendHint(height uint32,
 	})
 }
 
+// CommitSpendHint commits a height-only spend hint. It is retained for source
+// compatibility with SpendHintCache; new callers should use CommitSpendHints
+// so the covered origin is persisted as well.
+func (c *HeightHintCache) CommitSpendHint(height uint32,
+	spendRequests ...chainntnfs.SpendRequest) error {
+
+	hints := make(chainntnfs.SpendHints, len(spendRequests))
+	for _, request := range spendRequests {
+		hints[request] = chainntnfs.HeightHint{Height: height}
+	}
+
+	return c.CommitSpendHints(hints)
+}
+
 // QuerySpendHint returns the latest spend hint for an outpoint.
 // ErrSpendHintNotFound is returned if a spend hint does not exist within the
 // cache for the outpoint.
-func (c *HeightHintCache) QuerySpendHint(
-	spendRequest chainntnfs.SpendRequest) (uint32, error) {
+func (c *HeightHintCache) QuerySpendHintWithOrigin(
+	spendRequest chainntnfs.SpendRequest) (chainntnfs.HeightHint, error) {
 
-	var hint uint32
+	var hint chainntnfs.HeightHint
 	if c.cfg.QueryDisable {
 		log.Debugf("Ignoring spend height hint for %v (height hint "+
 			"cache query disabled)", spendRequest)
-		return 0, nil
+		return hint, nil
 	}
 	err := kvdb.View(c.db, func(tx kvdb.RTx) error {
 		spendHints := tx.ReadBucket(spendHintBucket)
@@ -133,15 +148,27 @@ func (c *HeightHintCache) QuerySpendHint(
 			return chainntnfs.ErrSpendHintNotFound
 		}
 
-		return ReadElement(bytes.NewReader(spendHint), &hint)
+		hint, err = decodeHeightHint(spendHint)
+
+		return err
 	}, func() {
-		hint = 0
+		hint = chainntnfs.HeightHint{}
 	})
 	if err != nil {
-		return 0, err
+		return chainntnfs.HeightHint{}, err
 	}
 
 	return hint, nil
+}
+
+// QuerySpendHint returns only the height of the cached spend hint. It is
+// retained for source compatibility with SpendHintCache.
+func (c *HeightHintCache) QuerySpendHint(
+	spendRequest chainntnfs.SpendRequest) (uint32, error) {
+
+	hint, err := c.QuerySpendHintWithOrigin(spendRequest)
+
+	return hint.Height, err
 }
 
 // PurgeSpendHint removes the spend hint for the outpoints from the cache.
@@ -175,17 +202,16 @@ func (c *HeightHintCache) PurgeSpendHint(
 	})
 }
 
-// CommitConfirmHint commits a confirm hint for the confirmation requests to the
-// cache.
-func (c *HeightHintCache) CommitConfirmHint(height uint32,
-	confRequests ...chainntnfs.ConfRequest) error {
+// CommitConfirmHints commits the given confirm hints to the cache in a single
+// transaction.
+func (c *HeightHintCache) CommitConfirmHints(
+	hints chainntnfs.ConfirmHints) error {
 
-	if len(confRequests) == 0 {
+	if len(hints) == 0 {
 		return nil
 	}
 
-	log.Tracef("Updating confirm hints to height %d for %v", height,
-		confRequests)
+	log.Tracef("Updating confirm hints %v", hints)
 
 	return kvdb.Batch(c.db, func(tx kvdb.RwTx) error {
 		confirmHints := tx.ReadWriteBucket(confirmHintBucket)
@@ -193,18 +219,17 @@ func (c *HeightHintCache) CommitConfirmHint(height uint32,
 			return chainntnfs.ErrCorruptedHeightHintCache
 		}
 
-		var hint bytes.Buffer
-		if err := WriteElement(&hint, height); err != nil {
-			return err
-		}
-
-		for _, confRequest := range confRequests {
-			confRequest := confRequest
+		for confRequest, hint := range hints {
 			confHintKey, err := confHintKey(&confRequest)
 			if err != nil {
 				return err
 			}
-			err = confirmHints.Put(confHintKey, hint.Bytes())
+
+			value, err := encodeHeightHint(hint)
+			if err != nil {
+				return err
+			}
+			err = confirmHints.Put(confHintKey, value)
 			if err != nil {
 				return err
 			}
@@ -214,17 +239,32 @@ func (c *HeightHintCache) CommitConfirmHint(height uint32,
 	})
 }
 
-// QueryConfirmHint returns the latest confirm hint for a confirmation request.
+// CommitConfirmHint commits a height-only confirmation hint. It is retained
+// for source compatibility with ConfirmHintCache; new callers should use
+// CommitConfirmHints so the covered origin is persisted as well.
+func (c *HeightHintCache) CommitConfirmHint(height uint32,
+	confRequests ...chainntnfs.ConfRequest) error {
+
+	hints := make(chainntnfs.ConfirmHints, len(confRequests))
+	for _, request := range confRequests {
+		hints[request] = chainntnfs.HeightHint{Height: height}
+	}
+
+	return c.CommitConfirmHints(hints)
+}
+
+// QueryConfirmHintWithOrigin returns the latest origin-aware confirm hint for a
+// confirmation request.
 // ErrConfirmHintNotFound is returned if a confirm hint does not exist within
 // the cache for the request.
-func (c *HeightHintCache) QueryConfirmHint(
-	confRequest chainntnfs.ConfRequest) (uint32, error) {
+func (c *HeightHintCache) QueryConfirmHintWithOrigin(
+	confRequest chainntnfs.ConfRequest) (chainntnfs.HeightHint, error) {
 
-	var hint uint32
+	var hint chainntnfs.HeightHint
 	if c.cfg.QueryDisable {
 		log.Debugf("Ignoring confirmation height hint for %v (height "+
 			"hint cache query disabled)", confRequest)
-		return 0, nil
+		return hint, nil
 	}
 	err := kvdb.View(c.db, func(tx kvdb.RTx) error {
 		confirmHints := tx.ReadBucket(confirmHintBucket)
@@ -241,15 +281,27 @@ func (c *HeightHintCache) QueryConfirmHint(
 			return chainntnfs.ErrConfirmHintNotFound
 		}
 
-		return ReadElement(bytes.NewReader(confirmHint), &hint)
+		hint, err = decodeHeightHint(confirmHint)
+
+		return err
 	}, func() {
-		hint = 0
+		hint = chainntnfs.HeightHint{}
 	})
 	if err != nil {
-		return 0, err
+		return chainntnfs.HeightHint{}, err
 	}
 
 	return hint, nil
+}
+
+// QueryConfirmHint returns only the height of the cached confirmation hint. It
+// is retained for source compatibility with ConfirmHintCache.
+func (c *HeightHintCache) QueryConfirmHint(
+	confRequest chainntnfs.ConfRequest) (uint32, error) {
+
+	hint, err := c.QueryConfirmHintWithOrigin(confRequest)
+
+	return hint.Height, err
 }
 
 // PurgeConfirmHint removes the confirm hints for the confirmation requests from
@@ -317,4 +369,35 @@ func spendHintKey(r *chainntnfs.SpendRequest) ([]byte, error) {
 	}
 
 	return outpoint.Bytes(), nil
+}
+
+// encodeHeightHint serializes a hint as its height followed by its origin.
+// The height comes first so that a binary which only reads the leading four
+// bytes still recovers it.
+func encodeHeightHint(hint chainntnfs.HeightHint) ([]byte, error) {
+	var b bytes.Buffer
+	if err := WriteElements(&b, hint.Height, hint.Origin); err != nil {
+		return nil, err
+	}
+
+	return b.Bytes(), nil
+}
+
+// decodeHeightHint deserializes a hint written by encodeHeightHint. A legacy
+// value holds only the height, and is returned with an unknown (zero) origin.
+func decodeHeightHint(value []byte) (chainntnfs.HeightHint, error) {
+	var hint chainntnfs.HeightHint
+	r := bytes.NewReader(value)
+	if err := ReadElement(r, &hint.Height); err != nil {
+		return hint, err
+	}
+
+	// Legacy hints were written before origins were persisted.
+	if r.Len() == 0 {
+		return hint, nil
+	}
+
+	err := ReadElement(r, &hint.Origin)
+
+	return hint, err
 }

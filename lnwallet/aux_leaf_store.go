@@ -157,6 +157,15 @@ type CommitDiffAuxInput struct {
 	// KeyRing is the key ring that can be used to derive keys for the
 	// commitment transaction.
 	KeyRing CommitmentKeyRing
+
+	// SigHashDefault states whether the second-level HTLC transactions of
+	// the commitment being built use SigHashDefault. This is decided by
+	// whoever signs the commitment and stated on its commitment_signed,
+	// so the leaf store must take it from here and record it in the new
+	// blob. It must not derive it from the live feature negotiation, which
+	// can differ from what a retransmitted commitment_signed was signed
+	// with.
+	SigHashDefault bool
 }
 
 // CommitDiffAuxResult is the result of computing the diff of the auxiliary
@@ -206,8 +215,8 @@ type AuxLeafStore interface {
 func auxLeavesFromView(leafStore AuxLeafStore, chanState *chanstate.OpenChannel,
 	prevBlob fn.Option[tlv.Blob], originalView *HtlcView,
 	whoseCommit lntypes.ChannelParty, ourBalance,
-	theirBalance lnwire.MilliSatoshi,
-	keyRing CommitmentKeyRing) fn.Result[CommitDiffAuxResult] {
+	theirBalance lnwire.MilliSatoshi, keyRing CommitmentKeyRing,
+	sigHashDefault bool) fn.Result[CommitDiffAuxResult] {
 
 	return fn.MapOptionZ(
 		prevBlob, func(blob tlv.Blob) fn.Result[CommitDiffAuxResult] {
@@ -219,6 +228,7 @@ func auxLeavesFromView(leafStore AuxLeafStore, chanState *chanstate.OpenChannel,
 				OurBalance:     ourBalance,
 				TheirBalance:   theirBalance,
 				KeyRing:        keyRing,
+				SigHashDefault: sigHashDefault,
 			})
 		},
 	)
@@ -229,8 +239,8 @@ func auxLeavesFromView(leafStore AuxLeafStore, chanState *chanstate.OpenChannel,
 func updateAuxBlob(leafStore AuxLeafStore, chanState *chanstate.OpenChannel,
 	prevBlob fn.Option[tlv.Blob], nextViewUnfiltered *HtlcView,
 	whoseCommit lntypes.ChannelParty, ourBalance,
-	theirBalance lnwire.MilliSatoshi,
-	keyRing CommitmentKeyRing) fn.Result[fn.Option[tlv.Blob]] {
+	theirBalance lnwire.MilliSatoshi, keyRing CommitmentKeyRing,
+	sigHashDefault bool) fn.Result[fn.Option[tlv.Blob]] {
 
 	return fn.MapOptionZ(
 		prevBlob, func(blob tlv.Blob) fn.Result[fn.Option[tlv.Blob]] {
@@ -240,10 +250,11 @@ func updateAuxBlob(leafStore AuxLeafStore, chanState *chanstate.OpenChannel,
 				UnfilteredView: newAuxHtlcView(
 					nextViewUnfiltered,
 				),
-				WhoseCommit:  whoseCommit,
-				OurBalance:   ourBalance,
-				TheirBalance: theirBalance,
-				KeyRing:      keyRing,
+				WhoseCommit:    whoseCommit,
+				OurBalance:     ourBalance,
+				TheirBalance:   theirBalance,
+				KeyRing:        keyRing,
+				SigHashDefault: sigHashDefault,
 			})
 		},
 	)

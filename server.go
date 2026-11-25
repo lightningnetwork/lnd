@@ -4785,6 +4785,15 @@ func (s *server) notifyFundingTimeoutPeerEvent(op wire.OutPoint,
 			"channel[%v] pending close",
 			remotePub.SerializeCompressed(), op)
 	}
+	// Stop watching the timed-out channel and forget it, so the chain
+	// arbitrator no longer processes blocks for a channel that will never
+	// open and the peer is not kept as a persistent connection.
+	if err := s.chainArb.ResolveContract(op); err != nil {
+		srvrLog.Errorf("Unable to resolve timed-out channel %v: %v", op, err)
+	}
+	var remotePubKey [33]byte
+	copy(remotePubKey[:], remotePub.SerializeCompressed())
+	s.prunePersistentPeerConnection(remotePubKey)
 
 	if errors.Is(err, ErrNoMoreRestrictedAccessSlots) {
 		// If we encounter an error while attempting to disconnect the

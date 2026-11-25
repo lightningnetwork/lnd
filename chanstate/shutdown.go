@@ -17,6 +17,10 @@ type ShutdownInfo struct {
 	// LocalInitiator is true if we sent a Shutdown message before ever
 	// receiving a Shutdown message from the remote peer.
 	LocalInitiator tlv.RecordT[tlv.TlvType1, bool]
+
+	// Rbf marks a shutdown sent by the RBF closer. Older shutdown records
+	// lack this field.
+	Rbf tlv.RecordT[tlv.TlvType2, bool]
 }
 
 // NewShutdownInfo constructs a new ShutdownInfo object.

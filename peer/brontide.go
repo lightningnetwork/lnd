@@ -1205,6 +1205,24 @@ func (p *Brontide) rbfCoopCloseAllowed(chanID lnwire.ChannelID,
 	)
 }
 
+// resumeRbfCoopClose keeps an in-flight overlay close on the protocol
+// that produced its shutdown records and auxiliary settlement data.
+func resumeRbfCoopClose(negotiated, overlay, broadcast bool,
+	shutdown fn.Option[channeldb.ShutdownInfo]) (bool, error) {
+
+	if !overlay || shutdown.IsNone() {
+		return negotiated && (!overlay || !broadcast), nil
+	}
+
+	info := shutdown.UnsafeFromSome()
+	if info.Rbf.Val && !negotiated && !broadcast {
+		return false, fmt.Errorf("cannot resume overlay RBF close " +
+			"without peer support")
+	}
+
+	return info.Rbf.Val && negotiated, nil
+}
+
 // QuitSignal is a method that should return a channel which will be sent upon
 // or closed once the backing peer exits. This allows callers using the
 // interface to cancel any processing in the event the backing implementation
@@ -1507,6 +1525,14 @@ func (p *Brontide) loadActiveChannels(chans []*chanstate.OpenChannel) (
 			return nil, err
 		}
 
+		useRbf, err := resumeRbfCoopClose(
+			p.rbfCoopCloseAllowed(chanID, dbChan.ChanType),
+			dbChan.ChanType.HasTapscriptRoot(), false, shutdownInfo,
+		)
+		if err != nil {
+			return nil, fmt.Errorf("channel %v: %w", chanPoint, err)
+		}
+
 		var (
 			shutdownMsg     fn.Option[lnwire.Shutdown]
 			shutdownInfoErr error
@@ -1514,7 +1540,7 @@ func (p *Brontide) loadActiveChannels(chans []*chanstate.OpenChannel) (
 		shutdownInfo.WhenSome(func(info channeldb.ShutdownInfo) {
 			// If we can use the new RBF close feature for this
 			// channel, we don't need to create the legacy closer.
-			if p.rbfCoopCloseAllowed(chanID, dbChan.ChanType) {
+			if useRbf {
 				return
 			}
 
@@ -1592,7 +1618,7 @@ func (p *Brontide) loadActiveChannels(chans []*chanstate.OpenChannel) (
 
 		// We're using the old co-op close for this channel, so we
 		// don't need to init the new RBF chan closer.
-		if !p.rbfCoopCloseAllowed(chanID, dbChan.ChanType) {
+		if !useRbf {
 			continue
 		}
 
@@ -4184,15 +4210,28 @@ func (p *Brontide) restartCoopClose(lnChan *lnwallet.LightningChannel) (
 
 	chanID := lnwire.NewChanIDFromOutPoint(c.FundingOutpoint)
 
-	// A close tx was already broadcast and this channel can't use RBF
-	// coop close, so all we can do is wait for it to confirm.
-	if err == nil && !p.rbfCoopCloseAllowed(chanID, c.ChanType) {
+	broadcast := err == nil
+	shutdownInfo, err := c.ShutdownInfo()
+	if err != nil && !errors.Is(err, channeldb.ErrNoShutdownInfo) {
+		return nil, err
+	}
+
+	useRbf, resumeErr := resumeRbfCoopClose(
+		p.rbfCoopCloseAllowed(chanID, c.ChanType),
+		c.ChanType.HasTapscriptRoot(), broadcast, shutdownInfo,
+	)
+	if resumeErr != nil {
+		return nil, resumeErr
+	}
+
+	// Let the chain arbitrator rebroadcast a legacy close and wait for
+	// confirmation. Its auxiliary settlement data must stay intact.
+	if broadcast && !useRbf {
 		return nil, nil
 	}
 
 	var deliveryScript []byte
 
-	shutdownInfo, err := c.ShutdownInfo()
 	switch {
 	// We have previously stored the delivery script that we need to use
 	// in the shutdown message. Re-use this script.
@@ -4200,10 +4239,6 @@ func (p *Brontide) restartCoopClose(lnChan *lnwallet.LightningChannel) (
 		shutdownInfo.WhenSome(func(info channeldb.ShutdownInfo) {
 			deliveryScript = info.DeliveryScript.Val
 		})
-
-	// An error other than ErrNoShutdownInfo was returned
-	case !errors.Is(err, channeldb.ErrNoShutdownInfo):
-		return nil, err
 
 	case errors.Is(err, channeldb.ErrNoShutdownInfo):
 		deliveryScript = c.LocalShutdownScript
@@ -4222,7 +4257,7 @@ func (p *Brontide) restartCoopClose(lnChan *lnwallet.LightningChannel) (
 	// If the new RBF co-op close is negotiated and usable for this
 	// channel, then we'll init and start that state machine, skipping the
 	// steps for the negotiate machine below.
-	if p.rbfCoopCloseAllowed(chanID, c.ChanType) {
+	if useRbf {
 		_, err := p.initRbfChanCloser(lnChan)
 		if err != nil {
 			return nil, fmt.Errorf("unable to init rbf chan "+
@@ -5204,7 +5239,14 @@ func (p *Brontide) handleLocalCloseReq(req *htlcswitch.ChanClose) {
 	// closure workflow.
 	case contractcourt.CloseRegular:
 		var err error
+		closer, hasCloser := p.activeChanCloses.Load(chanID)
 		switch {
+		case channel.ChanType().HasTapscriptRoot() && hasCloser &&
+			closer.IsLeft():
+
+			err = fmt.Errorf("legacy cooperative close " +
+				"already in progress")
+
 		// If this is the RBF coop state machine, then we'll instruct
 		// it to send the shutdown message. This also might be an RBF
 		// iteration, in which case we'll be obtaining a new

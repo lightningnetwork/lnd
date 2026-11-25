@@ -125,3 +125,59 @@ func TestVerifyConstraintsCsvDelay(t *testing.T) {
 		})
 	}
 }
+
+// TestVerifyConstraintsHtlcCapacity checks that remote HTLC limits permit a
+// valid channel update for the channel capacity.
+func TestVerifyConstraintsHtlcCapacity(t *testing.T) {
+	t.Parallel()
+
+	const capacity = btcutil.Amount(1_000_000)
+	capacityMsat := lnwire.NewMSatFromSatoshis(capacity)
+	dustLimit := DustLimitForSize(input.UnknownWitnessSize)
+
+	for _, test := range []struct {
+		name             string
+		minHtlc          lnwire.MilliSatoshi
+		maxPendingAmount lnwire.MilliSatoshi
+		err              string
+	}{
+		{
+			name:             "minimum equal to capacity",
+			minHtlc:          capacityMsat,
+			maxPendingAmount: 5 * capacityMsat,
+		},
+		{
+			name:             "minimum above capacity",
+			minHtlc:          capacityMsat + 1,
+			maxPendingAmount: 5 * capacityMsat,
+			err:              "minimum HTLC value is too large",
+		},
+		{
+			name: "zero maximum and minimum",
+			err:  "maxValueInFlight too small",
+		},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			t.Parallel()
+
+			bounds := &channeldb.ChannelStateBounds{
+				ChanReserve:      capacity / 100,
+				MaxPendingAmount: test.maxPendingAmount,
+				MinHTLC:          test.minHtlc,
+				MaxAcceptedHtlcs: input.MaxHTLCNumber / 2,
+			}
+			params := &channeldb.CommitmentParams{
+				DustLimit: dustLimit,
+				CsvDelay:  144,
+			}
+
+			err := VerifyConstraints(bounds, params, 2016, capacity)
+			if test.err == "" {
+				require.NoError(t, err)
+				return
+			}
+
+			require.ErrorContains(t, err, test.err)
+		})
+	}
+}

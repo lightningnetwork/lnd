@@ -4148,6 +4148,73 @@ func TestFundingManagerRejectPush(t *testing.T) {
 	)
 }
 
+// TestExtractAnnounceParamsHtlcBounds checks that the local minimum HTLC
+// preference cannot exceed the maximum imposed by the remote or capacity.
+func TestExtractAnnounceParamsHtlcBounds(t *testing.T) {
+	t.Parallel()
+
+	const capacity = btcutil.Amount(100_000)
+	capacityMsat := lnwire.NewMSatFromSatoshis(capacity)
+
+	for _, test := range []struct {
+		name      string
+		remoteMin lnwire.MilliSatoshi
+		remoteMax lnwire.MilliSatoshi
+		localMin  lnwire.MilliSatoshi
+		wantMin   lnwire.MilliSatoshi
+		wantMax   lnwire.MilliSatoshi
+	}{
+		{
+			name:      "remote maximum below local minimum",
+			remoteMin: 1,
+			remoteMax: 999,
+			localMin:  1000,
+			wantMin:   999,
+			wantMax:   999,
+		},
+		{
+			name:      "capacity below local minimum",
+			remoteMin: capacityMsat,
+			remoteMax: 2 * capacityMsat,
+			localMin:  capacityMsat + 1,
+			wantMin:   capacityMsat,
+			wantMax:   capacityMsat,
+		},
+		{
+			name:      "ordinary limits unchanged",
+			remoteMin: 1,
+			remoteMax: capacityMsat,
+			localMin:  1000,
+			wantMin:   1000,
+			wantMax:   capacityMsat,
+		},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			t.Parallel()
+
+			manager := &Manager{cfg: &Config{
+				DefaultRoutingPolicy: models.ForwardingPolicy{
+					MinHTLCOut: test.localMin,
+				},
+			}}
+			bounds := channeldb.ChannelStateBounds{
+				MinHTLC:          test.remoteMin,
+				MaxPendingAmount: test.remoteMax,
+			}
+			channel := &channeldb.OpenChannel{
+				Capacity: capacity,
+				LocalChanCfg: channeldb.ChannelConfig{
+					ChannelStateBounds: bounds,
+				},
+			}
+
+			minHtlc, maxHtlc := manager.extractAnnounceParams(channel)
+			require.Equal(t, test.wantMin, minHtlc)
+			require.Equal(t, test.wantMax, maxHtlc)
+		})
+	}
+}
+
 // TestFundingManagerRejectPublicTaprootInitiator checks that a public taproot
 // channel request is rejected by the initiator before an OpenChannel message is
 // sent to the peer.

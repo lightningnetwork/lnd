@@ -9,15 +9,11 @@ import (
 	"fmt"
 	"math"
 	"sync/atomic"
-	"time"
 
-	"github.com/btcsuite/btcd/btcec/v2"
 	sphinx "github.com/lightningnetwork/lightning-onion"
 	"github.com/lightningnetwork/lnd/bolt12"
 	"github.com/lightningnetwork/lnd/clock"
 	"github.com/lightningnetwork/lnd/fn/v2"
-	"github.com/lightningnetwork/lnd/invoices"
-	"github.com/lightningnetwork/lnd/lntypes"
 	"github.com/lightningnetwork/lnd/lnwire"
 	"github.com/lightningnetwork/lnd/offers"
 	"github.com/lightningnetwork/lnd/routing"
@@ -25,22 +21,10 @@ import (
 	"golang.org/x/time/rate"
 )
 
-// InvoiceNotifier sends an Open event for each new BOLT 12 invoice to the
-// connected invoice subscribers. No database row backs the event, so a
-// subscriber that connects later does not get it.
-type InvoiceNotifier interface {
-	// NotifyNewBolt12Invoice notifies connected subscribers about a newly
-	// generated BOLT 12 invoice. No database write occurs. It returns
-	// without the event when ctx ends.
-	NotifyNewBolt12Invoice(ctx context.Context, hash lntypes.Hash,
-		invoice *invoices.Invoice)
-}
-
 // Handler processes incoming BOLT 12 invoice requests and generates signed
 // invoices in response.
 type Handler struct {
 	offerStore         offers.Store
-	notifier           InvoiceNotifier
 	replier            OnionReplier
 	signer             NodeSigner
 	pathIDKey          PathIDKey
@@ -78,22 +62,19 @@ type Handler struct {
 }
 
 // NewHandler creates a new BOLT 12 invoice request handler. It returns an error
-// when the offer store, the notifier, the replier, the signer or the clock is
-// nil. It also returns an error when the path id key is the zero key.
-// The path builder can be nil. The handler then uses a single-hop blinded
-// path. The final CLTV delta must be at least routing.MinCLTVDelta. It must
-// also leave room for routing.BlockPadding in a uint16.
-func NewHandler(offerStore offers.Store, notifier InvoiceNotifier,
-	replier OnionReplier, signer NodeSigner, pathIDKey PathIDKey,
+// when the offer store, the replier, the signer or the clock is nil. It also
+// returns an error when the path id key is the zero key. The path builder can
+// be nil. The handler then uses a single-hop blinded path. The final CLTV delta
+// must be at least routing.MinCLTVDelta. It must also leave room for
+// routing.BlockPadding in a uint16.
+func NewHandler(offerStore offers.Store, replier OnionReplier,
+	signer NodeSigner, pathIDKey PathIDKey,
 	paymentPathBuilder PaymentPathBuilder, clk clock.Clock,
 	activeChain [32]byte, finalCLTVDelta uint16) (*Handler, error) {
 
 	switch {
 	case offerStore == nil:
 		return nil, errors.New("handler has no offer store")
-
-	case notifier == nil:
-		return nil, errors.New("handler has no notifier")
 
 	case replier == nil:
 		return nil, errors.New("handler has no replier")
@@ -119,7 +100,6 @@ func NewHandler(offerStore offers.Store, notifier InvoiceNotifier,
 
 	return &Handler{
 		offerStore:         offerStore,
-		notifier:           notifier,
 		replier:            replier,
 		signer:             signer,
 		pathIDKey:          pathIDKey,
@@ -182,8 +162,8 @@ func (h *Handler) HandleInvoiceRequest(ctx context.Context, invreqBytes []byte,
 		return fmt.Errorf("generate invoice: %w", err)
 	}
 
-	// Send the invoice before the event and the log line, so that neither
-	// announces an invoice that never left this node.
+	// Send the invoice before the log line, so that it does not announce
+	// an invoice that never left this node.
 	invoiceBytes, err := result.Invoice.EncodeSigned()
 	if err != nil {
 		return fmt.Errorf("encode reply: %w", err)
@@ -198,10 +178,12 @@ func (h *Handler) HandleInvoiceRequest(ctx context.Context, invreqBytes []byte,
 		"amount=%v", offer.ID, result.PaymentHash,
 		lnwire.MilliSatoshi(getInvoiceAmount(result.Invoice)))
 
-	// The handler writes no invoice row and keeps the preimage nowhere, so
-	// the event is the only record of the invoice. A later change adds the
-	// state that a payment needs to settle the invoice.
-	h.notifyInvoice(ctx, result, offer)
+	// The handler writes no invoice row. The invoice registry rebuilds the
+	// invoice from the invoice envelope of its first HTLC, and sends its
+	// Open event when it keeps that HTLC.
+	//
+	// TODO: send the lni1 invoice to the clients that opt in to a new
+	// issued state on SubscribeInvoices.
 
 	return nil
 }
@@ -222,63 +204,6 @@ func (h *Handler) lookupOffer(ctx context.Context, ir *bolt12.InvoiceRequest) (
 	}
 
 	return h.offerStore.GetOfferByHash(ctx, offerHash)
-}
-
-// notifyInvoice sends the Open event of a new BOLT 12 invoice to the connected
-// invoice subscribers.
-func (h *Handler) notifyInvoice(ctx context.Context, result *InvoiceResult,
-	offer *offers.Offer) {
-
-	// Extract invreq_payer_id as the serialised compressed point, for the
-	// invoices.Invoice struct which stores it as []byte.
-	var payerIDBytes []byte
-	result.Invoice.InvreqPayerID.WhenSome(
-		func(r tlv.RecordT[tlv.TlvType88, *btcec.PublicKey]) {
-			payerIDBytes = r.Val.SerializeCompressed()
-		},
-	)
-
-	// The event carries the creation time and the features of the signed
-	// invoice, so that a subscriber sees the terms the payer received.
-	createdAt := result.Invoice.InvoiceCreatedAt.ValOpt().UnwrapOr(0)
-	features := lnwire.EmptyFeatureVector()
-	result.Invoice.InvoiceFeatures.WhenSome(
-		func(r tlv.RecordT[tlv.TlvType174, lnwire.RawFeatureVector]) {
-			features = lnwire.NewFeatureVector(
-				&r.Val, lnwire.Features,
-			)
-		},
-	)
-
-	// An offer without an amount can omit offer_description, and the memo
-	// is then empty.
-	var memo []byte
-	result.Invoice.OfferDescription.WhenSome(
-		func(r tlv.RecordT[tlv.TlvType10, tlv.Blob]) {
-			memo = r.Val
-		},
-	)
-
-	invoice := &invoices.Invoice{
-		Memo:         memo,
-		CreationDate: time.Unix(int64(createdAt), 0).UTC(),
-		Terms: invoices.ContractTerm{
-			Expiry:          bolt12.DefaultInvoiceRelativeExpiry,
-			FinalCltvDelta:  int32(h.finalCLTVDelta),
-			PaymentPreimage: &result.Preimage,
-			PaymentAddr:     result.PathID,
-			Value: lnwire.MilliSatoshi(
-				getInvoiceAmount(result.Invoice),
-			),
-			Features: features,
-		},
-		PaymentRequest: []byte(result.Encoded),
-		IsBolt12:       true,
-		OfferID:        fn.Some(offer.ID),
-		InvreqPayerID:  payerIDBytes,
-	}
-
-	h.notifier.NotifyNewBolt12Invoice(ctx, result.PaymentHash, invoice)
 }
 
 // getInvoiceAmount returns the invoice_amount in msat, or zero if the invoice

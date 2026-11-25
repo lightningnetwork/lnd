@@ -987,7 +987,7 @@ func newServer(ctx context.Context, cfg *Config, listenAddrs []net.Addr,
 
 		// Use the final CLTV delta of BOLT 11 invoices.
 		s.bolt12Handler, err = bolt12handler.NewHandler(
-			s.offerStore, s.invoices, replier, signer, pathIDKey,
+			s.offerStore, replier, signer, pathIDKey,
 			nil,
 			clock.NewDefaultClock(),
 			*s.cfg.ActiveNetParams.GenesisHash,

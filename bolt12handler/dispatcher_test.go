@@ -12,8 +12,6 @@ import (
 	sphinx "github.com/lightningnetwork/lightning-onion"
 	"github.com/lightningnetwork/lnd/bolt12"
 	"github.com/lightningnetwork/lnd/clock"
-	"github.com/lightningnetwork/lnd/invoices"
-	"github.com/lightningnetwork/lnd/lntypes"
 	"github.com/lightningnetwork/lnd/lnwire"
 	"github.com/lightningnetwork/lnd/onionmessage"
 	"github.com/lightningnetwork/lnd/record"
@@ -99,15 +97,6 @@ func TestInvoiceRequest(t *testing.T) {
 			require.Same(t, replyPath, gotPath)
 		})
 	}
-}
-
-// nopNotifier drops the invoice events. The handlers of the dispatch tests run
-// in parallel, and the events are not part of these tests.
-type nopNotifier struct{}
-
-// NotifyNewBolt12Invoice does nothing.
-func (nopNotifier) NotifyNewBolt12Invoice(context.Context, lntypes.Hash,
-	*invoices.Invoice) {
 }
 
 // sentReply holds an invoice reply and the blinded path it was sent on.
@@ -210,7 +199,7 @@ func newDispatchTest(t *testing.T, maxInflight int,
 	replies := make(chan sentReply)
 	replier := &chanReplier{replies: replies}
 	handler, err := NewHandler(
-		store, nopNotifier{}, replier,
+		store, replier,
 		newPrivKeySigner(nodeKey), testPathIDKey(nodeKey), nil,
 		clock.NewDefaultClock(), testChainHash(), testFinalCLTVDelta,
 	)
@@ -497,7 +486,7 @@ func TestHandlerDispatch(t *testing.T) {
 		t.Parallel()
 
 		handler, err := NewHandler(
-			newMockOfferStore(), nopNotifier{}, &mockReplier{},
+			newMockOfferStore(), &mockReplier{},
 			newPrivKeySigner(testKey(t)),
 			testPathIDKey(testKey(t)), nil,
 			clock.NewDefaultClock(), testChainHash(),
@@ -518,7 +507,7 @@ func TestHandlerDispatch(t *testing.T) {
 		t.Parallel()
 
 		handler, err := NewHandler(
-			newMockOfferStore(), nopNotifier{}, &mockReplier{},
+			newMockOfferStore(), &mockReplier{},
 			newPrivKeySigner(testKey(t)),
 			testPathIDKey(testKey(t)), nil,
 			clock.NewDefaultClock(), testChainHash(),
@@ -543,7 +532,7 @@ func TestHandlerDispatch(t *testing.T) {
 		t.Parallel()
 
 		handler, err := NewHandler(
-			newMockOfferStore(), nopNotifier{}, &mockReplier{},
+			newMockOfferStore(), &mockReplier{},
 			newPrivKeySigner(testKey(t)),
 			testPathIDKey(testKey(t)), nil,
 			clock.NewDefaultClock(), testChainHash(),
@@ -578,8 +567,8 @@ func TestHandlerDispatch(t *testing.T) {
 		// group while Start adds to it.
 		for range 50 {
 			handler, err := NewHandler(
-				newMockOfferStore(), nopNotifier{},
-				&mockReplier{}, newPrivKeySigner(testKey(t)),
+				newMockOfferStore(), &mockReplier{},
+				newPrivKeySigner(testKey(t)),
 				testPathIDKey(testKey(t)), nil,
 				clock.NewDefaultClock(), testChainHash(),
 				testFinalCLTVDelta,

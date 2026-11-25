@@ -13,8 +13,6 @@ import (
 	"github.com/lightningnetwork/lnd/bolt12handler/envelope"
 	"github.com/lightningnetwork/lnd/clock"
 	"github.com/lightningnetwork/lnd/fn/v2"
-	"github.com/lightningnetwork/lnd/invoices"
-	"github.com/lightningnetwork/lnd/lntypes"
 	"github.com/lightningnetwork/lnd/lnwire"
 	"github.com/lightningnetwork/lnd/offers"
 	"github.com/lightningnetwork/lnd/routing"
@@ -23,14 +21,13 @@ import (
 )
 
 // TestHandleInvoiceRequest_FullFlow verifies that the handler replies with a
-// signed invoice and notifies an Open event that carries the terms of that
-// invoice.
+// signed invoice for the offer, with a blinded path whose envelope names the
+// offer.
 func TestHandleInvoiceRequest_FullFlow(t *testing.T) {
 	t.Parallel()
 
 	nodeKey := testKey(t)
 	store := newMockOfferStore()
-	notifier := &mockNotifier{}
 	replier := &mockReplier{}
 
 	// The builder records the path id and fails, so the handler uses the
@@ -38,7 +35,7 @@ func TestHandleInvoiceRequest_FullFlow(t *testing.T) {
 	builder := &fakePathBuilder{err: errors.New("no paths")}
 
 	handler, err := NewHandler(
-		store, notifier, replier, newPrivKeySigner(nodeKey),
+		store, replier, newPrivKeySigner(nodeKey),
 		testPathIDKey(nodeKey), builder, clock.NewDefaultClock(),
 		testChainHash(),
 		testFinalCLTVDelta,
@@ -67,50 +64,17 @@ func TestHandleInvoiceRequest_FullFlow(t *testing.T) {
 	err = handler.HandleInvoiceRequest(ctx, invreqBytes, replyPath)
 	require.NoError(t, err)
 
-	// Verify invoice notification was sent (no DB write).
-	require.Len(t, notifier.invoices, 1)
-	inv := notifier.invoices[0]
-	require.True(t, inv.IsBolt12)
-	require.Equal(t, fn.Some(stored.ID), inv.OfferID)
-	require.Equal(t, []byte("test offer"), inv.Memo)
-	require.Equal(t,
-		lnwire.MilliSatoshi(10000), inv.Terms.Value,
-	)
-
-	// Verify the preimage is set and hashes to the registered payment hash.
-	require.NotNil(t, inv.Terms.PaymentPreimage)
-	expectedHash := inv.Terms.PaymentPreimage.Hash()
-	require.Equal(t, expectedHash, notifier.hashes[0])
-
-	// The reply carries the signed invoice, and the event must match its
-	// terms.
 	require.Len(t, replier.replies, 1)
 	sent, err := bolt12.DecodeInvoice(replier.replies[0])
 	require.NoError(t, err)
 
-	createdAt := sent.InvoiceCreatedAt.UnwrapOrFailV(t)
-	require.Equal(t, int64(createdAt), inv.CreationDate.Unix())
-
-	paymentHash := sent.InvoicePaymentHash.UnwrapOrFailV(t)
-	require.Equal(t, lntypes.Hash(paymentHash), notifier.hashes[0])
-
 	amount := sent.InvoiceAmount.UnwrapOrFailV(t)
-	require.EqualValues(t, amount, inv.Terms.Value)
+	require.EqualValues(t, 10000, amount)
 
 	features := sent.InvoiceFeatures.UnwrapOrFailV(t)
-	require.Equal(t,
-		lnwire.NewFeatureVector(&features, lnwire.Features),
-		inv.Terms.Features,
-	)
-	require.True(t, inv.Terms.Features.HasFeature(lnwire.MPPOptional))
-
-	encoded, err := bolt12.EncodeInvoiceString(sent)
-	require.NoError(t, err)
-	require.Equal(t, encoded, string(inv.PaymentRequest))
+	require.True(t, features.IsSet(lnwire.MPPOptional))
 
 	require.True(t, sent.InvoiceRelativeExp.IsNone())
-	require.Equal(t, bolt12.DefaultInvoiceRelativeExpiry, inv.Terms.Expiry)
-	require.EqualValues(t, testFinalCLTVDelta, inv.Terms.FinalCltvDelta)
 
 	// The single-hop path asks the payer for the delta plus the padding.
 	payInfos := sent.InvoiceBlindedPay.UnwrapOrFailV(t).Infos
@@ -119,15 +83,17 @@ func TestHandleInvoiceRequest_FullFlow(t *testing.T) {
 		testFinalCLTVDelta+routing.BlockPadding,
 		payInfos[0].CltvExpiryDelta,
 	)
-	require.Equal(t, builder.gotPathID, inv.Terms.PaymentAddr[:])
+	require.Len(t, builder.gotPathID, 32)
 
 	// The envelope binds the invoice to the offer it answers.
 	data, err := envelope.Decode(builder.gotEnvelope)
 	require.NoError(t, err)
 	require.Equal(t, fn.Some(stored.Hash), data.OfferHash)
 
+	payerID := sent.InvreqPayerID.UnwrapOrFailV(t)
 	require.Equal(t,
-		payerKey.PubKey().SerializeCompressed(), inv.InvreqPayerID,
+		payerKey.PubKey().SerializeCompressed(),
+		payerID.SerializeCompressed(),
 	)
 }
 
@@ -159,19 +125,6 @@ func (m *mockOfferStore) GetOfferByHash(_ context.Context,
 	}
 
 	return nil, offers.ErrOfferNotFound
-}
-
-// mockNotifier captures BOLT 12 invoice notifications during the handler flow.
-type mockNotifier struct {
-	invoices []*invoices.Invoice
-	hashes   []lntypes.Hash
-}
-
-func (m *mockNotifier) NotifyNewBolt12Invoice(_ context.Context,
-	hash lntypes.Hash, invoice *invoices.Invoice) {
-
-	m.invoices = append(m.invoices, invoice)
-	m.hashes = append(m.hashes, hash)
 }
 
 // mockReplier captures reply invocations and returns err.
@@ -318,11 +271,9 @@ func TestHandleInvoiceRequestErrors(t *testing.T) {
 			t.Parallel()
 
 			store := newMockOfferStore()
-			notifier := &mockNotifier{}
+			replier := &mockReplier{err: tc.replyErr}
 			handler, err := NewHandler(
-				store, notifier,
-				&mockReplier{err: tc.replyErr},
-				newPrivKeySigner(nodeKey),
+				store, replier, newPrivKeySigner(nodeKey),
 				testPathIDKey(nodeKey), nil,
 				clock.NewTestClock(now), testChainHash(),
 				testFinalCLTVDelta,
@@ -380,9 +331,10 @@ func TestHandleInvoiceRequestErrors(t *testing.T) {
 			)
 			require.ErrorIs(t, err, tc.wantErr)
 
-			// A rejected request, or an invoice that could not be
-			// sent, must not reach the subscribers.
-			require.Empty(t, notifier.invoices)
+			// A rejected request sends no reply.
+			if tc.replyErr == nil {
+				require.Empty(t, replier.replies)
+			}
 		})
 	}
 }
@@ -393,7 +345,7 @@ func TestNewHandlerZeroPathIDKey(t *testing.T) {
 	t.Parallel()
 
 	_, err := NewHandler(
-		newMockOfferStore(), nopNotifier{}, &mockReplier{},
+		newMockOfferStore(), &mockReplier{},
 		newPrivKeySigner(testKey(t)), PathIDKey{}, nil,
 		clock.NewDefaultClock(), testChainHash(), testFinalCLTVDelta,
 	)

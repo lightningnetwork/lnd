@@ -1069,6 +1069,13 @@ func VerifyConstraints(bounds *channeldb.ChannelStateBounds,
 		)
 	}
 
+	// The advertised HTLC maximum cannot exceed the channel capacity. A
+	// minimum above that capacity would make every channel update invalid.
+	capacityMsat := lnwire.NewMSatFromSatoshis(channelCapacity)
+	if bounds.MinHTLC > capacityMsat {
+		return ErrMinHtlcTooLarge(bounds.MinHTLC, capacityMsat)
+	}
+
 	// Fail if maxHtlcs is above the maximum allowed number of 483.  This
 	// number is specified in BOLT-02.
 	if bounds.MaxAcceptedHtlcs > uint16(input.MaxHTLCNumber/2) {
@@ -1092,6 +1099,12 @@ func VerifyConstraints(bounds *channeldb.ChannelStateBounds,
 		return ErrMaxValueInFlightTooSmall(
 			bounds.MaxPendingAmount, minNumHtlc*bounds.MinHTLC,
 		)
+	}
+
+	// A zero maximum cannot produce a valid channel update. Check it before
+	// the multiplier below so a zero remote minimum does not mask it.
+	if bounds.MaxPendingAmount == 0 {
+		return ErrMaxValueInFlightTooSmall(0, 1)
 	}
 
 	return nil

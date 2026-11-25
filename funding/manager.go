@@ -3809,6 +3809,16 @@ func (f *Manager) extractAnnounceParams(c *chanstate.OpenChannel) (
 		fwdMaxHTLC = capacityMSat
 	}
 
+	// MinHTLCOut is our preference, not a constraint imposed by the
+	// peer. Do not let it raise the advertised minimum above the
+	// remote's maximum.
+	if fwdMinHTLC > fwdMaxHTLC {
+		log.Warnf("ChannelPoint(%v): capping advertised minimum HTLC "+
+			"from %v to %v", c.FundingOutpoint, fwdMinHTLC,
+			fwdMaxHTLC)
+		fwdMinHTLC = fwdMaxHTLC
+	}
+
 	return fwdMinHTLC, fwdMaxHTLC
 }
 

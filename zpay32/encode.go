@@ -17,7 +17,7 @@ import (
 // invoice signed by the node key of the signer.
 func (invoice *Invoice) Encode(signer MessageSigner) (string, error) {
 	// First check that this invoice is valid before starting the encoding.
-	if err := validateInvoice(invoice); err != nil {
+	if err := validateInvoiceForWrite(invoice); err != nil {
 		return "", err
 	}
 

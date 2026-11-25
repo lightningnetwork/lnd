@@ -345,7 +345,7 @@ func NewInvoice(net *chaincfg.Params, paymentHash [32]byte,
 		)
 	}
 
-	if err := validateInvoice(invoice); err != nil {
+	if err := validateInvoiceForWrite(invoice); err != nil {
 		return nil, err
 	}
 
@@ -374,8 +374,17 @@ func (invoice *Invoice) MinFinalCLTVExpiry() uint64 {
 	return DefaultAssumedFinalCLTVDelta
 }
 
-// validateInvoice does a sanity check of the provided Invoice, making sure it
-// has all the necessary fields set for it to be considered valid by BOLT-0011.
+func validateInvoiceForWrite(invoice *Invoice) error {
+	if invoice.Description != nil &&
+		!lnwire.ValidBoltTextForWrite([]byte(*invoice.Description)) {
+
+		return ErrInvalidUTF8Description
+	}
+
+	return validateInvoice(invoice)
+}
+
+// validateInvoice checks that the invoice has the fields required by BOLT 11.
 func validateInvoice(invoice *Invoice) error {
 	// The net must be set.
 	if invoice.Net == nil {
@@ -400,6 +409,11 @@ func validateInvoice(invoice *Invoice) error {
 	}
 	if invoice.Description == nil && invoice.DescriptionHash == nil {
 		return fmt.Errorf("neither description nor description hash set")
+	}
+	if invoice.Description != nil &&
+		!lnwire.ValidBoltText([]byte(*invoice.Description)) {
+
+		return ErrInvalidUTF8Description
 	}
 
 	// Check that we support the field lengths.

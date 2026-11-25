@@ -9,6 +9,8 @@ import (
 	"io"
 	"math"
 	"net"
+	"unicode"
+	"unicode/utf8"
 
 	"github.com/btcsuite/btcd/btcec/v2"
 	"github.com/btcsuite/btcd/btcutil"
@@ -50,6 +52,62 @@ const (
 	dnsAddrOverhead = 3
 )
 
+// ValidBoltText reports whether data is valid UTF-8 text per the BOLT 1
+// reader requirements: it contains no character from the Cc, Cf, Cs or Co
+// general categories, and neither the line separator U+2028 nor the
+// paragraph separator U+2029. Unassigned code points (Cn) are tolerated so
+// strings using characters from Unicode versions newer than Go's tables
+// keep working.
+func ValidBoltText(data []byte) bool {
+	if !utf8.Valid(data) {
+		return false
+	}
+
+	for _, r := range string(data) {
+		if unicode.Is(unicode.Cc, r) || unicode.Is(unicode.Cf, r) ||
+			unicode.Is(unicode.Co, r) ||
+			unicode.Is(unicode.Zl, r) ||
+			unicode.Is(unicode.Zp, r) {
+
+			return false
+		}
+	}
+
+	return true
+}
+
+// ValidBoltTextForWrite validates locally authored BOLT 1 text. Writers
+// must exclude unassigned code points as well as the categories readers
+// reject.
+func ValidBoltTextForWrite(data []byte) bool {
+	if !utf8.Valid(data) {
+		return false
+	}
+
+	for _, r := range string(data) {
+		// These are the assigned categories outside C*. For Z, BOLT 1
+		// allows space separators only.
+		if !unicode.In(r, unicode.L, unicode.M, unicode.N, unicode.P,
+			unicode.S, unicode.Zs) {
+
+			return false
+		}
+	}
+
+	return true
+}
+
+// validateNodeAlias validates the complete alias after removing only the
+// fixed-width field's trailing NUL padding. Embedded NUL is not padding and
+// remains invalid.
+func validateNodeAlias(alias []byte) error {
+	if !ValidBoltText(bytes.TrimRight(alias, "\x00")) {
+		return &ErrInvalidNodeAlias{}
+	}
+
+	return nil
+}
+
 // PkScript is simple type definition which represents a raw serialized public
 // key script.
 type PkScript []byte
@@ -87,6 +145,10 @@ const (
 func WriteElement(w *bytes.Buffer, element interface{}) error {
 	switch e := element.(type) {
 	case NodeAlias:
+		if err := validateNodeAlias(e[:]); err != nil {
+			return err
+		}
+
 		if _, err := w.Write(e[:]); err != nil {
 			return err
 		}
@@ -460,7 +522,9 @@ func ReadElement(r io.Reader, element interface{}) error {
 			return err
 		}
 
-		alias, err := NewNodeAlias(string(a[:]))
+		alias, err := ParseNodeAlias(
+			string(bytes.TrimRight(a[:], "\x00")),
+		)
 		if err != nil {
 			return err
 		}

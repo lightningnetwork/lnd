@@ -20,6 +20,39 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
+// TestValidateChannelAnn1NodeIDOrder ensures that announcements with equal or
+// descending node IDs are rejected before signature verification.
+func TestValidateChannelAnn1NodeIDOrder(t *testing.T) {
+	t.Parallel()
+
+	for _, test := range []struct {
+		name    string
+		nodeID1 [33]byte
+		nodeID2 [33]byte
+	}{
+		{
+			name:    "equal node IDs",
+			nodeID1: [33]byte{0x02},
+			nodeID2: [33]byte{0x02},
+		},
+		{
+			name:    "descending node IDs",
+			nodeID1: [33]byte{0x03},
+			nodeID2: [33]byte{0x02},
+		},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			ann := &lnwire.ChannelAnnouncement1{
+				NodeID1: test.nodeID1,
+				NodeID2: test.nodeID2,
+			}
+
+			err := ValidateChannelAnn(ann, nil)
+			require.ErrorContains(t, err, "node IDs are not ordered")
+		})
+	}
+}
+
 func TestCreateChanAnnouncement(t *testing.T) {
 	t.Parallel()
 

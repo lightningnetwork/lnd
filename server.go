@@ -4794,7 +4794,12 @@ func (s *server) notifyFundingTimeoutPeerEvent(op wire.OutPoint,
 	}
 	var remotePubKey [33]byte
 	copy(remotePubKey[:], remotePub.SerializeCompressed())
-	s.prunePersistentPeerConnection(remotePubKey)
+	pubKeyStr := string(remotePubKey[:])
+	if !s.peerAccessMan.hasChannels(pubKeyStr) {
+		// The peer has no remaining channels with us, so stop
+		// maintaining a persistent connection to it.
+		s.prunePersistentPeerConnection(remotePubKey)
+	}
 
 	if errors.Is(err, ErrNoMoreRestrictedAccessSlots) {
 		// If we encounter an error while attempting to disconnect the

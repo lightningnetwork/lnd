@@ -149,9 +149,8 @@ func (c *channelNotifier) SubscribeChans(ctx context.Context,
 					}
 					sendClosedUpdate(chanPoint)
 
-				// A pending-open channel's funding transaction timed out. Its
-				// backup is no longer usable, so remove it now rather than
-				// waiting for a restart.
+				// Remove the backup for the timed-out pending
+				// channel immediately.
 				case channelnotifier.FundingTimeoutEvent:
 					sendClosedUpdate(*event.ChannelPoint)
 

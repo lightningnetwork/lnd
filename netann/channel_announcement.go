@@ -96,10 +96,11 @@ func ValidateChannelAnn(a lnwire.ChannelAnnouncement,
 // signatures covers the node keys.
 func validateChannelAnn1(a *lnwire.ChannelAnnouncement1) error {
 	// BOLT 7 requires the node IDs to be in lexicographical order. Checking
-	// this before validating signatures also rejects announcements that repeat
-	// a node ID.
+	// this before validating signatures also rejects announcements that
+	// repeat a node ID.
 	if bytes.Compare(a.NodeID1[:], a.NodeID2[:]) >= 0 {
-		return errors.New("channel announcement node IDs are not ordered")
+		return errors.New("channel announcement node IDs are not " +
+			"ordered")
 	}
 
 	// First, we'll compute the digest (h) which is to be signed by each of

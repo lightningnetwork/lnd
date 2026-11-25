@@ -1141,6 +1141,7 @@ func invoiceDescriptionTextCases() []struct {
 	text  string
 	valid bool
 } {
+
 	return []struct {
 		name  string
 		text  string
@@ -1177,13 +1178,15 @@ func TestInvoiceDescriptionBoltText(t *testing.T) {
 				require.NoError(t, err)
 				_, err = invoice.Encode(testMessageSigner)
 				require.NoError(t, err)
+
 				return
 			}
 
 			require.ErrorIs(t, err, ErrInvalidUTF8Description)
 
-			// A directly built invoice takes the same validation path in
-			// Encode and must not be sanitized into a different string.
+			// A directly built invoice takes the same validation
+			// path in Encode and must not be sanitized into a
+			// different string.
 			invoice = &Invoice{
 				Net:         &chaincfg.MainNetParams,
 				PaymentHash: &testPaymentHash,

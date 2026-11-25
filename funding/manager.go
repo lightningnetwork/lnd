@@ -3457,8 +3457,9 @@ func (f *Manager) handleFundingConfirmation(
 	// used.
 	err := f.cfg.Wallet.ValidateChannel(completeChan, confChannel.fundingTx)
 	if err != nil {
-		// The confirmed channel failed validation and will never be used,
-		// so release everything the funding flow pinned for it.
+		// The confirmed channel failed validation and will never
+		// be used, so release everything the funding flow pinned
+		// for it.
 		f.cleanupPendingChannel(&fundingPoint, chanID)
 		f.handleChannelReadyBarriers.Delete(chanID)
 

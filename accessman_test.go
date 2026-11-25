@@ -1,7 +1,6 @@
 package lnd
 
 import (
-	"context"
 	"testing"
 
 	"github.com/btcsuite/btcd/btcec/v2"
@@ -42,7 +41,7 @@ func TestAccessManPendingCloseOfflinePeer(t *testing.T) {
 
 	// The peer disconnects while its channel is pending; removePeerAccess
 	// deletes its score but keeps the pending count.
-	a.removePeerAccess(context.Background(), peerKeySer)
+	a.removePeerAccess(t.Context(), peerKeySer)
 
 	// The pending channel now times out. The close must still be processed
 	// rather than failing with ErrNoPeerScore.

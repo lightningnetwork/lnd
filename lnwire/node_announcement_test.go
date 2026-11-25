@@ -57,7 +57,6 @@ func TestNodeAliasValidation(t *testing.T) {
 	alias, err := ParseNodeAlias(unassigned)
 	require.NoError(t, err)
 	require.Equal(t, unassigned, alias.String())
-
 }
 
 // aliasTextCases covers the BOLT 1 Unicode rules for every UTF-8 text field.

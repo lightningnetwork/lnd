@@ -4146,19 +4146,40 @@ func (s *server) prunePersistentPeerConnection(compressedPubKey [33]byte) {
 	pubKeyStr := string(compressedPubKey[:])
 
 	s.mu.Lock()
-	if perm, ok := s.persistentPeers[pubKeyStr]; ok && !perm {
-		delete(s.persistentPeers, pubKeyStr)
-		delete(s.persistentPeersBackoff, pubKeyStr)
-		delete(s.persistentPeerAddrs, pubKeyStr)
-		s.cancelConnReqs(pubKeyStr, nil)
-		s.mu.Unlock()
+	defer s.mu.Unlock()
 
-		srvrLog.Infof("Pruned peer %x from persistent connections, "+
-			"peer has no open channels", compressedPubKey)
+	permanent, tracked := s.persistentPeers[pubKeyStr]
+	if !tracked || permanent {
+		return
+	}
+
+	// A pending channel is persisted before WatchNewChannel registers it
+	// under s.mu. Keep the database check and prune under the same lock
+	// so either the check sees the channel or its registration follows
+	// the prune.
+	pubKey, err := btcec.ParsePubKey(compressedPubKey[:])
+	if err != nil {
+		srvrLog.Errorf("Unable to parse persistent peer key: %v", err)
 
 		return
 	}
-	s.mu.Unlock()
+
+	channels, err := s.chanStateDB.FetchOpenChannels(pubKey)
+	if err != nil {
+		srvrLog.Errorf("Unable to fetch channels for peer %x: %v",
+			compressedPubKey, err)
+
+		return
+	}
+	if len(channels) != 0 {
+		return
+	}
+
+	s.bannedPersistentPeerConnection(pubKeyStr)
+
+	srvrLog.Infof("Pruned peer %x from persistent connections, "+
+		"peer has no open channels", compressedPubKey)
+
 }
 
 // bannedPersistentPeerConnection does not actually "ban" a persistent peer. It
@@ -4794,12 +4815,7 @@ func (s *server) notifyFundingTimeoutPeerEvent(op wire.OutPoint,
 	}
 	var remotePubKey [33]byte
 	copy(remotePubKey[:], remotePub.SerializeCompressed())
-	pubKeyStr := string(remotePubKey[:])
-	if !s.peerAccessMan.hasChannels(pubKeyStr) {
-		// The peer has no remaining channels with us, so stop
-		// maintaining a persistent connection to it.
-		s.prunePersistentPeerConnection(remotePubKey)
-	}
+	s.prunePersistentPeerConnection(remotePubKey)
 
 	if errors.Is(err, ErrNoMoreRestrictedAccessSlots) {
 		// If we encounter an error while attempting to disconnect the

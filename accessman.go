@@ -81,20 +81,6 @@ func newAccessMan(cfg *accessManConfig) (*accessMan, error) {
 	return a, nil
 }
 
-// hasChannels reports whether the peer has any open or closed
-// channels, or any channels still pending open. The server uses this
-// to decide whether the peer's persistent connection state should be
-// retained.
-func (a *accessMan) hasChannels(pub string) bool {
-	a.banScoreMtx.RLock()
-	defer a.banScoreMtx.RUnlock()
-
-	info, found := a.peerChanInfo[pub]
-
-	return found && (info.HasOpenOrClosedChan ||
-		info.PendingOpenCount != 0)
-}
-
 // hasPeer checks whether a given peer already exists in the internal maps.
 func (a *accessMan) hasPeer(ctx context.Context,
 	pub string) (peerAccessStatus, bool) {

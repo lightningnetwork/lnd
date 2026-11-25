@@ -53,46 +53,6 @@ func TestAccessManPendingCloseOfflinePeer(t *testing.T) {
 	require.Zero(t, a.numRestricted)
 }
 
-// TestAccessManHasChannels checks the accessor the server uses to decide
-// whether a peer's persistent connection state survives a funding
-// timeout: a peer with an open channel keeps its connection state, while a
-// peer with neither open nor pending channels loses it.
-func TestAccessManHasChannels(t *testing.T) {
-	t.Parallel()
-
-	peerPriv, err := btcec.NewPrivateKey()
-	require.NoError(t, err)
-	peerKey := peerPriv.PubKey()
-	peerKeySer := string(peerKey.SerializeCompressed())
-
-	initPerms := func() (map[string]channeldb.ChanCount, error) {
-		return map[string]channeldb.ChanCount{
-			peerKeySer: {
-				HasOpenOrClosedChan: true,
-				PendingOpenCount:    1,
-			},
-		}, nil
-	}
-
-	a, err := newAccessMan(&accessManConfig{
-		initAccessPerms: initPerms,
-		shouldDisconnect: func(*btcec.PublicKey) (bool, error) {
-			return false, nil
-		},
-		maxRestrictedSlots: 1,
-	})
-	require.NoError(t, err)
-
-	// The peer has an open channel, so it must be retained even while
-	// another pending channel times out.
-	require.True(t, a.hasChannels(peerKeySer))
-
-	// Once neither an open nor a pending channel remains, the peer's
-	// connection state need not be retained.
-	delete(a.peerChanInfo, peerKeySer)
-	require.False(t, a.hasChannels(peerKeySer))
-}
-
 // assertInboundConnection asserts that we're able to accept an inbound
 // connection successfully without any access permissions being violated.
 func assertInboundConnection(t *testing.T, a *accessMan,

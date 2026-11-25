@@ -14,10 +14,12 @@ import (
 	"github.com/btcsuite/btcd/wire/v2"
 	"github.com/lightningnetwork/lnd/aliasmgr"
 	"github.com/lightningnetwork/lnd/chainreg"
+	"github.com/lightningnetwork/lnd/channeldb"
 	graphdb "github.com/lightningnetwork/lnd/graph/db"
 	models "github.com/lightningnetwork/lnd/graph/db/models"
 	"github.com/lightningnetwork/lnd/lncfg"
 	"github.com/lightningnetwork/lnd/lntest/mock"
+	"github.com/lightningnetwork/lnd/lnwallet"
 	"github.com/lightningnetwork/lnd/lnwire"
 	"github.com/lightningnetwork/lnd/peer"
 	"github.com/lightningnetwork/lnd/routing/route"
@@ -586,4 +588,45 @@ func TestResolveSelfNodeAlias(t *testing.T) {
 
 	_, err := resolveSelfNodeAlias("invalid\talias", "valid", vertex)
 	require.ErrorContains(t, err, "invalid configured alias")
+}
+
+func TestPrunePersistentPeerConnection(t *testing.T) {
+	t.Parallel()
+
+	db := channeldb.OpenForTesting(t, t.TempDir()).ChannelStateDB()
+	channel, _, err := lnwallet.CreateTestChannels(
+		t, channeldb.SingleFunderTweaklessBit,
+	)
+	require.NoError(t, err)
+
+	pending := channel.State()
+	pending.Db = db
+	addr := &net.TCPAddr{IP: net.IPv4(127, 0, 0, 1), Port: 9735}
+	require.NoError(t, pending.SyncPending(addr, 100))
+	key := route.NewVertex(pending.IdentityPub)
+	pubKey := string(key[:])
+
+	// The pending channel is persisted and registered for reconnection
+	// before the access manager receives its pending-open notification.
+	s := &server{
+		chanStateDB:     db,
+		persistentPeers: map[string]bool{pubKey: false},
+	}
+	s.prunePersistentPeerConnection(key)
+	require.Contains(t, s.persistentPeers, pubKey)
+
+	require.NoError(t, pending.CloseChannel(
+		&channeldb.ChannelCloseSummary{
+			ChanPoint: pending.FundingOutpoint,
+			RemotePub: pending.IdentityPub,
+			CloseType: channeldb.FundingCanceled,
+		},
+		channeldb.ChanStatusLocalCloseInitiator,
+	))
+	s.prunePersistentPeerConnection(key)
+	require.NotContains(t, s.persistentPeers, pubKey)
+
+	s.persistentPeers[pubKey] = true
+	s.prunePersistentPeerConnection(key)
+	require.Contains(t, s.persistentPeers, pubKey)
 }

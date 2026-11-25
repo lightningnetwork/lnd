@@ -620,6 +620,10 @@ var allTestCases = []*lntest.TestCase{
 		TestFunc: testBolt12InvoiceRequest,
 	},
 	{
+		Name:     "bolt12 receive and settle",
+		TestFunc: testBolt12ReceiveSettle,
+	},
+	{
 		Name:     "sign verify message with addr",
 		TestFunc: testSignVerifyMessageWithAddr,
 	},

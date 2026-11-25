@@ -3,7 +3,9 @@ package itest
 import (
 	"bytes"
 	"context"
+	"crypto/sha256"
 	"encoding/hex"
+	"errors"
 	"time"
 
 	"github.com/btcsuite/btcd/btcec/v2"
@@ -13,6 +15,7 @@ import (
 	"github.com/lightningnetwork/lnd/fn/v2"
 	"github.com/lightningnetwork/lnd/lnrpc"
 	"github.com/lightningnetwork/lnd/lnrpc/devrpc"
+	"github.com/lightningnetwork/lnd/lnrpc/routerrpc"
 	"github.com/lightningnetwork/lnd/lntest"
 	"github.com/lightningnetwork/lnd/lntest/node"
 	"github.com/lightningnetwork/lnd/lnwire"
@@ -124,7 +127,7 @@ func testBolt12InvoiceRequest(ht *lntest.HarnessTest) {
 	bobMessages := subscribeOnionMessages(ht, bob)
 
 	// Step 3: Build a signed invoice request.
-	ir, signedIRBytes := buildInvoiceRequest(
+	ir, signedIRBytes, _ := buildInvoiceRequest(
 		ht, offerResp.Offer, 50000,
 	)
 
@@ -167,6 +170,178 @@ func testBolt12InvoiceRequest(ht *lntest.HarnessTest) {
 	expectInvoiceReply(ht, bobMessages, ir, alicePubKey)
 }
 
+// testBolt12ReceiveSettle checks the receiver side of a BOLT 12 payment. The
+// invoice uses a single-hop blinded payment path, and the payee keeps no
+// invoice until the payment arrives. The invoice RPCs then report the
+// settled BOLT 12 invoice.
+func testBolt12ReceiveSettle(ht *lntest.HarnessTest) {
+	alice := ht.NewNode("Alice", bolt12NodeArgs(ht))
+	bob := ht.NewNode("Bob", bolt12NodeArgs(ht))
+
+	ht.EnsureConnected(alice, bob)
+
+	// Bob pays Alice, so he opens the channel and holds its balance.
+	ht.FundCoins(btcutil.SatoshiPerBitcoin, bob)
+	chanPoint := ht.OpenChannel(
+		bob, alice, lntest.OpenChannelParams{Amt: 500_000},
+	)
+	defer ht.CloseChannel(bob, chanPoint)
+
+	const amtMsat = 50_000
+
+	offerResp := alice.RPC.CreateOffer(&devrpc.CreateOfferRequest{
+		Description: "settle test",
+		AmountMsat:  amtMsat,
+	})
+
+	// Subscribe early, because the stream sends no backlog without an
+	// add index.
+	aliceInvoices := alice.RPC.SubscribeInvoices(
+		&lnrpc.InvoiceSubscription{},
+	)
+
+	bobMessages := subscribeOnionMessages(ht, bob)
+	ir, signedIRBytes, payerKey := buildInvoiceRequest(
+		ht, offerResp.Offer, amtMsat,
+	)
+
+	bobPubKey, err := btcec.ParsePubKey(bob.PubKey[:])
+	require.NoError(ht, err)
+	alicePubKey, err := btcec.ParsePubKey(alice.PubKey[:])
+	require.NoError(ht, err)
+
+	bobHop := &sphinx.HopInfo{
+		NodePub: bobPubKey,
+		PlainText: onionmessage.EncodeBlindedRouteData(
+			ht.T, &record.BlindedRouteData{},
+		),
+	}
+
+	sendInvoiceRequest(
+		ht, alice, bob, signedIRBytes, []*sphinx.HopInfo{bobHop},
+	)
+	invoice := expectInvoiceReply(ht, bobMessages, ir, alicePubKey)
+	require.NotNil(ht, invoice)
+
+	// Alice keeps no invoice until the payment arrives.
+	invoices := alice.RPC.ListInvoices(&lnrpc.ListInvoiceRequest{})
+	require.Empty(ht, invoices.Invoices)
+
+	paths := invoice.InvoicePaths.ValOpt().UnwrapOr(
+		lnwire.BlindedPaths{},
+	).Paths
+	payInfos := invoice.InvoiceBlindedPay.ValOpt().UnwrapOr(
+		bolt12.BlindedPayInfos{},
+	).Infos
+	require.Len(ht, paths, 1, "invoice paths")
+	require.Len(ht, payInfos, 1, "invoice blinded pay infos")
+
+	// The path has a single hop, so Alice is its introduction node.
+	path, payInfo := paths[0], payInfos[0]
+	require.Equal(ht, alice.PubKey[:], path.IntroductionNode.Bytes())
+
+	hops := make([]*lnrpc.BlindedHop, len(path.Hops))
+	for i, hop := range path.Hops {
+		hops[i] = &lnrpc.BlindedHop{
+			BlindedNode:   hop.BlindedNodeID.SerializeCompressed(),
+			EncryptedData: hop.EncryptedData,
+		}
+	}
+
+	blindingPoint := path.BlindingPoint.SerializeCompressed()
+	blindedPath := &lnrpc.BlindedPaymentPath{
+		BlindedPath: &lnrpc.BlindedPath{
+			IntroductionNode: path.IntroductionNode.Bytes(),
+			BlindingPoint:    blindingPoint,
+			BlindedHops:      hops,
+		},
+		BaseFeeMsat:         uint64(payInfo.FeeBaseMsat),
+		ProportionalFeeRate: payInfo.FeeProportionalMillionths,
+		TotalCltvDelta:      uint32(payInfo.CltvExpiryDelta),
+		HtlcMinMsat:         payInfo.HtlcMinimumMsat,
+		HtlcMaxMsat:         payInfo.HtlcMaximumMsat,
+	}
+
+	routes := bob.RPC.QueryRoutes(&lnrpc.QueryRoutesRequest{
+		AmtMsat:             amtMsat,
+		BlindedPaymentPaths: []*lnrpc.BlindedPaymentPath{blindedPath},
+	})
+	require.NotEmpty(ht, routes.Routes, "no route to the blinded path")
+
+	hash, err := invoice.InvoicePaymentHash.UnwrapOrErrV(
+		errors.New("invoice has no payment hash"),
+	)
+	require.NoError(ht, err)
+
+	attempt := bob.RPC.SendToRouteV2(&routerrpc.SendToRouteRequest{
+		PaymentHash: hash[:],
+		Route:       routes.Routes[0],
+	})
+	require.Nil(ht, attempt.Failure)
+	require.Equal(ht, lnrpc.HTLCAttempt_SUCCEEDED, attempt.Status)
+	require.Equal(ht, hash, sha256.Sum256(attempt.Preimage))
+
+	// Alice stored the invoice with its BOLT 12 detail when the HTLC
+	// arrived. The invoice goes through PENDING_SETTLE, and the payer can
+	// finish before Alice locks in the settle, so wait for the settled
+	// state first.
+	inv := alice.RPC.LookupInvoice(hash[:])
+	ht.AssertInvoiceSettled(alice, inv.PaymentAddr)
+	inv = alice.RPC.LookupInvoice(hash[:])
+	require.Equal(ht, lnrpc.Invoice_SETTLED, inv.State)
+	require.EqualValues(ht, amtMsat, inv.AmtPaidMsat)
+	require.Empty(ht, inv.PaymentRequest)
+	require.NotNil(ht, inv.Bolt12Detail)
+	require.Equal(ht, offerResp.OfferHash, inv.Bolt12Detail.OfferHash)
+	require.Equal(
+		ht, payerKey.PubKey().SerializeCompressed(),
+		inv.Bolt12Detail.InvreqPayerId,
+	)
+
+	invoices = alice.RPC.ListInvoices(&lnrpc.ListInvoiceRequest{})
+	require.Len(ht, invoices.Invoices, 1)
+	require.Equal(ht, hash[:], invoices.Invoices[0].RHash)
+	require.NotNil(ht, invoices.Invoices[0].Bolt12Detail)
+
+	// The subscriber gets the Open event when Alice keeps the HTLC, and
+	// then the Settled event.
+	opened := ht.ReceiveInvoiceUpdate(aliceInvoices)
+	require.Equal(ht, hash[:], opened.RHash)
+	require.Equal(ht, lnrpc.Invoice_OPEN, opened.State)
+	require.NotNil(ht, opened.Bolt12Detail)
+
+	settled := ht.ReceiveInvoiceUpdate(aliceInvoices)
+	require.Equal(ht, hash[:], settled.RHash)
+	require.Equal(ht, lnrpc.Invoice_SETTLED, settled.State)
+
+	// A second payment over the same path carries the same envelope and
+	// payment hash. Bob's own payment store refuses to pay the hash again,
+	// so Carol replays it. Alice must refuse it, because the invoice is
+	// settled.
+	carol := ht.NewNode("Carol", bolt12NodeArgs(ht))
+	ht.EnsureConnected(carol, alice)
+	ht.FundCoins(btcutil.SatoshiPerBitcoin, carol)
+	carolChan := ht.OpenChannel(
+		carol, alice, lntest.OpenChannelParams{Amt: 500_000},
+	)
+	defer ht.CloseChannel(carol, carolChan)
+
+	routes = carol.RPC.QueryRoutes(&lnrpc.QueryRoutesRequest{
+		AmtMsat:             amtMsat,
+		BlindedPaymentPaths: []*lnrpc.BlindedPaymentPath{blindedPath},
+	})
+	require.NotEmpty(ht, routes.Routes, "no route to the blinded path")
+
+	attempt = carol.RPC.SendToRouteV2(&routerrpc.SendToRouteRequest{
+		PaymentHash: hash[:],
+		Route:       routes.Routes[0],
+	})
+	require.Equal(ht, lnrpc.HTLCAttempt_FAILED, attempt.Status)
+
+	inv = alice.RPC.LookupInvoice(hash[:])
+	require.EqualValues(ht, amtMsat, inv.AmtPaidMsat)
+}
+
 // subscribeOnionMessages subscribes hn to onion messages for the test. The
 // subscription is cancelled when the test ends.
 func subscribeOnionMessages(ht *lntest.HarnessTest,
@@ -197,7 +372,7 @@ func subscribeOnionMessages(ht *lntest.HarnessTest,
 // buildInvoiceRequest builds and signs an invoice request for the offer with
 // a fresh payer key.
 func buildInvoiceRequest(ht *lntest.HarnessTest, offerStr string,
-	amtMsat uint64) (*bolt12.InvoiceRequest, []byte) {
+	amtMsat uint64) (*bolt12.InvoiceRequest, []byte, *btcec.PrivateKey) {
 
 	offer, err := bolt12.DecodeOfferString(
 		offerStr, time.Now(), *harnessNetParams.GenesisHash,
@@ -233,7 +408,7 @@ func buildInvoiceRequest(ht *lntest.HarnessTest, offerStr string,
 	require.NoError(ht, err)
 	ht.Logf("Signed invreq: %d bytes", len(signedIRBytes))
 
-	return ir, signedIRBytes
+	return ir, signedIRBytes, payerKey
 }
 
 // sendInvoiceRequest sends the signed invoice request from the payer to the
@@ -301,7 +476,8 @@ func sendInvoiceRequest(ht *lntest.HarnessTest, receiver,
 // against the receiver, whose offer carries its node ID as offer_issuer_id.
 func expectInvoiceReply(ht *lntest.HarnessTest,
 	messages <-chan *lnrpc.OnionMessageUpdate,
-	ir *bolt12.InvoiceRequest, receiverPubKey *btcec.PublicKey) {
+	ir *bolt12.InvoiceRequest,
+	receiverPubKey *btcec.PublicKey) *bolt12.Invoice {
 
 	select {
 	case msg := <-messages:
@@ -326,9 +502,13 @@ func expectInvoiceReply(ht *lntest.HarnessTest,
 		)
 		require.NoError(ht, err, "validate invoice")
 
+		return invoice
+
 	case <-time.After(lntest.DefaultTimeout):
 		ht.Fatal("payer did not receive the invoice reply")
 	}
+
+	return nil
 }
 
 // bolt12NodeArgs returns the node arguments that enable BOLT 12 offers. It

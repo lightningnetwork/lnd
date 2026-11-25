@@ -996,6 +996,15 @@ func newServer(ctx context.Context, cfg *Config, listenAddrs []net.Addr,
 		if err != nil {
 			return nil, err
 		}
+
+		// The registry rebuilds a BOLT 12 invoice from the invoice
+		// envelope of its first HTLC.
+		registryConfig.Bolt12Reconstructor =
+			bolt12handler.NewReconstructor(
+				pathIDKey, s.offerStore,
+				*s.cfg.ActiveNetParams.GenesisHash,
+				uint16(cfg.Bitcoin.TimeLockDelta),
+			)
 	}
 
 	thresholdSats := btcutil.Amount(cfg.MaxFeeExposure)

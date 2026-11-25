@@ -537,6 +537,72 @@ func TestGossipSyncerFilterGossipMsgsAllInMemory(t *testing.T) {
 	}
 }
 
+// TestGossipSyncerLiveHorizonCoversInFlightUpdates asserts that a channel
+// update signed shortly before we enable live updates from a peer, but only
+// accepted by that peer after it answered our sync queries, is still relayed
+// to us.
+//
+// The remote peer filters relayed gossip by the timestamp the message was
+// signed with. If our update horizon started at the current time, such an
+// update would neither be part of the peer's query replies nor pass its relay
+// filter, and since a range sync only compares channel IDs, we'd never learn
+// that half of the channel's policy.
+func TestGossipSyncerLiveHorizonCoversInFlightUpdates(t *testing.T) {
+	t.Parallel()
+	ctx := t.Context()
+
+	// The update was signed by its origin node a few seconds before we
+	// enable live updates, and is still in flight at our peer.
+	signedAt := time.Now().Add(-3 * time.Second)
+
+	// Our syncer moves to an active sync, which makes it send its update
+	// horizon to the peer.
+	localMsgs, localSyncer, _ := newTestSyncer(
+		lnwire.ShortChannelID{BlockHeight: latestKnownHeight},
+		defaultEncoding, defaultChunkSize,
+	)
+	localSyncer.setSyncState(chansSynced)
+	localSyncer.setSyncType(PassiveSync)
+	localSyncer.Start()
+	defer localSyncer.Stop()
+
+	require.NoError(t, localSyncer.ProcessSyncTransition(ActiveSync))
+
+	var horizon *lnwire.GossipTimestampRange
+	select {
+	case msgs := <-localMsgs:
+		require.Len(t, msgs, 1)
+		require.IsType(t, &lnwire.GossipTimestampRange{}, msgs[0])
+		horizon, _ = msgs[0].(*lnwire.GossipTimestampRange)
+
+	case <-time.After(time.Second):
+		t.Fatal("no update horizon sent")
+	}
+
+	// The peer's syncer for us applies that horizon. Once the peer has
+	// accepted the in-flight update, it filters the update through the
+	// horizon before relaying it to us.
+	remoteMsgs, remoteSyncer, _ := newTestSyncer(
+		lnwire.NewShortChanIDFromInt(10), defaultEncoding,
+		defaultChunkSize,
+	)
+	remoteSyncer.remoteUpdateHorizon = horizon
+
+	update := &lnwire.ChannelUpdate1{
+		ShortChannelID: lnwire.NewShortChanIDFromInt(10),
+		Timestamp:      uint32(signedAt.Unix()),
+	}
+	remoteSyncer.FilterGossipMsgs(ctx, msgWithSenders{msg: update})
+
+	select {
+	case msgs := <-remoteMsgs:
+		require.Equal(t, []lnwire.Message{update}, msgs)
+
+	case <-time.After(time.Second):
+		t.Fatal("in-flight channel update was not relayed")
+	}
+}
+
 // TestGossipSyncerApplyNoHistoricalGossipFilter tests that once a gossip filter
 // is applied for the remote peer, then we don't send the peer all known
 // messages which are within their desired time horizon.
@@ -2316,8 +2382,9 @@ func TestGossipSyncerSyncTransitions(t *testing.T) {
 	// crossed between the syncer stamping the message and the test
 	// sampling its own expectation, making an exact comparison
 	// flaky. Instead, we assert that the stamped first timestamp
-	// falls within [startTime, now], where startTime is sampled
-	// just before the syncer is started.
+	// falls within [startTime, now], shifted into the past by the
+	// update horizon slack, where startTime is sampled just before
+	// the syncer is started.
 	assertFullSyncMsgSent := func(t *testing.T,
 		msgChan chan []lnwire.Message, g *GossipSyncer,
 		startTime time.Time) {
@@ -2347,12 +2414,14 @@ func TestGossipSyncerSyncTransitions(t *testing.T) {
 
 		firstTimestamp := rangeMsg.FirstTimestamp
 		require.GreaterOrEqual(
-			t, firstTimestamp, uint32(startTime.Unix()),
-			"first timestamp predates the syncer's start",
+			t, firstTimestamp,
+			uint32(liveUpdateHorizonStart(startTime).Unix()),
+			"first timestamp starts too far in the past",
 		)
 		require.LessOrEqual(
-			t, firstTimestamp, uint32(time.Now().Unix()),
-			"first timestamp is in the future",
+			t, firstTimestamp,
+			uint32(liveUpdateHorizonStart(time.Now()).Unix()),
+			"first timestamp lacks the update horizon slack",
 		)
 	}
 

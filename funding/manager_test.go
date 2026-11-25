@@ -2591,16 +2591,15 @@ func TestFundingManagerFundingTimeout(t *testing.T) {
 
 	// Run through the process of opening the channel, up until the funding
 	// transaction is broadcasted.
-	_, _ = openChannel(t, alice, bob, 500000, 0, 1, updateChan, true, nil)
+	fundingOutPoint, _ := openChannel(t, alice, bob, 500000, 0, 1,
+		updateChan, true, nil,
+	)
 
 	// Bob will at this point be waiting for the funding transaction to be
 	// confirmed, so the channel should be considered pending.
 	pendingChannels, err := bob.fundingMgr.cfg.Wallet.Cfg.Database.FetchPendingChannels()
 	require.NoError(t, err, "unable to fetch pending channels")
-	if len(pendingChannels) != 1 {
-		t.Fatalf("Expected Bob to have 1 pending channel, had  %v",
-			len(pendingChannels))
-	}
+	require.Len(t, pendingChannels, 1)
 
 	// We expect Bob to forget the channel after 2016 blocks (2 weeks), so
 	// mine 2016-1, and check that it is still pending.
@@ -2622,6 +2621,22 @@ func TestFundingManagerFundingTimeout(t *testing.T) {
 
 	// Should not be pending anymore.
 	assertNumPendingChannelsBecomes(t, bob, 0)
+
+	// The discovery signal, channel opening state and initial forwarding
+	// policy rows must be released too, not just the pending channel.
+	chanID := lnwire.NewChanIDFromOutPoint(*fundingOutPoint)
+
+	_, ok := bob.fundingMgr.localDiscoverySignals.Load(chanID)
+	require.False(t, ok, "discovery signal leaked")
+
+	_, ok = bob.fundingMgr.handleChannelReadyBarriers.Load(chanID)
+	require.False(t, ok, "channel ready barrier leaked")
+
+	_, err = bob.fundingMgr.cfg.ChannelDB.GetInitialForwardingPolicy(chanID)
+	require.Error(t, err, "initial forwarding policy row leaked")
+
+	_, _, stateErr := bob.fundingMgr.getChannelOpeningState(fundingOutPoint)
+	require.Error(t, stateErr, "channel opening state row leaked")
 }
 
 // TestFundingManagerFundingNotTimeoutInitiator checks that if the user was

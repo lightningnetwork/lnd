@@ -1,12 +1,58 @@
 package lnd
 
 import (
+	"context"
 	"testing"
 
 	"github.com/btcsuite/btcd/btcec/v2"
 	"github.com/lightningnetwork/lnd/channeldb"
 	"github.com/stretchr/testify/require"
 )
+
+// TestAccessManPendingCloseOfflinePeer checks that a pending channel close
+// still decrements the peer's pending count when the peer disconnected while
+// the channel was pending, so its access score was removed.
+func TestAccessManPendingCloseOfflinePeer(t *testing.T) {
+	t.Parallel()
+
+	peerPriv, err := btcec.NewPrivateKey()
+	require.NoError(t, err)
+	peerKey := peerPriv.PubKey()
+	peerKeySer := string(peerKey.SerializeCompressed())
+
+	initPerms := func() (map[string]channeldb.ChanCount, error) {
+		return map[string]channeldb.ChanCount{
+			peerKeySer: {
+				HasOpenOrClosedChan: false,
+				PendingOpenCount:    1,
+			},
+		}, nil
+	}
+
+	a, err := newAccessMan(&accessManConfig{
+		initAccessPerms: initPerms,
+		shouldDisconnect: func(*btcec.PublicKey) (bool, error) {
+			return false, nil
+		},
+		maxRestrictedSlots: 1,
+	})
+	require.NoError(t, err)
+
+	a.addPeerAccess(peerKey, peerStatusTemporary, true)
+
+	// The peer disconnects while its channel is pending; removePeerAccess
+	// deletes its score but keeps the pending count.
+	a.removePeerAccess(context.Background(), peerKeySer)
+
+	// The pending channel now times out. The close must still be processed
+	// rather than failing with ErrNoPeerScore.
+	require.NoError(t, a.newPendingCloseChan(peerKey))
+
+	// The pending count must be gone so a reconnect cannot reuse it.
+	require.NotContains(t, a.peerChanInfo, peerKeySer)
+	require.NotContains(t, a.peerScores, peerKeySer)
+	require.Zero(t, a.numRestricted)
+}
 
 // assertInboundConnection asserts that we're able to accept an inbound
 // connection successfully without any access permissions being violated.

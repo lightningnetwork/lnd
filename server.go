@@ -6156,6 +6156,35 @@ func calculateNodeAnnouncementTimestamp(persistedTime,
 	return currentTime
 }
 
+// resolveSelfNodeAlias applies the configured alias or reuses a valid stored
+// alias. An alias which predates the writer rules falls back to the node key.
+func resolveSelfNodeAlias(configured, stored string, nodePub route.Vertex) (
+	lnwire.NodeAlias, error) {
+
+	if configured != "" {
+		alias, err := lnwire.NewNodeAlias(configured)
+		if err != nil {
+			return alias, fmt.Errorf(
+				"invalid configured alias: %w", err,
+			)
+		}
+
+		return alias, nil
+	}
+
+	if stored != "" {
+		alias, err := lnwire.NewNodeAlias(stored)
+		if err == nil {
+			return alias, nil
+		}
+
+		srvrLog.Warnf("Replacing an invalid persisted node alias with "+
+			"the default alias: %v", err)
+	}
+
+	return lnwire.NewNodeAlias(hex.EncodeToString(nodePub[:10]))
+}
+
 // setSelfNode configures and sets the server's self node. It sets the node
 // announcement, signs it, and updates the source node in the graph. When
 // determining values such as color and alias, the method prioritizes values
@@ -6213,7 +6242,7 @@ func (s *server) setSelfNode(ctx context.Context, nodePub route.Vertex,
 	}
 
 	var (
-		alias          = s.cfg.Alias
+		storedAlias    string
 		nodeLastUpdate = time.Now()
 	)
 
@@ -6238,11 +6267,7 @@ func (s *server) setSelfNode(ctx context.Context, nodePub route.Vertex,
 
 		// If an alias is not specified in the config, we'll use the
 		// source node's alias.
-		if alias == "" {
-			srcNode.Alias.WhenSome(func(s string) {
-				alias = s
-			})
-		}
+		storedAlias = srcNode.Alias.UnwrapOr("")
 
 		// If the `externalip` is not specified in the config, it means
 		// `addrs` will be empty, we'll use the source node's addresses.
@@ -6253,12 +6278,7 @@ func (s *server) setSelfNode(ctx context.Context, nodePub route.Vertex,
 		}
 
 	case errors.Is(err, graphdb.ErrSourceNodeNotSet):
-		// If an alias is not specified in the config, we'll use the
-		// default, which is the first 10 bytes of the serialized
-		// pubkey.
-		if alias == "" {
-			alias = hex.EncodeToString(nodePub[:10])
-		}
+		// A fresh graph has no persisted alias.
 
 	// If the above cases are not matched, then we have an unhandled non
 	// nil error.
@@ -6266,7 +6286,9 @@ func (s *server) setSelfNode(ctx context.Context, nodePub route.Vertex,
 		return fmt.Errorf("unable to fetch source node: %w", err)
 	}
 
-	nodeAlias, err := lnwire.NewNodeAlias(alias)
+	nodeAlias, err := resolveSelfNodeAlias(
+		s.cfg.Alias, storedAlias, nodePub,
+	)
 	if err != nil {
 		return err
 	}

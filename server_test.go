@@ -20,6 +20,7 @@ import (
 	"github.com/lightningnetwork/lnd/lntest/mock"
 	"github.com/lightningnetwork/lnd/lnwire"
 	"github.com/lightningnetwork/lnd/peer"
+	"github.com/lightningnetwork/lnd/routing/route"
 	"github.com/lightningnetwork/lnd/signal"
 	"github.com/lightningnetwork/lnd/tor"
 	"github.com/stretchr/testify/require"
@@ -546,4 +547,43 @@ func TestConnectToConfigPeersAlreadyConnected(t *testing.T) {
 	// after it is still reached and is fatal.
 	s.cfg.AddPeers = []string{connected, "invalid"}
 	require.Error(t, s.connectToConfigPeers())
+}
+
+func TestResolveSelfNodeAlias(t *testing.T) {
+	t.Parallel()
+
+	vertex := route.Vertex{2, 1, 2, 3}
+	const defaultAlias = "02010203000000000000"
+
+	for _, tc := range []struct {
+		name       string
+		configured string
+		stored     string
+		want       string
+	}{
+		{name: "fresh node", want: defaultAlias},
+		{
+			name: "valid stored alias", stored: "my node",
+			want: "my node",
+		},
+		{
+			name: "legacy stored alias", stored: "my\tnode",
+			want: defaultAlias,
+		},
+		{
+			name: "configured override", configured: "override",
+			stored: "my\tnode", want: "override",
+		},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			alias, err := resolveSelfNodeAlias(
+				tc.configured, tc.stored, vertex,
+			)
+			require.NoError(t, err)
+			require.Equal(t, tc.want, alias.String())
+		})
+	}
+
+	_, err := resolveSelfNodeAlias("invalid\talias", "valid", vertex)
+	require.ErrorContains(t, err, "invalid configured alias")
 }

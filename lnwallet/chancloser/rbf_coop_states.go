@@ -7,6 +7,7 @@ import (
 	"github.com/btcsuite/btcd/btcec/v2"
 	"github.com/btcsuite/btcd/btcutil/v2"
 	"github.com/btcsuite/btcd/chaincfg/v2"
+	"github.com/btcsuite/btcd/chainhash/v2"
 	"github.com/btcsuite/btcd/wire/v2"
 	"github.com/lightningnetwork/lnd/chainntnfs"
 	"github.com/lightningnetwork/lnd/channeldb"
@@ -1045,6 +1046,18 @@ type ClosingNegotiation struct {
 	// the remote peer sends a new address, with each of the state noting
 	// the new value via a pointer.
 	*CloseChannelTerms
+
+	// candidates records the output metadata for each signed candidate.
+	// Replacing it in PeerState does not prevent it from confirming.
+	candidates *closeCandidate
+}
+
+// closeCandidate is a snapshot of a fully signed close and its output
+// metadata. Each negotiation state shares the immutable history.
+type closeCandidate struct {
+	txid   chainhash.Hash
+	result CloseFin
+	prior  *closeCandidate
 }
 
 // String returns the name of the state for ClosingNegotiation.

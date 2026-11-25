@@ -9,6 +9,7 @@ import (
 
 	"github.com/btcsuite/btcd/btcec/v2"
 	"github.com/btcsuite/btcd/btcutil/v2"
+	"github.com/btcsuite/btcd/chaincfg/v2"
 	"github.com/btcsuite/btcd/wire/v2"
 	"github.com/lightningnetwork/lnd/channeldb"
 	"github.com/lightningnetwork/lnd/fn/v2"
@@ -1066,33 +1067,16 @@ func TestRbfAuxCloseFin(t *testing.T) {
 	localTx.LockTime = 1
 	remoteTx := wire.NewMsgTx(2)
 	remoteTx.LockTime = 2
+	priorTx := wire.NewMsgTx(2)
+	priorTx.LockTime = 3
 	unknownTx := wire.NewMsgTx(2)
-	unknownTx.LockTime = 3
-
-	newStartingState := func(
-		closeTerms *CloseChannelTerms) *ClosingNegotiation {
-
-		return &ClosingNegotiation{
-			PeerState: lntypes.Dual[AsymmetricPeerState]{
-				Local: &ClosePending{
-					CloseTx:           localTx,
-					CloseChannelTerms: closeTerms,
-					Party:             lntypes.Local,
-				},
-				Remote: &ClosePending{
-					CloseTx:           remoteTx,
-					CloseChannelTerms: closeTerms,
-					Party:             lntypes.Remote,
-				},
-			},
-			CloseChannelTerms: closeTerms,
-		}
-	}
+	unknownTx.LockTime = 4
 
 	tests := []struct {
 		name        string
 		confirmedTx *wire.MsgTx
 		haveOutputs bool
+		dustLocal   bool
 	}{
 		{
 			name:        "local tx confirmed",
@@ -1103,6 +1087,17 @@ func TestRbfAuxCloseFin(t *testing.T) {
 			name:        "remote tx confirmed",
 			confirmedTx: remoteTx,
 			haveOutputs: true,
+		},
+		{
+			name:        "prior tx confirmed after replacement",
+			confirmedTx: priorTx,
+			haveOutputs: true,
+		},
+		{
+			name:        "dust local balance omitted",
+			confirmedTx: localTx,
+			haveOutputs: true,
+			dustLocal:   true,
 		},
 		{
 			name:        "unknown tx confirmed",
@@ -1118,9 +1113,38 @@ func TestRbfAuxCloseFin(t *testing.T) {
 			terms := auxCloseTerms(
 				t, cfg, localBalance, remoteBalance,
 			)
-			cfg.initialState = fn.Some[ProtocolState](
-				newStartingState(terms),
+			state := &ClosingNegotiation{
+				CloseChannelTerms: terms,
+			}
+			env := auxTestEnv(cfg)
+			priorTerms := *terms
+			priorTerms.RemoteDeliveryScript = localAddr
+			state.recordCandidate(&ClosePending{
+				CloseTx:           priorTx,
+				CloseChannelTerms: &priorTerms,
+			}, env)
+
+			localTerms := *terms
+			if test.dustLocal {
+				localTerms.LocalBalance = 1
+			}
+			localPending := &ClosePending{
+				CloseTx:           localTx,
+				CloseChannelTerms: &localTerms,
+				Party:             lntypes.Local,
+			}
+			remotePending := &ClosePending{
+				CloseTx:           remoteTx,
+				CloseChannelTerms: terms,
+				Party:             lntypes.Remote,
+			}
+			state.recordCandidate(localPending, env)
+			state.recordCandidate(remotePending, env)
+			state.PeerState.SetForParty(lntypes.Local, localPending)
+			state.PeerState.SetForParty(
+				lntypes.Remote, remotePending,
 			)
+			cfg.initialState = fn.Some[ProtocolState](state)
 
 			closeHarness := newCloser(t, cfg)
 			defer closeHarness.stopAndAssert()
@@ -1151,20 +1175,33 @@ func TestRbfAuxCloseFin(t *testing.T) {
 				auxOutputs.ExtraCloseOutputs,
 			)
 
-			localOut := closeFin.LocalCloseOutput.UnsafeFromSome()
-			require.Equal(
-				t, localBalance.ToSatoshis(), localOut.Amt,
-			)
-			require.EqualValues(t, localAddr, localOut.PkScript)
-			require.Equal(
-				t, auxLocalRecords, localOut.ShutdownRecords,
-			)
+			localOutput := closeFin.LocalCloseOutput
+			require.Equal(t, test.dustLocal, localOutput.IsNone())
+			localOutput.WhenSome(func(out types.CloseOutput) {
+				require.Equal(
+					t, localBalance.ToSatoshis(),
+					out.Amt,
+				)
+				require.EqualValues(
+					t, localAddr, out.PkScript,
+				)
+				require.Equal(
+					t, auxLocalRecords,
+					out.ShutdownRecords,
+				)
+			})
 
 			remoteOut := closeFin.RemoteCloseOutput.UnsafeFromSome()
 			require.Equal(
 				t, remoteBalance.ToSatoshis(), remoteOut.Amt,
 			)
-			require.EqualValues(t, remoteAddr, remoteOut.PkScript)
+			expectedRemoteScript := remoteAddr
+			if test.confirmedTx == priorTx {
+				expectedRemoteScript = localAddr
+			}
+			require.EqualValues(
+				t, expectedRemoteScript, remoteOut.PkScript,
+			)
 			require.Equal(
 				t, auxRemoteRecords, remoteOut.ShutdownRecords,
 			)
@@ -1419,4 +1456,32 @@ func TestRbfAuxCloseTemplateCheck(t *testing.T) {
 	require.ErrorIs(t, terms.checkAuxCloseTemplate(
 		newTx(nil, scriptA, scriptC),
 	), ErrAuxCloseTemplate)
+}
+
+// TestRbfPlainCloseScriptChange allows a new delivery script even when
+// shutdown contained custom records unrelated to an auxiliary close template.
+func TestRbfPlainCloseScriptChange(t *testing.T) {
+	t.Parallel()
+
+	state := &ClosingNegotiation{
+		CloseChannelTerms: &CloseChannelTerms{
+			ShutdownScripts: ShutdownScripts{
+				LocalDeliveryScript:  localAddr,
+				RemoteDeliveryScript: remoteAddr,
+			},
+			ShutdownCustomRecords: ShutdownCustomRecords{
+				RemoteCustomRecords: auxRemoteRecords,
+			},
+		},
+	}
+	offer := &OfferReceivedEvent{
+		SigMsg: lnwire.ClosingComplete{
+			CloserScript: localAddr,
+			CloseeScript: localAddr,
+		},
+	}
+	require.NoError(t, state.updateAndValidateCloseTerms(
+		offer, &Environment{ChainParams: chaincfg.RegressionNetParams},
+	))
+	require.Equal(t, localAddr, state.RemoteDeliveryScript)
 }

@@ -865,6 +865,12 @@ func processNegotiateEvent(c *ClosingNegotiation, event ProtocolEvent,
 	newPeerState := *c
 	newPeerState.PeerState.SetForParty(chanPeer, nextPeerState)
 
+	if pending, ok := nextPeerState.(*ClosePending); ok &&
+		pending != targetPeerState {
+
+		newPeerState.recordCandidate(pending, env)
+	}
+
 	return &CloseStateTransition{
 		NextState: &newPeerState,
 		NewEvents: transition.NewEvents,
@@ -1119,7 +1125,7 @@ func (c *ClosingNegotiation) updateAndValidateCloseTerms(event ProtocolEvent,
 			// The aux shutdown records of the remote party are
 			// bound to the script they sent them with, so for an
 			// aux channel a new script needs a new shutdown.
-			if len(c.RemoteCustomRecords) != 0 {
+			if c.AuxTemplate.IsSome() {
 				return ErrAuxScriptChange
 			}
 
@@ -1172,7 +1178,7 @@ func (c *ClosingNegotiation) ProcessEvent(event ProtocolEvent, env *Environment,
 	// now transition to the StateFin state.
 	case *SpendEvent:
 		return &CloseStateTransition{
-			NextState: c.closeFin(msg.Tx, env),
+			NextState: c.closeFin(msg.Tx),
 		}, nil
 	}
 
@@ -1223,47 +1229,47 @@ func (c *ClosingNegotiation) ProcessEvent(event ProtocolEvent, env *Environment,
 		ErrInvalidStateTransition, event, c)
 }
 
-// closeFin returns the terminal state for the given confirmed transaction.
-// If the transaction is one of the close transactions negotiated in this
-// state (either party may have one pending), then the close outputs of that
-// transaction are carried over, so they can be reported to the caller.
-func (c *ClosingNegotiation) closeFin(confirmedTx *wire.MsgTx,
-	env *Environment) *CloseFin {
+// recordCandidate captures the output descriptors before another offer can
+// change the shared delivery scripts.
+func (c *ClosingNegotiation) recordCandidate(pending *ClosePending,
+	env *Environment) {
 
-	closeFin := &CloseFin{
-		ConfirmedTx: confirmedTx,
-	}
-	if confirmedTx == nil {
-		return closeFin
-	}
+	result := CloseFin{AuxOutputs: pending.auxOutputs()}
 
-	confirmedTxid := confirmedTx.TxHash()
-	for _, party := range []lntypes.ChannelParty{
-		lntypes.Local, lntypes.Remote,
-	} {
-		pending, ok := c.PeerState.GetForParty(party).(*ClosePending)
-		if !ok || pending.CloseTx == nil ||
-			pending.CloseTx.TxHash() != confirmedTxid {
-
-			continue
+	if env.ChanInfo != nil {
+		localOut, remoteOut := env.closeOutputs(
+			pending.CloseChannelTerms,
+		)
+		if localOut.Amt >= localOut.DustLimit {
+			result.LocalCloseOutput = fn.Some(localOut)
 		}
-
-		closeFin.AuxOutputs = c.auxOutputs()
-
-		// The close outputs need the channel info, which is only
-		// guaranteed to be present when an aux closer is set.
-		if env.ChanInfo != nil {
-			localOut, remoteOut := env.closeOutputs(
-				pending.CloseChannelTerms,
-			)
-			closeFin.LocalCloseOutput = fn.Some(localOut)
-			closeFin.RemoteCloseOutput = fn.Some(remoteOut)
+		if remoteOut.Amt >= remoteOut.DustLimit {
+			result.RemoteCloseOutput = fn.Some(remoteOut)
 		}
-
-		break
 	}
 
-	return closeFin
+	c.candidates = &closeCandidate{
+		txid:   pending.CloseTx.TxHash(),
+		result: result,
+		prior:  c.candidates,
+	}
+}
+
+// closeFin reports the output metadata of the candidate that confirmed.
+func (c *ClosingNegotiation) closeFin(confirmedTx *wire.MsgTx) *CloseFin {
+	if confirmedTx != nil {
+		txid := confirmedTx.TxHash()
+		for cand := c.candidates; cand != nil; cand = cand.prior {
+			if cand.txid == txid {
+				result := cand.result
+				result.ConfirmedTx = confirmedTx
+
+				return &result
+			}
+		}
+	}
+
+	return &CloseFin{ConfirmedTx: confirmedTx}
 }
 
 // newSigTlv is a helper function that returns a new optional TLV sig field for

@@ -33,6 +33,22 @@ type invoiceDBFaultInjector struct {
 	lookupErr   error
 	lookupCalls int
 	updateCalls int
+
+	// settledSinceHook, if set, runs before InvoicesSettledSince queries
+	// the wrapped database.
+	settledSinceHook func()
+}
+
+// InvoicesSettledSince runs the configured hook, if any, and then delegates to
+// the wrapped invoice database.
+func (f *invoiceDBFaultInjector) InvoicesSettledSince(ctx context.Context,
+	idx uint64) ([]invpkg.Invoice, error) {
+
+	if f.settledSinceHook != nil {
+		f.settledSinceHook()
+	}
+
+	return f.InvoiceDB.InvoicesSettledSince(ctx, idx)
 }
 
 // LookupInvoice returns the configured lookup error, if any, or delegates to
@@ -478,6 +494,10 @@ func TestInvoiceRegistry(t *testing.T) {
 			test: testSettleInvoice,
 		},
 		{
+			name: "SubscribeBacklogNoDuplicate",
+			test: testSubscribeBacklogNoDuplicate,
+		},
+		{
 			name: "PendingSettleOnChainLoss",
 			test: testPendingSettleOnChainLoss,
 		},
@@ -680,6 +700,103 @@ func TestInvoiceRegistry(t *testing.T) {
 					return makeSQLDB(t, false)
 				})
 		})
+	}
+}
+
+// testSubscribeBacklogNoDuplicate verifies that an invoice settled while a new
+// subscription is reading its backlog is delivered once. The subscription is
+// registered for live events before the backlog query runs, so the settle is
+// both read from the database and dispatched live.
+func testSubscribeBacklogNoDuplicate(t *testing.T,
+	makeDB func(t *testing.T) (invpkg.InvoiceDB, *clock.TestClock)) {
+
+	t.Parallel()
+
+	ctx, faultDB := newFaultTestContext(t, nil, makeDB)
+	ctxb := t.Context()
+
+	// payInvoice adds an invoice for the preimage and releases it to the
+	// htlc, leaving the invoice pending settlement.
+	payInvoice := func(preimage lntypes.Preimage,
+		htlcID uint64) invpkg.InvoiceRef {
+
+		inv := newInvoice(t, false, false)
+		inv.Terms.PaymentPreimage = &preimage
+		hash := preimage.Hash()
+
+		_, err := ctx.registry.AddInvoice(ctxb, inv, hash)
+		require.NoError(t, err)
+
+		_, err = ctx.registry.NotifyExitHopHtlc(
+			hash, inv.Terms.Value, testHtlcExpiry,
+			testCurrentHeight, getCircuitKey(htlcID),
+			make(chan interface{}, 1), nil, testPayload,
+		)
+		require.NoError(t, err)
+
+		return invpkg.InvoiceRefByHash(hash)
+	}
+
+	// Settle a first invoice, so that the subscription below starts from a
+	// non-zero settle index. The backlog query is a no-op for index zero.
+	refA := payInvoice(lntypes.Preimage{1}, 0)
+	ctx.finalizeHtlc(refA, getCircuitKey(0), true)
+
+	// Release the preimage for a second invoice, leaving it pending
+	// settlement without a settle index.
+	refB := payInvoice(lntypes.Preimage{2}, 1)
+
+	// Hold the backlog query of the new subscription.
+	entered := make(chan struct{})
+	release := make(chan struct{})
+	faultDB.settledSinceHook = func() {
+		close(entered)
+		<-release
+	}
+
+	type subResult struct {
+		sub *invpkg.InvoiceSubscription
+		err error
+	}
+	subChan := make(chan subResult, 1)
+	go func() {
+		sub, err := ctx.registry.SubscribeNotifications(ctxb, 2, 1)
+		subChan <- subResult{sub, err}
+	}()
+
+	select {
+	case <-entered:
+	case <-time.After(testTimeout):
+		t.Fatal("backlog query not started")
+	}
+
+	// Settle the invoice while the backlog query is held. The settle is
+	// committed before the query runs and is also dispatched to the
+	// already registered subscription.
+	ctx.finalizeHtlc(refB, getCircuitKey(1), true)
+	close(release)
+
+	var res subResult
+	select {
+	case res = <-subChan:
+	case <-time.After(testTimeout):
+		t.Fatal("subscription not created")
+	}
+	require.NoError(t, res.err)
+	defer res.sub.Cancel()
+
+	select {
+	case inv := <-res.sub.SettledInvoices:
+		require.EqualValues(t, 2, inv.SettleIndex)
+	case <-time.After(testTimeout):
+		t.Fatal("no settled invoice received")
+	}
+
+	select {
+	case inv := <-res.sub.SettledInvoices:
+		t.Fatalf("duplicate settle delivered, index=%v",
+			inv.SettleIndex)
+	case <-time.After(500 * time.Millisecond):
 	}
 }
 

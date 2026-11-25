@@ -1530,7 +1530,10 @@ func (p *Brontide) loadActiveChannels(chans []*chanstate.OpenChannel) (
 			dbChan.ChanType.HasTapscriptRoot(), false, shutdownInfo,
 		)
 		if err != nil {
-			return nil, fmt.Errorf("channel %v: %w", chanPoint, err)
+			p.log.Warnf("ChannelPoint(%v): skipping channel: %v",
+				chanPoint, err)
+
+			continue
 		}
 
 		var (

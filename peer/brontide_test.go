@@ -3886,6 +3886,63 @@ func TestRestartLegacyOverlayClose(t *testing.T) {
 	require.Equal(t, closeTx.TxHash(), storedTx.TxHash())
 }
 
+// TestReconnectSkipsUnsupportedOverlayClose checks that a peer can reconnect
+// and resume its other channels even if it can no longer resume an RBF close.
+func TestReconnectSkipsUnsupportedOverlayClose(t *testing.T) {
+	t.Parallel()
+
+	closing, err := createTestPeerWithChannel(t, noUpdate)
+	require.NoError(t, err)
+
+	closingState := closing.channel.State()
+	closingState.ChanType |= chanstate.TapscriptRootBit
+	shutdown := channeldb.NewShutdownInfo(genScript(t, p2wshAddress), true)
+	shutdown.Rbf.Val = true
+	require.NoError(t, closingState.MarkShutdownSent(shutdown))
+
+	pending, err := createTestPeerWithChannel(
+		t, func(alice, bob *chanstate.OpenChannel) {
+			alice.IsPending = true
+			bob.IsPending = true
+			alice.FundingOutpoint.Index++
+			bob.FundingOutpoint.Index++
+		},
+	)
+	require.NoError(t, err)
+	pendingState := pending.channel.State()
+
+	signer := input.NewMockSigner(
+		[]*btcec.PrivateKey{closing.privKey, pending.privKey}, nil,
+	)
+	sigPool := lnwallet.NewSigPool(1, signer)
+	require.NoError(t, sigPool.Start())
+	t.Cleanup(func() {
+		require.NoError(t, sigPool.Stop())
+	})
+
+	cfg := closing.peer.cfg
+	cfg.Signer = signer
+	cfg.SigPool = sigPool
+	cfg.ChannelGraph = graphdb.MakeTestGraph(t)
+	reconnected := NewBrontide(cfg)
+	reconnected.remoteFeatures = lnwire.EmptyFeatureVector()
+
+	msgs, err := reconnected.loadActiveChannels(
+		[]*chanstate.OpenChannel{closingState, pendingState},
+	)
+	require.NoError(t, err)
+	require.Len(t, msgs, 1)
+	wantSync, err := pendingState.ChanSyncMsg()
+	require.NoError(t, err)
+	require.Equal(t, wantSync, msgs[0])
+
+	closingID := lnwire.NewChanIDFromOutPoint(closingState.FundingOutpoint)
+	_, hasCloser := reconnected.activeChanCloses.Load(closingID)
+	require.False(t, hasCloser)
+	_, active := reconnected.activeChannels.Load(closingID)
+	require.False(t, active)
+}
+
 // TestObserveRbfCloseOrdering suppresses success after another path claims
 // the caller.
 func TestObserveRbfCloseOrdering(t *testing.T) {

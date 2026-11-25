@@ -4709,6 +4709,8 @@ func TestInterceptableSwitchExpiryTooFar(t *testing.T) {
 // TestSwitchDustForwarding tests that the switch properly fails HTLC's which
 // have incoming or outgoing links that breach their fee thresholds.
 func TestSwitchDustForwarding(t *testing.T) {
+	requireDevBuild(t)
+
 	t.Parallel()
 
 	// We'll create a three-hop network:

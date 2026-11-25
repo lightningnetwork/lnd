@@ -1401,6 +1401,31 @@ func TestRbfAuxLocalCanPayFees(t *testing.T) {
 	}
 }
 
+// TestRbfAuxCloseTemplateDustCarrier checks that a required asset output
+// may share a Bitcoin payout but cannot disappear from the initial template.
+func TestRbfAuxCloseTemplateDustCarrier(t *testing.T) {
+	t.Parallel()
+
+	cfg := auxHarnessCfg(newRbfMockAuxCloser(), false, randPubKey(t))
+	env := auxTestEnv(cfg)
+	remoteBalance := lnwire.NewMSatFromSatoshis(50_000)
+
+	dustTerms := plainAuxCloseTerms(1, remoteBalance)
+	template, err := env.closeTemplate(dustTerms)
+	require.ErrorIs(t, err, ErrAuxCloseTemplate)
+	require.True(t, template.IsNone())
+
+	// The 1000-sat auxiliary output leaves a 100-sat remainder.
+	// The wallet combines them into an output with the auxiliary script.
+	combinedTerms := plainAuxCloseTerms(
+		lnwire.NewMSatFromSatoshis(auxExtraValue+100), remoteBalance,
+	)
+	template, err = env.closeTemplate(combinedTerms)
+	require.NoError(t, err)
+	require.ElementsMatch(t, [][]byte{auxExtraScript, remoteAddr},
+		template.UnsafeFromSome().PkScripts)
+}
+
 // TestRbfAuxCloseTemplateCheck asserts that a close transaction matches the
 // aux close template only if it carries the template's scripts in order,
 // whatever the output values.

@@ -697,6 +697,13 @@ func (e *Environment) closeTemplate(
 			return err
 		}
 
+		// The wallet can omit an auxiliary output when its owner's
+		// balance is dust. Reject that layout before using it as the
+		// template for signing.
+		if err := checkAuxCloseOutputs(closeTx, outs); err != nil {
+			return err
+		}
+
 		template = fn.Some(CloseTemplate{
 			Outputs: outs,
 			PkScripts: fn.Map(
@@ -714,6 +721,26 @@ func (e *Environment) closeTemplate(
 	}
 
 	return template, nil
+}
+
+// checkAuxCloseOutputs requires a transaction output for every auxiliary
+// script. A combined Bitcoin and asset output can satisfy this requirement.
+func checkAuxCloseOutputs(closeTx *wire.MsgTx, outputs AuxCloseOutputs) error {
+	scriptCounts := make(map[string]int, len(closeTx.TxOut))
+	for _, output := range closeTx.TxOut {
+		scriptCounts[string(output.PkScript)]++
+	}
+
+	for _, output := range outputs.ExtraCloseOutputs {
+		script := string(output.PkScript)
+		if scriptCounts[script] == 0 {
+			return fmt.Errorf("%w: missing auxiliary output %x",
+				ErrAuxCloseTemplate, output.PkScript)
+		}
+		scriptCounts[script]--
+	}
+
+	return nil
 }
 
 // closeTxForFee builds the close transaction that pays the given fee, paid by

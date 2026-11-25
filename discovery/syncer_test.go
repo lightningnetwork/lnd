@@ -576,7 +576,7 @@ func TestGossipSyncerLiveHorizonCoversInFlightUpdates(t *testing.T) {
 		horizon, _ = msgs[0].(*lnwire.GossipTimestampRange)
 
 	case <-time.After(time.Second):
-		t.Fatal("no update horizon sent")
+		require.FailNow(t, "no update horizon sent")
 	}
 
 	// The peer's syncer for us applies that horizon. Once the peer has
@@ -599,7 +599,7 @@ func TestGossipSyncerLiveHorizonCoversInFlightUpdates(t *testing.T) {
 		require.Equal(t, []lnwire.Message{update}, msgs)
 
 	case <-time.After(time.Second):
-		t.Fatal("in-flight channel update was not relayed")
+		require.FailNow(t, "in-flight channel update was not relayed")
 	}
 }
 

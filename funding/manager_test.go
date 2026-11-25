@@ -13,6 +13,7 @@ import (
 	"reflect"
 	"runtime"
 	"strings"
+	"sync"
 	"sync/atomic"
 	"testing"
 	"time"
@@ -192,6 +193,15 @@ func (m *mockAliasMgr) DeleteSixConfs(lnwire.ShortChannelID) error {
 }
 
 type mockNotifier struct {
+	// The fields below optionally give each funding tx its own one-conf
+	// channel. By default every registration shares oneConfChannel, which
+	// is ambiguous when several channels wait on confirmations at once,
+	// since the goroutine that receives a confirmation is arbitrary. Tests
+	// that need to confirm a specific tx enable it with
+	// routeOneConfByTxid, before any channel is opened.
+	confMtx          sync.Mutex
+	routeByTxid      bool
+	confByTxid       map[chainhash.Hash]chan *chainntnfs.TxConfirmation
 	oneConfChannel   chan *chainntnfs.TxConfirmation
 	sixConfChannel   chan *chainntnfs.TxConfirmation
 	epochChan        chan *chainntnfs.BlockEpoch
@@ -210,11 +220,55 @@ func (m *mockNotifier) RegisterConfirmationsNtfn(txid *chainhash.Hash,
 			NegativeConf: m.reOrgChan,
 		}, nil
 	}
+
+	m.confMtx.Lock()
+	routeByTxid := m.routeByTxid
+	m.confMtx.Unlock()
+
+	oneConf := m.oneConfChannel
+	if routeByTxid {
+		oneConf = m.oneConfChannelFor(*txid)
+	}
+
 	return &chainntnfs.ConfirmationEvent{
-		Confirmed:    m.oneConfChannel,
+		Confirmed:    oneConf,
 		Updates:      m.oneUpdateChannel,
 		NegativeConf: m.reOrgChan,
 	}, nil
+}
+
+// routeOneConfByTxid makes one-conf registrations receive confirmations only
+// through oneConfChannelFor(txid). It must be called before any channel is
+// opened.
+func (m *mockNotifier) routeOneConfByTxid() {
+	m.confMtx.Lock()
+	defer m.confMtx.Unlock()
+
+	m.routeByTxid = true
+}
+
+// oneConfChannelFor returns the one-conf channel for the given funding txid,
+// creating it if it does not exist yet. Registration and delivery both go
+// through it, so their relative order does not matter.
+func (m *mockNotifier) oneConfChannelFor(
+	txid chainhash.Hash) chan *chainntnfs.TxConfirmation {
+
+	m.confMtx.Lock()
+	defer m.confMtx.Unlock()
+
+	if m.confByTxid == nil {
+		m.confByTxid = make(
+			map[chainhash.Hash]chan *chainntnfs.TxConfirmation,
+		)
+	}
+
+	ch, ok := m.confByTxid[txid]
+	if !ok {
+		ch = make(chan *chainntnfs.TxConfirmation, 1)
+		m.confByTxid[txid] = ch
+	}
+
+	return ch
 }
 
 func (m *mockNotifier) RegisterBlockEpochNtfn(
@@ -3711,6 +3765,15 @@ func TestFundingManagerCustomChannelParameters(t *testing.T) {
 	require.NoError(t, err)
 	require.NoError(t, assertFees(forwardingPolicy, 42, 1337))
 
+	// Bob sends FundingSigned before persisting his forwarding policy, so
+	// we must not read it back yet. Bob emits the pending open event only
+	// after the policy is stored, so wait for that signal first.
+	select {
+	case <-bob.mockChanEvent.pendingOpenEvent:
+	case <-time.After(time.Second * 5):
+		t.Fatalf("bob did not send pending channel event")
+	}
+
 	forwardingPolicy, err = bob.fundingMgr.getInitialForwardingPolicy(
 		fundingSigned.ChanID,
 	)
@@ -3922,6 +3985,13 @@ func TestFundingManagerMaxPendingChannels(t *testing.T) {
 		tearDownFundingManagers(t, alice, bob)
 	})
 
+	// Several channels wait for confirmations at once, so confirm each
+	// funding tx on its own channel. Otherwise a confirmation may reach
+	// the goroutine of a different channel, whose funding tx does not
+	// match it and fails validation.
+	alice.mockNotifier.routeOneConfByTxid()
+	bob.mockNotifier.routeOneConfByTxid()
+
 	// Create InitFundingMsg structs for maxPending+1 channels.
 	var initReqs []*InitFundingMsg
 	for i := 0; i < maxPending+1; i++ {
@@ -4057,12 +4127,12 @@ func TestFundingManagerMaxPendingChannels(t *testing.T) {
 
 	// Notify that the transactions were mined.
 	for i := 0; i < maxPending; i++ {
-		alice.mockNotifier.oneConfChannel <- &chainntnfs.TxConfirmation{
-			Tx: txs[i],
-		}
-		bob.mockNotifier.oneConfChannel <- &chainntnfs.TxConfirmation{
-			Tx: txs[i],
-		}
+		txid := txs[i].TxHash()
+		aliceConf := alice.mockNotifier.oneConfChannelFor(txid)
+		aliceConf <- &chainntnfs.TxConfirmation{Tx: txs[i]}
+
+		bobConf := bob.mockNotifier.oneConfChannelFor(txid)
+		bobConf <- &chainntnfs.TxConfirmation{Tx: txs[i]}
 
 		// Expect both to be sending ChannelReady.
 		_ = assertFundingMsgSent(

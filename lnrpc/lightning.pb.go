@@ -6875,11 +6875,13 @@ type ChannelCloseUpdate struct {
 	state       protoimpl.MessageState `protogen:"open.v1"`
 	ClosingTxid []byte                 `protobuf:"bytes,1,opt,name=closing_txid,json=closingTxid,proto3" json:"closing_txid,omitempty"`
 	Success     bool                   `protobuf:"varint,2,opt,name=success,proto3" json:"success,omitempty"`
-	// The local channel close output. If the local channel balance was dust to
-	// begin with, this output will not be set.
+	// The local channel close output. For RBF closes on plain channels,
+	// a dust balance is omitted. Auxiliary closes may retain the descriptor
+	// to preserve custom channel data.
 	LocalCloseOutput *CloseOutput `protobuf:"bytes,3,opt,name=local_close_output,json=localCloseOutput,proto3" json:"local_close_output,omitempty"`
-	// The remote channel close output. If the remote channel balance was dust
-	// to begin with, this output will not be set.
+	// The remote channel close output. For RBF closes on plain channels,
+	// a dust balance is omitted. Auxiliary closes may retain the descriptor
+	// to preserve custom channel data.
 	RemoteCloseOutput *CloseOutput `protobuf:"bytes,4,opt,name=remote_close_output,json=remoteCloseOutput,proto3" json:"remote_close_output,omitempty"`
 	// Any additional outputs that might be added for custom channel types.
 	AdditionalOutputs []*CloseOutput `protobuf:"bytes,5,rep,name=additional_outputs,json=additionalOutputs,proto3" json:"additional_outputs,omitempty"`

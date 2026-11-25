@@ -1240,10 +1240,12 @@ func (c *ClosingNegotiation) recordCandidate(pending *ClosePending,
 		localOut, remoteOut := env.closeOutputs(
 			pending.CloseChannelTerms,
 		)
-		if localOut.Amt >= localOut.DustLimit {
+		// A dust BTC balance can still carry asset shutdown records.
+		hasAuxTemplate := pending.AuxTemplate.IsSome()
+		if hasAuxTemplate || localOut.Amt >= localOut.DustLimit {
 			result.LocalCloseOutput = fn.Some(localOut)
 		}
-		if remoteOut.Amt >= remoteOut.DustLimit {
+		if hasAuxTemplate || remoteOut.Amt >= remoteOut.DustLimit {
 			result.RemoteCloseOutput = fn.Some(remoteOut)
 		}
 	}

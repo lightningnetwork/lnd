@@ -1094,7 +1094,7 @@ func TestRbfAuxCloseFin(t *testing.T) {
 			haveOutputs: true,
 		},
 		{
-			name:        "dust local balance omitted",
+			name:        "dust balance retains asset records",
 			confirmedTx: localTx,
 			haveOutputs: true,
 			dustLocal:   true,
@@ -1175,21 +1175,16 @@ func TestRbfAuxCloseFin(t *testing.T) {
 				auxOutputs.ExtraCloseOutputs,
 			)
 
-			localOutput := closeFin.LocalCloseOutput
-			require.Equal(t, test.dustLocal, localOutput.IsNone())
-			localOutput.WhenSome(func(out types.CloseOutput) {
-				require.Equal(
-					t, localBalance.ToSatoshis(),
-					out.Amt,
-				)
-				require.EqualValues(
-					t, localAddr, out.PkScript,
-				)
-				require.Equal(
-					t, auxLocalRecords,
-					out.ShutdownRecords,
-				)
-			})
+			localOut := closeFin.LocalCloseOutput.UnsafeFromSome()
+			expectedLocalBalance := localBalance.ToSatoshis()
+			if test.dustLocal {
+				expectedLocalBalance = 0
+			}
+			require.Equal(t, expectedLocalBalance, localOut.Amt)
+			require.EqualValues(t, localAddr, localOut.PkScript)
+			require.Equal(
+				t, auxLocalRecords, localOut.ShutdownRecords,
+			)
 
 			remoteOut := closeFin.RemoteCloseOutput.UnsafeFromSome()
 			require.Equal(
@@ -1484,4 +1479,25 @@ func TestRbfPlainCloseScriptChange(t *testing.T) {
 		offer, &Environment{ChainParams: chaincfg.RegressionNetParams},
 	))
 	require.Equal(t, localAddr, state.RemoteDeliveryScript)
+}
+
+// TestRbfPlainCloseOmitsDustBalance checks that plain channels omit a dust
+// balance descriptor in the final close update.
+func TestRbfPlainCloseOmitsDustBalance(t *testing.T) {
+	t.Parallel()
+
+	terms := plainAuxCloseTerms(
+		1, lnwire.NewMSatFromSatoshis(50_000),
+	)
+	terms.ShutdownCustomRecords = ShutdownCustomRecords{}
+	tx := wire.NewMsgTx(2)
+	state := &ClosingNegotiation{}
+	state.recordCandidate(&ClosePending{
+		CloseTx:           tx,
+		CloseChannelTerms: terms,
+	}, &Environment{ChanInfo: &rbfMockChanInfo{}})
+
+	result := state.closeFin(tx)
+	require.True(t, result.LocalCloseOutput.IsNone())
+	require.True(t, result.RemoteCloseOutput.IsSome())
 }

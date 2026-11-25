@@ -2097,12 +2097,14 @@ message ChannelCloseUpdate {
 
     bool success = 2;
 
-    // The local channel close output. If the local channel balance was dust to
-    // begin with, this output will not be set.
+    // The local channel close output. For RBF closes on plain channels,
+    // a dust balance is omitted. Auxiliary closes may retain the descriptor
+    // to preserve custom channel data.
     CloseOutput local_close_output = 3;
 
-    // The remote channel close output. If the remote channel balance was dust
-    // to begin with, this output will not be set.
+    // The remote channel close output. For RBF closes on plain channels,
+    // a dust balance is omitted. Auxiliary closes may retain the descriptor
+    // to preserve custom channel data.
     CloseOutput remote_close_output = 4;
 
     // Any additional outputs that might be added for custom channel types.

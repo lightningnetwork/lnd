@@ -825,6 +825,13 @@ func testOutboundRSMacaroonEnforcement(ht *lntest.HarnessTest) {
 	// up properly.
 	err = <-startChan
 	require.NoError(ht, err, "Shouldn't error on watch-only node startup")
+
+	// The watch-only node stays connected to the signer and its health
+	// check pings the signer through credentials that live in the signer's
+	// temporary directory. Stop the watch-only node before harness cleanup
+	// can remove the signer, so the shutdown cannot be read as the remote
+	// signer health check failing (exit code 14).
+	defer ht.Shutdown(watchOnly)
 }
 
 // deriveCustomScopeAccounts derives the first 255 default accounts of the

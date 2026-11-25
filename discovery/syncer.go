@@ -206,7 +206,13 @@ const (
 	// such a lost channel update is never requested again. Starting the
 	// horizon in the past closes this gap, at the cost of the peer
 	// re-sending the updates of this window, which we drop as stale.
-	updateHorizonSlack = 10 * time.Minute
+	//
+	// The window has to outlast the time a message can spend in flight
+	// at the peer. Five minutes covers validation at the peer and a few
+	// relay hops at the default 90s trickle delay, while keeping the
+	// replay that shares the peer's gossip rate limit with live updates
+	// small.
+	updateHorizonSlack = 5 * time.Minute
 )
 
 var (

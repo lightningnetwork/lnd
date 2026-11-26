@@ -1231,7 +1231,11 @@ func TestInvoiceDescriptionBoltText(t *testing.T) {
 				return
 			}
 
-			require.ErrorIs(t, err, ErrInvalidUTF8Description)
+			expectedErr := "disallowed Unicode character"
+			if tc.name == "malformed UTF-8" {
+				expectedErr = "description is not valid UTF-8"
+			}
+			require.ErrorContains(t, err, expectedErr)
 
 			// A directly built invoice takes the same validation
 			// path in Encode and must not be sanitized into a
@@ -1246,7 +1250,7 @@ func TestInvoiceDescriptionBoltText(t *testing.T) {
 				),
 			}
 			_, err = invoice.Encode(testMessageSigner)
-			require.ErrorIs(t, err, ErrInvalidUTF8Description)
+			require.ErrorContains(t, err, expectedErr)
 		})
 	}
 }

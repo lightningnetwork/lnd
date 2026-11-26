@@ -64,7 +64,7 @@ func TestCreateRPCInvoiceLegacyDescription(t *testing.T) {
 
 	net := &chaincfg.MainNetParams
 	_, err := zpay32.Decode(paymentRequest, net)
-	require.ErrorIs(t, err, zpay32.ErrInvalidUTF8Description)
+	require.ErrorContains(t, err, "disallowed Unicode character U+000A")
 
 	stored := &invoices.Invoice{
 		Memo:           []byte(memo),

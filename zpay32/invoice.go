@@ -394,13 +394,25 @@ func (invoice *Invoice) MinFinalCLTVExpiry() uint64 {
 }
 
 func validateInvoiceForWrite(invoice *Invoice) error {
-	if invoice.Description != nil &&
-		!lnwire.ValidBoltTextForWrite([]byte(*invoice.Description)) {
-
-		return ErrInvalidUTF8Description
+	if invoice.Description != nil {
+		err := lnwire.ValidateBoltTextForWrite(
+			[]byte(*invoice.Description),
+		)
+		if err != nil {
+			return invoiceDescriptionError(err)
+		}
 	}
 
 	return validateInvoice(invoice)
+}
+
+// invoiceDescriptionError adds field context to a BOLT text validation error.
+func invoiceDescriptionError(err error) error {
+	if errors.Is(err, lnwire.ErrInvalidBoltTextUTF8) {
+		return ErrInvalidUTF8Description
+	}
+
+	return fmt.Errorf("description contains a %w", err)
 }
 
 // validateInvoice checks that the invoice has the fields required by BOLT 11.

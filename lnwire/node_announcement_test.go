@@ -50,9 +50,12 @@ func TestNodeAliasValidation(t *testing.T) {
 		}
 	}
 
+	_, err := NewNodeAlias("👨‍💻")
+	require.ErrorContains(t, err, "disallowed Unicode character U+200D")
+
 	// Readers can preserve an unassigned code point in a received alias.
 	const unassigned = "node \u0378"
-	_, err := NewNodeAlias(unassigned)
+	_, err = NewNodeAlias(unassigned)
 	require.ErrorAs(t, err, new(*ErrInvalidNodeAlias))
 	alias, err := ParseNodeAlias(unassigned)
 	require.NoError(t, err)

@@ -129,21 +129,20 @@ sweep logic is not bypassed.
 `UtxoSweeper` applies the resulting `BadInput` evidence. Permanent script or
 missing-input attribution terminates only that tracked input, or quarantines a
 diagnosed wallet UTXO. Survivors retain their requested starting rates while
-the new set recalculates its aggregate fee curve. Confirmed third-party spends
-retain the existing fee line. A backend- reported singleton mempool conflict
+the new set recalculates its aggregate fee curve, as do the survivors of
+confirmed third-party spends. A backend- reported singleton mempool conflict
 remains retryable with its spend subscription intact; valid siblings are
 resubmitted without it. Temporary wallet exclusions accumulate across that
 immediate retry chain and clear when it ends or returns to normal block
-retries. Eligible diagnosis keeps unattributed conflicts retryable without fee
-escalation. Other requests use the normal retry-fee policy. Fee initialization
-follows existing budget and zero-delta retry paths. Transient backend failures
-and fee refusals (RBF, relay minimum or mempool minimum) during probing
-retain their cause and follow normal
-retry-fee policy, including retries at the cap. Full-RBF fee refusals retain
-whole-set retries instead of input attribution. Other aborted, unchanged-set
-diagnoses must advance their fee and become fatal if advancement fails; known
-terminal rejections with skipped or completed singleton-free diagnosis retain
-the whole-set fatal outcome.
+retries. Eligible diagnosis keeps unattributed conflicts retryable. No retry
+carries a fee from the failed attempt. Fee initialization follows existing
+budget and zero-delta retry paths. Transient backend failures and fee refusals
+(RBF, relay minimum or mempool minimum) during probing retain their cause and
+are retried like other failures, including at the cap. Full-RBF fee refusals
+retain whole-set retries instead of input attribution. Other aborted,
+unchanged-set diagnoses are retried while their fee function can advance, and
+become fatal once it can't; known terminal rejections with skipped or
+completed singleton-free diagnosis retain the whole-set fatal outcome.
 
 A rejected replacement does not displace an already accepted transaction.
 `TxPublisher` retains monitoring until an actual spend is attributed or the

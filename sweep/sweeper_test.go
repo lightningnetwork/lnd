@@ -193,7 +193,7 @@ func TestMarkInputsPublished(t *testing.T) {
 func TestMarkInputsPublishFailed(t *testing.T) {
 	t.Parallel()
 
-	// Arrange all input states and an unchanged-set retry fee.
+	// Arrange all input states.
 	require := require.New(t)
 
 	// Create a mock sweeper store.
@@ -235,13 +235,13 @@ func TestMarkInputsPublishFailed(t *testing.T) {
 		inputPublishFailed, inputSwept, inputExcluded, inputFatal,
 	}).Once()
 
-	feeRate := chainfee.SatPerKWeight(1000)
-
 	// Mark the test inputs. We expect the non-exist input and the
 	// inputInit to be skipped, and the final input to be marked as
 	// published.
 	// Act by marking the published members for another attempt.
-	s.markInputsPublishFailed(set, fn.Some(fn.Some(feeRate)))
+	s.markInputsPublishFailed(
+		set, fn.None[fn.Option[chainfee.SatPerKWeight]](),
+	)
 
 	// We expect unchanged number of pending inputs.
 	// Assert only eligible states change and membership remains intact.
@@ -256,12 +256,12 @@ func TestMarkInputsPublishFailed(t *testing.T) {
 	// failed.
 	pi = s.inputs[inputPendingPublish.OutPoint()]
 	require.Equal(PublishFailed, pi.state)
-	require.Equal(feeRate, pi.params.StartingFeeRate.UnsafeFromSome())
+	require.True(pi.params.StartingFeeRate.IsNone())
 
 	// We expect the published input's is now marked as publish failed.
 	pi = s.inputs[inputPublished.OutPoint()]
 	require.Equal(PublishFailed, pi.state)
-	require.Equal(feeRate, pi.params.StartingFeeRate.UnsafeFromSome())
+	require.True(pi.params.StartingFeeRate.IsNone())
 
 	// We expect the publish failed input to stay unchanged.
 	pi = s.inputs[inputPublishFailed.OutPoint()]
@@ -1953,13 +1953,11 @@ func TestHandleBumpEventTxUnknownSpendWithRetry(t *testing.T) {
 	// Act by handling the spend through the ordinary survivor retry path.
 	s.handleBumpEventTxUnknownSpend(resp)
 
-	// Assert the spent input leaves while the survivor retains the supplied
-	// next fee, keeping its confirmed-spend retry on the existing fee line.
+	// Assert the spent input leaves while the survivor keeps its requested
+	// fee policy rather than the result's fee rate.
 	require.NotContains(t, s.inputs, op1)
 
 	// Assert the state of the input is updated.
 	require.Equal(t, PublishFailed, s.inputs[op2].state)
-	require.Equal(
-		t, fn.Some(br.FeeRate), s.inputs[op2].params.StartingFeeRate,
-	)
+	require.True(t, s.inputs[op2].params.StartingFeeRate.IsNone())
 }

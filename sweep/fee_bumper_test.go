@@ -1092,18 +1092,15 @@ func TestHandleBadInputsProbeConstructionError(t *testing.T) {
 	testCases := []struct {
 		name   string
 		feeErr error
-		rate   chainfee.SatPerKWeight
 		event  BumpEvent
 	}{
 		{
-			name:  "advance after rounding",
-			rate:  1100,
+			name:  "rounded position retries",
 			event: TxFailed,
 		},
 		{
 			name:   "inconclusive diagnosis reaches ceiling",
 			feeErr: ErrMaxPosition,
-			rate:   1000,
 			event:  TxFatal,
 		},
 	}
@@ -1117,19 +1114,9 @@ func TestHandleBadInputsProbeConstructionError(t *testing.T) {
 			m.feeFunc.On("FeeRate").Return(
 				chainfee.SatPerKWeight(1000),
 			).Times(5)
-			if testCase.feeErr == nil {
-				m.feeFunc.On("Increment").Return(
-					false, nil,
-				).Once()
-				m.feeFunc.On("Increment").Return(
-					true, nil,
-				).Once()
-			} else {
-				m.feeFunc.On("Increment").Return(
-					false, testCase.feeErr,
-				).Once()
-			}
-			m.feeFunc.On("FeeRate").Return(testCase.rate).Once()
+			m.feeFunc.On("Increment").Return(
+				false, testCase.feeErr,
+			).Once()
 			m.signer.On(
 				"ComputeInputScript", mock.Anything,
 				mock.Anything,
@@ -1142,11 +1129,12 @@ func TestHandleBadInputsProbeConstructionError(t *testing.T) {
 			// rounded fee positions.
 			result := tp.handleBadInputs(record, initialErr)
 
-			// Assert that only an actual rate increase permits this
-			// inconclusive non-conflict retry; its ceiling remains
-			// fatal without inventing an attributable input.
+			// Assert that room to advance permits this inconclusive
+			// non-conflict retry without setting its fee; the
+			// ceiling remains fatal without inventing an
+			// attributable input.
 			require.Equal(t, testCase.event, result.Event)
-			require.Equal(t, testCase.rate, result.FeeRate)
+			require.Zero(t, result.FeeRate)
 			require.Nil(t, result.BadInput)
 			if testCase.feeErr == nil {
 				require.ErrorIs(t, result.Err, errDummy)
@@ -1421,11 +1409,11 @@ func TestInitialConflictWithUntestableFunding(t *testing.T) {
 			tp.handleInitialTxError(record, err)
 			result := <-subscriber
 
-			// Assert retry at the current rate. No singleton was
+			// Assert a retry that sets no fee. No singleton was
 			// independently blamed, so none may be quarantined.
 			require.Equal(t, TxFailed, result.Event)
 			require.ErrorIs(t, result.Err, tc.probeErr)
-			require.Equal(t, feeRate, result.FeeRate)
+			require.Zero(t, result.FeeRate)
 			require.Nil(t, result.BadInput)
 		})
 	}
@@ -2330,7 +2318,7 @@ func TestBroadcastImmediate(t *testing.T) {
 }
 
 // TestBroadcastRetryMempoolErrors checks backend uncertainty and transient
-// policy rejections return retry metadata even at the fee ceiling.
+// policy rejections remain retryable even at the fee ceiling.
 func TestBroadcastRetryMempoolErrors(t *testing.T) {
 	t.Parallel()
 
@@ -2387,10 +2375,8 @@ func TestBroadcastRetryMempoolErrors(t *testing.T) {
 			maxFeeRate := feeRate * 10
 			deadline := int32(10)
 
-			// A one-block deadline initializes directly at the cap.
-			// This checks retry metadata. A distant capped start
-			// still takes the zero-delta path, which permits
-			// re-estimation on the next block.
+			// A one-block deadline initializes directly at the cap,
+			// where no further increase is possible.
 			if tc.atCeiling {
 				deadline = 1
 			}
@@ -2415,9 +2401,9 @@ func TestBroadcastRetryMempoolErrors(t *testing.T) {
 			// must return without trying to publish the candidate.
 			resultChan := tp.Broadcast(req)
 
-			// Assert retry preserves cause and next fee, keeping
-			// the cap when no further increase is possible. Bound
-			// missing delivery so a regression fails promptly.
+			// Assert retry preserves the cause and sets no fee for
+			// the next attempt. Bound missing delivery so a
+			// regression fails promptly.
 			var result *BumpResult
 			select {
 			case result = <-resultChan:
@@ -2428,11 +2414,7 @@ func TestBroadcastRetryMempoolErrors(t *testing.T) {
 
 			require.Equal(t, TxFailed, result.Event)
 			require.ErrorIs(t, result.Err, tc.err)
-			if tc.atCeiling {
-				require.Equal(t, maxFeeRate, result.FeeRate)
-			} else {
-				require.Greater(t, result.FeeRate, feeRate)
-			}
+			require.Zero(t, result.FeeRate)
 		})
 	}
 }
@@ -2707,8 +2689,8 @@ func TestBroadcastProbeFailureRetries(t *testing.T) {
 			// actual subset construction and retry policy all run.
 			result := <-tp.Broadcast(req)
 
-			// Assert that inconclusive evidence retains all inputs
-			// and a usable retry rate, including the existing cap.
+			// Assert that inconclusive evidence retains all inputs,
+			// including at the cap, without setting a retry fee.
 			require.Equal(t, TxFailed, result.Event)
 			require.ErrorIs(t, result.Err, tc.probeErr)
 			if errors.Is(tc.probeErr, io.EOF) {
@@ -2719,16 +2701,10 @@ func TestBroadcastProbeFailureRetries(t *testing.T) {
 				)
 			}
 			require.Nil(t, result.BadInput)
-			switch {
-			case errors.Is(tc.initialErr, chain.ErrMempoolConflict):
-				// Interrupted checks cannot clear the conflict
-				// or justify escalating its fee.
+			require.Zero(t, result.FeeRate)
+			if errors.Is(tc.initialErr, chain.ErrMempoolConflict) {
+				// Interrupted checks cannot clear the conflict.
 				require.ErrorIs(t, result.Err, tc.initialErr)
-				require.Equal(t, feeRate, result.FeeRate)
-			case tc.atCeiling:
-				require.Equal(t, maxFeeRate, result.FeeRate)
-			default:
-				require.Greater(t, result.FeeRate, feeRate)
 			}
 		})
 	}
@@ -2797,7 +2773,6 @@ func TestCreateAndPublishFail(t *testing.T) {
 	// Create a test feerate and return it from the mock fee function.
 	feerate := chainfee.SatPerKWeight(1000)
 	m.feeFunc.On("FeeRate").Return(feerate)
-	m.feeFunc.On("Increment").Return(true, nil).Once()
 
 	// Create a testing monitor record.
 	req := createTestBumpRequest()
@@ -3423,8 +3398,7 @@ func TestProcessRecordsConfirmed(t *testing.T) {
 func TestProcessRecordsSpent(t *testing.T) {
 	t.Parallel()
 
-	// Arrange a monitored input with a confirmed third-party spend and the
-	// existing next fee, which survivors need to continue their fee line.
+	// Arrange a monitored input with a confirmed third-party spend.
 
 	// Create a publisher using the mocks.
 	tp, m := createTestPublisher(t)
@@ -3456,10 +3430,6 @@ func TestProcessRecordsSpent(t *testing.T) {
 	tp.subscriberChans.Store(requestID, subscriber)
 	tp.records.Store(requestID, recordConfirmed)
 
-	m.feeFunc.On("Increment").Return(true, nil).Once()
-	feeRate := chainfee.SatPerKWeight(1000)
-	m.feeFunc.On("FeeRate").Return(feeRate).Once()
-
 	// Act by processing the spend and delivering its scoped publisher
 	// result.
 	tp.processRecords()
@@ -3470,12 +3440,12 @@ func TestProcessRecordsSpent(t *testing.T) {
 		t.Fatal("timeout waiting for subscriber")
 
 	case result := <-subscriber:
-		// Assert that the confirmed spend retains its transaction and
-		// next fee so survivor retries preserve the existing fee line.
+		// Assert that the confirmed spend retains its transaction.
 		require.Equal(t, TxUnknownSpend, result.Event)
 		require.Equal(t, tx, result.Tx)
 
-		require.Equal(t, feeRate, result.FeeRate)
+		// An unknown spend does not create fee history.
+		require.Zero(t, result.FeeRate)
 
 		// No error should be set.
 		require.ErrorIs(t, result.Err, ErrUnknownSpent)
@@ -3729,11 +3699,11 @@ func TestHandleInitialBroadcastTxTooLarge(t *testing.T) {
 		t.Fatal("timeout waiting for subscriber to receive result")
 
 	case result := <-resultChan:
-		// We expect a TxFailed event so the inputs are retried, with
-		// the current fee rate attached for the next attempt.
+		// We expect a TxFailed event so the inputs are retried. The
+		// failed attempt sets no fee for the next one.
 		require.Equal(t, TxFailed, result.Event)
 		require.ErrorIs(t, result.Err, chain.ErrTxTooLarge)
-		require.Equal(t, feerate, result.FeeRate)
+		require.Zero(t, result.FeeRate)
 	}
 
 	// Validate the record was removed.

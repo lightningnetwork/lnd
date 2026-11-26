@@ -102,8 +102,8 @@ const (
 
 	// TxFailed is sent when creation or broadcast fails but its inputs can
 	// be retried, including fee constraints and transient mempool failures.
-	// Retry can regroup inputs or adjust fees within the budget. A supplied
-	// retry fee rate applies to the next attempt. Initialization can still
+	// Retry can regroup inputs or adjust fees within the budget. The
+	// failed attempt sets no fee for the retry. Initialization can still
 	// reject a zero rate delta and trigger re-estimation.
 	// BadInput scopes an attributable failure; a mempool conflict keeps
 	// that input retryable instead of terminal.
@@ -1629,8 +1629,9 @@ func (t *TxPublisher) handleTxConfirmed(r *monitorRecord) {
 	t.handleResult(result)
 }
 
-// createUnchangedSetRetryResult preserves backend and fee retries at the cap
-// while bounding other diagnosis retries. The gate supplies a fee function.
+// createUnchangedSetRetryResult retries an unchanged set after inconclusive
+// diagnosis. As with other failures, it sets no fee for the retry. The gate
+// supplies a fee function.
 func (t *TxPublisher) createUnchangedSetRetryResult(r *monitorRecord,
 	err error) *BumpResult {
 
@@ -1640,48 +1641,20 @@ func (t *TxPublisher) createUnchangedSetRetryResult(r *monitorRecord,
 		requestID: r.requestID,
 	}
 
-	// A higher fee cannot displace a non-replaceable conflicting spend.
-	// Leave ordinary initialization and zero-delta retry policy intact.
-	if errors.Is(err, chain.ErrMempoolConflict) {
-		if r.feeFunction != nil {
-			result.FeeRate = r.feeFunction.FeeRate()
-		}
-
+	// Conflicts, and backend or fee uncertainty, follow ordinary retries
+	// instead of failing unproven batch members.
+	if isTransientMempoolError(err) || isMempoolFeeError(err) {
 		return result
 	}
 
-	// Backend or fee uncertainty follows ordinary retries: keep the current
-	// rate usable at the cap instead of failing unproven batch members.
-	if isTransientMempoolError(err) ||
-		isMempoolFeeError(err) {
-
-		feeRate, feeErr := t.calculateRetryFeeRate(r)
-		result.FeeRate = feeRate
-		if feeErr != nil {
-			result.Event = TxFatal
-			result.Err = feeErr
-		}
-
-		return result
+	// Other inconclusive diagnosis is retried only while the fee function
+	// has room to advance.
+	if _, feeErr := r.feeFunction.Increment(); feeErr != nil {
+		result.Event = TxFatal
+		result.Err = feeErr
 	}
 
-	// Only inconclusive non-conflict diagnosis requires actual advancement.
-	// Keep this ceiling policy out of the generic budget/RBF retry helper.
-	for {
-		increased, feeErr := r.feeFunction.Increment()
-		if feeErr != nil {
-			result.Event = TxFatal
-			result.Err = feeErr
-			result.FeeRate = r.feeFunction.FeeRate()
-
-			return result
-		}
-		if increased {
-			result.FeeRate = r.feeFunction.FeeRate()
-
-			return result
-		}
-	}
+	return result
 }
 
 // handleBadInputs handles a non-fee mempool rejection by trying to identify a
@@ -1699,7 +1672,7 @@ func (t *TxPublisher) handleBadInputs(r *monitorRecord,
 }
 
 // handleInitialTxError maps initialization failures to retry or terminal
-// results. Backend uncertainty retains inputs and the next retry fee.
+// results. Backend uncertainty retains inputs for retry.
 func (t *TxPublisher) handleInitialTxError(r *monitorRecord, err error) {
 	// Create a bump result to be sent to the sweeper.
 	result := &BumpResult{
@@ -1737,24 +1710,12 @@ func (t *TxPublisher) handleInitialTxError(r *monitorRecord, err error) {
 		fallthrough
 
 	// Budget constraints and reversible or unknown backend failures leave
-	// inputs available for a later block. Preserve their fee trajectory so
-	// re-clustering does not restart at the same insufficient rate.
+	// inputs available for a later block.
 	case errors.Is(err, ErrNotEnoughInputs),
 		errors.Is(err, ErrNotEnoughBudget),
 		isTransientMempoolError(err):
 
 		result.Event = TxFailed
-
-		// Calculate the starting fee rate to be used when retry
-		// sweeping these inputs.
-		feeRate, err := t.calculateRetryFeeRate(r)
-		if err != nil {
-			result.Event = TxFatal
-			result.Err = err
-		}
-
-		// Attach the new fee rate.
-		result.FeeRate = feeRate
 
 	// When the tx exceeds the standardness weight limit, we'll send a
 	// TxFailed so the inputs are retried rather than dropped. Input sets
@@ -1768,12 +1729,6 @@ func (t *TxPublisher) handleInitialTxError(r *monitorRecord, err error) {
 			"bug, retrying: %v", len(r.req.Inputs), err)
 
 		result.Event = TxFailed
-
-		// The fee rate is unrelated to the rejection, so we keep the
-		// current fee trajectory for the next attempt. The fee
-		// function is always set at this point, as the rejection can
-		// only happen after the tx is created.
-		result.FeeRate = r.feeFunction.FeeRate()
 
 	// When there are missing inputs, we'll create a TxUnknownSpend bump
 	// result here so the rest of the inputs can be retried.
@@ -1922,18 +1877,6 @@ func (t *TxPublisher) createUnknownSpentBumpResult(
 		Err:         ErrUnknownSpent,
 		SpentInputs: r.spentInputs,
 	}
-
-	// Calculate the next fee rate for the retry.
-	feeRate, err := t.calculateRetryFeeRate(r)
-	if err != nil {
-		// Overwrite the event and error so the sweeper will
-		// remove this input.
-		result.Event = TxFatal
-		result.Err = err
-	}
-
-	// Attach the new fee rate to be used for the next sweeping attempt.
-	result.FeeRate = feeRate
 
 	return result
 }
@@ -2517,25 +2460,13 @@ func (t *TxPublisher) handleReplacementTxError(r *monitorRecord,
 		return fn.Some(*result)
 	}
 
-	// Return a failed event to retry the sweep.
-	event := TxFailed
-
-	// Calculate the next fee rate for the retry.
-	feeRate, ferr := t.calculateRetryFeeRate(r)
-	if ferr != nil {
-		// If there's an error with the fee calculation, we need to
-		// abort the sweep.
-		event = TxFatal
-	}
-
-	// If the error is not fee related, we will return a `TxFailed` event so
-	// this input can be retried.
+	// A failed candidate supplies no new requested policy or published
+	// history. Return the inputs for regrouping without advancing fees.
 	result := fn.Some(BumpResult{
-		Event:     event,
+		Event:     TxFailed,
 		Tx:        oldTx,
 		Err:       err,
 		requestID: r.requestID,
-		FeeRate:   feeRate,
 	})
 
 	// If the tx doesn't not have enough budget, or if the inputs amounts
@@ -2553,62 +2484,4 @@ func (t *TxPublisher) handleReplacementTxError(r *monitorRecord,
 	log.Errorf("Failed to bump tx %v: %v", oldTx.TxHash(), err)
 
 	return result
-}
-
-// calculateRetryFeeRate calculates a new fee rate to be used as the starting
-// fee rate for the next sweep attempt if the inputs are to be retried. When the
-// fee function is nil it will be created here, and an error is returned if the
-// fee func cannot be initialized.
-func (t *TxPublisher) calculateRetryFeeRate(
-	r *monitorRecord) (chainfee.SatPerKWeight, error) {
-
-	// Get the fee function, which will be used to decided the next fee rate
-	// to use if the sweeper decides to retry sweeping this input.
-	feeFunc := r.feeFunction
-
-	// When the record is failed before the initial broadcast is attempted,
-	// it will have a nil fee func. In this case, we'll create the fee func
-	// here.
-	//
-	// NOTE: Since the current record is failed and will be deleted, we
-	// don't need to update the record on this fee function. We only need
-	// the fee rate data so the sweeper can pick up where we left off.
-	if feeFunc == nil {
-		f, err := t.initializeFeeFunction(r.req)
-		if errors.Is(err, errStartingFeeRateTooHigh) {
-			// Retry using an estimated rate without modifying the
-			// monitored record's request.
-			req := *r.req
-			req.StartingFeeRate = fn.None[chainfee.SatPerKWeight]()
-			f, err = t.initializeFeeFunction(&req)
-		}
-
-		// Propagate any remaining initialization error to the caller.
-		if err != nil {
-			log.Errorf("Failed to create fee func for record %v: "+
-				"%v", r.requestID, err)
-
-			return 0, err
-		}
-
-		feeFunc = f
-	}
-
-	// Since we failed to sweep the inputs, either the sweeping tx has been
-	// replaced by another party's tx, or the current output values cannot
-	// cover the budget, we missed this block window to increase its fee
-	// rate. To make sure the fee rate stays in the initial line, we now ask
-	// the fee function to give us the next fee rate as if the sweeping tx
-	// were RBFed. This new fee rate will be used as the starting fee rate
-	// if the upper system decides to continue sweeping the rest of the
-	// inputs.
-	_, err := feeFunc.Increment()
-	if err != nil {
-		// At its ceiling the existing rate remains usable for retry,
-		// for example after a temporary mempool restriction clears.
-		log.Warnf("Failed to calculate the next fee rate for "+
-			"Record(%v): %v", r.requestID, err)
-	}
-
-	return feeFunc.FeeRate(), nil
 }

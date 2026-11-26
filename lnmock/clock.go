@@ -28,3 +28,9 @@ func (m *MockClock) TickAfter(d time.Duration) <-chan time.Time {
 
 	return args.Get(0).(chan time.Time)
 }
+
+func (m *MockClock) TickAt(t time.Time) <-chan time.Time {
+	args := m.Called(t)
+
+	return args.Get(0).(chan time.Time)
+}

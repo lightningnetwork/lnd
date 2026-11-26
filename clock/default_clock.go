@@ -22,3 +22,8 @@ func (DefaultClock) Now() time.Time {
 func (DefaultClock) TickAfter(duration time.Duration) <-chan time.Time {
 	return time.After(duration)
 }
+
+// TickAt simply wraps time.After() with the duration until the passed time.
+func (DefaultClock) TickAt(t time.Time) <-chan time.Time {
+	return time.After(time.Until(t))
+}

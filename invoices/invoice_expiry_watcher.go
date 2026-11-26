@@ -280,7 +280,9 @@ func (ew *InvoiceExpiryWatcher) AddInvoices(invoices ...invoiceExpiry) {
 func (ew *InvoiceExpiryWatcher) nextTimestampExpiry() <-chan time.Time {
 	if !ew.timestampExpiryQueue.Empty() {
 		top := ew.timestampExpiryQueue.Top().(*invoiceExpiryTs)
-		return ew.clock.TickAfter(top.Expiry.Sub(ew.clock.Now()))
+
+		// See clock.Clock.TickAt for deadline scheduling semantics.
+		return ew.clock.TickAt(top.Expiry)
 	}
 
 	return nil

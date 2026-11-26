@@ -673,6 +673,19 @@ func generateBackups(ht *lntest.HarnessTest, srcNode,
 	}
 }
 
+// backupDeliveryTimeout is the budget for waiting on backups to be
+// delivered to and acked by a tower. Backup uploads run through the
+// wtclient session queue, which lnd's server.go configures with a 10s
+// minimum reconnect backoff that doubles before it is awaited: a single
+// transient dial or send failure therefore stalls delivery for 20s, and
+// two consecutive failures for 60s, double the default assert budget.
+// The task pipeline adds its own 5s retry on DB errors. On a loaded CI
+// runner the final backup of a batch can thus still be in flight when
+// defaultTimeout expires, so we budget for two full backoff cycles plus
+// delivery latency. A genuinely stuck upload still fails, as a third
+// consecutive failure stalls 80s more and exceeds this budget.
+const backupDeliveryTimeout = 3 * defaultTimeout
+
 // assertNumBackups is a helper that asserts that the given node has a certain
 // number of backups backed up to the tower. If mineOnFail is true, then a block
 // will be mined each time the assertion fails.
@@ -704,6 +717,6 @@ func assertNumBackups(ht *lntest.HarnessTest, node *rpc.HarnessRPC,
 
 		return fmt.Errorf("expected %d backups, got %d",
 			expectedNumBackups, numBackups)
-	}, defaultTimeout)
+	}, backupDeliveryTimeout)
 	require.NoError(ht, err)
 }

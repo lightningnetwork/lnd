@@ -1915,14 +1915,14 @@ func (t *TxPublisher) createAndPublishTx(
 		return fn.None[BumpResult]()
 	}
 
-	// If the result error is fee related, we will return no error and let
-	// the fee bumper retry it at next block.
+	// If the replacement pays too little to replace its predecessor, we
+	// will return no error and let the fee bumper retry it at next block.
+	// A rejection below the mempool minimum fails, as in
+	// handleReplacementTxError.
 	//
 	// NOTE: we may get this error if we've bypassed the mempool check,
 	// which means we are using neutrino backend.
-	if errors.Is(result.Err, chain.ErrInsufficientFee) ||
-		errors.Is(result.Err, lnwallet.ErrMempoolFee) {
-
+	if errors.Is(result.Err, chain.ErrInsufficientFee) {
 		log.Debugf("Failed to bump tx %v: %v", oldTx.TxHash(),
 			result.Err)
 
@@ -2421,8 +2421,8 @@ func prepareSweepTx(inputs []input.Input, changePkScript lnwallet.AddrWithKey,
 func (t *TxPublisher) handleReplacementTxError(r *monitorRecord,
 	oldTx *wire.MsgTx, err error) fn.Option[BumpResult] {
 
-	// If the error is fee related, we will return no error and let the fee
-	// bumper retry it at next block.
+	// If the replacement pays too little to replace its predecessor, we
+	// will return no error and let the fee bumper retry it at next block.
 	//
 	// NOTE: we can check the RBF error here and ask the fee function to
 	// recalculate the fee rate. However, this would defeat the purpose of
@@ -2431,16 +2431,21 @@ func (t *TxPublisher) handleReplacementTxError(r *monitorRecord,
 	// - if the deadline is close, we expect the fee function to give us a
 	//   higher fee rate. If the fee rate cannot satisfy the RBF rules, it
 	//   means the budget is not enough.
-	if errors.Is(err, chain.ErrInsufficientFee) ||
-		errors.Is(err, lnwallet.ErrMempoolFee) {
-
+	//
+	// A replacement below the mempool minimum is different: its
+	// predecessor paid less still, so has most likely left the mempool.
+	// There is then nothing to replace, and the elapsed-time schedule has
+	// no bearing on the mempool's floor. We fail the attempt below so the
+	// inputs can be regrouped and a new candidate searched for.
+	if errors.Is(err, chain.ErrInsufficientFee) {
 		log.Debugf("Failed to bump tx %v: %v", oldTx.TxHash(), err)
 		return fn.None[BumpResult]()
 	}
 
 	// Rejection did not displace oldTx. Keep its existing monitoring and
-	// rebroadcast instead of diagnosing standalone probes against it.
-	if errors.Is(err, errMempoolRejected) {
+	// rebroadcast instead of diagnosing standalone probes against it. A
+	// rejection below the mempool minimum fails below, as described above.
+	if errors.Is(err, errMempoolRejected) && !isMempoolFeeError(err) {
 		r.retainedReplacement.Store(true)
 		return fn.None[BumpResult]()
 	}

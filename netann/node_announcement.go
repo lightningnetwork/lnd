@@ -73,8 +73,8 @@ func NodeAnnSetTimestamp(nodeAnn *lnwire.NodeAnnouncement1) {
 func SignNodeAnnouncement(signer lnwallet.MessageSigner,
 	keyLoc keychain.KeyLocator, nodeAnn *lnwire.NodeAnnouncement1) error {
 
-	if !lnwire.ValidBoltTextForWrite([]byte(nodeAnn.Alias.String())) {
-		return &lnwire.ErrInvalidNodeAlias{}
+	if _, err := lnwire.NewNodeAlias(nodeAnn.Alias.String()); err != nil {
+		return err
 	}
 
 	// Create the DER-encoded ECDSA signature over the message digest.

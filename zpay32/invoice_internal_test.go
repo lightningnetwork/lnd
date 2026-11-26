@@ -370,6 +370,8 @@ func TestParse32Bytes(t *testing.T) {
 func TestParseDescription(t *testing.T) {
 	t.Parallel()
 
+	const invalidUTF8Message = "description is not valid UTF-8"
+
 	testNonUTF8StrData, _ := bech32.ConvertBits(
 		[]byte(testNonUTF8Str), 8, 5, true,
 	)
@@ -381,12 +383,12 @@ func TestParseDescription(t *testing.T) {
 		data        []byte
 		valid       bool
 		result      *string
-		expectedErr error
+		expectedErr string
 	}{
 		{
 			data:        testNonUTF8StrData,
 			valid:       false,
-			expectedErr: ErrInvalidUTF8Description,
+			expectedErr: invalidUTF8Message,
 			result:      nil,
 		},
 		{
@@ -415,10 +417,13 @@ func TestParseDescription(t *testing.T) {
 			data        []byte
 			valid       bool
 			result      *string
-			expectedErr error
+			expectedErr string
 		}{data: data, valid: tc.valid, result: &text}
 		if !tc.valid {
-			testCase.expectedErr = ErrInvalidUTF8Description
+			testCase.expectedErr = "disallowed Unicode character"
+			if tc.name == "malformed UTF-8" {
+				testCase.expectedErr = invalidUTF8Message
+			}
 			testCase.result = nil
 		}
 
@@ -427,19 +432,14 @@ func TestParseDescription(t *testing.T) {
 
 	for i, test := range tests {
 		description, err := parseDescription(
-			test.data, lnwire.ValidBoltText,
+			test.data, lnwire.ValidateBoltText,
 		)
-		if (err == nil) != test.valid {
-			t.Errorf("description decoding test %d failed: %v", i, err)
-			return
+		if test.valid {
+			require.NoError(t, err, "case %d", i)
+		} else {
+			require.ErrorContains(t, err, test.expectedErr)
 		}
-		require.ErrorIs(t, err, test.expectedErr)
-		if test.valid && !reflect.DeepEqual(description, test.result) {
-			t.Fatalf("test %d failed decoding description: "+
-				"expected \"%s\", got \"%s\"",
-				i, *test.result, *description)
-			return
-		}
+		require.Equal(t, test.result, description, "case %d", i)
 	}
 }
 
@@ -902,7 +902,7 @@ func TestParseTaggedFields(t *testing.T) {
 			var invoice Invoice
 			gotErr := parseTaggedFields(
 				&invoice, tc.data, netParams,
-				lnwire.ValidBoltText,
+				lnwire.ValidateBoltText,
 			)
 			require.ErrorIs(t, gotErr, tc.wantErr)
 		})

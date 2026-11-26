@@ -24,13 +24,19 @@ func (e ErrUnknownAddrType) Error() string {
 // ErrInvalidNodeAlias is an error returned if a node alias we parse on the
 // wire is invalid, as in it has non-UTF-8 or banned Unicode
 // characters.
-type ErrInvalidNodeAlias struct{}
+type ErrInvalidNodeAlias struct {
+	cause error
+}
 
 // Error returns a human readable string describing the error.
 //
 // NOTE: implements the error interface.
 func (e ErrInvalidNodeAlias) Error() string {
-	return "node alias has non-utf8 characters"
+	if e.cause == nil {
+		return "invalid node alias"
+	}
+
+	return fmt.Sprintf("invalid node alias: %v", e.cause)
 }
 
 // NodeAlias is a hex encoded UTF-8 string that may be displayed as an
@@ -41,8 +47,8 @@ type NodeAlias [32]byte
 // NewNodeAlias creates a locally authored alias using the BOLT 1 writer
 // rules.
 func NewNodeAlias(s string) (NodeAlias, error) {
-	if !ValidBoltTextForWrite([]byte(s)) {
-		return NodeAlias{}, &ErrInvalidNodeAlias{}
+	if err := ValidateBoltTextForWrite([]byte(s)); err != nil {
+		return NodeAlias{}, &ErrInvalidNodeAlias{cause: err}
 	}
 
 	return ParseNodeAlias(s)
@@ -58,8 +64,8 @@ func ParseNodeAlias(s string) (NodeAlias, error) {
 			len(s))
 	}
 
-	if !ValidBoltText([]byte(s)) {
-		return n, &ErrInvalidNodeAlias{}
+	if err := ValidateBoltText([]byte(s)); err != nil {
+		return n, &ErrInvalidNodeAlias{cause: err}
 	}
 
 	copy(n[:], []byte(s))

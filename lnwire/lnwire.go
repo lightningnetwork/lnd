@@ -59,8 +59,16 @@ const (
 // strings using characters from Unicode versions newer than Go's tables
 // keep working.
 func ValidBoltText(data []byte) bool {
+	return ValidateBoltText(data) == nil
+}
+
+// ErrInvalidBoltTextUTF8 indicates malformed UTF-8 in a BOLT text field.
+var ErrInvalidBoltTextUTF8 = errors.New("invalid UTF-8")
+
+// ValidateBoltText checks the BOLT 1 reader rules and identifies invalid text.
+func ValidateBoltText(data []byte) error {
 	if !utf8.Valid(data) {
-		return false
+		return ErrInvalidBoltTextUTF8
 	}
 
 	for _, r := range string(data) {
@@ -69,19 +77,25 @@ func ValidBoltText(data []byte) bool {
 			unicode.Is(unicode.Zl, r) ||
 			unicode.Is(unicode.Zp, r) {
 
-			return false
+			return fmt.Errorf("disallowed Unicode character %U", r)
 		}
 	}
 
-	return true
+	return nil
 }
 
 // ValidBoltTextForWrite validates locally authored BOLT 1 text. Writers
 // must exclude unassigned code points as well as the categories readers
 // reject.
 func ValidBoltTextForWrite(data []byte) bool {
+	return ValidateBoltTextForWrite(data) == nil
+}
+
+// ValidateBoltTextForWrite checks the BOLT 1 writer rules and identifies
+// invalid text.
+func ValidateBoltTextForWrite(data []byte) error {
 	if !utf8.Valid(data) {
-		return false
+		return ErrInvalidBoltTextUTF8
 	}
 
 	for _, r := range string(data) {
@@ -90,19 +104,19 @@ func ValidBoltTextForWrite(data []byte) bool {
 		if !unicode.In(r, unicode.L, unicode.M, unicode.N, unicode.P,
 			unicode.S, unicode.Zs) {
 
-			return false
+			return fmt.Errorf("disallowed Unicode character %U", r)
 		}
 	}
 
-	return true
+	return nil
 }
 
 // validateNodeAlias validates the complete alias after removing only the
 // fixed-width field's trailing NUL padding. Embedded NUL is not padding and
 // remains invalid.
 func validateNodeAlias(alias []byte) error {
-	if !ValidBoltText(bytes.TrimRight(alias, "\x00")) {
-		return &ErrInvalidNodeAlias{}
+	if err := ValidateBoltText(bytes.TrimRight(alias, "\x00")); err != nil {
+		return &ErrInvalidNodeAlias{cause: err}
 	}
 
 	return nil

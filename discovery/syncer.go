@@ -191,6 +191,28 @@ const (
 
 	// syncerBufferSize is the size of the syncer's buffers.
 	syncerBufferSize = 50
+
+	// updateHorizonSlack is how far into the past we start the update
+	// horizon we send to a peer when we want to receive live graph
+	// updates from it.
+	//
+	// The remote peer filters the gossip it relays to us by the timestamp
+	// the message was signed with, not by when the peer itself learned
+	// about it. A message signed before our horizon that is still in
+	// flight at the peer (queued for validation, waiting on a dependency,
+	// or relayed to it late over several hops) when it answers our sync
+	// queries would otherwise be neither part of that answer nor relayed
+	// to us afterwards. Since a range sync only compares channel IDs,
+	// such a lost channel update is never requested again. Starting the
+	// horizon in the past closes this gap, at the cost of the peer
+	// re-sending the updates of this window, which we drop as stale.
+	//
+	// The window has to outlast the time a message can spend in flight
+	// at the peer. Five minutes covers validation at the peer and a few
+	// relay hops at the default 90s trickle delay, while keeping the
+	// replay that shares the peer's gossip rate limit with live updates
+	// small.
+	updateHorizonSlack = 5 * time.Minute
 )
 
 var (
@@ -222,6 +244,13 @@ var (
 	// peers that we do not want to receive any new graph updates.
 	zeroTimestamp time.Time
 )
+
+// liveUpdateHorizonStart returns the first timestamp of the update horizon we
+// send to a peer to receive live graph updates from it, given the current
+// time. See updateHorizonSlack for why it starts in the past.
+func liveUpdateHorizonStart(now time.Time) time.Time {
+	return now.Add(-updateHorizonSlack)
+}
 
 // syncTransitionReq encapsulates a request for a gossip syncer sync transition.
 type syncTransitionReq struct {
@@ -784,7 +813,8 @@ func (g *GossipSyncer) channelGraphSyncer(ctx context.Context) {
 				syncType.IsActiveSync() {
 
 				err := g.sendGossipTimestampRange(
-					ctx, time.Now(), math.MaxUint32,
+					ctx, liveUpdateHorizonStart(time.Now()),
+					math.MaxUint32,
 				)
 				if err != nil {
 					log.Errorf("Unable to send update "+
@@ -2035,7 +2065,7 @@ func (g *GossipSyncer) handleSyncTransition(ctx context.Context,
 	// If an active sync has been requested, then we should resume receiving
 	// new graph updates from the remote peer.
 	case ActiveSync, PinnedSync:
-		firstTimestamp = time.Now()
+		firstTimestamp = liveUpdateHorizonStart(time.Now())
 		timestampRange = math.MaxUint32
 
 	// If a PassiveSync transition has been requested, then we should no

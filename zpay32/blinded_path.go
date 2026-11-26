@@ -106,7 +106,7 @@ func DecodeBlindedPayment(r io.Reader) (*BlindedPaymentPath, error) {
 
 	// Parse the first ephemeral blinding point.
 	var blindingPointBytes [btcec.PubKeyBytesLenCompressed]byte
-	_, err = r.Read(blindingPointBytes[:])
+	_, err = io.ReadFull(r, blindingPointBytes[:])
 	if err != nil {
 		return nil, err
 	}
@@ -119,7 +119,7 @@ func DecodeBlindedPayment(r io.Reader) (*BlindedPaymentPath, error) {
 
 	// Read the one byte hop number.
 	var numHops [1]byte
-	_, err = r.Read(numHops[:])
+	_, err = io.ReadFull(r, numHops[:])
 	if err != nil {
 		return nil, err
 	}
@@ -205,7 +205,7 @@ func (p *BlindedPaymentPath) Encode(w io.Writer) error {
 // DecodeBlindedHop reads a sphinx.BlindedHopInfo from the passed reader.
 func DecodeBlindedHop(r io.Reader) (*sphinx.BlindedHopInfo, error) {
 	var nodeIDBytes [btcec.PubKeyBytesLenCompressed]byte
-	_, err := r.Read(nodeIDBytes[:])
+	_, err := io.ReadFull(r, nodeIDBytes[:])
 	if err != nil {
 		return nil, err
 	}
@@ -227,7 +227,7 @@ func DecodeBlindedHop(r io.Reader) (*sphinx.BlindedHopInfo, error) {
 	}
 
 	encryptedData := make([]byte, dataLen)
-	_, err = r.Read(encryptedData)
+	_, err = io.ReadFull(r, encryptedData)
 	if err != nil {
 		return nil, err
 	}

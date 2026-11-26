@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"encoding/binary"
 	"errors"
+	"io"
 	"math"
 	"reflect"
 	"testing"
@@ -13,6 +14,7 @@ import (
 	"github.com/btcsuite/btcd/address/v2/bech32"
 	"github.com/btcsuite/btcd/btcec/v2"
 	"github.com/btcsuite/btcd/chaincfg/v2"
+	sphinx "github.com/lightningnetwork/lightning-onion"
 	"github.com/lightningnetwork/lnd/lnwire"
 	"github.com/stretchr/testify/require"
 )
@@ -891,4 +893,68 @@ func TestParseTaggedFields(t *testing.T) {
 			}
 		})
 	}
+}
+
+// TestDecodeBlindedPaymentTruncated ensures that a truncated blinded payment
+// path is rejected instead of being decoded with a partially zero-filled cipher
+// text. A reader is free to return fewer bytes than requested, so a single
+// Read must not be mistaken for a complete field.
+func TestDecodeBlindedPaymentTruncated(t *testing.T) {
+	t.Parallel()
+
+	path := &BlindedPaymentPath{
+		FeeBaseMsat:                 40,
+		FeeRate:                     20,
+		CltvExpiryDelta:             130,
+		HTLCMinMsat:                 2,
+		HTLCMaxMsat:                 100,
+		Features:                    lnwire.EmptyFeatureVector(),
+		FirstEphemeralBlindingPoint: testBlindedHopPK1,
+		Hops: []*sphinx.BlindedHopInfo{
+			{
+				BlindedNodePub: testBlindedHopPK2,
+				CipherText: []byte{
+					1, 2, 3, 4, 5, 6, 7, 8, 9,
+				},
+			},
+		},
+	}
+
+	var encoded bytes.Buffer
+	require.NoError(t, path.Encode(&encoded))
+	full := encoded.Bytes()
+
+	// Each hop is a 33 byte blinded node pubkey, a BigSize length and the
+	// cipher text. Dropping the final byte therefore leaves the announced
+	// cipher text length larger than the data actually present.
+	tests := []struct {
+		name   string
+		offset int
+	}{
+		{
+			name:   "truncated cipher text",
+			offset: 1,
+		},
+		{
+			name:   "truncated cipher text by half",
+			offset: 4,
+		},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			truncated := full[:len(full)-tc.offset]
+
+			_, err := DecodeBlindedPayment(
+				bytes.NewReader(truncated),
+			)
+			require.ErrorIs(t, err, io.ErrUnexpectedEOF)
+		})
+	}
+
+	// The untruncated encoding must still round-trip.
+	decoded, err := DecodeBlindedPayment(bytes.NewReader(full))
+	require.NoError(t, err)
+	require.Len(t, decoded.Hops, 1)
+	require.Equal(t, []byte{1, 2, 3, 4, 5, 6, 7, 8, 9},
+		decoded.Hops[0].CipherText)
 }

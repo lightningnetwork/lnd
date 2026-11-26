@@ -47,25 +47,18 @@ var (
 		"btcdexec", "", "full path to btcd binary",
 	)
 
-	// CfgStaticRemoteKey specifies the config used to create a node that
-	// uses the static remote key feature.
-	CfgStaticRemoteKey = []string{}
-
-	// CfgAnchor specifies the config used to create a node that uses the
-	// anchor output feature.
-	CfgAnchor = []string{"--protocol.anchors"}
+	// CfgAnchor specifies the default config used for anchor channels.
+	CfgAnchor = []string{}
 
 	// CfgLeased specifies the config used to create a node that uses the
 	// leased channel feature.
 	CfgLeased = []string{
-		"--protocol.anchors",
 		"--protocol.script-enforced-lease",
 	}
 
 	// CfgSimpleTaproot specifies the config used to create a node that
 	// uses the simple taproot feature.
 	CfgSimpleTaproot = []string{
-		"--protocol.anchors",
 		"--protocol.simple-taproot-chans",
 	}
 
@@ -78,7 +71,6 @@ var (
 	// CfgZeroConf specifies the config used to create a node that uses the
 	// zero-conf channel feature.
 	CfgZeroConf = []string{
-		"--protocol.anchors",
 		"--protocol.option-scid-alias",
 		"--protocol.zero-conf",
 	}

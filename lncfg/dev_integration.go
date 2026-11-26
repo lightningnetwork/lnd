@@ -30,6 +30,7 @@ type DevConfig struct {
 	UnsafeConnect               bool          `long:"unsafeconnect" description:"Allow the rpcserver to connect to a peer even if there's already a connection."`
 	ForceChannelCloseConfs      uint32        `long:"force-channel-close-confs" description:"Force a specific number of confirmations for channel closes (dev/test only)"`
 	MinFwdHistoryAge            time.Duration `long:"min-fwd-history-age" description:"Minimum age of forwarding events before they can be deleted via DeleteForwardingHistory (dev/test only, default: 1h)"`
+	AllowStaticRemoteKey        bool          `long:"allow-static-remote-key" description:"Allow opening and accepting new static remote key channels, so tests can still cover existing channels of this deprecated type (dev/test only)."`
 }
 
 // ChannelReadyWait returns the config value `ProcessChannelReadyWait`.
@@ -79,6 +80,11 @@ func (d *DevConfig) GetUnsafeConnect() bool {
 // Returns 0 if unset, which causes the caller to use the default (1h).
 func (d *DevConfig) GetMinFwdHistoryAge() time.Duration {
 	return d.MinFwdHistoryAge
+}
+
+// GetAllowStaticRemoteKey returns the config value `AllowStaticRemoteKey`.
+func (d *DevConfig) GetAllowStaticRemoteKey() bool {
+	return d.AllowStaticRemoteKey
 }
 
 // ChannelCloseConfs returns the forced confirmation count if set, or None if

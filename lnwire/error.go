@@ -33,10 +33,10 @@ const (
 	ErrChanTypeRequired FundingError = 3
 
 	// ErrChanTypeDeprecated is returned by a remote peer that receives a
-	// FundingOpen request for the legacy commitment type, which it no
-	// longer opens. It is kept terse on purpose: which type the peer
-	// should use instead is our local policy, not something the remote can
-	// act on.
+	// FundingOpen request for the legacy or static remote key commitment
+	// types, which it no longer opens. It is kept terse on purpose: which
+	// type the peer should use instead is our local policy, not something
+	// the remote can act on.
 	ErrChanTypeDeprecated FundingError = 4
 )
 

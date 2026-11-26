@@ -855,11 +855,11 @@ func testListSweeps(ht *lntest.HarnessTest) {
 	)
 
 	// Mine enough blocks for the node to sweep its funds from the force
-	// closed channel. The commit sweep resolver offers the outputs to the
-	// sweeper up to one block before the CSV elapses, so wait until
-	// defaulCSV-1.
+	// closed channel. The commit sweep resolver offers the output to the
+	// sweeper up to one block before the CSV elapses. Anchor sweep requests
+	// for all three channels are also pending, so wait until defaulCSV-1.
 	ht.MineEmptyBlocks(node.DefaultCSV - 1)
-	ht.AssertNumPendingSweeps(alice, 1)
+	ht.AssertNumPendingSweeps(alice, 4)
 
 	// Mine a block to trigger the sweep.
 	ht.MineEmptyBlocks(1)

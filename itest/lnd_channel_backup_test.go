@@ -28,6 +28,19 @@ import (
 var channelRestoreTestCases = []*lntest.TestCase{
 	{
 		// Restore the backup from the on-disk file, using the RPC
+		// interface, for static remote key channels. New channels of
+		// this type can only be opened in integration builds, but
+		// existing ones must still be recoverable.
+		Name: "restore static remote key",
+		TestFunc: func(ht *lntest.HarnessTest) {
+			runChanRestoreScenarioCommitTypes(
+				ht, lnrpc.CommitmentType_STATIC_REMOTE_KEY,
+				false,
+			)
+		},
+	},
+	{
+		// Restore the backup from the on-disk file, using the RPC
 		// interface, for anchor commitment channels.
 		Name: "restore anchor",
 		TestFunc: func(ht *lntest.HarnessTest) {
@@ -518,7 +531,7 @@ func runChanRestoreScenarioBasic(ht *lntest.HarnessTest,
 
 	// Create a new restore scenario.
 	crs := newChanRestoreScenario(
-		ht, lnrpc.CommitmentType_UNKNOWN_COMMITMENT_TYPE, false,
+		ht, lnrpc.CommitmentType_ANCHORS, false,
 	)
 	carol, dave := crs.carol, crs.dave
 
@@ -559,7 +572,7 @@ func testChannelBackupRestoreUnconfirmed(ht *lntest.HarnessTest) {
 func runChanRestoreScenarioUnConfirmed(ht *lntest.HarnessTest, useFile bool) {
 	// Create a new restore scenario.
 	crs := newChanRestoreScenario(
-		ht, lnrpc.CommitmentType_UNKNOWN_COMMITMENT_TYPE, false,
+		ht, lnrpc.CommitmentType_ANCHORS, false,
 	)
 	carol, dave := crs.carol, crs.dave
 
@@ -682,16 +695,18 @@ func runChanRestoreScenarioCommitTypes(ht *lntest.HarnessTest,
 }
 
 // testChannelBackupRestoreLegacy checks a channel with the legacy revocation
-// producer format and makes sure old SCBs can still be recovered.
+// producer format and makes sure old SCBs can still be recovered. Channels
+// with this format predate anchors, so we use a static remote key channel.
 func testChannelBackupRestoreLegacy(ht *lntest.HarnessTest) {
 	// Create a new restore scenario.
 	crs := newChanRestoreScenario(
-		ht, lnrpc.CommitmentType_UNKNOWN_COMMITMENT_TYPE, false,
+		ht, lnrpc.CommitmentType_STATIC_REMOTE_KEY, false,
 	)
 	carol, dave := crs.carol, crs.dave
 
 	createLegacyRevocationChannel(
-		ht, crs.params.Amt, crs.params.PushAmt, dave, carol,
+		ht, crs.params.Amt, crs.params.PushAmt,
+		crs.params.CommitmentType, dave, carol,
 	)
 
 	// For this restoration method, we'll grab the current multi-channel
@@ -1177,7 +1192,31 @@ func testExportChannelBackup(ht *lntest.HarnessTest) {
 // relationship lost state, they will detect this during channel sync, and the
 // up-to-date party will force close the channel, giving the outdated party the
 // opportunity to sweep its output.
+//
+// We still cover static remote key channels, as existing ones keep operating
+// even though new ones can only be opened in integration builds. Their
+// to_remote output carries no CSV delay, unlike that of anchor channels.
 func testDataLossProtection(ht *lntest.HarnessTest) {
+	for _, commitType := range []lnrpc.CommitmentType{
+		lnrpc.CommitmentType_STATIC_REMOTE_KEY,
+		lnrpc.CommitmentType_ANCHORS,
+	} {
+		ct := commitType
+		success := ht.Run(ct.String(), func(t *testing.T) {
+			st := ht.Subtest(t)
+			runDataLossProtection(st, ct)
+		})
+		if !success {
+			break
+		}
+	}
+}
+
+// runDataLossProtection runs the data loss protection test for a channel of
+// the given commitment type.
+func runDataLossProtection(ht *lntest.HarnessTest,
+	commitType lnrpc.CommitmentType) {
+
 	const (
 		chanAmt     = funding.MaxBtcFundingAmount
 		paymentAmt  = 10000
@@ -1189,10 +1228,13 @@ func testDataLossProtection(ht *lntest.HarnessTest) {
 	// protection logic automatically. We also can't have Carol
 	// automatically re-connect too early, otherwise DLP would be initiated
 	// at the wrong moment.
-	carol := ht.NewNode("Carol", []string{"--nolisten", "--minbackoff=1h"})
+	commitArgs := lntest.NodeArgsForCommitType(commitType)
+	carol := ht.NewNode("Carol", append(
+		[]string{"--nolisten", "--minbackoff=1h"}, commitArgs...,
+	))
 
 	// Dave will be the party losing his state.
-	dave := ht.NewNode("Dave", nil)
+	dave := ht.NewNode("Dave", commitArgs)
 
 	// Before we make a channel, we'll load up Carol with some coins sent
 	// directly from the miner.
@@ -1212,7 +1254,8 @@ func testDataLossProtection(ht *lntest.HarnessTest) {
 		// value.
 		chanPoint := ht.OpenChannel(
 			carol, dave, lntest.OpenChannelParams{
-				Amt: chanAmt,
+				Amt:            chanAmt,
+				CommitmentType: commitType,
 			},
 		)
 
@@ -1289,7 +1332,7 @@ func testDataLossProtection(ht *lntest.HarnessTest) {
 	// on chain, and both of them properly carry out the DLP protocol.
 	assertDLPExecuted(
 		ht, carol, carolStartingBalance, dave,
-		daveStartingBalance, lnrpc.CommitmentType_STATIC_REMOTE_KEY,
+		daveStartingBalance, commitType,
 	)
 
 	// As a second part of this test, we will test the scenario where a
@@ -1304,8 +1347,16 @@ func testDataLossProtection(ht *lntest.HarnessTest) {
 	carolBalResp = carol.RPC.WalletBalance()
 	carolStartingBalance = carolBalResp.ConfirmedBalance
 
-	// Now let Carol force close the channel while Dave is offline.
-	ht.ForceCloseChannel(carol, chanPoint2)
+	// Now let Carol force close the channel while Dave is offline. The
+	// first half of the test can leave uneconomical anchor sweeps pending,
+	// so use the anchor-aware assertions instead of the non-anchor cleanup
+	// helper.
+	stream, _ := ht.CloseChannelAssertPending(carol, chanPoint2, true)
+	ht.AssertStreamChannelForceClosed(carol, chanPoint2, true, stream)
+	ht.MineEmptyBlocks(node.DefaultCSV - 1)
+	ht.AssertAtLeastNumPendingSweeps(carol, 1)
+	ht.MineBlocksAndAssertNumTxes(1, 1)
+	ht.AssertNumPendingForceClose(carol, 0)
 
 	// Make sure Carol got her balance back.
 	carolBalResp = carol.RPC.WalletBalance()
@@ -1331,8 +1382,13 @@ func testDataLossProtection(ht *lntest.HarnessTest) {
 	// Make sure Dave still has the pending force close channel.
 	ht.AssertNumPendingForceClose(dave, 1)
 
-	// Dave should have a pending sweep.
-	ht.AssertNumPendingSweeps(dave, 1)
+	// Dave should have a pending sweep for his funds, and one for his
+	// anchor output if the channel has anchors.
+	expDaveSweeps := 1
+	if lntest.CommitTypeHasAnchors(commitType) {
+		expDaveSweeps = 2
+	}
+	ht.AssertNumPendingSweeps(dave, expDaveSweeps)
 
 	// Dave should sweep his funds.
 	ht.AssertNumTxsInMempool(1)
@@ -1360,7 +1416,8 @@ func testDataLossProtection(ht *lntest.HarnessTest) {
 // revocation producer format by using PSBT to signal a special pending channel
 // ID.
 func createLegacyRevocationChannel(ht *lntest.HarnessTest,
-	chanAmt, pushAmt btcutil.Amount, from, to *node.HarnessNode) {
+	chanAmt, pushAmt btcutil.Amount, commitType lnrpc.CommitmentType,
+	from, to *node.HarnessNode) {
 
 	// We'll signal to the wallet that we also want to create a channel
 	// with the legacy revocation producer format that relies on deriving a
@@ -1382,9 +1439,10 @@ func createLegacyRevocationChannel(ht *lntest.HarnessTest,
 		},
 	}
 	openChannelReq := lntest.OpenChannelParams{
-		Amt:         chanAmt,
-		PushAmt:     pushAmt,
-		FundingShim: shim,
+		Amt:            chanAmt,
+		PushAmt:        pushAmt,
+		FundingShim:    shim,
+		CommitmentType: commitType,
 	}
 	chanUpdates, tempPsbt := ht.OpenChannelPsbt(from, to, openChannelReq)
 

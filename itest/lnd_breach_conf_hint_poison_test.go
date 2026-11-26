@@ -143,13 +143,17 @@ func testBreachConfHintPoisonedByFakeFunding(ht *lntest.HarnessTest) {
 		},
 	}
 
-	// A static remote key channel spares Mallory2 the anchor wallet
-	// reserve, so she needs no coins at all.
+	// The wallet only holds back the anchor fee-bump reserve for public
+	// anchor channels, so a private open spares Mallory2 that reserve and
+	// she needs no coins at all. Alice still waits for the fake funding
+	// output to confirm, and registers for its txid, whether or not the
+	// channel would be announced.
 	ht.OpenChannelAssertPending(
 		mallory2, alice, lntest.OpenChannelParams{
 			Amt:            fakeChanAmt,
 			FundingShim:    fakeShim,
-			CommitmentType: lnrpc.CommitmentType_STATIC_REMOTE_KEY,
+			CommitmentType: commitType,
+			Private:        true,
 		},
 	)
 	ht.AssertNumPendingOpenChannels(alice, 1)

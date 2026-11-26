@@ -23,6 +23,10 @@ func TestCommitmentTypeNegotiation(t *testing.T) {
 		zeroConf          bool
 		scidAlias         bool
 		expectsErr        error
+
+		// allowStaticRemoteKey mirrors the dev config option that
+		// lets integration tests open static remote key channels.
+		allowStaticRemoteKey bool
 	}{
 		{
 			name: "explicit type without remote negotiation bit",
@@ -206,7 +210,7 @@ func TestCommitmentTypeNegotiation(t *testing.T) {
 			expectsErr: nil,
 		},
 		{
-			name: "explicit tweakless",
+			name: "explicit tweakless rejected",
 			channelFeatures: lnwire.NewRawFeatureVector(
 				lnwire.StaticRemoteKeyRequired,
 			),
@@ -218,13 +222,44 @@ func TestCommitmentTypeNegotiation(t *testing.T) {
 				lnwire.StaticRemoteKeyOptional,
 				lnwire.AnchorsZeroFeeHtlcTxOptional,
 			),
-			expectsCommitType: lnwallet.CommitmentTypeTweakless,
+			expectsErr: lnwire.ErrChanTypeDeprecated,
+		},
+		{
+			name: "explicit tweakless allowed by dev config",
+			channelFeatures: lnwire.NewRawFeatureVector(
+				lnwire.StaticRemoteKeyRequired,
+			),
+			localFeatures: lnwire.NewRawFeatureVector(
+				lnwire.StaticRemoteKeyOptional,
+				lnwire.AnchorsZeroFeeHtlcTxOptional,
+			),
+			remoteFeatures: lnwire.NewRawFeatureVector(
+				lnwire.StaticRemoteKeyOptional,
+				lnwire.AnchorsZeroFeeHtlcTxOptional,
+			),
+			allowStaticRemoteKey: true,
+			expectsCommitType:    lnwallet.CommitmentTypeTweakless,
 			expectsChanType: (*lnwire.ChannelType)(
 				lnwire.NewRawFeatureVector(
 					lnwire.StaticRemoteKeyRequired,
 				),
 			),
 			expectsErr: nil,
+		},
+		{
+			// The dev config only permits an explicit request, so
+			// a peer without static remote key support is still
+			// refused.
+			name: "explicit tweakless allowed but unsupported",
+			channelFeatures: lnwire.NewRawFeatureVector(
+				lnwire.StaticRemoteKeyRequired,
+			),
+			localFeatures: lnwire.NewRawFeatureVector(
+				lnwire.StaticRemoteKeyOptional,
+			),
+			remoteFeatures:       lnwire.NewRawFeatureVector(),
+			allowStaticRemoteKey: true,
+			expectsErr:           errUnsupportedChannelType,
 		},
 		{
 			// An empty channel type asks for the legacy commitment
@@ -256,7 +291,7 @@ func TestCommitmentTypeNegotiation(t *testing.T) {
 				lnwire.StaticRemoteKeyOptional,
 				lnwire.AnchorsZeroFeeHtlcTxOptional,
 			),
-			expectsCommitType: lnwallet.CommitmentTypeAnchorsZeroFeeHtlcTx,
+			expectsCommitType: lnwallet.CommitmentTypeAnchorsZeroFeeHtlcTx, //nolint:ll
 			expectsChanType: (*lnwire.ChannelType)(
 				lnwire.NewRawFeatureVector(
 					lnwire.StaticRemoteKeyRequired,
@@ -266,7 +301,7 @@ func TestCommitmentTypeNegotiation(t *testing.T) {
 			expectsErr: nil,
 		},
 		{
-			name:            "default tweakless",
+			name:            "default tweakless rejected",
 			channelFeatures: nil,
 			localFeatures: lnwire.NewRawFeatureVector(
 				lnwire.StaticRemoteKeyRequired,
@@ -275,19 +310,11 @@ func TestCommitmentTypeNegotiation(t *testing.T) {
 			remoteFeatures: lnwire.NewRawFeatureVector(
 				lnwire.StaticRemoteKeyOptional,
 			),
-			expectsCommitType: lnwallet.CommitmentTypeTweakless,
-			expectsChanType: (*lnwire.ChannelType)(
-				lnwire.NewRawFeatureVector(
-					lnwire.StaticRemoteKeyRequired,
-				),
-			),
-			expectsErr: nil,
+			expectsErr: ErrNoAnchorSupport,
 		},
 		{
-			// Without mutual support for static remote key there is
-			// nothing left to fall back on but the legacy type.
-			// Note that the test runs both peer orderings, so it
-			// covers either side being the one that lacks it.
+			// Without mutual anchor support there is no acceptable
+			// fallback type. The test runs both peer orderings.
 			name:            "default legacy rejected",
 			channelFeatures: nil,
 			localFeatures:   lnwire.NewRawFeatureVector(),
@@ -295,7 +322,7 @@ func TestCommitmentTypeNegotiation(t *testing.T) {
 				lnwire.StaticRemoteKeyOptional,
 				lnwire.AnchorsZeroFeeHtlcTxOptional,
 			),
-			expectsErr: ErrDeprecatedChanType,
+			expectsErr: ErrNoAnchorSupport,
 		},
 
 		// Test cases for final taproot channels with explicit
@@ -450,13 +477,7 @@ func TestCommitmentTypeNegotiation(t *testing.T) {
 				lnwire.StaticRemoteKeyOptional,
 				lnwire.SimpleTaprootChannelsOptionalStaging,
 			),
-			expectsCommitType: lnwallet.CommitmentTypeTweakless,
-			expectsChanType: (*lnwire.ChannelType)(
-				lnwire.NewRawFeatureVector(
-					lnwire.StaticRemoteKeyRequired,
-				),
-			),
-			expectsErr: nil,
+			expectsErr: ErrNoAnchorSupport,
 		},
 		{
 			//nolint:ll
@@ -470,13 +491,7 @@ func TestCommitmentTypeNegotiation(t *testing.T) {
 				lnwire.StaticRemoteKeyOptional,
 				lnwire.SimpleTaprootChannelsOptionalFinal,
 			),
-			expectsCommitType: lnwallet.CommitmentTypeTweakless,
-			expectsChanType: (*lnwire.ChannelType)(
-				lnwire.NewRawFeatureVector(
-					lnwire.StaticRemoteKeyRequired,
-				),
-			),
-			expectsErr: nil,
+			expectsErr: ErrNoAnchorSupport,
 		},
 	}
 
@@ -499,6 +514,7 @@ func TestCommitmentTypeNegotiation(t *testing.T) {
 
 			lChan, lCommit, err := negotiateCommitmentType(
 				channelType, localFeatures, remoteFeatures,
+				testCase.allowStaticRemoteKey,
 			)
 
 			var (
@@ -524,6 +540,7 @@ func TestCommitmentTypeNegotiation(t *testing.T) {
 
 			rChan, rCommit, err := negotiateCommitmentType(
 				channelType, remoteFeatures, localFeatures,
+				testCase.allowStaticRemoteKey,
 			)
 
 			if rChan != nil {

@@ -367,6 +367,11 @@ type DevConfig struct {
 	// for the funding transaction to be confirmed before forgetting
 	// channels that aren't initiated by us.
 	MaxWaitNumBlocksFundingConf uint32
+
+	// AllowStaticRemoteKey allows opening and accepting new static remote
+	// key channels. Production nodes no longer do this, but integration
+	// tests still need such channels to cover the ones that exist.
+	AllowStaticRemoteKey bool
 }
 
 // Config defines the configuration for the FundingManager. All elements
@@ -872,6 +877,13 @@ func (f *Manager) rebroadcastFundingTx(c *chanstate.OpenChannel) {
 // PendingChanID is a type that represents a pending channel ID. This might be
 // selected by the caller, but if not, will be automatically selected.
 type PendingChanID = [32]byte
+
+// allowStaticRemoteKey returns true if this node may open or accept new
+// static remote key channels. Only the dev config of an integration build can
+// enable this, as production nodes leave the dev config nil.
+func (f *Manager) allowStaticRemoteKey() bool {
+	return f.cfg.Dev != nil && f.cfg.Dev.AllowStaticRemoteKey
+}
 
 // nextPendingChanID returns the next free pending channel ID to be used to
 // identify a particular future channel funding workflow.
@@ -1718,6 +1730,7 @@ func (f *Manager) fundeeProcessOpenChannel(peer lnpeer.Peer,
 	// signaling.
 	chanType, commitType, err := negotiateCommitmentType(
 		msg.ChannelType, peer.LocalFeatures(), peer.RemoteFeatures(),
+		f.allowStaticRemoteKey(),
 	)
 	if err != nil {
 		// TODO(roasbeef): should be using soft errors
@@ -1758,8 +1771,10 @@ func (f *Manager) fundeeProcessOpenChannel(peer lnpeer.Peer,
 
 	// If the zero-conf channel type wasn't negotiated and the fundee still
 	// wants a zero-conf channel, perform more checks. Require that both
-	// sides have the scid-alias feature bit set. We don't require anchors
-	// here - this is for compatibility with LDK.
+	// sides have the scid-alias feature bit set. Commitment type
+	// negotiation has already restricted new channels to anchor or newer
+	// commitment types, so only the scid-alias feature needs checking
+	// here.
 	if !zeroConf && acceptorResp.ZeroConf {
 		if !scidFeatureVal {
 			// Fail the funding flow.
@@ -5130,7 +5145,7 @@ func (f *Manager) handleInitFundingMsg(msg *InitFundingMsg) {
 	// commitment features.
 	chanType, commitType, err := negotiateCommitmentType(
 		msg.ChannelType, msg.Peer.LocalFeatures(),
-		msg.Peer.RemoteFeatures(),
+		msg.Peer.RemoteFeatures(), f.allowStaticRemoteKey(),
 	)
 	if err != nil {
 		log.Errorf("channel type negotiation failed: %v", err)

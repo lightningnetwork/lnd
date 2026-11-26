@@ -7,6 +7,7 @@ import (
 	"errors"
 	"fmt"
 	"math"
+	"sync"
 	"testing"
 	"testing/quick"
 	"time"
@@ -647,14 +648,34 @@ func TestInvoiceRegistry(t *testing.T) {
 		return db, testClock
 	}
 
-	// First create a shared Postgres instance so we don't spawn a new
-	// docker container for each test.
-	pgFixture := sqldb.NewTestPgFixture(
-		t, sqldb.DefaultPostgresFixtureLifetime,
+	// The shared Postgres fixture is created lazily so that the KV and
+	// SQLite subtests can also run on machines without a docker daemon.
+	// The fixture is still created at most once and shared by all Postgres
+	// subtests.
+	var (
+		pgFixture     *sqldb.TestPgFixture
+		pgFixtureOnce sync.Once
 	)
-	t.Cleanup(func() {
-		pgFixture.TearDown(t)
-	})
+	getPgFixture := func(st *testing.T) *sqldb.TestPgFixture {
+		st.Helper()
+
+		pgFixtureOnce.Do(func() {
+			// Create the fixture with the calling subtest so a
+			// failure is attributed correctly, but register the
+			// teardown on the parent test so the shared container
+			// outlives any single (parallel) subtest.
+			pgFixture = sqldb.NewTestPgFixture(
+				st, sqldb.DefaultPostgresFixtureLifetime,
+			)
+			t.Cleanup(func() {
+				pgFixture.TearDown(t)
+			})
+		})
+
+		require.NotNil(st, pgFixture, "Postgres fixture setup failed")
+
+		return pgFixture
+	}
 
 	makeSQLDB := func(t *testing.T, sqlite bool) (invpkg.InvoiceDB,
 		*clock.TestClock) {
@@ -663,7 +684,7 @@ func TestInvoiceRegistry(t *testing.T) {
 		if sqlite {
 			db = sqldb.NewTestSqliteDB(t).BaseDB
 		} else {
-			db = sqldb.NewTestPostgresDB(t, pgFixture).BaseDB
+			db = sqldb.NewTestPostgresDB(t, getPgFixture(t)).BaseDB
 		}
 
 		executor := sqldb.NewTransactionExecutor(

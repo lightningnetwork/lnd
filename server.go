@@ -972,9 +972,16 @@ func newServer(ctx context.Context, cfg *Config, listenAddrs []net.Addr,
 		)
 		replier := bolt12handler.NewServerOnionReplier(s)
 
+		var pathIDKey bolt12handler.PathIDKey
+		pathIDKey, err = bolt12handler.DerivePathIDKey(nodeKeyECDH)
+		if err != nil {
+			return nil, err
+		}
+
 		// Use the final CLTV delta of BOLT 11 invoices.
 		s.bolt12Handler, err = bolt12handler.NewHandler(
-			s.offerStore, s.invoices, replier, signer, nil,
+			s.offerStore, replier, signer, pathIDKey,
+			nil,
 			clock.NewDefaultClock(),
 			*s.cfg.ActiveNetParams.GenesisHash,
 			uint16(cfg.Bitcoin.TimeLockDelta),
@@ -982,6 +989,15 @@ func newServer(ctx context.Context, cfg *Config, listenAddrs []net.Addr,
 		if err != nil {
 			return nil, err
 		}
+
+		// The registry rebuilds a BOLT 12 invoice from the invoice
+		// envelope of its first HTLC.
+		registryConfig.Bolt12Reconstructor =
+			bolt12handler.NewReconstructor(
+				pathIDKey, s.offerStore,
+				*s.cfg.ActiveNetParams.GenesisHash,
+				uint16(cfg.Bitcoin.TimeLockDelta),
+			)
 	}
 
 	thresholdSats := btcutil.Amount(cfg.MaxFeeExposure)

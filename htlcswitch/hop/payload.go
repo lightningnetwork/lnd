@@ -425,6 +425,13 @@ func (h *Payload) Metadata() []byte {
 	return h.metadata
 }
 
+// InvoiceEnvelope returns the invoice envelope from the final-hop encrypted
+// data of a BOLT 12 blinded path. Returns nil for BOLT 11 blinded paths or
+// when no envelope is present.
+func (h *Payload) InvoiceEnvelope() []byte {
+	return h.FwdInfo.InvoiceEnvelope
+}
+
 // TotalAmtMsat returns the total amount sent to the final hop, as set by the
 // payee.
 func (h *Payload) TotalAmtMsat() lnwire.MilliSatoshi {

@@ -96,6 +96,14 @@ type InvoiceDB interface {
 	// DeleteCanceledInvoices removes canceled invoices, preserving ordinary
 	// release history for both collected and failed HTLCs.
 	DeleteCanceledInvoices(ctx context.Context) error
+
+	// DeleteOpenBolt12Invoice deletes the BOLT 12 invoice with the given
+	// add index. It deletes only an invoice that answers an offer, is open
+	// and has no accepted HTLC. The check and the delete happen in one
+	// transaction. An invoice without an offer cannot be rebuilt, so it
+	// stays. It reports whether it deleted the invoice.
+	DeleteOpenBolt12Invoice(ctx context.Context, addIndex uint64) (bool,
+		error)
 }
 
 // Payload abstracts access to any additional fields provided in the final hop's
@@ -124,6 +132,11 @@ type Payload interface {
 	// TotalAmtMsat returns the total amount sent to the final hop, as set
 	// by the payee.
 	TotalAmtMsat() lnwire.MilliSatoshi
+
+	// InvoiceEnvelope returns the invoice envelope from the final-hop
+	// encrypted data of a BOLT 12 blinded path. Returns nil for BOLT 11
+	// blinded paths.
+	InvoiceEnvelope() []byte
 }
 
 // InvoiceQuery represents a query to the invoice database. The query allows a
@@ -268,6 +281,24 @@ type HtlcModifyResponse struct {
 // HtlcModifyCallback is a function that is called when an invoice is
 // intercepted by the invoice interceptor.
 type HtlcModifyCallback func(HtlcModifyRequest) (*HtlcModifyResponse, error)
+
+// Bolt12Reconstructor rebuilds a BOLT 12 invoice from the invoice envelope of
+// its first HTLC. The node stores no BOLT 12 invoice of an offer before that
+// HTLC arrives.
+type Bolt12Reconstructor interface {
+	// ReconstructInvoice rebuilds a fully populated Invoice from an
+	// invoice envelope and the offer that backs it, after it checks that
+	// the payment path id authenticates the envelope.
+	ReconstructInvoice(ctx context.Context, envelope []byte,
+		pathID chainhash.Hash,
+		paymentHash lntypes.Hash) (*Invoice, error)
+
+	// CheckOfferActive returns an error when the offer with the given
+	// hash is unknown or disabled. An offer can be disabled after the first
+	// HTLC of a set arrives, so the check must run for each later HTLC of
+	// an open BOLT 12 invoice.
+	CheckOfferActive(ctx context.Context, offerHash []byte) error
+}
 
 // HtlcModifier is an interface that allows an intercept client to register
 // itself as a modifier of HTLCs that are settling an invoice. The client can

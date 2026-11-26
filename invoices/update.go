@@ -30,11 +30,12 @@ type invoiceUpdateCtx struct {
 	// HTLC onion payload.
 	customRecords record.CustomSet
 
-	mpp          *record.MPP
-	amp          *record.AMP
-	metadata     []byte
-	pathID       *chainhash.Hash
-	totalAmtMsat lnwire.MilliSatoshi
+	mpp             *record.MPP
+	amp             *record.AMP
+	metadata        []byte
+	pathID          *chainhash.Hash
+	totalAmtMsat    lnwire.MilliSatoshi
+	invoiceEnvelope []byte
 }
 
 // invoiceRef returns an identifier that can be used to lookup or update the

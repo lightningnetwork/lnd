@@ -2255,6 +2255,52 @@ func TestHTLCSet(t *testing.T) {
 	}
 }
 
+// TestInvoiceIsKeysend verifies that only an invoice without a payment request
+// that is neither AMP nor BOLT 12 counts as a keysend invoice.
+func TestInvoiceIsKeysend(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name    string
+		invoice invpkg.Invoice
+		want    bool
+	}{
+		{
+			name: "no payment request",
+			want: true,
+		},
+		{
+			name: "payment request",
+			invoice: invpkg.Invoice{
+				PaymentRequest: []byte("lnbc1test"),
+			},
+		},
+		{
+			name: "AMP",
+			invoice: invpkg.Invoice{
+				Terms: invpkg.ContractTerm{
+					Features: ampFeatures,
+				},
+			},
+		},
+		{
+			name:    "BOLT 12",
+			invoice: invpkg.Invoice{IsBolt12: true},
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+
+			if tc.invoice.Terms.Features == nil {
+				tc.invoice.Terms.Features = emptyFeatures
+			}
+			require.Equal(t, tc.want, tc.invoice.IsKeysend())
+		})
+	}
+}
+
 // testAddInvoiceWithHTLCs asserts that you can't insert an invoice that already
 // has HTLCs.
 func testAddInvoiceWithHTLCs(t *testing.T,

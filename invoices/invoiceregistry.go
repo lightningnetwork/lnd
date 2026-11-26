@@ -88,6 +88,11 @@ type RegistryConfig struct {
 	// SettleReconcileInterval retries pending outcome discovery. Zero
 	// uses DefaultSettleReconcileInterval, and idle passes skip scans.
 	SettleReconcileInterval time.Duration
+
+	// Bolt12Reconstructor rebuilds BOLT 12 invoices from the invoice
+	// envelopes of their first HTLCs. When nil, the registry rebuilds no
+	// invoice.
+	Bolt12Reconstructor Bolt12Reconstructor
 }
 
 // htlcReleaseEvent describes an htlc auto-release event. It is used to release
@@ -414,11 +419,6 @@ func (i *InvoiceRegistry) dispatchToSingleClients(event *invoiceEvent) {
 func (i *InvoiceRegistry) dispatchToClients(event *invoiceEvent) {
 	invoice := event.invoice
 
-	// A BOLT 12 invoice has no database row and so no add index. Its
-	// event skips the add index checks and must not move the add index of
-	// a client back to zero, which would replay later events.
-	unindexedBolt12 := invoice.IsBolt12 && invoice.AddIndex == 0
-
 	clients := i.copyClients()
 	for clientID, client := range clients {
 		// We won't deliver any events until the backlog has been
@@ -439,8 +439,6 @@ func (i *InvoiceRegistry) dispatchToClients(event *invoiceEvent) {
 		// TODO(joostjager): Refactor switches.
 		state := event.invoice.State
 		switch {
-		case unindexedBolt12:
-
 		// If we've already sent this settle event to
 		// the client, then we can skip this.
 		case state == ContractSettled &&
@@ -490,8 +488,6 @@ func (i *InvoiceRegistry) dispatchToClients(event *invoiceEvent) {
 		// event is added while we're catching up a new client.
 		invState := event.invoice.State
 		switch {
-		case unindexedBolt12:
-
 		case invState == ContractSettled:
 			client.settleIndex = invoice.SettleIndex
 
@@ -857,7 +853,42 @@ func (i *InvoiceRegistry) cancelSingleHtlc(invoiceRef InvoiceRef,
 		i.notifyHodlSubscribers(resolution)
 	}
 
+	// A rebuilt BOLT 12 invoice that no HTLC pays is deleted. This runs
+	// on the event loop without the registry lock, so a new HTLC can be
+	// accepted after the cancel above. The store checks the state again in
+	// the delete transaction, and keeps a row that an HTLC pays.
+	//
+	// A client that got the Open event of the row keeps it after the
+	// delete, and no other event for the invoice follows.
+	if invoice.IsBolt12 && invoice.State == ContractOpen &&
+		len(invoice.HTLCSet(nil, HtlcStateAccepted)) == 0 {
+
+		i.deleteOpenBolt12Invoice(invoiceRef, invoice.AddIndex)
+	}
+
 	return nil
+}
+
+// deleteOpenBolt12Invoice deletes a BOLT 12 invoice of an offer that is open
+// and has no accepted HTLC. The store checks the conditions in the delete
+// transaction, so the caller can use an invoice copy that is out of date.
+func (i *InvoiceRegistry) deleteOpenBolt12Invoice(ref InvoiceRef,
+	addIndex uint64) {
+
+	// TODO: take the context from NotifyExitHopHtlc when it gets one.
+	// The event loop also calls this after an MPP timeout, and it has
+	// no context of an HTLC either.
+	deleted, err := i.idb.DeleteOpenBolt12Invoice(
+		context.TODO(), addIndex,
+	)
+	switch {
+	case err != nil:
+		log.Errorf("Failed to delete BOLT 12 invoice %v: %v", ref, err)
+
+	case deleted:
+		log.Debugf("Deleted BOLT 12 invoice %v with no accepted HTLC",
+			ref)
+	}
 }
 
 // processKeySend just-in-time inserts an invoice if this htlc is a keysend
@@ -1065,6 +1096,7 @@ func (i *InvoiceRegistry) NotifyExitHopHtlc(rHash lntypes.Hash,
 		metadata:             payload.Metadata(),
 		pathID:               payload.PathID(),
 		totalAmtMsat:         payload.TotalAmtMsat(),
+		invoiceEnvelope:      payload.InvoiceEnvelope(),
 	}
 
 	// Only spontaneous AMP and keysend processing needs replay detection
@@ -1178,10 +1210,83 @@ func (i *InvoiceRegistry) notifyExitHopHtlcLocked(
 
 	// Look up the current invoice state to detect replays and provide
 	// existing HTLCs to the interceptor.
+	//
+	// reconstructedBolt12 records that this HTLC rebuilt the BOLT 12
+	// invoice. keepRebuilt records that the HTLC was accepted or settled,
+	// so the rebuilt row stays.
+	var reconstructedBolt12, keepRebuilt bool
 	existingInvoice, err := i.idb.LookupInvoice(
 		context.Background(), invoiceRef,
 	)
 	switch {
+	case (errors.Is(err, ErrInvoiceNotFound) ||
+		errors.Is(err, ErrNoInvoicesCreated) ||
+		errors.Is(err, ErrInvRefEquivocation)) &&
+		ctx.invoiceEnvelope != nil &&
+		ctx.pathID != nil &&
+		i.cfg.Bolt12Reconstructor != nil:
+
+		// The rebuild runs when the store has no row for the HTLC,
+		// the HTLC carries an invoice envelope and a payment path id,
+		// and the registry has a Bolt12Reconstructor. This runs under
+		// i.Lock(), so only the first shard of a payment rebuilds and
+		// stores the invoice. Later shards find the stored row.
+		//
+		// TODO: the canceled-invoice GC can delete a canceled BOLT 12
+		// invoice, and this case then rebuilds it before its expiry.
+		log.Debugf("Attempting BOLT 12 invoice reconstruction "+
+			"for hash=%v", ctx.hash)
+
+		// TODO: take the context from NotifyExitHopHtlc when it
+		// gets one.
+		reconstructed, rErr := i.cfg.Bolt12Reconstructor.
+			ReconstructInvoice(
+				context.TODO(), ctx.invoiceEnvelope,
+				*ctx.pathID, ctx.hash,
+			)
+		if rErr != nil {
+			log.Debugf("BOLT 12 reconstruction failed: %v",
+				rErr)
+
+			return NewFailResolution(
+				ctx.circuitKey, ctx.currentHeight,
+				ResultInvoiceNotFound,
+			), nil, nil
+		}
+
+		// The first shard stores the reconstructed invoice. The store
+		// sets the add index of the new row, and the registry sends its
+		// Open event below.
+		//
+		// TODO: take the context from NotifyExitHopHtlc when it
+		// gets one.
+		addIndex, addErr := i.idb.AddInvoice(
+			context.TODO(), reconstructed, ctx.hash,
+		)
+		if addErr != nil {
+			log.Errorf("Failed to insert reconstructed "+
+				"invoice: %v", addErr)
+
+			return NewFailResolution(
+				ctx.circuitKey, ctx.currentHeight,
+				ResultInvoiceNotFound,
+			), nil, nil
+		}
+
+		// The row stays only when this HTLC gets an accept or a settle
+		// resolution. Any other outcome deletes it. No other HTLC pays
+		// the row, and the expiry watcher only gets an invoice with an
+		// accepted set. Without the delete, each failed first HTLC
+		// would leave a row behind.
+		defer func() {
+			if !keepRebuilt {
+				i.deleteOpenBolt12Invoice(invoiceRef, addIndex)
+			}
+		}()
+
+		existingInvoice = *reconstructed
+		reconstructedBolt12 = true
+
 	case errors.Is(err, ErrInvoiceNotFound) ||
 		errors.Is(err, ErrNoInvoicesCreated) ||
 		errors.Is(err, ErrInvRefEquivocation):
@@ -1208,6 +1313,15 @@ func (i *InvoiceRegistry) notifyExitHopHtlcLocked(
 	)
 	if err != nil {
 		return nil, nil, err
+	}
+
+	if !isReplayed && !reconstructedBolt12 && existingInvoice.IsBolt12 &&
+		existingInvoice.State == ContractOpen {
+
+		res := i.checkLaterBolt12Htlc(ctx, &existingInvoice)
+		if res != nil {
+			return res, nil, nil
+		}
 	}
 
 	resolution := replayResolution
@@ -1398,6 +1512,8 @@ func (i *InvoiceRegistry) notifyExitHopHtlcLocked(
 	// If the htlc was settled, we will settle any previously accepted
 	// htlcs and notify our peer to settle them.
 	case *HtlcSettleResolution:
+		keepRebuilt = true
+
 		ctx.log(fmt.Sprintf("settle resolution result "+
 			"outcome: %v, at accept height: %v",
 			res.Outcome, res.AcceptHeight))
@@ -1452,6 +1568,8 @@ func (i *InvoiceRegistry) notifyExitHopHtlcLocked(
 	// If we accepted the htlc, subscribe to the hodl invoice and return
 	// an accept resolution with the htlc's accept time on it.
 	case *htlcAcceptResolution:
+		keepRebuilt = true
+
 		invoiceHtlc, ok := invoice.Htlcs[ctx.circuitKey]
 		if !ok {
 			return nil, nil, fmt.Errorf("accepted htlc: %v not"+
@@ -1496,6 +1614,15 @@ func (i *InvoiceRegistry) notifyExitHopHtlcLocked(
 		panic("unknown action")
 	}
 
+	// The rebuilt row is a new invoice, so it gets its Open event here,
+	// before the event of its first HTLC. The event carries the invoice as
+	// it was stored, with its add index and without the HTLC. A row that
+	// the registry deletes again sends no Open event.
+	if reconstructedBolt12 && keepRebuilt {
+		rebuilt := existingInvoice
+		i.notifyClients(ctx.hash, &rebuilt, nil)
+	}
+
 	// Now that the links have been notified of any state changes to their
 	// HTLCs, we'll go ahead and notify any clients waiting on the invoice
 	// state changes.
@@ -1511,6 +1638,44 @@ func (i *InvoiceRegistry) notifyExitHopHtlcLocked(
 	}
 
 	return resolution, invoiceToExpire, nil
+}
+
+// checkLaterBolt12Htlc checks a later HTLC of an open BOLT 12 invoice that an
+// earlier HTLC stored. It returns a fail resolution when the HTLC must be
+// refused, or nil when the HTLC can go on. The rebuild checked the invoice
+// expiry and the offer for the first HTLC, so a later HTLC must pass the same
+// checks. The invoice can expire, and the offer can be disabled, after the
+// first HTLC. No HTLC of the set has settled. A refused HTLC lets the set time
+// out, and the invoice is then deleted.
+func (i *InvoiceRegistry) checkLaterBolt12Htlc(ctx *invoiceUpdateCtx,
+	invoice *Invoice) HtlcResolution {
+
+	// The invoice expires after its last second, as the rebuild reads it.
+	expiry := invoice.CreationDate.Add(invoice.Terms.Expiry)
+	if i.cfg.Clock.Now().Unix() > expiry.Unix() {
+		log.Debugf("Refusing HTLC for expired BOLT 12 invoice "+
+			"hash=%v", ctx.hash)
+
+		return ctx.failRes(ResultInvoiceNotOpen)
+	}
+
+	// An invoice without an offer has nothing to disable.
+	if len(invoice.OfferHash) == 0 || i.cfg.Bolt12Reconstructor == nil {
+		return nil
+	}
+
+	// TODO: take the context from NotifyExitHopHtlc when it gets one.
+	err := i.cfg.Bolt12Reconstructor.CheckOfferActive(
+		context.TODO(), invoice.OfferHash,
+	)
+	if err != nil {
+		log.Debugf("Refusing HTLC for BOLT 12 invoice hash=%v: %v",
+			ctx.hash, err)
+
+		return ctx.failRes(ResultInvoiceNotOpen)
+	}
+
+	return nil
 }
 
 // SettleHodlInvoice sets the preimage of a hodl invoice.
@@ -1730,25 +1895,6 @@ func (i *InvoiceRegistry) notifyClients(hash lntypes.Hash,
 	select {
 	case i.invoiceEvents <- event:
 	case <-i.quit:
-	}
-}
-
-// NotifyNewBolt12Invoice sends an Open event for a new BOLT 12 invoice to the
-// connected subscribers. The invoice has no database row, so a subscriber that
-// connects later does not get the event. It returns without the event when ctx
-// ends, so that a caller can stop before the registry.
-func (i *InvoiceRegistry) NotifyNewBolt12Invoice(ctx context.Context,
-	hash lntypes.Hash, invoice *Invoice) {
-
-	event := &invoiceEvent{
-		invoice: invoice,
-		hash:    hash,
-	}
-
-	select {
-	case i.invoiceEvents <- event:
-	case <-i.quit:
-	case <-ctx.Done():
 	}
 }
 

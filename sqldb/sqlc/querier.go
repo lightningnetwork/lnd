@@ -32,6 +32,7 @@ type Querier interface {
 	DeleteNodeAddresses(ctx context.Context, nodeID int64) error
 	DeleteNodeByPubKey(ctx context.Context, arg DeleteNodeByPubKeyParams) (sql.Result, error)
 	DeleteNodeFeature(ctx context.Context, arg DeleteNodeFeatureParams) error
+	DeleteOpenBolt12Invoice(ctx context.Context, id int64) (sql.Result, error)
 	DeletePayment(ctx context.Context, id int64) error
 	DeletePruneLogEntriesInRange(ctx context.Context, arg DeletePruneLogEntriesInRangeParams) error
 	DeleteUnconnectedNodes(ctx context.Context) ([][]byte, error)
@@ -40,6 +41,7 @@ type Querier interface {
 	FailPayment(ctx context.Context, arg FailPaymentParams) (sql.Result, error)
 	FetchAMPSubInvoiceHTLCs(ctx context.Context, arg FetchAMPSubInvoiceHTLCsParams) ([]FetchAMPSubInvoiceHTLCsRow, error)
 	FetchAMPSubInvoices(ctx context.Context, arg FetchAMPSubInvoicesParams) ([]AmpSubInvoice, error)
+	FetchBolt12Invoice(ctx context.Context, invoiceID int64) (FetchBolt12InvoiceRow, error)
 	FetchHopLevelCustomRecords(ctx context.Context, hopIds []int64) ([]PaymentHopCustomRecord, error)
 	FetchHopsForAttempts(ctx context.Context, htlcAttemptIndices []int64) ([]FetchHopsForAttemptsRow, error)
 	// Batch query to fetch only HTLC resolution status for multiple payments.
@@ -185,6 +187,7 @@ type Querier interface {
 	HighestSCID(ctx context.Context, version int16) ([]byte, error)
 	InsertAMPSubInvoice(ctx context.Context, arg InsertAMPSubInvoiceParams) error
 	InsertAMPSubInvoiceHTLC(ctx context.Context, arg InsertAMPSubInvoiceHTLCParams) error
+	InsertBolt12Invoice(ctx context.Context, arg InsertBolt12InvoiceParams) error
 	InsertChainNetwork(ctx context.Context, network string) error
 	InsertChannelFeature(ctx context.Context, arg InsertChannelFeatureParams) error
 	// NOTE: This query is only meant to be used by the graph SQL migration since

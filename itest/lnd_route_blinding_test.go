@@ -1590,6 +1590,7 @@ func (b *blindedForwardTest) buildBlindedPathWithNextNodeID(
 			pub: davePub,
 			data: record.NewFinalHopBlindedRouteData(
 				constraints, bytes.Repeat([]byte{1}, 32),
+				nil,
 			),
 		},
 	}

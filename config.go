@@ -2632,6 +2632,7 @@ func logWarningsForDeprecation(cfg Config) {
 // with the development migrations.
 var bolt12Migrations = []string{
 	"000017_offers",
+	"000018_bolt12_invoices",
 }
 
 // validateBolt12Offers makes sure that the node can run BOLT 12 offers. The

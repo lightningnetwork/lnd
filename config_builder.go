@@ -1360,6 +1360,7 @@ func (d *DefaultDatabaseBuilder) BuildDatabase(
 
 		sqlInvoiceDB := invoices.NewSQLStore(
 			invoiceExecutor, clock.NewDefaultClock(),
+			sqlInvoiceStoreOptions(d.cfg.ProtocolOptions)...,
 		)
 
 		dbs.InvoiceDB = sqlInvoiceDB
@@ -1521,6 +1522,18 @@ func (d *DefaultDatabaseBuilder) BuildDatabase(
 	d.logger.Infof("Database(s) now open (time_to_open=%v)!", openTime)
 
 	return dbs, cleanUp, nil
+}
+
+// sqlInvoiceStoreOptions enables the BOLT 12 side table only when BOLT 12
+// offers are enabled, because the table comes from a development migration.
+func sqlInvoiceStoreOptions(
+	protocol *lncfg.ProtocolOptions) []invoices.SQLStoreOption {
+
+	if !protocol.Bolt12OffersEnabled() {
+		return nil
+	}
+
+	return []invoices.SQLStoreOption{invoices.WithBolt12()}
 }
 
 // waitForWalletPassword blocks until a password is provided by the user to

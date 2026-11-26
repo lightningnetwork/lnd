@@ -18,9 +18,8 @@ const maxInflightRequests = 8
 
 const (
 	// requestRate is the number of invoice requests per second that the
-	// node answers. Each answer costs a signature and puts an event into
-	// the queue of every invoice subscriber, and any peer can send a
-	// request. A payer needs one invoice per payment.
+	// node answers. Each answer costs a signature, and any peer can send
+	// a request. A payer needs one invoice per payment.
 	requestRate = 10
 
 	// requestBurst is the number of invoice requests that the node answers

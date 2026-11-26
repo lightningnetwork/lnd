@@ -38,6 +38,11 @@ type ForwardingInfo struct {
 	// sets for itself to ensure that the blinded path has been used in the
 	// correct context.
 	PathID *chainhash.Hash
+
+	// InvoiceEnvelope is the invoice envelope from the final-hop
+	// encrypted data of a BOLT 12 blinded path. The payment path id
+	// authenticates it. It is nil for BOLT 11 blinded paths.
+	InvoiceEnvelope []byte
 }
 
 // NewChannelNextHop returns a next-hop value that identifies the outgoing

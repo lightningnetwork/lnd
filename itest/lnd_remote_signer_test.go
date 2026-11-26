@@ -245,6 +245,19 @@ func prepareInboundRemoteSignerTest(ht *lntest.HarnessTest,
 				"--remotesigner.macaroonpath=%s",
 				signer.Cfg.AdminMacPath,
 			),
+
+			// A single failed ping of the signer must not stop
+			// the watch-only node with the remote signer exit
+			// code (14). The ping can fail transiently, for
+			// example when harness teardown removes the
+			// signer's temporary directory while this node is
+			// still running, or when a loaded CI runner stalls
+			// the signer's RPC server beyond the one second
+			// ping timeout. With three attempts (and the
+			// default 30s backoff) only a signer that stays
+			// unreachable for over a minute stops the node,
+			// which in a test always indicates a real problem.
+			"--healthcheck.remotesigner.attempts=3",
 		}, commitArgs...),
 		password, &lnrpc.WatchOnly{
 			MasterKeyBirthdayTimestamp: 0,
@@ -315,6 +328,11 @@ func prepareOutboundRemoteSignerTest(ht *lntest.HarnessTest,
 			"--remotesigner.timeout=30s",
 			"--remotesigner.experimentalrequesttimeout=30s",
 			rsRpcListen,
+
+			// As in prepareInboundRemoteSignerTest, tolerate
+			// transient pings of the signer instead of
+			// stopping the node after a single failure.
+			"--healthcheck.remotesigner.attempts=3",
 		}, commitArgs...),
 		password, true,
 	)
@@ -745,6 +763,11 @@ func testOutboundRSMacaroonEnforcement(ht *lntest.HarnessTest) {
 			remoteSignerHost),
 		fmt.Sprintf("--remotesigner.timeout=%v", wait.DefaultTimeout),
 		"--remotesigner.experimentalrequesttimeout=15s",
+
+		// As in prepareInboundRemoteSignerTest, tolerate transient
+		// pings of the signer instead of stopping the node after a
+		// single failure.
+		"--healthcheck.remotesigner.attempts=3",
 	}
 
 	// Create the watch-only node. Note that we require authentication for

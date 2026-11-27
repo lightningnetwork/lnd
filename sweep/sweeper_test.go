@@ -193,7 +193,7 @@ func TestMarkInputsPublished(t *testing.T) {
 func TestMarkInputsPublishFailed(t *testing.T) {
 	t.Parallel()
 
-	// Arrange all input states and an unchanged-set retry fee.
+	// Arrange all input states.
 	require := require.New(t)
 
 	// Create a mock sweeper store.
@@ -235,13 +235,11 @@ func TestMarkInputsPublishFailed(t *testing.T) {
 		inputPublishFailed, inputSwept, inputExcluded, inputFatal,
 	}).Once()
 
-	feeRate := chainfee.SatPerKWeight(1000)
-
 	// Mark the test inputs. We expect the non-exist input and the
 	// inputInit to be skipped, and the final input to be marked as
 	// published.
 	// Act by marking the published members for another attempt.
-	s.markInputsPublishFailed(set, fn.Some(fn.Some(feeRate)))
+	s.markInputsPublishFailed(set)
 
 	// We expect unchanged number of pending inputs.
 	// Assert only eligible states change and membership remains intact.
@@ -256,12 +254,12 @@ func TestMarkInputsPublishFailed(t *testing.T) {
 	// failed.
 	pi = s.inputs[inputPendingPublish.OutPoint()]
 	require.Equal(PublishFailed, pi.state)
-	require.Equal(feeRate, pi.params.StartingFeeRate.UnsafeFromSome())
+	require.True(pi.params.StartingFeeRate.IsNone())
 
 	// We expect the published input's is now marked as publish failed.
 	pi = s.inputs[inputPublished.OutPoint()]
 	require.Equal(PublishFailed, pi.state)
-	require.Equal(feeRate, pi.params.StartingFeeRate.UnsafeFromSome())
+	require.True(pi.params.StartingFeeRate.IsNone())
 
 	// We expect the publish failed input to stay unchanged.
 	pi = s.inputs[inputPublishFailed.OutPoint()]
@@ -683,8 +681,6 @@ func TestSweepPendingInputs(t *testing.T) {
 	setNeedWallet.On("Inputs").Return(nil).Times(2)
 	setNeedWallet.On("DeadlineHeight").Return(testHeight).Once()
 	setNeedWallet.On("Budget").Return(btcutil.Amount(1)).Once()
-	setNeedWallet.On("StartingFeeRate").Return(
-		fn.None[chainfee.SatPerKWeight]()).Once()
 	setNeedWallet.On("Immediate").Return(false).Once()
 	// Arrange one exclusive input in the ordinary set so publication must
 	// carry its group even if a later attempt removes the tracked entry.
@@ -699,8 +695,6 @@ func TestSweepPendingInputs(t *testing.T) {
 	normalSet.On("Inputs").Return([]input.Input{&anchor}).Times(2)
 	normalSet.On("DeadlineHeight").Return(testHeight).Once()
 	normalSet.On("Budget").Return(btcutil.Amount(1)).Once()
-	normalSet.On("StartingFeeRate").Return(
-		fn.None[chainfee.SatPerKWeight]()).Once()
 	normalSet.On("Immediate").Return(false).Once()
 
 	// Make pending inputs for testing. We don't need real values here as
@@ -963,6 +957,12 @@ func TestHandleBumpEventTxFailedConflict(t *testing.T) {
 		inp.On("SignDesc").Return(&input.SignDescriptor{
 			Output: &wire.TxOut{Value: 10_000},
 		}).Once()
+
+		// The retry starts each sibling's fee schedule, which reads
+		// the input's maturity.
+		inp.On("RequiredLockTime").Return(uint32(0), false).Once()
+		inp.On("BlocksToMaturity").Return(uint32(0)).Once()
+		inp.On("HeightHint").Return(uint32(0)).Once()
 	}
 	remaining := &BudgetInputSet{inputs: good}
 	matchesInputs := func(inputs InputsMap) bool {
@@ -1700,6 +1700,12 @@ func TestHandleUpdateReqPreservesNoInputBatch(t *testing.T) {
 	op := inp.OutPoint()
 	s.inputs[op].params.NoInputBatch = true
 
+	// The policy change starts a new fee schedule, which reads the
+	// input's maturity.
+	inp.On("RequiredLockTime").Return(uint32(0), false).Once()
+	inp.On("BlocksToMaturity").Return(uint32(0)).Once()
+	inp.On("HeightHint").Return(uint32(0)).Once()
+
 	_, err := s.handleUpdateReq(&updateReq{
 		input: op,
 		params: Params{
@@ -1953,13 +1959,11 @@ func TestHandleBumpEventTxUnknownSpendWithRetry(t *testing.T) {
 	// Act by handling the spend through the ordinary survivor retry path.
 	s.handleBumpEventTxUnknownSpend(resp)
 
-	// Assert the spent input leaves while the survivor retains the supplied
-	// next fee, keeping its confirmed-spend retry on the existing fee line.
+	// Assert the spent input leaves while the survivor keeps its requested
+	// fee policy rather than the result's fee rate.
 	require.NotContains(t, s.inputs, op1)
 
 	// Assert the state of the input is updated.
 	require.Equal(t, PublishFailed, s.inputs[op2].state)
-	require.Equal(
-		t, fn.Some(br.FeeRate), s.inputs[op2].params.StartingFeeRate,
-	)
+	require.True(t, s.inputs[op2].params.StartingFeeRate.IsNone())
 }

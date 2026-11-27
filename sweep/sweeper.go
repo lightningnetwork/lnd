@@ -209,11 +209,19 @@ type SweeperInput struct {
 	// params contains the parameters that control the sweeping process.
 	params Params
 
-	// lastFeeRate is the most recent fee rate used for this input within a
-	// transaction broadcast to the network.
+	// feeSchedule belongs to the input's policy, not a publishing attempt.
+	// It is only accessed by the sweeper loop; publishers receive copies.
+	feeSchedule *FeeSchedule
+
+	// lastFeeRate is the rate of the most recent publication that included
+	// this input. It is history, kept for reporting, and survives
+	// invalidation of that publication.
 	lastFeeRate chainfee.SatPerKWeight
 
-	// rbf records the RBF constraints.
+	// rbf is the most recent publication that may still be replaced. Its
+	// rate seeds the next candidate. A confirmed spend or a permanently
+	// invalid input that invalidates the publication clears it, since
+	// nothing can replace a transaction that can no longer enter a mempool.
 	rbf fn.Option[RBFInfo]
 
 	// DeadlineHeight is the deadline height for this input. This is
@@ -456,6 +464,11 @@ type UtxoSweeperConfig struct {
 	// NoDeadlineConfTarget is the conf target to use when sweeping
 	// non-time-sensitive outputs.
 	NoDeadlineConfTarget uint32
+
+	// AuxSweeper is an optional interface that may attribute extra budget
+	// to inputs, for example those of custom channels. The sweeper counts
+	// it as part of each input's contribution to a batch's budget.
+	AuxSweeper fn.Option[AuxSweeper]
 }
 
 // Result is the struct that is pushed through the result channel. Callers can
@@ -930,7 +943,6 @@ func (s *UtxoSweeper) sweep(set InputSet,
 		DeadlineHeight:  set.DeadlineHeight(),
 		DeliveryAddress: sweepAddr,
 		MaxFeeRate:      s.cfg.MaxFeeRate.FeePerKWeight(),
-		StartingFeeRate: set.StartingFeeRate(),
 		Immediate:       set.Immediate(),
 		// TODO(yy): pass the strategy here.
 	}
@@ -943,6 +955,10 @@ func (s *UtxoSweeper) sweep(set InputSet,
 			req.ExclusiveGroup = pi.params.ExclusiveGroup
 			break
 		}
+	}
+
+	if err := s.attachFeeContext(req); err != nil {
+		return err
 	}
 
 	// Reschedule the inputs that we just tried to sweep. This is done in
@@ -1027,7 +1043,7 @@ func (s *UtxoSweeper) markInputsPublished(tr *TxRecord, set InputSet) error {
 		}
 
 		// Valdiate that the input is in an expected state.
-		if pi.state != PendingPublish {
+		if pi.state != PendingPublish && pi.state != Published {
 			// We may get a Published if this is a replacement tx.
 			log.Debugf("Expect input %v to have %v, instead it "+
 				"has %v", op, PendingPublish, pi.state)
@@ -1040,15 +1056,18 @@ func (s *UtxoSweeper) markInputsPublished(tr *TxRecord, set InputSet) error {
 
 		// Update the input's latest fee rate.
 		pi.lastFeeRate = chainfee.SatPerKWeight(tr.FeeRate)
+		pi.rbf = fn.Some(RBFInfo{
+			Txid: tr.Txid, Fee: btcutil.Amount(tr.Fee),
+			FeeRate: pi.lastFeeRate,
+		})
 	}
 
 	return nil
 }
 
-// markInputsPublishFailed marks the list of inputs as failed to be published.
-func (s *UtxoSweeper) markInputsPublishFailed(set InputSet,
-	feeRate fn.Option[fn.Option[chainfee.SatPerKWeight]]) {
-
+// markInputsPublishFailed returns inputs to the retry queue. Failed attempts
+// do not change requested fee policy or successfully published fee history.
+func (s *UtxoSweeper) markInputsPublishFailed(set InputSet) {
 	// Reschedule sweep.
 	for _, inp := range set.Inputs() {
 		op := inp.OutPoint()
@@ -1076,15 +1095,6 @@ func (s *UtxoSweeper) markInputsPublishFailed(set InputSet,
 
 		// Update the input's state.
 		pi.state = PublishFailed
-
-		// An absent update preserves the rate. A present update may
-		// clear it so that the next attempt uses the estimator.
-		feeRate.WhenSome(func(rate fn.Option[chainfee.SatPerKWeight]) {
-			log.Debugf("Input(%v): updating starting fee rate "+
-				"[%v -> %v]", op,
-				pi.params.StartingFeeRate, rate)
-			pi.params.StartingFeeRate = rate
-		})
 	}
 }
 
@@ -1264,6 +1274,8 @@ func (s *UtxoSweeper) handleUpdateReq(req *updateReq) (
 	log.Debugf("Updating parameters for %v(state=%v) from (%v) to (%v)",
 		req.input, sweeperInput.state, sweeperInput.params, newParams)
 
+	sweeperInput.updateFeeSchedulePolicy(newParams)
+
 	sweeperInput.params = newParams
 
 	// We need to reset the state so this input will be attempted again by
@@ -1276,6 +1288,8 @@ func (s *UtxoSweeper) handleUpdateReq(req *updateReq) (
 	sweeperInput.DeadlineHeight = req.params.DeadlineHeight.UnwrapOr(
 		sweeperInput.DeadlineHeight,
 	)
+
+	s.startFeeSchedule(sweeperInput)
 
 	resultChan := make(chan Result, 1)
 	sweeperInput.listeners = append(sweeperInput.listeners, resultChan)
@@ -1361,15 +1375,25 @@ func (s *UtxoSweeper) handleNewInput(input *sweepInputMessage) error {
 		rbf:       rbfInfo,
 	}
 
-	// Set the starting fee rate if a previous sweeping tx is found.
+	// A recovered publication anchors a new ramp at the recovery height.
+	// Restore progress without changing requested policy.
 	rbfInfo.WhenSome(func(info RBFInfo) {
-		pi.params.StartingFeeRate = fn.Some(info.FeeRate)
+		pi.lastFeeRate = info.FeeRate
+		pi.feeSchedule = &FeeSchedule{
+			StartHeight: s.currentHeight,
+			StartingFeeRate: fn.Some(max(
+				pi.params.StartingFeeRate.UnwrapOr(0),
+				info.FeeRate,
+			)),
+		}
 	})
 
 	// Set the acutal deadline height.
 	pi.DeadlineHeight = input.params.DeadlineHeight.UnwrapOr(
 		s.calculateDefaultDeadline(pi),
 	)
+
+	s.startFeeSchedule(pi)
 
 	s.inputs[outpoint] = pi
 	log.Tracef("input %v, state=%v, added to inputs", outpoint, pi.state)
@@ -1486,6 +1510,8 @@ func (s *UtxoSweeper) handleExistingInput(input *sweepInputMessage,
 
 	// Update input details and sweep parameters. The re-offered input
 	// details may contain a change to the unconfirmed parent tx info.
+	oldInput.updateFeeSchedulePolicy(input.params)
+
 	oldInput.params = input.params
 	oldInput.Input = input.input
 
@@ -1493,6 +1519,8 @@ func (s *UtxoSweeper) handleExistingInput(input *sweepInputMessage,
 	oldInput.DeadlineHeight = input.params.DeadlineHeight.UnwrapOr(
 		oldInput.DeadlineHeight,
 	)
+
+	s.startFeeSchedule(oldInput)
 
 	// Add additional result channel to signal spend of this input.
 	oldInput.listeners = append(oldInput.listeners, input.resultChan)
@@ -1545,6 +1573,8 @@ func (s *UtxoSweeper) handleInputSpent(spend *chainntnfs.SpendDetail) {
 // markInputsSwept marks all inputs swept by the spending transaction as swept.
 // It will also notify all the subscribers of this input.
 func (s *UtxoSweeper) markInputsSwept(tx *wire.MsgTx, isOurTx bool) {
+	s.invalidateFeeContext(tx)
+
 	for _, txIn := range tx.TxIn {
 		outpoint := txIn.PreviousOutPoint
 
@@ -1849,18 +1879,7 @@ func (s *UtxoSweeper) handleBumpEventTxFailed(resp *bumpResp) {
 	// the inputs specified by the set.
 	//
 	// TODO(yy): should we also remove the failed tx from db?
-	feeRate := fn.Some(fn.Some(r.FeeRate))
-	switch {
-	case errors.Is(r.Err, errSpendCheckFailed):
-		feeRate = fn.None[fn.Option[chainfee.SatPerKWeight]]()
-	case errors.Is(r.Err, errStartingFeeRateTooHigh):
-		log.Warnf("Requested starting fee rate can't be paid from "+
-			"the budget, using the fee estimator instead: %v",
-			r.Err)
-
-		feeRate = fn.Some(fn.None[chainfee.SatPerKWeight]())
-	}
-	s.markInputsPublishFailed(resp.set, feeRate)
+	s.markInputsPublishFailed(resp.set)
 }
 
 // handleBumpEventBadInputs handles a failed tx after the fee bumper diagnosed a
@@ -1876,9 +1895,7 @@ func (s *UtxoSweeper) handleBumpEventBadInputs(resp *bumpResp) {
 	badInput := *r.BadInput
 	// Keep each input's preference while discarding the failed aggregate
 	// curve. The next set recalculates its own budget and fee trajectory.
-	s.markInputsPublishFailed(
-		resp.set, fn.None[fn.Option[chainfee.SatPerKWeight]](),
-	)
+	s.markInputsPublishFailed(resp.set)
 
 	// An unconfirmed spend is reversible. Keep its subscription and state
 	// retryable, but let valid siblings progress without sharing its batch.
@@ -1928,6 +1945,10 @@ func (s *UtxoSweeper) handleBumpEventBadInputs(resp *bumpResp) {
 
 		return
 	}
+
+	// No transaction spending a permanently invalid input can enter a
+	// mempool, so its publications no longer floor the survivors' rates.
+	s.invalidatePublications(badInput)
 
 	s.markInputFatal(pi, nil, r.Err)
 }
@@ -2178,9 +2199,13 @@ func (s *UtxoSweeper) handleUnknownSpendTx(inp *SweeperInput, tx *wire.MsgTx) {
 // by another party with their tx being confirmed. It will retry sweeping the
 // "good" inputs once the "bad" ones are kicked out.
 func (s *UtxoSweeper) handleBumpEventTxUnknownSpend(r *bumpResp) {
+	for _, tx := range r.result.SpentInputs {
+		s.invalidateFeeContext(tx)
+	}
+
 	// Mark the inputs as publish failed, which means they will be retried
 	// later.
-	s.markInputsPublishFailed(r.set, fn.Some(fn.Some(r.result.FeeRate)))
+	s.markInputsPublishFailed(r.set)
 
 	// Get all the inputs that are not spent in the current sweeping tx.
 	spentInputs := r.result.SpentInputs
@@ -2189,8 +2214,8 @@ func (s *UtxoSweeper) handleBumpEventTxUnknownSpend(r *bumpResp) {
 	inputsToRetry := make([]input.Input, 0, len(r.set.Inputs()))
 
 	// Iterate all the inputs found in this bump and mark the ones spent by
-	// the third party as failed. The rest of inputs will then be updated
-	// with a new fee rate and be retried immediately.
+	// the third party as failed. Retry the remaining inputs immediately
+	// using their existing fee policy.
 	for _, inp := range r.set.Inputs() {
 		op := inp.OutPoint()
 		input, ok := s.inputs[op]
@@ -2215,7 +2240,7 @@ func (s *UtxoSweeper) handleBumpEventTxUnknownSpend(r *bumpResp) {
 		}
 
 		log.Debugf("Input(%v): updating params: immediate [%v -> true]",
-			op, r.result.FeeRate, input.params.Immediate)
+			op, input.params.Immediate)
 
 		input.params.Immediate = true
 		inputsToRetry = append(inputsToRetry, input)
@@ -2234,7 +2259,7 @@ func (s *UtxoSweeper) handleBumpEventTxUnknownSpend(r *bumpResp) {
 	inputs := s.updateSweeperInputs()
 
 	// Immediately sweep the remaining inputs - the previous inputs should
-	// now be swept with the updated StartingFeeRate immediately. We may
+	// now be swept using their original fee policy. We may
 	// also include more inputs in the new sweeping tx if new ones with the
 	// same deadline are offered.
 	s.sweepPendingInputs(inputs, nil)

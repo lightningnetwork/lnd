@@ -129,21 +129,20 @@ sweep logic is not bypassed.
 `UtxoSweeper` applies the resulting `BadInput` evidence. Permanent script or
 missing-input attribution terminates only that tracked input, or quarantines a
 diagnosed wallet UTXO. Survivors retain their requested starting rates while
-the new set recalculates its aggregate fee curve. Confirmed third-party spends
-retain the existing fee line. A backend- reported singleton mempool conflict
+the new set recalculates its aggregate fee curve, as do the survivors of
+confirmed third-party spends. A backend- reported singleton mempool conflict
 remains retryable with its spend subscription intact; valid siblings are
 resubmitted without it. Temporary wallet exclusions accumulate across that
 immediate retry chain and clear when it ends or returns to normal block
-retries. Eligible diagnosis keeps unattributed conflicts retryable without fee
-escalation. Other requests use the normal retry-fee policy. Fee initialization
-follows existing budget and zero-delta retry paths. Transient backend failures
-and fee refusals (RBF, relay minimum or mempool minimum) during probing
-retain their cause and follow normal
-retry-fee policy, including retries at the cap. Full-RBF fee refusals retain
+retries. Eligible diagnosis keeps unattributed conflicts retryable. No retry
+carries a fee from the failed attempt. Fee initialization follows existing
+budget retry paths. Transient backend failures and fee refusals (RBF, relay
+minimum or mempool minimum) during probing retain their cause and are retried
+like other failures, including at the cap. Full-RBF fee refusals retain
 whole-set retries instead of input attribution. Other aborted, unchanged-set
-diagnoses must advance their fee and become fatal if advancement fails; known
-terminal rejections with skipped or completed singleton-free diagnosis retain
-the whole-set fatal outcome.
+diagnoses are retried while their fee function can advance, and become fatal
+once it can't; known terminal rejections with skipped or completed
+singleton-free diagnosis retain the whole-set fatal outcome.
 
 A rejected replacement does not displace an already accepted transaction.
 `TxPublisher` retains monitoring until an actual spend is attributed or the
@@ -163,11 +162,13 @@ they identify a transaction.
 rate, an ending fee rate, and a width (the deadline delta). It's used by the
 `Bumper` to suggest a new fee rate for bumping the sweeping transaction.
 
-`LinearFeeFunction` implements this interface using a linear function - it
+`TxPublisher` uses a linear implementation of this interface - it
 calculates a fee rate delta using `(ending_fee_rate - starting_fee_rate) /
 deadline`, and increases the fee rate by this delta value every time a new block
-arrives. Once the deadline is passed, `LinearFeeFunction` will cap its
-returning fee rate at the ending fee rate.
+arrives. Once the deadline is passed, the fee function will cap its returning
+fee rate at the ending fee rate. When a transaction combines inputs whose
+schedules began at different heights, the function combines their schedules as
+described in [Retrying and Regrouping](#retrying-and-regrouping).
 
 The starting fee rate is the estimated fee rate from the fee estimator, which
 is the result from calling `estimatesmartfee`(`bitcoind`),
@@ -192,6 +193,71 @@ initialized with:
 - an ending fee rate of 400 sat/vB, which is the result of `200,000/500`.
 - a fee rate delta of 390 sat/kvB, which is the result of `(400 - 10) / 1000 *
   1000`.
+
+#### Retrying and Regrouping
+
+The requested starting fee rate, the active candidate rate, and the last
+published rate are separate state. Each initial attempt makes one publication
+call. Publication failures return inputs to the sweeper for retry or regrouping
+without changing their requested rate or publication history. Fee rejections
+during local mempool preflight can advance the candidate search, but do not
+become permanent fee requirements on individual inputs. When a replacement
+pays too little to replace its predecessor, the publisher retries on a later
+block. When it falls below the mempool's minimum fee, its predecessor paid less
+still and has most likely left the mempool, so the publisher fails the attempt
+and returns the inputs to the sweeper for regrouping.
+
+Each pending input retains a fee schedule consisting of its first eligible
+attempt height and its initial requested or estimated rate. The height is fixed
+at registration, accounting for maturity and whether publication is immediate.
+The initial estimate is resolved once and retained across retries. When inputs
+are regrouped, the publisher evaluates their original schedules at the current
+height using the new transaction's budget-derived maximum.
+
+The schedules in a batch combine two kinds of policy. A starting rate
+constrains the whole transaction, whose rate every input shares, so the batch
+starts at the highest starting rate. Elapsed urgency commits an input's own
+budget, so each schedule raises the rate only by its budget's share of the
+headroom between that start and the maximum:
+
+    rate = start + (max - start) * sum(budget_i / budget * elapsed_i)
+
+Here `elapsed_i` is the fraction of input `i`'s ramp, from its first eligible
+attempt height to the block before the deadline, that has passed, and
+`budget_i` includes any extra budget that an auxiliary sweeper attributes to
+input `i`, as for custom channels. An old input with a small budget therefore
+cannot spend a new input's budget on its behalf, and a deferred input in an
+immediate batch commits nothing until its ramp begins. When every schedule
+shares an origin, this is the linear ramp described above. Every budget is
+committed by the deadline.
+
+A local fee search evaluates the schedules one block ahead within that
+attempt. Thus retries in the same block do not advance time, while retries
+in later blocks retain the elapsed urgency.
+Reaching the maximum does not prevent publishing a transaction at that
+constant rate.
+
+A requested starting rate above the transaction's maximum is capped for the
+attempt. The publisher can use that affordable rate immediately, without
+waiting for the deadline or changing the input's recorded request.
+
+Successful initial and replacement publications update each input's last
+published rate and transaction reference. Relevant prior publications can raise
+the candidate's starting rate, bounded by the new transaction's maximum. They
+do not affect the aggregator's per-input affordability filter. Retries may
+repeat that bounded rate until the original schedule exceeds it. Actual
+replacement acceptance is still checked by the publisher. When a confirmed
+spend, or an input diagnosed as permanently invalid, invalidates a prior
+transaction, its replacement hints are removed from the surviving inputs.
+
+Changing a requested rate, budget, or deadline starts a new schedule. Reoffering
+the same policy or asking for immediate publication preserves the existing
+schedule. Schedule origins are held in memory. After restart, a publication
+recovered through the mempool and sweeper store anchors a continuation from
+its published rate at the recovery height. A higher requested starting rate
+still applies, and the publisher caps the continuation to the current batch's
+budget. Without a recovered publication, reoffered inputs establish fresh
+schedules. The original schedule is not persisted across restarts.
 
 ## Sweeping Outputs from a Force Close Transaction
 
@@ -256,4 +322,3 @@ outputs minus the sum of their budgets. By default, 50% of this value is used
 as the budget, to customize it, either use
 `--sweeper.budget.anchorcpfp` to specify sats, or use
 `--sweeper.budget.anchorcpfpratio` to specify a ratio.
-

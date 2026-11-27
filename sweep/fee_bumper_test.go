@@ -295,7 +295,7 @@ func TestInitializeFeeFunction(t *testing.T) {
 
 	// Mock the fee estimator to return an error.
 	//
-	// We are not testing `NewLinearFeeFunction` here, so the actual params
+	// We are not testing the fee function here, so the actual params
 	// used are irrelevant.
 	dummyErr := fmt.Errorf("dummy error")
 	estimator.On("EstimateFeePerKW", mock.Anything).Return(
@@ -308,7 +308,7 @@ func TestInitializeFeeFunction(t *testing.T) {
 
 	// Mock the fee estimator to return the testing fee rate.
 	//
-	// We are not testing `NewLinearFeeFunction` here, so the actual params
+	// We are not testing the fee function here, so the actual params
 	// used are irrelevant.
 	estimator.On("EstimateFeePerKW", mock.Anything).Return(
 		feerate, nil).Once()
@@ -320,9 +320,8 @@ func TestInitializeFeeFunction(t *testing.T) {
 	require.Equal(t, feerate, f.FeeRate())
 }
 
-// TestUpdateRecord correctly updates the fields fee and tx, and saves the
-// record.
-func TestUpdateRecord(t *testing.T) {
+// TestCandidateRecord stages a candidate without changing the published record.
+func TestCandidateRecord(t *testing.T) {
 	t.Parallel()
 
 	// Create a test input.
@@ -336,7 +335,7 @@ func TestUpdateRecord(t *testing.T) {
 	}
 
 	// Create a naive fee function.
-	feeFunc := &LinearFeeFunction{}
+	feeFunc := &pooledFeeFunction{}
 
 	// Create a test fee and tx.
 	fee := btcutil.Amount(1000)
@@ -373,11 +372,11 @@ func TestUpdateRecord(t *testing.T) {
 	}
 
 	// Call the method under test.
-	tp.updateRecord(record, sweepCtx)
-
-	// Read the saved record and compare.
-	record, ok := tp.records.Load(initialCounter)
-	require.True(t, ok)
+	candidate := tp.candidateRecord(record, sweepCtx)
+	require.Nil(t, record.tx)
+	require.Zero(t, record.fee)
+	require.Zero(t, tp.records.Len())
+	record = candidate
 	require.Equal(t, tx, record.tx)
 	require.Equal(t, feeFunc, record.feeFunction)
 	require.Equal(t, fee, record.fee)
@@ -1093,18 +1092,15 @@ func TestHandleBadInputsProbeConstructionError(t *testing.T) {
 	testCases := []struct {
 		name   string
 		feeErr error
-		rate   chainfee.SatPerKWeight
 		event  BumpEvent
 	}{
 		{
-			name:  "advance after rounding",
-			rate:  1100,
+			name:  "rounded position retries",
 			event: TxFailed,
 		},
 		{
 			name:   "inconclusive diagnosis reaches ceiling",
 			feeErr: ErrMaxPosition,
-			rate:   1000,
 			event:  TxFatal,
 		},
 	}
@@ -1118,19 +1114,9 @@ func TestHandleBadInputsProbeConstructionError(t *testing.T) {
 			m.feeFunc.On("FeeRate").Return(
 				chainfee.SatPerKWeight(1000),
 			).Times(5)
-			if testCase.feeErr == nil {
-				m.feeFunc.On("Increment").Return(
-					false, nil,
-				).Once()
-				m.feeFunc.On("Increment").Return(
-					true, nil,
-				).Once()
-			} else {
-				m.feeFunc.On("Increment").Return(
-					false, testCase.feeErr,
-				).Once()
-			}
-			m.feeFunc.On("FeeRate").Return(testCase.rate).Once()
+			m.feeFunc.On("Increment").Return(
+				false, testCase.feeErr,
+			).Once()
 			m.signer.On(
 				"ComputeInputScript", mock.Anything,
 				mock.Anything,
@@ -1143,11 +1129,12 @@ func TestHandleBadInputsProbeConstructionError(t *testing.T) {
 			// rounded fee positions.
 			result := tp.handleBadInputs(record, initialErr)
 
-			// Assert that only an actual rate increase permits this
-			// inconclusive non-conflict retry; its ceiling remains
-			// fatal without inventing an attributable input.
+			// Assert that room to advance permits this inconclusive
+			// non-conflict retry without setting its fee; the
+			// ceiling remains fatal without inventing an
+			// attributable input.
 			require.Equal(t, testCase.event, result.Event)
-			require.Equal(t, testCase.rate, result.FeeRate)
+			require.Zero(t, result.FeeRate)
 			require.Nil(t, result.BadInput)
 			if testCase.feeErr == nil {
 				require.ErrorIs(t, result.Err, errDummy)
@@ -1395,9 +1382,9 @@ func TestInitialConflictWithUntestableFunding(t *testing.T) {
 				MaxFeeRate:     feeRate,
 				DeadlineHeight: 1,
 			}
-			feeFunction, err := NewLinearFeeFunction(
-				feeRate, 1, m.estimator,
-				fn.None[chainfee.SatPerKWeight](),
+			feeFunction, err := newPooledFeeFunction(
+				feeRate, 1, 0, []InputSchedule{{}},
+				m.estimator,
 			)
 			require.NoError(t, err)
 			record, subscriber := createBadInputTestRecord(
@@ -1422,11 +1409,11 @@ func TestInitialConflictWithUntestableFunding(t *testing.T) {
 			tp.handleInitialTxError(record, err)
 			result := <-subscriber
 
-			// Assert retry at the current rate. No singleton was
+			// Assert a retry that sets no fee. No singleton was
 			// independently blamed, so none may be quarantined.
 			require.Equal(t, TxFailed, result.Event)
 			require.ErrorIs(t, result.Err, tc.probeErr)
-			require.Equal(t, feeRate, result.FeeRate)
+			require.Zero(t, result.FeeRate)
 			require.Nil(t, result.BadInput)
 		})
 	}
@@ -1519,9 +1506,13 @@ func TestReplacementRejectionKeepsOldTx(t *testing.T) {
 			// Arrange every accepted attempt at the same real cap;
 			// exclusion must work after fee growth has stopped.
 			req.DeadlineHeight = 1
-			feeFunc, err := NewLinearFeeFunction(
-				1000, 1, m.estimator,
-				fn.Some(chainfee.SatPerKWeight(1000)),
+			schedules := []InputSchedule{{FeeSchedule: FeeSchedule{
+				StartingFeeRate: fn.Some(
+					chainfee.SatPerKWeight(1000),
+				),
+			}}}
+			feeFunc, err := newPooledFeeFunction(
+				1000, 1, 0, schedules, m.estimator,
 			)
 			require.NoError(t, err)
 			var record *monitorRecord
@@ -1696,9 +1687,7 @@ func TestReplacementRejectionKeepsOldTx(t *testing.T) {
 				// Arrange the accepted public request and
 				// its subsequent missing replacement.
 				req.MaxFeeRate = 1000
-				req.StartingFeeRate = fn.Some(
-					chainfee.SatPerKWeight(1000),
-				)
+				req.FeeSchedules = schedules
 				req.Immediate = true
 				m.wallet.On(
 					"CheckMempoolAcceptance",
@@ -1711,7 +1700,9 @@ func TestReplacementRejectionKeepsOldTx(t *testing.T) {
 					mock.Anything,
 				).Return(nil).Once()
 			} else {
+				// oldTx was accepted at the capped rate.
 				record.tx = oldTx
+				record.feeRate = feeFunc.FeeRate()
 			}
 			m.wallet.On(
 				"CheckMempoolAcceptance", mock.Anything,
@@ -1909,7 +1900,6 @@ func TestTxPublisherBroadcast(t *testing.T) {
 
 	// Create a test feerate and return it from the mock fee function.
 	feerate := chainfee.SatPerKWeight(1000)
-	m.feeFunc.On("FeeRate").Return(feerate)
 
 	op := wire.OutPoint{
 		Hash:  chainhash.Hash{1},
@@ -1927,6 +1917,7 @@ func TestTxPublisherBroadcast(t *testing.T) {
 	sweepCtx := &sweepTxCtx{
 		tx:                tx,
 		fee:               fee,
+		feeRate:           feerate,
 		outpointToTxIndex: utxoIndex,
 	}
 
@@ -1936,7 +1927,11 @@ func TestTxPublisherBroadcast(t *testing.T) {
 		req:         req,
 		feeFunction: m.feeFunc,
 	}
-	rec := tp.updateRecord(record, sweepCtx)
+	record.tx = &wire.MsgTx{LockTime: 2}
+	record.fee = 500
+	record.feeRate = 500
+	tp.records.Store(requestID, record)
+	rec := tp.candidateRecord(record, sweepCtx)
 
 	testCases := []struct {
 		name           string
@@ -1994,6 +1989,12 @@ func TestTxPublisherBroadcast(t *testing.T) {
 			// Check the result is as expected.
 			require.ErrorIs(t, err, tc.expectedErr)
 			require.Equal(t, tc.expectedResult, result)
+			// Publication alone never replaces the stored record;
+			// callers install the candidate after handling success.
+			stored, ok := tp.records.Load(requestID)
+			require.True(t, ok)
+			require.Same(t, record, stored)
+			require.EqualValues(t, 500, stored.feeRate)
 		})
 	}
 }
@@ -2053,7 +2054,9 @@ func TestRemoveResult(t *testing.T) {
 					feeFunction: m.feeFunc,
 				}
 
-				tp.updateRecord(record, sweepCtx)
+				tp.records.Store(rid, tp.candidateRecord(
+					record, sweepCtx,
+				))
 				tp.subscriberChans.Store(rid, nil)
 
 				return rid
@@ -2077,7 +2080,9 @@ func TestRemoveResult(t *testing.T) {
 					feeFunction: m.feeFunc,
 				}
 
-				tp.updateRecord(record, sweepCtx)
+				tp.records.Store(rid, tp.candidateRecord(
+					record, sweepCtx,
+				))
 				tp.subscriberChans.Store(rid, nil)
 
 				return rid
@@ -2102,7 +2107,9 @@ func TestRemoveResult(t *testing.T) {
 					feeFunction: m.feeFunc,
 				}
 
-				tp.updateRecord(record, sweepCtx)
+				tp.records.Store(rid, tp.candidateRecord(
+					record, sweepCtx,
+				))
 				tp.subscriberChans.Store(rid, nil)
 
 				return rid
@@ -2173,7 +2180,8 @@ func TestNotifyResult(t *testing.T) {
 		feeFunction: m.feeFunc,
 	}
 
-	tp.updateRecord(record, sweepCtx)
+	record = tp.candidateRecord(record, sweepCtx)
+	tp.records.Store(requestID, record)
 
 	// Create a subscription to the event.
 	subscriber := make(chan *BumpResult, 1)
@@ -2312,7 +2320,7 @@ func TestBroadcastImmediate(t *testing.T) {
 }
 
 // TestBroadcastRetryMempoolErrors checks backend uncertainty and transient
-// policy rejections return retry metadata even at the fee ceiling.
+// policy rejections remain retryable even at the fee ceiling.
 func TestBroadcastRetryMempoolErrors(t *testing.T) {
 	t.Parallel()
 
@@ -2369,19 +2377,20 @@ func TestBroadcastRetryMempoolErrors(t *testing.T) {
 			maxFeeRate := feeRate * 10
 			deadline := int32(10)
 
-			// A one-block deadline initializes directly at the cap.
-			// This checks retry metadata. A distant capped start
-			// still takes the zero-delta path, which permits
-			// re-estimation on the next block.
+			// A one-block deadline initializes directly at the cap,
+			// where no further increase is possible.
 			if tc.atCeiling {
 				deadline = 1
 			}
+			schedules := []InputSchedule{{FeeSchedule: FeeSchedule{
+				StartingFeeRate: fn.Some(feeRate),
+			}}}
 			req := &BumpRequest{
 				DeliveryAddress: changePkScript,
 				Inputs:          []input.Input{&inp},
 				Budget:          btcutil.Amount(10_000),
 				MaxFeeRate:      maxFeeRate,
-				StartingFeeRate: fn.Some(feeRate),
+				FeeSchedules:    schedules,
 				DeadlineHeight:  deadline,
 				Immediate:       true,
 			}
@@ -2397,9 +2406,9 @@ func TestBroadcastRetryMempoolErrors(t *testing.T) {
 			// must return without trying to publish the candidate.
 			resultChan := tp.Broadcast(req)
 
-			// Assert retry preserves cause and next fee, keeping
-			// the cap when no further increase is possible. Bound
-			// missing delivery so a regression fails promptly.
+			// Assert retry preserves the cause and sets no fee for
+			// the next attempt. Bound missing delivery so a
+			// regression fails promptly.
 			var result *BumpResult
 			select {
 			case result = <-resultChan:
@@ -2410,11 +2419,7 @@ func TestBroadcastRetryMempoolErrors(t *testing.T) {
 
 			require.Equal(t, TxFailed, result.Event)
 			require.ErrorIs(t, result.Err, tc.err)
-			if tc.atCeiling {
-				require.Equal(t, maxFeeRate, result.FeeRate)
-			} else {
-				require.Greater(t, result.FeeRate, feeRate)
-			}
+			require.Zero(t, result.FeeRate)
 		})
 	}
 }
@@ -2430,12 +2435,15 @@ func TestBroadcastAlreadyInMempool(t *testing.T) {
 	tp, m := createTestPublisher(t)
 	inp := createTestInput(100_000, input.WitnessKeyHash)
 	feeRate := chainfee.SatPerKWeight(1000)
+	schedules := []InputSchedule{{FeeSchedule: FeeSchedule{
+		StartingFeeRate: fn.Some(feeRate),
+	}}}
 	req := &BumpRequest{
 		DeliveryAddress: changePkScript,
 		Inputs:          []input.Input{&inp},
 		Budget:          btcutil.Amount(10_000),
 		MaxFeeRate:      feeRate * 10,
-		StartingFeeRate: fn.Some(feeRate),
+		FeeSchedules:    schedules,
 		DeadlineHeight:  10,
 		Immediate:       true,
 	}
@@ -2574,7 +2582,11 @@ func TestBroadcastProbeFailureRetries(t *testing.T) {
 				scriptCalls = tc.scriptCalls
 			}
 			req.MaxFeeRate = maxFeeRate
-			req.StartingFeeRate = fn.Some(feeRate)
+			req.FeeSchedules = []InputSchedule{{
+				FeeSchedule: FeeSchedule{
+					StartingFeeRate: fn.Some(feeRate),
+				},
+			}}
 			req.DeadlineHeight = 10
 			req.Immediate = true
 			if tc.atCeiling {
@@ -2689,8 +2701,8 @@ func TestBroadcastProbeFailureRetries(t *testing.T) {
 			// actual subset construction and retry policy all run.
 			result := <-tp.Broadcast(req)
 
-			// Assert that inconclusive evidence retains all inputs
-			// and a usable retry rate, including the existing cap.
+			// Assert that inconclusive evidence retains all inputs,
+			// including at the cap, without setting a retry fee.
 			require.Equal(t, TxFailed, result.Event)
 			require.ErrorIs(t, result.Err, tc.probeErr)
 			if errors.Is(tc.probeErr, io.EOF) {
@@ -2701,18 +2713,120 @@ func TestBroadcastProbeFailureRetries(t *testing.T) {
 				)
 			}
 			require.Nil(t, result.BadInput)
-			switch {
-			case errors.Is(tc.initialErr, chain.ErrMempoolConflict):
-				// Interrupted checks cannot clear the conflict
-				// or justify escalating its fee.
+			require.Zero(t, result.FeeRate)
+			if errors.Is(tc.initialErr, chain.ErrMempoolConflict) {
+				// Interrupted checks cannot clear the conflict.
 				require.ErrorIs(t, result.Err, tc.initialErr)
-				require.Equal(t, feeRate, result.FeeRate)
-			case tc.atCeiling:
-				require.Equal(t, maxFeeRate, result.FeeRate)
-			default:
-				require.Greater(t, result.FeeRate, feeRate)
 			}
 		})
+	}
+}
+
+// TestBroadcastImmediateWithheld checks that block processing cannot see an
+// immediate request until its initial result has been delivered. The caller
+// reads results only after Broadcast returns, so a concurrent initial
+// broadcast by block processing could otherwise fill the subscriber's buffer
+// and block the caller indefinitely.
+func TestBroadcastImmediateWithheld(t *testing.T) {
+	t.Parallel()
+
+	tp, m := createTestPublisher(t)
+	feerate := chainfee.SatPerKWeight(1000)
+	m.estimator.On("EstimateFeePerKW", mock.Anything).Return(
+		feerate, nil).Once()
+	m.estimator.On("RelayFeePerKW").Return(chainfee.FeePerKwFloor).Once()
+	m.signer.On("ComputeInputScript", mock.Anything,
+		mock.Anything).Return(&input.Script{}, nil)
+	m.wallet.On("CheckMempoolAcceptance", mock.Anything).Return(nil).Once()
+
+	// Publication is where block processing could previously intervene.
+	m.wallet.On("PublishTransaction", mock.Anything, mock.Anything).
+		Run(func(mock.Arguments) {
+			require.Zero(t, tp.records.Len())
+		}).Return(nil).Once()
+
+	inp := createTestInput(1000, input.WitnessKeyHash)
+	req := &BumpRequest{
+		DeliveryAddress: changePkScript,
+		Inputs:          []input.Input{&inp},
+		Budget:          btcutil.Amount(1000),
+		MaxFeeRate:      feerate * 10,
+		DeadlineHeight:  10,
+		Immediate:       true,
+	}
+	resultChan := tp.Broadcast(req)
+
+	var result *BumpResult
+	select {
+	case <-time.After(time.Second):
+		t.Fatal("timeout waiting for subscriber to receive result")
+
+	case result = <-resultChan:
+	}
+	require.Equal(t, TxPublished, result.Event)
+
+	// Once its result is delivered, the publication is monitored.
+	record, ok := tp.records.Load(tp.requestCounter.Load())
+	require.True(t, ok)
+	require.Same(t, result.Tx, record.tx)
+}
+
+// TestReplacementFeeRejectionKinds checks that a replacement paying too
+// little to replace its predecessor waits for the next block, while one below
+// the mempool minimum fails so that its inputs can regroup. Each holds whether
+// preflight or publication reports the rejection.
+func TestReplacementFeeRejectionKinds(t *testing.T) {
+	t.Parallel()
+
+	wrapped := fmt.Errorf("%w: %s", lnwallet.ErrMempoolFee,
+		chain.ErrMempoolMinFeeNotMet.Error())
+	for _, tc := range []struct {
+		name   string
+		err    error
+		failed bool
+	}{
+		{"insufficient fee", chain.ErrInsufficientFee, false},
+		{"mempool min fee", chain.ErrMempoolMinFeeNotMet, true},
+		{"min relay fee", chain.ErrMinRelayFeeNotMet, true},
+		{"wrapped mempool fee", wrapped, true},
+	} {
+		for _, preflight := range []bool{true, false} {
+			name := fmt.Sprintf("%s/preflight=%v", tc.name,
+				preflight)
+			t.Run(name, func(t *testing.T) {
+				tp, m := createTestPublisher(t)
+				m.feeFunc.On("FeeRate").Return(
+					chainfee.SatPerKWeight(1000))
+				m.signer.On("ComputeInputScript",
+					mock.Anything, mock.Anything).Return(
+					&input.Script{}, nil)
+
+				checkErr := tc.err
+				if !preflight {
+					checkErr = nil
+					m.wallet.On("PublishTransaction",
+						mock.Anything, mock.Anything).
+						Return(tc.err).Once()
+				}
+				m.wallet.On("CheckMempoolAcceptance",
+					mock.Anything).Return(checkErr).Once()
+
+				record := &monitorRecord{
+					requestID:   1,
+					req:         createTestBumpRequest(),
+					feeFunction: m.feeFunc,
+					tx:          &wire.MsgTx{},
+				}
+				resultOpt := tp.createAndPublishTx(record)
+				if !tc.failed {
+					require.True(t, resultOpt.IsNone())
+					return
+				}
+				result := resultOpt.UnwrapOrFail(t)
+				require.Equal(t, TxFailed, result.Event)
+				require.ErrorIs(t, result.Err, tc.err)
+			})
+		}
 	}
 }
 
@@ -2730,7 +2844,6 @@ func TestCreateAndPublishFail(t *testing.T) {
 	// Create a test feerate and return it from the mock fee function.
 	feerate := chainfee.SatPerKWeight(1000)
 	m.feeFunc.On("FeeRate").Return(feerate)
-	m.feeFunc.On("Increment").Return(true, nil).Once()
 
 	// Create a testing monitor record.
 	req := createTestBumpRequest()
@@ -2767,14 +2880,17 @@ func TestCreateAndPublishFail(t *testing.T) {
 	// error to be returned from CheckMempoolAcceptance.
 	req.Budget = 1000
 
-	// Mock the testmempoolaccept to return a fee related error that should
-	// be ignored.
+	// Mock the testmempoolaccept to return an error below the mempool
+	// minimum. The predecessor has most likely left the mempool, so the
+	// attempt fails and its inputs can regroup.
 	m.wallet.On("CheckMempoolAcceptance",
 		mock.Anything).Return(lnwallet.ErrMempoolFee).Once()
 
-	// Call the createAndPublish method and expect a none option.
+	// Call the createAndPublish method and expect a failure result.
 	resultOpt = tp.createAndPublishTx(record)
-	require.True(t, resultOpt.IsNone())
+	result = resultOpt.UnwrapOrFail(t)
+	require.Equal(t, TxFailed, result.Event)
+	require.ErrorIs(t, result.Err, lnwallet.ErrMempoolFee)
 
 	// Mock the testmempoolaccept to return a fee related error that should
 	// be ignored.
@@ -2834,12 +2950,11 @@ func TestCreateAndPublishSuccess(t *testing.T) {
 	require.Equal(t, TxFailed, result.Event)
 	require.ErrorIs(t, result.Err, errDummy)
 
-	// Although the replacement tx was failed to be published, the record
-	// should be stored.
+	// A failed candidate must not replace the published record.
 	require.NotNil(t, result.Tx)
 	require.NotNil(t, result.ReplacedTx)
 	_, found := tp.records.Load(requestID)
-	require.True(t, found)
+	require.False(t, found)
 
 	// We now check a successful RBF.
 	//
@@ -2905,17 +3020,18 @@ func TestHandleTxConfirmed(t *testing.T) {
 		feeFunction: m.feeFunc,
 	}
 
-	tp.updateRecord(record, sweepCtx)
-	record, ok := tp.records.Load(requestID)
-	require.True(t, ok)
+	record = tp.candidateRecord(record, sweepCtx)
+	tp.records.Store(requestID, record)
 
 	// Create a subscription to the event.
 	subscriber := make(chan *BumpResult, 1)
 	tp.subscriberChans.Store(requestID, subscriber)
 
-	// Mock the fee function to return a fee rate.
+	// Confirmation reports the published rate even if candidate search has
+	// advanced. No fee-function query is needed to report publication
+	// history.
 	feerate := chainfee.SatPerKWeight(1000)
-	m.feeFunc.On("FeeRate").Return(feerate).Once()
+	record.feeRate = feerate
 
 	// Call the method and expect a result to be received.
 	//
@@ -2995,15 +3111,17 @@ func TestHandleFeeBumpTx(t *testing.T) {
 		outpointToTxIndex: utxoIndex,
 	}
 
-	tp.updateRecord(record, sweepCtx)
+	record = tp.candidateRecord(record, sweepCtx)
+	tp.records.Store(requestID, record)
 
 	// Create a subscription to the event.
 	subscriber := make(chan *BumpResult, 1)
 	tp.subscriberChans.Store(requestID, subscriber)
 
-	// Create a test feerate and return it from the mock fee function.
+	// The published rate. The bump decision compares the fee function's
+	// candidate against it.
 	feerate := chainfee.SatPerKWeight(1000)
-	m.feeFunc.On("FeeRate").Return(feerate)
+	record.feeRate = feerate
 
 	// Mock the fee function to skip the bump due to error.
 	m.feeFunc.On("IncreaseFeeRate", mock.Anything).Return(
@@ -3020,8 +3138,13 @@ func TestHandleFeeBumpTx(t *testing.T) {
 		t.Fatalf("unexpected result received: %v", result)
 	}
 
-	// Mock the fee function to skip the bump.
+	// Let the attempt finish before the next one reads the record.
+	tp.wg.Wait()
+
+	// Mock the fee function to skip the bump: the candidate does not
+	// exceed the published rate.
 	m.feeFunc.On("IncreaseFeeRate", mock.Anything).Return(false, nil).Once()
+	m.feeFunc.On("FeeRate").Return(feerate).Once()
 
 	// Call the method and expect no result received.
 	tp.wg.Add(1)
@@ -3034,8 +3157,13 @@ func TestHandleFeeBumpTx(t *testing.T) {
 		t.Fatalf("unexpected result received: %v", result)
 	}
 
-	// Mock the fee function to perform the fee bump.
+	// Let the attempt finish before the next one reads the record.
+	tp.wg.Wait()
+
+	// Mock the fee function to perform the fee bump: the candidate now
+	// exceeds the published rate.
 	m.feeFunc.On("IncreaseFeeRate", mock.Anything).Return(true, nil)
+	m.feeFunc.On("FeeRate").Return(feerate + 1)
 
 	// Mock the signer to always return a valid script.
 	//
@@ -3318,7 +3446,7 @@ func TestProcessRecordsConfirmed(t *testing.T) {
 
 	// Create a test feerate and return it from the mock fee function.
 	feerate := chainfee.SatPerKWeight(1000)
-	m.feeFunc.On("FeeRate").Return(feerate)
+	recordConfirmed.feeRate = feerate
 
 	// Call processRecords and expect the results are notified back.
 	tp.processRecords()
@@ -3344,8 +3472,7 @@ func TestProcessRecordsConfirmed(t *testing.T) {
 func TestProcessRecordsSpent(t *testing.T) {
 	t.Parallel()
 
-	// Arrange a monitored input with a confirmed third-party spend and the
-	// existing next fee, which survivors need to continue their fee line.
+	// Arrange a monitored input with a confirmed third-party spend.
 
 	// Create a publisher using the mocks.
 	tp, m := createTestPublisher(t)
@@ -3377,10 +3504,6 @@ func TestProcessRecordsSpent(t *testing.T) {
 	tp.subscriberChans.Store(requestID, subscriber)
 	tp.records.Store(requestID, recordConfirmed)
 
-	m.feeFunc.On("Increment").Return(true, nil).Once()
-	feeRate := chainfee.SatPerKWeight(1000)
-	m.feeFunc.On("FeeRate").Return(feeRate).Once()
-
 	// Act by processing the spend and delivering its scoped publisher
 	// result.
 	tp.processRecords()
@@ -3391,12 +3514,12 @@ func TestProcessRecordsSpent(t *testing.T) {
 		t.Fatal("timeout waiting for subscriber")
 
 	case result := <-subscriber:
-		// Assert that the confirmed spend retains its transaction and
-		// next fee so survivor retries preserve the existing fee line.
+		// Assert that the confirmed spend retains its transaction.
 		require.Equal(t, TxUnknownSpend, result.Event)
 		require.Equal(t, tx, result.Tx)
 
-		require.Equal(t, feeRate, result.FeeRate)
+		// An unknown spend does not create fee history.
+		require.Zero(t, result.FeeRate)
 
 		// No error should be set.
 		require.ErrorIs(t, result.Err, ErrUnknownSpent)
@@ -3417,7 +3540,7 @@ func TestHandleInitialBroadcastSuccess(t *testing.T) {
 
 	// Mock the fee estimator to return the testing fee rate.
 	//
-	// We are not testing `NewLinearFeeFunction` here, so the actual params
+	// We are not testing the fee function here, so the actual params
 	// used are irrelevant.
 	m.estimator.On("EstimateFeePerKW", mock.Anything).Return(
 		feerate, nil).Once()
@@ -3504,7 +3627,7 @@ func TestHandleInitialBroadcastFail(t *testing.T) {
 
 	// Mock the fee estimator to return the testing fee rate.
 	//
-	// We are not testing `NewLinearFeeFunction` here, so the actual params
+	// We are not testing the fee function here, so the actual params
 	// used are irrelevant.
 	m.estimator.On("EstimateFeePerKW", mock.Anything).Return(
 		feerate, nil).Twice()
@@ -3612,7 +3735,7 @@ func TestHandleInitialBroadcastTxTooLarge(t *testing.T) {
 
 	// Mock the fee estimator to return the testing fee rate.
 	//
-	// We are not testing `NewLinearFeeFunction` here, so the actual params
+	// We are not testing the fee function here, so the actual params
 	// used are irrelevant.
 	m.estimator.On("EstimateFeePerKW", mock.Anything).Return(
 		feerate, nil).Once()
@@ -3650,11 +3773,11 @@ func TestHandleInitialBroadcastTxTooLarge(t *testing.T) {
 		t.Fatal("timeout waiting for subscriber to receive result")
 
 	case result := <-resultChan:
-		// We expect a TxFailed event so the inputs are retried, with
-		// the current fee rate attached for the next attempt.
+		// We expect a TxFailed event so the inputs are retried. The
+		// failed attempt sets no fee for the next one.
 		require.Equal(t, TxFailed, result.Event)
 		require.ErrorIs(t, result.Err, chain.ErrTxTooLarge)
-		require.Equal(t, feerate, result.FeeRate)
+		require.Zero(t, result.FeeRate)
 	}
 
 	// Validate the record was removed.
@@ -3820,6 +3943,12 @@ func TestSpendNotificationFailure(t *testing.T) {
 			m.feeFunc.On("IncreaseFeeRate", mock.Anything).Run(
 				func(mock.Arguments) { close(bumped) },
 			).Return(false, nil).Once()
+
+			// The candidate rate doesn't exceed the published
+			// one, so no replacement is attempted.
+			m.feeFunc.On("FeeRate").Return(
+				chainfee.SatPerKWeight(0),
+			).Once()
 
 			tp.records.Store(r.requestID, r)
 			tp.processRecords()

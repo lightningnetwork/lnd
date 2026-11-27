@@ -640,8 +640,11 @@ type threeHopNetwork struct {
 // generateHops creates the per hop payload, the total amount to be sent, and
 // also the time lock value needed to route an HTLC with the target amount over
 // the specified path.
-func generateHops(payAmt lnwire.MilliSatoshi, startingHeight uint32,
+func generateHops(t testing.TB, payAmt lnwire.MilliSatoshi,
+	startingHeight uint32,
 	path ...*channelLink) (lnwire.MilliSatoshi, uint32, []*hop.Payload) {
+
+	t.Helper()
 
 	totalTimelock := startingHeight
 	runningAmt := payAmt
@@ -676,7 +679,10 @@ func generateHops(payAmt lnwire.MilliSatoshi, startingHeight uint32,
 			prevHop := hops[i+1]
 			prevAmount := prevHop.ForwardingInfo().AmountToForward
 
-			fee := ExpectedFee(path[i].cfg.FwrdingPolicy, prevAmount)
+			fee, err := ExpectedFee(
+				path[i].cfg.FwrdingPolicy, prevAmount,
+			)
+			require.NoError(t, err)
 			runningAmt += fee
 
 			// Otherwise, for a node to forward an HTLC, then

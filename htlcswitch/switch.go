@@ -3481,36 +3481,60 @@ func (s *Switch) handlePacketAdd(packet *htlcPacket,
 		// outgoing link. An inbound discount can push the total
 		// negative, in which case it is clamped at zero: reputation and
 		// revenue track fees actually earned, never owed.
-		totalFee := TotalForwardingFee(
-			packet.amount, destination.AdvertisedFee(packet.amount),
-			packet.inboundFee,
-		)
-		if totalFee < 0 {
-			totalFee = 0
+		advertisedFee, err := advertisedTotalFee(destination, packet)
+		if err != nil {
+			// The fee overflowed, so there is nothing meaningful to
+			// score. This only observes, so skip the event.
+			log.Debugf("Skipping reputation forward: %v", err)
+		} else {
+			// Report the accountable bit as the upstream peer sent
+			// it. Whether this node forwards the experimental
+			// signal is the outgoing link's concern only; scoring
+			// on the received value keeps the data independent of
+			// that flag.
+			//
+			// Channels are identified by channel_id rather than
+			// short channel id, so that a zero-conf channel
+			// confirming (or a future splice) does not split the
+			// channel's history.
+			s.cfg.ReputationManager.OnForward(
+				CircuitKey{
+					ChanID: packet.incomingChanID,
+					HtlcID: packet.incomingHTLCID,
+				},
+				incomingLink.ChanID(), destination.ChanID(),
+				packet.incomingAmount, packet.amount,
+				advertisedFee, packet.incomingTimeout,
+				s.BestHeight(), htlcAccountable(htlc),
+			)
 		}
-		advertisedFee := lnwire.MilliSatoshi(totalFee)
-
-		// Report the accountable bit as the upstream peer sent it.
-		// Whether this node forwards the experimental signal is the
-		// outgoing link's concern only; scoring on the received value
-		// keeps the data independent of that flag.
-		//
-		// Channels are identified by channel_id rather than short
-		// channel id, so that a zero-conf channel confirming (or a
-		// future splice) does not split the channel's history.
-		s.cfg.ReputationManager.OnForward(
-			CircuitKey{
-				ChanID: packet.incomingChanID,
-				HtlcID: packet.incomingHTLCID,
-			},
-			incomingLink.ChanID(), destination.ChanID(),
-			packet.incomingAmount, packet.amount, advertisedFee,
-			packet.incomingTimeout, s.BestHeight(),
-			htlcAccountable(htlc),
-		)
 	}
 
 	return destination.handleSwitchPacket(packet)
+}
+
+// advertisedTotalFee returns the total fee the destination link advertises for
+// forwarding the packet, clamped at zero. An error is returned if the fee
+// can't be represented.
+func advertisedTotalFee(destination ChannelLink,
+	packet *htlcPacket) (lnwire.MilliSatoshi, error) {
+
+	outFee, err := destination.AdvertisedFee(packet.amount)
+	if err != nil {
+		return 0, err
+	}
+
+	totalFee, err := TotalForwardingFee(
+		packet.amount, outFee, packet.inboundFee,
+	)
+	if err != nil {
+		return 0, err
+	}
+	if totalFee < 0 {
+		totalFee = 0
+	}
+
+	return lnwire.MilliSatoshi(totalFee), nil
 }
 
 // htlcAccountable extracts the experimental accountable signal from an

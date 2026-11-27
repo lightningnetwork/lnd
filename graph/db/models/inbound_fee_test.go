@@ -15,10 +15,14 @@ func TestInboundFee(t *testing.T) {
 		Rate: 500000,
 	}
 
-	require.Equal(t, int64(6), i.CalcFee(2))
+	fee, err := i.CalcFee(2)
+	require.NoError(t, err)
+	require.Equal(t, int64(6), fee)
 
 	// Expect fee to be rounded down.
-	require.Equal(t, int64(6), i.CalcFee(3))
+	fee, err = i.CalcFee(3)
+	require.NoError(t, err)
+	require.Equal(t, int64(6), fee)
 
 	// Test negative fee.
 	i = InboundFee{
@@ -26,8 +30,12 @@ func TestInboundFee(t *testing.T) {
 		Rate: -500000,
 	}
 
-	require.Equal(t, int64(-6), i.CalcFee(2))
+	fee, err = i.CalcFee(2)
+	require.NoError(t, err)
+	require.Equal(t, int64(-6), fee)
 
 	// Expect fee to be rounded up.
-	require.Equal(t, int64(-6), i.CalcFee(3))
+	fee, err = i.CalcFee(3)
+	require.NoError(t, err)
+	require.Equal(t, int64(-6), fee)
 }

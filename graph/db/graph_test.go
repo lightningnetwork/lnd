@@ -5835,7 +5835,8 @@ func TestComputeFee(t *testing.T) {
 		expectedFee = lnwire.MilliSatoshi(40000)
 	)
 
-	fee := policy.ComputeFee(outgoingAmt)
+	fee, err := policy.ComputeFee(outgoingAmt)
+	require.NoError(t, err)
 	require.Equal(t, expectedFee, fee)
 }
 

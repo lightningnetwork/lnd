@@ -4625,3 +4625,149 @@ func TestFindBlindedPaths(t *testing.T) {
 		"eve,bob,frank,alice,dave",
 	})
 }
+
+func TestNewRouteCheckedFees(t *testing.T) {
+	tests := []struct {
+		name    string
+		amount  lnwire.MilliSatoshi
+		base    lnwire.MilliSatoshi
+		rate    lnwire.MilliSatoshi
+		inbound models.InboundFee
+		want    lnwire.MilliSatoshi
+		wantErr bool
+	}{
+		{name: "below threshold", amount: 999999,
+			rate: 1, want: 999999},
+		{name: "at threshold", amount: 1000000, rate: 1, want: 1000001},
+		{name: "above threshold", amount: 1000001,
+			rate: 1, want: 1000002},
+		{name: "negative inbound", amount: 100, base: 10,
+			inbound: models.InboundFee{Base: -5}, want: 105},
+		{name: "negative inbound capped", amount: 100, base: 10,
+			inbound: models.InboundFee{Base: -20}, want: 100},
+		{name: "outbound overflow", amount: ^lnwire.MilliSatoshi(0),
+			base: 1, wantErr: true},
+		{name: "inbound overflow", amount: ^lnwire.MilliSatoshi(0),
+			inbound: models.InboundFee{Rate: 10000000},
+			wantErr: true},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			policy := func() *models.CachedEdgePolicy {
+				return &models.CachedEdgePolicy{
+					ToNodePubKey: func() route.Vertex {
+						return route.Vertex{}
+					},
+				}
+			}
+			first, second := policy(), policy()
+			second.FeeBaseMSat = test.base
+			second.FeeProportionalMillionths = test.rate
+			path := []*unifiedEdge{
+				{policy: first, inboundFees: test.inbound},
+				{policy: second},
+			}
+			r, err := newRoute(
+				route.Vertex{}, path, 0, finalHopParams{
+					amt: test.amount, totalAmt: test.amount,
+				}, nil,
+			)
+			if test.wantErr {
+				require.Error(t, err)
+				return
+			}
+			require.NoError(t, err)
+			require.Equal(t, test.want, r.TotalAmount)
+		})
+	}
+}
+
+// TestFindPathFeeOverflow asserts that path finding doesn't return a route
+// whose amount wrapped around when the fees along a path are too large to be
+// represented. Every intermediate node charges the largest rate that can be
+// advertised, which multiplies the amount by roughly 4295 at each hop.
+func TestFindPathFeeOverflow(t *testing.T) {
+	t.Parallel()
+
+	const (
+		chanCapSat = btcutil.Amount(100_000_000)
+		amt        = lnwire.MilliSatoshi(10_000_000_000)
+	)
+
+	features := lnwire.NewFeatureVector(
+		lnwire.NewRawFeatureVector(
+			lnwire.PaymentAddrOptional,
+			lnwire.TLVOnionPayloadRequired,
+		),
+		lnwire.Features,
+	)
+
+	// newContext creates the chain a -> b -> c -> d -> e, where b, c and d
+	// charge the given rate and base fee on their outgoing channel.
+	newContext := func(rate, inboundBase int64,
+		base lnwire.MilliSatoshi) *pathFindingTestContext {
+
+		policy := func(withFee bool) *testChannelPolicy {
+			p := &testChannelPolicy{
+				Expiry:   10,
+				MinHTLC:  1,
+				Features: features,
+			}
+			if withFee {
+				p.FeeRate = lnwire.MilliSatoshi(rate)
+				p.FeeBaseMsat = base
+				p.InboundFeeBaseMsat = inboundBase
+			}
+
+			return p
+		}
+
+		channels := []*testChannel{
+			asymmetricTestChannel(
+				"a", "b", chanCapSat, policy(false),
+				policy(false), 1,
+			),
+			asymmetricTestChannel(
+				"b", "c", chanCapSat, policy(true),
+				policy(false), 2,
+			),
+			asymmetricTestChannel(
+				"c", "d", chanCapSat, policy(true),
+				policy(false), 3,
+			),
+			asymmetricTestChannel(
+				"d", "e", chanCapSat, policy(true),
+				policy(false), 4,
+			),
+		}
+
+		return newPathFindingTestContext(t, true, channels, "a")
+	}
+
+	// A moderate fee schedule still finds the full path.
+	ctx := newContext(1_000, 0, 1)
+	path, err := ctx.findPath(ctx.keyFromAlias("e"), amt)
+	require.NoError(t, err)
+	require.Len(t, path, 4)
+
+	// With the largest advertisable rate on every intermediate hop, the
+	// amount that has to enter the path doesn't fit in 64 bits. There's no
+	// other route, so no path may be returned.
+	ctx = newContext(math.MaxUint32, 0, 0)
+	ctx.restrictParams.FeeLimit = lnwire.MaxMilliSatoshi
+	_, err = ctx.findPath(ctx.keyFromAlias("e"), amt)
+	require.ErrorIs(t, err, errNoPathFound)
+
+	// The same holds when the overflow comes from the base fee alone.
+	ctx = newContext(0, 0, lnwire.MilliSatoshi(math.MaxUint64-1))
+	ctx.restrictParams.FeeLimit = lnwire.MaxMilliSatoshi
+	_, err = ctx.findPath(ctx.keyFromAlias("e"), amt)
+	require.ErrorIs(t, err, errNoPathFound)
+
+	// A positive inbound base fee of the largest size, charged by a node
+	// whose outbound fee is also large, can't be represented either.
+	ctx = newContext(math.MaxUint32, math.MaxInt32, 0)
+	ctx.restrictParams.FeeLimit = lnwire.MaxMilliSatoshi
+	_, err = ctx.findPath(ctx.keyFromAlias("e"), amt)
+	require.ErrorIs(t, err, errNoPathFound)
+}

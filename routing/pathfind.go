@@ -16,6 +16,7 @@ import (
 	"github.com/lightningnetwork/lnd/fn/v2"
 	graphdb "github.com/lightningnetwork/lnd/graph/db"
 	"github.com/lightningnetwork/lnd/graph/db/models"
+	feeMath "github.com/lightningnetwork/lnd/internal/fee"
 	"github.com/lightningnetwork/lnd/lnutils"
 	"github.com/lightningnetwork/lnd/lnwire"
 	"github.com/lightningnetwork/lnd/record"
@@ -315,15 +316,30 @@ func newRoute(sourceVertex route.Vertex,
 			// and its policy for the outgoing channel. This policy
 			// is stored as part of the incoming channel of
 			// the next hop.
-			outboundFee := pathEdges[i+1].policy.ComputeFee(
-				amtToForward,
-			)
+			policy := pathEdges[i+1].policy
+			outboundFee, err := policy.ComputeFee(amtToForward)
+			if err != nil {
+				return nil, fmt.Errorf("outbound fee of hop "+
+					"%d (channel %v): %w", i,
+					policy.ChannelID, err)
+			}
 
-			inboundFee := pathEdges[i].inboundFees.CalcFee(
+			inboundFee, err := pathEdges[i].inboundFees.CalcFee(
 				amtToForward + outboundFee,
 			)
-
-			fee = int64(outboundFee) + inboundFee
+			if err != nil {
+				return nil, fmt.Errorf("inbound fee of hop %d "+
+					"(channel %v): %w", i,
+					edge.ChannelID, err)
+			}
+			fee, err = feeMath.Combined(
+				uint64(outboundFee), inboundFee,
+			).Unpack()
+			if err != nil {
+				return nil, fmt.Errorf("total fee of hop %d "+
+					"(channel %v): %w", i,
+					edge.ChannelID, err)
+			}
 			if fee < 0 {
 				fee = 0
 			}
@@ -356,7 +372,13 @@ func newRoute(sourceVertex route.Vertex,
 		// Finally, we update the amount that needs to flow into the
 		// *next* hop, which is the amount this hop needs to forward,
 		// accounting for the fee that it takes.
-		nextIncomingAmount = amtToForward + lnwire.MilliSatoshi(fee)
+		incoming, err := feeMath.AddAmount(
+			uint64(amtToForward), fee,
+		).Unpack()
+		if err != nil {
+			return nil, err
+		}
+		nextIncomingAmount = lnwire.MilliSatoshi(incoming)
 	}
 
 	// If we are creating a route to a blinded path, we need to add some
@@ -824,39 +846,53 @@ func findPath(g *graphParams, r *RestrictParams, cfg *PathFindingConfig,
 		// doesn't charge inbound fees. If the "to" node is the exit
 		// hop, its inbound fees have already been set to zero by
 		// nodeEdgeUnifier.
-		inboundFee := edge.inboundFees.CalcFee(
+		inboundFee, err := edge.inboundFees.CalcFee(
 			toNodeDist.netAmountReceived,
 		)
+		if err != nil {
+			log.Tracef("Skipping edge %v: inbound fee: %v",
+				edge.policy.ChannelID, err)
 
-		// Make sure that the node total fee is never negative.
-		// Routing nodes treat a total fee that turns out
-		// negative as a zero fee and pathfinding should do the
-		// same.
-		minInboundFee := -int64(toNodeDist.outboundFee)
-		if inboundFee < minInboundFee {
-			inboundFee = minInboundFee
+			return
 		}
 
-		// Calculate amount that the candidate node would have to send
-		// out.
-		amountToSend := toNodeDist.netAmountReceived +
-			lnwire.MilliSatoshi(inboundFee)
+		combined, err := feeMath.Combined(
+			uint64(toNodeDist.outboundFee), inboundFee,
+		).Unpack()
+		if err != nil {
+			return
+		}
+		if combined < 0 {
+			// A node cannot charge a negative total fee.
+			inboundFee = -int64(toNodeDist.outboundFee)
+		}
+
+		amount, err := feeMath.AddAmount(
+			uint64(toNodeDist.netAmountReceived), inboundFee,
+		).Unpack()
+		if err != nil {
+			return
+		}
+		amountToSend := lnwire.MilliSatoshi(amount)
 
 		// Check if accumulated fees would exceed fee limit when this
 		// node would be added to the path.
-		totalFee := int64(amountToSend) - int64(amt)
+		var totalFee lnwire.MilliSatoshi
+		if amountToSend > amt {
+			totalFee = amountToSend - amt
+		}
 
 		log.Trace(lnutils.NewLogClosure(func() string {
 			return fmt.Sprintf(
 				"Checking fromVertex (%v) with "+
-					"minInboundFee=%v, inboundFee=%v, "+
+					"inboundFee=%v, "+
 					"amountToSend=%v, amt=%v, totalFee=%v",
-				fromVertex, minInboundFee, inboundFee,
+				fromVertex, inboundFee,
 				amountToSend, amt, totalFee,
 			)
 		}))
 
-		if totalFee > 0 && lnwire.MilliSatoshi(totalFee) > r.FeeLimit {
+		if totalFee > r.FeeLimit {
 			return
 		}
 
@@ -890,7 +926,7 @@ func findPath(g *graphParams, r *RestrictParams, cfg *PathFindingConfig,
 		// node, no additional timelock is required.
 		var (
 			timeLockDelta uint16
-			outboundFee   int64
+			outboundFee   uint64
 		)
 
 		// The route origin is fee-exempt and doesn't add a
@@ -898,9 +934,14 @@ func findPath(g *graphParams, r *RestrictParams, cfg *PathFindingConfig,
 		fromIsOrigin := origin.IsOrigin(fromVertex)
 
 		if !fromIsOrigin {
-			outboundFee = int64(
-				edge.policy.ComputeFee(amountToSend),
-			)
+			outbound, err := edge.policy.ComputeFee(amountToSend)
+			if err != nil {
+				log.Tracef("Skipping edge %v: outbound fee: %v",
+					edge.policy.ChannelID, err)
+
+				return
+			}
+			outboundFee = uint64(outbound)
 			timeLockDelta = edge.policy.TimeLockDelta
 		}
 
@@ -936,7 +977,12 @@ func findPath(g *graphParams, r *RestrictParams, cfg *PathFindingConfig,
 		// support negative edge weights. Because this fee feeds into
 		// the edge weight calculation, we don't allow it to be
 		// negative.
-		signedFee := inboundFee + outboundFee
+		signedFee, err := feeMath.Combined(
+			outboundFee, inboundFee,
+		).Unpack()
+		if err != nil {
+			return
+		}
 		fee := lnwire.MilliSatoshi(0)
 		if signedFee > 0 {
 			fee = lnwire.MilliSatoshi(signedFee)

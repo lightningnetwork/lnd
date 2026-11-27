@@ -7,6 +7,7 @@ import (
 	"github.com/btcsuite/btcd/btcutil/v2"
 	graphdb "github.com/lightningnetwork/lnd/graph/db"
 	"github.com/lightningnetwork/lnd/graph/db/models"
+	"github.com/lightningnetwork/lnd/internal/fee"
 	"github.com/lightningnetwork/lnd/lnwire"
 	"github.com/lightningnetwork/lnd/routing/route"
 )
@@ -252,18 +253,19 @@ func (u *edgeUnifier) getEdge(netAmtReceived lnwire.MilliSatoshi,
 // calcCappedInboundFee calculates the inbound fee for a channel, taking into
 // account the total node fee for the "to" node.
 func calcCappedInboundFee(edge *unifiedEdge, amt lnwire.MilliSatoshi,
-	nextOutFee lnwire.MilliSatoshi) int64 {
+	nextOutFee lnwire.MilliSatoshi) (int64, error) {
 
-	// Calculate the inbound fee charged for the amount that passes over the
-	// channel.
-	inboundFee := edge.inboundFees.CalcFee(amt)
+	inboundFee, err := edge.inboundFees.CalcFee(amt)
+	if err != nil {
+		return 0, err
+	}
 
-	// Take into account that the total node fee cannot be negative.
-	if inboundFee < -int64(nextOutFee) {
+	// Cap discounts so the total node fee cannot be negative.
+	if inboundFee < 0 && uint64(-(inboundFee+1))+1 > uint64(nextOutFee) {
 		inboundFee = -int64(nextOutFee)
 	}
 
-	return inboundFee
+	return inboundFee, nil
 }
 
 // getEdgeLocal returns the optimal unified edge to use for this local
@@ -279,13 +281,21 @@ func (u *edgeUnifier) getEdgeLocal(netAmtReceived lnwire.MilliSatoshi,
 
 	for _, edge := range u.edges {
 		// Calculate the inbound fee charged at the receiving node.
-		inboundFee := calcCappedInboundFee(
+		inboundFee, err := calcCappedInboundFee(
 			edge, netAmtReceived, nextOutFee,
 		)
+		if err != nil {
+			continue
+		}
 
-		// Add inbound fee to get to the amount that is sent over the
-		// local channel.
-		amt := netAmtReceived + lnwire.MilliSatoshi(inboundFee)
+		// Add the inbound fee to the local channel amount.
+		amount, err := fee.AddAmount(
+			uint64(netAmtReceived), inboundFee,
+		).Unpack()
+		if err != nil {
+			continue
+		}
+		amt := lnwire.MilliSatoshi(amount)
 		// Check valid amount range for the channel. We skip this test
 
 		// for payments with custom htlc data we skip the amount range
@@ -381,13 +391,21 @@ func (u *edgeUnifier) getEdgeNetwork(netAmtReceived lnwire.MilliSatoshi,
 
 	for _, edge := range u.edges {
 		// Calculate the inbound fee charged at the receiving node.
-		inboundFee := calcCappedInboundFee(
+		inboundFee, err := calcCappedInboundFee(
 			edge, netAmtReceived, nextOutFee,
 		)
+		if err != nil {
+			continue
+		}
 
-		// Add inbound fee to get to the amount that is sent over the
-		// channel.
-		amt := netAmtReceived + lnwire.MilliSatoshi(inboundFee)
+		// Add inbound fee to get the amount sent over the channel.
+		amount, err := fee.AddAmount(
+			uint64(netAmtReceived), inboundFee,
+		).Unpack()
+		if err != nil {
+			continue
+		}
+		amt := lnwire.MilliSatoshi(amount)
 
 		// Check valid amount range for the channel.
 		if !edge.amtInRange(amt) {
@@ -400,6 +418,17 @@ func (u *edgeUnifier) getEdgeNetwork(netAmtReceived lnwire.MilliSatoshi,
 		if edge.policy.IsDisabled {
 			log.Debugf("Skipped edge %v due to it being disabled",
 				edge.policy.ChannelID)
+			continue
+		}
+
+		outboundFee, err := edge.policy.ComputeFee(amt)
+		if err != nil {
+			continue
+		}
+		combinedFee, err := fee.Combined(
+			uint64(outboundFee), inboundFee,
+		).Unpack()
+		if err != nil {
 			continue
 		}
 
@@ -419,19 +448,16 @@ func (u *edgeUnifier) getEdgeNetwork(netAmtReceived lnwire.MilliSatoshi,
 		// candidate for non-strict forwarding at the routing node.
 		maxTimelock = max(maxTimelock, edge.policy.TimeLockDelta)
 
-		outboundFee := int64(edge.policy.ComputeFee(amt))
-		fee := outboundFee + inboundFee
-
 		// Use the policy that results in the highest fee for this
 		// specific amount.
-		if fee < maxFee {
+		if combinedFee < maxFee {
 			log.Debugf("Skipped edge %v due to it produces less "+
 				"fee: fee=%v, maxFee=%v",
-				edge.policy.ChannelID, fee, maxFee)
+				edge.policy.ChannelID, combinedFee, maxFee)
 
 			continue
 		}
-		maxFee = fee
+		maxFee = combinedFee
 
 		bestPolicy = newUnifiedEdge(
 			edge.policy, 0, edge.inboundFees, nil,

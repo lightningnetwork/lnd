@@ -870,10 +870,11 @@ func (f *mockChannelLink) UpdateForwardingPolicy(_ models.ForwardingPolicy) {
 }
 
 func (f *mockChannelLink) AdvertisedFee(
-	_ lnwire.MilliSatoshi) lnwire.MilliSatoshi {
+	_ lnwire.MilliSatoshi) (lnwire.MilliSatoshi, error) {
 
-	return f.advertisedFee
+	return f.advertisedFee, nil
 }
+
 func (f *mockChannelLink) CheckHtlcForward([32]byte, lnwire.MilliSatoshi,
 	lnwire.MilliSatoshi, uint32, uint32, models.InboundFee, uint32,
 	lnwire.ShortChannelID, lnwire.CustomRecords) *LinkError {

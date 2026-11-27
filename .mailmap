@@ -5,6 +5,10 @@
 #
 # Add a line here, rather than editing the generated contributor list, when
 # a contributor appears under several names or prefers a different one.
+#
+# Bot accounts that don't use GitHub's "[bot]" suffix are mapped to a name
+# with that suffix, which the release notes tool leaves out of the list. The
+# name is matched too, since a bot may commit with its operator's email.
 elsirion <elsirion+bot@protonmail.com>
 hieblmi <hieblmi@protonmail.com>
 Kevin Cai <kevincai96@gmail.com>
@@ -16,3 +20,6 @@ Yong Yu <yong2452@gmail.com>
 Yong Yu <yy2452@columbia.edu>
 Ziggie <90319354+ziggie1984@users.noreply.github.com>
 Ziggie <ziggie1984@protonmail.com>
+litbot-9000[bot] <58193817+litbot-9000@users.noreply.github.com>
+litbot-9000[bot] <litbot-9000@users.noreply.github.com>
+litbot-9000[bot] <laolu32@gmail.com> litbot-9000 <laolu32@gmail.com>

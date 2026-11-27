@@ -122,7 +122,9 @@ The fold is done by the Go program in `scripts/release-notes`:
    Git applies to `%aN`, instead of editing the generated list. That way the
    fix also applies to future releases. Names already listed under an alias
    are replaced with the `.mailmap` name on the next fold, while names added
-   by hand, such as co-authors, are kept.
+   by hand, such as co-authors, are kept. Bots are left out of the list:
+   GitHub bot accounts carry a `[bot]` suffix, and bot accounts without one
+   are mapped to a name with that suffix in `.mailmap`.
 5. It deletes the folded fragments, but keeps `unreleased/.gitkeep` so the
    directory stays in place.
 

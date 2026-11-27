@@ -604,6 +604,19 @@ func (b *BtcWallet) FinalizePsbt(packet *psbt.Packet, accountName string) error 
 		accountNum = account
 	}
 
+	// Before delegating to the base wallet's FinalizePsbt (which relies on
+	// FetchInputInfo/UTXO DB lookup to identify signable inputs), we first
+	// attempt to sign any inputs that have BIP32 derivation information.
+	// This handles cases like multisig P2WSH where the wallet has the
+	// signing key (via BIP32 derivation path) but doesn't own the script
+	// address in its UTXO set. Without this step, such inputs would be
+	// skipped during signing, leaving insufficient partial signatures for
+	// finalization.
+	_, err := b.SignPsbt(packet)
+	if err != nil {
+		log.Warnf("FinalizePsbt: SignPsbt failed: %v", err)
+	}
+
 	return b.wallet.FinalizePsbt(keyScope, accountNum, packet)
 }
 

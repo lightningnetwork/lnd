@@ -359,6 +359,11 @@ type MPPayment struct {
 	State *MPPaymentState
 }
 
+// GetSequenceNum returns the payment's unique sequence number.
+func (m *MPPayment) GetSequenceNum() uint64 {
+	return m.SequenceNum
+}
+
 // Terminated returns a bool to specify whether the payment is in a terminal
 // state.
 func (m *MPPayment) Terminated() bool {

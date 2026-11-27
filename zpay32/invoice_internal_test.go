@@ -3,7 +3,6 @@ package zpay32
 import (
 	"bytes"
 	"encoding/binary"
-	"errors"
 	"math"
 	"reflect"
 	"testing"
@@ -367,6 +366,8 @@ func TestParse32Bytes(t *testing.T) {
 func TestParseDescription(t *testing.T) {
 	t.Parallel()
 
+	const invalidUTF8Message = "description is not valid UTF-8"
+
 	testNonUTF8StrData, _ := bech32.ConvertBits(
 		[]byte(testNonUTF8Str), 8, 5, true,
 	)
@@ -378,12 +379,12 @@ func TestParseDescription(t *testing.T) {
 		data        []byte
 		valid       bool
 		result      *string
-		expectedErr error
+		expectedErr string
 	}{
 		{
 			data:        testNonUTF8StrData,
 			valid:       false,
-			expectedErr: ErrInvalidUTF8Description,
+			expectedErr: invalidUTF8Message,
 			result:      nil,
 		},
 		{
@@ -403,19 +404,38 @@ func TestParseDescription(t *testing.T) {
 		},
 	}
 
+	for _, tc := range invoiceDescriptionTextCases() {
+		data, err := bech32.ConvertBits([]byte(tc.text), 8, 5, true)
+		require.NoError(t, err)
+
+		text := tc.text
+		testCase := struct {
+			data        []byte
+			valid       bool
+			result      *string
+			expectedErr string
+		}{data: data, valid: tc.valid, result: &text}
+		if !tc.valid {
+			testCase.expectedErr = "disallowed Unicode character"
+			if tc.name == "malformed UTF-8" {
+				testCase.expectedErr = invalidUTF8Message
+			}
+			testCase.result = nil
+		}
+
+		tests = append(tests, testCase)
+	}
+
 	for i, test := range tests {
-		description, err := parseDescription(test.data)
-		if (err == nil) != test.valid {
-			t.Errorf("description decoding test %d failed: %v", i, err)
-			return
+		description, err := parseDescription(
+			test.data, lnwire.ValidateBoltText,
+		)
+		if test.valid {
+			require.NoError(t, err, "case %d", i)
+		} else {
+			require.ErrorContains(t, err, test.expectedErr)
 		}
-		require.ErrorIs(t, err, test.expectedErr)
-		if test.valid && !reflect.DeepEqual(description, test.result) {
-			t.Fatalf("test %d failed decoding description: "+
-				"expected \"%s\", got \"%s\"",
-				i, *test.result, *description)
-			return
-		}
+		require.Equal(t, test.result, description, "case %d", i)
 	}
 }
 
@@ -884,11 +904,11 @@ func TestParseTaggedFields(t *testing.T) {
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
 			var invoice Invoice
-			gotErr := parseTaggedFields(&invoice, tc.data, netParams)
-			if !errors.Is(gotErr, tc.wantErr) {
-				t.Fatalf("Unexpected error. want=%v got=%v",
-					tc.wantErr, gotErr)
-			}
+			gotErr := parseTaggedFields(
+				&invoice, tc.data, netParams,
+				lnwire.ValidateBoltText,
+			)
+			require.ErrorIs(t, gotErr, tc.wantErr)
 		})
 	}
 }

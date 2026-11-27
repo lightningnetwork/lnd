@@ -72,6 +72,19 @@ func (c *channelNotifier) SubscribeChans(ctx context.Context,
 			return
 		}
 	}
+	// sendClosedUpdate is a closure that sends a ChannelEvent to the
+	// chanUpdates channel to inform subscribers a channel was removed.
+	sendClosedUpdate := func(chanPoint wire.OutPoint) {
+		chanEvent := chanbackup.ChannelEvent{
+			ClosedChans: []wire.OutPoint{chanPoint},
+		}
+
+		select {
+		case chanUpdates <- chanEvent:
+		case <-quit:
+			return
+		}
+	}
 
 	// In order to adhere to the interface, we'll proxy the events from the
 	// channel notifier to the sub-swapper in a format it understands.
@@ -135,36 +148,15 @@ func (c *channelNotifier) SubscribeChans(ctx context.Context,
 
 						continue
 					}
+					sendClosedUpdate(chanPoint)
 
-					chanEvent := chanbackup.ChannelEvent{
-						ClosedChans: []wire.OutPoint{
-							chanPoint,
-						},
-					}
+				// Remove the backup for the timed-out pending
+				// channel immediately.
+				case channelnotifier.FundingTimeoutEvent:
+					sendClosedUpdate(*event.ChannelPoint)
 
-					select {
-					case chanUpdates <- chanEvent:
-					case <-quit:
-						return
-					}
-
-				// A channel was fully resolved on chain. This
-				// should only really interest us if it was a
-				// locally force closed channel where we didn't
-				// remove the channel already when the close
-				// event was fired.
 				case channelnotifier.FullyResolvedChannelEvent:
-					chanEvent := chanbackup.ChannelEvent{
-						ClosedChans: []wire.OutPoint{
-							*event.ChannelPoint,
-						},
-					}
-
-					select {
-					case chanUpdates <- chanEvent:
-					case <-quit:
-						return
-					}
+					sendClosedUpdate(*event.ChannelPoint)
 				}
 
 			// The cancel method has been called, signalling us to

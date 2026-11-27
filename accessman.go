@@ -295,12 +295,23 @@ func (a *accessMan) newPendingCloseChan(remotePub *btcec.PublicKey) error {
 
 	peerMapKey := string(remotePub.SerializeCompressed())
 
-	// Fetch the peer's access status from peerScores.
-	status, found := a.peerScores[peerMapKey]
-	if !found {
-		acsmLog.ErrorS(ctx, "Peer score not found", ErrNoPeerScore)
+	// An offline peer can still have pending channels after its live
+	// score has been removed. Update its count without assigning a slot.
+	status, connected := a.peerScores[peerMapKey]
+	if !connected {
+		info, ok := a.peerChanInfo[peerMapKey]
+		if !ok || info.PendingOpenCount == 0 {
+			return ErrNoPendingPeerInfo
+		}
 
-		return ErrNoPeerScore
+		info.PendingOpenCount--
+		if info.PendingOpenCount == 0 && !info.HasOpenOrClosedChan {
+			delete(a.peerChanInfo, peerMapKey)
+		} else {
+			a.peerChanInfo[peerMapKey] = info
+		}
+
+		return nil
 	}
 
 	switch status.state {
@@ -314,7 +325,7 @@ func (a *accessMan) newPendingCloseChan(remotePub *btcec.PublicKey) error {
 		// If this peer is temporary, we need to check if it will
 		// revert to a restricted-access peer.
 		peerCount, found := a.peerChanInfo[peerMapKey]
-		if !found {
+		if !found || peerCount.PendingOpenCount == 0 {
 			acsmLog.ErrorS(ctx, "Pending peer info not found",
 				ErrNoPendingPeerInfo)
 

@@ -46,6 +46,26 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
+func init() {
+	// BOLT 7 requires node ID 1 to be the lexicographically lesser of the
+	// two node keys, and the node ordering fix enforces it during
+	// validation. Sort the shared test node keys once so every test
+	// fixture builds compliant announcements without per-call handling.
+	keys := []*btcec.PrivateKey{selfKeyPriv, remoteKeyPriv1, remoteKeyPriv2}
+	for i := 0; i < len(keys); i++ {
+		for j := i + 1; j < len(keys); j++ {
+			if bytes.Compare(keys[i].PubKey().SerializeCompressed(),
+				keys[j].PubKey().SerializeCompressed()) > 0 {
+
+				keys[i], keys[j] = keys[j], keys[i]
+			}
+		}
+	}
+	selfKeyPriv, remoteKeyPriv1, remoteKeyPriv2 = keys[0], keys[1], keys[2]
+	selfKeyDesc.PubKey = selfKeyPriv.PubKey()
+	remoteKeyPub1 = remoteKeyPriv1.PubKey()
+}
+
 var (
 	testAddr = &net.TCPAddr{IP: (net.IP)([]byte{0xA, 0x0, 0x0, 0x1}),
 		Port: 9000}
@@ -799,6 +819,15 @@ func (ctx *testCtx) createAnnouncementWithoutProof(blockHeight uint32,
 		},
 		Features: testFeatures,
 	}
+	// BOLT 7 requires node ID 1 to be the lexicographically lesser of the
+	// two node keys. The caller may pass the keys in either order, so we
+	// sort them before building the announcement.
+	if bytes.Compare(key1.SerializeCompressed(),
+		key2.SerializeCompressed()) > 0 {
+
+		key1, key2 = key2, key1
+	}
+
 	copy(a.NodeID1[:], key1.SerializeCompressed())
 	copy(a.NodeID2[:], key2.SerializeCompressed())
 	copy(a.BitcoinKey1[:], bitcoinKeyPub1.SerializeCompressed())
@@ -851,48 +880,44 @@ func (ctx *testCtx) createRemoteChannelAnnouncement(blockHeight uint32,
 func (ctx *testCtx) createChannelAnnouncement(blockHeight uint32, key1,
 	key2 *btcec.PrivateKey,
 	opts ...fundingTxOption) (*lnwire.ChannelAnnouncement1, error) {
+	// BOLT 7 requires node ID 1 to be the lexicographically lesser of the
+	// two node keys. Sort the keys before building and signing the
+	// announcement so every signature lands in the right position.
+	if bytes.Compare(key1.PubKey().SerializeCompressed(),
+		key2.PubKey().SerializeCompressed()) > 0 {
+
+		key1, key2 = key2, key1
+	}
 
 	a := ctx.createAnnouncementWithoutProof(
 		blockHeight, key1.PubKey(), key2.PubKey(), opts...,
 	)
+	var err error
 
-	signer := mock.SingleSigner{Privkey: key1}
-	sig, err := netann.SignAnnouncement(&signer, testKeyLoc, a)
-	if err != nil {
-		return nil, err
-	}
-	a.NodeSig1, err = lnwire.NewSigFromSignature(sig)
-	if err != nil {
-		return nil, err
-	}
+	// The node signatures cover the announcement under the node keys,
+	// and the bitcoin signatures cover the same digest under the bitcoin
+	// keys paired with each node's position.
+	sign := func(signer *btcec.PrivateKey) (lnwire.Sig, error) {
+		sig, err := netann.SignAnnouncement(
+			&mock.SingleSigner{Privkey: signer}, testKeyLoc, a,
+		)
+		if err != nil {
+			return lnwire.Sig{}, err
+		}
 
-	signer = mock.SingleSigner{Privkey: key2}
-	sig, err = netann.SignAnnouncement(&signer, testKeyLoc, a)
-	if err != nil {
-		return nil, err
-	}
-	a.NodeSig2, err = lnwire.NewSigFromSignature(sig)
-	if err != nil {
-		return nil, err
+		return lnwire.NewSigFromSignature(sig)
 	}
 
-	signer = mock.SingleSigner{Privkey: bitcoinKeyPriv1}
-	sig, err = netann.SignAnnouncement(&signer, testKeyLoc, a)
-	if err != nil {
+	if a.NodeSig1, err = sign(key1); err != nil {
 		return nil, err
 	}
-	a.BitcoinSig1, err = lnwire.NewSigFromSignature(sig)
-	if err != nil {
+	if a.NodeSig2, err = sign(key2); err != nil {
 		return nil, err
 	}
-
-	signer = mock.SingleSigner{Privkey: bitcoinKeyPriv2}
-	sig, err = netann.SignAnnouncement(&signer, testKeyLoc, a)
-	if err != nil {
+	if a.BitcoinSig1, err = sign(bitcoinKeyPriv1); err != nil {
 		return nil, err
 	}
-	a.BitcoinSig2, err = lnwire.NewSigFromSignature(sig)
-	if err != nil {
+	if a.BitcoinSig2, err = sign(bitcoinKeyPriv2); err != nil {
 		return nil, err
 	}
 
@@ -4529,13 +4554,13 @@ func TestFutureMsgCacheEviction(t *testing.T) {
 	//
 	// Put the first item.
 	id := c.nextMsgID()
-	evicted, err := c.Put(id, &cachedFutureMsg{height: uint32(id)})
+	evicted, err := c.Put(id, &cachedFutureMsg{height: 1, size: 1})
 	require.NoError(t, err)
 	require.False(t, evicted, "should not be evicted")
 
 	// Put the second item.
 	id = c.nextMsgID()
-	evicted, err = c.Put(id, &cachedFutureMsg{height: uint32(id)})
+	evicted, err = c.Put(id, &cachedFutureMsg{height: 2, size: 1})
 	require.NoError(t, err)
 	require.True(t, evicted, "should be evicted")
 

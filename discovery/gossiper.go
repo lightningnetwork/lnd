@@ -61,9 +61,24 @@ const (
 	// updates that we'll hold onto.
 	maxPrematureUpdates = 100
 
-	// maxFutureMessages tracks the max amount of future messages that
-	// we'll hold onto.
+	// maxFutureMessages tracks the max amount of ordinary future messages
+	// that we'll hold onto.
 	maxFutureMessages = 1000
+
+	// futureMsgMinSize is the minimum cache charge for a future message.
+	// Using the maximum wire body size preserves the count limit for
+	// ordinary messages while allowing larger decoded objects to receive a
+	// larger charge.
+	futureMsgMinSize = lnwire.MaxMsgBody
+
+	// maxFutureMsgCacheSize is the retained-memory budget for future
+	// messages.
+	maxFutureMsgCacheSize = maxFutureMessages * futureMsgMinSize
+
+	// futureFeatureEntrySize conservatively accounts for the map bucket,
+	// key, top-hash, and overflow storage retained by each decoded feature
+	// bit.
+	futureFeatureEntrySize = 16
 
 	// DefaultSubBatchDelay is the default delay we'll use when
 	// broadcasting the next announcement batch.
@@ -594,7 +609,7 @@ func New(cfg Config, selfKeyDesc *keychain.KeyDescriptor) *AuthenticatedGossiper
 		selfKeyLoc:        selfKeyDesc.KeyLocator,
 		cfg:               &cfg,
 		networkMsgs:       make(chan *networkMsg),
-		futureMsgs:        newFutureMsgCache(maxFutureMessages),
+		futureMsgs:        newFutureMsgCache(maxFutureMsgCacheSize),
 		quit:              make(chan struct{}),
 		chanPolicyUpdates: make(chan *chanPolicyUpdateRequest),
 		prematureChannelUpdates: lru.NewCache[uint64, *cachedNetworkMsg]( //nolint: ll
@@ -791,12 +806,30 @@ type cachedFutureMsg struct {
 
 	// height is the block height.
 	height uint32
+
+	// size is the conservative amount of retained memory charged to the
+	// cache.
+	size uint64
 }
 
-// Size returns the size of the message.
+// Size returns the precomputed retained-memory charge of the message.
 func (c *cachedFutureMsg) Size() (uint64, error) {
-	// Return a constant 1.
-	return 1, nil
+	return c.size, nil
+}
+
+// futureMsgSize returns a conservative retained-memory charge for a future
+// message. The minimum charge preserves the previous 1,000-message bound.
+// Channel announcement feature maps receive an additional charge because
+// their decoded representation is much larger than their wire encoding.
+func futureMsgSize(msg lnwire.Message) uint64 {
+	size := uint64(futureMsgMinSize)
+
+	ann, ok := msg.(*lnwire.ChannelAnnouncement1)
+	if !ok || ann.Features == nil {
+		return size
+	}
+
+	return size + uint64(ann.Features.NumFeatures())*futureFeatureEntrySize
 }
 
 // resendFutureMessages takes a block height, resends all the future messages
@@ -2260,6 +2293,7 @@ func (d *AuthenticatedGossiper) isPremature(chanID lnwire.ShortChannelID,
 	cachedMsg := &cachedFutureMsg{
 		msg:    copied,
 		height: msgHeight,
+		size:   futureMsgSize(copied.msg),
 	}
 
 	// Increment the msg ID and add it to the cache.
@@ -3611,10 +3645,16 @@ func (d *AuthenticatedGossiper) handleAnnSig(ctx context.Context,
 		ann.ShortChannelID)
 
 	// By the specification, channel announcement proofs should be sent
-	// after some number of confirmations after channel was registered in
-	// bitcoin blockchain. Therefore, we check if the proof is mature.
+	// after some number of confirmations after the channel was registered
+	// in the bitcoin blockchain. Therefore, we check if the proof is
+	// mature. We only defer remote proofs: the funding manager creates our
+	// own half after its required confirmation depth and never sends it
+	// again, so caching it in the evictable, in-memory future message
+	// cache could lose it for good. Processing it immediately persists it
+	// in the waiting proof store and reliably delivers it to our
+	// counterparty.
 	d.Lock()
-	premature := d.isPremature(
+	premature := nMsg.isRemote && d.isPremature(
 		ann.ShortChannelID, d.cfg.ProofMatureDelta, nMsg,
 	)
 	if premature {

@@ -199,7 +199,7 @@ func (n *Node) NodeAnnouncement(signed bool) (*lnwire.NodeAnnouncement1,
 		return nil, fmt.Errorf("node does not have node announcement")
 	}
 
-	alias, err := lnwire.NewNodeAlias(n.Alias.UnwrapOr(""))
+	alias, err := lnwire.ParseNodeAlias(n.Alias.UnwrapOr(""))
 	if err != nil {
 		return nil, err
 	}

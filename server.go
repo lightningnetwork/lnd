@@ -4147,19 +4147,40 @@ func (s *server) prunePersistentPeerConnection(compressedPubKey [33]byte) {
 	pubKeyStr := string(compressedPubKey[:])
 
 	s.mu.Lock()
-	if perm, ok := s.persistentPeers[pubKeyStr]; ok && !perm {
-		delete(s.persistentPeers, pubKeyStr)
-		delete(s.persistentPeersBackoff, pubKeyStr)
-		delete(s.persistentPeerAddrs, pubKeyStr)
-		s.cancelConnReqs(pubKeyStr, nil)
-		s.mu.Unlock()
+	defer s.mu.Unlock()
 
-		srvrLog.Infof("Pruned peer %x from persistent connections, "+
-			"peer has no open channels", compressedPubKey)
+	permanent, tracked := s.persistentPeers[pubKeyStr]
+	if !tracked || permanent {
+		return
+	}
+
+	// A pending channel is persisted before WatchNewChannel registers it
+	// under s.mu. Keep the database check and prune under the same lock
+	// so either the check sees the channel or its registration follows
+	// the prune.
+	pubKey, err := btcec.ParsePubKey(compressedPubKey[:])
+	if err != nil {
+		srvrLog.Errorf("Unable to parse persistent peer key: %v", err)
 
 		return
 	}
-	s.mu.Unlock()
+
+	channels, err := s.chanStateDB.FetchOpenChannels(pubKey)
+	if err != nil {
+		srvrLog.Errorf("Unable to fetch channels for peer %x: %v",
+			compressedPubKey, err)
+
+		return
+	}
+	if len(channels) != 0 {
+		return
+	}
+
+	s.bannedPersistentPeerConnection(pubKeyStr)
+
+	srvrLog.Infof("Pruned peer %x from persistent connections, "+
+		"peer has no open channels", compressedPubKey)
+
 }
 
 // bannedPersistentPeerConnection does not actually "ban" a persistent peer. It
@@ -4786,6 +4807,16 @@ func (s *server) notifyFundingTimeoutPeerEvent(op wire.OutPoint,
 			"channel[%v] pending close",
 			remotePub.SerializeCompressed(), op)
 	}
+	// Stop watching the timed-out channel and forget it, so the chain
+	// arbitrator no longer processes blocks for a channel that will never
+	// open and the peer is not kept as a persistent connection.
+	if err := s.chainArb.ResolveContract(op); err != nil {
+		srvrLog.Errorf("Unable to resolve timed-out channel "+
+			"%v: %v", op, err)
+	}
+	var remotePubKey [33]byte
+	copy(remotePubKey[:], remotePub.SerializeCompressed())
+	s.prunePersistentPeerConnection(remotePubKey)
 
 	if errors.Is(err, ErrNoMoreRestrictedAccessSlots) {
 		// If we encounter an error while attempting to disconnect the
@@ -6142,6 +6173,35 @@ func calculateNodeAnnouncementTimestamp(persistedTime,
 	return currentTime
 }
 
+// resolveSelfNodeAlias applies the configured alias or reuses a valid stored
+// alias. An alias which predates the writer rules falls back to the node key.
+func resolveSelfNodeAlias(configured, stored string, nodePub route.Vertex) (
+	lnwire.NodeAlias, error) {
+
+	if configured != "" {
+		alias, err := lnwire.NewNodeAlias(configured)
+		if err != nil {
+			return alias, fmt.Errorf(
+				"invalid configured alias: %w", err,
+			)
+		}
+
+		return alias, nil
+	}
+
+	if stored != "" {
+		alias, err := lnwire.NewNodeAlias(stored)
+		if err == nil {
+			return alias, nil
+		}
+
+		srvrLog.Warnf("Replacing an invalid persisted node alias with "+
+			"the default alias: %v", err)
+	}
+
+	return lnwire.NewNodeAlias(hex.EncodeToString(nodePub[:10]))
+}
+
 // setSelfNode configures and sets the server's self node. It sets the node
 // announcement, signs it, and updates the source node in the graph. When
 // determining values such as color and alias, the method prioritizes values
@@ -6199,7 +6259,7 @@ func (s *server) setSelfNode(ctx context.Context, nodePub route.Vertex,
 	}
 
 	var (
-		alias          = s.cfg.Alias
+		storedAlias    string
 		nodeLastUpdate = time.Now()
 	)
 
@@ -6224,11 +6284,7 @@ func (s *server) setSelfNode(ctx context.Context, nodePub route.Vertex,
 
 		// If an alias is not specified in the config, we'll use the
 		// source node's alias.
-		if alias == "" {
-			srcNode.Alias.WhenSome(func(s string) {
-				alias = s
-			})
-		}
+		storedAlias = srcNode.Alias.UnwrapOr("")
 
 		// If the `externalip` is not specified in the config, it means
 		// `addrs` will be empty, we'll use the source node's addresses.
@@ -6239,12 +6295,7 @@ func (s *server) setSelfNode(ctx context.Context, nodePub route.Vertex,
 		}
 
 	case errors.Is(err, graphdb.ErrSourceNodeNotSet):
-		// If an alias is not specified in the config, we'll use the
-		// default, which is the first 10 bytes of the serialized
-		// pubkey.
-		if alias == "" {
-			alias = hex.EncodeToString(nodePub[:10])
-		}
+		// A fresh graph has no persisted alias.
 
 	// If the above cases are not matched, then we have an unhandled non
 	// nil error.
@@ -6252,7 +6303,9 @@ func (s *server) setSelfNode(ctx context.Context, nodePub route.Vertex,
 		return fmt.Errorf("unable to fetch source node: %w", err)
 	}
 
-	nodeAlias, err := lnwire.NewNodeAlias(alias)
+	nodeAlias, err := resolveSelfNodeAlias(
+		s.cfg.Alias, storedAlias, nodePub,
+	)
 	if err != nil {
 		return err
 	}

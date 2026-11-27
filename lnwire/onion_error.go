@@ -55,32 +55,38 @@ type FailCode uint16
 // The currently defined onion failure types within this current version of the
 // Lightning protocol.
 const (
-	CodeNone                             FailCode = 0
-	CodeInvalidRealm                              = FlagBadOnion | 1
-	CodeTemporaryNodeFailure                      = FlagNode | 2
-	CodePermanentNodeFailure                      = FlagPerm | FlagNode | 2
-	CodeRequiredNodeFeatureMissing                = FlagPerm | FlagNode | 3
-	CodeInvalidOnionVersion                       = FlagBadOnion | FlagPerm | 4
-	CodeInvalidOnionHmac                          = FlagBadOnion | FlagPerm | 5
-	CodeInvalidOnionKey                           = FlagBadOnion | FlagPerm | 6
-	CodeTemporaryChannelFailure                   = FlagUpdate | 7
-	CodePermanentChannelFailure                   = FlagPerm | 8
-	CodeRequiredChannelFeatureMissing             = FlagPerm | 9
-	CodeUnknownNextPeer                           = FlagPerm | 10
-	CodeAmountBelowMinimum                        = FlagUpdate | 11
-	CodeFeeInsufficient                           = FlagUpdate | 12
-	CodeIncorrectCltvExpiry                       = FlagUpdate | 13
-	CodeExpiryTooSoon                             = FlagUpdate | 14
-	CodeChannelDisabled                           = FlagUpdate | 20
-	CodeIncorrectOrUnknownPaymentDetails          = FlagPerm | 15
-	CodeIncorrectPaymentAmount                    = FlagPerm | 16
-	CodeFinalExpiryTooSoon               FailCode = 17
-	CodeFinalIncorrectCltvExpiry         FailCode = 18
-	CodeFinalIncorrectHtlcAmount         FailCode = 19
-	CodeExpiryTooFar                     FailCode = 21
-	CodeInvalidOnionPayload                       = FlagPerm | 22
-	CodeMPPTimeout                       FailCode = 23
-	CodeInvalidBlinding                           = FlagBadOnion | FlagPerm | 24 //nolint:ll
+	CodeNone                       FailCode = 0
+	CodeInvalidRealm                        = FlagBadOnion | 1
+	CodeTemporaryNodeFailure                = FlagNode | 2
+	CodePermanentNodeFailure                = FlagPerm | FlagNode | 2
+	CodeRequiredNodeFeatureMissing          = FlagPerm | FlagNode | 3
+	CodeInvalidOnionVersion                 = FlagBadOnion |
+		FlagPerm | 4
+	CodeInvalidOnionHmac = FlagBadOnion |
+		FlagPerm | 5
+	CodeInvalidOnionKey = FlagBadOnion |
+		FlagPerm | 6
+	CodeTemporaryChannelFailure                    = FlagUpdate | 7
+	CodePermanentChannelFailure                    = FlagPerm | 8
+	CodeRequiredChannelFeatureMissing              = FlagPerm | 9
+	CodeUnknownNextPeer                            = FlagPerm | 10
+	CodeAmountBelowMinimum                         = FlagUpdate | 11
+	CodeFeeInsufficient                            = FlagUpdate | 12
+	CodeIncorrectCltvExpiry                        = FlagUpdate | 13
+	CodeExpiryTooSoon                              = FlagUpdate | 14
+	CodeChannelDisabled                            = FlagUpdate | 20
+	CodeIncorrectOrUnknownPaymentDetails           = FlagPerm | 15
+	CodeIncorrectPaymentAmount                     = FlagPerm | 16
+	CodeFinalExpiryTooSoon                FailCode = 17
+	CodeFinalIncorrectCltvExpiry          FailCode = 18
+	CodeFinalIncorrectHtlcAmount          FailCode = 19
+	CodeExpiryTooFar                      FailCode = 21
+	CodeInvalidOnionPayload                        = FlagPerm | 22
+	CodeMPPTimeout                        FailCode = 23
+	CodeInvalidBlinding                            = FlagBadOnion | FlagPerm | 24 //nolint:ll
+	CodeTemporaryTrampolineFailure                 = FlagNode | 25
+	CodeTrampolineFeeOrExpiryInsufficient          = FlagNode | 26
+	CodeUnknownNextTrampoline                      = FlagPerm | 27
 )
 
 // String returns the string representation of the failure code.
@@ -160,6 +166,15 @@ func (c FailCode) String() string {
 
 	case CodeInvalidBlinding:
 		return "InvalidBlinding"
+
+	case CodeTemporaryTrampolineFailure:
+		return "TemporaryTrampolineFailure"
+
+	case CodeTrampolineFeeOrExpiryInsufficient:
+		return "TrampolineFeeOrExpiryInsufficient"
+
+	case CodeUnknownNextTrampoline:
+		return "UnknownNextTrampoline"
 
 	default:
 		return "<unknown>"
@@ -1240,6 +1255,79 @@ func (f *FailMPPTimeout) Error() string {
 	return f.Code().String()
 }
 
+// FailTemporaryTrampolineFailure is returned when a trampoline node found
+// routes to the next trampoline node, but temporary failures prevented relay.
+type FailTemporaryTrampolineFailure struct{}
+
+// Code returns the failure's unique code.
+func (f *FailTemporaryTrampolineFailure) Code() FailCode {
+	return CodeTemporaryTrampolineFailure
+}
+
+// Error returns a human-readable description of the failure.
+func (f *FailTemporaryTrampolineFailure) Error() string {
+	return f.Code().String()
+}
+
+// FailTrampolineFeeOrExpiryInsufficient is returned when a trampoline node
+// needs a larger fee budget, a larger CLTV budget, or both.
+type FailTrampolineFeeOrExpiryInsufficient struct {
+	// FeeBaseMsat is the relay's quoted base fee in millisatoshis.
+	FeeBaseMsat uint32
+
+	// FeeProportionalMillionths is the relay's quoted proportional fee.
+	FeeProportionalMillionths uint32
+
+	// CltvExpiryDelta is the relay's quoted CLTV delta.
+	CltvExpiryDelta uint16
+}
+
+// Code returns the failure's unique code.
+func (f *FailTrampolineFeeOrExpiryInsufficient) Code() FailCode {
+	return CodeTrampolineFeeOrExpiryInsufficient
+}
+
+// Error returns a human-readable description of the failure.
+func (f *FailTrampolineFeeOrExpiryInsufficient) Error() string {
+	return fmt.Sprintf("%s(base=%d, ppm=%d, delta=%d)",
+		f.Code(), f.FeeBaseMsat, f.FeeProportionalMillionths,
+		f.CltvExpiryDelta)
+}
+
+// Decode reads the fee and CLTV quote from the failure message.
+func (f *FailTrampolineFeeOrExpiryInsufficient) Decode(r io.Reader,
+	_ uint32) error {
+
+	return ReadElements(
+		r, &f.FeeBaseMsat, &f.FeeProportionalMillionths,
+		&f.CltvExpiryDelta,
+	)
+}
+
+// Encode writes the fee and CLTV quote to the failure message.
+func (f *FailTrampolineFeeOrExpiryInsufficient) Encode(w *bytes.Buffer,
+	_ uint32) error {
+
+	return WriteElements(
+		w, f.FeeBaseMsat, f.FeeProportionalMillionths,
+		f.CltvExpiryDelta,
+	)
+}
+
+// FailUnknownNextTrampoline is returned when the requested next trampoline
+// node cannot be reached from the processing node.
+type FailUnknownNextTrampoline struct{}
+
+// Code returns the failure's unique code.
+func (f *FailUnknownNextTrampoline) Code() FailCode {
+	return CodeUnknownNextTrampoline
+}
+
+// Error returns a human-readable description of the failure.
+func (f *FailUnknownNextTrampoline) Error() string {
+	return f.Code().String()
+}
+
 // FailInvalidBlinding is returned if there has been a route blinding related
 // error.
 type FailInvalidBlinding struct {
@@ -1510,6 +1598,15 @@ func makeEmptyOnionError(code FailCode) (FailureMessage, error) {
 
 	case CodeInvalidBlinding:
 		return &FailInvalidBlinding{}, nil
+
+	case CodeTemporaryTrampolineFailure:
+		return &FailTemporaryTrampolineFailure{}, nil
+
+	case CodeTrampolineFeeOrExpiryInsufficient:
+		return &FailTrampolineFeeOrExpiryInsufficient{}, nil
+
+	case CodeUnknownNextTrampoline:
+		return &FailUnknownNextTrampoline{}, nil
 
 	default:
 		return nil, fmt.Errorf("unknown error code: %v", code)

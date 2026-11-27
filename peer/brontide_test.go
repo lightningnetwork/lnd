@@ -4739,7 +4739,7 @@ func TestRbfBumpDuringRestoredShutdown(t *testing.T) {
 	machine := startIssueRbfMachine(
 		t, p, point, &chancloser.ShutdownPending{
 			ShutdownScripts: scripts,
-			IdealFeeRate:    fn.Some(chainfee.SatPerVByte(1)),
+			IdealFeeRate:    fn.Some(chainfee.SatPerKWeight(250)),
 		}, fees,
 	)
 

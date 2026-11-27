@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"fmt"
 
+	"github.com/btcsuite/btcd/blockchain"
 	"github.com/btcsuite/btcd/btcec/v2"
 	"github.com/btcsuite/btcd/btcec/v2/schnorr/musig2"
 	"github.com/btcsuite/btcd/btcutil/v2"
@@ -372,7 +373,7 @@ func (c *ChannelActive) ProcessEvent(event ProtocolEvent, env *Environment,
 // ChannelActive into ShutdownPending.
 func (c *ChannelActive) processSendShutdown(
 	deliveryAddr fn.Option[lnwire.DeliveryAddress],
-	idealFeeOpt fn.Option[chainfee.SatPerVByte],
+	idealFeeOpt fn.Option[chainfee.SatPerKWeight],
 	closeeNonce fn.Option[lnwire.Musig2Nonce], env *Environment,
 ) (*CloseStateTransition, error) {
 
@@ -719,7 +720,7 @@ func (c *ChannelFlushing) ProcessEvent(event ProtocolEvent, env *Environment,
 		// shutdown or flushing, prefer its fee rate. Otherwise, fall
 		// back to the ideal fee rate or the environment default.
 		var (
-			idealFeeRate chainfee.SatPerVByte
+			idealFeeRate chainfee.SatPerKWeight
 			explicitBump bool
 		)
 		c.PendingBump.WhenSome(func(bump PendingLocalOffer) {
@@ -742,7 +743,7 @@ func (c *ChannelFlushing) ProcessEvent(event ProtocolEvent, env *Environment,
 		}
 		absoluteFee := env.FeeEstimator.EstimateFee(
 			env.ChanType, localTxOut, remoteTxOut,
-			auxShapeTxOuts(auxShape), idealFeeRate.FeePerKWeight(),
+			auxShapeTxOuts(auxShape), idealFeeRate,
 		)
 
 		chancloserLog.Infof("ChannelPoint(%v): using ideal_fee=%v, "+
@@ -812,7 +813,7 @@ func (c *ChannelFlushing) ProcessEvent(event ProtocolEvent, env *Environment,
 // buffers a fee-bump request while the closer is in ShutdownPending or
 // ChannelFlushing.
 func applyLocalCloseReqToPending(localRequested *bool,
-	idealFeeRate *fn.Option[chainfee.SatPerVByte],
+	idealFeeRate *fn.Option[chainfee.SatPerKWeight],
 	pendingBump *fn.Option[PendingLocalOffer], msg *LocalCloseReq) {
 
 	if !*localRequested && idealFeeRate.IsNone() {
@@ -821,7 +822,7 @@ func applyLocalCloseReqToPending(localRequested *bool,
 		return
 	}
 
-	msg.TargetFeeRate.WhenSome(func(rate chainfee.SatPerVByte) {
+	msg.TargetFeeRate.WhenSome(func(rate chainfee.SatPerKWeight) {
 		*pendingBump = fn.Some(PendingLocalOffer{
 			TargetFeeRate: rate,
 			Seq:           msg.Seq,
@@ -1368,7 +1369,7 @@ func (l *LocalCloseStart) ProcessEvent(event ProtocolEvent, env *Environment,
 // processSendOffer attempts to construct and send a closing_complete offer at
 // targetFeeRate, or transitions to CloseErr if the local balance cannot cover
 // the fee.
-func (l *LocalCloseStart) processSendOffer(targetFeeRate chainfee.SatPerVByte,
+func (l *LocalCloseStart) processSendOffer(targetFeeRate chainfee.SatPerKWeight,
 	env *Environment) (*CloseStateTransition, error) {
 	// First, we'll figure out the absolute fee rate we should pay
 	// given the state of the local/remote outputs, and any aux
@@ -1380,8 +1381,7 @@ func (l *LocalCloseStart) processSendOffer(targetFeeRate chainfee.SatPerVByte,
 	}
 	absoluteFee := env.FeeEstimator.EstimateFee(
 		env.ChanType, localTxOut, remoteTxOut,
-		auxShapeTxOuts(auxShape),
-		targetFeeRate.FeePerKWeight(),
+		auxShapeTxOuts(auxShape), targetFeeRate,
 	)
 
 	// If we can't actually pay for fees here, then we'll just do a
@@ -2481,10 +2481,15 @@ func (l *RemoteCloseStart) ProcessEvent(event ProtocolEvent, env *Environment,
 		// We'll also compute the final fee rate that the remote party
 		// paid based off the absolute fee and the size of the closing
 		// transaction.
-		vSize := mempool.GetTxVirtualSize(btcutil.NewTx(closeTx))
-		feeRate := chainfee.SatPerVByte(
-			int64(msg.SigMsg.FeeSatoshis) / vSize,
+		weight := blockchain.GetTransactionWeight(
+			btcutil.NewTx(closeTx),
 		)
+
+		// Convert absolute fee to a fee rate in sat/kw, rounding up.
+		fee := int64(msg.SigMsg.FeeSatoshis)
+		rate := ((fee * 1000) + weight - 1) / weight
+
+		feeRate := chainfee.SatPerKWeight(rate)
 
 		// Now that we've extracted the signature, we'll transition to
 		// the next state where we'll sign+broadcast the sig.

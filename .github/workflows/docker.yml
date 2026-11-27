@@ -69,7 +69,9 @@ jobs:
         with:
           push: true
           platforms: linux/amd64,linux/arm64
-          tags: "${{ env.DOCKER_REPO }}/${{ env.DOCKER_IMAGE }}:${{ env.IMAGE_TAG }}"
+          tags: |
+            "${{ env.DOCKER_REPO }}/${{ env.DOCKER_IMAGE }}:${{ env.IMAGE_TAG }}"
+            ${{  contains(env.IMAGE_TAG, '.rc') == false && format('{}/{}:latest', env.DOCKER_REPO, env.DOCKER_IMAGE) || '' }}
           build-args: checkout=${{ env.RELEASE_VERSION }}
 
       - name: Image digest

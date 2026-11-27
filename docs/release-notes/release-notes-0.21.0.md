@@ -208,6 +208,17 @@
   the database. Deletion requires the target cutoff timestamp to be at least 1
   hour in the past, preventing accidental removal of recent data.
 
+* [A new `DeriveAndStoreKey` RPC was added to
+  `walletrpc`](https://github.com/lightningnetwork/lnd/pull/11095). It derives an
+  arbitrary key like `DeriveKey` does, but also records the key in the wallet, so
+  the wallet is able to map the public key back to its key locator later on. That
+  mapping is required to sign with a key, which means keys meant for signing can
+  now be derived at an arbitrary index instead of only through `DeriveNextKey`
+  ([#8698](https://github.com/lightningnetwork/lnd/issues/8698)). Recording a key
+  also advances the key family's derivation index past it, which lets an external
+  consumer of a key family restore that index after the wallet was recovered from
+  seed.
+
 * The `WaitingCloseChannel` response in `PendingChannels` now includes two
   new fields via [#10509](https://github.com/lightningnetwork/lnd/pull/10509):
   `blocks_til_close_confirmed`, showing the remaining confirmations until a

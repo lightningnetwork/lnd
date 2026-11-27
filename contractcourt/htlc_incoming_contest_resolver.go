@@ -230,37 +230,6 @@ func (h *htlcIncomingContestResolver) Resolve() (ContractResolver, error) {
 		return nil, h.Checkpoint(h, report)
 	}
 
-	// We'll first check if this HTLC has been timed out, if so, we can
-	// return now and mark ourselves as resolved. If we're past the point of
-	// expiry of the HTLC, then at this point the sender can sweep it, so
-	// we'll end our lifetime. Here we deliberately forego the chance that
-	// the sender doesn't sweep and we already have or will learn the
-	// preimage. Otherwise the resolver could potentially stay active
-	// indefinitely and the channel will never close properly.
-	if uint32(currentHeight) >= h.htlcExpiry {
-		// TODO(roasbeef): should also somehow check if outgoing is
-		// resolved or not
-		//  * may need to hook into the circuit map
-		//  * can't timeout before the outgoing has been
-
-		log.Infof("%T(%v): HTLC has timed out (expiry=%v, height=%v), "+
-			"abandoning", h, h.htlcResolution.ClaimOutpoint,
-			h.htlcExpiry, currentHeight)
-		h.markResolved()
-
-		if err := h.processFinalHtlcFail(); err != nil {
-			return nil, err
-		}
-
-		// Finally, get our report and checkpoint our resolver with a
-		// timeout outcome report.
-		report := h.report().resolverReport(
-			nil, channeldb.ResolverTypeIncomingHtlc,
-			channeldb.ResolverOutcomeTimeout,
-		)
-		return nil, h.Checkpoint(h, report)
-	}
-
 	// Define a closure to process htlc resolutions either directly or
 	// triggered by future notifications.
 	processHtlcResolution := func(e invoices.HtlcResolution) (
@@ -392,7 +361,37 @@ func (h *htlcIncomingContestResolver) Resolve() (ContractResolver, error) {
 			return nil, fmt.Errorf("unknown htlc resolution type: %T",
 				resolution)
 		}
-	} else {
+	}
+
+	// Now that an exit-hop HTLC has been replayed through the invoice
+	// registry with the actual current height, check whether it has timed
+	// out. A recorded settlement must take precedence over expiry, while an
+	// unseen expired HTLC is rejected by the registry's expiry checks.
+	if uint32(currentHeight) >= h.htlcExpiry {
+		// TODO(roasbeef): should also somehow check if outgoing is
+		// resolved or not
+		//  * may need to hook into the circuit map
+		//  * can't timeout before the outgoing has been
+
+		log.Infof("%T(%v): HTLC has timed out (expiry=%v, height=%v), "+
+			"abandoning", h, h.htlcResolution.ClaimOutpoint,
+			h.htlcExpiry, currentHeight)
+		h.markResolved()
+
+		if err := h.processFinalHtlcFail(); err != nil {
+			return nil, err
+		}
+
+		// Finally, get our report and checkpoint our resolver with a
+		// timeout outcome report.
+		report := h.report().resolverReport(
+			nil, channeldb.ResolverTypeIncomingHtlc,
+			channeldb.ResolverOutcomeTimeout,
+		)
+		return nil, h.Checkpoint(h, report)
+	}
+
+	if !payload.FwdInfo.IsExit() {
 		// If the HTLC hasn't expired yet, then we may still be able to
 		// claim it if we learn of the pre-image, so we'll subscribe to
 		// the preimage database to see if it turns up, or the HTLC
@@ -782,51 +781,16 @@ func (h *htlcIncomingContestResolver) findAndapplyPreimage() (bool, error) {
 		return false, nil
 	}
 
-	// AMP child preimages aren't stored at the invoice level, so check
-	// whether the registry already settled this HTLC as part of its set.
+	// AMP child preimages aren't stored in the preimage beacon, so use the
+	// registry's side-effect-free lookup to check whether it already settled
+	// this HTLC as part of its set.
 	applied, err := h.applyAMPPreimage(payload)
 	if err != nil || applied {
 		return applied, err
 	}
 
-	// Notify registry that we are potentially resolving as an exit hop
-	// on-chain. If this HTLC indeed pays to an existing invoice, the
-	// invoice registry will tell us what to do with the HTLC. This is
-	// identical to HTLC resolution in the link.
-	circuitKey := models.CircuitKey{
-		ChanID: h.ShortChanID,
-		HtlcID: h.htlc.HtlcIndex,
-	}
-
-	// Try get the resolution - if it doesn't give us a resolution
-	// immediately, we'll assume we don't know it yet and let the `Resolve`
-	// handle the waiting.
-	//
-	// NOTE: we use a nil subscriber here and a zero current height as we
-	// are only interested in the settle resolution.
-	//
-	// TODO(yy): move this logic to link and let the preimage be accessed
-	// via the preimage beacon.
-	resolution, err := h.Registry.NotifyExitHopHtlc(
-		h.htlc.RHash, h.htlc.Amt, h.htlcExpiry, 0,
-		circuitKey, nil, h.htlc.CustomRecords, payload,
-	)
-	if err != nil {
-		return false, err
-	}
-
-	res, ok := resolution.(*invoices.HtlcSettleResolution)
-
-	// Exit early if it's not a settle resolution.
-	if !ok {
-		return false, nil
-	}
-
-	// Otherwise we have a settle resolution, apply the preimage.
-	err = h.applyPreimage(res.Preimage)
-	if err != nil {
-		return false, err
-	}
-
-	return true, nil
+	// Launch is called repeatedly and doesn't know the current chain
+	// height. Leave all mutating invoice processing to Resolve, which
+	// registers for block epochs before notifying the registry.
+	return false, nil
 }

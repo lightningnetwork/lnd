@@ -119,6 +119,23 @@ func TestHtlcIncomingResolverFwdTimeout(t *testing.T) {
 	ctx.waitForResult(false)
 }
 
+// TestHtlcIncomingResolverLaunchReadOnly asserts that Launch doesn't process
+// an exit-hop HTLC through the invoice registry. Launch can be called once per
+// block and doesn't know the current chain height, so mutating invoice state is
+// left to Resolve.
+func TestHtlcIncomingResolverLaunchReadOnly(t *testing.T) {
+	t.Parallel()
+
+	ctx := newIncomingResolverTestContext(t, true)
+
+	require.NoError(t, ctx.resolver.Launch())
+	require.NoError(t, ctx.resolver.Launch())
+	require.Zero(t, ctx.registry.notifyCalls.Load())
+	require.EqualValues(
+		t, lntypes.ZeroHash, ctx.resolver.htlcResolution.Preimage,
+	)
+}
+
 // TestHtlcIncomingResolverExitSettle tests resolution of an exit hop htlc for
 // which the invoice has already been settled when the resolver starts.
 func TestHtlcIncomingResolverExitSettle(t *testing.T) {
@@ -140,6 +157,7 @@ func TestHtlcIncomingResolverExitSettle(t *testing.T) {
 	if data.currentHeight != testInitialBlockHeight {
 		t.Fatal("incorrect block height")
 	}
+	require.EqualValues(t, 1, ctx.registry.notifyCalls.Load())
 
 	ctx.waitForResult(true)
 
@@ -150,6 +168,67 @@ func TestHtlcIncomingResolverExitSettle(t *testing.T) {
 
 		t.Fatal("unexpected onion blob")
 	}
+}
+
+// TestHtlcIncomingResolverExitSettleExpired tests that a recorded settlement
+// is recovered from the invoice registry even when the resolver starts at the
+// HTLC's expiry height and before the preimage reaches the witness beacon.
+func TestHtlcIncomingResolverExitSettleExpired(t *testing.T) {
+	t.Parallel()
+	defer timeout()()
+
+	ctx := newIncomingResolverTestContext(t, true)
+	ctx.resolver.htlcExpiry = testInitialBlockHeight
+	ctx.registry.notifyResolution = invoices.NewSettleResolution(
+		testResPreimage, testResCircuitKey, testAcceptHeight,
+		invoices.ResultReplayToSettled,
+	)
+
+	ctx.resolve()
+
+	data := <-ctx.registry.notifyChan
+	require.Equal(t, int32(testInitialBlockHeight), data.currentHeight)
+	require.EqualValues(t, 1, ctx.registry.notifyCalls.Load())
+
+	ctx.waitForResult(true)
+}
+
+// TestHtlcIncomingResolverExitRejectExpired tests that an unseen expired HTLC
+// is processed with the actual current height and that the registry's expiry
+// rejection isn't reclassified as a resolver timeout.
+func TestHtlcIncomingResolverExitRejectExpired(t *testing.T) {
+	t.Parallel()
+	defer timeout()()
+
+	ctx := newIncomingResolverTestContext(t, true)
+	ctx.resolver.htlcExpiry = testInitialBlockHeight
+	ctx.registry.notifyResolution = invoices.NewFailResolution(
+		testResCircuitKey, testInitialBlockHeight,
+		invoices.ResultExpiryTooSoon,
+	)
+	reportChan := make(chan *channeldb.ResolverReport)
+	ctx.resolver.Checkpoint = func(_ ContractResolver,
+		reports ...*channeldb.ResolverReport) error {
+
+		for _, report := range reports {
+			reportChan <- report
+		}
+
+		return nil
+	}
+
+	ctx.resolve()
+
+	data := <-ctx.registry.notifyChan
+	require.Equal(t, int32(testInitialBlockHeight), data.currentHeight)
+	require.EqualValues(t, 1, ctx.registry.notifyCalls.Load())
+	assertResolverReport(t, reportChan, &channeldb.ResolverReport{
+		Amount:          lnwire.MilliSatoshi(testHtlcAmount).ToSatoshis(),
+		ResolverType:    channeldb.ResolverTypeIncomingHtlc,
+		ResolverOutcome: channeldb.ResolverOutcomeAbandoned,
+	})
+
+	ctx.waitForResult(false)
 }
 
 // TestHtlcIncomingResolverExitSettleAMP tests that a settled AMP HTLC is

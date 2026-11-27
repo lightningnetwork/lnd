@@ -1739,6 +1739,13 @@ func testPsbtChanFundingWithUnstableUtxos(ht *lntest.HarnessTest) {
 	// channel opening and the confirmed to_remote output.
 	ht.AssertNumUTXOsConfirmed(carol, 2)
 
+	// Wait for the force closed channel to be fully resolved on Carol's
+	// side. Until it is, the wallet still counts it towards the anchor
+	// channel reserve, and the PSBT verify step below would reject the
+	// maximum-sized funding transaction for leaving insufficient funds
+	// for fee bumping anchor channel closings.
+	ht.AssertNumPendingForceClose(carol, 0)
+
 	// We fund the psbt request again and now all utxo are stable and can
 	// finally be used to fund the channel.
 	fundResp := carol.RPC.FundPsbt(fundReq)
@@ -1885,6 +1892,11 @@ func testPsbtChanFundingWithUnstableUtxos(ht *lntest.HarnessTest) {
 	// We expect 2 confirmed utxos, the change of the last successful
 	// channel opening and the confirmed to_remote output of channelPoint2.
 	ht.AssertNumUTXOsConfirmed(carol, 2)
+
+	// As above, wait for the force closed channel to be fully resolved
+	// so it no longer counts towards the anchor channel reserve checked
+	// by the PSBT verify step below.
+	ht.AssertNumPendingForceClose(carol, 0)
 
 	// After the confirmation of the sweep to_remote output the funding
 	// will now proceed.

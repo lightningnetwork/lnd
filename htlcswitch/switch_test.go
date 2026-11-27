@@ -17,6 +17,7 @@ import (
 	"github.com/btcsuite/btcd/btcutil/v2"
 	"github.com/davecgh/go-spew/spew"
 	"github.com/lightningnetwork/lnd/actor"
+	"github.com/lightningnetwork/lnd/aliasmgr"
 	"github.com/lightningnetwork/lnd/chainntnfs"
 	"github.com/lightningnetwork/lnd/channeldb"
 	"github.com/lightningnetwork/lnd/contractcourt"
@@ -527,6 +528,17 @@ func testSwitchForwardMapping(t *testing.T, alicePrivate, aliceZeroConf,
 		outgoingSCID = aliceAlias
 	}
 
+	// Onion message forwarding uses the same rules. The lookup must agree
+	// with the forward below.
+	gotLink, err := s.LookupLinkByOutgoingSCID(outgoingSCID)
+	if expectErr {
+		require.ErrorIs(t, err, ErrChannelLinkNotFound)
+		require.Nil(t, gotLink)
+	} else {
+		require.NoError(t, err)
+		require.Equal(t, aliceChannelLink, gotLink)
+	}
+
 	packet := &htlcPacket{
 		incomingChanID: bobScid,
 		incomingHTLCID: 0,
@@ -568,6 +580,132 @@ func testSwitchForwardMapping(t *testing.T, alicePrivate, aliceZeroConf,
 			t.Fatal("expected alice to receive packet")
 		}
 	}
+}
+
+// TestLookupLinkByOutgoingSCIDUnknownAlias checks that a peer alias, which
+// is not in the switch indexes, does not resolve. The alias and privacy
+// matrix is covered by TestSwitchForwardMapping.
+func TestLookupLinkByOutgoingSCIDUnknownAlias(t *testing.T) {
+	t.Parallel()
+
+	alicePeer, err := newMockServer(
+		t, "alice", testStartingHeight, nil, testDefaultDelta,
+	)
+	require.NoError(t, err)
+
+	s, err := initSwitchWithTempDB(t, testStartingHeight)
+	require.NoError(t, err)
+	require.NoError(t, s.Start())
+	t.Cleanup(func() { _ = s.Stop() })
+
+	chanID, _ := genID()
+	alias := lnwire.ShortChannelID{
+		BlockHeight: 16_000_015,
+		TxIndex:     9,
+		TxPosition:  9,
+	}
+	confirmed := lnwire.ShortChannelID{
+		BlockHeight: 506000,
+		TxIndex:     10,
+		TxPosition:  10,
+	}
+	link := newMockChannelLink(
+		s, chanID, confirmed, emptyScid, alicePeer, true, true, false,
+		true,
+	)
+	link.addAlias(alias)
+	require.NoError(t, s.AddLink(link))
+
+	// A peer alias is one past the local alias and is not indexed.
+	peerAlias := alias
+	peerAlias.TxPosition++
+
+	missing, err := s.LookupLinkByOutgoingSCID(peerAlias)
+	require.ErrorIs(t, err, ErrChannelLinkNotFound)
+	require.Nil(t, missing)
+}
+
+// TestUpdateLinkAliasesZeroConfDeletesAlias checks that refreshing a
+// zero-conf link drops a deleted custom alias. The confirmed SCID mapping
+// stays.
+func TestUpdateLinkAliasesZeroConfDeletesAlias(t *testing.T) {
+	t.Parallel()
+
+	s, err := initSwitchWithTempDB(t, testStartingHeight)
+	require.NoError(t, err)
+
+	base := aliasmgr.StartingAlias
+	custom := base
+	custom.TxIndex++
+	confirmed := lnwire.ShortChannelID{
+		BlockHeight: 506000,
+		TxIndex:     10,
+		TxPosition:  10,
+	}
+
+	indexLink := func(link *mockChannelLink) {
+		s.indexMtx.Lock()
+		s.forwardingIndex[base] = link
+		s.indexMtx.Unlock()
+	}
+
+	t.Run("unconfirmed", func(t *testing.T) {
+		link := newMockChannelLink(
+			s, lnwire.ChannelID{}, base, emptyScid, nil,
+			true, true, true, false,
+		)
+		indexLink(link)
+		link.addAlias(custom)
+
+		s.UpdateLinkAliases(link)
+		got, err := s.LookupLinkByOutgoingSCID(custom)
+		require.NoError(t, err)
+		require.Equal(t, link, got)
+
+		link.aliases = []lnwire.ShortChannelID{base}
+		s.UpdateLinkAliases(link)
+
+		missing, err := s.LookupLinkByOutgoingSCID(custom)
+		require.ErrorIs(t, err, ErrChannelLinkNotFound)
+		require.Nil(t, missing)
+
+		got, err = s.LookupLinkByOutgoingSCID(base)
+		require.NoError(t, err)
+		require.Equal(t, link, got)
+	})
+
+	t.Run("confirmed", func(t *testing.T) {
+		link := newMockChannelLink(
+			s, lnwire.ChannelID{1}, base, confirmed, nil,
+			true, true, true, false,
+		)
+		indexLink(link)
+		link.addAlias(custom)
+
+		s.UpdateLinkAliases(link)
+		got, err := s.LookupLinkByOutgoingSCID(custom)
+		require.NoError(t, err)
+		require.Equal(t, link, got)
+
+		s.indexMtx.RLock()
+		require.Equal(t, base, s.baseIndex[confirmed])
+		require.Equal(t, confirmed, s.aliasToReal[custom])
+		s.indexMtx.RUnlock()
+
+		link.aliases = []lnwire.ShortChannelID{base}
+		s.UpdateLinkAliases(link)
+
+		missing, err := s.LookupLinkByOutgoingSCID(custom)
+		require.ErrorIs(t, err, ErrChannelLinkNotFound)
+		require.Nil(t, missing)
+
+		s.indexMtx.RLock()
+		require.Equal(t, base, s.baseIndex[confirmed])
+		_, stillMapped := s.aliasToReal[custom]
+		require.False(t, stillMapped)
+		require.Equal(t, confirmed, s.aliasToReal[base])
+		s.indexMtx.RUnlock()
+	})
 }
 
 // TestSwitchSendHTLCMapping tests that SendHTLC will properly route packets to

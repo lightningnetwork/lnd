@@ -6,6 +6,7 @@ import (
 	"io"
 
 	"github.com/btcsuite/btcd/btcec/v2"
+	"github.com/btcsuite/btcd/wire/v2"
 	"github.com/lightningnetwork/lnd/fn/v2"
 	"github.com/lightningnetwork/lnd/kvdb"
 	"github.com/lightningnetwork/lnd/lnwire"
@@ -97,6 +98,27 @@ func SerializeChannelCloseSummary(w io.Writer,
 	}
 
 	return nil
+}
+
+// DeserializeCloseSummaryPending reads only the leading, fixed-size fields of a
+// serialized ChannelCloseSummary -- enough to return the channel point and
+// whether the channel is still pending close -- and stops before the optional
+// trailing fields (revocation state, the channel config, and the last channel
+// sync message). Those trailing fields dominate the decode cost, so callers
+// that only need to find the pending-close channels can skip them.
+func DeserializeCloseSummaryPending(r io.Reader) (wire.OutPoint, bool, error) {
+	c := &ChannelCloseSummary{}
+
+	err := ReadElements(r,
+		&c.ChanPoint, &c.ShortChanID, &c.ChainHash, &c.ClosingTXID,
+		&c.CloseHeight, &c.RemotePub, &c.Capacity, &c.SettledBalance,
+		&c.TimeLockedBalance, &c.CloseType, &c.IsPending,
+	)
+	if err != nil {
+		return wire.OutPoint{}, false, err
+	}
+
+	return c.ChanPoint, c.IsPending, nil
 }
 
 // DeserializeCloseChannelSummary deserializes a channel close summary.

@@ -1311,6 +1311,240 @@ func fetchChannels(c *ChannelStateDB, filters ...fetchChannelsFilter) (
 	return channels, nil
 }
 
+// chanInfoIsPublicAnchor decodes only a channel's info record -- skipping the
+// far more expensive commitment and revocation state -- and reports whether
+// the channel is both public (announced) and an anchor channel.
+func chanInfoIsPublicAnchor(chanBucket kvdb.RBucket) (bool, error) {
+	channel := &OpenChannel{}
+	if err := chanstate.FetchChanInfo(chanBucket, channel); err != nil {
+		return false, err
+	}
+
+	// Private channels won't be used for routing, so they aren't counted.
+	isPublic := channel.ChannelFlags&lnwire.FFAnnounceChannel != 0
+
+	return isPublic && channel.ChanType.HasAnchors(), nil
+}
+
+// countChainPublicAnchors counts the public anchor channels within a single
+// chain bucket, skipping already-closed (tombstoned) channels and reading only
+// each channel's info record.
+func countChainPublicAnchors(tx kvdb.RTx, nodeChanBucket kvdb.RBucket,
+	chainHash []byte) (int, error) {
+
+	chainBucket := nodeChanBucket.NestedReadBucket(chainHash)
+	if chainBucket == nil {
+		return 0, nil
+	}
+
+	// Hoist the outpoint bucket so the per-channel closed check is a map
+	// probe rather than a bucket resolve.
+	opBucket := tx.ReadBucket(outpointBucket)
+
+	var count int
+	err := chainBucket.ForEach(func(chanPoint, v []byte) error {
+		// If there's a value, it's not a bucket, so ignore it.
+		if v != nil {
+			return nil
+		}
+
+		// Skip already-closed channels, matching fetchNodeChannels.
+		isClosed, err := isOutpointClosed(opBucket, chanPoint)
+		if err != nil {
+			return err
+		}
+		if isClosed {
+			return nil
+		}
+
+		chanBucket := chainBucket.NestedReadBucket(chanPoint)
+
+		isAnchor, err := chanInfoIsPublicAnchor(chanBucket)
+		if err != nil {
+			return err
+		}
+		if isAnchor {
+			count++
+		}
+
+		return nil
+	})
+	if err != nil {
+		return 0, err
+	}
+
+	return count, nil
+}
+
+// countOpenPublicAnchorChannels walks the open channel buckets -- covering
+// pending-open, open, and waiting-close channels, as FetchAllChannels does --
+// and counts the public anchor channels, reading only each channel's info
+// record.
+func (c *ChannelStateDB) countOpenPublicAnchorChannels() (int, error) {
+	var count int
+
+	err := kvdb.View(c.backend, func(tx kvdb.RTx) error {
+		openChanBucket := tx.ReadBucket(openChannelBucket)
+		if openChanBucket == nil {
+			return ErrNoActiveChannels
+		}
+
+		nodeMetaBucket := tx.ReadBucket(nodeInfoBucket)
+		if nodeMetaBucket == nil {
+			return fmt.Errorf("node bucket not created")
+		}
+
+		return nodeMetaBucket.ForEach(func(nodeKey, _ []byte) error {
+			nodeChanBucket := openChanBucket.NestedReadBucket(
+				nodeKey,
+			)
+			if nodeChanBucket == nil {
+				return nil
+			}
+
+			return nodeChanBucket.ForEach(
+				func(chainHash, v []byte) error {
+					// A value means it's not a bucket.
+					if v != nil {
+						return nil
+					}
+
+					n, err := countChainPublicAnchors(
+						tx, nodeChanBucket, chainHash,
+					)
+					if err != nil {
+						return err
+					}
+					count += n
+
+					return nil
+				},
+			)
+		})
+	}, func() {
+		count = 0
+	})
+	if err != nil {
+		return 0, err
+	}
+
+	return count, nil
+}
+
+// deserializeClosePending reads only the channel point and pending-close marker
+// from a serialized close summary, skipping its expensive trailing fields.
+func deserializeClosePending(v []byte) (wire.OutPoint, bool, error) {
+	return chanstate.DeserializeCloseSummaryPending(bytes.NewReader(v))
+}
+
+// fetchPendingCloseChanPoints returns the channel points of the pending-close
+// channels -- the pending-only subset FetchClosedChannels(true) returns -- but
+// reads only the leading fields of each closed-channel summary rather than
+// deserializing it in full. On a node with many closed channels this skips the
+// summary's revocation state, channel config, and last-sync-message decoding,
+// which dominate the cost of scanning the closed bucket.
+func (c *ChannelStateDB) fetchPendingCloseChanPoints() ([]wire.OutPoint,
+	error) {
+
+	var chanPoints []wire.OutPoint
+
+	err := kvdb.View(c.backend, func(tx kvdb.RTx) error {
+		closeBucket := tx.ReadBucket(closedChannelBucket)
+		if closeBucket == nil {
+			return ErrNoClosedChannels
+		}
+
+		return closeBucket.ForEach(func(_, v []byte) error {
+			chanPoint, isPending, err := deserializeClosePending(v)
+			if err != nil {
+				return err
+			}
+
+			if isPending {
+				chanPoints = append(chanPoints, chanPoint)
+			}
+
+			return nil
+		})
+	}, func() {
+		chanPoints = nil
+	})
+	if err != nil {
+		return nil, err
+	}
+
+	return chanPoints, nil
+}
+
+// CountPublicAnchorChannels returns the number of public anchor channels that
+// are open, pending open, waiting close, or pending close. It mirrors the set
+// that FetchAllChannels plus the pending-close historical lookup return, but
+// reads only each channel's info record rather than its full state, which
+// avoids deserializing every channel's commitments and revocation data.
+func (c *ChannelStateDB) CountPublicAnchorChannels() (int, error) {
+	// Count the open (and pending-open / waiting-close) channels.
+	count, err := c.countOpenPublicAnchorChannels()
+	if err != nil {
+		return 0, err
+	}
+
+	// Pending-close channels live in the historical bucket. Enumerate just
+	// their channel points with a light scan that skips the expensive
+	// close-summary fields, then read each one's info record below.
+	pendingClose, err := c.fetchPendingCloseChanPoints()
+	if err != nil {
+		return 0, err
+	}
+
+	// With no pending-close channels there is nothing to look up, so skip
+	// the historical read transaction entirely.
+	if len(pendingClose) == 0 {
+		return count, nil
+	}
+
+	// Tally the pending-close anchors in their own accumulator. kvdb.View
+	// calls the reset closure before every attempt, including retries on
+	// the etcd and SQL backends, so the counter must restart from zero
+	// there rather than add onto the open-channel total again.
+	var pendingCloseCount int
+	err = kvdb.View(c.backend, func(tx kvdb.RTx) error {
+		for _, chanPoint := range pendingClose {
+			chanBucket, err := fetchHistoricalChanBucket(
+				tx, &chanPoint,
+			)
+			if err != nil {
+				// Not every channel is guaranteed to be in the
+				// historical bucket, so skip the ones we can't
+				// read, as CurrentNumAnchorChans did.
+				log.Warnf("Unable to fetch historical "+
+					"channel %v: %v", chanPoint, err)
+
+				continue
+			}
+
+			isAnchor, err := chanInfoIsPublicAnchor(chanBucket)
+			if err != nil {
+				log.Warnf("Unable to read historical "+
+					"channel %v: %v", chanPoint, err)
+
+				continue
+			}
+			if isAnchor {
+				pendingCloseCount++
+			}
+		}
+
+		return nil
+	}, func() {
+		pendingCloseCount = 0
+	})
+	if err != nil {
+		return 0, err
+	}
+
+	return count + pendingCloseCount, nil
+}
+
 // FetchClosedChannels attempts to fetch all closed channels from the database.
 // The pendingOnly bool toggles if channels that aren't yet fully closed should
 // be returned in the response or not. When a channel was cooperatively closed,

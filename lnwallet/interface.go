@@ -133,6 +133,11 @@ type Utxo struct {
 	PkScript      []byte
 	wire.OutPoint
 	PrevTx *wire.MsgTx
+
+	// Account is the name of the wallet account the output belongs to. It
+	// is populated by ListUnspentWitness (and callers built on it); other
+	// Utxo constructors may leave it empty.
+	Account string
 }
 
 // OutputDetail contains additional information on a destination address.

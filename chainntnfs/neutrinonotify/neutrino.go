@@ -752,9 +752,9 @@ func (n *NeutrinoNotifier) notifyBlockEpochClient(epochClient *blockEpochRegistr
 	}
 }
 
-// extendHistoricalDispatch extends an initial historical scan through blocks
-// connected while the filter update was in flight. A supplemental scan covers
-// only a fixed prefix and must also stop at the surviving tip after a reorg.
+// extendHistoricalDispatch bounds a historical confirmation scan after the
+// filter update. An initial scan extends to the current tip. A supplemental
+// scan covers a fixed prefix and stops at the surviving tip after a reorg.
 func extendHistoricalDispatch(endHeight *uint32, supplemental bool,
 	currentHeight uint32) {
 
@@ -840,21 +840,6 @@ func (n *NeutrinoNotifier) RegisterSpendNtfn(outpoint *wire.OutPoint,
 		return ntfn.Event, nil
 	}
 
-	// Grab the current best height as the height may have been updated
-	// while we were draining the chainUpdates queue.
-	n.bestBlockMtx.RLock()
-	currentHeight := uint32(n.bestBlock.Height)
-	n.bestBlockMtx.RUnlock()
-
-	// An initial scan ends at the txNotifier height observed during
-	// registration. Extend that scan through any blocks connected while the
-	// filter update was in flight. A supplemental scan ends below the range
-	// that is already covered and is capped at the surviving tip.
-	extendHistoricalDispatch(
-		&ntfn.HistoricalDispatch.EndHeight,
-		ntfn.HistoricalDispatch.Supplemental, currentHeight,
-	)
-
 	// With the filter updated, we'll dispatch our historical rescan to
 	// ensure we detect the spend if it happened in the past.
 	n.wg.Add(1)
@@ -884,9 +869,6 @@ func (n *NeutrinoNotifier) RegisterSpendNtfn(outpoint *wire.OutPoint,
 			neutrino.WatchInputs(inputToWatch),
 			neutrino.StartBlock(&headerfs.BlockStamp{
 				Height: int32(ntfn.HistoricalDispatch.StartHeight),
-			}),
-			neutrino.EndBlock(&headerfs.BlockStamp{
-				Height: int32(ntfn.HistoricalDispatch.EndHeight),
 			}),
 			neutrino.ProgressHandler(func(processedHeight uint32) {
 				// We persist the rescan progress to achieve incremental

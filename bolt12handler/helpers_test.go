@@ -10,6 +10,7 @@ import (
 	"github.com/btcsuite/btcd/chainhash/v2"
 	"github.com/lightningnetwork/lnd/bolt12"
 	"github.com/lightningnetwork/lnd/clock"
+	"github.com/lightningnetwork/lnd/keychain"
 	"github.com/lightningnetwork/lnd/tlv"
 	"github.com/stretchr/testify/require"
 )
@@ -33,9 +34,21 @@ const testFinalCLTVDelta = 42
 func testInvoiceConfig(key *btcec.PrivateKey) *InvoiceConfig {
 	return &InvoiceConfig{
 		Signer:         newPrivKeySigner(key),
+		PathIDKey:      testPathIDKey(key),
 		Clock:          clock.NewTestClock(testNow),
 		FinalCLTVDelta: testFinalCLTVDelta,
 	}
+}
+
+// testPathIDKey returns the path id key of the node with the given key. It
+// panics when the derivation fails.
+func testPathIDKey(key *btcec.PrivateKey) PathIDKey {
+	pathIDKey, err := DerivePathIDKey(&keychain.PrivKeyECDH{PrivKey: key})
+	if err != nil {
+		panic(err)
+	}
+
+	return pathIDKey
 }
 
 // testKey returns a deterministic private key for testing.

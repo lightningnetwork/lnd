@@ -6,6 +6,7 @@ import (
 	"encoding/hex"
 	"testing"
 
+	"github.com/lightningnetwork/lnd/lnwire"
 	"github.com/lightningnetwork/lnd/tlv"
 	"github.com/stretchr/testify/require"
 )
@@ -129,4 +130,111 @@ func TestOfferHashMatchesCoreLightning(t *testing.T) {
 	require.NoError(t, err)
 
 	require.Equal(t, clnOfferHash, hex.EncodeToString(id[:]))
+}
+
+// testPaths returns one blinded path with one hop, for the offer_paths and
+// invreq_paths records of a test message.
+func testPaths() lnwire.BlindedPaths {
+	_, intro := aliceKey()
+	_, blinding := bobKey()
+
+	return lnwire.BlindedPaths{
+		Paths: []lnwire.BlindedPath{{
+			IntroductionNode: lnwire.PubkeyIntro{Pubkey: intro},
+			BlindingPoint:    blinding,
+			Hops: []lnwire.BlindedHop{{
+				BlindedNodeID: intro,
+				EncryptedData: []byte{1, 2, 3},
+			}},
+		}},
+	}
+}
+
+// TestOfferHashWithoutPaths verifies that the hash ignores offer_paths. This
+// lets a node bind the paths of an offer to a value that exists before them.
+// It also verifies that a request over such a path gives the same value.
+func TestOfferHashWithoutPaths(t *testing.T) {
+	t.Parallel()
+
+	_, issuer := bobKey()
+	_, payer := aliceKey()
+
+	offer := &Offer{}
+	offer.OfferDescription = tlv.SomeRecordT(
+		tlv.NewPrimitiveRecord[tlv.TlvType10, []byte]([]byte("coffee")),
+	)
+	offer.OfferIssuerID = tlv.SomeRecordT(
+		tlv.NewPrimitiveRecord[tlv.TlvType22](issuer),
+	)
+
+	before, err := OfferHashWithoutPaths(offer)
+	require.NoError(t, err)
+
+	offer.OfferPaths = tlv.SomeRecordT(
+		tlv.NewRecordT[tlv.TlvType16](testPaths()),
+	)
+
+	after, err := OfferHashWithoutPaths(offer)
+	require.NoError(t, err)
+	require.Equal(t, before, after)
+
+	full, err := OfferHash(offer)
+	require.NoError(t, err)
+	require.NotEqual(t, full, after)
+
+	ir, err := NewInvoiceRequestFromOffer(
+		offer, payer, []byte("meta"), bitcoinMainnetGenesisHash,
+	)
+	require.NoError(t, err)
+
+	fromRequest, err := OfferHashWithoutPaths(ir)
+	require.NoError(t, err)
+	require.Equal(t, after, fromRequest)
+}
+
+// TestInvoiceRequestHash verifies that an invoice hashes to the hash of the
+// request it answers, that invreq_paths do not count, and that a field in the
+// request range does.
+func TestInvoiceRequestHash(t *testing.T) {
+	t.Parallel()
+
+	_, issuer := bobKey()
+	_, payer := aliceKey()
+
+	offer := &Offer{}
+	offer.OfferDescription = tlv.SomeRecordT(
+		tlv.NewPrimitiveRecord[tlv.TlvType10, []byte]([]byte("coffee")),
+	)
+	offer.OfferIssuerID = tlv.SomeRecordT(
+		tlv.NewPrimitiveRecord[tlv.TlvType22](issuer),
+	)
+
+	newRequest := func(metadata string) *InvoiceRequest {
+		ir, err := NewInvoiceRequestFromOffer(
+			offer, payer, []byte(metadata),
+			bitcoinMainnetGenesisHash,
+		)
+		require.NoError(t, err)
+
+		return ir
+	}
+
+	ir := newRequest("meta")
+	reqHash, err := InvoiceRequestHash(ir)
+	require.NoError(t, err)
+
+	invHash, err := InvoiceRequestHash(NewInvoiceFromRequest(ir))
+	require.NoError(t, err)
+	require.Equal(t, reqHash, invHash)
+
+	ir.InvreqPaths = tlv.SomeRecordT(
+		tlv.NewRecordT[tlv.TlvType90](testPaths()),
+	)
+	withPaths, err := InvoiceRequestHash(ir)
+	require.NoError(t, err)
+	require.Equal(t, reqHash, withPaths)
+
+	other, err := InvoiceRequestHash(newRequest("other"))
+	require.NoError(t, err)
+	require.NotEqual(t, reqHash, other)
 }

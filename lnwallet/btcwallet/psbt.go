@@ -543,26 +543,45 @@ func prepareScriptsV0(in *psbt.PInput) []byte {
 func maybeTweakPrivKeyPsbt(unknowns []*psbt.Unknown,
 	privKey *btcec.PrivateKey) *btcec.PrivateKey {
 
-	// There can be other custom/unknown keys in a PSBT that we just ignore.
-	// Key tweaking is optional and only one tweak (single _or_ double) can
-	// ever be applied (at least for any use cases described in the BOLT
-	// spec).
+	// There can be other custom/unknown keys in a PSBT that we just
+	// ignore. Key tweaking is optional. Historically only one tweak
+	// (single _or_ double) was ever applied, but second-level HTLC
+	// signing for aux (taproot asset) channels applies both: the
+	// revocation (double) tweak and the per-HTLC-index (single) tweak.
+	// This must mirror maybeTweakPrivKey in signer.go: collect both
+	// tweaks first, then apply double before single, so the remote
+	// signer PSBT path derives the same key as the local signing path.
+	var singleTweak, doubleTweak []byte
 	for _, u := range unknowns {
 		if bytes.Equal(u.Key, PsbtKeyTypeInputSignatureTweakSingle) {
-			return input.TweakPrivKey(privKey, u.Value)
+			singleTweak = u.Value
 		}
 
 		if bytes.Equal(u.Key, PsbtKeyTypeInputSignatureTweakDouble) {
-			doubleTweakKey, _ := btcec.PrivKeyFromBytes(
-				u.Value,
-			)
-			return input.DeriveRevocationPrivKey(
-				privKey, doubleTweakKey,
-			)
+			doubleTweak = u.Value
 		}
 	}
 
-	return privKey
+	switch {
+	case doubleTweak != nil && singleTweak != nil:
+		doubleTweakKey, _ := btcec.PrivKeyFromBytes(doubleTweak)
+		tweaked := input.DeriveRevocationPrivKey(
+			privKey, doubleTweakKey,
+		)
+
+		return input.TweakPrivKey(tweaked, singleTweak)
+
+	case singleTweak != nil:
+		return input.TweakPrivKey(privKey, singleTweak)
+
+	case doubleTweak != nil:
+		doubleTweakKey, _ := btcec.PrivKeyFromBytes(doubleTweak)
+
+		return input.DeriveRevocationPrivKey(privKey, doubleTweakKey)
+
+	default:
+		return privKey
+	}
 }
 
 // FinalizePsbt expects a partial transaction with all inputs and outputs fully

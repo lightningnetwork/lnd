@@ -1312,6 +1312,78 @@ func TestHandleBumpEventTxReplaced(t *testing.T) {
 	require.Equal(t, Published, s.inputs[op].state)
 }
 
+// TestHandleBumpEventTxReplacedNoRecord checks that a replacement of a tx the
+// sweeper has no record of still stops the replaced tx's rebroadcast and
+// records the replacing tx, so the next replacement finds its record.
+func TestHandleBumpEventTxReplacedNoRecord(t *testing.T) {
+	t.Parallel()
+
+	store := &MockSweeperStore{}
+	defer store.AssertExpectations(t)
+
+	wallet := &MockWallet{}
+	defer wallet.AssertExpectations(t)
+
+	set := &MockInputSet{}
+	defer set.AssertExpectations(t)
+
+	s := New(&UtxoSweeperConfig{
+		Store:  store,
+		Wallet: wallet,
+	})
+
+	// The input was published by an earlier sweeping tx, which the fee
+	// bumper has since replaced.
+	inp := createMockInput(t, s, Published)
+	set.On("Inputs").Return([]input.Input{inp})
+
+	op := inp.OutPoint()
+
+	// The replaced tx, which the sweeper never recorded, e.g. a
+	// replacement the backend refused.
+	tx := &wire.MsgTx{
+		LockTime: 1,
+		TxIn: []*wire.TxIn{
+			{PreviousOutPoint: op},
+		},
+	}
+
+	// The replacing tx.
+	replacementTx := &wire.MsgTx{
+		LockTime: 2,
+		TxIn: []*wire.TxIn{
+			{PreviousOutPoint: op},
+		},
+	}
+
+	resp := &bumpResp{
+		result: &BumpResult{
+			Tx:         replacementTx,
+			ReplacedTx: tx,
+			Event:      TxReplaced,
+		},
+		set: set,
+	}
+
+	// The store has no record of the replaced tx.
+	store.On("GetTx", tx.TxHash()).Return(nil, ErrTxNotFound).Once()
+
+	// We still expect the replaced tx's rebroadcast to be cancelled, its
+	// record to be removed and the replacing tx to be recorded.
+	wallet.On("CancelRebroadcast", tx.TxHash()).Once()
+	store.On("DeleteTx", tx.TxHash()).Return(nil).Once()
+	store.On("StoreTx", &TxRecord{
+		Txid:      replacementTx.TxHash(),
+		Published: true,
+	}).Return(nil).Once()
+
+	err := s.handleBumpEventTxReplaced(resp)
+	require.NoError(t, err)
+
+	// The input stays published.
+	require.Equal(t, Published, s.inputs[op].state)
+}
+
 // TestHandleBumpEventTxPublished checks that the sweeper correctly handles the
 // case where the bump event tx is published.
 func TestHandleBumpEventTxPublished(t *testing.T) {

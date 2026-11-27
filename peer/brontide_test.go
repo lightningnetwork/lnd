@@ -17,7 +17,6 @@ import (
 	"github.com/btcsuite/btcd/chainhash/v2"
 	"github.com/btcsuite/btcd/txscript/v2"
 	"github.com/btcsuite/btcd/wire/v2"
-	"github.com/lightningnetwork/lnd/actor"
 	"github.com/lightningnetwork/lnd/chainntnfs"
 	"github.com/lightningnetwork/lnd/channeldb"
 	"github.com/lightningnetwork/lnd/chanstate"
@@ -940,7 +939,7 @@ func TestPeerChannelClosureAcceptFeeInitiator(t *testing.T) {
 		ChanPoint:      &chanPoint,
 		Updates:        updateChan,
 		TargetFeePerKw: 12500,
-		Err:            actor.NewPromise[error](),
+		Err:            fn.NewPromise[error](),
 	}
 	alicePeer.localCloseChanReqs <- closeCommand
 
@@ -1248,7 +1247,7 @@ func TestPeerChannelClosureFeeNegotiationsInitiator(t *testing.T) {
 		ChanPoint:      &chanPoint,
 		Updates:        updateChan,
 		TargetFeePerKw: 12500,
-		Err:            actor.NewPromise[error](),
+		Err:            fn.NewPromise[error](),
 	}
 
 	alicePeer.localCloseChanReqs <- closeCommand
@@ -1592,7 +1591,7 @@ func TestCustomShutdownScript(t *testing.T) {
 				Updates:        updateChan,
 				TargetFeePerKw: 12500,
 				DeliveryScript: test.userCloseScript,
-				Err:            actor.NewPromise[error](),
+				Err:            fn.NewPromise[error](),
 			}
 
 			// Send the close command for the correct channel and
@@ -4139,7 +4138,7 @@ func TestCloseBreachAnswersWaitingCaller(t *testing.T) {
 		CloseType: contractcourt.CloseBreach,
 		ChanPoint: &chanPoint,
 		Updates:   make(chan interface{}, 1),
-		Err:       actor.NewPromise[error](),
+		Err:       fn.NewPromise[error](),
 	}
 	select {
 	case err := <-coopReq.ErrChan(t.Context()):
@@ -4573,7 +4572,7 @@ func newTestCloseRequest(point *wire.OutPoint,
 	return &htlcswitch.ChanClose{
 		ChanPoint: point,
 		Updates:   make(chan interface{}, buffer),
-		Err:       actor.NewPromise[error](),
+		Err:       fn.NewPromise[error](),
 	}
 }
 

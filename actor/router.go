@@ -134,12 +134,12 @@ func (r *Router[M, R]) Tell(ctx context.Context, msg M) {
 // error. If the send context is cancelled before the message can be enqueued in
 // the chosen actor's mailbox, the Future will be completed with the context's
 // error.
-func (r *Router[M, R]) Ask(ctx context.Context, msg M) Future[R] {
+func (r *Router[M, R]) Ask(ctx context.Context, msg M) fn.Future[R] {
 	selectedActor, err := r.getActor()
 	if err != nil {
 		// If no actor could be selected (e.g., none available),
 		// complete the promise immediately with the selection error.
-		promise := NewPromise[R]()
+		promise := fn.NewPromise[R]()
 		promise.Complete(fn.Err[R](err))
 		return promise.Future()
 	}
@@ -166,10 +166,10 @@ func (r *Router[M, R]) TryTell(ctx context.Context, msg M) error {
 // TryAsk forwards a non-blocking ask to one of the actors managed by the
 // router. Failure to select an actor completes the returned Future with the
 // selection error.
-func (r *Router[M, R]) TryAsk(ctx context.Context, msg M) Future[R] {
+func (r *Router[M, R]) TryAsk(ctx context.Context, msg M) fn.Future[R] {
 	selectedActor, err := r.getActor()
 	if err != nil {
-		promise := NewPromise[R]()
+		promise := fn.NewPromise[R]()
 		promise.Complete(fn.Err[R](err))
 
 		return promise.Future()

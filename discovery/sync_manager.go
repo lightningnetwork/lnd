@@ -8,7 +8,7 @@ import (
 	"time"
 
 	"github.com/btcsuite/btcd/chainhash/v2"
-	"github.com/lightningnetwork/lnd/actor"
+	"github.com/lightningnetwork/lnd/fn/v2"
 	graphdb "github.com/lightningnetwork/lnd/graph/db"
 	"github.com/lightningnetwork/lnd/lnpeer"
 	"github.com/lightningnetwork/lnd/lnutils"
@@ -95,7 +95,7 @@ type failedHistoricalSync struct {
 	// accepted is completed once the SyncManager has detached the failed
 	// attempt from its completion signal. Replacement selection happens
 	// after this acknowledgement so it cannot delay the failed syncer.
-	accepted actor.Promise[error]
+	accepted fn.Promise[error]
 }
 
 // SyncManagerCfg contains all of the dependencies required for the SyncManager
@@ -841,7 +841,7 @@ func (m *SyncManager) reportHistoricalSyncFailure(syncer *GossipSyncer,
 	log.Debugf("GossipSyncer(%x) rejected historical sync response: %v",
 		syncer.cfg.peerPub, err)
 
-	accepted := actor.NewPromise[error]()
+	accepted := fn.NewPromise[error]()
 	select {
 	case m.failedHistoricalSyncs <- &failedHistoricalSync{
 		syncer:   syncer,

@@ -6744,7 +6744,7 @@ type CoopCloseUpdates struct {
 
 	// ErrPromise is resolved by whichever path ends the close, at most
 	// once, and never blocks the path that resolves it.
-	ErrPromise actor.Promise[error]
+	ErrPromise fn.Promise[error]
 }
 
 // ErrChan returns the channel that carries the error this close ended with,

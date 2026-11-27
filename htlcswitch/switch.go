@@ -13,7 +13,6 @@ import (
 	"github.com/btcsuite/btcd/btcec/v2/ecdsa"
 	"github.com/btcsuite/btcd/btcutil/v2"
 	"github.com/btcsuite/btcd/wire/v2"
-	"github.com/lightningnetwork/lnd/actor"
 	"github.com/lightningnetwork/lnd/chainntnfs"
 	"github.com/lightningnetwork/lnd/channeldb"
 	"github.com/lightningnetwork/lnd/chanstate"
@@ -134,7 +133,7 @@ type ChanClose struct {
 	// reading. A successful close is reported through Updates instead, so
 	// this is completed with a nil error only to end the request without
 	// an error.
-	Err actor.Promise[error]
+	Err fn.Promise[error]
 
 	// Ctx is a context linked to the lifetime of the caller.
 	Ctx context.Context //nolint:containedctx
@@ -149,7 +148,7 @@ func (c *ChanClose) CompleteErr(err error) {
 		return
 	}
 
-	actor.CompleteWith(c.Err, err)
+	fn.CompleteWith(c.Err, err)
 }
 
 // Done returns a channel that is closed when the caller's lifetime ends, or
@@ -180,7 +179,7 @@ func (c *ChanClose) ErrChan(ctx context.Context) chan error {
 	}
 
 	go func() {
-		err, ctxErr := actor.AwaitFuture[error](ctx, c.Err.Future())
+		err, ctxErr := fn.AwaitFuture[error](ctx, c.Err.Future())
 
 		switch {
 		case ctxErr != nil:
@@ -1641,7 +1640,7 @@ func (s *Switch) CloseLink(ctx context.Context, chanPoint *wire.OutPoint,
 	// reading cannot cause a close to block on delivering them.
 	updateChan := make(chan interface{}, 3)
 
-	errPromise := actor.NewPromise[error]()
+	errPromise := fn.NewPromise[error]()
 
 	command := &ChanClose{
 		CloseType:      closeType,
@@ -1659,7 +1658,7 @@ func (s *Switch) CloseLink(ctx context.Context, chanPoint *wire.OutPoint,
 		return updateChan, command.ErrChan(ctx)
 
 	case <-s.quit:
-		actor.CompleteWith(errPromise, ErrSwitchExiting)
+		fn.CompleteWith(errPromise, ErrSwitchExiting)
 		close(updateChan)
 		return updateChan, command.ErrChan(ctx)
 	}

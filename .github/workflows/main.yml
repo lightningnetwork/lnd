@@ -1078,6 +1078,8 @@ jobs:
       - milestone-check
       - release-notes-consistency
       - backwards-compatibility-test
+    permissions:
+      actions: read
     runs-on: ubuntu-latest
     timeout-minutes: 5
     steps:
@@ -1097,6 +1099,7 @@ jobs:
           EVENT_NAME: ${{ github.event_name }}
           DOCS_ONLY: ${{ needs.ci-gate.outputs.docs-only }}
           DRAFT: ${{ github.event.pull_request.draft }}
+          GH_TOKEN: ${{ github.token }}
         run: |
           if [[ "$TIER" == "held" ]]; then
             msg="CI is held, remove the ci-hold label to run it"
@@ -1156,7 +1159,27 @@ jobs:
               continue
             fi
             echo "::error::Job ${job} finished with result ${result}"
+            if [[ "$failed" == 0 ]]; then
+              printf '### CI failed (%s tier)\n\n' "$TIER" >> "$GITHUB_STEP_SUMMARY"
+            fi
+            printf -- '- `%s` (%s)\n' "$job" "$result" >> "$GITHUB_STEP_SUMMARY"
             failed=1
           done
+
+          # Matrix results in needs are aggregated by job ID. The Actions
+          # API supplies the individual display names and log links.
+          if [[ "$failed" == 1 ]]; then
+            if details=$(gh api --paginate \
+              "repos/${GITHUB_REPOSITORY}/actions/runs/${GITHUB_RUN_ID}/jobs?filter=latest&per_page=100" \
+              --jq '.jobs[] | select(.conclusion == "failure" or .conclusion == "cancelled" or .conclusion == "timed_out") |
+                "- [\(.name)](\(.html_url)) (\(.conclusion))"'); then
+              if [[ -n "$details" ]]; then
+                printf '\n#### Failed or cancelled jobs in this workflow run\n\n%s\n' \
+                  "$details" >> "$GITHUB_STEP_SUMMARY"
+              fi
+            else
+              echo "::warning::Could not fetch individual job details"
+            fi
+          fi
 
           exit $failed

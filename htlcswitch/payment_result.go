@@ -450,6 +450,36 @@ func (store *networkResultStore) SubscribeResult(attemptID uint64) (
 	return resultChan, nil
 }
 
+// UnsubscribeResult removes a single subscriber channel previously returned by
+// SubscribeResult for the given attempt ID, so that a caller which abandons
+// its wait does not leave the channel registered until the attempt resolves.
+// It is a no-op if the channel is not registered, for example because the
+// result was already delivered to it.
+//
+// NOTE: This is part of the AttemptStore interface.
+func (store *networkResultStore) UnsubscribeResult(attemptID uint64,
+	sub <-chan *networkResult) {
+
+	store.resultsMtx.Lock()
+	defer store.resultsMtx.Unlock()
+
+	subs := store.results[attemptID]
+	for i, res := range subs {
+		if res != sub {
+			continue
+		}
+
+		subs = slices.Delete(subs, i, i+1)
+		if len(subs) == 0 {
+			delete(store.results, attemptID)
+		} else {
+			store.results[attemptID] = subs
+		}
+
+		return
+	}
+}
+
 // GetResult attempts to immediately fetch the *final* network result for the
 // given attempt ID from the store.
 //

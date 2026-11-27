@@ -119,8 +119,8 @@
     },
     "/v2/switch/onion": {
       "post": {
-        "summary": "SendOnion provides an idempotent API for dispatching a pre-formed onion\npacket, which is the primary entry point for a remote router.",
-        "description": "To safely handle network failures, a client can and should retry this RPC\nafter a timeout or disconnection. Retries MUST use the exact same\nattempt_id to allow the server to correctly detect duplicate requests.\n\nA client interacting with this RPC must handle four distinct categories\nof outcomes, determined by the gRPC status code:\n\n1. SUCCESS (gRPC code OK): A definitive confirmation that the HTLC has\nbeen successfully dispatched. The client can proceed to track the\npayment's final result via the TrackOnion RPC.\n\n2. DUPLICATE ACKNOWLEDGMENT (gRPC code AlreadyExists): A definitive\nacknowledgment that a request with the same attempt_id has already\nbeen successfully processed. A retrying client should interpret this\nas a success and proceed to tracking the payment's result.\n\n3. INDEFINITE FAILURE (gRPC code Unavailable or DeadlineExceeded): The\nstate of the HTLC dispatch is unknown. The client MUST retry the exact\nsame request to resolve the ambiguity. A client MUST NOT treat this as\na definitive failure and move on to a new attempt ID; doing so risks a\nduplicate in-flight HTLC.\n\n4. DEFINITIVE FAILURE (gRPC code FailedPrecondition, InvalidArgument,\netc.): The HTLC was not and will not be dispatched. The client should\nfail the attempt and may retry with a new route and/or attempt_id.\n\nIn the case of a FailedPrecondition or Unavailable failure, the gRPC\nerror may include a SendOnionFailureDetails message with additional\ncontext for logging and pathfinding.",
+        "summary": "SendOnion dispatches a pre-formed onion packet. It is the primary entry\npoint for a remote router and is idempotent. A client can and should\nretry it after a timeout or disconnection, reusing the same attempt_id so\nthe server recognises the retry rather than sending a second HTLC.",
+        "description": "The outcome is carried in the response, never in a gRPC error. Exactly one\nof Accepted, Rejected or Ambiguous is set, and each documents the action it\nobliges the caller to take. An outcome the client does not recognise, or a\nresponse with none set, MUST be treated as Ambiguous.\n\nA gRPC error means the call failed rather than the HTLC. The cause may be\na malformed request, an auth failure, a transport problem, or a server not\nrunning this sub-server. The error describes only that call, and an\nearlier call with the same attempt_id may already have dispatched the\nHTLC. After any gRPC error the client MUST NOT conclude that the HTLC was\nnot dispatched. It may retry the same attempt_id, or stop and alert, but\nMUST NOT send a replacement under a new attempt_id until this one is\nanswered Rejected or TrackOnion reports it failed.\n\nA malformed request is answered with InvalidArgument and the attempt is\nrecorded as failed. Retrying the same attempt_id is still safe, because the\nserver answers Accepted and TrackOnion returns the recorded failure. Only\nonce the attempt is known to have failed may the client send a corrected\nrequest under a new attempt_id.",
         "operationId": "Switch_SendOnion",
         "responses": {
           "200": {
@@ -378,6 +378,26 @@
         }
       }
     },
+    "switchrpcAccepted": {
+      "type": "object",
+      "properties": {
+        "already_registered": {
+          "type": "boolean",
+          "description": "Set when the switch already held this attempt from an earlier call,\neither because the attempt was already registered or because a circuit\nfor it already existed. Required behaviour is identical either way; this\nis diagnostic.\n\nA circuit without a registration should not occur in correct operation.\nIt means the attempt_id is also in use by another dispatcher, such as\nlnd's own router, so the result later tracked may belong to that\ndispatcher's HTLC. Keep attempt_ids unique."
+        }
+      },
+      "description": "Accepted means the switch has taken ownership of this attempt. Await the\nresult with TrackOnion.\n\nDo NOT conclude success or failure from this message. It reports who owns\nthe attempt, not how it ended."
+    },
+    "switchrpcAmbiguous": {
+      "type": "object",
+      "properties": {
+        "reason": {
+          "type": "string",
+          "description": "A human-readable reason that can be used for logging and metrics.\n\nBehaviour MUST NOT branch on this value. Every ambiguous outcome\nrequires the same action, and a caller that treats one reason\ndifferently from another will eventually treat one of them unsafely.\nIt is free text rather than an enum for exactly that reason."
+        }
+      },
+      "description": "Ambiguous means the state of the dispatch is unknown. The switch may or may\nnot hold the attempt.\n\nThe caller MUST retry the same attempt_id until it receives Accepted or\nRejected, and MUST NOT record a terminal outcome for the attempt in the\nmeantime. Retrying is safe because the switch recognises an attempt it\nalready holds and answers Accepted rather than dispatching a second HTLC."
+    },
     "switchrpcAttemptDeletionResult": {
       "type": "object",
       "properties": {
@@ -525,7 +545,7 @@
           "description": "The raw, serialized lnwire.FailureMessage reported by the failing node.\nThis field may be empty if the failure message could not be decoded."
         }
       },
-      "description": "ForwardingFailure represents an HTLC failure that occurred at a remote node\nin the payment route. The onion error was successfully decrypted, revealing\nthe failing hop."
+      "description": "ForwardingFailure represents an HTLC failure that occurred at a remote node\nin the payment route. The onion error was successfully decrypted, revealing\nthe failing hop.\n\nAn empty wire_message means the failing hop at failure_source_index is\nknown but its failure message could not be decoded."
     },
     "switchrpcLocalFailure": {
       "type": "object",
@@ -537,6 +557,17 @@
         }
       },
       "description": "LocalFailure represents a failure that originates at the local node. No\nonion decryption is involved because the failure occurred before the HTLC\nleft our node."
+    },
+    "switchrpcRejected": {
+      "type": "object",
+      "properties": {
+        "wire_failure": {
+          "type": "string",
+          "format": "byte",
+          "description": "The BOLT #4 wire failure explaining the rejection, including any\nchannel update, as encoded by lnwire.EncodeFailure.\n\nThis is always present and always decodable. A rejection the switch\ncannot describe is reported as Ambiguous, because a definite verdict\nthe caller cannot act on is worse than admitting uncertainty. The caller\nwould have nothing to give its router and nothing to penalise with."
+        }
+      },
+      "description": "Rejected means the switch declined the HTLC before taking ownership of it.\nThe HTLC provably never left this node, so no funds are at risk and the\ncaller MAY fail this attempt and try another route."
     },
     "switchrpcSendOnionRequest": {
       "type": "object",
@@ -598,7 +629,18 @@
     },
     "switchrpcSendOnionResponse": {
       "type": "object",
-      "description": "SendOnionResponse is an empty message. A gRPC status of OK or AlreadyExists\nindicates a successful dispatch acknowledgment."
+      "properties": {
+        "accepted": {
+          "$ref": "#/definitions/switchrpcAccepted"
+        },
+        "rejected": {
+          "$ref": "#/definitions/switchrpcRejected"
+        },
+        "ambiguous": {
+          "$ref": "#/definitions/switchrpcAmbiguous"
+        }
+      },
+      "description": "SendOnionResponse reports what the switch did with the attempt. Exactly one\noutcome is always set.\n\nA gRPC error from SendOnion means the call itself failed, for example a\nmalformed request, an auth failure, a transport problem, or a server not\nrunning this sub-server. It never describes what happened to an HTLC, which\nan earlier call with the same attempt_id may already have dispatched. After\nany gRPC error the caller MUST NOT conclude that the HTLC was not\ndispatched, and MUST NOT send a replacement under a new attempt_id until\nthis one is answered Rejected or TrackOnion reports it failed.\n\nA caller that receives an outcome it does not recognise, or a response with\nno outcome set at all, MUST treat it as Ambiguous and retry the same\nattempt_id. It MUST NOT treat it as success, failure, or an empty response.\nAn unhandled gRPC error is loud, while an unhandled response field is\nsilent, so a caller built against an older version of this service could\notherwise misread a newer server's answer as \"nothing happened\". Treating\nthe unknown case as Ambiguous limits the cost of a misread to a wasted retry\nrather than a lost or duplicated payment."
     },
     "switchrpcSwitchError": {
       "type": "object",
@@ -644,7 +686,8 @@
           "$ref": "#/definitions/switchrpcFailureDetails",
           "description": "The application-level failure for the payment attempt. If this field\nis set, the payment attempt failed."
         }
-      }
+      },
+      "description": "TrackOnionResponse reports how a dispatched attempt ended. A preimage means\nthe HTLC settled. failure_details means the HTLC failed and is no longer in\nflight, so the caller MAY fail the attempt.\n\nNOTE: A response with no result set, or a result the caller does not\nrecognise, means the attempt may still be live. The caller MUST keep\ntracking it and MUST NOT treat it as failed. A gRPC error means the call\nfailed, not the attempt, with one exception. NotFound means the server holds\nno record for this attempt_id, and retrying will not change that."
     },
     "switchrpcUnreadableFailure": {
       "type": "object",

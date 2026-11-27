@@ -692,6 +692,11 @@ type AttemptStore interface {
 	// created by InitAttempt.
 	SubscribeResult(attemptID uint64) (<-chan *networkResult, error)
 
+	// UnsubscribeResult removes a subscriber channel returned by
+	// SubscribeResult for the given attempt ID. It is a no-op if the
+	// channel has already received its result or was never registered.
+	UnsubscribeResult(attemptID uint64, sub <-chan *networkResult)
+
 	// CleanStore removes all attempt results from the store except for
 	// those listed in the keepPids map. This allows for a "delete all
 	// except" approach to cleanup.

@@ -64,6 +64,11 @@ type Config struct {
 	// coins when funding a transaction.
 	CoinSelectionStrategy wallet.CoinSelectionStrategy
 
+	// InternalAddressType is the address type that is used for the
+	// addresses the wallet generates to pay itself, such as change, sweep
+	// and cooperative close outputs. If this is not set, P2TR is used.
+	InternalAddressType AddressType
+
 	// AuxLeafStore is an optional store that can be used to store auxiliary
 	// leaves for certain custom channel types.
 	AuxLeafStore fn.Option[AuxLeafStore]

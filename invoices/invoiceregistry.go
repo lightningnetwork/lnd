@@ -317,9 +317,10 @@ type invoiceEvent struct {
 
 // tickAt returns a channel that ticks at the specified time. If the time has
 // already passed, it will tick immediately.
+//
+// See clock.Clock.TickAt for deadline scheduling semantics.
 func (i *InvoiceRegistry) tickAt(t time.Time) <-chan time.Time {
-	now := i.cfg.Clock.Now()
-	return i.cfg.Clock.TickAfter(t.Sub(now))
+	return i.cfg.Clock.TickAt(t)
 }
 
 // invoiceEventLoop is the dedicated goroutine responsible for accepting

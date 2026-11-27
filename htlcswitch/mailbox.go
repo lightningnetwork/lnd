@@ -389,7 +389,8 @@ type pktWithExpiry struct {
 }
 
 func (p *pktWithExpiry) deadline(clock clock.Clock) <-chan time.Time {
-	return clock.TickAfter(p.expiry.Sub(clock.Now()))
+	// See clock.Clock.TickAt for deadline scheduling semantics.
+	return clock.TickAt(p.expiry)
 }
 
 // wireMailCourier is a dedicated goroutine whose job is to reliably deliver

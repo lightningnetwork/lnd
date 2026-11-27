@@ -765,16 +765,22 @@ var stateMachineTests = []stateMachineTest{
 				newChans, graphdb.ErrEdgeNotFound, false,
 			)
 
+			// Mark the links active before inserting the edge
+			// policies into the graph. If the manager sampled the
+			// channels after the policies were added but while the
+			// links were still inactive, it would see an enabled
+			// channel with an inactive link and schedule a passive
+			// disable, racing the assertNoUpdates call below.
+			h.markActive(newChans)
+
 			// Now, insert edge policies for the channel into the
-			// graph, starting with the channel enabled, and mark
-			// the link active.
+			// graph, starting with the channel enabled.
 			for _, c := range newChans {
 				info, pol1, pol2 := createEdgePolicies(
 					h.t, c, h.ourPubKey, true,
 				)
 				h.graph.addEdgePolicy(c, info, pol1, pol2)
 			}
-			h.markActive(newChans)
 
 			// We expect no updates to be sent since the channel is
 			// enabled and active.

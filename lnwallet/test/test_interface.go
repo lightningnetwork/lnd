@@ -3336,11 +3336,18 @@ func runTests(t *testing.T, walletDriver *lnwallet.WalletDriver,
 			}
 
 		case "neutrino":
-			// Set some package-level variable to speed up
-			// operation for tests.
+			// Set some package-level variables to speed up
+			// operation for tests. The query timeout stays well
+			// below the neutrino default of 10s, but must still
+			// cover a peer that computes a compact filter on
+			// demand: only a single peer is connected, so a query
+			// that times out leaves the wallet without the filter
+			// of a block and its synced stamp stalls behind the
+			// chain tip, which surfaces as a wallet sync timeout
+			// after reorgs on loaded CI runners.
 			neutrino.BanDuration = time.Millisecond * 100
-			neutrino.QueryTimeout = time.Millisecond * 500
-			neutrino.QueryNumRetries = 1
+			neutrino.QueryTimeout = 3 * time.Second
+			neutrino.QueryNumRetries = 3
 
 			// Start Alice - open a database, start a neutrino
 			// instance, and initialize a btcwallet driver for it.

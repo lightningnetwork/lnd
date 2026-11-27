@@ -618,9 +618,9 @@ func TestMailBoxAddExpiry(t *testing.T) {
 	mockClock := &lnmock.MockClock{}
 	mockClock.On("Now").Return(time.Now())
 
-	// Mock TickAfter, which mounts the above `deadline` channel to the
+	// Mock TickAt, which mounts the above `deadline` channel to the
 	// returned value from `pktWithExpiry.deadline`.
-	mockClock.On("TickAfter", mock.Anything).Return(deadline)
+	mockClock.On("TickAt", mock.Anything).Return(deadline)
 
 	// Create a test mailbox context.
 	ctx := newMailboxContextWithClock(t, mockClock)

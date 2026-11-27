@@ -45,10 +45,10 @@ var (
 // release-notes-<version>.md with the same heading path, which is created
 // from the template if it doesn't exist yet. Fragments whose pull request is
 // already announced in another release note document are deleted instead.
-// The contributor list is regenerated from the Git authors of <from>..HEAD,
-// where <from> defaults to the newest final release tag of a version below
-// <version>. Nothing is written
-// if a fragment can't be folded.
+// The contributor list starts with the Git authors of <from>..HEAD, where
+// <from> defaults to the newest final release tag below <version>. The final
+// prompt directs the release manager to complete contributor attribution.
+// Nothing is written if a fragment can't be folded.
 func main() {
 	if err := run(os.Args[1:]); err != nil {
 		fmt.Fprintln(os.Stderr, err)
@@ -56,6 +56,8 @@ func main() {
 	}
 }
 
+// run folds release note fragments and seeds the contributor list for the
+// release manager's attribution audit.
 func run(args []string) error {
 	if len(args) < 1 || len(args) > 2 {
 		return errors.New("usage: release-notes <version> [<from>]")
@@ -156,8 +158,11 @@ func run(args []string) error {
 		}
 	}
 
+	// Git authors seed the list; the release manager completes the evidence
+	// audit before publishing so human review work is credited as well.
 	logf("Review %s: edit ordering and transitions as needed, and "+
-		"check co-authored commits and the contributor list", docPath)
+		"complete author, coauthor and reviewer attribution per "+
+		"docs/release-notes/README.md#contributor-attribution", docPath)
 
 	return nil
 }

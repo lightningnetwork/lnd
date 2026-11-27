@@ -1026,6 +1026,14 @@ func (s *UtxoSweeper) markInputsPublished(tr *TxRecord, set InputSet) error {
 			continue
 		}
 
+		// A replacement tx for an already published input only needs
+		// its latest fee rate updated, so PendingSweeps reports the
+		// fee rate of the tx that's in the mempool.
+		if pi.state == Published {
+			pi.lastFeeRate = chainfee.SatPerKWeight(tr.FeeRate)
+			continue
+		}
+
 		// Valdiate that the input is in an expected state.
 		if pi.state != PendingPublish {
 			// We may get a Published if this is a replacement tx.

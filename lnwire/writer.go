@@ -243,6 +243,13 @@ func WritePongPayload(buf *bytes.Buffer, payload PongPayload) error {
 	return writeDataWithLength(buf, payload)
 }
 
+// WritePeerStoragePayload appends the payload to the provided buffer.
+func WritePeerStoragePayload(buf *bytes.Buffer,
+	payload PeerStoragePayload) error {
+
+	return writeDataWithLength(buf, payload)
+}
+
 // WriteWarningData appends the data to the provided buffer.
 func WriteWarningData(buf *bytes.Buffer, data WarningData) error {
 	return writeDataWithLength(buf, data)

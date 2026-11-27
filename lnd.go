@@ -43,6 +43,7 @@ import (
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/credentials"
 	"google.golang.org/grpc/keepalive"
+	"google.golang.org/grpc/test/bufconn"
 	"gopkg.in/macaroon-bakery.v2/bakery"
 	"gopkg.in/macaroon.v2"
 )
@@ -308,6 +309,22 @@ func Main(cfg *Config, lisCfg ListenerCfg, implCfg *ImplementationCfg,
 		HTTPHeaderTimeout: cfg.HTTPHeaderTimeout,
 	}
 	tlsManager := NewTLSManager(tlsManagerCfg)
+	var clientAuth *rpcClientAuth
+	if cfg.RPCClientCAPath != "" {
+		var err error
+		clientAuth, err = newRPCClientAuth(
+			cfg.RPCClientCAPath, cfg.RPCClientAllowlistPath,
+		)
+		if err != nil {
+			return mkErr(
+				"error loading RPC client authentication", err,
+			)
+		}
+		tlsManager.rpcClientAuth = clientAuth
+		authCtx, cancel := context.WithCancel(ctx)
+		defer cancel()
+		go clientAuth.watch(authCtx)
+	}
 	serverOpts, restDialOpts, restListen, cleanUp,
 		err := tlsManager.SetCertificateBeforeUnlock()
 	if err != nil {
@@ -375,6 +392,24 @@ func Main(cfg *Config, lisCfg ListenerCfg, implCfg *ImplementationCfg,
 		PermitWithoutStream: cfg.GRPC.ClientAllowPingWithoutStream,
 	}
 
+	if clientAuth != nil {
+		serverOpts = append(
+			serverOpts,
+			grpc.Creds(credentials.NewTLS(tlsManager.rpcTLSConfig)),
+			grpc.ChainUnaryInterceptor(clientAuth.unary),
+			grpc.ChainStreamInterceptor(clientAuth.stream),
+		)
+	}
+
+	localWalletOnly := cfg.restrictWalletUnlocker(clientAuth)
+	if localWalletOnly {
+		serverOpts = append(
+			serverOpts,
+			grpc.ChainUnaryInterceptor(localWalletUnlockerUnary),
+			grpc.ChainStreamInterceptor(localWalletUnlockerStream),
+		)
+	}
+
 	rpcServerOpts := interceptorChain.CreateServerOpts()
 	serverOpts = append(serverOpts, rpcServerOpts...)
 	serverOpts = append(
@@ -405,12 +440,20 @@ func Main(cfg *Config, lisCfg ListenerCfg, implCfg *ImplementationCfg,
 		return mkErr("error starting gRPC listener", err)
 	}
 
-	// Now start the REST proxy for our gRPC server above. We'll ensure
-	// we direct LND to connect to its loopback address rather than a
-	// wildcard to prevent certificate issues when accessing the proxy
-	// externally.
+	// Use the in-process gateway for mTLS. With only the locality check
+	// enabled, the built-in WalletUnlocker uses this hop while other REST
+	// calls keep their normal TCP peer address for macaroon caveats.
+	var gatewayDial func(context.Context, string) (net.Conn, error)
+	usePrivateGateway := clientAuth != nil || localWalletOnly
+	if len(cfg.RESTListeners) > 0 && usePrivateGateway {
+		var stopGateway func()
+		gatewayDial, stopGateway = startPrivateRESTGateway(grpcServer)
+		defer stopGateway()
+	}
+
 	stopProxy, err := startRestProxy(
-		ctx, cfg, rpcServer, restDialOpts, restListen,
+		ctx, cfg, rpcServer, restDialOpts, restListen, clientAuth,
+		gatewayDial,
 	)
 	if err != nil {
 		return mkErr("error starting REST proxy", err)
@@ -1027,11 +1070,33 @@ func startGrpcListen(cfg *Config, grpcServer *grpc.Server,
 	return nil
 }
 
+// startPrivateRESTGateway serves gRPC over the in-process gateway connection.
+func startPrivateRESTGateway(server *grpc.Server) (
+	func(context.Context, string) (net.Conn, error), func()) {
+
+	listener := bufconn.Listen(64 * 1024)
+	go func() {
+		_ = server.Serve(rpcGatewayListener{listener})
+	}()
+
+	dial := func(ctx context.Context, _ string) (net.Conn, error) {
+		return listener.DialContext(ctx)
+	}
+	stop := func() {
+		_ = listener.Close()
+	}
+
+	return dial, stop
+}
+
 // startRestProxy starts the given REST proxy on the listeners found in the
 // config.
 func startRestProxy(ctx context.Context, cfg *Config, rpcServer *rpcServer,
 	restDialOpts []grpc.DialOption,
-	restListen func(net.Addr) (net.Listener, error)) (func(), error) {
+	restListen func(net.Addr) (net.Listener, error),
+	clientAuth *rpcClientAuth,
+	gatewayDial func(context.Context, string) (net.Conn, error),
+) (func(), error) {
 
 	// We use the first RPC listener as the destination for our REST proxy.
 	// If the listener is set to listen on all interfaces, we replace it
@@ -1049,6 +1114,10 @@ func startRestProxy(ctx context.Context, cfg *Config, rpcServer *rpcServer,
 		)
 	}
 
+	restProxyDest, restDialOpts, walletGateway := restGatewayOptions(
+		restProxyDest, restDialOpts, gatewayDial, clientAuth != nil,
+	)
+
 	var shutdownFuncs []func()
 	shutdown := func() {
 		for _, shutdownFn := range shutdownFuncs {
@@ -1059,6 +1128,11 @@ func startRestProxy(ctx context.Context, cfg *Config, rpcServer *rpcServer,
 	// Start a REST proxy for our gRPC server.
 	ctx, cancel := context.WithCancel(ctx)
 	shutdownFuncs = append(shutdownFuncs, cancel)
+	if walletGateway != nil {
+		ctx = context.WithValue(
+			ctx, walletRESTGatewayKey{}, walletGateway,
+		)
+	}
 
 	// We'll set up a proxy that will forward REST calls to the GRPC
 	// server.
@@ -1092,11 +1166,7 @@ func startRestProxy(ctx context.Context, cfg *Config, rpcServer *rpcServer,
 		return nil, err
 	}
 
-	// Wrap the default grpc-gateway handler with the WebSocket handler.
-	restHandler := lnrpc.NewWebSocketProxy(
-		mux, rpcsLog, cfg.WSPingInterval, cfg.WSPongWait,
-		lnrpc.LndClientStreamingURIs,
-	)
+	restHandler := newWalletRESTHandler(mux, cfg, clientAuth)
 
 	// Use a WaitGroup so we can be sure the instructions on how to input the
 	// password is the last thing to be printed to the console.
@@ -1128,10 +1198,27 @@ func startRestProxy(ctx context.Context, cfg *Config, rpcServer *rpcServer,
 			// through the following chain:
 			// req ---> CORS handler --> WS proxy --->
 			//   REST proxy --> gRPC endpoint
-			corsHandler := allowCORS(restHandler, cfg.RestCORS)
+			handler := allowCORS(restHandler, cfg.RestCORS)
+			if clientAuth != nil {
+				handler = clientAuth.httpHandler(handler)
+			} else if cfg.restrictWalletUnlocker(clientAuth) {
+				handler = localWalletUnlockerHTTP(handler)
+			}
 
 			wg.Done()
-			err := http.Serve(lis, corsHandler)
+			server := &http.Server{
+				Handler:           handler,
+				ReadHeaderTimeout: cfg.HTTPHeaderTimeout,
+				ConnContext: func(ctx context.Context,
+					conn net.Conn) context.Context {
+
+					return context.WithValue(
+						ctx, walletPeerKey{},
+						conn.RemoteAddr(),
+					)
+				},
+			}
+			err := server.Serve(lis)
 			if err != nil && !lnrpc.IsClosedConnError(err) {
 				rpcsLog.Error(err)
 			}

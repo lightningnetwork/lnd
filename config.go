@@ -385,6 +385,10 @@ type Config struct {
 	DataDir      string `short:"b" long:"datadir" description:"The directory to store lnd's data within"`
 	SyncFreelist bool   `long:"sync-freelist" description:"Whether the databases used within lnd should sync their freelist to disk. This is disabled by default resulting in improved memory performance during operation, but with an increase in startup time."`
 
+	AllowRemoteWalletUnlocker bool   `long:"allowremotewalletunlocker" description:"Allow remote WalletUnlocker calls without RPC client certificates. Enable only behind a trusted access control boundary."`
+	RPCClientCAPath           string `long:"rpcclientcapath" description:"Path to the PEM CA bundle for RPC client authentication"`
+	RPCClientAllowlistPath    string `long:"rpcclientallowlistpath" description:"Path to the SHA-256 certificate allowlist for RPC client authentication"`
+
 	TLSCertPath        string        `long:"tlscertpath" description:"Path to write the TLS certificate for lnd's RPC and REST services"`
 	TLSKeyPath         string        `long:"tlskeypath" description:"Path to write the TLS private key for lnd's RPC and REST services"`
 	TLSExtraIPs        []string      `long:"tlsextraip" description:"Adds an extra ip to the generated certificate"`
@@ -1135,6 +1139,18 @@ func ValidateConfig(cfg Config, interceptor signal.Interceptor, fileParser,
 	cfg.DataDir = CleanAndExpandPath(cfg.DataDir)
 	cfg.TLSCertPath = CleanAndExpandPath(cfg.TLSCertPath)
 	cfg.TLSKeyPath = CleanAndExpandPath(cfg.TLSKeyPath)
+	cfg.RPCClientCAPath = CleanAndExpandPath(cfg.RPCClientCAPath)
+	cfg.RPCClientAllowlistPath = CleanAndExpandPath(
+		cfg.RPCClientAllowlistPath,
+	)
+	if (cfg.RPCClientCAPath == "") != (cfg.RPCClientAllowlistPath == "") {
+		return nil, fmt.Errorf("rpcclientcapath and " +
+			"rpcclientallowlistpath must be set together")
+	}
+	if cfg.RPCClientCAPath != "" && !cfg.DisableRest && cfg.DisableRestTLS {
+		return nil, fmt.Errorf("RPC client authentication requires " +
+			"TLS on the REST listener")
+	}
 	cfg.LetsEncryptDir = CleanAndExpandPath(cfg.LetsEncryptDir)
 	cfg.AdminMacPath = CleanAndExpandPath(cfg.AdminMacPath)
 	cfg.ReadMacPath = CleanAndExpandPath(cfg.ReadMacPath)

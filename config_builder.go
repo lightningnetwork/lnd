@@ -273,6 +273,15 @@ func NewDefaultWalletImpl(cfg *Config, logger btclog.Logger,
 	}
 }
 
+// walletRESTGateway supplies a private gateway connection exclusively to the
+// built-in wallet registrar. Other registrars keep the ordinary connection.
+type walletRESTGateway struct {
+	dest string
+	opts []grpc.DialOption
+}
+
+type walletRESTGatewayKey struct{}
+
 // RegisterRestSubserver is called after lnd creates the main proxy.ServeMux
 // instance. External subservers implementing this method can then register
 // their own REST proxy stubs to the main server instance.
@@ -281,6 +290,11 @@ func NewDefaultWalletImpl(cfg *Config, logger btclog.Logger,
 func (d *DefaultWalletImpl) RegisterRestSubserver(ctx context.Context,
 	mux *proxy.ServeMux, restProxyDest string,
 	restDialOpts []grpc.DialOption) error {
+
+	gateway, ok := ctx.Value(walletRESTGatewayKey{}).(*walletRESTGateway)
+	if ok {
+		restProxyDest, restDialOpts = gateway.dest, gateway.opts
+	}
 
 	return lnrpc.RegisterWalletUnlockerHandlerFromEndpoint(
 		ctx, mux, restProxyDest, restDialOpts,

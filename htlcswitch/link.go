@@ -2939,6 +2939,27 @@ func (l *channelLink) updateChannelFee(ctx context.Context,
 		return nil
 	}
 
+	// Once we have sent our own shutdown and no HTLCs remain on either
+	// commitment, BOLT 2 forbids sending any further update message, so we
+	// skip the fee update. A shutdown received from the remote alone does
+	// not trigger this. The spec's additional condition (no pending
+	// revoke_and_ack) is not tracked here, so this check is conservative.
+	state := l.channel.State()
+	shutdownInfo, err := state.ShutdownInfo()
+	if err != nil && !errors.Is(err, channeldb.ErrNoShutdownInfo) {
+		return fmt.Errorf("unable to fetch shutdown info: %w", err)
+	}
+	ownShutdownSent := shutdownInfo.IsSome() ||
+		l.cfg.PreviouslySentShutdown.IsSome()
+	if ownShutdownSent &&
+		len(state.LocalCommitment.Htlcs) == 0 &&
+		len(state.RemoteCommitment.Htlcs) == 0 {
+
+		l.log.Debugf("skipping fee update after own shutdown with " +
+			"no HTLCs")
+		return nil
+	}
+
 	// Check and see if our proposed fee-rate would make us exceed the fee
 	// threshold.
 	thresholdExceeded, err := l.exceedsFeeExposureLimit(feePerKw)

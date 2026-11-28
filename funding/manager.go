@@ -945,6 +945,32 @@ func (c *chanIdentifier) hasChanID() bool {
 	return c.chanIDSet
 }
 
+// cleanupPendingChannel releases all in-memory and persisted state held for
+// a pending channel that will never be opened or announced. It is safe to
+// call more than once for the same channel: every step is idempotent.
+func (f *Manager) cleanupPendingChannel(chanPoint *wire.OutPoint,
+	chanID lnwire.ChannelID) {
+
+	// Close the local discovery signal so any channel_ready handler waiting
+	// on it is released rather than blocked until restart.
+	if signal, ok := f.localDiscoverySignals.LoadAndDelete(chanID); ok {
+		close(signal)
+	}
+
+	// Remove the initial forwarding policy; it is otherwise only deleted
+	// once the channel is announced.
+	if err := f.deleteInitialForwardingPolicy(chanID); err != nil {
+		log.Debugf("Unable to delete initial forwarding policy for "+
+			"chanID=%x: %v", chanID[:], err)
+	}
+
+	// Remove the channel opening state if one was persisted.
+	if err := f.deleteChannelOpeningState(chanPoint); err != nil {
+		log.Debugf("Unable to delete channel opening state for "+
+			"ChannelPoint(%v): %v", chanPoint, err)
+	}
+}
+
 // failFundingFlow will fail the active funding flow with the target peer,
 // identified by its unique temporary channel ID. This method will send an
 // error to the remote peer, and also remove the reservation from our set of
@@ -2805,6 +2831,7 @@ func (f *Manager) funderProcessFundingSigned(peer lnpeer.Peer,
 		partialSig, err := msg.PartialSig.UnwrapOrErrV(errNoPartialSig)
 		if err != nil {
 			f.failFundingFlow(peer, cid, err)
+			f.cleanupPendingChannel(fundingPoint, permChanID)
 
 			return
 		}
@@ -2817,6 +2844,7 @@ func (f *Manager) funderProcessFundingSigned(peer lnpeer.Peer,
 		if err != nil {
 			log.Errorf("unable to parse signature: %v", err)
 			f.failFundingFlow(peer, cid, err)
+			f.cleanupPendingChannel(fundingPoint, permChanID)
 			return
 		}
 	}
@@ -2828,6 +2856,7 @@ func (f *Manager) funderProcessFundingSigned(peer lnpeer.Peer,
 		log.Errorf("Unable to complete reservation sign "+
 			"complete: %v", err)
 		f.failFundingFlow(peer, cid, err)
+		f.cleanupPendingChannel(fundingPoint, permChanID)
 		return
 	}
 
@@ -2977,6 +3006,16 @@ func (f *Manager) fundingTimeout(c *channeldb.OpenChannel,
 		return fmt.Errorf("failed closing channel %v: %w",
 			c.FundingOutpoint, err)
 	}
+
+	// Release the discovery signal, the initial forwarding policy row and
+	// any channel opening state row; none of these are cleaned up by the
+	// happy announcement path anymore.
+	chanID := lnwire.NewChanIDFromOutPoint(c.FundingOutpoint)
+	f.cleanupPendingChannel(&c.FundingOutpoint, chanID)
+
+	// Release the channel_ready barrier too so no goroutine is left parked
+	// on this channel.
+	f.handleChannelReadyBarriers.Delete(chanID)
 
 	// Notify other subsystems about the funding timeout.
 	f.cfg.NotifyFundingTimeout(c.FundingOutpoint, c.IdentityPub)
@@ -3418,7 +3457,12 @@ func (f *Manager) handleFundingConfirmation(
 	// used.
 	err := f.cfg.Wallet.ValidateChannel(completeChan, confChannel.fundingTx)
 	if err != nil {
-		// TODO(roasbeef): delete chan state?
+		// The confirmed channel failed validation and will never
+		// be used, so release everything the funding flow pinned
+		// for it.
+		f.cleanupPendingChannel(&fundingPoint, chanID)
+		f.handleChannelReadyBarriers.Delete(chanID)
+
 		return fmt.Errorf("unable to validate channel: %w", err)
 	}
 
@@ -3695,6 +3739,16 @@ func (f *Manager) extractAnnounceParams(c *channeldb.OpenChannel) (
 	capacityMSat := lnwire.NewMSatFromSatoshis(c.Capacity)
 	if fwdMaxHTLC > capacityMSat {
 		fwdMaxHTLC = capacityMSat
+	}
+
+	// MinHTLCOut is our preference, not a constraint imposed by the
+	// peer. Do not let it raise the advertised minimum above the
+	// remote's maximum.
+	if fwdMinHTLC > fwdMaxHTLC {
+		log.Warnf("ChannelPoint(%v): capping advertised minimum HTLC "+
+			"from %v to %v", c.FundingOutpoint, fwdMinHTLC,
+			fwdMaxHTLC)
+		fwdMinHTLC = fwdMaxHTLC
 	}
 
 	return fwdMinHTLC, fwdMaxHTLC
@@ -4321,6 +4375,15 @@ func (f *Manager) processChannelReady(peer lnpeer.Peer,
 	if err != nil {
 		log.Errorf("Unable to locate ChannelID(%v), cannot complete "+
 			"funding", chanID)
+		return
+	}
+
+	// A closed discovery signal also wakes waiters during funding cleanup.
+	// Only a channel marked open may proceed with channel_ready.
+	if channel.IsPending {
+		log.Debugf("Ignoring channel_ready for pending ChannelID(%v)",
+			chanID)
+
 		return
 	}
 

@@ -6,7 +6,6 @@ import (
 	"image/color"
 	"io"
 	"net"
-	"unicode/utf8"
 )
 
 // ErrUnknownAddrType is an error returned if we encounter an unknown address type
@@ -23,14 +22,21 @@ func (e ErrUnknownAddrType) Error() string {
 }
 
 // ErrInvalidNodeAlias is an error returned if a node alias we parse on the
-// wire is invalid, as in it has non UTF-8 characters.
-type ErrInvalidNodeAlias struct{}
+// wire is invalid, as in it has non-UTF-8 or banned Unicode
+// characters.
+type ErrInvalidNodeAlias struct {
+	cause error
+}
 
 // Error returns a human readable string describing the error.
 //
 // NOTE: implements the error interface.
 func (e ErrInvalidNodeAlias) Error() string {
-	return "node alias has non-utf8 characters"
+	if e.cause == nil {
+		return "invalid node alias"
+	}
+
+	return fmt.Sprintf("invalid node alias: %v", e.cause)
 }
 
 // NodeAlias is a hex encoded UTF-8 string that may be displayed as an
@@ -38,9 +44,19 @@ func (e ErrInvalidNodeAlias) Error() string {
 // freely chosen by the node operators.
 type NodeAlias [32]byte
 
-// NewNodeAlias creates a new instance of a NodeAlias. Verification is
-// performed on the passed string to ensure it meets the alias requirements.
+// NewNodeAlias creates a locally authored alias using the BOLT 1 writer
+// rules.
 func NewNodeAlias(s string) (NodeAlias, error) {
+	if err := ValidateBoltTextForWrite([]byte(s)); err != nil {
+		return NodeAlias{}, &ErrInvalidNodeAlias{cause: err}
+	}
+
+	return ParseNodeAlias(s)
+}
+
+// ParseNodeAlias reconstructs an unpadded alias from wire or stored data,
+// applying the BOLT 1 reader rules.
+func ParseNodeAlias(s string) (NodeAlias, error) {
 	var n NodeAlias
 
 	if len(s) > 32 {
@@ -48,8 +64,8 @@ func NewNodeAlias(s string) (NodeAlias, error) {
 			len(s))
 	}
 
-	if !utf8.ValidString(s) {
-		return n, &ErrInvalidNodeAlias{}
+	if err := ValidateBoltText([]byte(s)); err != nil {
+		return n, &ErrInvalidNodeAlias{cause: err}
 	}
 
 	copy(n[:], []byte(s))
@@ -159,6 +175,9 @@ func (a *NodeAnnouncement1) Encode(w *bytes.Buffer, pver uint32) error {
 		return err
 	}
 
+	if err := validateNodeAlias(a.Alias[:]); err != nil {
+		return err
+	}
 	if err := WriteNodeAlias(w, a.Alias); err != nil {
 		return err
 	}
@@ -200,6 +219,9 @@ func (a *NodeAnnouncement1) DataToSign() ([]byte, error) {
 		return nil, err
 	}
 
+	if err := validateNodeAlias(a.Alias[:]); err != nil {
+		return nil, err
+	}
 	if err := WriteNodeAlias(buf, a.Alias); err != nil {
 		return nil, err
 	}

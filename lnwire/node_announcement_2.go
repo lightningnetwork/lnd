@@ -8,7 +8,6 @@ import (
 	"image/color"
 	"io"
 	"net"
-	"unicode/utf8"
 
 	"github.com/lightningnetwork/lnd/tlv"
 	"github.com/lightningnetwork/lnd/tor"
@@ -259,8 +258,8 @@ func (n *NodeAlias2) Record() tlv.Record {
 	)
 }
 
-// ValidateNodeAlias2 validates that the node alias is valid UTF-8 and within
-// the 32-byte limit.
+// ValidateNodeAlias2 validates that the node alias contains BOLT text and is
+// within the 32-byte limit.
 func ValidateNodeAlias2(alias []byte) error {
 	if len(alias) == 0 {
 		return errors.New("node alias cannot be empty")
@@ -271,8 +270,8 @@ func ValidateNodeAlias2(alias []byte) error {
 			len(alias))
 	}
 
-	if !utf8.Valid(alias) {
-		return errors.New("node alias contains invalid UTF-8")
+	if !ValidBoltText(alias) {
+		return errors.New("node alias contains invalid BOLT text")
 	}
 
 	return nil

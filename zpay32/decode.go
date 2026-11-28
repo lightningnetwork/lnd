@@ -83,6 +83,28 @@ func newDecodeOptions() *decodeOptions {
 func Decode(invoice string, net *chaincfg.Params, opts ...DecodeOption) (
 	*Invoice, error) {
 
+	return decode(invoice, net, lnwire.ValidateBoltText, opts...)
+}
+
+// DecodeStoredInvoice decodes a previously persisted local invoice for
+// historical display. It accepts legacy UTF-8 descriptions while retaining
+// signature and structural checks. Use Decode for external payment requests.
+func DecodeStoredInvoice(invoice string, net *chaincfg.Params) (
+	*Invoice, error) {
+
+	return decode(invoice, net, func(data []byte) error {
+		if !utf8.Valid(data) {
+			return lnwire.ErrInvalidBoltTextUTF8
+		}
+
+		return nil
+	})
+}
+
+func decode(invoice string, net *chaincfg.Params,
+	validateDescription func([]byte) error, opts ...DecodeOption) (
+	*Invoice, error) {
+
 	options := newDecodeOptions()
 	for _, o := range opts {
 		o(options)
@@ -149,7 +171,9 @@ func Decode(invoice string, net *chaincfg.Params, opts ...DecodeOption) (
 	invoiceData := data[:len(data)-signatureBase32Len]
 
 	// Parse the timestamp and tagged fields, and fill the Invoice struct.
-	if err := parseData(&decodedInvoice, invoiceData, net); err != nil {
+	if err := parseData(
+		&decodedInvoice, invoiceData, net, validateDescription,
+	); err != nil {
 		return nil, err
 	}
 
@@ -235,7 +259,9 @@ func Decode(invoice string, net *chaincfg.Params, opts ...DecodeOption) (
 
 // parseData parses the data part of the invoice. It expects base32 data
 // returned from the bech32.Decode method, except signature.
-func parseData(invoice *Invoice, data []byte, net *chaincfg.Params) error {
+func parseData(invoice *Invoice, data []byte, net *chaincfg.Params,
+	validateDescription func([]byte) error) error {
+
 	// It must contain the timestamp, encoded using 35 bits (7 groups).
 	if len(data) < timestampBase32Len {
 		return fmt.Errorf("data too short: %d", len(data))
@@ -249,7 +275,8 @@ func parseData(invoice *Invoice, data []byte, net *chaincfg.Params) error {
 
 	// The rest are tagged parts.
 	tagData := data[7:]
-	return parseTaggedFields(invoice, tagData, net)
+
+	return parseTaggedFields(invoice, tagData, net, validateDescription)
 }
 
 // parseTimestamp converts a 35-bit timestamp (encoded in base32) to uint64.
@@ -264,7 +291,9 @@ func parseTimestamp(data []byte) (uint64, error) {
 
 // parseTaggedFields takes the base32 encoded tagged fields of the invoice, and
 // fills the Invoice struct accordingly.
-func parseTaggedFields(invoice *Invoice, fields []byte, net *chaincfg.Params) error {
+func parseTaggedFields(invoice *Invoice, fields []byte, net *chaincfg.Params,
+	validateDescription func([]byte) error) error {
+
 	var (
 		index           int
 		paymentHashSeen bool
@@ -327,7 +356,9 @@ func parseTaggedFields(invoice *Invoice, fields []byte, net *chaincfg.Params) er
 				continue
 			}
 
-			invoice.Description, err = parseDescription(base32Data)
+			invoice.Description, err = parseDescription(
+				base32Data, validateDescription,
+			)
 
 		case fieldTypeM:
 			if invoice.Metadata != nil {
@@ -473,14 +504,16 @@ func parse32Bytes(data []byte) (*[32]byte, error) {
 
 // parseDescription converts the data (encoded in base32) into a string to use
 // as the description.
-func parseDescription(data []byte) (*string, error) {
+func parseDescription(data []byte, validateDescription func([]byte) error) (
+	*string, error) {
+
 	base256Data, err := bech32.ConvertBits(data, 5, 8, false)
 	if err != nil {
 		return nil, err
 	}
 
-	if !utf8.Valid(base256Data) {
-		return nil, ErrInvalidUTF8Description
+	if err := validateDescription(base256Data); err != nil {
+		return nil, invoiceDescriptionError(err)
 	}
 
 	description := string(base256Data)

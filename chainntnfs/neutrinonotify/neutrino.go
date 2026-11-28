@@ -865,6 +865,7 @@ func (n *NeutrinoNotifier) RegisterSpendNtfn(outpoint *wire.OutPoint,
 			}
 		}
 
+		// GetUtxo determines the scan end from its own chain tip.
 		spendReport, err := n.p2pNode.GetUtxo(
 			neutrino.WatchInputs(inputToWatch),
 			neutrino.StartBlock(&headerfs.BlockStamp{

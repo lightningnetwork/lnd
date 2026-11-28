@@ -453,3 +453,188 @@ func advanceEmptyChain(t *testing.T, n *chainntnfs.TxNotifier, start,
 		require.NoError(t, n.NotifyHeight(height))
 	}
 }
+
+// TestTxNotifierScriptMatchPendingPrefix checks restart coverage when a
+// newer payment to a watched script disconnects during an earlier scan.
+func TestTxNotifierScriptMatchPendingPrefix(t *testing.T) {
+	// Arrange two distinct payments to the same script. Only the older
+	// payment will remain on chain after the tip disconnects.
+	cache := newMockHintCache()
+	n := chainntnfs.NewTxNotifier(
+		74, chainntnfs.ReorgSafetyLimit, cache, cache,
+	)
+	script, older := staleHintTx("pending-script-prefix")
+	// The prior chain had been scanned to 90. This record must not hide
+	// an earlier payment introduced by the replacement chain.
+	request, err := chainntnfs.NewConfRequest(nil, script)
+	require.NoError(t, err)
+	require.NoError(t, cache.CommitConfirmHints(chainntnfs.ConfirmHints{
+		request: {Height: 90, Origin: 50},
+	}))
+
+	newer := older.Copy()
+	newer.TxOut[0].Value++
+	at75 := btcutil.NewBlock(&wire.MsgBlock{
+		Transactions: []*wire.MsgTx{older},
+	})
+	at100 := btcutil.NewBlock(&wire.MsgBlock{
+		Transactions: []*wire.MsgTx{newer},
+	})
+	require.NoError(t, n.ConnectTip(at75, 75))
+	require.NoError(t, n.NotifyHeight(75))
+	advanceEmptyChain(t, n, 76, 99)
+	require.NoError(t, n.ConnectTip(at100, 100))
+	require.NoError(t, n.NotifyHeight(100))
+
+	// Register by script after both payments so the newer payment is in
+	// the initial scan and the older one is in the outstanding prefix.
+	late, err := n.RegisterConf(nil, script, 1, 90)
+	require.NoError(t, err)
+	require.NotNil(t, late.HistoricalDispatch)
+	early, err := n.RegisterConf(nil, script, 1, 50)
+	require.NoError(t, err)
+	require.NotNil(t, early.HistoricalDispatch)
+
+	// Act by reporting only the later match. Delivery must be possible
+	// immediately, even though the prefix callback hasn't arrived.
+	err = n.UpdateConfDetails(request, &chainntnfs.TxConfirmation{
+		BlockHash:   at100.Hash(),
+		BlockHeight: 100,
+		Tx:          newer,
+	})
+	require.NoError(t, err)
+	select {
+	case details := <-early.Event.Confirmed:
+		require.Equal(t, newer.TxHash(), details.Tx.TxHash())
+	default:
+		t.Fatal("missing confirmation while prefix is pending")
+	}
+
+	// Observe the hint at the match, at its disconnect, and after an
+	// empty replacement connects. The last observation exercises ordinary
+	// tip updates once the notifier has cleared the cached match.
+	_, matchErr := cache.QueryConfirmHintWithOrigin(request)
+	require.ErrorIs(t, matchErr, chainntnfs.ErrConfirmHintNotFound)
+	require.NoError(t, n.DisconnectTip(100))
+	_, reorgErr := cache.QueryConfirmHintWithOrigin(request)
+	advanceEmptyChain(t, n, 100, 100)
+	_, tipErr := cache.QueryConfirmHintWithOrigin(request)
+	require.NoError(t, n.DisconnectTip(100))
+	n.TearDown()
+
+	// Assert that the replacement notifier schedules the surviving
+	// payment's block and that none of the three updates certified the
+	// outstanding prefix after discarding the old chain's hint.
+	n = chainntnfs.NewTxNotifier(
+		99, chainntnfs.ReorgSafetyLimit, cache, cache,
+	)
+	t.Cleanup(n.TearDown)
+	restarted, err := n.RegisterConf(nil, script, 1, 50)
+	require.NoError(t, err)
+	require.NotNil(t, restarted.HistoricalDispatch)
+	require.EqualValues(t, 50, restarted.HistoricalDispatch.StartHeight)
+	require.GreaterOrEqual(
+		t, restarted.HistoricalDispatch.EndHeight, uint32(75),
+	)
+	require.ErrorIs(t, reorgErr, chainntnfs.ErrConfirmHintNotFound)
+	require.ErrorIs(t, tipErr, chainntnfs.ErrConfirmHintNotFound)
+}
+
+// TestTxNotifierScriptMatchAfterRollback checks that restarting after a tip
+// match can recover a payment below the previous chain's cached scan height.
+func TestTxNotifierScriptMatchAfterRollback(t *testing.T) {
+	// Arrange a hint verified on the original chain and two outstanding
+	// scans, so a replacement payment can arrive before either callback.
+	cache := newMockHintCache()
+	script, payment := staleHintTx("replacement-payment")
+	request, err := chainntnfs.NewConfRequest(nil, script)
+	require.NoError(t, err)
+	require.NoError(t, cache.CommitConfirmHints(chainntnfs.ConfirmHints{
+		request: {Height: 100, Origin: 50},
+	}))
+	n := chainntnfs.NewTxNotifier(
+		100, chainntnfs.ReorgSafetyLimit, cache, cache,
+	)
+	_, err = n.RegisterConf(nil, script, 1, 100)
+	require.NoError(t, err)
+	early, err := n.RegisterConf(nil, script, 1, 50)
+	require.NoError(t, err)
+	require.NotNil(t, early.HistoricalDispatch)
+
+	// Act by replacing the last two blocks. The notifier sees the payment
+	// at tip below the cached height, then restarts at the original height.
+	require.NoError(t, n.DisconnectTip(100))
+	require.NoError(t, n.DisconnectTip(99))
+	block := btcutil.NewBlock(&wire.MsgBlock{
+		Transactions: []*wire.MsgTx{payment},
+	})
+	require.NoError(t, n.ConnectTip(block, 99))
+	require.NoError(t, n.NotifyHeight(99))
+	advanceEmptyChain(t, n, 100, 100)
+	n.TearDown()
+
+	// Assert that the next subscriber's actual scan includes the
+	// replacement payment, even after the notifier has lost its details.
+	n = chainntnfs.NewTxNotifier(
+		100, chainntnfs.ReorgSafetyLimit, cache, cache,
+	)
+	t.Cleanup(n.TearDown)
+	restarted, err := n.RegisterConf(nil, script, 1, 50)
+	require.NoError(t, err)
+	require.NotNil(t, restarted.HistoricalDispatch)
+	require.LessOrEqual(
+		t, restarted.HistoricalDispatch.StartHeight, uint32(99),
+	)
+	require.GreaterOrEqual(
+		t, restarted.HistoricalDispatch.EndHeight, uint32(99),
+	)
+}
+
+// TestTxNotifierScriptPrefixCompletesBeforeReorg checks that a prefix match
+// reported while a newer payment is active remains discoverable on restart.
+func TestTxNotifierScriptPrefixCompletesBeforeReorg(t *testing.T) {
+	// Arrange overlapping subscriptions for two payments to one script.
+	// The first scan covers the newer payment, the prefix covers the older.
+	cache := newMockHintCache()
+	n := chainntnfs.NewTxNotifier(
+		100, chainntnfs.ReorgSafetyLimit, cache, cache,
+	)
+	script, older := staleHintTx("completed-script-prefix")
+	newer := older.Copy()
+	newer.TxOut[0].Value++
+	_, err := n.RegisterConf(nil, script, 1, 90)
+	require.NoError(t, err)
+	early, err := n.RegisterConf(nil, script, 1, 50)
+	require.NoError(t, err)
+	require.NotNil(t, early.HistoricalDispatch)
+	request := early.HistoricalDispatch.ConfRequest
+
+	// Act by completing both scans before disconnecting the active
+	// payment. Keep the hint cache across the notifier restart.
+	err = n.UpdateConfDetails(request, &chainntnfs.TxConfirmation{
+		Tx:          newer,
+		BlockHeight: 100,
+	})
+	require.NoError(t, err)
+	err = n.UpdateConfDetails(request, &chainntnfs.TxConfirmation{
+		Tx:          older,
+		BlockHeight: 75,
+	})
+	require.NoError(t, err)
+	require.NoError(t, n.DisconnectTip(100))
+	n.TearDown()
+
+	// Assert that even a subscriber starting exactly at the surviving
+	// payment's height receives a scan that includes its block.
+	n = chainntnfs.NewTxNotifier(
+		99, chainntnfs.ReorgSafetyLimit, cache, cache,
+	)
+	t.Cleanup(n.TearDown)
+	restarted, err := n.RegisterConf(nil, script, 1, 75)
+	require.NoError(t, err)
+	require.NotNil(t, restarted.HistoricalDispatch)
+	require.EqualValues(t, 75, restarted.HistoricalDispatch.StartHeight)
+	require.GreaterOrEqual(
+		t, restarted.HistoricalDispatch.EndHeight, uint32(75),
+	)
+}

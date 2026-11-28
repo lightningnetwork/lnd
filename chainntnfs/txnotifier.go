@@ -119,8 +119,8 @@ type confNtfnSet struct {
 	// coverageStart is the earliest height from which every block is
 	// known, or is being scanned, not to include the request. It combines
 	// the origin of a cached hint, the historical scans dispatched for
-	// this set, and tip notifications. It is the origin of every hint this
-	// set persists.
+	// this set, and tip notifications. An outstanding script scan can lower
+	// this boundary before it is safe to persist as a hint origin.
 	coverageStart uint32
 
 	// pendingRescans is the number of historical scans whose results have
@@ -128,10 +128,10 @@ type confNtfnSet struct {
 	// until all of them complete without finding the transaction.
 	//
 	// A backend that fails a scan never reports its result, so the count
-	// stays above zero. The set then remains in rescanPending, which keeps
-	// its hint from advancing. The persisted hint's origin is above the
-	// unverified range, so a restart will scan that range again. Details
-	// found by any other scan, or at tip, are still dispatched.
+	// stays above zero. A restart can retry the prefix from an earlier
+	// subscriber's hint unless an error prevented an unsafe cached hint
+	// from being removed. Details found by any scan or at tip are still
+	// dispatched.
 	pendingRescans uint32
 
 	// details serves as a cache of the confirmation details of a
@@ -141,6 +141,13 @@ type confNtfnSet struct {
 	// (funds sent to a previously confirmed script) no additional
 	// notification is registered which would lead to an inconsistent state.
 	details *TxConfirmation
+}
+
+// scriptScanPending reports whether an outstanding scan can still find a
+// different transaction paying this script. A known txid identifies a single
+// transaction, so its match height can be used immediately.
+func (s *confNtfnSet) scriptScanPending(request ConfRequest) bool {
+	return request.TxID == ZeroHash && s.pendingRescans > 0
 }
 
 // newConfNtfnSet constructs a fresh confNtfnSet for a group of clients
@@ -177,10 +184,10 @@ type spendNtfnSet struct {
 	// until all of them complete without finding a spend.
 	//
 	// A backend that fails a scan never reports its result, so the count
-	// stays above zero. The set then remains in rescanPending, which keeps
-	// its hint from advancing. The persisted hint's origin is above the
-	// unverified range, so a restart will scan that range again. Details
-	// found by any other scan, or at tip, are still dispatched.
+	// stays above zero. A restart can retry the prefix from an earlier
+	// subscriber's hint unless an error prevented an unsafe legacy hint
+	// from being removed. Details found by any scan or at tip are still
+	// dispatched.
 	pendingRescans uint32
 
 	// details serves as a cache of the spend details for an outpoint/output
@@ -838,13 +845,24 @@ func (n *TxNotifier) RegisterConf(txid *chainhash.Hash, pkScript []byte,
 
 	endHeight := n.currentHeight
 	if scanPrefix {
-		// A scan is already pending or complete, but it started after
-		// this subscriber's height hint. Scan only the uncovered
-		// prefix, which ends at the tip at most: after a reorg, blocks
-		// above it will be connected again and seen there. The
-		// persisted hint needs no change: its origin is above this
-		// subscriber's hint, so a restart before the prefix completes
-		// scans from that hint again.
+		// Only a visible legacy height above the requested start can
+		// skip this prefix on restart. Disabled queries return zero.
+		// If the cache fails, still serve the live subscription.
+		hint, err := QueryConfirmHintWithOrigin(
+			n.confirmHintCache, ntfn.ConfRequest,
+		)
+		if err == nil && hint.Origin == 0 && hint.Height > heightHint {
+			err = n.confirmHintCache.PurgeConfirmHint(
+				ntfn.ConfRequest,
+			)
+		}
+		if err != nil && !errors.Is(err, ErrConfirmHintNotFound) {
+			Log.Errorf("Unable to invalidate legacy confirm hint "+
+				"for %v: %v", ntfn.ConfRequest, err)
+		}
+
+		// Bound the uncovered prefix by the current tip. Higher
+		// blocks will be seen when they reconnect after a reorg.
 		startHeight = ntfn.HeightHint
 		endHeight = min(confSet.coverageStart-1, n.currentHeight)
 		confSet.coverageStart = startHeight
@@ -978,11 +996,18 @@ func (n *TxNotifier) UpdateConfDetails(confRequest ConfRequest,
 		confSet.pendingRescans--
 	}
 
-	// If the confirmation details were already found at tip, all existing
-	// notifications will have been dispatched or queued for dispatch. We
-	// can exit after accounting for this completed scan to avoid sending
-	// too many notifications on the buffered channels.
-	if confSet.details != nil {
+	// Keep the active confirmation. If this scan found an older payment
+	// to the same script, exclude that block from the verified range so
+	// a restart can find it if the active payment disconnects.
+	if active := confSet.details; active != nil {
+		if confRequest.TxID == ZeroHash && details != nil &&
+			details.BlockHeight < active.BlockHeight {
+
+			confSet.coverageStart = max(
+				confSet.coverageStart, details.BlockHeight+1,
+			)
+		}
+
 		return nil
 	}
 
@@ -1037,8 +1062,8 @@ func (n *TxNotifier) UpdateConfDetails(confRequest ConfRequest,
 
 	err := n.commitConfirmHint(confRequest, confSet, details.BlockHeight)
 	if err != nil {
-		// The error is not fatal, so we should not return an error to
-		// the caller.
+		// The cache is optional. Deliver the match even if its hint
+		// could not be stored or invalidated.
 		Log.Errorf("Unable to update confirm hint to %d for %v: %v",
 			details.BlockHeight, confRequest, err)
 	}
@@ -1066,10 +1091,16 @@ func (n *TxNotifier) UpdateConfDetails(confRequest ConfRequest,
 }
 
 // commitConfirmHint persists the height from which a new scan for the request
-// must begin, with the set's coverage as its origin. The caller must hold the
-// TxNotifier's lock.
+// must begin, or removes the hint if a script scan is still outstanding.
+// The caller must hold the TxNotifier's lock.
 func (n *TxNotifier) commitConfirmHint(confRequest ConfRequest,
 	confSet *confNtfnSet, height uint32) error {
+
+	// Neither the new match nor a cached height from before a reorg can
+	// rule out an earlier payment in the outstanding range.
+	if confSet.scriptScanPending(confRequest) {
+		return n.confirmHintCache.PurgeConfirmHint(confRequest)
+	}
 
 	return CommitConfirmHints(
 		n.confirmHintCache,
@@ -1331,13 +1362,24 @@ func (n *TxNotifier) RegisterSpend(outpoint *wire.OutPoint, pkScript []byte,
 
 	endHeight := n.currentHeight
 	if scanPrefix {
-		// A scan is already pending or complete, but it started after
-		// this subscriber's height hint. Scan only the uncovered
-		// prefix, which ends at the tip at most: after a reorg, blocks
-		// above it will be connected again and seen there. The
-		// persisted hint needs no change: its origin is above this
-		// subscriber's hint, so a restart before the prefix completes
-		// scans from that hint again.
+		// Only a visible legacy height above the requested start can
+		// skip this prefix on restart. Disabled queries return zero.
+		// If the cache fails, still serve the live subscription.
+		hint, err := QuerySpendHintWithOrigin(
+			n.spendHintCache, ntfn.SpendRequest,
+		)
+		if err == nil && hint.Origin == 0 && hint.Height > heightHint {
+			err = n.spendHintCache.PurgeSpendHint(
+				ntfn.SpendRequest,
+			)
+		}
+		if err != nil && !errors.Is(err, ErrSpendHintNotFound) {
+			Log.Errorf("Unable to invalidate legacy spend hint "+
+				"for %v: %v", ntfn.SpendRequest, err)
+		}
+
+		// Bound the uncovered prefix by the current tip. Higher
+		// blocks will be seen when they reconnect after a reorg.
 		startHeight = ntfn.HeightHint
 		endHeight = min(spendSet.coverageStart-1, n.currentHeight)
 		spendSet.coverageStart = startHeight
@@ -2102,6 +2144,12 @@ func (n *TxNotifier) DisconnectTip(blockHeight uint32) error {
 			confSet := n.confNotifications[txHash]
 			if initialHeight == blockHeight {
 				confSet.details = nil
+
+				// Once the match disconnects, resume waiting
+				// for the scan before advancing hints at tip.
+				if confSet.scriptScanPending(txHash) {
+					confSet.rescanStatus = rescanPending
+				}
 			}
 
 			for _, ntfn := range confSet.ntfns {
@@ -2180,9 +2228,28 @@ func (n *TxNotifier) updateHints(height uint32) {
 	// requests along with the ones that confirmed at the height being
 	// connected/disconnected.
 	confRequests := n.unconfirmedRequests()
+	var purgeRequests []ConfRequest
 	for confRequest := range n.confsByInitialHeight[height] {
+		// A match is indexed here during connect and disconnect.
+		// Neither update certifies a pending script scan.
+		confSet := n.confNotifications[confRequest]
+		if confSet.scriptScanPending(confRequest) {
+			purgeRequests = append(purgeRequests, confRequest)
+			continue
+		}
 		confRequests = append(confRequests, confRequest)
 	}
+
+	// Invalidate these hints together. A hint verified on the old chain
+	// can otherwise skip a lower payment on the replacement chain.
+	if len(purgeRequests) > 0 {
+		err := n.confirmHintCache.PurgeConfirmHint(purgeRequests...)
+		if err != nil {
+			Log.Debugf("Unable to purge confirm hints for %v: %v",
+				purgeRequests, err)
+		}
+	}
+
 	confHints := make(ConfirmHints, len(confRequests))
 	for _, confRequest := range confRequests {
 		confHints[confRequest] = HeightHint{

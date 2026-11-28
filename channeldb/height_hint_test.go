@@ -2,12 +2,14 @@ package channeldb
 
 import (
 	"bytes"
+	"errors"
 	"testing"
 
 	"github.com/btcsuite/btcd/chainhash/v2"
 	"github.com/btcsuite/btcd/wire/v2"
 	"github.com/lightningnetwork/lnd/chainntnfs"
 	"github.com/lightningnetwork/lnd/kvdb"
+	"github.com/stretchr/testify/mock"
 	"github.com/stretchr/testify/require"
 )
 
@@ -287,4 +289,207 @@ func TestHeightHintEncoding(t *testing.T) {
 	require.Equal(
 		t, chainntnfs.HeightHint{Height: 456, Origin: 400}, decoded,
 	)
+}
+
+// TestHeightHintLegacyPrefixRestart checks that an interrupted prefix is
+// dispatched again even when the first registration used a four-byte hint.
+func TestHeightHintLegacyPrefixRestart(t *testing.T) {
+	// Arrange real on-disk records from before origins were encoded. Both
+	// notification types should still resume their initial scan at 180.
+	cache := initHintCache(t)
+	txid := chainhash.Hash{1}
+	op := wire.OutPoint{Hash: txid}
+	script := chainntnfs.ZeroTaprootPkScript.Script()
+	confReq, err := chainntnfs.NewConfRequest(&txid, script)
+	require.NoError(t, err)
+	spendReq, err := chainntnfs.NewSpendRequest(&op, script)
+	require.NoError(t, err)
+	confKey, err := confHintKey(&confReq)
+	require.NoError(t, err)
+	spendKey, err := spendHintKey(&spendReq)
+	require.NoError(t, err)
+
+	var legacy bytes.Buffer
+	require.NoError(t, WriteElement(&legacy, uint32(180)))
+	err = kvdb.Update(cache.db, func(tx kvdb.RwTx) error {
+		// Seed the buckets directly so the current encoder cannot
+		// silently add an origin to either legacy value.
+		err := tx.ReadWriteBucket(confirmHintBucket).Put(
+			confKey, legacy.Bytes(),
+		)
+		if err != nil {
+			return err
+		}
+
+		return tx.ReadWriteBucket(spendHintBucket).Put(
+			spendKey, legacy.Bytes(),
+		)
+	}, func() {})
+	require.NoError(t, err)
+
+	n := chainntnfs.NewTxNotifier(
+		200, chainntnfs.ReorgSafetyLimit, cache, cache,
+	)
+	conf, err := n.RegisterConf(&txid, script, 1, 150)
+	require.NoError(t, err)
+	require.NotNil(t, conf.HistoricalDispatch)
+	require.EqualValues(t, 180, conf.HistoricalDispatch.StartHeight)
+	spend, err := n.RegisterSpend(&op, script, 150)
+	require.NoError(t, err)
+	require.NotNil(t, spend.HistoricalDispatch)
+	require.EqualValues(t, 180, spend.HistoricalDispatch.StartHeight)
+
+	// Act by accepting an earlier subscription for each request. Restart
+	// before either backend can report scan progress.
+	conf, err = n.RegisterConf(&txid, script, 1, 50)
+	require.NoError(t, err)
+	require.NotNil(t, conf.HistoricalDispatch)
+	require.EqualValues(t, 50, conf.HistoricalDispatch.StartHeight)
+	require.EqualValues(t, 149, conf.HistoricalDispatch.EndHeight)
+	spend, err = n.RegisterSpend(&op, script, 50)
+	require.NoError(t, err)
+	require.NotNil(t, spend.HistoricalDispatch)
+	require.EqualValues(t, 50, spend.HistoricalDispatch.StartHeight)
+	require.EqualValues(t, 149, spend.HistoricalDispatch.EndHeight)
+	n.TearDown()
+
+	// Assert that the replacement notifier returns actual dispatches at
+	// the earlier hint with only the shared database surviving the restart.
+	n = chainntnfs.NewTxNotifier(
+		200, chainntnfs.ReorgSafetyLimit, cache, cache,
+	)
+	t.Cleanup(n.TearDown)
+	conf, err = n.RegisterConf(&txid, script, 1, 50)
+	require.NoError(t, err)
+	require.NotNil(t, conf.HistoricalDispatch)
+	spend, err = n.RegisterSpend(&op, script, 50)
+	require.NoError(t, err)
+	require.NotNil(t, spend.HistoricalDispatch)
+	require.Equal(t, []uint32{50, 50}, []uint32{
+		conf.HistoricalDispatch.StartHeight,
+		spend.HistoricalDispatch.StartHeight,
+	})
+}
+
+// confirmPurgeMock delegates normal hint operations to the database and
+// substitutes a write failure only for the specified confirmation purge.
+type confirmPurgeMock struct {
+	*HeightHintCache
+	mock.Mock
+}
+
+// Verify that substituting the purge still exposes origin-aware lookups.
+var _ chainntnfs.ConfirmHintCacheWithOrigin = (*confirmPurgeMock)(nil)
+
+// PurgeConfirmHint returns the arranged error for the exact purge request.
+func (m *confirmPurgeMock) PurgeConfirmHint(
+	reqs ...chainntnfs.ConfRequest) error {
+
+	args := m.Called(reqs)
+	return args.Error(0)
+}
+
+// TestHeightHintLegacyPrefixWriteFailure checks that a cache error cannot
+// drop the live subscriber that needs the missing confirmation range.
+func TestHeightHintLegacyPrefixWriteFailure(t *testing.T) {
+	// Arrange an unknown-origin hint and fail only the purge of this key.
+	// All lookups still use the same real cache as production.
+	cache := initHintCache(t)
+	txid := chainhash.Hash{1}
+	script := chainntnfs.ZeroTaprootPkScript.Script()
+	req, err := chainntnfs.NewConfRequest(&txid, script)
+	require.NoError(t, err)
+	require.NoError(t, cache.CommitConfirmHint(180, req))
+	confCache := &confirmPurgeMock{HeightHintCache: cache}
+	confCache.On("PurgeConfirmHint", []chainntnfs.ConfRequest{req}).
+		Return(errors.New("purge failed")).Once()
+	n := chainntnfs.NewTxNotifier(
+		200, chainntnfs.ReorgSafetyLimit, confCache, cache,
+	)
+	t.Cleanup(n.TearDown)
+	_, err = n.RegisterConf(&txid, script, 1, 150)
+	require.NoError(t, err)
+
+	// Act by accepting the earlier subscriber while invalidation fails.
+	early, err := n.RegisterConf(&txid, script, 1, 50)
+
+	// Assert the caller still receives the missing range in this process.
+	require.NoError(t, err)
+	require.NotNil(t, early.HistoricalDispatch)
+	require.EqualValues(t, 50, early.HistoricalDispatch.StartHeight)
+	require.EqualValues(t, 149, early.HistoricalDispatch.EndHeight)
+	confCache.AssertExpectations(t)
+}
+
+// TestHeightHintPrefixRetainsCachedHints checks that admitting a prefix leaves
+// stored hints intact when the lookup cannot skip any part of that prefix.
+func TestHeightHintPrefixRetainsCachedHints(t *testing.T) {
+	for _, tc := range []struct {
+		name         string
+		queryDisable bool
+		hint         chainntnfs.HeightHint
+	}{
+		{
+			name:         "disabled lookup",
+			queryDisable: true,
+			hint: chainntnfs.HeightHint{
+				Height: 180,
+				Origin: 100,
+			},
+		},
+		{
+			name: "legacy hint at prefix start",
+			hint: chainntnfs.HeightHint{Height: 50},
+		},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			// Arrange stored hints and start both scans at 150. The
+			// earlier subscriber will extend each scan to 50.
+			cache := initHintCacheWithConfig(t, CacheConfig{
+				QueryDisable: tc.queryDisable,
+			})
+			stored, err := NewHeightHintCache(
+				CacheConfig{}, cache.db,
+			)
+			require.NoError(t, err)
+			n := chainntnfs.NewTxNotifier(
+				200, chainntnfs.ReorgSafetyLimit, cache, cache,
+			)
+			t.Cleanup(n.TearDown)
+			txid := chainhash.Hash{1}
+			op := wire.OutPoint{Hash: txid}
+			script := chainntnfs.ZeroTaprootPkScript.Script()
+			cr, err := chainntnfs.NewConfRequest(&txid, script)
+			require.NoError(t, err)
+			sr, err := chainntnfs.NewSpendRequest(&op, script)
+			require.NoError(t, err)
+			require.NoError(t, stored.CommitConfirmHints(
+				chainntnfs.ConfirmHints{cr: tc.hint},
+			))
+			require.NoError(t, stored.CommitSpendHints(
+				chainntnfs.SpendHints{sr: tc.hint},
+			))
+			_, err = n.RegisterConf(&txid, script, 1, 150)
+			require.NoError(t, err)
+			_, err = n.RegisterSpend(&op, script, 150)
+			require.NoError(t, err)
+
+			// Act by admitting an earlier prefix for each request.
+			conf, err := n.RegisterConf(&txid, script, 1, 50)
+			require.NoError(t, err)
+			require.NotNil(t, conf.HistoricalDispatch)
+			spend, err := n.RegisterSpend(&op, script, 50)
+			require.NoError(t, err)
+			require.NotNil(t, spend.HistoricalDispatch)
+
+			// Assert through an enabled view so a disabled lookup
+			// cannot mask deletion of either database entry.
+			ch, err := stored.QueryConfirmHintWithOrigin(cr)
+			require.NoError(t, err)
+			require.Equal(t, tc.hint, ch)
+			sh, err := stored.QuerySpendHintWithOrigin(sr)
+			require.NoError(t, err)
+			require.Equal(t, tc.hint, sh)
+		})
+	}
 }
